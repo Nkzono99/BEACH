@@ -1,6 +1,6 @@
 # 物理リリースの検証
 
-新しいperiodic2・outer plasma modelを定量的な議論に使う前に、portable CIとHPC用のリリース検証を
+新しいperiodic2 modelを定量的な議論に使う前に、portable CIとHPC用のリリース検証を
 両方実行します。
 
 ```bash

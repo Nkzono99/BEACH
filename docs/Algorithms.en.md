@@ -56,18 +56,17 @@ through 5 with widths `h0 = sim.batch_duration`, `h0/2`, `h0/4`, and so on.
 At every panel centroid it evaluates the $k\ne0$ potential produced by the
 difference between candidate and batch-start charge, and accepts the first
 trial whose maximum absolute value is within the configured limit. A rejection
-fully restores the pre-trial RNG, macro-particle residuals, outer state, and
-`implicit_mean` transaction before rebuilding the same batch at a shorter
-width. This trial loop is specific to `cached_kneq0` and does not support the
-outer event queue or `volume_seed`. A `reservoir_face` source must use
+fully restores the pre-trial RNG and macro-particle residuals before rebuilding
+the same batch at a shorter width. This trial loop is specific to
+`cached_kneq0` and does not support `volume_seed`. A `reservoir_face` source must use
 `target_macro_particles_per_batch`; fixed `w_particle` reservoirs are rejected.
 
-### 1. Refresh the field and outer-model snapshot
+### 1. Refresh the field snapshot
 
 The field and potential held fixed during particle tracking are built from `q_elem` committed through the
-previous batch. See [Field evaluation](FieldSolvers.en.html) for direct, treecode, and FMM selection,
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic sums, and
-[Outer plasma models](OuterPlasmaModels.en.html) for coupling to the exterior.
+previous batch. See [Field evaluation](FieldSolvers.en.html) for direct,
+treecode, and FMM selection and
+[periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic sums.
 
 ### 2. Generate the batch particles
 
@@ -87,28 +86,21 @@ the final state within the step. See [Boris particle update](BorisPusher.en.html
 ### 4. Select and process the first event
 
 BEACH selects the earliest triangle hit or box-face crossing along the candidate trajectory, then applies
-absorption, reflection, periodic wrapping, escape, or outer return. A surviving particle with steps remaining
+absorption, reflection, periodic wrapping, escape, or potential-barrier reflection. A surviving particle with steps remaining
 returns to step 3. See [Particle collision and boundary events](ParticleEvents.en.html) and
 [Particle escape and return](ParticleEscapeReturn.en.html).
 
 ### 5. Aggregate results and test the adaptive trial
 
-Surface-hit charge deltas, photoemission reaction charge, particle outcomes, and outer-interface diagnostics are
+Surface-hit charge deltas, photoemission reaction charge, and particle outcomes are
 aggregated. OpenMP keeps collision charge thread-local, and quantities that must be global are reduced across MPI
 ranks. See [Run a simulation](Execution.en.html) for the parallel execution structure.
 
-Under adaptive progression, this aggregate and any `implicit_mean` update form
-the candidate charge. The cached $k\ne0$ potential operator then applies the
+Under adaptive progression, this aggregate forms the candidate charge. The
+cached $k\ne0$ potential operator then applies the
 configured bound. A failed trial is rejected without a commit. This test is a
 frozen-field local-voltage trust bound, not an estimate of local truncation
 error.
-
-If an `implicit_mean` Zhao closure reports a time-width-dependent numerical
-failure, BEACH rejects that trial before the $k\ne0$ test and retries at the
-next shorter width. Invalid configuration, geometry, or particle state remains
-fatal. One halving ladder therefore has two independent acceptance conditions:
-the $k=0$ closure must form a valid candidate, and the $k\ne0$ potential step
-must satisfy its bound. The log distinguishes the two rejection reasons.
 
 For adaptive runs, the OpenMP particle loop uses a static partition so that a
 retry is reproducible at the same thread count, together with a conservative
@@ -146,7 +138,7 @@ the charge update in step 6. Under adaptive progression it is the maximum
 trial width; the accepted trial width is the physical time actually advanced. Check its sensitivity using
 [`batch_duration` stability and steady value](BatchDurationStability.en.html).
 
-See the [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) and
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) for complete periodic
-setups. Input keys are listed in [Configuration parameters](Parameters.en.html), and discretization and result
+See the [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
+and [periodic2 electrostatics](PeriodicElectrostatics.en.html) for complete
+periodic setups. Input keys are listed in [Configuration parameters](Parameters.en.html), and discretization and result
 convergence are covered in [Validate simulation results](ValidationGuide.en.html).

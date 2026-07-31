@@ -343,7 +343,7 @@ program test_templates_importers_runtime
   allocate (state%macro_residual(3))
   state%macro_residual = 0.0d0
   allocate (photo_emission_dq(mesh%nelem), photo_source_charge(mesh%nelem))
-  call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma)
+  call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   call snapshot%refresh(mesh)
   call seed_particles_from_config(cfg)
   call init_particle_batch_from_config( &

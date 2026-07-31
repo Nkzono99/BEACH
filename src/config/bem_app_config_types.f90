@@ -3,7 +3,7 @@ module bem_app_config_types
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_config
   use bem_physics_config_types, only: &
-    field_physics_config, periodic2_physics_config, panel_kernel_config, outer_plasma_config, coupling_config, &
+    field_physics_config, periodic2_physics_config, panel_kernel_config, &
     normalize_legacy_physics_config
   implicit none
 
@@ -113,8 +113,6 @@ module bem_app_config_types
     type(field_physics_config) :: field
     type(periodic2_physics_config) :: periodic2
     type(panel_kernel_config) :: panel
-    type(outer_plasma_config) :: outer_plasma
-    type(coupling_config) :: coupling
   end type app_config
 
 contains
@@ -229,10 +227,6 @@ contains
     cfg%sim%open_boundary_model = 'escape'
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
-    cfg%sim%sheath_alpha_deg = 60.0d0
-    cfg%sim%sheath_photoelectron_ref_density_cm3 = 64.0d0
-    cfg%sim%sheath_electron_drift_mode = 'normal'
-    cfg%sim%sheath_ion_drift_mode = 'normal'
     cfg%n_templates = 1_i32
     cfg%n_particles = 0_i32
 
@@ -244,9 +238,7 @@ contains
     cfg%templates(1)%ny = 1
     cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
     cfg%templates(1)%surface_side_policy = 'normal_plus'
-    call normalize_legacy_physics_config( &
-      cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
-      )
+    call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   end subroutine default_app_config
 
   !> `[[particles.species]]` の既定値を返す。

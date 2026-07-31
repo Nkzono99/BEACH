@@ -6,10 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- Added `kinetic_closure="ambient_linear_debye"` for an analytic ambient-only Debye profile coupled to ordinary tracked photoelectron emission, reabsorption, and escape without photoelectron mean space charge.
-- Added the `[external_boundary]` authoring facade, which separates outer-field physics, z-high particle lifecycle/inflow, and ordinary open-face handling while deriving internal return, transfer, queue, and interface settings.
-- Added resolved external-boundary receipts to `summary.txt` so runs report the effective inflow map, ordinary-open model, interface transport, and particle mode.
-- Added opt-in `coupling.steady_start_mode="zhao_floating"` for stationary Zhao studies. Fresh runs seed the selected full-cell plane from the zero-current root, while resumed runs restore checkpoint charge and outer state without reseeding.
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed
@@ -18,18 +14,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.
 
 ### Changed
-- Canonical examples and user documentation now use `[external_boundary]`; supported kinetic `[outer_plasma]` and `[coupling]` settings remain mutually exclusive compatibility input.
-- Documented `kinetic_1d` as the supported self-consistent outer-sheath model.
+- The supported boundary workflow is now local reservoir injection plus closed
+  photoelectron reflection/neutral-return closure. `[external_boundary]` is
+  limited to local-source inflow and ordinary open-face behavior.
 - The native field-kernel C ABI is now version 2 and accepts triangle vertices directly; the former point-source build signature is not retained.
 - FMM expansion order must now be at least one in the core, C/Python field-kernel APIs, and CLI; order zero cannot represent the far/local electric-field expansion and is rejected before plan construction.
 - The mesh-input default is now deterministic `mode="template"`. Explicit `mode="auto"` remains available but, like `mode="obj"`, requires an OBJ `surface_side` so either file-selection branch has a complete triangle-panel contract.
 
 ### Removed
+- **BREAKING**: Removed the self-consistent outer-plasma/sheath subsystem,
+  including `[outer_plasma]` and `[coupling]`, kinetic/Zhao closures, interface
+  particle transfer, delayed return queues, outer checkpoint state and
+  diagnostics, and their examples and tests. Removed keys are rejected rather
+  than mapped to the local reservoir model.
 - **BREAKING**: Removed the public centroid `point` element source, `sim.softening`, and the `[field].element_kernel` selector. All surface models now use the implicit P0 triangle-panel discretization; retained legacy keys fail as unknown input rather than selecting a compatibility path.
 - **BREAKING**: Removed the executable `m2l_root_oracle` periodic far-correction backend and its exact-Ewald out-of-box fallback. New configurations are rejected with guidance to use `cached_kneq0`; historical output metadata remains readable.
-- **BREAKING**: Removed the `linear_debye` field/return model, `legacy_sheath` inflow and raw `sim.sheath_injection_model`, configurable outer `infinity_potential`, and the linear-return-only photoelectron histogram. These values are not aliased to another physical model. Checkpoints that activated a removed model or non-default removed feature cannot be resumed; unaffected kinetic checkpoint-v4 runs remain fingerprint-compatible after retired default-valued keys are removed from the configuration.
-- **BREAKING**: Removed `unified_linear_response`, its accessible-fraction zero mode, screened nonzero-mode tail, explicit 3-D outer orbit, dedicated diagnostics, examples, and checkpoint state. Unified configurations and checkpoints have no automatic migration; `kinetic_1d` remains the supported self-consistent outer-sheath model.
-- **BREAKING**: Removed `photo_escape_model` and its `boltzmann_cutoff` reduced-emission closure. Photoelectrons now keep their full emitted weight and use ordinary tracking plus `potential_barrier` or an outer-plasma return model.
+- **BREAKING**: Removed `photo_escape_model` and its `boltzmann_cutoff`
+  reduced-emission closure. Photoelectrons now keep their full emitted weight;
+  the closed workflow uses local reflection and neutral-return correction.
 - **BREAKING**: Removed the `individual_return` photoelectron-closure setting.
 
 ## [1.6.2] - 2026-07-15

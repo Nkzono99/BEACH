@@ -4,15 +4,14 @@ Lang: [日本語](FMM.md) | [English](FMM.en.md)
 
 # FMM
 
-Fast Multipole Method（FMM）は、遠方にある多数のsourceの寄与を展開係数へまとめます。固定geometryから
-作った計算planを再利用し、batchごとに電荷に依存する係数だけを更新します。各粒子位置では遠方展開と
-近傍Direct和を合成するため、多数の境界要素を繰り返し評価する計算のコストを削減できます。
+Fast Multipole Method（FMM）は、固定 geometry の計算 plan を再利用し、遠方 source の寄与を展開係数へ
+まとめます。各 batch では電荷に依存する係数だけを更新し、粒子位置では遠方展開と近傍 Direct 和を合成します。
 
 | 向いている計算 | 先に確認すること |
 | --- | --- |
 | 要素数が多く、1 batchで多数の粒子stepを評価する | Directとの差、release buildでの実測時間 |
 | triangle P0を大規模meshで使う | panel Directとの差とmesh細分化 |
-| `periodic2`場を使う | image和、nonzero/zero mode、outer modelの構成 |
+| `periodic2` 場を使う | image 和、nonzero/zero mode、zero-mode 境界条件 |
 
 ```toml
 [sim]
@@ -131,19 +130,15 @@ $$
 
 ## geometryと電荷更新を分けて再利用する
 
-固定meshで複数のbatchを計算するため、FMMは幾何に依存する`plan`と電荷に依存する`state`を分けます。
+固定 mesh を複数の batch で使うため、FMM は幾何に依存する `plan` と電荷に依存する `state` を分けます。
 
 | データ | 主な内容 | 更新時期 |
 | --- | --- | --- |
 | plan | source tree、target tree、near/far list、P2M basis、translation operator | 初期化時。geometry、要素数、主要optionsが変われば再構築 |
 | state | 現在の`q_elem`、multipole係数、local係数 | batch開始時に場を更新するとき |
 
-`build_plan`はsource treeとinteraction listを作り、geometryだけで決まる量を前計算します。
-`update_state`は現在の要素電荷からP2M、M2M、M2L、L2Lを実行します。各粒子位置では、属するtarget leafの
-local expansionとnear Direct和だけを評価します。
-
-同じbatchの途中で粒子ごとにstateを更新することはありません。表面への堆積電荷はbatch末尾でcommitされ、
-次batchの場を更新するときにstateへ反映されます。
+`build_plan` は geometry だけで決まる量を前計算し、`update_state` は現在の要素電荷から P2M、M2M、M2L、
+L2L を実行します。表面への堆積電荷は batch 末尾で commit され、次の場 snapshot で `state` へ反映されます。
 
 ## 粒子が動く領域をtarget treeで覆う
 
@@ -209,17 +204,11 @@ source離散化の収束は、これとは別にmesh細分化で確認します�
 
 ## periodic2の遠方補正はlocal展開へ接続する
 
-`periodic2`でも通常のP2MからL2Pまでは変わりません。有限画像の外側にある滑らかな周期遠方場だけを、
-root multipoleからtarget localへの追加operatorとして`M2L`後・`L2L`前に注入します。そのため実装はFMMの
-`plan`、`state`、local展開を共有しますが、通常のtree M2Lとは異なる計算段階として分離されています。
-
-`none`とproduction用`cached_kneq0`の違い、Ewald2P teacher、cache、`k=0`の
-ownershipは[periodic2遠方補正](PeriodicFarCorrection.html)に分けました。場全体の成分構成は
-[periodic2静電場](PeriodicElectrostatics.html)、外部領域との結合は[外部プラズマモデル](OuterPlasmaModels.html)で
-説明します。
-
-小規模のsplit referenceは、`field_solver="direct"`とpanel spectral backendを組み合わせる別経路です。
-対応する構成は[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にまとめています。
+`periodic2` では、有限画像の外側にある滑らかな周期遠方場を root multipole から target local への追加
+operator として M2L 後・L2L 前に注入します。`none` と production 用 `cached_kneq0`、Ewald2P teacher、
+cache は [periodic2 遠方補正](PeriodicFarCorrection.html)、zero mode を含む場全体の所有関係は
+[periodic2 静電場](PeriodicElectrostatics.html)を参照してください。小規模 reference には、
+`field_solver="direct"` と `panel_spectral_reference` を組み合わせる別経路があります。
 
 ## 固定費と粒子評価時間を分けて測る
 
@@ -258,7 +247,8 @@ FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間�
 - 対応する場境界はfreeとperiodic2
 - triangle P0の解析near kernelと厳密P2M
 - tree外targetはDirect fallback
-- periodic zero modeとouter responseはFMM core単独では完結しない
+- physical periodic zero mode は FMM core の外で一度だけ加える
+- self-consistent outer-plasma/sheath model は非対応
 
 係数配列、interaction cache、translation前計算、parallel loopなどの内部仕様は
 [Coulomb FMMコア内部実装](FMMCore.html)に分けています。periodic operatorの内部仕様は

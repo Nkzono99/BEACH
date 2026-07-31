@@ -115,11 +115,10 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `cached_kneq0` | cache fingerprint、cold/warm結果の一致、zero mode、Gauss residual |
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`sim.phi_infty`、法線運動エネルギーによる反射・流出判定 |
-| `kinetic_1d` | solver status、Poisson residual、単調分枝、Bohm条件 |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
 
-各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)、
-[外部プラズマモデル](OuterPlasmaModels.html)、[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。
+各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と
+[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。
 
 ## 6. 物理的な結論の範囲を確認する
 

@@ -178,8 +178,7 @@ def _legacy_current_rows() -> tuple[
                         "mesh_id": mesh_id,
                         "component": component,
                         "displacement_m": displacement,
-                        "force_z_N": scale
-                        * (mesh_id * 1.0e-12 + batch * 1.0e-18),
+                        "force_z_N": scale * (mesh_id * 1.0e-12 + batch * 1.0e-18),
                         "status": "converged",
                     }
                 )
@@ -435,16 +434,13 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     finite = _load_toml(validation_root / "input/full/finite_configured.toml")
     infinite = _load_toml(validation_root / "input/full/infinite_physical.toml")
     finite_140 = _load_toml(
-        validation_root
-        / "input/full/segments/finite_configured_140000.toml"
+        validation_root / "input/full/segments/finite_configured_140000.toml"
     )
     finite_280 = _load_toml(
-        validation_root
-        / "input/full/segments/finite_configured_280000.toml"
+        validation_root / "input/full/segments/finite_configured_280000.toml"
     )
     infinite_280 = _load_toml(
-        validation_root
-        / "input/full/segments/infinite_physical_280000.toml"
+        validation_root / "input/full/segments/infinite_physical_280000.toml"
     )
 
     assert finite["sim"]["field_periodic_far_correction"] == "none"
@@ -465,9 +461,7 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     assert finite_280["output"]["restart_from"].endswith(
         "/run/full/finite_configured/140000"
     )
-    assert finite_280["output"]["dir"].endswith(
-        "/run/full/finite_configured/280000"
-    )
+    assert finite_280["output"]["dir"].endswith("/run/full/finite_configured/280000")
     assert infinite_280["output"]["restart_from"].endswith(
         "/run/full/infinite_physical/140000"
     )
@@ -516,7 +510,7 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     assert "BINARY_SHA256=" in smoke
     assert "input hash mismatch before execution" in smoke
     assert "/usr/bin/time -v" in smoke
-    assert "srun \"${BINARY}\"" in smoke
+    assert 'srun "${BINARY}"' in smoke
     assert "mpiexec" not in smoke
     assert "mpirun" not in smoke
     assert "--ntasks" not in smoke
@@ -533,15 +527,17 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     assert "verify-inputs" in submit_chain
     assert "submission_complete" in submit_chain
     assert submit_chain.count("write_job_ids") >= 3
-    finite_restart = (
-        validation_root / "submit/full_finite_280000_sysa.sh"
-    ).read_text(encoding="utf-8")
+    finite_restart = (validation_root / "submit/full_finite_280000_sysa.sh").read_text(
+        encoding="utf-8"
+    )
     assert "full/finite_configured/140000" in finite_restart
     assert '--expected-batches "${restart_batches}"' in finite_restart
     assert '"140000"' in finite_restart
     assert '--producer-job-role "finite_280000"' in finite_restart
     parent_verify = next(
-        line for line in finite_restart.splitlines() if "--require-existing-receipt" in line
+        line
+        for line in finite_restart.splitlines()
+        if "--require-existing-receipt" in line
     )
     assert "--producer-job-role" not in parent_verify
 
@@ -632,15 +628,11 @@ def test_stage_writes_explicit_finite_periodic_image_layer_to_every_case(
         ),
         (
             "input/full/infinite_physical.toml",
-            lambda data: data["sim"].__setitem__(
-                "field_periodic_ewald_layers", 5
-            ),
+            lambda data: data["sim"].__setitem__("field_periodic_ewald_layers", 5),
         ),
         (
             "input/full/finite_configured.toml",
-            lambda data: data["mesh"]["templates"][0].__setitem__(
-                "radius", 9.0e-5
-            ),
+            lambda data: data["mesh"]["templates"][0].__setitem__("radius", 9.0e-5),
         ),
     ],
 )
@@ -760,9 +752,10 @@ def test_verify_inputs_can_recheck_static_contract_after_outputs_exist(
         build_count=None,
     )
 
-    assert tool.verify_inputs(
-        validation_root, require_empty_outputs=False
-    )["status"] == "ok"
+    assert (
+        tool.verify_inputs(validation_root, require_empty_outputs=False)["status"]
+        == "ok"
+    )
     with pytest.raises(tool.ValidationError, match="fresh output is not empty"):
         tool.verify_inputs(validation_root)
 
@@ -883,7 +876,9 @@ def test_stage_rejects_validation_root_inside_source_or_archive(
     tool = _load_tool()
     validation_root = ROOT if location == "repository" else archive_run
 
-    with pytest.raises(tool.ValidationError, match="outside the repository and archive"):
+    with pytest.raises(
+        tool.ValidationError, match="outside the repository and archive"
+    ):
         tool.stage_validation(archive_run, validation_root, binary)
 
 
@@ -916,10 +911,7 @@ def test_verify_inputs_rejects_noncanonical_or_symlinked_validation_paths(
         )
     elif mutation == "config_dotdot":
         manifest["cases"]["smoke_finite_configured"]["config_path"] = str(
-            validation_root
-            / "input/smoke"
-            / ".."
-            / "smoke/finite_configured.toml"
+            validation_root / "input/smoke" / ".." / "smoke/finite_configured.toml"
         )
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
@@ -927,9 +919,7 @@ def test_verify_inputs_rejects_noncanonical_or_symlinked_validation_paths(
         )
     elif mutation == "config_double_slash":
         case = manifest["cases"]["smoke_finite_configured"]
-        case["config_path"] = str(case["config_path"]).replace(
-            "/input/", "//input/", 1
-        )
+        case["config_path"] = str(case["config_path"]).replace("/input/", "//input/", 1)
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
@@ -1003,7 +993,9 @@ def test_verify_inputs_rejects_archive_metadata_path_substitution_and_symlinks(
         encoding="utf-8",
     )
 
-    with pytest.raises(tool.ValidationError, match="archive analysis.*canonical|symlink"):
+    with pytest.raises(
+        tool.ValidationError, match="archive analysis.*canonical|symlink"
+    ):
         tool.verify_inputs(validation_root)
 
 
@@ -1040,16 +1032,16 @@ def test_stage_with_library_snapshots_kernel_and_adds_dependent_analysis_job(
     assert analysis_text.count(oracle_command) == 1
     assert analysis_text.count(analyze_command) == 1
     assert analysis_text.index(oracle_command) < analysis_text.index(analyze_command)
-    assert oracle_command + " \\\n  --validation-root \"${VALIDATION_ROOT}\" \\\n  --library \"${LIBRARY}\"" in analysis_text
-    smoke_text = (validation_root / "submit/smoke_sysa.sh").read_text(
-        encoding="utf-8"
+    assert (
+        oracle_command
+        + ' \\\n  --validation-root "${VALIDATION_ROOT}" \\\n  --library "${LIBRARY}"'
+        in analysis_text
     )
+    smoke_text = (validation_root / "submit/smoke_sysa.sh").read_text(encoding="utf-8")
     assert "probe-library" in smoke_text
     assert str(staged) in smoke_text
     subprocess.run(["bash", "-n", analysis_job], check=True)
-    chain = (validation_root / "submit/submit_chain.sh").read_text(
-        encoding="utf-8"
-    )
+    chain = (validation_root / "submit/submit_chain.sh").read_text(encoding="utf-8")
     assert "afterok:${finite_280}:${infinite_280}" in chain
     assert '"analysis": "%s"' in chain
     for script_name in manifest["scripts"]:
@@ -1065,7 +1057,13 @@ def test_stage_with_library_snapshots_kernel_and_adds_dependent_analysis_job(
 
 @pytest.mark.parametrize(
     "unsafe_name",
-    ["validation root", "validation@root", "validation$root", "validation'root", "validation\nroot"],
+    [
+        "validation root",
+        "validation@root",
+        "validation$root",
+        "validation'root",
+        "validation\nroot",
+    ],
 )
 def test_stage_rejects_unsafe_path_characters_before_filesystem_use(
     archive_run: Path,
@@ -1131,17 +1129,17 @@ def test_submit_chain_preserves_partial_ids_and_refuses_duplicate_submission(
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     scripts = {
-        "module": "#!/bin/bash\nif [[ \" $* \" == *\" list \"* ]]; then echo SysA/2022; fi\n",
+        "module": '#!/bin/bash\nif [[ " $* " == *" list "* ]]; then echo SysA/2022; fi\n',
         "spartition": "#!/bin/bash\nprintf 'Partition State\\ngr20001a UP\\n'\n",
         "qgroup": "#!/bin/bash\nexit 0\n",
         "python3.11": "#!/bin/bash\nexit 0\n",
         "sbatch": (
             "#!/bin/bash\n"
             "value=0\n"
-            "[ ! -f \"${SBATCH_COUNTER}\" ] || value=$(cat \"${SBATCH_COUNTER}\")\n"
+            '[ ! -f "${SBATCH_COUNTER}" ] || value=$(cat "${SBATCH_COUNTER}")\n'
             "value=$((value + 1))\n"
-            "printf '%s\\n' \"${value}\" > \"${SBATCH_COUNTER}\"\n"
-            "if [ \"${value}\" = \"${SBATCH_FAIL_AT:-0}\" ]; then exit 1; fi\n"
+            'printf \'%s\\n\' "${value}" > "${SBATCH_COUNTER}"\n'
+            'if [ "${value}" = "${SBATCH_FAIL_AT:-0}" ]; then exit 1; fi\n'
             "printf '900%s\\n' \"${value}\"\n"
         ),
     }
@@ -1694,7 +1692,9 @@ def _write_run_output(
     fingerprint: str = "cache-fingerprint-a",
     mesh_sources: list[dict[str, object]] | None = None,
 ) -> Path:
-    manifest = json.loads((validation_root / "manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads(
+        (validation_root / "manifest.json").read_text(encoding="utf-8")
+    )
     case = manifest["cases"][case_name]
     out = Path(case["output_dir"])
     out.mkdir(parents=True, exist_ok=True)
@@ -1760,20 +1760,8 @@ def _write_run_output(
         f"periodic2_lower_boundary_model={lower_boundary}",
         "periodic2_generation_tolerance=1.0e-8",
         f"electrostatic_split_periodic_active={'T' if backend == 'cached_kneq0' else 'F'}",
-        "electrostatic_status=applicable",
-        "interface_potential_V=0.0",
-        "interface_normal_field_V_m=0.0",
-        "last_outer_update_batch=0",
-        "outer_applicability_status=0",
-        "outer_nonlinear_iterations=0",
-        "outer_nonlinear_residual=0.0",
-        "outer_infinity_potential_V=0.0",
-        "outer_debye_length_m=0.0",
-        "outer_integrated_charge_per_area_C_m2=0.0",
-        "outer_electron_current_density_A_m2=0.0",
-        "outer_ion_current_density_A_m2=0.0",
-        "outer_photoelectron_current_density_A_m2=0.0",
-        "outer_total_current_density_A_m2=0.0",
+        f"electrostatic_status={'cached_kneq0' if backend == 'cached_kneq0' else 'not_applicable'}",
+        "gauss_residual_C=0.0",
         "charge_ledger_nspecies=1",
         f"charge_ledger_batch_count={batches}",
         "charge_ledger_residual_C=0.0",
@@ -1804,16 +1792,10 @@ def _write_run_output(
         )
     (out / "summary.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     charge_rows = ["elem_idx,charge_C"]
-    charge_rows.extend(
-        f"{index},1.0e-15" for index in range(1, mesh_nelem + 1)
-    )
-    (out / "charges.csv").write_text(
-        "\n".join(charge_rows) + "\n", encoding="utf-8"
-    )
+    charge_rows.extend(f"{index},1.0e-15" for index in range(1, mesh_nelem + 1))
+    (out / "charges.csv").write_text("\n".join(charge_rows) + "\n", encoding="utf-8")
     potential_rows = ["elem_idx,potential_V"]
-    potential_rows.extend(
-        f"{index},2.0" for index in range(1, mesh_nelem + 1)
-    )
+    potential_rows.extend(f"{index},2.0" for index in range(1, mesh_nelem + 1))
     (out / "mesh_potential.csv").write_text(
         "\n".join(potential_rows) + "\n", encoding="utf-8"
     )
@@ -1852,9 +1834,9 @@ def _write_run_output(
     (out / "charge_ledger.csv").write_text(
         "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
         "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
-        "interface_outward_gross_C,interface_returned_gross_C,injected_count,"
+        "injected_count,"
         "emitted_count,absorbed_count,escaped_count,discarded_unresolved_count\n"
-        f"{batches},1,0,0,0,0,0,0,0,10,0,6,3,1\n",
+        f"{batches},1,0,0,0,0,0,10,0,6,3,1\n",
         encoding="utf-8",
     )
     (out / "macro_residuals.csv").write_text(
@@ -1876,9 +1858,7 @@ def _write_run_output(
         )
         start = int(previous_case["batch_count"]) + 1
     history_batches = [
-        batch
-        for batch in range(start, batches + 1)
-        if (batch - 1) % stride == 0
+        batch for batch in range(start, batches + 1) if (batch - 1) % stride == 0
     ]
     history = ["batch,processed_particles,rel_change,elem_idx,charge_C"]
     history.extend(
@@ -1886,9 +1866,7 @@ def _write_run_output(
         for batch in history_batches
         for element in range(1, mesh_nelem + 1)
     )
-    (out / "charge_history.csv").write_text(
-        "\n".join(history) + "\n", encoding="utf-8"
-    )
+    (out / "charge_history.csv").write_text("\n".join(history) + "\n", encoding="utf-8")
     return out
 
 
@@ -2227,9 +2205,7 @@ def _write_partial_producer_provenance(
     config_path = str(cases[case_name]["config_path"])
     line = f"{config_path}: OK" if config_line is None else config_line
     hash_path = (
-        validation_root
-        / "provenance/hashes"
-        / f"{selected_job_id}.{job_name}.sha256"
+        validation_root / "provenance/hashes" / f"{selected_job_id}.{job_name}.sha256"
     )
     hash_path.parent.mkdir(parents=True, exist_ok=True)
     hash_path.write_text(line + "\n", encoding="utf-8")
@@ -2268,9 +2244,7 @@ def test_clean_first_receipt_accepts_bound_partial_producer_journal(
     assert report["execution_producer"] == {
         "job_role": "smoke",
         "job_id": "9001",
-        "config_sha256": manifest["cases"]["smoke_finite_configured"][
-            "config_sha256"
-        ],
+        "config_sha256": manifest["cases"]["smoke_finite_configured"]["config_sha256"],
     }
 
 
@@ -2448,8 +2422,7 @@ def test_clean_existing_receipt_rechecks_immutable_producer_binding(
         journal_path.write_text(json.dumps(journal), encoding="utf-8")
     elif mutation == "config_hash_line":
         hash_path = (
-            validation_root
-            / "provenance/hashes/9001.beach-periodic-smoke.sha256"
+            validation_root / "provenance/hashes/9001.beach-periodic-smoke.sha256"
         )
         config_path = manifest["cases"]["smoke_finite_configured"]["config_path"]
         hash_path.write_text(
@@ -2460,8 +2433,7 @@ def test_clean_existing_receipt_rechecks_immutable_producer_binding(
         )
     else:
         receipt_path = (
-            validation_root
-            / "provenance/verified/smoke_finite_configured.json"
+            validation_root / "provenance/verified/smoke_finite_configured.json"
         )
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         del receipt["execution_producer"]
@@ -2548,8 +2520,7 @@ def test_submission_provenance_rejects_coexisting_system_module(
     )
     _write_submission_provenance(validation_root, manifest)
     module_path = (
-        validation_root
-        / "provenance/modules/9006.beach-periodic-analysis.txt"
+        validation_root / "provenance/modules/9006.beach-periodic-analysis.txt"
     )
     module_path.write_text(
         module_path.read_text(encoding="utf-8") + foreign_module + "\n",
@@ -2582,8 +2553,7 @@ def test_submission_provenance_requires_exact_intel_modules(
     )
     _write_submission_provenance(validation_root, manifest)
     module_path = (
-        validation_root
-        / "provenance/modules/9006.beach-periodic-analysis.txt"
+        validation_root / "provenance/modules/9006.beach-periodic-analysis.txt"
     )
     module_text = module_path.read_text(encoding="utf-8")
     module_path.write_text(
@@ -2614,9 +2584,7 @@ def test_submission_provenance_requires_exact_role_config_hash_lines(
         library=binary,
     )
     job_ids = _write_submission_provenance(validation_root, manifest)
-    hash_path = (
-        validation_root / "provenance/hashes/9001.beach-periodic-smoke.sha256"
-    )
+    hash_path = validation_root / "provenance/hashes/9001.beach-periodic-smoke.sha256"
     config_path = manifest["cases"]["smoke_finite_configured"]["config_path"]
     hash_path.write_text(
         hash_path.read_text(encoding="utf-8").replace(
@@ -2693,9 +2661,7 @@ def _fake_periodic_kernel_oracle() -> dict[str, object]:
                 "label": label,
                 "hit": True,
                 "build_count": 0,
-                "fingerprint": cache_identities[group_for_label[label]][
-                    "fingerprint"
-                ],
+                "fingerprint": cache_identities[group_for_label[label]]["fingerprint"],
                 "path": cache_identities[group_for_label[label]]["path"],
                 "sha256": cache_identities[group_for_label[label]]["sha256"],
             }
@@ -2719,8 +2685,7 @@ def _fake_periodic_kernel_oracle() -> dict[str, object]:
             "target_integration": "gauss_duffy_order_3_and_7",
             "quadrature_order": [3, 7],
             "interpretation": (
-                "Maxwell traction under E_bottom=0; not universal free-space "
-                "self force"
+                "Maxwell traction under E_bottom=0; not universal free-space self force"
             ),
             "wrench_refinement": [
                 {
@@ -2798,7 +2763,7 @@ def test_probe_periodic_oracles_rejects_stale_point_config(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     stale = validation_root / "provenance/oracles/periodic_plane_point.toml"
-    stale.write_text("[sim]\nfield_source_model = \"point\"\n", encoding="utf-8")
+    stale.write_text('[sim]\nfield_source_model = "point"\n', encoding="utf-8")
 
     with pytest.raises(tool.ValidationError, match="must be empty"):
         tool.probe_periodic_oracles(validation_root, library)
@@ -2825,9 +2790,7 @@ def test_probe_periodic_oracles_deeply_validates_payload_before_publish(
     if mutation == "quadrature":
         oracle["uniform_plane"]["quadrature_relative_difference"] = 0.02
     elif mutation == "neutrality":
-        oracle["neutral_cosine_plane"]["errors"][1][
-            "charge_neutrality_ratio"
-        ] = 1.0e-8
+        oracle["neutral_cosine_plane"]["errors"][1]["charge_neutrality_ratio"] = 1.0e-8
     else:
         row = oracle["uniform_plane"]["wrench_refinement"][0]
         row["total_minus_images_normalized_absolute"] = 1.0e-5
@@ -2880,16 +2843,13 @@ def _write_periodic_oracle_receipt(
         kernel_oracles = _fake_periodic_kernel_oracles()
     cache_artifacts = {
         label: {
-            group: cache_dir / f"operator-{label}-{group}.bin"
-            for group in ("4", "8")
+            group: cache_dir / f"operator-{label}-{group}.bin" for group in ("4", "8")
         }
         for label in kernel_oracles
     }
     for label, grouped_paths in cache_artifacts.items():
         for group, path in grouped_paths.items():
-            path.write_bytes(
-                f"deterministic-oracle-cache:{label}:{group}\n".encode()
-            )
+            path.write_bytes(f"deterministic-oracle-cache:{label}:{group}\n".encode())
     if not cache_artifacts:
         (cache_dir / "operator-missing-model-fixture.bin").write_bytes(
             b"deterministic-oracle-cache:missing-model\n"
@@ -3077,9 +3037,10 @@ def test_periodic_oracle_receipt_rechecks_library_build_origin(
     )
     _write_periodic_oracle_receipt(tool, validation_root, library)
 
-    assert tool._verify_periodic_oracle_receipt(validation_root, library)[
-        "status"
-    ] == "qualified"
+    assert (
+        tool._verify_periodic_oracle_receipt(validation_root, library)["status"]
+        == "qualified"
+    )
     current["build_id"] = f"{'a' * 40}:dirty"
     with pytest.raises(tool.ValidationError, match="build origin"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
@@ -3182,9 +3143,7 @@ def test_periodic_oracle_receipt_requires_only_triangle_kernel_model(
     if mutation == "missing":
         del kernel_oracles["triangle_p0"]
     else:
-        kernel_oracles["legacy_point"] = copy.deepcopy(
-            kernel_oracles["triangle_p0"]
-        )
+        kernel_oracles["legacy_point"] = copy.deepcopy(kernel_oracles["triangle_p0"])
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3309,9 +3268,7 @@ def test_periodic_oracle_receipt_gates_triangle_component_identities(
     )
     library = Path(manifest["analysis_library"]["staged_path"])
     kernel_oracles = _fake_periodic_kernel_oracles()
-    row = kernel_oracles["triangle_p0"]["uniform_plane"][
-        "wrench_refinement"
-    ][1]
+    row = kernel_oracles["triangle_p0"]["uniform_plane"]["wrench_refinement"][1]
     if mutation == "missing_component":
         del row["other_objects_normalized_absolute"]
     else:
@@ -3349,9 +3306,7 @@ def test_periodic_oracle_receipt_rejects_triangle_threshold_excess(
     if oracle_kind == "uniform":
         oracle["uniform_plane"]["nonzero_relative_error"] = 0.13
     else:
-        oracle["neutral_cosine_plane"]["errors"][1][
-            "field_relative_error"
-        ] = 0.09
+        oracle["neutral_cosine_plane"]["errors"][1]["field_relative_error"] = 0.09
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3411,9 +3366,7 @@ def test_periodic_oracle_receipt_binds_every_triangle_cache_evaluation(
     elif mutation == "cache_build":
         evaluations[-1]["build_count"] = 1
     else:
-        oracle["cache_identities"]["8"] = copy.deepcopy(
-            oracle["cache_identities"]["4"]
-        )
+        oracle["cache_identities"]["8"] = copy.deepcopy(oracle["cache_identities"]["4"])
         coarse = oracle["cache_identities"]["4"]
         for evaluation in evaluations:
             if evaluation["label"] == "cosine_8":
@@ -3820,7 +3773,7 @@ def test_verify_run_requires_complete_six_rank_checkpoint(
         tool.verify_run(out, 1)
 
 
-def test_verify_run_requires_complete_infinite_electrostatic_restart_state(
+def test_verify_run_requires_complete_cached_electrostatic_state(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
@@ -3840,46 +3793,14 @@ def test_verify_run_requires_complete_infinite_electrostatic_restart_state(
         "\n".join(
             line
             for line in summary.splitlines()
-            if not line.startswith("outer_total_current_density_A_m2=")
+            if not line.startswith("gauss_residual_C=")
         )
         + "\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(tool.ValidationError, match="electrostatic restart state"):
+    with pytest.raises(tool.ValidationError, match="cached electrostatic state"):
         tool.verify_run(out, 1)
-
-
-def test_verify_run_requires_conditional_outer_profile_file(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-) -> None:
-    tool = _load_tool()
-    archive_input = archive_run / "input/beach.toml"
-    config = _load_toml(archive_input)
-    config["outer_plasma"] = {
-        "model": "kinetic_1d",
-    }
-    _write_toml(archive_input, config)
-    validation_root = tmp_path / "validation"
-    tool.stage_validation(archive_run, validation_root, binary)
-    out = _write_run_output(
-        validation_root,
-        "cache_prime",
-        batches=1,
-        cache_hit=False,
-        build_count=1,
-    )
-
-    with pytest.raises(tool.ValidationError, match="outer_plasma_profile.csv"):
-        tool.verify_run(out, 1)
-    (out / "outer_plasma_profile.csv").write_text(
-        "point,z_m,potential_V,field_V_m,charge_density_C_m3\n"
-        "1,0.0,0.0,0.0,0.0\n",
-        encoding="utf-8",
-    )
-    assert tool.verify_run(out, 1)["status"] == "ok"
 
 
 def test_legacy_estimator_audit_compares_exact_native_archive_keys(
@@ -3906,9 +3827,7 @@ def test_legacy_estimator_audit_compares_exact_native_archive_keys(
     assert len(rows) == 36
     assert {int(row["batch"]) for row in rows} == {149001, 180001, 279001}
     assert 280000 not in {int(row["batch"]) for row in rows}
-    assert {
-        row["estimator"] for row in rows
-    } == {
+    assert {row["estimator"] for row in rows} == {
         "direct_object_z",
         "local_pair_proxy",
         "moving_top_mesh_pairwise_coulomb",
@@ -3952,10 +3871,7 @@ def test_legacy_estimator_audit_strictly_validates_inputs_and_mapping(
         path = analysis / "moving_sphere_force_curves.csv"
         lines = path.read_text(encoding="utf-8").splitlines()
         path.write_text(
-            lines[0].replace(",net_force_z_n", "")
-            + "\n"
-            + "\n".join(lines[1:])
-            + "\n",
+            lines[0].replace(",net_force_z_n", "") + "\n" + "\n".join(lines[1:]) + "\n",
             encoding="utf-8",
         )
     elif mutation == "duplicate":
@@ -4229,9 +4145,7 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
                         if self.periodic_model == "configured"
                         else "cached_kneq0"
                     ),
-                    "target_geometry_representation": (
-                        "periodic2_mesh_connected"
-                    ),
+                    "target_geometry_representation": ("periodic2_mesh_connected"),
                     "vertex_bounding_radius_m": self.vertex_bounding_radius_m,
                     "torque_origin_policy": "moving_geometric_area_centroid",
                     "torque_origin_m": np.array([1.0, 2.0, 3.0]),
@@ -4397,15 +4311,14 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
     assert any(
         row["mesh_id"] == "6"
         and row["resolved_batch"] == "280000"
-            and row["effective_far_correction"] == "cached_kneq0"
-            and row["zero_mode_policy"] == "exclude_k0"
+        and row["effective_far_correction"] == "cached_kneq0"
+        and row["zero_mode_policy"] == "exclude_k0"
         and row["lower_boundary_model"] == "e_bottom_zero"
-            and row["periodic_cache_hit"] == "True"
-            and row["periodic_cache_build_count"] == "0"
-            and row["periodic_cache_fingerprint"]
-            == "analysis-cache-fingerprint"
-            and row["periodic_cache_path"] == str(cache_path)
-            and row["periodic_cache_path_sha256"] == tool._sha256(cache_path)
+        and row["periodic_cache_hit"] == "True"
+        and row["periodic_cache_build_count"] == "0"
+        and row["periodic_cache_fingerprint"] == "analysis-cache-fingerprint"
+        and row["periodic_cache_path"] == str(cache_path)
+        and row["periodic_cache_path_sha256"] == tool._sha256(cache_path)
         and row["periodic_model"] == "infinite_physical"
         and row["component"] == "numerical:physical_k0"
         and row["component_kind"] == "numerical_decomposition"
@@ -4422,13 +4335,11 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
     )
     assert all(
         float(row["model_radius_m"]) == pytest.approx(3.5e-5)
-        and row["radius_source"]
-        == "release_model_summary.assumptions.radius_m"
+        and row["radius_source"] == "release_model_summary.assumptions.radius_m"
         and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
         and float(row["radius_relative_mismatch"]) == pytest.approx(0.0)
         and float(row["radius_relative_tolerance"]) == pytest.approx(5.0e-3)
-        and row["target_geometry_representation"]
-        == "periodic2_mesh_connected"
+        and row["target_geometry_representation"] == "periodic2_mesh_connected"
         for row in wrench_rows
         if row["status"] == "available"
     )
@@ -4524,13 +4435,11 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         assert all(values == reference_signature for values in components.values())
     assert all(
         float(row["model_radius_m"]) == pytest.approx(3.5e-5)
-        and row["radius_source"]
-        == "release_model_summary.assumptions.radius_m"
+        and row["radius_source"] == "release_model_summary.assumptions.radius_m"
         and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
         and float(row["radius_relative_mismatch"]) == pytest.approx(0.0)
         and float(row["radius_relative_tolerance"]) == pytest.approx(5.0e-3)
-        and row["target_geometry_representation"]
-        == "periodic2_mesh_connected"
+        and row["target_geometry_representation"] == "periodic2_mesh_connected"
         for row in curve_rows
     )
     with (validation_root / "analysis/object_path_summary.csv").open(
@@ -4544,16 +4453,18 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         and row["status"] == "available"
         and row["potential_work_available"] == "True"
         and row["numerically_qualified"] == "True"
-            and row["barrier_free_from_rest"] == "True"
-            and row["minimum_available_energy_J"] == "-5e-19"
-            and row["endpoint_available_energy_J"] == "6e-18"
+        and row["barrier_free_from_rest"] == "True"
+        and row["minimum_available_energy_J"] == "-5e-19"
+        and row["endpoint_available_energy_J"] == "6e-18"
         for row in path_rows
     )
     declared_rows = [row for row in path_rows if row["status"] == "available"]
     assert declared_rows
     expected_mass = 4.0 * np.pi * 3000.0 * (3.5e-5) ** 3 / 3.0
     assert all(float(row["radius_m"]) == pytest.approx(3.5e-5) for row in declared_rows)
-    assert all(float(row["mass_kg"]) == pytest.approx(expected_mass) for row in declared_rows)
+    assert all(
+        float(row["mass_kg"]) == pytest.approx(expected_mass) for row in declared_rows
+    )
     assert all(
         row["radius_source"] == "release_model_summary.assumptions.radius_m"
         and float(row["geometry_radius_m"]) == pytest.approx(3.5e-5)
@@ -4738,7 +4649,9 @@ def test_release_parameters_geometry_fallback_is_nonstrict_and_missing_only(
 
 
 @pytest.mark.parametrize("invalid_radius", [True, np.array([3.5e-5])])
-def test_probe_geometry_contract_rejects_non_scalar_radius(invalid_radius: object) -> None:
+def test_probe_geometry_contract_rejects_non_scalar_radius(
+    invalid_radius: object,
+) -> None:
     tool = _load_tool()
     probe = SimpleNamespace(
         target_geometry_representation="periodic2_mesh_connected",
@@ -4850,11 +4763,17 @@ def test_strict_wrench_component_contract_requires_complete_additive_sets() -> N
     )
     with pytest.raises(tool.ValidationError, match="physical wrench component set"):
         validate(
-            {name: value for name, value in components.items() if name != "external_uniform"},
+            {
+                name: value
+                for name, value in components.items()
+                if name != "external_uniform"
+            },
             cached_metadata,
             effective_far_correction="cached_kneq0",
         )
-    with pytest.raises(tool.ValidationError, match="cached numerical wrench component set"):
+    with pytest.raises(
+        tool.ValidationError, match="cached numerical wrench component set"
+    ):
         validate(
             components,
             {
@@ -4886,7 +4805,9 @@ def test_strict_wrench_component_contract_requires_complete_additive_sets() -> N
             cached_metadata,
             effective_far_correction="cached_kneq0",
         )
-    with pytest.raises(tool.ValidationError, match="finite numerical wrench component set"):
+    with pytest.raises(
+        tool.ValidationError, match="finite numerical wrench component set"
+    ):
         validate(
             components,
             cached_metadata,
@@ -5231,9 +5152,7 @@ def test_object_physics_rejects_invalid_wrench_contract_metadata(
         def wrench(self, **_kwargs):
             metadata = {
                 "effective_far_correction": (
-                    "none"
-                    if self.periodic_model == "configured"
-                    else "cached_kneq0"
+                    "none" if self.periodic_model == "configured" else "cached_kneq0"
                 ),
                 "target_geometry_representation": "periodic2_mesh_connected",
                 "vertex_bounding_radius_m": 3.5e-5,
@@ -5276,24 +5195,21 @@ def test_object_physics_rejects_invalid_wrench_contract_metadata(
         def object_interaction_snapshot(self, **kwargs):
             return FakeSnapshot(kwargs["periodic_model"])
 
-    _wrench, _curves, _paths, _shells, physics = (
-        tool._evaluate_object_physics_at_step(
-            archive_run=tmp_path / "archive",
-            validation_root=tmp_path / "validation",
-            library=tmp_path / "kernel.so",
-            run_rows=[{"case": "archived_v1_3", "status": "available"}],
-            runs={"archived_v1_3": FakeRun()},
-            step=None,
-            evaluation_target_ids=(6,),
-            run_shell=False,
-        )
+    _wrench, _curves, _paths, _shells, physics = tool._evaluate_object_physics_at_step(
+        archive_run=tmp_path / "archive",
+        validation_root=tmp_path / "validation",
+        library=tmp_path / "kernel.so",
+        run_rows=[{"case": "archived_v1_3", "status": "available"}],
+        runs={"archived_v1_3": FakeRun()},
+        step=None,
+        evaluation_target_ids=(6,),
+        run_shell=False,
     )
 
     assert physics["status"] == "not_evaluated"
     assert physics["successful_target_models"] == 0
     assert all(
-        expected_message in failure["message"]
-        for failure in physics["failures"]
+        expected_message in failure["message"] for failure in physics["failures"]
     )
 
 
@@ -5464,9 +5380,7 @@ def test_geometry_comparison_allows_declared_roundoff_not_order_change() -> None
 def _complete_local_qualification_fixture(tool):
     paths: list[dict[str, object]] = []
     wrenches: list[dict[str, object]] = []
-    for case, model, batch, mesh_id in sorted(
-        tool._expected_object_evaluation_keys()
-    ):
+    for case, model, batch, mesh_id in sorted(tool._expected_object_evaluation_keys()):
         common = {
             "case": case,
             "periodic_model": model,
@@ -5502,7 +5416,9 @@ def _complete_local_qualification_fixture(tool):
     return paths, wrenches, shell_rows, cases
 
 
-def test_local_qualification_reports_fixed_discretization_scope_when_qualified() -> None:
+def test_local_qualification_reports_fixed_discretization_scope_when_qualified() -> (
+    None
+):
     tool = _load_tool()
     paths, wrenches, shell_rows, cases = _complete_local_qualification_fixture(tool)
 
@@ -5601,9 +5517,7 @@ def test_comparison_contract_rejects_wrong_frozen_snapshot_semantics() -> None:
     ]
     assert tool._comparison_artifact_contract(rows, snapshots)["status"] == "complete"
     frozen = next(
-        row
-        for row in rows
-        if row["comparison_kind"] == "frozen_field_override"
+        row for row in rows if row["comparison_kind"] == "frozen_field_override"
     )
     frozen["right_snapshot_id"] = "other:history:1"
 
@@ -6022,9 +5936,7 @@ def test_analyze_require_complete_verifies_all_cases_and_physics(
     )
     assert report["physics_evaluation"]["status"] == "available"
     assert report["legacy_estimator_audit"]["status"] == "complete"
-    assert (
-        validation_root / "analysis/legacy_estimator_comparison.csv"
-    ).is_file()
+    assert (validation_root / "analysis/legacy_estimator_comparison.csv").is_file()
     with (validation_root / "analysis/comparison_matrix.csv").open(
         "r", encoding="utf-8", newline=""
     ) as stream:

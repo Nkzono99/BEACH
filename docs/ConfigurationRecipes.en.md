@@ -4,56 +4,57 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 
 # Design a Simulation Case
 
-Build common cases by replacing the mesh and particle sources in the official beginner `beach.toml`.
-This page focuses on choosing the physical setup. For the complete key reference, see
-[Input Parameters Reference](Parameters.en.html). See [Create and Validate `beach.toml`](Configuration.en.html) for generating
-and checking the file.
+This task guide starts from the official tutorial case and replaces one mesh, particle source, or boundary setting at a time.
+See the [input parameter reference](Parameters.en.html) for every key and
+[Create and Validate `beach.toml`](Configuration.en.html) for file generation and validation.
 
-Each snippet below is a replacement or diff relative to the [official beginner case](Tutorial.en.html).
-Some snippets are not standalone configurations.
+## Common procedure
 
-## Official Run Procedure
+**Prerequisite:** Install BEACH and create a working directory.
+
+**Action:**
 
 ```bash
-beachx config init
+beachx config init beach.toml
 beachx lint beach.toml
 beach beach.toml
 beachx inspect outputs/latest
 ```
 
-Pass `beach.toml` directly to the Fortran executable. Box-relative coordinate and placement parameters are converted to physical
-coordinates while loading.
+**Expected output:** `lint` accepts the configuration, and the run creates
+`outputs/latest/summary.txt` and `charges.csv`.
 
-## Recipes
+**Interpretation:** Successful completion proves that the configuration and execution path work. It does not establish
+numerical convergence or physical validity; use [Validate Results](ValidationGuide.en.html) for those checks.
 
-| Recipe | Main section | Use case |
-| --- | --- | --- |
-| Add built-in meshes | `[mesh]`, `[[mesh.templates]]` | Combine planes, spheres, boxes, cylinders, and other shapes |
-| OBJ mesh | `[mesh]` | Use external geometry |
-| Choose particle injection | `[[particles.species]]` | Switch inflow, initial particles, or photoemission |
-| Two-periodic-axis boundary (finite image sum) | `[sim]` | Include a selected range of periodic images |
-| Advanced outer-sheath coupling | `[periodic2]`, `[external_boundary]` | Couple infinite periodicity, `kinetic_1d`, and UV photoelectrons |
-| History output | `[output]` | Visualize time evolution |
-| Resume run | `[output]` | Continue from checkpoint |
+**Next choices:**
 
-## Add Built-In Meshes
+| Goal | Main section to change |
+| --- | --- |
+| Use built-in geometry | `[mesh]`, `[[mesh.templates]]` |
+| Use OBJ geometry | `[mesh]` |
+| Select initial particles, reservoir inflow, or photoelectrons | `[[particles.species]]` |
+| Use a finite two-axis periodic image sum | `[sim]` |
+| Save time histories | `[output]` |
+| Continue from a checkpoint | `[output]` |
 
-With `[mesh].mode="template"`, each `[[mesh.templates]]` entry adds one shape. Every enabled template receives a distinct
-`mesh_id`. To keep the official beginner plane and add a sphere, append a new entry after the existing `[[mesh.templates]]` entry.
+Make one type of change at a time and rerun `beachx lint beach.toml` after each change.
 
-The available shapes and their main size and resolution keys are:
+## Add built-in meshes
 
-| `kind` | Shape | Size | Resolution |
+**Prerequisite:** Use `[mesh].mode="template"`. Each `[[mesh.templates]]` entry receives a separate `mesh_id`.
+
+**Action:** Add a shape after the existing template.
+
+| `kind` | Shape | Dimensions | Resolution |
 | --- | --- | --- | --- |
 | `plane` | XY rectangle | `size_x`, `size_y` | `nx`, `ny` |
 | `plate_hole`, `plane_hole` | Rectangle with a circular hole | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
 | `disk` | Disk | `radius` | `n_theta`, `n_r` |
-| `annulus` | Concentric ring | `radius`, `inner_radius` | `n_theta`, `n_r` |
-| `box` | Closed rectangular-box surface | `size = [sx, sy, sz]` | `nx`, `ny`, `nz` |
+| `annulus` | Annulus | `radius`, `inner_radius` | `n_theta`, `n_r` |
+| `box` | Closed rectangular surface | `size` | `nx`, `ny`, `nz` |
 | `cylinder` | z-axis cylinder | `radius`, `height`, `cap` | `n_theta`, `n_z` |
-| `sphere` | Sphere surface | `radius` | `n_lon`, `n_lat` |
-
-Plane example:
+| `sphere` | Sphere | `radius` | `n_lon`, `n_lat` |
 
 ```toml
 [mesh]
@@ -68,11 +69,7 @@ size_y = 1.0
 nx = 20
 ny = 20
 center = [0.5, 0.5, 0.02]
-```
 
-Append a sphere to this plane:
-
-```toml
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
@@ -83,16 +80,20 @@ n_lon = 24
 n_lat = 12
 ```
 
-`center` is the shape center. Increasing subdivision counts raises the element count and the cost of field evaluation and
-collision detection. Start with a coarse mesh, confirm placement and collisions, then refine it. See the
-[built-in shape reference](Parameters.en.html#meshtemplates-built-in-shapes) for element counts and constraints.
+**Expected output:** Both `mesh_id` values appear in `mesh_triangles.csv`, and `mesh_sources.csv` identifies their templates.
 
-Use `surface_model="insulator"` for the ordinary charging workflow. `conductor` supports only `field_bc_mode="free"` and cannot
-be combined with `periodic2`. For `dielectric`, `epsilon_r` is currently metadata; BEACH does not yet solve dielectric polarization.
+**Interpretation:** Increasing the resolution also increases field-evaluation and collision costs. Check placement and collisions
+with a coarse mesh first. Use `surface_model="insulator"` for the standard charging model.
+`conductor` is supported only with `field_bc_mode="free"`, and `dielectric` `epsilon_r` is currently metadata; polarization is not solved.
 
-### Use an OBJ File
+**Next choice:** See the
+[built-in geometry reference](Parameters.en.html#meshtemplates-built-in-geometries) for element counts and constraints.
 
-Replace `[mesh]` with OBJ mode for geometry that the built-in shapes cannot represent.
+## Replace the mesh with an OBJ file
+
+**Prerequisite:** Put an OBJ file containing triangular faces where the run can read it.
+
+**Action:**
 
 ```toml
 [mesh]
@@ -104,23 +105,24 @@ obj_rotation = [0.0, 0.0, 0.0]
 obj_offset = [0.0, 0.0, 0.0]
 ```
 
-Transforms apply in scale → rotation → offset order. The whole OBJ file receives one `mesh_id`. Prefer multiple built-in
-templates when separate objects need distinct identities.
+**Expected output:** The complete OBJ file appears as one `mesh_id` in `mesh_triangles.csv`.
 
-## Choose Particle Injection
+**Interpretation:** Transformations are applied in scale → rotation → offset order.
 
-Each `[[particles.species]]` entry adds one species. Edit the existing entry to replace the official beginner electron source,
-or append entries when, for example, electrons and ions must enter together.
-When changing `source_mode`, replace the complete existing entry with the corresponding example. Keeping mode-specific keys such
-as `npcls_per_step`, `w_particle`, or `number_density_*` from another mode produces a validation error.
+**Next choice:** Prefer multiple built-in templates when independent objects must have separate `mesh_id` values.
 
-| `source_mode` | Use case | Main keys |
+## Select a particle source
+
+**Prerequisite:** Select one `source_mode` per `[[particles.species]]` entry. When changing modes, replace the complete entry
+so that keys specific to another mode do not remain.
+
+| `source_mode` | Use | Main required keys |
 | --- | --- | --- |
-| `volume_seed` | Small tests with particles initially placed in the box | `npcls_per_step`, `pos_low`, `pos_high` |
-| `reservoir_face` | Normal inflow from a face, using Maxwellian-style inputs | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
+| `volume_seed` | Small tests with initial particles in the box | `npcls_per_step`, `pos_low`, `pos_high` |
+| `reservoir_face` | Local reservoir inflow through a face | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
 | `photo_raycast` | Raycast photoelectron emission from surfaces | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
 
-`volume_seed` example:
+### `volume_seed`
 
 ```toml
 [[particles.species]]
@@ -135,10 +137,13 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 temperature_k = 0.0
 ```
 
-`volume_seed` creates `npcls_per_step` particles in every batch. It does not derive the count from a physical surface flux.
+**Expected output:** Each batch creates `npcls_per_step` macro-particles.
 
-Before using `reservoir_face` or `photo_raycast`, add a positive `batch_duration` for the intended physical timescale to the
-existing `[sim]` table. The following is a minimal `reservoir_face` example when `batch_duration = 1.0e-5`.
+**Interpretation:** This source does not derive its count from a physical face flux.
+
+### `reservoir_face`
+
+**Prerequisite:** Set `sim.use_box=true`, a positive `sim.batch_duration`, and `inject_face`.
 
 ```toml
 [[particles.species]]
@@ -155,13 +160,17 @@ uv_high = [1.0, 1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
 ```
 
-`reservoir_face` requires `sim.use_box=true`, positive `sim.batch_duration`, and `inject_face`.
-With `inject_region_mode="face_fraction"`, `uv_low` / `uv_high` specify the aperture as fractions of the injection face.
-`target_macro_particles_per_batch` fixes the computational particle count per batch and solves the particle weight from the physical inflow.
-Use `w_particle` when you want to specify the weight directly.
-`temperature_k` and `temperature_ev` cannot be specified together.
+**Expected output:** The local reservoir flux determines particle weight, and particles enter through the selected face.
 
-`photo_raycast` example:
+**Interpretation:** `target_macro_particles_per_batch` fixes the computational particle count per batch. Use `w_particle`
+instead to specify the weight directly. Do not set both `temperature_k` and `temperature_ev`.
+
+**Next choice:** See
+[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for flux, weight, and velocity distributions.
+
+### `photo_raycast`
+
+**Prerequisite:** Set a positive `sim.batch_duration`.
 
 ```toml
 [[particles.species]]
@@ -179,17 +188,19 @@ uv_high = [1.0, 1.0]
 ray_direction = [0.0, 0.0, -1.0]
 ```
 
-`photo_raycast` also requires positive `sim.batch_duration`. `rays_per_batch` is the number of illumination rays; the first-hit
-rate determines the number of emitted particles. `deposit_opposite_charge_on_emit=true` leaves the opposite charge at the source.
-See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for emission, reabsorption, and open-face handling.
+**Expected output:** Rays that first hit a mesh generate photoelectrons.
 
-See the [particle-source overview](ParticleSourcesBoundaries.en.html) for source selection and common post-creation processing.
-See [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for reservoir flux, weight, and velocity distributions.
+**Interpretation:** `rays_per_batch` is the number of illumination rays; the generated particle count depends on the hit rate.
+`deposit_opposite_charge_on_emit=true` leaves opposite charge on the emitting surface.
 
-## Use a Finite Image Sum on Two Periodic Axes
+**Next choice:** See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for emission, reabsorption,
+and the closed-PE `neutral_return` closure.
 
-`periodic2` treats exactly two axes as periodic field boundaries. This recipe sums only the primary cell and the periodic images
-selected by `field_periodic_image_layers`.
+## Use a finite two-axis periodic image sum
+
+**Prerequisite:** Make exactly two box axes periodic and use `field_solver="fmm"`.
+
+**Action:**
 
 ```toml
 [sim]
@@ -210,40 +221,18 @@ field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 ```
 
-Requirements:
+**Expected output:** With `field_periodic_image_layers=1`, the field source includes the primary cell and a $3\times3$ cell set.
 
-- `sim.use_box = true`
-- exactly two periodic axes
-- each periodic axis has `box_max - box_min > 0`
-- `sim.field_solver = "fmm"`
-- `field_periodic_image_layers >= 0`
+**Interpretation:** This is not an infinite-periodic solution. Increase the image layer count until the electric field,
+particle flux, and charge distribution of interest stop changing materially.
 
-With `field_periodic_image_layers = 1`, the field source contains the primary cell and its surrounding images, for a total of
-$3\times3$ cells. `field_periodic_far_correction = "none"` does not replace more distant periodic images with an Ewald sum or a
-cached operator. Increase the image layer until target quantities such as field, particle flux, and charging distribution stop
-changing.
+**Next choice:** Use [Finite periodic2 configuration](FinitePeriodicConfiguration.en.html) and
+[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)
+for the reference local-reservoir + closed-PE case.
 
-This is not the infinite-periodic solution obtained by summing the complete lattice. See
-[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for image-layer meaning, a local solar-wind
-reservoir at z-high, photoelectron-only `neutral_return`, top-plane potential reference, and its distinction from scalar
-potential barriers. The integrated runnable example is
-[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml).
-Use the next recipe when the case needs an infinite-periodic operator and an external sheath.
+## Save histories
 
-## Use the Coupled-Calculation Guide for Advanced Outer Sheaths
-
-Infinite-periodic `periodic2`, an external `kinetic_1d` sheath, and reservoir inflow and return share potential and particle-transfer
-state across several sections. Do not assemble that advanced setup from fragments on this page. Use
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) as the canonical coupled-calculation guide.
-The standard small contract fixture is
-[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml).
-
-To include UV photoelectrons in mean outer-sheath density, follow “Select mean outer density separately from tracked photoelectrons”
-in the same coupled-calculation guide. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for local
-`photo_raycast` settings, source charge, and reabsorption checks. `kinetic_mean`, tracked return, and surface deposition have
-different responsibilities, so this page does not present them as independent TOML fragments.
-
-## History Output
+**Action:**
 
 ```toml
 [output]
@@ -253,21 +242,17 @@ write_mesh_potential = true
 write_potential_history = true
 ```
 
-`write_potential_history` evaluates potential at every history output, so it can be expensive for large meshes.
-With `sim.use_box=true`, the same batches also record the z-high plane mean in
-`top_reference_history.csv`. Inspect charge history first, then enable potential history when relative potential is needed.
+**Expected output:** The run creates `charge_history.csv` and `potential_history.csv`.
 
-## Resume Runs
+**Interpretation:** Potential history reevaluates the potential at every saved point and can be expensive for large meshes.
 
-Continue from the same output directory:
+**Next choice:** Start with charge history and enable `write_potential_history` only when relative potential is required.
 
-```toml
-[output]
-dir = "outputs/latest"
-resume = true
-```
+## Resume from a checkpoint
 
-Read checkpoints from a previous directory and write new outputs elsewhere:
+**Prerequisite:** The source directory must contain a valid checkpoint set.
+
+**Action:**
 
 ```toml
 [output]
@@ -276,4 +261,9 @@ resume = true
 restart_from = "../previous/outputs/latest"
 ```
 
-`sim.batch_count` is the cumulative target batch count. If a checkpoint has `batches=100` and the new config has `batch_count=150`, only 50 additional batches run.
+**Expected output:** BEACH loads the checkpoint and writes new outputs to `outputs/continuation`.
+
+**Interpretation:** `sim.batch_count` is the cumulative target. If the checkpoint has `batches=100` and the new
+`batch_count=150`, the resumed run executes 50 additional batches.
+
+**Next choice:** To continue in the same directory, omit `restart_from` and set `dir` to the checkpoint directory.

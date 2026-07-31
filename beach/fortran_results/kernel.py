@@ -127,13 +127,17 @@ def field_kernel_build_info(
     if probe_status not in (0, 2):
         _check_status(probe_status, "beach_kernel_get_build_info")
     if not 0 < text_length.value <= 65535:
-        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+        raise FieldKernelError(
+            "field-kernel build-info returned an invalid text length."
+        )
 
     buffer = ctypes.create_string_buffer(text_length.value + 1)
     status = read_info(buffer)
     _check_status(status, "beach_kernel_get_build_info")
     if not 0 < text_length.value < len(buffer):
-        raise FieldKernelError("field-kernel build-info returned an invalid text length.")
+        raise FieldKernelError(
+            "field-kernel build-info returned an invalid text length."
+        )
     if buffer.raw[text_length.value] != 0:
         raise FieldKernelError("field-kernel build-info is not NUL terminated.")
     try:
@@ -175,7 +179,7 @@ class FieldKernel:
     is fixed after ``build``; charges can be refreshed cheaply with
     :meth:`update_charges`. A ``cached_kneq0`` periodic plan evaluates only the
     nonzero in-plane Fourier component; it is not the simulator's total field
-    unless the physical zero mode and any outer-boundary contribution are
+    unless the physical zero mode and prescribed-field contribution are
     composed separately.
     """
 
@@ -307,8 +311,12 @@ class FieldKernel:
             )
             axes_1based = np.ascontiguousarray(np.asarray(axes, dtype=np.int32) + 1)
             lengths_vec = np.ascontiguousarray(np.asarray(lengths, dtype=np.float64))
-            box_min_arr = np.ascontiguousarray(np.asarray(box_min_vec, dtype=np.float64))
-            box_max_arr = np.ascontiguousarray(np.asarray(box_max_vec, dtype=np.float64))
+            box_min_arr = np.ascontiguousarray(
+                np.asarray(box_min_vec, dtype=np.float64)
+            )
+            box_max_arr = np.ascontiguousarray(
+                np.asarray(box_max_vec, dtype=np.float64)
+            )
             keepalive.extend([axes_1based, lengths_vec, box_min_arr, box_max_arr])
             periodic_axes = axes_1based.ctypes.data_as(ctypes.c_void_p)
             periodic_len = lengths_vec.ctypes.data_as(ctypes.c_void_p)
@@ -330,10 +338,7 @@ class FieldKernel:
         status = self._lib.beach_kernel_build(
             self._handle,
             ctypes.c_int(nsrc),
-            *[
-                vertex.ctypes.data_as(ctypes.c_void_p)
-                for vertex in panel_vertices
-            ],
+            *[vertex.ctypes.data_as(ctypes.c_void_p) for vertex in panel_vertices],
             ctypes.c_double(opts.theta),
             ctypes.c_int(opts.leaf_max),
             ctypes.c_int(opts.order),
@@ -394,7 +399,9 @@ class FieldKernel:
         """Refresh source charges without rebuilding source geometry."""
 
         self._require_open()
-        q = _charges_1d(source_charges, expected=self._source_count, name="source_charges")
+        q = _charges_1d(
+            source_charges, expected=self._source_count, name="source_charges"
+        )
         status = self._lib.beach_kernel_update_charges(
             self._handle,
             ctypes.c_int(self._source_count),
@@ -545,6 +552,7 @@ class FieldKernel:
         build_count = ctypes.c_int()
         fingerprint_length = ctypes.c_int()
         path_length = ctypes.c_int()
+
         def read_info(
             fingerprint_buffer: ctypes.Array[ctypes.c_char],
             path_buffer: ctypes.Array[ctypes.c_char],
@@ -569,7 +577,9 @@ class FieldKernel:
         if probe_status not in (0, 2):
             _check_status(probe_status, "beach_kernel_get_periodic_cache_info")
         if fingerprint_length.value < 0 or path_length.value < 0:
-            raise FieldKernelError("field-kernel diagnostics returned a negative text length.")
+            raise FieldKernelError(
+                "field-kernel diagnostics returned a negative text length."
+            )
 
         fingerprint_buffer = ctypes.create_string_buffer(fingerprint_length.value + 1)
         path_buffer = ctypes.create_string_buffer(path_length.value + 1)
@@ -703,7 +713,9 @@ def calc_object_forces_kernel(
         target_ids = tuple(dict.fromkeys(int(v) for v in target_mesh_ids))
     missing = [mid for mid in target_ids if mid not in available_ids]
     if missing:
-        raise ValueError(f"unknown mesh id(s): {missing}. available={list(available_ids)}")
+        raise ValueError(
+            f"unknown mesh id(s): {missing}. available={list(available_ids)}"
+        )
 
     _require_total_field_config(
         context,
@@ -724,7 +736,9 @@ def calc_object_forces_kernel(
         operation="calc_object_forces_kernel",
     )
     records: list[KernelObjectForceRecord] = []
-    with FieldKernel(triangles, charges, options=options, library_path=library_path) as kernel:
+    with FieldKernel(
+        triangles, charges, options=options, library_path=library_path
+    ) as kernel:
         for mesh_id in target_ids:
             mask = mesh_ids == mesh_id
             if not np.any(mask):
@@ -808,8 +822,12 @@ def _options_from_result(
             allow_cached_kneq0=True,
             allow_historical_root_oracle=allow_historical_root_oracle,
         )
-    resolved_theta = float(theta if theta is not None else (sim or {}).get("tree_theta", 0.5))
-    resolved_leaf_max = int(leaf_max if leaf_max is not None else (sim or {}).get("tree_leaf_max", 16))
+    resolved_theta = float(
+        theta if theta is not None else (sim or {}).get("tree_theta", 0.5)
+    )
+    resolved_leaf_max = int(
+        leaf_max if leaf_max is not None else (sim or {}).get("tree_leaf_max", 16)
+    )
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
     if sim is not None and "box_min" in sim and "box_max" in sim:
@@ -869,12 +887,6 @@ def _require_total_field_config(
             'periodic2.far_correction "m2l_root_oracle" was removed; use '
             '"none" for total-field post-processing.'
         )
-    if _config_has_active_outer_field(config):
-        raise ValueError(
-            f"{operation} cannot reconstruct the simulator total field while "
-            "an outer field model is active. Use saved simulator diagnostics "
-            "or a post-processing API that explicitly composes the outer state."
-        )
 
 
 def _require_complete_total_kernel(
@@ -896,24 +908,6 @@ def _require_complete_total_kernel(
             "mesh_potential.csv where applicable or ObjectInteractionSnapshot "
             "for supported force workflows."
         )
-
-
-def _config_has_active_outer_field(config: Mapping[str, object]) -> bool:
-    legacy = config.get("outer_plasma")
-    if isinstance(legacy, Mapping) and _field_model_is_active(legacy.get("model")):
-        return True
-
-    external = config.get("external_boundary")
-    if not isinstance(external, Mapping):
-        return False
-    field = external.get("field")
-    return isinstance(field, Mapping) and _field_model_is_active(field.get("model"))
-
-
-def _field_model_is_active(value: object) -> bool:
-    if value is None:
-        return False
-    return str(value).strip().lower() not in {"", "none", "not_applicable"}
 
 
 def _load_sim_config(
@@ -940,7 +934,9 @@ def _load_sim_config_near_output(output_dir: Path) -> Mapping[str, object] | Non
     return _load_sim_config(output_dir, config_path=None)
 
 
-def _external_e0_from_sim(sim: Mapping[str, object] | None) -> tuple[float, float, float]:
+def _external_e0_from_sim(
+    sim: Mapping[str, object] | None,
+) -> tuple[float, float, float]:
     if sim is None:
         return (0.0, 0.0, 0.0)
     has_vector = "e0" in sim
@@ -1017,7 +1013,11 @@ def _load_kernel_library(library_path: str | Path | None) -> ctypes.CDLL:
         "or build it with `make build-kernel`.",
     ]
     detail = "\n".join(errors[-4:])
-    raise FieldKernelError("BEACH field kernel library is not available. " + " ".join(hints) + ("\n" + detail if detail else ""))
+    raise FieldKernelError(
+        "BEACH field kernel library is not available. "
+        + " ".join(hints)
+        + ("\n" + detail if detail else "")
+    )
 
 
 def _candidate_library_paths(library_path: str | Path | None) -> list[Path]:
@@ -1213,8 +1213,7 @@ def _far_correction_code(value: str) -> int:
     key = str(value).strip().lower()
     if key == "m2l_root_oracle":
         raise ValueError(
-            'periodic far correction "m2l_root_oracle" was removed; '
-            'use "cached_kneq0".'
+            'periodic far correction "m2l_root_oracle" was removed; use "cached_kneq0".'
         )
     if key not in _FAR_CORRECTION_CODES:
         raise ValueError(

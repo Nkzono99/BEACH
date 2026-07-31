@@ -4,9 +4,8 @@ Lang: [日本語](ParticleEvents.md) | [English](ParticleEvents.en.md)
 
 # 粒子の衝突・境界イベント
 
-BEACHは、現在の軌道線分で最初に起きる衝突・境界イベントまで粒子を進めます。三角形へ衝突すれば
-その位置で吸収し、反射面または周期境界面へ達すれば、残り時間の軌道を作り直します。この処理を
-繰り返して1つの粒子stepを完了します。
+BEACH は、現在の軌道線分で最初に起きる mesh 衝突または box 境界イベントまで粒子を進めます。
+このページは、交点探索、イベントの順序、境界通過後の残り時間、fail-closed status の参照です。
 
 ## 最初に起きるものだけを確定する
 
@@ -26,7 +25,7 @@ mesh hitとbox面の差が$64\epsilon_\mathrm{mach}\max(1,|t|)$以内ならmesh�
 | 最初の衝突・境界イベント | 確定する処理 |
 | --- | --- |
 | mesh | hit位置と要素indexを返し、粒子を吸収 |
-| open face | 境界との交差位置でescape、またはouter interfaceへ渡す |
+| open face | 境界との交差位置で `escape` または `potential_barrier` を適用 |
 | reflect face | 法線速度を反転し、box内側から残り時間を進める |
 | periodic face | 反対側faceの内側へ移し、速度を変えず残り時間を進める |
 
@@ -41,8 +40,8 @@ mesh初期化時に、各三角形のaxis-aligned bounding box（AABB）を作�
 | 64未満 | 全要素のAABBを線形に調べる |
 | 64以上 | 一様gridと3D-DDAで軌道線分が通るcellだけを調べる |
 
-一様gridのcell幅は、1 cellあたり8要素を目安に決めます。cell数は1軸あたり最大128です。各三角形は、
-そのAABBと重なるcellへCSR形式で登録します。これらは現行実装の固定値で、入力parameterではありません。
+一様 grid は 1 cell あたり 8 要素を目安とし、各軸を最大 128 cell にします。各三角形は AABB と重なる
+cell へ CSR 形式で登録します。これらは入力 parameter ではなく、現行実装の固定値です。
 
 queryでは、まず軌道線分とgrid AABBの交差区間を求め、3D-DDAで通過cellを順にたどります。同じ三角形が
 複数cellに登録されていても、保持するのは最小の交差parameterだけです。DDAの反復上限は
@@ -118,16 +117,14 @@ $$
 
 ### open、reflect、periodic
 
-`external_boundary.ordinary_open.model="escape"`では、maskにopen faceが1つでも含まれていれば粒子を消滅させ、
-`escaped_boundary`へ数えます。reflectだけのfaceでは、該当する速度成分を反転します。periodic faceでは
-粒子を反対側へ移し、速度は変えません。境界処理後も生存する粒子は、`nearest`を使ってfaceから
-1 floating-point値だけboxの内側へ置きます。
+`external_boundary.ordinary_open.model="escape"` では、mask に open face が 1 つでもあれば粒子を消滅させ、
+`escaped_boundary` へ数えます。reflect face は該当する速度成分を反転し、periodic face は速度を変えずに
+反対側へ移します。生存粒子は `nearest` で box 面から 1 floating-point 値だけ内側へ置きます。
 
-`[[particles.species]].z_high_boundary="reflect"`は、globalにopenなz-highを、そのspeciesについてだけ
-reflect faceとして処理します。省略時の`"inherit"`ではglobal境界を変更しないため、たとえば光電子だけを
-反射し、ambient speciesを通常のopen境界契約に従わせられます。統合構成ではordinary-openの`escape`を
-選ぶため、ambient speciesはescapeします。このoverrideはouter particle transferより前に作用し、
-`sim.use_box=true`、`sim.bc_z_high="open"`、outer particle transferなしの場合だけ有効です。
+`[[particles.species]].z_high_boundary="reflect"` は、global に open な z-high を、その species に限って
+reflect face として処理します。既定の `"inherit"` は global 境界をそのまま使います。この override は
+`sim.use_box=true` かつ `sim.bc_z_high="open"` の場合だけ有効です。closed PE の組合せは
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
 
 cornerでreflectとperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
 依存しない結果になります。
@@ -150,8 +147,8 @@ $$
 これは単一faceのreduced modelです。複数open faceが同時に関係するcornerは一般化せず、
 `particle_step_ambiguous_open_corner`で停止します。
 
-reservoir粒子の加減速、outer sheath、photoelectron returnは、衝突位置を決めた後に適用する物理モデルです。
-[粒子源](ParticleSourcesBoundaries.html)が生成側、[外部プラズマモデル](OuterPlasmaModels.html)が外部領域での処理を説明します。
+reservoir 粒子の流入補正と closed PE はこのページの対象外です。[reservoir 注入](ReservoirInjection.html)と
+[粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
 
 ## 境界通過後の残り時間を進める
 
@@ -167,35 +164,15 @@ $$
 について、新しい予測中点場とBoris候補を計算します。新たな軌道線分でも、meshとの衝突とbox境界通過を
 比較し、最初に起きるものを調べます。場も再評価するため、反射前のfield sampleは使い回しません。
 
-1回のlocal continuation内で処理できるbox境界イベントは最大8回です。8回までは正しく処理し、9回目が必要なら
-`particle_step_multiple_box_events`を返して未完成stateをcommitしません。これは非常に大きい`dt`、狭いbox、
-または高速粒子を検出する安全上限でもあります。
-guard幅の変更はこの最大8回の安全上限を変更しません。
+1 回の local continuation では box 境界イベントを最大 8 回処理します。9 回目が必要なら
+`particle_step_multiple_box_events` を返し、未完成 state を commit しません。これは大きすぎる `dt`、
+狭い box、または高速粒子を検出する安全上限です。guard 幅を変えてもこの上限は変わりません。
 
 既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
 感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させ、batch、rank、
 particle、species、step、macro charge、位置、速度を標準エラーへ記録します。件数と絶対macro chargeは
 `summary.txt`、restart、charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
 これは局所的な数値回避策であり、物理境界条件そのものの代替ではありません。
-
-## z-highから外部モデルへ粒子を渡す
-
-particle transferが有効なとき、z-high open faceに達した粒子はその場でescapeさせず、interface crossingとして
-callerへ返します。このfaceでは、Boris更新の入出力位置と速度に整合する二次軌道を使って交差時刻を再評価します。
-payloadには、face、step全体に対するfraction、位置、速度、残り時間が入ります。
-
-候補終点がz-high外側にあるstepでは、同じ二次軌道で候補となるx/y面の交差時刻も再評価し、
-実際に先行するbox eventを選び直します。横周期・反射面が先ならその作用後の残り時間を再積分し、
-z-highが先ならouterへ渡します。同時刻なら横方向作用を合成してからouterへ渡します。
-
-この補正は、候補終点がbox外側にあるため検出されたcrossingを対象にします。候補終点がbox内へ戻る
-途中の一時的越境は探索せず、mesh hitは従来のchord判定のままです。
-
-outer modelがlocal returnを返した場合は、戻り位置・速度から残り時間を再び通常のparticle stepで進めます。
-infinityへescapeした場合は粒子を消滅させます。outer側の加減速やreturn条件は
-[外部プラズマモデル](OuterPlasmaModels.html)で決まります。
-元のlocal step全体ではexternal eventを最大8回まで処理し、9回目は
-`particle_step_multiple_external_events`で停止します。この上限と各continuationのbox event上限は別に数えます。
 
 ## 判定を完了できなければ停止する
 
@@ -210,19 +187,17 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 | `collision_query_grid_stalled` | 4 | grid geometry不正またはDDAが進行しない |
 | `particle_step_invalid_boundary` | 1001 | particle、box、衝突・境界geometryが不正 |
 | `particle_step_multiple_box_events` | 1002 | 1 stepで9回目のbox境界イベントが必要 |
-| `particle_step_ambiguous_open_corner` | 1003 | outer所有面またはpotential barrierで複数open faceが同時に発生 |
-| `particle_step_multiple_external_events` | 1004 | 元のlocal stepで9回目のexternal eventが必要 |
+| `particle_step_ambiguous_open_corner` | 1003 | potential barrier で複数 open face が同時に発生 |
 
 旧名`particle_step_unsupported_barrier_corner`は、code 1003の互換aliasとして残します。
 
-これらの異常を「命中なし」とみなすと、粒子が表面を通り抜けて電荷収支を壊します。そのため、通常の
-追跡はfail closedです。OpenMP内では、particle/step番号が最小の失敗情報を選びます。MPI実行では失敗rankと
-位置・速度を全rankで共有し、同じbatch/rank/particle/step/statusを報告して停止します。photo raycastも、
-species/ray/bounceについて同じ方針を使います。
+これらを「命中なし」とみなすと粒子が表面を通り抜けるため、追跡は fail closed です。OpenMP では
+particle/step 番号が最小の失敗を選び、MPI では失敗 rank と状態を共有して全 rank が同じ
+batch/rank/particle/step/status を報告します。photo raycast も species/ray/bounce について同じ方針です。
 
-`grid_stalled` の内部原因を調べる場合は、`BEACH_COLLISION_DIAGNOSTICS=1` を設定すると、停止を返した
-DDA分岐名に加えて `p0` / `p1`、collision grid範囲、cell index、`t_cur` / `t_next` / `t_delta` などを
-標準エラーへ出力します。この環境変数は失敗時の診断出力だけを有効にし、衝突判定の物理挙動は変更しません。
+`grid_stalled` の内部原因は `BEACH_COLLISION_DIAGNOSTICS=1` で確認できます。失敗した DDA 分岐名、
+`p0` / `p1`、grid 範囲、cell index、`t_cur` / `t_next` / `t_delta` などを標準エラーへ出します。
+この環境変数は診断出力だけを有効にし、衝突判定を変更しません。
 
 ## 衝突位置と帯電結果を収束させる
 

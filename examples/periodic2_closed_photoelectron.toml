@@ -2,7 +2,7 @@
 
 # 有限画像 periodic2 で、太陽風は z-high の局所 reservoir から補正なしで注入し、
 # 光電子は z-high 反射と neutral-return closure で表面内再分配だけを解く最小例。
-# これは自己整合な外部シースではない。image layer、box 高さ、batch_duration、
+# 外部シースは解かない。image layer、box 高さ、batch_duration、
 # dt、max_step、ray 数を目的量に対して収束させること。
 
 [sim]

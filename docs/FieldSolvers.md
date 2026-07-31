@@ -78,11 +78,11 @@ $$
 ## periodic2ではsolverと境界成分を組み合わせる
 
 `periodic2`はsolverを1つ選ぶだけでは決まりません。有限画像和または無限画像和、非zero mode、zero mode、
-外部シース、reservoir粒子の加減速、photoelectronのescape/returnを組み合わせる計算構成です。
+reservoir粒子の加減速、photoelectronのescape/returnを組み合わせる計算構成です。
 
 legacyの`sim.field_bc_mode="periodic2"`経路はFMMを使います。小規模検証用のsplit referenceは、Directの
-panel spectral backendを使います。それぞれの成分構成は、
-[periodic2場計算](PeriodicElectrostatics.html)と[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
+panel spectral backendを使います。それぞれの成分構成は
+[periodic2場計算](PeriodicElectrostatics.html)で説明します。
 
 ## solver誤差とmesh離散化誤差を分けて測る
 

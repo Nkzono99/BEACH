@@ -55,10 +55,6 @@ module bem_types
     real(dp) :: multiple_box_events_soft_discard_abs_charge_limit = 1.0d-12
     integer(i32) :: injection_face_phi_grid_n = 3_i32
     integer(i32) :: raycast_max_bounce = 16_i32
-    real(dp) :: sheath_alpha_deg = 60.0d0
-    real(dp) :: sheath_photoelectron_ref_density_cm3 = 64.0d0
-    character(len=16) :: sheath_electron_drift_mode = 'normal'
-    character(len=16) :: sheath_ion_drift_mode = 'normal'
     logical :: use_box = .false.
     real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
     real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]

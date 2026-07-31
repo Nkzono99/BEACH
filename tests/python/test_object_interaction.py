@@ -15,6 +15,8 @@ from beach import (
     ObjectInteractionSnapshot,
     RigidTransform,
 )
+
+
 def _kernel_lib() -> Path:
     path = Path("build/libbeach_field_kernel.so")
     if not path.exists():
@@ -77,10 +79,8 @@ def _write_periodic_config(
     path: Path,
     *,
     far_correction: str,
-    outer_model: str | None = None,
     lower_boundary_model: str = "e_bottom_zero",
 ) -> None:
-    outer = "" if outer_model is None else f'\n[outer_plasma]\nmodel = "{outer_model}"\n'
     periodic_policy = ""
     if far_correction == "cached_kneq0":
         periodic_policy = (
@@ -109,7 +109,6 @@ e0 = [7.0, 8.0, 9.0]
 """.strip()
             + f'\nfield_periodic_far_correction = "{far_correction}"\n'
             + periodic_policy
-            + outer
         ),
         encoding="utf-8",
     )
@@ -159,12 +158,12 @@ def test_free_two_object_force_is_coulomb_action_reaction(tmp_path: Path) -> Non
         first = snapshot.object_probe(1).wrench(torque_origin="origin")
         second = snapshot.object_probe(2).wrench(torque_origin="origin")
         shifted_origin = np.array([0.25, 0.5, 0.75])
-        first_shifted = snapshot.object_probe(1).wrench(
-            torque_origin=shifted_origin
-        )
+        first_shifted = snapshot.object_probe(1).wrench(torque_origin=shifted_origin)
 
     assert first.force_N[0] < 0.0
-    np.testing.assert_allclose(second.force_N, -first.force_N, rtol=1.0e-12, atol=1.0e-20)
+    np.testing.assert_allclose(
+        second.force_N, -first.force_N, rtol=1.0e-12, atol=1.0e-20
+    )
     np.testing.assert_allclose(
         first_shifted.torque_Nm,
         first.torque_Nm - np.cross(shifted_origin, first.force_N),
@@ -198,7 +197,10 @@ class _FakeFieldKernel:
         type(self).instances.append(self)
 
     def update_charges(self, charges: np.ndarray) -> None:
-        if self.fail_update_sum is not None and float(np.sum(charges)) == self.fail_update_sum:
+        if (
+            self.fail_update_sum is not None
+            and float(np.sum(charges)) == self.fail_update_sum
+        ):
             self.fail_update_sum = None
             raise RuntimeError("injected update failure")
         self.current = np.array(charges, copy=True)
@@ -247,7 +249,9 @@ class _FakeZeroMode:
         **_kwargs,
     ) -> None:
         if type(self).forbidden:
-            raise AssertionError("finite configured model must not construct a zero mode")
+            raise AssertionError(
+                "finite configured model must not construct a zero mode"
+            )
         self.source_heights_m = np.array(source_heights_m, copy=True)
         self.current = np.array(source_charges_C, copy=True)
         self.area_xy_m2 = area_xy_m2
@@ -267,9 +271,7 @@ class _FakeZeroMode:
         self.current = np.array(charges, copy=True)
         self.update_history.append(self.current.copy())
         self.e_bottom_history.append(
-            self.default_e_bottom_V_m
-            if e_bottom_V_m is None
-            else float(e_bottom_V_m)
+            self.default_e_bottom_V_m if e_bottom_V_m is None else float(e_bottom_V_m)
         )
 
     def eval(self, z_m: np.ndarray, trace: str = "principal_value"):
@@ -335,10 +337,18 @@ def test_cached_configured_and_override_compose_p_plus_z_minus_primary(
             [7.0, 8.0, 9.0],
         )
         np.testing.assert_allclose(wrench.force_N, [6.0, 14.0, 36.0])
-        assert wrench.components["other_objects_all_images"].potential_energy_J == pytest.approx(12.0)
-        assert wrench.components["target_periodic_images"].potential_energy_J == pytest.approx(2.0)
-        assert wrench.components["external_uniform"].potential_energy_J == pytest.approx(-24.0)
-        assert wrench.components["total_external"].potential_energy_J == pytest.approx(-10.0)
+        assert wrench.components[
+            "other_objects_all_images"
+        ].potential_energy_J == pytest.approx(12.0)
+        assert wrench.components[
+            "target_periodic_images"
+        ].potential_energy_J == pytest.approx(2.0)
+        assert wrench.components[
+            "external_uniform"
+        ].potential_energy_J == pytest.approx(-24.0)
+        assert wrench.components["total_external"].potential_energy_J == pytest.approx(
+            -10.0
+        )
         np.testing.assert_allclose(
             sum(
                 wrench.components[name].force_N
@@ -373,7 +383,10 @@ def test_cached_configured_and_override_compose_p_plus_z_minus_primary(
     periodic_instances = [
         instance for instance in _FakeFieldKernel.instances if instance.is_periodic
     ]
-    assert all(instance.options.external_e0 == (0.0, 0.0, 0.0) for instance in periodic_instances)
+    assert all(
+        instance.options.external_e0 == (0.0, 0.0, 0.0)
+        for instance in periodic_instances
+    )
 
 
 def test_cached_mechanical_trace_restores_native_plus_subtraction(
@@ -535,7 +548,9 @@ def test_failed_component_evaluation_restores_full_source_state(
     with pytest.raises(RuntimeError, match="injected"):
         snapshot.object_probe(1).wrench()
 
-    periodic = next(instance for instance in fake_field.instances if instance.is_periodic)
+    periodic = next(
+        instance for instance in fake_field.instances if instance.is_periodic
+    )
     zero = _FakeZeroMode.instances[0]
     np.testing.assert_array_equal(periodic.current, charges)
     np.testing.assert_array_equal(zero.current, charges)
@@ -571,55 +586,6 @@ def test_snapshot_defensively_copies_saved_source_arrays(
     with pytest.raises(ValueError):
         snapshot.source_charges_C[0] = 0.0
     snapshot.close()
-
-
-def test_active_outer_model_rejected_before_native_construction(
-    tmp_path: Path,
-    fake_native,
-) -> None:
-    fake_field, _ = fake_native
-    config = tmp_path / "beach.toml"
-    _write_periodic_config(
-        config,
-        far_correction="cached_kneq0",
-        outer_model="kinetic_1d",
-    )
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0]]),
-        np.array([1.0]),
-        np.array([1]),
-    )
-
-    with pytest.raises(ValueError, match="outer_plasma"):
-        ObjectInteractionSnapshot.from_result(result, config_path=config)
-
-    assert fake_field.instances == []
-
-
-def test_active_external_boundary_field_rejected_before_native_construction(
-    tmp_path: Path,
-    fake_native,
-) -> None:
-    fake_field, _ = fake_native
-    config = tmp_path / "beach.toml"
-    _write_periodic_config(config, far_correction="cached_kneq0")
-    config.write_text(
-        config.read_text(encoding="utf-8")
-        + '\n[external_boundary.field]\nmodel = "kinetic_1d"\n',
-        encoding="utf-8",
-    )
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0]]),
-        np.array([1.0]),
-        np.array([1]),
-    )
-
-    with pytest.raises(ValueError, match="external_boundary.field"):
-        ObjectInteractionSnapshot.from_result(result, config_path=config)
-
-    assert fake_field.instances == []
 
 
 @pytest.mark.parametrize(
@@ -779,9 +745,7 @@ def test_incomplete_box_config_fails_before_native_construction(
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     config.write_text(
-        config.read_text(encoding="utf-8").replace(
-            "box_max = [2.0, 2.0, 2.0]\n", ""
-        ),
+        config.read_text(encoding="utf-8").replace("box_max = [2.0, 2.0, 2.0]\n", ""),
         encoding="utf-8",
     )
     result = _result(
@@ -816,7 +780,9 @@ def test_probe_prevalidates_transformed_points_before_native_calls(
         config_path=config,
     ) as snapshot:
         probe = snapshot.object_probe(1)
-        periodic = next(instance for instance in fake_field.instances if instance.is_periodic)
+        periodic = next(
+            instance for instance in fake_field.instances if instance.is_periodic
+        )
         before = periodic.eval_calls
         with pytest.raises(ValueError, match="box"):
             probe.wrench(transform=RigidTransform.translation([0.0, 0.0, 4.0]))
@@ -842,7 +808,9 @@ def test_restore_failure_poisons_snapshot_and_blocks_reuse(
         config_path=config,
     )
     probe = snapshot.object_probe(1)
-    periodic = next(instance for instance in fake_field.instances if instance.is_periodic)
+    periodic = next(
+        instance for instance in fake_field.instances if instance.is_periodic
+    )
     periodic.fail_update_sum = 3.0
 
     with pytest.raises(FieldKernelError, match="restore"):
@@ -1046,11 +1014,18 @@ def test_periodic_snapshot_connects_one_mesh_across_the_cell_seam(
         config_path=config,
     ) as snapshot:
         probe = snapshot.object_probe(1)
-        periodic = next(instance for instance in fake_field.instances if instance.is_periodic)
-        primary = next(instance for instance in fake_field.instances if not instance.is_periodic)
+        periodic = next(
+            instance for instance in fake_field.instances if instance.is_periodic
+        )
+        primary = next(
+            instance for instance in fake_field.instances if not instance.is_periodic
+        )
 
         assert not snapshot.source_triangles_m.flags.writeable
-        assert snapshot.source_triangles_m.tobytes() == np.asarray(result.triangles).tobytes()
+        assert (
+            snapshot.source_triangles_m.tobytes()
+            == np.asarray(result.triangles).tobytes()
+        )
         assert np.ptp(snapshot.source_positions_m[:, 0]) == pytest.approx(3.6)
         assert np.ptp(periodic.source_positions[:, 0]) == pytest.approx(3.6)
         assert np.ptp(primary.source_positions[:, 0]) == pytest.approx(0.4)

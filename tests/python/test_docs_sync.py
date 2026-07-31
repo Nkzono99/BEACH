@@ -126,12 +126,10 @@ def test_particle_escape_return_starts_from_boundary_ownership() -> None:
         "ParticleEscapeReturn.md": (
             "## 1. `escape`: open面で粒子を除去する",
             "## 2. `potential_barrier`: scalar障壁で反射を判定する",
-            "## 3. `kinetic_1d`: 離散sheath profileでreturnを求める",
         ),
         "ParticleEscapeReturn.en.md": (
             "## 1. `escape`: remove a particle at an open face",
             "## 2. `potential_barrier`: decide reflection at a scalar barrier",
-            "## 3. `kinetic_1d`: obtain return from a discrete sheath profile",
         ),
     }
 
@@ -140,8 +138,8 @@ def test_particle_escape_return_starts_from_boundary_ownership() -> None:
         positions = [text.index(heading) for heading in headings]
         assert positions == sorted(positions)
         assert "external_boundary.ordinary_open.model" in text
-        assert "external_boundary.field.model" in text
-        assert "external_boundary.particles.mode" in text
+        assert "[external_boundary.field]" in text
+        assert "[external_boundary.particles]" in text
         assert "sim.open_boundary_model" not in text
         assert "particle_transfer_mode" not in text
 
@@ -326,17 +324,6 @@ def test_generated_pages_rewrite_adr_links_to_github() -> None:
         _, content = module.render_page(page)
         assert "](adr/" not in content, page.source
 
-    migration = next(
-        page
-        for page in module.PAGES
-        if page.locale == "root" and page.slug == "boundary-configuration-migration"
-    )
-    _, content = module.render_page(migration)
-    assert (
-        f"{module.GITHUB_BLOB_ROOT}/docs/adr/0010-remove-unified-linear-response.md"
-        in content
-    )
-
 
 def test_configuration_recipes_prioritize_meshes_and_particle_sources() -> None:
     for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
@@ -356,166 +343,23 @@ def test_configuration_recipes_prioritize_meshes_and_particle_sources() -> None:
         assert 'kind = "sphere"' in text
 
         for source_mode in ("volume_seed", "reservoir_face", "photo_raycast"):
-            assert f'`{source_mode}`' in text
+            assert f"`{source_mode}`" in text
             assert f'source_mode = "{source_mode}"' in text
         assert "target_macro_particles_per_batch" in text
         assert "rays_per_batch" in text
         assert "sim.batch_duration" in text
 
 
-def test_configuration_recipes_delegate_advanced_outer_coupling() -> None:
-    expected_links = {
-        "ConfigurationRecipes.md": (
-            "InfinitePeriodicOuterConfiguration.html",
-            "PhotoelectronEmission.html",
-        ),
-        "ConfigurationRecipes.en.md": (
-            "InfinitePeriodicOuterConfiguration.en.html",
-            "PhotoelectronEmission.en.html",
-        ),
-    }
+def test_configuration_recipes_do_not_advertise_removed_outer_coupling() -> None:
+    removed_terms = (
+        "InfinitePeriodicOuterConfiguration",
+        "OuterPlasmaModels",
+        "periodic2_kinetic_outer.toml",
+        "kinetic_1d",
+    )
 
-    for name, links in expected_links.items():
+    for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
         text = _read_doc(name)
-
-        for link in links:
-            assert link in text
-        assert "examples/periodic2_kinetic_outer.toml" in text
+        assert all(term not in text for term in removed_terms)
         assert 'field_periodic_far_correction = "cached_kneq0"' not in text
         assert 'photoelectron_density_model = "kinetic_mean"' not in text
-
-
-def test_split_detail_pages_cover_migrated_numerics_topics() -> None:
-    legacy_pages = (
-        "ParticleChargeLoop.md",
-        "ParticleChargeLoop.en.md",
-        "PeriodicZeroModeOuterPlasma.md",
-        "PeriodicZeroModeOuterPlasma.en.md",
-        "SheathReservoirBoundary.md",
-        "SheathReservoirBoundary.en.md",
-    )
-    for name in legacy_pages:
-        assert not (ROOT / "docs" / name).exists()
-
-    pages = {
-        name: _read_doc(name)
-        for name in (
-            "Algorithms.md",
-            "Algorithms.en.md",
-            "BorisPusher.md",
-            "BorisPusher.en.md",
-            "FMMCore.md",
-            "FMMCore.en.md",
-            "PeriodicElectrostatics.md",
-            "PeriodicElectrostatics.en.md",
-            "KineticOuterPlasma.md",
-            "KineticOuterPlasma.en.md",
-            "ReservoirInjection.md",
-            "ReservoirInjection.en.md",
-            "ParticleEscapeReturn.md",
-            "ParticleEscapeReturn.en.md",
-            "PhotoelectronEmission.md",
-            "PhotoelectronEmission.en.md",
-        )
-    }
-
-    for phrase in (
-        "## n batchの計算フロー",
-        "[Boris粒子更新](BorisPusher.html)",
-        "[粒子の衝突・境界イベント](ParticleEvents.html)",
-        "[表面電荷更新](SurfaceModels.html)",
-    ):
-        assert phrase in pages["Algorithms.md"]
-    for phrase in (
-        "## The n-batch computation flow",
-        "[Boris particle update](BorisPusher.en.html)",
-        "[Particle collision and boundary events](ParticleEvents.en.html)",
-        "[Surface charge update](SurfaceModels.en.html)",
-    ):
-        assert phrase in pages["Algorithms.en.md"]
-
-    assert "## 予測中点で電場を評価する" in pages["BorisPusher.md"]
-    assert "## 台形則で候補位置を作る" in pages["BorisPusher.md"]
-    assert "## Sample the field at a predicted midpoint" in pages["BorisPusher.en.md"]
-    assert "## Form the candidate position with the trapezoidal rule" in pages[
-        "BorisPusher.en.md"
-    ]
-
-    for heading in (
-        "何を高速化するoperatorか",
-        "1回のfield評価で何を足すか",
-        "数式との対応",
-        "cache lifecycle",
-        "MPI/OpenMPによるcold build",
-        "cold buildとwarm runの違い",
-        "SysA測定値",
-        "運用指針",
-    ):
-        assert f"#### {heading}" in pages["FMMCore.md"]
-    for heading in (
-        "What the operator accelerates",
-        "What one field evaluation adds",
-        "Relation to the formula",
-        "Cache lifecycle",
-        "MPI/OpenMP cold build",
-        "Cold versus warm execution",
-        "SysA measurements",
-        "Operating guidance",
-    ):
-        assert f"#### {heading}" in pages["FMMCore.en.md"]
-
-    migrated_headings = {
-        "PeriodicElectrostatics.md": (
-            "## 場を4つの成分に分ける",
-            "## Ewald2Pで無限周期の遠方場を分離する",
-            "## 物理`k=0`を一度だけ加える",
-        ),
-        "KineticOuterPlasma.md": (
-            "## VDFを電位依存の電荷密度へ写す",
-            "## Zhao populationを蓄積電荷へ接続する",
-            "## continuation付きNewton法で物理解を追う",
-        ),
-        "ReservoirInjection.md": (
-            "## Maxwell 分布を流入流束で重み付けする",
-            "## 1 つの電位差で到達条件と注入面速度を決める",
-        ),
-        "ParticleEscapeReturn.md": (
-            "## 3. `kinetic_1d`: 離散sheath profileでreturnを求める",
-            "## outer flightをglobal timeへ加えない近似",
-        ),
-        "PhotoelectronEmission.md": (
-            "## 放出から再吸収までを同じbatchで追う",
-            "## 放出・再吸収・escapeの電荷収支を確認する",
-        ),
-    }
-    for name, headings in migrated_headings.items():
-        for heading in headings:
-            assert heading in pages[name]
-
-    migrated_headings_en = {
-        "PeriodicElectrostatics.en.md": (
-            "## Decompose the field into four components",
-            "## Separate the infinite-periodic far field with Ewald2P",
-            "## Add the physical `k=0` component exactly once",
-        ),
-        "KineticOuterPlasma.en.md": (
-            "## Map VDFs to potential-dependent charge density",
-            "## Connect Zhao populations to accumulated charge",
-            "## Follow the physical branch with continued Newton solves",
-        ),
-        "ReservoirInjection.en.md": (
-            "## Weight a Maxwell distribution by inflow flux",
-            "## Use one potential drop for accessibility and face velocity",
-        ),
-        "ParticleEscapeReturn.en.md": (
-            "## 3. `kinetic_1d`: obtain return from a discrete sheath profile",
-            "## Keep outer flight outside global simulation time",
-        ),
-        "PhotoelectronEmission.en.md": (
-            "## Track emission through reabsorption in the same batch",
-            "## Check charge balance across emission, reabsorption, and escape",
-        ),
-    }
-    for name, headings in migrated_headings_en.items():
-        for heading in headings:
-            assert heading in pages[name]

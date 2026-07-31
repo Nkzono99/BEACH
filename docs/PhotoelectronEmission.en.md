@@ -4,9 +4,9 @@ Lang: [日本語](PhotoelectronEmission.md) | [English](PhotoelectronEmission.en
 
 # Photoelectron emission and lifecycle
 
-`source_mode="photo_raycast"` emits particles from the first surface hit by an illumination ray. Mesh ray casting determines
-the emission location and surface state stores source charge, but the photoelectron becomes an ordinary particle after creation.
-It uses the same field snapshot, Boris update, collision query, and box boundaries.
+`source_mode="photo_raycast"` emits particles from the first surface hit by an illumination ray. This page covers ray casting,
+emission amount and velocity, source charge, and the closed-PE `neutral_return` closure. After creation, a photoelectron uses
+the ordinary fixed field, Boris update, collision query, and box boundaries.
 
 ## Track emission through reabsorption in the same batch
 
@@ -17,8 +17,8 @@ It uses the same field snapshot, Boris update, collision query, and box boundari
 5. Track it as an ordinary particle and hand it to the common escape/return treatment after it reaches a box boundary.
 6. Commit emission and absorption charge to the surface at batch end.
 
-Emission and reabsorption can occur in the same batch, but the field snapshot is not refreshed between them. Net surface charge
-created by emission therefore changes the field starting in the next batch.
+Emission and reabsorption can occur in one batch, but the field is not refreshed between them. Net surface charge changes the
+field starting in the next batch.
 
 ## Locate the emitting surface with illumination rays
 
@@ -58,9 +58,8 @@ $$
 A missed ray creates no particle, so shadowing and apparent surface area enter total emission through hit probability.
 `w_particle` and `target_macro_particles_per_batch` are not accepted for `photo_raycast`.
 
-`rays_per_batch` is the sampling count for the illumination integral, not the physical emission amount. Increasing it reduces
-$w_\mathrm{hit}$ and Monte Carlo noise in visibility and emission location. Results must be checked for convergence with ray
-count.
+`rays_per_batch` is the sample count for the illumination integral, not the physical emission amount. Increasing it reduces
+$w_\mathrm{hit}$ and Monte Carlo noise in visibility and emission location. Check convergence with ray count.
 
 ## Build the emitted state from the surface normal
 
@@ -75,8 +74,8 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$:
 - both tangential components are zero-mean Gaussians with standard deviation $\sigma$;
 - Gaussian sampling is truncated at $6\sigma$.
 
-Normal velocity is positive, so a new particle leaves the surface toward the illumination side. Its tracked orbit and common
-box-boundary or outer-transfer treatment then decide whether it returns or escapes.
+Normal velocity is positive, so a new particle leaves toward the illumination side. Its tracked orbit and common box boundaries
+then determine reabsorption, escape, or local reflection.
 
 ## Check charge balance across emission, reabsorption, and escape
 
@@ -95,14 +94,13 @@ no subsequent lateral surface conduction.
 
 ## Use the common escape and return treatment after emission
 
-A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. There is no emission-time setting that multiplies this
-weight by an escape fraction. Surface return is handled as an ordinary collision, while a particle reaching an open face uses
-the same `external_boundary.ordinary_open` or outer particle mode as reservoir and `volume_seed` particles.
+A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. No emission-time setting multiplies the weight by an
+escape fraction. Surface return is an ordinary collision; an open-face event uses the same
+`external_boundary.ordinary_open` treatment as other sources.
 
 ### Close only photoelectrons at z-high
 
-When no outer particle transfer is used, local reflection can isolate surface
-redistribution by photoelectrons:
+Use local reflection to evaluate photoelectron surface redistribution on closed orbits:
 
 ```toml
 [[particles.species]]
@@ -118,7 +116,7 @@ and reintegrates the remainder of the step. Ambient species that omit the key
 retain `"inherit"` and follow the global open-boundary contract. They escape
 when the integrated configuration selects
 `external_boundary.ordinary_open.model="escape"`. `reflect` requires
-`sim.use_box=true`, globally open z-high, and no outer particle transfer.
+`sim.use_box=true` and globally open z-high.
 `inject_face` selects the illumination-ray origin and is separate from the
 post-creation `z_high_boundary` action.
 
@@ -139,50 +137,22 @@ escape, `soft_discard`, or a charge-sign mismatch.
 An unresolved fraction above 5% also stops before correction because it is
 outside this closure's fixed applicability range.
 
-Full reflection is an artificial mirror at the top of a finite box, not a
-self-consistent sheath or quasineutrality solution. `neutral_return` is also a
-statistical zero-net-photoelectron-current closure, not a resolved trajectory
-for every long-lived particle. Converge `max_step`, `dt`, ray count, and batch
-width until both `abs(weight_scale-1)` and the unresolved fraction are small. See
+Full reflection is an artificial mirror at the top of a finite box, not a self-consistent sheath or quasineutrality solution.
+`neutral_return` is a statistical zero-net-photoelectron-current closure, not a resolved trajectory for every long-lived
+particle. Converge `max_step`, `dt`, ray count, and batch width until `abs(weight_scale-1)` and the unresolved fraction are small. See
 [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
 for the integrated field, inflow, and potential-reference setup.
 
-For a finite box without a solved external region,
-`external_boundary.ordinary_open.model="potential_barrier"` classifies reflection or escape
-from crossing-point potential and normal kinetic energy. With a self-consistent external sheath,
-`external_boundary.field.model` and `external_boundary.particles.mode` are canonical. See
-[Particle escape and return](ParticleEscapeReturn.en.html) for the scalar barrier and 1-D outer-profile return.
-
-Every `photo_raycast` species using tracked outer transfer requires `deposit_opposite_charge_on_emit=true` to close emission and
-return charge balance.
-
-## Include photoelectrons in the mean outer-plasma density
-
-`external_boundary.field.photoelectron_density_model="kinetic_mean"` uses the temperature and emission current density of the first negative
-`photo_raycast` species as a plane-averaged source in the 1-D Poisson density closure. Its outgoing and turning-return populations
-contribute to outer space charge, but it neither replaces surface absorption of tracked particles nor deposits an extra
-statistical return current on the surface.
-
-Tracked photoelectrons transferred through z-high use the same source-independent escape/return treatment as other particles.
-See [Particle escape and return](ParticleEscapeReturn.en.html) for the quasi-steady approximation that omits outer flight from
-global time, and [Outer plasma models](OuterPlasmaModels.en.html) for field construction.
-
-`external_boundary.field.kinetic_closure="zhao_charge_driven"` constructs a
-self-consistent 1-D outer profile that preserves the interface field set by
-accumulated charge. `external_boundary.particles.mode="zhao_queue"`
-additionally closes the photoelectron population from tracked outer inventory.
-With `mode="same_batch"` or `"zhao_queue"`, that profile controls inflow and
-return or escape at the z-high interface.
+See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between ordinary-open `escape` /
+`potential_barrier` and closed PE.
 
 ## Check convergence of photoelectron emission
 
 Increase `rays_per_batch` and verify convergence of hit fraction, emitted current, and charging distribution. When reabsorption
 location matters, reduce `dt` and verify that the result is unchanged. See [Inspect Output Files](OutputGuide.en.html) for the
-species-resolved charge balance across emission, absorption, and escape and for diagnostics specific to outer return.
+species-resolved charge balance and closed-PE correction diagnostics.
 
 ## Code reference
 
 - Ray propagation, hit, emission velocity, and weight: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - Source creation and emission charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- Kinetic mean photoelectron density: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
-- Kinetic mean runtime assembly: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)

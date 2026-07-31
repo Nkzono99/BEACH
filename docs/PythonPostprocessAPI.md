@@ -126,26 +126,6 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別・surface model・epsilon_r メタデータ |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
-| `implicit_mean_last_returned_outer_flight_time_mean_s` | `float \| None` | 今回の実行で最後に完了した batch の帰還光電子についての電荷重み付き平均外部飛行時間 [s] |
-| `implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2` | `float \| None` | 同じ batch の帰還光電子について Little の法則から見積もった正の電荷量列密度 [C m^-2] |
-| `coupling_outer_queue_enabled` | `bool \| None` | 過渡 outer-event queue の有効状態 |
-| `outer_photoelectron_population_fraction` | `float \| None` | Zhao 光電子 population の占有係数 `eta` |
-| `outer_photoelectron_column_per_area_m2` | `float \| None` | 解いた有限外部領域の光電子列密度 [m^-2] |
-| `outer_photoelectron_column_target_per_area_m2` | `float \| None` | queue 在庫から与えた光電子列密度 [m^-2] |
-| `outer_photoelectron_column_residual_per_area_m2` | `float \| None` | 解と target の列密度差 [m^-2] |
-| `outer_queue_event_count` | `int \| None` | 出力時点の active outer event 数 |
-| `outer_queue_signed_charge_c` | `float \| None` | 出力時点の queue 内符号付き電荷 [C] |
-| `outer_queue_fingerprint` | `str \| None` | 全rankのqueue内容を束縛するrestart fingerprint |
-
-2 つの `implicit_mean_last_*` フィールドは最大値や累積値ではなく、今回の実行で最後に完了した batch の
-帰還イベントだけを表します。`summary.txt` に両方の key がない旧出力、非 `implicit_mean` 出力、
-または batch を進めなかった no-op resume では、どちらも `None` です。
-一方だけを含む不完全な `summary.txt` は `ValueError` で拒否します。
-
-過渡 queue を使わない新しい出力では `coupling_outer_queue_enabled` は `False` となり、
-queue 固有の診断値は `None` です。対応する key を持たない旧 `summary.txt` では、
-有効状態も含めて `None` となります。flagが`True`ならqueue固有の7 keyをすべて要求し、flagが`False`ならそれらを
-禁止します。fingerprintは16桁の大文字hexでなければならず、不完全または混在した新形式summaryはfail closedで拒否します。
 
 ### 3.3 `FortranChargeHistory`
 
@@ -577,9 +557,8 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `"configured"` | run の `beach.toml` をそのまま使用する。free、`far_correction="none"` の有限画像、または cached periodic のいずれにもなり得る |
 | `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と、`[periodic2].lower_boundary_model`に従う物理的な`k = 0` modeを組み合わせる。cache の生成・再利用条件を満たす必要がある |
 
-完全な`beach.toml`と`sim.box_min` / `sim.box_max`が必要です。現行releaseで扱えるのは
-`outer_plasma.model="none"`または`external_boundary.field.model="none"`だけです。
-active outer fieldがある場合は、fieldを無視せずに処理を停止します。
+完全な`beach.toml`と`sim.box_min` / `sim.box_max`が必要です。
+`external_boundary.field.model`は現行仕様どおり`"none"`でなければなりません。
 
 x/y periodic meshがcell seamをまたぐ場合、snapshot全体のsource geometryは、simulationとcache identityに一致する
 saved表現のまま保持します。一方、`object_probe()`は選択したmeshだけを周期的に連結したbranchにunwrapします。

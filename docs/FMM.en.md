@@ -4,16 +4,15 @@ Lang: [日本語](FMM.md) | [English](FMM.en.md)
 
 # FMM
 
-The Fast Multipole Method (FMM) reuses a computation plan built from fixed geometry and compresses distant interactions into
-expansion coefficients. Each batch refreshes charge-dependent coefficients; each particle target combines the far expansion
-with a near Direct sum. It reduces work for many boundary elements and many particle targets while its error is measured against
-Direct.
+The Fast Multipole Method (FMM) reuses a plan built from fixed geometry and compresses distant sources into expansion
+coefficients. Each batch refreshes charge-dependent coefficients; each particle target combines the far expansion with a near
+Direct sum.
 
 | Suitable calculation | Check first |
 | --- | --- |
 | Many elements and many particle steps per batch | Difference from Direct and release-build runtime |
 | Large triangle P0 mesh | Difference from panel Direct and mesh refinement |
-| `periodic2` field | Image sum, nonzero/zero modes, and outer-model composition |
+| `periodic2` field | Image sum, nonzero/zero modes, and zero-mode boundary condition |
 
 ```toml
 [sim]
@@ -138,12 +137,8 @@ To reuse a fixed mesh over many batches, FMM separates geometry-dependent `plan`
 | plan | Source tree, target tree, near/far lists, P2M basis, translation operators | Initialization; rebuild if geometry, source count, or major options change |
 | state | Current `q_elem`, multipole coefficients, local coefficients | Whenever the field snapshot is refreshed |
 
-`build_plan` constructs trees and interaction lists and precomputes geometry-only quantities. `update_state` performs P2M, M2M,
-M2L, and L2L for the current element charges. At each particle position, evaluation needs only the local expansion of its target
-leaf plus near Direct interactions.
-
-State is not refreshed particle by particle within a batch. Deposited charge is committed at the end of the batch and enters the
-state used by the next field snapshot.
+`build_plan` precomputes geometry-only quantities. `update_state` performs P2M, M2M, M2L, and L2L for current element charges.
+Deposited charge is committed at batch end and enters `state` at the next field snapshot.
 
 ## Cover the particle region with the target tree
 
@@ -209,16 +204,11 @@ refresh and evaluation over every element target beyond the normal batch field u
 
 ## Connect periodic2 far correction to local expansions
 
-The ordinary P2M-to-L2P sequence is unchanged for `periodic2`. Only the smooth periodic field beyond the finite image range is
-inserted as an additional root-multipole-to-target-local operator after tree M2L and before L2L. The implementation therefore
-shares the FMM `plan`, `state`, and local coefficients, while remaining a distinct stage from ordinary tree M2L.
-
-[periodic2 Far Correction](PeriodicFarCorrection.en.html) now covers `none`, production
-`cached_kneq0`, the Ewald2P teacher, cache behavior, and `k=0` ownership. See [periodic2 electrostatics](PeriodicElectrostatics.en.html)
-for the complete field decomposition and [outer-plasma models](OuterPlasmaModels.en.html) for outer-domain coupling.
-
-Small split-reference cases combine `field_solver="direct"` with a panel spectral backend. Their configuration is described in
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html).
+For `periodic2`, the smooth field beyond the finite images is inserted as a root-multipole-to-target-local operator after M2L
+and before L2L. See [periodic2 Far Correction](PeriodicFarCorrection.en.html) for `none`, production `cached_kneq0`, the
+Ewald2P teacher, and cache behavior; see [periodic2 electrostatics](PeriodicElectrostatics.en.html) for ownership of the complete
+field including zero mode. Small reference cases can combine `field_solver="direct"` with
+`panel_spectral_reference`.
 
 ## Measure setup cost separately from particle evaluation
 
@@ -258,7 +248,8 @@ step.
 - free and periodic2 field boundaries
 - analytic triangle-P0 near interactions and exact P2M
 - Direct fallback for targets outside the tree
-- periodic zero mode and outer response are not completed by the FMM core alone
+- the physical periodic zero mode is added exactly once outside the FMM core
+- self-consistent outer-plasma/sheath models are unsupported
 
 Coefficient arrays, interaction caches, translation precomputation, and parallel loops are documented in
 [Coulomb FMM internals](FMMCore.en.html). Follow [periodic2 Far Correction](PeriodicFarCorrection.en.html) for periodic-operator

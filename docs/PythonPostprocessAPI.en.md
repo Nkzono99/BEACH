@@ -125,30 +125,6 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `mesh_sources` | `dict[int, MeshSource] \| None` | Mesh kind, surface model, and epsilon_r metadata |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Centroid potentials output by Fortran [V] |
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
-| `implicit_mean_last_returned_outer_flight_time_mean_s` | `float \| None` | Charge-weighted mean outer flight time of photoelectrons that returned in the last batch completed by this invocation [s] |
-| `implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2` | `float \| None` | Positive returning-photoelectron charge column estimated by Little's law for that batch [C m^-2] |
-| `coupling_outer_queue_enabled` | `bool \| None` | Whether the transient outer-event queue was enabled |
-| `outer_photoelectron_population_fraction` | `float \| None` | Zhao photoelectron-population occupancy factor `eta` |
-| `outer_photoelectron_column_per_area_m2` | `float \| None` | Solved photoelectron column in the finite outer domain [m^-2] |
-| `outer_photoelectron_column_target_per_area_m2` | `float \| None` | Photoelectron-column target supplied by the queue inventory [m^-2] |
-| `outer_photoelectron_column_residual_per_area_m2` | `float \| None` | Solved minus target photoelectron column [m^-2] |
-| `outer_queue_event_count` | `int \| None` | Number of active outer events at output time |
-| `outer_queue_signed_charge_c` | `float \| None` | Signed charge held in the queue at output time [C] |
-| `outer_queue_fingerprint` | `str \| None` | Restart fingerprint binding all rank-local queue contents |
-
-The two `implicit_mean_last_*` fields are neither maxima nor cumulative values;
-they describe only returning events in the last batch completed by the current
-invocation. Both are `None` for older or non-`implicit_mean` outputs, and for a
-no-op resume that advances no batch, when `summary.txt` contains neither key.
-A summary containing only one of the two keys is rejected with `ValueError`.
-
-For new outputs that do not use the transient queue,
-`coupling_outer_queue_enabled` is `False` and the queue-specific diagnostics
-are `None`. Older `summary.txt` files without the corresponding keys also
-produce `None` for the enabled state. When the flag is `True`, all seven
-queue-specific keys are required; when it is `False`, they are forbidden. The
-fingerprint must contain 16 uppercase hexadecimal characters. Incomplete or
-mixed new-format summaries are rejected fail closed.
 
 ### 3.3 `FortranChargeHistory`
 
@@ -594,10 +570,9 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `far_correction="none"`, or cached periodic |
 | `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode selected by `[periodic2].lower_boundary_model`. Cache generation or reuse must succeed |
 
-A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required. The
-current release supports only `outer_plasma.model="none"` or
-`external_boundary.field.model="none"`; it rejects an active outer field
-explicitly instead of silently omitting it.
+A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required.
+`external_boundary.field.model` must be `"none"` as required by the current
+configuration contract.
 
 When an x/y-periodic mesh crosses a cell seam, the snapshot keeps all-source
 geometry in the saved representation so it remains identical to the simulation

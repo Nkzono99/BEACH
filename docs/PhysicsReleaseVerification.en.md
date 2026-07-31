@@ -1,6 +1,6 @@
 # Physics release verification
 
-Quantitative use of the new periodic2 and outer-plasma models requires both portable CI and the HPC release gate:
+Quantitative use of the periodic2 model requires both portable CI and the HPC release gate:
 
 ```bash
 make test-l2

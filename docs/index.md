@@ -52,6 +52,6 @@ BEACH は、同じ電場を共有する粒子の追跡と、末尾の表面電�
 
 - **初めて実行する：** [インストール](Installation.html) → [10 分チュートリアル](Tutorial.html)
 - **研究ケースを作る：** [シミュレーションケースを設計する](ConfigurationRecipes.html) → [`beach.toml`を作成・検証する](Configuration.html) → [実行する](Execution.html) → [結果を検証する](ValidationGuide.html)
-- **外部シースを構成する：** [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)。自己整合な外部シースには`kinetic_1d`を使います。
+- **open境界と局所returnを構成する：** [粒子のescapeと局所return](ParticleEscapeReturn.html)。
 - **数値モデルを理解する：** [計算モデルの全体像](Algorithms.html) → [表面電荷更新](SurfaceModels.html) → [場の評価](FieldSolvers.html)
 - **開発する：** [開発・運用ワークフロー](Workflow.html) → [物理リリースの検証](PhysicsReleaseVerification.html) → [Fortran 依存関係マップ](FortranDependencyMap.html)

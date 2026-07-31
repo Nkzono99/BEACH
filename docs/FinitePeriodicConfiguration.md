@@ -4,29 +4,24 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 # periodic2有限画像構成
 
-このページは、外部1Dシースを解かずに局所的なレゴリス帯電と光電子による表面内再分配を調べる
-`periodic2` 構成の正本です。太陽風VDFはz-high面で定義し、光電子だけを閉じます。電位は
-無限遠ではなくz-high面平均に対する差として読みます。
+このページは、局所 reservoir + closed PE によってレゴリス帯電と光電子の表面内再分配を調べる
+`periodic2` 構成の正本です。太陽風 VDF は z-high 面で定義し、光電子だけを閉じ、電位は z-high 面平均からの
+差として読みます。自己整合 outer-plasma/sheath は解きません。
 
-この構成の狙いは、外部シースを近似的に再現することではありません。太陽風が作る正味表面電荷と、
-光電子が作る局所的な電荷移送を、少ない仮定で安定に分けることです。
-
-## まず三つの構成を区別する
+## まず二つの構成を区別する
 
 | 構成 | 太陽風流入 | 光電子 | 電位基準 | 用途 |
 | --- | --- | --- | --- | --- |
 | **局所reservoir + closed PE** | z-highのVDFを補正せず使用 | z-high反射 + `neutral_return` | z-high面平均 | このページの基準構成。局所再分配とbatch感度 |
 | scalar barrier | `infinity_barrier` | 共通の`potential_barrier` | `phi_infty` | 一つのscalar障壁による比較 |
-| 無限周期 + outer plasma | 1D profileから写像 | profileでreturn/escape | $\phi_\infty=0$ | 自己整合な平均シースが必要な場合 |
 
 同じrunでこれらを重ねません。特に、closed PE構成には`infinity_barrier`、
-`potential_barrier`、`kinetic_1d` particle transferを追加しません。
+`potential_barrier`を追加しません。
 
 ## 推奨する統合構成
 
 完全な実行例は
-[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)
-です。中心となる設定は次です。
+[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml) です。
 
 ```toml
 [sim]
@@ -54,8 +49,8 @@ inflow_model = "source_vdf"
 model = "escape"
 ```
 
-太陽風electron/ionには通常の`reservoir_face`を使います。ここで指定する密度、温度、driftは
-**z-high面の局所boundary VDF**です。無限遠VDFではなく、表面電位による到達率・速度補正も行いません。
+太陽風 electron/ion には通常の `reservoir_face` を使います。密度、温度、drift は
+**z-high 面の局所 boundary VDF**であり、表面電位による到達率・速度補正は行いません。
 
 光電子speciesだけに閉じた表面電荷closureを指定します。
 
@@ -73,13 +68,11 @@ surface_charge_closure = "neutral_return"
 
 ## 1 batchで行うこと
 
-1. batch開始時の表面電荷から有限画像を含む電場・電位の空間分布を作る。
-2. z-highの局所VDFから太陽風を注入する。
-3. ray hitから光電子を放出し、放出元へ逆符号の表面電荷を記録する。
-4. 全粒子をbatch開始時に固定した電場・電位の空間分布で追跡する。光電子だけはz-highで反射する。
-5. 解決済み光電子の帰還先分布を使い、未帰還分の表面電荷を統計的に閉じる。
-6. 太陽風吸収、光電子の放出・帰還をまとめて表面へcommitする。
-7. 必要なら要素電位とz-high面平均電位を同じcommit後の表面電荷から出力する。
+1. batch 開始時の表面電荷から有限画像を含む場 snapshot を作る。
+2. z-high の局所 VDF から太陽風を、ray hit から光電子を注入する。
+3. 固定した snapshot で全粒子を追跡し、光電子だけを z-high で反射する。
+4. 解決済み帰還先分布で未帰還光電子を統計的に閉じ、全電荷差分を commit する。
+5. 必要なら同じ commit 後の電荷から要素電位と z-high 面平均を出力する。
 
 batch中に場は更新しません。したがって`batch_duration`は物理時間幅であると同時にexplicit charge updateの
 幅です。closed PEは光電子の正味電流による発散を除きますが、太陽風帯電のbatch幅依存性は残ります。
@@ -117,12 +110,11 @@ $$
 `neutral_return`は「全ての$k_\parallel=0$構造を数式的に除去する」操作ではありません。表面総電荷の
 monopole増分を0にしますが、異なる高さの面へ移った電荷は平面平均された鉛直dipoleを作り得ます。
 
-次の場合は結果を作らず停止します。
+次の場合は batch を受理せず停止します。
 
 - 放出があるのに解決済み帰還電荷が0。
-- 光電子がopen面から実際にescape。
-- `soft_discard`、非有限値、または符号不整合。
-- outer particle transferや`implicit_mean`との併用。
+- 光電子の実 escape または `soft_discard`。
+- 非有限値または符号不整合。
 
 `max_step`まで残った粒子だけが統計補正の対象です。raw未帰還電荷、補正量、係数、未帰還率は
 `charge_ledger.csv`へ別々に残します。
@@ -130,8 +122,7 @@ monopole増分を0にしますが、異なる高さの面へ移った電荷は�
 ## z-high面を電位基準として読む
 
 `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、
-`sim.use_box=true`なら、
-`potential_history.csv`と同じbatchに`top_reference_history.csv`を出力します。
+`sim.use_box=true` なら、`potential_history.csv` と同じ batch に `top_reference_history.csv` を出力します。
 
 $$
 \bar\phi_{\mathrm{top}}
@@ -150,9 +141,9 @@ write_mesh_potential = true
 write_potential_history = true
 ```
 
-この面平均は無限遠電位でもプラズマ電位でもなく、太陽風流入へfeedbackしない診断値です。定数gaugeは消せますが、
-box高さ、zero mode、有限画像打切りへの依存性は消しません。`potential_std_V`やmin/maxの幅が大きい場合は、
-z-highを一つのreservoir面として解釈する近似が弱くなっています。
+この面平均は無限遠電位でもプラズマ電位でもなく、太陽風流入へ feedback しない診断値です。定数 gauge は
+除けますが、box 高さ、zero mode、有限画像打切りへの依存性は残ります。`potential_std_V` や min/max の幅が
+大きい場合、z-high を一つの reservoir 面とみなす近似は弱くなります。
 
 `write_mesh_potential=true`または`write_potential_history=true`なら、最終状態のz-high統計を
 `summary.txt`にも記録します。最終`mesh_potential.csv`へ相対化するときはこの値を使えます。履歴strideに
@@ -170,8 +161,8 @@ z-highを一つのreservoir面として解釈する近似が弱くなってい�
 
 `field_periodic_far_correction="none"`では、その外側をEwald和やcached operatorで補いません。
 top-relative potentialにしても無限周期解にはなりません。画像層を増やし、目的量が変わらなくなることを確認します。
-無限周期のnonzero modeと物理的zero modeが必要なら
-[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)を使います。
+無限周期の nonzero mode が必要なら `field_periodic_far_correction="cached_kneq0"` を使い、
+[periodic2静電場](PeriodicElectrostatics.html)の収束手順を確認します。
 
 ## 受理前に確認する順序
 
@@ -182,28 +173,12 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 5. image layerを$N,N+1,N+2$と増やす。
 6. 太陽風のmacro粒子数と乱数seedに対する統計誤差を確認する。
 
-完全反射は人工的な上端mirrorであり、自己整合sheathや準中性解ではありません。この構成から言えるのは、
-「指定した局所太陽風fluxの下で、正味光電子電流を0としたときに表面内再分配が作る場」です。
-
-旧outputに残る`sim.softening`や旧`[field]` tableは現行入力では削除済みです。過去の0p5x設定を使う場合も、
-現行例を基に移植してください。
+完全反射は人工的な上端 mirror であり、自己整合 sheath や準中性解ではありません。この構成が示すのは、
+指定した局所太陽風 flux の下で正味光電子電流を 0 としたときの表面内再分配です。
 
 ## scalar barrierを比較に使う場合
 
-scalar barrier比較ではclosed PE設定を外し、次を使います。
-
-```toml
-[external_boundary.particles]
-mode = "local_source"
-inflow_model = "infinity_barrier"
-
-[external_boundary.ordinary_open]
-model = "potential_barrier"
-
-[sim]
-phi_infty = 0.0
-```
-
-これはface平均scalarで上流VDFを補正し、各open通過点のenergyでreflect/escapeを決めます。一つの連続した
-sheath profileを往復するモデルではありません。式と制約は
-[reservoir流入](ReservoirInjection.html)と[粒子のescapeとreturn](ParticleEscapeReturn.html)を参照してください。
+scalar barrier 比較では closed PE 設定を外し、`inflow_model="infinity_barrier"`、
+`external_boundary.ordinary_open.model="potential_barrier"`、`sim.phi_infty` を組み合わせます。これは face 平均 scalar で
+上流 VDF を補正し、各 open 通過点の energy で reflect/escape を決める比較モデルです。設定、式、制約は
+[reservoir 流入](ReservoirInjection.html)と[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。

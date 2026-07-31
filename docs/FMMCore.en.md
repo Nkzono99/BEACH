@@ -678,7 +678,7 @@ expansions, so it remains reusable when charges change between batches.
 | 1 | primary cell plus finite near images | evaluate singular/near interactions with ordinary FMM and direct kernels |
 | 2 | cached Ewald residual | restore the smooth infinite-periodic field outside the finite shell |
 | 3 | subtract the symmetric `k=0` carried by the cached teacher | leave only `k!=0` in the nonzero backend |
-| 4 | snapshot adds the physical `k=0` | apply `symmetric_vacuum`, `e_bottom_zero`, or outer-plasma physics |
+| 4 | snapshot adds the physical `k=0` | apply `symmetric_vacuum` or `e_bottom_zero` |
 
 `cached_kneq0` alone is therefore not the complete field. Steps 1--3 belong to
 the nonzero backend; step 4 belongs to `electrostatic_snapshot`. `exclude_k0`
@@ -709,10 +709,9 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.
 $$
 
-The triangle-height integral, lower-boundary closure, and outer-plasma coupling
-for $K_0^\mathrm{physical}$ are described in
-[periodic2 electrostatics](PeriodicElectrostatics.en.md) and
-[Outer plasma models](OuterPlasmaModels.en.md).
+The triangle-height integral and lower-boundary closure for
+$K_0^\mathrm{physical}$ are described in
+[periodic2 electrostatics](PeriodicElectrostatics.en.md).
 
 Field-fit columns and the constant potential mode have different units and are not mixed in one least-squares system.
 The potential gauge is fixed separately from the mean residual.

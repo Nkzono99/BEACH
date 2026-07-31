@@ -16,17 +16,13 @@
     { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 140, "description": { "root": "batch末尾の電荷commit、絶縁体帯電、浮遊導体、電荷収支。", "en": "Batch charge commit, insulator charging, floating conductors, and charge accounting." } },
     { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 145, "description": { "root": "source_mode の選択と、生成後に共通する粒子処理。", "en": "Choose source_mode and understand the particle processing shared after creation." } },
     { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 146, "description": { "root": "reservoir_face が上流 VDF からバッチ流入量と注入面速度を作る方法。", "en": "How reservoir_face converts an upstream VDF into batch inflow and face-arrival velocity." } },
-    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡による放出、表面電荷、通常追跡と外部シースによるescape/return。", "en": "Ray-cast emission, surface charge, and escape/return through ordinary tracking and outer-sheath handling." } },
+    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡による放出、表面電荷、閉じた光電子のneutral return。", "en": "Ray-cast emission, surface charge, and neutral return for closed photoelectrons." } },
     { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 150, "description": { "root": "同じ時刻の位置・速度から候補軌道を作り、最初の衝突・境界まで確定する流れ。", "en": "Overview of same-time particle updates and earliest-event processing." } },
     { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 151, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
     { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 152, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較し、最初に起きる処理を選ぶ方法。", "en": "Mesh collision, box boundaries, periodic images, and earliest-event selection." } },
-    { "source": { "root": "OuterPlasmaModels.md", "en": "OuterPlasmaModels.en.md" }, "slug": "outer-plasma-models", "order": 155, "description": { "root": "粒子流入、open境界、外部場、particle transferの組み合わせ。", "en": "Combine particle inflow, open boundaries, outer fields, and particle transfer." } },
-    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、1D return。", "en": "Open boundaries, scalar barriers, and 1-D return." } },
-    { "source": { "root": "KineticOuterPlasma.md", "en": "KineticOuterPlasma.en.md" }, "slug": "kinetic-outer-plasma", "order": 157, "description": { "root": "自己整合1D外部シース。", "en": "Self-consistent 1-D outer sheath." } },
-    { "source": { "root": "BoundaryConfigurationMigration.md", "en": "BoundaryConfigurationMigration.en.md" }, "slug": "boundary-configuration-migration", "order": 159, "description": { "root": "旧sim・outer_plasma・coupling設定からexternal_boundaryへ移行する対応表。", "en": "Map legacy sim, outer_plasma, and coupling settings to external_boundary." } },
+    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、閉じた光電子のreturn。", "en": "Open boundaries, scalar barriers, and closed-photoelectron return." } },
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 160, "description": { "root": "periodic2の近傍画像、nonzero operator、zero mode。", "en": "periodic2 near images, nonzero operator, and zero mode." } },
     { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 161, "description": { "root": "有限画像和で、局所reservoirと閉じた光電子再分配、またはscalar barrierを使う構成。", "en": "Finite image sums with a local reservoir and closed photoelectron redistribution, or scalar barriers." } },
-    { "source": { "root": "InfinitePeriodicOuterConfiguration.md", "en": "InfinitePeriodicOuterConfiguration.en.md" }, "slug": "infinite-periodic-outer-configuration", "order": 162, "description": { "root": "無限周期場、物理k=0、outer plasma、particle transferの統合構成。", "en": "Integrated infinite-periodic field, physical k=0, outer plasma, and particle transfer." } },
     { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 170, "description": { "root": "source kernel、Direct、Treecode、FMMの選び方と共通設定。", "en": "Choosing a source kernel, Direct, Treecode, or FMM, with common settings." } },
     { "source": { "root": "DirectSolver.md", "en": "DirectSolver.en.md" }, "slug": "direct-solver", "order": 171, "description": { "root": "P0 triangle panelのDirect場・電位評価。", "en": "Direct field and potential evaluation for P0 triangle panels." } },
     { "source": { "root": "Treecode.md", "en": "Treecode.en.md" }, "slug": "treecode", "order": 172, "description": { "root": "octree、monopole近似、mixed-sign電荷のTreecode。", "en": "Treecode octree, monopole approximation, and mixed-sign charge handling." } },
@@ -96,13 +92,10 @@
             },
             {
               "type": "group",
-              "label": { "root": "境界・シース・外部領域", "en": "Boundaries, sheaths, and outer domain" },
+              "label": { "root": "境界", "en": "Boundaries" },
               "collapsed": true,
               "items": [
-                { "type": "page", "slug": "outer-plasma-models", "label": { "root": "構成の選び方", "en": "Selection guide" } },
-                { "type": "page", "slug": "boundary-configuration-migration", "label": { "root": "旧設定から移行する", "en": "Migrate legacy configuration" } },
-                { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } },
-                { "type": "page", "slug": "kinetic-outer-plasma", "label": { "root": "kinetic 1Dシース", "en": "Kinetic 1-D sheath" } }
+                { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } }
               ]
             }
           ]
@@ -135,8 +128,7 @@
           "collapsed": true,
           "items": [
             { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2静電場", "en": "periodic2 electrostatics" } },
-            { "type": "page", "slug": "finite-periodic-configuration" },
-            { "type": "page", "slug": "infinite-periodic-outer-configuration" }
+            { "type": "page", "slug": "finite-periodic-configuration" }
           ]
         },
         {

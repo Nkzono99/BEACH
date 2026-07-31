@@ -13,19 +13,6 @@ from .history import FortranChargeHistory
 from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
 
 
-_OUTER_QUEUE_SUMMARY_KEYS = (
-    "outer_photoelectron_population_fraction",
-    "outer_photoelectron_column_per_area_m2",
-    "outer_photoelectron_column_target_per_area_m2",
-    "outer_photoelectron_column_residual_per_area_m2",
-    "outer_queue_event_count",
-    "outer_queue_signed_charge_C",
-    "outer_queue_fingerprint",
-)
-_IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS = (
-    "implicit_mean_last_returned_outer_flight_time_mean_s",
-    "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
-)
 _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS = (
     "simulated_time_s",
     "adaptive_nonzero_mode_rejected_trials",
@@ -78,9 +65,6 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
     if history_path.exists():
         history = FortranChargeHistory(history_path, mesh_nelem=mesh_nelem)
     charge_ledger = _load_charge_ledger_if_exists(out_dir / "charge_ledger.csv")
-    outer_queue_enabled = _parse_optional_bool(summary, "coupling_outer_queue_enabled")
-    _validate_outer_queue_summary_contract(summary, enabled=outer_queue_enabled)
-    _validate_implicit_mean_shadow_summary_contract(summary)
     _validate_adaptive_nonzero_mode_summary_contract(summary)
 
     return FortranRunResult(
@@ -166,49 +150,6 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         periodic2_cache_path=summary.get("periodic2_cache_path"),
         periodic2_generation_tolerance=_parse_optional_finite_float(
             summary, "periodic2_generation_tolerance"
-        ),
-        max_outer_flight_time_s=_parse_optional_nonnegative_finite_float(
-            summary, "max_outer_flight_time_s"
-        ),
-        max_outer_frozen_field_ratio=_parse_optional_nonnegative_finite_float(
-            summary, "max_outer_frozen_field_ratio"
-        ),
-        max_outer_energy_relative_error=_parse_optional_nonnegative_finite_float(
-            summary, "max_outer_energy_relative_error"
-        ),
-        implicit_mean_last_returned_outer_flight_time_mean_s=(
-            _parse_optional_nonnegative_finite_float(
-                summary,
-                "implicit_mean_last_returned_outer_flight_time_mean_s",
-            )
-        ),
-        implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2=(
-            _parse_optional_nonnegative_finite_float(
-                summary,
-                "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
-            )
-        ),
-        coupling_outer_queue_enabled=outer_queue_enabled,
-        outer_photoelectron_population_fraction=_parse_optional_nonnegative_finite_float(
-            summary, "outer_photoelectron_population_fraction"
-        ),
-        outer_photoelectron_column_per_area_m2=_parse_optional_nonnegative_finite_float(
-            summary, "outer_photoelectron_column_per_area_m2"
-        ),
-        outer_photoelectron_column_target_per_area_m2=_parse_optional_nonnegative_finite_float(
-            summary, "outer_photoelectron_column_target_per_area_m2"
-        ),
-        outer_photoelectron_column_residual_per_area_m2=_parse_optional_finite_float(
-            summary, "outer_photoelectron_column_residual_per_area_m2"
-        ),
-        outer_queue_event_count=_parse_optional_nonnegative_int(
-            summary, "outer_queue_event_count"
-        ),
-        outer_queue_signed_charge_c=_parse_optional_finite_float(
-            summary, "outer_queue_signed_charge_C"
-        ),
-        outer_queue_fingerprint=_parse_optional_fingerprint(
-            summary, "outer_queue_fingerprint"
         ),
     )
 
@@ -296,45 +237,13 @@ def _parse_optional_fingerprint(data: dict[str, str], key: str) -> str | None:
     return value
 
 
-def _validate_outer_queue_summary_contract(
-    data: dict[str, str], *, enabled: bool | None
-) -> None:
-    present = [key for key in _OUTER_QUEUE_SUMMARY_KEYS if key in data]
-    if enabled is True:
-        missing = [key for key in _OUTER_QUEUE_SUMMARY_KEYS if key not in data]
-        if missing:
-            joined = ", ".join(missing)
-            raise ValueError(
-                "summary.txt coupling_outer_queue_enabled=true requires " + joined + "."
-            )
-    elif enabled is False and present:
-        joined = ", ".join(present)
-        raise ValueError(
-            "summary.txt coupling_outer_queue_enabled=false forbids " + joined + "."
-        )
-
-
-def _validate_implicit_mean_shadow_summary_contract(data: dict[str, str]) -> None:
-    present = [key for key in _IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS if key in data]
-    if present and len(present) != len(_IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS):
-        missing = [
-            key for key in _IMPLICIT_MEAN_SHADOW_SUMMARY_KEYS if key not in data
-        ]
-        raise ValueError(
-            "summary.txt implicit_mean shadow diagnostics must appear together; "
-            "missing " + ", ".join(missing) + "."
-        )
-
-
 def _validate_adaptive_nonzero_mode_summary_contract(data: dict[str, str]) -> None:
     limit = _parse_optional_nonnegative_finite_float(
         data, "periodic2_max_nonzero_mode_potential_step_V"
     )
     if limit is None or limit == 0.0:
         return
-    missing = [
-        key for key in _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS if key not in data
-    ]
+    missing = [key for key in _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS if key not in data]
     if missing:
         raise ValueError(
             "summary.txt adaptive nonzero-mode output requires "
@@ -361,8 +270,6 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
         "absorbed_on_surface_C",
         "escaped_to_infinity_C",
         "discarded_unresolved_C",
-        "interface_outward_gross_C",
-        "interface_returned_gross_C",
     )
     count_fields = (
         "injected_count",

@@ -4,15 +4,47 @@ Lang: [English](Workflow.en.md) | [日本語](Workflow.md)
 
 # Development and Operations Workflow
 
-The project is centered on the **Fortran runtime**. Python handles post-processing, visualization, and utility
-workflows. For normal users, the recommended path is to install `beach-bem` and run the `beach` command.
+This task guide covers source development from local execution through HPC verification.
+Fortran runs the simulation; Python provides configuration utilities, post-processing, and visualization.
+For normal use without source changes, see [Installation](Installation.en.html) and [Run a Simulation](Execution.en.html).
 
-The normal case workflow is covered in [Run a simulation](Execution.en.html). Source development follows the setup, testing,
-MPI/OpenMP, and HPC operations below.
+## Run a case in an installed environment
 
-## 1. User Setup (Recommended)
+**Prerequisite:** Install `beach-bem` and make `beach` and `beachx` available on `PATH`.
 
-### 1.1 Check Tools
+```bash
+python -m pip install -U pip setuptools wheel
+python -m pip install beach-bem
+```
+
+To try the development version directly:
+
+```bash
+python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+```
+
+**Action:**
+
+```bash
+mkdir beach-tutorial
+cd beach-tutorial
+beachx config init beach.toml
+beachx lint beach.toml
+beach beach.toml
+beachx inspect outputs/latest
+```
+
+**Expected output:** The run creates `outputs/latest/summary.txt`, `charges.csv`, and mesh information.
+
+**Interpretation:** Successful completion proves that the configuration, build, and execution path work.
+It does not establish steady-state convergence or physical validity.
+
+**Next choices:** Use [Design a Simulation Case](ConfigurationRecipes.en.html) to change the case,
+[Inspect Output Files](OutputGuide.en.html) to interpret files, and [Validate Results](ValidationGuide.en.html) to assess validity.
+
+## Create a development environment
+
+**Prerequisites:** Install Python, `make`, a Fortran compiler, and `fpm`.
 
 ```bash
 make --version
@@ -21,239 +53,152 @@ fpm --version
 python --version
 ```
 
-### 1.2 Install from PyPI
-
-```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install beach-bem
-```
-
-During `pip install`, `make install` installs both the Python CLI and the Fortran runtime binary.
-Pip builds use `INSTALL_PROFILE=auto` by default and fall back to `generic` when needed.
-Set `BEACH_PIP_FALLBACK_GENERIC=0` to disable that fallback.
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-To try the development version directly from Git:
-
-```bash
-python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
-```
-
-## 2. Development Workflow
-
-### 2.1 Python Editable Install
+**Action:**
 
 ```bash
 python -m pip install -U pip setuptools wheel
 python -m pip install -e . --no-build-isolation
-```
-
-### 2.2 Fortran Runtime (`make`)
-
-```bash
 make check
-make run CONFIG=examples/beach.toml
 ```
 
-`make check` is the standard development build check. It uses `BEACH_VERSION_MODE=dev` to pass a stable
-version string such as `1.5.0-dev` to the Fortran side, so changes to the git hash do not invalidate fpm's
-compile-flag hash and incremental builds stay reusable.
+**Expected output:** The Python package is installed in editable mode and the Fortran source compiles.
 
-`make build` and `make install` embed a git-hash version by default. Override the version mode when needed.
+**Interpretation:** `make check` is the lightweight development build check. It uses `BEACH_VERSION_MODE=dev`,
+so fpm can reuse incremental compilation when only the Git hash changes.
+
+**Next choices:**
 
 ```bash
-make build VERSION_MODE=dev
+make run CONFIG=examples/beach.toml
 make build VERSION_MODE=plain
 make build VERSION_MODE=git
-```
-
-Install profiles can also be selected explicitly.
-
-```bash
 make install-generic
-make install-camphor
 ```
 
-### 2.3 Direct `fpm` Execution
+Normally use `make run` and `make check` through `build.sh`. Reserve direct fpm execution for low-level checks:
 
 ```bash
 fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
-For normal development, prefer `make run` / `make check` through `build.sh`. The wrapper passes
-`__BEACH_VERSION__` and `__BEACH_VERSION_MODE__` consistently.
+## Test a change
 
-### 2.4 Tests
+**Prerequisite:** Identify the changed area and the required test tier. Do not run multiple `fpm test` commands concurrently.
+
+**Action:**
 
 ```bash
-make test-l0      # L0: static/schema/build check
+make test-l0      # static/schema/build
 make test         # L1: normal development loop
 make test-l2      # L2: contract/integration
-make test-l3      # L3: cumulative L0-L3 verification
-make test-physics-release  # HPC: minimal release correctness + MPI manifest
-make test-heavy   # heavy Fortran targets only
-make test-fortran-far-correction  # cached operator / exact Ewald correctness
-make test-fortran-benchmark  # release-profile runtime benchmark
-make test-field-kernel-cache  # opt-in native cache/plane-oracle receipt gate
-make test-full    # unfiltered fpm test
+make test-l3      # L3: cumulative verification including heavy FMM
 ```
 
-The test suite is tiered for the development loop.
-
-- L0: `git diff --check`, JSON schema parse check, `make check`
-- L1: L0 + Python tests + lightweight Fortran test targets (`make test` / `make test-l1`)
-- L2: L1 + contract/integration targets such as the C field-kernel contract
-- L3: L2 + heavy FMM targets for release gates, nightly checks, and integration before `main`
-
-`make test-fortran` aliases the lightweight Fortran targets. Heavy FMM targets such as
-`test_dynamics_fmm` and `test_coulomb_fmm_core_basic` are excluded from normal `make test` and must be run with
-`make test-l3`, `make test-heavy`, `make test-fortran-heavy`, or `make test-full`.
-The `cached_kneq0` cold-operator and exact-Ewald correctness tests are opt-in through
-`make test-fortran-far-correction`. Runtime comparison uses the release profile through
-`make test-fortran-benchmark` instead of running inside a debug correctness test.
-To measure P0 panel field-evaluation cost on a real mesh, run the following
-command once for each solver configuration. `FIELD_KERNEL_BENCHMARK_TARGET_COUNT`
-sets the number of targets evaluated in both the volume and near-panel sets. The CSV output
-separates mesh construction, solver initialization, charge refresh, electric
-field evaluation, and potential evaluation.
-
-```bash
-make benchmark-field-kernel CONFIG=beach.toml FIELD_KERNEL_BENCHMARK_TARGET_COUNT=2048
-```
-
-Also pass `OPENMP_FLAG=-qopenmp` when using Intel `ifx`.
-
-`make test-field-kernel-cache` builds the shared kernel and passes its absolute
-path to the long-running native periodic plane-oracle receipt test. It remains
-opt-in and is not part of L1/L2/L3 or `make test-physics-release`.
-Tiered tests under Intel `ifx` / `mpiifx` suppress only the
-`arg_temp_created` check by default because each expected array temporary can
-otherwise emit a full stack trace. Other debug checks, including bounds
-checks, remain enabled. To inspect array temporaries themselves, override the
-flags explicitly, for example with
-`FORTRAN_TEST_FLAGS="-qopenmp" make test-fortran-heavy FPM_FC=mpiifx`.
-
-Run a single target with:
+To run one Fortran target:
 
 ```bash
 FPM_ACTION=test ./build.sh --target test_version
 ```
 
-On KUDPC login nodes, do not run `make test*`, `fpm test`, or equivalent build/test payloads directly.
-Submit them to compute nodes with `tssrun` or `sbatch`.
+**Expected output:** Each command completes without a nonzero status and its targets pass.
 
-## 3. Run Flow
+**Interpretation:**
 
-Usually, edit `beach.toml` and pass that file directly to `beach`. See
-[Create and Validate `beach.toml`](Configuration.en.html) for creation and validation.
+- L0: `git diff --check`, JSON schema, and `make check`
+- L1: L0 + Python tests + lightweight Fortran targets
+- L2: L1 + integration targets such as the C/kernel contract
+- L3: L2 + heavy FMM targets
 
-1. Prepare `beach.toml`.
-2. Check it with `beachx lint beach.toml`.
-3. Run the simulation with `beach beach.toml`.
-4. Inspect files under `output.dir`.
-5. Visualize with Python CLI commands or the `Beach` API.
+The heavy `test_dynamics_fmm` and `test_coulomb_fmm_core_basic` targets are not part of L1.
 
-See [Input Parameters Reference](Parameters.en.html) for the `beach.toml` specification.
-
-### 3.1 Shortest Example
+**Next choices:**
 
 ```bash
-mkdir beach-tutorial
-cd beach-tutorial
-beachx config init beach.toml
-beachx lint beach.toml
-beach beach.toml
+make test-heavy
+make test-fortran-far-correction
+make test-fortran-benchmark
+make test-field-kernel-cache
+make test-full
 ```
 
-### 3.2 Direct `beach.toml` Use
+`test-field-kernel-cache` is an opt-in native cache/plane-oracle receipt gate and is not part of L1/L2/L3.
+Use [Physics Release Verification](PhysicsReleaseVerification.en.html) for release decisions.
 
-1. Prepare `beach.toml` (see [Input Parameters Reference](Parameters.en.html)).
-2. Use box-relative coordinate and placement parameters if useful; the Fortran parser resolves them while loading.
-3. Run the simulation with `beach beach.toml`.
-4. Inspect `output.dir`.
-5. Visualize with a Python CLI command or the `Beach` API.
+## Run with OpenMP or MPI
 
-## 4. Run Commands
+**Prerequisite:** Prepare an OpenMP build, or an MPI build made with an MPI compiler.
 
-### 4.1 Recommended: `beach`
-
-```bash
-beach beach.toml
-```
-
-Without arguments, `beach` reads `beach.toml` from the current directory.
-
-### 4.2 Thread Count
+**Action:**
 
 ```bash
 OMP_NUM_THREADS=8 beach beach.toml
-```
-
-### 4.3 MPI + OpenMP
-
-After installing an MPI build, launch `beach` through the MPI runner.
-
-```bash
 mpirun -n 4 beach examples/beach.toml
 ```
 
-### 4.4 Profiling
-
-Enable coarse phase profiling with:
+To add coarse phase profiling:
 
 ```bash
 BEACH_PROFILE=1 OMP_NUM_THREADS=8 beach examples/beach.toml
-```
-
-For scaling comparisons, use the `rank_max_s` value on the `simulation_total` row in `performance_profile.csv`.
-
-Visualization example:
-
-```bash
 beachx profile outputs/latest/performance_profile.csv \
   --save outputs/latest/performance_profile.png
 ```
 
-## 5. Output Files
+**Expected output:** The run creates the normal simulation outputs and, when profiling is enabled,
+`performance_profile.csv`.
 
-Primary outputs:
+**Interpretation:** Use `rank_max_s` on the `simulation_total` row for scaling comparisons.
+For an MPI restart, the checkpoint `mpi_world_size` must match the current rank count.
 
-- `summary.txt`
-- `charges.csv`
-- `mesh_potential.csv` when `write_mesh_potential = true`
-- `mesh_triangles.csv`
-- `mesh_sources.csv`
-- `charge_history.csv` when `history_stride > 0`
-- `potential_history.csv` when `write_potential_history = true` and `history_stride > 0`
-- `performance_profile.csv` when `BEACH_PROFILE=1`
-- `rng_state.txt`
-- `macro_residuals.csv`
+**Next choice:** To test only the hybrid path:
 
-`mesh_triangles.csv` includes `mesh_id` for each element. `mesh_sources.csv` maps each `mesh_id` to the source
-template kind, surface model, `epsilon_r`, and element count. `conductor` is relaxed as a floating conductor
-only with `field_bc_mode = "free"`. `dielectric` is metadata-only in the current implementation; `summary.txt`
-also prints a note when it appears. Enabling `mesh_potential.csv` stores centroid potential [V] with the same
-element ordering.
+```bash
+FPM_FC=mpiifx \
+fpm test --target test_mpi_hybrid \
+  --flag "-fpp -DUSE_MPI -qopenmp" \
+  --runner "mpirun -n 2"
+```
 
-MPI runs (`world_size > 1`) write only the RNG state per rank. The reservoir residual is shared by all ranks,
-so the root rank writes one `macro_residuals.csv`.
+For an Intel `ifx` OpenMP build, use `OPENMP_FLAG=-qopenmp`.
 
-- `rng_state_rank00000.txt`, `rng_state_rank00001.txt`, ...
-- `macro_residuals.csv`
+## Run and test on KUDPC
 
-## 6. Workload Estimation
+**Prerequisites:** Inspect `hostname`, `module list`, and, when available, `spartition` and `qgroup`
+to identify the host and allocation.
 
-For `reservoir_face` / `photo_raycast`, particle counts per batch are dynamic, so estimating the workload first
-is recommended.
+**Action:** On a login node, limit work to editing, short log inspection, `make check`, job submission, and monitoring.
+Run `make test*`, `fpm test`, long simulations, and benchmarks on a compute node.
+
+- Short interactive check: `tssrun`
+- Batch execution: `srun` inside an `sbatch` job
+
+Example for 112 OpenMP threads per rank on SysA:
+
+```bash
+export OMP_NUM_THREADS=112
+export OMP_PROC_BIND=spread
+export OMP_PLACES=cores
+srun beach beach.toml
+```
+
+**Expected output:** The simulation or test completes inside a Slurm allocation and leaves a job log and normal outputs.
+
+**Interpretation:** Fix thread placement for performance comparison and reproducibility. Login-node behavior is not a measure
+of compute-node performance.
+
+**Next choice:** Use the repository KUDPC plugin and
+`examples/job_scripts/camphor_mpi_hybrid_job.sh` for environment and job configuration.
+
+## Estimate workload before a run
+
+**Prerequisite:** In a case with `reservoir_face` or `photo_raycast`, the configuration determines particles per batch.
+
+**Action:**
 
 ```bash
 beachx workload examples/beach.toml --threads 8
 ```
 
-Rank-local estimate with residuals:
+To include one MPI rank and checkpoint residuals:
 
 ```bash
 beachx workload examples/beach.toml \
@@ -263,19 +208,17 @@ beachx workload examples/beach.toml \
   --macro-residuals outputs/latest/macro_residuals.csv
 ```
 
-`total_particles` is for the selected rank and `global_total_particles` is the all-rank total.
-For reservoir injection, compare `local_reservoir_particles` with `global_reservoir_particles`.
+**Expected output:** The command reports rank-local `total_particles` and all-rank `global_total_particles`.
 
-## 7. Resume Runs
+**Interpretation:** This is a workload estimate, not a wall-time forecast or a physical-validity check.
 
-```toml
-[output]
-dir = "outputs/latest"
-resume = true
-```
+**Next choice:** If the estimate is large, begin with a smoke case using a coarser mesh, fewer macro-particles, and a smaller `batch_count`.
 
-Rerunning `beach` with the same `output.dir` reads `summary.txt`, `charges.csv`, and RNG state and continues
-from the checkpoint. Use `restart_from` when the checkpoint directory and the new output directory differ.
+## Resume from a checkpoint
+
+**Prerequisite:** The source directory contains a checkpoint set including `summary.txt`, `charges.csv`, and RNG state.
+
+**Action:**
 
 ```toml
 [output]
@@ -284,200 +227,20 @@ resume = true
 restart_from = "../parent_run/outputs/latest"
 ```
 
-In that case, checkpoint files are read from `restart_from`, while the new `summary.txt`, `charges.csv`,
-history files, and RNG state are written under `dir`.
+**Expected output:** BEACH loads the checkpoint and writes new outputs to `outputs/continuation`.
 
-`sim.batch_count` is the cumulative target batch count. If an existing checkpoint has `batches=100` and the new
-`batch_count=150`, only 50 additional batches run. If `batch_count` is smaller than the completed checkpoint
-batch count, execution stops.
+**Interpretation:** `sim.batch_count` is the cumulative target. If the checkpoint has `batches=100` and the new
+`batch_count=150`, the resumed run adds 50 batches. A target below the completed batch count is rejected.
 
-For MPI resume, the `mpi_world_size` in `summary.txt` must match the current number of ranks.
+**Next choice:** To continue in the same directory, omit `restart_from` and set `dir` to the checkpoint directory.
 
-## 8. Python Post-processing
+## Contracts to check after a change
 
-### 8.1 CLI
+- A normal run proceeds to the batch count set by `sim.batch_count`.
+- `sim.tol_rel` is a monitoring and output value, not an early-stop condition.
+- The standard v1.0 surface model is insulator accumulation.
+- Local reservoir + closed PE is a local closure inside the finite box; it does not solve an external region self-consistently.
+- Execution success, numerical convergence, and physical validity require separate checks.
 
-```bash
-beachx inspect outputs/latest \
-  --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png
-
-# Draw a sim.field_bc_mode = "periodic2" mesh wrapped into the periodic cell.
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_periodic.png \
-  --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
-  --apply-periodic2-mesh
-
-# Tile the periodic mesh by n layers. For 1, this draws 3x3 = 9 copies.
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_tiled.png \
-  --periodic2-repeat 1 \
-  --apply-periodic2-mesh
-
-beachx animate outputs/latest \
-  --quantity charge \
-  --save-gif outputs/latest/charge_history.gif \
-  --total-frames 200
-
-beachx slices outputs/latest \
-  --grid-n 200 \
-  --vmin -20 --vmax 20 \
-  --save outputs/latest/potential_slices.png
-
-beachx coulomb outputs/latest \
-  --component z \
-  --save outputs/latest/coulomb_force_z.png
-
-beachx mobility outputs/latest \
-  --density-kg-m3 2500 \
-  --mu-static 0.4 \
-  --save-csv outputs/latest/mobility_summary.csv
-
-# Use the same field kernel as the Fortran FMM core to output net charge, force, and torque per object.
-make build-kernel
-beachx kernel-forces outputs/latest \
-  --save-csv outputs/latest/object_forces_kernel.csv
-
-# Retain periodic images while excluding only the central-cell primary self field.
-beachx object-detachment outputs/latest \
-  --config beach.toml \
-  --target-mesh-id 6 \
-  --periodic-model infinite-physical \
-  --z-max-m 2.0e-4 \
-  --z-points 65 \
-  --mass-kg 2.0e-12 \
-  --gravity-m-s2 9.80665 \
-  --output-dir outputs/latest/object_detachment
-```
-
-`beachx coulomb` reads object kind and order from nearby `beach.toml` `mesh.templates` when available, and by
-default places all objects along the target axis for visualization. Use `--target-kinds sphere` to restrict the
-target set. `beachx mobility` treats `plane` as the support by default and writes object force/torque plus
-`lift_ratio`, `slide_ratio`, and `roll_ratio` to CSV. Mass-derived indicators need `--density-kg-m3` and geometry
-from `beach.toml`. `beachx kernel-forces` calls the Fortran FMM core through `libbeach_field_kernel`, using
-`sim.field_bc_mode`, periodic2, and tree settings from `beach.toml`. Build the library with
-`make build-kernel`; if it is elsewhere, pass `--library` or set `BEACH_FIELD_KERNEL_LIB`. Use
-`--config path/to/beach.toml` when no config exists near the output directory.
-
-`kernel-forces` is the legacy `exclude_target_lattice` diagnostic, which also
-removes the target object's periodic images. `object-detachment` uses
-`exclude_primary_keep_images`. It writes the instantaneous wrench, frozen-source
-vertical path and work, and a from-rest barrier including gravity and optional
-finite-range adhesion to four artifacts. `configured` preserves the run's
-policy, while `infinite-physical` uses cached `k != 0` plus the x/y-periodic
-`E_bottom=0` zero mode. The CLI defaults to lunar gravity, `1.62 m/s^2`; the
-example above explicitly uses Earth gravity, `9.80665 m/s^2`. A cold cached
-operator or a long path can be expensive;
-on KUDPC submit this analysis to a compute node instead of running it on a login
-node. Use SysA `p=1:t=112:c=112` as the dedicated cold cache-prime baseline.
-Existing simulation ranks participate in generation, but the archived regolith
-case measured 47.0 s at 1x112, 36.7 s at 2x112, 31.5 s at 4x112, and 30.3 s at
-6x112 on 2026-07-12. Requesting 4--6 ranks only for a cold build therefore has
-poor core efficiency. A warm run with the same fingerprint does not regenerate
-the operator.
-
-A successful CLI invocation establishes artifact generation only. It is not a
-physical qualification until path status, work/potential agreement,
-quadrature, shell/cache, and endpoint sensitivity have been checked. A
-finite-height speed in a non-neutral periodic cell is not escape speed at
-infinity.
-
-Legacy aliases such as `beach-inspect`, `beach-animate-history`, `beach-plot-coulomb-force-matrix`,
-`beach-plot-potential-slices`, `beach-estimate-workload`, and `beach-plot-performance-profile` remain available
-for now, but are deprecated.
-
-### 8.2 Python API
-
-```python
-from beach import Beach
-
-beach = Beach("outputs/latest")
-print(beach.result.absorbed, beach.result.escaped)
-# History is always lazy-loaded.
-history_step10 = beach.result.history_at(10)
-if beach.result.history is not None:
-    print(beach.result.history.batch_indices)
-
-beach.plot_bar()
-beach.plot_mesh()
-beach.plot_potential()
-beach.plot_mesh(apply_periodic2_mesh=True)
-beach.plot_potential(apply_periodic2_mesh=True)
-beach.plot_potential_slices(
-    box_min=[0.0, 0.0, 0.0],
-    box_max=[1.0, 1.0, 10.0],
-    grid_n=200,
-    vmin=-20.0,
-    vmax=20.0,
-)
-beach.animate_mesh("outputs/latest/charge_history.gif", quantity="charge", total_frames=200)
-
-mesh1 = beach.get_mesh(1)
-mesh2, mesh3 = beach.get_mesh(2, 3)
-mesh1_step10 = beach.get_mesh(1, step=10)
-charge_step10 = beach.get_mesh_charge(1, step=10)
-
-interaction = beach.calc_coulomb(target=[mesh1, mesh2], source=[mesh3], step=10)
-print(interaction.force_on_a_N, interaction.torque_on_a_Nm)
-
-fig_force, ax_force = beach.plot_coulomb_force_matrix(
-    component="z",
-)
-fig_force.savefig("outputs/latest/coulomb_force_z.png", dpi=150)
-
-mobility = beach.analyze_coulomb_mobility(
-    density_kg_m3=2500.0,
-    mu_static=0.4,
-)
-for record in mobility.records:
-    print(record.label, record.lift_ratio, record.slide_ratio)
-```
-
-## 9. MPI Path Test (Developers)
-
-```bash
-FPM_FC=mpiifx \
-fpm test --target test_mpi_hybrid \
-  --flag "-fpp -DUSE_MPI -qopenmp" \
-  --runner "mpirun -n 2"
-```
-
-On the KUDPC Intel environment, release MPI builds default to `mpiifx`.
-`MPI_FC=mpiifort` remains available as an explicit classic-compiler override,
-but it is not recommended for production because the same 3,000-batch fixture
-showed a substantial runtime slowdown.
-
-For reproducible thread placement, production runs using many OpenMP threads
-per rank on SysA should also specify:
-
-```bash
-export OMP_NUM_THREADS=112
-export OMP_PROC_BIND=spread
-export OMP_PLACES=cores
-srun beach beach.toml
-```
-
-These variables fix the placement conditions for performance comparisons.  On
-the measured 300-batch fixture, binding changed elapsed time by less than 0.4%.
-
-## 10. Implementation behavior checklist
-
-- A normal run advances exactly `sim.batch_count` batches. A resume run advances from the checkpoint batch count
-  until `sim.batch_count` is reached.
-- `sim.tol_rel` is a monitoring value. It is not used as an early-stop condition in the current implementation.
-- The Fortran element source is a fixed P0 triangle panel that integrates each
-  total element charge as a constant triangle density. Inputs retaining the
-  former `[field]` table or `sim.softening` fail as unknown tables or keys.
-
-For a camphor MPI job example, see `examples/job_scripts/camphor_mpi_hybrid_job.sh`.
-`test-physics-release` sequentially runs the L1 convergence subset, L3-heavy, far-correction correctness,
-MPI ledger, and MPI periodic-cache gates without repeating the full portable L2 suite.
-It records the commit, dirty state, host, compilers, status, elapsed time, and peak RSS for
-each gate in `build/physics-release/manifest.txt` by default. It refuses KUDPC
-login nodes and selects `srun` for the MPI payload inside a Slurm allocation.
-Override the output with `PHYSICS_RELEASE_MANIFEST=/path/to/manifest.txt`.
-The same directory receives `convergence.csv`; see
-[Physics release verification](PhysicsReleaseVerification.en.md).
-It also receives `test_l3-target-timings.csv` and `far_correction-target-timings.csv`, containing profile,
-status, and elapsed seconds for each selected Fortran target.
+When changing a public API, configuration, or output, update the Japanese and English documentation, examples, schema,
+and corresponding tests in the same change.

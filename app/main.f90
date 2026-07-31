@@ -4,23 +4,19 @@ program main
   use bem_kinds, only: dp, i32
   use bem_version, only: beach_build_info, beach_version
   use bem_types, only: sim_stats, mesh_type, injection_state
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size, &
-                     mpi_allreduce_sum_i32_scalar
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
   use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
                                      perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
                                      perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
-  use bem_outer_event_queue, only: outer_event_queue_type
-  use bem_outer_event_queue_io, only: outer_event_queue_io_ok, load_outer_event_queue_checkpoint, &
-                                      write_outer_event_queue_checkpoint, validate_outer_event_queue_inventory
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
                                print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   implicit none
 
   type(mesh_type) :: mesh
@@ -30,16 +26,11 @@ program main
   type(injection_state) :: inject_state
   type(charge_ledger_type) :: charge_ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
-  type(electrostatic_restart_state_type) :: electrostatic_restart_state
-  type(outer_event_queue_type) :: outer_queue_state
   type(mpi_context) :: mpi
   integer :: history_unit
   integer :: potential_history_unit
   integer :: top_reference_history_unit
   logical :: history_opened, potential_history_opened, top_reference_history_opened, resumed
-  logical :: outer_queue_checkpoint_found
-  integer(i32) :: outer_queue_io_status
-  character(len=256) :: outer_queue_io_message
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
 
@@ -49,7 +40,7 @@ program main
   call perf_region_begin(perf_region_program_total, perf_program_t0)
   call mpi_initialize(mpi)
   call perf_region_begin(perf_region_load_or_init, perf_t0)
-  call load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, outer_queue_state, resumed, mpi)
+  call load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, resumed, mpi)
   call perf_region_end(perf_region_load_or_init, perf_t0)
   call perf_set_output_context(trim(app%output_dir), app%write_output)
   if (mpi_is_root(mpi)) then
@@ -77,15 +68,13 @@ program main
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
     else
@@ -95,15 +84,13 @@ program main
           inject_state=inject_state, mpi=mpi, &
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
     end if
@@ -116,15 +103,13 @@ program main
           mesh_potential_v=mesh_potential_v, &
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
     else
@@ -133,15 +118,12 @@ program main
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
-          electrostatic_restart_state=electrostatic_restart_state, &
-          outer_queue_state=outer_queue_state &
+          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics &
           )
       end if
     end if
@@ -171,14 +153,6 @@ program main
     call perf_region_begin(perf_region_write_checkpoint, perf_t0)
     call write_rng_state_file(trim(app%output_dir), mpi=mpi)
     call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
-    if (app%coupling%outer_queue_enabled) then
-      call write_outer_event_queue_checkpoint( &
-        trim(app%output_dir), outer_queue_state, stats%batches, outer_queue_io_status, outer_queue_io_message, mpi=mpi &
-        )
-      call require_collective_outer_queue_checkpoint_success( &
-        'write', outer_queue_io_status, outer_queue_io_message, mpi &
-        )
-    end if
     call perf_region_end(perf_region_write_checkpoint, perf_t0)
     if (mpi_is_root(mpi)) print '(a,a)', 'results written to ', trim(app%output_dir)
   end if
@@ -215,13 +189,12 @@ contains
   !! @param[out] initial_stats 再開時に引き継ぐ初期統計（新規実行時はゼロ）。
   !! @param[out] inject_state 種別ごとの注入残差状態。
   !! @param[out] resumed チェックポイントから再開した場合に `.true.`。
-  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, outer_queue, resumed, mpi)
+  subroutine load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, resumed, mpi)
     type(app_config), intent(out) :: app
     type(mesh_type), intent(out) :: mesh
     type(sim_stats), intent(out) :: initial_stats
     type(injection_state), intent(out) :: inject_state
     type(charge_ledger_type), intent(out) :: charge_ledger
-    type(outer_event_queue_type), intent(out) :: outer_queue
     logical, intent(out) :: resumed
     type(mpi_context), intent(in) :: mpi
     character(len=256) :: cfg_path
@@ -238,7 +211,6 @@ contains
     call prepare_periodic2_collision_mesh(mesh, app%sim)
     call initialize_injection_state(inject_state, app%n_particle_species)
     initial_stats = sim_stats()
-    call outer_queue%init()
     resumed = .false.
     if (app%resume_output) then
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
@@ -246,27 +218,8 @@ contains
       if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
       call load_restart_checkpoint( &
         trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
-        mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger, &
-        electrostatic_state=electrostatic_restart_state &
+        mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger &
         )
-      if (app%coupling%outer_queue_enabled) then
-        call load_outer_event_queue_checkpoint( &
-          trim(restart_dir), initial_stats%batches, outer_queue, outer_queue_checkpoint_found, &
-          outer_queue_io_status, outer_queue_io_message, mpi=mpi &
-          )
-        call require_collective_outer_queue_checkpoint_success( &
-          'load', outer_queue_io_status, outer_queue_io_message, mpi, outer_queue_checkpoint_found &
-          )
-        call validate_outer_event_queue_inventory( &
-          outer_queue, electrostatic_restart_state%outer_queue_event_count, &
-          electrostatic_restart_state%outer_queue_signed_charge, &
-          electrostatic_restart_state%outer_queue_fingerprint, &
-          outer_queue_io_status, outer_queue_io_message, mpi=mpi &
-          )
-        call require_collective_outer_queue_checkpoint_success( &
-          'inventory validation', outer_queue_io_status, outer_queue_io_message, mpi &
-          )
-      end if
     end if
 
     if (resumed) then
@@ -315,34 +268,5 @@ contains
     allocate (state%macro_residual(n_species))
     state%macro_residual = 0.0d0
   end subroutine initialize_injection_state
-
-  !> Convert rank-local queue checkpoint failures into one collective stop branch.
-  subroutine require_collective_outer_queue_checkpoint_success(operation, status, message, mpi, found)
-    character(len=*), intent(in) :: operation
-    integer(i32), intent(in) :: status
-    character(len=*), intent(in) :: message
-    type(mpi_context), intent(in) :: mpi
-    logical, intent(in), optional :: found
-    integer(i32) :: failure_count
-    logical :: local_failure
-
-    local_failure = status /= outer_event_queue_io_ok
-    if (present(found)) local_failure = local_failure .or. .not. found
-    failure_count = merge(1_i32, 0_i32, local_failure)
-    call mpi_allreduce_sum_i32_scalar(mpi, failure_count)
-    if (failure_count == 0_i32) return
-
-    if (local_failure) then
-      write (error_unit, '(a,i0,2a)') &
-        'BEACH outer-event queue checkpoint failure on rank ', mpi%rank, ' during ', trim(operation)
-      if (status /= outer_event_queue_io_ok) then
-        write (error_unit, '(a,i0,2a)') 'status=', status, ' message=', trim(message)
-      else
-        write (error_unit, '(a)') 'required rank-local checkpoint file was not found'
-      end if
-      flush (error_unit)
-    end if
-    error stop 'Outer-event queue checkpoint collective operation failed.'
-  end subroutine require_collective_outer_queue_checkpoint_success
 
 end program main

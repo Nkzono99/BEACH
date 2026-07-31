@@ -4,12 +4,9 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 
 # 粒子源の全体像
 
-このページは、粒子をどこから生成するかに応じて `source_mode` を選び、生成後に共通して適用される処理を確認するための
-入口です。各粒子源の数値計算や物理モデルは、対応する詳細ページで説明します。
+各 `[[particles.species]]` の生成位置と物理量に応じて `source_mode` を選びます。生成後の粒子追跡は共通です。
 
 ## 目的に応じて粒子源を選ぶ
-
-各 `[[particles.species]]` に 1 つの `source_mode` を設定します。
 
 | `source_mode` | 粒子数を決める量 | 生成位置 | 適した用途 |
 | --- | --- | --- | --- |
@@ -17,7 +14,7 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 | `reservoir_face` | 流入流束、開口面積、`batch_duration` | 指定したボックス面 | 外部リザーバーからの連続流入 |
 | `photo_raycast` | 電流密度、投影面積、`batch_duration`、光線数 | 光線が最初に命中した表面 | 光照射による表面放出 |
 
-粒子数を直接指定するなら `volume_seed`、外部プラズマから面を横切る流入を与えるなら `reservoir_face`、
+粒子数を直接指定するなら `volume_seed`、与えた局所 reservoir VDF から面流入を作るなら `reservoir_face`、
 照射された表面から放出するなら `photo_raycast` を選びます。
 
 ## `volume_seed` で指定個数の粒子を作る
@@ -34,27 +31,24 @@ $$
 というドリフト付き Maxwell 分布です。`thermal_speed` を指定した場合は、温度から求めた $\sigma$ より優先します。
 標準正規変量は各成分で $6\sigma$ に切られます。
 
-この方式は粒子数を直接指定するため、物理的な面流束から粒子数を計算しません。
+この方式は物理的な面流束から粒子数を計算しません。
 
 ## `reservoir_face` で外部からの連続流入を作る
 
-`reservoir_face` は、ボックス外に与えた上流分布関数（VDF）を、指定面から内向きに流入する粒子へ変換します。
+`reservoir_face` は、与えた reservoir VDF を指定面から内向きに流入する粒子へ変換します。
 各バッチの粒子数は物理流束から決まり、法線速度は面を横切る粒子に適した流束重み付き分布から生成されます。
 
-この方式を選んだ後に必要となる計算は、次のページへ分けています。
-
-- 上流 VDF から流入量、マクロ粒子数、注入開口からの初期位置、面到達速度を作る処理:
-  [`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)
-- `infinity_barrier`、外部プラズマ、流出境界を含む構成の選択:
-  [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)
-`reservoir_face` 自体は、外部シースやボックス外の粒子軌道を解くモデルではありません。
+流束、マクロ粒子数、初期位置、面到達速度は
+[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)、`infinity_barrier` と open 面処理の
+組合せは[粒子の escape と局所 return](ParticleEscapeReturn.html)にあります。
+`reservoir_face` は box 外の軌道や自己無撞着 sheath を解きません。
 
 ## `photo_raycast` で照射面から粒子を放出する
 
 `photo_raycast` は、ボックス面上の照射開口から光線を発射し、ボックス境界条件に従って進めます。
 ボックス内で最初に命中した要素から粒子を放出し、要素法線に対する流束重み付き Maxwell 分布から速度を生成します。
 
-放出元へ置く逆符号電荷と、通常の粒子追跡・外部シースによるescape/returnは
+放出元へ置く逆符号電荷、再吸収、closed PE は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
 
 ## 生成後は同じ粒子追跡へ入る
@@ -65,22 +59,22 @@ $$
 | バッチ内の結果 | 処理 |
 | --- | --- |
 | メッシュへ吸収 | 命中要素へ $qw$ を堆積 |
-| 開放面から無限遠へ脱出 | 粒子を除去し、粒子種別の脱出量へ計上 |
-| 外部領域から帰還 | 同じ粒子を界面へ戻し、残りのステップを再積分 |
+| open 面で escape | 粒子を除去し、粒子種別の脱出量へ計上 |
+| reflect / periodic 面 | 同じ粒子で残り step を再積分 |
 | `max_step` まで生存 | 未解決粒子としてバッチ末尾で破棄・計上 |
 
-粒子の前進は [Boris 粒子更新](BorisPusher.html)、メッシュ衝突とボックス境界の順序は
-[粒子の衝突・境界イベント](ParticleEvents.html)、ボックス外の処理は
-[粒子の脱出と帰還](ParticleEscapeReturn.html)で説明します。
+粒子前進は [Boris 粒子更新](BorisPusher.html)、mesh と box のイベント順序は
+[粒子の衝突・境界イベント](ParticleEvents.html)、open 面処理は
+[粒子の escape と局所 return](ParticleEscapeReturn.html)で説明します。
 
 ## 粒子源はバッチ開始時の場を使う
 
-粒子源は、バッチ開始時に電場・電位と外部プラズマ状態を更新した後で評価されます。したがって、リザーバーの速度補正と
-光電子の脱出率は、前のバッチまでに確定した表面電荷を参照します。生成された粒子は、そのバッチ内で固定された場の中を進みます。
+粒子源は、batch 開始時に電場・電位 snapshot を構築した後で評価されます。reservoir の速度補正と粒子運動は、
+前 batch までに commit した表面電荷を参照し、その batch 内では同じ固定場を使います。
 
-粒子生成時に表面電荷を変えるのは、`photo_raycast` が放出元へ逆符号電荷を置く場合だけです。この差分も吸収電荷とともに
-バッチ末尾で確定され、現在のバッチの場は変更しません。全体の順序は
-[計算モデルの全体像](Algorithms.html)を参照してください。
+粒子生成時に表面電荷差分を作るのは、`photo_raycast` が放出元へ逆符号電荷を置く場合だけです。この差分も
+吸収電荷とともに batch 末尾で commit され、現在の場は変えません。全体の順序は
+[計算モデルの全体像](Algorithms.html)にあります。
 
 ## MPI と再開で生成量を保つ
 

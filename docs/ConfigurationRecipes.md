@@ -4,55 +4,56 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 
 # シミュレーションケースを設計する
 
-典型的なケースは、公式入門ケースの `beach.toml` を基に、メッシュと粒子源を目的に合わせて置き換えて作ります。
-このページでは物理的な構成の選び方を扱います。全キーの定義は[入力パラメータリファレンス](Parameters.html)、
-ファイルの生成や検査は[`beach.toml`を作成・検証する](Configuration.html)にまとめています。
+公式入門ケースを基に、メッシュ、粒子源、境界条件を1項目ずつ置き換えるためのタスクガイドです。
+全キーの定義は[入力パラメータリファレンス](Parameters.html)、設定ファイルの生成と検査は
+[`beach.toml`を作成・検証する](Configuration.html)を参照してください。
 
-以下は[公式入門ケース](Tutorial.html)を基準にした差分例です。
-断片だけでは実行できない場合があります。
+## 共通手順
 
-## 公式の実行手順
+**前提:** BEACHをインストールし、作業ディレクトリを用意します。
+
+**操作:**
 
 ```bash
-beachx config init
+beachx config init beach.toml
 beachx lint beach.toml
 beach beach.toml
 beachx inspect outputs/latest
 ```
 
-`beach.toml`はそのままFortran実行系に渡せます。box基準の座標・配置パラメータも読み込み時に実座標へ変換されます。
+**期待する出力:** `lint`が設定を受理し、実行後に`outputs/latest/summary.txt`と`charges.csv`が作成されます。
 
-## レシピ一覧
+**解釈:** 正常終了は設定と実行経路が動作したことを示します。数値収束や物理的妥当性は
+[結果を検証する](ValidationGuide.html)に従って別途確認します。
 
-| レシピ | 変更する主な場所 | 使う場面 |
-| --- | --- | --- |
-| 組み込みメッシュを追加 | `[mesh]`, `[[mesh.templates]]` | 平面、球、箱、円柱などを組み合わせる |
-| OBJ メッシュ | `[mesh]` | 外部形状を使う |
-| 粒子注入を選ぶ | `[[particles.species]]` | 流入、初期粒子、光電子放出を切り替える |
-| 2軸周期境界（有限画像和） | `[sim]` | 指定した範囲の周期画像を使う |
-| 高度な外部シース連成 | `[periodic2]`, `[external_boundary]` | 無限周期、`kinetic_1d`、UV 光電子を結合する |
-| 履歴出力 | `[output]` | 時間発展を可視化する |
-| 再開実行 | `[output]` | checkpoint から続ける |
+**次の選択:**
+
+| 目的 | 変更する場所 |
+| --- | --- |
+| 組み込み形状を使う | `[mesh]`, `[[mesh.templates]]` |
+| OBJ形状を使う | `[mesh]` |
+| 初期粒子、reservoir流入、光電子を選ぶ | `[[particles.species]]` |
+| 2軸周期の有限画像和を使う | `[sim]` |
+| 時系列を保存する | `[output]` |
+| checkpointから続ける | `[output]` |
+
+変更は1種類ずつ行い、そのたびに`beachx lint beach.toml`を実行してください。
 
 ## 組み込みメッシュを追加する
 
-`[mesh].mode="template"` では、`[[mesh.templates]]` を 1 件書くたびに形状を追加できます。
-有効な template には別々の `mesh_id` が割り当てられます。公式入門ケースの平面を残したまま球体を追加する場合は、
-既存の `[[mesh.templates]]` の後ろへ新しい entry を追記します。
+**前提:** `[mesh].mode="template"`を使います。各`[[mesh.templates]]`には別の`mesh_id`が割り当てられます。
 
-利用できる形状と、寸法・解像度を決める主なキーは次のとおりです。
+**操作:** 既存のtemplateの後ろに形状を追加します。
 
 | `kind` | 形状 | 寸法 | 解像度 |
 | --- | --- | --- | --- |
-| `plane` | XY 長方形平面 | `size_x`, `size_y` | `nx`, `ny` |
-| `plate_hole`, `plane_hole` | 円形穴付き長方形平面 | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
+| `plane` | XY長方形平面 | `size_x`, `size_y` | `nx`, `ny` |
+| `plate_hole`, `plane_hole` | 円形穴付き平面 | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
 | `disk` | 円板 | `radius` | `n_theta`, `n_r` |
 | `annulus` | 同心リング | `radius`, `inner_radius` | `n_theta`, `n_r` |
-| `box` | 閉じた直方体表面 | `size = [sx, sy, sz]` | `nx`, `ny`, `nz` |
-| `cylinder` | z 軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
+| `box` | 閉じた直方体表面 | `size` | `nx`, `ny`, `nz` |
+| `cylinder` | z軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
 | `sphere` | 球面 | `radius` | `n_lon`, `n_lat` |
-
-平面の例:
 
 ```toml
 [mesh]
@@ -67,11 +68,7 @@ size_y = 1.0
 nx = 20
 ny = 20
 center = [0.5, 0.5, 0.02]
-```
 
-この平面へ球体を追加する例:
-
-```toml
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
@@ -82,16 +79,20 @@ n_lon = 24
 n_lat = 12
 ```
 
-`center` は形状の中心です。分割数を増やすと要素数と場計算・衝突判定のコストが増えるため、最初は小さい分割数で
-配置と衝突を確認してから解像度を上げます。各形状の要素数と制約は
+**期待する出力:** `mesh_triangles.csv`に両方の`mesh_id`が現れ、`mesh_sources.csv`で元のtemplateを確認できます。
+
+**解釈:** 分割数を増やすと場計算と衝突判定のコストも増えます。まず粗いメッシュで配置と衝突を確認します。
+通常の帯電計算は`surface_model="insulator"`を使います。`conductor`は`field_bc_mode="free"`だけに対応し、
+`dielectric`の`epsilon_r`は現状ではメタデータであり、分極を解きません。
+
+**次の選択:** 形状と要素数の制約は
 [組み込み形状リファレンス](Parameters.html#meshtemplates-組み込み形状)にまとめています。
 
-通常の帯電計算には `surface_model="insulator"` を使います。`conductor` は `field_bc_mode="free"` だけに対応し、
-`periodic2` とは併用できません。`dielectric` の `epsilon_r` は現行実装ではメタデータであり、誘電体分極を解きません。
+## OBJメッシュへ置き換える
 
-### OBJ ファイルを使う
+**前提:** OBJファイルは三角形面を含み、実行時に読み取れる場所へ置きます。
 
-組み込み形状では表せない形状は、`[mesh]` を OBJ mode に置き換えます。
+**操作:**
 
 ```toml
 [mesh]
@@ -103,23 +104,24 @@ obj_rotation = [0.0, 0.0, 0.0]
 obj_offset = [0.0, 0.0, 0.0]
 ```
 
-変換は scale → rotation → offset の順です。1 つの OBJ ファイル全体が 1 つの `mesh_id` になります。
-複数の独立した object を分けて扱う場合は、組み込み template を複数定義する方法を優先してください。
+**期待する出力:** OBJ全体が1つの`mesh_id`として`mesh_triangles.csv`へ出力されます。
 
-## 粒子注入を選ぶ
+**解釈:** 変換順はscale → rotation → offsetです。
 
-`[[particles.species]]` を 1 件書くたびに粒子種を追加します。公式入門ケースの電子源を変更する場合は既存 entry を編集し、
-電子とイオンを同時に流入させる場合などは entry を追加します。
-`source_mode` を切り替えるときは、既存 entry 全体を対応する例で置き換えてください。別 mode の
-`npcls_per_step`、`w_particle`、`number_density_*` などを残すと validation error になります。
+**次の選択:** 独立したobjectを別の`mesh_id`で解析する場合は、複数の組み込みtemplateを優先します。
 
-| `source_mode` | 使う場面 | 主なキー |
+## 粒子源を選ぶ
+
+**前提:** `[[particles.species]]`の`source_mode`を1つ選びます。modeを変更するときは、別mode専用のキーを
+残さずentry全体を置き換えます。
+
+| `source_mode` | 用途 | 必須となる主なキー |
 | --- | --- | --- |
 | `volume_seed` | 箱内に初期粒子を置く小テスト | `npcls_per_step`, `pos_low`, `pos_high` |
-| `reservoir_face` | 面から Maxwellian などの流入を与える通常ケース | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
-| `photo_raycast` | 表面からの光電子放出を raycast で扱う | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
+| `reservoir_face` | 面から局所reservoir流入を与える | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
+| `photo_raycast` | 表面から光電子を放出する | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
 
-`volume_seed` の例:
+### `volume_seed`
 
 ```toml
 [[particles.species]]
@@ -134,10 +136,13 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 temperature_k = 0.0
 ```
 
-`volume_seed` は各 batch に `npcls_per_step` 個を生成します。物理的な面流束から個数を計算する方式ではありません。
+**期待する出力:** 各batchに`npcls_per_step`個のmacro粒子を生成します。
 
-`reservoir_face` または `photo_raycast` を使う前に、既存の `[sim]` へ対象時間 scale に合わせた正の
-`batch_duration` を追加します。次は `batch_duration = 1.0e-5` とした場合の `reservoir_face` の最小例です。
+**解釈:** 物理的な面流束から個数を決めるsourceではありません。
+
+### `reservoir_face`
+
+**前提:** `sim.use_box=true`、正の`sim.batch_duration`、`inject_face`が必要です。
 
 ```toml
 [[particles.species]]
@@ -154,13 +159,17 @@ uv_high = [1.0, 1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
 ```
 
-`reservoir_face` では `sim.use_box=true`、正の `sim.batch_duration`、`inject_face` が必要です。
-`inject_region_mode="face_fraction"` の `uv_low` / `uv_high` は注入面内の割合で開口を指定します。
-`target_macro_particles_per_batch` は 1 batch あたりの計算粒子数を固定し、粒子重みを流入量から解きます。
-物理粒子数を重みで直接指定したい場合は `w_particle` を使います。
-`temperature_k` と `temperature_ev` は同時に指定できません。
+**期待する出力:** 局所reservoirの流束から粒子重みが決まり、指定面から流入します。
 
-`photo_raycast` の例:
+**解釈:** `target_macro_particles_per_batch`は1 batchあたりの計算粒子数を固定します。重みを直接指定する場合は
+代わりに`w_particle`を使います。`temperature_k`と`temperature_ev`は同時指定できません。
+
+**次の選択:** 流束、重み、速度分布は
+[`reservoir_face`の流入量と速度サンプリング](ReservoirInjection.html)で確認します。
+
+### `photo_raycast`
+
+**前提:** 正の`sim.batch_duration`が必要です。
 
 ```toml
 [[particles.species]]
@@ -178,17 +187,19 @@ uv_high = [1.0, 1.0]
 ray_direction = [0.0, 0.0, -1.0]
 ```
 
-`photo_raycast` も正の `sim.batch_duration` を必要とします。`rays_per_batch` は照射 ray 数であり、実際に生成される
-粒子数は最初のメッシュ命中率で決まります。`deposit_opposite_charge_on_emit=true` は放出元へ逆符号の電荷を残します。
-放出、再吸収、open 面での処理は[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
+**期待する出力:** 最初にメッシュへ命中したrayから光電子を生成します。
 
-3 種類の粒子源の選択と生成後の共通処理は[粒子源の全体像](ParticleSourcesBoundaries.html)、
-`reservoir_face` の流束・重み・速度分布は[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)にまとめています。
+**解釈:** `rays_per_batch`は照射ray数であり、生成粒子数は命中率で変わります。
+`deposit_opposite_charge_on_emit=true`は放出元へ逆符号の電荷を残します。
+
+**次の選択:** 放出、再吸収、closed PEの`neutral_return`は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
 
 ## 2軸周期境界を有限画像和で使う
 
-`periodic2`は、3軸のうち2軸を周期軸とする場の境界条件です。このレシピでは、primary cellと
-`field_periodic_image_layers`で指定した範囲の周期画像だけを足す有限画像和を使います。
+**前提:** boxのちょうど2軸をperiodicにし、`field_solver="fmm"`を使います。
+
+**操作:**
 
 ```toml
 [sim]
@@ -209,38 +220,17 @@ field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 ```
 
-要件:
+**期待する出力:** `field_periodic_image_layers=1`ではprimary cellを含む$3\times3$ cellsをfield sourceとして使います。
 
-- `sim.use_box = true`
-- ちょうど 2 軸が periodic
-- 各周期軸の `box_max - box_min > 0`
-- `sim.field_solver = "fmm"`
-- `field_periodic_image_layers >= 0`
+**解釈:** これは無限周期解ではありません。画像層を増やし、電場、粒子flux、帯電分布が変わらなくなることを確認します。
 
-`field_periodic_image_layers = 1`なら、primary cellを含む$3\times3$ cellsをfield sourceとして足します。
-`field_periodic_far_correction = "none"`なので、その外側の周期画像をEwald和やcached operatorで補いません。
-画像層を増やし、電場、粒子flux、帯電分布などの目的量が変わらなくなることを確認してください。
+**次の選択:** 局所reservoir + closed PEの基準構成は
+[periodic2有限画像構成](FinitePeriodicConfiguration.html)と
+[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)を使います。
 
-これは無限個の周期画像を足した無限周期解ではありません。画像層の意味、z-highの局所太陽風reservoir、
-光電子だけを閉じる`neutral_return`、top面基準電位、scalar potential barrierとの違いは
-[periodic2有限画像構成](FinitePeriodicConfiguration.html)にまとめています。統合された実行例は
-[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)です。
-無限周期operatorと外部sheathを使う場合は、次のレシピを選びます。
+## 履歴を保存する
 
-## 高度な外部シース連成は結合計算構成を使う
-
-無限周期の `periodic2`、外部 `kinetic_1d` シース、reservoir の流入・帰還は、複数 section が同じ電位と
-particle transfer を共有する高度な構成です。このページの断片を組み合わせず、
-[periodic2 無限周期＋outer plasma の結合計算構成](InfinitePeriodicOuterConfiguration.html)を正本として設定してください。
-標準の小規模 contract fixture は
-[`examples/periodic2_kinetic_outer.toml`](../examples/periodic2_kinetic_outer.toml)です。
-
-UV 光電子を外部シースの平均密度へ含める場合も、同じ結合計算構成の
-「平均 outer 密度と tracked 光電子を別々に選ぶ」に従います。局所的な `photo_raycast` の設定、放出元電荷、
-再吸収の確認は[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
-`kinetic_mean`、tracked return、surface deposit は役割が異なるため、個別の TOML 断片として追加しません。
-
-## 履歴を出す
+**操作:**
 
 ```toml
 [output]
@@ -250,21 +240,17 @@ write_mesh_potential = true
 write_potential_history = true
 ```
 
-`write_potential_history` は履歴ごとに電位を再評価するため、要素数が多いケースでは重くなります。
-`sim.use_box=true`なら、同じbatchのz-high面平均を`top_reference_history.csv`にも記録します。
-まず `charge_history.csv` だけで収束傾向を確認し、相対電位が必要なときに電位履歴を有効にしてください。
+**期待する出力:** `charge_history.csv`と`potential_history.csv`が作成されます。
 
-## 再開する
+**解釈:** 電位履歴は各保存点で再評価するため、要素数が多い場合は高コストです。
 
-同じ出力ディレクトリから続ける場合:
+**次の選択:** まず電荷履歴だけを使い、相対電位が必要な場合に`write_potential_history`を有効にします。
 
-```toml
-[output]
-dir = "outputs/latest"
-resume = true
-```
+## checkpointから再開する
 
-checkpoint 読み込み元と新しい出力先を分ける場合:
+**前提:** 読み込み元に有効なcheckpoint一式が必要です。
+
+**操作:**
 
 ```toml
 [output]
@@ -273,4 +259,9 @@ resume = true
 restart_from = "../previous/outputs/latest"
 ```
 
-`sim.batch_count` は累積到達 batch 数です。checkpoint が `batches=100` で、新しい設定が `batch_count=150` なら追加で 50 batch だけ進みます。
+**期待する出力:** checkpointを読み込み、新しい出力を`outputs/continuation`へ保存します。
+
+**解釈:** `sim.batch_count`は累積到達batch数です。checkpointが`batches=100`で
+`batch_count=150`なら、追加実行は50 batchです。
+
+**次の選択:** 同じdirectoryへ続けて書く場合は`restart_from`を省略し、`dir`をcheckpointのdirectoryにします。

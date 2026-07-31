@@ -115,11 +115,10 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | `cached_kneq0` | cache fingerprint, cold/warm agreement, zero mode, and Gauss residual |
 | `infinity_barrier` | mean reservoir-face potential, image-layer dependence, and warnings for in-plane potential variation |
 | `potential_barrier` | open-face crossing potential, `sim.phi_infty`, and the normal-kinetic-energy reflection/escape decision |
-| `kinetic_1d` | solver status, Poisson residual, monotone branch, and Bohm condition |
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
 
 Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html),
-[Outer Plasma Models](OuterPlasmaModels.en.html), and [Particle Escape and Return](ParticleEscapeReturn.en.html).
+and [Particle Escape and Return](ParticleEscapeReturn.en.html).
 
 ## 6. Limit the physical conclusion to what was tested
 

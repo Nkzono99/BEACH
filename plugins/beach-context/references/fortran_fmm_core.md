@@ -696,7 +696,7 @@ cacheが保存するのは、固定geometryに対してsource multipoleを遠方
 | 1 | primary cell + 有限近傍画像 | singular/near fieldを通常のFMMとdirectで評価 |
 | 2 | cached Ewald residual | 有限画像の外側にある滑らかな無限周期遠方場を補う |
 | 3 | cached teacherに含まれた対称`k=0`を減算 | 非零モードbackendを`k!=0`だけにする |
-| 4 | 場の合成時に物理的`k=0`を加算 | `symmetric_vacuum`、`e_bottom_zero`、outer plasmaを反映 |
+| 4 | 場の合成時に物理的`k=0`を加算 | `symmetric_vacuum`または`e_bottom_zero`を反映 |
 
 `cached_kneq0`単体では全電場を構成しません。手順3までを非零mode backendが担当し、手順4を
 `electrostatic_snapshot`が担当します。`exclude_k0`は平均場を除外する設定ではありません。
@@ -727,8 +727,8 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
-です。$K_0^\mathrm{physical}$のtriangle-height積分、下側境界条件、outer-plasma接続は
-[periodic2静電場](PeriodicElectrostatics.md)と[外部プラズマモデル](OuterPlasmaModels.md)で説明します。
+です。$K_0^\mathrm{physical}$のtriangle-height積分と下側境界条件は
+[periodic2静電場](PeriodicElectrostatics.md)で説明します。
 
 field fitとpotentialの定数modeは単位が異なるため、同じleast-squaresの列には含めません。
 potential gaugeは、平均residualから別途固定します。

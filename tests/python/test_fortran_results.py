@@ -1,4 +1,3 @@
-from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -94,16 +93,12 @@ class _UnitPanelKernel:
                     shift[axes[1]] = second * lengths[1]
                     shifts.append(shift)
         for shift in shifts:
-            delta = (
-                targets[:, None, :]
-                - (self.source_quadrature + shift)[None, :, :]
-            )
+            delta = targets[:, None, :] - (self.source_quadrature + shift)[None, :, :]
             distance = np.linalg.norm(delta, axis=2)
             inverse_distance = np.zeros_like(distance)
             np.divide(1.0, distance, out=inverse_distance, where=distance > 0.0)
             sample_charges = (
-                self.charges[self.source_element_index]
-                * self.source_quadrature_weights
+                self.charges[self.source_element_index] * self.source_quadrature_weights
             )
             values += K_COULOMB * np.sum(
                 inverse_distance * sample_charges[None, :],
@@ -125,21 +120,15 @@ class _UnitPanelKernel:
                     shift[axes[1]] = second * lengths[1]
                     shifts.append(shift)
         for shift in shifts:
-            delta = (
-                targets[:, None, :]
-                - (self.source_quadrature + shift)[None, :, :]
-            )
+            delta = targets[:, None, :] - (self.source_quadrature + shift)[None, :, :]
             distance = np.linalg.norm(delta, axis=2)
             inverse_cube = np.zeros_like(distance)
             np.divide(1.0, distance**3, out=inverse_cube, where=distance > 0.0)
             sample_charges = (
-                self.charges[self.source_element_index]
-                * self.source_quadrature_weights
+                self.charges[self.source_element_index] * self.source_quadrature_weights
             )
             field += K_COULOMB * np.sum(
-                sample_charges[None, :, None]
-                * delta
-                * inverse_cube[:, :, None],
+                sample_charges[None, :, None] * delta * inverse_cube[:, :, None],
                 axis=1,
             )
         return field
@@ -167,8 +156,7 @@ class _UnitPanelKernel:
 def _write_complete_free_field_config(directory: Path) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "beach.toml").write_text(
-        '[sim]\nfield_bc_mode = "free"\n\n'
-        '[external_boundary.field]\nmodel = "none"\n',
+        '[sim]\nfield_bc_mode = "free"\n\n[external_boundary.field]\nmodel = "none"\n',
         encoding="utf-8",
     )
 
@@ -969,9 +957,7 @@ def test_load_fortran_result_rejects_incomplete_adaptive_summary(
     if extra_line is not None:
         lines.append(extra_line)
     (out / "summary.txt").write_text("\n".join(lines), encoding="utf-8")
-    (out / "charges.csv").write_text(
-        "elem_idx,charge_C\n1,0.0\n", encoding="utf-8"
-    )
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,0.0\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match=match):
         load_fortran_result(out)
@@ -1007,29 +993,15 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
             "periodic2_cache_fingerprint=ABCDEF0123456789",
             "periodic2_cache_path=.beach_cache/periodic2/operator.bin",
             "periodic2_generation_tolerance=1.0e-8",
-            "max_outer_flight_time_s=3.0e-6",
-            "max_outer_frozen_field_ratio=3.0e-2",
-            "max_outer_energy_relative_error=4.0e-5",
-            "implicit_mean_last_returned_outer_flight_time_mean_s=2.5e-6",
-            "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=7.5e-12",
-            "coupling_outer_queue_enabled=T",
-            "outer_photoelectron_population_fraction=1.25",
-            "outer_photoelectron_column_per_area_m2=2.0e12",
-            "outer_photoelectron_column_target_per_area_m2=2.1e12",
-            "outer_photoelectron_column_residual_per_area_m2=-1.0e11",
-            "outer_queue_event_count=7",
-            "outer_queue_signed_charge_C=-3.5e-16",
-            "outer_queue_fingerprint=FEDCBA9876543210",
         ],
     )
     (out / "charge_ledger.csv").write_text(
         "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
         "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
-        "interface_outward_gross_C,interface_returned_gross_C,"
         "neutral_return_correction_C,neutral_return_weight_scale,"
         "neutral_return_unresolved_fraction,injected_count,"
         "emitted_count,absorbed_count,escaped_count,discarded_unresolved_count\n"
-        "1,1,-3,0,-2,-1,-0.1,0,0,-0.1,1.05,0.05,3,0,2,1,1\n",
+        "1,1,-3,0,-2,-1,-0.1,-0.1,1.05,0.05,3,0,2,1,1\n",
         encoding="utf-8",
     )
 
@@ -1054,175 +1026,6 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"
     assert result.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
     assert result.periodic2_generation_tolerance == pytest.approx(1.0e-8)
-    assert result.max_outer_flight_time_s == pytest.approx(3.0e-6)
-    assert result.max_outer_frozen_field_ratio == pytest.approx(3.0e-2)
-    assert result.max_outer_energy_relative_error == pytest.approx(4.0e-5)
-    assert result.implicit_mean_last_returned_outer_flight_time_mean_s == pytest.approx(
-        2.5e-6
-    )
-    assert (
-        result.implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2
-        == pytest.approx(7.5e-12)
-    )
-    assert result.coupling_outer_queue_enabled is True
-    assert result.outer_photoelectron_population_fraction == pytest.approx(1.25)
-    assert result.outer_photoelectron_column_per_area_m2 == pytest.approx(2.0e12)
-    assert result.outer_photoelectron_column_target_per_area_m2 == pytest.approx(2.1e12)
-    assert result.outer_photoelectron_column_residual_per_area_m2 == pytest.approx(
-        -1.0e11
-    )
-    assert result.outer_queue_event_count == 7
-    assert result.outer_queue_signed_charge_c == pytest.approx(-3.5e-16)
-    assert result.outer_queue_fingerprint == "FEDCBA9876543210"
-
-
-def test_fortran_run_result_appends_implicit_mean_diagnostics() -> None:
-    field_names = tuple(field.name for field in fields(FortranRunResult))
-    legacy_tail = field_names.index(
-        "multiple_box_events_soft_discarded_abs_charge_c"
-    )
-
-    assert (
-        field_names.index("implicit_mean_last_returned_outer_flight_time_mean_s")
-        > legacy_tail
-    )
-    assert (
-        field_names.index(
-            "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2"
-        )
-        > legacy_tail
-    )
-
-
-@pytest.mark.parametrize(
-    "present_key",
-    [
-        "implicit_mean_last_returned_outer_flight_time_mean_s",
-        "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2",
-    ],
-)
-def test_load_fortran_result_requires_complete_implicit_mean_shadow_pair(
-    tmp_path: Path, present_key: str
-) -> None:
-    out = tmp_path / present_key
-    out.mkdir()
-    values = {
-        "implicit_mean_last_returned_outer_flight_time_mean_s": "2.5e-6",
-        "implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2": "7.5e-12",
-    }
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[f"{present_key}={values[present_key]}"],
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="implicit_mean shadow diagnostics must appear together",
-    ):
-        load_fortran_result(out)
-
-
-def test_load_fortran_result_queue_disabled_has_no_queue_state(tmp_path: Path) -> None:
-    out = tmp_path / "queue_disabled"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=["coupling_outer_queue_enabled=F"],
-    )
-
-    result = load_fortran_result(out)
-
-    assert result.coupling_outer_queue_enabled is False
-    assert result.outer_photoelectron_population_fraction is None
-    assert result.outer_photoelectron_column_per_area_m2 is None
-    assert result.outer_photoelectron_column_target_per_area_m2 is None
-    assert result.outer_photoelectron_column_residual_per_area_m2 is None
-    assert result.outer_queue_event_count is None
-    assert result.outer_queue_signed_charge_c is None
-    assert result.outer_queue_fingerprint is None
-
-
-def test_load_fortran_result_queue_disabled_rejects_queue_state(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "queue_disabled_with_state"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[
-            "coupling_outer_queue_enabled=F",
-            "outer_queue_event_count=0",
-        ],
-    )
-
-    with pytest.raises(ValueError, match="queue_enabled=false forbids"):
-        load_fortran_result(out)
-
-
-@pytest.mark.parametrize(
-    "missing_key",
-    [
-        "outer_photoelectron_population_fraction",
-        "outer_photoelectron_column_per_area_m2",
-        "outer_photoelectron_column_target_per_area_m2",
-        "outer_photoelectron_column_residual_per_area_m2",
-        "outer_queue_event_count",
-        "outer_queue_signed_charge_C",
-        "outer_queue_fingerprint",
-    ],
-)
-def test_load_fortran_result_queue_enabled_requires_complete_state(
-    tmp_path: Path, missing_key: str
-) -> None:
-    out = tmp_path / missing_key
-    out.mkdir()
-    queue_values = {
-        "outer_photoelectron_population_fraction": "1.25",
-        "outer_photoelectron_column_per_area_m2": "2.0e12",
-        "outer_photoelectron_column_target_per_area_m2": "2.1e12",
-        "outer_photoelectron_column_residual_per_area_m2": "-1.0e11",
-        "outer_queue_event_count": "7",
-        "outer_queue_signed_charge_C": "-3.5e-16",
-        "outer_queue_fingerprint": "FEDCBA9876543210",
-    }
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[
-            "coupling_outer_queue_enabled=T",
-            *[
-                f"{key}={value}"
-                for key, value in queue_values.items()
-                if key != missing_key
-            ],
-        ],
-    )
-
-    with pytest.raises(ValueError, match="queue_enabled=true requires"):
-        load_fortran_result(out)
-
-
-@pytest.mark.parametrize("fingerprint", ["fedcba9876543210", "ABCDEF"])
-def test_load_fortran_result_rejects_invalid_queue_fingerprint(
-    tmp_path: Path, fingerprint: str
-) -> None:
-    out = tmp_path / fingerprint
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[
-            "coupling_outer_queue_enabled=T",
-            "outer_photoelectron_population_fraction=1.25",
-            "outer_photoelectron_column_per_area_m2=2.0e12",
-            "outer_photoelectron_column_target_per_area_m2=2.1e12",
-            "outer_photoelectron_column_residual_per_area_m2=-1.0e11",
-            "outer_queue_event_count=7",
-            "outer_queue_signed_charge_C=-3.5e-16",
-            f"outer_queue_fingerprint={fingerprint}",
-        ],
-    )
-
-    with pytest.raises(ValueError, match="16 uppercase hexadecimal"):
-        load_fortran_result(out)
 
 
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:
@@ -1689,7 +1492,9 @@ def test_compute_potential_mesh_reads_panel_solver_options_from_config(
     captured: dict[str, object] = {}
 
     class _CaptureOptionsKernel(_UnitPanelKernel):
-        def __init__(self, source_triangles, source_charges, *, options, **kwargs) -> None:
+        def __init__(
+            self, source_triangles, source_charges, *, options, **kwargs
+        ) -> None:
             captured["options"] = options
             super().__init__(
                 source_triangles,
@@ -2086,9 +1891,7 @@ def test_coulomb_matrix_auto_reader_accepts_historical_root_oracle(
         survived_max_step=0,
         last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=np.array(
-            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
-        ),
+        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
     )
 
     periodic2 = _periodic2_for_coulomb_matrix(result, config_path=None)
@@ -2473,9 +2276,7 @@ def test_potential_animation_rejects_cached_kneq0_component(
         ),
         encoding="utf-8",
     )
-    triangles = np.array(
-        [[[0.2, 0.2, 0.0], [0.8, 0.2, 0.0], [0.2, 0.8, 0.0]]]
-    )
+    triangles = np.array([[[0.2, 0.2, 0.0], [0.8, 0.2, 0.0], [0.2, 0.8, 0.0]]])
     result = FortranRunResult(
         directory=output_dir,
         mesh_nelem=1,

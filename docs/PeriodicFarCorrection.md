@@ -4,13 +4,8 @@ Lang: [日本語](PeriodicFarCorrection.md) | [English](PeriodicFarCorrection.en
 
 # periodic2遠方補正
 
-`periodic2`のFMMは、primary cellと有限個の近傍画像を通常のtree FMMで評価します。無限周期構造として
-扱う場合は、その外側に残る滑らかな遠方場を別に補う必要があります。このページでは、Ewald2Pをteacherに
-したroot operator、`cached_kneq0`、FMM stateへの接続を説明します。
-
-遠方補正はFMMから完全に独立したsolverではありません。現在の実装ではFMMのroot multipoleを入力とし、
-target nodeのlocal展開係数を出力するため、FMMの`plan`と`state`へ組み込まれています。一方、通常のtree M2Lとは
-別のoperator・cache・検証対象なので、概念と運用はこのページに分離します。
+`periodic2` の FMM は primary cell と有限画像を通常の tree FMM で評価し、その外側の滑らかな無限周期遠方場を
+追加 operator で補います。このページは Ewald2P teacher、`cached_kneq0`、cache、FMM state への接続の正本です。
 
 ## 有限画像モデルと無限周期近似を選ぶ
 
@@ -30,8 +25,8 @@ field_periodic_generation_tolerance = 1.0e-8
 | `auto` | 現行では`none`へ正規化 | 互換性のみ |
 | `cached_kneq0` | versioned operatorを生成・再利用 | 無限周期nonzero modeのproduction経路 |
 
-`cached_kneq0`を選んでも、z方向の平均場`k=0`や外部plasma responseまでは決まりません。それらは
-[periodic2静電場](PeriodicElectrostatics.html)の場の合成処理が担当します。
+`cached_kneq0` は z 方向の平均場 `k=0` を決めません。[periodic2 静電場](PeriodicElectrostatics.html)の
+場の合成処理が physical `k=0` を一度だけ加えます。self-consistent outer-plasma/sheath model は非対応です。
 `m2l_root_oracle`は削除済みで、設定すると`cached_kneq0`を案内して起動時にrejectされます。
 
 ## 有限画像shellを通常のFMMで評価する
@@ -131,13 +126,12 @@ $$
 を行います。その後は通常のL2Lが補正済みlocalをleafへ伝え、L2Pが粒子位置で評価します。したがってhot pathで
 増える処理は行列・vector積と通常のlocal展開評価であり、all-source Ewald和ではありません。
 
-この接続により実装はFMMと密接ですが、treeが作るM2L pair cacheや`m2l_deriv`自体を書き換えてはいません。
-遠方補正は`ordinary M2L`と`L2L`の間に置かれた追加段階です。
+tree の M2L pair cache と `m2l_deriv` は変更せず、補正を ordinary M2L と L2L の間に追加します。
 
 ## cached operatorから対称`k=0`を除く
 
-Ewald teacherのfull residualには、fitを定義するための対称vacuum `k=0`が含まれます。一方、実際に使う平均場は
-`lower_boundary_model`やouter modelで決まります。そこでFMM側のnonzero kernelを
+Ewald teacher の full residual には fit を定義する対称 vacuum `k=0` が含まれます。実際の平均場は
+`lower_boundary_model` で決まるため、FMM 側の nonzero kernel を
 
 $$
 K_{k\ne0}=K_\mathrm{shell}(N)
@@ -150,8 +144,8 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
-`zero_mode_policy="exclude_k0"`は平均場を捨てる指定ではなく、FMM backendと物理的なzero-mode境界モデルの二重加算を防ぐ
-ownership規則です。
+`zero_mode_policy="exclude_k0"` は平均場を捨てる指定ではなく、FMM backend と physical zero mode の二重加算を
+防ぐ ownership 規則です。境界モデルと Gauss 則は [periodic2 静電場](PeriodicElectrostatics.html)を参照してください。
 
 ## cacheと並列化の境界を理解する
 
@@ -176,8 +170,8 @@ operatorが固定target topologyに対するproduction kernelだからです。
 4. `periodic2_cache_fingerprint`、`periodic2_cache_hit`、`periodic2_operator_build_count`を確認する。
 5. nonzero modeだけでなく、選択したphysical `k=0`とGauss residualも別に確認する。
 
-有限画像和の使い方は[有限画像構成](FinitePeriodicConfiguration.html)、無限周期・zero mode・outer modelを合わせた
-設定は[無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にあります。
+有限画像和の使い方は[有限画像構成](FinitePeriodicConfiguration.html)、無限周期とzero modeの
+設定は[periodic2静電場](PeriodicElectrostatics.html)にあります。
 
 ## Code reference
 

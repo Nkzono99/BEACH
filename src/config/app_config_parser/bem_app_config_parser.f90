@@ -180,12 +180,6 @@ contains
       case ('periodic2')
         if (.not. associated(section)) error stop 'TOML section [periodic2] must be a table.'
         call apply_periodic2_toml_table(section, authoring)
-      case ('outer_plasma')
-        if (.not. associated(section)) error stop 'TOML section [outer_plasma] must be a table.'
-        call apply_outer_plasma_toml_table(section, authoring)
-      case ('coupling')
-        if (.not. associated(section)) error stop 'TOML section [coupling] must be a table.'
-        call apply_coupling_toml_table(section, authoring)
       case ('external_boundary')
         if (.not. associated(section)) error stop 'TOML section [external_boundary] must be a table.'
         call apply_external_boundary_toml_table(section, authoring%external_boundary)
@@ -234,16 +228,6 @@ contains
         call get_toml_int( &
           table, keys(ikey), authoring%periodic2%panel_quadrature_order, 'periodic2.panel_quadrature_order' &
           )
-      case ('interface_sample_n')
-        call get_toml_int(table, keys(ikey), authoring%periodic2%interface_sample_n, 'periodic2.interface_sample_n')
-      case ('interface_phi_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), authoring%periodic2%interface_phi_tolerance, 'periodic2.interface_phi_tolerance' &
-          )
-      case ('interface_field_tolerance')
-        call get_toml_real( &
-          table, keys(ikey), authoring%periodic2%interface_field_tolerance, 'periodic2.interface_field_tolerance' &
-          )
       case ('max_nonzero_mode_potential_step')
         call get_toml_real( &
           table, keys(ikey), authoring%periodic2%max_nonzero_mode_potential_step, &
@@ -254,109 +238,6 @@ contains
       end select
     end do
   end subroutine apply_periodic2_toml_table
-
-  subroutine apply_outer_plasma_toml_table(table, authoring)
-    type(toml_table), intent(inout) :: table
-    type(app_config_authoring), intent(inout) :: authoring
-    type(toml_key), allocatable :: keys(:)
-    integer :: ikey
-    character(len=:), allocatable :: k
-
-    authoring%outer_plasma%present = .true.
-    call table%get_keys(keys)
-    do ikey = 1, size(keys)
-      k = lower_ascii(trim(keys(ikey)%key))
-      select case (trim(k))
-      case ('model')
-        call get_toml_string(table, keys(ikey), authoring%outer_plasma%model, 'outer_plasma.model')
-        authoring%outer_plasma%model = lower_ascii(trim(authoring%outer_plasma%model))
-      case ('kinetic_closure')
-        call get_toml_string( &
-          table, keys(ikey), authoring%outer_plasma%kinetic_closure, 'outer_plasma.kinetic_closure' &
-          )
-        authoring%outer_plasma%kinetic_closure = lower_ascii(trim(authoring%outer_plasma%kinetic_closure))
-      case ('zhao_branch')
-        call get_toml_string(table, keys(ikey), authoring%outer_plasma%zhao_branch, 'outer_plasma.zhao_branch')
-        authoring%outer_plasma%zhao_branch = lower_ascii(trim(authoring%outer_plasma%zhao_branch))
-      case ('photoelectron_source_scale')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_source_scale, &
-          'outer_plasma.photoelectron_source_scale' &
-          )
-      case ('photoelectron_density_model')
-        call get_toml_string( &
-          table, keys(ikey), authoring%outer_plasma%photoelectron_density_model, &
-          'outer_plasma.photoelectron_density_model' &
-          )
-        authoring%outer_plasma%photoelectron_density_model = &
-          lower_ascii(trim(authoring%outer_plasma%photoelectron_density_model))
-      case ('return_model')
-        call get_toml_string(table, keys(ikey), authoring%outer_plasma%return_model, 'outer_plasma.return_model')
-        authoring%outer_plasma%return_model = lower_ascii(trim(authoring%outer_plasma%return_model))
-      case ('interface_z')
-        call get_toml_real(table, keys(ikey), authoring%outer_plasma%interface_z, 'outer_plasma.interface_z')
-      case ('debye_length')
-        call get_toml_real(table, keys(ikey), authoring%outer_plasma%debye_length, 'outer_plasma.debye_length')
-      case ('thermal_voltage')
-        call get_toml_real(table, keys(ikey), authoring%outer_plasma%thermal_voltage, 'outer_plasma.thermal_voltage')
-      case ('max_gap_ratio')
-        call get_toml_real(table, keys(ikey), authoring%outer_plasma%max_gap_ratio, 'outer_plasma.max_gap_ratio')
-      case ('max_local_charge_ratio')
-        call get_toml_real( &
-          table, keys(ikey), authoring%outer_plasma%max_local_charge_ratio, 'outer_plasma.max_local_charge_ratio' &
-          )
-      case default
-        error stop 'Unknown key in [outer_plasma]: '//trim(keys(ikey)%key)
-      end select
-    end do
-  end subroutine apply_outer_plasma_toml_table
-
-  subroutine apply_coupling_toml_table(table, authoring)
-    type(toml_table), intent(inout) :: table
-    type(app_config_authoring), intent(inout) :: authoring
-    type(toml_key), allocatable :: keys(:)
-    integer :: ikey
-    character(len=:), allocatable :: k
-
-    authoring%coupling%present = .true.
-    call table%get_keys(keys)
-    do ikey = 1, size(keys)
-      k = lower_ascii(trim(keys(ikey)%key))
-      select case (trim(k))
-      case ('update_mode')
-        call get_toml_string(table, keys(ikey), authoring%coupling%update_mode, 'coupling.update_mode')
-        authoring%coupling%update_mode = lower_ascii(trim(authoring%coupling%update_mode))
-      case ('particle_transfer_mode')
-        call get_toml_string( &
-          table, keys(ikey), authoring%coupling%particle_transfer_mode, 'coupling.particle_transfer_mode' &
-          )
-        authoring%coupling%particle_transfer_mode = lower_ascii(trim(authoring%coupling%particle_transfer_mode))
-      case ('steady_start_mode')
-        call get_toml_string(table, keys(ikey), authoring%coupling%steady_start_mode, 'coupling.steady_start_mode')
-        authoring%coupling%steady_start_mode = lower_ascii(trim(authoring%coupling%steady_start_mode))
-      case ('steady_start_mesh_id')
-        call get_toml_int(table, keys(ikey), authoring%coupling%steady_start_mesh_id, 'coupling.steady_start_mesh_id')
-      case ('outer_update_stride')
-        call get_toml_int( &
-          table, keys(ikey), authoring%coupling%outer_update_stride, 'coupling.outer_update_stride' &
-          )
-      case ('field_evolution_timescale')
-        call get_toml_real( &
-          table, keys(ikey), authoring%coupling%field_evolution_timescale, 'coupling.field_evolution_timescale' &
-          )
-      case ('max_frozen_field_ratio')
-        call get_toml_real( &
-          table, keys(ikey), authoring%coupling%max_frozen_field_ratio, 'coupling.max_frozen_field_ratio' &
-          )
-      case ('outer_queue_enabled')
-        call get_toml_logical( &
-          table, keys(ikey), authoring%coupling%outer_queue_enabled, 'coupling.outer_queue_enabled' &
-          )
-      case default
-        error stop 'Unknown key in [coupling]: '//trim(keys(ikey)%key)
-      end select
-    end do
-  end subroutine apply_coupling_toml_table
 
   !> `[external_boundary]` の3つの責務別 subtable を読み込む。
   subroutine apply_external_boundary_toml_table(table, boundary)
@@ -390,7 +271,7 @@ contains
     end do
   end subroutine apply_external_boundary_toml_table
 
-  !> `[external_boundary.field]` を外部場 authoring DTO へ読み込む。
+  !> `[external_boundary.field]` は局所構成で場を持たないことを明示する。
   subroutine apply_external_boundary_field_toml_table(table, field)
     type(toml_table), intent(inout) :: table
     type(external_boundary_field_authoring_spec), intent(inout) :: field
@@ -402,50 +283,18 @@ contains
     call table%get_keys(keys)
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
-      if (trim(k) /= 'model') field%has_non_model_key = .true.
       select case (trim(k))
       case ('model')
         call get_toml_string(table, keys(ikey), field%model, 'external_boundary.field.model')
         field%model = lower_ascii(trim(field%model))
         field%has_model = .true.
-      case ('kinetic_closure')
-        call get_toml_string(table, keys(ikey), field%kinetic_closure, 'external_boundary.field.kinetic_closure')
-        field%kinetic_closure = lower_ascii(trim(field%kinetic_closure))
-        field%has_kinetic_closure = .true.
-      case ('zhao_branch')
-        call get_toml_string(table, keys(ikey), field%zhao_branch, 'external_boundary.field.zhao_branch')
-        field%zhao_branch = lower_ascii(trim(field%zhao_branch))
-        field%has_zhao_option = .true.
-      case ('photoelectron_source_scale')
-        call get_toml_real( &
-          table, keys(ikey), field%photoelectron_source_scale, &
-          'external_boundary.field.photoelectron_source_scale' &
-          )
-        field%has_zhao_option = .true.
-      case ('photoelectron_density_model')
-        call get_toml_string( &
-          table, keys(ikey), field%photoelectron_density_model, &
-          'external_boundary.field.photoelectron_density_model' &
-          )
-        field%photoelectron_density_model = lower_ascii(trim(field%photoelectron_density_model))
-        field%has_photoelectron_density_model = .true.
-      case ('debye_length')
-        call get_toml_real(table, keys(ikey), field%debye_length, 'external_boundary.field.debye_length')
-      case ('thermal_voltage')
-        call get_toml_real(table, keys(ikey), field%thermal_voltage, 'external_boundary.field.thermal_voltage')
-      case ('max_gap_ratio')
-        call get_toml_real(table, keys(ikey), field%max_gap_ratio, 'external_boundary.field.max_gap_ratio')
-      case ('max_local_charge_ratio')
-        call get_toml_real( &
-          table, keys(ikey), field%max_local_charge_ratio, 'external_boundary.field.max_local_charge_ratio' &
-          )
       case default
         error stop 'Unknown key in [external_boundary.field]: '//trim(keys(ikey)%key)
       end select
     end do
   end subroutine apply_external_boundary_field_toml_table
 
-  !> `[external_boundary.particles]` を粒子境界 authoring DTO へ読み込む。
+  !> `[external_boundary.particles]` の局所 source 設定を読み込む。
   subroutine apply_external_boundary_particles_toml_table(table, particles)
     type(toml_table), intent(inout) :: table
     type(external_boundary_particles_authoring_spec), intent(inout) :: particles
@@ -458,13 +307,6 @@ contains
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
-      case ( &
-        'steady_start_mode', 'steady_start_mesh_id', 'outer_update_stride', 'field_evolution_timescale', &
-        'max_frozen_field_ratio' &
-        )
-        particles%has_coupling_option = .true.
-      end select
-      select case (trim(k))
       case ('mode')
         call get_toml_string(table, keys(ikey), particles%mode, 'external_boundary.particles.mode')
         particles%mode = lower_ascii(trim(particles%mode))
@@ -472,34 +314,6 @@ contains
       case ('inflow_model')
         call get_toml_string(table, keys(ikey), particles%inflow_model, 'external_boundary.particles.inflow_model')
         particles%inflow_model = lower_ascii(trim(particles%inflow_model))
-      case ('steady_start_mode')
-        call get_toml_string( &
-          table, keys(ikey), particles%steady_start_mode, 'external_boundary.particles.steady_start_mode' &
-          )
-        particles%steady_start_mode = lower_ascii(trim(particles%steady_start_mode))
-        particles%has_steady_start_mode = .true.
-      case ('steady_start_mesh_id')
-        call get_toml_int( &
-          table, keys(ikey), particles%steady_start_mesh_id, 'external_boundary.particles.steady_start_mesh_id' &
-          )
-        particles%has_steady_start_mesh_id = .true.
-      case ('outer_update_stride')
-        call get_toml_int( &
-          table, keys(ikey), particles%outer_update_stride, 'external_boundary.particles.outer_update_stride' &
-          )
-        particles%has_outer_update_stride = .true.
-      case ('field_evolution_timescale')
-        call get_toml_real( &
-          table, keys(ikey), particles%field_evolution_timescale, &
-          'external_boundary.particles.field_evolution_timescale' &
-          )
-        particles%has_time_guard_option = .true.
-      case ('max_frozen_field_ratio')
-        call get_toml_real( &
-          table, keys(ikey), particles%max_frozen_field_ratio, &
-          'external_boundary.particles.max_frozen_field_ratio' &
-          )
-        particles%has_time_guard_option = .true.
       case default
         error stop 'Unknown key in [external_boundary.particles]: '//trim(keys(ikey)%key)
       end select
@@ -537,37 +351,8 @@ contains
       cfg%periodic2%lower_boundary_model = authoring%periodic2%lower_boundary_model
       cfg%periodic2%reference_mode_layers = authoring%periodic2%reference_mode_layers
       cfg%periodic2%panel_quadrature_order = authoring%periodic2%panel_quadrature_order
-      cfg%periodic2%interface_sample_n = authoring%periodic2%interface_sample_n
-      cfg%periodic2%interface_phi_tolerance = authoring%periodic2%interface_phi_tolerance
-      cfg%periodic2%interface_field_tolerance = authoring%periodic2%interface_field_tolerance
       cfg%periodic2%max_nonzero_mode_potential_step = &
         authoring%periodic2%max_nonzero_mode_potential_step
-    end if
-    if (authoring%outer_plasma%present) then
-      cfg%outer_plasma%model = authoring%outer_plasma%model
-      cfg%outer_plasma%kinetic_closure = authoring%outer_plasma%kinetic_closure
-      cfg%outer_plasma%zhao_branch = authoring%outer_plasma%zhao_branch
-      cfg%outer_plasma%photoelectron_source_scale = authoring%outer_plasma%photoelectron_source_scale
-      cfg%outer_plasma%photoelectron_density_model = authoring%outer_plasma%photoelectron_density_model
-      cfg%outer_plasma%return_model = authoring%outer_plasma%return_model
-      cfg%outer_plasma%interface_z = authoring%outer_plasma%interface_z
-      cfg%outer_plasma%debye_length = authoring%outer_plasma%debye_length
-      cfg%outer_plasma%thermal_voltage = authoring%outer_plasma%thermal_voltage
-      cfg%outer_plasma%max_gap_ratio = authoring%outer_plasma%max_gap_ratio
-      cfg%outer_plasma%max_local_charge_ratio = authoring%outer_plasma%max_local_charge_ratio
-    end if
-    if (authoring%coupling%present) then
-      if (trim(lower_ascii(authoring%coupling%update_mode)) /= 'explicit') then
-        error stop 'coupling.update_mode accepts only "explicit" in user input; implicit_mean is derived internally.'
-      end if
-      cfg%coupling%update_mode = authoring%coupling%update_mode
-      cfg%coupling%particle_transfer_mode = authoring%coupling%particle_transfer_mode
-      cfg%coupling%steady_start_mode = authoring%coupling%steady_start_mode
-      cfg%coupling%steady_start_mesh_id = authoring%coupling%steady_start_mesh_id
-      cfg%coupling%outer_update_stride = authoring%coupling%outer_update_stride
-      cfg%coupling%field_evolution_timescale = authoring%coupling%field_evolution_timescale
-      cfg%coupling%max_frozen_field_ratio = authoring%coupling%max_frozen_field_ratio
-      cfg%coupling%outer_queue_enabled = authoring%coupling%outer_queue_enabled
     end if
   end subroutine apply_physics_authoring
 
@@ -863,16 +648,8 @@ contains
         cfg%sim%has_e0_phi_z_deg = .true.
       case ('b0')
         call get_toml_real3(table, keys(ikey), cfg%sim%b0, 'sim.b0')
-      case ('reservoir_potential_model')
-        call get_toml_string(table, keys(ikey), cfg%sim%reservoir_potential_model, 'sim.reservoir_potential_model')
-        cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
-        sim_auth%has_reservoir_potential_model = .true.
       case ('phi_infty')
         call get_toml_real(table, keys(ikey), cfg%sim%phi_infty, 'sim.phi_infty')
-      case ('open_boundary_model')
-        call get_toml_string(table, keys(ikey), cfg%sim%open_boundary_model, 'sim.open_boundary_model')
-        cfg%sim%open_boundary_model = lower_ascii(trim(cfg%sim%open_boundary_model))
-        sim_auth%has_open_boundary_model = .true.
       case ('multiple_box_events_policy')
         call get_toml_string( &
           table, keys(ikey), cfg%sim%multiple_box_events_policy, 'sim.multiple_box_events_policy' &
@@ -892,19 +669,6 @@ contains
         call get_toml_int(table, keys(ikey), cfg%sim%injection_face_phi_grid_n, 'sim.injection_face_phi_grid_n')
       case ('raycast_max_bounce')
         call get_toml_int(table, keys(ikey), cfg%sim%raycast_max_bounce, 'sim.raycast_max_bounce')
-      case ('sheath_alpha_deg')
-        call get_toml_real(table, keys(ikey), cfg%sim%sheath_alpha_deg, 'sim.sheath_alpha_deg')
-      case ('sheath_photoelectron_ref_density_cm3')
-        call get_toml_real( &
-          table, keys(ikey), cfg%sim%sheath_photoelectron_ref_density_cm3, &
-          'sim.sheath_photoelectron_ref_density_cm3' &
-          )
-      case ('sheath_electron_drift_mode')
-        call get_toml_string(table, keys(ikey), cfg%sim%sheath_electron_drift_mode, 'sim.sheath_electron_drift_mode')
-        cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
-      case ('sheath_ion_drift_mode')
-        call get_toml_string(table, keys(ikey), cfg%sim%sheath_ion_drift_mode, 'sim.sheath_ion_drift_mode')
-        cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
       case ('use_box')
         call get_toml_logical(table, keys(ikey), cfg%sim%use_box, 'sim.use_box')
       case ('box_min')

@@ -1,12 +1,9 @@
 program test_electrostatic_snapshot
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
-                                      outer_plasma_config
-  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
-  use bem_outer_plasma_kinetic, only: kinetic_outer_plasma_options_type
+  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_allclose_1d
@@ -17,10 +14,7 @@ program test_electrostatic_snapshot
   type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
   type(panel_kernel_config) :: panel_config
-  type(outer_plasma_config) :: outer_config
-  type(kinetic_outer_plasma_options_type) :: kinetic_options
   type(electrostatic_snapshot_type) :: snapshot
-  type(electrostatic_diagnostics_type) :: diagnostics
   type(panel_geometry_type) :: geometry
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3), electric_field(3), potential, mesh_potential(1)
   real(dp) :: potential_without_self, expected_potential, self_potential, self_field(3)
@@ -39,8 +33,7 @@ program test_electrostatic_snapshot
   field_config = field_physics_config(backend='direct', normalization='si')
   periodic_config = periodic2_physics_config()
   panel_config = panel_kernel_config(kernel_id='triangle_p0_exact_direct')
-  outer_config = outer_plasma_config()
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   call snapshot%refresh(mesh)
 
   call test_begin('prescribed_field_is_composed_once')
@@ -72,33 +65,11 @@ program test_electrostatic_snapshot
                  )
   periodic_config = periodic2_physics_config( &
                     nonzero_mode_backend='panel_spectral_reference', zero_mode_policy='exclude_k0', &
-                    lower_boundary_model='e_bottom_zero', reference_mode_layers=4, panel_quadrature_order=16, &
-                    interface_phi_tolerance=1.0e12_dp, interface_field_tolerance=1.0e12_dp &
+                    lower_boundary_model='e_bottom_zero', reference_mode_layers=4, panel_quadrature_order=16 &
                     )
-  outer_config = outer_plasma_config( &
-                 model='kinetic_1d', interface_z=1.0_dp, &
-                 debye_length=0.2_dp, thermal_voltage=10.0_dp &
-                 )
-  kinetic_options = kinetic_outer_plasma_options_type( &
-                    grid_points=17_i32, domain_length=1.0_dp, tail_length=0.2_dp, &
-                    electron_charge=-1.0_dp, electron_mass=1.0_dp, electron_density_infinity=0.0_dp, &
-                    electron_temperature_j=1.0_dp, ion_charge=1.0_dp, ion_mass=1.0_dp, &
-                    ion_density_infinity=0.0_dp, ion_temperature_j=0.0_dp, ion_drift_infinity=1.0_dp &
-                    )
-  call snapshot%init( &
-    mesh, sim, field_config, periodic_config, panel_config, outer_config, kinetic_options=kinetic_options &
-    )
+  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   call snapshot%refresh(mesh)
-  call snapshot%get_diagnostics(diagnostics)
-  call assert_close_dp( &
-    sum(mesh%q_elem) - sim%box_max(1)*sim%box_max(2)*eps0*snapshot%outer%interface_field, &
-    0.0_dp, 1.0e-24_dp, 'surface plus outer charge must close' &
-    )
   call assert_close_dp(snapshot%gauss_residual, 0.0_dp, 1.0e-24_dp, 'snapshot Gauss residual mismatch')
-  call assert_close_dp( &
-    diagnostics%interface_potential, snapshot%outer%interface_potential, 1.0e-24_dp, &
-    'diagnostic interface potential mismatch' &
-    )
   call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, 1), potential)
   call snapshot%eval_local_phi_without_primary_self(mesh, sim, 1_i32, potential_without_self)
   call init_panel_geometry(mesh%v0(:, 1), mesh%v1(:, 1), mesh%v2(:, 1), geometry, panel_status)
@@ -139,8 +110,7 @@ program test_electrostatic_snapshot
   panel_config = panel_kernel_config( &
                  kernel_id='triangle_p0_exact_direct', surface_side_policy='per_element' &
                  )
-  outer_config = outer_plasma_config()
-  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config, outer_config)
+  call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   call snapshot%refresh(mesh)
   call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, 1), potential)
   call snapshot%eval_local_phi_without_primary_self(mesh, sim, 1_i32, potential_without_self)

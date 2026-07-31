@@ -57,7 +57,7 @@ program test_output_writer_potential
   cfg%sim%field_normalization = 'length'
   cfg%sim%field_length_scale = 2.0d0
   call normalize_legacy_physics_config( &
-    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel &
     )
   solver = field_solver_type()
   call solver%init(mesh, cfg%sim)
@@ -87,7 +87,7 @@ program test_output_writer_potential
   cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
   cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   call normalize_legacy_physics_config( &
-    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
+    cfg%sim, cfg%field, cfg%periodic2, cfg%panel &
     )
   solver = field_solver_type()
   call solver%init(mesh, cfg%sim)

@@ -54,16 +54,14 @@ flowchart TD
 `[periodic2].max_nonzero_mode_potential_step > 0`では、図中の手順2から5を
 `h0 = sim.batch_duration`、`h0/2`、`h0/4`、…の順で試します。候補電荷とbatch開始電荷の差が作る
 $k\ne0$電位を全panel重心で評価し、その最大絶対値が設定上限以下となる最初のtrialだけを受理します。
-棄却時はRNG、macro粒子数残差、outer state、`implicit_mean` transactionをtrial前へ完全に戻し、
-短い幅で同じbatchを作り直します。このtrial loopは`cached_kneq0`専用であり、outer event queueと
-`volume_seed`には対応しません。`reservoir_face`は
+棄却時はRNGとmacro粒子数残差をtrial前へ完全に戻し、短い幅で同じbatchを作り直します。
+このtrial loopは`cached_kneq0`専用であり、`volume_seed`には対応しません。`reservoir_face`は
 `target_macro_particles_per_batch`方式だけを受理し、固定`w_particle`は拒否します。
 
-### 1. 電場・電位とouter modelを更新
+### 1. 電場・電位snapshotを更新
 
 前batchまでにcommitされた`q_elem`から、粒子追跡中に固定する電場と電位を作ります。direct、treecode、
-FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電場](PeriodicElectrostatics.html)、
-外部領域との結合は[外部プラズマモデル](OuterPlasmaModels.html)でそれぞれ説明します。
+FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電場](PeriodicElectrostatics.html)で説明します。
 
 ### 2. batch粒子を生成
 
@@ -82,25 +80,19 @@ batch内で固定された電場と任意の一様磁場を使い、速度をBor
 ### 4. 最初の衝突・境界イベントを判定・処理
 
 候補軌道上の三角形hitとbox面交差を比較し、最初に起きるものを選びます。その位置で吸収、reflect、
-periodic wrap、escape、outer returnのいずれかを処理します。粒子が生存し、stepの残り時間があれば手順3へ
-戻ります。判定順は[粒子の衝突・境界イベント](ParticleEvents.html)、外部領域での処理は
+periodic wrap、escape、potential-barrier反射のいずれかを処理します。粒子が生存し、stepの残り時間があれば
+手順3へ戻ります。判定順は[粒子の衝突・境界イベント](ParticleEvents.html)、open境界での処理は
 [粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
 
 ### 5. batch結果を集約し、適応trialを判定
 
-表面hitによる電荷差分、光電子放出の反作用電荷、粒子outcome、outer-interface診断を集約します。
+表面hitによる電荷差分、光電子放出の反作用電荷、粒子outcomeを集約します。
 OpenMPでは衝突電荷をthread-localに保持し、必要な量をMPI rank間で集約します。
 MPI/OpenMPの実行構成は[実行する](Execution.html)にまとめています。
 
-適応進行では、この集約結果と`implicit_mean`による平均更新を候補電荷へ反映してから、cached
-$k\ne0$電位operatorで上限を判定します。不合格ならcommitせずにtrialを棄却します。この判定は
+適応進行では、この集約結果を候補電荷へ反映してから、cached $k\ne0$電位operatorで上限を判定します。
+不合格ならcommitせずにtrialを棄却します。この判定は
 frozen-field局所電位変化のtrust boundであり、局所打切り誤差の推定ではありません。
-
-`implicit_mean` Zhao closureが時間幅依存の数値的不成立を返した場合は、$k\ne0$判定へ進む前に
-同じtrialを棄却して短い幅で再試行します。設定・幾何・粒子状態の不正は再試行せず停止します。
-したがって公開設定を増やさず、一つのhalving ladderに「$k=0$ closureが有効な候補を作ること」と
-「$k\ne0$電位変化が上限内であること」という独立した二つの受理条件を置きます。ログでは両者の
-reject reasonを区別します。
 
 適応時のOpenMP粒子loopは、同じthread数でtrial再生成を再現できるstatic partitionを使います。
 受理判定には浮動小数点丸め幅の安全側guardも設けます。異なるthread数間のbitwise同一性は保証しません。
@@ -133,5 +125,5 @@ conductor処理は[表面電荷更新](SurfaceModels.html)、光電子放出の�
 `batch_duration`依存性は[`batch_duration`の安定性と定常値](BatchDurationStability.html)で確認してください。
 
 周期境界を含む計算全体の組み方は、[periodic2有限画像構成](FinitePeriodicConfiguration.html)と
-[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)にまとめています。設定キーは
+[periodic2静電場](PeriodicElectrostatics.html)にまとめています。設定キーは
 [設定パラメータ](Parameters.html)、離散化と結果の収束確認は[計算結果の妥当性確認](ValidationGuide.html)に集約しています。

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 
@@ -32,8 +31,6 @@ def test_parameter_section_inventory_covers_top_level_tables() -> None:
         "mesh",
         "periodic2",
         "external_boundary",
-        "outer_plasma",
-        "coupling",
         "output",
     )
 
@@ -58,14 +55,12 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
         "external_boundary.field": schema["$defs"]["externalBoundaryField"][
             "properties"
         ],
-        "external_boundary.particles": schema["$defs"][
-            "externalBoundaryParticles"
-        ]["properties"],
+        "external_boundary.particles": schema["$defs"]["externalBoundaryParticles"][
+            "properties"
+        ],
         "external_boundary.ordinary_open": schema["$defs"][
             "externalBoundaryOrdinaryOpen"
         ]["properties"],
-        "outer_plasma": schema["properties"]["outer_plasma"]["properties"],
-        "coupling": schema["properties"]["coupling"]["properties"],
         "output": schema["$defs"]["output"]["properties"],
     }
     expected_headings = {
@@ -73,8 +68,6 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
             "### `[sim]`:",
             "### `[external_boundary]`:",
             "### `[periodic2]`:",
-            "### `[outer_plasma]`:",
-            "### `[coupling]`:",
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
             "#### `[[mesh.templates]]`:",
@@ -85,8 +78,6 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
             "### `[sim]`:",
             "### `[external_boundary]`:",
             "### `[periodic2]`:",
-            "### `[outer_plasma]`:",
-            "### `[coupling]`:",
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
             "#### `[[mesh.templates]]`:",
@@ -160,9 +151,11 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
     schema = _schema()
     validator = Draft7Validator(schema)
 
-    for path in ("examples/periodic2_kinetic_outer.toml",):
+    for path in ("examples/periodic2_closed_photoelectron.toml",):
         document = tomllib.loads(_read(path))
-        errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
+        errors = sorted(
+            validator.iter_errors(document), key=lambda error: list(error.path)
+        )
         assert not errors, (path, [error.message for error in errors])
         load_config_file(ROOT / path)
 
@@ -177,153 +170,6 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
 
     assert "periodic2 は fmm 必須" not in _read("docs/agent-user-guide.md")
     assert "periodic2 requires fmm" not in _read("docs/agent-user-guide.en.md")
-
-
-def test_photoelectron_schema_matches_density_transfer_and_deposit_contracts() -> None:
-    validator = Draft7Validator(_schema())
-    kinetic = tomllib.loads(_read("examples/periodic2_kinetic_outer.toml"))
-    kinetic["external_boundary"]["field"]["photoelectron_density_model"] = (
-        "kinetic_mean"
-    )
-
-    assert not list(validator.iter_errors(kinetic))
-
-    untracked = copy.deepcopy(kinetic)
-    untracked["external_boundary"]["particles"]["mode"] = "local_source"
-    untracked["external_boundary"]["particles"].pop(
-        "field_evolution_timescale", None
-    )
-    assert not list(validator.iter_errors(untracked))
-
-    wrong_field = copy.deepcopy(kinetic)
-    wrong_field["external_boundary"]["field"]["model"] = "linear_debye"
-    assert list(validator.iter_errors(wrong_field))
-
-    tracked_photoelectron = tomllib.loads(
-        _read("examples/periodic2_zhao_charge_driven_outer.toml")
-    )
-    photoelectron = next(
-        species
-        for species in tracked_photoelectron["particles"]["species"]
-        if species.get("source_mode") == "photo_raycast"
-    )
-    photoelectron["deposit_opposite_charge_on_emit"] = False
-    assert list(validator.iter_errors(tracked_photoelectron))
-
-
-def test_zhao_charge_driven_schema_contract() -> None:
-    validator = Draft7Validator(_schema())
-    config = tomllib.loads(_read("examples/periodic2_kinetic_outer.toml"))
-    config["external_boundary"]["field"]["kinetic_closure"] = "zhao_charge_driven"
-    config["external_boundary"]["field"]["zhao_branch"] = "c"
-
-    assert not list(validator.iter_errors(config))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["model"] = "linear_debye"
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["photoelectron_density_model"] = (
-        "kinetic_mean"
-    )
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["infinity_potential"] = 1.0
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["sim"]["sheath_injection_model"] = "zhao_a"
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["sim"]["reservoir_potential_model"] = "infinity_barrier"
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["sim"]["sheath_reference_coordinate"] = 0.0
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
-    assert list(validator.iter_errors(invalid))
-
-    no_photo = copy.deepcopy(config)
-    no_photo["external_boundary"]["field"]["photoelectron_source_scale"] = 0.0
-    no_photo["sim"]["sheath_photoelectron_ref_density_cm3"] = 0.0
-    assert not list(validator.iter_errors(no_photo))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["photoelectron_source_scale"] = -1.0
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["kinetic_closure"] = (
-        "absorbing_maxwellian"
-    )
-    invalid["external_boundary"]["field"]["zhao_branch"] = "auto"
-    invalid["external_boundary"]["field"]["photoelectron_source_scale"] = 0.0
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["kinetic_closure"] = (
-        "absorbing_maxwellian"
-    )
-    assert list(validator.iter_errors(invalid))
-
-
-def test_ambient_linear_photo_schema_contract() -> None:
-    validator = Draft7Validator(_schema())
-    config = tomllib.loads(
-        _read("examples/periodic2_ambient_linear_photo_outer.toml")
-    )
-
-    assert not list(validator.iter_errors(config))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["photoelectron_density_model"] = (
-        "kinetic_mean"
-    )
-    assert list(validator.iter_errors(invalid))
-
-    invalid = copy.deepcopy(config)
-    invalid["external_boundary"]["field"]["zhao_branch"] = "a"
-    assert list(validator.iter_errors(invalid))
-
-
-def test_outer_sheath_guidance_keeps_kinetic_as_the_standard_model() -> None:
-    outer = _schema()["properties"]["outer_plasma"]
-    model = outer["properties"]["model"]
-
-    assert "kinetic_1d is the supported" in outer["description"]
-    assert model["const"] == "kinetic_1d"
-    assert "default" not in model
-
-    for path in ("docs/OuterPlasmaModels.md", "docs/KineticOuterPlasma.md"):
-        text = _read(path)
-        assert "標準" in text
-        assert "kinetic_1d" in text
-
-    for path in (
-        "docs/OuterPlasmaModels.en.md",
-        "docs/KineticOuterPlasma.en.md",
-    ):
-        text = _read(path)
-        assert "standard" in text
-        assert "kinetic_1d" in text
-
-    assert "Standard kinetic-sheath contract fixture" in _read(
-        "examples/periodic2_kinetic_outer.toml"
-    )
-
-
-def test_coupling_reference_covers_every_schema_key() -> None:
-    coupling = _schema()["properties"]["coupling"]["properties"]
-    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
-        text = _read(path)
-        for key in coupling:
-            assert f"`{key}`" in text, (path, key)
 
 
 def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
@@ -365,30 +211,3 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     ):
         text = _read(path)
         assert "`macro_residuals*.csv`" not in text, path
-
-
-def test_output_guide_documents_resolved_external_boundary_receipt() -> None:
-    expected_values = {
-        "external_inflow_map": (
-            "source_vdf",
-            "infinity_barrier",
-            "kinetic_profile",
-        ),
-        "external_ordinary_open_model": ("escape", "potential_barrier"),
-        "external_interface_transport": (
-            "none",
-            "kinetic_1d",
-        ),
-        "outer_particle_mode_resolved": (
-            "local_source",
-            "same_batch",
-            "zhao_queue",
-        ),
-    }
-
-    for path in ("docs/OutputGuide.md", "docs/OutputGuide.en.md"):
-        text = _read(path)
-        for key, values in expected_values.items():
-            assert f"`{key}`" in text, (path, key)
-            for value in values:
-                assert f"`{value}`" in text, (path, key, value)

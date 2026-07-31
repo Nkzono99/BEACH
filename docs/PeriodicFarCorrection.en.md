@@ -4,13 +4,9 @@ Lang: [English](PeriodicFarCorrection.en.md) | [日本語](PeriodicFarCorrection
 
 # periodic2 Far Correction
 
-The `periodic2` FMM evaluates the primary cell and a finite set of nearby images with the ordinary tree FMM. Treating the
-system as infinitely periodic requires a separate correction for the smooth field of all remaining images. This page describes
-the Ewald2P teacher, root operator, `cached_kneq0`, and their connection to FMM state.
-
-Far correction is not a solver fully independent from FMM. The current implementation consumes the FMM root multipole and
-produces local-expansion coefficients at target nodes, so it is embedded in the FMM `plan` and `state`. It nevertheless uses a
-separate operator, cache, and verification path from ordinary tree M2L, which is why its concepts and operation are documented here.
+The `periodic2` FMM evaluates the primary cell and finite images with ordinary tree FMM, then corrects the smooth
+infinite-periodic field outside that range with an additional operator. This page is the canonical reference for the Ewald2P
+teacher, `cached_kneq0`, cache, and connection to FMM state.
 
 ## Select a finite-image model or an infinite-periodic approximation
 
@@ -30,8 +26,9 @@ field_periodic_generation_tolerance = 1.0e-8
 | `auto` | Currently normalized to `none` | Compatibility only |
 | `cached_kneq0` | Build and reuse a versioned operator | Production infinite-periodic nonzero modes |
 
-`cached_kneq0` does not determine the z-directed plane-average `k=0` field or outer-plasma response. The field composition in
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) owns those terms.
+`cached_kneq0` does not determine the z-directed plane-average `k=0` field. Field composition adds the physical `k=0` exactly
+once as described in [periodic2 electrostatics](PeriodicElectrostatics.en.html). Self-consistent outer-plasma/sheath models are
+unsupported.
 `m2l_root_oracle` has been removed and is rejected at startup with guidance to use `cached_kneq0`.
 
 ## Evaluate the finite image shell with ordinary FMM
@@ -134,13 +131,12 @@ $$
 Ordinary L2L then propagates the corrected locals into leaves, and L2P evaluates them at particle positions. The warm-path cost
 is therefore a matrix-vector product and ordinary local evaluation, not an all-source Ewald sum.
 
-This connection makes the implementation closely coupled to FMM, but it does not modify the M2L pair cache or `m2l_deriv` used
-by the tree. Far correction is an additional stage between ordinary M2L and L2L.
+The tree's M2L pair cache and `m2l_deriv` remain unchanged; correction is an additional stage between ordinary M2L and L2L.
 
 ## Remove symmetric `k=0` from the cached operator
 
-The full Ewald residual contains a symmetric-vacuum `k=0` term needed to define the fit. The actual mean field is selected by
-`lower_boundary_model` or an outer model. The FMM-side nonzero kernel is therefore
+The full Ewald residual contains a symmetric-vacuum `k=0` term needed to define the fit. Because `lower_boundary_model` selects
+the actual mean field, the FMM-side nonzero kernel is
 
 $$
 K_{k\ne0}=K_\mathrm{shell}(N)
@@ -153,8 +149,8 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.
 $$
 
-`zero_mode_policy="exclude_k0"` is an ownership rule preventing double counting between the FMM backend and the physical
-closure; it does not discard the mean field.
+`zero_mode_policy="exclude_k0"` prevents double counting between the FMM backend and physical zero mode; it does not discard
+the mean field. See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the boundary models and Gauss-law construction.
 
 ## Understand cache and parallelization boundaries
 
@@ -180,9 +176,9 @@ because the cached operator is a production kernel for a fixed target topology.
 4. Inspect `periodic2_cache_fingerprint`, `periodic2_cache_hit`, and `periodic2_operator_build_count`.
 5. Check the selected physical `k=0` and Gauss residual separately from the nonzero mode.
 
-See [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html) for finite-image use and
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) for the complete infinite-periodic,
-zero-mode, and outer-model configuration.
+See [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html) for
+finite-image use and [periodic2 electrostatics](PeriodicElectrostatics.en.html)
+for the complete infinite-periodic and zero-mode configuration.
 
 ## Code reference
 

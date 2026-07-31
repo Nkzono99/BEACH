@@ -57,22 +57,9 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
-	test_outer_plasma_kinetic_core \
-	test_mean_charge_integrator \
-	test_mean_charge_transaction \
-	test_dynamic_k0_zhao \
-	test_outer_plasma_zhao \
-	test_outer_plasma_grid \
-	test_outer_plasma_kinetic_runtime \
 	test_electrostatic_snapshot \
-	test_outer_coupler \
-	test_outer_plasma_interface \
-	test_interface_particle_buffer \
-	test_outer_event_queue \
-	test_outer_event_queue_io \
 	test_boundary \
 	test_external_boundary_contract \
-	test_external_step_driver \
 	test_restart \
 	test_reservoir_injection \
 	test_external_field_velocity_grid \
@@ -94,8 +81,7 @@ FORTRAN_L3_TARGETS ?= \
 	test_coulomb_fmm_core_basic \
 	test_panel_near_correction \
 	test_coulomb_fmm_core_panel \
-	test_dynamics_panel_fmm \
-	test_outer_plasma_kinetic
+	test_dynamics_panel_fmm
 FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
 	test_dynamics_basic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \

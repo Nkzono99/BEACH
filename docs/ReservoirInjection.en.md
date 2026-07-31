@@ -4,26 +4,10 @@ Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
 
 # `reservoir_face` inflow and velocity sampling
 
-This page describes the injection algorithm used after selecting `source_mode="reservoir_face"` on the
-[particle-source overview](ParticleSourcesBoundaries.en.html). It answers two questions:
-
-1. How does an upstream velocity distribution function (VDF) determine physical and macro-particle inflow per batch?
-2. How are initial positions derived from the injection aperture and face-arrival velocities generated for the selected particles?
-
-```text
-Upstream VDF and aperture
-          ↓ determine accessible flux
-Inflow during one batch
-          ↓ convert to a macro-particle count
-Initial position from the aperture and face-arrival velocity
-          ↓
-Common particle tracker
-```
-
-`reservoir_face` itself does not select the source mode, choose a sheath model, or process escape and return after a particle
-leaves the box. Those responsibilities are separated into the related pages listed below.
-
-## Inputs and outputs of this page
+This page describes the `source_mode="reservoir_face"` injection algorithm. It maps an upstream VDF, aperture,
+`batch_duration`, and macro-particle weight to a global injection count, initial positions, face-arrival velocities, and the
+remainder for the next batch. See the [particle-source overview](ParticleSourcesBoundaries.en.html) to select a source and
+[particle escape and local return](ParticleEscapeReturn.en.html) for open-face processing after injection.
 
 | Kind | Content |
 | --- | --- |
@@ -57,9 +41,9 @@ $$
 where $\Phi$ and $\varphi$ are the standard-normal CDF and density. At zero temperature,
 $\Gamma_\mathrm{in}=nu_n$ when $u_n\ge v_{\min}$ and zero otherwise.
 
-Tangential velocities are ordinary Gaussian samples. Normal velocity is sampled from the flux-weighted half-range distribution
-proportional to $v_n f_n(v_n)$. This accounts for the probability of crossing the face being proportional to normal velocity,
-rather than placing a volume Maxwell distribution directly on the face.
+Tangential velocities are Gaussian samples. Normal velocity follows the half-range distribution proportional to
+$v_n f_n(v_n)$ because surface-crossing probability is proportional to normal velocity; it is not a volume Maxwell
+distribution placed directly on the face.
 
 ## Convert velocity-grid values into flux
 
@@ -74,7 +58,7 @@ Both retain only entries with $v_n\ge v_{\min}$ and $v_n>0$. `velocity_grid_samp
 rectilinear grid, `discrete` samples input points directly, and `auto` uses `rectilinear` when possible.
 
 For a velocity-grid distribution, count comes from `particle_flux_m2_s` or `current_density_a_m2`; density and temperature do not
-set the count. The current implementation rejects combination with Zhao injection correction.
+set the count. The current implementation supports only a local VDF or scalar barrier.
 
 ## Carry residuals forward to preserve long-time flux
 
@@ -95,11 +79,10 @@ N_\mathrm{macro}=\left\lfloor r+N_\mathrm{macro,expected}\right\rfloor,
 r\leftarrow r+N_\mathrm{macro,expected}-N_\mathrm{macro}.
 $$
 
-Individual batch counts can vary, while the total over many batches approaches the expected flux.
+Individual batch counts can vary, while the long-time total approaches the expected flux.
 
-Supply either a positive `w_particle` or derive it from `target_macro_particles_per_batch`. The latter adjusts the number of
-tracked samples without changing physical flux. A value of `-1` shares the weight resolved for species 1. The two forms are
-mutually exclusive.
+Supply a positive `w_particle` or derive it from `target_macro_particles_per_batch`. The latter changes the tracked sample count,
+not physical flux. A value of `-1` shares the resolved weight for species 1. The two forms are mutually exclusive.
 
 ## Use one potential drop for accessibility and face velocity
 
@@ -126,32 +109,24 @@ $$
 The upstream VDF is truncated to accessible particles with $v_{\min}=\sqrt{\max(B,0)}$, and accepted velocities are mapped to
 the face with the same $B$. One potential drop therefore determines count and face-arrival velocity consistently.
 
-## Receive the potential drop or upstream-VDF correction from another model
-
-This page converts a supplied upstream VDF and potential drop into particles. Use
-[Selecting boundary and outer-domain models](OuterPlasmaModels.en.html) as the canonical guide for choosing the external model.
+## Select the inflow correction
 
 | Configuration | Value supplied to `reservoir_face` |
 | --- | --- |
 | No correction | Use $B=0$ and interpret the configured VDF as the distribution at the face |
 | `external_boundary.particles.inflow_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `sim.phi_infty` |
-| Split `kinetic_1d` | $\phi_I-\phi_\infty$ from the converged outer profile |
 
-`infinity_barrier` evaluates the batch-start potential on an $N\times N$
-cell-centered grid in the aperture, where `injection_face_phi_grid_n` sets
-$N$, and uses the mean $\bar\phi_f$. It follows the same potential
-convention as the field snapshot, including the fixed P0 triangle kernel, periodic field, zero mode, outer state, and `sim.e0`,
-but does not solve intermediate $E(z)$, turning position, flight time, or space charge. The same evaluation accumulates the
+`infinity_barrier` evaluates batch-start potential on an $N\times N$ cell-centered aperture grid, with
+`injection_face_phi_grid_n` setting $N$, and uses mean $\bar\phi_f$. It follows the field snapshot's potential convention,
+including the fixed P0 triangle kernel, periodic field, zero mode, and `sim.e0`, but does not solve intermediate $E(z)$,
+turning position, flight time, or space charge. The same evaluation accumulates the
 population standard deviation, minimum, and maximum. For a Maxwell reservoir, a large in-face variation relative to its
 characteristic energy produces a warning in the first and final batch.
 
-In a split outer model, z-high `reservoir_face` species are interpreted as VDFs at infinity. For `kinetic_1d`, the interface field
-is a Poisson boundary condition, while particle velocity changes through $\phi_I-\phi_\infty$.
-
 ## Disperse initial positions with a virtual flight interval
 
-Creating every particle at the same face-time position introduces an artificial alignment. BEACH assigns each particle a uniform
-virtual interval $\tau\in[0,\texttt{sim.dt})$ and shifts only its initial position before tracking:
+To avoid artificial alignment on one face-time plane, BEACH assigns each particle a uniform virtual interval
+$\tau\in[0,\texttt{sim.dt})$ and shifts only its initial position before tracking:
 $\mathbf x\leftarrow\mathbf x+\mathbf v\tau$.
 
 Internally, the runtime passes this interval as `position_jitter_dt=sim.dt` to the sampler. This is an internal identifier, not a
@@ -170,15 +145,9 @@ $v_{\min}$ and potential drop, and batch-averaged absorption and escape currents
 Changing `batch_duration` changes both expected particles per batch and the field-update interval. See
 [Batch duration and stability](BatchDurationStability.en.html) for convergence of physical steady results.
 
-## Related pages
-
-- Choose a particle source: [Particle-source overview](ParticleSourcesBoundaries.en.html)
-- Combine inflow correction, outflow boundaries, and outer fields: [Selecting boundary and outer-domain models](OuterPlasmaModels.en.html)
-- Process particles that leave through an open face: [Particle escape and return](ParticleEscapeReturn.en.html)
-
 ## Code reference
 
 - Flux integration, macro-particle count, and Maxwell or velocity-grid sampling: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- Velocity corrections from barriers and outer profiles: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- Velocity correction from the scalar barrier: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - Aperture geometry and input-combination validation: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
 - MPI-global macro-particle remainder: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

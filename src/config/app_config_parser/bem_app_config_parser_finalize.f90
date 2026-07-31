@@ -5,17 +5,14 @@ contains
 
   module procedure finalize_loaded_config
   integer :: i, j, axis
-  integer(i32) :: per_batch_particles, physics_status, negative_photo_raycast_count
-  integer(i32) :: implicit_photo_raycast_index
+  integer(i32) :: per_batch_particles, physics_status
   integer(i32) :: n_periodic_axes
   logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode
   character(len=64) :: generated_species_key
   character(len=256) :: physics_message
 
   call normalize_high_level_config(cfg, authoring)
-  call normalize_legacy_physics_config( &
-    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling &
-    )
+  call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   call apply_physics_authoring(cfg, authoring)
   call lower_external_boundary_authoring(cfg, authoring)
 
@@ -227,34 +224,10 @@ contains
   if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
     error stop 'sim.phi_infty must be finite.'
   end if
-  cfg%sim%sheath_electron_drift_mode = lower_ascii(trim(cfg%sim%sheath_electron_drift_mode))
-  select case (trim(cfg%sim%sheath_electron_drift_mode))
-  case ('normal', 'full')
-    continue
-  case default
-    error stop 'sim.sheath_electron_drift_mode must be "normal" or "full".'
-  end select
-  cfg%sim%sheath_ion_drift_mode = lower_ascii(trim(cfg%sim%sheath_ion_drift_mode))
-  select case (trim(cfg%sim%sheath_ion_drift_mode))
-  case ('normal', 'full')
-    continue
-  case default
-    error stop 'sim.sheath_ion_drift_mode must be "normal" or "full".'
-  end select
-  if (.not. ieee_is_finite(cfg%sim%sheath_alpha_deg) .or. cfg%sim%sheath_alpha_deg < 0.0d0 .or. &
-      cfg%sim%sheath_alpha_deg > 90.0d0) then
-    error stop 'sim.sheath_alpha_deg must be finite and satisfy 0 <= alpha <= 90.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%sheath_photoelectron_ref_density_cm3) .or. &
-      cfg%sim%sheath_photoelectron_ref_density_cm3 < 0.0d0) then
-    error stop 'sim.sheath_photoelectron_ref_density_cm3 must be finite and >= 0.'
-  end if
   call resolve_batch_duration(cfg)
   per_batch_particles = 0_i32
   has_dynamic_source_species = .false.
   has_enabled_volume_seed = .false.
-  negative_photo_raycast_count = 0_i32
-  implicit_photo_raycast_index = 0_i32
   do i = 1, cfg%n_particle_species
     if (len_trim(cfg%particle_species(i)%species_key) == 0) then
       write (generated_species_key, '(a,i0)') 'species_', i
@@ -283,9 +256,6 @@ contains
       end if
       if (cfg%sim%bc_high(3) /= bc_open) then
         error stop 'particles.species.z_high_boundary="reflect" requires sim.bc_z_high="open".'
-      end if
-      if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) /= 'none') then
-        error stop 'particles.species.z_high_boundary="reflect" cannot be combined with outer particle transfer.'
       end if
     case default
       error stop 'particles.species.z_high_boundary must be "inherit" or "reflect".'
@@ -380,10 +350,6 @@ contains
       call validate_reservoir_species(cfg, i)
     case ('photo_raycast')
       has_dynamic_source_species = .true.
-      if (cfg%particle_species(i)%q_particle < 0.0_dp) then
-        negative_photo_raycast_count = negative_photo_raycast_count + 1_i32
-        implicit_photo_raycast_index = i
-      end if
       call validate_photo_raycast_species(cfg, i)
     case default
       error stop 'Unknown particles.species.source_mode.'
@@ -400,9 +366,6 @@ contains
     if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
       error stop 'periodic2.max_nonzero_mode_potential_step requires a positive sim.batch_duration.'
     end if
-    if (cfg%coupling%outer_queue_enabled) then
-      error stop 'periodic2.max_nonzero_mode_potential_step cannot be combined with an outer event queue.'
-    end if
     if (has_enabled_volume_seed) then
       error stop 'periodic2.max_nonzero_mode_potential_step requires time-scaled reservoir_face/photo_raycast sources.'
     end if
@@ -415,40 +378,8 @@ contains
     end do
   end if
   cfg%n_particles = cfg%sim%batch_count*per_batch_particles
-  ! kinetic_1dのsame-batch tracked photoelectronは、公開設定を増やさず
-  ! mean k=0だけを陰的に更新するmultirate couplingへlowerする。
-  if (negative_photo_raycast_count > 0_i32 .and. &
-      trim(lower_ascii(cfg%outer_plasma%model)) == 'kinetic_1d' .and. &
-      (trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'ambient_linear_debye' .or. &
-       trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'zhao_charge_driven') .and. &
-      trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return' .and. &
-      .not. cfg%coupling%outer_queue_enabled) then
-    if (negative_photo_raycast_count /= 1_i32) then
-      error stop 'implicit_mean requires exactly one enabled negative photo_raycast species.'
-    end if
-    if (abs(cfg%particle_species(implicit_photo_raycast_index)%normal_drift_speed) > &
-        64.0_dp*epsilon(1.0_dp)) then
-      error stop 'implicit_mean Maxwellian photoelectron closure requires normal_drift_speed=0.'
-    end if
-    if (trim(lower_ascii(cfg%outer_plasma%kinetic_closure)) == 'zhao_charge_driven' .and. &
-        trim(lower_ascii(cfg%coupling%steady_start_mode)) /= 'zhao_floating') then
-      error stop 'strong-photoelectron implicit Zhao coupling requires steady_start_mode="zhao_floating".'
-    end if
-    cfg%coupling%update_mode = 'implicit_mean'
-  end if
-  call validate_active_physics_config( &
-    cfg%sim, cfg%field, cfg%periodic2, cfg%panel, cfg%outer_plasma, cfg%coupling, physics_status, physics_message &
-    )
+  call validate_active_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel, physics_status, physics_message)
   if (physics_status /= physics_config_ok) error stop trim(physics_message)
-  if (trim(lower_ascii(cfg%coupling%particle_transfer_mode)) == 'electrostatic_1d_instant_return') then
-    do i = 1, cfg%n_particle_species
-      if (.not. cfg%particle_species(i)%enabled) cycle
-      if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'photo_raycast') cycle
-      if (.not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
-        error stop 'tracked outer transfer requires photo_raycast deposit_opposite_charge_on_emit=true.'
-      end if
-    end do
-  end if
   end procedure finalize_loaded_config
 
 end submodule bem_app_config_parser_finalize

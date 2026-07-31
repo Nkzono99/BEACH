@@ -227,8 +227,6 @@ class ChargeLedgerEntry:
     absorbed_on_surface_c: float
     escaped_to_infinity_c: float
     discarded_unresolved_c: float
-    interface_outward_gross_c: float
-    interface_returned_gross_c: float
     injected_count: int
     emitted_count: int
     absorbed_count: int
@@ -317,23 +315,8 @@ class FortranRunResult:
     periodic2_cache_fingerprint: str | None = None
     periodic2_cache_path: str | None = None
     periodic2_generation_tolerance: float | None = None
-    max_outer_flight_time_s: float | None = None
-    max_outer_frozen_field_ratio: float | None = None
-    max_outer_energy_relative_error: float | None = None
-    coupling_outer_queue_enabled: bool | None = None
-    outer_photoelectron_population_fraction: float | None = None
-    outer_photoelectron_column_per_area_m2: float | None = None
-    outer_photoelectron_column_target_per_area_m2: float | None = None
-    outer_photoelectron_column_residual_per_area_m2: float | None = None
-    outer_queue_event_count: int | None = None
-    outer_queue_signed_charge_c: float | None = None
-    outer_queue_fingerprint: str | None = None
     multiple_box_events_soft_discarded: int = 0
     multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
-    implicit_mean_last_returned_outer_flight_time_mean_s: float | None = None
-    implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_c_m2: (
-        float | None
-    ) = None
     simulated_time_s: float | None = None
     adaptive_nonzero_mode_rejected_trials: int = 0
     adaptive_nonzero_mode_last_batch_duration_s: float | None = None

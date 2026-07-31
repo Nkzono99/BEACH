@@ -8,9 +8,8 @@ module bem_output_writer
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
                                             external_inflow_none, external_inflow_scalar_barrier, &
-                                            external_inflow_kinetic_profile, external_open_escape, &
-                                            external_open_potential_barrier, external_transport_none, &
-                                            external_transport_kinetic_1d, resolve_external_boundary_contract
+                                            external_open_escape, external_open_potential_barrier, &
+                                            resolve_external_boundary_contract
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
@@ -224,42 +223,7 @@ contains
     call write_mesh_file(out_dir, mesh)
     call write_mesh_sources_file(out_dir, mesh, cfg)
     if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
-    if (present(electrostatic_diagnostics)) then
-      if (allocated(electrostatic_diagnostics%outer_profile_z)) then
-        call write_outer_plasma_profile_file(out_dir, electrostatic_diagnostics)
-      end if
-    end if
   end subroutine write_result_files
-
-  subroutine write_outer_plasma_profile_file(out_dir, diagnostics)
-    character(len=*), intent(in) :: out_dir
-    type(electrostatic_diagnostics_type), intent(in) :: diagnostics
-    character(len=1024) :: path
-    integer :: u, ios
-    integer(i32) :: point
-
-    if (.not. allocated(diagnostics%outer_profile_z) .or. &
-        .not. allocated(diagnostics%outer_profile_potential) .or. &
-        .not. allocated(diagnostics%outer_profile_field) .or. &
-        .not. allocated(diagnostics%outer_profile_charge_density)) then
-      error stop 'Outer-plasma diagnostic profile is incomplete.'
-    end if
-    if (size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_potential) .or. &
-        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_field) .or. &
-        size(diagnostics%outer_profile_z) /= size(diagnostics%outer_profile_charge_density)) then
-      error stop 'Outer-plasma diagnostic profile is incomplete.'
-    end if
-    path = trim(out_dir)//'/outer_plasma_profile.csv'
-    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open outer_plasma_profile.csv.'
-    write (u, '(a)') 'point,z_m,potential_V,field_V_m,charge_density_C_m3'
-    do point = 1_i32, size(diagnostics%outer_profile_z)
-      write (u, '(i0,4(a,es24.16))') point, ',', diagnostics%outer_profile_z(point), ',', &
-        diagnostics%outer_profile_potential(point), ',', diagnostics%outer_profile_field(point), ',', &
-        diagnostics%outer_profile_charge_density(point)
-    end do
-    close (u)
-  end subroutine write_outer_plasma_profile_file
 
   !> 出力ディレクトリを作成する。
   !! @param[in] out_dir 作成対象ディレクトリのパス。
@@ -304,9 +268,7 @@ contains
 
     call resolve_external_boundary_contract( &
       cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
-      cfg%outer_plasma%model, cfg%outer_plasma%kinetic_closure, cfg%outer_plasma%return_model, &
-      cfg%coupling%particle_transfer_mode, cfg%coupling%outer_queue_enabled, resolved_boundary, &
-      boundary_status, boundary_message &
+      resolved_boundary, boundary_status, boundary_message &
       )
     if (boundary_status /= external_boundary_ok) then
       error stop 'write_summary_file: invalid external boundary contract: '//trim(boundary_message)
@@ -360,113 +322,28 @@ contains
     write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
     write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
       cfg%sim%field_periodic_generation_tolerance
-    write (u, '(a,a)') 'outer_plasma_model=', trim(cfg%outer_plasma%model)
-    write (u, '(a,a)') 'outer_plasma_kinetic_closure=', trim(cfg%outer_plasma%kinetic_closure)
-    write (u, '(a,a)') 'outer_plasma_zhao_branch_requested=', trim(cfg%outer_plasma%zhao_branch)
-    write (u, '(a,es24.16)') 'outer_plasma_photoelectron_source_scale=', &
-      cfg%outer_plasma%photoelectron_source_scale
-    write (u, '(a,a)') 'coupling_update_mode=', trim(cfg%coupling%update_mode)
-    write (u, '(a,a)') 'coupling_particle_transfer_mode=', trim(cfg%coupling%particle_transfer_mode)
-    write (u, '(a,a)') 'coupling_steady_start_mode=', trim(cfg%coupling%steady_start_mode)
-    write (u, '(a,i0)') 'coupling_steady_start_mesh_id=', cfg%coupling%steady_start_mesh_id
-    write (u, '(a,l1)') 'coupling_outer_queue_enabled=', cfg%coupling%outer_queue_enabled
     write (u, '(a,a)') 'external_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
     write (u, '(a,a)') 'external_ordinary_open_model=', &
       trim(external_open_model_name(resolved_boundary%ordinary_open_model))
-    write (u, '(a,a)') 'external_interface_transport=', &
-      trim(external_transport_name(resolved_boundary%interface_transport))
-    write (u, '(a,a)') 'outer_particle_mode_resolved=', trim(outer_particle_mode_name(resolved_boundary))
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
       if (electrostatic_diagnostics%top_reference_available) then
         write (u, '(a)') 'top_reference_definition=box_z_high_plane_mean'
-        write (u, '(a,i0)') 'top_reference_last_batch=', &
-          electrostatic_diagnostics%top_reference_last_batch
-        write (u, '(a,es24.16)') 'top_reference_simulated_time_s=', &
-          electrostatic_diagnostics%top_reference_simulated_time
-        write (u, '(a,es24.16)') 'top_reference_z_high_m=', &
-          electrostatic_diagnostics%top_reference_z_high
-        write (u, '(a,i0)') 'top_reference_sample_n=', &
-          electrostatic_diagnostics%top_reference_sample_n
-        write (u, '(a,es24.16)') 'top_reference_potential_mean_V=', &
-          electrostatic_diagnostics%top_reference_potential_mean
-        write (u, '(a,es24.16)') 'top_reference_potential_std_V=', &
-          electrostatic_diagnostics%top_reference_potential_std
-        write (u, '(a,es24.16)') 'top_reference_potential_min_V=', &
-          electrostatic_diagnostics%top_reference_potential_min
-        write (u, '(a,es24.16)') 'top_reference_potential_max_V=', &
-          electrostatic_diagnostics%top_reference_potential_max
+        write (u, '(a,i0)') 'top_reference_last_batch=', electrostatic_diagnostics%top_reference_last_batch
+        write (u, '(a,es24.16)') 'top_reference_simulated_time_s=', electrostatic_diagnostics%top_reference_simulated_time
+        write (u, '(a,es24.16)') 'top_reference_z_high_m=', electrostatic_diagnostics%top_reference_z_high
+        write (u, '(a,i0)') 'top_reference_sample_n=', electrostatic_diagnostics%top_reference_sample_n
+        write (u, '(a,es24.16)') 'top_reference_potential_mean_V=', electrostatic_diagnostics%top_reference_potential_mean
+        write (u, '(a,es24.16)') 'top_reference_potential_std_V=', electrostatic_diagnostics%top_reference_potential_std
+        write (u, '(a,es24.16)') 'top_reference_potential_min_V=', electrostatic_diagnostics%top_reference_potential_min
+        write (u, '(a,es24.16)') 'top_reference_potential_max_V=', electrostatic_diagnostics%top_reference_potential_max
       end if
       write (u, '(a,l1)') 'electrostatic_split_periodic_active=', electrostatic_diagnostics%split_periodic_active
-      write (u, '(a,l1)') 'electrostatic_applicable=', electrostatic_diagnostics%applicable
       write (u, '(a,a)') 'electrostatic_status=', trim(electrostatic_diagnostics%status)
-      write (u, '(a,i0)') 'interface_sample_n=', electrostatic_diagnostics%interface_sample_n
-      write (u, '(a,es24.16)') 'interface_potential_V=', electrostatic_diagnostics%interface_potential
-      write (u, '(a,es24.16)') 'interface_normal_field_V_m=', electrostatic_diagnostics%interface_field
-      write (u, '(a,es24.16)') 'interface_eta_phi_kneq0=', electrostatic_diagnostics%eta_phi_kneq0
-      write (u, '(a,es24.16)') 'interface_eta_field_kneq0=', electrostatic_diagnostics%eta_field_kneq0
-      write (u, '(a,es24.16)') 'interface_eta_gap=', electrostatic_diagnostics%eta_gap
-      write (u, '(a,es24.16)') 'interface_eta_local_charge=', electrostatic_diagnostics%eta_local_charge
       write (u, '(a,es24.16)') 'gauss_residual_C=', electrostatic_diagnostics%gauss_residual
-      write (u, '(a,es24.16)') 'outer_integrated_charge_C=', electrostatic_diagnostics%outer_integrated_charge
-      write (u, '(a,i0)') 'outer_nonlinear_iterations=', electrostatic_diagnostics%outer_nonlinear_iterations
-      write (u, '(a,es24.16)') 'outer_nonlinear_residual=', electrostatic_diagnostics%outer_nonlinear_residual
-      write (u, '(a,i0)') 'outer_applicability_status=', electrostatic_diagnostics%outer_applicability_status
-      write (u, '(a,es24.16)') 'outer_infinity_potential_V=', &
-        electrostatic_diagnostics%outer_infinity_potential
-      write (u, '(a,es24.16)') 'outer_debye_length_m=', electrostatic_diagnostics%outer_debye_length
-      write (u, '(a,es24.16)') 'outer_integrated_charge_per_area_C_m2=', &
-        electrostatic_diagnostics%outer_integrated_charge_per_area
-      write (u, '(a,es24.16)') 'outer_electron_current_density_A_m2=', &
-        electrostatic_diagnostics%outer_electron_current_density
-      write (u, '(a,es24.16)') 'outer_ion_current_density_A_m2=', &
-        electrostatic_diagnostics%outer_ion_current_density
-      write (u, '(a,es24.16)') 'outer_photoelectron_current_density_A_m2=', &
-        electrostatic_diagnostics%outer_photoelectron_current_density
-      write (u, '(a,es24.16)') 'outer_total_current_density_A_m2=', &
-        electrostatic_diagnostics%outer_total_current_density
-      if (trim(electrostatic_diagnostics%outer_kinetic_closure) == 'zhao_charge_driven') then
-        write (u, '(a,a)') 'outer_plasma_zhao_branch_resolved=', electrostatic_diagnostics%outer_zhao_branch
-        write (u, '(a,es24.16)') 'outer_plasma_zhao_phi0_V=', electrostatic_diagnostics%outer_zhao_phi0
-        write (u, '(a,es24.16)') 'outer_plasma_zhao_phi_minimum_V=', &
-          electrostatic_diagnostics%outer_zhao_phi_minimum
-        write (u, '(a,es24.16)') 'outer_plasma_zhao_electron_density_infinity_m3=', &
-          electrostatic_diagnostics%outer_zhao_electron_density_infinity
-        write (u, '(a,es24.16)') 'outer_plasma_photoelectron_source_scale_resolved=', &
-          electrostatic_diagnostics%outer_photoelectron_source_scale
-        if (cfg%coupling%outer_queue_enabled) then
-          write (u, '(a,es24.16)') 'outer_photoelectron_population_fraction=', &
-            electrostatic_diagnostics%outer_photoelectron_population_fraction
-          write (u, '(a,es24.16)') 'outer_photoelectron_column_per_area_m2=', &
-            electrostatic_diagnostics%outer_photoelectron_column_per_area
-          write (u, '(a,es24.16)') 'outer_photoelectron_column_target_per_area_m2=', &
-            electrostatic_diagnostics%outer_photoelectron_column_target_per_area
-          write (u, '(a,es24.16)') 'outer_photoelectron_column_residual_per_area_m2=', &
-            electrostatic_diagnostics%outer_photoelectron_column_residual_per_area
-          write (u, '(a,i0)') 'outer_queue_event_count=', electrostatic_diagnostics%outer_queue_event_count
-          write (u, '(a,es24.16)') 'outer_queue_signed_charge_C=', &
-            electrostatic_diagnostics%outer_queue_signed_charge
-          write (u, '(a,a)') 'outer_queue_fingerprint=', &
-            trim(electrostatic_diagnostics%outer_queue_fingerprint)
-        end if
-      end if
-      write (u, '(a,i0)') 'last_outer_update_batch=', electrostatic_diagnostics%last_outer_update_batch
-      write (u, '(a,es24.16)') 'max_outer_flight_time_s=', electrostatic_diagnostics%max_outer_flight_time
-      write (u, '(a,es24.16)') 'max_outer_frozen_field_ratio=', electrostatic_diagnostics%max_frozen_field_ratio
-      write (u, '(a,es24.16)') 'max_outer_energy_relative_error=', &
-        electrostatic_diagnostics%max_outer_energy_relative_error
-      if (electrostatic_diagnostics%implicit_mean_shadow_diagnostics_available) then
-        write (u, '(a,es24.16)') 'implicit_mean_last_returned_outer_flight_time_mean_s=', &
-          electrostatic_diagnostics%implicit_mean_last_returned_outer_flight_time_mean
-        write (u, '(a,es24.16)') &
-          'implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=', &
-          electrostatic_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area
-      end if
       write (u, '(a,l1)') 'periodic2_cache_hit=', electrostatic_diagnostics%periodic_cache_hit
-      write (u, '(a,i0)') 'periodic2_operator_build_count=', &
-        electrostatic_diagnostics%periodic_operator_build_count
-      write (u, '(a,a)') 'periodic2_cache_fingerprint=', &
-        trim(electrostatic_diagnostics%periodic_cache_fingerprint)
+      write (u, '(a,i0)') 'periodic2_operator_build_count=', electrostatic_diagnostics%periodic_operator_build_count
+      write (u, '(a,a)') 'periodic2_cache_fingerprint=', trim(electrostatic_diagnostics%periodic_cache_fingerprint)
       write (u, '(a,a)') 'periodic2_cache_path=', trim(electrostatic_diagnostics%periodic_cache_path)
     end if
     if (present(charge_ledger)) then
@@ -478,10 +355,6 @@ contains
         charge_ledger%local_flight_charge_before
       write (u, '(a,es24.16)') 'charge_ledger_local_flight_charge_after_C=', &
         charge_ledger%local_flight_charge_after
-      write (u, '(a,es24.16)') 'charge_ledger_outer_flight_charge_before_C=', &
-        charge_ledger%outer_flight_charge_before
-      write (u, '(a,es24.16)') 'charge_ledger_outer_flight_charge_after_C=', &
-        charge_ledger%outer_flight_charge_after
       write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_before_C=', &
         charge_ledger%unresolved_stock_before
       write (u, '(a,es24.16)') 'charge_ledger_unresolved_stock_after_C=', &
@@ -509,8 +382,6 @@ contains
       name = 'source_vdf'
     case (external_inflow_scalar_barrier)
       name = 'infinity_barrier'
-    case (external_inflow_kinetic_profile)
-      name = 'kinetic_profile'
     case default
       error stop 'write_summary_file: unknown resolved external inflow map.'
     end select
@@ -531,35 +402,6 @@ contains
     end select
   end function external_open_model_name
 
-  !> 解決済みの interface 輸送モデルを summary 用の安定した語彙へ変換する。
-  function external_transport_name(interface_transport) result(name)
-    integer(i32), intent(in) :: interface_transport
-    character(len=32) :: name
-
-    select case (interface_transport)
-    case (external_transport_none)
-      name = 'none'
-    case (external_transport_kinetic_1d)
-      name = 'kinetic_1d'
-    case default
-      error stop 'write_summary_file: unknown resolved external interface transport.'
-    end select
-  end function external_transport_name
-
-  !> 粒子外部境界の処理時機を、queue ownership を含めて一意な語彙へ変換する。
-  function outer_particle_mode_name(contract) result(name)
-    type(external_boundary_contract_type), intent(in) :: contract
-    character(len=16) :: name
-
-    if (contract%queue_enabled) then
-      name = 'zhao_queue'
-    else if (contract%interface_transport /= external_transport_none) then
-      name = 'same_batch'
-    else
-      name = 'local_source'
-    end if
-  end function outer_particle_mode_name
-
   !> species 別の signed charge flux と粒子数を `charge_ledger.csv` に保存する。
   subroutine write_charge_ledger_file(out_dir, ledger)
     character(len=*), intent(in) :: out_dir
@@ -575,19 +417,17 @@ contains
     if (ios /= 0) error stop 'Failed to open charge_ledger.csv.'
     write (u, '(a)') &
       'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,absorbed_on_surface_C,'// &
-      'escaped_to_infinity_C,discarded_unresolved_C,interface_outward_gross_C,interface_returned_gross_C,'// &
+      'escaped_to_infinity_C,discarded_unresolved_C,'// &
       'neutral_return_correction_C,neutral_return_weight_scale,neutral_return_unresolved_fraction,'// &
       'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
     do species_idx = 1, ledger%nspecies
-      write (u, '(i0,a,i0,10(a,es24.16),5(a,i0))') &
+      write (u, '(i0,a,i0,8(a,es24.16),5(a,i0))') &
         ledger%batch_count, ',', species_idx, &
         ',', ledger%injected_from_remote(species_idx), &
         ',', ledger%emitted_from_surface(species_idx), &
         ',', ledger%absorbed_on_surface(species_idx), &
         ',', ledger%escaped_to_infinity(species_idx), &
         ',', ledger%discarded_unresolved(species_idx), &
-        ',', ledger%interface_outward_gross(species_idx), &
-        ',', ledger%interface_returned_gross(species_idx), &
         ',', ledger%neutral_return_correction(species_idx), &
         ',', ledger%neutral_return_weight_scale(species_idx), &
         ',', ledger%neutral_return_unresolved_fraction(species_idx), &

@@ -4,9 +4,9 @@ Lang: [日本語](PhotoelectronEmission.md) | [English](PhotoelectronEmission.en
 
 # 光電子の放出とライフサイクル
 
-`source_mode="photo_raycast"`は、照射rayが最初に命中した表面から粒子を放出します。放出位置はmeshとraycastで決め、
-放出に伴う表面電荷はsurface stateで保存します。生成後の光電子は通常の粒子と同じであり、batch内で固定された電場、
-Boris更新、衝突判定、box境界を使います。
+`source_mode="photo_raycast"` は照射 ray が最初に命中した表面から粒子を放出します。このページは
+raycast、放出量・速度、放出電荷、closed PE の `neutral_return` を説明します。生成後は通常粒子と同じ
+固定場、Boris 更新、衝突判定、box 境界を使います。
 
 ## 放出から再吸収までを同じbatchで追う
 
@@ -17,8 +17,7 @@ Boris更新、衝突判定、box境界を使います。
 5. 通常粒子として追跡し、box境界へ達した後は共通のescape/return処理へ渡す。
 6. 放出電荷と吸収電荷をbatch末尾に表面へcommitする。
 
-放出と再吸収は同じbatchで起こり得ますが、途中で電場・電位を更新しません。したがって、放出が作る
-正味表面電荷は次batchから場へ反映されます。
+放出と再吸収は同じ batch で起こり得ますが、場は途中で更新しません。正味表面電荷は次 batch から場へ反映されます。
 
 ## 照射rayで放出面を決める
 
@@ -58,8 +57,8 @@ $$
 です。missしたrayは粒子を作らないため、遮蔽や見かけ面積はhit率として放出量へ入ります。
 `w_particle`や`target_macro_particles_per_batch`は`photo_raycast`には指定しません。
 
-`rays_per_batch`は物理放出量ではなくray積分のsampling数です。値を増やすと$w_\mathrm{hit}$が小さくなり、
-照射可視率と放出位置のMonte Carlo noiseを減らせます。結果はray数に対して収束確認します。
+`rays_per_batch` は物理放出量ではなく ray 積分の sample 数です。増やすと $w_\mathrm{hit}$ が小さくなり、
+照射可視率と放出位置の Monte Carlo noise を減らせます。結果は ray 数に対して収束確認します。
 
 ## 表面法線から放出状態を作る
 
@@ -73,8 +72,8 @@ $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
 - 接線2成分は平均0、標準偏差$\sigma$のGaussian。
 - Gaussian samplingは$6\sigma$で切る。
 
-法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後に戻るかescapeするかは、tracked orbitと
-共通のbox境界またはouter transferが決めます。
+法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後の再吸収、escape、局所反射は
+tracked orbit と共通の box 境界が決めます。
 
 ## 放出・再吸収・escapeの電荷収支を確認する
 
@@ -92,13 +91,13 @@ MPI all-reduce後に同じbatch commitへ加えます。
 
 ## 生成後は共通のescape / return処理を使う
 
-ray hitで生成する光電子の重みは常に$w_\mathrm{hit}$です。放出時にescape率を掛けて粒子重みを減らす設定はありません。
-表面へ戻った粒子は通常の衝突として再吸収し、open面へ達した粒子にはreservoir粒子や`volume_seed`粒子と同じ
-`external_boundary.ordinary_open`またはouter particle modeを適用します。
+ray hit で生成する光電子の重みは常に $w_\mathrm{hit}$ です。放出時に escape 率を掛ける設定はありません。
+表面へ戻れば通常衝突として再吸収し、open 面へ達すれば他の source と同じ
+`external_boundary.ordinary_open` を適用します。
 
 ### 光電子だけをz-highで閉じる
 
-outer particle transferを使わず、光電子の表面内再分配だけを切り出す場合は、光電子speciesへ局所反射を指定できます。
+光電子の表面内再分配を閉じた軌道で評価する場合は、光電子 species へ局所反射を指定します。
 
 ```toml
 [[particles.species]]
@@ -112,7 +111,7 @@ surface_charge_closure = "neutral_return"
 この設定はz-high通過時に法線速度だけを反転し、接線速度を保存して残りstepを再積分します。キーを省略した
 ambient speciesは`"inherit"`なので、globalのopen境界契約に従います。統合構成で
 `external_boundary.ordinary_open.model="escape"`を選んだ場合にescapeします。
-`reflect`は`sim.use_box=true`、global z-highがopen、outer particle transferなしの場合だけ使用できます。
+`reflect` は `sim.use_box=true` かつ global z-high が open の場合だけ使用できます。
 `inject_face`は照射rayの開始面であり、生成後の粒子に適用する`z_high_boundary`とは別です。
 
 `z_high_boundary="reflect"`だけなら軌道を閉じるだけで、`max_step`までに戻らない粒子は未解決のままです。
@@ -125,46 +124,22 @@ rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません
 放出があるのに解決済み帰還がない場合、実escape、`soft_discard`、符号不整合は停止します。
 未帰還率が5%を超える場合も、このclosureの固定適用範囲外として補正せず停止します。
 
-完全反射は有限box上端に人工的な鏡を置く試験条件であり、自己整合なsheathや準中性性を解くものではありません。
-`neutral_return`も未帰還粒子の軌道を解くのではなく、正味光電子電流を0とする統計的closureです。
-`abs(weight_scale-1)`と未帰還率が十分小さくなるよう、`max_step`、`dt`、ray数、batch幅を収束させます。
+完全反射は有限 box 上端に人工的な鏡を置く試験条件であり、自己整合な sheath や準中性性を解きません。
+`neutral_return` も未帰還軌道を解かず、正味光電子電流を 0 とする統計的 closure です。
+`abs(weight_scale-1)` と未帰還率が十分小さくなるよう `max_step`、`dt`、ray 数、batch 幅を収束させます。
 統合した場・流入・電位基準は
-[periodic2有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
+[periodic2有限画像構成](FinitePeriodicConfiguration.html)にあります。
 
-有限boxで外部領域を解かない場合は`external_boundary.ordinary_open.model="potential_barrier"`が
-通過点の電位と法線運動エネルギーから反射またはescapeを決めます。自己整合な外部sheathを使う場合は
-`external_boundary.field.model`と`external_boundary.particles.mode`が正本です。
-scalar barrierと1D outer profile returnの違いは
-[粒子のescapeとreturn](ParticleEscapeReturn.html)で説明します。
-
-tracked outer transferを使う`photo_raycast` speciesでは、放出と帰還の電荷収支を閉じるため
-`deposit_opposite_charge_on_emit=true`を指定します。
-
-## 光電子をouter plasmaの平均密度へ含める
-
-`external_boundary.field.photoelectron_density_model="kinetic_mean"`は、最初の負電荷`photo_raycast` speciesの温度と放出電流密度を、
-平面平均sourceとして1D Poisson密度モデルへ加えます。outgoing populationと、turning後のreturning populationが、
-outer領域の空間電荷に寄与します。この平均密度モデルは、個々のtracked粒子の表面吸収を置き換えません。
-統計的なreturn電荷を、別途表面へdepositすることもありません。
-
-生成後のtracked光電子をz-high interfaceからouter領域へ渡す場合も、粒子sourceに依存しない共通の
-escape/return処理を使います。外部flightをglobal timeへ加えない準定常近似は
-[粒子のescapeとreturn](ParticleEscapeReturn.html)、対応する場の作り方は[外部プラズマモデル](OuterPlasmaModels.html)で説明します。
-
-`external_boundary.field.kinetic_closure="zhao_charge_driven"`は、蓄積電荷が決めるinterface電場を保つ
-自己整合な1D outer profileを構築します。`external_boundary.particles.mode="zhao_queue"`では、さらに
-tracked outer inventoryから光電子populationを閉じます。`mode="same_batch"`または`"zhao_queue"`では、このprofileが
-z-high interfaceでの流入とreturn / escapeを決めます。
+通常の open 面に使う `escape` / `potential_barrier` と closed PE の使い分けは
+[粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
 
 ## 光電子放出の収束を確認する
 
 `rays_per_batch`を増やし、hit率、放出電流、帯電分布が収束することを確認します。再吸収位置も評価する場合は、
 `dt`を小さくして結果が変わらないことを確認します。放出、吸収、escapeを含む粒子種別の電荷収支と、
-outer return 固有の診断値は[出力ファイルを調べる](OutputGuide.html)で確認します。
+closed PEの補正量と未解決率は[出力ファイルを調べる](OutputGuide.html)で確認します。
 
 ## Code reference
 
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
 - 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- kinetic mean光電子密度モデル: [`bem_outer_plasma_kinetic.f90`](../src/physics/outer_plasma/bem_outer_plasma_kinetic.f90)
-- kinetic meanのruntime組立: [`bem_outer_plasma_kinetic_runtime.f90`](../src/runtime/bem_outer_plasma_kinetic_runtime.f90)

@@ -4,26 +4,10 @@ Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
 
 # `reservoir_face` の流入量と速度サンプリング
 
-このページは、[粒子源の全体像](ParticleSourcesBoundaries.html)で `source_mode="reservoir_face"` を選んだ後の
-注入アルゴリズムを説明します。このページで扱うのは、次の 2 点です。
-
-1. 上流分布関数（VDF）から、1 バッチに流入する物理粒子数とマクロ粒子数をどう決めるか。
-2. 選ばれた粒子の初期位置を注入開口から作り、面到達時の速度をどう生成するか。
-
-```text
-上流 VDF と開口
-       ↓ 到達可能な流束を求める
-1 バッチの流入量
-       ↓ マクロ粒子数へ変換する
-開口から作る初期位置・面到達速度
-       ↓
-共通の粒子追跡へ渡す
-```
-
-`reservoir_face` 自体は、粒子源の選択、シースモデルの選択、ボックス外へ出た粒子の脱出・帰還を担当しません。
-これらは、このページの末尾にある関連ページで分けて説明します。
-
-## このページの入力と出力
+このページは `source_mode="reservoir_face"` の注入アルゴリズムを説明します。上流 VDF、開口、
+`batch_duration`、マクロ粒子重みから、全 rank 合計の注入数、初期位置、面到達速度、次 batch への端数を
+求めます。粒子源の選択は[粒子源の全体像](ParticleSourcesBoundaries.html)、注入後の open 面処理は
+[粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
 
 | 種類 | 内容 |
 | --- | --- |
@@ -58,8 +42,8 @@ $$
 です。$\Phi$ と $\varphi$ は標準正規分布の累積分布関数と確率密度です。温度 0 では、
 $u_n\ge v_{\min}$ のとき $\Gamma_\mathrm{in}=nu_n$、それ以外は 0 です。
 
-接線速度は通常の Gaussian 分布、法線速度は $v_n f_n(v_n)$ に比例する片側の流束重み付き分布から生成します。
-体積中の Maxwell 分布をそのまま面へ置くのではなく、面を横切る確率が法線速度に比例することを反映しています。
+接線速度は Gaussian 分布、法線速度は $v_n f_n(v_n)$ に比例する片側分布から生成します。これは面通過確率が
+法線速度に比例するためで、体積中の Maxwell 分布をそのまま面へ置く方法とは異なります。
 
 ## 速度グリッドの値を流束へ変換する
 
@@ -74,7 +58,7 @@ $u_n\ge v_{\min}$ のとき $\Gamma_\mathrm{in}=nu_n$、それ以外は 0 です
 完全な直交グリッドを補間し、`discrete` は入力点から離散的に選びます。`auto` は、可能な場合に `rectilinear` を使います。
 
 速度グリッドでは、粒子数を `particle_flux_m2_s` または `current_density_a_m2` から決めます。
-密度と温度は粒子数の計算に使いません。現行実装では、Zhao 注入補正と併用できません。
+密度と温度は粒子数の計算に使いません。現行実装では、局所VDFまたはscalar barrierだけを使用します。
 
 ## 端数を持ち越して長時間の流束を保つ
 
@@ -95,11 +79,10 @@ N_\mathrm{macro}=\left\lfloor r+N_\mathrm{macro,expected}\right\rfloor,
 r\leftarrow r+N_\mathrm{macro,expected}-N_\mathrm{macro}
 $$
 
-とします。各バッチの個数は変動しても、多数のバッチを通じた総流入量は期待流束に一致します。
+とします。各 batch の個数は変動しても、長時間の総流入量は期待流束へ収束します。
 
-重みは、正の `w_particle` を直接与えるか、`target_macro_particles_per_batch` から逆算します。
-後者は計算で追跡する粒子数を調整する設定であり、物理流束を変更しません。`-1` は粒子種 1 で解決した重みを共有します。
-2 つの方法を同時に指定することはできません。
+正の `w_particle` を直接与えるか、`target_macro_particles_per_batch` から逆算します。後者は追跡 sample 数を
+調整し、物理流束は変えません。`-1` は species 1 の解決済み重みを共有します。2 つは同時指定できません。
 
 ## 1 つの電位差で到達条件と注入面速度を決める
 
@@ -126,31 +109,23 @@ $$
 上流 VDF は $v_n\ge v_{\min}=\sqrt{\max(B,0)}$ を満たす粒子に制限し、採用した速度を同じ $B$ で注入面速度へ
 写します。これにより、生成する粒子数と面到達時の速度を 1 つの電位差から矛盾なく決めます。
 
-## 電位差や上流 VDF の補正は別のモデルから受け取る
-
-このページが扱うのは、与えられた上流 VDF と電位差を粒子へ変換する処理です。どの外部モデルを使うかは
-[境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)を正本とします。
+## 流入補正を選ぶ
 
 | 構成 | `reservoir_face` が受け取るもの |
 | --- | --- |
 | 補正なし | $B=0$ として、設定した VDF を注入面上の分布として使う |
 | `external_boundary.particles.inflow_model="infinity_barrier"` | 開口の平均電位と `sim.phi_infty` から求めた 1 つの電位差 |
-| split `kinetic_1d` | 収束した外部プロファイルの $\phi_I-\phi_\infty$ |
 
-`infinity_barrier` は、`injection_face_phi_grid_n` を $N$ とする開口内の $N\times N$ セル中心格子で
-バッチ開始時の電位を評価し、平均値 $\bar\phi_f$ を使います。固定 P0 三角形カーネル、周期場、
-ゼロモード、外部状態、`sim.e0` を含む
-同じ電位規約を使いますが、注入面までの途中の $E(z)$、折り返し位置、飛行時間、空間電荷は解きません。
+`infinity_barrier` は、`injection_face_phi_grid_n` を $N$ とする開口内の $N\times N$ cell-center で
+batch 開始時の電位を評価し、平均値 $\bar\phi_f$ を使います。固定 P0 三角形 kernel、周期場、zero mode、
+`sim.e0` を含む同じ電位規約を使いますが、途中の $E(z)$、折り返し位置、飛行時間、空間電荷は解きません。
 同じ評価から電位の母標準偏差、最小値、最大値も集計し、Maxwell 分布のリザーバーでは面内のばらつきが特徴エネルギーに対して
 大きい場合に、初回と最終バッチで警告します。
 
-split 外部モデルでは、z-high の `reservoir_face` を無限遠 VDF として解釈します。`kinetic_1d` では界面電場を
-Poisson 境界条件に使いますが、粒子速度を変える量は $\phi_I-\phi_\infty$ です。
-
 ## 仮想飛行時間で初期位置をずらす
 
-すべての粒子を注入面上の同じ時刻位置から生成すると、粒子配置に人工的な揃い方が生じます。BEACH は各粒子に
-$\tau\in[0,\texttt{sim.dt})$ の仮想飛行時間を一様に与え、追跡開始前に
+同じ時刻の注入面に全粒子を置く人工的な整列を避けるため、各粒子へ
+$\tau\in[0,\texttt{sim.dt})$ の仮想飛行時間を一様に与え、追跡前に
 $\mathbf x\leftarrow\mathbf x+\mathbf v\tau$ として初期位置だけを速度方向へずらします。
 
 実装内部では、この時間幅を `position_jitter_dt=sim.dt` としてサンプラーへ渡します。この内部識別子の `jitter` は
@@ -169,15 +144,9 @@ MPI では、全ランク合計の粒子数と端数をルートランクで決�
 `batch_duration` を変えると、1 バッチの期待粒子数と場の更新間隔が同時に変わります。
 [バッチ幅と安定性](BatchDurationStability.html)に、物理的な定常値の確認方法を示しています。
 
-## 関連ページ
-
-- 粒子源を選ぶ: [粒子源の全体像](ParticleSourcesBoundaries.html)
-- 流入補正、流出境界、外部場を組み合わせる: [境界・外部領域の構成を選ぶ](OuterPlasmaModels.html)
-- 注入後の粒子が開放面から出たときの処理: [粒子の脱出と帰還](ParticleEscapeReturn.html)
-
 ## Code reference
 
 - 流束積分、マクロ粒子数、Maxwell／速度グリッドからの生成: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- 電位障壁と外部プロファイルによる速度補正: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- 電位障壁による速度補正: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
 - 開口形状と入力組み合わせの検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
 - MPI 全体のマクロ粒子端数: [`bem_restart.f90`](../src/runtime/bem_restart.f90)

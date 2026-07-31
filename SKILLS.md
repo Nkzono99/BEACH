@@ -18,19 +18,17 @@ Layer 7  bem_config_helpers (resolve_inject_face, resolve_inward_normal, etc.)
 Layer 8  bem_coulomb_fmm_core
 Layer 9  bem_field_solver (+config/eval/tree submodules)
          bem_app_config_parser (+validate/parse_utils submodules)
-Layer 10 bem_sheath_model_core
-Layer 11 bem_app_config_runtime
-Layer 12 bem_app_config (ファサード)
-Layer 13 bem_output_writer (純粋I/O、物理計算なし)
+Layer 10 bem_app_config_runtime
+Layer 11 bem_app_config (ファサード)
+Layer 12 bem_output_writer (純粋I/O、物理計算なし)
          bem_performance_profile, bem_restart
-Layer 14 bem_simulator (+loop/io/stats submodules)
-Layer 15 app/main.f90
+Layer 13 bem_simulator (+loop/io/stats submodules)
+Layer 14 app/main.f90
 ```
 
 ### 依存ルール
 - 上位層は下位層のみを use する（逆方向依存禁止）
 - `bem_output_writer` は FMM 内部型に依存しない（mesh 電位計算は `field_solver` 側）
-- `bem_sheath_*` は `bem_app_config_parser` に依存しない（`bem_config_helpers` 経由）
 - 物理定数 (`pi`, `eps0`, `qe`) は `bem_constants` に一元管理
 
 ## テスト構造
@@ -49,7 +47,7 @@ Layer 15 app/main.f90
 | 中量 | `test_app_config_parser` | ~数秒 |
 | 中量 | `test_injection_sampling` | ~数秒 |
 | 中量 | `test_reservoir_injection` | ~数秒 |
-| 中量 | `test_outer_plasma_kinetic` | ~数秒 |
+| 中量 | `test_external_boundary_contract` | ~数秒 |
 | 中量 | `test_templates_importers_runtime` | ~数秒 |
 | 中量 | `test_simulator` | ~数秒 |
 | 中量 | `test_restart` | ~数秒 |
@@ -66,7 +64,7 @@ fpm test --target test_boundary
 
 # 特定モジュールの変更後
 fpm test --target test_output_writer_potential  # output_writer 変更後
-fpm test --target test_outer_plasma_kinetic     # kinetic/Zhao sheath 変更後
+fpm test --target test_external_boundary_contract # 局所流入・open 境界契約の変更後
 fpm test --target test_app_config_parser        # parser 変更後
 
 # 全テスト（時間がかかる。バックグラウンド推奨）
@@ -104,7 +102,7 @@ end program
 | Phase | 内容 | コミット |
 |-------|------|---------|
 | 1-A | `lower_ascii` を `bem_string_utils` に集約 | `4181f45` |
-| 1-B | sheath 層違反解消 + 物理定数集約 | `88e0c12` |
+| 1-B | 物理定数の共通モジュール集約 | `88e0c12` |
 | 1-C | `bem_output_writer` の FMM 依存切り離し | `338ff8e` |
 
 ### 未着手 (Phase 2 — 中規模)

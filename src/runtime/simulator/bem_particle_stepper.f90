@@ -8,10 +8,8 @@ module bem_particle_stepper
   use bem_collision, only: collision_query_ok, find_first_hit
   use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
-  use bem_interface_types, only: interface_crossing_type
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, external_open_escape, external_open_potential_barrier, &
-    external_transport_none, external_boundary_owns_event
+    external_boundary_contract_type, external_open_escape, external_open_potential_barrier
   implicit none
   private
 
@@ -20,8 +18,6 @@ module bem_particle_stepper
   integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
   integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
   integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
-  integer(i32), parameter, public :: particle_step_multiple_external_events = 1004_i32
-  integer(i32), parameter, public :: particle_step_invalid_external_model = 1005_i32
 
   type, public :: particle_step_result
     real(dp) :: x(3) = 0.0_dp
@@ -32,7 +28,6 @@ module bem_particle_stepper
     integer(i32) :: status = particle_step_ok
     integer(i32) :: field_eval_count = 0_i32
     integer(i32) :: collision_query_count = 0_i32
-    type(interface_crossing_type) :: interface_crossing
   end type particle_step_result
 
   public :: build_particle_step_candidate
@@ -78,7 +73,7 @@ contains
     end do
   end subroutine project_field_sample_to_box
 
-  !> 一つのouter stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
+  !> 一つの粒子stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
   subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -178,9 +173,9 @@ contains
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
-    real(dp) :: dt_segment, dt_remaining, elapsed_dt, global_fraction
+    real(dp) :: dt_segment, dt_remaining
     integer(i32) :: query_status, boundary_status, event_count
-    logical :: alive, escaped, external_event_owned, z_high_chord_candidate, dense_boundary_event
+    logical :: alive, escaped
     logical :: first_segment
     type(external_boundary_contract_type) :: active_boundary_contract
 
@@ -200,7 +195,6 @@ contains
     x_trial = x_candidate
     v_trial = v_candidate
     dt_segment = dt
-    elapsed_dt = 0.0_dp
     event_count = 0_i32
     first_segment = .true.
 
@@ -240,28 +234,6 @@ contains
         return
       end if
 
-      external_event_owned = external_boundary_owns_event( &
-                             active_boundary_contract, event%face_mask, event%face_bc &
-                             )
-      dense_boundary_event = .false.
-      z_high_chord_candidate = external_event_owned .or. &
-                               (active_boundary_contract%interface_transport /= external_transport_none .and. &
-                                event%face_bc(6) == bc_open .and. x_start(3) < sim%box_max(3) .and. &
-                                x_trial(3) >= sim%box_max(3))
-      if (z_high_chord_candidate) then
-        call refine_interface_boundary_event( &
-          sim, x_start, v_start, x_trial, v_trial, dt_segment, event, boundary_status &
-          )
-        if (boundary_status /= boundary_event_ok) then
-          result%status = particle_step_invalid_boundary
-          return
-        end if
-        external_event_owned = external_boundary_owns_event( &
-                               active_boundary_contract, event%face_mask, event%face_bc &
-                               )
-        dense_boundary_event = .true.
-      end if
-
       if (first_segment .and. present(hit)) then
         if (hit%has_hit) then
           if (hit%t <= event%fraction + 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(event%fraction))) then
@@ -272,7 +244,7 @@ contains
       end if
 
       call interpolate_boundary_state( &
-        sim, event, x_start, v_start, x_trial, v_trial, dt_segment, dense_boundary_event, x_event, v_event &
+        sim, event, x_start, v_start, x_trial, v_trial, dt_segment, .false., x_event, v_event &
         )
       if (.not. (first_segment .and. present(hit))) then
         call query_particle_chord(mesh, sim, x_start, v_start, x_event, v_event, result, remainder_hit, query_status)
@@ -285,27 +257,6 @@ contains
       end if
       event_count = event_count + 1_i32
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
-      global_fraction = (elapsed_dt + event%fraction*dt_segment)/dt
-
-      if (external_event_owned) then
-        call apply_external_companion_faces( &
-          sim, event, x_event, v_event, boundary_status &
-          )
-        if (boundary_status /= boundary_event_ok) then
-          result%status = boundary_status
-          return
-        end if
-        result%x = x_event
-        result%v = v_event
-        result%interface_crossing%has_crossing = .true.
-        result%interface_crossing%face_index = 6_i32
-        result%interface_crossing%fraction = global_fraction
-        result%interface_crossing%position = x_event
-        result%interface_crossing%velocity = v_event
-        result%interface_crossing%dt_remaining = dt_remaining
-        return
-      end if
-
       alive = .true.
       escaped = .false.
       if (active_boundary_contract%ordinary_open_model == external_open_potential_barrier) then
@@ -335,7 +286,6 @@ contains
         return
       end if
 
-      elapsed_dt = elapsed_dt + event%fraction*dt_segment
       x_start = x_event
       v_start = v_event
       dt_segment = dt_remaining
@@ -350,102 +300,6 @@ contains
       first_segment = .false.
     end do
   end subroutine advance_particle_boundary_crossing
-
-  !> interface候補stepではBoris端点と整合する二次軌道で全box面の最初の交差を選び直す。
-  subroutine refine_interface_boundary_event(sim, x0, v0, x1, v1, dt, event, status)
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt
-    type(boundary_event_type), intent(inout) :: event
-    integer(i32), intent(out) :: status
-
-    real(dp) :: candidate_fraction(3), first_fraction, tie_tolerance
-    integer(i32) :: candidate_face(3), axis, candidate_count, crossing_status
-    type(boundary_event_type) :: refined_event
-
-    status = boundary_event_invalid_geometry
-    if (.not. ieee_is_finite(dt) .or. dt <= 0.0_dp) return
-    if (.not. all(ieee_is_finite(x0)) .or. .not. all(ieee_is_finite(x1)) .or. &
-        .not. all(ieee_is_finite(v0)) .or. .not. all(ieee_is_finite(v1))) return
-
-    refined_event = boundary_event_type()
-    refined_event%face_bc = event%face_bc
-    candidate_fraction = huge(1.0_dp)
-    candidate_face = 0_i32
-    candidate_count = 0_i32
-    do axis = 1_i32, 3_i32
-      if (x1(axis) >= sim%box_max(axis)) then
-        candidate_count = candidate_count + 1_i32
-        candidate_face(candidate_count) = 2_i32*axis
-        call refine_axis_crossing_fraction( &
-          x0(axis), v0(axis), v1(axis), dt, sim%box_max(axis), .true., &
-          candidate_fraction(candidate_count), crossing_status &
-          )
-      else if (x1(axis) <= sim%box_min(axis)) then
-        candidate_count = candidate_count + 1_i32
-        candidate_face(candidate_count) = 2_i32*axis - 1_i32
-        call refine_axis_crossing_fraction( &
-          x0(axis), v0(axis), v1(axis), dt, sim%box_min(axis), .false., &
-          candidate_fraction(candidate_count), crossing_status &
-          )
-      else
-        cycle
-      end if
-      if (crossing_status /= boundary_event_ok) return
-    end do
-
-    if (candidate_count < 1_i32) return
-    first_fraction = minval(candidate_fraction(:candidate_count))
-    tie_tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(first_fraction))
-    refined_event%has_event = .true.
-    refined_event%fraction = first_fraction
-    do axis = 1_i32, candidate_count
-      if (abs(candidate_fraction(axis) - first_fraction) <= tie_tolerance) then
-        refined_event%face_mask = ior(refined_event%face_mask, shiftl(1_i32, candidate_face(axis) - 1_i32))
-      end if
-    end do
-    if (refined_event%face_mask == 0_i32) return
-    event = refined_event
-    status = boundary_event_ok
-  end subroutine refine_interface_boundary_event
-
-  !> 一軸の二次dense軌道について指定box面を外向きに横切る最初の時刻率を返す。
-  subroutine refine_axis_crossing_fraction(x0, v0, v1, dt, boundary, high_side, fraction, status)
-    real(dp), intent(in) :: x0, v0, v1, dt, boundary
-    logical, intent(in) :: high_side
-    real(dp), intent(out) :: fraction
-    integer(i32), intent(out) :: status
-
-    real(dp) :: a, b, c, discriminant, q_root, roots(2), velocity
-    real(dp) :: coefficient_tolerance, root_tolerance, candidate
-    integer(i32) :: root
-
-    fraction = huge(1.0_dp)
-    status = boundary_event_invalid_geometry
-    a = 0.5_dp*dt*(v1 - v0)
-    b = dt*v0
-    c = x0 - boundary
-    coefficient_tolerance = 256.0_dp*epsilon(1.0_dp)*max(tiny(1.0_dp), abs(a), abs(b), abs(c))
-    root_tolerance = 256.0_dp*epsilon(1.0_dp)
-    roots = huge(1.0_dp)
-    if (abs(a) <= coefficient_tolerance) then
-      if (b == 0.0_dp) return
-      roots(1) = -c/b
-    else
-      discriminant = b*b - 4.0_dp*a*c
-      if (.not. ieee_is_finite(discriminant) .or. discriminant < 0.0_dp) return
-      q_root = -0.5_dp*(b + sign(sqrt(discriminant), b))
-      if (q_root == 0.0_dp) return
-      roots = [q_root/a, c/q_root]
-    end if
-    do root = 1_i32, 2_i32
-      candidate = roots(root)
-      if (candidate < -root_tolerance .or. candidate > 1.0_dp + root_tolerance) cycle
-      velocity = v0 + candidate*(v1 - v0)
-      if ((high_side .and. velocity <= 0.0_dp) .or. (.not. high_side .and. velocity >= 0.0_dp)) cycle
-      fraction = min(fraction, min(max(candidate, 0.0_dp), 1.0_dp))
-    end do
-    if (fraction <= 1.0_dp) status = boundary_event_ok
-  end subroutine refine_axis_crossing_fraction
 
   !> 既に選択済みのmesh hitをresultへ反映する。
   subroutine accept_particle_hit(va, xb, vb, hit, result)
@@ -503,41 +357,6 @@ contains
       if (btest(event%face_mask, 2_i32*axis - 1_i32)) x_event(axis) = sim%box_max(axis)
     end do
   end subroutine interpolate_boundary_state
-
-  !> interface面と同時に交差した周期・反射面を先に合成し、別open面との曖昧なcornerは拒否する。
-  subroutine apply_external_companion_faces(sim, event, x, v, status)
-    type(sim_config), intent(in) :: sim
-    type(boundary_event_type), intent(in) :: event
-    real(dp), intent(inout) :: x(3), v(3)
-    integer(i32), intent(out) :: status
-
-    type(sim_config) :: action_sim
-    type(boundary_event_type) :: companion_event
-    integer(i32) :: face, action_status
-    logical :: alive, escaped
-
-    status = boundary_event_ok
-    companion_event = event
-    companion_event%face_mask = ibclr(companion_event%face_mask, 5_i32)
-    if (companion_event%face_mask == 0_i32) return
-    do face = 1_i32, 6_i32
-      if (btest(companion_event%face_mask, face - 1_i32) .and. companion_event%face_bc(face) == bc_open) then
-        status = particle_step_ambiguous_open_corner
-        return
-      end if
-    end do
-
-    action_sim = sim
-    action_sim%open_boundary_model = 'escape'
-    alive = .true.
-    escaped = .false.
-    call apply_escape_reflect_periodic_event( &
-      action_sim, companion_event, x, v, alive, escaped, action_status &
-      )
-    if (action_status /= boundary_event_ok .or. .not. alive .or. escaped) then
-      status = particle_step_invalid_boundary
-    end if
-  end subroutine apply_external_companion_faces
 
   !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
   subroutine apply_potential_barrier_event( &
@@ -634,7 +453,7 @@ contains
     inside = all(x > sim%box_min) .and. all(x < sim%box_max)
   end function point_strictly_inside_box
 
-  !> outer particle stepの有限値・質量・時間刻み入力を検証する。
+  !> 粒子stepの有限値・質量・時間刻み入力を検証する。
   pure logical function valid_particle_step_input(x, v, b, q, m, dt) result(valid)
     real(dp), intent(in) :: x(3), v(3), b(3), q, m, dt
 

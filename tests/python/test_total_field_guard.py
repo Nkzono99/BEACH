@@ -25,9 +25,7 @@ def _result(directory: Path) -> FortranRunResult:
         survived_max_step=0,
         last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=np.array(
-            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
-        ),
+        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
     )
 
 
@@ -35,31 +33,6 @@ def test_total_field_guard_requires_config(tmp_path: Path) -> None:
     context = RunContext.from_value(_result(tmp_path))
 
     with pytest.raises(ValueError, match="requires the run's beach.toml"):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(),
-            operation="test operation",
-        )
-
-
-@pytest.mark.parametrize(
-    "config_text",
-    [
-        '[outer_plasma]\nmodel = "kinetic_1d"\n',
-        (
-            "[external_boundary.field]\n"
-            'model = "kinetic_1d"\n'
-        ),
-    ],
-)
-def test_total_field_guard_rejects_active_outer_models(
-    tmp_path: Path,
-    config_text: str,
-) -> None:
-    (tmp_path / "beach.toml").write_text(config_text, encoding="utf-8")
-    context = RunContext.from_value(_result(tmp_path))
-
-    with pytest.raises(ValueError, match="outer field model is active"):
         _require_total_field_reconstruction(
             context,
             FieldKernelOptions(),
@@ -137,8 +110,6 @@ def test_potential_history_rejects_cached_component_without_loading_kernel() -> 
     with pytest.raises(ValueError, match="only the k!=0 component"):
         _potential_history(
             np.array([[1.0]]),
-            np.array(
-                [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
-            ),
+            np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
             field_options=FieldKernelOptions(periodic2=periodic2),
         )

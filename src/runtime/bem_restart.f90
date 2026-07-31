@@ -5,13 +5,10 @@ module bem_restart
   use bem_types, only: sim_stats, mesh_type, injection_state
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_checkpoint_contract, only: checkpoint_schema_version_current
-  use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
-  use bem_outer_event_queue, only: outer_event_queue_fingerprint_is_valid
-  use bem_string_utils, only: lower_ascii
-  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array, &
-                     mpi_world_barrier
+  use bem_physics_config_types, only: validate_active_physics_config, physics_config_ok
+  use bem_checkpoint_contract, only: checkpoint_schema_version_current
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
 
   private
@@ -35,8 +32,7 @@ contains
   !! @param[out] has_restart 復元可能なチェックポイントが存在したか。
   !! @param[inout] state 種別ごとのマクロ粒子残差（指定時のみ復元）。
   subroutine load_restart_checkpoint( &
-    out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint, app, charge_ledger, &
-    electrostatic_state &
+    out_dir, mesh, stats, has_restart, state, mpi_rank, mpi_size, mpi, require_checkpoint, app, charge_ledger &
     )
     character(len=*), intent(in) :: out_dir
     type(mesh_type), intent(inout) :: mesh
@@ -48,16 +44,14 @@ contains
     logical, intent(in), optional :: require_checkpoint
     type(app_config), intent(in), optional :: app
     type(charge_ledger_type), intent(inout), optional :: charge_ledger
-    type(electrostatic_restart_state_type), intent(out), optional :: electrostatic_state
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
     logical :: must_have_checkpoint
-    integer(i32) :: local_rank, world_size, contract_status, io_status_values(1)
+    integer(i32) :: local_rank, world_size, contract_status
 
     stats = sim_stats()
-    if (present(electrostatic_state)) electrostatic_state = electrostatic_restart_state_type()
     has_restart = .false.
     must_have_checkpoint = .false.
     if (present(require_checkpoint)) must_have_checkpoint = require_checkpoint
@@ -97,73 +91,6 @@ contains
     end if
 
     call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
-    if (present(electrostatic_state)) then
-      call load_electrostatic_state(trim(summary_path), electrostatic_state)
-      if (present(app)) then
-        if (trim(app%periodic2%zero_mode_policy) == 'exclude_k0' .and. .not. electrostatic_state%outer_ready) then
-          error stop 'Resume checkpoint is missing the required split-periodic outer state.'
-        end if
-        if (trim(lower_ascii(app%outer_plasma%model)) == 'kinetic_1d' .and. &
-            electrostatic_state%outer_ready) then
-          call load_kinetic_outer_profile(trim(out_dir), electrostatic_state, local_rank, mpi)
-        end if
-        if (electrostatic_state%outer_ready .and. &
-            electrostatic_state%checkpoint_schema_version >= 4_i32) then
-          if (.not. electrostatic_state%outer_max_diagnostics_complete .or. &
-              .not. all(ieee_is_finite([ &
-                                       electrostatic_state%max_outer_flight_time, &
-                                       electrostatic_state%max_frozen_field_ratio, &
-                                       electrostatic_state%max_outer_energy_relative_error &
-                                       ])) .or. &
-              electrostatic_state%max_outer_flight_time < 0.0_dp .or. &
-              electrostatic_state%max_frozen_field_ratio < 0.0_dp .or. &
-              electrostatic_state%max_outer_energy_relative_error < 0.0_dp) then
-            error stop 'Resume checkpoint is missing valid cumulative outer diagnostics.'
-          end if
-        end if
-        if (trim(lower_ascii(app%outer_plasma%kinetic_closure)) == 'zhao_charge_driven' .and. &
-            electrostatic_state%outer_ready) then
-          if (.not. electrostatic_state%outer_zhao_state_complete .or. &
-              index('ABC0', electrostatic_state%outer_zhao_branch) == 0 .or. &
-              .not. all(ieee_is_finite([ &
-                                       electrostatic_state%outer_zhao_phi0, &
-                                       electrostatic_state%outer_zhao_phi_minimum, &
-                                       electrostatic_state%outer_zhao_electron_density_infinity &
-                                       ])) .or. &
-              electrostatic_state%outer_zhao_electron_density_infinity <= 0.0_dp) then
-            error stop 'Resume checkpoint is missing the resolved Zhao outer-plasma state.'
-          end if
-          if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
-              index('ABC', electrostatic_state%outer_zhao_branch) == 0) then
-            error stop 'Resume implicit Zhao checkpoint must contain a resolved A/B/C branch.'
-          end if
-          if (trim(lower_ascii(app%coupling%update_mode)) == 'implicit_mean' .and. &
-              (.not. electrostatic_state%outer_zhao_source_scale_complete .or. &
-               .not. ieee_is_finite(electrostatic_state%outer_photoelectron_source_scale) .or. &
-               electrostatic_state%outer_photoelectron_source_scale <= 0.0_dp)) then
-            error stop 'Resume checkpoint is missing the resolved implicit-Zhao photoelectron source scale.'
-          end if
-          if (app%coupling%outer_queue_enabled .and. &
-              (.not. electrostatic_state%outer_zhao_transient_state_complete .or. &
-               .not. electrostatic_state%outer_queue_inventory_complete .or. &
-               .not. all(ieee_is_finite([ &
-                                        electrostatic_state%outer_photoelectron_population_fraction, &
-                                        electrostatic_state%outer_photoelectron_column_per_area, &
-                                        electrostatic_state%outer_photoelectron_column_target_per_area, &
-                                        electrostatic_state%outer_photoelectron_column_residual_per_area, &
-                                        electrostatic_state%outer_queue_signed_charge &
-                                        ])) .or. &
-               electrostatic_state%outer_photoelectron_population_fraction < 0.0_dp .or. &
-               electrostatic_state%outer_photoelectron_column_per_area < 0.0_dp .or. &
-               electrostatic_state%outer_photoelectron_column_target_per_area < 0.0_dp .or. &
-               electrostatic_state%outer_queue_event_count < 0_i64 .or. &
-               .not. outer_event_queue_fingerprint_is_valid( &
-               electrostatic_state%outer_queue_fingerprint))) then
-            error stop 'Resume checkpoint is missing the transient Zhao or outer-queue inventory state.'
-          end if
-        end if
-      end if
-    end if
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
       if (has_ledger) then
@@ -176,318 +103,23 @@ contains
             error stop 'Resume charge ledger species count does not match current config.'
           end if
         end if
-      else
-        if (present(app)) then
-          if (app%n_particle_species > 0_i32) then
-            call charge_ledger%init(app%n_particle_species)
-            charge_ledger%batch_count = stats%batches
-            charge_ledger%surface_charge_before = sum(mesh%q_elem)
-            charge_ledger%surface_charge_after = sum(mesh%q_elem)
-          end if
-        end if
+      else if (present(app) .and. app%n_particle_species > 0_i32) then
+        call charge_ledger%init(app%n_particle_species)
+        charge_ledger%batch_count = stats%batches
+        charge_ledger%surface_charge_before = sum(mesh%q_elem)
+        charge_ledger%surface_charge_after = sum(mesh%q_elem)
       end if
     end if
     call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (has_residual .and. allocated(state%macro_residual)) then
-        io_status_values = 0_i32
-        if (.not. present(mpi) .or. local_rank == 0_i32) then
-          call load_macro_residual_file(trim(residual_path), state, io_status_values(1))
-        end if
-        if (present(mpi)) call mpi_bcast_i32_array(mpi, io_status_values, 0_i32)
-        if (io_status_values(1) /= 0_i32) then
-          if (present(mpi)) call mpi_world_barrier(mpi)
-          error stop 'Resume checkpoint macro_residuals.csv is malformed or unreadable.'
-        end if
+        if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
         if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
       end if
     end if
     has_restart = .true.
   end subroutine load_restart_checkpoint
-
-  subroutine load_kinetic_outer_profile(out_dir, state, local_rank, mpi)
-    character(len=*), intent(in) :: out_dir
-    type(electrostatic_restart_state_type), intent(inout) :: state
-    integer(i32), intent(in) :: local_rank
-    type(mpi_context), intent(in), optional :: mpi
-    character(len=1024) :: path
-    character(len=512) :: line
-    integer :: u, ios
-    integer(i32) :: point, file_point, profile_meta(3)
-    real(dp), allocatable :: z(:), potential(:), field(:), charge_density(:)
-    logical :: read_here, file_open
-
-    read_here = .not. present(mpi) .or. local_rank == 0_i32
-    profile_meta = 0_i32
-    file_open = .false.
-    path = trim(out_dir)//'/outer_plasma_profile.csv'
-    if (read_here) then
-      open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-      if (ios /= 0) then
-        profile_meta(3) = 1_i32
-      else
-        file_open = .true.
-      end if
-      if (profile_meta(3) == 0_i32) then
-        read (u, '(A)', iostat=ios) line
-        if (ios /= 0) then
-          profile_meta(3) = 2_i32
-        else
-          select case (trim(line))
-          case ('point,z_m,potential_V')
-            profile_meta(2) = 0_i32
-          case ('point,z_m,potential_V,field_V_m,charge_density_C_m3')
-            profile_meta(2) = 1_i32
-          case default
-            profile_meta(3) = 2_i32
-          end select
-        end if
-      end if
-      if (profile_meta(3) == 0_i32) then
-        do
-          read (u, '(A)', iostat=ios) line
-          if (ios < 0) exit
-          if (ios > 0) then
-            profile_meta(3) = 3_i32
-            exit
-          end if
-          profile_meta(1) = profile_meta(1) + 1_i32
-        end do
-        if (profile_meta(1) < 3_i32) profile_meta(3) = 4_i32
-      end if
-      if (profile_meta(3) == 0_i32) then
-        rewind (u, iostat=ios)
-        if (ios == 0) read (u, '(A)', iostat=ios) line
-        if (ios /= 0) profile_meta(3) = 2_i32
-      end if
-      if (profile_meta(3) == 0_i32) then
-        allocate (z(profile_meta(1)), potential(profile_meta(1)))
-        if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
-        do point = 1_i32, profile_meta(1)
-          if (profile_meta(2) == 1_i32) then
-            read (u, *, iostat=ios) file_point, z(point), potential(point), field(point), charge_density(point)
-          else
-            read (u, *, iostat=ios) file_point, z(point), potential(point)
-          end if
-          if (ios /= 0 .or. file_point /= point) then
-            profile_meta(3) = 3_i32
-            exit
-          end if
-        end do
-      end if
-      if (file_open) close (u)
-    end if
-    if (present(mpi)) call mpi_bcast_i32_array(mpi, profile_meta, 0_i32)
-    if (profile_meta(3) /= 0_i32) then
-      if (present(mpi)) call mpi_world_barrier(mpi)
-      select case (profile_meta(3))
-      case (1_i32)
-        error stop 'Resume checkpoint is missing outer_plasma_profile.csv.'
-      case (2_i32)
-        error stop 'Malformed outer profile header.'
-      case (3_i32)
-        error stop 'Malformed outer profile row.'
-      case default
-        error stop 'Kinetic outer profile has too few points.'
-      end select
-    end if
-    if (.not. read_here) then
-      allocate (z(profile_meta(1)), potential(profile_meta(1)))
-      if (profile_meta(2) == 1_i32) allocate (field(profile_meta(1)), charge_density(profile_meta(1)))
-    end if
-    if (present(mpi)) then
-      call mpi_bcast_real_dp_array(mpi, z, 0_i32)
-      call mpi_bcast_real_dp_array(mpi, potential, 0_i32)
-      if (profile_meta(2) == 1_i32) then
-        call mpi_bcast_real_dp_array(mpi, field, 0_i32)
-        call mpi_bcast_real_dp_array(mpi, charge_density, 0_i32)
-      end if
-    end if
-    state%outer_profile_z = z
-    state%outer_profile_potential = potential
-    state%outer_profile_complete = profile_meta(2) == 1_i32
-    if (state%outer_profile_complete) then
-      state%outer_profile_field = field
-      state%outer_profile_charge_density = charge_density
-    else if (state%checkpoint_schema_version >= 3_i32) then
-      error stop 'Schema v3+ checkpoint requires complete outer E/rho profile columns.'
-    end if
-  end subroutine load_kinetic_outer_profile
-
-  subroutine load_electrostatic_state(path, state)
-    character(len=*), intent(in) :: path
-    type(electrostatic_restart_state_type), intent(out) :: state
-    integer :: u, ios, pos
-    character(len=512) :: line
-    character(len=64) :: key
-    character(len=256) :: value
-    logical :: found_potential, found_batch, found_v3_state(11), found_zhao_state(4), found_zhao_source_scale
-    logical :: found_zhao_transient_state(4)
-    logical :: found_outer_queue_inventory(3), found_outer_max_diagnostics(3)
-
-    state = electrostatic_restart_state_type()
-    found_potential = .false.
-    found_batch = .false.
-    found_v3_state = .false.
-    found_zhao_state = .false.
-    found_zhao_source_scale = .false.
-    found_zhao_transient_state = .false.
-    found_outer_queue_inventory = .false.
-    found_outer_max_diagnostics = .false.
-    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open summary.txt for electrostatic restart state.'
-    do
-      read (u, '(A)', iostat=ios) line
-      if (ios /= 0) exit
-      pos = index(line, '=')
-      if (pos <= 0) cycle
-      key = trim(adjustl(line(:pos - 1)))
-      value = trim(adjustl(line(pos + 1:)))
-      select case (trim(key))
-      case ('checkpoint_schema_version')
-        read (value, *, iostat=ios) state%checkpoint_schema_version
-      case ('electrostatic_split_periodic_active')
-        read (value, *, iostat=ios) state%outer_ready
-      case ('interface_potential_V')
-        read (value, *, iostat=ios) state%outer_interface_potential
-        found_potential = ios == 0
-      case ('last_outer_update_batch')
-        read (value, *, iostat=ios) state%last_outer_update_batch
-        found_batch = ios == 0
-      case ('interface_normal_field_V_m')
-        read (value, *, iostat=ios) state%outer_interface_field
-        found_v3_state(1) = ios == 0
-      case ('outer_applicability_status')
-        read (value, *, iostat=ios) state%outer_applicability_status
-        found_v3_state(2) = ios == 0
-      case ('outer_nonlinear_iterations')
-        read (value, *, iostat=ios) state%outer_nonlinear_iterations
-        found_v3_state(3) = ios == 0
-      case ('outer_nonlinear_residual')
-        read (value, *, iostat=ios) state%outer_nonlinear_residual
-        found_v3_state(4) = ios == 0
-      case ('outer_infinity_potential_V')
-        read (value, *, iostat=ios) state%outer_infinity_potential
-        found_v3_state(5) = ios == 0
-      case ('outer_debye_length_m')
-        read (value, *, iostat=ios) state%outer_debye_length
-        found_v3_state(6) = ios == 0
-      case ('outer_integrated_charge_per_area_C_m2')
-        read (value, *, iostat=ios) state%outer_integrated_charge_per_area
-        found_v3_state(7) = ios == 0
-      case ('outer_electron_current_density_A_m2')
-        read (value, *, iostat=ios) state%outer_electron_current_density
-        found_v3_state(8) = ios == 0
-      case ('outer_ion_current_density_A_m2')
-        read (value, *, iostat=ios) state%outer_ion_current_density
-        found_v3_state(9) = ios == 0
-      case ('outer_photoelectron_current_density_A_m2')
-        read (value, *, iostat=ios) state%outer_photoelectron_current_density
-        found_v3_state(10) = ios == 0
-      case ('outer_total_current_density_A_m2')
-        read (value, *, iostat=ios) state%outer_total_current_density
-        found_v3_state(11) = ios == 0
-      case ('outer_plasma_zhao_branch_resolved')
-        if (len_trim(value) > 0) then
-          state%outer_zhao_branch = value(1:1)
-          ios = 0
-          found_zhao_state(1) = .true.
-        else
-          ios = 1
-        end if
-      case ('outer_plasma_zhao_phi0_V')
-        read (value, *, iostat=ios) state%outer_zhao_phi0
-        found_zhao_state(2) = ios == 0
-      case ('outer_plasma_zhao_phi_minimum_V')
-        read (value, *, iostat=ios) state%outer_zhao_phi_minimum
-        found_zhao_state(3) = ios == 0
-      case ('outer_plasma_zhao_electron_density_infinity_m3')
-        read (value, *, iostat=ios) state%outer_zhao_electron_density_infinity
-        found_zhao_state(4) = ios == 0
-      case ('outer_plasma_photoelectron_source_scale_resolved')
-        read (value, *, iostat=ios) state%outer_photoelectron_source_scale
-        found_zhao_source_scale = ios == 0
-      case ('outer_photoelectron_population_fraction')
-        read (value, *, iostat=ios) state%outer_photoelectron_population_fraction
-        found_zhao_transient_state(1) = ios == 0
-      case ('outer_photoelectron_column_per_area_m2')
-        read (value, *, iostat=ios) state%outer_photoelectron_column_per_area
-        found_zhao_transient_state(2) = ios == 0
-      case ('outer_photoelectron_column_target_per_area_m2')
-        read (value, *, iostat=ios) state%outer_photoelectron_column_target_per_area
-        found_zhao_transient_state(3) = ios == 0
-      case ('outer_photoelectron_column_residual_per_area_m2')
-        read (value, *, iostat=ios) state%outer_photoelectron_column_residual_per_area
-        found_zhao_transient_state(4) = ios == 0
-      case ('outer_queue_event_count')
-        read (value, *, iostat=ios) state%outer_queue_event_count
-        found_outer_queue_inventory(1) = ios == 0
-      case ('outer_queue_signed_charge_C')
-        read (value, *, iostat=ios) state%outer_queue_signed_charge
-        found_outer_queue_inventory(2) = ios == 0
-      case ('outer_queue_fingerprint')
-        if (outer_event_queue_fingerprint_is_valid(value)) then
-          state%outer_queue_fingerprint = value
-          ios = 0
-          found_outer_queue_inventory(3) = .true.
-        else
-          ios = 1
-        end if
-      case ('max_outer_flight_time_s')
-        read (value, *, iostat=ios) state%max_outer_flight_time
-        found_outer_max_diagnostics(1) = ios == 0
-      case ('max_outer_frozen_field_ratio')
-        read (value, *, iostat=ios) state%max_frozen_field_ratio
-        found_outer_max_diagnostics(2) = ios == 0
-      case ('max_outer_energy_relative_error')
-        read (value, *, iostat=ios) state%max_outer_energy_relative_error
-        found_outer_max_diagnostics(3) = ios == 0
-      end select
-      if (ios /= 0) error stop 'Malformed electrostatic restart state in summary.txt.'
-    end do
-    close (u)
-    if (state%outer_ready .and. .not. (found_potential .and. found_batch)) then
-      error stop 'Incomplete electrostatic restart state in summary.txt.'
-    end if
-    if (state%outer_ready .and. state%checkpoint_schema_version >= 3_i32 .and. &
-        .not. all(found_v3_state)) then
-      error stop 'Schema v3 electrostatic restart state is incomplete in summary.txt.'
-    end if
-    if (state%outer_ready .and. state%checkpoint_schema_version >= 4_i32 .and. &
-        .not. all(found_outer_max_diagnostics)) then
-      error stop 'Schema v4 cumulative outer diagnostics are incomplete in summary.txt.'
-    end if
-    if (state%outer_ready .and. state%checkpoint_schema_version >= 4_i32 .and. &
-        (.not. all(ieee_is_finite([ &
-                                  state%max_outer_flight_time, state%max_frozen_field_ratio, &
-                                  state%max_outer_energy_relative_error &
-                                  ])) .or. &
-         state%max_outer_flight_time < 0.0_dp .or. state%max_frozen_field_ratio < 0.0_dp .or. &
-         state%max_outer_energy_relative_error < 0.0_dp)) then
-      error stop 'Schema v4 cumulative outer diagnostics must be finite and nonnegative.'
-    end if
-    if (state%checkpoint_schema_version >= 4_i32 .and. any(found_outer_queue_inventory) .and. &
-        .not. all(found_outer_queue_inventory)) then
-      error stop 'Schema v4 outer-queue inventory is incomplete in summary.txt.'
-    end if
-    if (state%checkpoint_schema_version >= 4_i32 .and. all(found_outer_queue_inventory) .and. &
-        (state%outer_queue_event_count < 0_i64 .or. &
-         .not. ieee_is_finite(state%outer_queue_signed_charge))) then
-      error stop 'Schema v4 outer-queue inventory values are invalid in summary.txt.'
-    end if
-    if (found_zhao_source_scale .and. &
-        (.not. ieee_is_finite(state%outer_photoelectron_source_scale) .or. &
-         state%outer_photoelectron_source_scale < 0.0_dp)) then
-      error stop 'Resolved Zhao photoelectron source scale is invalid in summary.txt.'
-    end if
-    state%outer_zhao_state_complete = all(found_zhao_state)
-    state%outer_zhao_source_scale_complete = found_zhao_source_scale
-    state%outer_zhao_transient_state_complete = all(found_zhao_transient_state)
-    state%outer_queue_inventory_complete = all(found_outer_queue_inventory)
-    state%outer_max_diagnostics_complete = &
-      state%checkpoint_schema_version >= 4_i32 .and. all(found_outer_max_diagnostics)
-  end subroutine load_electrostatic_state
 
   !> schema v2 fingerprint を現在の ordered model/mesh/species contract と照合する。
   subroutine validate_restart_contract(path, mesh, app, status, message)
@@ -503,6 +135,8 @@ contains
     character(len=256) :: value
     character(len=16) :: saved_model, saved_mesh, saved_species
     logical :: found_schema, found_model, found_mesh, found_species
+    integer(i32) :: physics_status
+    character(len=256) :: physics_message
 
     status = restart_contract_ok
     message = ''
@@ -551,21 +185,25 @@ contains
     end do
     close (u)
 
-    ! Unversioned checkpoints predate the triangle-panel fingerprint contract.
+    ! Legacy checkpoints predate fingerprints and are accepted only for implemented Phase 0 point-source modes.
     if (.not. found_schema) then
-      status = restart_contract_mismatch
-      message = 'unversioned point-source checkpoints are not supported'
+      call validate_active_physics_config( &
+        app%sim, app%field, app%periodic2, app%panel, physics_status, physics_message &
+        )
+      if (physics_status /= physics_config_ok) then
+        status = restart_contract_mismatch
+        message = 'legacy checkpoint is incompatible with this physics model'
+      end if
       return
     end if
-    if (schema_version /= 2_i32 .and. schema_version /= 3_i32 .and. schema_version /= 4_i32 .and. &
-        schema_version /= checkpoint_schema_version_current) then
+    if (schema_version < 2_i32 .or. schema_version > checkpoint_schema_version_current) then
       status = restart_contract_unsupported_schema
       message = 'unsupported checkpoint schema version'
       return
     end if
     if (.not. (found_model .and. found_mesh .and. found_species)) then
       status = restart_contract_malformed
-      message = 'versioned checkpoint summary is missing fingerprints'
+      message = 'schema v2 summary is missing fingerprints'
       return
     end if
     if (saved_model /= model_fingerprint(app)) then
@@ -801,12 +439,11 @@ contains
     integer :: u, ios, pos
     integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
     integer(i64) :: count_values(5)
-    real(dp) :: charge_values(10), stock_values(8)
+    real(dp) :: charge_values(8), stock_values(6)
     character(len=512) :: line, header
     character(len=96) :: key
     character(len=256) :: value
-    logical :: found_nspecies, found_batch, found_stocks(8)
-    logical :: has_neutral_return_correction, has_neutral_return_diagnostics
+    logical :: found_nspecies, found_batch, found_stocks(6)
     logical, allocatable :: seen(:)
 
     nspecies = 0_i32
@@ -843,18 +480,12 @@ contains
       case ('charge_ledger_local_flight_charge_after_C')
         read (value, *, iostat=ios) stock_values(4)
         found_stocks(4) = ios == 0
-      case ('charge_ledger_outer_flight_charge_before_C')
+      case ('charge_ledger_unresolved_stock_before_C')
         read (value, *, iostat=ios) stock_values(5)
         found_stocks(5) = ios == 0
-      case ('charge_ledger_outer_flight_charge_after_C')
+      case ('charge_ledger_unresolved_stock_after_C')
         read (value, *, iostat=ios) stock_values(6)
         found_stocks(6) = ios == 0
-      case ('charge_ledger_unresolved_stock_before_C')
-        read (value, *, iostat=ios) stock_values(7)
-        found_stocks(7) = ios == 0
-      case ('charge_ledger_unresolved_stock_after_C')
-        read (value, *, iostat=ios) stock_values(8)
-        found_stocks(8) = ios == 0
       end select
     end do
     close (u)
@@ -874,10 +505,8 @@ contains
     ledger%surface_charge_after = stock_values(2)
     ledger%local_flight_charge_before = stock_values(3)
     ledger%local_flight_charge_after = stock_values(4)
-    ledger%outer_flight_charge_before = stock_values(5)
-    ledger%outer_flight_charge_after = stock_values(6)
-    ledger%unresolved_stock_before = stock_values(7)
-    ledger%unresolved_stock_after = stock_values(8)
+    ledger%unresolved_stock_before = stock_values(5)
+    ledger%unresolved_stock_after = stock_values(6)
     allocate (seen(nspecies))
     seen = .false.
     loaded = 0_i32
@@ -885,23 +514,9 @@ contains
     if (ios /= 0) error stop 'Failed to open charge_ledger.csv for resume.'
     read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read charge_ledger.csv header.'
-    has_neutral_return_correction = index(header, 'neutral_return_correction_C') > 0
-    has_neutral_return_diagnostics = &
-      index(header, 'neutral_return_weight_scale') > 0 .and. &
-      index(header, 'neutral_return_unresolved_fraction') > 0
     do
-      charge_values = 0.0_dp
-      charge_values(9) = 1.0_dp
-      if (has_neutral_return_diagnostics) then
-        read (u, *, iostat=ios) &
-          row_batch, species_idx, charge_values, count_values
-      else if (has_neutral_return_correction) then
-        read (u, *, iostat=ios) &
-          row_batch, species_idx, charge_values(1:8), count_values
-      else
-        read (u, *, iostat=ios) &
-          row_batch, species_idx, charge_values(1:7), count_values
-      end if
+      read (u, *, iostat=ios) &
+        row_batch, species_idx, charge_values, count_values
       if (ios < 0) exit
       if (ios > 0) error stop 'Failed to parse charge_ledger.csv during resume.'
       if (row_batch /= batch_count) error stop 'Resume charge ledger batch count mismatch.'
@@ -915,11 +530,9 @@ contains
       ledger%absorbed_on_surface(species_idx) = charge_values(3)
       ledger%escaped_to_infinity(species_idx) = charge_values(4)
       ledger%discarded_unresolved(species_idx) = charge_values(5)
-      ledger%interface_outward_gross(species_idx) = charge_values(6)
-      ledger%interface_returned_gross(species_idx) = charge_values(7)
-      ledger%neutral_return_correction(species_idx) = charge_values(8)
-      ledger%neutral_return_weight_scale(species_idx) = charge_values(9)
-      ledger%neutral_return_unresolved_fraction(species_idx) = charge_values(10)
+      ledger%neutral_return_correction(species_idx) = charge_values(6)
+      ledger%neutral_return_weight_scale(species_idx) = charge_values(7)
+      ledger%neutral_return_unresolved_fraction(species_idx) = charge_values(8)
       ledger%injected_count(species_idx) = count_values(1)
       ledger%emitted_count(species_idx) = count_values(2)
       ledger%absorbed_count(species_idx) = count_values(3)
@@ -964,10 +577,9 @@ contains
   !> 保存済みマクロ粒子残差を読み戻す。
   !! @param[in] path `macro_residuals.csv` のファイルパス。
   !! @param[inout] state 種別ごとのマクロ粒子残差を書き戻す注入状態。
-  subroutine load_macro_residual_file(path, state, status)
+  subroutine load_macro_residual_file(path, state)
     character(len=*), intent(in) :: path
     type(injection_state), intent(inout) :: state
-    integer(i32), intent(out) :: status
 
     integer :: u, ios
     integer(i32) :: species_idx
@@ -975,7 +587,6 @@ contains
     character(len=512) :: header
     logical, allocatable :: seen(:)
 
-    status = 0_i32
     if (.not. allocated(state%macro_residual)) return
 
     allocate (seen(size(state%macro_residual)))
@@ -983,36 +594,23 @@ contains
     state%macro_residual = 0.0d0
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) then
-      status = 1_i32
-      return
-    end if
+    if (ios /= 0) error stop 'Failed to open macro_residuals.csv for resume.'
 
     read (u, '(A)', iostat=ios) header
-    if (ios /= 0) then
-      status = 2_i32
-      close (u)
-      return
-    end if
+    if (ios /= 0) error stop 'Failed to read macro_residuals.csv header.'
 
     do
       read (u, *, iostat=ios) species_idx, residual
       if (ios < 0) exit
-      if (ios > 0) then
-        status = 3_i32
-        exit
-      end if
+      if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
       if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
-        status = 4_i32
-        exit
+        error stop 'Resume checkpoint macro_residuals.csv has an invalid species index.'
       end if
       if (seen(species_idx)) then
-        status = 5_i32
-        exit
+        error stop 'Resume checkpoint macro_residuals.csv contains duplicate species rows.'
       end if
       if (.not. ieee_is_finite(residual) .or. residual < 0.0d0 .or. residual >= 1.0d0) then
-        status = 6_i32
-        exit
+        error stop 'Resume checkpoint macro_residuals.csv residual values must be finite and in [0, 1).'
       end if
       seen(species_idx) = .true.
       state%macro_residual(species_idx) = residual

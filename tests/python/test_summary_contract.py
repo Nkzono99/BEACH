@@ -17,8 +17,6 @@ ROOT = Path(__file__).resolve().parents[2]
 RESOLVED_EXTERNAL_BOUNDARY_SUMMARY_KEYS = (
     "external_inflow_map",
     "external_ordinary_open_model",
-    "external_interface_transport",
-    "outer_particle_mode_resolved",
 )
 
 

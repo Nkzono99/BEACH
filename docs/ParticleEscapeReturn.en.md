@@ -1,47 +1,14 @@
-title: Particle escape and return
+title: Particle escape and local return
 
 Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.md)
 
-# Particle escape and return
+# Particle escape and local return
 
-When a particle reaches an open face, BEACH first decides whether the z-high
-outer region owns that face. Configuration follows the same two-stage split:
-
-1. Faces not owned by the outer region use `external_boundary.ordinary_open.model`.
-2. z-high owned by `particles.mode="same_batch"` or `"zhao_queue"` uses the
-   outer trajectory derived from `external_boundary.field.model`.
-
-```text
-particle crosses an open face
-+-- face is not owned by the outer model
-|   +-- escape                    remove unconditionally
-|   +-- potential_barrier         reflect or escape at a scalar barrier
-+-- z-high is owned by particles.mode
-    +-- kinetic_1d                discrete 1-D profile return
-```
-
-Ordinary-open handling and kinetic outer transfer are separate responsibilities.
-Ordinary open faces have two choices:
-
-| `ordinary_open.model` | External state | Particle decision | Typical use |
-| --- | --- | --- | --- |
-| `escape` | None | Always escape | Simple finite box |
-| `potential_barrier` | Scalar potential at the crossing | Compare normal energy with a barrier | Low-cost local reflection |
-
-When the outer region owns z-high, `particles.mode` selects tracking and the
-field determines the concrete trajectory:
-
-| `field.model` | External state | Particle decision | Return time | Typical use |
-| --- | --- | --- | --- | --- |
-| `kinetic_1d` | Converged discrete 1-D profile | Conserved energy and turning-point search | Profile integration | **Standard:** self-consistent mean sheath |
-
-All boundary treatments are independent of particle source. Reservoir particles, photoelectrons, and `volume_seed` particles receive
-the same boundary treatment when they cross the same face in the same state. See
-[Choosing boundary and outer-domain models](OuterPlasmaModels.en.html) for selecting the external field itself.
+BEACH does not evolve plasma outside the box. An open face locally applies
+`external_boundary.ordinary_open.model="escape" | "potential_barrier"`. The treatment is shared by `reservoir_face`,
+`photo_raycast`, and `volume_seed`. Closed PE alone combines a species-specific z-high reflection with a charge closure.
 
 ## 1. `escape`: remove a particle at an open face
-
-This is the simplest model. Select it for an open face that is not owned by outer transfer.
 
 ```toml
 [external_boundary.field]
@@ -54,18 +21,15 @@ mode = "local_source"
 model = "escape"
 ```
 
-The particle is removed at the boundary crossing. Its macro charge $qw$ is recorded in species-resolved
-`escaped_to_infinity`, while surface charge `q_elem` remains unchanged. There is no external field, turning point, flight time,
-or return state.
+The particle is removed at the crossing. Its macro charge $qw$ is recorded in the species-resolved
+`escaped_to_infinity` ledger term, while surface charge `q_elem` is unchanged.
 
-At a corner crossing multiple faces simultaneously, ordinary event rules still treat the combination deterministically. See
-[Particle collision and boundary events](ParticleEvents.en.html) for combinations with reflecting or periodic faces and
-reintegration of the step remainder.
+See [Particle collision and boundary events](ParticleEvents.en.html) for simultaneous face crossings and
+reintegration of the step remainder after reflecting or periodic faces.
 
 ## 2. `potential_barrier`: decide reflection at a scalar barrier
 
-This reduced model uses only the scalar potential at the crossing. It selects reflection or escape from a local energy condition
-without constructing a spatial profile outside the box.
+`potential_barrier` is a reduced model that uses only scalar potential at the crossing.
 
 ```toml
 [sim]
@@ -81,9 +45,7 @@ mode = "local_source"
 model = "potential_barrier"
 ```
 
-### Compare only normal energy at the crossing
-
-For crossing-point potential $\phi_b$ and outward normal speed $v_n>0$, the potential barrier to infinity is
+For crossing-point potential $\phi_b$ and outward normal speed $v_n>0$, the barrier to infinity is
 
 $$
 U_b=q(\phi_\infty-\phi_b).
@@ -95,306 +57,19 @@ $$
 \frac12m v_n^2<U_b\quad\text{and}\quad U_b>0,
 $$
 
-the normal velocity is reversed and the step remainder is tracked. Otherwise the particle escapes. Tangential velocity is
-unchanged.
+the normal velocity is reversed and the step remainder is tracked. Otherwise the particle escapes. Tangential velocity
+is unchanged.
 
-### What this model does not represent
+It does not retain an electric field outside the open face, a turning position, flight time, or space charge. A corner that
+crosses multiple open faces stops as `ambiguous_open_corner`.
 
-Its only external state is the scalar potential at the crossing. It has no external $E(\mathbf x)$, turning position, flight
-time, or space charge. It is not generalized to a corner crossing multiple open faces; that case fails with
-`ambiguous_open_corner`.
+The crossing potential follows the batch-start fixed field used for particle motion and includes the local potential of
+`sim.e0`. Because a uniform field has no finite potential at infinity, a configuration that combines `sim.e0` with this
+model must use a consistent effective reservoir reference for `phi_infty`.
 
-The crossing potential follows the same snapshot convention as particle motion and therefore includes the local potential of
-`sim.e0`. Because a uniform field has no finite potential at infinity, a configuration combining `sim.e0` with this model must
-supply `phi_infty` as a consistent effective reservoir reference.
+## Return of closed photoelectrons
 
-## 3. `kinetic_1d`: obtain return from a discrete sheath profile
-
-This model solves a nonlinear 1-D Poisson problem from ambient electron and ion VDFs. It uses the converged $\phi(z)$ at the
-start of each batch for both inflow and outflow.
-
-```toml
-[external_boundary.field]
-model = "kinetic_1d"
-debye_length = 0.2
-thermal_voltage = 2.0
-
-[external_boundary.particles]
-mode = "same_batch"
-field_evolution_timescale = 1.0
-```
-
-### Find the turning point on a discrete kinetic profile
-
-At every grid point, the model evaluates
-
-$$
-v_n^2(z)=v_{n,I}^2+\frac{2q[\phi_I-\phi(z)]}{m}.
-$$
-
-The mapper scans outward from the interface. The first interval where $v_n^2$ changes sign brackets a turning point, which is
-linearly interpolated for return. A particle escapes only when it can traverse the entire discrete profile and far Robin tail.
-
-The one-way time over a positive-speed interval $a\to b$ is accumulated as
-
-$$
-\Delta t=\frac{2\Delta z}{\sqrt{v_{n,a}^2}+\sqrt{v_{n,b}^2}}.
-$$
-
-The turning interval is integrated only to the crossing fraction. If the turning point lies above the grid, the far Robin
-exponential tail is integrated analytically. After the round trip, normal velocity is reversed, tangential displacement is
-added, and x/y are wrapped into the primary periodic cell.
-
-The current Zhao closure also uses the photoelectron reference Debye length as this off-grid tail scale. It generally differs
-from the true asymptotic `abs(phi_end/E_end)`, so near-separatrix flight times are provisional. Quantify this difference before
-production use and add an independent tail scale to the outer state when necessary.
-
-### Scan the full barrier of a nonmonotone Type A profile
-
-A Type A profile from `kinetic_closure="zhao_charge_driven"` contains an intermediate potential minimum, so the endpoint
-potential difference alone cannot determine accessibility. For an outgoing particle, the mapper scans every profile interval
-in z order and uses the first inaccessible interval as the turning point.
-
-For inflow from infinity with normal speed $v_{n,\infty}$, every grid point is checked using
-
-$$
-v_n^2(z)=v_{n,\infty}^2+\frac{2q[\phi_\infty-\phi(z)]}{m}.
-$$
-
-If this value is negative at any point, the particle cannot reach the interface. This is equivalent to using the most
-restrictive potential-energy barrier along the path instead of only the endpoint difference.
-
-### Validate the physical profile branch
-
-The profile is checked for finite values, strictly increasing z coordinates, consistency with the interface point, and the
-potential shape required by its closure and resolved branch.
-
-| Closure / branch | Accepted potential shape |
-| --- | --- |
-| `absorbing_maxwellian` | Monotone increasing or monotone decreasing over the full grid |
-| Zhao `A` | Nonincreasing to an interior minimum, then nondecreasing |
-| Zhao `B` | Nonincreasing over the full grid |
-| Zhao `C` | Nondecreasing over the full grid |
-| Zhao `0` | Flat bootstrap |
-
-Other nonmonotone profiles are rejected. An interval that fails to bracket a physical turning point, or a nonpositive Robin tail when one
-is required, stops as an invalid model. The instant path uses that tail; the Zhao queue path ends at the finite $L$ boundary
-described below. The model can represent a self-consistent mean sheath, but assumes a plane-averaged,
-electrostatic, collisionless, unmagnetized 1-D profile.
-See [Outer field: kinetic 1D](KineticOuterPlasma.en.html) for details.
-
-## Processing common to outer transfer
-
-### Make z-high the particle-ownership interface
-
-Only an open z-high face owned by `external_boundary.particles.mode` passes
-crossing data to an outer model.
-
-| `particles.mode` | Corresponding field | Particle treatment |
-| --- | --- | --- |
-| `local_source` | all | Ordinary open boundary |
-| `same_batch` | `kinetic_1d` | Energy-based escape/return map |
-| `zhao_queue` | Zhao `kinetic_1d` | Delay the 1-D result as an event in a later batch |
-
-The 1-D transfer requires open z-high and `sim.b0=0`; current models do not include an external magnetic orbit.
-
-### Pass the boundary-crossing state to the outer model
-
-[Particle collision and boundary events](ParticleEvents.en.html) select the first trajectory event between a mesh hit and a box
-face. The outer-model crossing record contains:
-
-- position and outward velocity at the interface;
-- crossing time within the local Boris step;
-- `dt_remaining` after the crossing.
-
-In instant mode, a returned particle is placed just inside the interface, and ordinary Boris/event handling reintegrates only
-`dt_remaining`. If it reaches z-high again during that remainder, BEACH dispatches it through outer transfer again and repeats
-until the local step is complete. The limit is eight outer events per local step; a ninth event fails closed without committing
-the state. In queue mode, the resolved return position and velocity are saved in an event record and appended after fresh
-sources as a local-domain particle in the batch where it becomes due. Outer flight time is a separate diagnostic from the local
-step remainder.
-
-At a corner that remains simultaneous after quadratic z-high timing refinement, BEACH applies a lateral periodic wrap or
-reflection before dispatching the crossing to the outer model. BEACH does not guess an action order if refinement changes the
-earlier-than or simultaneous relationship between z-high and a lateral face in either direction. Those cases fail closed, as
-does a simultaneous crossing of z-high and another open face whose owner is not unique.
-
-### Keep outer flight outside global simulation time in instant mode
-
-“Instant” in the 1-D model means outer flight affects the state map but does not advance global simulation time.
-A particle returns at the simulation time of the local step in which it left, and
-outward and returned charge are recorded in the same batch.
-
-This approximation targets a steady or quasisteady outer plasma. Use the delayed-return queue in the next section for UV
-turn-on, abrupt plasma changes, or short-pulse transients.
-
-### Start the instant path from a stationary Zhao profile
-
-`steady_start_mode="zhao_floating"` initializes a fresh run with the Zhao zero-current stationary root and the plane charge
-that produces its $E_I$. It does not change the return algorithm. The same kinetic profile connected to
-`phi(infinity)=0` supplies both the inflow barrier from the infinity reservoir and instant escape or return outside the
-interface. On resume, BEACH restores the checkpoint profile and mesh charge without reseeding the stationary root. Because
-this mode bypasses the transient from an uncharged state, do not use it to evaluate delayed return current. See
-[Outer field: kinetic 1D](KineticOuterPlasma.en.html#start-stationary-studies-from-the-zhao-zero-current-root) for the
-configuration and charge relation.
-
-### Queue outer flight for the transient Zhao closure
-
-For a case that must put outer-flight delay into the batch history, such as strong-UV turn-on, use this Zhao composition.
-
-```toml
-[sim]
-batch_duration = 2.5e-7
-
-[external_boundary.field]
-model = "kinetic_1d"
-kinetic_closure = "zhao_charge_driven"
-debye_length = 10.5
-thermal_voltage = 10.0
-
-[external_boundary.particles]
-mode = "zhao_queue"
-field_evolution_timescale = 2.0e-5
-max_frozen_field_ratio = 0.2
-```
-
-`zhao_queue` is specific to `zhao_charge_driven`; `absorbing_maxwellian` is rejected. The configuration must also satisfy
-`batch_duration <= max_frozen_field_ratio * field_evolution_timescale`.
-`particles.mode="zhao_queue"` connects tracked-particle outer flight and the Zhao photoelectron population through one conserved
-inventory. Each rank retains its local events, while the photoelectron macro-particle number is summed over MPI as the Zhao
-closure input. After due events are removed at a batch start, the target column is
-
-$$
-N_{pe,q}=\frac{1}{A_{xy}}
-\sum_{j\in\text{queued photoelectron}}w_j.
-$$
-
-Over the finite control volume $L=10\lambda_{D,pe}$, the Zhao solver finds a population scale $\eta$ satisfying
-
-$$
-N_{pe,Zhao}(\eta)=
-\int_0^L\left[n_{pe,f}(z;\eta)+n_{pe,c}(z;\eta)\right]dz
-=N_{pe,q}.
-$$
-
-Despite the output name `outer_photoelectron_population_fraction`, $\eta$ is an occupancy scale relative to the stationary
-reference population, not a probability. The solver follows a physical path connected to $\eta=0$ over
-$0\le\eta\le16$ and permits transient overshoot above one. It does not clamp to `[0,1]`, fall back to a target-independent
-full-population solution, or jump to a disconnected branch. Queue mode requires `zhao_branch="auto"`; only continuous A/B or
-other branch transitions satisfying the degeneracy condition are allowed. The current bisection additionally requires the
-column to increase monotonically with $\eta$ and does not support folds. A target without a connected, monotone path stops with
-`no_physical_solution`; a zero target uses exactly $\eta=0$.
-$\eta$ scales photoelectron density, infinity quasineutrality, and Sagdeev terms, but not the raw photoelectron emission-current
-term in the current diagnostic. That analytic raw current enters the tracked-source consistency check and current-density
-diagnostics, but not the root, surface charge, or ledger.
-
-The same $0\le z\le L$ interval is the queue's particle-ownership domain. A turning point before $L$ creates a return event;
-reaching $L$ creates an escape event absorbed by the exterior reservoir. Queue mode does not extend a Robin tail beyond $L$ to
-classify return.
-
-One batch advances this state in the following order.
-
-1. At the start time $t_b=(b-1)\Delta t_b$ of batch $b$, pop rank-local events that are due.
-2. Form $N_{pe,q}$ from the remaining global photoelectron inventory, then refresh the Zhao profile and $\eta$.
-3. Generate fresh sources, append due return particles, and run the local particle loop. Count a due escape in this batch's
-   `escaped_to_infinity`.
-4. For an outward z-high crossing, use the current profile to resolve interface return or reservoir escape at $L$ and
-   $\tau_{outer}$. Enqueue it
-   at $t_{due}=(b-\tfrac12)\Delta t_b+\tau_{outer}$ using the batch midpoint as its crossing time.
-5. Commit surface charge and correct the Zhao profile and $\eta$ with the post-enqueue inventory. This state is the next
-   batch's continuation seed and the checkpoint state, so straight and split-resume runs execute the same per-batch sequence.
-
-BEACH particles within one batch do not share a synchronized physical time, so the crossing time is represented by the batch
-midpoint. Events are released only at batch starts, quantizing return and escape to `batch_duration`. The terminal state and
-due time resolved at enqueue are not reintegrated after the outer field changes. This closure represents flight delay and an
-outer photoelectron column; it is not a time-dependent Vlasov--Poisson solve, an outer collision model, or an energy-resolved
-cloud evolution.
-
-Halve `batch_duration` and double `batch_count` to compare the same final physical time. At minimum, verify convergence of
-$\eta$, the column residual, return/escape current, surface charge, and detachment force. The profile is resampled to a fixed
-128-point grid over $0\le z\le10\lambda_{D,pe}$, so a production column-grid study also requires exposing the point count as
-an input. Independently refine tracked-particle count, horizontal area, and effective-interface location.
-
-Queue state is written to `outer_event_queue.csv` in serial and one `outer_event_queue_rankNNNNN.csv` per MPI rank. It stores
-active phase-space records, terminal outcomes, due times, and `next_event_id`. Queue-file schema 2 stores a
-`local_fingerprint` of each rank-local payload, while `outer_queue_fingerprint` in the summary binds the queue contents and
-ordering across all ranks. A queue-enabled resume requires every rank file and rejects schema, rank, world-size,
-completed-batch, global-event-count, signed-charge, or fingerprint mismatches fail closed.
-
-### Check whether the field can remain frozen during outer flight
-
-For ordinary instant particles, snapshot validity over a flight is measured by
-
-$$
-\epsilon_\mathrm{ad}
-=\frac{\tau_\mathrm{outer}}{\texttt{field\_evolution\_timescale}}
-$$
-
-and must not exceed `max_frozen_field_ratio`. A deferred PE under `implicit_mean` is a quasistationary shadow that samples the
-orbit and destination of the return total determined by the scalar closure. BEACH retains the same
-$\epsilon_\mathrm{ad}$ as a diagnostic but does not stop on an over-limit shadow. Fail-closed enforcement for ordinary
-`same_batch` particles and ambient species is unchanged.
-
-The Zhao variant of `implicit_mean` does not use the uniform `return_weight_scale` of the ambient linear-Debye closure.
-BEACH collects normal kinetic energy and signed macro charge from photoelectrons that first reach z-high in the batch-start
-field. It solves the nonlinear $Q(\Phi_I)$ relation from this charge-weighted measured CDF and the barrier, including a
-virtual cathode, over the complete Zhao profile. The accepted solution assigns a return weight to each energy group, and the
-same accepted profile is then used for one outer-orbit and local-return-destination trace.
-
-This map requires exactly one outward interface crossing and at most one return crossing per deferred ray. A ray with
-positive return weight must be reabsorbed by the surface; a non-marginal ray with zero return weight must terminate as a
-reservoir escape. If recrossing or a terminal-channel mismatch carries significant charge, BEACH stops fail closed instead
-of transferring its weight to another ray. Only the marginal energy group on the barrier is split statistically into escape
-fraction $f$ and return fraction $1-f$ while its representative ray remains on the return side. This split does not branch a
-particle trajectory in flight.
-
-If $\tau_\mathrm{outer}/\mathrm{batch\_duration}\gtrsim1$, a converged long-time
-mean can still be useful under a strong steady-state assumption, but per-batch return current is not temporally correct.
-In particular, `implicit_mean` does not solve delayed return current during UV turn-on or retain an outer inventory between
-batches. Those effects require a separately designed delayed inventory or queue compatible with this closure.
-
-Zhao queue mode still requires positive `field_evolution_timescale` and `max_frozen_field_ratio`. Because events are released
-only at batch starts, it includes the quantization delay $\delta_{poll}$ from $t_{due}$ to the first batch-start poll and the
-half-batch bound on uncertainty from approximating the crossing time by the batch midpoint:
-
-$$
-\frac{\tau_{outer}+\delta_{poll}+\Delta t_b/2}{\texttt{field\_evolution\_timescale}}
-\le\texttt{max\_frozen\_field\_ratio}.
-$$
-
-An over-limit event stops before enqueue; it is not discarded and does not fall back to instant return. Configuration
-validation additionally bounds one batch interval:
-
-$$
-\texttt{batch\_duration}
-\le
-\texttt{max\_frozen\_field\_ratio}\,
-\texttt{field\_evolution\_timescale}.
-$$
-
-A violation stops the run.
-
-## Verify model results with diagnostics
-
-Species-resolved output separates `interface_outward_gross`, `interface_returned_gross`, and `escaped_to_infinity`. It also
-reports maximum `outer_flight_time`, frozen-field ratio, and `max_outer_energy_relative_error` for the kinetic 1-D
-return/escape mapping. The last value is the normalized conservation residual of normal kinetic plus electrostatic energy.
-An `implicit_mean` PE-shadow ratio may exceed the configured limit without becoming a stopping condition.
-
-For Zhao queue mode, inspect `outer_photoelectron_population_fraction`, `outer_photoelectron_column_per_area_m2`,
-`outer_photoelectron_column_target_per_area_m2`, `outer_photoelectron_column_residual_per_area_m2`,
-`outer_queue_event_count`, and `outer_queue_signed_charge_C` in `summary.txt`.
-`charge_ledger_outer_flight_charge_before_C` and `charge_ledger_outer_flight_charge_after_C` include queue stock in the charge
-conservation residual.
-
-Gross outward minus returned equals net escape only when transfer coverage and the charge-balance interval match for that
-species. See [Inspect Output Files](OutputGuide.en.html) for these fields and the `charge_ledger.csv` format.
-
-## Code reference
-
-- `escape` and `potential_barrier`: [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90)
-- `kinetic_1d`: [`bem_outer_plasma_interface.f90`](../src/physics/outer_plasma/bem_outer_plasma_interface.f90)
-- Delayed event queue: [`bem_outer_event_queue.f90`](../src/runtime/coupling/bem_outer_event_queue.f90)
-- Queue checkpoint: [`bem_outer_event_queue_io.f90`](../src/runtime/coupling/bem_outer_event_queue_io.f90)
-- Interface transfer and diagnostic aggregation: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- Model-combination validation: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)
+To keep photoelectrons inside the box, set `z_high_boundary="reflect"` and
+`surface_charge_closure="neutral_return"` on the corresponding negative `photo_raycast` species. A reflected
+photoelectron remains the same tracked particle, and the emission countercharge is corrected at the end of the batch.
+See [Photoelectron emission](PhotoelectronEmission.en.html) for the configuration and charge-balance requirements.

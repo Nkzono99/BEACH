@@ -137,9 +137,8 @@ class ObjectInteractionSnapshot:
         if full_config is None:
             raise ValueError(
                 "Object interaction requires the run's beach.toml so boundary, "
-                "uniform-field, box, and outer-plasma policies cannot silently change."
+                "uniform-field and box policies cannot silently change."
             )
-        _reject_active_outer_plasma(full_config)
         _validate_full_box_config(full_config)
         triangles = np.asarray(_require_triangles(resolved), dtype=np.float64)
         charges = np.asarray(_charges_for_step(resolved, step=step), dtype=np.float64)
@@ -172,7 +171,9 @@ class ObjectInteractionSnapshot:
                 f"got {far_correction!r}."
             )
         if periodic2 is not None and periodic2.axes != (0, 1):
-            raise ValueError("Physical periodic object interaction requires x/y axes (0, 1).")
+            raise ValueError(
+                "Physical periodic object interaction requires x/y axes (0, 1)."
+            )
 
         centers = _triangle_centers(triangles)
 
@@ -198,12 +199,8 @@ class ObjectInteractionSnapshot:
         zero_mode_area_xy_m2: float | None = None
         if far_correction == "cached_kneq0":
             assert periodic2 is not None
-            zero_mode_lower_boundary = _resolve_zero_mode_lower_boundary(
-                full_config
-            )
-            zero_mode_area_xy_m2 = float(
-                periodic2.lengths[0] * periodic2.lengths[1]
-            )
+            zero_mode_lower_boundary = _resolve_zero_mode_lower_boundary(full_config)
+            zero_mode_area_xy_m2 = float(periodic2.lengths[0] * periodic2.lengths[1])
         try:
             periodic = FieldKernel(
                 triangles,
@@ -409,7 +406,9 @@ class ObjectInteractionSnapshot:
                         f"failed to restore object-interaction source state: {message}"
                     ) from restore_errors[0]
 
-    def _eval_periodic(self, target_points_m: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def _eval_periodic(
+        self, target_points_m: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         return self._periodic.eval_e(target_points_m), self._periodic.eval_phi(
             target_points_m
         )
@@ -622,7 +621,10 @@ class ObjectProbe:
         )
         _validate_target_points(target_vertices, self._snapshot._options)
         _validate_target_points(target_points, self._snapshot._options)
-        if isinstance(torque_origin, str) and torque_origin == "geometric_area_centroid":
+        if (
+            isinstance(torque_origin, str)
+            and torque_origin == "geometric_area_centroid"
+        ):
             torque_origin_m = rigid.apply(
                 self._geometric_area_centroid_m[None, :],
                 origin=transform_origin_m,
@@ -838,13 +840,11 @@ class ObjectProbe:
                         np.linalg.norm(force_right, axis=1),
                     )
                 )
-                work_coarse = 0.5 * widths * (
-                    force_left[:, 2] + force_right[:, 2]
-                )
-                work_fine = 0.25 * widths * (
-                    force_left[:, 2]
-                    + 2.0 * force_middle[:, 2]
-                    + force_right[:, 2]
+                work_coarse = 0.5 * widths * (force_left[:, 2] + force_right[:, 2])
+                work_fine = (
+                    0.25
+                    * widths
+                    * (force_left[:, 2] + 2.0 * force_middle[:, 2] + force_right[:, 2])
                 )
                 potential_work = (
                     candidate.potential_energy_J[0:-2:2]
@@ -858,9 +858,7 @@ class ObjectProbe:
                     np.abs(potential_work),
                 )
                 force_failing = force_error > force_absolute + relative * force_scale
-                work_failing = (
-                    work_error > work_absolute + relative * work_scale
-                )
+                work_failing = work_error > work_absolute + relative * work_scale
                 potential_failing = (
                     work_potential_error
                     > work_absolute + relative * work_potential_scale
@@ -953,8 +951,7 @@ class ObjectProbe:
         translations = np.zeros((displacement_m.size, 3), dtype=np.float64)
         translations[:, 2] = displacement_m
         vertices = (
-            self._target_triangles_m[None, :, :, :]
-            + translations[:, None, None, :]
+            self._target_triangles_m[None, :, :, :] + translations[:, None, None, :]
         )
         _validate_target_points(
             vertices.reshape(-1, 3),
@@ -982,7 +979,10 @@ class ObjectProbe:
             name: np.empty((nheight, 3), dtype=np.float64)
             for name in _PHYSICAL_COMPONENTS
         }
-        if isinstance(torque_origin, str) and torque_origin == "geometric_area_centroid":
+        if (
+            isinstance(torque_origin, str)
+            and torque_origin == "geometric_area_centroid"
+        ):
             origins = np.broadcast_to(
                 self._geometric_area_centroid_m,
                 (nheight, 3),
@@ -1163,7 +1163,9 @@ def _torque_origin_policy(value: str | Iterable[float]) -> str:
 def _validate_target_points(points_m: np.ndarray, options: FieldKernelOptions) -> None:
     points = np.asarray(points_m, dtype=np.float64)
     if points.ndim != 2 or points.shape[1] != 3 or not np.all(np.isfinite(points)):
-        raise ValueError("target points must have shape (n, 3) and contain finite values.")
+        raise ValueError(
+            "target points must have shape (n, 3) and contain finite values."
+        )
     if options.box_min is None or options.box_max is None:
         return
     lower = np.asarray(options.box_min, dtype=np.float64)
@@ -1176,7 +1178,9 @@ def _validate_target_points(points_m: np.ndarray, options: FieldKernelOptions) -
     if np.any(bounded < lower[bounded_axes][None, :]) or np.any(
         bounded > upper[bounded_axes][None, :]
     ):
-        raise ValueError("transformed target points must remain inside the configured box.")
+        raise ValueError(
+            "transformed target points must remain inside the configured box."
+        )
 
 
 def _geometric_area_centroid(triangles_m: np.ndarray) -> np.ndarray:
@@ -1189,36 +1193,6 @@ def _geometric_area_centroid(triangles_m: np.ndarray) -> np.ndarray:
     return _readonly(np.sum(area[:, None] * centers, axis=0) / np.sum(area))
 
 
-def _reject_active_outer_plasma(config: Mapping[str, object] | None) -> None:
-    if config is None:
-        return
-    external_boundary = config.get("external_boundary")
-    if external_boundary is not None:
-        if not isinstance(external_boundary, Mapping):
-            raise ValueError("external_boundary config must be a table.")
-        field = external_boundary.get("field")
-        if not isinstance(field, Mapping):
-            raise ValueError("external_boundary.field config must be a table.")
-        model = str(field.get("model", "")).strip().lower()
-        if model != "none":
-            raise ValueError(
-                "Object interaction does not yet support an active "
-                "external_boundary.field; use "
-                "external_boundary.field.model='none'."
-            )
-    outer = config.get("outer_plasma")
-    if outer is None:
-        return
-    if not isinstance(outer, Mapping):
-        raise ValueError("outer_plasma config must be a table.")
-    model = str(outer.get("model", "none")).strip().lower()
-    if model != "none":
-        raise ValueError(
-            "Object interaction does not yet support an active outer_plasma field; "
-            "use outer_plasma.model='none'."
-        )
-
-
 def _resolve_zero_mode_lower_boundary(config: Mapping[str, object]) -> str:
     periodic2 = config.get("periodic2")
     if not isinstance(periodic2, Mapping):
@@ -1226,9 +1200,7 @@ def _resolve_zero_mode_lower_boundary(config: Mapping[str, object]) -> str:
             "cached_kneq0 object interaction requires an explicit [periodic2] "
             "table with zero_mode_policy and lower_boundary_model."
         )
-    nonzero_backend = str(
-        periodic2.get("nonzero_mode_backend", "")
-    ).strip().lower()
+    nonzero_backend = str(periodic2.get("nonzero_mode_backend", "")).strip().lower()
     if nonzero_backend != "cached_kneq0":
         raise ValueError(
             "cached_kneq0 object interaction requires "
@@ -1240,9 +1212,7 @@ def _resolve_zero_mode_lower_boundary(config: Mapping[str, object]) -> str:
             "cached_kneq0 object interaction requires "
             "periodic2.zero_mode_policy='exclude_k0'."
         )
-    lower_boundary = str(
-        periodic2.get("lower_boundary_model", "")
-    ).strip().lower()
+    lower_boundary = str(periodic2.get("lower_boundary_model", "")).strip().lower()
     if lower_boundary not in {"e_bottom_zero", "symmetric_vacuum"}:
         raise ValueError(
             "cached_kneq0 object interaction requires "

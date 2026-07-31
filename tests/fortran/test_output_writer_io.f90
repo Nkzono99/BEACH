@@ -21,10 +21,6 @@ program test_output_writer_io
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
-  logical :: saw_queue_population, saw_queue_count, saw_queue_fingerprint
-  logical :: saw_resolved_zhao_source_scale
-  logical :: saw_shadow_tau, saw_shadow_column
-  logical :: saw_steady_start_mode, saw_steady_start_mesh_id
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit
   integer(i32) :: top_batch, top_sample_n
@@ -45,7 +41,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(7)
+  call test_init(5)
 
   stats = sim_stats()
 
@@ -92,89 +88,13 @@ program test_output_writer_io
   cfg%sim%open_boundary_model = 'potential_barrier'
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'infinity_barrier', 'potential_barrier', 'none', 'local_source' &
-    )
-
-  call default_app_config(cfg)
-  cfg%outer_plasma%model = 'kinetic_1d'
-  cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
-  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-  call write_result_files(out_dir_disabled, mesh, stats, cfg)
-  call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'kinetic_profile', 'escape', 'kinetic_1d', 'same_batch' &
+    out_dir_disabled//'/summary.txt', 'infinity_barrier', 'potential_barrier' &
     )
 
   call default_app_config(cfg)
   cfg%sim%batch_duration = 1.0_dp
   cfg%output_dir = out_dir_disabled
   cfg%write_mesh_potential = .false.
-  call test_end()
-
-  call test_begin('queue_diagnostics_follow_enable_flag')
-  electrostatic_diagnostics%outer_kinetic_closure = 'zhao_charge_driven'
-  electrostatic_diagnostics%outer_zhao_branch = 'B'
-  electrostatic_diagnostics%outer_photoelectron_source_scale = 0.375_dp
-  electrostatic_diagnostics%outer_photoelectron_population_fraction = 0.5_dp
-  electrostatic_diagnostics%outer_queue_event_count = 2_i32
-  electrostatic_diagnostics%outer_queue_fingerprint = 'FEDCBA9876543210'
-  cfg%coupling%outer_queue_enabled = .false.
-  call write_result_files( &
-    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
-    )
-  call scan_queue_summary_fields( &
-    out_dir_disabled//'/summary.txt', saw_queue_population, saw_queue_count, saw_queue_fingerprint &
-    )
-  call scan_resolved_zhao_source_scale( &
-    out_dir_disabled//'/summary.txt', saw_resolved_zhao_source_scale &
-    )
-  call assert_true(.not. saw_queue_population .and. .not. saw_queue_count .and. .not. saw_queue_fingerprint, &
-                   'disabled queue must not write queue-specific diagnostics')
-  call assert_true(saw_resolved_zhao_source_scale, &
-                   'resolved Zhao source scale must be written independently of queue diagnostics')
-  cfg%outer_plasma%model = 'kinetic_1d'
-  cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
-  cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
-  cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-  cfg%coupling%outer_queue_enabled = .true.
-  call write_result_files( &
-    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
-    )
-  call scan_queue_summary_fields( &
-    out_dir_disabled//'/summary.txt', saw_queue_population, saw_queue_count, saw_queue_fingerprint &
-    )
-  call assert_true(saw_queue_population .and. saw_queue_count .and. saw_queue_fingerprint, &
-                   'enabled queue must write queue-specific diagnostics')
-  call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'kinetic_profile', 'escape', 'kinetic_1d', 'zhao_queue' &
-    )
-  call default_app_config(cfg)
-  cfg%sim%batch_duration = 1.0_dp
-  call test_end()
-
-  call test_begin('implicit_mean_shadow_diagnostics_follow_availability')
-  electrostatic_diagnostics = electrostatic_diagnostics_type()
-  electrostatic_diagnostics%implicit_mean_shadow_diagnostics_available = .true.
-  electrostatic_diagnostics%implicit_mean_last_returned_outer_flight_time_mean = 2.5e-6_dp
-  electrostatic_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area = &
-    7.5e-12_dp
-  call write_result_files( &
-    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
-    )
-  call scan_implicit_mean_shadow_summary_fields( &
-    out_dir_disabled//'/summary.txt', saw_shadow_tau, saw_shadow_column &
-    )
-  call assert_true(saw_shadow_tau .and. saw_shadow_column, &
-                   'available implicit-mean shadow diagnostics must be written')
-
-  electrostatic_diagnostics = electrostatic_diagnostics_type()
-  call write_result_files( &
-    out_dir_disabled, mesh, stats, cfg, electrostatic_diagnostics=electrostatic_diagnostics &
-    )
-  call scan_implicit_mean_shadow_summary_fields( &
-    out_dir_disabled//'/summary.txt', saw_shadow_tau, saw_shadow_column &
-    )
-  call assert_true(.not. saw_shadow_tau .and. .not. saw_shadow_column, &
-                   'unavailable implicit-mean shadow diagnostics must be omitted')
   call test_end()
 
   call test_begin('top_reference_history_and_summary')
@@ -260,8 +180,6 @@ program test_output_writer_io
   ledger%injected_count(1) = 1
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
-  cfg%coupling%steady_start_mode = 'none'
-  cfg%coupling%steady_start_mesh_id = 7_i32
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
 
   saw_integrator = .false.
@@ -277,8 +195,6 @@ program test_output_writer_io
   saw_build_mode = .false.
   saw_source_commit = .false.
   saw_build_id = .false.
-  saw_steady_start_mode = .false.
-  saw_steady_start_mesh_id = .false.
   open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open summary metadata fixture'
   do
@@ -298,8 +214,6 @@ program test_output_writer_io
     saw_build_mode = saw_build_mode .or. index(line, 'build_version_mode=') == 1
     saw_source_commit = saw_source_commit .or. index(line, 'build_source_commit=') == 1
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
-    saw_steady_start_mode = saw_steady_start_mode .or. index(line, 'coupling_steady_start_mode=none') == 1
-    saw_steady_start_mesh_id = saw_steady_start_mesh_id .or. index(line, 'coupling_steady_start_mesh_id=7') == 1
   end do
   close (literal_unit)
   open (newunit=literal_unit, file=out_dir_ledger//'/charge_ledger.csv', status='old', action='read', iostat=ios)
@@ -317,8 +231,6 @@ program test_output_writer_io
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
-  call assert_true(saw_steady_start_mode .and. saw_steady_start_mesh_id, &
-                   'summary should record the steady-start configuration')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_closure, 'summary should record the neutral-return correction')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
@@ -331,16 +243,14 @@ program test_output_writer_io
 
 contains
 
-  subroutine assert_resolved_boundary_summary(path, inflow_map, open_model, interface_transport, particle_mode)
-    character(len=*), intent(in) :: path, inflow_map, open_model, interface_transport, particle_mode
-    logical :: saw_inflow, saw_open, saw_transport, saw_particle_mode
+  subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
+    character(len=*), intent(in) :: path, inflow_map, open_model
+    logical :: saw_inflow, saw_open
     integer :: unit, read_status
     character(len=512) :: summary_line
 
     saw_inflow = .false.
     saw_open = .false.
-    saw_transport = .false.
-    saw_particle_mode = .false.
     open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
     if (read_status /= 0) error stop 'failed to open resolved external boundary summary fixture'
     do
@@ -348,80 +258,11 @@ contains
       if (read_status /= 0) exit
       saw_inflow = saw_inflow .or. trim(summary_line) == 'external_inflow_map='//trim(inflow_map)
       saw_open = saw_open .or. trim(summary_line) == 'external_ordinary_open_model='//trim(open_model)
-      saw_transport = saw_transport .or. &
-                      trim(summary_line) == 'external_interface_transport='//trim(interface_transport)
-      saw_particle_mode = saw_particle_mode .or. &
-                          trim(summary_line) == 'outer_particle_mode_resolved='//trim(particle_mode)
     end do
     close (unit)
     call assert_true(saw_inflow, 'summary should record the resolved external inflow map')
     call assert_true(saw_open, 'summary should record the resolved ordinary open model')
-    call assert_true(saw_transport, 'summary should record the resolved interface transport')
-    call assert_true(saw_particle_mode, 'summary should record the resolved outer particle mode')
   end subroutine assert_resolved_boundary_summary
-
-  subroutine scan_queue_summary_fields(path, saw_population, saw_count, saw_fingerprint)
-    character(len=*), intent(in) :: path
-    logical, intent(out) :: saw_population, saw_count, saw_fingerprint
-    integer :: unit, read_status
-    character(len=512) :: summary_line
-
-    saw_population = .false.
-    saw_count = .false.
-    saw_fingerprint = .false.
-    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
-    if (read_status /= 0) error stop 'failed to open queue summary fixture'
-    do
-      read (unit, '(A)', iostat=read_status) summary_line
-      if (read_status /= 0) exit
-      saw_population = saw_population .or. index(summary_line, 'outer_photoelectron_population_fraction=') == 1
-      saw_count = saw_count .or. index(summary_line, 'outer_queue_event_count=') == 1
-      saw_fingerprint = saw_fingerprint .or. index(summary_line, 'outer_queue_fingerprint=FEDCBA9876543210') == 1
-    end do
-    close (unit)
-  end subroutine scan_queue_summary_fields
-
-  subroutine scan_resolved_zhao_source_scale(path, found)
-    character(len=*), intent(in) :: path
-    logical, intent(out) :: found
-    integer :: unit, read_status
-    character(len=512) :: summary_line
-
-    found = .false.
-    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
-    if (read_status /= 0) error stop 'failed to open resolved Zhao source-scale summary fixture'
-    do
-      read (unit, '(A)', iostat=read_status) summary_line
-      if (read_status /= 0) exit
-      found = found .or. index( &
-              summary_line, 'outer_plasma_photoelectron_source_scale_resolved=' &
-              ) == 1
-    end do
-    close (unit)
-  end subroutine scan_resolved_zhao_source_scale
-
-  subroutine scan_implicit_mean_shadow_summary_fields(path, saw_tau, saw_column)
-    character(len=*), intent(in) :: path
-    logical, intent(out) :: saw_tau, saw_column
-    integer :: unit, read_status
-    character(len=512) :: summary_line
-
-    saw_tau = .false.
-    saw_column = .false.
-    open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
-    if (read_status /= 0) error stop 'failed to open implicit-mean shadow summary fixture'
-    do
-      read (unit, '(A)', iostat=read_status) summary_line
-      if (read_status /= 0) exit
-      saw_tau = saw_tau .or. &
-                index(summary_line, 'implicit_mean_last_returned_outer_flight_time_mean_s=') == 1
-      saw_column = saw_column .or. index( &
-                   summary_line, &
-                   'implicit_mean_last_estimated_returning_photoelectron_column_charge_per_area_C_m2=' &
-                   ) == 1
-    end do
-    close (unit)
-  end subroutine scan_implicit_mean_shadow_summary_fields
 
   subroutine scan_top_reference_summary_fields(path, saw_available, saw_definition, saw_last_batch, saw_mean)
     character(len=*), intent(in) :: path

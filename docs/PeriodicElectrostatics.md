@@ -4,25 +4,19 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 # periodic2静電場
 
-`field_bc_mode="periodic2"`の静電場は、近傍の有限画像、無限周期の横方向mode、平面平均`k=0`、
-外部plasma responseという4つの成分から構成されます。x/y周期・z開放のslabでは、各成分を担当する
-計算経路を分け、最終的な電場・電位へ一度ずつ加算します。
+`field_bc_mode="periodic2"` の静電場は、x/y 周期・z 開放の slab で有限画像、無限周期 `k\ne0`、平面平均
+`k=0` を別々に計算し、各成分を一度ずつ加算します。
 
-## 場を4つの成分に分ける
+## 場を3つの成分に分ける
 
 | 成分 | 物理的な意味 | production経路 |
 | --- | --- | --- |
 | primary + near images | primary cell近傍の強い局所場 | Direct/FMMの有限画像和 |
 | far `k\ne0` | x/y方向に変化する無限周期遠方場 | `cached_kneq0` operator |
 | surface `k=0` | 各高さより下の総電荷が作る平面平均場 | triangle-height累積多項式 |
-| plasma response | 外部plasmaによるzero/nonzero応答 | 選択したouter model |
 
-`cached_kneq0`はsurface `k=0`を除いたnonzero modeを返します。境界条件を反映した物理的な`k=0`は、
-場の合成処理が1回だけ加えます。この分担により、横方向の無限周期補正とz方向のboundary/sheath modelを
-独立に選べます。
-
-実際の組合せは、[periodic2有限画像構成](FinitePeriodicConfiguration.html)と
-[periodic2無限周期＋outer plasma構成](InfinitePeriodicOuterConfiguration.html)で説明します。
+`cached_kneq0` は surface `k=0` を除いた nonzero mode を返し、場の合成処理が境界条件を反映した physical
+`k=0` を一度だけ加えます。実行構成は [periodic2 有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
 
 ## nonzero modeの計算経路を選ぶ
 
@@ -32,9 +26,9 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 | `panel_spectral_reference` | triangle P0の小規模reference | Direct、mode/quadrature収束が必要 |
 | `cached_kneq0` | FMM productionの無限周期nonzero mode | x/y periodic、z nonperiodic、`exclude_k0` |
 
-`field_periodic_far_correction="auto"`は、現在は互換性のため`none`として動作します。無限周期のproduction計算では
-`cached_kneq0`を明示します。起動時には、高水準設定とtyped `[periodic2]`の整合性を検証します。
-zero-mode ownershipが矛盾している場合や、未対応のouter modelが選ばれている場合は停止します。
+`field_periodic_far_correction="auto"` は互換性のため `none` として動作します。無限周期の production 計算では
+`cached_kneq0` を明示します。起動時に高水準設定と typed `[periodic2]` の整合性を検証し、zero-mode ownership
+の矛盾を拒否します。削除済みの `[outer_plasma]` と `[coupling]` は unknown input です。
 `m2l_root_oracle`は削除済みで、設定すると起動時にrejectされます。
 
 Ewald2P teacher、root multipoleからlocal展開へのoperator、cacheとFMM stateの接続は
@@ -57,8 +51,8 @@ identityに含むのはこのためです。
 
 ## Ewald2Pで無限周期の遠方場を分離する
 
-`cached_kneq0`はEwald2P teacherと有限画像shellの差を、root multipoleからtarget localへのoperatorとして
-適用します。cached結果からteacher由来の対称`k=0`を除き、場の合成処理が選択した物理`k=0`を一度だけ加えます。
+`cached_kneq0` は Ewald2P teacher と有限画像 shell の差を operator として適用し、teacher 由来の対称 `k=0` を
+除きます。場の合成処理は選択した physical `k=0` を一度だけ加えます。
 
 $$
 K_\mathrm{surface}
@@ -66,9 +60,9 @@ K_\mathrm{surface}
 +K_0^\mathrm{physical}
 $$
 
-この式の括弧内がnonzero backendの責務です。`zero_mode_policy="exclude_k0"`は平均場を捨てる指定ではなく、
-二重加算を防ぐownership規則です。Ewald分割、operator fit、FMMへの注入位置、cache lifecycleは
-[periodic2遠方補正](PeriodicFarCorrection.html)に分離しています。
+括弧内が nonzero backend の責務です。`zero_mode_policy="exclude_k0"` は平均場を捨てる指定ではなく、二重加算を
+防ぐ ownership 規則です。Ewald 分割、operator fit、FMM への注入位置、cache lifecycle は
+[periodic2 遠方補正](PeriodicFarCorrection.html)にまとめています。
 
 ## 物理`k=0`を一度だけ加える
 
@@ -122,9 +116,6 @@ $$
 どちらのmodelも、誘電体内部のscreeningやpolarizationは解きません。`symmetric_vacuum`は、追加のinterfaceや
 誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
 物理defaultではありません。
-
-outer modelを接続すると、surface zero modeのfield/interface条件を使ってplasma profileを作ります。標準のsplit kinetic
-構成は[kinetic 1D外部プラズマ](KineticOuterPlasma.html)で説明します。
 
 ## 粒子衝突では軌道が届く周期画像を調べる
 

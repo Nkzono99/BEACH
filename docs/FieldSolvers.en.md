@@ -82,8 +82,7 @@ nonzero and zero modes, an outer sheath, reservoir acceleration or deceleration,
 
 The legacy `sim.field_bc_mode="periodic2"` path uses FMM, while small-system split-reference cases use a Direct panel spectral
 backend. Their component compositions are described in
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) for the field decomposition and
-[outer-plasma models](OuterPlasmaModels.en.html) for the outer response.
+[periodic2 electrostatics](PeriodicElectrostatics.en.html) for the field decomposition.
 
 ## Measure solver and mesh-discretization errors separately
 

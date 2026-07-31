@@ -4,29 +4,24 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 # Finite-image periodic2 configuration
 
-This page is the canonical `periodic2` setup for studying local regolith charging and photoelectron-driven surface
-redistribution without solving a 1-D outer sheath. The solar-wind VDF is defined at z-high, only photoelectrons are closed,
-and potential is read relative to the mean on the z-high plane rather than infinity.
+This page is the canonical `periodic2` setup for studying regolith charging and photoelectron surface redistribution with a
+local reservoir + closed PE. The solar-wind VDF is defined at z-high, only photoelectrons are closed, and potential is read
+relative to the z-high plane mean. BEACH does not solve a self-consistent outer-plasma/sheath model.
 
-The purpose is not to approximate a complete outer sheath. It is to separate net charging by the solar wind from local charge
-transfer by photoelectrons with a small, stable set of assumptions.
-
-## Distinguish the three configurations first
+## Distinguish the two configurations first
 
 | Configuration | Solar-wind inflow | Photoelectrons | Potential reference | Use |
 | --- | --- | --- | --- | --- |
 | **Local reservoir + closed PE** | uncorrected VDF at z-high | z-high reflection + `neutral_return` | z-high plane mean | baseline on this page; local redistribution and batch sensitivity |
 | Scalar barrier | `infinity_barrier` | common `potential_barrier` | `phi_infty` | comparison using one scalar barrier |
-| Infinite periodic + outer plasma | map through a 1-D profile | profile return/escape | $\phi_\infty=0$ | self-consistent mean sheath |
 
-Do not stack these alternatives in one run. In particular, do not add `infinity_barrier`, `potential_barrier`, or
-`kinetic_1d` particle transfer to the closed-PE baseline.
+Do not stack these alternatives in one run. In particular, do not add
+`infinity_barrier` or `potential_barrier` to the closed-PE baseline.
 
 ## Recommended integrated configuration
 
 The complete runnable example is
 [`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml).
-Its central settings are:
 
 ```toml
 [sim]
@@ -54,9 +49,8 @@ inflow_model = "source_vdf"
 model = "escape"
 ```
 
-Use ordinary `reservoir_face` species for solar-wind electrons and ions. Their density, temperature, and drift describe a
-**local boundary VDF on z-high**. They are not an infinity VDF, and surface potential does not filter their accessibility or
-map their speed.
+Use ordinary `reservoir_face` species for solar-wind electrons and ions. Density, temperature, and drift describe a
+**local boundary VDF on z-high**; surface potential does not filter accessibility or map speed.
 
 Only the photoelectron species gets the closed surface-charge closure:
 
@@ -75,12 +69,10 @@ escape through the globally open boundary.
 ## What one batch does
 
 1. Build a finite-image field snapshot from batch-start surface charge.
-2. Inject solar wind from the local VDF at z-high.
-3. Emit photoelectrons from ray hits and record opposite reaction charge on source elements.
-4. Track all particles in the frozen snapshot, reflecting only photoelectrons at z-high.
-5. Use the resolved photoelectron return distribution to close unresolved surface charge statistically.
-6. Commit solar-wind absorption and photoelectron emission and return together.
-7. Optionally write element potential and z-high mean from the same post-commit snapshot.
+2. Inject solar wind from the z-high local VDF and photoelectrons from ray hits.
+3. Track all particles in the frozen snapshot, reflecting only photoelectrons at z-high.
+4. Close unresolved photoelectrons from the resolved return distribution and commit all charge deltas.
+5. Optionally write element potential and z-high mean from the same post-commit charge.
 
 The field is not refreshed inside a batch. `batch_duration` is therefore both physical duration and explicit charge-update
 width. Closed PE removes divergence from net photoelectron current; it does not remove solar-wind batch-width dependence.
@@ -119,20 +111,18 @@ exceeds 5%. The limit is not configurable; converge below it by revisiting `max_
 `neutral_return` does not mathematically remove every $k_\parallel=0$ structure. It makes the surface-charge monopole
 increment zero, but transfer between surfaces at different heights can retain a plane-averaged vertical dipole.
 
-The run fails without producing an accepted batch when:
+The batch is rejected when:
 
 - emission is nonzero but resolved return charge is zero;
-- a photoelectron actually escapes through an open face;
-- a `soft_discard`, nonfinite value, or charge-sign mismatch occurs;
-- outer particle transfer or `implicit_mean` is combined with the closure.
+- a photoelectron actually escapes or is `soft_discard`ed;
+- a nonfinite value or charge-sign mismatch occurs.
 
 Only particles still alive at `max_step` are statistically closed. The raw unresolved charge, correction, scale, and
 unresolved fraction remain separate in `charge_ledger.csv`.
 
 ## Read potential relative to the z-high plane
 
-With `output.write_files=true`, `output.write_potential_history=true`,
-`output.history_stride>0`, and `sim.use_box=true`,
+With `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and `sim.use_box=true`,
 `top_reference_history.csv` is written at the same batches as `potential_history.csv`.
 
 $$
@@ -152,8 +142,8 @@ write_potential_history = true
 ```
 
 The plane mean is neither infinity potential nor plasma potential, and it does not feed back into solar-wind injection. It
-removes a constant gauge but not dependence on box height, zero mode, or finite-image truncation. A large
-`potential_std_V` or min/max span weakens the interpretation of z-high as one reservoir plane.
+removes a constant gauge but not dependence on box height, zero mode, or finite-image truncation. A large `potential_std_V` or
+min/max span weakens the interpretation of z-high as one reservoir plane.
 
 With either `write_mesh_potential=true` or `write_potential_history=true`, `summary.txt` also records top statistics for the
 final state. Use those values to reference final `mesh_potential.csv`. If the final batch is not on the history stride, do
@@ -171,9 +161,9 @@ not reuse a top value from another batch.
 
 With `field_periodic_far_correction="none"`, BEACH does not replace cells beyond that shell with an Ewald or cached operator.
 Top-relative potential does not turn this into an infinite-periodic solution. Increase image layers until target quantities
-stop changing. Use
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) when physical nonzero and zero
-modes require an infinite-periodic closure.
+stop changing. Use `field_periodic_far_correction="cached_kneq0"` when the infinite-periodic nonzero mode is required, and
+follow the convergence procedure in
+[periodic2 electrostatics](PeriodicElectrostatics.en.html).
 
 ## Acceptance order
 
@@ -184,29 +174,13 @@ modes require an infinite-periodic closure.
 5. Increase image shells through $N,N+1,N+2$.
 6. Check solar-wind macro-particle count and random-seed uncertainty.
 
-Full reflection is an artificial top mirror, not a self-consistent sheath or quasineutral solution. The result means:
-“surface redistribution produced when net photoelectron current is set to zero under the specified local solar-wind flux.”
-
-`sim.softening` and the old `[field]` table found in historical outputs have been removed from current input. Port an older
-0p5x configuration from the current example rather than copying it literally.
+Full reflection is an artificial top mirror, not a self-consistent sheath or quasineutral solution. The result describes
+surface redistribution with zero net photoelectron current under the specified local solar-wind flux.
 
 ## Scalar-barrier comparison
 
-For a scalar-barrier comparison, remove the closed-PE settings and use:
-
-```toml
-[external_boundary.particles]
-mode = "local_source"
-inflow_model = "infinity_barrier"
-
-[external_boundary.ordinary_open]
-model = "potential_barrier"
-
-[sim]
-phi_infty = 0.0
-```
-
-This filters an upstream VDF with a face-average scalar and classifies reflection or escape from energy at each open crossing.
-It is not forward and reverse transport through one continuous sheath profile. See
-[reservoir inflow](ReservoirInjection.en.html) and
-[particle escape and return](ParticleEscapeReturn.en.html) for equations and constraints.
+For a scalar-barrier comparison, remove the closed-PE settings and combine `inflow_model="infinity_barrier"`,
+`external_boundary.ordinary_open.model="potential_barrier"`, and `sim.phi_infty`. This comparison filters an upstream VDF with
+a face-average scalar and classifies reflection or escape from energy at each open crossing. See
+[reservoir inflow](ReservoirInjection.en.html) and [particle escape and return](ParticleEscapeReturn.en.html) for configuration,
+equations, and constraints.

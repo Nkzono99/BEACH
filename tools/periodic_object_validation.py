@@ -94,9 +94,7 @@ BUILD_INFO_KEYS = (
     "build_id",
 )
 SYS_MODULE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])Sys(?:CL|A|B|C|G)/[^\s()]+")
-INTEL_MODULE_PATTERN = re.compile(
-    r"(?<![A-Za-z0-9_])intel(?:mpi)?/[^\s()]+"
-)
+INTEL_MODULE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])intel(?:mpi)?/[^\s()]+")
 SAFE_STAGE_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./:+-]+\Z")
 PRODUCTION_FIELD_EXECUTION_CONTRACT = {
     "field_backend": "fmm",
@@ -715,7 +713,9 @@ def _require_descendant_path(
     try:
         relative = actual.relative_to(root)
     except ValueError as exc:
-        raise ValidationError(f"{label} is outside the validation root: {actual}") from exc
+        raise ValidationError(
+            f"{label} is outside the validation root: {actual}"
+        ) from exc
     if not relative.parts or any(part in {".", ".."} for part in relative.parts):
         raise ValidationError(f"{label} is not a canonical descendant path: {actual}")
     if prefix is not None:
@@ -809,13 +809,8 @@ def _snapshot_python_source(root: Path, commit: str) -> dict[str, Any]:
         shutil.copy2(REPO_ROOT / filename, snapshot / filename)
     tool_destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(Path(__file__).resolve(), tool_destination)
-    files = sorted(
-        path for path in snapshot.rglob("*") if path.is_file()
-    )
-    hashes = {
-        path.relative_to(snapshot).as_posix(): _sha256(path)
-        for path in files
-    }
+    files = sorted(path for path in snapshot.rglob("*") if path.is_file())
+    hashes = {path.relative_to(snapshot).as_posix(): _sha256(path) for path in files}
     hash_file = snapshot / "source_files.sha256"
     hash_file.write_text(
         "".join(f"{digest}  {relative}\n" for relative, digest in hashes.items()),
@@ -979,7 +974,9 @@ def _archive_version(archive_run: Path) -> str:
     path = archive_run / "work/SIMULATOR_VERSION.txt"
     if not path.exists():
         return "unknown"
-    for line in reversed(path.read_text(encoding="utf-8", errors="replace").splitlines()):
+    for line in reversed(
+        path.read_text(encoding="utf-8", errors="replace").splitlines()
+    ):
         value = line.strip()
         if value and not value.startswith(("executable:", "20")):
             return value
@@ -1048,7 +1045,9 @@ def _archive_output_expectations(archive_run: Path) -> dict[str, int | None]:
         mesh_nelem = int(summary["mesh_nelem"])
         mesh_count = int(summary.get("mesh_count", "0")) or None
     except (KeyError, ValueError) as exc:
-        raise ValidationError(f"archive summary has invalid mesh metadata: {exc}") from exc
+        raise ValidationError(
+            f"archive summary has invalid mesh metadata: {exc}"
+        ) from exc
     if mesh_nelem < 1 or (mesh_count is not None and mesh_count < 1):
         raise ValidationError("archive summary mesh metadata must be positive")
     return {"mesh_nelem": mesh_nelem, "mesh_count": mesh_count}
@@ -1105,15 +1104,9 @@ def _validate_production_release_mechanics(archive_run: Path) -> None:
         )
     assumptions = summary["assumptions"]
     _production_mechanics_number(assumptions, "radius_m", positive=True)
-    _production_mechanics_number(
-        assumptions, "dust_density_kg_m3", positive=True
-    )
-    _production_mechanics_number(
-        assumptions, "moon_gravity_m_s2", nonnegative=True
-    )
-    energy_partition = _production_mechanics_number(
-        assumptions, "energy_partition"
-    )
+    _production_mechanics_number(assumptions, "dust_density_kg_m3", positive=True)
+    _production_mechanics_number(assumptions, "moon_gravity_m_s2", nonnegative=True)
+    energy_partition = _production_mechanics_number(assumptions, "energy_partition")
     if not 0.0 <= energy_partition <= 1.0:
         raise ValidationError(
             "production mechanics energy_partition must lie in [0, 1]"
@@ -1123,7 +1116,9 @@ def _validate_production_release_mechanics(archive_run: Path) -> None:
     try:
         parsed = _load_toml(adhesion_path)
     except ValidationError as exc:
-        raise ValidationError(f"production mechanics adhesion TOML is invalid: {exc}") from exc
+        raise ValidationError(
+            f"production mechanics adhesion TOML is invalid: {exc}"
+        ) from exc
     adhesion = parsed.get("adhesion")
     if not isinstance(adhesion, dict) or not isinstance(adhesion.get("model"), str):
         raise ValidationError(
@@ -1177,7 +1172,9 @@ def _archive_analysis_inputs(archive_run: Path) -> dict[str, dict[str, str]]:
 
 def _archive_analysis_outputs(archive_run: Path) -> dict[str, dict[str, str]]:
     output = archive_run / "work/latest"
-    candidates = [output / Path(relative).name for relative in ARCHIVE_REQUIRED_ANALYSIS_OUTPUTS]
+    candidates = [
+        output / Path(relative).name for relative in ARCHIVE_REQUIRED_ANALYSIS_OUTPUTS
+    ]
     candidates.extend(
         path
         for pattern in (
@@ -1382,21 +1379,21 @@ def _run_case_commands(
         )
     lines = [
         "run_case() {",
-        "  local name=\"$1\" config=\"$2\" output=\"$3\" batches=\"$4\" config_sha=\"$5\" restart_dir=\"$6\" restart_batches=\"$7\"",
-        "  if [ -n \"${restart_dir}\" ]; then",
-        "    python3.11 \"${TOOL}\" verify-run --case-dir \"${restart_dir}\" --expected-batches \"${restart_batches}\" --require-existing-receipt",
+        '  local name="$1" config="$2" output="$3" batches="$4" config_sha="$5" restart_dir="$6" restart_batches="$7"',
+        '  if [ -n "${restart_dir}" ]; then',
+        '    python3.11 "${TOOL}" verify-run --case-dir "${restart_dir}" --expected-batches "${restart_batches}" --require-existing-receipt',
         "  fi",
-        "  if [ -e \"${output}\" ] && [ -n \"$(find \"${output}\" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)\" ]; then",
+        '  if [ -e "${output}" ] && [ -n "$(find "${output}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then',
         "    printf 'refusing non-empty output: %s\\n' \"${output}\" >&2",
         "    return 2",
         "  fi",
-        "  mkdir -p \"$(dirname \"${output}\")\"",
-        "  if ! printf '%s  %s\\n' \"${config_sha}\" \"${config}\" | sha256sum --check - | tee -a \"${HASH_LOG}\"; then",
+        '  mkdir -p "$(dirname "${output}")"',
+        '  if ! printf \'%s  %s\\n\' "${config_sha}" "${config}" | sha256sum --check - | tee -a "${HASH_LOG}"; then',
         "    printf 'input hash mismatch before execution: %s\\n' \"${config}\" >&2",
         "    return 2",
         "  fi",
-        "  /usr/bin/time -v -o \"${VALIDATION_ROOT}/provenance/time/${name}.txt\" srun \"${BINARY}\" \"${config}\"",
-        "  python3.11 \"${TOOL}\" verify-run --case-dir \"${output}\" "
+        '  /usr/bin/time -v -o "${VALIDATION_ROOT}/provenance/time/${name}.txt" srun "${BINARY}" "${config}"',
+        '  python3.11 "${TOOL}" verify-run --case-dir "${output}" '
         ' --expected-batches "${batches}"'
         f' --producer-job-role "{producer_job_role}"',
         "}",
@@ -1408,9 +1405,7 @@ def _run_case_commands(
         if case.get("restart_from") is not None:
             restart_dir = str(case["restart_from"])
             previous = next(
-                value
-                for value in cases.values()
-                if value["output_dir"] == restart_dir
+                value for value in cases.values() if value["output_dir"] == restart_dir
             )
             restart_batches = str(previous["batch_count"])
         lines.append(
@@ -1492,8 +1487,7 @@ def _write_jobs(
         if filename == "smoke_sysa.sh" and analysis_library is not None:
             commands = (
                 f'python3.11 "{source_snapshot["tool"]}" probe-library '
-                f'--library "{analysis_library["staged_path"]}"\n'
-                + commands
+                f'--library "{analysis_library["staged_path"]}"\n' + commands
             )
         path = submit / filename
         path.write_text(
@@ -1527,9 +1521,7 @@ def _write_jobs(
         }
         for marker, value in replacements.items():
             analysis_template = analysis_template.replace(marker, value)
-        unresolved = [
-            line for line in analysis_template.splitlines() if "@" in line
-        ]
+        unresolved = [line for line in analysis_template.splitlines() if "@" in line]
         if unresolved:
             raise ValidationError(
                 f"unresolved analysis job template markers: {unresolved}"
@@ -1625,9 +1617,9 @@ printf 'smoke=%s finite_140=%s finite_280=%s infinite_140=%s infinite_280=%s ana
   "${smoke}" "${finite_140}" "${finite_280}" "${infinite_140}" "${infinite_280}" "${analysis}"
 """
     chain.write_text(
-        chain_text.replace("@VALIDATION_ROOT@", str(root)).replace(
-            "@TOOL@", str(source_snapshot["tool"])
-        ).replace("@REPO_ROOT@", str(source_snapshot["root"])),
+        chain_text.replace("@VALIDATION_ROOT@", str(root))
+        .replace("@TOOL@", str(source_snapshot["tool"]))
+        .replace("@REPO_ROOT@", str(source_snapshot["root"])),
         encoding="utf-8",
     )
     chain.chmod(0o755)
@@ -1658,8 +1650,7 @@ def stage_validation(
         root, archive_path
     ):
         raise ValidationError(
-            "validation root must be outside the repository and archive: "
-            f"{root}"
+            f"validation root must be outside the repository and archive: {root}"
         )
     archive_input = _require_expected_path(
         archive_path,
@@ -1944,7 +1935,9 @@ def stage_validation(
         },
         "analysis_library": analysis_library,
         "resources": dict(EXPECTED_RESOURCES),
-        "modules": [part for part in os.environ.get("LOADEDMODULES", "").split(":") if part],
+        "modules": [
+            part for part in os.environ.get("LOADEDMODULES", "").split(":") if part
+        ],
         "allowed_differences": list(ALLOWED_DIFFERENCES),
         "execution": {
             "require_clean_source": require_clean_source,
@@ -1962,7 +1955,9 @@ def stage_validation(
         },
         "receipt_policy": dict(RECEIPT_POLICY),
         "cases": cases,
-        "scripts": {path.name: {"path": str(path), "sha256": _sha256(path)} for path in jobs},
+        "scripts": {
+            path.name: {"path": str(path), "sha256": _sha256(path)} for path in jobs
+        },
     }
     _write_json(root / "manifest.json", manifest)
     _write_json(root / "provenance/source.json", git)
@@ -1998,9 +1993,7 @@ def _first_difference(left: Any, right: Any, path: str = "") -> str | None:
         if len(left) != len(right):
             return f"{path}: length {len(left)} != {len(right)}"
         for index, (left_item, right_item) in enumerate(zip(left, right)):
-            difference = _first_difference(
-                left_item, right_item, f"{path}[{index}]"
-            )
+            difference = _first_difference(left_item, right_item, f"{path}[{index}]")
             if difference is not None:
                 return difference
         return None
@@ -2019,7 +2012,9 @@ def _load_manifest(root: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValidationError(f"failed to read validation manifest {path}: {exc}") from exc
+        raise ValidationError(
+            f"failed to read validation manifest {path}: {exc}"
+        ) from exc
     if not isinstance(value, dict):
         raise ValidationError("validation manifest root must be an object")
     return value
@@ -2042,8 +2037,7 @@ def _validate_case_graph(root: Path, cases: Mapping[str, Any]) -> None:
         expected_restart = (
             None
             if restart_case is None
-            else root
-            / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
+            else root / str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"])
         )
         try:
             actual_config = _require_expected_path(
@@ -2064,9 +2058,7 @@ def _validate_case_graph(root: Path, cases: Mapping[str, Any]) -> None:
                 else _require_expected_path(
                     root,
                     str(value["restart_from"]),
-                    str(
-                        EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"]
-                    ),
+                    str(EXPECTED_CASE_GRAPH[str(restart_case)]["output_relative"]),
                     label=f"case {name} restart",
                 )
             )
@@ -2080,13 +2072,11 @@ def _validate_case_graph(root: Path, cases: Mapping[str, Any]) -> None:
                 value.get("name") == name
                 and value.get("role") == expected["role"]
                 and value.get("periodic_model") == expected["periodic_model"]
-                and int(value.get("batch_count", -1))
-                == int(expected["batch_count"])
+                and int(value.get("batch_count", -1)) == int(expected["batch_count"])
                 and int(value.get("history_stride", -1))
                 == int(expected["history_stride"])
                 and value.get("resume") is expected["resume"]
-                and value.get("cache_expectation")
-                == expected["cache_expectation"]
+                and value.get("cache_expectation") == expected["cache_expectation"]
                 and actual_config == expected_config
                 and actual_output == expected_output
                 and actual_restart == expected_restart
@@ -2139,7 +2129,9 @@ def verify_inputs(
             f"MPI resource metadata mismatch: {manifest.get('resources')!r}"
         )
     if manifest.get("receipt_policy") != RECEIPT_POLICY:
-        raise ValidationError("receipt policy differs from the fixed validation contract")
+        raise ValidationError(
+            "receipt policy differs from the fixed validation contract"
+        )
     source_snapshot = manifest.get("source_snapshot")
     if not isinstance(source_snapshot, dict):
         raise ValidationError("source snapshot metadata is missing")
@@ -2182,9 +2174,8 @@ def verify_inputs(
         f"source/{source_commit}/source_files.sha256",
         label="source snapshot hash manifest",
     )
-    if (
-        not hash_file.is_file()
-        or _sha256(hash_file) != source_snapshot.get("hash_file_sha256")
+    if not hash_file.is_file() or _sha256(hash_file) != source_snapshot.get(
+        "hash_file_sha256"
     ):
         raise ValidationError("source snapshot hash manifest is missing")
     archive = manifest.get("archive", {})
@@ -2203,7 +2194,9 @@ def verify_inputs(
         "input/beach.toml",
         label="archived input",
     )
-    if not archive_input.is_file() or _sha256(archive_input) != archive.get("input_sha256"):
+    if not archive_input.is_file() or _sha256(archive_input) != archive.get(
+        "input_sha256"
+    ):
         raise ValidationError("archived input hash mismatch")
     _require_expected_path(
         root,
@@ -2217,9 +2210,8 @@ def verify_inputs(
         "manifest.toml",
         label="archive manifest",
     )
-    if (
-        not archive_manifest.is_file()
-        or _sha256(archive_manifest) != archive.get("manifest_sha256")
+    if not archive_manifest.is_file() or _sha256(archive_manifest) != archive.get(
+        "manifest_sha256"
     ):
         raise ValidationError("archive manifest hash mismatch")
     if archive.get("job_resources") != {"processes": 6, "threads": 112, "cores": 112}:
@@ -2265,7 +2257,9 @@ def verify_inputs(
         f"bin/{source_commit}/beach",
         label="staged binary",
     )
-    if not staged_binary.is_file() or _sha256(staged_binary) != manifest.get("binary", {}).get("sha256"):
+    if not staged_binary.is_file() or _sha256(staged_binary) != manifest.get(
+        "binary", {}
+    ).get("sha256"):
         raise ValidationError("staged binary hash mismatch")
     analysis_library = manifest.get("analysis_library")
     staged_library: Path | None = None
@@ -2278,10 +2272,9 @@ def verify_inputs(
             prefix=f"lib/{source_commit}",
             label="staged analysis library",
         )
-        if (
-            not staged_library.is_file()
-            or _sha256(staged_library) != analysis_library.get("sha256")
-        ):
+        if not staged_library.is_file() or _sha256(
+            staged_library
+        ) != analysis_library.get("sha256"):
             raise ValidationError("staged analysis library hash mismatch")
     requires_clean_source = bool(
         manifest.get("execution", {}).get("require_clean_source", False)
@@ -2336,11 +2329,7 @@ def verify_inputs(
         if _sha256(path) != value.get("config_sha256"):
             raise ValidationError(f"input hash mismatch for {name}")
         output_dir = Path(str(value["output_dir"]))
-        if (
-            require_empty_outputs
-            and output_dir.exists()
-            and any(output_dir.iterdir())
-        ):
+        if require_empty_outputs and output_dir.exists() and any(output_dir.iterdir()):
             raise ValidationError(f"fresh output is not empty for {name}: {output_dir}")
     forbidden = ("--ntasks", "--cpus-per-task", "mpiexec", "mpirun", "srun -n")
     scripts = manifest.get("scripts")
@@ -2385,10 +2374,7 @@ def verify_inputs(
             f"submit/{name}",
             label=f"job script {name}",
         )
-        if (
-            not path.is_file()
-            or _sha256(path) != script.get("sha256")
-        ):
+        if not path.is_file() or _sha256(path) != script.get("sha256"):
             raise ValidationError(f"job script hash mismatch: {name}")
         text = path.read_text(encoding="utf-8")
         required_python_environment = (
@@ -2425,9 +2411,16 @@ def verify_inputs(
         elif name.endswith("_sysa.sh"):
             bad = [token for token in forbidden if token in text]
             if bad:
-                raise ValidationError(f"job script {name} uses forbidden launch tokens: {bad}")
-            if "#SBATCH --rsc p=6:t=112:c=112" not in text or "srun \"${BINARY}\"" not in text:
-                raise ValidationError(f"job script {name} lacks the SysA direct-srun contract")
+                raise ValidationError(
+                    f"job script {name} uses forbidden launch tokens: {bad}"
+                )
+            if (
+                "#SBATCH --rsc p=6:t=112:c=112" not in text
+                or 'srun "${BINARY}"' not in text
+            ):
+                raise ValidationError(
+                    f"job script {name} lacks the SysA direct-srun contract"
+                )
             for case_name in case_coverage[name]:
                 if f'run_case "{case_name}"' not in text:
                     raise ValidationError(
@@ -2437,8 +2430,7 @@ def verify_inputs(
             self_verify = [
                 line
                 for line in text.splitlines()
-                if "verify-run" in line
-                and '--expected-batches "${batches}"' in line
+                if "verify-run" in line and '--expected-batches "${batches}"' in line
             ]
             if len(self_verify) != 1 or (
                 f'--producer-job-role "{producer_role}"' not in self_verify[0]
@@ -2457,11 +2449,11 @@ def verify_inputs(
                 )
         elif name == "submit_chain.sh":
             required_edges = (
-                'finite_140=$(sbatch --parsable --dependency=afterok:${smoke}',
-                'infinite_140=$(sbatch --parsable --dependency=afterok:${smoke}',
-                'finite_280=$(sbatch --parsable --dependency=afterok:${finite_140}',
-                'infinite_280=$(sbatch --parsable --dependency=afterok:${infinite_140}',
-                '--dependency=afterok:${finite_280}:${infinite_280}',
+                "finite_140=$(sbatch --parsable --dependency=afterok:${smoke}",
+                "infinite_140=$(sbatch --parsable --dependency=afterok:${smoke}",
+                "finite_280=$(sbatch --parsable --dependency=afterok:${finite_140}",
+                "infinite_280=$(sbatch --parsable --dependency=afterok:${infinite_140}",
+                "--dependency=afterok:${finite_280}:${infinite_280}",
                 "refusing to resubmit an existing validation chain",
             )
             if any(token not in text for token in required_edges):
@@ -2473,7 +2465,9 @@ def _find_validation_root(case_dir: Path) -> Path:
     for candidate in (case_dir, *case_dir.parents):
         if (candidate / "manifest.json").is_file():
             return candidate
-    raise ValidationError(f"cannot locate manifest.json above case directory: {case_dir}")
+    raise ValidationError(
+        f"cannot locate manifest.json above case directory: {case_dir}"
+    )
 
 
 def _summary(path: Path) -> dict[str, str]:
@@ -2526,13 +2520,8 @@ def _summary_bool(summary: Mapping[str, str], key: str) -> bool:
 
 def _summary_build_origin(summary: Mapping[str, str]) -> dict[str, Any]:
     return {
-        "build_info_schema_version": _summary_int(
-            summary, "build_info_schema_version"
-        ),
-        **{
-            key: summary.get(key, "")
-            for key in BUILD_INFO_KEYS[1:]
-        },
+        "build_info_schema_version": _summary_int(summary, "build_info_schema_version"),
+        **{key: summary.get(key, "") for key in BUILD_INFO_KEYS[1:]},
     }
 
 
@@ -2540,7 +2529,9 @@ def _validate_charges(path: Path, expected_rows: int) -> None:
     try:
         with path.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
-            if reader.fieldnames is None or not {"elem_idx", "charge_C"}.issubset(reader.fieldnames):
+            if reader.fieldnames is None or not {"elem_idx", "charge_C"}.issubset(
+                reader.fieldnames
+            ):
                 raise ValidationError("charges.csv is missing required columns")
             seen: set[int] = set()
             for row in reader:
@@ -2548,9 +2539,13 @@ def _validate_charges(path: Path, expected_rows: int) -> None:
                     index = int(row["elem_idx"])
                     charge = float(row["charge_C"])
                 except (TypeError, ValueError) as exc:
-                    raise ValidationError("charges.csv contains malformed values") from exc
+                    raise ValidationError(
+                        "charges.csv contains malformed values"
+                    ) from exc
                 if index in seen or not math.isfinite(charge):
-                    raise ValidationError("charges.csv contains duplicate/nonfinite values")
+                    raise ValidationError(
+                        "charges.csv contains duplicate/nonfinite values"
+                    )
                 seen.add(index)
     except OSError as exc:
         raise ValidationError(f"failed to read {path}: {exc}") from exc
@@ -2566,9 +2561,7 @@ def _validate_mesh_potential(path: Path, expected_rows: int) -> None:
                 "elem_idx",
                 "potential_V",
             }.issubset(reader.fieldnames):
-                raise ValidationError(
-                    "mesh_potential.csv is missing required columns"
-                )
+                raise ValidationError("mesh_potential.csv is missing required columns")
             seen: set[int] = set()
             for row in reader:
                 try:
@@ -2601,7 +2594,9 @@ def _validate_mesh_triangles(path: Path, expected_rows: int) -> Counter[int]:
                 if name not in {"elem_idx", "mesh_id"}
             ]
             if len(numeric_columns) < 9:
-                raise ValidationError("mesh_triangles.csv is missing triangle coordinates")
+                raise ValidationError(
+                    "mesh_triangles.csv is missing triangle coordinates"
+                )
             seen: set[int] = set()
             mesh_counts: Counter[int] = Counter()
             for row in reader:
@@ -2749,8 +2744,6 @@ def _validate_charge_ledger(
         "absorbed_on_surface_C",
         "escaped_to_infinity_C",
         "discarded_unresolved_C",
-        "interface_outward_gross_C",
-        "interface_returned_gross_C",
         *count_fields,
     }
     seen: set[int] = set()
@@ -2765,13 +2758,13 @@ def _validate_charge_ledger(
                     batch = int(row["batch"])
                     species = int(row["species_idx"])
                     charges = [
-                        float(row[name])
-                        for name in required
-                        if name.endswith("_C")
+                        float(row[name]) for name in required if name.endswith("_C")
                     ]
                     counts = {field: int(row[field]) for field in count_fields}
                 except (TypeError, ValueError) as exc:
-                    raise ValidationError("charge_ledger.csv contains malformed values") from exc
+                    raise ValidationError(
+                        "charge_ledger.csv contains malformed values"
+                    ) from exc
                 if (
                     batch != expected_batches
                     or species in seen
@@ -2779,7 +2772,9 @@ def _validate_charge_ledger(
                     or any(not math.isfinite(value) for value in charges)
                     or any(value < 0 for value in counts.values())
                 ):
-                    raise ValidationError("charge_ledger.csv violates the ledger contract")
+                    raise ValidationError(
+                        "charge_ledger.csv violates the ledger contract"
+                    )
                 seen.add(species)
                 for field, value in counts.items():
                     totals[field] += value
@@ -2802,38 +2797,22 @@ def _validate_checkpoint(output: Path, world_size: int) -> None:
     required.extend(
         output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)
     )
-    missing = [str(path) for path in required if not path.is_file() or path.stat().st_size == 0]
+    missing = [
+        str(path) for path in required if not path.is_file() or path.stat().st_size == 0
+    ]
     if missing:
         raise ValidationError(f"checkpoint files are missing/incomplete: {missing}")
 
 
-def _validate_electrostatic_restart_state(summary: Mapping[str, str]) -> None:
+def _validate_cached_electrostatic_state(summary: Mapping[str, str]) -> None:
     if not _summary_bool(summary, "electrostatic_split_periodic_active"):
-        raise ValidationError("infinite electrostatic restart state is not active")
-    integer_fields = (
-        "last_outer_update_batch",
-        "outer_applicability_status",
-        "outer_nonlinear_iterations",
-    )
-    float_fields = (
-        "interface_potential_V",
-        "interface_normal_field_V_m",
-        "outer_nonlinear_residual",
-        "outer_infinity_potential_V",
-        "outer_debye_length_m",
-        "outer_integrated_charge_per_area_C_m2",
-        "outer_electron_current_density_A_m2",
-        "outer_ion_current_density_A_m2",
-        "outer_photoelectron_current_density_A_m2",
-        "outer_total_current_density_A_m2",
-    )
+        raise ValidationError("cached electrostatic state is not active")
+    if summary.get("electrostatic_status") != "cached_kneq0":
+        raise ValidationError("cached electrostatic status mismatch")
     try:
-        for key in integer_fields:
-            _summary_int(summary, key)
-        for key in float_fields:
-            _summary_float(summary, key)
+        _summary_float(summary, "gauss_residual_C")
     except ValidationError as exc:
-        raise ValidationError(f"incomplete electrostatic restart state: {exc}") from exc
+        raise ValidationError(f"incomplete cached electrostatic state: {exc}") from exc
 
 
 def _validate_history(
@@ -2883,9 +2862,13 @@ def _validate_history(
                     element = int(row["elem_idx"])
                     charge = float(row["charge_C"])
                 except (TypeError, ValueError) as exc:
-                    raise ValidationError("charge_history.csv contains malformed values") from exc
-                if processed < 0 or rel_change < 0.0 or not all(
-                    math.isfinite(value) for value in (rel_change, charge)
+                    raise ValidationError(
+                        "charge_history.csv contains malformed values"
+                    ) from exc
+                if (
+                    processed < 0
+                    or rel_change < 0.0
+                    or not all(math.isfinite(value) for value in (rel_change, charge))
                 ):
                     raise ValidationError("charge_history.csv contains invalid values")
                 if current_batch is None:
@@ -2908,7 +2891,9 @@ def _validate_history(
         )
 
 
-def _matching_case(manifest: Mapping[str, Any], case_dir: Path) -> tuple[str, dict[str, Any]]:
+def _matching_case(
+    manifest: Mapping[str, Any], case_dir: Path
+) -> tuple[str, dict[str, Any]]:
     for name, value in manifest.get("cases", {}).items():
         if Path(str(value["output_dir"])) == case_dir:
             return str(name), dict(value)
@@ -2961,7 +2946,9 @@ def _load_execution_receipt(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise ValidationError(f"invalid execution receipt {path}: {exc}") from exc
     except UnicodeDecodeError as exc:
-        raise ValidationError(f"invalid execution receipt encoding {path}: {exc}") from exc
+        raise ValidationError(
+            f"invalid execution receipt encoding {path}: {exc}"
+        ) from exc
     if not isinstance(value, dict) or value.get("receipt_schema_version") != 1:
         raise ValidationError(f"invalid execution receipt schema: {path}")
     digest = value.get("receipt_payload_sha256")
@@ -3031,7 +3018,9 @@ def _load_submission_journal(
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValidationError(f"job submission journal is missing or invalid: {exc}") from exc
+        raise ValidationError(
+            f"job submission journal is missing or invalid: {exc}"
+        ) from exc
     expected_keys = {"submission_complete", *EXPECTED_SUBMITTED_JOBS}
     if not isinstance(value, Mapping) or set(value) != expected_keys:
         raise ValidationError("job submission journal has an unexpected key set")
@@ -3353,7 +3342,9 @@ def verify_run(
     if expected_build_origin is not None:
         analysis_library = manifest.get("analysis_library")
         if not isinstance(analysis_library, Mapping):
-            raise ValidationError("build origin verification requires an analysis library")
+            raise ValidationError(
+                "build origin verification requires an analysis library"
+            )
         _verify_staged_build_origin(
             manifest,
             binary=binary,
@@ -3378,7 +3369,9 @@ def verify_run(
             raise ValidationError("finite case zero-mode policy mismatch")
         if summary.get("periodic2_lower_boundary_model") != "legacy_implicit":
             raise ValidationError("finite case lower-boundary model mismatch")
-        if "periodic2_cache_hit" in summary and _summary_bool(summary, "periodic2_cache_hit"):
+        if "periodic2_cache_hit" in summary and _summary_bool(
+            summary, "periodic2_cache_hit"
+        ):
             raise ValidationError("finite case unexpectedly reports a cache hit")
     else:
         if backend != "cached_kneq0":
@@ -3387,7 +3380,7 @@ def verify_run(
             raise ValidationError("infinite case zero-mode policy mismatch")
         if summary.get("periodic2_lower_boundary_model") != "e_bottom_zero":
             raise ValidationError("infinite case lower-boundary model mismatch")
-        _validate_electrostatic_restart_state(summary)
+        _validate_cached_electrostatic_state(summary)
         tolerance = _summary_float(summary, "periodic2_generation_tolerance")
         if tolerance != DEFAULT_GENERATION_TOLERANCE:
             raise ValidationError("periodic generation tolerance mismatch")
@@ -3403,9 +3396,7 @@ def verify_run(
             label="cached operator path",
         )
         if not cache_path.is_file() or cache_path.stat().st_size == 0:
-            raise ValidationError(
-                f"cached operator is missing or empty: {cache_path}"
-            )
+            raise ValidationError(f"cached operator is missing or empty: {cache_path}")
         cache_hash = _sha256(cache_path)
         cache.update(
             hit=hit,
@@ -3415,14 +3406,20 @@ def verify_run(
             path_sha256=cache_hash,
         )
         if expectation == "miss" and (hit or build_count != 1):
-            raise ValidationError("cache prime must report a cache miss and build_count=1")
+            raise ValidationError(
+                "cache prime must report a cache miss and build_count=1"
+            )
         if expectation == "hit" and (not hit or build_count != 0):
-            raise ValidationError("warm cached case must report a cache hit and build_count=0")
+            raise ValidationError(
+                "warm cached case must report a cache hit and build_count=0"
+            )
         prime_dir = Path(str(manifest["cases"]["cache_prime"]["output_dir"]))
         if expectation == "hit":
             prime_summary_path = prime_dir / "summary.txt"
             if not prime_summary_path.is_file():
-                raise ValidationError("warm cached case requires the cache prime summary")
+                raise ValidationError(
+                    "warm cached case requires the cache prime summary"
+                )
             prime_summary = _summary(prime_summary_path)
             prime_fingerprint = prime_summary.get("periodic2_cache_fingerprint", "")
             if fingerprint != prime_fingerprint:
@@ -3486,12 +3483,6 @@ def verify_run(
     ]
     if write_mesh_potential:
         required_outputs.append(output / "mesh_potential.csv")
-    outer_config = case_config.get("outer_plasma", {})
-    if not isinstance(outer_config, Mapping):
-        raise ValidationError(f"outer_plasma configuration is invalid for {name}")
-    outer_model = str(outer_config.get("model", "none")).strip().lower()
-    if outer_model == "kinetic_1d":
-        required_outputs.append(output / "outer_plasma_profile.csv")
     required_outputs.extend(
         output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)
     )
@@ -3545,10 +3536,14 @@ def verify_run(
     return _publish_execution_receipt(receipt_path, report)
 
 
-def _write_csv(path: Path, fieldnames: Sequence[str], rows: Iterable[Mapping[str, Any]]) -> None:
+def _write_csv(
+    path: Path, fieldnames: Sequence[str], rows: Iterable[Mapping[str, Any]]
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n")
+        writer = csv.DictWriter(
+            stream, fieldnames=fieldnames, extrasaction="ignore", lineterminator="\n"
+        )
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in fieldnames})
@@ -3577,7 +3572,9 @@ def _case_result(
             "source_version": source_version,
             "batches": result.batches,
             "mesh_nelem": result.mesh_nelem,
-            "mesh_count": len(set(int(v) for v in result.mesh_ids)) if result.mesh_ids is not None else "",
+            "mesh_count": len(set(int(v) for v in result.mesh_ids))
+            if result.mesh_ids is not None
+            else "",
             "processed_particles": result.processed_particles,
             "absorbed": result.absorbed,
             "escaped": result.escaped,
@@ -3619,7 +3616,9 @@ def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
                 batch = int(raw["batch"])
                 if current_batch is not None and batch != current_batch:
                     if current_batch in seen_batches:
-                        raise ValidationError(f"duplicate history batch {current_batch} for {case}")
+                        raise ValidationError(
+                            f"duplicate history batch {current_batch} for {case}"
+                        )
                     rows.append(
                         {
                             "case": case,
@@ -3641,7 +3640,9 @@ def _history_rows(case: str, paths: Sequence[Path]) -> list[dict[str, Any]]:
                 charge_sum += charge
         if current_batch is not None:
             if current_batch in seen_batches:
-                raise ValidationError(f"duplicate history batch {current_batch} for {case}")
+                raise ValidationError(
+                    f"duplicate history batch {current_batch} for {case}"
+                )
             rows.append(
                 {
                     "case": case,
@@ -3880,9 +3881,7 @@ def _collect_charge_snapshots(
         charges = np.asarray(snapshot["charges"], dtype=np.float64)
         if charges.shape != mesh_ids_array.shape or not np.all(np.isfinite(charges)):
             raise ValidationError(f"snapshot charges are invalid for {case}")
-        snapshot_id = (
-            f"{case}:{snapshot['sample_kind']}:{snapshot['resolved_batch']}"
-        )
+        snapshot_id = f"{case}:{snapshot['sample_kind']}:{snapshot['resolved_batch']}"
         snapshot["snapshot_id"] = snapshot_id
         source_file = Path(snapshot["source_file"])
         for scope, mesh_id, mask in (
@@ -3905,15 +3904,11 @@ def _collect_charge_snapshots(
                     "resolved_batch": snapshot["resolved_batch"],
                     "run_final_batch": final_batch,
                     "is_latest_history": snapshot["is_latest_history"],
-                    "mesh_fingerprint": getattr(
-                        result, "mesh_fingerprint", None
-                    )
-                    or "",
+                    "mesh_fingerprint": getattr(result, "mesh_fingerprint", None) or "",
                     "field_source_model": getattr(
                         result, "field_source_model", "unknown"
                     ),
-                    "field_kernel_id": getattr(result, "field_kernel_id", None)
-                    or "",
+                    "field_kernel_id": getattr(result, "field_kernel_id", None) or "",
                     "scope": scope,
                     "mesh_id": mesh_id,
                     "processed_particles": snapshot["processed_particles"],
@@ -4073,8 +4068,7 @@ def _charge_snapshot_comparisons(
         geometry = _geometry_comparison(left_result, right_result)
         geometry_matches = geometry["status"] == "match"
         common = sorted(
-            set(snapshots.get(left_case, {}))
-            & set(snapshots.get(right_case, {})),
+            set(snapshots.get(left_case, {})) & set(snapshots.get(right_case, {})),
             key=lambda value: (value[0] == "final", value[1]),
         )
         for sample_key in common:
@@ -4178,8 +4172,7 @@ def _physics_comparison_rows(
             int(row.get("mesh_id", 0)),
         ): row
         for row in path_rows
-        if row.get("status") == "available"
-        and str(row.get("mesh_id", "")).isdigit()
+        if row.get("status") == "available" and str(row.get("mesh_id", "")).isdigit()
     }
     definitions = (
         (
@@ -4267,12 +4260,8 @@ def _physics_comparison_rows(
                 "resolved_batch": batch,
                 "scope": "object",
                 "mesh_id": mesh_id,
-                "left_snapshot_id": (
-                    f"{left['case']}:{sample_kind}:{batch}"
-                ),
-                "right_snapshot_id": (
-                    f"{right['case']}:{sample_kind}:{batch}"
-                ),
+                "left_snapshot_id": (f"{left['case']}:{sample_kind}:{batch}"),
+                "right_snapshot_id": (f"{right['case']}:{sample_kind}:{batch}"),
                 "left_effective_far_correction": left.get(
                     "effective_far_correction", ""
                 ),
@@ -4284,9 +4273,7 @@ def _physics_comparison_rows(
                 "right_value": right_value,
                 "signed_difference": signed,
                 "absolute_difference": abs(signed),
-                "relative_difference": (
-                    0.0 if scale == 0.0 else abs(signed) / scale
-                ),
+                "relative_difference": (0.0 if scale == 0.0 else abs(signed) / scale),
                 "status": status,
                 "interpretation": interpretation,
             }
@@ -4509,8 +4496,7 @@ def _comparison_artifact_contract(
         if kind in expected_effective and (left_effective or right_effective):
             if (left_effective, right_effective) != expected_effective[kind]:
                 semantic_errors.append(
-                    f"{kind} effective tuple is "
-                    f"({left_effective}, {right_effective})"
+                    f"{kind} effective tuple is ({left_effective}, {right_effective})"
                 )
         if (
             kind == "frozen_field_override"
@@ -4644,9 +4630,7 @@ def _legacy_selected_csv_rows(
         with path.open("r", encoding="utf-8", newline="") as stream:
             reader = csv.DictReader(stream)
             if tuple(reader.fieldnames or ()) != tuple(fields):
-                raise ValidationError(
-                    f"legacy estimator schema mismatch: {path.name}"
-                )
+                raise ValidationError(f"legacy estimator schema mismatch: {path.name}")
             for line_number, row in enumerate(reader, start=2):
                 if None in row or any(row.get(field) is None for field in fields):
                     raise ValidationError(
@@ -4672,9 +4656,7 @@ def _legacy_selected_csv_rows(
                 if selector(parsed):
                     selected.append(parsed)
     except OSError as exc:
-        raise ValidationError(
-            f"legacy estimator input cannot be read: {path}"
-        ) from exc
+        raise ValidationError(f"legacy estimator input cannot be read: {path}") from exc
     return selected
 
 
@@ -4751,7 +4733,10 @@ def _legacy_estimator_audit_impl(
     curve_rows: Sequence[Mapping[str, Any]],
     path_rows: Sequence[Mapping[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    paths = {Path(relative).name: archive_run / relative for relative in LEGACY_ESTIMATOR_INPUTS}
+    paths = {
+        Path(relative).name: archive_run / relative
+        for relative in LEGACY_ESTIMATOR_INPUTS
+    }
     missing = sorted(name for name, path in paths.items() if not path.is_file())
     if missing:
         raise ValidationError(
@@ -4821,7 +4806,9 @@ def _legacy_estimator_audit_impl(
         key = (int(float(row["batch"])), int(float(row["target_mesh_id"])))
         curve_groups[key].append(row)
     if set(release_index) != expected_keys or set(timeseries_index) != expected_keys:
-        raise ValidationError("legacy estimator selected batch/mesh coverage is invalid")
+        raise ValidationError(
+            "legacy estimator selected batch/mesh coverage is invalid"
+        )
 
     current_paths: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in path_rows:
@@ -4833,7 +4820,9 @@ def _legacy_estimator_audit_impl(
             key = (int(row.get("resolved_batch", 0)), int(row.get("mesh_id", 0)))
             if key in expected_keys:
                 if key in current_paths:
-                    raise ValidationError(f"legacy estimator duplicate current path: {key}")
+                    raise ValidationError(
+                        f"legacy estimator duplicate current path: {key}"
+                    )
                 current_paths[key] = row
     current_wrenches: dict[tuple[int, int], Mapping[str, Any]] = {}
     for row in wrench_rows:
@@ -4878,9 +4867,7 @@ def _legacy_estimator_audit_impl(
         )
         endpoint: float | None = None
         for candidate in (0.0, 2.0 * radius):
-            if math.isclose(
-                displacement, candidate, rel_tol=1.0e-12, abs_tol=1.0e-18
-            ):
+            if math.isclose(displacement, candidate, rel_tol=1.0e-12, abs_tol=1.0e-18):
                 endpoint = candidate
                 break
         if endpoint is None:
@@ -4928,9 +4915,7 @@ def _legacy_estimator_audit_impl(
         ):
             raise ValidationError(f"legacy estimator charge mapping mismatch: {key}")
         if (
-            _legacy_integer(
-                float(release["z_samples"]), label="release z_samples"
-            )
+            _legacy_integer(float(release["z_samples"]), label="release z_samples")
             != model["z_samples"]
             or not math.isclose(
                 float(release["radius_m"]),
@@ -4954,7 +4939,9 @@ def _legacy_estimator_audit_impl(
             raise ValidationError(f"legacy estimator summary geometry mismatch: {key}")
         group = curve_groups[key]
         if len(group) != model["z_samples"]:
-            raise ValidationError(f"legacy estimator curve sample coverage mismatch: {key}")
+            raise ValidationError(
+                f"legacy estimator curve sample coverage mismatch: {key}"
+            )
         legacy_endpoints: dict[float, Mapping[str, float | None]] = {}
         for row in group:
             displacement = float(row["displacement_z_m"])
@@ -4968,7 +4955,9 @@ def _legacy_estimator_audit_impl(
                         )
                     legacy_endpoints[endpoint] = row
         if set(legacy_endpoints) != {0.0, model["z_max_m"]}:
-            raise ValidationError(f"legacy estimator curve endpoints are missing: {key}")
+            raise ValidationError(
+                f"legacy estimator curve endpoints are missing: {key}"
+            )
         if not (
             math.isclose(
                 float(legacy_endpoints[0.0]["f_coulomb_z_n"]),
@@ -4995,10 +4984,7 @@ def _legacy_estimator_audit_impl(
         integrated_work = sum(
             0.5
             * (float(left["f_coulomb_z_n"]) + float(right["f_coulomb_z_n"]))
-            * (
-                float(right["displacement_z_m"])
-                - float(left["displacement_z_m"])
-            )
+            * (float(right["displacement_z_m"]) - float(left["displacement_z_m"]))
             for left, right in zip(ordered_curve, ordered_curve[1:])
         )
         if not math.isclose(
@@ -5007,7 +4993,9 @@ def _legacy_estimator_audit_impl(
             rel_tol=1.0e-12,
             abs_tol=1.0e-30,
         ):
-            raise ValidationError(f"legacy estimator curve-summary work mismatch: {key}")
+            raise ValidationError(
+                f"legacy estimator curve-summary work mismatch: {key}"
+            )
 
         current_total_z0 = _legacy_finite_number(
             current_curves[(*key, "total_external", 0.0)].get("force_z_N"),
@@ -5036,9 +5024,7 @@ def _legacy_estimator_audit_impl(
                 )
             )
         for displacement in (0.0, model["z_max_m"]):
-            legacy_force = float(
-                legacy_endpoints[displacement]["f_coulomb_z_n"]
-            )
+            legacy_force = float(legacy_endpoints[displacement]["f_coulomb_z_n"])
             for component in components:
                 current_force = _legacy_finite_number(
                     current_curves[(*key, component, displacement)].get("force_z_N"),
@@ -5088,9 +5074,7 @@ def _legacy_estimator_audit_impl(
         "covered_native_keys": [list(key) for key in LEGACY_NATIVE_KEYS],
         "comparison_row_count": len(comparison_rows),
         "closeness_is_a_gate": False,
-        "input_sha256": {
-            name: _sha256(path) for name, path in sorted(paths.items())
-        },
+        "input_sha256": {name: _sha256(path) for name, path in sorted(paths.items())},
     }
 
 
@@ -5146,7 +5130,9 @@ def _release_parameters(
     if not math.isfinite(geometry_radius_m) or geometry_radius_m <= 0.0:
         raise ValidationError("target geometry radius must be finite and positive")
     if not math.isfinite(radius_relative_tolerance) or radius_relative_tolerance < 0.0:
-        raise ValidationError("radius relative tolerance must be finite and nonnegative")
+        raise ValidationError(
+            "radius relative tolerance must be finite and nonnegative"
+        )
     if "radius_m" not in assumptions:
         if not allow_geometry_radius_fallback:
             raise ValidationError(
@@ -5226,19 +5212,19 @@ def _release_parameters(
             ]
             if invalid:
                 raise ValidationError(
-                    "invalid vdw adhesion positive parameters: "
-                    + ", ".join(invalid)
+                    "invalid vdw adhesion positive parameters: " + ", ".join(invalid)
                 )
             if cutoff <= contact:
                 raise ValidationError(
-                    "invalid vdw adhesion: cutoff_distance must exceed "
-                    "contact_distance"
+                    "invalid vdw adhesion: cutoff_distance must exceed contact_distance"
                 )
             if geometry not in {"sphere_sphere", "sphere_plane"}:
                 raise ValidationError(
                     f"invalid vdw adhesion contact_geometry: {geometry!r}"
                 )
-            effective_radius = radius_m / 2.0 if geometry == "sphere_sphere" else radius_m
+            effective_radius = (
+                radius_m / 2.0 if geometry == "sphere_sphere" else radius_m
+            )
             coefficient = contacts * roughness * hamaker * effective_radius / 6.0
             adhesion_force = coefficient / contact**2
             adhesion_work = peel * coefficient * (1.0 / contact - 1.0 / cutoff)
@@ -5247,9 +5233,7 @@ def _release_parameters(
                 math.isfinite(value) and value > 0.0
                 for value in (adhesion_force, adhesion_work, equivalent_range)
             ):
-                raise ValidationError(
-                    "invalid vdw adhesion derived force/work/range"
-                )
+                raise ValidationError("invalid vdw adhesion derived force/work/range")
             adhesion = AdhesionProfile.finite_range_constant(
                 adhesion_force, equivalent_range
             )
@@ -5297,7 +5281,9 @@ def _probe_geometry_contract(probe: Any) -> tuple[float, str]:
     except (AttributeError, TypeError, ValueError) as exc:
         raise ValidationError("probe vertex bounding radius is unavailable") from exc
     if not math.isfinite(radius) or radius <= 0.0:
-        raise ValidationError("probe vertex bounding radius must be finite and positive")
+        raise ValidationError(
+            "probe vertex bounding radius must be finite and positive"
+        )
     return radius, representation
 
 
@@ -5389,7 +5375,9 @@ def _validate_production_torque_origin_contract(
         path_origins = np.asarray(path_origin_m, dtype=np.float64)
         displacement = np.asarray(displacement_m, dtype=np.float64)
     except (AttributeError, TypeError, ValueError) as exc:
-        raise ValidationError("production torque origin contract is unavailable") from exc
+        raise ValidationError(
+            "production torque origin contract is unavailable"
+        ) from exc
     if centroid.shape != (3,) or wrench_origin.shape != (3,):
         raise ValidationError("production wrench/centroid origins must have shape (3,)")
     if displacement.ndim != 1 or path_origins.shape != (displacement.size, 3):
@@ -5402,14 +5390,14 @@ def _validate_production_torque_origin_contract(
     expected = np.broadcast_to(centroid, path_origins.shape).copy()
     expected[:, 2] += displacement
     if not np.allclose(wrench_origin, centroid, rtol=1.0e-12, atol=1.0e-15):
-        raise ValidationError("production wrench torque origin is not the target centroid")
+        raise ValidationError(
+            "production wrench torque origin is not the target centroid"
+        )
     if not np.allclose(path_origins, expected, rtol=1.0e-12, atol=1.0e-15):
         raise ValidationError(
             "production moving torque origins do not track the displacement grid"
         )
-    if not np.allclose(
-        path_origins[0], wrench_origin, rtol=1.0e-12, atol=1.0e-15
-    ):
+    if not np.allclose(path_origins[0], wrench_origin, rtol=1.0e-12, atol=1.0e-15):
         raise ValidationError("wrench/path initial torque origins do not match")
 
 
@@ -5443,7 +5431,9 @@ def _require_additive_identity(
 
     expected = np.empty_like(total_values)
     for index in np.ndindex(total_values.shape):
-        values = [float(stacked[(component, *index)]) for component in range(stacked.shape[0])]
+        values = [
+            float(stacked[(component, *index)]) for component in range(stacked.shape[0])
+        ]
         magnitude = max((abs(value) for value in values), default=0.0)
         if magnitude == 0.0:
             summed = 0.0
@@ -5521,7 +5511,9 @@ def _validate_strict_wrench_component_contract(
             "wrench total arrays do not match total_external components"
         )
     available_numerical = {
-        name for name in CACHED_NUMERICAL_COMPONENTS if isinstance(metadata.get(name), Mapping)
+        name
+        for name in CACHED_NUMERICAL_COMPONENTS
+        if isinstance(metadata.get(name), Mapping)
     }
     if effective_far_correction == "cached_kneq0":
         if available_numerical != set(CACHED_NUMERICAL_COMPONENTS):
@@ -5610,7 +5602,9 @@ def _validate_strict_path_component_contract(
     npoint = displacement.size
     shape = (npoint, 3)
     force = {
-        name: _component_array(force_mapping[name], shape=shape, label=f"{name} path force")
+        name: _component_array(
+            force_mapping[name], shape=shape, label=f"{name} path force"
+        )
         for name in PHYSICAL_OBJECT_COMPONENTS
     }
     torque = {
@@ -5636,7 +5630,9 @@ def _validate_strict_path_component_contract(
         _component_array(path.torque_Nm, shape=shape, label="path total torque"),
         torque["total_external"],
     ):
-        raise ValidationError("path total arrays do not match total_external components")
+        raise ValidationError(
+            "path total arrays do not match total_external components"
+        )
 
 
 def _validate_shell_reference_contract(shell: Any) -> None:
@@ -5652,14 +5648,20 @@ def _validate_shell_reference_contract(shell: Any) -> None:
         work_tail = np.asarray(shell.work_tail_proxy_J, dtype=np.float64)
     except (AttributeError, TypeError, ValueError) as exc:
         raise ValidationError("finite shell reference contract is unavailable") from exc
-    if layers.ndim != 1 or layers.size == 0 or not np.issubdtype(
-        layers.dtype, np.integer
+    if (
+        layers.ndim != 1
+        or layers.size == 0
+        or not np.issubdtype(layers.dtype, np.integer)
     ):
-        raise ValidationError("finite shell image_layers must be consecutive and unique")
+        raise ValidationError(
+            "finite shell image_layers must be consecutive and unique"
+        )
     if int(layers[0]) != 0:
         raise ValidationError("finite shell image_layers must start at zero")
     if np.any(np.diff(layers) != 1):
-        raise ValidationError("finite shell image_layers must be consecutive and unique")
+        raise ValidationError(
+            "finite shell image_layers must be consecutive and unique"
+        )
     if increment.dtype != np.dtype(bool) or reference.dtype != np.dtype(bool):
         raise ValidationError(
             "finite shell convergence gate arrays must have boolean dtype"
@@ -5684,9 +5686,13 @@ def _validate_shell_reference_contract(shell: Any) -> None:
         or not np.all(np.isfinite(reference_force))
         or not np.all(np.isfinite(reference_work))
     ):
-        raise ValidationError("finite shell physical reference arrays have the wrong shape")
+        raise ValidationError(
+            "finite shell physical reference arrays have the wrong shape"
+        )
     if np.any(reference_force < 0.0) or np.any(reference_work < 0.0):
-        raise ValidationError("finite shell physical reference errors must be nonnegative")
+        raise ValidationError(
+            "finite shell physical reference errors must be nonnegative"
+        )
     selected = getattr(shell, "selected_image_layers", None)
     status = str(getattr(shell, "status", ""))
     if status not in {"converged", "not_converged"}:
@@ -5753,9 +5759,7 @@ def _wrench_row(
         raise ValidationError("wrench torque origin must have shape (3,) and be finite")
     try:
         charge_value = float(total_charge)
-        potential_value = (
-            None if potential_energy is None else float(potential_energy)
-        )
+        potential_value = None if potential_energy is None else float(potential_energy)
     except (TypeError, ValueError) as exc:
         raise ValidationError("wrench scalar fields must be finite") from exc
     if not math.isfinite(charge_value) or (
@@ -5768,9 +5772,7 @@ def _wrench_row(
         "effective_far_correction": effective_far_correction,
         "zero_mode_policy": zero_mode_policy,
         "lower_boundary_model": lower_boundary_model,
-        "periodic_cache_hit": (
-            "" if periodic_cache is None else periodic_cache["hit"]
-        ),
+        "periodic_cache_hit": ("" if periodic_cache is None else periodic_cache["hit"]),
         "periodic_cache_build_count": (
             "" if periodic_cache is None else periodic_cache["build_count"]
         ),
@@ -5830,7 +5832,9 @@ def _finite_shell_rows(
     path_grid = np.asarray(displacement_m, dtype=np.float64)
     if path_grid.ndim != 1 or path_grid.size < 2 or not np.all(np.isfinite(path_grid)):
         raise ValidationError("finite shell displacement grid is invalid")
-    if not math.isclose(float(path_grid[0]), 0.0, rel_tol=0.0, abs_tol=0.0) or not math.isclose(
+    if not math.isclose(
+        float(path_grid[0]), 0.0, rel_tol=0.0, abs_tol=0.0
+    ) or not math.isclose(
         float(path_grid[-1]),
         2.0 * float(mechanics["radius_m"]),
         rel_tol=1.0e-12,
@@ -5849,9 +5853,7 @@ def _finite_shell_rows(
                 "step_selector": step_selector,
                 "resolved_batch": resolved_batch,
                 "mesh_id": mesh_id,
-                **_radius_provenance_fields(
-                    mechanics, target_geometry_representation
-                ),
+                **_radius_provenance_fields(mechanics, target_geometry_representation),
                 "path_start_m": path_grid[0],
                 "path_end_m": path_grid[-1],
                 "image_layers": int(layer),
@@ -6060,9 +6062,8 @@ def _evaluate_object_physics_at_step(
         )
         missing_ids = sorted(set(target_ids) - available_ids)
         if missing_ids:
-            message = (
-                "required target mesh ids 6/7 are unavailable: "
-                + ", ".join(str(value) for value in missing_ids)
+            message = "required target mesh ids 6/7 are unavailable: " + ", ".join(
+                str(value) for value in missing_ids
             )
             failures.append({"case": case, "message": message})
             wrench_rows.append(
@@ -6085,11 +6086,7 @@ def _evaluate_object_physics_at_step(
             )
             continue
         selected_ids = tuple(int(value) for value in evaluation_target_ids)
-        case_models = (
-            ("configured",)
-            if case == "new_infinite_physical"
-            else models
-        )
+        case_models = ("configured",) if case == "new_infinite_physical" else models
         for periodic_model in case_models:
             try:
                 snapshot_context = run.object_interaction_snapshot(
@@ -6174,7 +6171,10 @@ def _evaluate_object_physics_at_step(
                                     torque_Nm=wrench.torque_Nm,
                                     potential_energy_J=None,
                                 )
-                            for component_name, component in physical_components.items():
+                            for (
+                                component_name,
+                                component,
+                            ) in physical_components.items():
                                 wrench_rows.append(
                                     _wrench_row(
                                         case=case,
@@ -6183,9 +6183,13 @@ def _evaluate_object_physics_at_step(
                                         zero_mode_policy="unknown",
                                         lower_boundary_model="unknown",
                                         periodic_cache=cache_provenance,
-                                        step_selector=("final" if step is None else step),
+                                        step_selector=(
+                                            "final" if step is None else step
+                                        ),
                                         resolved_batch=(
-                                            int(result.batches) if step is None else step
+                                            int(result.batches)
+                                            if step is None
+                                            else step
                                         ),
                                         mesh_id=mesh_id,
                                         mechanics=mechanics,
@@ -6225,9 +6229,13 @@ def _evaluate_object_physics_at_step(
                                         zero_mode_policy="unknown",
                                         lower_boundary_model="unknown",
                                         periodic_cache=cache_provenance,
-                                        step_selector=("final" if step is None else step),
+                                        step_selector=(
+                                            "final" if step is None else step
+                                        ),
                                         resolved_batch=(
-                                            int(result.batches) if step is None else step
+                                            int(result.batches)
+                                            if step is None
+                                            else step
                                         ),
                                         mesh_id=mesh_id,
                                         mechanics=mechanics,
@@ -6312,9 +6320,7 @@ def _evaluate_object_physics_at_step(
                                 np.max(np.linalg.norm(path.force_N, axis=1))
                             )
                             force_floor_to_peak = (
-                                1.0e-12 / peak_force
-                                if peak_force > 0.0
-                                else math.inf
+                                1.0e-12 / peak_force if peak_force > 0.0 else math.inf
                             )
                             force_margin_over_tolerance = (
                                 abs(release.instantaneous_force_margin_N) / 1.0e-12
@@ -6369,25 +6375,36 @@ def _evaluate_object_physics_at_step(
                                         "torque_origin_z_m": path_torque_origins[
                                             index, 2
                                         ],
-                                        "electrostatic_work_J": path.electrostatic_work_J[index],
+                                        "electrostatic_work_J": path.electrostatic_work_J[
+                                            index
+                                        ],
                                         "potential_difference_work_J": (
                                             ""
                                             if potential_work is None
                                             else potential_work[index]
                                         ),
                                         "gravity_work_J": release.gravity_work_J[index],
-                                        "adhesion_work_J": release.adhesion_work_J[index],
-                                        "available_energy_J": release.available_energy_J[index],
-                                        "electrostatic_only_speed_m_s": release.electrostatic_only_speed_m_s[index],
-                                        "gravity_corrected_speed_m_s": release.gravity_corrected_speed_m_s[index],
-                                        "speed_m_s": release.speed_m_s[index],
-                                        "eta_translation": mechanics[
-                                            "eta_translation"
+                                        "adhesion_work_J": release.adhesion_work_J[
+                                            index
                                         ],
+                                        "available_energy_J": release.available_energy_J[
+                                            index
+                                        ],
+                                        "electrostatic_only_speed_m_s": release.electrostatic_only_speed_m_s[
+                                            index
+                                        ],
+                                        "gravity_corrected_speed_m_s": release.gravity_corrected_speed_m_s[
+                                            index
+                                        ],
+                                        "speed_m_s": release.speed_m_s[index],
+                                        "eta_translation": mechanics["eta_translation"],
                                         "status": path.status,
                                     }
                                 )
-                                for component_name, values in path.component_force_N.items():
+                                for (
+                                    component_name,
+                                    values,
+                                ) in path.component_force_N.items():
                                     if component_name == "total_external":
                                         continue
                                     torques = path.component_torque_Nm[component_name]
@@ -6429,9 +6446,7 @@ def _evaluate_object_physics_at_step(
                                     "mesh_id": mesh_id,
                                     "radius_m": radius,
                                     "radius_source": mechanics["radius_source"],
-                                    "geometry_radius_m": mechanics[
-                                        "geometry_radius_m"
-                                    ],
+                                    "geometry_radius_m": mechanics["geometry_radius_m"],
                                     "radius_relative_mismatch": mechanics[
                                         "radius_relative_mismatch"
                                     ],
@@ -6559,7 +6574,9 @@ def _evaluate_object_physics_at_step(
                                             "final" if step is None else step
                                         ),
                                         resolved_batch=(
-                                            int(result.batches) if step is None else step
+                                            int(result.batches)
+                                            if step is None
+                                            else step
                                         ),
                                         mesh_id=mesh_id,
                                         shell=shell,
@@ -6648,13 +6665,11 @@ def _evaluate_object_physics_at_step(
             )
             item["effective_far_correction"] = effective
             item["zero_mode_policy"] = (
-                (
-                    "exclude_k0"
-                    if effective == "cached_kneq0"
-                    else "legacy_not_decomposed"
-                    if effective == "none"
-                    else "unknown"
-                )
+                "exclude_k0"
+                if effective == "cached_kneq0"
+                else "legacy_not_decomposed"
+                if effective == "none"
+                else "unknown"
             )
             item["lower_boundary_model"] = (
                 "e_bottom_zero"
@@ -6729,9 +6744,7 @@ def _evaluate_new_infinite_shell_reference(
                     mechanics = _release_parameters(
                         archive_run,
                         geometry_radius,
-                        allow_geometry_radius_fallback=(
-                            allow_geometry_radius_fallback
-                        ),
+                        allow_geometry_radius_fallback=(allow_geometry_radius_fallback),
                     )
                     if verified_cache_prime is not None:
                         wrench = probe.wrench(components=False)
@@ -6781,9 +6794,7 @@ def _evaluate_new_infinite_shell_reference(
                             mesh_id=mesh_id,
                             shell=shell,
                             mechanics=mechanics,
-                            target_geometry_representation=(
-                                _geometry_representation
-                            ),
+                            target_geometry_representation=(_geometry_representation),
                             displacement_m=initial_grid,
                         )
                     )
@@ -6836,9 +6847,7 @@ def _evaluate_object_physics(
     successes = 0
     evaluated_snapshots: list[dict[str, Any]] = []
     verified_cache_prime = (
-        _verified_cache_prime_contract(validation_root)
-        if require_history
-        else None
+        _verified_cache_prime_contract(validation_root) if require_history else None
     )
     cache_file_hashes: dict[Path, str] = {}
 
@@ -6994,9 +7003,7 @@ def _physics_review_lines(
         model = str(path["periodic_model"])
         batch = int(path["resolved_batch"])
         mesh = str(path["mesh_id"])
-        total = wrench_index.get(
-            (case, model, batch, mesh, "total_external"), {}
-        )
+        total = wrench_index.get((case, model, batch, mesh, "total_external"), {})
         replicas = wrench_index.get(
             (case, model, batch, mesh, "target_periodic_images"), {}
         )
@@ -7075,8 +7082,7 @@ def _local_model_numerical_qualification(
     total_wrenches = [
         row
         for row in wrench_rows
-        if row.get("status") == "available"
-        and row.get("component") == "total_external"
+        if row.get("status") == "available" and row.get("component") == "total_external"
     ]
     wrench_keys = [
         (
@@ -7204,7 +7210,7 @@ def _local_model_numerical_qualification(
             "E_bottom=0 closure selection",
             "single paired random seed",
             "equivalent finite-range adhesion profile",
-            "outer sheath/plasma closure not included in escape energy",
+            "nonlocal plasma closure not included in escape energy",
         ],
     }
 
@@ -7220,9 +7226,7 @@ def _verify_complete_runs(
     for name in STRICT_CASES:
         case = cases.get(name)
         if not isinstance(case, dict):
-            raise ValidationError(
-                f"complete analysis requires staged case {name}"
-            )
+            raise ValidationError(f"complete analysis requires staged case {name}")
         try:
             report = verify_run(
                 case["output_dir"],
@@ -7246,9 +7250,7 @@ def _verify_pair_fingerprint_contract(
         for case_name in case_names:
             fingerprints = reports.get(case_name, {}).get("fingerprints")
             if not isinstance(fingerprints, Mapping):
-                raise ValidationError(
-                    f"pair {key} metadata is missing for {case_name}"
-                )
+                raise ValidationError(f"pair {key} metadata is missing for {case_name}")
             value = str(fingerprints.get(key, ""))
             if len(value) != 16:
                 raise ValidationError(f"pair {key} is invalid for {case_name}")
@@ -7443,9 +7445,7 @@ def analyze_validation(
             require_complete=True,
             analysis_directory=temporary,
         )
-        actual_artifacts = {
-            path.name for path in temporary.iterdir() if path.is_file()
-        }
+        actual_artifacts = {path.name for path in temporary.iterdir() if path.is_file()}
         if actual_artifacts != expected_artifacts:
             raise ValidationError(
                 "strict analysis artifact set mismatch: "
@@ -7495,9 +7495,7 @@ def analyze_validation(
                 "strict local frozen-model numerical qualification failed; "
                 f"diagnostics published at {final_analysis}"
             )
-        comparison_status = report.get(
-            "comparison_artifact_contract", {}
-        ).get("status")
+        comparison_status = report.get("comparison_artifact_contract", {}).get("status")
         if comparison_status != "complete":
             raise ValidationError(
                 "strict comparison artifact contract failed; "
@@ -7570,11 +7568,10 @@ def _analyze_validation_impl(
             raise ValidationError(
                 "complete analysis must use the staged analysis library"
             )
-        if (
-            not staged_path.is_file()
-            or _sha256(staged_path) != staged_library.get("sha256")
-            ):
-                raise ValidationError("staged analysis library hash mismatch")
+        if not staged_path.is_file() or _sha256(staged_path) != staged_library.get(
+            "sha256"
+        ):
+            raise ValidationError("staged analysis library hash mismatch")
         try:
             submission_provenance = _verify_submission_provenance(root, manifest)
         except ValidationError as exc:
@@ -7674,9 +7671,7 @@ def _analyze_validation_impl(
         runs[name] = run
     if require_complete:
         incomplete = [
-            str(row["case"])
-            for row in run_rows
-            if row.get("status") != "available"
+            str(row["case"]) for row in run_rows if row.get("status") != "available"
         ]
         if incomplete:
             raise ValidationError(
@@ -7738,7 +7733,9 @@ def _analyze_validation_impl(
 
     history_rows: list[dict[str, Any]] = []
     history_rows.extend(
-        _history_rows("archived_v1_3", [archive_path / "work/latest/charge_history.csv"])
+        _history_rows(
+            "archived_v1_3", [archive_path / "work/latest/charge_history.csv"]
+        )
     )
     for model, case_name in (
         ("finite_configured", "new_finite_configured"),
@@ -7853,7 +7850,9 @@ def _analyze_validation_impl(
         path_summary_rows,
         strict=require_complete,
     )
-    _write_csv(analysis / "object_wrench.csv", CSV_SCHEMAS["object_wrench.csv"], wrench_rows)
+    _write_csv(
+        analysis / "object_wrench.csv", CSV_SCHEMAS["object_wrench.csv"], wrench_rows
+    )
     _write_csv(
         analysis / "object_path_curves.csv",
         CSV_SCHEMAS["object_path_curves.csv"],
@@ -7933,28 +7932,28 @@ def _analyze_validation_impl(
 
 ## 実行状態
 
-- 旧 archive: {case_status['archived_v1_3']['status']}
-- 新 finite: {'未実行' if finite_status == 'missing' else finite_status}
-- 新 infinite: {'未実行' if infinite_status == 'missing' else infinite_status}
+- 旧 archive: {case_status["archived_v1_3"]["status"]}
+- 新 finite: {"未実行" if finite_status == "missing" else finite_status}
+- 新 infinite: {"未実行" if infinite_status == "missing" else infinite_status}
 
 ## Object force・work・release
 
 {physics_review}
 
-- structural physics evaluation: {physics_evaluation.get('status')}
-- fixed-discretization path/work/shell gate: {local_qualification.get('status')}
-- 保存済み sphere mesh/source refinement: {local_qualification.get('saved_sphere_mesh_refinement_status')}
-- sphere absolute force error: {local_qualification.get('sphere_absolute_force_error_status')}
-- sphere absolute torque error: {local_qualification.get('sphere_absolute_torque_error_status')}
+- structural physics evaluation: {physics_evaluation.get("status")}
+- fixed-discretization path/work/shell gate: {local_qualification.get("status")}
+- 保存済み sphere mesh/source refinement: {local_qualification.get("saved_sphere_mesh_refinement_status")}
+- sphere absolute force error: {local_qualification.get("sphere_absolute_force_error_status")}
+- sphere absolute torque error: {local_qualification.get("sphere_absolute_torque_error_status")}
 - 平面 oracle の誤差を sphere error bar に流用しません。
-- claim scope: {local_qualification.get('claim_scope')}
+- claim scope: {local_qualification.get("claim_scope")}
 
 ## Legacy estimator audit
 
-- status: {legacy_audit.get('status')}
-- compared rows: {legacy_audit.get('comparison_row_count')}
-- matching batches/meshes: {legacy_audit.get('covered_native_keys')}
-- numerical closeness is a gate: {legacy_audit.get('closeness_is_a_gate')}
+- status: {legacy_audit.get("status")}
+- compared rows: {legacy_audit.get("comparison_row_count")}
+- matching batches/meshes: {legacy_audit.get("covered_native_keys")}
+- numerical closeness is a gate: {legacy_audit.get("closeness_is_a_gate")}
 
 旧 moving-sphere/direct/proxy estimator は target 全体を self source から除外し、current
 native evaluator は primary だけを除いて target periodic images を保持します。したがって
@@ -7985,7 +7984,9 @@ energy/speed ではありません。
         for path in sorted(analysis.iterdir())
         if path.is_file() and path.name != "artifacts.json"
     }
-    _write_json(analysis / "artifacts.json", {"schema_version": 1, "artifacts": artifacts})
+    _write_json(
+        analysis / "artifacts.json", {"schema_version": 1, "artifacts": artifacts}
+    )
     return report
 
 
@@ -8046,9 +8047,7 @@ def _oracle_plane_triangles(
             p10 = np.array([x1, y0, 0.0])
             p11 = np.array([x1, y1, 0.0])
             p01 = np.array([x0, y1, 0.0])
-            triangles.extend(
-                (np.array([p00, p10, p11]), np.array([p00, p11, p01]))
-            )
+            triangles.extend((np.array([p00, p10, p11]), np.array([p00, p11, p01])))
     return np.asarray(triangles)
 
 
@@ -8231,8 +8230,7 @@ def _verify_periodic_oracle_metrics(
         label="uniform quadrature difference",
     )
     if (
-        max((*uniform_errors, *wrench_errors))
-        > ORACLE_UNIFORM_RELATIVE_TOLERANCE
+        max((*uniform_errors, *wrench_errors)) > ORACLE_UNIFORM_RELATIVE_TOLERANCE
         or quadrature_error > ORACLE_QUADRATURE_RELATIVE_TOLERANCE
     ):
         raise ValidationError(
@@ -8270,16 +8268,13 @@ def _verify_periodic_oracle_metrics(
             rel_tol=0.0,
             abs_tol=1.0e-15,
         )
-        or decay_ratio_tolerance
-        != ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
+        or decay_ratio_tolerance != ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE
     ):
         raise ValidationError("periodic cosine-plane oracle contract is invalid")
     errors = cosine.get("errors")
     if not isinstance(errors, list) or len(errors) != 2:
         raise ValidationError("periodic cosine-plane errors are invalid")
-    parsed: list[
-        tuple[int, float, float, float, float, float, float, float]
-    ] = []
+    parsed: list[tuple[int, float, float, float, float, float, float, float]] = []
     for value in errors:
         if not isinstance(value, Mapping):
             raise ValidationError("periodic cosine-plane error row is invalid")
@@ -8414,13 +8409,10 @@ def _verify_periodic_oracle_receipt(
         or Path(str(receipt.get("config", ""))) != config_path
         or receipt.get("config_sha256") != _sha256(config_path)
     ):
-        raise ValidationError(
-            "periodic plane-oracle config no longer matches staging"
-        )
+        raise ValidationError("periodic plane-oracle config no longer matches staging")
     if (
         receipt.get("oracle_schema_version") != 3
-        or
-        receipt.get("status") != "qualified"
+        or receipt.get("status") != "qualified"
         or receipt.get("manifest_sha256") != _sha256(manifest_path)
         or receipt.get("library_sha256") != _sha256(library)
         or Path(str(receipt.get("library", ""))) != library
@@ -8470,9 +8462,8 @@ def _verify_periodic_oracle_receipt(
             expected_path.relative_to(validation_root).as_posix(),
             label=f"periodic plane-oracle {label} config",
         )
-        if (
-            not expected_path.is_file()
-            or metadata.get("sha256") != _sha256(expected_path)
+        if not expected_path.is_file() or metadata.get("sha256") != _sha256(
+            expected_path
         ):
             raise ValidationError(
                 f"periodic plane-oracle {label} config no longer matches staging"
@@ -8483,8 +8474,7 @@ def _verify_periodic_oracle_receipt(
         )
         if config_difference is not None:
             raise ValidationError(
-                f"periodic plane-oracle {label} config mismatch: "
-                f"{config_difference}"
+                f"periodic plane-oracle {label} config mismatch: {config_difference}"
             )
     kernel_oracles = receipt.get("kernel_oracles")
     if not isinstance(kernel_oracles, Mapping):
@@ -8520,8 +8510,7 @@ def _verify_periodic_oracle_receipt(
             not isinstance(cache_identities, Mapping)
             or set(cache_identities) != {"4", "8"}
             or not all(
-                isinstance(identity, Mapping)
-                for identity in cache_identities.values()
+                isinstance(identity, Mapping) for identity in cache_identities.values()
             )
         ):
             raise ValidationError(
@@ -8547,9 +8536,7 @@ def _verify_periodic_oracle_receipt(
                 validation_root,
                 str(identity.get("path", "")),
                 prefix="cache/oracles",
-                label=(
-                    f"periodic plane-oracle {label} cache group {group} path"
-                ),
+                label=(f"periodic plane-oracle {label} cache group {group} path"),
             )
             if (
                 identity.get("hit") is not True
@@ -8616,8 +8603,7 @@ def _verify_periodic_oracle_receipt(
             group = cache_group_for_label.get(str(evaluation.get("label", "")))
             if (
                 group is None
-                or
-                evaluation.get("hit") is not True
+                or evaluation.get("hit") is not True
                 or type(evaluation.get("build_count")) is not int
                 or evaluation.get("build_count") != 0
                 or evaluation_identity != canonical_by_group[group]
@@ -8635,8 +8621,7 @@ def _verify_periodic_oracle_receipt(
             transverse_errors = uniform.get("force_transverse_relative_errors")
             torque_errors = uniform.get("torque_relative_errors")
             if (
-                uniform.get("target_integration")
-                != "gauss_duffy_order_3_and_7"
+                uniform.get("target_integration") != "gauss_duffy_order_3_and_7"
                 or uniform.get("quadrature_order") != [3, 7]
                 or not isinstance(wrench_rows, list)
                 or len(wrench_rows) != 2
@@ -8726,9 +8711,7 @@ def _verify_periodic_oracle_receipt(
         verified_kernel_oracles[label] = dict(value)
     return {
         "status": "qualified",
-        "receipt_path": (
-            str(receipt_path) if _candidate_receipt is None else None
-        ),
+        "receipt_path": (str(receipt_path) if _candidate_receipt is None else None),
         "receipt_sha256": (
             _sha256(receipt_path) if _candidate_receipt is None else None
         ),
@@ -8760,9 +8743,7 @@ def _run_periodic_plane_kernel_oracle(
         raise ValidationError("periodic plane-oracle sim config is invalid")
     cache_groups = ORACLE_CACHE_EVALUATION_GROUPS
     cache_group_for_label = {
-        label: group
-        for group, labels in cache_groups.items()
-        for label in labels
+        label: group for group, labels in cache_groups.items() for label in labels
     }
 
     def record_effective_contract(snapshot: ObjectInteractionSnapshot) -> None:
@@ -8833,8 +8814,7 @@ def _run_periodic_plane_kernel_oracle(
                 **identity,
             }
         elif identity != {
-            key: canonical[key]
-            for key in ("fingerprint", "path", "sha256")
+            key: canonical[key] for key in ("fingerprint", "path", "sha256")
         }:
             raise ValidationError(
                 "periodic triangle_p0 plane-oracle cache evaluation "
@@ -8946,8 +8926,7 @@ def _run_periodic_plane_kernel_oracle(
         np.max(np.abs(uniform_potential[:2] - expected_potential[:2]))
     )
     potential_nonzero_relative_error = float(
-        abs(uniform_potential[2] - expected_potential[2])
-        / abs(expected_potential[2])
+        abs(uniform_potential[2] - expected_potential[2]) / abs(expected_potential[2])
     )
     expected_force = total_charge / 2.0
     force_relative_errors = [
@@ -9007,7 +8986,9 @@ def _run_periodic_plane_kernel_oracle(
         )
     ]
     quadrature_relative_difference = (
-        0.0 if len(wrenches) == 1 else float(
+        0.0
+        if len(wrenches) == 1
+        else float(
             np.linalg.norm(wrenches[0].force_N - wrenches[1].force_N)
             / abs(expected_force)
         )
@@ -9039,9 +9020,7 @@ def _run_periodic_plane_kernel_oracle(
     decay = np.exp(-wave_number * np.abs(cosine_points[:, 2]))
     phase = wave_number * cosine_points[:, 0]
     expected_cosine_field = np.zeros_like(cosine_points)
-    expected_cosine_field[:, 0] = (
-        sigma_amplitude / (2.0 * eps0) * np.sin(phase) * decay
-    )
+    expected_cosine_field[:, 0] = sigma_amplitude / (2.0 * eps0) * np.sin(phase) * decay
     expected_cosine_field[:, 2] = (
         np.sign(cosine_points[:, 2])
         * sigma_amplitude
@@ -9050,21 +9029,14 @@ def _run_periodic_plane_kernel_oracle(
         * decay
     )
     expected_cosine_potential = (
-        sigma_amplitude
-        / (2.0 * eps0 * wave_number)
-        * np.cos(phase)
-        * decay
+        sigma_amplitude / (2.0 * eps0 * wave_number) * np.cos(phase) * decay
     )
     cosine_errors: list[dict[str, float | int]] = []
     for cells_per_axis in (4, 8):
         triangles = plane_triangles_by_cells[cells_per_axis]
         centers = np.mean(triangles, axis=1)
         triangle_area = length**2 / triangles.shape[0]
-        charges = (
-            sigma_amplitude
-            * np.cos(wave_number * centers[:, 0])
-            * triangle_area
-        )
+        charges = sigma_amplitude * np.cos(wave_number * centers[:, 0]) * triangle_area
         with ObjectInteractionSnapshot.from_result(
             _oracle_panel_result(
                 root,
@@ -9080,9 +9052,7 @@ def _run_periodic_plane_kernel_oracle(
             record_effective_contract(snapshot)
             field = snapshot._periodic.eval_e(cosine_points)
             potential = snapshot._periodic.eval_phi(cosine_points)
-            record_cache_evaluation(
-                f"cosine_{cells_per_axis}", snapshot._periodic
-            )
+            record_cache_evaluation(f"cosine_{cells_per_axis}", snapshot._periodic)
         positive_field = field[: positive_cosine_points.shape[0]]
         positive_potential = potential[: positive_cosine_points.shape[0]]
         field_amplitudes = np.linalg.norm(
@@ -9094,9 +9064,7 @@ def _run_periodic_plane_kernel_oracle(
             axis=1,
         )
         field_decay_ratio = float(field_amplitudes[1] / field_amplitudes[0])
-        potential_decay_ratio = float(
-            potential_amplitudes[1] / potential_amplitudes[0]
-        )
+        potential_decay_ratio = float(potential_amplitudes[1] / potential_amplitudes[0])
         cosine_errors.append(
             {
                 "cells_per_axis": cells_per_axis,
@@ -9111,17 +9079,11 @@ def _run_periodic_plane_kernel_oracle(
                 "field_decay_ratio": field_decay_ratio,
                 "potential_decay_ratio": potential_decay_ratio,
                 "field_decay_ratio_relative_error": float(
-                    abs(
-                        field_decay_ratio
-                        - ORACLE_COSINE_EXPECTED_DECAY_RATIO
-                    )
+                    abs(field_decay_ratio - ORACLE_COSINE_EXPECTED_DECAY_RATIO)
                     / ORACLE_COSINE_EXPECTED_DECAY_RATIO
                 ),
                 "potential_decay_ratio_relative_error": float(
-                    abs(
-                        potential_decay_ratio
-                        - ORACLE_COSINE_EXPECTED_DECAY_RATIO
-                    )
+                    abs(potential_decay_ratio - ORACLE_COSINE_EXPECTED_DECAY_RATIO)
                     / ORACLE_COSINE_EXPECTED_DECAY_RATIO
                 ),
                 "charge_neutrality_ratio": float(
@@ -9259,7 +9221,9 @@ def probe_periodic_oracles(
         label="periodic plane-oracle cache directory",
     )
     if cache_dir.exists() and any(cache_dir.iterdir()):
-        raise ValidationError("periodic oracle cache must be empty before first execution")
+        raise ValidationError(
+            "periodic oracle cache must be empty before first execution"
+        )
     cache_dir.mkdir(parents=True, exist_ok=True)
     config_path = _require_expected_path(
         root,
@@ -9314,15 +9278,21 @@ def probe_periodic_oracles(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
-    stage = subcommands.add_parser("stage", help="stage deterministic validation inputs")
+    stage = subcommands.add_parser(
+        "stage", help="stage deterministic validation inputs"
+    )
     stage.add_argument("--archive-run", required=True, type=Path)
     stage.add_argument("--validation-root", required=True, type=Path)
     stage.add_argument("--binary", required=True, type=Path)
     stage.add_argument("--library", type=Path)
     stage.add_argument("--require-clean-source", action="store_true")
-    verify_inputs_parser = subcommands.add_parser("verify-inputs", help="verify staged inputs")
+    verify_inputs_parser = subcommands.add_parser(
+        "verify-inputs", help="verify staged inputs"
+    )
     verify_inputs_parser.add_argument("--validation-root", required=True, type=Path)
-    verify_run_parser = subcommands.add_parser("verify-run", help="verify one completed case")
+    verify_run_parser = subcommands.add_parser(
+        "verify-run", help="verify one completed case"
+    )
     verify_run_parser.add_argument("--case-dir", required=True, type=Path)
     verify_run_parser.add_argument("--expected-batches", required=True, type=int)
     verify_run_parser.add_argument("--require-existing-receipt", action="store_true")

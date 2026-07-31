@@ -4,9 +4,8 @@ Lang: [日本語](ParticleEvents.md) | [English](ParticleEvents.en.md)
 
 # Particle collision and boundary events
 
-BEACH accepts only the first collision or boundary crossing on the current trajectory segment. A triangle hit absorbs the
-particle at that position. A reflect or periodic crossing starts a newly integrated trajectory for the remaining time. Repeating
-this operation completes one particle step.
+BEACH advances a particle only to the first mesh collision or box-boundary event on the current trajectory segment.
+This page is the reference for intersection search, event ordering, remainder advancement, and fail-closed statuses.
 
 ## Accept only the first collision or crossing
 
@@ -20,13 +19,13 @@ Given current state $(\mathbf{x}_0,\mathbf{v}_0)$ and candidate $(\mathbf{x}_1,\
 5. If reflect or periodic keeps the particle alive, rebuild a candidate for the remaining time.
 
 If mesh-hit and box-face fractions differ by at most $64\epsilon_\mathrm{mach}\max(1,|t|)$, the mesh is treated as first.
-Even if one outer step contains several events, BEACH always advances to the first event of the current segment before
+Even if one particle step contains several events, BEACH always advances to the first event of the current segment before
 re-integrating the remainder.
 
 | Earliest event | Committed action |
 | --- | --- |
 | mesh | Return hit position and element index; absorb the particle |
-| open face | Escape at the event position or pass to an outer interface |
+| open face | Apply `escape` or `potential_barrier` at the event position |
 | reflect face | Reverse normal velocity and advance the remainder from just inside the box |
 | periodic face | Move just inside the opposite face, retain velocity, and advance the remainder |
 
@@ -41,8 +40,8 @@ Mesh initialization builds an axis-aligned bounding box (AABB) for every triangl
 | below 64 | Linearly inspect every element AABB |
 | 64 and above | Use a uniform grid and 3D DDA to inspect only cells crossed by the trajectory segment |
 
-The uniform grid targets eight elements per cell and caps each axis at 128 cells. Triangle indices are stored in CSR form for
-every cell overlapped by the triangle AABB. These are current fixed implementation values, not input parameters.
+The uniform grid targets eight elements per cell and caps each axis at 128 cells. Triangle indices are stored in CSR form in
+every cell overlapped by the triangle AABB. These are fixed implementation values, not input parameters.
 
 At query time, BEACH intersects the trajectory segment with the grid AABB and visits crossed cells with 3D DDA. A triangle may be registered
 in more than one cell, but only the smallest intersection parameter is retained. The DDA iteration bound is
@@ -120,18 +119,14 @@ one mask.
 
 ### Open, reflect, and periodic faces
 
-With `external_boundary.ordinary_open.model="escape"`, any open face in the mask removes the particle and increments `escaped_boundary`.
-A reflect-only face reverses the corresponding velocity component. A periodic face moves the particle to the opposite face
-without changing velocity. A surviving event uses `nearest` so its new coordinate is one floating-point value inside the box,
-not exactly on the face.
+With `external_boundary.ordinary_open.model="escape"`, any open face in the mask removes the particle and increments
+`escaped_boundary`. Reflect faces reverse the corresponding velocity components; periodic faces move the particle to the
+opposite side without changing velocity. `nearest` places survivors one floating-point value inside the box.
 
-`[[particles.species]].z_high_boundary="reflect"` treats globally open z-high as
-a reflect face only for that species. The default `"inherit"` leaves the global
-boundary unchanged, so photoelectrons can reflect while ambient species continue
-through the ordinary open-boundary contract. They escape in the integrated
-configuration because it selects the ordinary-open `escape` model. The override
-acts before outer particle transfer and is accepted only with `sim.use_box=true`,
-`sim.bc_z_high="open"`, and no outer particle transfer.
+`[[particles.species]].z_high_boundary="reflect"` treats globally open z-high as a reflect face only for that species.
+The default `"inherit"` retains the global boundary. This override requires `sim.use_box=true` and
+`sim.bc_z_high="open"`. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the closed-PE
+combination.
 
 Reflect and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
@@ -153,9 +148,9 @@ The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$;
 single-face model. A corner involving multiple simultaneous open faces is not generalized and returns
 `particle_step_ambiguous_open_corner`.
 
-Reservoir acceleration, the outer sheath, and photoelectron return are physical boundary models built around this event
-mechanism. They are documented separately in [Particle sources and boundaries](ParticleSourcesBoundaries.en.html) and
-[Outer-plasma models](OuterPlasmaModels.en.html).
+Reservoir inflow correction and closed PE are outside this page's scope. See
+[reservoir injection](ReservoirInjection.en.html) and
+[particle escape and local return](ParticleEscapeReturn.en.html).
 
 ## Advance the time remaining after a boundary crossing
 
@@ -171,37 +166,15 @@ $$
 to build a new predicted-midpoint field and Boris candidate. The earliest mesh or box event is then queried on the remainder.
 The pre-reflection field sample is not reused for that remaining time.
 
-At most eight box events are processed in one local continuation. All eight are supported; if a ninth is required,
-`particle_step_multiple_box_events` is returned and the incomplete state is not committed. This also acts as a safety signal for
-an excessively large `dt`, narrow box, or very fast particle.
-The scale-aware guard does not change this existing eight-event safety limit.
+One local continuation processes at most eight box events. If a ninth is required,
+`particle_step_multiple_box_events` is returned and the incomplete state is not committed. The limit detects an excessively
+large `dt`, narrow box, or fast particle; changing the scale-aware guard does not change it.
 
 The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
 `"soft_discard"` removes the affected macro-particle and records batch, rank, particle, species, step, macro charge,
 position, and velocity on standard error. Count and absolute macro charge are also retained in `summary.txt`, restart,
 and the charge ledger. The run aborts when either configured cumulative limit is exceeded. This is a bounded numerical
 workaround for qualitative comparisons, not a replacement for a physical boundary model.
-
-## Transfer particles through z-high to an outer model
-
-When particle transfer is active, the z-high open face is returned to the caller as an interface crossing instead of immediately
-applying escape. For this face only, crossing time is refined from a quadratic trajectory consistent with the Boris endpoint
-positions and velocities rather than using the straight-segment fraction unchanged. The payload contains face, fraction of the full step,
-position, velocity, and remaining time.
-
-For a step whose candidate endpoint is outside z-high, BEACH evaluates candidate x/y crossing times on the same quadratic
-trajectory and selects the event that actually occurs first. An earlier lateral periodic or reflecting face is applied before
-reintegrating the remainder; an earlier z-high event is transferred to the outer model. Simultaneous lateral actions are composed
-before transfer.
-
-This refinement covers crossings detected because the candidate endpoint is outside the box. It does not search for a temporary
-excursion that returns to an inside endpoint; mesh hits retain the existing chord test.
-
-If the outer model returns the particle locally, ordinary particle stepping resumes from the returned position and velocity for
-the remaining time. If it escapes to infinity, it is removed. See [Outer-plasma models](OuterPlasmaModels.en.html) for outer
-acceleration and return conditions.
-Across the original local step, BEACH processes at most eight external events; a ninth returns
-`particle_step_multiple_external_events`. This budget is distinct from the box-event budget of each local continuation.
 
 ## Stop when the query cannot be completed
 
@@ -216,19 +189,16 @@ A collision query is `ok` only when all required candidates were examined.
 | `collision_query_grid_stalled` | 4 | Invalid grid geometry or DDA failed to progress |
 | `particle_step_invalid_boundary` | 1001 | Invalid particle, box, or event geometry |
 | `particle_step_multiple_box_events` | 1002 | A ninth box event was needed in one step |
-| `particle_step_ambiguous_open_corner` | 1003 | Multiple open faces occurred at an outer-owned or potential-barrier event |
-| `particle_step_multiple_external_events` | 1004 | A ninth external event was needed in the original local step |
+| `particle_step_ambiguous_open_corner` | 1003 | Multiple open faces occurred at a potential-barrier event |
 
 The former name `particle_step_unsupported_barrier_corner` remains as a compatibility alias for code 1003.
 
-Treating these states as "no hit" could let particles pass through a surface and corrupt the charge ledger, so normal tracking
-fails closed. Within OpenMP, the earliest particle and step failure is selected. In MPI, failure rank and particle state are
-shared so every rank reports the same batch, rank, particle, step, and status before stopping. Photo raycasts apply the same rule
-to species, ray, and bounce.
+Treating these states as "no hit" could let particles pass through a surface, so tracking fails closed. OpenMP selects the
+smallest particle/step failure. MPI shares the failing rank and state so every rank reports the same
+batch/rank/particle/step/status. Photo raycasts apply the same rule to species/ray/bounce.
 
-To inspect the internal cause of `grid_stalled`, set `BEACH_COLLISION_DIAGNOSTICS=1`. On the failing path, BEACH then writes
-the DDA branch name, `p0` / `p1`, collision-grid bounds, cell indices, and values such as `t_cur`, `t_next`, and `t_delta` to
-standard error. This environment variable enables diagnostics only and does not change collision physics.
+Set `BEACH_COLLISION_DIAGNOSTICS=1` to inspect `grid_stalled`. BEACH writes the failing DDA branch, `p0` / `p1`, grid bounds,
+cell indices, and values such as `t_cur`, `t_next`, and `t_delta` to standard error. The variable changes diagnostics only.
 
 ## Converge collision positions and charging results
 

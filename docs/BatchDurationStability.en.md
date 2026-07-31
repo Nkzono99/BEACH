@@ -4,49 +4,72 @@ Lang: [English](BatchDurationStability.en.md) | [日本語](BatchDurationStabili
 
 # `batch_duration` Stability and Steady Value
 
-In a fixed-width run, `sim.batch_duration` is the physical time advanced by one
-batch and the width of the surface-charge update. This page relates that width,
-or the value determined from `sim.batch_duration_step`, to stability and the
-converged wall-charge distribution.
-In the current implementation, when `batch_duration_step` is used, `sim.batch_duration = sim.dt * sim.batch_duration_step`; in `reservoir_face` injection, the physical inflow per batch determines the macro-particle count or weight.
+This task guide explains how to select `sim.batch_duration` and check the time-width sensitivity of charging results.
+In a fixed-width run, it is the physical time and surface-charge update width of one batch.
+When `sim.batch_duration_step` is set, `sim.batch_duration = sim.dt * sim.batch_duration_step`.
 
-With `[periodic2].max_nonzero_mode_potential_step > 0`,
-`sim.batch_duration` is the **maximum** trial width of each accepted batch. The
-actual width is selected on a fixed ladder that repeatedly halves
-`batch_duration`.
+> `sim.tol_rel` is a monitoring and output value. The current implementation does not use it for early stopping;
+> the run continues to the accepted batch count set by `sim.batch_count`.
 
-Implementation entry points:
+## Select a fixed width
 
-- Batch procedure: [Computational model overview](Algorithms.en.html)
-- Parameter definitions: [Parameters](Parameters.en.html) for `sim.batch_duration` / `sim.batch_duration_step`
-- Injection usage: `src/particles/bem_injection.f90` (`reservoir_face` / `photo_raycast`)
-- Batch generation and weight resolution: `src/config/bem_app_config_runtime.f90`
+### Prerequisites
 
-## Practical Guide
+- `reservoir_face` and `photo_raycast` require a positive `sim.batch_duration`.
+- Set `history_stride > 0` to save `charge_history.csv` for comparison.
+- Use the same mesh, particle distributions, RNG seed, and OpenMP/MPI layout.
 
-For first runs, choose `batch_duration` empirically before relying on the theory below.
+### Action
 
-1. Start with a conservative, small `sim.batch_duration_step`.
-2. Inspect `charge_history.csv`, `last_rel_change` in `summary.txt`, and absorbed / escaped counts.
-3. Run 2x and 1/2x `batch_duration_step` comparisons and compare final charge distributions and history shapes.
-4. If the final charge and history are nearly unchanged and no oscillation or divergence appears, keep that value.
-5. If fluctuations dominate, tune `target_macro_particles_per_batch`, `w_particle`, `batch_count`, and `history_stride` in addition to `batch_duration`.
+1. Start with a conservative, small `batch_duration` or `batch_duration_step`.
+2. Run three cases at 1/2, 1, and 2 times the reference value.
+3. Compare the runs near the same physical time.
+4. Check `last_rel_change`, total charge, and absorbed/escaped counts in `summary.txt`,
+   together with element charge in `charge_history.csv`.
 
-| Symptom | Check | Typical response |
-| --- | --- | --- |
-| Charge history oscillates strongly by batch | `charge_history.csv` | Lower `batch_duration_step` |
-| Final charge changes strongly with step size | 1/2x and 2x comparison | Recompute with smaller `batch_duration_step` |
-| History is too noisy to read | `target_macro_particles_per_batch`, `w_particle` | Adjust macro-particle count or weight |
-| Run stops before settling | `batches` in `summary.txt` | Increase `batch_count` |
+### Expected output
 
-In a fixed-width run, treat `batch_duration` as the deterministic
-explicit-update time step, and particle count / weight as the Monte Carlo noise
-controls.
+Each run creates `summary.txt` and `charge_history.csv`, allowing comparison of:
 
-### Adaptive periodic2 Nonzero-mode Progression
+- final surface-charge distribution
+- total charge and local-potential range
+- oscillation, divergence, and Monte Carlo jitter in charge history
+- `simulated_time_s` and accepted batch count
 
-A production `cached_kneq0` run can bound the local-potential change of one
-accepted batch.
+### Interpretation
+
+| Observation | Decision |
+| --- | --- |
+| Final charge and history nearly match at 1/2 and 1 times | The reference width is a practical candidate |
+| Increasing the width causes oscillation or divergence | Lower `batch_duration` |
+| Final charge changes strongly with width | Recompute with a smaller width |
+| Noise obscures the history | Adjust `w_particle` or `target_macro_particles_per_batch` |
+| Change continues at the end of the run | Increase `batch_count` |
+
+Successful completion alone does not establish stability or a steady state. This comparison is a step-size sensitivity check,
+not Richardson extrapolation, because it does not assume a power law for the error.
+
+### Next choices
+
+- The reference and half-width runs agree: retain the smaller width as the validation baseline, or use the reference width when cost matters.
+- Deterministic oscillation remains: lower `batch_duration`.
+- Noise dominates: adjust macro-particle count or weight before changing the time width.
+- A `cached_kneq0` run must bound the local-potential change of one batch: use adaptive progression below.
+
+## Use adaptive $k\ne0$ progression
+
+### Prerequisites
+
+This path requires:
+
+- `[periodic2].nonzero_mode_backend = "cached_kneq0"`
+- a time-scaled `reservoir_face` or `photo_raycast` source
+- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for `reservoir_face`
+- a positive `sim.batch_duration`
+
+This path does not support `volume_seed`.
+
+### Action
 
 ```toml
 [periodic2]
@@ -55,289 +78,73 @@ max_nonzero_mode_potential_step = 1.0e-2 # V
 ```
 
 Let $h_0$ be the resolved `sim.batch_duration`. Each accepted batch tests
-$h_0,h_0/2,h_0/4,\ldots$ in order. Particle counts or weights are recomputed
-for each trial width $h$. BEACH evaluates, at every panel centroid, the
-$k\ne0$ potential produced by the difference between candidate and batch-start
-charge, and accepts the first trial whose maximum absolute value does not
-exceed `max_nonzero_mode_potential_step`.
+$h_0,h_0/2,h_0/4,\ldots$ in order. BEACH evaluates the $k\ne0$ potential produced by the difference
+between candidate and batch-start charge at every panel centroid, and accepts the first trial whose maximum absolute value
+does not exceed the limit.
 
-A rejected trial fully rolls back the RNG, macro-particle residuals, outer
-state, and `implicit_mean` transaction. It does not appear in statistics,
-history, or the charge ledger. Thus `batch_count` counts accepted batches, and
-the physical end time is `simulated_time_s` in `summary.txt`, not
-`batch_count * batch_duration`.
-An adaptive restart uses the same actual OpenMP team size as its checkpoint to
-reproduce the reduction order and accepted ladder.
+### Expected output
 
-This limit is a **local-potential trust bound** for freezing the $k\ne0$ field
-within a batch. It does not guarantee local truncation error or an order of
-global accuracy. Before adopting a value, halve
-`max_nonzero_mode_potential_step` and compare surface charge, local-potential
-range, total charge, and interface potential near the same `simulated_time_s`.
-For a fixed-width control, omit the key or set it to `0`.
-This test does not control stability of the $k=0$ update. The maximum
-`sim.batch_duration` must also be stable for the explicit mean-charge update or
-the selected implicit closure.
+- A rejected trial rolls back the RNG and macro-particle residuals and does not appear in statistics, history, or the charge ledger.
+- `simulated_time_s` in `summary.txt` is the actual physical end time.
+- `batch_count` counts accepted batches, so physical time is not generally
+  `batch_count * batch_duration`.
 
-This path requires `cached_kneq0` and time-scaled `reservoir_face` /
-`photo_raycast` sources. A reservoir must specify
-`target_macro_particles_per_batch`; fixed `w_particle` is rejected because one
-macro-particle charge would not shrink under halving. The path supports
-explicit SW/UV updates and implicit-mean PE updates, and rejects `volume_seed`
-and the outer event queue.
+For restart reproducibility, use the same actual OpenMP team size as the checkpoint so that the reduction order and accepted ladder match.
 
-For an `implicit_mean` Zhao closure, the same ladder retries only when a large
-trial width moves the frozen ambient cohort or the frozen interface
-field/barrier coordinates outside their trust regions. A measured-source
-normalization change does not contract with trial width and is not retried.
-A nonmonotone barrier, absence of a physical root, numerical
-failure, or invalid input stops immediately rather than being assumed
-recoverable by halving. A `BEACH adaptive-kneq0 reject` line with
-`max_delta_phi_V` denotes a $k\ne0$ bound rejection; `implicit_status` and
-`reason` denote frozen-cohort trust-region recovery. Count them separately
-during validation.
+### Interpretation
 
-For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving
-the width halves macro-particle charge and increases the sample count per unit
-physical time. A limit-halving comparison therefore mixes reduced time-step
-error with reduced Monte Carlo variance. Use the same RNG seed and report both
-charge-distribution norms and particle statistics.
+`max_nonzero_mode_potential_step` is a local-potential trust bound for freezing the $k\ne0$ field within a batch.
+It does not guarantee local truncation error or an order of global accuracy, and it does not control stability of the $k=0$ update.
 
-### 1. Reduction to a continuous-time model
+For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving the trial width also halves macro-particle charge.
+A limit-halving comparison therefore mixes time-discretization changes with Monte Carlo variance changes. Use the same RNG seed
+and report both charge-distribution norms and particle statistics.
 
-Let $q_j(t)$ be the accumulated charge of insulator wall element `j`, and let $J_j(\mathbf q)$ be the incident charge flux per unit wall area at that charge state.
-The absorption-only model becomes:
+### Next choices
+
+1. Halve `max_nonzero_mode_potential_step`.
+2. Compare surface charge, local-potential range, total charge, and particle statistics near the same `simulated_time_s`.
+3. For a fixed-width control, omit the key or set it to `0`.
+
+## Theory needed for interpretation
+
+Let $q_j$ be the accumulated charge of insulator element $j$, $A_j$ its area, and
+$J_j(\mathbf q)$ its incident charge flux. The mean model is
 
 $$
-\frac{dq_j}{dt} \;=\; J_j(\mathbf q)\, A_j
+\frac{dq_j}{dt}=J_j(\mathbf q)A_j.
 $$
 
-where $A_j$ is the element area. Since $J$ depends on the field created by wall charge, it is generally **nonlinear**.
-
-One BEACH batch can be viewed as an **explicit update that freezes the field at the start of the batch**. In expectation:
+One batch can be viewed as an explicit update that freezes the field at batch start:
 
 $$
-\mathbf q^{n+1} \;=\; \mathbf q^n \;+\; \Delta t_b \cdot \mathbf J(\mathbf q^n)\,\mathbf A \;+\; \boldsymbol\eta^n
+\mathbf q^{n+1}
+=\mathbf q^n+\Delta t_b\,\mathbf J(\mathbf q^n)\mathbf A+\boldsymbol\eta^n,
 $$
 
-where:
+where $\boldsymbol\eta^n$ is Monte Carlo error.
 
-- $\Delta t_b = $ `sim.batch_duration` in a fixed-width run, or the accepted trial width under adaptive progression
-- $\mathbf A$ is the element-area vector
-- $\boldsymbol\eta^n$ is Monte Carlo sampling error within the batch
+The fixed point of the mean update satisfies $\mathbf J(\mathbf q^\ast)=0$, so the fixed point itself does not depend on
+$\Delta t_b$ when the mean model converges stably. Actual runs still contain finite-sample and finite-time stopping errors,
+and their observed results can retain time-width dependence.
 
-The implementation follows this picture: particles in a batch see the same field $E(\mathbf q^n)$, and the charge delta is applied to the wall at the end of the batch.
-Thus `batch_duration` is the time step of this explicit update in a fixed-width
-run; under adaptive progression, the accepted trial width is the time step.
-
-### 2. Validity of the steady value
-
-Write the mean update map as:
+The general linear stability condition near a fixed point is
 
 $$
-F_{\Delta t_b}(\mathbf q) \;=\; \mathbf q \;+\; \Delta t_b\, \mathbf J(\mathbf q)\,\mathbf A
+\rho(I+\Delta t_b M)<1.
 $$
 
-Its fixed point $\mathbf q^{\ast}$ satisfies:
-
-$$
-F_{\Delta t_b}(\mathbf q^{\ast}) = \mathbf q^{\ast}
-\quad\Longleftrightarrow\quad
-\mathbf J(\mathbf q^{\ast}) = 0
-$$
-
-Therefore, **the fixed point of the mean model itself does not depend on $\Delta t_b$**.
-
-In this sense, if the iteration converges stably and Monte Carlo error is sufficiently averaged, changing `batch_duration` does not change the targeted continuous-time steady solution.
-
-However, this statement applies only to the **fixed point of the mean model**. Actual runs include:
-
-- finite-sample error per batch
-- fluctuation in monitoring quantities used to judge convergence
-- residual error from stopping at a finite batch count
-
-So the observed converged value can retain weak `batch_duration` dependence. The safe statement is:
-
-> The mean fixed point of the iteration is independent of `batch_duration`, but finite-sample and finite-time calculations can show small step-size dependence.
-
-### 3. Linear stability
-
-Near a fixed point $\mathbf q^{\ast}$, define perturbations $\delta\mathbf q^n = \mathbf q^n - \mathbf q^{\ast}$.
-The linearized mean update is:
-
-$$
-\delta \mathbf q^{n+1} \;=\; \bigl(I + \Delta t_b\, M\bigr)\,\delta \mathbf q^n,
-\qquad
-M_{ij} \;\equiv\; \frac{\partial (J_i A_i)}{\partial q_j}\bigg|_{\mathbf q^{\ast}}
-$$
-
-The stability condition for a general multi-degree-of-freedom system is the spectral-radius condition:
-
-$$
-\rho\!\left(I + \Delta t_b\, M\right) < 1
-$$
-
-For each eigenvalue $\lambda_k$:
-
-$$
-|1 + \Delta t_b\, \lambda_k| < 1
-$$
-
-This is the essential BEACH stability condition.
-
-As an insulator wall accumulates charge, it tends to attract fewer particles of the same sign, so the dominant eigenvalues of $M$ are expected to be real negative, $\mathrm{Re}(\lambda_k) < 0$.
-Only under this **real-negative dominant mode assumption**, using response time scale $\tau_k \equiv 1/|\lambda_k|$, the fastest mode avoids divergence when:
-
-$$
-0 \;<\; \Delta t_b \;<\; \frac{2}{|\lambda_{\max}|} \;=\; 2\,\tau_{\min}
-$$
-
-and converges monotonically, or overdamped, when:
-
-$$
-0 \;<\; \Delta t_b \;<\; \frac{1}{|\lambda_{\max}|} \;=\; \tau_{\min}
-$$
-
-Practical interpretation:
-
-- $\Delta t_b < 2\,\tau_{\min}$: non-divergence under the real-negative dominant mode assumption
-- $\Delta t_b < \tau_{\min}$: monotone convergence under the same assumption
-- in a general coupled system, the precise condition is $\rho(I + \Delta t_b\, M) < 1$
-
-Thus the $2\tau$ / $\tau$ rule is better described as an **explicit-Euler stability guide under a real-negative dominant mode assumption**, not as a strict BEACH CFL condition.
-
-### 4. Relation to Monte Carlo noise
-
-For a one-mode approximation with noise:
-
-$$
-\delta q^{n+1} \;=\; \left(1 - \frac{\Delta t_b}{\tau}\right)\,\delta q^n \;+\; \xi^n
-$$
-
-the steady variance depends on the variance of $\xi^n$.
-The key point is that **the $\Delta t_b$ dependence of $\mathrm{Var}(\xi^n)$ depends on injection normalization**.
-BEACH `reservoir_face` has two modes.
-
-#### 4.1 Fixed `w_particle`
-
-When `w_particle` is specified directly, the physical inflow count changes in proportion to $\Delta t_b$, so the expected macro-particle count per batch follows:
-
-$$
-N_\text{macro} \;\propto\; \Delta t_b
-$$
-
-The shot-noise variance of the batch charge increment can be regarded roughly as proportional to $\Delta t_b$:
-
-$$
-\mathrm{Var}(\xi^n) \;\approx\; \alpha\, \Delta t_b
-$$
-
-In the limit $\Delta t_b \ll \tau$, the steady variance does not depend strongly on `batch_duration`.
-
-#### 4.2 Fixed `target_macro_particles_per_batch`
-
-When `w_particle` is solved from `target_macro_particles_per_batch`, the weight is determined as in `src/config/bem_app_config_runtime.f90:644`:
-
-$$
-w_\text{particle} \;\propto\; \frac{\Gamma\, A\, \Delta t_b}{N_\text{target}}
-$$
-
-so the noise dependence on $\Delta t_b$ differs from the simple $\mathrm{Var}(\xi^n) \propto \Delta t_b$ of §4.1.
-The macro-particle count is fixed, while the contribution per particle is proportional to $\Delta t_b$.
-
-#### 4.3 Practical interpretation
-
-The useful separation is:
-
-- `batch_duration` mainly controls **deterministic stability**
-- the main knobs for statistical noise are **`w_particle` or `target_macro_particles_per_batch`**
-
-In particular, neither of these is generally true:
-
-> Making `batch_duration` smaller always lowers noise.
-> Making `batch_duration` larger leaves noise almost unchanged.
-
-The answer depends on injection normalization.
-
-### 5. Physical estimate of $\tau_{\min}$
-
-$\tau_{\min}$ is the fastest effective response time that controls numerical stability.
-It is hard to express with one general physical formula because it depends on geometry, potential distribution, upstream distribution function, and injection model.
-In practice, estimate two different quantities.
-
-#### 5.1 Charging / sheath relaxation time
-
-A natural estimate uses an effective capacitance $C_\text{eff}$ and effective conductance $G_\text{eff}$:
-
-$$
-\tau_\text{charge} \;\sim\; \frac{C_\text{eff}}{G_\text{eff}}
-$$
-
-or a typical potential change $\Delta\phi$ and effective current $I_\text{eff}$:
-
-$$
-\tau_\text{charge} \;\sim\; \frac{C_\text{eff}\,\Delta\phi}{I_\text{eff}}
-$$
-
-This is a relatively slow charging timescale affected by geometry and shielding.
-
-#### 5.2 Inverse plasma frequency
-
-Another fast reference is:
-
-$$
-\tau_{pe} \;=\; \omega_{pe}^{-1} \;=\; \sqrt{\frac{\varepsilon_0\, m_e}{n_e\, e^2}}
-$$
-
-This is the microscopic fast timescale of an electron plasma and is useful as a reference for how sharply the system can respond.
-
-However, treating $\omega_{pe}^{-1}$ directly as an upper bound on $\tau_{\min}$ is too strong.
-It is better viewed as a **fast-side physical reference**. The effective time constant that limits `batch_duration` often comes from $\tau_\text{charge}$, including geometry and incoming-flux limits.
-
-#### 5.3 Practical choice
-
-For $\tau_{\min}$, estimate:
-
-- $\omega_{pe}^{-1}$: microscopic fast reference
-- $\tau_\text{charge}$: system-specific charging / sheath relaxation timescale
-
-Then refine with numerical experiments.
-
-> $\omega_{pe}^{-1}$ is only a fast reference; the actual stability limit is set by an effective response time that often includes $\tau_\text{charge}$.
-
-### 6. Practical usage
-
-1. Estimate both $\omega_{pe}^{-1}$ and $\tau_\text{charge}$ as physical scales.
-2. Start with a conservative, smaller `batch_duration` if oscillation should be avoided.
-3. Compare charge history and monitoring quantities with `batch_duration` multiplied by 1/2 and 2, as a **step-size sensitivity check**.
-4. If the converged values nearly agree and no oscillation or divergence is visible, the `batch_duration` is practically adequate.
-5. If noise is large, first adjust `w_particle` or `target_macro_particles_per_batch`. Do not try to solve noise only by changing `batch_duration`.
-6. Oscillation in `charge_history.csv` `last_rel_change`, or jitter in element charge time series, is a useful diagnostic. This is better called a **step-size sensitivity check** than strict Richardson extrapolation, because it does not assume a power law of the error.
-
-With adaptive progression, replace step 3 by a comparison between
-`max_nonzero_mode_potential_step` and half that limit. Matching only
-`batch_count` does not match end time, so compare the range reaching a common
-`simulated_time_s`.
-
-### 7. Summary
-
-| Item | Conclusion |
-|---|---|
-| Validity of steady value | The fixed point of the mean update does not depend on `batch_duration` |
-| Exact stability condition | $\rho(I + \Delta t_b\, M) < 1$ |
-| $2\tau$, $\tau$ rules | Explicit-Euler approximate guide under real-negative dominant modes |
-| Role of $\omega_{pe}^{-1}$ | Microscopic fast reference, not generally a direct stability upper bound |
-| Noise and `batch_duration` | Dependence is set by injection normalization |
-| Main noise-reduction knobs | Adjust `w_particle` or `target_macro_particles_per_batch` |
-| Practical check | Step-size sensitivity check by varying `batch_duration` |
-| Adaptive $k\ne0$ progression | `batch_duration` is the maximum width; verify convergence with half the potential limit |
-
-It is theoretically clean to say that the steady value of the mean model does not depend on how `batch_duration` is chosen.
-The general stability condition $\rho(I + \Delta t_b M) < 1$ follows directly from classical stability analysis.
-The remaining uncertainty is the value of $\tau_{\min}$ itself, which must be narrowed down with both case-specific physical estimates and numerical experiments.
-
-### Related documents
-
-- [Fortran parameter file specification](Parameters.en.html) — how to set `sim.batch_duration` / `sim.batch_duration_step`
-- [Fortran-centered workflow](Workflow.en.html) — batch-loop execution control
-- [Computational model overview](Algorithms.en.html) — relation between physical models and numerical methods
+Only when the dominant eigenvalues are real negative and the fastest response can be represented by $\tau_{\min}$,
+$\Delta t_b<2\tau_{\min}$ is a non-divergence guide and $\Delta t_b<\tau_{\min}$ is a monotone-convergence guide.
+These are not general BEACH CFL conditions.
+
+The inverse plasma frequency $\omega_{pe}^{-1}$ and charging time
+$\tau_\text{charge}\sim C_\text{eff}/G_\text{eff}$ provide separate physical scales, but the actual limit also depends on
+geometry, potential, and the inflow distribution. Select the final value with the step-size sensitivity check.
+
+## Related documents
+
+- [Input parameter reference](Parameters.en.html) — `sim.batch_duration` and `sim.batch_duration_step`
+- [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
+- [Validate Results](ValidationGuide.en.html) — numerical convergence and physical validity
+- [Computational model overview](Algorithms.en.html) — batch loop

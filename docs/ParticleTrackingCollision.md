@@ -17,7 +17,7 @@ Boris速度更新 + 台形位置更新
 (xⁿ⁺¹, vⁿ⁺¹) の候補
     │ mesh hitとbox面通過を比較
     ├─ meshが先 ────── 吸収
-    ├─ open面が先 ──── escapeまたはouter interfaceへ渡す
+    ├─ open面が先 ──── escapeまたはscalar-barrier反射
     └─ reflect/periodic ─ 残り時間を再積分
 ```
 
@@ -26,12 +26,12 @@ Boris速度更新 + 台形位置更新
 | 電場標本、Boris回転、位置更新 | [Boris粒子更新](BorisPusher.html) |
 | 三角形衝突、box面、periodic image、発生順序 | [粒子の衝突・境界イベント](ParticleEvents.html) |
 | 衝突・境界処理後の吸収と要素電荷差分 | [表面電荷更新](SurfaceModels.html) |
-| open面のescape、return、outer transfer | [粒子源](ParticleSourcesBoundaries.html)、[外部プラズマモデル](OuterPlasmaModels.html) |
+| open面のescape、scalar-barrier反射 | [粒子源](ParticleSourcesBoundaries.html)、[粒子のescapeとreturn](ParticleEscapeReturn.html) |
 
 ## 1 stepで確定する状態
 
-stepの結果は、通常の次時刻状態、表面吸収、box escape、outer interface crossing、または未完了statusの
-いずれかです。reflectとperiodicは粒子を生存させ、境界処理後の残り時間を同じ更新法で進めます。
+step の結果は、次時刻状態、表面吸収、box escape、または未完了 status のいずれかです。reflect、periodic、
+scalar-barrier 反射は粒子を生存させ、境界処理後の残り時間を同じ更新法で進めます。
 
 mesh hitではhit位置と要素indexを確定し、候補終点を採用しません。吸収粒子の電荷はその場でfieldへ入れず、
 thread-localな要素電荷差分へ加え、batch末尾にcommitします。

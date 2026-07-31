@@ -59,13 +59,6 @@
       "consumer": "src/runtime/bem_restart.f90"
     },
     {
-      "name": "outer_plasma_profile.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
-      "condition": "output.write_files=true and a kinetic_1d outer state is ready",
-      "restart_role": "conditional: required when resuming that ready outer state",
-      "consumer": "src/runtime/bem_restart.f90"
-    },
-    {
       "name": "rng_state.txt",
       "mpi_name": "rng_state_rankNNNNN.txt",
       "producer": "src/runtime/bem_restart.f90",
@@ -79,14 +72,6 @@
       "condition": "output.write_files=true and macro-particle residual state is allocated; one global file in serial and MPI",
       "restart_role": "optional: restore when present",
       "consumer": "src/runtime/bem_restart.f90"
-    },
-    {
-      "name": "outer_event_queue.csv",
-      "mpi_name": "outer_event_queue_rankNNNNN.csv",
-      "producer": "src/runtime/coupling/bem_outer_event_queue_io.f90",
-      "condition": "output.write_files=true and coupling.outer_queue_enabled=true; serial name or one file per MPI rank",
-      "restart_role": "conditional: required when resuming with coupling.outer_queue_enabled=true",
-      "consumer": "src/runtime/coupling/bem_outer_event_queue_io.f90"
     },
     {
       "name": "performance_profile.csv",

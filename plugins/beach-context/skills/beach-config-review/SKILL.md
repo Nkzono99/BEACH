@@ -42,7 +42,10 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
 - Reject the removed `[field]` table and `sim.softening`; the element source is the implicit P0 triangle panel.
 - Check output size risk: `history_stride`, `write_potential_history`, `write_mesh_potential`, mesh size, batch count.
 - Check resume compatibility when `output.resume = true`.
-- Treat `kinetic_1d` as the supported self-consistent outer-sheath path. Report removed field-model values as configuration errors rather than suggesting aliases.
+- Treat `external_boundary.field.model="none"` and
+  `external_boundary.particles.mode="local_source"` as the current contract.
+  Report removed outer-field or particle-transfer values as configuration
+  errors rather than suggesting aliases.
 
 ## Output
 

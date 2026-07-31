@@ -370,7 +370,7 @@ make docs-fortran
 - Fortran 実行フロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
 - `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
 - `beach.toml` JSON Schema: [`schemas/beach.schema.json`](schemas/beach.schema.json)
-- 外部シース: 自己整合な外部シースには`kinetic_1d`を使う
+- 外部境界: 現行構成は局所source、scalar barrier、closed PEを使う
 - Coulomb FMM コア仕様: [`docs/fortran_fmm_core.md`](docs/fortran_fmm_core.md)
 - 自動生成の依存関係マップ: `make docs-fortran` 実行後の `docs/fortran_dependency_map.md`
 - 実装仕様（source of truth）: [`SPEC.md`](SPEC.md)

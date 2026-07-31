@@ -4,24 +4,19 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 # periodic2 electrostatics
 
-The `field_bc_mode="periodic2"` field is the sum of near finite images, laterally varying infinite-periodic modes, the
-plane-average `k=0` component, and outer-plasma response. In an x/y-periodic, z-open slab, one computation path owns each of
-these four components and adds it exactly once to the electrostatic snapshot.
+For an x/y-periodic, z-open slab, `field_bc_mode="periodic2"` computes finite images, infinite-periodic `k\ne0`, and
+plane-average `k=0` separately and adds each component exactly once.
 
-## Decompose the field into four components
+## Decompose the field into three components
 
 | Component | Physical meaning | Production path |
 | --- | --- | --- |
 | Primary and near images | Strong local field near the primary cell | Finite-image Direct/FMM sum |
 | Far `k\ne0` | Infinite-periodic far field varying in x/y | `cached_kneq0` operator |
 | Surface `k=0` | Plane-average field from total charge below each height | Triangle-height cumulative polynomial |
-| Plasma response | Outer-plasma response of zero and nonzero modes | Selected outer model |
 
-`cached_kneq0` returns only the nonzero modes; the snapshot adds the physical boundary-conditioned surface `k=0` exactly once.
-This separates lateral infinite-periodic correction from z-direction boundary and sheath choices.
-
-See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) and
-[Infinite-periodic periodic2 with outer plasma](InfinitePeriodicOuterConfiguration.en.html) for complete combinations.
+`cached_kneq0` returns only the nonzero modes; field composition adds the physical boundary-conditioned surface `k=0` exactly
+once. See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for a complete run configuration.
 
 ## Select the computation path for nonzero modes
 
@@ -31,9 +26,9 @@ See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) 
 | `panel_spectral_reference` | Small triangle-P0 reference | Direct and mode/quadrature convergence |
 | `cached_kneq0` | Infinite-periodic nonzero modes for FMM production | x/y periodic, z nonperiodic, and `exclude_k0` |
 
-`field_periodic_far_correction="auto"` currently has compatibility behavior equivalent to `none`. Infinite-periodic production
-must select `cached_kneq0` explicitly. Startup validation checks consistency between high-level settings and typed `[periodic2]`
-configuration and rejects contradictory zero-mode ownership or unsupported outer models.
+`field_periodic_far_correction="auto"` has compatibility behavior equivalent to `none`. Infinite-periodic production must
+select `cached_kneq0` explicitly. Startup validation checks high-level settings against typed `[periodic2]` configuration and
+rejects contradictory zero-mode ownership. Removed `[outer_plasma]` and `[coupling]` tables are unknown input.
 `m2l_root_oracle` has been removed and is rejected at startup.
 
 The Ewald2P teacher, root-multipole-to-local operator, cache, and FMM-state connection are documented separately in
@@ -57,9 +52,8 @@ layer for this reason.
 
 ## Separate the infinite-periodic far field with Ewald2P
 
-`cached_kneq0` applies the difference between an Ewald2P teacher and finite image shell as a root-multipole-to-target-local
-operator. The symmetric `k=0` inherited from the teacher is removed, and field composition adds the selected physical `k=0`
-exactly once:
+`cached_kneq0` applies the difference between an Ewald2P teacher and finite-image shell as an operator and removes the
+teacher's symmetric `k=0`. Field composition adds the selected physical `k=0` exactly once:
 
 $$
 K_\mathrm{surface}
@@ -67,9 +61,9 @@ K_\mathrm{surface}
 +K_0^\mathrm{physical}.
 $$
 
-The expression in parentheses belongs to the nonzero backend. `zero_mode_policy="exclude_k0"` is an ownership rule preventing
-double counting, not an instruction to discard the mean field. Ewald splitting, operator fitting, the FMM insertion point, and
-cache lifecycle are separated into [periodic2 Far Correction](PeriodicFarCorrection.en.html).
+The expression in parentheses belongs to the nonzero backend. `zero_mode_policy="exclude_k0"` prevents double counting; it
+does not discard the mean field. See [periodic2 Far Correction](PeriodicFarCorrection.en.html) for Ewald splitting, operator
+fitting, the FMM insertion point, and cache lifecycle.
 
 ## Add the physical `k=0` component exactly once
 
@@ -122,9 +116,6 @@ For total surface charge $Q=\sum_iq_i$, current choices are:
 
 Neither solves dielectric screening or polarization. `symmetric_vacuum` is the minimal symmetric closure without an additional
 interface or permittivity; `e_bottom_zero` exists for legacy reproduction and is not a universal physical default.
-
-An outer model uses surface zero-mode field and interface conditions to form plasma response. See
-[Kinetic 1-D outer plasma](KineticOuterPlasma.en.html) for the split kinetic composition.
 
 ## Search periodic images reachable by particle trajectories
 

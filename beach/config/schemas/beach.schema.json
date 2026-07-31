@@ -15,16 +15,37 @@
     "periodic2": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nonzero_mode_backend", "zero_mode_policy", "lower_boundary_model"],
+      "required": [
+        "nonzero_mode_backend",
+        "zero_mode_policy",
+        "lower_boundary_model"
+      ],
       "properties": {
-        "nonzero_mode_backend": {"enum": ["panel_spectral_reference", "cached_kneq0"]},
-        "zero_mode_policy": {"const": "exclude_k0"},
-        "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]},
-        "reference_mode_layers": {"type": "integer", "minimum": 1, "default": 4},
-        "panel_quadrature_order": {"type": "integer", "minimum": 2, "default": 12},
-        "interface_sample_n": {"type": "integer", "minimum": 2, "default": 5},
-        "interface_phi_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001},
-        "interface_field_tolerance": {"type": "number", "exclusiveMinimum": 0, "default": 0.001},
+        "nonzero_mode_backend": {
+          "enum": [
+            "panel_spectral_reference",
+            "cached_kneq0"
+          ]
+        },
+        "zero_mode_policy": {
+          "const": "exclude_k0"
+        },
+        "lower_boundary_model": {
+          "enum": [
+            "e_bottom_zero",
+            "symmetric_vacuum"
+          ]
+        },
+        "reference_mode_layers": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4
+        },
+        "panel_quadrature_order": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 12
+        },
         "max_nonzero_mode_potential_step": {
           "type": "number",
           "minimum": 0,
@@ -34,98 +55,7 @@
     },
     "external_boundary": {
       "$ref": "#/$defs/externalBoundary",
-      "description": "Authoring facade for the external field, tracked interface particles, inflow ownership, and ordinary open-boundary behavior. It is lowered to sim, outer_plasma, and coupling before execution."
-    },
-    "outer_plasma": {
-      "type": "object",
-      "description": "Optional outer-domain field model. kinetic_1d is the supported VDF-based outer sheath model.",
-      "additionalProperties": false,
-      "required": ["model", "interface_z", "debye_length", "thermal_voltage"],
-      "properties": {
-        "model": {"const": "kinetic_1d", "description": "Select the supported VDF-based outer sheath."},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian", "description": "Closure used by kinetic_1d. ambient_linear_debye applies an analytic ambient-only linear Debye response while tracked photoelectrons remain outside the mean density; zhao_charge_driven retains the accumulated-charge interface-field condition."},
-        "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto", "description": "Requested Zhao branch when kinetic_closure is zhao_charge_driven."},
-        "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1, "description": "Independent Zhao photoelectron source multiplier. Set to 0 for the no-photo Type-C path; positive values require a matching enabled photo_raycast species. This is distinct from the transient outer-cloud occupancy eta."},
-        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
-        "return_model": {"enum": ["none", "kinetic_1d_profile_return"], "default": "none"},
-        "interface_z": {"type": "number"},
-        "debye_length": {"type": "number", "exclusiveMinimum": 0},
-        "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
-        "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
-        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
-      },
-      "allOf": [
-        {
-          "if": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "ambient_linear_debye"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["photoelectron_density_model"],
-            "properties": {
-              "photoelectron_density_model": {"const": "kinetic_mean"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "return_model": {"enum": ["none", "kinetic_1d_profile_return"]}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "zhao_charge_driven"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["zhao_branch"],
-            "properties": {
-              "zhao_branch": {"enum": ["a", "b", "c"]}
-            }
-          },
-          "then": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "zhao_charge_driven"}
-            }
-          }
-        }
-      ]
-    },
-    "coupling": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "update_mode": {"const": "explicit", "default": "explicit"},
-        "particle_transfer_mode": {"enum": ["none", "electrostatic_1d_instant_return"], "default": "none"},
-        "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none", "description": "Optional pre-equilibrated startup contract. On a fresh run, zhao_floating seeds the selected mesh from the stationary Zhao floating-current state before the first batch; resume restores checkpoint mesh and outer state without reapplying the seed."},
-        "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1, "description": "One-based generated-template mesh ID that receives the zhao_floating steady-start charge."},
-        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
-        "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
-        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1},
-        "outer_queue_enabled": {"type": "boolean", "default": false, "description": "Delay Zhao kinetic-profile return and finite-domain reservoir-escape events across batches, close the photoelectron population from the queued column over 10 photoelectron Debye lengths, require automatic branch continuation, bound each flight plus next-poll delay and half-batch midpoint uncertainty, and bound batch_duration by max_frozen_field_ratio * field_evolution_timescale."}
-      }
+      "description": "Local reservoir inflow and ordinary open-boundary behavior."
     },
     "mesh": {
       "$ref": "#/$defs/mesh",
@@ -141,749 +71,6 @@
   ],
   "additionalProperties": false,
   "allOf": [
-    {
-      "if": {
-        "required": ["external_boundary"]
-      },
-      "then": {
-        "not": {
-          "anyOf": [
-            {"required": ["outer_plasma"]},
-            {"required": ["coupling"]},
-            {
-              "required": ["sim"],
-              "properties": {
-                "sim": {
-                  "anyOf": [
-                    {"required": ["reservoir_potential_model"]},
-                    {"required": ["open_boundary_model"]}
-                  ]
-                }
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["particles"],
-        "properties": {
-          "particles": {
-            "properties": {
-              "species": {
-                "contains": {
-                  "required": ["z_high_boundary"],
-                  "properties": {
-                    "enabled": {"not": {"const": false}},
-                    "z_high_boundary": {"const": "reflect"}
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["sim"],
-        "properties": {
-          "sim": {
-            "required": ["use_box", "bc_z_high"],
-            "properties": {
-              "use_box": {"const": true},
-              "bc_z_high": {"const": "open"}
-            }
-          },
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "properties": {
-                  "mode": {"const": "local_source"}
-                }
-              }
-            }
-          },
-          "coupling": {
-            "properties": {
-              "particle_transfer_mode": {"const": "none"},
-              "outer_queue_enabled": {"const": false}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "required": ["particles"],
-            "properties": {
-              "particles": {
-                "anyOf": [
-                  {"required": ["steady_start_mode"]},
-                  {"required": ["steady_start_mesh_id"]}
-                ]
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["kinetic_closure"],
-                "properties": {
-                  "model": {"const": "kinetic_1d"},
-                  "kinetic_closure": {"const": "zhao_charge_driven"}
-                }
-              },
-              "particles": {
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "required": ["particles"],
-            "properties": {
-              "particles": {
-                "required": ["outer_update_stride"]
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "properties": {
-                  "model": {"const": "kinetic_1d"}
-                }
-              },
-              "particles": {
-                "properties": {
-                  "mode": {"enum": ["local_source", "same_batch"]}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "required": ["steady_start_mode"],
-                "properties": {
-                  "steady_start_mode": {"const": "zhao_floating"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["periodic2", "mesh"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model", "kinetic_closure"],
-                "properties": {
-                  "model": {"const": "kinetic_1d"},
-                  "kinetic_closure": {"const": "zhao_charge_driven"}
-                }
-              },
-              "particles": {
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          },
-          "periodic2": {
-            "properties": {
-              "zero_mode_policy": {"const": "exclude_k0"},
-              "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]}
-            }
-          },
-          "mesh": {
-            "required": ["mode"],
-            "properties": {
-              "mode": {"const": "template"}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model"],
-                "properties": {
-                  "model": {"const": "kinetic_1d"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["sim"],
-        "properties": {
-          "sim": {
-            "anyOf": [
-              {"required": ["box_max"]},
-              {"required": ["box_origin", "box_size"]}
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["kinetic_closure"],
-                "properties": {
-                  "kinetic_closure": {"const": "zhao_charge_driven"}
-                },
-                "not": {
-                  "required": ["photoelectron_source_scale"],
-                  "properties": {
-                    "photoelectron_source_scale": {"const": 0}
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "sim": {
-            "properties": {
-              "sheath_photoelectron_ref_density_cm3": {"exclusiveMinimum": 0}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "required": ["particles"],
-            "properties": {
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"const": "zhao_queue"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["sim"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model", "kinetic_closure"],
-                "properties": {
-                  "model": {"const": "kinetic_1d"},
-                  "kinetic_closure": {"const": "zhao_charge_driven"},
-                  "zhao_branch": {"const": "auto"},
-                  "photoelectron_source_scale": {"exclusiveMinimum": 0}
-                }
-              },
-              "particles": {
-                "required": ["field_evolution_timescale"],
-                "properties": {
-                  "inflow_model": {"const": "auto"},
-                  "steady_start_mode": {"const": "none"},
-                  "outer_update_stride": {"const": 1},
-                  "field_evolution_timescale": {"exclusiveMinimum": 0},
-                  "max_frozen_field_ratio": {"exclusiveMinimum": 0}
-                }
-              }
-            }
-          },
-          "sim": {
-            "properties": {
-              "batch_duration": {"exclusiveMinimum": 0},
-              "batch_duration_step": {"exclusiveMinimum": 0}
-            },
-            "anyOf": [
-              {"required": ["batch_duration"]},
-              {"required": ["batch_duration_step"]}
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model"],
-                "properties": {
-                  "model": {"const": "none"}
-                }
-              },
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"const": "local_source"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "not": {
-                  "anyOf": [
-                    {"required": ["steady_start_mode"]},
-                    {"required": ["steady_start_mesh_id"]},
-                    {"required": ["outer_update_stride"]},
-                    {"required": ["field_evolution_timescale"]},
-                    {"required": ["max_frozen_field_ratio"]}
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "properties": {
-                  "model": {"const": "kinetic_1d"}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["model"],
-                "properties": {
-                  "model": {"const": "kinetic_1d"}
-                }
-              },
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"const": "same_batch"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "required": ["field_evolution_timescale"],
-                "properties": {
-                  "inflow_model": {"const": "auto"},
-                  "field_evolution_timescale": {"exclusiveMinimum": 0}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "field": {
-                "required": ["kinetic_closure"],
-                "properties": {
-                  "kinetic_closure": {"const": "zhao_charge_driven"}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "properties": {
-                  "inflow_model": {"enum": ["auto", "source_vdf"]}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["external_boundary"],
-        "properties": {
-          "external_boundary": {
-            "properties": {
-              "particles": {
-                "required": ["mode"],
-                "properties": {
-                  "mode": {"enum": ["same_batch", "zhao_queue"]}
-                }
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "particles": {
-            "properties": {
-              "species": {
-                "items": {
-                  "if": {
-                    "required": ["source_mode"],
-                    "properties": {
-                      "source_mode": {"const": "photo_raycast"}
-                    }
-                  },
-                  "then": {
-                    "required": ["deposit_opposite_charge_on_emit"],
-                    "properties": {
-                      "deposit_opposite_charge_on_emit": {"const": true}
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["coupling"],
-        "properties": {
-          "coupling": {
-            "required": ["steady_start_mode"],
-            "properties": {
-              "steady_start_mode": {"const": "zhao_floating"}
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["outer_plasma", "coupling", "periodic2", "mesh"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["model", "kinetic_closure", "return_model"],
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "kinetic_closure": {"const": "zhao_charge_driven"},
-              "return_model": {"const": "kinetic_1d_profile_return"}
-            }
-          },
-          "coupling": {
-            "required": ["particle_transfer_mode"],
-            "properties": {
-              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"},
-              "outer_queue_enabled": {"const": false}
-            }
-          },
-          "periodic2": {
-            "properties": {
-              "zero_mode_policy": {"const": "exclude_k0"},
-              "lower_boundary_model": {"enum": ["e_bottom_zero", "symmetric_vacuum"]}
-            }
-          },
-          "mesh": {
-            "required": ["mode"],
-            "properties": {
-              "mode": {"const": "template"}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["coupling"],
-        "properties": {
-          "coupling": {
-            "required": ["outer_queue_enabled"],
-            "properties": {
-              "outer_queue_enabled": {"const": true}
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["outer_plasma", "coupling", "sim"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["model", "kinetic_closure", "return_model"],
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "kinetic_closure": {"const": "zhao_charge_driven"},
-              "zhao_branch": {"const": "auto"},
-              "photoelectron_source_scale": {"exclusiveMinimum": 0},
-              "return_model": {"const": "kinetic_1d_profile_return"}
-            }
-          },
-          "coupling": {
-            "required": ["particle_transfer_mode", "field_evolution_timescale"],
-            "properties": {
-              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"},
-              "outer_update_stride": {"const": 1},
-              "field_evolution_timescale": {"exclusiveMinimum": 0},
-              "max_frozen_field_ratio": {"exclusiveMinimum": 0}
-            }
-          },
-          "sim": {
-            "properties": {
-              "batch_duration": {"exclusiveMinimum": 0},
-              "batch_duration_step": {"exclusiveMinimum": 0}
-            },
-            "anyOf": [
-              {"required": ["batch_duration"]},
-              {"required": ["batch_duration_step"]}
-            ]
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["outer_plasma"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["photoelectron_density_model"],
-            "properties": {
-              "photoelectron_density_model": {"const": "kinetic_mean"}
-            }
-          }
-        }
-      },
-      "then": {
-        "oneOf": [
-          {
-            "properties": {
-              "outer_plasma": {
-                "properties": {
-                  "return_model": {"const": "none"}
-                }
-              },
-              "coupling": {
-                "properties": {
-                  "particle_transfer_mode": {"const": "none"}
-                }
-              }
-            }
-          },
-          {
-            "required": ["coupling"],
-            "properties": {
-              "outer_plasma": {
-                "required": ["return_model"],
-                "properties": {
-                  "return_model": {"const": "kinetic_1d_profile_return"}
-                }
-              },
-              "coupling": {
-                "required": ["particle_transfer_mode"],
-                "properties": {
-                  "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
-                }
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "if": {
-        "required": ["outer_plasma"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "zhao_charge_driven"}
-            }
-          }
-        }
-      },
-      "then": {
-        "required": ["sim"],
-        "properties": {
-          "sim": {
-            "properties": {
-              "reservoir_potential_model": {"const": "none"},
-              "sheath_photoelectron_ref_density_cm3": {}
-            }
-          }
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "required": ["outer_plasma"],
-            "properties": {
-              "outer_plasma": {
-                "required": ["kinetic_closure"],
-                "properties": {
-                  "kinetic_closure": {"const": "zhao_charge_driven"}
-                },
-                "not": {
-                  "required": ["photoelectron_source_scale"],
-                  "properties": {
-                    "photoelectron_source_scale": {"const": 0}
-                  }
-                }
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "sim": {
-                "properties": {
-                  "sheath_photoelectron_ref_density_cm3": {"exclusiveMinimum": 0}
-                }
-              }
-            }
-          }
-        }
-      ]
-    },
-    {
-      "if": {
-        "required": ["outer_plasma"],
-        "properties": {
-          "outer_plasma": {
-            "required": ["photoelectron_source_scale"],
-            "properties": {
-              "photoelectron_source_scale": {"not": {"const": 1}}
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "outer_plasma": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "zhao_charge_driven"}
-            }
-          }
-        }
-      }
-    },
-    {
-      "if": {
-        "required": ["coupling"],
-        "properties": {
-          "coupling": {
-            "required": ["particle_transfer_mode"],
-            "properties": {
-              "particle_transfer_mode": {"const": "electrostatic_1d_instant_return"}
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "particles": {
-            "properties": {
-              "species": {
-                "items": {
-                  "if": {
-                    "required": ["source_mode"],
-                    "properties": {
-                      "source_mode": {"const": "photo_raycast"}
-                    }
-                  },
-                  "then": {
-                    "required": ["deposit_opposite_charge_on_emit"],
-                    "properties": {
-                      "deposit_opposite_charge_on_emit": {"const": true}
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     {
       "if": {
         "properties": {
@@ -963,7 +150,10 @@
     "externalBoundary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field", "particles"],
+      "required": [
+        "field",
+        "particles"
+      ],
       "properties": {
         "field": {
           "$ref": "#/$defs/externalBoundaryField"
@@ -979,161 +169,31 @@
     "externalBoundaryField": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["model"],
+      "required": [
+        "model"
+      ],
       "properties": {
-        "model": {"enum": ["none", "kinetic_1d"]},
-        "kinetic_closure": {"enum": ["absorbing_maxwellian", "ambient_linear_debye", "zhao_charge_driven"], "default": "absorbing_maxwellian"},
-        "zhao_branch": {"enum": ["auto", "a", "b", "c"], "default": "auto"},
-        "photoelectron_source_scale": {"type": "number", "minimum": 0, "default": 1},
-        "photoelectron_density_model": {"enum": ["none", "kinetic_mean"], "default": "none"},
-        "debye_length": {"type": "number", "exclusiveMinimum": 0},
-        "thermal_voltage": {"type": "number", "exclusiveMinimum": 0},
-        "max_gap_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 5},
-        "max_local_charge_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 50}
-      },
-      "dependencies": {
-        "max_gap_ratio": {
-          "properties": {
-            "model": {"const": "kinetic_1d"}
-          }
-        },
-        "max_local_charge_ratio": {
-          "properties": {
-            "model": {"const": "kinetic_1d"}
-          }
-        },
-        "kinetic_closure": {
-          "properties": {
-            "model": {"const": "kinetic_1d"}
-          }
-        },
-        "zhao_branch": {
-          "required": ["kinetic_closure"],
-          "properties": {
-            "model": {"const": "kinetic_1d"},
-            "kinetic_closure": {"const": "zhao_charge_driven"}
-          }
-        },
-        "photoelectron_source_scale": {
-          "required": ["kinetic_closure"],
-          "properties": {
-            "model": {"const": "kinetic_1d"},
-            "kinetic_closure": {"const": "zhao_charge_driven"}
-          }
-        },
-        "photoelectron_density_model": {
-          "properties": {
-            "model": {"const": "kinetic_1d"},
-            "kinetic_closure": {"const": "absorbing_maxwellian"}
-          }
+        "model": {
+          "const": "none"
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "ambient_linear_debye"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["model"],
-            "properties": {
-              "model": {"const": "none"}
-            }
-          },
-          "then": {
-            "maxProperties": 1
-          }
-        },
-        {
-          "if": {
-            "required": ["model"],
-            "properties": {
-              "model": {"const": "kinetic_1d"}
-            }
-          },
-          "then": {
-            "required": ["debye_length", "thermal_voltage"]
-          }
-        },
-        {
-          "if": {
-            "required": ["photoelectron_density_model"],
-            "properties": {
-              "photoelectron_density_model": {"const": "kinetic_mean"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"}
-            }
-          }
-        },
-        {
-          "if": {
-            "required": ["kinetic_closure"],
-            "properties": {
-              "kinetic_closure": {"const": "zhao_charge_driven"}
-            }
-          },
-          "then": {
-            "properties": {
-              "model": {"const": "kinetic_1d"},
-              "photoelectron_density_model": {"const": "none"}
-            }
-          }
-        }
-      ]
+      }
     },
     "externalBoundaryParticles": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode"],
+      "required": [
+        "mode"
+      ],
       "properties": {
-        "mode": {"enum": ["local_source", "same_batch", "zhao_queue"]},
-        "inflow_model": {"enum": ["auto", "source_vdf", "infinity_barrier"], "default": "auto"},
-        "steady_start_mode": {"enum": ["none", "zhao_floating"], "default": "none"},
-        "steady_start_mesh_id": {"type": "integer", "minimum": 1, "default": 1},
-        "outer_update_stride": {"type": "integer", "minimum": 1, "default": 1},
-        "field_evolution_timescale": {"type": "number", "minimum": 0, "default": 0},
-        "max_frozen_field_ratio": {"type": "number", "exclusiveMinimum": 0, "default": 0.1}
-      },
-      "dependencies": {
-        "steady_start_mode": {
-          "properties": {
-            "mode": {"const": "same_batch"}
-          }
+        "mode": {
+          "const": "local_source"
         },
-        "steady_start_mesh_id": {
-          "required": ["steady_start_mode"],
-          "properties": {
-            "mode": {"const": "same_batch"},
-            "steady_start_mode": {"const": "zhao_floating"}
-          }
-        },
-        "outer_update_stride": {
-          "properties": {
-            "mode": {"enum": ["local_source", "same_batch"]}
-          }
-        },
-        "field_evolution_timescale": {
-          "properties": {
-            "mode": {"enum": ["same_batch", "zhao_queue"]}
-          }
-        },
-        "max_frozen_field_ratio": {
-          "properties": {
-            "mode": {"enum": ["same_batch", "zhao_queue"]}
-          }
+        "inflow_model": {
+          "enum": [
+            "source_vdf",
+            "infinity_barrier"
+          ],
+          "default": "source_vdf"
         }
       }
     },
@@ -1141,7 +201,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "model": {"enum": ["escape", "potential_barrier"], "default": "escape"}
+        "model": {
+          "enum": [
+            "escape",
+            "potential_barrier"
+          ],
+          "default": "escape"
+        }
       }
     },
     "vec3": {
@@ -1219,7 +285,11 @@
     "surfaceSide": {
       "description": "Physical vacuum side relative to ordered triangle winding.",
       "type": "string",
-      "enum": ["normal_plus", "normal_minus", "outward_closed"]
+      "enum": [
+        "normal_plus",
+        "normal_minus",
+        "outward_closed"
+      ]
     },
     "boxAnchor": {
       "description": "Anchor point inside sim.box_min/sim.box_max.",
@@ -1277,7 +347,7 @@
       "properties": {
         "dt": {
           "type": "number",
-          "default": 1.0e-9,
+          "default": 1e-9,
           "description": "Time step [s]."
         },
         "rng_seed": {
@@ -1308,21 +378,21 @@
         },
         "tol_rel": {
           "type": "number",
-          "default": 1.0e-8,
+          "default": 1e-8,
           "description": "Monitoring metric; not an early-stop condition."
         },
         "q_floor": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0e-30,
+          "default": 1e-30,
           "description": "Denominator floor for rel_change."
         },
         "e0": {
           "$ref": "#/$defs/vec3",
           "default": [
-            0.0,
-            0.0,
-            0.0
+            0,
+            0,
+            0
           ],
           "description": "Uniform external electric field vector [V/m]. Mutually exclusive with e0_abs/e0_phi_*."
         },
@@ -1333,12 +403,12 @@
         },
         "e0_phi_xy_deg": {
           "type": "number",
-          "default": 0.0,
+          "default": 0,
           "description": "Azimuth angle of e0 in the x-y plane [deg]. Requires e0_abs."
         },
         "e0_phi_z_deg": {
           "type": "number",
-          "default": 0.0,
+          "default": 0,
           "description": "Elevation angle of e0 from the x-y plane [deg]. Requires e0_abs."
         },
         "field_solver": {
@@ -1366,7 +436,7 @@
         "field_length_scale": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0,
+          "default": 1,
           "description": "Reference length [m] when field_normalization=\"length\"."
         },
         "field_bc_mode": {
@@ -1397,7 +467,7 @@
         "field_periodic_ewald_alpha": {
           "type": "number",
           "minimum": 0,
-          "default": 0.0,
+          "default": 0,
           "description": "Ewald splitting parameter for cached_kneq0 operator generation. 0 = auto-determined from box size."
         },
         "field_periodic_ewald_layers": {
@@ -1415,7 +485,7 @@
         "field_periodic_generation_tolerance": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0e-8,
+          "default": 1e-8,
           "description": "Generation tolerance included in the periodic operator cache identity."
         },
         "tree_theta": {
@@ -1440,34 +510,16 @@
         "b0": {
           "$ref": "#/$defs/vec3",
           "default": [
-            0.0,
-            0.0,
-            0.0
+            0,
+            0,
+            0
           ],
           "description": "Uniform magnetic field [T]."
         },
-        "reservoir_potential_model": {
-          "type": "string",
-          "enum": [
-            "none",
-            "infinity_barrier"
-          ],
-          "default": "none",
-          "description": "Reservoir potential model for injection."
-        },
         "phi_infty": {
           "type": "number",
-          "default": 0.0,
+          "default": 0,
           "description": "Reference potential at infinity [V]."
-        },
-        "open_boundary_model": {
-          "type": "string",
-          "enum": [
-            "escape",
-            "potential_barrier"
-          ],
-          "default": "escape",
-          "description": "Return/escape model applied at open particle boundaries."
         },
         "multiple_box_events_policy": {
           "type": "string",
@@ -1502,37 +554,6 @@
           "default": 16,
           "description": "Maximum bounce count for photo_raycast ray tracing."
         },
-        "sheath_alpha_deg": {
-          "type": "number",
-          "minimum": 0,
-          "maximum": 90,
-          "default": 60.0,
-          "description": "Solar elevation angle [deg] for Zhao sheath models."
-        },
-        "sheath_photoelectron_ref_density_cm3": {
-          "type": "number",
-          "minimum": 0,
-          "default": 64.0,
-          "description": "Reference photoelectron density [cm^-3] for Zhao sheath models."
-        },
-        "sheath_electron_drift_mode": {
-          "type": "string",
-          "enum": [
-            "normal",
-            "full"
-          ],
-          "default": "normal",
-          "description": "Electron drift mode for Zhao kinetic inflow."
-        },
-        "sheath_ion_drift_mode": {
-          "type": "string",
-          "enum": [
-            "normal",
-            "full"
-          ],
-          "default": "normal",
-          "description": "Ion drift mode for Zhao kinetic inflow."
-        },
         "use_box": {
           "type": "boolean",
           "default": false,
@@ -1541,18 +562,18 @@
         "box_min": {
           "$ref": "#/$defs/vec3",
           "default": [
-            -1.0,
-            -1.0,
-            -1.0
+            -1,
+            -1,
+            -1
           ],
           "description": "Box lower bound [m]."
         },
         "box_max": {
           "$ref": "#/$defs/vec3",
           "default": [
-            1.0,
-            1.0,
-            1.0
+            1,
+            1,
+            1
           ],
           "description": "Box upper bound [m]."
         },
@@ -1723,10 +744,18 @@
               "field_bc_mode"
             ],
             "properties": {
-              "field_solver": {"const": "fmm"},
-              "field_bc_mode": {"const": "periodic2"},
-              "field_periodic_image_layers": {"minimum": 1},
-              "field_periodic_ewald_layers": {"minimum": 1}
+              "field_solver": {
+                "const": "fmm"
+              },
+              "field_bc_mode": {
+                "const": "periodic2"
+              },
+              "field_periodic_image_layers": {
+                "minimum": 1
+              },
+              "field_periodic_ewald_layers": {
+                "minimum": 1
+              }
             }
           }
         },
@@ -1748,7 +777,10 @@
             ],
             "properties": {
               "field_solver": {
-                "enum": ["direct", "fmm"]
+                "enum": [
+                  "direct",
+                  "fmm"
+                ]
               },
               "use_box": {
                 "const": true
@@ -1956,7 +988,7 @@
         "w_particle": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0,
+          "default": 1,
           "description": "Macro-particle weight."
         },
         "target_macro_particles_per_batch": {
@@ -2034,16 +1066,16 @@
         "drift_velocity": {
           "$ref": "#/$defs/vec3",
           "default": [
-            0.0,
-            0.0,
-            -800000.0
+            0,
+            0,
+            -800000
           ],
           "description": "Drift velocity [m/s]."
         },
         "temperature_k": {
           "type": "number",
           "minimum": 0,
-          "default": 20000.0,
+          "default": 20000,
           "description": "Temperature [K]. Mutually exclusive with temperature_ev."
         },
         "temperature_ev": {
@@ -2067,7 +1099,7 @@
         },
         "normal_drift_speed": {
           "type": "number",
-          "default": 0.0,
+          "default": 0,
           "description": "Surface-normal drift speed [m/s] for photo_raycast emission."
         },
         "ray_direction": {
@@ -2085,7 +1117,7 @@
             "reflect"
           ],
           "default": "inherit",
-          "description": "Per-species z-high trajectory action. inherit uses the global open-boundary contract; reflect applies local specular reflection. reflect requires sim.use_box=true, sim.bc_z_high=open, and no outer particle transfer."
+          "description": "Per-species z-high trajectory action. inherit uses the global open-boundary contract; reflect applies local specular reflection. reflect requires sim.use_box=true, sim.bc_z_high=open, and external_boundary.particles.mode=local_source."
         },
         "surface_charge_closure": {
           "type": "string",
@@ -2681,29 +1713,41 @@
         },
         "epsilon_r": {
           "type": "number",
-          "minimum": 1.0,
-          "default": 1.0,
+          "minimum": 1,
+          "default": 1,
           "description": "Relative permittivity assigned to OBJ mesh elements. Stored for all surface models; dielectric polarization is not solved in the current release."
         },
         "obj_scale": {
           "type": "number",
-          "default": 1.0,
+          "default": 1,
           "description": "OBJ読み込み後に適用する一様スケーリング係数"
         },
         "obj_rotation": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "minItems": 3,
           "maxItems": 3,
-          "default": [0.0, 0.0, 0.0],
+          "default": [
+            0,
+            0,
+            0
+          ],
           "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
         },
         "obj_offset": {
           "type": "array",
-          "items": { "type": "number" },
+          "items": {
+            "type": "number"
+          },
           "minItems": 3,
           "maxItems": 3,
-          "default": [0.0, 0.0, 0.0],
+          "default": [
+            0,
+            0,
+            0
+          ],
           "description": "OBJ読み込み後に適用する平行移動 [m]"
         },
         "templates": {
@@ -2882,37 +1926,37 @@
         },
         "epsilon_r": {
           "type": "number",
-          "minimum": 1.0,
-          "default": 1.0,
+          "minimum": 1,
+          "default": 1,
           "description": "Relative permittivity assigned to elements generated from this template. Stored for all surface models; dielectric polarization is not solved in the current release."
         },
         "center": {
           "$ref": "#/$defs/vec3",
           "default": [
-            0.0,
-            0.0,
-            0.0
+            0,
+            0,
+            0
           ],
           "description": "Template center position [m]."
         },
         "size_x": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0,
+          "default": 1,
           "description": "X-direction size [m] for plane/plate_hole."
         },
         "size_y": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0,
+          "default": 1,
           "description": "Y-direction size [m] for plane/plate_hole."
         },
         "size": {
           "$ref": "#/$defs/positiveVec3",
           "default": [
-            1.0,
-            1.0,
-            1.0
+            1,
+            1,
+            1
           ],
           "description": "Box dimensions [x, y, z] [m]."
         },
@@ -2949,7 +1993,7 @@
         "height": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1.0,
+          "default": 1,
           "description": "Height [m] for cylinder."
         },
         "n_theta": {

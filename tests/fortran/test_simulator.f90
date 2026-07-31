@@ -116,7 +116,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(18)
+  call test_init(15)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -151,14 +151,6 @@ program test_simulator
   call assert_close_dp(charge_ledger%residual(), 0.0_dp, 1.0d-12, 'simulation charge residual mismatch')
   call test_end()
 
-  call test_begin('kinetic_outer_profile_return_ledger')
-  call test_kinetic_outer_profile_return_ledger()
-  call test_end()
-
-  call test_begin('implicit_mean_photoelectron_interface_transfer')
-  call test_implicit_mean_photoelectron_interface_transfer()
-  call test_end()
-
   call test_begin('history_output')
   n_lines = 0_i32
   open (newunit=u, file=history_path, status='old', action='read', iostat=ios)
@@ -181,7 +173,7 @@ program test_simulator
   cfg_tree = cfg
   cfg_tree%sim%field_solver = 'treecode'
   call normalize_legacy_physics_config( &
-    cfg_tree%sim, cfg_tree%field, cfg_tree%periodic2, cfg_tree%panel, cfg_tree%outer_plasma, cfg_tree%coupling &
+    cfg_tree%sim, cfg_tree%field, cfg_tree%periodic2, cfg_tree%panel &
     )
   call seed_particles_from_config(cfg_tree)
   call run_absorption_insulator(mesh_tree, cfg_tree, stats_tree)
@@ -204,7 +196,7 @@ program test_simulator
   cfg_potential_history%sim%batch_duration = 1.0_dp
   call normalize_legacy_physics_config( &
     cfg_potential_history%sim, cfg_potential_history%field, cfg_potential_history%periodic2, &
-    cfg_potential_history%panel, cfg_potential_history%outer_plasma, cfg_potential_history%coupling &
+    cfg_potential_history%panel &
     )
   call seed_particles_from_config(cfg_potential_history)
   call delete_file_if_exists(potential_history_path)
@@ -273,10 +265,6 @@ program test_simulator
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
   call test_end()
 
-  call test_begin('zhao_steady_start_resume_does_not_reseed')
-  call test_zhao_steady_start_resume()
-  call test_end()
-
   call test_begin('collision_query_failure_context')
   call test_collision_query_failure_context()
   call test_end()
@@ -313,164 +301,6 @@ program test_simulator
 
 contains
 
-  subroutine test_zhao_steady_start_resume()
-    use bem_constants, only: qe
-    use bem_electrostatic_snapshot, only: electrostatic_restart_state_type
-    type(mesh_type) :: steady_mesh
-    type(app_config) :: steady_cfg
-    type(sim_stats) :: first_stats, resumed_stats
-    type(injection_state) :: steady_injection_state
-    type(electrostatic_restart_state_type) :: restart_state, saved_restart_state
-    real(dp), allocatable :: saved_charge(:)
-    real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
-    real(dp), parameter :: proton_mass = 1.67262192369e-27_dp
-    real(dp), parameter :: box_width = 9.899494936611664e-5_dp
-    real(dp), parameter :: interface_z = 2.0e-4_dp
-    real(dp), parameter :: inward_drift = 4.0529988897111727e5_dp
-
-    call default_app_config(steady_cfg)
-    steady_cfg%sim%rng_seed = 24602_i32
-    steady_cfg%sim%batch_count = 1_i32
-    steady_cfg%sim%dt = 1.0e-12_dp
-    steady_cfg%sim%batch_duration = 1.0e-12_dp
-    steady_cfg%sim%has_batch_duration = .true.
-    steady_cfg%sim%max_step = 100_i32
-    steady_cfg%sim%q_floor = 1.0e-40_dp
-    steady_cfg%sim%field_solver = 'direct'
-    steady_cfg%sim%field_bc_mode = 'periodic2'
-    steady_cfg%sim%use_box = .true.
-    steady_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    steady_cfg%sim%box_max = [box_width, box_width, interface_z]
-    steady_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    steady_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    steady_cfg%sim%reservoir_potential_model = 'none'
-    steady_cfg%sim%open_boundary_model = 'escape'
-    steady_cfg%sim%sheath_alpha_deg = 60.0_dp
-    steady_cfg%sim%sheath_photoelectron_ref_density_cm3 = 0.0_dp
-    steady_cfg%sim%sheath_electron_drift_mode = 'normal'
-    steady_cfg%sim%sheath_ion_drift_mode = 'normal'
-
-    steady_cfg%field%backend = 'direct'
-    steady_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
-    steady_cfg%panel%surface_side_policy = 'per_element'
-    steady_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
-    steady_cfg%periodic2%zero_mode_policy = 'exclude_k0'
-    steady_cfg%periodic2%lower_boundary_model = 'symmetric_vacuum'
-    steady_cfg%periodic2%reference_mode_layers = 2_i32
-    steady_cfg%periodic2%panel_quadrature_order = 4_i32
-    steady_cfg%periodic2%interface_sample_n = 2_i32
-    steady_cfg%periodic2%interface_phi_tolerance = 1.0e-2_dp
-    steady_cfg%periodic2%interface_field_tolerance = 1.0e-2_dp
-
-    steady_cfg%outer_plasma%model = 'kinetic_1d'
-    steady_cfg%outer_plasma%kinetic_closure = 'zhao_charge_driven'
-    steady_cfg%outer_plasma%zhao_branch = 'auto'
-    steady_cfg%outer_plasma%photoelectron_source_scale = 0.0_dp
-    steady_cfg%outer_plasma%photoelectron_density_model = 'none'
-    steady_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
-    steady_cfg%outer_plasma%interface_z = interface_z
-    steady_cfg%outer_plasma%debye_length = 1.0_dp
-    steady_cfg%outer_plasma%thermal_voltage = 10.0_dp
-    steady_cfg%coupling%update_mode = 'explicit'
-    steady_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-    steady_cfg%coupling%steady_start_mode = 'zhao_floating'
-    steady_cfg%coupling%steady_start_mesh_id = 1_i32
-    steady_cfg%coupling%outer_update_stride = 1_i32
-    steady_cfg%coupling%field_evolution_timescale = 1.0_dp
-    steady_cfg%coupling%max_frozen_field_ratio = 1.0_dp
-    steady_cfg%coupling%outer_queue_enabled = .false.
-
-    steady_cfg%n_particle_species = 2_i32
-    steady_cfg%particle_species(1) = species_from_defaults()
-    steady_cfg%particle_species(1)%species_key = 'ambient_electron'
-    steady_cfg%particle_species(1)%source_mode = 'reservoir_face'
-    steady_cfg%particle_species(1)%inject_face = 'z_high'
-    steady_cfg%particle_species(1)%q_particle = -qe
-    steady_cfg%particle_species(1)%m_particle = electron_mass
-    steady_cfg%particle_species(1)%number_density_m3 = 8.7e6_dp
-    steady_cfg%particle_species(1)%has_number_density_m3 = .true.
-    steady_cfg%particle_species(1)%temperature_ev = 12.0_dp
-    steady_cfg%particle_species(1)%has_temperature_ev = .true.
-    steady_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -inward_drift]
-    steady_cfg%particle_species(1)%target_macro_particles_per_batch = 1_i32
-    steady_cfg%particle_species(1)%has_target_macro_particles_per_batch = .true.
-    steady_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, interface_z]
-    steady_cfg%particle_species(1)%pos_high = [box_width, box_width, interface_z]
-
-    steady_cfg%particle_species(2) = species_from_defaults()
-    steady_cfg%particle_species(2)%species_key = 'ambient_proton'
-    steady_cfg%particle_species(2)%source_mode = 'reservoir_face'
-    steady_cfg%particle_species(2)%inject_face = 'z_high'
-    steady_cfg%particle_species(2)%q_particle = qe
-    steady_cfg%particle_species(2)%m_particle = proton_mass
-    steady_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
-    steady_cfg%particle_species(2)%has_number_density_m3 = .true.
-    steady_cfg%particle_species(2)%temperature_ev = 0.1_dp
-    steady_cfg%particle_species(2)%has_temperature_ev = .true.
-    steady_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_drift]
-    steady_cfg%particle_species(2)%target_macro_particles_per_batch = -1_i32
-    steady_cfg%particle_species(2)%has_target_macro_particles_per_batch = .true.
-    steady_cfg%particle_species(2)%pos_low = [0.0_dp, 0.0_dp, interface_z]
-    steady_cfg%particle_species(2)%pos_high = [box_width, box_width, interface_z]
-
-    steady_cfg%mesh_mode = 'template'
-    steady_cfg%n_templates = 1_i32
-    steady_cfg%templates(1)%enabled = .true.
-    steady_cfg%templates(1)%kind = 'plane'
-    steady_cfg%templates(1)%surface_side_policy = 'normal_plus'
-    steady_cfg%templates(1)%size_x = box_width
-    steady_cfg%templates(1)%size_y = box_width
-    steady_cfg%templates(1)%nx = 2_i32
-    steady_cfg%templates(1)%ny = 2_i32
-    steady_cfg%templates(1)%center = [0.5_dp*box_width, 0.5_dp*box_width, 2.0e-6_dp]
-
-    call build_mesh_from_config(steady_cfg, steady_mesh)
-    call prepare_periodic2_collision_mesh(steady_mesh, steady_cfg%sim)
-    call seed_particles_from_config(steady_cfg)
-    allocate (steady_injection_state%macro_residual(steady_cfg%n_particle_species))
-    steady_injection_state%macro_residual = 0.0_dp
-    call run_absorption_insulator( &
-      steady_mesh, steady_cfg, first_stats, inject_state=steady_injection_state, &
-      electrostatic_restart_state=restart_state &
-      )
-    call assert_equal_i32(first_stats%batches, 1_i32, 'steady-start fixture did not complete its first batch')
-    call assert_true(restart_state%outer_ready .and. restart_state%outer_profile_complete, &
-                     'steady-start fixture did not export a complete outer profile')
-    call assert_true(restart_state%outer_zhao_state_complete, &
-                     'steady-start fixture did not export a complete Zhao state')
-    call assert_true(restart_state%outer_zhao_source_scale_complete, &
-                     'steady-start fixture did not export the resolved Zhao source scale')
-    call assert_close_dp(restart_state%outer_photoelectron_source_scale, 0.0_dp, 0.0_dp, &
-                         'no-photo steady-start fixture exported the wrong Zhao source scale')
-    call assert_true(restart_state%outer_zhao_branch == 'C', &
-                     'no-photo steady-start fixture did not select Zhao Type C')
-    saved_charge = steady_mesh%q_elem
-    saved_restart_state = restart_state
-
-    call run_absorption_insulator( &
-      steady_mesh, steady_cfg, resumed_stats, initial_stats=first_stats, &
-      inject_state=steady_injection_state, electrostatic_restart_state=restart_state &
-      )
-    call assert_equal_i32(resumed_stats%batches, first_stats%batches, &
-                          'zero-batch steady-start resume changed the completed batch count')
-    call assert_true(all(steady_mesh%q_elem == saved_charge), &
-                     'steady-start resume changed mesh charge or reapplied the seed')
-    call assert_true(restart_state%outer_zhao_branch == saved_restart_state%outer_zhao_branch, &
-                     'steady-start resume changed the Zhao branch')
-    call assert_close_dp(restart_state%outer_interface_field, saved_restart_state%outer_interface_field, 0.0_dp, &
-                         'steady-start resume changed the interface field')
-    call assert_true(all(restart_state%outer_profile_z == saved_restart_state%outer_profile_z), &
-                     'steady-start resume changed the outer-profile coordinates')
-    call assert_true(all(restart_state%outer_profile_potential == saved_restart_state%outer_profile_potential), &
-                     'steady-start resume changed the outer potential')
-    call assert_true(all(restart_state%outer_profile_field == saved_restart_state%outer_profile_field), &
-                     'steady-start resume changed the outer field')
-    call assert_true( &
-      all(restart_state%outer_profile_charge_density == saved_restart_state%outer_profile_charge_density), &
-      'steady-start resume changed the outer charge density' &
-      )
-  end subroutine test_zhao_steady_start_resume
-
   subroutine test_particle_append_preserves_existing_state()
     type(particles_soa) :: particles
     real(dp) :: initial_x(3, 1), initial_v(3, 1), append_x(3, 2), append_v(3, 2)
@@ -506,12 +336,12 @@ contains
   subroutine test_batch_workspace_reuse()
     type(simulator_batch_workspace_type) :: workspace, regular_workspace
 
-    call workspace%init(2_i32, 3_i32, 2_i32, implicit_mean_enabled=.true.)
+    call workspace%init(2_i32, 3_i32, 2_i32, candidate_charge_enabled=.true.)
     call regular_workspace%init(2_i32, 3_i32, 2_i32)
     call assert_equal_i32(int(size(workspace%dq_thread, 1), i32), 2_i32, 'workspace mesh capacity mismatch')
     call assert_equal_i32(int(size(workspace%dq_thread, 2), i32), 2_i32, 'workspace thread capacity mismatch')
     call assert_equal_i32( &
-      int(size(workspace%ledger_charge_values), i32), 21_i32, 'workspace ledger charge capacity mismatch' &
+      int(size(workspace%ledger_charge_values), i32), 15_i32, 'workspace ledger charge capacity mismatch' &
       )
     call assert_equal_i32( &
       int(size(workspace%neutral_return_charge_values), i32), 18_i32, &
@@ -522,56 +352,29 @@ contains
       'workspace neutral-return terminal capacity mismatch' &
       )
     call assert_equal_i32( &
-      int(size(regular_workspace%mean_pending_charge), i32), 0_i32, &
-      'regular workspace must not allocate implicit-mean element storage' &
-      )
-    call assert_equal_i32( &
-      int(size(regular_workspace%mean_candidate_charge), i32), 0_i32, &
-      'regular workspace must not allocate adaptive candidate storage' &
+      int(size(regular_workspace%candidate_charge), i32), 0_i32, &
+      'regular workspace must not allocate candidate charge storage' &
       )
 
-    call workspace%prepare_particle_flags(5_i32, implicit_mean_enabled=.true.)
-    call assert_equal_i32(int(size(workspace%outer_event_staging), i32), 0_i32, &
-                          'disabled outer queue must not allocate per-particle staging')
+    call workspace%prepare_particle_flags(5_i32)
     workspace%escaped_boundary_flag = .true.
     workspace%absorbed_flag = .true.
     workspace%absorbed_element = 1_i32
     workspace%soft_discarded_boundary_flag = .true.
-    workspace%queued_outer_flag = .true.
     workspace%dq_thread = 1.0_dp
     workspace%photo_emission_dq = 2.0_dp
-    workspace%interface_outward_thread = 3.0_dp
-    workspace%interface_returned_thread = 4.0_dp
-    workspace%interface_tau_max_thread = 5.0_dp
-    workspace%interface_frozen_ratio_max_thread = 6.0_dp
-    workspace%interface_energy_error_max_thread = 7.0_dp
-    workspace%mean_pending_charge = 8.0_dp
-    workspace%mean_deferred_source_charge = 9.0_dp
-    workspace%mean_returned_destination_charge = 10.0_dp
-    workspace%mean_candidate_charge = 11.0_dp
-    workspace%neutral_return_charge_values = 12.0_dp
-    workspace%neutral_return_terminal_counts = 13_i64
-    workspace%neutral_return_weight_scale = 14.0_dp
-    workspace%neutral_return_correction = 15.0_dp
-    workspace%neutral_return_unresolved_fraction = 16.0_dp
-    workspace%deferred_mean_return_element = 12_i32
-    workspace%deferred_mean_terminal_absorbed = .true.
-    workspace%deferred_mean_terminal_escaped = .true.
+    workspace%candidate_charge = 3.0_dp
+    workspace%neutral_return_charge_values = 4.0_dp
+    workspace%neutral_return_terminal_counts = 5_i64
+    workspace%neutral_return_weight_scale = 6.0_dp
+    workspace%neutral_return_correction = 7.0_dp
+    workspace%neutral_return_unresolved_fraction = 8.0_dp
 
     call workspace%reset_before_injection()
-    call workspace%prepare_particle_flags(2_i32, implicit_mean_enabled=.true.)
+    call workspace%prepare_particle_flags(2_i32)
     call assert_true(all(workspace%dq_thread == 0.0_dp), 'workspace dq_thread reset mismatch')
     call assert_true(all(workspace%photo_emission_dq == 0.0_dp), 'workspace photo charge reset mismatch')
-    call assert_true(all(workspace%interface_outward_thread == 0.0_dp), 'workspace outward reset mismatch')
-    call assert_true(all(workspace%interface_returned_thread == 0.0_dp), 'workspace returned reset mismatch')
-    call assert_true(all(workspace%interface_tau_max_thread == 0.0_dp), 'workspace tau reset mismatch')
-    call assert_true(all(workspace%interface_frozen_ratio_max_thread == 0.0_dp), 'workspace ratio reset mismatch')
-    call assert_true(all(workspace%interface_energy_error_max_thread == 0.0_dp), 'workspace energy reset mismatch')
-    call assert_true(all(workspace%mean_pending_charge == 0.0_dp), 'workspace mean pending reset mismatch')
-    call assert_true(all(workspace%mean_deferred_source_charge == 0.0_dp), 'workspace mean source reset mismatch')
-    call assert_true(all(workspace%mean_returned_destination_charge == 0.0_dp), &
-                     'workspace mean destination reset mismatch')
-    call assert_true(all(workspace%mean_candidate_charge == 0.0_dp), 'workspace mean candidate reset mismatch')
+    call assert_true(all(workspace%candidate_charge == 0.0_dp), 'workspace candidate charge reset mismatch')
     call assert_true( &
       all(workspace%neutral_return_charge_values == 0.0_dp), &
       'workspace neutral-return charge reset mismatch' &
@@ -592,484 +395,16 @@ contains
     call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
     call assert_true(all(workspace%absorbed_element(:2) == -1_i32), 'workspace absorbed element reset mismatch')
     call assert_true(all(.not. workspace%soft_discarded_boundary_flag(:2)), 'workspace discard flag reset mismatch')
-    call assert_true(all(.not. workspace%queued_outer_flag(:2)), 'workspace outer queue flag reset mismatch')
-    call assert_true(all(workspace%deferred_mean_return_element(:2) == -1_i32), &
-                     'workspace mean return element reset mismatch')
-    call assert_true(all(.not. workspace%deferred_mean_terminal_absorbed(:2)), &
-                     'workspace mean absorbed staging reset mismatch')
-    call assert_true(all(.not. workspace%deferred_mean_terminal_escaped(:2)), &
-                     'workspace mean escaped staging reset mismatch')
     call assert_equal_i32( &
       int(size(workspace%escaped_boundary_flag), i32), 5_i32, 'workspace flags should retain grown capacity' &
       )
 
-    call workspace%prepare_particle_flags(8_i32, implicit_mean_enabled=.true.)
+    call workspace%prepare_particle_flags(8_i32)
     call assert_equal_i32( &
       int(size(workspace%escaped_boundary_flag), i32), 8_i32, 'workspace flags should grow on demand' &
       )
     call assert_true(all(.not. workspace%escaped_boundary_flag), 'grown workspace escaped flags must start clear')
-    call assert_true(all(.not. workspace%queued_outer_flag), 'grown workspace outer queue flags must start clear')
-    call assert_equal_i32(int(size(workspace%deferred_mean_return_element), i32), 8_i32, &
-                          'workspace implicit mean staging should grow on demand')
-    call assert_true(all(workspace%deferred_mean_return_element == -1_i32), &
-                     'grown mean return elements must start clear')
-    call workspace%prepare_particle_flags(8_i32, outer_queue_enabled=.true.)
-    call assert_equal_i32(int(size(workspace%outer_event_staging), i32), 8_i32, &
-                          'enabled outer queue staging must grow on demand')
   end subroutine test_batch_workspace_reuse
-
-  subroutine test_kinetic_outer_profile_return_ledger()
-    use bem_constants, only: eps0, qe
-    use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_restart_state_type
-    type(mesh_type) :: split_mesh
-    type(app_config) :: split_cfg
-    type(sim_stats) :: split_stats, split_resume_stats
-    type(injection_state) :: split_injection_state
-    type(charge_ledger_type) :: split_ledger
-    type(electrostatic_diagnostics_type) :: split_diagnostics, split_resume_diagnostics
-    type(electrostatic_restart_state_type) :: split_restart_state
-    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), panel_charge
-    real(dp) :: expected_maxima(3)
-    real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
-    real(dp), parameter :: proton_mass = 1.67262192595e-27_dp
-
-    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.25_dp]
-    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.25_dp]
-    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.25_dp]
-    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.25_dp]
-    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.25_dp]
-    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.25_dp]
-    panel_charge = -2.5_dp*eps0
-    call init_mesh(split_mesh, tri_v0, tri_v1, tri_v2, q0=[panel_charge, panel_charge])
-    split_mesh%elem_vacuum_sign = 1_i32
-    split_mesh%vacuum_normals = split_mesh%normals
-
-    call default_app_config(split_cfg)
-    split_cfg%sim%rng_seed = 998_i32
-    split_cfg%sim%batch_count = 1_i32
-    split_cfg%sim%dt = 0.01_dp
-    split_cfg%sim%max_step = 1_i32
-    split_cfg%sim%field_solver = 'direct'
-    split_cfg%sim%field_bc_mode = 'periodic2'
-    split_cfg%sim%use_box = .true.
-    split_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    split_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    split_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    split_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    split_cfg%field%backend = 'direct'
-    split_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
-    split_cfg%panel%surface_side_policy = 'per_element'
-    split_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
-    split_cfg%periodic2%zero_mode_policy = 'exclude_k0'
-    split_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
-    split_cfg%periodic2%reference_mode_layers = 2_i32
-    split_cfg%periodic2%panel_quadrature_order = 12_i32
-    split_cfg%periodic2%interface_phi_tolerance = 1.0e6_dp
-    split_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
-    split_cfg%outer_plasma%model = 'kinetic_1d'
-    split_cfg%outer_plasma%kinetic_closure = 'absorbing_maxwellian'
-    split_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
-    split_cfg%outer_plasma%interface_z = 1.0_dp
-    split_cfg%outer_plasma%debye_length = 0.2_dp
-    split_cfg%outer_plasma%thermal_voltage = 2.0_dp
-    split_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-    split_cfg%coupling%field_evolution_timescale = 10.0_dp
-    split_cfg%coupling%max_frozen_field_ratio = 1.0_dp
-    split_cfg%n_particle_species = 3_i32
-    split_cfg%particle_species(1) = species_from_defaults()
-    split_cfg%particle_species(1)%source_mode = 'volume_seed'
-    split_cfg%particle_species(1)%npcls_per_step = 1_i32
-    split_cfg%particle_species(1)%q_particle = 1.0_dp
-    split_cfg%particle_species(1)%m_particle = 1.0_dp
-    split_cfg%particle_species(1)%w_particle = 1.0_dp
-    split_cfg%particle_species(1)%pos_low = [0.5_dp, 0.5_dp, 0.999_dp]
-    split_cfg%particle_species(1)%pos_high = split_cfg%particle_species(1)%pos_low
-    split_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 0.2_dp]
-    split_cfg%particle_species(1)%temperature_k = 0.0_dp
-
-    split_cfg%particle_species(2) = species_from_defaults()
-    split_cfg%particle_species(2)%species_key = 'ambient_electron'
-    split_cfg%particle_species(2)%source_mode = 'reservoir_face'
-    split_cfg%particle_species(2)%inject_face = 'z_high'
-    split_cfg%particle_species(2)%q_particle = -qe
-    split_cfg%particle_species(2)%m_particle = electron_mass
-    split_cfg%particle_species(2)%number_density_m3 = 1.0e6_dp
-    split_cfg%particle_species(2)%has_number_density_m3 = .true.
-    split_cfg%particle_species(2)%temperature_ev = 2.0_dp
-    split_cfg%particle_species(2)%has_temperature_ev = .true.
-    split_cfg%particle_species(2)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
-    split_cfg%particle_species(2)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
-
-    split_cfg%particle_species(3) = species_from_defaults()
-    split_cfg%particle_species(3)%species_key = 'ambient_proton'
-    split_cfg%particle_species(3)%source_mode = 'reservoir_face'
-    split_cfg%particle_species(3)%inject_face = 'z_high'
-    split_cfg%particle_species(3)%q_particle = qe
-    split_cfg%particle_species(3)%m_particle = proton_mass
-    split_cfg%particle_species(3)%number_density_m3 = 1.0e6_dp
-    split_cfg%particle_species(3)%has_number_density_m3 = .true.
-    split_cfg%particle_species(3)%temperature_ev = 0.0_dp
-    split_cfg%particle_species(3)%has_temperature_ev = .true.
-    split_cfg%particle_species(3)%drift_velocity = [ &
-                                                   0.0_dp, 0.0_dp, &
-                                                   -4.0_dp*sqrt(2.0_dp*qe/proton_mass) &
-                                                   ]
-    split_cfg%particle_species(3)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
-    split_cfg%particle_species(3)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
-
-    call prepare_periodic2_collision_mesh(split_mesh, split_cfg%sim)
-    call seed_particles_from_config(split_cfg)
-    allocate (split_injection_state%macro_residual(split_cfg%n_particle_species))
-    split_injection_state%macro_residual = 0.0_dp
-    call run_absorption_insulator( &
-      split_mesh, split_cfg, split_stats, inject_state=split_injection_state, charge_ledger=split_ledger, &
-      electrostatic_diagnostics=split_diagnostics, electrostatic_restart_state=split_restart_state &
-      )
-    call assert_equal_i64(split_stats%escaped_boundary, 0_i64, 'returned particle must not escape')
-    call assert_equal_i64(split_stats%survived_max_step, 1_i64, 'returned particle should remain local after one step')
-    call assert_close_dp(split_ledger%interface_outward_gross(1), 1.0_dp, 1.0e-12_dp, 'outward gross mismatch')
-    call assert_close_dp(split_ledger%interface_returned_gross(1), 1.0_dp, 1.0e-12_dp, 'returned gross mismatch')
-    call assert_true(split_diagnostics%max_outer_flight_time > 0.0_dp, 'outer flight-time diagnostic is missing')
-    call assert_true(split_diagnostics%max_frozen_field_ratio > 0.0_dp, 'frozen-field diagnostic is missing')
-    expected_maxima = [ &
-                      split_diagnostics%max_outer_flight_time, split_diagnostics%max_frozen_field_ratio, &
-                      split_diagnostics%max_outer_energy_relative_error &
-                      ]
-    call assert_true(split_restart_state%outer_max_diagnostics_complete, &
-                     'exported cumulative outer diagnostics should be complete')
-    call run_absorption_insulator( &
-      split_mesh, split_cfg, split_resume_stats, initial_stats=split_stats, &
-      inject_state=split_injection_state, electrostatic_diagnostics=split_resume_diagnostics, &
-      electrostatic_restart_state=split_restart_state &
-      )
-    call assert_equal_i32(split_resume_stats%batches, split_stats%batches, &
-                          'zero-batch resume changed the completed batch count')
-    call assert_close_dp(split_resume_diagnostics%max_outer_flight_time, expected_maxima(1), 0.0_dp, &
-                         'restart flight-time maximum was not preserved')
-    call assert_close_dp(split_resume_diagnostics%max_frozen_field_ratio, expected_maxima(2), 0.0_dp, &
-                         'restart frozen-field maximum was not preserved')
-    call assert_close_dp(split_resume_diagnostics%max_outer_energy_relative_error, expected_maxima(3), 0.0_dp, &
-                         'restart energy-error maximum was not preserved')
-    call assert_close_dp(split_restart_state%max_outer_flight_time, expected_maxima(1), 0.0_dp, &
-                         're-exported flight-time maximum mismatch')
-    call assert_close_dp(split_restart_state%max_frozen_field_ratio, expected_maxima(2), 0.0_dp, &
-                         're-exported frozen-field maximum mismatch')
-    call assert_close_dp(split_restart_state%max_outer_energy_relative_error, expected_maxima(3), 0.0_dp, &
-                         're-exported energy-error maximum mismatch')
-  end subroutine test_kinetic_outer_profile_return_ledger
-
-  subroutine test_implicit_mean_photoelectron_interface_transfer()
-    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    use bem_constants, only: eps0, qe
-    use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
-    type(mesh_type) :: mean_mesh
-    type(app_config) :: mean_cfg
-    type(sim_stats) :: mean_stats
-    type(injection_state) :: mean_injection_state
-    type(charge_ledger_type) :: mean_ledger
-    type(electrostatic_diagnostics_type) :: mean_diagnostics
-    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
-    real(dp) :: initial_charge, charge_scale, ledger_residual, ledger_tolerance
-    real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
-    real(dp), parameter :: proton_mass = 1.67262192595e-27_dp
-    real(dp), parameter :: box_width = 1.0e-4_dp
-    real(dp), parameter :: interface_z = 2.0e-4_dp
-    real(dp), parameter :: support_z = 2.0e-6_dp
-    real(dp), parameter :: debye_length = 0.1_dp
-    real(dp), parameter :: return_interface_potential = 100.0_dp
-    real(dp), parameter :: escape_interface_potential = -0.1_dp
-
-    ! Cover z-low in this transaction fixture so every outer return has a
-    ! physical surface destination.  Unsupported return-to-local-open escape
-    ! is classified separately by test_external_step_driver.
-    tri_v0(:, 1) = [0.0_dp, 0.0_dp, support_z]
-    tri_v1(:, 1) = [box_width, 0.0_dp, support_z]
-    tri_v2(:, 1) = [box_width, box_width, support_z]
-    tri_v0(:, 2) = [0.0_dp, 0.0_dp, support_z]
-    tri_v1(:, 2) = [box_width, box_width, support_z]
-    tri_v2(:, 2) = [0.0_dp, box_width, support_z]
-    initial_charge = eps0*box_width**2*return_interface_potential/debye_length
-    call init_mesh( &
-      mean_mesh, tri_v0, tri_v1, tri_v2, q0=[0.5_dp*initial_charge, 0.5_dp*initial_charge] &
-      )
-    mean_mesh%elem_vacuum_sign = 1_i32
-    mean_mesh%vacuum_normals = mean_mesh%normals
-
-    call default_app_config(mean_cfg)
-    mean_cfg%mesh_mode = 'obj'
-    mean_cfg%sim%rng_seed = 1001_i32
-    mean_cfg%sim%batch_count = 2_i32
-    mean_cfg%sim%dt = 3.0e-10_dp
-    mean_cfg%sim%batch_duration = 3.0e-10_dp
-    mean_cfg%sim%has_batch_duration = .true.
-    mean_cfg%sim%max_step = 10_i32
-    mean_cfg%sim%q_floor = 1.0e-40_dp
-    mean_cfg%sim%field_solver = 'direct'
-    mean_cfg%sim%field_bc_mode = 'periodic2'
-    mean_cfg%sim%use_box = .true.
-    mean_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    mean_cfg%sim%box_max = [box_width, box_width, interface_z]
-    mean_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    mean_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-
-    mean_cfg%field%backend = 'direct'
-    mean_cfg%panel%kernel_id = 'triangle_p0_exact_direct'
-    mean_cfg%panel%surface_side_policy = 'per_element'
-    mean_cfg%periodic2%nonzero_mode_backend = 'panel_spectral_reference'
-    mean_cfg%periodic2%zero_mode_policy = 'exclude_k0'
-    mean_cfg%periodic2%lower_boundary_model = 'e_bottom_zero'
-    mean_cfg%periodic2%reference_mode_layers = 2_i32
-    mean_cfg%periodic2%panel_quadrature_order = 4_i32
-    mean_cfg%periodic2%interface_sample_n = 2_i32
-    mean_cfg%periodic2%interface_phi_tolerance = 1.0e6_dp
-    mean_cfg%periodic2%interface_field_tolerance = 1.0e6_dp
-
-    mean_cfg%outer_plasma%model = 'kinetic_1d'
-    mean_cfg%outer_plasma%kinetic_closure = 'ambient_linear_debye'
-    mean_cfg%outer_plasma%photoelectron_density_model = 'none'
-    mean_cfg%outer_plasma%return_model = 'kinetic_1d_profile_return'
-    mean_cfg%outer_plasma%interface_z = interface_z
-    mean_cfg%outer_plasma%debye_length = debye_length
-    mean_cfg%outer_plasma%thermal_voltage = 10.0_dp
-    mean_cfg%coupling%update_mode = 'implicit_mean'
-    mean_cfg%coupling%particle_transfer_mode = 'electrostatic_1d_instant_return'
-    mean_cfg%coupling%outer_update_stride = 1_i32
-    mean_cfg%coupling%field_evolution_timescale = 1.0_dp
-    mean_cfg%coupling%max_frozen_field_ratio = 1.0_dp
-    mean_cfg%coupling%outer_queue_enabled = .false.
-
-    mean_cfg%n_particle_species = 4_i32
-    mean_cfg%particle_species(1) = species_from_defaults()
-    mean_cfg%particle_species(1)%species_key = 'ambient_electron'
-    mean_cfg%particle_species(1)%source_mode = 'reservoir_face'
-    mean_cfg%particle_species(1)%inject_face = 'z_high'
-    mean_cfg%particle_species(1)%q_particle = -qe
-    mean_cfg%particle_species(1)%m_particle = electron_mass
-    mean_cfg%particle_species(1)%w_particle = 1.0_dp
-    mean_cfg%particle_species(1)%number_density_m3 = 1.0e6_dp
-    mean_cfg%particle_species(1)%has_number_density_m3 = .true.
-    mean_cfg%particle_species(1)%temperature_ev = 2.0_dp
-    mean_cfg%particle_species(1)%has_temperature_ev = .true.
-    mean_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
-    mean_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, interface_z]
-    mean_cfg%particle_species(1)%pos_high = [box_width, box_width, interface_z]
-
-    mean_cfg%particle_species(2) = species_from_defaults()
-    mean_cfg%particle_species(2)%species_key = 'ambient_proton'
-    mean_cfg%particle_species(2)%source_mode = 'reservoir_face'
-    mean_cfg%particle_species(2)%inject_face = 'z_high'
-    mean_cfg%particle_species(2)%q_particle = qe
-    mean_cfg%particle_species(2)%m_particle = proton_mass
-    mean_cfg%particle_species(2)%w_particle = 1.0_dp
-    mean_cfg%particle_species(2)%number_density_m3 = 1.0e6_dp
-    mean_cfg%particle_species(2)%has_number_density_m3 = .true.
-    mean_cfg%particle_species(2)%temperature_ev = 0.0_dp
-    mean_cfg%particle_species(2)%has_temperature_ev = .true.
-    mean_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
-    mean_cfg%particle_species(2)%pos_low = [0.0_dp, 0.0_dp, interface_z]
-    mean_cfg%particle_species(2)%pos_high = [box_width, box_width, interface_z]
-
-    mean_cfg%particle_species(3) = species_from_defaults()
-    mean_cfg%particle_species(3)%species_key = 'photoelectron'
-    mean_cfg%particle_species(3)%source_mode = 'photo_raycast'
-    mean_cfg%particle_species(3)%inject_face = 'z_high'
-    mean_cfg%particle_species(3)%q_particle = -qe
-    mean_cfg%particle_species(3)%m_particle = electron_mass
-    mean_cfg%particle_species(3)%temperature_ev = 2.2_dp
-    mean_cfg%particle_species(3)%has_temperature_ev = .true.
-    mean_cfg%particle_species(3)%emit_current_density_a_m2 = 1.0e-6_dp
-    mean_cfg%particle_species(3)%rays_per_batch = 4_i32
-    mean_cfg%particle_species(3)%deposit_opposite_charge_on_emit = .true.
-    mean_cfg%particle_species(3)%has_deposit_opposite_charge_on_emit = .true.
-    mean_cfg%particle_species(3)%normal_drift_speed = 0.0_dp
-    mean_cfg%particle_species(3)%pos_low = [0.25_dp*box_width, 0.25_dp*box_width, interface_z]
-    mean_cfg%particle_species(3)%pos_high = [0.75_dp*box_width, 0.75_dp*box_width, interface_z]
-    mean_cfg%particle_species(3)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
-    mean_cfg%particle_species(3)%has_ray_direction = .true.
-
-    ! A non-closure-owned volume source exercises the aggregate pending-current
-    ! path.  Its absorbed positive charge must survive the final mean projection.
-    mean_cfg%particle_species(4) = species_from_defaults()
-    mean_cfg%particle_species(4)%species_key = 'extra_positive_seed'
-    mean_cfg%particle_species(4)%source_mode = 'volume_seed'
-    mean_cfg%particle_species(4)%q_particle = 1.0e-22_dp
-    mean_cfg%particle_species(4)%m_particle = proton_mass
-    mean_cfg%particle_species(4)%w_particle = 1.0_dp
-    mean_cfg%particle_species(4)%npcls_per_step = 1_i32
-    mean_cfg%particle_species(4)%temperature_ev = 0.0_dp
-    mean_cfg%particle_species(4)%has_temperature_ev = .true.
-    mean_cfg%particle_species(4)%drift_velocity = [0.0_dp, 0.0_dp, -1.0e4_dp]
-    mean_cfg%particle_species(4)%pos_low = [0.5_dp*box_width, 0.5_dp*box_width, 3.0e-6_dp]
-    mean_cfg%particle_species(4)%pos_high = mean_cfg%particle_species(4)%pos_low
-
-    call prepare_periodic2_collision_mesh(mean_mesh, mean_cfg%sim)
-    call seed_particles_from_config(mean_cfg)
-    allocate (mean_injection_state%macro_residual(mean_cfg%n_particle_species))
-    mean_injection_state%macro_residual = 0.0_dp
-    call run_absorption_insulator( &
-      mean_mesh, mean_cfg, mean_stats, inject_state=mean_injection_state, charge_ledger=mean_ledger, &
-      electrostatic_diagnostics=mean_diagnostics &
-      )
-
-    call assert_equal_i32(mean_stats%batches, 2_i32, 'implicit-mean return fixture did not complete both batches')
-    call assert_equal_i64( &
-      mean_ledger%absorbed_count(3) + mean_ledger%escaped_count(3) + &
-      mean_ledger%discarded_unresolved_count(3), mean_ledger%emitted_count(3), &
-      'sub-threshold photoelectron ray samples did not terminate exactly once' &
-      )
-    call assert_true(mean_ledger%absorbed_count(3) > 0_i64, &
-                     'sub-threshold fixture did not sample a surface return destination')
-    call assert_true(mean_ledger%interface_outward_gross(3) < 0.0_dp, &
-                     'photoelectron interface-outward charge was not recorded')
-    call assert_true(mean_ledger%interface_returned_gross(3) < 0.0_dp, &
-                     'energy-resolved photoelectron return was not recorded')
-    call assert_close_dp( &
-      mean_ledger%escaped_to_infinity(3), 0.0_dp, &
-      4096.0_dp*epsilon(1.0_dp)*max(abs(mean_ledger%emitted_from_surface(3)), tiny(1.0_dp)), &
-      'sub-threshold photoelectron escape charge must vanish')
-    call assert_close_dp( &
-      mean_ledger%emitted_from_surface(3), &
-      mean_ledger%absorbed_on_surface(3) + mean_ledger%escaped_to_infinity(3) + &
-      mean_ledger%discarded_unresolved(3), &
-      1.0e-12_dp*abs(mean_ledger%emitted_from_surface(3)), &
-      'sub-threshold photoelectron charge did not close after analytic weighting' &
-      )
-    call assert_equal_i64(mean_ledger%absorbed_count(4), 2_i64, &
-                          'aggregate pending-current fixture did not absorb its extra source')
-    call assert_close_dp( &
-      mean_ledger%interface_returned_gross(3), mean_ledger%interface_outward_gross(3), &
-      1.0e-12_dp*abs(mean_ledger%interface_outward_gross(3)), &
-      'sub-threshold interface charge did not return completely' &
-      )
-    call assert_true(mean_diagnostics%max_outer_flight_time > 0.0_dp, &
-                     'energy-resolved returns must report their outer flight time')
-    call assert_true(mean_diagnostics%max_frozen_field_ratio > 0.0_dp, &
-                     'energy-resolved returns must report their frozen-field ratio')
-    call assert_true(mean_diagnostics%implicit_mean_shadow_diagnostics_available, &
-                     'implicit-mean return fixture did not expose its shadow diagnostics')
-    call assert_true(mean_diagnostics%implicit_mean_last_returned_outer_flight_time_mean > 0.0_dp, &
-                     'returned photoelectrons must have a positive charge-weighted mean flight time')
-    call assert_true( &
-      mean_diagnostics%implicit_mean_last_returned_outer_flight_time_mean <= &
-      mean_diagnostics%max_outer_flight_time, &
-      'returned photoelectron mean flight time must not exceed the cumulative maximum' &
-      )
-    call assert_true( &
-      mean_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area > 0.0_dp, &
-      'returned photoelectrons must produce a positive shadow column-charge estimate' &
-      )
-    call assert_true(all(ieee_is_finite(mean_mesh%q_elem)), 'implicit-mean surface charge is not finite')
-    call assert_true(ieee_is_finite(mean_ledger%surface_charge_after), &
-                     'implicit-mean ledger surface charge is not finite')
-    call assert_close_dp(sum(mean_mesh%q_elem), mean_ledger%surface_charge_after, &
-                         64.0_dp*epsilon(1.0_dp)*abs(mean_ledger%surface_charge_after), &
-                         'implicit-mean mesh and ledger surface charges disagree')
-    ledger_residual = mean_ledger%residual()
-    charge_scale = max(abs(mean_ledger%surface_charge_before), abs(mean_ledger%surface_charge_after), tiny(1.0_dp))
-    ledger_tolerance = max( &
-                       1.0e-12_dp*charge_scale, &
-                       16.0_dp*eps0*box_width**2/debye_length*1.0e-12_dp &
-                       )
-    call assert_true(ieee_is_finite(ledger_residual), 'implicit-mean charge-ledger residual is not finite')
-    call assert_true(abs(ledger_residual) <= ledger_tolerance, &
-                     'implicit-mean return charge ledger does not close')
-
-    ! A negative interface potential accelerates outward electrons.  Both the
-    ! scalar closure and every energy-resolved ray must therefore select escape.
-    initial_charge = eps0*box_width**2*escape_interface_potential/debye_length
-    mean_mesh%q_elem = [0.5_dp*initial_charge, 0.5_dp*initial_charge]
-    mean_stats = sim_stats()
-    mean_ledger = charge_ledger_type()
-    mean_diagnostics = electrostatic_diagnostics_type()
-    mean_injection_state%macro_residual = 0.0_dp
-    call seed_particles_from_config(mean_cfg)
-    call run_absorption_insulator( &
-      mean_mesh, mean_cfg, mean_stats, inject_state=mean_injection_state, charge_ledger=mean_ledger, &
-      electrostatic_diagnostics=mean_diagnostics &
-      )
-
-    call assert_equal_i32(mean_stats%batches, 2_i32, 'implicit-mean escape fixture did not complete both batches')
-    call assert_equal_i64(mean_ledger%escaped_count(3), mean_ledger%emitted_count(3), &
-                          'super-threshold photoelectrons did not all escape')
-    call assert_equal_i64(mean_ledger%absorbed_count(3), 0_i64, &
-                          'super-threshold photoelectrons incorrectly returned to the surface')
-    call assert_close_dp(mean_ledger%interface_returned_gross(3), 0.0_dp, 0.0_dp, &
-                         'super-threshold photoelectrons must not produce a return flux')
-    call assert_true(mean_diagnostics%implicit_mean_shadow_diagnostics_available, &
-                     'implicit-mean escape fixture did not expose its shadow diagnostics')
-    call assert_close_dp( &
-      mean_diagnostics%implicit_mean_last_returned_outer_flight_time_mean, 0.0_dp, 0.0_dp, &
-      'escape-only photoelectrons must have zero returned mean flight time' &
-      )
-    call assert_close_dp( &
-      mean_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area, &
-      0.0_dp, 0.0_dp, &
-      'escape-only photoelectrons must have zero returning shadow column charge' &
-      )
-    call assert_close_dp( &
-      mean_ledger%interface_outward_gross(3), mean_ledger%escaped_to_infinity(3), &
-      1.0e-12_dp*abs(mean_ledger%interface_outward_gross(3)), &
-      'super-threshold interface charge did not escape completely' &
-      )
-    call assert_close_dp( &
-      mean_ledger%emitted_from_surface(3), &
-      mean_ledger%absorbed_on_surface(3) + mean_ledger%escaped_to_infinity(3), &
-      1.0e-12_dp*abs(mean_ledger%emitted_from_surface(3)), &
-      'energy-resolved emitted charge did not terminate exactly once' &
-      )
-    call assert_true(all(ieee_is_finite(mean_mesh%q_elem)), 'implicit-mean escape charge is not finite')
-    call assert_close_dp(sum(mean_mesh%q_elem), mean_ledger%surface_charge_after, &
-                         64.0_dp*epsilon(1.0_dp)*abs(mean_ledger%surface_charge_after), &
-                         'implicit-mean escape mesh and ledger charges disagree')
-    ledger_residual = mean_ledger%residual()
-    charge_scale = max(abs(mean_ledger%surface_charge_before), abs(mean_ledger%surface_charge_after), tiny(1.0_dp))
-    ledger_tolerance = max( &
-                       1.0e-12_dp*charge_scale, &
-                       16.0_dp*eps0*box_width**2/debye_length*1.0e-12_dp &
-                       )
-    call assert_true(abs(ledger_residual) <= ledger_tolerance, &
-                     'implicit-mean escape charge ledger does not close')
-
-    ! A photoelectron emitted from an illuminated underside exits through the
-    ! ordinary z-low boundary without ever entering the z-high mean sheath.
-    ! Reconciliation must preserve that non-deferred escape.
-    mean_cfg%particle_species(3)%inject_face = 'z_low'
-    mean_cfg%particle_species(3)%pos_low = [0.25_dp*box_width, 0.25_dp*box_width, 0.0_dp]
-    mean_cfg%particle_species(3)%pos_high = [0.75_dp*box_width, 0.75_dp*box_width, 0.0_dp]
-    mean_cfg%particle_species(3)%ray_direction = [0.0_dp, 0.0_dp, 1.0_dp]
-    mean_mesh%q_elem = 0.0_dp
-    mean_stats = sim_stats()
-    mean_ledger = charge_ledger_type()
-    mean_diagnostics = electrostatic_diagnostics_type()
-    mean_injection_state%macro_residual = 0.0_dp
-    call seed_particles_from_config(mean_cfg)
-    call run_absorption_insulator( &
-      mean_mesh, mean_cfg, mean_stats, inject_state=mean_injection_state, charge_ledger=mean_ledger, &
-      electrostatic_diagnostics=mean_diagnostics &
-      )
-
-    call assert_equal_i64(mean_ledger%escaped_count(3), mean_ledger%emitted_count(3), &
-                          'ordinary z-low photoelectron escapes were not preserved')
-    call assert_equal_i64(mean_ledger%absorbed_count(3), 0_i64, &
-                          'ordinary z-low photoelectrons were reclassified as absorbed')
-    call assert_true(mean_ledger%escaped_to_infinity(3) < 0.0_dp, &
-                     'ordinary z-low photoelectron escape charge was erased')
-    call assert_close_dp(mean_ledger%interface_outward_gross(3), 0.0_dp, 0.0_dp, &
-                         'ordinary z-low escape was incorrectly assigned to the z-high interface')
-    call assert_close_dp( &
-      mean_diagnostics%implicit_mean_last_returning_pe_column_charge_per_area, &
-      0.0_dp, 0.0_dp, &
-      'ordinary z-low escape must not contribute to the z-high returning shadow column' &
-      )
-    ledger_residual = mean_ledger%residual()
-    charge_scale = max(abs(mean_ledger%surface_charge_before), abs(mean_ledger%surface_charge_after), tiny(1.0_dp))
-    ledger_tolerance = max( &
-                       1.0e-12_dp*charge_scale, &
-                       16.0_dp*eps0*box_width**2/debye_length*1.0e-12_dp &
-                       )
-    call assert_true(abs(ledger_residual) <= ledger_tolerance, &
-                     'ordinary z-low photoelectron escape charge ledger does not close')
-  end subroutine test_implicit_mean_photoelectron_interface_transfer
 
   subroutine test_collision_query_failure_context()
     character(len=1024) :: executable_path, command, child_line
@@ -1137,8 +472,7 @@ contains
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel, &
-      failure_cfg%outer_plasma, failure_cfg%coupling &
+      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
       )
 
     failure_cfg%n_particle_species = 1_i32
@@ -1231,8 +565,7 @@ contains
     failure_cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
     failure_cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call normalize_legacy_physics_config( &
-      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel, &
-      failure_cfg%outer_plasma, failure_cfg%coupling &
+      failure_cfg%sim, failure_cfg%field, failure_cfg%periodic2, failure_cfg%panel &
       )
 
     failure_cfg%n_particle_species = 2_i32

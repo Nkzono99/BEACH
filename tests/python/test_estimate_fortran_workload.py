@@ -40,14 +40,11 @@ def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:
     config = {
         "sim": {
             "batch_count": 1,
-            "open_boundary_model": "escape",
             "multiple_box_events_policy": "soft_discard",
             "multiple_box_events_soft_discard_count_limit": 100,
             "multiple_box_events_soft_discard_abs_charge_limit": 1.0e-12,
         },
-        "particles": {
-            "species": [{"source_mode": "volume_seed", "npcls_per_step": 2}]
-        },
+        "particles": {"species": [{"source_mode": "volume_seed", "npcls_per_step": 2}]},
     }
 
     assert estimate_workload(config, threads=1)["batch_totals"] == [2]
@@ -139,7 +136,9 @@ def _fractional_reservoir_config() -> dict[str, object]:
     }
 
 
-def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets() -> None:
+def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets() -> (
+    None
+):
     config = {
         "sim": {
             "batch_count": 3,
@@ -303,7 +302,9 @@ def test_completed_batches_from_resume_config_rejects_duplicate_summary_key(
         completed_batches_from_resume_config(config)
 
 
-def test_estimate_workload_supports_species_target_minus_one_following_species1_w() -> None:
+def test_estimate_workload_supports_species_target_minus_one_following_species1_w() -> (
+    None
+):
     config = {
         "sim": {
             "batch_count": 3,
@@ -477,32 +478,6 @@ def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
     assert result["batch_totals"] == [3]
 
 
-def test_estimate_workload_accepts_normalization_and_zhao_sim_keys() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "field_normalization": "length",
-            "field_length_scale": 2.0,
-            "sheath_alpha_deg": 60.0,
-            "sheath_photoelectron_ref_density_cm3": 64.0,
-            "sheath_electron_drift_mode": "normal",
-            "sheath_ion_drift_mode": "normal",
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 3,
-                },
-            ]
-        },
-    }
-
-    result = estimate_workload(config=config, threads=1)
-    assert result["batch_totals"] == [3]
-
-
 def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
     config = {
         "sim": {
@@ -639,7 +614,7 @@ def test_estimate_workload_rejects_minus_one_if_species1_is_not_reservoir() -> N
         },
     }
 
-    with pytest.raises(SystemExit, match='source_mode=\"reservoir_face\"'):
+    with pytest.raises(SystemExit, match='source_mode="reservoir_face"'):
         estimate_workload(config=config, threads=1)
 
 
@@ -906,7 +881,9 @@ def test_estimate_workload_global_fractional_sequence_is_mpi_size_independent(
     ]
 
     expected_global = [[0], [0], [0], [1]]
-    assert all(result["global_species_per_batch"] == expected_global for result in results)
+    assert all(
+        result["global_species_per_batch"] == expected_global for result in results
+    )
     assert [
         sum(result["species_per_batch"][batch_idx][0] for result in results)
         for batch_idx in range(4)
@@ -915,11 +892,11 @@ def test_estimate_workload_global_fractional_sequence_is_mpi_size_independent(
     assert sum(result["local_reservoir_particles"] for result in results) == 1
 
 
-def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupted() -> None:
+def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupted() -> (
+    None
+):
     config = _fractional_reservoir_config()
-    uninterrupted = estimate_workload(
-        config=config, threads=1, mpi_ranks=4, mpi_rank=0
-    )
+    uninterrupted = estimate_workload(config=config, threads=1, mpi_ranks=4, mpi_rank=0)
     resumed = estimate_workload(
         config=config,
         threads=1,
@@ -930,9 +907,10 @@ def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupt
     )
 
     assert resumed["species_per_batch"] == uninterrupted["species_per_batch"][2:]
-    assert resumed["global_species_per_batch"] == uninterrupted[
-        "global_species_per_batch"
-    ][2:]
+    assert (
+        resumed["global_species_per_batch"]
+        == uninterrupted["global_species_per_batch"][2:]
+    )
     assert resumed["final_residuals"] == uninterrupted["final_residuals"]
 
 
@@ -1039,7 +1017,9 @@ def test_estimate_workload_rejects_velocity_grid_flux_and_current_together() -> 
         },
     }
 
-    with pytest.raises(SystemExit, match="either particle_flux_m2_s or current_density_a_m2"):
+    with pytest.raises(
+        SystemExit, match="either particle_flux_m2_s or current_density_a_m2"
+    ):
         estimate_workload(config=config, threads=1)
 
 
