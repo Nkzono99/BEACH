@@ -36,7 +36,7 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-初期値は、周期 2 軸 FMM、volume seed の電子・イオン、`photo_raycast` の電子放出、平面メッシュ、標準出力設定を含む小さな確認用設定です。
+初期値は、x/y 周期 FMM、`volume_seed`、平面メッシュ、標準出力設定を含む小さな確認用設定です。
 
 ### 2.2 `lint`
 
@@ -68,29 +68,78 @@ beachx config diff --raw left.toml right.toml
 
 ## 3. 高水準記法
 
-高水準記法は、研究者が意図しやすい座標指定を `beach.toml` に直接書くための補助です。Fortran parser が読み込み時に通常の数値キーへ正規化します。
+高水準記法は、研究者が意図しやすい領域・境界・座標指定を`beach.toml`へ直接書くための公開形式です。
+Fortran parserは読み込み時に実行用設定へ正規化します。
 
-### 3.1 計算箱
+### 3.1 計算領域と周期軸
 
-`sim.box_origin` と `sim.box_size` を使うと、`box_min` / `box_max` を直接計算できます。
+`[domain]`では`box_origin` / `box_size`または`box_min` / `box_max`のどちらか一組を指定します。
+周期性は`periodic_axes`だけで指定します。
 
 ```toml
-[sim]
-use_box = true
+[domain]
 box_origin = [0.0, 0.0, -1.0]
 box_size = [1.0, 1.0, 2.0]
+periodic_axes = ["x", "y"]
 ```
 
-読み込み時の解決結果:
+同じgeometryを端点で書く場合:
 
 ```toml
-[sim]
-use_box = true
+[domain]
 box_min = [0.0, 0.0, -1.0]
 box_max = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
 ```
 
-### 3.2 注入領域
+2つのgeometry表現は併用できません。`field_boundary.mode="periodic2"`では
+`periodic_axes=["x","y"]`が必要です。
+
+### 3.2 場・粒子・reservoir境界
+
+場closure、global粒子作用、局所reservoirは別tableで指定します。
+
+```toml
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+
+[reservoir]
+inflow_model = "source_vdf"
+phi_infty = 0.0
+face_potential_grid_n = 3
+```
+
+`[particle_boundary]`の6面キー`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high`は
+非周期面の`open|reflect`だけを受け付けます。周期面は`[domain]`が所有するため、
+このtableで`periodic`を指定したり、周期面を上書きしたりできません。
+
+species単位の6面overrideは、対象`[[particles.species]]`の直後へ書きます。
+
+```toml
+[[particles.species]]
+source_mode = "photo_raycast"
+inject_face = "z_high"
+# ... source keys ...
+
+[particles.species.boundary]
+x_low = "inherit"
+x_high = "inherit"
+y_low = "inherit"
+y_high = "inherit"
+z_low = "inherit"
+z_high = "reflect"
+```
+
+species側の各面は`inherit|open|reflect`です。`inherit`はglobal作用を使います。
+周期面では`inherit`だけが有効で、`open`または`reflect`へのoverrideはvalidation errorです。
+closed PEの`neutral_return`では、effectiveな`inject_face`作用を`reflect`にします。
+
+### 3.3 注入領域
 
 `reservoir_face` と `photo_raycast` では、面内の割合で注入領域を指定できます。
 
@@ -105,7 +154,7 @@ uv_high = [0.75, 0.75]
 
 読み込み時に `pos_low` / `pos_high` に解決されます。
 
-### 3.3 メッシュ配置
+### 3.4 メッシュ配置
 
 `mesh.templates` では、計算箱に対するアンカー指定が使えます。
 
@@ -123,7 +172,7 @@ ny = 20
 
 読み込み時に `size_x` / `size_y` / `center` などへ解決されます。
 
-### 3.4 グループ配置
+### 3.5 グループ配置
 
 `mesh.groups` は、複数 template に共通の原点やスケールを与えるための table です。
 
@@ -163,13 +212,20 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 ### 5.1 top-level key の位置が違う
 
-実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書きます。
+公開設定は`sim`、`domain`、`field_boundary`、`particle_boundary`、`reservoir`、
+`particles`、`periodic2`、`mesh`、`output`の下へ書きます。
 最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
 
 ### 5.2 高水準キーと実行時キーを混ぜる
 
-`box_origin` / `box_size` と `box_min` / `box_max` のように、同じ値を表す高水準キーと実行時キーを同時に書くと検証で失敗します。どちらか一方に揃えてください。
+`domain.box_origin` / `domain.box_size`と`domain.box_min` / `domain.box_max`のように、
+同じgeometryを表す2形式を同時に書くと検証で失敗します。どちらか一方に揃えてください。
 
-### 5.3 実行前に確認したい
+### 5.3 周期性を粒子境界へ書く
+
+`periodic`は`domain.periodic_axes`だけで指定します。`[particle_boundary]`または
+`[particles.species.boundary]`へ`periodic`を書くとvalidation errorです。
+
+### 5.4 実行前に確認したい
 
 `beachx lint beach.toml` で TOML parse、schema、高水準記法の整合性、既知の BEACH 制約をまとめて確認できます。

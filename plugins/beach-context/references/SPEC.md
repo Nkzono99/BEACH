@@ -90,8 +90,8 @@ commit します。棄却時は RNG と macro 粒子数残差を trial 前へ戻
 
 ### 5.2 periodic2
 
-`field_bc_mode="periodic2"` はちょうど 2 軸を周期、残り 1 軸を open とします。mesh は primitive cell の
-base element だけを保持し、場と衝突判定が周期 image を扱います。
+`[field_boundary] mode="periodic2"` は `[domain] periodic_axes=["x", "y"]` を要求します。
+mesh は primitive cell の base element だけを保持し、場と衝突判定が周期 image を扱います。
 
 `field_periodic_far_correction`:
 
@@ -112,20 +112,28 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 `lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
 外部プラズマ応答は合成しません。
 
-### 5.3 外部境界契約
+### 5.3 領域・粒子境界・reservoir
 
-公開 TOML の `[external_boundary]` は次だけを受理します。
+公開 TOML は責務を4つのtableへ分離します。
 
 ```toml
-[external_boundary.field]
-model = "none"
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+periodic_axes = ["x", "y"]
 
-[external_boundary.particles]
-mode = "local_source"
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape" # または "potential_barrier"
+
+[reservoir]
 inflow_model = "source_vdf" # または "infinity_barrier"
-
-[external_boundary.ordinary_open]
-model = "escape" # または "potential_barrier"
+phi_infty = 0.0
+face_potential_grid_n = 5
 ```
 
 - `source_vdf`: 指定した boundary VDF をそのまま局所注入する
@@ -134,7 +142,7 @@ model = "escape" # または "potential_barrier"
 - `potential_barrier`: event 位置の局所電位と法線運動エネルギーから反射／escape を判定する
 
 外部プラズマ profile、外部領域の particle transport、delayed return queue は現行スコープ外です。
-削除済みの `[outer_plasma]`、`[coupling]`、旧 selector key は unknown input として拒否します。
+削除済みの `[outer_plasma]`、`[coupling]`、`[external_boundary]` は unknown input として拒否します。
 
 ## 6. 粒子前進・衝突・box 境界
 
@@ -145,7 +153,8 @@ public な粒子状態は同一時刻の `x, v` です。空間電場は予測�
 mesh 衝突は Möller–Trumbore 法で最小 `t` を選びます。AABB と、既定では一様 grid + 3D-DDA で
 候補を絞ります。非有限値や進行不能は hit なしへ黙って変換せず、明示 status で停止します。
 
-box action:
+`domain.periodic_axes` は全粒子種に共通の topology です。非周期面の粒子 action は
+global `[particle_boundary]` と species 別 `[particles.species.boundary]` で指定します。
 
 - `open`: escape
 - `reflect`: 法線速度を反転
@@ -154,8 +163,8 @@ box action:
 mesh hit と最初の box event は chord parameter で順序付けます。reflect / periodic 後の残り時間は
 同じ Boris 規約で再積分し、1 local step あたり最大 8 box event を許します。
 
-`[[particles.species]].z_high_boundary="reflect"` は、その species の z-high だけを局所反射へ置き換えます。
-`sim.use_box=true`、global z-high が open、外部粒子輸送なしの場合だけ有効です。
+species 別の6面値は `inherit | open | reflect` です。`inherit` はglobal粒子 actionを使います。
+周期面はspeciesから上書きできません。
 
 ## 7. 注入モード
 
@@ -168,8 +177,8 @@ mesh hit と最初の box event は chord parameter で順序付けます。refl
 流入 flux と面積、batch duration から macro 粒子数を決めます。`target_macro_particles_per_batch` 指定時は
 macro weight を自動解決します。端数は batch 間で繰り越し、MPI では global 個数を rank へ分配します。
 
-`inflow_model="infinity_barrier"` では注入面の `N x N` 電位標本を使い、
-`phi_infty` とのエネルギー差から法線速度 cutoff と到達速度を同じ写像で補正します。
+`reservoir.inflow_model="infinity_barrier"` では注入面の `N x N` 電位標本を使い、
+`reservoir.phi_infty` とのエネルギー差から法線速度 cutoff と到達速度を同じ写像で補正します。
 
 ### 7.3 `photo_raycast`
 
@@ -180,7 +189,7 @@ closed PE は次の組合せです。
 
 - 負電荷 `photo_raycast`
 - `deposit_opposite_charge_on_emit=true`
-- `z_high_boundary="reflect"`
+- species の `inject_face` に対する有効粒子 action が `reflect`
 - `surface_charge_closure="neutral_return"`
 
 放出電荷を $S<0$、解決済み再吸収を $R<0$、max-step 未解決を $U<0$ とし、`S=R+U` を確認した上で、

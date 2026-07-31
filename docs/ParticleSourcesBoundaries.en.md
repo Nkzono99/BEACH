@@ -64,7 +64,8 @@ tracked macro particle is $qw$.
 | Reflects or wraps at a box face | Reintegrate the remaining step for the same particle |
 | Alive after `max_step` | Discard and report as unresolved at batch end |
 
-See [Boris particle update](BorisPusher.en.html) for advancement,
+Configure global nonperiodic actions in `[particle_boundary]`, species overrides in `[particles.species.boundary]`, and periodic
+axes in `domain.periodic_axes`. See [Boris particle update](BorisPusher.en.html) for advancement,
 [particle collision and boundary events](ParticleEvents.en.html) for mesh-versus-box ordering, and
 [particle escape and local return](ParticleEscapeReturn.en.html) for open-face treatment.
 

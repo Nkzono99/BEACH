@@ -35,11 +35,10 @@ position to the next box face.
 
 | Reached box face | Ray treatment |
 | --- | --- |
-| `open` | Leave the box and terminate without emission |
-| `reflect` | Reverse the normal direction component and continue |
-| `periodic` | Wrap to the opposite face and continue |
+| Nonperiodic face | Leave the box and terminate without emission |
+| Face on `domain.periodic_axes` | Wrap to the opposite face and continue |
 
-With `field_bc_mode="periodic2"`, first-hit search includes periodic images and wraps the emission position into the primary
+With `field_boundary.mode="periodic2"`, first-hit search includes periodic images and wraps the emission position into the primary
 cell. The hit element itself must lie inside the simulation box. A ray that still has no hit after `raycast_max_bounce` creates
 no particle. An incomplete collision-query status such as an image limit, index range, or stalled DDA fails the batch instead of
 silently treating the ray as a miss.
@@ -96,31 +95,34 @@ no subsequent lateral surface conduction.
 
 A ray hit always creates a photoelectron with weight $w_\mathrm{hit}$. No emission-time setting multiplies the weight by an
 escape fraction. Surface return is an ordinary collision; an open-face event uses the same
-`external_boundary.ordinary_open` treatment as other sources.
+`particle_boundary.ordinary_open_model` treatment as other sources.
 
-### Close only photoelectrons at z-high
+### Close only photoelectrons at the injection face
 
 Use local reflection to evaluate photoelectron surface redistribution on closed orbits:
 
 ```toml
+[particle_boundary]
+z_high = "open"
+ordinary_open_model = "escape"
+
 [[particles.species]]
 species_key = "photoelectron"
 source_mode = "photo_raycast"
+inject_face = "z_high"
 deposit_opposite_charge_on_emit = true
-z_high_boundary = "reflect"
 surface_charge_closure = "neutral_return"
+
+[particles.species.boundary]
+z_high = "reflect"
 ```
 
-At z-high this reverses only the normal velocity, preserves tangential velocity,
-and reintegrates the remainder of the step. Ambient species that omit the key
-retain `"inherit"` and follow the global open-boundary contract. They escape
-when the integrated configuration selects
-`external_boundary.ordinary_open.model="escape"`. `reflect` requires
-`sim.use_box=true` and globally open z-high.
-`inject_face` selects the illumination-ray origin and is separate from the
-post-creation `z_high_boundary` action.
+In this example, a z-high crossing reverses only normal velocity, preserves tangential velocity, and reintegrates the step
+remainder. Ambient species using the default `inherit` in `[particles.species.boundary]` follow the global open contract.
+All six species faces accept `inherit`, `open`, or `reflect`. Closed PE requires the effective action on the face named by
+`inject_face` to be `reflect`; a face on `domain.periodic_axes` cannot be overridden.
 
-`z_high_boundary="reflect"` alone closes only the orbit. A particle that does
+Species `reflect` alone closes only the orbit. A particle that does
 not return by `max_step` remains unresolved. With
 `surface_charge_closure="neutral_return"`, BEACH measures emitted charge $S<0$
 and resolved absorbed charge $R<0$ globally for the batch, then multiplies
@@ -137,14 +139,14 @@ escape, `soft_discard`, or a charge-sign mismatch.
 An unresolved fraction above 5% also stops before correction because it is
 outside this closure's fixed applicability range.
 
-Full reflection is an artificial mirror at the top of a finite box, not a self-consistent sheath or quasineutrality solution.
+Full reflection is an artificial mirror at the injection face of a finite box, not a self-consistent sheath or quasineutrality solution.
 `neutral_return` is a statistical zero-net-photoelectron-current closure, not a resolved trajectory for every long-lived
 particle. Converge `max_step`, `dt`, ray count, and batch width until `abs(weight_scale-1)` and the unresolved fraction are small. See
 [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
 for the integrated field, inflow, and potential-reference setup.
 
-See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between ordinary-open `escape` /
-`potential_barrier` and closed PE.
+See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between
+`particle_boundary.ordinary_open_model` and closed PE.
 
 ## Check convergence of photoelectron emission
 

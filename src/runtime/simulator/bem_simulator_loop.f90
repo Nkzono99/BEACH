@@ -361,9 +361,10 @@ contains
     if (.not. pcls_batch%alive(i)) cycle
     species_idx = pcls_batch%species_id(i)
     particle_sim = app%sim
-    if (trim(lower_ascii(app%particle_species(species_idx)%z_high_boundary)) == 'reflect') then
-      particle_sim%bc_high(3) = bc_reflect
-    end if
+    call resolve_particle_boundaries( &
+      app%sim, app%particle_boundary_low, app%particle_boundary_high, app%particle_species(species_idx), &
+      particle_sim%bc_low, particle_sim%bc_high &
+      )
     do step = 1_i32, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
@@ -576,9 +577,7 @@ contains
       end if
     end do
     if (.not. has_neutral_return) return
-    if (.not. app%sim%use_box .or. app%sim%bc_high(3) /= bc_open) then
-      error stop 'neutral_return requires a finite box with global z-high open.'
-    end if
+    if (.not. app%sim%use_box) error stop 'neutral_return requires a finite box.'
 
     workspace%neutral_return_charge_values = 0.0_dp
     workspace%neutral_return_terminal_counts = 0_i64

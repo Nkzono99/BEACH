@@ -82,7 +82,7 @@ program test_output_writer_io
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
   call test_end()
 
-  call test_begin('resolved_external_boundary_receipt')
+  call test_begin('resolved_local_boundary_receipt')
   call default_app_config(cfg)
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
   cfg%sim%open_boundary_model = 'potential_barrier'
@@ -252,15 +252,15 @@ contains
     saw_inflow = .false.
     saw_open = .false.
     open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
-    if (read_status /= 0) error stop 'failed to open resolved external boundary summary fixture'
+    if (read_status /= 0) error stop 'failed to open resolved local boundary summary fixture'
     do
       read (unit, '(A)', iostat=read_status) summary_line
       if (read_status /= 0) exit
-      saw_inflow = saw_inflow .or. trim(summary_line) == 'external_inflow_map='//trim(inflow_map)
-      saw_open = saw_open .or. trim(summary_line) == 'external_ordinary_open_model='//trim(open_model)
+      saw_inflow = saw_inflow .or. trim(summary_line) == 'reservoir_inflow_map='//trim(inflow_map)
+      saw_open = saw_open .or. trim(summary_line) == 'particle_ordinary_open_model='//trim(open_model)
     end do
     close (unit)
-    call assert_true(saw_inflow, 'summary should record the resolved external inflow map')
+    call assert_true(saw_inflow, 'summary should record the resolved reservoir inflow map')
     call assert_true(saw_open, 'summary should record the resolved ordinary open model')
   end subroutine assert_resolved_boundary_summary
 

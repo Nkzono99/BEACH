@@ -675,7 +675,7 @@ contains
       species_cfg%particle_species(species_idx)%drift_velocity = [0.0_dp, 0.0_dp, 2.0_dp]
       species_cfg%particle_species(species_idx)%temperature_k = 0.0_dp
     end do
-    species_cfg%particle_species(2)%z_high_boundary = 'reflect'
+    species_cfg%particle_species(2)%boundary_high(3) = bc_reflect
 
     call seed_particles_from_config(species_cfg)
     call run_absorption_insulator(species_mesh, species_cfg, species_stats, charge_ledger=species_ledger)
@@ -736,7 +736,7 @@ contains
     neutral_cfg%particle_species(1)%rays_per_batch = 1024_i32
     neutral_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
     neutral_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
-    neutral_cfg%particle_species(1)%z_high_boundary = 'reflect'
+    neutral_cfg%particle_species(1)%boundary_high(3) = bc_reflect
     neutral_cfg%particle_species(1)%surface_charge_closure = 'neutral_return'
     neutral_cfg%particle_species(1)%q_particle = -1.0_dp
     neutral_cfg%particle_species(1)%m_particle = 1.0_dp

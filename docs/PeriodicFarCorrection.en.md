@@ -13,12 +13,22 @@ teacher, `cached_kneq0`, cache, and connection to FMM state.
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "cached_kneq0"
 field_periodic_cache_dir = ".beach_cache/periodic2"
 field_periodic_generation_tolerance = 1.0e-8
+
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
 ```
+
+`[domain]` owns the fixed target topology and periodic axes; `[field_boundary]` selects the periodic2 field. The current
+`cached_kneq0` path accepts only targets inside an x/y-periodic, z-nonperiodic domain box.
 
 | `field_periodic_far_correction` | Computation | Use |
 | --- | --- | --- |

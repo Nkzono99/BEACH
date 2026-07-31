@@ -12,12 +12,22 @@ Lang: [日本語](PeriodicFarCorrection.md) | [English](PeriodicFarCorrection.en
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "cached_kneq0"
 field_periodic_cache_dir = ".beach_cache/periodic2"
 field_periodic_generation_tolerance = 1.0e-8
+
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
 ```
+
+`[domain]` が固定 target topology と周期軸を所有し、`[field_boundary]` が periodic2 場を選びます。
+現行 `cached_kneq0` は x/y 周期・z 非周期の domain box 内 target だけを受理します。
 
 | `field_periodic_far_correction` | 計算内容 | 用途 |
 | --- | --- | --- |

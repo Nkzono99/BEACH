@@ -45,7 +45,10 @@ This high-level interface binds one output directory and provides the main analy
 b = Beach("outputs/latest")
 ```
 
-You can explicitly specify the configuration file as in `Beach("outputs/latest", config_path="path/to/beach.toml")`. When `config_path=None`, BEACH searches automatically in order through `output_dir/beach.toml`, the parent directory, and the grandparent directory. Config-aware object/kernel analyses resolve object kind/order, periodic2, and tree parameters from this `beach.toml`.
+You can explicitly specify the configuration file as in `Beach("outputs/latest", config_path="path/to/beach.toml")`. When
+`config_path=None`, BEACH searches automatically in order through `output_dir/beach.toml`, the parent directory, and the
+grandparent directory. Config-aware object/kernel analyses resolve object kind/order, `field_boundary.mode`,
+`domain.periodic_axes` and box bounds, periodic2, and tree parameters from this `beach.toml`.
 High-level APIs that recompute the total field require this file rather than
 guessing boundary, uniform-field, or outer-field policies. It is not required
 when reading an unchanged simulator-written `mesh_potential.csv`.
@@ -211,7 +214,9 @@ Return value: `CoulombInteraction`
 When `periodic2` is specified, the native field kernel is constructed with
 that two-axis periodic configuration for the force and torque evaluation.
 
-When `periodic2=None` (default), BEACH searches for `beach.toml` near the output directory and automatically applies periodic settings if `sim.field_bc_mode="periodic2"` is set. This uses the same automatic-detection logic as functions such as `compute_potential_mesh`.
+When `periodic2=None` (default), BEACH searches for `beach.toml` near the output directory. If
+`field_boundary.mode="periodic2"`, it builds periodic settings from `domain.periodic_axes` and `domain.box_min` /
+`domain.box_max`. Functions such as `compute_potential_mesh` use the same automatic detection.
 
 ### 5.2 `CoulombInteraction` Type
 
@@ -407,10 +412,12 @@ The common `periodic2` parameter is available for potential reconstruction, Coul
 
 ### 8.1 Automatic Detection (`periodic2=None`)
 
-With the default `None`, BEACH searches for `beach.toml` near the output directory and automatically applies periodic boundary settings when `sim.field_bc_mode="periodic2"` is set.
+With the default `None`, BEACH searches for `beach.toml` near the output directory. When
+`field_boundary.mode="periodic2"`, it resolves periodic axes, lengths, and origins from `domain.periodic_axes` and
+`domain.box_min` / `domain.box_max`.
 If no configuration file is found, high-level total-field reconstruction stops
 instead of silently falling back to free space. Free-space reconstruction is
-used only when the configuration explicitly sets `field_bc_mode="free"`.
+used when `field_boundary.mode` resolves to `free`.
 
 ### 8.2 Explicit Specification
 
@@ -481,8 +488,8 @@ If the shared library is located elsewhere, specify `library_path=` or the envir
 `eval_e()` and `eval_phi()` use the free, finite-periodic, or cached-periodic
 configuration with which the plan was built. For a cached plan, they return the
 `cached_kneq0` $k\ne0$ component plus `sim.e0`, not the simulator total field
-with its physical zero mode or active outer state. `FieldKernel` is the
-low-level API for handling that component explicitly. `eval_e_direct()` and
+with its physical zero mode. `FieldKernel` is the low-level API for handling
+that component explicitly. `eval_e_direct()` and
 `eval_phi_direct()` are **non-periodic exact-direct** diagnostics over the same
 source geometry and charges. The direct methods reject periodic plans and do
 not add uniform `sim.e0`. They are intended for small FMM accuracy or primary
@@ -570,9 +577,7 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `far_correction="none"`, or cached periodic |
 | `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode selected by `[periodic2].lower_boundary_model`. Cache generation or reuse must succeed |
 
-A complete `beach.toml` with `sim.box_min` and `sim.box_max` is required.
-`external_boundary.field.model` must be `"none"` as required by the current
-configuration contract.
+A complete `beach.toml` with `domain.box_min` and `domain.box_max` is required.
 
 When an x/y-periodic mesh crosses a cell seam, the snapshot keeps all-source
 geometry in the saved representation so it remains identical to the simulation

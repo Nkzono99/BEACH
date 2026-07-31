@@ -47,7 +47,8 @@ b = Beach("outputs/latest")
 
 `Beach("outputs/latest", config_path="path/to/beach.toml")`のように、設定ファイルを明示できます。
 `config_path=None`の場合は、`output_dir/beach.toml`、親ディレクトリ、祖父ディレクトリの順に自動探索します。
-objectやkernelの設定を参照する解析では、この`beach.toml`からobject kind/order、periodic2、treeパラメータを取得します。
+object や kernel の設定を参照する解析では、この `beach.toml` から object kind/order、
+`field_boundary.mode`、`domain.periodic_axes` と box、periodic2、tree パラメータを取得します。
 全電場を再計算する高水準APIは、境界・一様場・外部場を推測しないため、この設定ファイルを必須とします。
 simulatorが保存した`mesh_potential.csv`をそのまま読む経路では再計算しないため不要です。
 
@@ -207,7 +208,9 @@ target メッシュグループが source から受ける Coulomb 力とトル�
 
 `periodic2` が指定された場合、native field kernelをその2軸周期設定で構成して力とトルクを計算します。
 
-`periodic2=None`（デフォルト）の場合は、出力ディレクトリ近傍の `beach.toml` を探索し、`sim.field_bc_mode="periodic2"` が設定されていれば自動的に周期設定を適用します。これは `compute_potential_mesh` 等の他の関数と同じ自動判定ロジックです。
+`periodic2=None`（デフォルト）の場合は、出力ディレクトリ近傍の `beach.toml` を探索します。
+`field_boundary.mode="periodic2"` なら、`domain.periodic_axes` と `domain.box_min` / `domain.box_max` から周期設定を
+自動構築します。これは `compute_potential_mesh` などの他の関数と共通の自動判定です。
 
 ### 5.2 `CoulombInteraction` 型
 
@@ -401,9 +404,11 @@ fig.savefig("field_lines.png", dpi=150)
 
 ### 8.1 自動判定（`periodic2=None`）
 
-デフォルトの `None` では、出力ディレクトリ近傍の `beach.toml` を探索し、`sim.field_bc_mode="periodic2"` が設定されている場合に自動的に周期境界設定を適用します。
+デフォルトの `None` では、出力ディレクトリ近傍の `beach.toml` を探索します。
+`field_boundary.mode="periodic2"` の場合、`domain.periodic_axes` と `domain.box_min` / `domain.box_max` から
+周期軸、長さ、原点を自動解決します。
 設定ファイルが見つからない場合、全電場を再計算する高水準APIは自由空間へ黙ってfallbackせず停止します。
-設定に`field_bc_mode="free"`が明記されている場合だけ自由空間として再計算します。
+設定の `field_boundary.mode` が `free` に解決される場合は自由空間として再計算します。
 
 ### 8.2 明示指定
 
@@ -468,9 +473,9 @@ with FieldKernel.from_result(run) as kernel:
 
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 
-`eval_e()` / `eval_phi()`は、構築時に選んだfree / finite periodic / cached periodic設定を使います。
-ただしcached planの返り値は`cached_kneq0`の$k\ne0$成分と`sim.e0`だけで、物理的zero modeや
-active outer stateを含むsimulator全電場ではありません。`FieldKernel`はこの成分を明示的に扱う低水準APIです。
+`eval_e()` / `eval_phi()` は、構築時に選んだ free / finite periodic / cached periodic 設定を使います。
+ただし cached plan の返り値は `cached_kneq0` の $k\ne0$ 成分と `sim.e0` だけで、physical zero mode を含む
+simulator 全電場ではありません。`FieldKernel` はこの成分を明示的に扱う低水準 API です。
 `eval_e_direct()` / `eval_phi_direct()`は、同じsource geometryとchargeを非周期のexact direct法で評価する診断APIです。
 periodic planでは使用できず、uniform `sim.e0`も加算しません。FMMの精度確認とprimary free-space subtractionの
 小規模oracleに使います。
@@ -557,8 +562,7 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 | `"configured"` | run の `beach.toml` をそのまま使用する。free、`far_correction="none"` の有限画像、または cached periodic のいずれにもなり得る |
 | `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と、`[periodic2].lower_boundary_model`に従う物理的な`k = 0` modeを組み合わせる。cache の生成・再利用条件を満たす必要がある |
 
-完全な`beach.toml`と`sim.box_min` / `sim.box_max`が必要です。
-`external_boundary.field.model`は現行仕様どおり`"none"`でなければなりません。
+完全な `beach.toml` と `domain.box_min` / `domain.box_max` が必要です。
 
 x/y periodic meshがcell seamをまたぐ場合、snapshot全体のsource geometryは、simulationとcache identityに一致する
 saved表現のまま保持します。一方、`object_probe()`は選択したmeshだけを周期的に連結したbranchにunwrapします。

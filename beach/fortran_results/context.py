@@ -138,6 +138,20 @@ class RunContext:
         sim = self.config.get("sim")
         return sim if isinstance(sim, Mapping) else None
 
+    @cached_property
+    def domain(self) -> Mapping[str, object] | None:
+        if self.config is None:
+            return None
+        domain = self.config.get("domain")
+        return domain if isinstance(domain, Mapping) else None
+
+    @cached_property
+    def field_boundary(self) -> Mapping[str, object] | None:
+        if self.config is None:
+            return None
+        boundary = self.config.get("field_boundary")
+        return boundary if isinstance(boundary, Mapping) else None
+
     def charges_at(self, step: int | None) -> np.ndarray:
         if step is None:
             return self.result.charges

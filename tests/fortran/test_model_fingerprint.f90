@@ -1,7 +1,7 @@
 !> model、ordered mesh、ordered speciesのfingerprint感度と決定性を検証する。
 program test_model_fingerprint
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type
+  use bem_types, only: mesh_type, bc_reflect
   use bem_mesh, only: init_mesh
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_physics_config_types, only: normalize_legacy_physics_config
@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -61,10 +61,16 @@ program test_model_fingerprint
   call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'charge change must alter fingerprint')
   call test_end()
 
-  call test_begin('species_z_high_boundary_change_detected')
+  call test_begin('species_particle_boundary_change_detected')
   cfg_changed = cfg
-  cfg_changed%particle_species(1)%z_high_boundary = 'reflect'
-  call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'z-high policy must alter fingerprint')
+  cfg_changed%particle_species(1)%boundary_low(1) = bc_reflect
+  call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'particle boundary must alter fingerprint')
+  call test_end()
+
+  call test_begin('global_particle_boundary_change_detected')
+  cfg_changed = cfg
+  cfg_changed%particle_boundary_high(3) = bc_reflect
+  call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'global particle boundary must alter fingerprint')
   call test_end()
 
   call test_begin('surface_charge_closure_change_detected')

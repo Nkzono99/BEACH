@@ -41,8 +41,25 @@ This table is the canonical compatibility reference for solvers and field bounda
 | `fmm` | Supported | Supported. Infinite-periodic production runs use `cached_kneq0` |
 | `auto` | Supported | Unsupported |
 
-`periodic2` additionally requires `sim.use_box=true`, exactly two periodic axes, and one open axis.
-The Direct split reference is intended for reduced reference and validation cases; the normal periodic2 production path uses FMM.
+`periodic2` requires a `[domain]` box, `periodic_axes=["x", "y"]`, and a nonperiodic z axis. The Direct split reference is
+for reduced validation cases; the normal periodic2 production path uses FMM.
+
+## Separate domain topology from the field boundary
+
+```toml
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+```
+
+`[domain]` owns the simulation cell and periodic topology; `[field_boundary]` owns field closure. `mode="free"` selects a
+free-space field, while `mode="periodic2"` uses the domain's x/y periodicity. The current periodic2 implementation accepts only
+x/y periodic and z nonperiodic. Species boundary settings may select `open` or `reflect` on nonperiodic faces, but cannot add,
+remove, or override periodic axes.
 
 ## Discretize element charge with triangle P0
 
@@ -63,7 +80,7 @@ key; BEACH does not reinterpret it as another element model.
 | --- | --- | --- |
 | `si` | 1 m | 0 |
 | `length` | `field_length_scale` | 0 |
-| `box` | Largest of the three box extents | `box_min` |
+| `box` | Largest extent in `[domain]` | `domain.box_min` |
 | `mesh` | Largest mesh-bounding-box extent | Mesh-bounding-box minimum |
 
 The internal calculation uses
@@ -72,17 +89,14 @@ $$
 \mathbf{x}'=\frac{\mathbf{x}-\mathbf{x}_0}{L_0},
 $$
 
-then multiplies electric field by $k_c/L_0^2$ and potential by $k_c/L_0$ to restore SI units. `box` requires
-`use_box=true` and positive box extents. `mesh` falls back to `field_length_scale` only when the mesh is empty.
+then multiplies electric field by $k_c/L_0^2$ and potential by $k_c/L_0$ to restore SI units. `box` requires a `[domain]` with
+positive extents. `mesh` falls back to `field_length_scale` only when the mesh is empty.
 
 ## Combine the solver with boundary components in periodic2
 
-`periodic2` is not defined by one solver choice. It is a coupled configuration combining a finite or infinite image sum,
-nonzero and zero modes, an outer sheath, reservoir acceleration or deceleration, and photoelectron escape or return.
-
-The legacy `sim.field_bc_mode="periodic2"` path uses FMM, while small-system split-reference cases use a Direct panel spectral
-backend. Their component compositions are described in
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) for the field decomposition.
+`periodic2` combines a finite- or infinite-image nonzero mode with a physical zero mode. Production uses FMM; reduced split
+references use a Direct panel spectral backend. See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for component
+ownership.
 
 ## Measure solver and mesh-discretization errors separately
 

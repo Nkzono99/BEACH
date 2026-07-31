@@ -27,10 +27,13 @@ def _schema() -> dict[str, object]:
 def test_parameter_section_inventory_covers_top_level_tables() -> None:
     expected_tables = (
         "sim",
+        "domain",
+        "field_boundary",
+        "particle_boundary",
+        "reservoir",
         "particles",
         "mesh",
         "periodic2",
-        "external_boundary",
         "output",
     )
 
@@ -52,21 +55,20 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
         "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
         "mesh.templates": schema["$defs"]["template"]["properties"],
         "periodic2": schema["properties"]["periodic2"]["properties"],
-        "external_boundary.field": schema["$defs"]["externalBoundaryField"][
-            "properties"
-        ],
-        "external_boundary.particles": schema["$defs"]["externalBoundaryParticles"][
-            "properties"
-        ],
-        "external_boundary.ordinary_open": schema["$defs"][
-            "externalBoundaryOrdinaryOpen"
-        ]["properties"],
+        "domain": schema["$defs"]["domain"]["properties"],
+        "field_boundary": schema["$defs"]["fieldBoundary"]["properties"],
+        "particle_boundary": schema["$defs"]["particleBoundary"]["properties"],
+        "reservoir": schema["$defs"]["reservoir"]["properties"],
+        "species.boundary": schema["$defs"]["speciesParticleBoundary"]["properties"],
         "output": schema["$defs"]["output"]["properties"],
     }
     expected_headings = {
         "docs/Parameters.md": (
             "### `[sim]`:",
-            "### `[external_boundary]`:",
+            "### `[domain]`:",
+            "### `[field_boundary]`:",
+            "### `[particle_boundary]`:",
+            "### `[reservoir]`:",
             "### `[periodic2]`:",
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
@@ -76,7 +78,10 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
         ),
         "docs/Parameters.en.md": (
             "### `[sim]`:",
-            "### `[external_boundary]`:",
+            "### `[domain]`:",
+            "### `[field_boundary]`:",
+            "### `[particle_boundary]`:",
+            "### `[reservoir]`:",
             "### `[periodic2]`:",
             "### `[[particles.species]]`:",
             "### `[mesh]`:",
@@ -115,10 +120,11 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
         assert "│   └── [[particles.species]]" in text
         assert "│   ├── [mesh.groups.<name>]" in text
         assert "│   └── [[mesh.templates]]" in text
-        assert "├── [external_boundary]" in text
-        assert "│   ├── [external_boundary.field]" in text
-        assert "│   ├── [external_boundary.particles]" in text
-        assert "│   └── [external_boundary.ordinary_open]" in text
+        assert "├── [domain]" in text
+        assert "├── [field_boundary]" in text
+        assert "├── [particle_boundary]" in text
+        assert "├── [reservoir]" in text
+        assert "│       └── [particles.species.boundary]" in text
 
 
 def test_parameter_editor_schema_uses_only_github_raw_url() -> None:
@@ -159,7 +165,7 @@ def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> N
         assert not errors, (path, [error.message for error in errors])
         load_config_file(ROOT / path)
 
-    description = schema["$defs"]["sim"]["properties"]["field_bc_mode"]["description"]
+    description = schema["$defs"]["fieldBoundary"]["properties"]["mode"]["description"]
     assert "direct triangle_p0 panel_spectral_reference split model" in description
 
     for path in ("docs/FieldSolvers.md", "docs/FieldSolvers.en.md"):

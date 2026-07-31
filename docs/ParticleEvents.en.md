@@ -25,7 +25,7 @@ re-integrating the remainder.
 | Earliest event | Committed action |
 | --- | --- |
 | mesh | Return hit position and element index; absorb the particle |
-| open face | Apply `escape` or `potential_barrier` at the event position |
+| open face | Apply `particle_boundary.ordinary_open_model` at the event position |
 | reflect face | Reverse normal velocity and advance the remainder from just inside the box |
 | periodic face | Move just inside the opposite face, retain velocity, and advance the remainder |
 
@@ -113,26 +113,26 @@ This image range is determined by which mesh images a particle trajectory segmen
 
 ## Apply the action of each box face
 
-With `use_box=true`, every low and high axis face is configured as `open`, `reflect`, or `periodic`. When a trajectory segment reaches several
-faces simultaneously at an edge or corner, faces within a machine-epsilon tolerance of the minimum fraction are combined into
-one mask.
+Both faces on an axis listed in `domain.periodic_axes` are periodic. On nonperiodic faces, `[particle_boundary]` keys
+`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, and `z_high` select `open` or `reflect`. Particle-boundary tables cannot specify
+`periodic`. When a segment reaches several faces at an edge or corner, faces within a machine-epsilon tolerance of the minimum
+fraction are combined into one mask.
 
 ### Open, reflect, and periodic faces
 
-With `external_boundary.ordinary_open.model="escape"`, any open face in the mask removes the particle and increments
+With `particle_boundary.ordinary_open_model="escape"`, any open face in the mask removes the particle and increments
 `escaped_boundary`. Reflect faces reverse the corresponding velocity components; periodic faces move the particle to the
 opposite side without changing velocity. `nearest` places survivors one floating-point value inside the box.
 
-`[[particles.species]].z_high_boundary="reflect"` treats globally open z-high as a reflect face only for that species.
-The default `"inherit"` retains the global boundary. This override requires `sim.use_box=true` and
-`sim.bc_z_high="open"`. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the closed-PE
-combination.
+`[particles.species.boundary]` overrides the same six faces for one species with `inherit`, `open`, or `reflect`.
+`inherit` uses global `[particle_boundary]`. Faces selected by `domain.periodic_axes` are topology and cannot be overridden
+globally or per species. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the closed-PE combination.
 
 Reflect and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
 ### Potential barrier
 
-`external_boundary.ordinary_open.model="potential_barrier"` compares outward normal kinetic energy at a single open face,
+`particle_boundary.ordinary_open_model="potential_barrier"` compares outward normal kinetic energy at a single open face,
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2,

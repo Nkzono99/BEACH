@@ -1,0 +1,52 @@
+[sim]
+dt = 1.0e-9
+batch_count = 1
+max_step = 1
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+periodic_axes = []
+
+[field_boundary]
+mode = "free"
+
+[particle_boundary]
+x_low = "open"
+x_high = "reflect"
+y_low = "reflect"
+y_high = "open"
+z_low = "open"
+z_high = "reflect"
+
+[particles]
+[[particles.species]]
+source_mode = "volume_seed"
+npcls_per_step = 1
+q_particle = -1.0
+m_particle = 1.0
+temperature_k = 0.0
+
+[particles.species.boundary]
+x_low = "reflect"
+x_high = "open"
+y_low = "inherit"
+y_high = "reflect"
+z_low = "reflect"
+z_high = "inherit"
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+surface_side = "normal_plus"
+center = [0.5, 0.5, 0.5]
+size_x = 0.5
+size_y = 0.5
+nx = 1
+ny = 1
+
+[output]
+write_files = false

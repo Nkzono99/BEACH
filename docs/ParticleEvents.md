@@ -25,7 +25,7 @@ mesh hitとbox面の差が$64\epsilon_\mathrm{mach}\max(1,|t|)$以内ならmesh�
 | 最初の衝突・境界イベント | 確定する処理 |
 | --- | --- |
 | mesh | hit位置と要素indexを返し、粒子を吸収 |
-| open face | 境界との交差位置で `escape` または `potential_barrier` を適用 |
+| open face | 境界との交差位置で `particle_boundary.ordinary_open_model` を適用 |
 | reflect face | 法線速度を反転し、box内側から残り時間を進める |
 | periodic face | 反対側faceの内側へ移し、速度を変えず残り時間を進める |
 
@@ -112,18 +112,20 @@ $$
 
 ## box面ごとの作用を適用する
 
-`use_box=true`では、各軸のlow/high faceに`open`、`reflect`、`periodic`を設定します。候補軌道線分が複数faceへ
-同時に達するcorner/edgeでは、最小fractionからmachine-epsilon tolerance内のfaceを1つのmaskへまとめます。
+`domain.periodic_axes` に含む軸の両面は periodic です。非周期面は `[particle_boundary]` の
+`x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` で `open` または `reflect` を選びます。
+粒子境界へ `periodic` は指定できません。候補軌道線分が複数 face へ同時に達する corner/edge では、
+最小 fraction から machine-epsilon tolerance 内の face を 1 つの mask へまとめます。
 
 ### open、reflect、periodic
 
-`external_boundary.ordinary_open.model="escape"` では、mask に open face が 1 つでもあれば粒子を消滅させ、
+`particle_boundary.ordinary_open_model="escape"` では、mask に open face が 1 つでもあれば粒子を消滅させ、
 `escaped_boundary` へ数えます。reflect face は該当する速度成分を反転し、periodic face は速度を変えずに
 反対側へ移します。生存粒子は `nearest` で box 面から 1 floating-point 値だけ内側へ置きます。
 
-`[[particles.species]].z_high_boundary="reflect"` は、global に open な z-high を、その species に限って
-reflect face として処理します。既定の `"inherit"` は global 境界をそのまま使います。この override は
-`sim.use_box=true` かつ `sim.bc_z_high="open"` の場合だけ有効です。closed PE の組合せは
+`[particles.species.boundary]` は同じ 6 面を species ごとに `inherit`、`open`、`reflect` で上書きします。
+`inherit` は global の `[particle_boundary]` を使います。`domain.periodic_axes` の面は topology なので、
+global 設定でも species 設定でも上書きできません。closed PE の組合せは
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
 
 cornerでreflectとperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
@@ -131,7 +133,7 @@ cornerでreflectとperiodicが組み合わさっても、face maskへまとめ�
 
 ### potential barrier
 
-`external_boundary.ordinary_open.model="potential_barrier"`は、単一open faceから外向きに出る粒子について法線運動エネルギー
+`particle_boundary.ordinary_open_model="potential_barrier"` は、単一 open face から外向きに出る粒子について法線運動エネルギー
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2

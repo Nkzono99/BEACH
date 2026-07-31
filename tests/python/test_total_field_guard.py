@@ -42,7 +42,7 @@ def test_total_field_guard_requires_config(tmp_path: Path) -> None:
 
 def test_total_field_guard_rejects_cached_kneq0_component(tmp_path: Path) -> None:
     (tmp_path / "beach.toml").write_text(
-        '[external_boundary.field]\nmodel = "none"\n',
+        '[field_boundary]\nmode = "free"\n',
         encoding="utf-8",
     )
     context = RunContext.from_value(_result(tmp_path))
@@ -66,7 +66,7 @@ def test_total_field_guard_rejects_cached_kneq0_component(tmp_path: Path) -> Non
 
 def test_total_field_guard_accepts_configured_complete_kernel(tmp_path: Path) -> None:
     (tmp_path / "beach.toml").write_text(
-        '[external_boundary.field]\nmodel = "none"\n',
+        '[field_boundary]\nmode = "free"\n',
         encoding="utf-8",
     )
     context = RunContext.from_value(_result(tmp_path))

@@ -15,7 +15,7 @@ primarily to compute charge accumulation on insulator surfaces. The current base
 
 - no solved outer-plasma field or outer-region particle transport
 - ambient particles injected locally with `reservoir_face`
-- photoelectrons closed with `photo_raycast`, z-high reflection, and `neutral_return`
+- photoelectrons closed with `photo_raycast`, species reflection on `inject_face`, and `neutral_return`
 - absorbing mesh hits with surface-charge deltas committed once per batch
 - execution through `sim.batch_count`, with `sim.max_step` as the per-particle limit
 - `sim.tol_rel` recorded as a monitoring metric, not used for early stopping
@@ -52,8 +52,8 @@ validity. Inspect outputs and convergence of the quantity of interest after the 
 | Minimal smoke run | `examples/beach.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
 | Local plasma reservoir | `source_mode="reservoir_face"` | [Reservoir injection](ReservoirInjection.en.html) |
 | Closed photoelectron redistribution | `examples/periodic2_closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
-| Free-space field evaluation | `field_bc_mode="free"` | [Field evaluation](FieldSolvers.en.html) |
-| Two-axis-periodic field evaluation | `field_bc_mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
+| Free-space field evaluation | `field_boundary.mode="free"` | [Field evaluation](FieldSolvers.en.html) |
+| Two-axis-periodic field evaluation | `field_boundary.mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
 | Output analysis | `beachx inspect` / `Beach(...)` | [Post-processing tutorial](PostprocessTutorial.en.html) |
 | Resume from a checkpoint | `output.resume=true` | [Execution and resume](Execution.en.html) |
 
@@ -74,10 +74,10 @@ Check these constraints early:
 
 | Feature | Required conditions |
 |---|---|
-| `reservoir_face` | `sim.use_box=true`, resolved `sim.batch_duration>0`, and `inject_face` |
-| `photo_raycast` | `sim.use_box=true`, resolved `sim.batch_duration>0`, positive current density, and `rays_per_batch>=1` |
-| closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `z_high_boundary="reflect"`, and `surface_charge_closure="neutral_return"` |
-| `periodic2` | `sim.use_box=true`, exactly two periodic axes, and a `[periodic2]` zero-mode policy |
+| `reservoir_face` | a `[domain]` box, resolved `sim.batch_duration>0`, and `inject_face` |
+| `photo_raycast` | a `[domain]` box, resolved `sim.batch_duration>0`, positive current density, and `rays_per_batch>=1` |
+| closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `reflect` on `inject_face` in `[particles.species.boundary]`, and `surface_charge_closure="neutral_return"` |
+| `periodic2` | a `[domain]` box, exactly two entries in `domain.periodic_axes`, and a `[periodic2]` zero-mode policy |
 | resume | `output.write_files=true`, required checkpoints, and the same MPI size |
 
 The normal `periodic2` path uses FMM. Direct is limited to the validation split

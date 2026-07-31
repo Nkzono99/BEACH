@@ -5,18 +5,24 @@ dt = 1.0e-10
 batch_count = 1
 max_step = 20
 field_solver = "fmm"
-field_bc_mode = "free"
-use_box = true
-box_min = [-0.6, -0.6, -0.1]
-box_max = [0.6, 0.6, 0.4]
-bc_x_low = "open"
-bc_x_high = "open"
-bc_y_low = "open"
-bc_y_high = "open"
-bc_z_low = "open"
-bc_z_high = "open"
 tree_theta = 0.45
 tree_leaf_max = 8
+
+[domain]
+box_min = [-0.6, -0.6, -0.1]
+box_max = [0.6, 0.6, 0.4]
+periodic_axes = []
+
+[field_boundary]
+mode = "free"
+
+[particle_boundary]
+x_low = "open"
+x_high = "open"
+y_low = "open"
+y_high = "open"
+z_low = "open"
+z_high = "open"
 
 [particles]
 [[particles.species]]

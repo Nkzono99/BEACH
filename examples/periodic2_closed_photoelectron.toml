@@ -12,31 +12,27 @@ batch_count = 10
 max_step = 100000
 tol_rel = 1.0e-8
 b0 = [0.0, 0.0, 0.0]
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0e-4, 1.0e-4, 1.0e-3]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
 rng_seed = 12345
-injection_face_phi_grid_n = 5
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 
-[external_boundary.field]
-model = "none"
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0e-4, 1.0e-4, 1.0e-3]
+periodic_axes = ["x", "y"]
 
-[external_boundary.particles]
-mode = "local_source"
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+
+[reservoir]
 inflow_model = "source_vdf"
-
-[external_boundary.ordinary_open]
-model = "escape"
+face_potential_grid_n = 5
 
 [particles]
 
@@ -75,7 +71,6 @@ source_mode = "photo_raycast"
 emit_current_density_a_m2 = 2.0e-4
 rays_per_batch = 300
 deposit_opposite_charge_on_emit = true
-z_high_boundary = "reflect"
 surface_charge_closure = "neutral_return"
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
@@ -85,6 +80,9 @@ inject_face = "z_high"
 pos_low = [0.0, 0.0, 1.0e-3]
 pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
 ray_direction = [0.0, 0.0, -1.0]
+
+[particles.species.boundary]
+z_high = "reflect"
 
 [mesh]
 mode = "template"

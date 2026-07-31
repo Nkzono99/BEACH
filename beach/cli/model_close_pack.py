@@ -80,7 +80,7 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     box_group.add_argument(
         "--box-height",
         type=float,
-        help="explicit box height in z from sim.box_min[2] [m]",
+        help="explicit box height in z from domain.box_min[2] [m]",
     )
     box_group.add_argument(
         "--top-clearance",
@@ -157,8 +157,8 @@ def run(args: argparse.Namespace) -> None:
     print(f"saved={args.output}")
     print(f"base_config={args.base_config}")
     print(f"sphere_count={total_sphere_count(spec)}")
-    print(f"box_min={config['sim']['box_min']}")
-    print(f"box_max={config['sim']['box_max']}")
+    print(f"box_min={config['domain']['box_min']}")
+    print(f"box_max={config['domain']['box_max']}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:

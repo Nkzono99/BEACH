@@ -22,7 +22,7 @@ potential-drop correction is added only when the selected model requires it.
 `inject_face` is one of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`. `pos_low` and `pos_high` define a
 rectangular aperture on that box face. Let $\mathbf n$ be its inward unit normal and $A$ its area.
 
-`reservoir_face` requires `sim.use_box=true` and `sim.batch_duration>0`. The normal coordinates of the aperture must coincide
+`reservoir_face` requires a `[domain]` box and `sim.batch_duration>0`. The normal coordinate of the aperture must coincide
 with the box face, and both tangential extents must be positive.
 
 ## Weight a Maxwell distribution by inflow flux
@@ -113,11 +113,11 @@ the face with the same $B$. One potential drop therefore determines count and fa
 
 | Configuration | Value supplied to `reservoir_face` |
 | --- | --- |
-| No correction | Use $B=0$ and interpret the configured VDF as the distribution at the face |
-| `external_boundary.particles.inflow_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `sim.phi_infty` |
+| `reservoir.inflow_model="source_vdf"` | Use $B=0$ and interpret the configured VDF as the distribution at the face |
+| `reservoir.inflow_model="infinity_barrier"` | One potential drop derived from the mean aperture potential and `reservoir.phi_infty` |
 
 `infinity_barrier` evaluates batch-start potential on an $N\times N$ cell-centered aperture grid, with
-`injection_face_phi_grid_n` setting $N$, and uses mean $\bar\phi_f$. It follows the field snapshot's potential convention,
+`reservoir.face_potential_grid_n` setting $N$, and uses mean $\bar\phi_f$. It follows the field snapshot's potential convention,
 including the fixed P0 triangle kernel, periodic field, zero mode, and `sim.e0`, but does not solve intermediate $E(z)$,
 turning position, flight time, or space charge. The same evaluation accumulates the
 population standard deviation, minimum, and maximum. For a Maxwell reservoir, a large in-face variation relative to its

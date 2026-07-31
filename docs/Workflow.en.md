@@ -238,6 +238,9 @@ restart_from = "../parent_run/outputs/latest"
 
 - A normal run proceeds to the batch count set by `sim.batch_count`.
 - `sim.tol_rel` is a monitoring and output value, not an early-stop condition.
+- Configure box geometry and periodic axes in `[domain]`, and the field closure in `[field_boundary]`.
+- Configure global particle faces in `[particle_boundary]` and species overrides in `[particles.species.boundary]`.
+- Put the local-reservoir inflow model and `phi_infty` in `[reservoir]`.
 - The standard v1.0 surface model is insulator accumulation.
 - Local reservoir + closed PE is a local closure inside the finite box; it does not solve an external region self-consistently.
 - Execution success, numerical convergence, and physical validity require separate checks.

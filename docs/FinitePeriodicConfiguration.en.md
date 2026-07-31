@@ -26,28 +26,32 @@ The complete runnable example is
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
-use_box = true
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-injection_face_phi_grid_n = 5
 
-[external_boundary.field]
-model = "none"
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0e-4, 1.0e-4, 1.0e-3]
+periodic_axes = ["x", "y"]
 
-[external_boundary.particles]
-mode = "local_source"
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+
+[reservoir]
 inflow_model = "source_vdf"
-
-[external_boundary.ordinary_open]
-model = "escape"
+face_potential_grid_n = 5
 ```
+
+`[domain]` owns the cell and periodic topology; `[field_boundary]` owns field closure. The current `periodic2` mode accepts
+only `periodic_axes=["x", "y"]` with a nonperiodic z axis. Periodicity is common to all species and cannot be overridden by a
+species or `[particle_boundary]`.
+The former `[external_boundary]` table has been removed. Configure local inflow in `[reservoir]` and particle actions on
+nonperiodic faces in `[particle_boundary]`.
 
 Use ordinary `reservoir_face` species for solar-wind electrons and ions. Density, temperature, and drift describe a
 **local boundary VDF on z-high**; surface potential does not filter accessibility or map speed.
@@ -59,12 +63,14 @@ Only the photoelectron species gets the closed surface-charge closure:
 species_key = "photoelectron"
 source_mode = "photo_raycast"
 deposit_opposite_charge_on_emit = true
-z_high_boundary = "reflect"
 surface_charge_closure = "neutral_return"
+
+[particles.species.boundary]
+z_high = "reflect"
 ```
 
-`z_high_boundary="reflect"` reverses only normal velocity at z-high. Solar-wind species retain the default `"inherit"` and
-escape through the globally open boundary.
+The species-level `z_high="reflect"` reverses only normal velocity at nonperiodic z-high. Solar-wind species retain `"inherit"` and
+follow `particle_boundary.z_high="open"` with `ordinary_open_model="escape"`.
 
 ## What one batch does
 
@@ -122,7 +128,7 @@ unresolved fraction remain separate in `charge_ledger.csv`.
 
 ## Read potential relative to the z-high plane
 
-With `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and `sim.use_box=true`,
+With `[domain]`, `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0`,
 `top_reference_history.csv` is written at the same batches as `potential_history.csv`.
 
 $$
@@ -131,7 +137,7 @@ $$
 \phi_{\mathrm{rel}}(\mathbf r)=\phi(\mathbf r)-\bar\phi_{\mathrm{top}}.
 $$
 
-$N$ is `sim.injection_face_phi_grid_n`, and the samples are cell centered across the full periodic top face. Join the two
+$N$ is `reservoir.face_potential_grid_n`, and the samples are cell centered across the full periodic top face. Join the two
 histories on `batch` and subtract `potential_mean_V` from element `potential_V` at that same batch.
 
 ```toml
@@ -170,7 +176,7 @@ follow the convergence procedure in
 1. Check that `abs(neutral_return_weight_scale-1)` and `neutral_return_unresolved_fraction` are small.
 2. When reducing `dt`, maintain or increase `max_step*dt`; also increase `rays_per_batch` to converge the return distribution.
 3. Vary `batch_duration` by at least $T,T/2,T/4$ and compare charge, relative potential, and force histories.
-4. Move z-high and increase `injection_face_phi_grid_n` to check top mean and variation.
+4. Move z-high and increase `reservoir.face_potential_grid_n` to check top mean and variation.
 5. Increase image shells through $N,N+1,N+2$.
 6. Check solar-wind macro-particle count and random-seed uncertainty.
 
@@ -179,8 +185,8 @@ surface redistribution with zero net photoelectron current under the specified l
 
 ## Scalar-barrier comparison
 
-For a scalar-barrier comparison, remove the closed-PE settings and combine `inflow_model="infinity_barrier"`,
-`external_boundary.ordinary_open.model="potential_barrier"`, and `sim.phi_infty`. This comparison filters an upstream VDF with
-a face-average scalar and classifies reflection or escape from energy at each open crossing. See
+For a scalar-barrier comparison, remove the closed-PE settings and combine `reservoir.inflow_model="infinity_barrier"`,
+`reservoir.phi_infty`, and `particle_boundary.ordinary_open_model="potential_barrier"`. This comparison filters an upstream VDF
+with a face-average scalar and classifies reflection or escape from energy at each open crossing. See
 [reservoir inflow](ReservoirInjection.en.html) and [particle escape and return](ParticleEscapeReturn.en.html) for configuration,
 equations, and constraints.

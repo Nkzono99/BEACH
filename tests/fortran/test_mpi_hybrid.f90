@@ -13,7 +13,7 @@ program test_mpi_hybrid
                             init_particle_batch_from_config
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
-  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_periodic
+  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -385,7 +385,7 @@ contains
     cfg%particle_species(1)%rays_per_batch = global_rays_per_batch
     cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
     cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
-    cfg%particle_species(1)%z_high_boundary = 'reflect'
+    cfg%particle_species(1)%boundary_high(3) = bc_reflect
     cfg%particle_species(1)%surface_charge_closure = 'neutral_return'
     cfg%particle_species(1)%q_particle = -1.0_dp
     cfg%particle_species(1)%m_particle = 1.0_dp

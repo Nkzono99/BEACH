@@ -60,20 +60,18 @@ def test_schema_rejects_outer_coupling_and_keeps_panel_reference() -> None:
     )
 
 
-def test_schema_accepts_species_z_high_reflect_and_rejects_unknown_value() -> None:
+def test_schema_accepts_species_face_reflect_and_rejects_unknown_value() -> None:
     schema, _ = load_schema()
     config = load_toml_file(ROOT / "examples/beach.toml")
-    config["particles"]["species"][0]["z_high_boundary"] = "reflect"
+    config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
 
     assert schema_errors(config, schema) == []
 
     invalid = copy.deepcopy(config)
-    invalid["particles"]["species"][0]["z_high_boundary"] = "unknown"
+    invalid["particles"]["species"][0]["boundary"]["z_high"] = "unknown"
     assert schema_errors(invalid, schema)
 
-    unsupported_transfer = copy.deepcopy(config)
-    unsupported_transfer["external_boundary"]["particles"]["mode"] = "same_batch"
-    assert schema_errors(unsupported_transfer, schema)
+    assert schema_errors({"external_boundary": {}}, schema)
 
 
 def test_schema_constrains_neutral_return_to_closed_negative_photoelectrons() -> None:
@@ -102,8 +100,8 @@ def test_schema_constrains_neutral_return_to_closed_negative_photoelectrons() ->
     assert schema_errors(no_countercharge, schema)
 
     no_reflect = copy.deepcopy(config)
-    no_reflect["particles"]["species"][-1]["z_high_boundary"] = "inherit"
-    assert schema_errors(no_reflect, schema)
+    no_reflect["particles"]["species"][-1]["boundary"]["z_high"] = "inherit"
+    assert schema_errors(no_reflect, schema) == []
 
 
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:

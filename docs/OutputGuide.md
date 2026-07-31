@@ -19,7 +19,8 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 | 性能内訳 | `performance_profile.csv` |
 
 `summary.txt` には統計、設定の解決結果、build 情報、checkpoint schema、model / mesh / species fingerprint が
-記録されます。外部境界の解決結果は `external_inflow_map` と `external_ordinary_open_model` で確認できます。
+記録されます。局所 reservoir と通常 open 面の解決結果は `reservoir_inflow_map` と
+`particle_ordinary_open_model` で確認できます。
 
 ## 履歴
 
@@ -27,7 +28,7 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 | --- | --- | --- |
 | `charge_history.csv` | `history_stride > 0` | batch、要素、電荷 |
 | `potential_history.csv` | `write_potential_history=true` | batch、要素、電位 |
-| `top_reference_history.csv` | 上記かつ `sim.use_box=true` | batch、時間、z-high 面の電位統計 |
+| `top_reference_history.csv` | 上記かつ `[domain]` の box あり | batch、時間、z-high 面の電位統計 |
 
 `top_reference_history.csv` の基準は box の z-high 面平均です。無限遠電位やプラズマ電位ではありません。
 要素相対電位は、同じ batch の `potential_history.csv` と結合し、

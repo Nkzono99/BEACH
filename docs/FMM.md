@@ -16,14 +16,17 @@ Fast Multipole Method（FMM）は、固定 geometry の計算 plan を再利用�
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "free"
-use_box = true
+
+[domain]
 box_min = [-0.5, -0.5, -0.1]
 box_max = [ 0.5,  0.5,  1.0]
+
+[field_boundary]
+mode = "free"
 ```
 
-`use_box=true`にすると、粒子が動く領域を覆うtarget treeが作られます。target treeの外にある評価点は、
-全sourceのDirect和へfallbackします。
+`[domain]` の box は粒子領域を覆う target tree にも使われます。free 場で tree 外にある評価点は、全 source の
+Direct 和へ fallback します。
 
 ## 遠方展開と近傍Direct和を合成する
 
@@ -140,20 +143,15 @@ $$
 `build_plan` は geometry だけで決まる量を前計算し、`update_state` は現在の要素電荷から P2M、M2M、M2L、
 L2L を実行します。表面への堆積電荷は batch 末尾で commit され、次の場 snapshot で `state` へ反映されます。
 
-## 粒子が動く領域をtarget treeで覆う
+## `[domain]` で target tree を覆う
 
-FMM planはtarget側を次のどちらかで構成します。
+公開設定では、`[domain]` の `box_min` / `box_max` または `box_origin` / `box_size` が計算領域と target tree の
+範囲を定めます。粒子が到達し得る全領域を box で覆ってください。`domain.periodic_axes` は topology を定め、
+`field_boundary.mode` は `free` / `periodic2` の場 closure を選びます。
 
-- `use_box=false`: source treeのleafをtarget leafとしても使う
-- `use_box=true`: `box_min`から`box_max`を覆う独立したtarget treeを作る
-
-粒子の評価領域がsourceのbounding boxより広い場合、前者ではtree外の点がDirect fallbackになりやすくなります。
-通常は粒子が到達し得る領域をboxで覆います。free境界でもboxを設定でき、box面の粒子境界条件とtarget treeの
-範囲に同じ幾何を使えます。
-
-target leafが見つからない点では、全sourceの寄与を直接加算します。このfallbackが頻発すると、計算量は
-Direct相当になります。box外へ出る粒子が多い場合は、境界通過が場評価より先に処理されていることと、
-boxが意図した領域を覆っていることを確認してください。
+free 場で target leaf が見つからない点では、全 source の寄与を直接加算します。この fallback が頻発すると、
+計算量は Direct 相当になります。`cached_kneq0` は固定 target topology を要求するため、box 外 target を
+受理しません。
 
 <a id="source-kernel"></a>
 
@@ -246,7 +244,7 @@ FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間�
 - source geometryはplan構築後に固定
 - 対応する場境界はfreeとperiodic2
 - triangle P0の解析near kernelと厳密P2M
-- tree外targetはDirect fallback
+- free 場の tree 外 target は Direct fallback
 - physical periodic zero mode は FMM core の外で一度だけ加える
 - self-consistent outer-plasma/sheath model は非対応
 

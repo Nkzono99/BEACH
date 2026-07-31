@@ -4,8 +4,24 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 # periodic2 electrostatics
 
-For an x/y-periodic, z-open slab, `field_bc_mode="periodic2"` computes finite images, infinite-periodic `k\ne0`, and
+For an x/y-periodic, z-nonperiodic slab, `field_boundary.mode="periodic2"` computes finite images, infinite-periodic `k\ne0`, and
 plane-average `k=0` separately and adds each component exactly once.
+
+## Specify domain topology and field closure
+
+```toml
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+```
+
+Periodicity belongs to `[domain]` topology. `[field_boundary]` selects the `free` or `periodic2` field closure applied to that
+cell. The current periodic2 implementation accepts only x/y periodic and z nonperiodic; a species or `[particle_boundary]`
+cannot override periodic axes.
 
 ## Decompose the field into three components
 

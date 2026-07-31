@@ -114,7 +114,7 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | 有限画像の`periodic2` | `field_periodic_image_layers`依存性。有限画像の結果を無限周期へ外挿しない |
 | `cached_kneq0` | cache fingerprint、cold/warm結果の一致、zero mode、Gauss residual |
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
-| `potential_barrier` | open面の通過点電位と`sim.phi_infty`、法線運動エネルギーによる反射・流出判定 |
+| `potential_barrier` | open面の通過点電位と`reservoir.phi_infty`、法線運動エネルギーによる反射・流出判定 |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
 
 各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と

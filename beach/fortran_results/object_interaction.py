@@ -1235,21 +1235,36 @@ def _zero_mode_bottom_field(
 
 
 def _validate_full_box_config(config: Mapping[str, object]) -> None:
-    sim = config.get("sim")
-    if not isinstance(sim, Mapping):
-        raise ValueError("beach.toml must contain a [sim] table.")
-    has_min = "box_min" in sim
-    has_max = "box_max" in sim
+    domain = config.get("domain")
+    if isinstance(domain, Mapping):
+        box = domain
+        prefix = "domain"
+    else:
+        sim = config.get("sim")
+        if not isinstance(sim, Mapping):
+            raise ValueError("beach.toml must contain a [domain] table.")
+        box = sim
+        prefix = "sim"
+    has_min = "box_min" in box
+    has_max = "box_max" in box
     if not has_min or not has_max:
-        raise ValueError("beach.toml must define both sim.box_min and sim.box_max.")
-    lower = np.asarray(sim["box_min"], dtype=np.float64)
-    upper = np.asarray(sim["box_max"], dtype=np.float64)
+        raise ValueError(
+            f"beach.toml must define both {prefix}.box_min and {prefix}.box_max."
+        )
+    lower = np.asarray(box["box_min"], dtype=np.float64)
+    upper = np.asarray(box["box_max"], dtype=np.float64)
     if lower.shape != (3,) or upper.shape != (3,):
-        raise ValueError("sim.box_min and sim.box_max must each contain three values.")
+        raise ValueError(
+            f"{prefix}.box_min and {prefix}.box_max must each contain three values."
+        )
     if not np.all(np.isfinite(lower)) or not np.all(np.isfinite(upper)):
-        raise ValueError("sim.box_min and sim.box_max must contain finite values.")
+        raise ValueError(
+            f"{prefix}.box_min and {prefix}.box_max must contain finite values."
+        )
     if np.any(upper <= lower):
-        raise ValueError("sim.box_max must be greater than sim.box_min on every axis.")
+        raise ValueError(
+            f"{prefix}.box_max must be greater than {prefix}.box_min on every axis."
+        )
 
 
 def _path_displacement(value: np.ndarray) -> np.ndarray:

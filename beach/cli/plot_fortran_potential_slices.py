@@ -152,7 +152,7 @@ def _find_config_path(output_dir: Path, explicit: Path | None) -> Path:
             return candidate
 
     raise SystemExit(
-        "beach.toml is required to read sim.box_min/box_max. "
+        "beach.toml is required to read domain.box_min/box_max. "
         "Pass --config <path/to/beach.toml>."
     )
 
@@ -166,22 +166,42 @@ def _load_sim_box(
     sim = config.get("sim")
     if not isinstance(sim, dict):
         raise SystemExit("[sim] section is missing in beach.toml.")
+    domain = config.get("domain")
+    if isinstance(domain, dict):
+        box = domain
+        prefix = "domain"
+    else:
+        box = sim
+        prefix = "sim"
+    if "box_min" not in box or "box_max" not in box:
+        raise SystemExit(
+            f"{prefix}.box_min and {prefix}.box_max are required in beach.toml."
+        )
 
-    if "box_min" not in sim or "box_max" not in sim:
-        raise SystemExit("sim.box_min and sim.box_max are required in beach.toml.")
-
-    box_min = _coerce_vec3(sim["box_min"], name="sim.box_min")
-    box_max = _coerce_vec3(sim["box_max"], name="sim.box_max")
+    box_min = _coerce_vec3(box["box_min"], name=f"{prefix}.box_min")
+    box_max = _coerce_vec3(box["box_max"], name=f"{prefix}.box_max")
     for axis, low, high in zip(("x", "y", "z"), box_min, box_max):
         if high <= low:
             raise SystemExit(
-                f"sim.box_max[{axis}] must be greater than sim.box_min[{axis}]."
+                f"{prefix}.box_max[{axis}] must be greater than {prefix}.box_min[{axis}]."
             )
 
-    use_box = bool(sim.get("use_box", False))
+    use_box = isinstance(domain, dict) or bool(sim.get("use_box", False))
+    periodic_sim = dict(sim)
+    if isinstance(domain, dict):
+        periodic_sim["box_min"] = box_min
+        periodic_sim["box_max"] = box_max
+        axes = domain.get("periodic_axes", [])
+        for axis in ("x", "y", "z"):
+            mode = "periodic" if axis in axes else "open"
+            periodic_sim[f"bc_{axis}_low"] = mode
+            periodic_sim[f"bc_{axis}_high"] = mode
+    field_boundary = config.get("field_boundary")
+    if isinstance(field_boundary, dict):
+        periodic_sim["field_bc_mode"] = field_boundary.get("mode", "free")
     try:
         periodic2 = _periodic2_from_sim(
-            sim,
+            periodic_sim,
             allow_historical_root_oracle=allow_historical_root_oracle,
         )
     except ValueError as exc:

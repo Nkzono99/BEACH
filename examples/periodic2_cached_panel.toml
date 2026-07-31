@@ -5,21 +5,23 @@ dt = 1.0e-10
 batch_count = 1
 max_step = 20
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "cached_kneq0"
 field_periodic_ewald_layers = 4
 field_periodic_cache_dir = ".beach_cache/periodic2"
 field_periodic_generation_tolerance = 1.0e-8
-use_box = true
+
+[domain]
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
 
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"

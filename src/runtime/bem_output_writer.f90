@@ -271,7 +271,7 @@ contains
       resolved_boundary, boundary_status, boundary_message &
       )
     if (boundary_status /= external_boundary_ok) then
-      error stop 'write_summary_file: invalid external boundary contract: '//trim(boundary_message)
+      error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
     end if
     summary_path = trim(out_dir)//'/summary.txt'
     open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
@@ -322,8 +322,8 @@ contains
     write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
     write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
       cfg%sim%field_periodic_generation_tolerance
-    write (u, '(a,a)') 'external_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
-    write (u, '(a,a)') 'external_ordinary_open_model=', &
+    write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
+    write (u, '(a,a)') 'particle_ordinary_open_model=', &
       trim(external_open_model_name(resolved_boundary%ordinary_open_model))
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available

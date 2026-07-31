@@ -8,6 +8,22 @@
       "$ref": "#/$defs/sim",
       "description": "Simulation settings."
     },
+    "domain": {
+      "$ref": "#/$defs/domain",
+      "description": "Finite box geometry and periodic topology."
+    },
+    "field_boundary": {
+      "$ref": "#/$defs/fieldBoundary",
+      "description": "Electric-field boundary closure."
+    },
+    "particle_boundary": {
+      "$ref": "#/$defs/particleBoundary",
+      "description": "Default tracked-particle action on nonperiodic box faces."
+    },
+    "reservoir": {
+      "$ref": "#/$defs/reservoir",
+      "description": "Local reservoir inflow model."
+    },
     "particles": {
       "$ref": "#/$defs/particles",
       "description": "Particle species definitions."
@@ -52,10 +68,6 @@
           "description": "Maximum accepted change of the cached k!=0 potential at panel centroids [V]. When set, batch_duration is the maximum trial duration and rejected trials are retraced at successive factors of 1/2."
         }
       }
-    },
-    "external_boundary": {
-      "$ref": "#/$defs/externalBoundary",
-      "description": "Local reservoir inflow and ordinary open-boundary behavior."
     },
     "mesh": {
       "$ref": "#/$defs/mesh",
@@ -106,19 +118,12 @@
       },
       "then": {
         "required": [
-          "sim"
+          "sim",
+          "domain"
         ],
         "properties": {
           "sim": {
             "type": "object",
-            "properties": {
-              "use_box": {
-                "const": true
-              }
-            },
-            "required": [
-              "use_box"
-            ],
             "anyOf": [
               {
                 "properties": {
@@ -144,69 +149,245 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "field_boundary": {
+            "properties": {
+              "mode": {
+                "const": "periodic2"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
+        },
+        "required": [
+          "field_boundary"
+        ]
+      },
+      "then": {
+        "required": [
+          "domain",
+          "sim"
+        ],
+        "properties": {
+          "domain": {
+            "properties": {
+              "periodic_axes": {
+                "minItems": 2,
+                "maxItems": 2,
+                "allOf": [
+                  {
+                    "contains": {
+                      "const": "x"
+                    }
+                  },
+                  {
+                    "contains": {
+                      "const": "y"
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "periodic_axes"
+            ]
+          },
+          "sim": {
+            "properties": {
+              "field_solver": {
+                "enum": [
+                  "direct",
+                  "fmm"
+                ]
+              }
+            },
+            "required": [
+              "field_solver"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "sim": {
+            "properties": {
+              "field_periodic_far_correction": {
+                "const": "cached_kneq0"
+              }
+            },
+            "required": [
+              "field_periodic_far_correction"
+            ]
+          }
+        },
+        "required": [
+          "sim"
+        ]
+      },
+      "then": {
+        "required": [
+          "field_boundary"
+        ],
+        "properties": {
+          "field_boundary": {
+            "properties": {
+              "mode": {
+                "const": "periodic2"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
+        }
+      }
     }
   ],
   "$defs": {
-    "externalBoundary": {
+    "domain": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "field",
-        "particles"
-      ],
       "properties": {
-        "field": {
-          "$ref": "#/$defs/externalBoundaryField"
+        "box_min": {
+          "$ref": "#/$defs/vec3"
         },
-        "particles": {
-          "$ref": "#/$defs/externalBoundaryParticles"
+        "box_max": {
+          "$ref": "#/$defs/vec3"
         },
-        "ordinary_open": {
-          "$ref": "#/$defs/externalBoundaryOrdinaryOpen"
+        "box_origin": {
+          "$ref": "#/$defs/vec3"
+        },
+        "box_size": {
+          "$ref": "#/$defs/positiveVec3"
+        },
+        "periodic_axes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "x",
+              "y",
+              "z"
+            ]
+          },
+          "uniqueItems": true,
+          "maxItems": 3,
+          "default": []
         }
-      }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "box_min",
+            "box_max"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "box_origin"
+                ]
+              },
+              {
+                "required": [
+                  "box_size"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "box_origin",
+            "box_size"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "box_min"
+                ]
+              },
+              {
+                "required": [
+                  "box_max"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     },
-    "externalBoundaryField": {
+    "fieldBoundary": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "model"
-      ],
-      "properties": {
-        "model": {
-          "const": "none"
-        }
-      }
-    },
-    "externalBoundaryParticles": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "mode"
-      ],
       "properties": {
         "mode": {
-          "const": "local_source"
+          "enum": [
+            "free",
+            "periodic2"
+          ],
+          "default": "free",
+          "description": "Field boundary closure. periodic2 normally requires field_solver=fmm; the direct triangle_p0 panel_spectral_reference split model is the validation-only exception."
+        }
+      }
+    },
+    "particleBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_low": {
+          "$ref": "#/$defs/particleBoundaryAction"
         },
+        "x_high": {
+          "$ref": "#/$defs/particleBoundaryAction"
+        },
+        "y_low": {
+          "$ref": "#/$defs/particleBoundaryAction"
+        },
+        "y_high": {
+          "$ref": "#/$defs/particleBoundaryAction"
+        },
+        "z_low": {
+          "$ref": "#/$defs/particleBoundaryAction"
+        },
+        "z_high": {
+          "$ref": "#/$defs/particleBoundaryAction"
+        },
+        "ordinary_open_model": {
+          "enum": [
+            "escape",
+            "potential_barrier"
+          ],
+          "default": "escape"
+        }
+      }
+    },
+    "reservoir": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
         "inflow_model": {
           "enum": [
             "source_vdf",
             "infinity_barrier"
           ],
           "default": "source_vdf"
-        }
-      }
-    },
-    "externalBoundaryOrdinaryOpen": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "model": {
-          "enum": [
-            "escape",
-            "potential_barrier"
-          ],
-          "default": "escape"
+        },
+        "phi_infty": {
+          "type": "number",
+          "default": 0
+        },
+        "face_potential_grid_n": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3
         }
       }
     },
@@ -292,7 +473,7 @@
       ]
     },
     "boxAnchor": {
-      "description": "Anchor point inside sim.box_min/sim.box_max.",
+      "description": "Anchor point inside domain.box_min/domain.box_max.",
       "type": "string",
       "enum": [
         "box_center",
@@ -317,16 +498,46 @@
         "box_max_xyz"
       ]
     },
-    "boundaryMode": {
-      "description": "Boundary condition mode: open/outflow/escape, reflect/reflection, or periodic.",
+    "particleBoundaryAction": {
+      "description": "Tracked-particle action on a nonperiodic face.",
       "type": "string",
       "enum": [
         "open",
-        "outflow",
-        "escape",
-        "reflect",
-        "reflection",
-        "periodic"
+        "reflect"
+      ]
+    },
+    "speciesParticleBoundary": {
+      "description": "Per-species overrides of global particle-boundary actions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_low": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        },
+        "x_high": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        },
+        "y_low": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        },
+        "y_high": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        },
+        "z_low": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        },
+        "z_high": {
+          "$ref": "#/$defs/speciesParticleBoundaryAction"
+        }
+      }
+    },
+    "speciesParticleBoundaryAction": {
+      "description": "Per-species action; inherit uses the global particle boundary.",
+      "type": "string",
+      "enum": [
+        "inherit",
+        "open",
+        "reflect"
       ]
     },
     "injectFace": {
@@ -347,7 +558,7 @@
       "properties": {
         "dt": {
           "type": "number",
-          "default": 1e-9,
+          "default": 1E-9,
           "description": "Time step [s]."
         },
         "rng_seed": {
@@ -378,13 +589,13 @@
         },
         "tol_rel": {
           "type": "number",
-          "default": 1e-8,
+          "default": 1E-8,
           "description": "Monitoring metric; not an early-stop condition."
         },
         "q_floor": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1e-30,
+          "default": 1E-30,
           "description": "Denominator floor for rel_change."
         },
         "e0": {
@@ -439,15 +650,6 @@
           "default": 1,
           "description": "Reference length [m] when field_normalization=\"length\"."
         },
-        "field_bc_mode": {
-          "type": "string",
-          "enum": [
-            "free",
-            "periodic2"
-          ],
-          "default": "free",
-          "description": "Field boundary condition mode. periodic2 normally requires field_solver=fmm; the direct triangle_p0 panel_spectral_reference split model is the validation-only exception. Element charge is always evaluated with the triangle_p0 panel kernel."
-        },
         "field_periodic_image_layers": {
           "type": "integer",
           "minimum": 0,
@@ -485,7 +687,7 @@
         "field_periodic_generation_tolerance": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1e-8,
+          "default": 1E-8,
           "description": "Generation tolerance included in the periodic operator cache identity."
         },
         "tree_theta": {
@@ -516,11 +718,6 @@
           ],
           "description": "Uniform magnetic field [T]."
         },
-        "phi_infty": {
-          "type": "number",
-          "default": 0,
-          "description": "Reference potential at infinity [V]."
-        },
         "multiple_box_events_policy": {
           "type": "string",
           "enum": [
@@ -539,81 +736,14 @@
         "multiple_box_events_soft_discard_abs_charge_limit": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 1e-12,
+          "default": 1E-12,
           "description": "Cumulative absolute macro-particle charge [C] above which the run aborts."
-        },
-        "injection_face_phi_grid_n": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 3,
-          "description": "Grid resolution N×N for injection face average potential."
         },
         "raycast_max_bounce": {
           "type": "integer",
           "minimum": 1,
           "default": 16,
           "description": "Maximum bounce count for photo_raycast ray tracing."
-        },
-        "use_box": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable box boundary."
-        },
-        "box_min": {
-          "$ref": "#/$defs/vec3",
-          "default": [
-            -1,
-            -1,
-            -1
-          ],
-          "description": "Box lower bound [m]."
-        },
-        "box_max": {
-          "$ref": "#/$defs/vec3",
-          "default": [
-            1,
-            1,
-            1
-          ],
-          "description": "Box upper bound [m]."
-        },
-        "box_origin": {
-          "$ref": "#/$defs/vec3",
-          "description": "High-level box lower bound [m]. Resolved with box_size into box_min/box_max."
-        },
-        "box_size": {
-          "$ref": "#/$defs/positiveVec3",
-          "description": "High-level box dimensions [m]. Resolved with box_origin into box_min/box_max."
-        },
-        "bc_x_low": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at x lower face."
-        },
-        "bc_x_high": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at x upper face."
-        },
-        "bc_y_low": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at y lower face."
-        },
-        "bc_y_high": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at y upper face."
-        },
-        "bc_z_low": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at z lower face."
-        },
-        "bc_z_high": {
-          "$ref": "#/$defs/boundaryMode",
-          "default": "open",
-          "description": "Boundary condition at z upper face."
         }
       },
       "allOf": [
@@ -622,46 +752,6 @@
             "required": [
               "batch_duration",
               "batch_duration_step"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "box_origin",
-              "box_min"
-            ]
-          }
-        },
-        {
-          "not": {
-            "required": [
-              "box_size",
-              "box_max"
-            ]
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "box_origin"
-            ]
-          },
-          "then": {
-            "required": [
-              "box_size"
-            ]
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "box_size"
-            ]
-          },
-          "then": {
-            "required": [
-              "box_origin"
             ]
           }
         },
@@ -740,15 +830,11 @@
           },
           "then": {
             "required": [
-              "field_solver",
-              "field_bc_mode"
+              "field_solver"
             ],
             "properties": {
               "field_solver": {
                 "const": "fmm"
-              },
-              "field_bc_mode": {
-                "const": "periodic2"
               },
               "field_periodic_image_layers": {
                 "minimum": 1
@@ -757,163 +843,6 @@
                 "minimum": 1
               }
             }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "field_bc_mode": {
-                "const": "periodic2"
-              }
-            },
-            "required": [
-              "field_bc_mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "field_solver",
-              "use_box"
-            ],
-            "properties": {
-              "field_solver": {
-                "enum": [
-                  "direct",
-                  "fmm"
-                ]
-              },
-              "use_box": {
-                "const": true
-              }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "bc_x_low",
-                  "bc_x_high",
-                  "bc_y_low",
-                  "bc_y_high",
-                  "bc_z_low",
-                  "bc_z_high"
-                ],
-                "properties": {
-                  "bc_x_low": {
-                    "const": "periodic"
-                  },
-                  "bc_x_high": {
-                    "const": "periodic"
-                  },
-                  "bc_y_low": {
-                    "const": "periodic"
-                  },
-                  "bc_y_high": {
-                    "const": "periodic"
-                  },
-                  "bc_z_low": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  },
-                  "bc_z_high": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  }
-                }
-              },
-              {
-                "required": [
-                  "bc_x_low",
-                  "bc_x_high",
-                  "bc_y_low",
-                  "bc_y_high",
-                  "bc_z_low",
-                  "bc_z_high"
-                ],
-                "properties": {
-                  "bc_x_low": {
-                    "const": "periodic"
-                  },
-                  "bc_x_high": {
-                    "const": "periodic"
-                  },
-                  "bc_z_low": {
-                    "const": "periodic"
-                  },
-                  "bc_z_high": {
-                    "const": "periodic"
-                  },
-                  "bc_y_low": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  },
-                  "bc_y_high": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  }
-                }
-              },
-              {
-                "required": [
-                  "bc_x_low",
-                  "bc_x_high",
-                  "bc_y_low",
-                  "bc_y_high",
-                  "bc_z_low",
-                  "bc_z_high"
-                ],
-                "properties": {
-                  "bc_y_low": {
-                    "const": "periodic"
-                  },
-                  "bc_y_high": {
-                    "const": "periodic"
-                  },
-                  "bc_z_low": {
-                    "const": "periodic"
-                  },
-                  "bc_z_high": {
-                    "const": "periodic"
-                  },
-                  "bc_x_low": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  },
-                  "bc_x_high": {
-                    "enum": [
-                      "open",
-                      "outflow",
-                      "escape",
-                      "reflect",
-                      "reflection"
-                    ]
-                  }
-                }
-              }
-            ]
           }
         }
       ]
@@ -976,13 +905,13 @@
         },
         "q_particle": {
           "type": "number",
-          "default": -1.602176634e-19,
+          "default": -1.602176634E-19,
           "description": "Particle charge [C]."
         },
         "m_particle": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "default": 9.10938356e-31,
+          "default": 9.10938356E-31,
           "description": "Particle mass [kg]."
         },
         "w_particle": {
@@ -1110,14 +1039,9 @@
           "$ref": "#/$defs/injectFace",
           "description": "Injection face. Required for reservoir_face and photo_raycast."
         },
-        "z_high_boundary": {
-          "type": "string",
-          "enum": [
-            "inherit",
-            "reflect"
-          ],
-          "default": "inherit",
-          "description": "Per-species z-high trajectory action. inherit uses the global open-boundary contract; reflect applies local specular reflection. reflect requires sim.use_box=true, sim.bc_z_high=open, and external_boundary.particles.mode=local_source."
+        "boundary": {
+          "$ref": "#/$defs/speciesParticleBoundary",
+          "description": "Optional per-species overrides for all six nonperiodic faces."
         },
         "surface_charge_closure": {
           "type": "string",
@@ -1126,7 +1050,7 @@
             "neutral_return"
           ],
           "default": "explicit",
-          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and z_high_boundary=reflect."
+          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and reflect on inject_face."
         },
         "inject_region_mode": {
           "type": "string",
@@ -1364,8 +1288,7 @@
           "then": {
             "required": [
               "source_mode",
-              "deposit_opposite_charge_on_emit",
-              "z_high_boundary"
+              "deposit_opposite_charge_on_emit"
             ],
             "properties": {
               "source_mode": {
@@ -1376,9 +1299,6 @@
               },
               "deposit_opposite_charge_on_emit": {
                 "const": true
-              },
-              "z_high_boundary": {
-                "const": "reflect"
               }
             }
           }
@@ -1705,7 +1625,7 @@
             "dielectric"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to OBJ mesh elements. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
+          "description": "Surface response model assigned to OBJ mesh elements. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_boundary.mode=free; dielectric is metadata-only in the current release. Template meshes use per-template surface_model instead."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",
@@ -1918,7 +1838,7 @@
             "dielectric"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to elements generated from this template. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_bc_mode=free; dielectric is metadata-only in the current release."
+          "description": "Surface response model assigned to elements generated from this template. All surface sources use the implicit triangle_p0 discretization. conductor uses floating equipotential charge redistribution for field_boundary.mode=free; dielectric is metadata-only in the current release."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",

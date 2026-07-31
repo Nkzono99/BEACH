@@ -4,8 +4,9 @@ module bem_simulator
   use, intrinsic :: iso_fortran_env, only: output_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info, bc_open, bc_reflect
+  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
+  use bem_config_helpers, only: resolve_particle_boundaries
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &

@@ -21,8 +21,8 @@ machine-readable source of truth for file-generation conditions is
 
 `summary.txt` records statistics, resolved configuration, build information,
 checkpoint schema, and model / mesh / species fingerprints. The resolved
-external-boundary state is reported as `external_inflow_map` and
-`external_ordinary_open_model`.
+local reservoir and ordinary-open state is reported as
+`reservoir_inflow_map` and `particle_ordinary_open_model`.
 
 ## History
 
@@ -30,7 +30,7 @@ external-boundary state is reported as `external_inflow_map` and
 | --- | --- | --- |
 | `charge_history.csv` | `history_stride > 0` | batch, element, charge |
 | `potential_history.csv` | `write_potential_history=true` | batch, element, potential |
-| `top_reference_history.csv` | Above plus `sim.use_box=true` | batch, time, z-high potential statistics |
+| `top_reference_history.csv` | Above plus a `[domain]` box | batch, time, z-high potential statistics |
 
 The reference in `top_reference_history.csv` is the mean over the box z-high
 face, not infinity or plasma potential. Join it to the same batch in

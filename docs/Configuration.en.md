@@ -43,7 +43,8 @@ beachx config init --force
 The generated file is identical to
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
 It is the official beginner case that launches one `volume_seed` electron toward an insulating plane with
-`field_solver="fmm"` and `field_bc_mode="periodic2"`. The x and y axes are periodic, and
+`field_solver="fmm"` and `[field_boundary] mode="periodic2"`.
+`domain.periodic_axes=["x", "y"]`, and
 `field_periodic_image_layers=1` with `field_periodic_far_correction="none"` gives a finite $3\times3$-cell image sum.
 It does not include an infinite-periodic correction, an ion species, or `photo_raycast`.
 

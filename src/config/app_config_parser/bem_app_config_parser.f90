@@ -4,14 +4,14 @@ module bem_app_config_parser
   use bem_constants, only: k_boltzmann
   use bem_types, only: bc_open, bc_reflect, bc_periodic
   use bem_app_config_types, only: &
-    app_config, particle_species_spec, template_spec, max_templates, max_particle_species, species_from_defaults
+    app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
+    species_from_defaults
   use bem_physics_config_types, only: normalize_legacy_physics_config, validate_active_physics_config, physics_config_ok
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
-    external_boundary_authoring_spec, external_boundary_field_authoring_spec, &
-    external_boundary_particles_authoring_spec, external_boundary_ordinary_open_authoring_spec, &
+    domain_authoring_spec, field_boundary_authoring_spec, particle_boundary_authoring_spec, reservoir_authoring_spec, &
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
-    ensure_authoring_group_capacity, normalize_high_level_config, lower_external_boundary_authoring
+    ensure_authoring_group_capacity, normalize_high_level_config, lower_boundary_authoring
   use bem_string_utils, only: lower_ascii
   use tomlf, only: toml_array, toml_error, toml_key, toml_parse, toml_stat, toml_table, get_value, toml_len => len
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -174,15 +174,24 @@ contains
       case ('sim')
         if (.not. associated(section)) error stop 'TOML section [sim] must be a table.'
         call apply_sim_toml_table(cfg, section, authoring%sim)
+      case ('domain')
+        if (.not. associated(section)) error stop 'TOML section [domain] must be a table.'
+        call apply_domain_toml_table(section, authoring%domain)
+      case ('field_boundary')
+        if (.not. associated(section)) error stop 'TOML section [field_boundary] must be a table.'
+        call apply_field_boundary_toml_table(section, authoring%field_boundary)
+      case ('particle_boundary')
+        if (.not. associated(section)) error stop 'TOML section [particle_boundary] must be a table.'
+        call apply_particle_boundary_toml_table(section, authoring%particle_boundary)
+      case ('reservoir')
+        if (.not. associated(section)) error stop 'TOML section [reservoir] must be a table.'
+        call apply_reservoir_toml_table(section, authoring%reservoir)
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
         call apply_particles_toml_table(cfg, section, authoring)
       case ('periodic2')
         if (.not. associated(section)) error stop 'TOML section [periodic2] must be a table.'
         call apply_periodic2_toml_table(section, authoring)
-      case ('external_boundary')
-        if (.not. associated(section)) error stop 'TOML section [external_boundary] must be a table.'
-        call apply_external_boundary_toml_table(section, authoring%external_boundary)
       case ('mesh')
         if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'
         call apply_mesh_toml_table(cfg, section, authoring)
@@ -239,42 +248,67 @@ contains
     end do
   end subroutine apply_periodic2_toml_table
 
-  !> `[external_boundary]` の3つの責務別 subtable を読み込む。
-  subroutine apply_external_boundary_toml_table(table, boundary)
+  !> `[domain]` の box geometry と周期軸を読み込む。
+  subroutine apply_domain_toml_table(table, domain)
     type(toml_table), intent(inout) :: table
-    type(external_boundary_authoring_spec), intent(inout) :: boundary
+    type(domain_authoring_spec), intent(inout) :: domain
     type(toml_key), allocatable :: keys(:)
-    type(toml_table), pointer :: child
-    integer :: ikey, stat
-    character(len=:), allocatable :: k
+    type(toml_array), pointer :: array
+    integer :: ikey, iaxis, stat
+    character(len=:), allocatable :: axis_name, k
 
-    boundary%present = .true.
+    domain%present = .true.
     call table%get_keys(keys)
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
-      nullify (child)
-      call get_value(table, keys(ikey), child, requested=.false., stat=stat)
-      call require_toml_success(stat, 'external_boundary.'//trim(keys(ikey)%key))
       select case (trim(k))
-      case ('field')
-        if (.not. associated(child)) error stop '[external_boundary.field] must be a table.'
-        call apply_external_boundary_field_toml_table(child, boundary%field)
-      case ('particles')
-        if (.not. associated(child)) error stop '[external_boundary.particles] must be a table.'
-        call apply_external_boundary_particles_toml_table(child, boundary%particles)
-      case ('ordinary_open')
-        if (.not. associated(child)) error stop '[external_boundary.ordinary_open] must be a table.'
-        call apply_external_boundary_ordinary_open_toml_table(child, boundary%ordinary_open)
+      case ('box_origin')
+        call get_toml_real3(table, keys(ikey), domain%box_origin, 'domain.box_origin')
+        domain%has_box_origin = .true.
+      case ('box_size')
+        call get_toml_real3(table, keys(ikey), domain%box_size, 'domain.box_size')
+        domain%has_box_size = .true.
+      case ('box_min')
+        call get_toml_real3(table, keys(ikey), domain%box_min, 'domain.box_min')
+        domain%has_box_min = .true.
+      case ('box_max')
+        call get_toml_real3(table, keys(ikey), domain%box_max, 'domain.box_max')
+        domain%has_box_max = .true.
+      case ('periodic_axes')
+        nullify (array)
+        call get_value(table, keys(ikey), array, stat=stat)
+        call require_toml_success(stat, 'domain.periodic_axes')
+        if (.not. associated(array)) error stop 'domain.periodic_axes must be an array of axis names.'
+        if (toml_len(array) > 3) error stop 'domain.periodic_axes may contain at most x, y, and z.'
+        domain%periodic_axis = .false.
+        do iaxis = 1, toml_len(array)
+          if (allocated(axis_name)) deallocate (axis_name)
+          call get_value(array, iaxis, axis_name, stat=stat)
+          call require_toml_success(stat, 'domain.periodic_axes')
+          select case (trim(lower_ascii(axis_name)))
+          case ('x')
+            if (domain%periodic_axis(1)) error stop 'domain.periodic_axes contains duplicate "x".'
+            domain%periodic_axis(1) = .true.
+          case ('y')
+            if (domain%periodic_axis(2)) error stop 'domain.periodic_axes contains duplicate "y".'
+            domain%periodic_axis(2) = .true.
+          case ('z')
+            if (domain%periodic_axis(3)) error stop 'domain.periodic_axes contains duplicate "z".'
+            domain%periodic_axis(3) = .true.
+          case default
+            error stop 'domain.periodic_axes entries must be "x", "y", or "z".'
+          end select
+        end do
       case default
-        error stop 'Unknown key in [external_boundary]: '//trim(keys(ikey)%key)
+        error stop 'Unknown key in [domain]: '//trim(keys(ikey)%key)
       end select
     end do
-  end subroutine apply_external_boundary_toml_table
+  end subroutine apply_domain_toml_table
 
-  !> `[external_boundary.field]` は局所構成で場を持たないことを明示する。
-  subroutine apply_external_boundary_field_toml_table(table, field)
+  !> `[field_boundary]` の場 closure を読み込む。
+  subroutine apply_field_boundary_toml_table(table, field)
     type(toml_table), intent(inout) :: table
-    type(external_boundary_field_authoring_spec), intent(inout) :: field
+    type(field_boundary_authoring_spec), intent(inout) :: field
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -284,20 +318,19 @@ contains
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
-      case ('model')
-        call get_toml_string(table, keys(ikey), field%model, 'external_boundary.field.model')
-        field%model = lower_ascii(trim(field%model))
-        field%has_model = .true.
+      case ('mode')
+        call get_toml_string(table, keys(ikey), field%mode, 'field_boundary.mode')
+        field%mode = lower_ascii(trim(field%mode))
       case default
-        error stop 'Unknown key in [external_boundary.field]: '//trim(keys(ikey)%key)
+        error stop 'Unknown key in [field_boundary]: '//trim(keys(ikey)%key)
       end select
     end do
-  end subroutine apply_external_boundary_field_toml_table
+  end subroutine apply_field_boundary_toml_table
 
-  !> `[external_boundary.particles]` の局所 source 設定を読み込む。
-  subroutine apply_external_boundary_particles_toml_table(table, particles)
+  !> `[particle_boundary]` のglobal粒子作用を読み込む。
+  subroutine apply_particle_boundary_toml_table(table, particles)
     type(toml_table), intent(inout) :: table
-    type(external_boundary_particles_authoring_spec), intent(inout) :: particles
+    type(particle_boundary_authoring_spec), intent(inout) :: particles
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
@@ -307,39 +340,56 @@ contains
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
-      case ('mode')
-        call get_toml_string(table, keys(ikey), particles%mode, 'external_boundary.particles.mode')
-        particles%mode = lower_ascii(trim(particles%mode))
-        particles%has_mode = .true.
-      case ('inflow_model')
-        call get_toml_string(table, keys(ikey), particles%inflow_model, 'external_boundary.particles.inflow_model')
-        particles%inflow_model = lower_ascii(trim(particles%inflow_model))
+      case ('x_low')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(1), 'particle_boundary.x_low', .false.)
+      case ('x_high')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(1), 'particle_boundary.x_high', .false.)
+      case ('y_low')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(2), 'particle_boundary.y_low', .false.)
+      case ('y_high')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(2), 'particle_boundary.y_high', .false.)
+      case ('z_low')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(3), 'particle_boundary.z_low', .false.)
+      case ('z_high')
+        call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(3), 'particle_boundary.z_high', .false.)
+      case ('ordinary_open_model')
+        call get_toml_string( &
+          table, keys(ikey), particles%ordinary_open_model, 'particle_boundary.ordinary_open_model' &
+          )
+        particles%ordinary_open_model = lower_ascii(trim(particles%ordinary_open_model))
       case default
-        error stop 'Unknown key in [external_boundary.particles]: '//trim(keys(ikey)%key)
+        error stop 'Unknown key in [particle_boundary]: '//trim(keys(ikey)%key)
       end select
     end do
-  end subroutine apply_external_boundary_particles_toml_table
+  end subroutine apply_particle_boundary_toml_table
 
-  !> `[external_boundary.ordinary_open]` の通常 open 面モデルを読み込む。
-  subroutine apply_external_boundary_ordinary_open_toml_table(table, ordinary_open)
+  !> `[reservoir]` の局所 inflow と無限遠ポテンシャル設定を読み込む。
+  subroutine apply_reservoir_toml_table(table, reservoir)
     type(toml_table), intent(inout) :: table
-    type(external_boundary_ordinary_open_authoring_spec), intent(inout) :: ordinary_open
+    type(reservoir_authoring_spec), intent(inout) :: reservoir
     type(toml_key), allocatable :: keys(:)
     integer :: ikey
     character(len=:), allocatable :: k
 
+    reservoir%present = .true.
     call table%get_keys(keys)
     do ikey = 1, size(keys)
       k = lower_ascii(trim(keys(ikey)%key))
       select case (trim(k))
-      case ('model')
-        call get_toml_string(table, keys(ikey), ordinary_open%model, 'external_boundary.ordinary_open.model')
-        ordinary_open%model = lower_ascii(trim(ordinary_open%model))
+      case ('inflow_model')
+        call get_toml_string(table, keys(ikey), reservoir%inflow_model, 'reservoir.inflow_model')
+        reservoir%inflow_model = lower_ascii(trim(reservoir%inflow_model))
+      case ('phi_infty')
+        call get_toml_real(table, keys(ikey), reservoir%phi_infty, 'reservoir.phi_infty')
+      case ('face_potential_grid_n')
+        call get_toml_int( &
+          table, keys(ikey), reservoir%face_potential_grid_n, 'reservoir.face_potential_grid_n' &
+          )
       case default
-        error stop 'Unknown key in [external_boundary.ordinary_open]: '//trim(keys(ikey)%key)
+        error stop 'Unknown key in [reservoir]: '//trim(keys(ikey)%key)
       end select
     end do
-  end subroutine apply_external_boundary_ordinary_open_toml_table
+  end subroutine apply_reservoir_toml_table
 
   subroutine apply_physics_authoring(cfg, authoring)
     type(app_config), intent(inout) :: cfg
@@ -518,6 +568,35 @@ contains
       error stop 'Unknown boundary condition mode in [sim].'
     end select
   end subroutine get_toml_boundary_mode
+
+  !> 粒子境界作用を読み込む。周期性は `[domain]` に属するため、ここでは扱わない。
+  subroutine get_toml_particle_boundary_mode(table, key, value, context, allow_inherit)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    integer(i32), intent(out) :: value
+    character(len=*), intent(in) :: context
+    logical, intent(in) :: allow_inherit
+    character(len=64) :: mode
+
+    call get_toml_string(table, key, mode, context)
+    select case (trim(lower_ascii(mode)))
+    case ('inherit')
+      if (.not. allow_inherit) error stop trim(context)//' must be "open" or "reflect".'
+      value = particle_bc_inherit
+    case ('open')
+      value = bc_open
+    case ('reflect')
+      value = bc_reflect
+    case ('periodic')
+      error stop trim(context)//' cannot set periodicity; use domain.periodic_axes.'
+    case default
+      if (allow_inherit) then
+        error stop trim(context)//' must be "inherit", "open", or "reflect".'
+      else
+        error stop trim(context)//' must be "open" or "reflect".'
+      end if
+    end select
+  end subroutine get_toml_particle_boundary_mode
 
   !> `[[mesh.templates]]` の読み込み数に応じてテンプレート配列容量を拡張する。
   !! @param[inout] cfg 容量拡張対象のアプリ設定。
@@ -760,7 +839,8 @@ contains
     type(toml_table), intent(inout) :: table
     type(particle_authoring_spec), intent(inout) :: auth
     type(toml_key), allocatable :: keys(:)
-    integer :: ikey
+    type(toml_table), pointer :: child
+    integer :: ikey, stat
     character(len=:), allocatable :: k
 
     call table%get_keys(keys)
@@ -845,9 +925,12 @@ contains
       case ('inject_face')
         call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
         spec%inject_face = lower_ascii(trim(spec%inject_face))
-      case ('z_high_boundary')
-        call get_toml_string(table, keys(ikey), spec%z_high_boundary, 'particles.species.z_high_boundary')
-        spec%z_high_boundary = lower_ascii(trim(spec%z_high_boundary))
+      case ('boundary')
+        nullify (child)
+        call get_value(table, keys(ikey), child, requested=.false., stat=stat)
+        call require_toml_success(stat, 'particles.species.boundary')
+        if (.not. associated(child)) error stop 'particles.species.boundary must be a table.'
+        call apply_species_boundary_toml_table(spec, child)
       case ('surface_charge_closure')
         call get_toml_string( &
           table, keys(ikey), spec%surface_charge_closure, 'particles.species.surface_charge_closure' &
@@ -868,6 +951,48 @@ contains
       end select
     end do
   end subroutine apply_particles_species_toml_table
+
+  !> `[particles.species.boundary]` の粒子種別6面作用を読み込む。
+  subroutine apply_species_boundary_toml_table(spec, table)
+    type(particle_species_spec), intent(inout) :: spec
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('x_low')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_low(1), 'particles.species.boundary.x_low', .true. &
+          )
+      case ('x_high')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_high(1), 'particles.species.boundary.x_high', .true. &
+          )
+      case ('y_low')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_low(2), 'particles.species.boundary.y_low', .true. &
+          )
+      case ('y_high')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_high(2), 'particles.species.boundary.y_high', .true. &
+          )
+      case ('z_low')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_low(3), 'particles.species.boundary.z_low', .true. &
+          )
+      case ('z_high')
+        call get_toml_particle_boundary_mode( &
+          table, keys(ikey), spec%boundary_high(3), 'particles.species.boundary.z_high', .true. &
+          )
+      case default
+        error stop 'Unknown key in [particles.species.boundary]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_species_boundary_toml_table
 
   !> `[mesh]` TOML テーブルをメッシュ入力設定へ適用する。
   subroutine apply_mesh_toml_table(cfg, table, authoring)

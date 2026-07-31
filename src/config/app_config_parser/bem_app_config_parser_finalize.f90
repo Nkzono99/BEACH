@@ -1,5 +1,6 @@
 !> 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
+  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face
   implicit none
 contains
 
@@ -7,14 +8,15 @@ contains
   integer :: i, j, axis
   integer(i32) :: per_batch_particles, physics_status
   integer(i32) :: n_periodic_axes
+  integer(i32) :: effective_boundary_low(3), effective_boundary_high(3), inject_face_boundary
   logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode
   character(len=64) :: generated_species_key
   character(len=256) :: physics_message
 
+  call lower_boundary_authoring(cfg, authoring)
   call normalize_high_level_config(cfg, authoring)
   call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   call apply_physics_authoring(cfg, authoring)
-  call lower_external_boundary_authoring(cfg, authoring)
 
   if (.not. ieee_is_finite(cfg%periodic2%max_nonzero_mode_potential_step) .or. &
       cfg%periodic2%max_nonzero_mode_potential_step < 0.0_dp) then
@@ -41,6 +43,19 @@ contains
     if (any(cfg%sim%box_max <= cfg%sim%box_min)) then
       error stop 'sim.box_max must be greater than sim.box_min on all axes when sim.use_box=true.'
     end if
+  end if
+  do axis = 1, 3
+    call validate_particle_boundary_override( &
+      cfg%particle_boundary_low(axis), cfg%sim%bc_low(axis), 'particle_boundary low face' &
+      )
+    call validate_particle_boundary_override( &
+      cfg%particle_boundary_high(axis), cfg%sim%bc_high(axis), 'particle_boundary high face' &
+      )
+  end do
+  if (.not. cfg%sim%use_box .and. &
+      (any(cfg%particle_boundary_low /= particle_bc_inherit) .or. &
+       any(cfg%particle_boundary_high /= particle_bc_inherit))) then
+    error stop '[particle_boundary] requires a finite [domain].'
   end if
   if (cfg%n_particle_species <= 0_i32) error stop 'At least one [[particles.species]] entry is required.'
   if (len_trim(cfg%output_restart_from) > 0 .and. .not. cfg%resume_output) then
@@ -244,22 +259,27 @@ contains
     cfg%particle_species(i)%velocity_distribution = lower_ascii(trim(cfg%particle_species(i)%velocity_distribution))
     cfg%particle_species(i)%velocity_grid_pdf_kind = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_pdf_kind))
     cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
-    cfg%particle_species(i)%z_high_boundary = lower_ascii(trim(cfg%particle_species(i)%z_high_boundary))
     cfg%particle_species(i)%surface_charge_closure = &
       lower_ascii(trim(cfg%particle_species(i)%surface_charge_closure))
-    select case (trim(cfg%particle_species(i)%z_high_boundary))
-    case ('inherit')
-      continue
-    case ('reflect')
-      if (.not. cfg%sim%use_box) then
-        error stop 'particles.species.z_high_boundary="reflect" requires sim.use_box=true.'
-      end if
-      if (cfg%sim%bc_high(3) /= bc_open) then
-        error stop 'particles.species.z_high_boundary="reflect" requires sim.bc_z_high="open".'
-      end if
-    case default
-      error stop 'particles.species.z_high_boundary must be "inherit" or "reflect".'
-    end select
+    do axis = 1, 3
+      call validate_particle_boundary_override( &
+        cfg%particle_species(i)%boundary_low(axis), cfg%sim%bc_low(axis), &
+        'particles.species.boundary low face' &
+        )
+      call validate_particle_boundary_override( &
+        cfg%particle_species(i)%boundary_high(axis), cfg%sim%bc_high(axis), &
+        'particles.species.boundary high face' &
+        )
+    end do
+    if (.not. cfg%sim%use_box .and. &
+        (any(cfg%particle_species(i)%boundary_low /= particle_bc_inherit) .or. &
+         any(cfg%particle_species(i)%boundary_high /= particle_bc_inherit))) then
+      error stop 'particles.species.boundary requires a finite [domain].'
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(i), &
+      effective_boundary_low, effective_boundary_high &
+      )
     select case (trim(cfg%particle_species(i)%surface_charge_closure))
     case ('explicit')
       continue
@@ -271,8 +291,11 @@ contains
       if (.not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
         error stop 'surface_charge_closure="neutral_return" requires deposit_opposite_charge_on_emit=true.'
       end if
-      if (trim(cfg%particle_species(i)%z_high_boundary) /= 'reflect') then
-        error stop 'surface_charge_closure="neutral_return" requires z_high_boundary="reflect".'
+      inject_face_boundary = particle_boundary_action_for_face( &
+                             effective_boundary_low, effective_boundary_high, cfg%particle_species(i)%inject_face &
+                             )
+      if (inject_face_boundary /= bc_reflect) then
+        error stop 'surface_charge_closure="neutral_return" requires reflect on the species inject_face.'
       end if
     case default
       error stop 'particles.species.surface_charge_closure must be "explicit" or "neutral_return".'
@@ -381,5 +404,20 @@ contains
   call validate_active_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel, physics_status, physics_message)
   if (physics_status /= physics_config_ok) error stop trim(physics_message)
   end procedure finalize_loaded_config
+
+  subroutine validate_particle_boundary_override(action, topology_action, context)
+    integer(i32), intent(in) :: action, topology_action
+    character(len=*), intent(in) :: context
+
+    select case (action)
+    case (particle_bc_inherit, bc_open, bc_reflect)
+      continue
+    case default
+      error stop trim(context)//' must be inherit, open, or reflect.'
+    end select
+    if (topology_action == bc_periodic .and. action /= particle_bc_inherit) then
+      error stop trim(context)//' cannot override a periodic domain face.'
+    end if
+  end subroutine validate_particle_boundary_override
 
 end submodule bem_app_config_parser_finalize

@@ -234,6 +234,9 @@ restart_from = "../parent_run/outputs/latest"
 
 - 通常実行は`sim.batch_count`で指定したbatch数まで進みます。
 - `sim.tol_rel`は監視・出力値であり、早期停止条件ではありません。
+- box geometryと周期軸は`[domain]`、場closureは`[field_boundary]`で指定します。
+- global粒子面は`[particle_boundary]`、species overrideは`[particles.species.boundary]`で指定します。
+- 局所reservoirの流入modelと`phi_infty`は`[reservoir]`に置きます。
 - v1.0の標準surface modelはinsulator accumulationです。
 - 局所reservoir + closed PEは有限box内の局所closureであり、外部領域を自己無撞着に解くmodelではありません。
 - 実行成功、数値収束、物理妥当性は別々に確認します。

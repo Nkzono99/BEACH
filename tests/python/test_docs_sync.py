@@ -137,9 +137,9 @@ def test_particle_escape_return_starts_from_boundary_ownership() -> None:
         text = _read_doc(name)
         positions = [text.index(heading) for heading in headings]
         assert positions == sorted(positions)
-        assert "external_boundary.ordinary_open.model" in text
-        assert "[external_boundary.field]" in text
-        assert "[external_boundary.particles]" in text
+        assert "particle_boundary.ordinary_open_model" in text
+        assert "[particle_boundary]" in text
+        assert "[reservoir]" in text
         assert "sim.open_boundary_model" not in text
         assert "particle_transfer_mode" not in text
 
@@ -149,7 +149,8 @@ def test_config_init_docs_match_official_tutorial_case() -> None:
         text = _read_doc(name)
         assert "examples/tutorial_insulator.toml" in text
         assert 'field_solver="fmm"' in text
-        assert 'field_bc_mode="periodic2"' in text
+        assert '[field_boundary]' in text
+        assert 'mode="periodic2"' in text
         assert "field_periodic_image_layers=1" in text
         assert 'field_periodic_far_correction="none"' in text
         assert "run_periodic2" not in text

@@ -22,19 +22,18 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
         "max_step": 100000,
         "tol_rel": 1.0e-8,
         "b0": [0.0, 0.0, 0.0],
-        "use_box": True,
-        "box_min": [0.0, 0.0, 0.0],
-        "box_max": [1.0, 1.0, 10.0],
-        "bc_x_low": "periodic",
-        "bc_x_high": "periodic",
-        "bc_y_low": "periodic",
-        "bc_y_high": "periodic",
-        "bc_z_low": "open",
-        "bc_z_high": "open",
         "rng_seed": 12345,
         "field_solver": "treecode",
         "batch_duration_step": 60000,
     },
+    "domain": {
+        "box_min": [0.0, 0.0, 0.0],
+        "box_max": [1.0, 1.0, 10.0],
+        "periodic_axes": ["x", "y"],
+    },
+    "field_boundary": {"mode": "free"},
+    "particle_boundary": {"z_low": "open", "z_high": "open"},
+    "reservoir": {"inflow_model": "source_vdf"},
     "particles": {
         "species": [
             {
@@ -73,7 +72,16 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
     },
 }
 
-_TOP_LEVEL_SECTION_ORDER = ("sim", "particles", "mesh", "output")
+_TOP_LEVEL_SECTION_ORDER = (
+    "sim",
+    "domain",
+    "field_boundary",
+    "particle_boundary",
+    "reservoir",
+    "particles",
+    "mesh",
+    "output",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,15 +227,18 @@ def build_closepack_config(
 
     spec.validate()
     config = copy.deepcopy(dict(base_config) if base_config is not None else default_base_config())
-    sim = _ensure_table(config, "sim")
+    _ensure_table(config, "sim")
+    domain = _ensure_table(config, "domain")
     particles = _ensure_table(config, "particles")
     mesh = _ensure_table(config, "mesh")
     output = _ensure_table(config, "output")
 
-    box_min = _coerce_vec3(sim.get("box_min", [0.0, 0.0, 0.0]), name="sim.box_min")
+    box_min = _coerce_vec3(
+        domain.get("box_min", [0.0, 0.0, 0.0]), name="domain.box_min"
+    )
     box_max_existing = _coerce_vec3(
-        sim.get("box_max", [0.0, 0.0, 0.0]),
-        name="sim.box_max",
+        domain.get("box_max", [0.0, 0.0, 0.0]),
+        name="domain.box_max",
     )
 
     width_x = spec.cells_x * unit_cell_pitch(spec.radius)
@@ -242,13 +253,12 @@ def build_closepack_config(
     box_max = [box_min[0] + width_x, box_min[1] + width_y, box_max_z]
 
     if spec.floor_z <= box_min[2]:
-        raise ValueError("floor_z must be above sim.box_min[2].")
+        raise ValueError("floor_z must be above domain.box_min[2].")
     if box_max_z <= required_top_z:
         raise ValueError("The generated box is not tall enough for the sphere stack.")
 
-    sim["use_box"] = True
-    sim["box_min"] = box_min
-    sim["box_max"] = box_max
+    domain["box_min"] = box_min
+    domain["box_max"] = box_max
 
     species_list = particles.get("species", [])
     if not isinstance(species_list, list):

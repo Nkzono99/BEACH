@@ -50,7 +50,7 @@ The Fortran parser does not accept regular keys before the first section, so do 
 | Kind | Representative keys | Unit / direction |
 |---|---|---|
 | Time | `dt`, `batch_duration` | seconds |
-| Length | `box_min`, `box_max`, `pos_low`, `pos_high` | m |
+| Length | `domain.box_min`, `domain.box_max`, `pos_low`, `pos_high` | m |
 | Charge | `q_particle`, element charge output | C |
 | Mass | `m_particle` | kg |
 | Velocity | `drift_velocity`, `ray_direction` | m/s. `ray_direction` is a direction vector |
@@ -69,8 +69,8 @@ of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`.
 
 For the first run, use the [Ten-Minute Tutorial](Tutorial.en.html) and
 `examples/tutorial_insulator.toml`. `beachx config init` generates the same
-configuration. This beginner case uses a finite image sum for x/y `periodic2` with
-`field_periodic_image_layers=1` and `field_periodic_far_correction="none"`.
+configuration. This beginner case uses `domain.periodic_axes=["x","y"]` and
+`field_boundary.mode="periodic2"`.
 
 Add `reservoir_face`, closed photoelectrons, and an infinite-periodic correction later from
 [Design a Simulation Case](ConfigurationRecipes.en.html), after the beginner case
@@ -80,43 +80,45 @@ runs successfully.
 
 ## TOML Hierarchy and Section List
 
-`[sim]`, `[particles]`, `[mesh]`, `[periodic2]`, `[external_boundary]`,
-and `[output]` form the public configuration. Their nesting is:
+`[sim]`, `[domain]`, `[field_boundary]`, `[particle_boundary]`, `[reservoir]`,
+`[particles]`, `[mesh]`, `[periodic2]`, and `[output]` form the public configuration.
 
 ```text
 beach.toml
 ├── [sim]
+├── [domain]
+├── [field_boundary]
+├── [particle_boundary]
+├── [reservoir]
 ├── [particles]
 │   └── [[particles.species]]       # one or more array-of-table entries
+│       └── [particles.species.boundary]
 ├── [mesh]
 │   ├── [mesh.groups.<name>]        # named child table
 │   └── [[mesh.templates]]          # zero or more array-of-table entries
 ├── [periodic2]
-├── [external_boundary]
-│   ├── [external_boundary.field]
-│   ├── [external_boundary.particles]
-│   └── [external_boundary.ordinary_open]
 └── [output]
 ```
 
-Paths such as `sim.dt` and `external_boundary.field.model` mean “table name.key” in the prose. In TOML, write
-`dt = ...` under `[sim]` and `model = ...` under `[external_boundary.field]`.
+Paths such as `sim.dt` and `domain.periodic_axes` mean “table name.key” in the prose.
 
 | TOML table | Parent | Cardinality / requirement | Contents |
 |---|---|---|---|
-| `[sim]` | root | conditional | Time step, batch count, field solver, boundaries, external fields |
+| `[sim]` | root | conditional | Time step, batch count, field solver, and external fields |
+| `[domain]` | root | with a box | Box geometry and periodic axes |
+| `[field_boundary]` | root | optional | `free` / `periodic2` field closure |
+| `[particle_boundary]` | root | optional | Global particle actions on nonperiodic faces |
+| `[reservoir]` | root | optional | Local-reservoir inflow barrier and reference potential |
 | `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
 | `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
+| `[particles.species.boundary]` | latest `[[particles.species]]` | optional | Nonperiodic-face overrides for that species |
 | `[mesh]` | root | optional | Selection of OBJ or built-in template input |
 | `[mesh.groups.<name>]` | `[mesh]` | zero or more | Placement and scale shared by multiple templates |
 | `[[mesh.templates]]` | `[mesh]` | zero or more | Built-in shapes used with `mode="template"` |
 | `[periodic2]` | root | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
-| `[external_boundary.field]` | `[external_boundary]` | required | Explicitly selects no external field |
-| `[external_boundary.particles]` | `[external_boundary]` | required | Local sources and the inflow barrier |
-| `[external_boundary.ordinary_open]` | `[external_boundary]` | optional | Escape or a scalar barrier at open faces |
 | `[output]` | root | optional | Output directory, history, checkpoint resume |
 
-`[sim]` is required when using `reservoir_face` or `photo_raycast`.
+`[sim]` and `[domain]` are required when using `reservoir_face` or `photo_raycast`.
 At least one `[[particles.species]]` entry is required.
 
 ---
@@ -137,6 +139,10 @@ At least one `[[particles.species]]` entry is required.
 | `max_step` | int | `400` | Maximum number of pushes per particle |
 | `tol_rel` | float | `1.0e-8` | Monitored relative-change value. Not used as a stop condition |
 | `q_floor` | float | `1.0e-30` | Lower bound for the denominator in `rel_change` calculations |
+| `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard` after the per-step boundary-event limit |
+| `multiple_box_events_soft_discard_count_limit` | int | `1000` | Stop limit for cumulative soft discards |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Stop limit for cumulative soft-discard absolute charge [C] |
+| `raycast_max_bounce` | int | `16` | Maximum bounce count for `photo_raycast` |
 
 Specifying both `batch_duration` and `batch_duration_step` is an error. For
 `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
@@ -150,9 +156,9 @@ corresponding parameters for each option.
 | `field_solver` | Use case | Supported field boundary |
 |---|---|---|
 | `direct` | Exact all-to-all evaluation for small element counts and split references | `free`, or a constrained `periodic2` split reference |
-| `treecode` | Approximate evaluation for medium and larger cases | `field_bc_mode="free"` |
-| `fmm` | Large-scale evaluation, `periodic2`, FMM core validation | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | Select direct / FMM based on element count | `field_bc_mode="free"` |
+| `treecode` | Approximate evaluation for medium and larger cases | `field_boundary.mode="free"` |
+| `fmm` | Large-scale evaluation, `periodic2`, FMM core validation | `field_boundary.mode="free"` / `"periodic2"` |
+| `auto` | Select direct / FMM based on element count | `field_boundary.mode="free"` |
 
 Use the canonical [solver and field-boundary compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility) to choose the combination.
 Element charge is always evaluated as a constant density on its triangle (a P0 panel); there is no configurable kernel.
@@ -164,6 +170,15 @@ Common keys:
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | Length scale used with `field_normalization="length"` [m] |
+| `field_periodic_image_layers` | int | `1` | Near-image shell for `periodic2` |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | Ewald split used for cache generation; `0` selects automatically |
+| `field_periodic_ewald_layers` | int | `4` | Real/reciprocal shell depth for cache generation |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Operator-cache directory |
+| `field_periodic_generation_tolerance` | float | `1.0e-8` | Generation tolerance included in cache identity |
+
+`field_periodic_far_correction="auto"` is accepted for compatibility and is
+currently treated the same as `none`.
 
 `field_normalization` only changes normalization of coordinates and
 periodic cells inside field calculations. Output electric fields and potentials
@@ -172,7 +187,7 @@ are converted back to SI.
 | `field_normalization` | Length scale |
 |---|---|
 | `si` | Use input SI coordinates as-is |
-| `box` | Maximum width of `sim.box_max - sim.box_min`. Requires `sim.use_box=true` |
+| `box` | Maximum width of `domain.box_max - domain.box_min`. Requires `[domain]` |
 | `mesh` | Maximum width of the mesh bounding box. Falls back to `field_length_scale` if the mesh is empty |
 | `length` | `field_length_scale` |
 
@@ -187,7 +202,6 @@ and `N` is the number of elements.
 | `field_solver` | string | `"auto"` | Specify `"direct"` |
 | `field_normalization` | string | `"si"` | Normalize coordinates before direct evaluation |
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
-| `field_bc_mode` | string | `"free"` | Normally `free`; only the panel split reference may use `periodic2` |
 
 `tree_theta`, `tree_leaf_max`, and `tree_min_nelem` are not used for `direct`.
 
@@ -204,7 +218,6 @@ does not use local expansion and traverses the tree for each evaluation point.
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter. `0 < theta <= 1`. Larger values are faster and coarser |
 | `tree_leaf_max` | int | `16` | Maximum number of sources per leaf node. `>= 1` |
-| `field_bc_mode` | string | `"free"` | Only `"free"` is supported for `treecode` |
 
 `tree_min_nelem` is a threshold for `field_solver="auto"`, so it does not switch
 anything when `treecode` is specified explicitly.
@@ -224,15 +237,6 @@ See [FMM](FMM.en.html) for selection and verification, and
 | `field_length_scale` | float | `1.0` | Used with `field_normalization="length"` or mesh fallback |
 | `tree_theta` | float | `0.5` | MAC parameter for near/far classification. `0 < theta <= 1` |
 | `tree_leaf_max` | int | `16` | Maximum number of sources per source-tree leaf node. `>= 1` |
-| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
-| `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / production `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation |
-| `field_periodic_ewald_layers` | int | `4` | Real-space / reciprocal cutoff depth for the Ewald generator |
-| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
-| `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
-
-`field_periodic_*` only has meaning when `field_bc_mode="periodic2"`.
 `tree_min_nelem` is not used when `fmm` is specified explicitly.
 
 ##### `field_solver = "auto"`
@@ -247,7 +251,6 @@ Auto uses direct evaluation below `tree_min_nelem` and FMM at and above the thre
 | `tree_min_nelem` | int | `256` | Element-count threshold for switching to FMM. `>= 1` |
 | `tree_theta` | float | `0.5` | Near/far MAC parameter when FMM is selected |
 | `tree_leaf_max` | int | `16` | Maximum number of sources per leaf node when FMM is selected |
-| `field_bc_mode` | string | `"free"` | Only `"free"` is supported for `auto` |
 
 If `tree_theta` and `tree_leaf_max` are not specified explicitly, the following
 values are used based on the element count.
@@ -259,50 +262,84 @@ values are used based on the element count.
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### Field Boundary
+### `[domain]`: Box Geometry and Periodic Topology
+
+```toml
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+periodic_axes = ["x", "y"]
+```
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
-| `field_periodic_image_layers` | int | `1` | Number of near image layers for `periodic2` |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | Ewald parameter for operator generation |
-| `field_periodic_ewald_layers` | int | `4` | Outer shell / reciprocal cutoff depth for the Ewald generator |
-| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | Versioned periodic operator cache directory |
-| `field_periodic_generation_tolerance` | float | `1e-8` | Generation tolerance included in the cache fingerprint |
+| `box_min`, `box_max` | float[3] | none | Lower and upper box bounds [m]. Specify both |
+| `box_origin`, `box_size` | float[3] | none | Origin and positive size [m]. Specify both |
+| `periodic_axes` | string[] | `[]` | Unique entries from `"x"` / `"y"` / `"z"` |
 
-### `[external_boundary]`: External Conditions
+Do not combine the two geometry forms. When `[domain]` is present, one complete pair is required.
+`domain.periodic_axes` is the only public setting that selects periodicity.
+With `field_boundary.mode="periodic2"`, `periodic_axes=["x","y"]` is required.
 
-BEACH does not evolve a plasma model outside the box. It supports local boundary
-conditions represented by three explicit child tables.
+### `[field_boundary]`: Field Closure
 
 ```toml
-[external_boundary.field]
-model = "none"
-
-[external_boundary.particles]
-mode = "local_source"
-inflow_model = "source_vdf"
-
-[external_boundary.ordinary_open]
-model = "escape"
+[field_boundary]
+mode = "periodic2"
 ```
 
-| table.key | Type | Default | Description |
+| Key | Type | Default | Description |
 |---|---|---:|---|
-| `external_boundary.field.model` | string | required | `"none"` only |
-| `external_boundary.particles.mode` | string | required | `"local_source"` only |
-| `external_boundary.particles.inflow_model` | string | `"source_vdf"` | `source_vdf` / `infinity_barrier` |
-| `external_boundary.ordinary_open.model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `mode` | string | `"free"` | `free` / `periodic2` |
 
-`infinity_barrier` and `potential_barrier` use `sim.phi_infty` as the reference
-potential. See [Particle Sources and Box Boundaries](ParticleSourcesBoundaries.en.html)
-for source/boundary ownership and [Particle escape and local return](ParticleEscapeReturn.en.html)
-for open-face decisions.
+For `periodic2`, `[domain]` is required. Add `[periodic2]` when selecting the nonzero- and zero-mode operators explicitly.
+Follow the
+[solver and field-boundary compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility).
+
+### `[particle_boundary]`: Global Particle Boundaries
+
+```toml
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+```
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `x_low`, `x_high` | string | follow domain | `open` / `reflect` on nonperiodic x faces |
+| `y_low`, `y_high` | string | follow domain | `open` / `reflect` on nonperiodic y faces |
+| `z_low`, `z_high` | string | follow domain | `open` / `reflect` on nonperiodic z faces |
+| `ordinary_open_model` | string | `"escape"` | `escape` / `potential_barrier` on effective open faces |
+
+An omitted face inherits domain topology and is open when nonperiodic.
+This table cannot override a periodic face.
+`potential_barrier` evaluates `q_particle * (phi_infty - phi_boundary)` from the crossing-point potential
+and `reservoir.phi_infty`; it reflects only a positive barrier that exceeds the normal kinetic energy.
+
+### `[reservoir]`: Local Reservoir Conditions
+
+```toml
+[reservoir]
+inflow_model = "source_vdf"
+phi_infty = 0.0
+face_potential_grid_n = 3
+```
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `inflow_model` | string | `"source_vdf"` | `source_vdf` / `infinity_barrier` |
+| `phi_infty` | float | `0.0` | Infinity-reference potential used by barriers [V] |
+| `face_potential_grid_n` | int | `3` | `N x N` grid for injection-face average potential. `>=1` |
+
+`infinity_barrier` adjusts the reservoir normal VDF using the injection-face average potential and `phi_infty`.
+A uniform field has no finite potential at infinity, so use an effective reservoir reference when combining it with this model.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
-`[periodic2]` is a top-level table, not a child of `[sim]`.
+`[periodic2]` is a top-level table. Set `domain.periodic_axes=["x","y"]`
+and `field_boundary.mode="periodic2"`.
+Use `field_solver="fmm"` for production and reserve `field_solver="direct"` for the small split reference.
 
 | Key | Default | Meaning |
 |---|---:|---|
@@ -312,9 +349,6 @@ for open-face decisions.
 | `max_nonzero_mode_potential_step` | `0` | Maximum accepted change of the $k\ne0$ potential [V]. Omission or `0` disables the feature |
 | `reference_mode_layers` | `4` | Fourier-mode cutoff |
 | `panel_quadrature_order` | `12` | panel-area quadrature order |
-| `interface_sample_n` | `5` | diagnostic samples along each interface axis |
-| `interface_phi_tolerance` | `1e-3` | upper bound on the nonzero-mode potential ratio |
-| `interface_field_tolerance` | `1e-3` | upper bound on the nonzero-mode field ratio |
 
 `max_nonzero_mode_potential_step > 0` is supported only with
 `nonzero_mode_backend="cached_kneq0"`. Let $h_0$ be the resolved
@@ -351,32 +385,21 @@ local-voltage trust bound for the frozen-field approximation, not a
 local-truncation-error guarantee. Verify time-width convergence by repeating
 the calculation with this limit halved.
 
-Legacy `periodic2` uses `field_solver="fmm"`. The small-system split reference instead explicitly selects
-`field_solver="direct"`, `nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a lower
-boundary model. `symmetric_vacuum` is the parameter-free homogeneous-vacuum closure; `e_bottom_zero` remains available for
-old-run reproduction.
+### Combined periodic2 Constraints
 
-### Combined periodic2 and External-Boundary Constraints
-
-Periodic2 requires `sim.use_box=true` and exactly two periodic axes.
+Periodic2 requires `[domain]`, `periodic_axes=["x","y"]`, and `field_boundary.mode="periodic2"`.
 `examples/periodic2_closed_photoelectron.toml` is the reference combination of x/y periodicity, a local reservoir, and
 closed photoelectrons. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
-| Far correction | Meaning |
+| `nonzero_mode_backend` | Meaning |
 | --- | --- |
-| `none` | finite-image approximation |
-| `auto` | compatibility input; currently `none` |
+| `panel_spectral_reference` | small-system split reference |
 | `cached_kneq0` | production nonzero mode using a reusable versioned operator |
-
-The removed `m2l_root_oracle` value is rejected at startup with guidance to use `cached_kneq0`.
 
 With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exactly once.
 `symmetric_vacuum` uses $\pm Q/(2\epsilon_0A)$ above and below; `e_bottom_zero` uses zero below and $Q/(\epsilon_0A)$ above.
 
-### `[sim]`: External Fields and Physical Values Used by Boundaries
-
-`phi_infty` is the reference potential used by `infinity_barrier` and
-`potential_barrier`.
+### `[sim]`: External Fields
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
@@ -388,59 +411,6 @@ With `cached_kneq0`, the `exclude_k0` provider adds the physical zero mode exact
 
 The uniform external electric field can be specified directly as
 `e0 = [Ex, Ey, Ez]`, or by `e0_abs` and angles. Mixing the two forms is an error.
-
-#### Physical Values Used by Boundary Processing
-
-| Key | Type | Default | Description |
-|---|---|---:|---|
-| `phi_infty` | float | `0.0` | Reference potential at infinity [V] |
-| `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`; action when a step exceeds the box-event limit |
-| `multiple_box_events_soft_discard_count_limit` | int | `1000` | abort after the cumulative soft-discard count exceeds this value |
-| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | abort after cumulative absolute soft-discarded macro charge [C] exceeds this value |
-| `injection_face_phi_grid_n` | int | `3` | `N x N` evaluation grid for injection-face average potential |
-| `raycast_max_bounce` | int | `16` | Maximum number of reflections for `photo_raycast` |
-
-See [`reservoir_face` Inflow and Velocity Sampling](ReservoirInjection.en.html) for flux and velocity and
-[Particle Escape and Return](ParticleEscapeReturn.en.html) for reflection and return.
-
-Evaluation with
-`external_boundary.particles.inflow_model="infinity_barrier"`:
-
-- Evaluate injection-face average potential from the field and potential refreshed at the beginning of each batch.
-- Include the P0 panel kernel, periodic2 terms, zero mode, and `e0` under the particle-motion convention.
-- The same `N x N` grid gives the population standard deviation, minimum, and maximum without extra potential evaluations.
-- For a Maxwellian reservoir, the MPI root warns on the first and final batch when
-  `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)`.
-
-#### Computational Domain and Particle Boundaries
-
-| Key | Type | Default | Description |
-|---|---|---:|---|
-| `use_box` | bool | `false` | Enable box boundaries |
-| `box_min` | float[3] | `[-1,-1,-1]` | Lower box bounds [m] |
-| `box_max` | float[3] | `[1,1,1]` | Upper box bounds [m] |
-| `bc_x_low`, `bc_x_high` | string | `"open"` | Particle boundaries at the lower and upper x limits |
-| `bc_y_low`, `bc_y_high` | string | `"open"` | Particle boundaries at the lower and upper y limits |
-| `bc_z_low`, `bc_z_high` | string | `"open"` | Particle boundaries at the lower and upper z limits |
-
-Particle boundaries are `open`, `reflect`, or `periodic`. `open` also accepts
-`outflow` and `escape` as synonyms.
-
-Decision with `external_boundary.ordinary_open.model="potential_barrier"`
-(represented as `open_boundary_model="potential_barrier"` at normalized
-runtime):
-
-1. Evaluate BEM potential `phi_boundary` at the crossing point with the particle-motion snapshot convention, including local `e0` potential.
-2. Compute the barrier `q_particle * (phi_infty - phi_boundary)`.
-3. If it is positive and exceeds `0.5 * m_particle * v_normal^2`, reverse the normal velocity. Otherwise, the particle escapes.
-
-A uniform field has no finite potential at infinity. When it is combined with this model, supply `phi_infty` as a consistent
-effective reservoir reference.
-
-For `periodic2`, the mesh is translated at runtime to a canonical unwrapped
-representation for collision before ray-triangle tests. Raw vertices may lie
-outside the box along periodic axes, but triangles are not folded modulo the box
-vertex by vertex.
 
 ---
 
@@ -464,19 +434,30 @@ used depend on `source_mode`.
 | `temperature_ev` | float | unspecified | Temperature [eV]. Mutually exclusive with `temperature_k` |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
 | `inject_face` | string | unspecified | Injection face. Required for `reservoir_face` / `photo_raycast` |
-| `z_high_boundary` | string | `"inherit"` | Per-species z-high action. `inherit` / `reflect` |
+| `boundary` | table | unspecified | Per-species six-face overrides in `[particles.species.boundary]` |
 | `surface_charge_closure` | string | `"explicit"` | Surface-source charge closure. `explicit` / `neutral_return` |
 
-`z_high_boundary="reflect"` applies local specular reflection by reversing the
-normal velocity only when that species reaches z-high. Other species inherit the
-global boundary contract. This override requires `sim.use_box=true` and
-`sim.bc_z_high="open"`. `inject_face` selects the
-particle-source or illumination-ray face; it is separate from the post-creation
-`z_high_boundary` action.
+#### `[particles.species.boundary]`: Per-Species Overrides
+
+This table belongs to the preceding `[[particles.species]]` entry.
+
+```toml
+[particles.species.boundary]
+z_high = "reflect"
+```
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+
+`inherit` uses the global action from `[particle_boundary]`. A periodic face cannot be overridden.
+`inject_face` selects particle generation; the species boundary controls the trajectory after generation.
 
 `surface_charge_closure="neutral_return"` is accepted only for a negative
 `photo_raycast` species with `deposit_opposite_charge_on_emit=true` and
-`z_high_boundary="reflect"`. It scales resolved return deposits by one global
+an effective `reflect` action on its `inject_face`. It scales resolved return deposits by one global
 species factor so the photoelectron contribution to total surface charge is
 zero.
 
@@ -515,7 +496,7 @@ Basic constraints:
 
 | Condition | Details |
 |---|---|
-| Domain | `sim.use_box=true` is required |
+| Domain | `[domain]` is required |
 | Time | `sim.batch_duration > 0` is required |
 | Injection face | `inject_face` is required |
 | Injection range | `pos_low` / `pos_high` must lie on the specified face |
@@ -571,7 +552,7 @@ Constraints:
 
 | Condition | Details |
 |---|---|
-| Domain | `sim.use_box=true` is required |
+| Domain | `[domain]` is required |
 | Time | `sim.batch_duration > 0` is required |
 | Emission amount | `emit_current_density_a_m2 > 0`, `rays_per_batch > 0` are required |
 | Injection face | `inject_face` is required |
@@ -586,17 +567,15 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 ```
 
 The actual number of generated particles depends on the hit rate, so the number
-generated per batch is at most `rays_per_batch`. With `field_bc_mode="periodic2"`,
+generated per batch is at most `rays_per_batch`. With `field_boundary.mode="periodic2"`,
 emission starts from the hit coordinate wrapped to the primary cell even when a
 periodic image is hit.
 
 Each emitted photoelectron uses `w_hit` as its weight and is tracked as an
 ordinary particle. Surface return is absorbed as an ordinary collision.
 
-With `z_high_boundary="inherit"`,
-`external_boundary.ordinary_open.model` controls escape or potential-barrier
-reflection at open faces. `"reflect"` instead applies local specular reflection
-only at z-high.
+When a species boundary is `inherit`, it uses `[particle_boundary]`.
+For closed PE, set its `inject_face` to `reflect` in `[particles.species.boundary]`.
 
 ---
 
@@ -792,8 +771,8 @@ Surface model:
 
 `conductor` constraints:
 
-- Redistribute charge with direct Coulomb coefficients under `field_bc_mode="free"`.
-- Do not combine it with `field_bc_mode="periodic2"`.
+- Redistribute charge with direct Coulomb coefficients under `field_boundary.mode="free"`.
+- Do not combine it with `field_boundary.mode="periodic2"`.
 - Large conductor element counts increase per-batch dense-solve cost.
 
 ---
@@ -823,7 +802,7 @@ Use `outward_closed` only for consistently oriented, closed two-manifold compone
 |---|---|---:|---|
 | `write_files` | bool | `true` | Enable/disable file output |
 | `write_mesh_potential` | bool | `false` | Output `mesh_potential.csv` |
-| `write_potential_history` | bool | `false` | Output `potential_history.csv`; with `use_box=true`, also output same-batch `top_reference_history.csv` |
+| `write_potential_history` | bool | `false` | Output `potential_history.csv`; with `[domain]`, also output same-batch `top_reference_history.csv` |
 | `dir` | string | `"outputs/latest"` | Output directory |
 | `history_stride` | int | `1` | Output interval for history CSV [batch] |
 | `resume` | bool | `false` | Resume from an existing checkpoint |
@@ -840,7 +819,7 @@ Output files:
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
-| `top_reference_history.csv` | Above plus `sim.use_box=true`; mean, standard deviation, minimum, and maximum potential across the full z-high face |
+| `top_reference_history.csv` | Above plus `[domain]`; mean, standard deviation, minimum, and maximum potential across the full z-high face |
 | `performance_profile.csv` | When `BEACH_PROFILE=1` |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file |
@@ -867,7 +846,7 @@ Evaluation rules for `mesh_potential.csv`:
 
 - Uses the same post-commit snapshot and batch as `potential_history.csv`.
 - Writes `batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`.
-- Uses a cell-centered grid over the full box z-high face with `sample_n=sim.injection_face_phi_grid_n`.
+- Uses a cell-centered grid over the full box z-high face with `sample_n=reservoir.face_potential_grid_n`.
 - Records a relative-potential diagnostic, not infinity or plasma potential.
 
 Requirements for `resume=true`:
@@ -907,7 +886,7 @@ column. Distinguish combinations that fail validation from those that intentiona
 
 | Key and value | Type / condition | Calculated value | Relationship to a directly specified key |
 |---|---|---|---|
-| `sim.box_origin`, `sim.box_size` | float[3]. Specify both, with `box_size > 0` | `box_min = box_origin`; `box_max = box_origin + box_size` | Combining either with `box_min` or `box_max` is an error |
+| `domain.box_origin`, `domain.box_size` | float[3]. Specify both, with `box_size > 0` | `box_min = box_origin`; `box_max = box_origin + box_size` | Combining either with `domain.box_min` or `domain.box_max` is an error |
 | `inject_region_mode="face_fraction"`, `uv_low`, `uv_high` | `uv_*` are float[2] in `[0,1]`; only for `reservoir_face` / `photo_raycast` | `pos_low`, `pos_high` on `inject_face` | Combining with either `pos_low` or `pos_high` is an error |
 | Template `placement_mode="box_anchor"`, `anchor`, and either `offset` or `offset_frac` | Anchor is the box center or a face center; `offset` is in meters and `offset_frac` is relative to box size | Template `center` | Combining with `center` is an error; combining `offset` and `offset_frac` is also an error |
 | Template `size_mode="box_fraction"`, `size_frac` | Supported for `plane` / `plane_hole` / `plate_hole` / `box` / `sphere` / `cylinder` | Shape-specific dimensions listed below | Calculated dimensions replace corresponding explicitly specified dimension keys without an error |

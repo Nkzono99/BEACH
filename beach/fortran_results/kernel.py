@@ -16,6 +16,7 @@ from .mesh import _triangle_centers
 from .panel_quadrature import panel_target_quadrature
 from .periodic import (
     Periodic2Input,
+    _sim_with_separated_boundaries,
     coerce_periodic2 as _coerce_periodic2,
     periodic2_from_sim as _periodic2_from_sim,
 )
@@ -809,7 +810,15 @@ def _options_from_result(
     context: RunContext | None = None,
 ) -> FieldKernelOptions:
     run_context = context or RunContext.from_value(resolved, config_path=config_path)
-    sim = run_context.sim
+    sim = (
+        None
+        if run_context.sim is None
+        else _sim_with_separated_boundaries(
+            run_context.sim,
+            domain=run_context.domain,
+            field_boundary=run_context.field_boundary,
+        )
+    )
     periodic_cfg = _coerce_periodic2(periodic2, allow_cached_kneq0=True)
     if periodic_cfg is None and sim is not None:
         allow_historical_root_oracle = run_context.requested_config_path is None

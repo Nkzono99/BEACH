@@ -17,14 +17,17 @@ Direct sum.
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "free"
-use_box = true
+
+[domain]
 box_min = [-0.5, -0.5, -0.1]
 box_max = [ 0.5,  0.5,  1.0]
+
+[field_boundary]
+mode = "free"
 ```
 
-`use_box=true` creates a target tree covering the particle domain. A target outside that tree is evaluated by a Direct sum over
-every source.
+The `[domain]` box also defines the target tree covering the particle region. For a free field, a target outside that tree
+falls back to a Direct sum over every source.
 
 ## Combine far expansions with near Direct sums
 
@@ -140,20 +143,14 @@ To reuse a fixed mesh over many batches, FMM separates geometry-dependent `plan`
 `build_plan` precomputes geometry-only quantities. `update_state` performs P2M, M2M, M2L, and L2L for current element charges.
 Deposited charge is committed at batch end and enters `state` at the next field snapshot.
 
-## Cover the particle region with the target tree
+## Cover the target tree with `[domain]`
 
-The target side of an FMM plan is formed in one of two ways:
+In public configuration, `[domain]` defines the simulation and target-tree extent through `box_min` / `box_max` or
+`box_origin` / `box_size`. Cover every position particles can reach. `domain.periodic_axes` owns topology, while
+`field_boundary.mode` selects the `free` or `periodic2` field closure.
 
-- `use_box=false`: source-tree leaves are also used as target leaves
-- `use_box=true`: an independent target tree covers `box_min` through `box_max`
-
-If the particle evaluation domain is wider than the source bounding box, the first form makes targets outside the tree likely.
-Normally, define a box covering every position particles can reach. A free-boundary calculation may still use a box, allowing
-particle boundary geometry and the target-tree extent to share the same definition.
-
-When no target leaf can be found, FMM does not extrapolate a local expansion. It sums every source directly. This fallback favors
-continuity and correctness, but frequent fallback reduces performance to Direct-like cost. If many particles move outside the
-box, verify both that boundary events are processed as intended and that the box covers the intended field-evaluation domain.
+For a free field, FMM sums every source directly when no target leaf is found; frequent fallback reduces performance to
+Direct-like cost. `cached_kneq0` requires a fixed target topology and rejects out-of-box targets.
 
 <a id="source-kernel"></a>
 
@@ -247,7 +244,7 @@ step.
 - source geometry fixed after plan construction
 - free and periodic2 field boundaries
 - analytic triangle-P0 near interactions and exact P2M
-- Direct fallback for targets outside the tree
+- Direct fallback outside the target tree for a free field
 - the physical periodic zero mode is added exactly once outside the FMM core
 - self-consistent outer-plasma/sheath models are unsupported
 

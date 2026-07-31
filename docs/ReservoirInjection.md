@@ -22,7 +22,7 @@ Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
 `pos_low` と `pos_high` は、そのボックス面上の矩形開口を定めます。面の内向き単位法線を $\mathbf n$、
 開口面積を $A$ とします。
 
-`reservoir_face` は `sim.use_box=true` と `sim.batch_duration>0` を要求します。開口の法線座標はボックス面と一致し、
+`reservoir_face` は `[domain]` の box と `sim.batch_duration>0` を要求します。開口の法線座標は box 面と一致し、
 2 つの接線方向は正の長さを持つ必要があります。
 
 ## Maxwell 分布を流入流束で重み付けする
@@ -113,10 +113,10 @@ $$
 
 | 構成 | `reservoir_face` が受け取るもの |
 | --- | --- |
-| 補正なし | $B=0$ として、設定した VDF を注入面上の分布として使う |
-| `external_boundary.particles.inflow_model="infinity_barrier"` | 開口の平均電位と `sim.phi_infty` から求めた 1 つの電位差 |
+| `reservoir.inflow_model="source_vdf"` | $B=0$ として、設定した VDF を注入面上の分布として使う |
+| `reservoir.inflow_model="infinity_barrier"` | 開口の平均電位と `reservoir.phi_infty` から求めた 1 つの電位差 |
 
-`infinity_barrier` は、`injection_face_phi_grid_n` を $N$ とする開口内の $N\times N$ cell-center で
+`infinity_barrier` は、`reservoir.face_potential_grid_n` を $N$ とする開口内の $N\times N$ cell-center で
 batch 開始時の電位を評価し、平均値 $\bar\phi_f$ を使います。固定 P0 三角形 kernel、周期場、zero mode、
 `sim.e0` を含む同じ電位規約を使いますが、途中の $E(z)$、折り返し位置、飛行時間、空間電荷は解きません。
 同じ評価から電位の母標準偏差、最小値、最大値も集計し、Maxwell 分布のリザーバーでは面内のばらつきが特徴エネルギーに対して

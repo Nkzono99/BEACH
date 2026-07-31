@@ -15,8 +15,11 @@ SCHEMA_BASE_URL = "https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas
 BEACH_SCHEMA_URL = f"{SCHEMA_BASE_URL}/beach.schema.json"
 TOP_LEVEL_CONFIG_ORDER = (
     "sim",
+    "domain",
+    "field_boundary",
+    "particle_boundary",
+    "reservoir",
     "periodic2",
-    "external_boundary",
     "particles",
     "mesh",
     "output",
@@ -28,17 +31,24 @@ _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
 )
 _FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
-_EXTERNAL_BOUNDARY_FIELD_KEYS = frozenset({"model"})
-_EXTERNAL_BOUNDARY_PARTICLE_KEYS = frozenset({"mode", "inflow_model"})
-_EXTERNAL_BOUNDARY_INFLOW_MODELS = frozenset({"source_vdf", "infinity_barrier"})
-_EXTERNAL_BOUNDARY_FIELD_KEYS_BY_MODEL = {"none": _EXTERNAL_BOUNDARY_FIELD_KEYS}
-_EXTERNAL_BOUNDARY_COUPLING_KEYS: tuple[str, ...] = ()
-_EXTERNAL_BOUNDARY_TRACKED_PARTICLE_KEYS = frozenset()
-_EXTERNAL_BOUNDARY_STEADY_START_KEYS = frozenset()
 _REMOVED_SIM_KEYS = frozenset(
     {
         "reservoir_potential_model",
         "open_boundary_model",
+        "field_bc_mode",
+        "phi_infty",
+        "injection_face_phi_grid_n",
+        "use_box",
+        "box_min",
+        "box_max",
+        "box_origin",
+        "box_size",
+        "bc_x_low",
+        "bc_x_high",
+        "bc_y_low",
+        "bc_y_high",
+        "bc_z_low",
+        "bc_z_high",
         "sheath_alpha_deg",
         "sheath_photoelectron_ref_density_cm3",
         "sheath_electron_drift_mode",
@@ -66,21 +76,18 @@ def default_config() -> dict[str, Any]:
             "dt": 1.0e-7,
             "batch_count": 1,
             "max_step": 10,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-            "bc_x_low": "periodic",
-            "bc_x_high": "periodic",
-            "bc_y_low": "periodic",
-            "bc_y_high": "periodic",
-            "bc_z_low": "open",
-            "bc_z_high": "open",
             "rng_seed": 12345,
             "field_solver": "fmm",
-            "field_bc_mode": "periodic2",
             "field_periodic_image_layers": 1,
             "field_periodic_far_correction": "none",
         },
+        "domain": {
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+            "periodic_axes": ["x", "y"],
+        },
+        "field_boundary": {"mode": "periodic2"},
+        "particle_boundary": {"z_low": "open", "z_high": "open"},
         "particles": {
             "species": [
                 {
@@ -164,12 +171,13 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
 def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level spatial notation into runtime beach.toml values."""
 
-    _validate_external_boundary_facade_mix(config, context="high-level config")
     resolved = copy.deepcopy(dict(config))
     sim = resolved.get("sim")
     if isinstance(sim, Mapping):
         resolved["sim"] = _resolve_sim_high_level(dict(sim))
-    _resolve_external_boundary_facade(resolved)
+    domain = resolved.get("domain")
+    if isinstance(domain, Mapping):
+        resolved["domain"] = _resolve_domain_high_level(dict(domain))
     box_min, box_max = _resolved_box_bounds(resolved)
 
     particles = resolved.get("particles")
@@ -196,87 +204,6 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     return resolved
 
 
-def _resolve_external_boundary_facade(config: dict[str, Any]) -> None:
-    external_boundary = config.get("external_boundary")
-    if external_boundary is None:
-        return
-    if not isinstance(external_boundary, Mapping):
-        raise ConfigError("high-level config error: external_boundary must be a table.")
-
-    field = external_boundary.get("field")
-    particles = external_boundary.get("particles")
-    ordinary_open = external_boundary.get("ordinary_open", {})
-    if not isinstance(field, Mapping):
-        raise ConfigError(
-            "high-level config error: external_boundary.field must be a table."
-        )
-    if not isinstance(particles, Mapping):
-        raise ConfigError(
-            "high-level config error: external_boundary.particles must be a table."
-        )
-    if not isinstance(ordinary_open, Mapping):
-        raise ConfigError(
-            "high-level config error: external_boundary.ordinary_open must be a table."
-        )
-
-    unknown_external_keys = set(external_boundary) - {
-        "field",
-        "particles",
-        "ordinary_open",
-    }
-    unknown_field_keys = set(field) - _EXTERNAL_BOUNDARY_FIELD_KEYS
-    unknown_particle_keys = set(particles) - _EXTERNAL_BOUNDARY_PARTICLE_KEYS
-    unknown_open_keys = set(ordinary_open) - {"model"}
-    for path, unknown_keys in (
-        ("external_boundary", unknown_external_keys),
-        ("external_boundary.field", unknown_field_keys),
-        ("external_boundary.particles", unknown_particle_keys),
-        ("external_boundary.ordinary_open", unknown_open_keys),
-    ):
-        if unknown_keys:
-            raise ConfigError(
-                f"high-level config error: unsupported {path} key(s): "
-                + ", ".join(sorted(unknown_keys))
-            )
-
-    field_model = field.get("model")
-    if not isinstance(field_model, str) or field_model != "none":
-        raise ConfigError(
-            'high-level config error: external_boundary.field.model must be "none".'
-        )
-    particle_mode = particles.get("mode")
-    if not isinstance(particle_mode, str) or particle_mode != "local_source":
-        raise ConfigError(
-            "high-level config error: external_boundary.particles.mode must be "
-            '"local_source".'
-        )
-    inflow_model = particles.get("inflow_model", "source_vdf")
-    if (
-        not isinstance(inflow_model, str)
-        or inflow_model not in _EXTERNAL_BOUNDARY_INFLOW_MODELS
-    ):
-        raise ConfigError(
-            "high-level config error: external_boundary.particles.inflow_model must be "
-            '"source_vdf" or "infinity_barrier".'
-        )
-    ordinary_open_model = ordinary_open.get("model", "escape")
-    if not isinstance(ordinary_open_model, str) or ordinary_open_model not in {
-        "escape",
-        "potential_barrier",
-    }:
-        raise ConfigError(
-            "high-level config error: external_boundary.ordinary_open.model must be "
-            '"escape" or "potential_barrier".'
-        )
-
-    sim = config.get("sim")
-    if not isinstance(sim, Mapping):
-        raise ConfigError(
-            "high-level config error: external_boundary requires a [sim] table."
-        )
-    return
-
-
 def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
     box_origin = sim.pop("box_origin", None)
     box_size = sim.pop("box_size", None)
@@ -294,6 +221,28 @@ def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
         sim["box_min"] = origin
         sim["box_max"] = [origin[i] + size[i] for i in range(3)]
     return sim
+
+
+def _resolve_domain_high_level(domain: dict[str, Any]) -> dict[str, Any]:
+    box_origin = domain.pop("box_origin", None)
+    box_size = domain.pop("box_size", None)
+    if (box_origin is None) != (box_size is None):
+        raise ConfigError(
+            "high-level config error: domain.box_origin and domain.box_size "
+            "must be specified together."
+        )
+    if box_origin is not None and box_size is not None:
+        origin = _coerce_numeric_sequence(
+            box_origin, length=3, name="domain.box_origin"
+        )
+        size = _coerce_numeric_sequence(box_size, length=3, name="domain.box_size")
+        if any(component <= 0.0 for component in size):
+            raise ConfigError(
+                "high-level config error: domain.box_size components must be > 0."
+            )
+        domain["box_min"] = origin
+        domain["box_max"] = [origin[i] + size[i] for i in range(3)]
+    return domain
 
 
 def _resolve_species_high_level(
@@ -337,7 +286,7 @@ def _resolve_species_high_level(
         )
     if box_min is None or box_max is None:
         raise ConfigError(
-            'high-level config error: inject_region_mode="face_fraction" requires sim.box_min/box_max.'
+            'high-level config error: inject_region_mode="face_fraction" requires domain.box_min/box_max.'
         )
     if uv_low is None or uv_high is None:
         raise ConfigError(
@@ -750,7 +699,7 @@ def _resolve_anchor(
 ) -> list[float]:
     if box_min is None or box_max is None:
         raise ConfigError(
-            "high-level config error: box_anchor placement requires sim.box_min/box_max."
+            "high-level config error: box_anchor placement requires domain.box_min/box_max."
         )
     center = [(box_min[i] + box_max[i]) * 0.5 for i in range(3)]
     anchors = {
@@ -802,16 +751,23 @@ def _scale_template_lengths(template: dict[str, Any], scale: float) -> None:
 def _resolved_box_bounds(
     config: Mapping[str, Any],
 ) -> tuple[list[float] | None, list[float] | None]:
-    sim = config.get("sim")
-    if not isinstance(sim, Mapping):
-        return None, None
-    box_min = sim.get("box_min")
-    box_max = sim.get("box_max")
+    domain = config.get("domain")
+    if isinstance(domain, Mapping):
+        box_min = domain.get("box_min")
+        box_max = domain.get("box_max")
+        name_prefix = "domain"
+    else:
+        sim = config.get("sim")
+        if not isinstance(sim, Mapping):
+            return None, None
+        box_min = sim.get("box_min")
+        box_max = sim.get("box_max")
+        name_prefix = "sim"
     if box_min is None or box_max is None:
         return None, None
     return (
-        _coerce_numeric_sequence(box_min, length=3, name="box_min"),
-        _coerce_numeric_sequence(box_max, length=3, name="box_max"),
+        _coerce_numeric_sequence(box_min, length=3, name=f"{name_prefix}.box_min"),
+        _coerce_numeric_sequence(box_max, length=3, name=f"{name_prefix}.box_max"),
     )
 
 
@@ -823,7 +779,7 @@ def _require_box_size(
 ) -> list[float]:
     if box_min is None or box_max is None:
         raise ConfigError(
-            f"high-level config error: {context} requires sim.box_min/box_max."
+            f"high-level config error: {context} requires domain.box_min/box_max."
         )
     box_size = [box_max[i] - box_min[i] for i in range(3)]
     if any(component <= 0.0 for component in box_size):
@@ -876,11 +832,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         context="runtime config",
         allow_meta_keys=False,
     )
-    try:
-        _resolve_external_boundary_facade(final_config)
-    except ConfigError as exc:
-        raise ConfigValidationError(str(exc)) from exc
-
     for key in _REQUIRED_RUNTIME_TABLES:
         if key not in final_config:
             raise ConfigValidationError(
@@ -891,6 +842,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     particles = _require_table(final_config, "particles", context="runtime config")
     mesh = _require_table(final_config, "mesh", context="runtime config")
     _require_table(final_config, "output", context="runtime config")
+    domain = _optional_runtime_table(final_config, "domain")
+    field_boundary = _optional_runtime_table(final_config, "field_boundary")
+    particle_boundary = _optional_runtime_table(final_config, "particle_boundary")
+    reservoir = _optional_runtime_table(final_config, "reservoir")
     periodic2_config = final_config.get("periodic2", {})
     removed_sim_keys = sorted(set(sim) & _REMOVED_SIM_KEYS)
     if removed_sim_keys:
@@ -901,6 +856,12 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         )
     _validate_runtime_external_e_field(sim)
     _validate_runtime_mesh(mesh)
+    _validate_runtime_boundary_tables(
+        domain=domain,
+        field_boundary=field_boundary,
+        particle_boundary=particle_boundary,
+        reservoir=reservoir,
+    )
 
     species = particles.get("species")
     if (
@@ -913,7 +874,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         )
 
     resolved_batch_duration = _resolve_batch_duration(sim)
-    use_box = bool(sim.get("use_box", False))
+    use_box = domain is not None
     adaptive_nonzero_mode_limit = 0.0
     if isinstance(periodic2_config, Mapping):
         raw_adaptive_limit = periodic2_config.get(
@@ -931,25 +892,29 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             )
         adaptive_nonzero_mode_limit = float(raw_adaptive_limit)
 
-    field_bc_mode = sim.get("field_bc_mode", "free")
+    field_bc_mode = (
+        field_boundary.get("mode", "free")
+        if field_boundary is not None
+        else "free"
+    )
     field_solver = sim.get("field_solver", "auto")
     if field_solver not in {"direct", "treecode", "fmm", "auto"}:
         raise ConfigValidationError(
             'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
             '"fmm", or "auto".'
         )
-    phi_infty = sim.get("phi_infty", 0.0)
+    phi_infty = reservoir.get("phi_infty", 0.0) if reservoir is not None else 0.0
     if (
         not isinstance(phi_infty, (int, float))
         or isinstance(phi_infty, bool)
         or not math.isfinite(phi_infty)
     ):
         raise ConfigValidationError(
-            "BEACH constraint error: sim.phi_infty must be finite."
+            "BEACH constraint error: reservoir.phi_infty must be finite."
         )
     if field_bc_mode not in {"free", "periodic2"}:
         raise ConfigValidationError(
-            'BEACH constraint error: sim.field_bc_mode must be "free" or "periodic2".'
+            'BEACH constraint error: field_boundary.mode must be "free" or "periodic2".'
         )
     if field_bc_mode == "periodic2":
         supported_lower_boundaries = {"e_bottom_zero", "symmetric_vacuum"}
@@ -974,18 +939,18 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         )
         if field_solver != "fmm" and not split_reference:
             raise ConfigValidationError(
-                'BEACH constraint error: field_bc_mode="periodic2" requires field_solver="fmm" '
+                'BEACH constraint error: field_boundary.mode="periodic2" requires field_solver="fmm" '
                 "or the direct panel_spectral_reference split model."
             )
         if not use_box:
             raise ConfigValidationError(
-                'BEACH constraint error: field_bc_mode="periodic2" requires sim.use_box=true.'
+                'BEACH constraint error: field_boundary.mode="periodic2" requires [domain].'
             )
-        periodic_axes = _periodic_axis_count(sim)
-        if periodic_axes != 2:
+        periodic_axes = set(domain.get("periodic_axes", [])) if domain else set()
+        if periodic_axes != {"x", "y"}:
             raise ConfigValidationError(
-                'BEACH constraint error: field_bc_mode="periodic2" requires exactly '
-                "two periodic axes."
+                'BEACH constraint error: field_boundary.mode="periodic2" requires '
+                'domain.periodic_axes=["x", "y"].'
             )
     if adaptive_nonzero_mode_limit > 0.0:
         if (
@@ -1006,11 +971,21 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     if field_bc_mode != "free" and _mesh_has_surface_model(mesh, "conductor"):
         raise ConfigValidationError(
             'BEACH constraint error: surface_model="conductor" currently requires '
-            'sim.field_bc_mode="free".'
+            'field_boundary.mode="free".'
         )
 
-    box_min = _maybe_vec3(sim.get("box_min"), name="sim.box_min")
-    box_max = _maybe_vec3(sim.get("box_max"), name="sim.box_max")
+    box_min = (
+        _maybe_vec3(domain.get("box_min"), name="domain.box_min")
+        if domain is not None
+        else None
+    )
+    box_max = (
+        _maybe_vec3(domain.get("box_max"), name="domain.box_max")
+        if domain is not None
+        else None
+    )
+    periodic_axes = set(domain.get("periodic_axes", [])) if domain is not None else set()
+    global_particle_boundary = particle_boundary or {}
 
     uses_face_sources = False
     has_volume_seed = False
@@ -1022,6 +997,37 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] source_mode must be a string."
             )
+        effective_particle_boundary = _validate_species_particle_boundary(
+            species_table,
+            index=index,
+            periodic_axes=periodic_axes,
+            global_boundary=global_particle_boundary,
+        )
+        surface_charge_closure = species_table.get(
+            "surface_charge_closure", "explicit"
+        )
+        if surface_charge_closure not in {"explicit", "neutral_return"}:
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}]."
+                'surface_charge_closure must be "explicit" or "neutral_return".'
+            )
+        if surface_charge_closure == "neutral_return":
+            inject_face = species_table.get("inject_face")
+            q_particle = species_table.get("q_particle", -1.602176634e-19)
+            if (
+                source_mode != "photo_raycast"
+                or not isinstance(q_particle, (int, float))
+                or isinstance(q_particle, bool)
+                or float(q_particle) >= 0.0
+                or species_table.get("deposit_opposite_charge_on_emit") is not True
+                or not isinstance(inject_face, str)
+                or effective_particle_boundary.get(inject_face) != "reflect"
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}] "
+                    "neutral_return requires a negative photo_raycast species, "
+                    "deposit_opposite_charge_on_emit=true, and reflect on inject_face."
+                )
         if "photo_escape_model" in species_table:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].photo_escape_model "
@@ -1314,18 +1320,16 @@ def _validate_high_level_fragment(
     *,
     context: str,
 ) -> None:
-    _validate_external_boundary_facade_mix(document, context=context)
-
-    sim = document.get("sim")
-    if isinstance(sim, Mapping):
-        if "box_origin" in sim and "box_min" in sim:
+    domain = document.get("domain")
+    if isinstance(domain, Mapping):
+        if "box_origin" in domain and "box_min" in domain:
             raise ConfigError(
-                f"{context} error: sim.box_origin and sim.box_min cannot be specified "
+                f"{context} error: domain.box_origin and domain.box_min cannot be specified "
                 "in the same fragment."
             )
-        if "box_size" in sim and "box_max" in sim:
+        if "box_size" in domain and "box_max" in domain:
             raise ConfigError(
-                f"{context} error: sim.box_size and sim.box_max cannot be specified "
+                f"{context} error: domain.box_size and domain.box_max cannot be specified "
                 "in the same fragment."
             )
 
@@ -1348,15 +1352,6 @@ def _validate_high_level_fragment(
                     f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
                     'but source_mode must be "reservoir_face" or "photo_raycast".'
                 )
-
-
-def _validate_external_boundary_facade_mix(
-    document: Mapping[str, Any],
-    *,
-    context: str,
-) -> None:
-    del document, context
-
 
 def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     dt = float(sim.get("dt", 1.0e-9))
@@ -1496,20 +1491,6 @@ def _validate_velocity_grid_forbidden(
             )
 
 
-def _periodic_axis_count(sim: Mapping[str, Any]) -> int:
-    count = 0
-    for axis in ("x", "y", "z"):
-        low = sim.get(f"bc_{axis}_low", "open")
-        high = sim.get(f"bc_{axis}_high", "open")
-        if low == "periodic" and high == "periodic":
-            count += 1
-        elif low == "periodic" or high == "periodic":
-            raise ConfigValidationError(
-                f"BEACH constraint error: bc_{axis}_low/high must both be periodic or both non-periodic."
-            )
-    return count
-
-
 def _validate_face_source_common(
     species_table: Mapping[str, Any],
     *,
@@ -1523,7 +1504,7 @@ def _validate_face_source_common(
     if not use_box:
         raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}] uses "
-            f'source_mode="{source_mode}" and requires sim.use_box=true.'
+            f'source_mode="{source_mode}" and requires [domain].'
         )
     if batch_duration <= 0.0:
         raise ConfigValidationError(
@@ -1618,6 +1599,189 @@ def _require_table(
             f"BEACH constraint error: {context} requires [{key}] to be a table."
         )
     return dict(value)
+
+
+def _optional_runtime_table(
+    document: Mapping[str, Any], key: str
+) -> dict[str, Any] | None:
+    value = document.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise ConfigValidationError(
+            f"BEACH constraint error: [{key}] must be a table."
+        )
+    return dict(value)
+
+
+def _validate_runtime_boundary_tables(
+    *,
+    domain: Mapping[str, Any] | None,
+    field_boundary: Mapping[str, Any] | None,
+    particle_boundary: Mapping[str, Any] | None,
+    reservoir: Mapping[str, Any] | None,
+) -> None:
+    periodic_axes: set[str] = set()
+    if domain is not None:
+        unknown = set(domain) - {"box_min", "box_max", "periodic_axes"}
+        if unknown:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported domain key(s): "
+                + ", ".join(sorted(unknown))
+                + "."
+            )
+        if "box_min" not in domain or "box_max" not in domain:
+            raise ConfigValidationError(
+                "BEACH constraint error: [domain] requires box_min and box_max."
+            )
+        box_min = _maybe_vec3(domain.get("box_min"), name="domain.box_min")
+        box_max = _maybe_vec3(domain.get("box_max"), name="domain.box_max")
+        assert box_min is not None and box_max is not None
+        if any(box_max[i] <= box_min[i] for i in range(3)):
+            raise ConfigValidationError(
+                "BEACH constraint error: domain.box_max must be greater than "
+                "domain.box_min on every axis."
+            )
+        raw_axes = domain.get("periodic_axes", [])
+        if (
+            not isinstance(raw_axes, list)
+            or not all(isinstance(axis, str) for axis in raw_axes)
+            or len(raw_axes) != len(set(raw_axes))
+            or not set(raw_axes) <= {"x", "y", "z"}
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: domain.periodic_axes must contain unique "
+                'axis names from "x", "y", and "z".'
+            )
+        periodic_axes = set(raw_axes)
+
+    if field_boundary is not None:
+        unknown = set(field_boundary) - {"mode"}
+        if unknown:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported field_boundary key(s): "
+                + ", ".join(sorted(unknown))
+                + "."
+            )
+        if field_boundary.get("mode", "free") not in {"free", "periodic2"}:
+            raise ConfigValidationError(
+                'BEACH constraint error: field_boundary.mode must be "free" or '
+                '"periodic2".'
+            )
+
+    if particle_boundary is not None:
+        face_keys = {
+            "x_low",
+            "x_high",
+            "y_low",
+            "y_high",
+            "z_low",
+            "z_high",
+        }
+        unknown = set(particle_boundary) - face_keys - {"ordinary_open_model"}
+        if unknown:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported particle_boundary key(s): "
+                + ", ".join(sorted(unknown))
+                + "."
+            )
+        for face in face_keys & set(particle_boundary):
+            if particle_boundary[face] not in {"open", "reflect"}:
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particle_boundary.{face} must be "
+                    '"open" or "reflect".'
+                )
+            if face[0] in periodic_axes:
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particle_boundary.{face} cannot "
+                    "override a periodic domain face."
+                )
+        if particle_boundary.get("ordinary_open_model", "escape") not in {
+            "escape",
+            "potential_barrier",
+        }:
+            raise ConfigValidationError(
+                "BEACH constraint error: particle_boundary.ordinary_open_model must "
+                'be "escape" or "potential_barrier".'
+            )
+
+    if reservoir is not None:
+        unknown = set(reservoir) - {
+            "inflow_model",
+            "phi_infty",
+            "face_potential_grid_n",
+        }
+        if unknown:
+            raise ConfigValidationError(
+                "BEACH constraint error: unsupported reservoir key(s): "
+                + ", ".join(sorted(unknown))
+                + "."
+            )
+        if reservoir.get("inflow_model", "source_vdf") not in {
+            "source_vdf",
+            "infinity_barrier",
+        }:
+            raise ConfigValidationError(
+                "BEACH constraint error: reservoir.inflow_model must be "
+                '"source_vdf" or "infinity_barrier".'
+            )
+        grid_n = reservoir.get("face_potential_grid_n", 3)
+        if not isinstance(grid_n, int) or isinstance(grid_n, bool) or grid_n < 1:
+            raise ConfigValidationError(
+                "BEACH constraint error: reservoir.face_potential_grid_n must be >= 1."
+            )
+
+
+def _validate_species_particle_boundary(
+    species: Mapping[str, Any],
+    *,
+    index: int,
+    periodic_axes: set[str],
+    global_boundary: Mapping[str, Any],
+) -> dict[str, str]:
+    face_keys = {
+        "x_low",
+        "x_high",
+        "y_low",
+        "y_high",
+        "z_low",
+        "z_high",
+    }
+    raw_boundary = species.get("boundary", {})
+    if not isinstance(raw_boundary, Mapping):
+        raise ConfigValidationError(
+            f"BEACH constraint error: particles.species[{index}].boundary must be a table."
+        )
+    unknown = set(raw_boundary) - face_keys
+    if unknown:
+        raise ConfigValidationError(
+            f"BEACH constraint error: particles.species[{index}].boundary has "
+            "unsupported key(s): "
+            + ", ".join(sorted(unknown))
+            + "."
+        )
+
+    effective: dict[str, str] = {}
+    for face in face_keys:
+        axis = face[0]
+        action = raw_boundary.get(face, "inherit")
+        if action not in {"inherit", "open", "reflect"}:
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}].boundary."
+                f'{face} must be "inherit", "open", or "reflect".'
+            )
+        if axis in periodic_axes:
+            if action != "inherit":
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}].boundary."
+                    f"{face} cannot override a periodic domain face."
+                )
+            effective[face] = "periodic"
+        elif action == "inherit":
+            effective[face] = str(global_boundary.get(face, "open"))
+        else:
+            effective[face] = str(action)
+    return effective
 
 
 def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:

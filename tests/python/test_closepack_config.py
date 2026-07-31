@@ -42,8 +42,8 @@ def test_build_closepack_config_updates_box_mesh_and_injection_face() -> None:
     config = build_closepack_config(spec)
 
     pitch = unit_cell_pitch(0.2)
-    assert config["sim"]["box_min"] == [0.0, 0.0, 0.0]
-    assert config["sim"]["box_max"] == [3.0 * pitch, 2.0 * pitch, 10.0]
+    assert config["domain"]["box_min"] == [0.0, 0.0, 0.0]
+    assert config["domain"]["box_max"] == [3.0 * pitch, 2.0 * pitch, 10.0]
     assert config["mesh"]["mode"] == "template"
     assert len(config["mesh"]["templates"]) == 1 + 2 * 4 * 3 * 2
     assert config["mesh"]["templates"][0]["size_x"] == 3.0 * pitch
@@ -57,7 +57,7 @@ def test_build_closepack_config_preserves_base_sim_and_output_values() -> None:
     base = default_base_config()
     base["sim"]["dt"] = 3.5e-8
     base["sim"]["field_solver"] = "fmm"
-    base["sim"]["field_bc_mode"] = "periodic2"
+    base["field_boundary"]["mode"] = "periodic2"
     base["output"]["history_stride"] = 77
     base["particles"]["species"][0]["temperature_ev"] = 3.0
 
@@ -66,7 +66,7 @@ def test_build_closepack_config_preserves_base_sim_and_output_values() -> None:
 
     assert config["sim"]["dt"] == 3.5e-8
     assert config["sim"]["field_solver"] == "fmm"
-    assert config["sim"]["field_bc_mode"] == "periodic2"
+    assert config["field_boundary"]["mode"] == "periodic2"
     assert config["output"]["history_stride"] == 77
     assert config["particles"]["species"][0]["temperature_ev"] == 3.0
 
@@ -85,7 +85,7 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
     path.write_text(render_closepack_toml(config, spec=spec), encoding="utf-8")
     reloaded = load_base_config(path)
 
-    assert reloaded["sim"]["box_max"][0] == 2.0 * unit_cell_pitch(0.15)
+    assert reloaded["domain"]["box_max"][0] == 2.0 * unit_cell_pitch(0.15)
     assert reloaded["output"]["dir"] == "outputs/generated"
     assert len(reloaded["mesh"]["templates"]) == 1 + 2 * 2 * 2 * 1
 
@@ -102,18 +102,18 @@ batch_count = 100
 max_step = 100000
 tol_rel = 1.0e-8
 b0 = [0.0, 0.0, 0.0]
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 10.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
 rng_seed = 12345
 field_solver = "treecode"
 batch_duration_step = 60000
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+periodic_axes = ["x", "y"]
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
 
 [particles]
 [[particles.species]]

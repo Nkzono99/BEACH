@@ -33,13 +33,12 @@ $$
 
 rayは現在位置から次のbox面までのsegmentごとに最初のtriangle hitを探します。
 
-| 到達したbox面 | rayの処理 |
+| 到達した box 面 | ray の処理 |
 | --- | --- |
-| `open` | box外へ出て、そのrayは放出なしで終了 |
-| `reflect` | 方向の法線成分を反転して継続 |
-| `periodic` | 反対側へwrapして継続 |
+| 非周期面 | box 外へ出て、その ray は放出なしで終了 |
+| `domain.periodic_axes` の面 | 反対側へ wrap して継続 |
 
-`field_bc_mode="periodic2"`ではperiodic imageを含む最初のhitを探し、放出位置をprimary cellへwrapします。
+`field_boundary.mode="periodic2"` では periodic image を含む最初の hit を探し、放出位置を primary cell へ wrap します。
 hit要素は計算box内にある要素に限定します。`raycast_max_bounce`を越えてもhitしないrayは、粒子を生成しません。
 衝突queryがimage上限、index範囲、DDA停止などの不完全statusを返した場合は、batchを停止します。
 
@@ -93,28 +92,34 @@ MPI all-reduce後に同じbatch commitへ加えます。
 
 ray hit で生成する光電子の重みは常に $w_\mathrm{hit}$ です。放出時に escape 率を掛ける設定はありません。
 表面へ戻れば通常衝突として再吸収し、open 面へ達すれば他の source と同じ
-`external_boundary.ordinary_open` を適用します。
+`particle_boundary.ordinary_open_model` を適用します。
 
-### 光電子だけをz-highで閉じる
+### 光電子だけを注入面で閉じる
 
 光電子の表面内再分配を閉じた軌道で評価する場合は、光電子 species へ局所反射を指定します。
 
 ```toml
+[particle_boundary]
+z_high = "open"
+ordinary_open_model = "escape"
+
 [[particles.species]]
 species_key = "photoelectron"
 source_mode = "photo_raycast"
+inject_face = "z_high"
 deposit_opposite_charge_on_emit = true
-z_high_boundary = "reflect"
 surface_charge_closure = "neutral_return"
+
+[particles.species.boundary]
+z_high = "reflect"
 ```
 
-この設定はz-high通過時に法線速度だけを反転し、接線速度を保存して残りstepを再積分します。キーを省略した
-ambient speciesは`"inherit"`なので、globalのopen境界契約に従います。統合構成で
-`external_boundary.ordinary_open.model="escape"`を選んだ場合にescapeします。
-`reflect` は `sim.use_box=true` かつ global z-high が open の場合だけ使用できます。
-`inject_face`は照射rayの開始面であり、生成後の粒子に適用する`z_high_boundary`とは別です。
+この例は z-high 通過時に法線速度だけを反転し、接線速度を保存して残り step を再積分します。
+`[particles.species.boundary]` の既定 `inherit` を使う ambient species は global の open 契約に従います。
+species 境界は 6 面すべてに `inherit`、`open`、`reflect` を指定でき、closed PE では `inject_face` と同じ面の
+有効作用が `reflect` でなければなりません。`domain.periodic_axes` の面は上書きできません。
 
-`z_high_boundary="reflect"`だけなら軌道を閉じるだけで、`max_step`までに戻らない粒子は未解決のままです。
+species 境界の `reflect` だけなら軌道を閉じるだけで、`max_step` までに戻らない粒子は未解決のままです。
 `surface_charge_closure="neutral_return"`を加えると、1 batchの光電子放出電荷$S<0$と解決済み吸収電荷$R<0$を
 MPI全体で測り、各帰還先depositを$S/R$倍します。放出元の反作用電荷と合わせた光電子の表面総電荷増分は
 厳密に0になり、未帰還粒子は解決済み帰還先と同じ分布を持つと近似されます。
@@ -124,13 +129,13 @@ rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません
 放出があるのに解決済み帰還がない場合、実escape、`soft_discard`、符号不整合は停止します。
 未帰還率が5%を超える場合も、このclosureの固定適用範囲外として補正せず停止します。
 
-完全反射は有限 box 上端に人工的な鏡を置く試験条件であり、自己整合な sheath や準中性性を解きません。
+完全反射は有限 box の注入面に人工的な鏡を置く試験条件であり、自己整合な sheath や準中性性を解きません。
 `neutral_return` も未帰還軌道を解かず、正味光電子電流を 0 とする統計的 closure です。
 `abs(weight_scale-1)` と未帰還率が十分小さくなるよう `max_step`、`dt`、ray 数、batch 幅を収束させます。
 統合した場・流入・電位基準は
 [periodic2有限画像構成](FinitePeriodicConfiguration.html)にあります。
 
-通常の open 面に使う `escape` / `potential_barrier` と closed PE の使い分けは
+通常の open 面に使う `particle_boundary.ordinary_open_model` と closed PE の使い分けは
 [粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
 
 ## 光電子放出の収束を確認する

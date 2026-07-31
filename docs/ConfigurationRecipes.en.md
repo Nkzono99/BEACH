@@ -34,7 +34,7 @@ numerical convergence or physical validity; use [Validate Results](ValidationGui
 | Use built-in geometry | `[mesh]`, `[[mesh.templates]]` |
 | Use OBJ geometry | `[mesh]` |
 | Select initial particles, reservoir inflow, or photoelectrons | `[[particles.species]]` |
-| Use a finite two-axis periodic image sum | `[sim]` |
+| Select box, field, and particle boundaries | `[domain]`, `[field_boundary]`, `[particle_boundary]`, `[reservoir]` |
 | Save time histories | `[output]` |
 | Continue from a checkpoint | `[output]` |
 
@@ -84,7 +84,7 @@ n_lat = 12
 
 **Interpretation:** Increasing the resolution also increases field-evaluation and collision costs. Check placement and collisions
 with a coarse mesh first. Use `surface_model="insulator"` for the standard charging model.
-`conductor` is supported only with `field_bc_mode="free"`, and `dielectric` `epsilon_r` is currently metadata; polarization is not solved.
+`conductor` is supported only with `field_boundary.mode="free"`, and `dielectric` `epsilon_r` is currently metadata; polarization is not solved.
 
 **Next choice:** See the
 [built-in geometry reference](Parameters.en.html#meshtemplates-built-in-geometries) for element counts and constraints.
@@ -143,7 +143,15 @@ temperature_k = 0.0
 
 ### `reservoir_face`
 
-**Prerequisite:** Set `sim.use_box=true`, a positive `sim.batch_duration`, and `inject_face`.
+**Prerequisite:** Configure `[domain]`, a positive `sim.batch_duration`, and `inject_face`.
+Select the inflow barrier in `[reservoir]`.
+
+```toml
+[reservoir]
+inflow_model = "source_vdf"
+phi_infty = 0.0
+face_potential_grid_n = 3
+```
 
 ```toml
 [[particles.species]]
@@ -196,37 +204,47 @@ ray_direction = [0.0, 0.0, -1.0]
 **Next choice:** See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for emission, reabsorption,
 and the closed-PE `neutral_return` closure.
 
-## Use a finite two-axis periodic image sum
+For closed PE with a per-species reflection on the injection face:
 
-**Prerequisite:** Make exactly two box axes periodic and use `field_solver="fmm"`.
+```toml
+[particles.species.boundary]
+z_high = "reflect"
+```
+
+This table belongs to the preceding `[[particles.species]]`. With
+`surface_charge_closure="neutral_return"`, the effective `inject_face` action must be `reflect`.
+
+## Use a two-axis periodic boundary
+
+**Prerequisite:** Configure box geometry and x/y periodicity in `[domain]`, and use `field_solver="fmm"`.
+Select periodicity only through `domain.periodic_axes`.
 
 **Action:**
 
 ```toml
 [sim]
-use_box = true
+field_solver = "fmm"
+
+[domain]
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 4.0]
+periodic_axes = ["x", "y"]
 
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
+[field_boundary]
+mode = "periodic2"
 
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-field_periodic_image_layers = 1
-field_periodic_far_correction = "none"
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
 ```
 
-**Expected output:** With `field_periodic_image_layers=1`, the field source includes the primary cell and a $3\times3$ cell set.
+**Expected output:** The field, collision, and raycast paths share x/y periodic topology, while the z faces use the selected particle actions.
 
-**Interpretation:** This is not an infinite-periodic solution. Increase the image layer count until the electric field,
-particle flux, and charge distribution of interest stop changing materially.
+**Interpretation:** `[particle_boundary]` cannot select `periodic`; `[domain]` determines periodic-face behavior.
 
-**Next choice:** Use [Finite periodic2 configuration](FinitePeriodicConfiguration.en.html) and
+**Next choice:** Select the operator in `[periodic2]`. Use
+[Finite periodic2 configuration](FinitePeriodicConfiguration.en.html) and
 [`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)
 for the reference local-reservoir + closed-PE case.
 

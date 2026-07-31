@@ -98,7 +98,7 @@ beachx inspect outputs/latest \
   --save-potential-mesh outputs/latest/potential_mesh.png
 ```
 
-For `sim.field_bc_mode="periodic2"`, draw the mesh wrapped into the periodic cell:
+For `field_boundary.mode="periodic2"`, draw the mesh wrapped into the cell defined by `domain.periodic_axes`:
 
 ```bash
 beachx inspect outputs/latest \
@@ -138,7 +138,8 @@ beachx mobility outputs/latest \
   --save-csv outputs/latest/mobility_summary.csv
 ```
 
-These commands resolve geometry and periodic2 settings from nearby `beach.toml`.
+These commands read geometry, `field_boundary.mode`, `domain.periodic_axes`, and the domain box from nearby `beach.toml` to
+resolve periodic2 settings.
 If no config is found, pass the corresponding `--config` option.
 
 ### Evaluate detachment force while retaining periodic images

@@ -48,7 +48,7 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 | 種類 | 代表キー | 単位・向き |
 |---|---|---|
 | 時間 | `dt`, `batch_duration` | 秒 |
-| 長さ | `box_min`, `box_max`, `pos_low`, `pos_high` | m |
+| 長さ | `domain.box_min`, `domain.box_max`, `pos_low`, `pos_high` | m |
 | 電荷 | `q_particle`, 要素電荷出力 | C |
 | 質量 | `m_particle` | kg |
 | 速度 | `drift_velocity`, `ray_direction` | m/s。ただし `ray_direction` は方向ベクトル |
@@ -67,8 +67,8 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 
 最初の実行には [10 分チュートリアル](Tutorial.html) と
 `examples/tutorial_insulator.toml` を使ってください。`beachx config init`
-も同一の設定を生成します。この入門ケースは x/y 軸の `periodic2` を
-`field_periodic_image_layers=1`、`field_periodic_far_correction="none"` の有限画像和で扱います。
+も同一の設定を生成します。この入門ケースは`domain.periodic_axes=["x","y"]`と
+`field_boundary.mode="periodic2"`を使います。
 
 `reservoir_face`、閉じた光電子、無限周期補正は、そのケースが実行できた後に
 [シミュレーションケースを設計する](ConfigurationRecipes.html)から追加する応用設定です。
@@ -77,43 +77,45 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 
 ## TOML の階層とセクション一覧
 
-`[sim]`、`[particles]`、`[mesh]`、`[periodic2]`、`[external_boundary]`、
-`[output]` が公開構成です。ネスト関係は次のとおりです。
+`[sim]`、`[domain]`、`[field_boundary]`、`[particle_boundary]`、`[reservoir]`、
+`[particles]`、`[mesh]`、`[periodic2]`、`[output]`が公開構成です。
 
 ```text
 beach.toml
 ├── [sim]
+├── [domain]
+├── [field_boundary]
+├── [particle_boundary]
+├── [reservoir]
 ├── [particles]
 │   └── [[particles.species]]       # 1 件以上の array-of-tables
+│       └── [particles.species.boundary]
 ├── [mesh]
 │   ├── [mesh.groups.<name>]        # 名前付きの子 table
 │   └── [[mesh.templates]]          # 0 件以上の array-of-tables
 ├── [periodic2]
-├── [external_boundary]
-│   ├── [external_boundary.field]
-│   ├── [external_boundary.particles]
-│   └── [external_boundary.ordinary_open]
 └── [output]
 ```
 
-本文中の `sim.dt` や `external_boundary.field.model` は「table 名.key」の参照表記です。TOML ではそれぞれ
-`[sim]` の下へ `dt = ...`、`[external_boundary.field]` の下へ `model = ...` と書きます。
+本文中の`sim.dt`や`domain.periodic_axes`は「table名.key」の参照表記です。
 
 | TOML table | 親 | 件数・必須条件 | 内容 |
 |---|---|---|---|
-| `[sim]` | root | 条件付き | 時間刻み、バッチ数、場ソルバ、境界、外部場 |
+| `[sim]` | root | 条件付き | 時間刻み、バッチ数、場ソルバ、外部場 |
+| `[domain]` | root | box使用時 | box geometryと周期軸 |
+| `[field_boundary]` | root | 任意 | 場の`free` / `periodic2` closure |
+| `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
+| `[reservoir]` | root | 任意 | 局所reservoirの流入障壁と基準電位 |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
+| `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
 | `[mesh]` | root | 任意 | OBJ または組み込み template の選択 |
 | `[mesh.groups.<name>]` | `[mesh]` | 0 件以上 | 複数 template で共有する配置と scale |
 | `[[mesh.templates]]` | `[mesh]` | 0 件以上 | `mode="template"` で使う組み込み形状 |
 | `[periodic2]` | root | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
-| `[external_boundary.field]` | `[external_boundary]` | 必須 | 外部場なしを明示 |
-| `[external_boundary.particles]` | `[external_boundary]` | 必須 | 局所sourceと流入障壁 |
-| `[external_boundary.ordinary_open]` | `[external_boundary]` | 任意 | open面のescapeまたはscalar障壁 |
 | `[output]` | root | 任意 | 出力先、履歴、checkpoint 再開 |
 
-`reservoir_face` または `photo_raycast` を使う場合、`[sim]` は必須です。
+`reservoir_face`または`photo_raycast`を使う場合、`[sim]`と`[domain]`が必要です。
 `[[particles.species]]` は 1 件以上必要です。
 
 ---
@@ -134,6 +136,10 @@ beach.toml
 | `max_step` | int | `400` | 粒子 1 個あたりの最大 push 回数 |
 | `tol_rel` | float | `1.0e-8` | 相対変化量の監視値。停止条件には未使用 |
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
+| `multiple_box_events_policy` | string | `"abort"` | 1 step の境界event上限超過時に `abort` / `soft_discard` |
+| `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積soft discard数の停止上限 |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積soft discard絶対電荷の停止上限 [C] |
+| `raycast_max_bounce` | int | `16` | `photo_raycast` の最大bounce数 |
 
 `batch_duration` と `batch_duration_step` の同時指定はエラーです。
 `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
@@ -146,9 +152,9 @@ beach.toml
 | `field_solver` | 用途 | 対応する場境界 |
 |---|---|---|
 | `direct` | 要素数が小さい場合の厳密な全対全評価、split reference | `free`、または条件を満たす`periodic2` split reference |
-| `treecode` | 中規模以上の近似評価 | `field_bc_mode="free"` |
-| `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_bc_mode="free"` / `"periodic2"` |
-| `auto` | 要素数に応じて direct / FMM を自動選択 | `field_bc_mode="free"` |
+| `treecode` | 中規模以上の近似評価 | `field_boundary.mode="free"` |
+| `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `field_boundary.mode="free"` / `"periodic2"` |
+| `auto` | 要素数に応じて direct / FMM を自動選択 | `field_boundary.mode="free"` |
 
 solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)で確認できます。
 要素電荷は常に三角形上の一定面密度（P0 panel）として評価され、設定でkernelを選択しません。
@@ -160,6 +166,14 @@ solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#so
 | `field_solver` | string | `"auto"` | `direct` / `treecode` / `fmm` / `auto` |
 | `field_normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` で使う長さスケール [m] |
+| `field_periodic_image_layers` | int | `1` | `periodic2` の近傍 image shell |
+| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
+| `field_periodic_ewald_alpha` | float | `0.0` | cache生成時のEwald分割値。`0`は自動 |
+| `field_periodic_ewald_layers` | int | `4` | cache生成時の実空間・逆空間shell深さ |
+| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | operator cacheの保存先 |
+| `field_periodic_generation_tolerance` | float | `1.0e-8` | cache identityに含める生成許容誤差 |
+
+`field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
 
 `field_normalization` は場計算内部の座標と周期 cell の正規化だけを変えます。
 出力される電場・電位は SI に戻されます。
@@ -167,7 +181,7 @@ solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#so
 | `field_normalization` | 長さスケール |
 |---|---|
 | `si` | 入力 SI 座標をそのまま使う |
-| `box` | `sim.box_max - sim.box_min` の最大幅。`sim.use_box=true` が必須 |
+| `box` | `domain.box_max - domain.box_min`の最大幅。`[domain]`が必須 |
 | `mesh` | mesh bounding box の最大幅。mesh が空なら `field_length_scale` |
 | `length` | `field_length_scale` |
 
@@ -181,7 +195,6 @@ solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#so
 | `field_solver` | string | `"auto"` | `"direct"` を指定 |
 | `field_normalization` | string | `"si"` | direct 評価前に座標を正規化 |
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
-| `field_bc_mode` | string | `"free"` | 通常は`free`。panel split referenceだけ`periodic2`を使用可能 |
 
 `tree_theta`、`tree_leaf_max`、`tree_min_nelem` は `direct` では使いません。
 
@@ -197,7 +210,6 @@ FMM のような local expansion は使わず、評価点ごとに木を走査�
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | MAC パラメータ。`0 < theta <= 1`。大きいほど速く粗い |
 | `tree_leaf_max` | int | `16` | 葉 node あたり最大 source 数。`>= 1` |
-| `field_bc_mode` | string | `"free"` | `treecode` では `"free"` のみ |
 
 `tree_min_nelem` は `field_solver="auto"` 用のしきい値なので、明示 `treecode` では切替には使いません。
 
@@ -215,15 +227,6 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `field_length_scale` | float | `1.0` | `field_normalization="length"` または mesh fallback で使用 |
 | `tree_theta` | float | `0.5` | near/far 判定の MAC パラメータ。`0 < theta <= 1` |
 | `tree_leaf_max` | int | `16` | source tree の葉 node あたり最大 source 数。`>= 1` |
-| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
-| `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / production `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | operator generator の Ewald 分解パラメータ |
-| `field_periodic_ewald_layers` | int | `4` | Ewald generator の real-space / reciprocal cutoff 深さ |
-| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
-| `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
-
-`field_periodic_*` は `field_bc_mode="periodic2"` のときだけ意味を持ちます。
 `tree_min_nelem` は明示 `fmm` では使いません。
 
 ##### `field_solver = "auto"`
@@ -238,7 +241,6 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `tree_min_nelem` | int | `256` | FMM へ切り替える要素数しきい値。`>= 1` |
 | `tree_theta` | float | `0.5` | FMM 選択時の near/far MAC パラメータ |
 | `tree_leaf_max` | int | `16` | FMM 選択時の葉 node あたり最大 source 数 |
-| `field_bc_mode` | string | `"free"` | `auto` では `"free"` のみ |
 
 `tree_theta` と `tree_leaf_max` は、明示指定がなければ要素数から次の値を使います。
 
@@ -249,51 +251,84 @@ source 幾何の plan と、電荷更新ごとの state を分け、P2M/M2M/M2L/
 | `10000 <= nelem < 50000` | `0.58` | `20` |
 | `50000 <= nelem` | `0.65` | `24` |
 
-#### 場境界
+### `[domain]`: box geometryと周期topology
+
+```toml
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 4.0]
+periodic_axes = ["x", "y"]
+```
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `field_bc_mode` | string | `"free"` | `free` / `periodic2` |
-| `field_periodic_image_layers` | int | `1` | `periodic2` の近傍画像層数 |
-| `field_periodic_far_correction` | string | `"none"` | `none` / `auto` / `cached_kneq0` |
-| `field_periodic_ewald_alpha` | float | `0.0` | operator generator の Ewald 分解パラメータ |
-| `field_periodic_ewald_layers` | int | `4` | Ewald generator の outer shell / reciprocal cutoff 深さ |
-| `field_periodic_cache_dir` | string | `".beach_cache/periodic2"` | versioned periodic operator cache directory |
-| `field_periodic_generation_tolerance` | float | `1e-8` | cache fingerprint に含める generation tolerance |
+| `box_min`, `box_max` | float[3] | なし | box下限・上限 [m]。両方を指定 |
+| `box_origin`, `box_size` | float[3] | なし | originと正のsize [m]。両方を指定 |
+| `periodic_axes` | string[] | `[]` | 重複しない`"x"` / `"y"` / `"z"` |
 
-### `[external_boundary]`: 外部条件
+2組のgeometry表現は同時指定できません。`[domain]`を使う場合はどちらか1組が必須です。
+周期性を指定できる公開キーは`domain.periodic_axes`だけです。
+`field_boundary.mode="periodic2"`では、`periodic_axes=["x","y"]`が必要です。
 
-BEACHは外部plasmaを時間発展させず、box境界で完結する局所条件だけを扱います。
-3つの子tableを明示してください。
+### `[field_boundary]`: 場のclosure
 
 ```toml
-[external_boundary.field]
-model = "none"
-
-[external_boundary.particles]
-mode = "local_source"
-inflow_model = "source_vdf"
-
-[external_boundary.ordinary_open]
-model = "escape"
+[field_boundary]
+mode = "periodic2"
 ```
 
-| table.key | 型 | 既定値 | 説明 |
+| キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `external_boundary.field.model` | string | 必須 | `"none"`のみ |
-| `external_boundary.particles.mode` | string | 必須 | `"local_source"`のみ |
-| `external_boundary.particles.inflow_model` | string | `"source_vdf"` | `source_vdf` / `infinity_barrier` |
-| `external_boundary.ordinary_open.model` | string | `"escape"` | `escape` / `potential_barrier` |
+| `mode` | string | `"free"` | `free` / `periodic2` |
 
-`infinity_barrier`と`potential_barrier`は`sim.phi_infty`を基準電位として使います。
-粒子sourceと局所境界処理は[粒子sourceとbox境界](ParticleSourcesBoundaries.html)、
-open面の判定は[粒子のescapeと局所return](ParticleEscapeReturn.html)で説明します。
+`periodic2`では`[domain]`が必要です。非零・零モードoperatorを明示する場合は`[periodic2]`も指定します。
+solverとの組合せは
+[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)に従います。
+
+### `[particle_boundary]`: global粒子境界
+
+```toml
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+```
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `x_low`, `x_high` | string | domainに従う | 非周期x面の`open` / `reflect` |
+| `y_low`, `y_high` | string | domainに従う | 非周期y面の`open` / `reflect` |
+| `z_low`, `z_high` | string | domainに従う | 非周期z面の`open` / `reflect` |
+| `ordinary_open_model` | string | `"escape"` | effectiveなopen面で`escape` / `potential_barrier` |
+
+省略した面はdomain topologyを継承し、非周期面ではopenになります。
+周期面をこのtableで上書きできません。
+`potential_barrier`は境界通過点の電位`phi_boundary`と`reservoir.phi_infty`から
+`q_particle * (phi_infty - phi_boundary)`を評価し、法線運動エネルギーを超える正の障壁だけを反射します。
+
+### `[reservoir]`: 局所reservoir条件
+
+```toml
+[reservoir]
+inflow_model = "source_vdf"
+phi_infty = 0.0
+face_potential_grid_n = 3
+```
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `inflow_model` | string | `"source_vdf"` | `source_vdf` / `infinity_barrier` |
+| `phi_infty` | float | `0.0` | barrierが参照する無限遠基準電位 [V] |
+| `face_potential_grid_n` | int | `3` | 注入面平均電位の`N x N`評価格子。`>=1` |
+
+`infinity_barrier`は注入面平均電位と`phi_infty`からreservoirの法線VDFを補正します。
+一様電場には有限な無限遠電位がないため、併用時は`phi_infty`を有効なreservoir基準として整合させます。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
 
-`[periodic2]` は `[sim]` の子ではなく、トップレベル table です。
-legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証用の split reference に限り、
-`field_solver="direct"` と `[periodic2]`、`[external_boundary]` を明示します。
+`[periodic2]`はトップレベルtableです。`domain.periodic_axes=["x","y"]`と
+`field_boundary.mode="periodic2"`を指定します。productionでは`field_solver="fmm"`を使い、
+小規模検証用のsplit referenceに限り`field_solver="direct"`を使います。
 
 | キー | 既定値 | 意味 |
 |---|---:|---|
@@ -303,9 +338,6 @@ legacy `periodic2` では `field_solver="fmm"` を使います。小規模検証
 | `max_nonzero_mode_potential_step` | `0` | accepted trial で許す $k\ne0$ 電位変化の上限 [V]。省略または `0` で無効 |
 | `reference_mode_layers` | `4` | Fourier mode cutoff |
 | `panel_quadrature_order` | `12` | panel 面積積分次数 |
-| `interface_sample_n` | `5` | interface 各軸の診断点数 |
-| `interface_phi_tolerance` | `1e-3` | 非零モード電位比上限 |
-| `interface_field_tolerance` | `1e-3` | 非零モード電場比上限 |
 
 `max_nonzero_mode_potential_step > 0` は `nonzero_mode_backend="cached_kneq0"` でだけ使えます。
 解決後の `sim.batch_duration` を $h_0$ とし、各 accepted batch で
@@ -338,28 +370,21 @@ team size不一致またはcheckpointとの不一致はfail-fastします。
 この判定は frozen-field近似中の局所電位変化を制限するtrust boundであり、局所打切り誤差を
 保証しません。結果の時間幅収束は、この上限を半分にした計算と比較してください。
 
-### periodic2 と外部境界の組合せ制約
+### periodic2の組合せ制約
 
-periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要です。
+periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="periodic2"`が必要です。
 `examples/periodic2_closed_photoelectron.toml`は、x/y周期、局所reservoir、閉じた光電子を組み合わせた基準例です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
-| far correction | 意味 |
+| `nonzero_mode_backend` | 意味 |
 | --- | --- |
-| `none` | 有限画像近似 |
-| `auto` | 互換用。現在は`none` |
+| `panel_spectral_reference` | 小規模なsplit reference |
 | `cached_kneq0` | versioned operatorを再利用するproduction非零モード |
-
-`field_periodic_far_correction="auto"` は互換用に受理され、現在は `none` と同じ扱いです。
-無限周期のproduction計算では、`cached_kneq0`を明示的に選択してください。
-削除済みの`m2l_root_oracle`を指定すると、`cached_kneq0`を案内して起動時にrejectします。
 
 `cached_kneq0`では`exclude_k0` providerが物理的$k=0$を1回加えます。
 `symmetric_vacuum`は上下を$\pm Q/(2\epsilon_0A)$、`e_bottom_zero`は下側0・上側$Q/(\epsilon_0A)$とします。
 
-### `[sim]`: 外部場と外部境界が参照する物理値
-
-`phi_infty`は`infinity_barrier`と`potential_barrier`が参照する基準電位です。
+### `[sim]`: 外部場
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
@@ -371,55 +396,6 @@ periodic2では、`sim.use_box=true`とちょうど2つのperiodic軸が必要�
 
 一様外部電場は、`e0 = [Ex, Ey, Ez]` で直接指定するか、`e0_abs` と角度で指定します。
 両形式の混在はエラーです。
-
-#### 境界処理の物理値
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---:|---|
-| `phi_infty` | float | `0.0` | 無限遠基準電位 [V] |
-| `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard`。1 step の box event 上限超過時の処理 |
-| `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積 soft discard 件数がこの値を超えると停止 |
-| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1e-12` | 累積 soft discard 絶対 macro charge [C] がこの値を超えると停止 |
-| `injection_face_phi_grid_n` | int | `3` | 注入面平均電位の `N x N` 評価格子 |
-| `raycast_max_bounce` | int | `16` | `photo_raycast` の最大反射回数 |
-
-流束と速度は[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)、
-反射と return は[粒子の escape と return](ParticleEscapeReturn.html)を確認してください。
-
-`external_boundary.particles.inflow_model="infinity_barrier"`の評価
-:
-
-- 各 batch 冒頭で更新した電場・電位から、注入面平均電位を評価します。
-- P0 panel kernel、periodic2、zero mode、`e0`は粒子運動と同じ規約で含めます。
-- 同じ `N x N` 格子で母標準偏差・最小・最大も集計します。この診断による追加の電位評価はありません。
-- Maxwellian reservoir で `abs(q_particle) * phi_std > 0.1 * (k_B*T + 0.5*m_particle*u_normal^2)` なら、
-  MPI root が初回と最終 batch に面平均近似の警告を出します。
-
-#### 計算領域と粒子境界
-
-| キー | 型 | 既定値 | 説明 |
-|---|---|---:|---|
-| `use_box` | bool | `false` | ボックス境界を有効化 |
-| `box_min` | float[3] | `[-1,-1,-1]` | ボックス下限 [m] |
-| `box_max` | float[3] | `[1,1,1]` | ボックス上限 [m] |
-| `bc_x_low`, `bc_x_high` | string | `"open"` | x 方向下限・上限の粒子境界 |
-| `bc_y_low`, `bc_y_high` | string | `"open"` | y 方向下限・上限の粒子境界 |
-| `bc_z_low`, `bc_z_high` | string | `"open"` | z 方向下限・上限の粒子境界 |
-
-粒子境界は `open`, `reflect`, `periodic` を指定します。
-`open` は `outflow`, `escape` も同義語として受理されます。
-
-`external_boundary.ordinary_open.model="potential_barrier"`の判定
-（互換runtimeでは`open_boundary_model="potential_barrier"`）:
-
-1. 境界通過点の BEM 電位 `phi_boundary` を、粒子運動と同じ snapshot 規約で評価します。`e0` の局所電位も含みます。
-2. 電位障壁 `q_particle * (phi_infty - phi_boundary)` を計算します。
-3. 障壁が正で `0.5 * m_particle * v_normal^2` より大きければ、法線速度を反転します。それ以外は脱出です。
-
-一様電場には有限な無限遠電位がありません。`e0` と併用する場合、`phi_infty` を有効な reservoir 基準として整合させます。
-
-`periodic2` の mesh は、runtime で collision 用 canonical unwrapped 表現へ平行移動してから ray-triangle 判定します。
-raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangle を頂点ごとに mod 折り返すことはしません。
 
 ---
 
@@ -443,16 +419,29 @@ raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangl
 | `temperature_ev` | float | 未指定 | 温度 [eV]。`temperature_k` と排他 |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
 | `inject_face` | string | 未指定 | 注入面。`reservoir_face` / `photo_raycast` で必須 |
-| `z_high_boundary` | string | `"inherit"` | species単位のz-high作用。`inherit` / `reflect` |
+| `boundary` | table | 未指定 | `[particles.species.boundary]` のspecies別6面override |
 | `surface_charge_closure` | string | `"explicit"` | 表面source電荷closure。`explicit` / `neutral_return` |
 
-`z_high_boundary="reflect"`は、そのspeciesがz-highへ達したときだけ法線速度を反転する局所specular反射です。
-他speciesはglobal境界契約を継承します。このoverrideは`sim.use_box=true`かつ
-`sim.bc_z_high="open"`の場合だけ指定できます。`inject_face`は粒子源または照射rayの面であり、生成後の
-`z_high_boundary`とは別の設定です。
+#### `[particles.species.boundary]`: species別override
+
+このtableは直前の`[[particles.species]]`に属します。
+
+```toml
+[particles.species.boundary]
+z_high = "reflect"
+```
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+
+`inherit`は`[particle_boundary]`のglobal作用を使います。周期面はoverrideできません。
+`inject_face`は粒子生成面、species境界は生成後の軌道作用です。
 
 `surface_charge_closure="neutral_return"`は、負電荷`photo_raycast`、
-`deposit_opposite_charge_on_emit=true`、`z_high_boundary="reflect"`の組合せだけで使用できます。
+`deposit_opposite_charge_on_emit=true`、effectiveな`inject_face`境界が`reflect`の組合せだけで使用できます。
 解決済み帰還先depositをspecies別のglobal係数で補正し、光電子による表面総電荷増分を0にします。
 
 実escapeまたは`soft_discard`が生じる条件とは併用できません。通常のtracked chargeを
@@ -488,7 +477,7 @@ raw 頂点は periodic 軸で box 外を含んでも構いませんが、triangl
 
 | 条件 | 内容 |
 |---|---|
-| 領域 | `sim.use_box=true` が必須 |
+| 領域 | `[domain]`が必須 |
 | 時間 | `sim.batch_duration > 0` が必須 |
 | 注入面 | `inject_face` が必須 |
 | 注入範囲 | `pos_low` / `pos_high` は指定 face 上にある必要がある |
@@ -542,7 +531,7 @@ n_injected = floor(residual + n_macro_expected)
 
 | 条件 | 内容 |
 |---|---|
-| 領域 | `sim.use_box=true` が必須 |
+| 領域 | `[domain]`が必須 |
 | 時間 | `sim.batch_duration > 0` が必須 |
 | 放出量 | `emit_current_density_a_m2 > 0`, `rays_per_batch > 0` が必須 |
 | 注入面 | `inject_face` が必須 |
@@ -557,12 +546,12 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 ```
 
 実際の生成粒子数はレイの命中率で決まるため、バッチごとの生成数は `rays_per_batch` 以下です。
-`field_bc_mode="periodic2"` では、periodic image に命中しても primary cell に wrap した hit 座標から放出します。
+`field_boundary.mode="periodic2"`では、periodic imageに命中してもprimary cellへwrapしたhit座標から放出します。
 
 生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収します。
 
-`z_high_boundary="inherit"`ではopen面の`external_boundary.ordinary_open.model`がescapeまたは
-potential-barrier反射を決めます。`"reflect"`ではz-highだけを局所specular反射します。
+species境界が`inherit`なら`[particle_boundary]`の作用を使います。closed PEでは
+`[particles.species.boundary]`で`inject_face`を`reflect`にします。
 
 ---
 
@@ -752,8 +741,8 @@ z 軸方向の円柱です。
 
 `conductor` の制約:
 
-- `field_bc_mode="free"` の直接 Coulomb 係数で電荷を再配分します。
-- `field_bc_mode="periodic2"` とは併用できません。
+- `field_boundary.mode="free"`の直接Coulomb係数で電荷を再配分します。
+- `field_boundary.mode="periodic2"`とは併用できません。
 - 導体要素数が大きい場合、dense solve のバッチごとのコストが増えます。
 
 ---
@@ -782,7 +771,7 @@ z 軸方向の円柱です。
 |---|---|---:|---|
 | `write_files` | bool | `true` | ファイル出力の有効/無効 |
 | `write_mesh_potential` | bool | `false` | `mesh_potential.csv` を出力 |
-| `write_potential_history` | bool | `false` | `potential_history.csv`を出力。`use_box=true`なら同じbatchの`top_reference_history.csv`も出力 |
+| `write_potential_history` | bool | `false` | `potential_history.csv`を出力。`[domain]`があれば同じbatchの`top_reference_history.csv`も出力 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | 履歴 CSV の出力間隔 [batch] |
 | `resume` | bool | `false` | 既存 checkpoint から再開 |
@@ -799,7 +788,7 @@ z 軸方向の円柱です。
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |
-| `top_reference_history.csv` | 上記に加えて`sim.use_box=true`のとき。z-high全断面の平均・標準偏差・最小・最大電位 |
+| `top_reference_history.csv` | 上記に加えて`[domain]`があるとき。z-high全断面の平均・標準偏差・最小・最大電位 |
 | `performance_profile.csv` | `BEACH_PROFILE=1`のとき |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
@@ -826,7 +815,7 @@ z 軸方向の円柱です。
 
 - `potential_history.csv`と同じpost-commit snapshot、同じbatchで1行を記録します。
 - 形式は`batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`です。
-- `sample_n=sim.injection_face_phi_grid_n`とし、全box z-high面のcell-centered格子を使います。
+- `sample_n=reservoir.face_potential_grid_n`とし、全box z-high面のcell-centered格子を使います。
 - z-high面平均は無限遠電位やプラズマ電位ではなく、相対電位を読むための診断値です。
 
 `resume=true` の要件:
@@ -866,7 +855,7 @@ MPI 実行時:
 
 | key・指定値 | 型・条件 | 計算する値 | 直接指定したkeyとの関係 |
 |---|---|---|---|
-| `sim.box_origin`, `sim.box_size` | float[3]。2つを同時指定し、`box_size > 0` | `box_min = box_origin`、`box_max = box_origin + box_size` | `box_min`または`box_max`との併用はエラー |
+| `domain.box_origin`, `domain.box_size` | float[3]。2つを同時指定し、`box_size > 0` | `box_min = box_origin`、`box_max = box_origin + box_size` | `domain.box_min`または`domain.box_max`との併用はエラー |
 | `inject_region_mode="face_fraction"`, `uv_low`, `uv_high` | `uv_*`はfloat[2]かつ`[0,1]`内。`reservoir_face` / `photo_raycast`のみ | `inject_face`上の`pos_low`, `pos_high` | `pos_low`または`pos_high`との併用はエラー |
 | templateの`placement_mode="box_anchor"`, `anchor`, `offset`または`offset_frac` | `anchor`はbox centerまたは各face center。`offset`は[m]、`offset_frac`はbox幅に対する割合 | templateの`center` | `center`との併用はエラー。`offset`と`offset_frac`の併用もエラー |
 | templateの`size_mode="box_fraction"`, `size_frac` | 対応kindは`plane` / `plane_hole` / `plate_hole` / `box` / `sphere` / `cylinder` | 下表の寸法key | 対応する寸法keyを明示していてもエラーにせず、計算値で上書き |

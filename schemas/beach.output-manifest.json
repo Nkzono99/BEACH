@@ -48,7 +48,7 @@
     {
       "name": "top_reference_history.csv",
       "producer": "src/runtime/bem_output_writer.f90",
-      "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0 and sim.use_box=true",
+      "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0 and [domain] is configured",
       "restart_role": "none"
     },
     {

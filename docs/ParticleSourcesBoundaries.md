@@ -63,8 +63,9 @@ $$
 | reflect / periodic 面 | 同じ粒子で残り step を再積分 |
 | `max_step` まで生存 | 未解決粒子としてバッチ末尾で破棄・計上 |
 
-粒子前進は [Boris 粒子更新](BorisPusher.html)、mesh と box のイベント順序は
-[粒子の衝突・境界イベント](ParticleEvents.html)、open 面処理は
+非周期面の global 作用は `[particle_boundary]`、species override は `[particles.species.boundary]`、
+周期軸は `domain.periodic_axes` で指定します。粒子前進は [Boris 粒子更新](BorisPusher.html)、mesh と box の
+イベント順序は[粒子の衝突・境界イベント](ParticleEvents.html)、open 面処理は
 [粒子の escape と局所 return](ParticleEscapeReturn.html)で説明します。
 
 ## 粒子源はバッチ開始時の場を使う

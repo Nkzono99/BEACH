@@ -2,7 +2,7 @@
 module bem_model_fingerprint
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type
-  use bem_app_config_types, only: app_config, particle_species_spec
+  use bem_app_config_types, only: app_config, particle_species_spec, particle_bc_inherit
   implicit none
   private
 
@@ -75,6 +75,12 @@ contains
     call feed_real_vector(hash, cfg%sim%box_max)
     call feed_integer_vector(hash, cfg%sim%bc_low)
     call feed_integer_vector(hash, cfg%sim%bc_high)
+    if (any(cfg%particle_boundary_low /= particle_bc_inherit) .or. &
+        any(cfg%particle_boundary_high /= particle_bc_inherit)) then
+      call feed_string(hash, 'particle_boundary_v1')
+      call feed_integer_vector(hash, cfg%particle_boundary_low)
+      call feed_integer_vector(hash, cfg%particle_boundary_high)
+    end if
     fingerprint = finish_hash(hash)
   end function model_fingerprint
 
@@ -152,9 +158,11 @@ contains
     call feed_real_vector(hash, spec%ray_direction)
     call feed_logical(hash, spec%has_ray_direction)
     call feed_string(hash, spec%inject_face)
-    if (trim(spec%z_high_boundary) /= 'inherit') then
-      call feed_string(hash, 'z_high_boundary_v1')
-      call feed_string(hash, spec%z_high_boundary)
+    if (any(spec%boundary_low /= particle_bc_inherit) .or. &
+        any(spec%boundary_high /= particle_bc_inherit)) then
+      call feed_string(hash, 'species_particle_boundary_v1')
+      call feed_integer_vector(hash, spec%boundary_low)
+      call feed_integer_vector(hash, spec%boundary_high)
     end if
     if (trim(spec%surface_charge_closure) /= 'explicit') then
       call feed_string(hash, 'surface_charge_closure_v1')

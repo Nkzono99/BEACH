@@ -1,7 +1,8 @@
 !> BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。
 module bem_app_config_authoring
   use bem_kinds, only: dp, i32
-  use bem_app_config_types, only: app_config
+  use bem_types, only: bc_open, bc_periodic
+  use bem_app_config_types, only: app_config, particle_bc_inherit
   use bem_string_utils, only: lower_ascii
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
@@ -28,33 +29,41 @@ module bem_app_config_authoring
     real(dp) :: max_nonzero_mode_potential_step = 0.0_dp
   end type periodic2_authoring_spec
 
-  !> `[external_boundary.field]` の公開 authoring 設定。
-  type :: external_boundary_field_authoring_spec
+  !> 計算領域と周期 topology の公開 authoring 設定。
+  type :: domain_authoring_spec
     logical :: present = .false.
-    logical :: has_model = .false.
-    character(len=32) :: model = 'none'
-  end type external_boundary_field_authoring_spec
+    logical :: has_box_origin = .false.
+    logical :: has_box_size = .false.
+    logical :: has_box_min = .false.
+    logical :: has_box_max = .false.
+    real(dp) :: box_origin(3) = 0.0_dp
+    real(dp) :: box_size(3) = 0.0_dp
+    real(dp) :: box_min(3) = 0.0_dp
+    real(dp) :: box_max(3) = 0.0_dp
+    logical :: periodic_axis(3) = .false.
+  end type domain_authoring_spec
 
-  !> `[external_boundary.particles]` の局所 source 設定。
-  type :: external_boundary_particles_authoring_spec
+  !> 場の境界 closure の公開 authoring 設定。
+  type :: field_boundary_authoring_spec
     logical :: present = .false.
-    logical :: has_mode = .false.
-    character(len=32) :: mode = 'local_source'
+    character(len=32) :: mode = 'free'
+  end type field_boundary_authoring_spec
+
+  !> tracked particle のglobal面作用を保持する。
+  type :: particle_boundary_authoring_spec
+    logical :: present = .false.
+    integer(i32) :: low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
+    integer(i32) :: high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
+    character(len=32) :: ordinary_open_model = 'escape'
+  end type particle_boundary_authoring_spec
+
+  !> 局所 reservoir inflow の公開 authoring 設定。
+  type :: reservoir_authoring_spec
+    logical :: present = .false.
     character(len=32) :: inflow_model = 'source_vdf'
-  end type external_boundary_particles_authoring_spec
-
-  !> 通常 open 面の公開 authoring 設定。
-  type :: external_boundary_ordinary_open_authoring_spec
-    character(len=32) :: model = 'escape'
-  end type external_boundary_ordinary_open_authoring_spec
-
-  !> 外部境界の公開 facade。field と particles は必須、ordinary_open は省略可能。
-  type :: external_boundary_authoring_spec
-    logical :: present = .false.
-    type(external_boundary_field_authoring_spec) :: field
-    type(external_boundary_particles_authoring_spec) :: particles
-    type(external_boundary_ordinary_open_authoring_spec) :: ordinary_open
-  end type external_boundary_authoring_spec
+    real(dp) :: phi_infty = 0.0_dp
+    integer(i32) :: face_potential_grid_n = 3_i32
+  end type reservoir_authoring_spec
 
   type :: particle_authoring_spec
     logical :: has_inject_region_mode = .false.
@@ -114,8 +123,11 @@ module bem_app_config_authoring
 
   type :: app_config_authoring
     type(sim_authoring_spec) :: sim
+    type(domain_authoring_spec) :: domain
+    type(field_boundary_authoring_spec) :: field_boundary
+    type(particle_boundary_authoring_spec) :: particle_boundary
+    type(reservoir_authoring_spec) :: reservoir
     type(periodic2_authoring_spec) :: periodic2
-    type(external_boundary_authoring_spec) :: external_boundary
     integer(i32) :: n_groups = 0_i32
     type(mesh_group_authoring_spec), allocatable :: groups(:)
     type(particle_authoring_spec), allocatable :: particle_species(:)
@@ -124,11 +136,11 @@ module bem_app_config_authoring
 
   public :: app_config_authoring
   public :: sim_authoring_spec
+  public :: domain_authoring_spec
+  public :: field_boundary_authoring_spec
+  public :: particle_boundary_authoring_spec
+  public :: reservoir_authoring_spec
   public :: periodic2_authoring_spec
-  public :: external_boundary_field_authoring_spec
-  public :: external_boundary_particles_authoring_spec
-  public :: external_boundary_ordinary_open_authoring_spec
-  public :: external_boundary_authoring_spec
   public :: particle_authoring_spec
   public :: mesh_group_authoring_spec
   public :: template_authoring_spec
@@ -137,7 +149,7 @@ module bem_app_config_authoring
   public :: ensure_authoring_template_capacity
   public :: ensure_authoring_group_capacity
   public :: normalize_high_level_config
-  public :: lower_external_boundary_authoring
+  public :: lower_boundary_authoring
 
 contains
 
@@ -239,64 +251,67 @@ contains
     end do
   end subroutine normalize_high_level_config
 
-  !> `[external_boundary.*]` を局所 reservoir/open-boundary runtime 設定へ lower する。
-  subroutine lower_external_boundary_authoring(cfg, authoring)
+  !> domain / field / particle / reservoir の公開設定をruntime設定へ lower する。
+  subroutine lower_boundary_authoring(cfg, authoring)
     type(app_config), intent(inout) :: cfg
     type(app_config_authoring), intent(in) :: authoring
 
-    character(len=32) :: field_model
-    character(len=32) :: particle_mode, inflow_model
-    character(len=32) :: ordinary_open_model
+    integer :: axis
+    character(len=32) :: mode
 
-    if (.not. authoring%external_boundary%present) return
-
-    if (.not. authoring%external_boundary%field%present) then
-      error stop '[external_boundary.field] is required when [external_boundary] is used.'
+    if (authoring%domain%present) then
+      cfg%sim%use_box = .true.
+      if (authoring%domain%has_box_origin .neqv. authoring%domain%has_box_size) then
+        error stop 'domain.box_origin and domain.box_size must be specified together.'
+      end if
+      if (authoring%domain%has_box_min .neqv. authoring%domain%has_box_max) then
+        error stop 'domain.box_min and domain.box_max must be specified together.'
+      end if
+      if (authoring%domain%has_box_origin .and. authoring%domain%has_box_min) then
+        error stop 'domain.box_origin/box_size cannot be combined with domain.box_min/box_max.'
+      end if
+      if (authoring%domain%has_box_origin) then
+        cfg%sim%box_min = authoring%domain%box_origin
+        cfg%sim%box_max = authoring%domain%box_origin + authoring%domain%box_size
+      else if (authoring%domain%has_box_min) then
+        cfg%sim%box_min = authoring%domain%box_min
+        cfg%sim%box_max = authoring%domain%box_max
+      else
+        error stop '[domain] requires box_min/box_max or box_origin/box_size.'
+      end if
+      cfg%sim%bc_low = bc_open
+      cfg%sim%bc_high = bc_open
+      do axis = 1, 3
+        if (authoring%domain%periodic_axis(axis)) then
+          cfg%sim%bc_low(axis) = bc_periodic
+          cfg%sim%bc_high(axis) = bc_periodic
+        end if
+      end do
     end if
-    if (.not. authoring%external_boundary%particles%present) then
-      error stop '[external_boundary.particles] is required when [external_boundary] is used.'
-    end if
-    if (.not. authoring%external_boundary%field%has_model) then
-      error stop 'external_boundary.field.model is required.'
-    end if
-    if (.not. authoring%external_boundary%particles%has_mode) then
-      error stop 'external_boundary.particles.mode is required.'
+
+    if (authoring%field_boundary%present) then
+      cfg%sim%field_bc_mode = lower_ascii(trim(authoring%field_boundary%mode))
     end if
 
-    field_model = lower_ascii(trim(authoring%external_boundary%field%model))
-    particle_mode = lower_ascii(trim(authoring%external_boundary%particles%mode))
-    inflow_model = lower_ascii(trim(authoring%external_boundary%particles%inflow_model))
-    ordinary_open_model = lower_ascii(trim(authoring%external_boundary%ordinary_open%model))
+    if (authoring%particle_boundary%present) then
+      cfg%particle_boundary_low = authoring%particle_boundary%low
+      cfg%particle_boundary_high = authoring%particle_boundary%high
+      cfg%sim%open_boundary_model = lower_ascii(trim(authoring%particle_boundary%ordinary_open_model))
+    end if
 
-    select case (trim(field_model))
-    case ('none')
-      continue
-    case default
-      error stop 'external_boundary.field.model is not supported.'
-    end select
-    select case (trim(ordinary_open_model))
-    case ('escape', 'potential_barrier')
-      continue
-    case default
-      error stop 'external_boundary.ordinary_open.model must be "escape" or "potential_barrier".'
-    end select
-    cfg%sim%open_boundary_model = ordinary_open_model
-
-    select case (trim(particle_mode))
-    case ('local_source')
-      continue
-    case default
-      error stop 'external_boundary.particles.mode must be "local_source".'
-    end select
-    select case (trim(inflow_model))
+    if (.not. authoring%reservoir%present) return
+    mode = lower_ascii(trim(authoring%reservoir%inflow_model))
+    select case (trim(mode))
     case ('source_vdf')
       cfg%sim%reservoir_potential_model = 'none'
     case ('infinity_barrier')
       cfg%sim%reservoir_potential_model = 'infinity_barrier'
     case default
-      error stop 'external_boundary.particles.inflow_model is not supported.'
+      error stop 'reservoir.inflow_model is not supported.'
     end select
-  end subroutine lower_external_boundary_authoring
+    cfg%sim%phi_infty = authoring%reservoir%phi_infty
+    cfg%sim%injection_face_phi_grid_n = authoring%reservoir%face_potential_grid_n
+  end subroutine lower_boundary_authoring
 
   !> `sim.box_origin`/`sim.box_size` を `box_min`/`box_max` へ変換する。
   subroutine normalize_sim_high_level(cfg, sim_auth)

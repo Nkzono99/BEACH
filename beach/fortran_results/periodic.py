@@ -138,8 +138,13 @@ def auto_periodic2_from_result(
     if run_context.sim is None:
         return None
     allow_historical_root_oracle = run_context.requested_config_path is None
-    periodic2 = periodic2_from_sim(
+    sim = _sim_with_separated_boundaries(
         run_context.sim,
+        domain=run_context.domain,
+        field_boundary=run_context.field_boundary,
+    )
+    periodic2 = periodic2_from_sim(
+        sim,
         allow_cached_kneq0=allow_cached_kneq0,
         allow_historical_root_oracle=allow_historical_root_oracle,
     )
@@ -148,6 +153,30 @@ def auto_periodic2_from_result(
         allow_cached_kneq0=allow_cached_kneq0,
         allow_historical_root_oracle=allow_historical_root_oracle,
     )
+
+
+def _sim_with_separated_boundaries(
+    sim: Mapping[str, object],
+    *,
+    domain: Mapping[str, object] | None,
+    field_boundary: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Compose the legacy post-processing view without changing public TOML."""
+
+    resolved = dict(sim)
+    if field_boundary is not None:
+        resolved["field_bc_mode"] = field_boundary.get("mode", "free")
+    if domain is not None:
+        if "box_min" in domain:
+            resolved["box_min"] = domain["box_min"]
+        if "box_max" in domain:
+            resolved["box_max"] = domain["box_max"]
+        periodic_axes = domain.get("periodic_axes", [])
+        for axis in ("x", "y", "z"):
+            mode = "periodic" if axis in periodic_axes else "open"
+            resolved[f"bc_{axis}_low"] = mode
+            resolved[f"bc_{axis}_high"] = mode
+    return resolved
 
 
 def periodic2_from_sim(

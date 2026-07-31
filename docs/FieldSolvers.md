@@ -40,8 +40,25 @@ solver間の速度差は要素数だけでなく、
 | `fmm` | 対応 | 対応。無限周期productionでは`cached_kneq0`を使用 |
 | `auto` | 対応 | 非対応 |
 
-`periodic2`ではさらに`sim.use_box=true`、ちょうど2つのperiodic軸、1つのopen軸が必要です。
-Direct split referenceは小規模な基準解・検証用であり、通常のperiodic2 production経路はFMMです。
+`periodic2` では `[domain]` の box、`periodic_axes=["x", "y"]`、非周期 z 軸が必要です。
+Direct split reference は小規模な基準解・検証用であり、通常の periodic2 production 経路は FMM です。
+
+## domain topology と field boundary を分ける
+
+```toml
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+```
+
+`[domain]` は計算 cell と periodic topology、`[field_boundary]` は場の closure を定めます。
+`mode="free"` は自由空間場、`mode="periodic2"` は domain の x/y 周期を使う 2 軸周期場です。現行
+`periodic2` は x/y 周期・z 非周期だけを受理します。粒子種別の境界設定は非周期面の `open` / `reflect` を
+選べますが、周期軸を追加・削除・上書きできません。
 
 ## triangle P0で要素電荷を離散化する
 
@@ -62,7 +79,7 @@ Treecodeは近傍leafを解析panel核、遠方nodeをmonopoleで
 | --- | --- | --- |
 | `si` | 1 m | 0 |
 | `length` | `field_length_scale` | 0 |
-| `box` | boxの3辺の最大値 | `box_min` |
+| `box` | `[domain]` の3辺の最大値 | `domain.box_min` |
 | `mesh` | mesh bounding boxの最大幅 | mesh bounding boxの最小点 |
 
 内部では
@@ -72,17 +89,14 @@ $$
 $$
 
 として評価し、電場には$k_c/L_0^2$、電位には$k_c/L_0$を掛けてSIへ戻します。
-`box`には`use_box=true`と正のbox幅が必要です。空meshで`mesh`を選んだ場合だけ
-`field_length_scale`を使います。
+`box` には正の幅を持つ `[domain]` が必要です。空 mesh で `mesh` を選んだ場合だけ
+`field_length_scale` を使います。
 
 ## periodic2ではsolverと境界成分を組み合わせる
 
-`periodic2`はsolverを1つ選ぶだけでは決まりません。有限画像和または無限画像和、非zero mode、zero mode、
-reservoir粒子の加減速、photoelectronのescape/returnを組み合わせる計算構成です。
-
-legacyの`sim.field_bc_mode="periodic2"`経路はFMMを使います。小規模検証用のsplit referenceは、Directの
-panel spectral backendを使います。それぞれの成分構成は
-[periodic2場計算](PeriodicElectrostatics.html)で説明します。
+`periodic2` は solver だけでは決まらず、有限画像または無限画像の nonzero mode と physical zero mode を
+組み合わせます。production は FMM、小規模 split reference は Direct の panel spectral backend を使います。
+成分構成は [periodic2 場計算](PeriodicElectrostatics.html)を参照してください。
 
 ## solver誤差とmesh離散化誤差を分けて測る
 

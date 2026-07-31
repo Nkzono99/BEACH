@@ -14,7 +14,7 @@ BEACH は、境界要素法による電場評価と粒子追跡を組み合わ�
 
 - 外部領域のプラズマ場や粒子輸送は解かない
 - 周囲粒子は `reservoir_face` から局所注入する
-- 光電子は `photo_raycast`、z-high 反射、`neutral_return` で閉じる
+- 光電子は `photo_raycast`、`inject_face` と同じ species 面の反射、`neutral_return` で閉じる
 - mesh hit は吸収し、表面電荷差分を batch ごとに commit する
 - `sim.batch_count` まで実行し、`sim.max_step` を粒子ごとの上限とする
 - `sim.tol_rel` は監視値であり、早期停止条件ではない
@@ -51,8 +51,8 @@ make run CONFIG=examples/beach.toml
 | 最小の動作確認 | `examples/beach.toml` | [設定レシピ](ConfigurationRecipes.html) |
 | 局所 plasma reservoir | `source_mode="reservoir_face"` | [Reservoir 注入](ReservoirInjection.html) |
 | 閉じた光電子再分配 | `examples/periodic2_closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
-| free-space の場評価 | `field_bc_mode="free"` | [場の評価](FieldSolvers.html) |
-| 2 軸周期の場評価 | `field_bc_mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
+| free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
+| 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
 | 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](PostprocessTutorial.html) |
 | checkpoint から再開 | `output.resume=true` | [実行と再開](Execution.html) |
 
@@ -73,10 +73,10 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 
 | 機能 | 必須条件 |
 |---|---|
-| `reservoir_face` | `sim.use_box=true`、解決後の `sim.batch_duration>0`、`inject_face` |
-| `photo_raycast` | `sim.use_box=true`、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
-| closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`z_high_boundary="reflect"`、`surface_charge_closure="neutral_return"` |
-| `periodic2` | `sim.use_box=true`、ちょうど 2 軸が periodic、`[periodic2]` の zero-mode 設定 |
+| `reservoir_face` | `[domain]` の box、解決後の `sim.batch_duration>0`、`inject_face` |
+| `photo_raycast` | `[domain]` の box、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
+| closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect`、`surface_charge_closure="neutral_return"` |
+| `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[periodic2]` の zero-mode 設定 |
 | resume | `output.write_files=true`、必要な checkpoint、同じ MPI size |
 
 `periodic2` の通常経路は FMM です。Direct は

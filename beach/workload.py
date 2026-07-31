@@ -67,6 +67,22 @@ DEFAULT_SPECIES: dict[str, Any] = {
 }
 
 ALLOWED_SIM_KEYS = schema_definition_property_names("sim")
+_LEGACY_SIM_BOUNDARY_KEYS = frozenset(
+    {
+        "field_bc_mode",
+        "use_box",
+        "box_min",
+        "box_max",
+        "box_origin",
+        "box_size",
+        "bc_x_low",
+        "bc_x_high",
+        "bc_y_low",
+        "bc_y_high",
+        "bc_z_low",
+        "bc_z_high",
+    }
+)
 ALLOWED_SPECIES_KEYS = schema_definition_property_names("species")
 
 
@@ -287,7 +303,7 @@ def _validate_reservoir_species(
     reservoir_params_by_species: list[dict[str, Any] | None],
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
-        raise SystemExit("reservoir_face requires sim.use_box = true")
+        raise SystemExit("reservoir_face requires a [domain] box.")
     if (
         abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
         or int(spec.get("rays_per_batch", 0)) != 0
@@ -496,7 +512,7 @@ def _validate_photo_raycast_species(
 ) -> dict[str, Any]:
     if not bool(sim_cfg.get("use_box", False)):
         raise SystemExit(
-            'particles.species.source_mode="photo_raycast" requires sim.use_box = true.'
+            'particles.species.source_mode="photo_raycast" requires a [domain] box.'
         )
 
     if (
@@ -743,9 +759,17 @@ def estimate_workload(
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
         raise SystemExit("[sim] section must be a table.")
-    unknown_sim_keys = sorted(set(sim_raw) - ALLOWED_SIM_KEYS)
+    unknown_sim_keys = sorted(
+        set(sim_raw) - ALLOWED_SIM_KEYS - _LEGACY_SIM_BOUNDARY_KEYS
+    )
     if unknown_sim_keys:
         raise SystemExit(f"Unknown key in [sim]: {unknown_sim_keys[0]}")
+    domain_raw = config.get("domain")
+    if domain_raw is not None and not isinstance(domain_raw, dict):
+        raise SystemExit("[domain] section must be a table.")
+    field_boundary_raw = config.get("field_boundary")
+    if field_boundary_raw is not None and not isinstance(field_boundary_raw, dict):
+        raise SystemExit("[field_boundary] section must be a table.")
 
     particles_raw = config.get("particles", {})
     if not isinstance(particles_raw, dict):
@@ -767,16 +791,28 @@ def estimate_workload(
             )
 
     workload_config = {"sim": sim_raw, "particles": particles_raw}
+    if domain_raw is not None:
+        workload_config["domain"] = domain_raw
+    if field_boundary_raw is not None:
+        workload_config["field_boundary"] = field_boundary_raw
     try:
         normalized_config = normalize_high_level_config(workload_config)
     except (ConfigError, TypeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
     sim_raw = normalized_config["sim"]
+    domain_raw = normalized_config.get("domain")
+    field_boundary_raw = normalized_config.get("field_boundary")
     particles_raw = normalized_config["particles"]
     species_list_raw = particles_raw["species"]
 
     sim_cfg = dict(DEFAULT_SIM)
     sim_cfg.update(sim_raw)
+    if isinstance(domain_raw, dict):
+        sim_cfg["use_box"] = True
+        sim_cfg["box_min"] = domain_raw.get("box_min", DEFAULT_SIM["box_min"])
+        sim_cfg["box_max"] = domain_raw.get("box_max", DEFAULT_SIM["box_max"])
+    if isinstance(field_boundary_raw, dict):
+        sim_cfg["field_bc_mode"] = field_boundary_raw.get("mode", "free")
     _validate_external_e_field(sim_raw, sim_cfg)
 
     species_list: list[dict[str, Any]] = []

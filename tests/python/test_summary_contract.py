@@ -14,9 +14,9 @@ from beach.summary import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-RESOLVED_EXTERNAL_BOUNDARY_SUMMARY_KEYS = (
-    "external_inflow_map",
-    "external_ordinary_open_model",
+RESOLVED_LOCAL_BOUNDARY_SUMMARY_KEYS = (
+    "reservoir_inflow_map",
+    "particle_ordinary_open_model",
 )
 
 
@@ -49,8 +49,8 @@ def test_fortran_writer_matches_python_core_summary_contract() -> None:
     assert int(match.group(1)) == CURRENT_CHECKPOINT_SCHEMA_VERSION
 
 
-def test_fortran_writer_emits_resolved_external_boundary_receipt() -> None:
+def test_fortran_writer_emits_resolved_local_boundary_receipt() -> None:
     writer = (ROOT / "src/runtime/bem_output_writer.f90").read_text(encoding="utf-8")
 
-    for key in RESOLVED_EXTERNAL_BOUNDARY_SUMMARY_KEYS:
+    for key in RESOLVED_LOCAL_BOUNDARY_SUMMARY_KEYS:
         assert f"'{key}='" in writer

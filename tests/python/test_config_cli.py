@@ -12,7 +12,6 @@ from beach.config import (
     default_config,
     load_config_file,
     normalize_config_document,
-    validate_runtime_config,
 )
 
 
@@ -24,18 +23,20 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-use_box = true
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 10.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
 rng_seed = 12345
 field_solver = "fmm"
-field_bc_mode = "{field_bc_mode}"
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 10.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "{field_bc_mode}"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
 
 [particles]
 [[particles.species]]
@@ -73,7 +74,7 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
 
     result = load_config_file(config_path)
 
-    assert result["sim"]["field_bc_mode"] == "periodic2"
+    assert result["field_boundary"]["mode"] == "periodic2"
     assert result["particles"]["species"][0]["npcls_per_step"] == 10
     assert result["mesh"]["templates"][0]["kind"] == "plane"
 
@@ -170,27 +171,55 @@ def test_adaptive_nonzero_mode_requires_cached_time_scaled_sources() -> None:
         normalize_config_document(volume)
 
 
-def test_external_boundary_preserves_the_local_source_contract() -> None:
+def test_separated_boundary_tables_preserve_the_local_source_contract() -> None:
     runtime = default_config()
     authoring = copy.deepcopy(runtime)
-    authoring["external_boundary"] = {
-        "field": {"model": "none"},
-        "particles": {"mode": "local_source"},
-    }
+    authoring["particle_boundary"]["ordinary_open_model"] = "potential_barrier"
+    authoring["reservoir"] = {"inflow_model": "infinity_barrier", "phi_infty": 1.0}
 
     normalized = normalize_config_document(authoring)
-    assert normalized["external_boundary"] == authoring["external_boundary"]
+    assert normalized["particle_boundary"] == authoring["particle_boundary"]
+    assert normalized["reservoir"] == authoring["reservoir"]
     assert normalized["sim"] == runtime["sim"]
 
 
-def test_runtime_validator_accepts_external_boundary_contract() -> None:
+def test_particle_boundary_overrides_resolve_after_global_defaults() -> None:
+    config = load_config_file(Path("examples/periodic2_closed_photoelectron.toml"))
+    photoelectron = config["particles"]["species"][-1]
+    photoelectron["boundary"]["z_high"] = "inherit"
+    photoelectron.pop("q_particle")
+    config["particle_boundary"]["z_high"] = "reflect"
+
+    normalized = normalize_config_document(config)
+    assert normalized["particle_boundary"]["z_high"] == "reflect"
+    assert normalized["particles"]["species"][-1]["boundary"]["z_high"] == "inherit"
+
+    config["particle_boundary"]["z_high"] = "open"
+    with pytest.raises(ConfigValidationError, match="reflect on inject_face"):
+        normalize_config_document(config)
+
+
+def test_particle_boundary_cannot_override_periodic_topology() -> None:
+    config = default_config()
+    config["particle_boundary"]["x_low"] = "reflect"
+    with pytest.raises(ConfigValidationError, match="periodic domain face"):
+        normalize_config_document(config)
+
+    config = default_config()
+    config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
+    with pytest.raises(ConfigValidationError, match="periodic domain face"):
+        normalize_config_document(config)
+
+
+def test_runtime_validator_rejects_removed_external_boundary_contract() -> None:
     config = default_config()
     config["external_boundary"] = {
         "field": {"model": "none"},
         "particles": {"mode": "local_source"},
     }
 
-    validate_runtime_config(config)
+    with pytest.raises(ConfigError, match="unsupported top-level key"):
+        normalize_config_document(config)
 
 
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:
@@ -202,18 +231,20 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-use_box = true
-box_origin = [1.0, 2.0, 3.0]
-box_size = [2.0, 4.0, 6.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
 rng_seed = 12345
 field_solver = "fmm"
-field_bc_mode = "periodic2"
+
+[domain]
+box_origin = [1.0, 2.0, 3.0]
+box_size = [2.0, 4.0, 6.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
 
 [particles]
 [[particles.species]]
@@ -254,8 +285,8 @@ history_stride = 1
 
     result = load_config_file(config_path)
 
-    assert result["sim"]["box_min"] == [1.0, 2.0, 3.0]
-    assert result["sim"]["box_max"] == [3.0, 6.0, 9.0]
+    assert result["domain"]["box_min"] == [1.0, 2.0, 3.0]
+    assert result["domain"]["box_max"] == [3.0, 6.0, 9.0]
     species = result["particles"]["species"][0]
     assert species["pos_low"] == [1.5, 4.0, 9.0]
     assert species["pos_high"] == [2.5, 6.0, 9.0]
@@ -273,18 +304,20 @@ dt = 2.0e-8
 batch_duration_step = 10.0
 batch_count = 2
 max_step = 100
-use_box = true
-box_origin = [1.0, 2.0, 3.0]
-box_size = [2.0, 4.0, 6.0]
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
 rng_seed = 12345
 field_solver = "fmm"
-field_bc_mode = "periodic2"
+
+[domain]
+box_origin = [1.0, 2.0, 3.0]
+box_size = [2.0, 4.0, 6.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
 
 [particles]
 [[particles.species]]
@@ -376,9 +409,11 @@ def test_load_config_file_rejects_removed_photo_escape_model(tmp_path: Path) -> 
 [sim]
 batch_count = 1
 batch_duration = 1.0e-6
-use_box = true
+
+[domain]
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
+periodic_axes = []
 
 [particles]
 [[particles.species]]
@@ -437,12 +472,9 @@ def test_config_cli_init_validate_and_diff(
     assert "status=ok" in validate_streams.out
 
     initialized = load_config_file(tmp_path / "beach.toml")
-    assert initialized["sim"]["bc_x_low"] == "periodic"
-    assert initialized["sim"]["bc_x_high"] == "periodic"
-    assert initialized["sim"]["bc_y_low"] == "periodic"
-    assert initialized["sim"]["bc_y_high"] == "periodic"
+    assert initialized["domain"]["periodic_axes"] == ["x", "y"]
     assert initialized["sim"]["field_solver"] == "fmm"
-    assert initialized["sim"]["field_bc_mode"] == "periodic2"
+    assert initialized["field_boundary"]["mode"] == "periodic2"
     assert initialized["sim"]["field_periodic_image_layers"] == 1
     assert initialized["sim"]["field_periodic_far_correction"] == "none"
     assert len(initialized["particles"]["species"]) == 1

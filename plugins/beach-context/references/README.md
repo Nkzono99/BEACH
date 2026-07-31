@@ -89,7 +89,10 @@ beach beach.toml
 サンプルは [`examples/periodic2_basic/beach.toml`](examples/periodic2_basic/beach.toml) にあります。
 生成される `beach.toml` には `schemas/beach.schema.json` への `#:schema ...` directive を付けています。
 
-空間座標系まわりは、高水準記法で指定して Fortran parser が読み込み時に正規化できます。たとえば `sim.box_origin` + `sim.box_size`、`reservoir_face` / `photo_raycast` の `inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、`mesh.groups.*` の `scale_from = "box_x"` は、具体的な `box_min` / `box_max` / `pos_low` / `pos_high` / `center` / `size_x` などへ変換されます。
+空間座標系まわりは、高水準記法で指定して Fortran parser が読み込み時に正規化できます。たとえば
+`domain.box_origin` + `domain.box_size`、`reservoir_face` / `photo_raycast` の
+`inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、
+`mesh.groups.*` の `scale_from = "box_x"` は、具体的な座標や寸法へ変換されます。
 
 ### 2.1 推奨: `beach` コマンド
 
@@ -121,7 +124,7 @@ beachx inspect outputs/latest \
   --save-bar outputs/latest/charges_bar.png \
   --save-mesh outputs/latest/charges_mesh.png
 
-# sim.field_bc_mode = "periodic2" の mesh を周期セルへ寄せて描く場合
+# field_boundary.mode = "periodic2" の mesh を domain の周期セルへ寄せて描く場合
 beachx inspect outputs/latest \
   --save-mesh outputs/latest/charges_mesh_periodic.png \
   --save-potential-mesh outputs/latest/potential_mesh_periodic.png \
@@ -159,7 +162,12 @@ beachx kernel-forces outputs/latest \
 
 `beachx coulomb` は、`beach.toml` の `mesh.templates` が見つかれば object の kind と順序をそこから読み取り、既定では全 object を target 軸に並べて行列を描きます。特定 kind だけに絞りたいときは `--target-kinds sphere` のように指定できます。
 `beachx mobility` は、既定で `plane` を support とみなし、それ以外の object について合力・合トルクと `lift_ratio` / `slide_ratio` / `roll_ratio` を CSV に書き出します。質量由来の指標は `--density-kg-m3` と `beach.toml` の幾何情報が必要です。
-`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran field core を Python から呼び出し、`beach.toml` の `sim.field_bc_mode` / periodic2 / tree 設定を使って object ごとの net force を計算します。sourceはP0 triangle panelに固定されています。共有ライブラリは `make build-kernel` で `build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または `BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は `--config path/to/beach.toml` を指定します。
+`beachx kernel-forces` は `libbeach_field_kernel` を介して Fortran field core を Python から呼び出し、
+`beach.toml` の `field_boundary.mode`、`domain.periodic_axes` / box、periodic2、tree 設定を使って object ごとの
+net force を計算します。source は P0 triangle panel に固定されています。共有ライブラリは `make build-kernel` で
+`build/libbeach_field_kernel.so` に生成できます。別の場所に置く場合は `--library` または
+`BEACH_FIELD_KERNEL_LIB` を指定します。設定ファイルが出力ディレクトリ近傍にない場合は
+`--config path/to/beach.toml` を指定します。
 
 旧 alias の `beach-inspect` / `beach-animate-history` / `beach-plot-coulomb-force-matrix` /
 `beach-plot-potential-slices` なども当面は使えますが、今後は `beachx ...` を推奨します。
@@ -370,7 +378,7 @@ make docs-fortran
 - Fortran 実行フロー: [`docs/fortran_workflow.md`](docs/fortran_workflow.md)
 - `beach.toml` 仕様: [`docs/fortran_parameter_file.md`](docs/fortran_parameter_file.md)
 - `beach.toml` JSON Schema: [`schemas/beach.schema.json`](schemas/beach.schema.json)
-- 外部境界: 現行構成は局所source、scalar barrier、closed PEを使う
+- 境界設定: `[domain]`、`[field_boundary]`、`[particle_boundary]`、`[reservoir]`
 - Coulomb FMM コア仕様: [`docs/fortran_fmm_core.md`](docs/fortran_fmm_core.md)
 - 自動生成の依存関係マップ: `make docs-fortran` 実行後の `docs/fortran_dependency_map.md`
 - 実装仕様（source of truth）: [`SPEC.md`](SPEC.md)

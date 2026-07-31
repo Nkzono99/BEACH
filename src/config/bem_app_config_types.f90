@@ -10,6 +10,7 @@ module bem_app_config_types
   !> 設定配列の初期確保サイズ（上限ではない）。
   integer, parameter :: max_templates = 8
   integer, parameter :: max_particle_species = 8
+  integer(i32), parameter :: particle_bc_inherit = -1_i32
 
   !> 1粒子種の注入設定を表す。
   type :: particle_species_spec
@@ -51,7 +52,8 @@ module bem_app_config_types
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.
     character(len=16) :: inject_face = ''
-    character(len=16) :: z_high_boundary = 'inherit'
+    integer(i32) :: boundary_low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
+    integer(i32) :: boundary_high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     character(len=16) :: surface_charge_closure = 'explicit'
   end type particle_species_spec
 
@@ -100,6 +102,10 @@ module bem_app_config_types
     integer(i32) :: n_particles = 0_i32
     integer(i32) :: n_particle_species = 0_i32
     type(particle_species_spec), allocatable :: particle_species(:)
+    integer(i32) :: particle_boundary_low(3) = &
+                    [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
+    integer(i32) :: particle_boundary_high(3) = &
+                    [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
 
     logical :: write_output = .true.
     logical :: write_mesh_potential = .false.

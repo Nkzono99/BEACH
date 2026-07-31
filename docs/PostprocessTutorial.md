@@ -97,7 +97,7 @@ beachx inspect outputs/latest \
   --save-potential-mesh outputs/latest/potential_mesh.png
 ```
 
-`sim.field_bc_mode="periodic2"`のmeshを周期cellに寄せて描く場合:
+`field_boundary.mode="periodic2"` の mesh を `domain.periodic_axes` の周期 cell に寄せて描く場合:
 
 ```bash
 beachx inspect outputs/latest \
@@ -137,7 +137,8 @@ beachx mobility outputs/latest \
   --save-csv outputs/latest/mobility_summary.csv
 ```
 
-これらは近傍の`beach.toml`からgeometryやperiodic2設定を自動解決します。
+これらは近傍の `beach.toml` から geometry、`field_boundary.mode`、`domain.periodic_axes` と box を読み、
+periodic2 設定を自動解決します。
 見つからない場合は、対応するcommandの`--config`を指定してください。
 
 ### 周期画像を含むobjectの離脱力

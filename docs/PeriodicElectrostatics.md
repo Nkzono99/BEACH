@@ -4,8 +4,24 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 
 # periodic2静電場
 
-`field_bc_mode="periodic2"` の静電場は、x/y 周期・z 開放の slab で有限画像、無限周期 `k\ne0`、平面平均
+`field_boundary.mode="periodic2"` の静電場は、x/y 周期・z 非周期の slab で有限画像、無限周期 `k\ne0`、平面平均
 `k=0` を別々に計算し、各成分を一度ずつ加算します。
+
+## domain topology と場 closure を指定する
+
+```toml
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+```
+
+周期性は `[domain]` の topology です。`[field_boundary]` はその cell に適用する `free` / `periodic2` の場 closure を
+選びます。現行 periodic2 は x/y 周期・z 非周期だけを受理し、species や `[particle_boundary]` は周期軸を
+上書きできません。
 
 ## 場を3つの成分に分ける
 

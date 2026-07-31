@@ -33,7 +33,7 @@ beachx inspect outputs/latest
 | 組み込み形状を使う | `[mesh]`, `[[mesh.templates]]` |
 | OBJ形状を使う | `[mesh]` |
 | 初期粒子、reservoir流入、光電子を選ぶ | `[[particles.species]]` |
-| 2軸周期の有限画像和を使う | `[sim]` |
+| box、場境界、粒子境界を選ぶ | `[domain]`, `[field_boundary]`, `[particle_boundary]`, `[reservoir]` |
 | 時系列を保存する | `[output]` |
 | checkpointから続ける | `[output]` |
 
@@ -82,7 +82,7 @@ n_lat = 12
 **期待する出力:** `mesh_triangles.csv`に両方の`mesh_id`が現れ、`mesh_sources.csv`で元のtemplateを確認できます。
 
 **解釈:** 分割数を増やすと場計算と衝突判定のコストも増えます。まず粗いメッシュで配置と衝突を確認します。
-通常の帯電計算は`surface_model="insulator"`を使います。`conductor`は`field_bc_mode="free"`だけに対応し、
+通常の帯電計算は`surface_model="insulator"`を使います。`conductor`は`field_boundary.mode="free"`だけに対応し、
 `dielectric`の`epsilon_r`は現状ではメタデータであり、分極を解きません。
 
 **次の選択:** 形状と要素数の制約は
@@ -142,7 +142,14 @@ temperature_k = 0.0
 
 ### `reservoir_face`
 
-**前提:** `sim.use_box=true`、正の`sim.batch_duration`、`inject_face`が必要です。
+**前提:** `[domain]`、正の`sim.batch_duration`、`inject_face`が必要です。流入障壁は`[reservoir]`で選びます。
+
+```toml
+[reservoir]
+inflow_model = "source_vdf"
+phi_infty = 0.0
+face_potential_grid_n = 3
+```
 
 ```toml
 [[particles.species]]
@@ -195,36 +202,46 @@ ray_direction = [0.0, 0.0, -1.0]
 **次の選択:** 放出、再吸収、closed PEの`neutral_return`は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
 
-## 2軸周期境界を有限画像和で使う
+closed PEとして注入面をspecies単位で反射する場合:
 
-**前提:** boxのちょうど2軸をperiodicにし、`field_solver="fmm"`を使います。
+```toml
+[particles.species.boundary]
+z_high = "reflect"
+```
+
+このtableは直前の`[[particles.species]]`に属します。`surface_charge_closure="neutral_return"`を使う場合は、
+effectiveな`inject_face`境界が`reflect`である必要があります。
+
+## 2軸周期境界を使う
+
+**前提:** `[domain]`でbox geometryとx/y周期を指定し、`field_solver="fmm"`を使います。
+周期性は`domain.periodic_axes`だけで指定します。
 
 **操作:**
 
 ```toml
 [sim]
-use_box = true
+field_solver = "fmm"
+
+[domain]
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 4.0]
+periodic_axes = ["x", "y"]
 
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
+[field_boundary]
+mode = "periodic2"
 
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-field_periodic_image_layers = 1
-field_periodic_far_correction = "none"
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
 ```
 
-**期待する出力:** `field_periodic_image_layers=1`ではprimary cellを含む$3\times3$ cellsをfield sourceとして使います。
+**期待する出力:** x/yはfield、collision、raycastで同じ周期topologyを使い、z面は指定した粒子作用を使います。
 
-**解釈:** これは無限周期解ではありません。画像層を増やし、電場、粒子flux、帯電分布が変わらなくなることを確認します。
+**解釈:** `[particle_boundary]`に`periodic`は指定できず、周期面の作用は`[domain]`から決まります。
 
-**次の選択:** 局所reservoir + closed PEの基準構成は
+**次の選択:** operatorの選択は`[periodic2]`で行います。局所reservoir + closed PEの基準構成は
 [periodic2有限画像構成](FinitePeriodicConfiguration.html)と
 [`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)を使います。
 

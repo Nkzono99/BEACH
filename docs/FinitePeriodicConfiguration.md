@@ -26,28 +26,32 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 ```toml
 [sim]
 field_solver = "fmm"
-field_bc_mode = "periodic2"
 field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
-use_box = true
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-injection_face_phi_grid_n = 5
 
-[external_boundary.field]
-model = "none"
+[domain]
+box_origin = [0.0, 0.0, 0.0]
+box_size = [1.0e-4, 1.0e-4, 1.0e-3]
+periodic_axes = ["x", "y"]
 
-[external_boundary.particles]
-mode = "local_source"
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+ordinary_open_model = "escape"
+
+[reservoir]
 inflow_model = "source_vdf"
-
-[external_boundary.ordinary_open]
-model = "escape"
+face_potential_grid_n = 5
 ```
+
+`[domain]` が cell と周期 topology を、`[field_boundary]` が場の closure を定めます。現行 `periodic2` は
+`periodic_axes=["x", "y"]` と非周期 z 軸の組合せだけを受理します。周期性は全粒子種に共通で、species や
+`[particle_boundary]` から上書きできません。
+旧 `[external_boundary]` は削除済みです。局所流入は `[reservoir]`、非周期面の粒子作用は
+`[particle_boundary]` に指定します。
 
 太陽風 electron/ion には通常の `reservoir_face` を使います。密度、温度、drift は
 **z-high 面の局所 boundary VDF**であり、表面電位による到達率・速度補正は行いません。
@@ -59,12 +63,14 @@ model = "escape"
 species_key = "photoelectron"
 source_mode = "photo_raycast"
 deposit_opposite_charge_on_emit = true
-z_high_boundary = "reflect"
 surface_charge_closure = "neutral_return"
+
+[particles.species.boundary]
+z_high = "reflect"
 ```
 
-`z_high_boundary="reflect"`はz-high通過時の法線速度だけを反転します。太陽風speciesは既定の
-`"inherit"`なので、global open境界からescapeします。
+species 境界の `z_high="reflect"` は非周期 z-high 通過時の法線速度だけを反転します。太陽風 species は既定の
+`"inherit"` なので、`particle_boundary.z_high="open"` と `ordinary_open_model="escape"` に従います。
 
 ## 1 batchで行うこと
 
@@ -121,8 +127,8 @@ monopole増分を0にしますが、異なる高さの面へ移った電荷は�
 
 ## z-high面を電位基準として読む
 
-`output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、
-`sim.use_box=true` なら、`potential_history.csv` と同じ batch に `top_reference_history.csv` を出力します。
+`[domain]` があり、`output.write_files=true`、`output.write_potential_history=true`、
+`output.history_stride>0` なら、`potential_history.csv` と同じ batch に `top_reference_history.csv` を出力します。
 
 $$
 \bar\phi_{\mathrm{top}}
@@ -130,7 +136,7 @@ $$
 \phi_{\mathrm{rel}}(\mathbf r)=\phi(\mathbf r)-\bar\phi_{\mathrm{top}}.
 $$
 
-$N$は`sim.injection_face_phi_grid_n`です。標本点は全periodic cell上面のcell centerです。
+$N$ は `reservoir.face_potential_grid_n` です。標本点は全 periodic cell 上面の cell center です。
 二つの履歴を`batch`でjoinし、各要素の`potential_V`から同じbatchの
 `potential_mean_V`を引きます。
 
@@ -169,7 +175,7 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 1. `abs(neutral_return_weight_scale-1)`と`neutral_return_unresolved_fraction`が十分小さいことを確認する。
 2. `dt`を下げるときも`max_step*dt`を維持または増加させ、`rays_per_batch`も増やして帰還先分布を収束させる。
 3. `batch_duration`を少なくとも$T,T/2,T/4$と変え、電荷・相対電位・力の履歴を比較する。
-4. z-highを上下し、`injection_face_phi_grid_n`を増やしてtop平均とばらつきを確認する。
+4. z-high を上下し、`reservoir.face_potential_grid_n` を増やして top 平均とばらつきを確認する。
 5. image layerを$N,N+1,N+2$と増やす。
 6. 太陽風のmacro粒子数と乱数seedに対する統計誤差を確認する。
 
@@ -178,7 +184,7 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 
 ## scalar barrierを比較に使う場合
 
-scalar barrier 比較では closed PE 設定を外し、`inflow_model="infinity_barrier"`、
-`external_boundary.ordinary_open.model="potential_barrier"`、`sim.phi_infty` を組み合わせます。これは face 平均 scalar で
-上流 VDF を補正し、各 open 通過点の energy で reflect/escape を決める比較モデルです。設定、式、制約は
+scalar barrier 比較では closed PE 設定を外し、`reservoir.inflow_model="infinity_barrier"`、
+`reservoir.phi_infty`、`particle_boundary.ordinary_open_model="potential_barrier"` を組み合わせます。これは face 平均
+scalar で上流 VDF を補正し、各 open 通過点の energy で reflect/escape を決める比較モデルです。設定、式、制約は
 [reservoir 流入](ReservoirInjection.html)と[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
