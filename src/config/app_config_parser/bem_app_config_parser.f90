@@ -2,7 +2,7 @@
 module bem_app_config_parser
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
-  use bem_types, only: bc_open, bc_reflect, bc_periodic
+  use bem_types, only: bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
     species_from_defaults
@@ -581,19 +581,23 @@ contains
     call get_toml_string(table, key, mode, context)
     select case (trim(lower_ascii(mode)))
     case ('inherit')
-      if (.not. allow_inherit) error stop trim(context)//' must be "open" or "reflect".'
+      if (.not. allow_inherit) then
+        error stop trim(context)//' must be "open", "reflect", or "redistributed_reflect".'
+      end if
       value = particle_bc_inherit
     case ('open')
       value = bc_open
     case ('reflect')
       value = bc_reflect
+    case ('redistributed_reflect')
+      value = bc_redistributed_reflect
     case ('periodic')
       error stop trim(context)//' cannot set periodicity; use domain.periodic_axes.'
     case default
       if (allow_inherit) then
-        error stop trim(context)//' must be "inherit", "open", or "reflect".'
+        error stop trim(context)//' must be "inherit", "open", "reflect", or "redistributed_reflect".'
       else
-        error stop trim(context)//' must be "open" or "reflect".'
+        error stop trim(context)//' must be "open", "reflect", or "redistributed_reflect".'
       end if
     end select
   end subroutine get_toml_particle_boundary_mode

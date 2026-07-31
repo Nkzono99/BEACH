@@ -4,7 +4,8 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 # Particle escape and local return
 
-BEACH does not evolve plasma outside the box. `[particle_boundary]` makes each nonperiodic face `open` or `reflect`, and open
+BEACH does not evolve plasma outside the box. `[particle_boundary]` makes each nonperiodic face `open`, `reflect`, or
+`redistributed_reflect`, and open
 faces apply `ordinary_open_model="escape" | "potential_barrier"`. The treatment is shared by `reservoir_face`,
 `photo_raycast`, and `volume_seed`. Periodicity belongs to `domain.periodic_axes`; particle-boundary tables cannot specify
 `periodic`.
@@ -65,7 +66,17 @@ model must use a consistent effective reservoir reference for `reservoir.phi_inf
 
 ## Return of closed photoelectrons
 
-For closed PE, set the face matching `inject_face` to `reflect` in `[particles.species.boundary]` for the negative
-`photo_raycast` species, and set `surface_charge_closure="neutral_return"`. Keeping the global face open lets ambient species
+For closed PE, set the face matching `inject_face` to `reflect` or `redistributed_reflect` in
+`[particles.species.boundary]` for the negative `photo_raycast` species, and set
+`surface_charge_closure="neutral_return"`. Both actions reverse normal velocity and preserve tangential velocity, but they
+treat the return position differently.
+
+| Action | Return position |
+| --- | --- |
+| `reflect` | Preserve the tangential position of the boundary event |
+| `redistributed_reflect` | For one face, uniformly redistribute both in-plane coordinates over the box span excluding its end guards |
+
+At a simultaneous edge or corner event, `redistributed_reflect` relocates only axes outside the event mask. See
+[Particle collision and boundary events](ParticleEvents.en.html) for details. Keeping the global face open lets ambient species
 with `inherit` follow the ordinary-open contract. See [Photoelectron emission](PhotoelectronEmission.en.html) for the
 configuration and charge-balance requirements.

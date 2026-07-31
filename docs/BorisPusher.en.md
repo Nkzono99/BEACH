@@ -98,10 +98,10 @@ The equations above produce a full-step candidate $(\mathbf{x}^{n+1},\mathbf{v}^
 the candidate trajectory has no triangle collision or box-boundary crossing.
 
 Triangle collisions and ordinary box crossings are ordered along the **straight trajectory segment within the step** that
-connects $\mathbf{x}^n$ and $\mathbf{x}^{n+1}$. A triangle collision absorbs the particle at the hit point. If a reflect or
-periodic face is crossed first, BEACH interpolates position and velocity to the crossing time and constructs a new Boris
-candidate for the remaining interval. At the z-high outer interface, the applicable coupling path refines crossing time from a
-quadratic trajectory consistent with the Boris endpoints. See
+connects $\mathbf{x}^n$ and $\mathbf{x}^{n+1}$. A triangle collision absorbs the particle at the hit point. If a reflection
+action (`reflect` or `redistributed_reflect`) or periodic face is crossed first, BEACH interpolates position and velocity to
+the crossing time and constructs a new Boris candidate for the remaining interval. At the z-high outer interface, the
+applicable coupling path refines crossing time from a quadratic trajectory consistent with the Boris endpoints. See
 [Particle collision and boundary events](ParticleEvents.en.html).
 
 ## Properties of the Boris update

@@ -57,8 +57,8 @@ mode = "periodic2"
 
 `[domain]` は計算 cell と periodic topology、`[field_boundary]` は場の closure を定めます。
 `mode="free"` は自由空間場、`mode="periodic2"` は domain の x/y 周期を使う 2 軸周期場です。現行
-`periodic2` は x/y 周期・z 非周期だけを受理します。粒子種別の境界設定は非周期面の `open` / `reflect` を
-選べますが、周期軸を追加・削除・上書きできません。
+`periodic2` は x/y 周期・z 非周期だけを受理します。粒子種別の境界設定は非周期面の `open` / `reflect` /
+`redistributed_reflect` を選べますが、周期軸を追加・削除・上書きできません。
 
 ## triangle P0で要素電荷を離散化する
 

@@ -116,10 +116,25 @@ z_high = "reflect"
 
 この例は z-high 通過時に法線速度だけを反転し、接線速度を保存して残り step を再積分します。
 `[particles.species.boundary]` の既定 `inherit` を使う ambient species は global の open 契約に従います。
-species 境界は 6 面すべてに `inherit`、`open`、`reflect` を指定でき、closed PE では `inject_face` と同じ面の
-有効作用が `reflect` でなければなりません。`domain.periodic_axes` の面は上書きできません。
+species 境界は 6 面すべてに `inherit`、`open`、`reflect`、`redistributed_reflect` を指定でき、closed PE では
+`inject_face` と同じ面の有効作用が `reflect` または `redistributed_reflect` でなければなりません。
+`domain.periodic_axes` の面は上書きできません。
 
-species 境界の `reflect` だけなら軌道を閉じるだけで、`max_step` までに戻らない粒子は未解決のままです。
+通常の `reflect` は接線位置も維持します。境界から戻る光電子の面内位置を一様化する場合だけ、上のbaseline値を
+次のように置き換えます。
+
+```toml
+[particles.species.boundary]
+z_high = "redistributed_reflect"
+```
+
+`redistributed_reflect` は速度には通常の反射を適用し、単一面では面内2軸の位置だけをbox spanの両端guardを
+除く範囲から一様再標本化します。
+これは [Zimmerman et al. (2016)](https://doi.org/10.1002/2016JE005049) のtop-boundary PE returnで用いられた
+水平位置randomizationを、任意の非周期面と同時face eventへ一般化した選択肢です。自己整合な外部sheathを追加する
+ものではありません。同時eventの規則は[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。
+
+species 境界の反射だけなら軌道を閉じるだけで、`max_step` までに戻らない粒子は未解決のままです。
 `surface_charge_closure="neutral_return"`を加えると、1 batchの光電子放出電荷$S<0$と解決済み吸収電荷$R<0$を
 MPI全体で測り、各帰還先depositを$S/R$倍します。放出元の反作用電荷と合わせた光電子の表面総電荷増分は
 厳密に0になり、未帰還粒子は解決済み帰還先と同じ分布を持つと近似されます。
@@ -136,7 +151,7 @@ rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません
 [periodic2有限画像構成](FinitePeriodicConfiguration.html)にあります。
 
 通常の open 面に使う `particle_boundary.ordinary_open_model` と closed PE の使い分けは
-[粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
+通常の open 面との使い分けは[粒子の escape と局所 return](ParticleEscapeReturn.html)にまとめています。
 
 ## 光電子放出の収束を確認する
 

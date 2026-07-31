@@ -16,7 +16,7 @@ $(\mathbf{x}_1,\mathbf{v}_1)$に対し、次の順で処理します。
 2. 候補終点がbox内なら、mesh hitまたは候補終点を確定する。
 3. box外なら、最初のbox面fractionとmesh hitの$t$を比較する。
 4. meshが同時刻または先なら吸収、box面が先ならその面の作用を適用する。
-5. reflectまたはperiodicで粒子が生き残れば、残り時間の候補を作り直す。
+5. `reflect`、`redistributed_reflect`、periodicのいずれかで粒子が生き残れば、残り時間の候補を作り直す。
 
 mesh hitとbox面の差が$64\epsilon_\mathrm{mach}\max(1,|t|)$以内ならmeshを先として扱います。
 同一stepで複数の衝突・境界イベントがあり得ても、常に現在の軌道線分で最初に起きるものまで進んでから
@@ -27,6 +27,7 @@ mesh hitとbox面の差が$64\epsilon_\mathrm{mach}\max(1,|t|)$以内ならmesh�
 | mesh | hit位置と要素indexを返し、粒子を吸収 |
 | open face | 境界との交差位置で `particle_boundary.ordinary_open_model` を適用 |
 | reflect face | 法線速度を反転し、box内側から残り時間を進める |
+| `redistributed_reflect` face | 法線速度を反転し、面内位置を一様再配置して残り時間を進める |
 | periodic face | 反対側faceの内側へ移し、速度を変えず残り時間を進める |
 
 ## 軌道線分と三角形の交点を求める
@@ -113,22 +114,34 @@ $$
 ## box面ごとの作用を適用する
 
 `domain.periodic_axes` に含む軸の両面は periodic です。非周期面は `[particle_boundary]` の
-`x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` で `open` または `reflect` を選びます。
+`x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` で `open`、`reflect`、
+`redistributed_reflect` のいずれかを選びます。
 粒子境界へ `periodic` は指定できません。候補軌道線分が複数 face へ同時に達する corner/edge では、
 最小 fraction から machine-epsilon tolerance 内の face を 1 つの mask へまとめます。
 
-### open、reflect、periodic
+### open、reflect、redistributed_reflect、periodic
 
 `particle_boundary.ordinary_open_model="escape"` では、mask に open face が 1 つでもあれば粒子を消滅させ、
-`escaped_boundary` へ数えます。reflect face は該当する速度成分を反転し、periodic face は速度を変えずに
-反対側へ移します。生存粒子は `nearest` で box 面から 1 floating-point 値だけ内側へ置きます。
+`escaped_boundary` へ数えます。reflect系の face は該当する速度成分を反転し、periodic face は速度を変えずに
+反対側へ移します。生存粒子のevent軸座標はbox scaleに応じた内側guardへ置きます。
 
-`[particles.species.boundary]` は同じ 6 面を species ごとに `inherit`、`open`、`reflect` で上書きします。
+通常の `reflect` はevent位置の接線成分を変更しません。`redistributed_reflect` は速度には同じ反射を適用し、
+位置だけを再配置します。単一面eventでは、面内2軸をそれぞれbox spanの両端guardを除く範囲から一様に再標本化します。
+edge / cornerの同時eventでmaskに`redistributed_reflect`が含まれる場合は、maskに含まれない軸だけを
+一様再標本化します。event軸は再標本化せず、対応する面の内側guardへ置きます。このためcornerでは
+再配置する軸はなく、edgeでは残る1軸だけを再配置します。
+
+面内標本は共有乱数streamではなく、`sim.rng_seed`とbatch、rank、particle、step、event、axisのcounterから
+生成します。同じMPI layoutとseedではOpenMP scheduleに依存せず再現できますが、rank分割を変えた同一軌道の
+一致は保証しません。
+
+`[particles.species.boundary]` は同じ 6 面を species ごとに `inherit`、`open`、`reflect`、
+`redistributed_reflect` で上書きします。
 `inherit` は global の `[particle_boundary]` を使います。`domain.periodic_axes` の面は topology なので、
 global 設定でも species 設定でも上書きできません。closed PE の組合せは
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
 
-cornerでreflectとperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
+cornerでreflect系とperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
 依存しない結果になります。
 
 ### potential barrier
@@ -155,8 +168,8 @@ reservoir 粒子の流入補正と closed PE はこのページの対象外で�
 ## 境界通過後の残り時間を進める
 
 box境界イベント時の位置と速度は、候補軌道の入出力状態を交差fractionで補間します。そのうえで、
-faceに垂直な座標をbox面の値へ正確に揃えます。粒子が生存する境界作用を適用した後、
-reflect/periodic後の座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
+event maskに含まれる各軸の座標を対応するbox面の値へ正確に揃えます。粒子が生存する境界作用を適用した後、
+reflect系/periodic後のevent軸座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
 なる1 ULP offsetを避け、残り軌道による次のevent fractionが0へunderflowする境界chatterを防ぎます。
 
 $$

@@ -212,7 +212,9 @@ z_high = "reflect"
 ```
 
 This table belongs to the preceding `[[particles.species]]`. With
-`surface_charge_closure="neutral_return"`, the effective `inject_face` action must be `reflect`.
+`surface_charge_closure="neutral_return"`, the effective `inject_face` action must be `reflect` or
+`redistributed_reflect`. The example uses `reflect`, which preserves tangential position. See
+[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for uniform in-plane redistribution of return positions.
 
 ## Use a two-axis periodic boundary
 

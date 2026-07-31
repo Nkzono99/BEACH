@@ -93,7 +93,7 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # pos_high = [1.0, 1.0, 4.0]
 # ray_direction = [0.2, 0.0, -1.0]
 # [particles.species.boundary]
-# z_high = "reflect"  # 光電子だけをz-highで鏡面反射
+# z_high = "reflect"  # 面内位置も一様再配置する場合は "redistributed_reflect"
 
 [[particles.species]]
 source_mode = "reservoir_face"

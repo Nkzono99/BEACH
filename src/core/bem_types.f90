@@ -6,6 +6,7 @@ module bem_types
   integer(i32), parameter :: bc_open = 0_i32
   integer(i32), parameter :: bc_reflect = 1_i32
   integer(i32), parameter :: bc_periodic = 2_i32
+  integer(i32), parameter :: bc_redistributed_reflect = 3_i32
 
   integer(i32), parameter :: surface_model_insulator = 1_i32
   integer(i32), parameter :: surface_model_conductor = 2_i32

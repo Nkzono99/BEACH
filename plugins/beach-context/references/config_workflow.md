@@ -115,7 +115,7 @@ face_potential_grid_n = 3
 ```
 
 `[particle_boundary]`の6面キー`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high`は
-非周期面の`open|reflect`だけを受け付けます。周期面は`[domain]`が所有するため、
+非周期面の`open|reflect|redistributed_reflect`だけを受け付けます。周期面は`[domain]`が所有するため、
 このtableで`periodic`を指定したり、周期面を上書きしたりできません。
 
 species単位の6面overrideは、対象`[[particles.species]]`の直後へ書きます。
@@ -135,9 +135,10 @@ z_low = "inherit"
 z_high = "reflect"
 ```
 
-species側の各面は`inherit|open|reflect`です。`inherit`はglobal作用を使います。
-周期面では`inherit`だけが有効で、`open`または`reflect`へのoverrideはvalidation errorです。
-closed PEの`neutral_return`では、effectiveな`inject_face`作用を`reflect`にします。
+species側の各面は`inherit|open|reflect|redistributed_reflect`です。`inherit`はglobal作用を使います。
+周期面では`inherit`だけが有効で、それ以外へのoverrideはvalidation errorです。
+closed PEの`neutral_return`では、effectiveな`inject_face`作用を`reflect`または`redistributed_reflect`にします。
+後者は反射速度を保ったままreturn位置をevent面内で一様再配置します。
 
 ### 3.3 注入領域
 

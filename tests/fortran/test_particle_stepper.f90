@@ -1,8 +1,8 @@
 !> 粒子ステップ候補の外部電場加算と空間電場の時間精度を検証する。
 program test_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-  use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
+  use bem_kinds, only: dp, i32, i64
+  use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
@@ -14,7 +14,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(16)
+  call test_init(18)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -42,6 +42,14 @@ program test_particle_stepper
 
   call test_begin('advance_reflected_remainder_absorbs')
   call test_advance_reflected_remainder_absorbs()
+  call test_end()
+
+  call test_begin('advance_redistributed_reflect_is_counter_deterministic')
+  call test_advance_redistributed_reflect_is_counter_deterministic()
+  call test_end()
+
+  call test_begin('advance_redistributed_reflect_samples_face_without_axis_correlation')
+  call test_redistributed_reflect_face_statistics()
   call test_end()
 
   call test_begin('advance_periodic_remainder')
@@ -331,6 +339,112 @@ contains
     call assert_true(result%field_eval_count == 2_i32, 'reflected remainder should evaluate E twice')
     call assert_true(result%collision_query_count == 2_i32, 'reflected remainder should query both chords')
   end subroutine test_advance_reflected_remainder_absorbs
+
+  subroutine test_advance_redistributed_reflect_is_counter_deterministic()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: first_result, repeated_result, different_result, missing_counter_result
+    integer(i64), parameter :: first_counter(4) = [3_i64, 1_i64, 7_i64, 11_i64]
+    integer(i64), parameter :: different_counter(4) = [3_i64, 1_i64, 8_i64, 11_i64]
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%rng_seed = 24680_i32
+    sim%bc_high(3) = bc_redistributed_reflect
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, first_result, &
+      boundary_rng_counter=first_counter &
+      )
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, repeated_result, &
+      boundary_rng_counter=first_counter &
+      )
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, different_result, &
+      boundary_rng_counter=different_counter &
+      )
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, missing_counter_result &
+      )
+
+    call assert_true(first_result%status == particle_step_ok, 'redistributed reflection status mismatch')
+    call assert_allclose_1d( &
+      first_result%x, repeated_result%x, 0.0_dp, &
+      'same boundary RNG counter must reproduce the position exactly' &
+      )
+    call assert_true( &
+      any(first_result%x(1:2) /= different_result%x(1:2)), &
+      'different particle counters must produce different tangential positions' &
+      )
+    call assert_true( &
+      all(first_result%x(1:2) > sim%box_min(1:2)) .and. all(first_result%x(1:2) < sim%box_max(1:2)), &
+      'redistributed tangential position must stay strictly inside the face' &
+      )
+    call assert_allclose_1d( &
+      first_result%v, [0.0_dp, 0.0_dp, -0.4_dp], 0.0_dp, &
+      'redistributed reflection must preserve tangential velocity and reverse normal velocity' &
+      )
+    call assert_true( &
+      missing_counter_result%status == particle_step_invalid_boundary, &
+      'redistributed reflection through the public stepper API must require a unique counter' &
+      )
+  end subroutine test_advance_redistributed_reflect_is_counter_deterministic
+
+  subroutine test_redistributed_reflect_face_statistics()
+    integer(i32), parameter :: sample_count = 512_i32
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    integer(i32) :: sample
+    integer(i64) :: counter(4)
+    real(dp) :: sum_x, sum_y, sum_x2, sum_y2, sum_xy
+    real(dp) :: mean_x, mean_y, variance_x, variance_y, correlation
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%rng_seed = 24680_i32
+    sim%bc_high(3) = bc_redistributed_reflect
+    sum_x = 0.0_dp
+    sum_y = 0.0_dp
+    sum_x2 = 0.0_dp
+    sum_y2 = 0.0_dp
+    sum_xy = 0.0_dp
+    do sample = 1_i32, sample_count
+      counter = [3_i64, 1_i64, int(sample, i64), 11_i64]
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+        [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+        boundary_rng_counter=counter &
+        )
+      call assert_true(result%status == particle_step_ok, 'redistributed sample status mismatch')
+      sum_x = sum_x + result%x(1)
+      sum_y = sum_y + result%x(2)
+      sum_x2 = sum_x2 + result%x(1)*result%x(1)
+      sum_y2 = sum_y2 + result%x(2)*result%x(2)
+      sum_xy = sum_xy + result%x(1)*result%x(2)
+    end do
+    mean_x = sum_x/real(sample_count, dp)
+    mean_y = sum_y/real(sample_count, dp)
+    variance_x = sum_x2/real(sample_count, dp) - mean_x*mean_x
+    variance_y = sum_y2/real(sample_count, dp) - mean_y*mean_y
+    correlation = (sum_xy/real(sample_count, dp) - mean_x*mean_y)/sqrt(variance_x*variance_y)
+
+    call assert_true(mean_x > 0.45_dp .and. mean_x < 0.55_dp, 'x sample mean must be near the face midpoint')
+    call assert_true(mean_y > 0.45_dp .and. mean_y < 0.55_dp, 'y sample mean must be near the face midpoint')
+    call assert_true( &
+      variance_x > 0.06_dp .and. variance_x < 0.11_dp, &
+      'x sample variance must be consistent with a uniform face coordinate' &
+      )
+    call assert_true( &
+      variance_y > 0.06_dp .and. variance_y < 0.11_dp, &
+      'y sample variance must be consistent with a uniform face coordinate' &
+      )
+    call assert_true(abs(correlation) < 0.15_dp, 'face-coordinate samples must not retain fixed axis correlation')
+  end subroutine test_redistributed_reflect_face_statistics
 
   subroutine test_advance_periodic_remainder()
     type(mesh_type) :: mesh

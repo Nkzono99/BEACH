@@ -1021,12 +1021,14 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 or float(q_particle) >= 0.0
                 or species_table.get("deposit_opposite_charge_on_emit") is not True
                 or not isinstance(inject_face, str)
-                or effective_particle_boundary.get(inject_face) != "reflect"
+                or effective_particle_boundary.get(inject_face)
+                not in {"reflect", "redistributed_reflect"}
             ):
                 raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}] "
                     "neutral_return requires a negative photo_raycast species, "
-                    "deposit_opposite_charge_on_emit=true, and reflect on inject_face."
+                    "deposit_opposite_charge_on_emit=true, and a reflecting "
+                    "action on inject_face."
                 )
         if "photo_escape_model" in species_table:
             raise ConfigValidationError(
@@ -1686,10 +1688,14 @@ def _validate_runtime_boundary_tables(
                 + "."
             )
         for face in face_keys & set(particle_boundary):
-            if particle_boundary[face] not in {"open", "reflect"}:
+            if particle_boundary[face] not in {
+                "open",
+                "reflect",
+                "redistributed_reflect",
+            }:
                 raise ConfigValidationError(
                     f"BEACH constraint error: particle_boundary.{face} must be "
-                    '"open" or "reflect".'
+                    '"open", "reflect", or "redistributed_reflect".'
                 )
             if face[0] in periodic_axes:
                 raise ConfigValidationError(
@@ -1765,10 +1771,16 @@ def _validate_species_particle_boundary(
     for face in face_keys:
         axis = face[0]
         action = raw_boundary.get(face, "inherit")
-        if action not in {"inherit", "open", "reflect"}:
+        if action not in {
+            "inherit",
+            "open",
+            "reflect",
+            "redistributed_reflect",
+        }:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}].boundary."
-                f'{face} must be "inherit", "open", or "reflect".'
+                f'{face} must be "inherit", "open", "reflect", or '
+                '"redistributed_reflect".'
             )
         if axis in periodic_axes:
             if action != "inherit":

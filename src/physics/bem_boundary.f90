@@ -1,8 +1,8 @@
-!> シミュレーションボックス境界（流出/反射/周期）を適用するモジュール。
+!> シミュレーションボックス境界（流出/反射/面内再配置反射/周期）を適用するモジュール。
 module bem_boundary
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic
+  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   implicit none
   private
 
@@ -90,18 +90,21 @@ contains
     end do
   end subroutine find_first_boundary_event
 
-  !> 最初のbox eventへescape/reflect/periodicを軸順序に依存せず適用する。
-  subroutine apply_escape_reflect_periodic_event(cfg, event, x, v, alive, escaped, status)
+  !> 最初のbox eventへescape/reflect/redistributed-reflect/periodicを軸順序に依存せず適用する。
+  subroutine apply_escape_reflect_periodic_event( &
+    cfg, event, x, v, alive, escaped, status, redistribution_uniform &
+    )
     type(sim_config), intent(in) :: cfg
     type(boundary_event_type), intent(in) :: event
     real(dp), intent(inout) :: x(3), v(3)
     logical, intent(inout) :: alive
     logical, intent(out) :: escaped
     integer(i32), intent(out) :: status
+    real(dp), intent(in), optional :: redistribution_uniform(3)
 
     real(dp) :: x_work(3), v_work(3)
     integer(i32) :: axis, low_face, high_face, low_bc, high_bc
-    logical :: alive_work, has_open
+    logical :: alive_work, has_open, has_redistributed_reflect
 
     escaped = .false.
     status = boundary_event_ok
@@ -146,6 +149,7 @@ contains
     v_work = v
     alive_work = alive
     has_open = .false.
+    has_redistributed_reflect = .false.
     do axis = 1_i32, 3_i32
       low_face = 2_i32*axis - 1_i32
       high_face = 2_i32*axis
@@ -153,7 +157,23 @@ contains
       high_bc = event%face_bc(high_face)
       if (btest(event%face_mask, low_face - 1_i32)) has_open = has_open .or. low_bc == bc_open
       if (btest(event%face_mask, high_face - 1_i32)) has_open = has_open .or. high_bc == bc_open
+      if (btest(event%face_mask, low_face - 1_i32)) then
+        has_redistributed_reflect = has_redistributed_reflect .or. low_bc == bc_redistributed_reflect
+      end if
+      if (btest(event%face_mask, high_face - 1_i32)) then
+        has_redistributed_reflect = has_redistributed_reflect .or. high_bc == bc_redistributed_reflect
+      end if
     end do
+    if (has_redistributed_reflect .and. .not. has_open) then
+      if (.not. present(redistribution_uniform)) then
+        status = boundary_event_invalid_geometry
+        return
+      end if
+      if (.not. valid_redistribution_uniform(redistribution_uniform)) then
+        status = boundary_event_invalid_geometry
+        return
+      end if
+    end if
 
     if (has_open) then
       alive_work = .false.
@@ -175,6 +195,9 @@ contains
         end if
         if (status /= boundary_event_ok) return
       end do
+      if (has_redistributed_reflect) then
+        call redistribute_event_position(cfg, event%face_mask, redistribution_uniform, x_work)
+      end if
     end if
     if (.not. all(ieee_is_finite(x_work)) .or. .not. all(ieee_is_finite(v_work))) then
       escaped = .false.
@@ -199,7 +222,7 @@ contains
     inset = boundary_inset(box_min, box_max)
 
     select case (bc)
-    case (bc_reflect)
+    case (bc_reflect, bc_redistributed_reflect)
       if (high_side) then
         x(axis) = box_max - inset
       else
@@ -251,8 +274,32 @@ contains
   elemental logical function valid_boundary_condition(bc) result(valid)
     integer(i32), intent(in) :: bc
 
-    valid = bc == bc_open .or. bc == bc_reflect .or. bc == bc_periodic
+    valid = bc == bc_open .or. bc == bc_reflect .or. bc == bc_periodic .or. bc == bc_redistributed_reflect
   end function valid_boundary_condition
+
+  !> 再配置反射に供給された各軸の一様乱数が閉区間 `[0,1]` にあるかを返す。
+  pure logical function valid_redistribution_uniform(uniform) result(valid)
+    real(dp), intent(in) :: uniform(3)
+
+    valid = all(ieee_is_finite(uniform)) .and. all(uniform >= 0.0_dp) .and. all(uniform <= 1.0_dp)
+  end function valid_redistribution_uniform
+
+  !> 同時eventの法線軸を固定し、それ以外の座標をbox面内で一様再配置する。
+  pure subroutine redistribute_event_position(cfg, face_mask, uniform, x)
+    type(sim_config), intent(in) :: cfg
+    integer(i32), intent(in) :: face_mask
+    real(dp), intent(in) :: uniform(3)
+    real(dp), intent(inout) :: x(3)
+    integer(i32) :: axis
+    real(dp) :: inset
+
+    do axis = 1_i32, 3_i32
+      if (btest(face_mask, 2_i32*axis - 2_i32) .or. btest(face_mask, 2_i32*axis - 1_i32)) cycle
+      inset = boundary_inset(cfg%box_min(axis), cfg%box_max(axis))
+      x(axis) = cfg%box_min(axis) + inset + &
+                uniform(axis)*(cfg%box_max(axis) - cfg%box_min(axis) - 2.0_dp*inset)
+    end do
+  end subroutine redistribute_event_position
 
   !> face bit順にbox設定の境界条件を並べる。
   pure function boundary_face_conditions(cfg) result(face_bc)
@@ -272,8 +319,10 @@ contains
   !! @param[inout] v 境界適用対象の粒子速度 `(vx,vy,vz)` [m/s]。
   !! @param[inout] alive 粒子生存フラグ（流出時は `.false.` へ更新）。
   !! @param[out] escaped_boundary この呼び出しで境界流出が発生したか。
+  !! @param[in] redistribution_uniform 面内再配置反射に使う各軸の一様乱数 `[0,1]`。
   subroutine apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side &
+    cfg, x, v, alive, escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side, &
+    redistribution_uniform &
     )
     type(sim_config), intent(in) :: cfg
     real(dp), intent(inout) :: x(3)
@@ -285,6 +334,7 @@ contains
     real(dp), intent(in), optional :: phi_boundary
     integer(i32), intent(in), optional :: potential_axis
     logical, intent(in), optional :: potential_high_side
+    real(dp), intent(in), optional :: redistribution_uniform(3)
 
     integer(i32) :: axis
     integer(i32) :: bc
@@ -307,12 +357,14 @@ contains
         if ((.not. potential_high_side) .and. x(axis) < cfg%box_min(axis)) then
           call apply_one_side_boundary( &
             cfg, axis, cfg%bc_low(axis), cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, &
-            escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side &
+            escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side, &
+            redistribution_uniform &
             )
         else if (potential_high_side .and. x(axis) > cfg%box_max(axis)) then
           call apply_one_side_boundary( &
             cfg, axis, cfg%bc_high(axis), cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, &
-            escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side &
+            escaped_boundary, q_particle, m_particle, phi_boundary, potential_axis, potential_high_side, &
+            redistribution_uniform &
             )
         end if
         if (.not. alive) return
@@ -331,7 +383,7 @@ contains
         bc = cfg%bc_low(axis)
         call apply_one_side_boundary( &
           cfg, axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary, &
-          q_particle, m_particle, phi_boundary, potential_axis, potential_high_side &
+          q_particle, m_particle, phi_boundary, potential_axis, potential_high_side, redistribution_uniform &
           )
         if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) >= cfg%box_min(axis))) exit
       end do
@@ -341,7 +393,7 @@ contains
         bc = cfg%bc_high(axis)
         call apply_one_side_boundary( &
           cfg, axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary, &
-          q_particle, m_particle, phi_boundary, potential_axis, potential_high_side &
+          q_particle, m_particle, phi_boundary, potential_axis, potential_high_side, redistribution_uniform &
           )
         if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) <= cfg%box_max(axis))) exit
       end do
@@ -351,7 +403,7 @@ contains
 
   !> 単一軸・単一側面の境界条件を適用する内部ヘルパ。
   !! @param[in] axis 境界判定軸（1:x, 2:y, 3:z）。
-  !! @param[in] bc 適用する境界条件種別（open/reflect/periodic）。
+  !! @param[in] bc 適用する境界条件種別（open/reflect/redistributed-reflect/periodic）。
   !! @param[in] box_min 判定軸の下限座標 [m]。
   !! @param[in] box_max 判定軸の上限座標 [m]。
   !! @param[in] span 判定軸のボックス幅 `box_max - box_min` [m]。
@@ -362,7 +414,7 @@ contains
   !! @param[inout] escaped_boundary 境界流出フラグ。
   subroutine apply_one_side_boundary( &
     cfg, axis, bc, box_min, box_max, span, eps, x, v, alive, escaped_boundary, q_particle, m_particle, phi_boundary, &
-    potential_axis, potential_high_side &
+    potential_axis, potential_high_side, redistribution_uniform &
     )
     type(sim_config), intent(in) :: cfg
     integer(i32), intent(in) :: axis, bc
@@ -375,6 +427,7 @@ contains
     real(dp), intent(in), optional :: phi_boundary
     integer(i32), intent(in), optional :: potential_axis
     logical, intent(in), optional :: potential_high_side
+    real(dp), intent(in), optional :: redistribution_uniform(3)
 
     select case (bc)
     case (bc_open)
@@ -390,6 +443,18 @@ contains
     case (bc_reflect)
       call reflect_one_side(axis, box_min, box_max, eps, x, v)
       escaped_boundary = .false.
+    case (bc_redistributed_reflect)
+      if (.not. present(redistribution_uniform)) then
+        alive = .false.
+        escaped_boundary = .true.
+      else if (.not. valid_redistribution_uniform(redistribution_uniform)) then
+        alive = .false.
+        escaped_boundary = .true.
+      else
+        call reflect_one_side(axis, box_min, box_max, eps, x, v)
+        call redistribute_one_face_position(cfg, axis, redistribution_uniform, x)
+        escaped_boundary = .false.
+      end if
     case (bc_periodic)
       x(axis) = modulo(x(axis) - box_min, span) + box_min
       x(axis) = min(box_max - eps, max(box_min + eps, x(axis)))
@@ -399,6 +464,23 @@ contains
       escaped_boundary = .true.
     end select
   end subroutine apply_one_side_boundary
+
+  !> legacy単一面APIで、反射軸以外の二座標をbox面内へ一様再配置する。
+  pure subroutine redistribute_one_face_position(cfg, normal_axis, uniform, x)
+    type(sim_config), intent(in) :: cfg
+    integer(i32), intent(in) :: normal_axis
+    real(dp), intent(in) :: uniform(3)
+    real(dp), intent(inout) :: x(3)
+    integer(i32) :: axis
+    real(dp) :: inset
+
+    do axis = 1_i32, 3_i32
+      if (axis == normal_axis) cycle
+      inset = boundary_inset(cfg%box_min(axis), cfg%box_max(axis))
+      x(axis) = cfg%box_min(axis) + inset + &
+                uniform(axis)*(cfg%box_max(axis) - cfg%box_min(axis) - 2.0_dp*inset)
+    end do
+  end subroutine redistribute_one_face_position
 
   !> 開境界の電位障壁モデルで反射すべきかを判定する。
   logical function open_boundary_should_reflect( &

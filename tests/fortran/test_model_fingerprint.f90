@@ -1,7 +1,7 @@
 !> model、ordered mesh、ordered speciesのfingerprint感度と決定性を検証する。
 program test_model_fingerprint
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, bc_reflect
+  use bem_types, only: mesh_type, bc_reflect, bc_redistributed_reflect
   use bem_mesh, only: init_mesh
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_physics_config_types, only: normalize_legacy_physics_config
@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(11)
+  call test_init(12)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -71,6 +71,21 @@ program test_model_fingerprint
   cfg_changed = cfg
   cfg_changed%particle_boundary_high(3) = bc_reflect
   call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'global particle boundary must alter fingerprint')
+  call test_end()
+
+  call test_begin('redistributed_reflect_seed_change_detected')
+  cfg_changed = cfg
+  cfg_changed%sim%rng_seed = cfg_changed%sim%rng_seed + 1_i32
+  call assert_true( &
+    model_fingerprint(cfg_changed) == model_fingerprint(cfg), &
+    'ordinary-boundary checkpoints must keep their existing RNG-state compatibility' &
+    )
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%boundary_high(3) = bc_redistributed_reflect
+  fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%sim%rng_seed = cfg_changed%sim%rng_seed + 1_i32
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'redistributed-reflect RNG seed must alter the model fingerprint')
   call test_end()
 
   call test_begin('surface_charge_closure_change_detected')

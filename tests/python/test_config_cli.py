@@ -194,8 +194,12 @@ def test_particle_boundary_overrides_resolve_after_global_defaults() -> None:
     assert normalized["particle_boundary"]["z_high"] == "reflect"
     assert normalized["particles"]["species"][-1]["boundary"]["z_high"] == "inherit"
 
+    config["particle_boundary"]["z_high"] = "redistributed_reflect"
+    normalized = normalize_config_document(config)
+    assert normalized["particle_boundary"]["z_high"] == "redistributed_reflect"
+
     config["particle_boundary"]["z_high"] = "open"
-    with pytest.raises(ConfigValidationError, match="reflect on inject_face"):
+    with pytest.raises(ConfigValidationError, match="reflecting action on inject_face"):
         normalize_config_document(config)
 
 

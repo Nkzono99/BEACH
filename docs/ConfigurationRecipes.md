@@ -210,7 +210,9 @@ z_high = "reflect"
 ```
 
 このtableは直前の`[[particles.species]]`に属します。`surface_charge_closure="neutral_return"`を使う場合は、
-effectiveな`inject_face`境界が`reflect`である必要があります。
+effectiveな`inject_face`境界が`reflect`または`redistributed_reflect`である必要があります。
+例は接線位置を維持する`reflect`です。return位置を面内で一様再配置する選択肢は
+詳しくは[光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
 
 ## 2軸周期境界を使う
 

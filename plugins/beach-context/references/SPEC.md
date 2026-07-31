@@ -24,7 +24,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - 線分と三角形の最初の交差判定
 - insulator accumulation
 - free-space に限った mesh 単位の浮遊 conductor 再配分
-- open / reflect / periodic の box 境界
+- open / reflect / redistributed_reflect / periodic の box 境界
 - `volume_seed` / `reservoir_face` / `photo_raycast`
 - 局所 reservoir の流入補正
 - closed photoelectron の局所反射と neutral-return closure
@@ -157,13 +157,17 @@ mesh 衝突は Möller–Trumbore 法で最小 `t` を選びます。AABB と、
 global `[particle_boundary]` と species 別 `[particles.species.boundary]` で指定します。
 
 - `open`: escape
-- `reflect`: 法線速度を反転
+- `reflect`: 法線速度を反転し、接線速度と接線位置を維持
+- `redistributed_reflect`: `reflect` と同じ速度作用に加え、event 面内の位置を一様再配置
 - `periodic`: 反対側へ wrap
 
-mesh hit と最初の box event は chord parameter で順序付けます。reflect / periodic 後の残り時間は
+単一面の `redistributed_reflect` は面内 2 軸を box span の両端 guard を除く範囲から再標本化します。
+edge / corner の同時 event では、
+event mask に含まれない軸だけを再標本化し、event 軸の座標は内側 guard に置きます。mesh hit と最初の
+box event は chord parameter で順序付けます。reflect / redistributed_reflect / periodic 後の残り時間は
 同じ Boris 規約で再積分し、1 local step あたり最大 8 box event を許します。
 
-species 別の6面値は `inherit | open | reflect` です。`inherit` はglobal粒子 actionを使います。
+species 別の6面値は `inherit | open | reflect | redistributed_reflect` です。`inherit` はglobal粒子 actionを使います。
 周期面はspeciesから上書きできません。
 
 ## 7. 注入モード
@@ -189,7 +193,7 @@ closed PE は次の組合せです。
 
 - 負電荷 `photo_raycast`
 - `deposit_opposite_charge_on_emit=true`
-- species の `inject_face` に対する有効粒子 action が `reflect`
+- species の `inject_face` に対する有効粒子 action が `reflect` または `redistributed_reflect`
 - `surface_charge_closure="neutral_return"`
 
 放出電荷を $S<0$、解決済み再吸収を $R<0$、max-step 未解決を $U<0$ とし、`S=R+U` を確認した上で、
@@ -227,6 +231,8 @@ closed PE は次の組合せです。
 `macro_residuals.csv` と `charge_ledger.csv` は状態が記録されている場合に復元します。
 
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
+globalまたはspecies境界のいずれかで`redistributed_reflect`を使う場合だけ、model fingerprintへ
+`sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。通常境界だけの既存fingerprintは変更しません。
 必須ファイルの欠落、world size の不一致、非有限値、species 数や mesh 要素数の不一致は
 新規実行へ fallback せず停止します。
 

@@ -17,7 +17,7 @@ x_high = "reflect"
 y_low = "reflect"
 y_high = "open"
 z_low = "open"
-z_high = "reflect"
+z_high = "redistributed_reflect"
 
 [particles]
 [[particles.species]]

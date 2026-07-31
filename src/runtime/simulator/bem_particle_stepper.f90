@@ -1,8 +1,8 @@
 !> 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。
 module bem_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-  use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic
+  use bem_kinds, only: dp, i32, i64
+  use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
   use bem_collision, only: collision_query_ok, find_first_hit
@@ -74,21 +74,29 @@ contains
   end subroutine project_field_sample_to_box
 
   !> 一つの粒子stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
-  subroutine advance_particle_step(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract)
+  subroutine advance_particle_step( &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter &
+    )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in), optional :: boundary_rng_counter(4)
 
     type(hit_info) :: hit
     real(dp) :: x_candidate(3), v_candidate(3)
     integer(i32) :: query_status
+    integer(i64) :: active_boundary_rng_counter(4)
+    logical :: has_boundary_rng_counter
 
     result = particle_step_result()
     result%x = x0
     result%v = v0
+    active_boundary_rng_counter = 0_i64
+    has_boundary_rng_counter = present(boundary_rng_counter)
+    if (has_boundary_rng_counter) active_boundary_rng_counter = boundary_rng_counter
     if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt)) then
       result%status = particle_step_invalid_boundary
       return
@@ -107,7 +115,8 @@ contains
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
           mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result, &
-          boundary_contract=boundary_contract &
+          boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
+          has_boundary_rng_counter=has_boundary_rng_counter &
           )
         return
       end if
@@ -126,13 +135,15 @@ contains
 
     call advance_particle_boundary_crossing( &
       mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, &
-      boundary_contract=boundary_contract &
+      boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
+      has_boundary_rng_counter=has_boundary_rng_counter &
       )
   end subroutine advance_particle_step
 
   !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
   subroutine resolve_particle_boundary_candidate( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
+    boundary_rng_counter &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -141,10 +152,16 @@ contains
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(out) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in), optional :: boundary_rng_counter(4)
+    integer(i64) :: active_boundary_rng_counter(4)
+    logical :: has_boundary_rng_counter
 
     result = particle_step_result()
     result%x = x0
     result%v = v0
+    active_boundary_rng_counter = 0_i64
+    has_boundary_rng_counter = present(boundary_rng_counter)
+    if (has_boundary_rng_counter) active_boundary_rng_counter = boundary_rng_counter
     result%field_eval_count = 1_i32
     result%collision_query_count = merge(1_i32, 0_i32, present(hit))
     if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt) .or. &
@@ -153,13 +170,15 @@ contains
       return
     end if
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
+      active_boundary_rng_counter, has_boundary_rng_counter &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、最大八つのeventとremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
+    boundary_rng_counter, has_boundary_rng_counter &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -168,12 +187,15 @@ contains
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in) :: boundary_rng_counter(4)
+    logical, intent(in) :: has_boundary_rng_counter
 
     integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
     real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
     real(dp) :: dt_segment, dt_remaining
+    real(dp) :: redistribution_uniform(3)
     integer(i32) :: query_status, boundary_status, event_count
     logical :: alive, escaped
     logical :: first_segment
@@ -256,15 +278,26 @@ contains
         return
       end if
       event_count = event_count + 1_i32
+      if (event_requires_redistribution_counter(event, active_boundary_contract) .and. &
+          .not. has_boundary_rng_counter) then
+        result%status = particle_step_invalid_boundary
+        return
+      end if
+      call generate_redistribution_uniform( &
+        sim%rng_seed, boundary_rng_counter, event_count, redistribution_uniform &
+        )
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       alive = .true.
       escaped = .false.
       if (active_boundary_contract%ordinary_open_model == external_open_potential_barrier) then
         call apply_potential_barrier_event( &
-          mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status &
+          mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status, &
+          redistribution_uniform &
           )
       else
-        call apply_escape_reflect_periodic_event(sim, event, x_event, v_event, alive, escaped, boundary_status)
+        call apply_escape_reflect_periodic_event( &
+          sim, event, x_event, v_event, alive, escaped, boundary_status, redistribution_uniform &
+          )
       end if
       if (boundary_status /= boundary_event_ok) then
         if (boundary_status == boundary_event_invalid_geometry) then
@@ -360,7 +393,7 @@ contains
 
   !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
   subroutine apply_potential_barrier_event( &
-    mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status &
+    mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status, redistribution_uniform &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -371,6 +404,7 @@ contains
     logical, intent(inout) :: alive
     logical, intent(out) :: escaped
     integer(i32), intent(out) :: status
+    real(dp), intent(in) :: redistribution_uniform(3)
 
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
@@ -404,7 +438,9 @@ contains
     action_sim%open_boundary_model = 'escape'
     action_event = event
     if (open_count == 0_i32) then
-      call apply_escape_reflect_periodic_event(action_sim, action_event, x, v, alive, escaped, status)
+      call apply_escape_reflect_periodic_event( &
+        action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
+        )
       return
     end if
     if (.not. ieee_is_finite(q) .or. .not. ieee_is_finite(m) .or. m <= 0.0_dp) then
@@ -442,8 +478,64 @@ contains
     else
       action_sim%bc_low(axis) = bc_reflect
     end if
-    call apply_escape_reflect_periodic_event(action_sim, action_event, x, v, alive, escaped, status)
+    call apply_escape_reflect_periodic_event( &
+      action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
+      )
   end subroutine apply_potential_barrier_event
+
+  !> event作用が面内再配置用の一意なcounterを必要とするかを返す。
+  pure logical function event_requires_redistribution_counter(event, boundary_contract) result(requires)
+    type(boundary_event_type), intent(in) :: event
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
+    integer(i32) :: face
+    logical :: has_open, has_redistributed_reflect
+
+    has_open = .false.
+    has_redistributed_reflect = .false.
+    do face = 1_i32, 6_i32
+      if (.not. btest(event%face_mask, face - 1_i32)) cycle
+      has_open = has_open .or. event%face_bc(face) == bc_open
+      has_redistributed_reflect = has_redistributed_reflect .or. &
+                                  event%face_bc(face) == bc_redistributed_reflect
+    end do
+    requires = has_redistributed_reflect .and. &
+               (.not. has_open .or. boundary_contract%ordinary_open_model == external_open_potential_barrier)
+  end function event_requires_redistribution_counter
+
+  !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する。
+  pure subroutine generate_redistribution_uniform(seed, counter, event_index, uniform)
+    integer(i32), intent(in) :: seed, event_index
+    integer(i64), intent(in) :: counter(4)
+    real(dp), intent(out) :: uniform(3)
+    integer(i32) :: axis, item
+    integer(i64) :: state
+    integer(i64), parameter :: hash_modulus = 2147483647_i64
+
+    do axis = 1_i32, 3_i32
+      state = counter_hash_mix(104729_i64, int(seed, i64), 37_i64*int(axis, i64))
+      state = counter_hash_mix(state, int(axis, i64), 1009_i64)
+      do item = 1_i32, 4_i32
+        state = counter_hash_mix(state, counter(item), 7919_i64*int(item, i64))
+      end do
+      state = counter_hash_mix(state, int(event_index, i64), 104729_i64)
+      state = counter_hash_mix(state, counter(3), 13007_i64*int(axis, i64))
+      state = counter_hash_mix(state, counter(1), 433494437_i64)
+      uniform(axis) = (real(state, dp) - 0.5_dp)/real(hash_modulus, dp)
+    end do
+  end subroutine generate_redistribution_uniform
+
+  !> 31-bit素数体上の非線形写像でtuple成分をcounter hashへ混合する。
+  pure integer(i64) function counter_hash_mix(state, value, salt) result(mixed)
+    integer(i64), intent(in) :: state, value, salt
+    integer(i64), parameter :: hash_modulus = 2147483647_i64
+    integer(i64), parameter :: hash_multiplier = 48271_i64
+
+    mixed = modulo(state*state, hash_modulus)
+    mixed = modulo(mixed + modulo(hash_multiplier*state, hash_modulus), hash_modulus)
+    mixed = modulo(mixed + modulo(value, hash_modulus), hash_modulus)
+    mixed = modulo(mixed + modulo(salt, hash_modulus) + 1_i64, hash_modulus)
+    if (mixed == 0_i64) mixed = 1_i64
+  end function counter_hash_mix
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。
   pure logical function point_strictly_inside_box(sim, x) result(inside)

@@ -5,7 +5,7 @@ program test_boundary
   use bem_boundary, only: apply_box_boundary, boundary_event_type, boundary_event_ok, &
                           boundary_event_invalid_geometry, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
-  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic
+  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
@@ -14,7 +14,7 @@ program test_boundary
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
-  call test_init(21)
+  call test_init(26)
 
   cfg = sim_config()
   cfg%use_box = .true.
@@ -43,6 +43,24 @@ program test_boundary
   call assert_allclose_1d(x, expected, 1.0d-10, 'reflect position mismatch')
   call assert_close_dp(v(1), -1.0d0, 1.0d-12, 'reflect velocity mismatch')
   call assert_close_dp(v(2), 2.0d0, 1.0d-12, 'reflect should preserve tangential velocity')
+  call test_end()
+
+  call test_begin('redistributed_reflect_boundary')
+  x = [1.2d0, 0.5d0, 0.5d0]
+  v = [1.0d0, 2.0d0, 3.0d0]
+  alive = .true.
+  cfg%bc_high(1) = bc_redistributed_reflect
+  call apply_box_boundary( &
+    cfg, x, v, alive, escaped_boundary, redistribution_uniform=[0.1_dp, 0.25_dp, 0.75_dp] &
+    )
+  expected = [0.8d0, 0.25d0, 0.75d0]
+  call assert_true(alive, 'redistributed reflect boundary should keep particle alive')
+  call assert_true(.not. escaped_boundary, 'redistributed reflect boundary should not mark escaped')
+  call assert_allclose_1d(x, expected, 1.0d-10, 'redistributed reflect position mismatch')
+  call assert_allclose_1d( &
+    v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, &
+    'redistributed reflect should reverse only the normal velocity' &
+    )
   call test_end()
 
   call test_begin('periodic_boundary')
@@ -153,6 +171,22 @@ program test_boundary
 
   call test_begin('boundary_event_corner_reflect')
   call test_boundary_event_corner_reflect()
+  call test_end()
+
+  call test_begin('boundary_event_redistributed_reflect')
+  call test_boundary_event_redistributed_reflect()
+  call test_end()
+
+  call test_begin('boundary_event_redistributed_reflect_requires_uniform')
+  call test_boundary_event_redistributed_reflect_requires_uniform()
+  call test_end()
+
+  call test_begin('boundary_event_open_precedes_redistributed_reflect')
+  call test_boundary_event_open_precedes_redistributed_reflect()
+  call test_end()
+
+  call test_begin('boundary_event_mixed_redistributed_reflect_periodic')
+  call test_boundary_event_mixed_redistributed_reflect_periodic()
   call test_end()
 
   call test_begin('boundary_event_mixed_reflect_periodic')
@@ -271,6 +305,128 @@ contains
                      'corner reflection inset should exceed the event tolerance scale')
     call assert_allclose_1d(event_v, [-1.0_dp, -2.0_dp, 3.0_dp], 0.0_dp, 'corner reflection velocity mismatch')
   end subroutine test_boundary_event_corner_reflect
+
+  subroutine test_boundary_event_redistributed_reflect()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    event_cfg%bc_high(3) = bc_redistributed_reflect
+    call find_first_boundary_event( &
+      event_cfg, [0.1_dp, 0.2_dp, 0.5_dp], [0.1_dp, 0.2_dp, 1.5_dp], event, status &
+      )
+    event_x = [0.1_dp, 0.2_dp, 1.0_dp]
+    event_v = [4.0_dp, 5.0_dp, 6.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status, &
+      redistribution_uniform=[0.25_dp, 0.75_dp, 0.5_dp] &
+      )
+
+    call assert_equal_i32(status, boundary_event_ok, 'redistributed reflection status mismatch')
+    call assert_true(event_alive .and. .not. event_escaped, 'redistributed reflection should survive')
+    call assert_close_dp(event_x(1), 0.25_dp, 1.0e-12_dp, 'x tangential coordinate mismatch')
+    call assert_close_dp(event_x(2), 0.75_dp, 1.0e-12_dp, 'y tangential coordinate mismatch')
+    call assert_true(event_x(3) < 1.0_dp, 'normal coordinate should be inset from the face')
+    call assert_allclose_1d( &
+      event_v, [4.0_dp, 5.0_dp, -6.0_dp], 0.0_dp, &
+      'redistributed reflection must only reverse normal velocity' &
+      )
+  end subroutine test_boundary_event_redistributed_reflect
+
+  subroutine test_boundary_event_redistributed_reflect_requires_uniform()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+    real(dp) :: event_x(3), event_v(3), x_before(3), v_before(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    event_cfg%bc_high(3) = bc_redistributed_reflect
+    call find_first_boundary_event( &
+      event_cfg, [0.1_dp, 0.2_dp, 0.5_dp], [0.1_dp, 0.2_dp, 1.5_dp], event, status &
+      )
+    event_x = [0.1_dp, 0.2_dp, 1.0_dp]
+    event_v = [4.0_dp, 5.0_dp, 6.0_dp]
+    x_before = event_x
+    v_before = event_v
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
+      )
+
+    call assert_equal_i32( &
+      status, boundary_event_invalid_geometry, &
+      'redistributed reflection without supplied randomness must fail closed' &
+      )
+    call assert_allclose_1d(event_x, x_before, 0.0_dp, 'failed redistribution must preserve position')
+    call assert_allclose_1d(event_v, v_before, 0.0_dp, 'failed redistribution must preserve velocity')
+    call assert_true(event_alive, 'failed redistribution must preserve alive state')
+  end subroutine test_boundary_event_redistributed_reflect_requires_uniform
+
+  subroutine test_boundary_event_open_precedes_redistributed_reflect()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    event_cfg%bc_high(1) = bc_redistributed_reflect
+    event_cfg%bc_high(2) = bc_open
+    call find_first_boundary_event( &
+      event_cfg, [0.5_dp, 0.5_dp, 0.5_dp], [1.5_dp, 1.5_dp, 0.5_dp], event, status &
+      )
+    event_x = [1.0_dp, 1.0_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
+      )
+
+    call assert_equal_i32(status, boundary_event_ok, 'mixed open redistribution status mismatch')
+    call assert_true(.not. event_alive .and. event_escaped, 'open face must take precedence without random input')
+    call assert_allclose_1d( &
+      event_x, [1.0_dp, 1.0_dp, 0.5_dp], 0.0_dp, &
+      'open-precedence event must preserve its crossing point' &
+      )
+  end subroutine test_boundary_event_open_precedes_redistributed_reflect
+
+  subroutine test_boundary_event_mixed_redistributed_reflect_periodic()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    event_cfg%bc_high(1) = bc_redistributed_reflect
+    event_cfg%bc_low(2) = bc_periodic
+    event_cfg%bc_high(2) = bc_periodic
+    call find_first_boundary_event( &
+      event_cfg, [0.5_dp, 0.5_dp, 0.5_dp], [1.5_dp, 1.5_dp, 0.5_dp], event, status &
+      )
+    event_x = [1.0_dp, 1.0_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status, &
+      redistribution_uniform=[0.25_dp, 0.5_dp, 0.75_dp] &
+      )
+
+    call assert_equal_i32(status, boundary_event_ok, 'mixed redistributed-periodic status mismatch')
+    call assert_true(event_alive .and. .not. event_escaped, 'mixed redistributed-periodic event must survive')
+    call assert_true(event_x(1) < 1.0_dp, 'redistributed-reflect normal coordinate must be inset')
+    call assert_true(event_x(2) > 0.0_dp, 'periodic event coordinate must wrap inside the opposite face')
+    call assert_close_dp(event_x(3), 0.75_dp, 1.0e-12_dp, 'only the non-event axis should be redistributed')
+    call assert_allclose_1d( &
+      event_v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, &
+      'mixed redistributed-periodic velocity mismatch' &
+      )
+  end subroutine test_boundary_event_mixed_redistributed_reflect_periodic
 
   subroutine test_boundary_event_mixed_reflect_periodic()
     type(sim_config) :: event_cfg

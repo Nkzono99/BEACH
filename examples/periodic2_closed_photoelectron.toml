@@ -82,7 +82,7 @@ pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
 ray_direction = [0.0, 0.0, -1.0]
 
 [particles.species.boundary]
-z_high = "reflect"
+z_high = "reflect" # 面内位置も一様再配置する場合は "redistributed_reflect"
 
 [mesh]
 mode = "template"

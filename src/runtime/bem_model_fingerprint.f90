@@ -1,7 +1,7 @@
 !> Restart compatibility fingerprints for the ordered physical model contract.
 module bem_model_fingerprint
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: mesh_type
+  use bem_types, only: mesh_type, bc_redistributed_reflect
   use bem_app_config_types, only: app_config, particle_species_spec, particle_bc_inherit
   implicit none
   private
@@ -81,8 +81,29 @@ contains
       call feed_integer_vector(hash, cfg%particle_boundary_low)
       call feed_integer_vector(hash, cfg%particle_boundary_high)
     end if
+    if (uses_redistributed_reflect(cfg)) then
+      call feed_string(hash, 'redistributed_reflect_rng_v1')
+      call feed_integer(hash, cfg%sim%rng_seed)
+    end if
     fingerprint = finish_hash(hash)
   end function model_fingerprint
+
+  !> 面内再配置反射のcounter RNGがmodel fingerprintへseedを要求するかを返す。
+  pure logical function uses_redistributed_reflect(cfg) result(uses)
+    type(app_config), intent(in) :: cfg
+    integer(i32) :: species
+
+    uses = any(cfg%sim%bc_low == bc_redistributed_reflect) .or. &
+           any(cfg%sim%bc_high == bc_redistributed_reflect) .or. &
+           any(cfg%particle_boundary_low == bc_redistributed_reflect) .or. &
+           any(cfg%particle_boundary_high == bc_redistributed_reflect)
+    if (uses) return
+    do species = 1_i32, cfg%n_particle_species
+      uses = any(cfg%particle_species(species)%boundary_low == bc_redistributed_reflect) .or. &
+             any(cfg%particle_species(species)%boundary_high == bc_redistributed_reflect)
+      if (uses) return
+    end do
+  end function uses_redistributed_reflect
 
   function mesh_fingerprint(mesh) result(fingerprint)
     type(mesh_type), intent(in) :: mesh

@@ -76,7 +76,7 @@ Check these constraints early:
 |---|---|
 | `reservoir_face` | a `[domain]` box, resolved `sim.batch_duration>0`, and `inject_face` |
 | `photo_raycast` | a `[domain]` box, resolved `sim.batch_duration>0`, positive current density, and `rays_per_batch>=1` |
-| closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `reflect` on `inject_face` in `[particles.species.boundary]`, and `surface_charge_closure="neutral_return"` |
+| closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `reflect` or `redistributed_reflect` on `inject_face` in `[particles.species.boundary]`, and `surface_charge_closure="neutral_return"` |
 | `periodic2` | a `[domain]` box, exactly two entries in `domain.periodic_axes`, and a `[periodic2]` zero-mode policy |
 | resume | `output.write_files=true`, required checkpoints, and the same MPI size |
 

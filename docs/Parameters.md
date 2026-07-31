@@ -296,13 +296,18 @@ ordinary_open_model = "escape"
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `x_low`, `x_high` | string | domainに従う | 非周期x面の`open` / `reflect` |
-| `y_low`, `y_high` | string | domainに従う | 非周期y面の`open` / `reflect` |
-| `z_low`, `z_high` | string | domainに従う | 非周期z面の`open` / `reflect` |
+| `x_low`, `x_high` | string | domainに従う | 非周期x面の`open` / `reflect` / `redistributed_reflect` |
+| `y_low`, `y_high` | string | domainに従う | 非周期y面の`open` / `reflect` / `redistributed_reflect` |
+| `z_low`, `z_high` | string | domainに従う | 非周期z面の`open` / `reflect` / `redistributed_reflect` |
 | `ordinary_open_model` | string | `"escape"` | effectiveなopen面で`escape` / `potential_barrier` |
 
 省略した面はdomain topologyを継承し、非周期面ではopenになります。
 周期面をこのtableで上書きできません。
+`reflect`は法線速度だけを反転し、接線速度とevent位置の接線成分を維持します。
+
+`redistributed_reflect`は同じ速度作用に加え、単一面では面内2軸をbox spanの両端guardを除く範囲から一様再標本化します。
+edge / cornerの同時eventではevent maskに含まれない軸だけを再標本化します。
+
 `potential_barrier`は境界通過点の電位`phi_boundary`と`reservoir.phi_infty`から
 `q_particle * (phi_infty - phi_boundary)`を評価し、法線運動エネルギーを超える正の障壁だけを反射します。
 
@@ -433,15 +438,16 @@ z_high = "reflect"
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
-| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
-| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
+| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
+| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
 
 `inherit`は`[particle_boundary]`のglobal作用を使います。周期面はoverrideできません。
 `inject_face`は粒子生成面、species境界は生成後の軌道作用です。
 
 `surface_charge_closure="neutral_return"`は、負電荷`photo_raycast`、
-`deposit_opposite_charge_on_emit=true`、effectiveな`inject_face`境界が`reflect`の組合せだけで使用できます。
+`deposit_opposite_charge_on_emit=true`、effectiveな`inject_face`境界が`reflect`または
+`redistributed_reflect`の組合せだけで使用できます。
 解決済み帰還先depositをspecies別のglobal係数で補正し、光電子による表面総電荷増分を0にします。
 
 実escapeまたは`soft_discard`が生じる条件とは併用できません。通常のtracked chargeを
@@ -551,7 +557,7 @@ w_hit = J_perp * A_perp * batch_duration / (|q_particle| * rays_per_batch)
 生成した光電子は常に`w_hit`を重みに使い、通常粒子として追跡します。表面へ戻れば通常の衝突として吸収します。
 
 species境界が`inherit`なら`[particle_boundary]`の作用を使います。closed PEでは
-`[particles.species.boundary]`で`inject_face`を`reflect`にします。
+`[particles.species.boundary]`で`inject_face`を`reflect`または`redistributed_reflect`にします。
 
 ---
 

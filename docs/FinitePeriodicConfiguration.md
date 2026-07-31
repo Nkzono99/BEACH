@@ -72,6 +72,11 @@ z_high = "reflect"
 species 境界の `z_high="reflect"` は非周期 z-high 通過時の法線速度だけを反転します。太陽風 species は既定の
 `"inherit"` なので、`particle_boundary.z_high="open"` と `ordinary_open_model="escape"` に従います。
 
+このbaselineは境界eventの面内位置を維持します。topからのreturn位置をx-y面内で一様化する感度比較では、
+`z_high="redistributed_reflect"`へ置き換えられます。速度作用は同じで、位置だけを再標本化します。
+これはclosed PEの別のreturn-destination modelであり、自己整合sheathではありません。背景と同時eventの規則は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+
 ## 1 batchで行うこと
 
 1. batch 開始時の表面電荷から有限画像を含む場 snapshot を作る。
@@ -177,7 +182,8 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 3. `batch_duration`を少なくとも$T,T/2,T/4$と変え、電荷・相対電位・力の履歴を比較する。
 4. z-high を上下し、`reservoir.face_potential_grid_n` を増やして top 平均とばらつきを確認する。
 5. image layerを$N,N+1,N+2$と増やす。
-6. 太陽風のmacro粒子数と乱数seedに対する統計誤差を確認する。
+6. 太陽風のmacro粒子数と乱数seedに対する統計誤差を確認する。`redistributed_reflect`を使う場合は、
+   return位置の追加samplingについても粒子数とseedを変えて確認する。
 
 完全反射は人工的な上端 mirror であり、自己整合 sheath や準中性解ではありません。この構成が示すのは、
 指定した局所太陽風 flux の下で正味光電子電流を 0 としたときの表面内再分配です。
@@ -187,4 +193,5 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 scalar barrier 比較では closed PE 設定を外し、`reservoir.inflow_model="infinity_barrier"`、
 `reservoir.phi_infty`、`particle_boundary.ordinary_open_model="potential_barrier"` を組み合わせます。これは face 平均
 scalar で上流 VDF を補正し、各 open 通過点の energy で reflect/escape を決める比較モデルです。設定、式、制約は
-[reservoir 流入](ReservoirInjection.html)と[粒子の escape と return](ParticleEscapeReturn.html)を参照してください。
+[reservoir 流入](ReservoirInjection.html)と
+[粒子の escape と return](ParticleEscapeReturn.html)にまとめています。

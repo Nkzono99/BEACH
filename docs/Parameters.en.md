@@ -307,13 +307,19 @@ ordinary_open_model = "escape"
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `x_low`, `x_high` | string | follow domain | `open` / `reflect` on nonperiodic x faces |
-| `y_low`, `y_high` | string | follow domain | `open` / `reflect` on nonperiodic y faces |
-| `z_low`, `z_high` | string | follow domain | `open` / `reflect` on nonperiodic z faces |
+| `x_low`, `x_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic x faces |
+| `y_low`, `y_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic y faces |
+| `z_low`, `z_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic z faces |
 | `ordinary_open_model` | string | `"escape"` | `escape` / `potential_barrier` on effective open faces |
 
 An omitted face inherits domain topology and is open when nonperiodic.
 This table cannot override a periodic face.
+`reflect` reverses only normal velocity and preserves tangential velocity and the event position's tangential components.
+
+`redistributed_reflect` applies the same velocity action and, for a single-face event, uniformly resamples both in-plane
+coordinates over the box span excluding its end guards. At a simultaneous edge or corner event, only axes outside the event
+mask are resampled.
+
 `potential_barrier` evaluates `q_particle * (phi_infty - phi_boundary)` from the crossing-point potential
 and `reservoir.phi_infty`; it reflects only a positive barrier that exceeds the normal kinetic energy.
 
@@ -448,16 +454,16 @@ z_high = "reflect"
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
-| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
-| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` |
+| `x_low`, `x_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
+| `y_low`, `y_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
+| `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
 
 `inherit` uses the global action from `[particle_boundary]`. A periodic face cannot be overridden.
 `inject_face` selects particle generation; the species boundary controls the trajectory after generation.
 
 `surface_charge_closure="neutral_return"` is accepted only for a negative
 `photo_raycast` species with `deposit_opposite_charge_on_emit=true` and
-an effective `reflect` action on its `inject_face`. It scales resolved return deposits by one global
+an effective `reflect` or `redistributed_reflect` action on its `inject_face`. It scales resolved return deposits by one global
 species factor so the photoelectron contribution to total surface charge is
 zero.
 
@@ -575,7 +581,7 @@ Each emitted photoelectron uses `w_hit` as its weight and is tracked as an
 ordinary particle. Surface return is absorbed as an ordinary collision.
 
 When a species boundary is `inherit`, it uses `[particle_boundary]`.
-For closed PE, set its `inject_face` to `reflect` in `[particles.species.boundary]`.
+For closed PE, set its `inject_face` to `reflect` or `redistributed_reflect` in `[particles.species.boundary]`.
 
 ---
 

@@ -60,7 +60,7 @@ $$
 | --- | --- |
 | メッシュへ吸収 | 命中要素へ $qw$ を堆積 |
 | open 面で escape | 粒子を除去し、粒子種別の脱出量へ計上 |
-| reflect / periodic 面 | 同じ粒子で残り step を再積分 |
+| `reflect` / `redistributed_reflect` / periodic 面 | 同じ粒子で残り step を再積分 |
 | `max_step` まで生存 | 未解決粒子としてバッチ末尾で破棄・計上 |
 
 非周期面の global 作用は `[particle_boundary]`、species override は `[particles.species.boundary]`、

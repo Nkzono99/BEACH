@@ -499,11 +499,12 @@
       ]
     },
     "particleBoundaryAction": {
-      "description": "Tracked-particle action on a nonperiodic face.",
+      "description": "Tracked-particle action on a nonperiodic face. reflect reverses only the normal velocity. redistributed_reflect additionally resamples the tangential position uniformly on the face while preserving tangential velocity.",
       "type": "string",
       "enum": [
         "open",
-        "reflect"
+        "reflect",
+        "redistributed_reflect"
       ]
     },
     "speciesParticleBoundary": {
@@ -532,12 +533,13 @@
       }
     },
     "speciesParticleBoundaryAction": {
-      "description": "Per-species action; inherit uses the global particle boundary.",
+      "description": "Per-species action; inherit uses the global particle boundary. redistributed_reflect is a normal-velocity reflection with uniform tangential-position redistribution.",
       "type": "string",
       "enum": [
         "inherit",
         "open",
-        "reflect"
+        "reflect",
+        "redistributed_reflect"
       ]
     },
     "injectFace": {
@@ -1050,7 +1052,7 @@
             "neutral_return"
           ],
           "default": "explicit",
-          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and reflect on inject_face."
+          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and reflect or redistributed_reflect on inject_face."
         },
         "inject_region_mode": {
           "type": "string",

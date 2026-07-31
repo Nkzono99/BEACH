@@ -294,8 +294,8 @@ contains
       inject_face_boundary = particle_boundary_action_for_face( &
                              effective_boundary_low, effective_boundary_high, cfg%particle_species(i)%inject_face &
                              )
-      if (inject_face_boundary /= bc_reflect) then
-        error stop 'surface_charge_closure="neutral_return" requires reflect on the species inject_face.'
+      if (inject_face_boundary /= bc_reflect .and. inject_face_boundary /= bc_redistributed_reflect) then
+        error stop 'surface_charge_closure="neutral_return" requires a reflecting action on the species inject_face.'
       end if
     case default
       error stop 'particles.species.surface_charge_closure must be "explicit" or "neutral_return".'
@@ -410,10 +410,10 @@ contains
     character(len=*), intent(in) :: context
 
     select case (action)
-    case (particle_bc_inherit, bc_open, bc_reflect)
+    case (particle_bc_inherit, bc_open, bc_reflect, bc_redistributed_reflect)
       continue
     case default
-      error stop trim(context)//' must be inherit, open, or reflect.'
+      error stop trim(context)//' must be inherit, open, reflect, or redistributed_reflect.'
     end select
     if (topology_action == bc_periodic .and. action /= particle_bc_inherit) then
       error stop trim(context)//' cannot override a periodic domain face.'

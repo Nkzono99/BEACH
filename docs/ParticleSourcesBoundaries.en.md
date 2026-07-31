@@ -61,7 +61,7 @@ tracked macro particle is $qw$.
 | --- | --- |
 | Absorbed by the mesh | Deposit $qw$ on the hit element |
 | Escapes through an open face | Remove and include in species-resolved escape |
-| Reflects or wraps at a box face | Reintegrate the remaining step for the same particle |
+| `reflect`, `redistributed_reflect`, or periodic box action | Reintegrate the remaining step for the same particle |
 | Alive after `max_step` | Discard and report as unresolved at batch end |
 
 Configure global nonperiodic actions in `[particle_boundary]`, species overrides in `[particles.species.boundary]`, and periodic

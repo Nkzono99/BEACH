@@ -384,7 +384,8 @@ contains
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
             mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-            result=step_result, boundary_contract=boundary_contract &
+            result=step_result, boundary_contract=boundary_contract, &
+            boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
             )
           used_event_resolver = .true.
         else
@@ -405,7 +406,8 @@ contains
       else
         call resolve_particle_boundary_candidate( &
           mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-          hit=hit, result=step_result, boundary_contract=boundary_contract &
+          hit=hit, result=step_result, boundary_contract=boundary_contract, &
+          boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
           )
         used_event_resolver = .true.
       end if

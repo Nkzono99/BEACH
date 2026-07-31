@@ -119,10 +119,26 @@ z_high = "reflect"
 
 In this example, a z-high crossing reverses only normal velocity, preserves tangential velocity, and reintegrates the step
 remainder. Ambient species using the default `inherit` in `[particles.species.boundary]` follow the global open contract.
-All six species faces accept `inherit`, `open`, or `reflect`. Closed PE requires the effective action on the face named by
-`inject_face` to be `reflect`; a face on `domain.periodic_axes` cannot be overridden.
+All six species faces accept `inherit`, `open`, `reflect`, or `redistributed_reflect`. Closed PE requires the effective action
+on the face named by `inject_face` to be `reflect` or `redistributed_reflect`; a face on `domain.periodic_axes` cannot be
+overridden.
 
-Species `reflect` alone closes only the orbit. A particle that does
+Ordinary `reflect` also preserves tangential position. Only when the in-plane position of returning photoelectrons should be
+uniformly redistributed, replace the baseline value above with:
+
+```toml
+[particles.species.boundary]
+z_high = "redistributed_reflect"
+```
+
+`redistributed_reflect` applies ordinary reflection to velocity and, for a single face, uniformly resamples only the two
+in-plane coordinates over the box span excluding its end guards. This option generalizes the horizontal-position randomization
+used for top-boundary photoelectron return by
+[Zimmerman et al. (2016)](https://doi.org/10.1002/2016JE005049) to any nonperiodic face and simultaneous face event. It does not
+add a self-consistent outer sheath. See
+[Particle collision and boundary events](ParticleEvents.en.html) for simultaneous-event rules.
+
+Species-level reflection alone closes only the orbit. A particle that does
 not return by `max_step` remains unresolved. With
 `surface_charge_closure="neutral_return"`, BEACH measures emitted charge $S<0$
 and resolved absorbed charge $R<0$ globally for the batch, then multiplies

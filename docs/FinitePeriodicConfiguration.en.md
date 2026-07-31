@@ -72,6 +72,11 @@ z_high = "reflect"
 The species-level `z_high="reflect"` reverses only normal velocity at nonperiodic z-high. Solar-wind species retain `"inherit"` and
 follow `particle_boundary.z_high="open"` with `ordinary_open_model="escape"`.
 
+This baseline preserves the in-plane position of the boundary event. For a sensitivity comparison that uniformly redistributes
+return positions over the x-y plane, replace it with `z_high="redistributed_reflect"`. The velocity action is unchanged; only
+position is resampled. This is an alternative return-destination model for closed PE, not a self-consistent sheath. See
+[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for context and simultaneous-event rules.
+
 ## What one batch does
 
 1. Build a finite-image field snapshot from batch-start surface charge.
@@ -178,7 +183,8 @@ follow the convergence procedure in
 3. Vary `batch_duration` by at least $T,T/2,T/4$ and compare charge, relative potential, and force histories.
 4. Move z-high and increase `reservoir.face_potential_grid_n` to check top mean and variation.
 5. Increase image shells through $N,N+1,N+2$.
-6. Check solar-wind macro-particle count and random-seed uncertainty.
+6. Check solar-wind macro-particle count and random-seed uncertainty. With `redistributed_reflect`, also vary particle count and
+   seed for the additional return-position sampling.
 
 Full reflection is an artificial top mirror, not a self-consistent sheath or quasineutral solution. The result describes
 surface redistribution with zero net photoelectron current under the specified local solar-wind flux.

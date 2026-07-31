@@ -75,7 +75,7 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 |---|---|
 | `reservoir_face` | `[domain]` の box、解決後の `sim.batch_duration>0`、`inject_face` |
 | `photo_raycast` | `[domain]` の box、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
-| closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect`、`surface_charge_closure="neutral_return"` |
+| closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect` または `redistributed_reflect`、`surface_charge_closure="neutral_return"` |
 | `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[periodic2]` の zero-mode 設定 |
 | resume | `output.write_files=true`、必要な checkpoint、同じ MPI size |
 

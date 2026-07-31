@@ -60,12 +60,18 @@ def test_schema_rejects_outer_coupling_and_keeps_panel_reference() -> None:
     )
 
 
-def test_schema_accepts_species_face_reflect_and_rejects_unknown_value() -> None:
+def test_schema_accepts_species_reflection_actions_and_rejects_unknown_value() -> None:
     schema, _ = load_schema()
     config = load_toml_file(ROOT / "examples/beach.toml")
     config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
 
     assert schema_errors(config, schema) == []
+
+    redistributed = copy.deepcopy(config)
+    redistributed["particles"]["species"][0]["boundary"][
+        "z_high"
+    ] = "redistributed_reflect"
+    assert schema_errors(redistributed, schema) == []
 
     invalid = copy.deepcopy(config)
     invalid["particles"]["species"][0]["boundary"]["z_high"] = "unknown"

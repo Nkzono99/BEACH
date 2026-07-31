@@ -4,8 +4,8 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 # 粒子のescapeと局所return
 
-BEACH は box 外の plasma を時間発展させません。`[particle_boundary]` で非周期面を `open` または
-`reflect` にし、open 面へ `ordinary_open_model="escape" | "potential_barrier"` を適用します。この処理は
+BEACH は box 外の plasma を時間発展させません。`[particle_boundary]` で非周期面を `open`、`reflect`、
+`redistributed_reflect` のいずれかにし、open 面へ `ordinary_open_model="escape" | "potential_barrier"` を適用します。この処理は
 source に依存せず、`reservoir_face`、`photo_raycast`、`volume_seed` に共通です。周期性は
 `domain.periodic_axes` で定め、粒子境界へ `periodic` は指定しません。
 完全修飾キーは `particle_boundary.ordinary_open_model` です。
@@ -65,6 +65,15 @@ reservoir 基準電位として整合させてください。
 ## 閉じた光電子の return
 
 closed PE では、負の `photo_raycast` species の `[particles.species.boundary]` で `inject_face` と同じ面を
-`reflect` にし、`surface_charge_closure="neutral_return"` を指定します。global 面を open のままにすれば、
+`reflect` または `redistributed_reflect` にし、`surface_charge_closure="neutral_return"` を指定します。
+どちらも法線速度を反転して接線速度を維持しますが、return位置の扱いが異なります。
+
+| action | return位置 |
+| --- | --- |
+| `reflect` | 境界eventの接線位置を維持 |
+| `redistributed_reflect` | 単一面では面内2軸をbox spanの両端guardを除く範囲から一様再配置 |
+
+edge / cornerの同時eventでは、`redistributed_reflect`はevent maskに含まれない軸だけを再配置します。
+詳細は[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。global 面を open のままにすれば、
 `inherit` の ambient species は通常の open 契約に従います。設定と収支条件は
-[光電子放出](PhotoelectronEmission.html)を参照してください。
+[光電子放出](PhotoelectronEmission.html)にまとめています。

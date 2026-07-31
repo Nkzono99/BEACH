@@ -16,7 +16,7 @@ Given current state $(\mathbf{x}_0,\mathbf{v}_0)$ and candidate $(\mathbf{x}_1,\
 2. If the endpoint is inside the box, commit either the mesh hit or the endpoint.
 3. If it is outside, compare the first box-face fraction against the mesh-hit $t$.
 4. Absorb when the mesh is simultaneous or earlier; otherwise apply the box-face action.
-5. If reflect or periodic keeps the particle alive, rebuild a candidate for the remaining time.
+5. If `reflect`, `redistributed_reflect`, or periodic keeps the particle alive, rebuild a candidate for the remaining time.
 
 If mesh-hit and box-face fractions differ by at most $64\epsilon_\mathrm{mach}\max(1,|t|)$, the mesh is treated as first.
 Even if one particle step contains several events, BEACH always advances to the first event of the current segment before
@@ -27,6 +27,7 @@ re-integrating the remainder.
 | mesh | Return hit position and element index; absorb the particle |
 | open face | Apply `particle_boundary.ordinary_open_model` at the event position |
 | reflect face | Reverse normal velocity and advance the remainder from just inside the box |
+| `redistributed_reflect` face | Reverse normal velocity, uniformly redistribute in-plane position, and advance the remainder |
 | periodic face | Move just inside the opposite face, retain velocity, and advance the remainder |
 
 ## Intersect the trajectory segment with triangles
@@ -114,21 +115,34 @@ This image range is determined by which mesh images a particle trajectory segmen
 ## Apply the action of each box face
 
 Both faces on an axis listed in `domain.periodic_axes` are periodic. On nonperiodic faces, `[particle_boundary]` keys
-`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, and `z_high` select `open` or `reflect`. Particle-boundary tables cannot specify
+`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, and `z_high` select `open`, `reflect`, or `redistributed_reflect`.
+Particle-boundary tables cannot specify
 `periodic`. When a segment reaches several faces at an edge or corner, faces within a machine-epsilon tolerance of the minimum
 fraction are combined into one mask.
 
-### Open, reflect, and periodic faces
+### Open, `reflect`, `redistributed_reflect`, and periodic faces
 
 With `particle_boundary.ordinary_open_model="escape"`, any open face in the mask removes the particle and increments
-`escaped_boundary`. Reflect faces reverse the corresponding velocity components; periodic faces move the particle to the
-opposite side without changing velocity. `nearest` places survivors one floating-point value inside the box.
+`escaped_boundary`. Both reflection actions reverse the corresponding velocity components; periodic faces move the particle to the
+opposite side without changing velocity. A survivor's event-axis coordinate is placed at an inward guard scaled to the box.
 
-`[particles.species.boundary]` overrides the same six faces for one species with `inherit`, `open`, or `reflect`.
+Ordinary `reflect` preserves the event position's tangential components. `redistributed_reflect` applies the same velocity
+reflection but relocates the position. For a single-face event, it uniformly resamples both in-plane coordinates over the box
+span excluding the guards at its ends.
+If a simultaneous edge or corner mask contains `redistributed_reflect`, only axes outside the event mask are uniformly
+resampled. Event axes are not resampled and are placed at their respective inward guards. A corner therefore has no coordinate
+to resample, while an edge resamples only its remaining axis.
+
+In-plane samples do not use a shared random stream. They are derived from `sim.rng_seed` and counters for batch, rank, particle,
+step, event, and axis. A fixed seed and MPI layout are reproducible independently of OpenMP scheduling; identical trajectories
+are not guaranteed after changing the rank decomposition.
+
+`[particles.species.boundary]` overrides the same six faces for one species with `inherit`, `open`, `reflect`, or
+`redistributed_reflect`.
 `inherit` uses global `[particle_boundary]`. Faces selected by `domain.periodic_axes` are topology and cannot be overridden
 globally or per species. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the closed-PE combination.
 
-Reflect and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
+Reflection and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
 ### Potential barrier
 
@@ -154,10 +168,10 @@ Reservoir inflow correction and closed PE are outside this page's scope. See
 
 ## Advance the time remaining after a boundary crossing
 
-Position and velocity at a box event are interpolated between candidate input and output states, and only the active face
-coordinate is set exactly to the box value. After applying the surviving action, BEACH uses
-a guard derived from the box coordinates and span to place reflected or periodic particles inside the face. This avoids a
-subnormal one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
+Position and velocity at a box event are interpolated between candidate input and output states, and every coordinate in the
+event mask is set exactly to its corresponding box face. After applying the surviving action, BEACH uses a guard derived from
+the box coordinates and span to place reflected or periodic event-axis coordinates inside the face. This avoids a subnormal
+one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
 
 $$
 \Delta t_\mathrm{remain}=(1-t_\mathrm{event})\Delta t_\mathrm{segment}

@@ -58,8 +58,8 @@ mode = "periodic2"
 
 `[domain]` owns the simulation cell and periodic topology; `[field_boundary]` owns field closure. `mode="free"` selects a
 free-space field, while `mode="periodic2"` uses the domain's x/y periodicity. The current periodic2 implementation accepts only
-x/y periodic and z nonperiodic. Species boundary settings may select `open` or `reflect` on nonperiodic faces, but cannot add,
-remove, or override periodic axes.
+x/y periodic and z nonperiodic. Species boundary settings may select `open`, `reflect`, or `redistributed_reflect` on
+nonperiodic faces, but cannot add, remove, or override periodic axes.
 
 ## Discretize element charge with triangle P0
 
