@@ -58,14 +58,18 @@ program test_restart
   ledger%neutral_return_weight_scale = [1.25_dp, 1.0_dp]
   ledger%neutral_return_unresolved_fraction = [0.2_dp, 0.0_dp]
   mesh%q_elem = [1.0e-12_dp, -2.0e-12_dp]
-  allocate (state%macro_residual(2))
+  allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
   state%macro_residual = [0.25_dp, 0.75_dp]
+  state%boundary_macro_residual = 0.0_dp
+  state%boundary_macro_residual(2, 1) = 0.125_dp
+  state%boundary_macro_residual(5, 2) = 0.625_dp
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
   call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
 
   call build_test_mesh(mesh)
   state%macro_residual = 0.0_dp
+  state%boundary_macro_residual = 0.0_dp
   call load_restart_checkpoint( &
     out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger &
     )
@@ -89,6 +93,12 @@ program test_restart
     )
   call assert_allclose_1d(mesh%q_elem, [1.0e-12_dp, -2.0e-12_dp], 1.0e-24_dp, 'charge restore mismatch')
   call assert_allclose_1d(state%macro_residual, [0.25_dp, 0.75_dp], 1.0e-12_dp, 'macro residual restore mismatch')
+  call assert_close_dp( &
+    state%boundary_macro_residual(2, 1), 0.125_dp, 1.0e-12_dp, 'boundary residual x-high restore mismatch' &
+    )
+  call assert_close_dp( &
+    state%boundary_macro_residual(5, 2), 0.625_dp, 1.0e-12_dp, 'boundary residual z-low restore mismatch' &
+    )
 
   cfg_changed = cfg
   cfg_changed%sim%dt = 2.0_dp*cfg%sim%dt
@@ -131,6 +141,7 @@ program test_restart
   call test_begin('load_checkpoint')
   call build_test_mesh(mesh)
   state%macro_residual = 0.0_dp
+  state%boundary_macro_residual = 0.0_dp
   call load_restart_checkpoint(out_dir, mesh, stats, has_restart, state)
   call assert_true(has_restart, 'complete checkpoint should be detected')
   call assert_equal_i64(stats%processed_particles, 10_i64, 'processed_particles mismatch')
@@ -152,6 +163,9 @@ program test_restart
   call assert_close_dp(stats%last_rel_change, 1.0e-3_dp, 1.0e-12_dp, 'last_rel_change mismatch')
   call assert_allclose_1d(mesh%q_elem, [1.0e-12_dp, -2.0e-12_dp], 1.0e-24_dp, 'charge restore mismatch')
   call assert_allclose_1d(state%macro_residual, [0.25_dp, 0.75_dp], 1.0e-12_dp, 'macro residual restore mismatch')
+  call assert_close_dp( &
+    state%boundary_macro_residual(2, 1), 0.125_dp, 1.0e-12_dp, 'boundary residual reload mismatch' &
+    )
   call test_end()
 
   call cleanup_restart_fixture(out_dir)

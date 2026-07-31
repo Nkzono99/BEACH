@@ -28,7 +28,7 @@ contains
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted
-  real(dp), allocatable :: potential_buf(:), injection_residual_before(:)
+  real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i32) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
@@ -108,6 +108,13 @@ contains
     allocate (rng_state_before(species_idx))
     if (present(inject_state)) then
       if (allocated(inject_state%macro_residual)) allocate (injection_residual_before(size(inject_state%macro_residual)))
+      if (allocated(inject_state%boundary_macro_residual)) then
+        allocate ( &
+          boundary_injection_residual_before( &
+          size(inject_state%boundary_macro_residual, 1), size(inject_state%boundary_macro_residual, 2) &
+          ) &
+          )
+      end if
     end if
   end if
 
@@ -124,6 +131,9 @@ contains
     if (adaptive_nonzero_mode) then
       call random_seed(get=rng_state_before)
       if (allocated(injection_residual_before)) injection_residual_before = inject_state%macro_residual
+      if (allocated(boundary_injection_residual_before)) then
+        boundary_injection_residual_before = inject_state%boundary_macro_residual
+      end if
       committed_zero_state = snapshot%zero_state
       committed_snapshot_diagnostics = snapshot%diagnostics
     end if
@@ -132,6 +142,9 @@ contains
       if (adaptive_nonzero_mode) then
         call random_seed(put=rng_state_before)
         if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
+        if (allocated(boundary_injection_residual_before)) then
+          inject_state%boundary_macro_residual = boundary_injection_residual_before
+        end if
         snapshot%zero_state = committed_zero_state
         snapshot%diagnostics = committed_snapshot_diagnostics
       end if
@@ -140,8 +153,11 @@ contains
       duration_ratio = trial_batch_duration/app%sim%batch_duration
       do species_idx = 1_i32, trial_app%n_particle_species
         if (.not. trial_app%particle_species(species_idx)%enabled) cycle
-        if (trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'reservoir_face') cycle
         if (.not. trial_app%particle_species(species_idx)%has_target_macro_particles_per_batch) cycle
+        if (trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'reservoir_face' .and. &
+            trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'plane_source' .and. &
+            .not. any(trial_app%particle_species(species_idx)%boundary_inflow_low /= 0_i32) .and. &
+            .not. any(trial_app%particle_species(species_idx)%boundary_inflow_high /= 0_i32)) cycle
         trial_app%particle_species(species_idx)%w_particle = &
           app%particle_species(species_idx)%w_particle*duration_ratio
       end do

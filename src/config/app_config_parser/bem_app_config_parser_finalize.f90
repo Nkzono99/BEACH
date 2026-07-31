@@ -1,6 +1,7 @@
 !> 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
   use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face
+  use bem_app_config_types, only: particle_inflow_none, particle_inflow_reservoir
   implicit none
 contains
 
@@ -9,7 +10,7 @@ contains
   integer(i32) :: per_batch_particles, physics_status
   integer(i32) :: n_periodic_axes
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3), inject_face_boundary
-  logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode
+  logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode, has_boundary_inflow
   character(len=64) :: generated_species_key
   character(len=256) :: physics_message
 
@@ -261,6 +262,8 @@ contains
     cfg%particle_species(i)%velocity_grid_sampling = lower_ascii(trim(cfg%particle_species(i)%velocity_grid_sampling))
     cfg%particle_species(i)%surface_charge_closure = &
       lower_ascii(trim(cfg%particle_species(i)%surface_charge_closure))
+    has_boundary_inflow = any(cfg%particle_species(i)%boundary_inflow_low /= particle_inflow_none) .or. &
+                          any(cfg%particle_species(i)%boundary_inflow_high /= particle_inflow_none)
     do axis = 1, 3
       call validate_particle_boundary_override( &
         cfg%particle_species(i)%boundary_low(axis), cfg%sim%bc_low(axis), &
@@ -280,6 +283,16 @@ contains
       cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(i), &
       effective_boundary_low, effective_boundary_high &
       )
+    do axis = 1, 3
+      call validate_particle_boundary_inflow( &
+        cfg%particle_species(i)%boundary_inflow_low(axis), cfg%sim%bc_low(axis), effective_boundary_low(axis), &
+        'particles.species.boundary_inflow low face' &
+        )
+      call validate_particle_boundary_inflow( &
+        cfg%particle_species(i)%boundary_inflow_high(axis), cfg%sim%bc_high(axis), effective_boundary_high(axis), &
+        'particles.species.boundary_inflow high face' &
+        )
+    end do
     select case (trim(cfg%particle_species(i)%surface_charge_closure))
     case ('explicit')
       continue
@@ -349,17 +362,21 @@ contains
     end select
     select case (trim(cfg%particle_species(i)%source_mode))
     case ('volume_seed')
-      has_enabled_volume_seed = .true.
+      if (cfg%particle_species(i)%has_source_normal) then
+        error stop 'source_normal is only valid for source_mode="plane_source".'
+      end if
+      has_enabled_volume_seed = has_enabled_volume_seed .or. cfg%particle_species(i)%npcls_per_step > 0_i32
       if (cfg%particle_species(i)%npcls_per_step < 0_i32) then
         error stop 'particles.species.npcls_per_step must be >= 0.'
       end if
-      if (trim(cfg%particle_species(i)%velocity_distribution) /= 'maxwellian' .or. &
-          len_trim(cfg%particle_species(i)%velocity_grid_path) > 0 .or. &
-          trim(cfg%particle_species(i)%velocity_grid_sampling) /= 'auto' .or. &
-          cfg%particle_species(i)%has_particle_flux_m2_s .or. cfg%particle_species(i)%has_current_density_a_m2) then
+      if (.not. has_boundary_inflow .and. &
+          (trim(cfg%particle_species(i)%velocity_distribution) /= 'maxwellian' .or. &
+           len_trim(cfg%particle_species(i)%velocity_grid_path) > 0 .or. &
+           trim(cfg%particle_species(i)%velocity_grid_sampling) /= 'auto' .or. &
+           cfg%particle_species(i)%has_particle_flux_m2_s .or. cfg%particle_species(i)%has_current_density_a_m2)) then
         error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
       end if
-      if (cfg%particle_species(i)%has_target_macro_particles_per_batch) then
+      if (.not. has_boundary_inflow .and. cfg%particle_species(i)%has_target_macro_particles_per_batch) then
         error stop 'target_macro_particles_per_batch is only valid for reservoir_face.'
       end if
       if (abs(cfg%particle_species(i)%emit_current_density_a_m2) > 0.0d0 .or. &
@@ -368,10 +385,32 @@ contains
         error stop 'photo_raycast keys are only valid for source_mode="photo_raycast".'
       end if
       per_batch_particles = per_batch_particles + cfg%particle_species(i)%npcls_per_step
+      if (has_boundary_inflow) then
+        has_dynamic_source_species = .true.
+        call validate_boundary_inflow_species(cfg, i)
+      end if
     case ('reservoir_face')
+      if (cfg%particle_species(i)%has_source_normal) then
+        error stop 'source_normal is only valid for source_mode="plane_source".'
+      end if
+      if (has_boundary_inflow) then
+        error stop 'source_mode="reservoir_face" cannot be combined with boundary_inflow.'
+      end if
       has_dynamic_source_species = .true.
       call validate_reservoir_species(cfg, i)
+    case ('plane_source')
+      if (has_boundary_inflow) then
+        error stop 'source_mode="plane_source" cannot be combined with boundary_inflow.'
+      end if
+      has_dynamic_source_species = .true.
+      call validate_plane_source_species(cfg, i)
     case ('photo_raycast')
+      if (cfg%particle_species(i)%has_source_normal) then
+        error stop 'source_normal is only valid for source_mode="plane_source".'
+      end if
+      if (has_boundary_inflow) then
+        error stop 'source_mode="photo_raycast" cannot be combined with boundary_inflow.'
+      end if
       has_dynamic_source_species = .true.
       call validate_photo_raycast_species(cfg, i)
     case default
@@ -394,9 +433,12 @@ contains
     end if
     do i = 1_i32, cfg%n_particle_species
       if (.not. cfg%particle_species(i)%enabled) cycle
-      if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'reservoir_face') cycle
+      if (trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'reservoir_face' .and. &
+          trim(lower_ascii(cfg%particle_species(i)%source_mode)) /= 'plane_source' .and. &
+          .not. any(cfg%particle_species(i)%boundary_inflow_low == particle_inflow_reservoir) .and. &
+          .not. any(cfg%particle_species(i)%boundary_inflow_high == particle_inflow_reservoir)) cycle
       if (.not. cfg%particle_species(i)%has_target_macro_particles_per_batch) then
-        error stop 'adaptive reservoir_face requires target_macro_particles_per_batch instead of fixed w_particle.'
+        error stop 'adaptive flux-driven injection requires target_macro_particles_per_batch instead of fixed w_particle.'
       end if
     end do
   end if
@@ -419,5 +461,25 @@ contains
       error stop trim(context)//' cannot override a periodic domain face.'
     end if
   end subroutine validate_particle_boundary_override
+
+  subroutine validate_particle_boundary_inflow(inflow, effective_topology_action, effective_particle_action, context)
+    integer(i32), intent(in) :: inflow, effective_topology_action, effective_particle_action
+    character(len=*), intent(in) :: context
+
+    select case (inflow)
+    case (particle_inflow_none)
+      return
+    case (particle_inflow_reservoir)
+      continue
+    case default
+      error stop trim(context)//' must be none or reservoir.'
+    end select
+    if (effective_topology_action == bc_periodic) then
+      error stop trim(context)//' cannot inject through a periodic domain face.'
+    end if
+    if (effective_particle_action /= bc_open) then
+      error stop trim(context)//' requires the effective particle action to be open.'
+    end if
+  end subroutine validate_particle_boundary_inflow
 
 end submodule bem_app_config_parser_finalize

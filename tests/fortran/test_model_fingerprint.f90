@@ -3,7 +3,7 @@ program test_model_fingerprint
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, bc_reflect, bc_redistributed_reflect
   use bem_mesh, only: init_mesh
-  use bem_app_config, only: app_config, default_app_config, species_from_defaults
+  use bem_app_config, only: app_config, default_app_config, species_from_defaults, particle_inflow_reservoir
   use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(12)
+  call test_init(14)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -65,6 +65,23 @@ program test_model_fingerprint
   cfg_changed = cfg
   cfg_changed%particle_species(1)%boundary_low(1) = bc_reflect
   call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'particle boundary must alter fingerprint')
+  call test_end()
+
+  call test_begin('species_boundary_inflow_change_detected')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%boundary_inflow_high(3) = particle_inflow_reservoir
+  call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'boundary inflow must alter fingerprint')
+  call test_end()
+
+  call test_begin('plane_source_normal_change_detected')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%source_mode = 'plane_source'
+  cfg_changed%particle_species(1)%has_source_normal = .true.
+  cfg_changed%particle_species(1)%source_normal = [1.0_dp, 0.0_dp, 0.0_dp]
+  fp_a = species_fingerprint(cfg_changed)
+  cfg_changed%particle_species(1)%source_normal = [-1.0_dp, 0.0_dp, 0.0_dp]
+  fp_b = species_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'plane source normal must alter fingerprint')
   call test_end()
 
   call test_begin('global_particle_boundary_change_detected')

@@ -118,8 +118,11 @@ obj_offset = [0.0, 0.0, 0.0]
 | `source_mode` | 用途 | 必須となる主なキー |
 | --- | --- | --- |
 | `volume_seed` | 箱内に初期粒子を置く小テスト | `npcls_per_step`, `pos_low`, `pos_high` |
-| `reservoir_face` | 面から局所reservoir流入を与える | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
+| `plane_source` | 内部矩形面から一方向fluxを与える | `pos_low`, `pos_high`, `source_normal`, densityまたはgrid flux |
+| `reservoir_face`（非推奨） | 旧形式の局所reservoir面 | `inject_face`, `pos_low`, `pos_high` |
 | `photo_raycast` | 表面から光電子を放出する | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
+
+外部reservoirからの流入は`source_mode`ではなく`[particles.species.boundary_inflow]`で追加します。
 
 ### `volume_seed`
 
@@ -140,9 +143,9 @@ temperature_k = 0.0
 
 **解釈:** 物理的な面流束から個数を決めるsourceではありません。
 
-### `reservoir_face`
+### 境界reservoir流入
 
-**前提:** `[domain]`、正の`sim.batch_duration`、`inject_face`が必要です。流入障壁は`[reservoir]`で選びます。
+**前提:** `[domain]`と正の`sim.batch_duration`が必要です。流入障壁は`[reservoir]`で選びます。
 
 ```toml
 [reservoir]
@@ -153,26 +156,49 @@ face_potential_grid_n = 3
 
 ```toml
 [[particles.species]]
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 300
-inject_face = "z_high"
-inject_region_mode = "face_fraction"
-uv_low = [0.0, 0.0]
-uv_high = [1.0, 1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 ```
 
-**期待する出力:** 局所reservoirの流束から粒子重みが決まり、指定面から流入します。
+**期待する出力:** 外部reservoirの流束から粒子重みが決まり、z-high面全体から流入します。
 
 **解釈:** `target_macro_particles_per_batch`は1 batchあたりの計算粒子数を固定します。重みを直接指定する場合は
 代わりに`w_particle`を使います。`temperature_k`と`temperature_ev`は同時指定できません。
 
-**次の選択:** 流束、重み、速度分布は
-[`reservoir_face`の流入量と速度サンプリング](ReservoirInjection.html)で確認します。
+**次の選択:** 流束、重み、速度分布、`infinity_barrier`は
+[シミュレーション境界からのreservoir流入](ReservoirInjection.html)で確認します。
+
+### `plane_source`
+
+**前提:** `[domain]`、正の`sim.batch_duration`、box内部のaxis-aligned矩形面が必要です。
+
+```toml
+[[particles.species]]
+source_mode = "plane_source"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+target_macro_particles_per_batch = 300
+pos_low = [0.2, 0.2, 2.0]
+pos_high = [0.8, 0.8, 2.0]
+source_normal = [0.0, 0.0, -1.0]
+```
+
+**期待する出力:** z=2.0の矩形面から-z方向へ一方向fluxを生成します。
+
+**解釈:** 外部境界ではないため、`reservoir.inflow_model="infinity_barrier"`と`phi_infty`は適用しません。
+旧`source_mode = "reservoir_face"`は互換入力として残りますが、新しいcaseでは用途に応じて
+`boundary_inflow`または`plane_source`を選びます。
 
 ### `photo_raycast`
 
@@ -243,7 +269,7 @@ ordinary_open_model = "escape"
 
 **解釈:** `[particle_boundary]`に`periodic`は指定できず、周期面の作用は`[domain]`から決まります。
 
-**次の選択:** operatorの選択は`[periodic2]`で行います。局所reservoir + closed PEの基準構成は
+**次の選択:** operatorの選択は`[periodic2]`で行います。境界reservoir + closed PEの基準構成は
 [periodic2有限画像構成](FinitePeriodicConfiguration.html)と
 [`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)を使います。
 

@@ -179,6 +179,16 @@ contains
     call feed_real_vector(hash, spec%ray_direction)
     call feed_logical(hash, spec%has_ray_direction)
     call feed_string(hash, spec%inject_face)
+    if (trim(spec%source_mode) == 'plane_source') then
+      call feed_string(hash, 'plane_source_v1')
+      call feed_real_vector(hash, spec%source_normal)
+      call feed_logical(hash, spec%has_source_normal)
+    end if
+    if (any(spec%boundary_inflow_low /= 0_i32) .or. any(spec%boundary_inflow_high /= 0_i32)) then
+      call feed_string(hash, 'species_boundary_inflow_v1')
+      call feed_integer_vector(hash, spec%boundary_inflow_low)
+      call feed_integer_vector(hash, spec%boundary_inflow_high)
+    end if
     if (any(spec%boundary_low /= particle_bc_inherit) .or. &
         any(spec%boundary_high /= particle_bc_inherit)) then
       call feed_string(hash, 'species_particle_boundary_v1')

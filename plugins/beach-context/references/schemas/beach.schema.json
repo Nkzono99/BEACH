@@ -93,16 +93,31 @@
                 "type": "array",
                 "contains": {
                   "type": "object",
-                  "properties": {
-                    "source_mode": {
-                      "enum": [
-                        "reservoir_face",
-                        "photo_raycast"
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "source_mode": {
+                          "enum": [
+                            "reservoir_face",
+                            "plane_source",
+                            "photo_raycast"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "source_mode"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "boundary_inflow": {
+                          "minProperties": 1
+                        }
+                      },
+                      "required": [
+                        "boundary_inflow"
                       ]
                     }
-                  },
-                  "required": [
-                    "source_mode"
                   ]
                 }
               }
@@ -542,6 +557,171 @@
         "redistributed_reflect"
       ]
     },
+    "speciesBoundaryInflow": {
+      "description": "Per-species reservoir inflow attached to complete nonperiodic box faces.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_low": {
+          "const": "reservoir"
+        },
+        "x_high": {
+          "const": "reservoir"
+        },
+        "y_low": {
+          "const": "reservoir"
+        },
+        "y_high": {
+          "const": "reservoir"
+        },
+        "z_low": {
+          "const": "reservoir"
+        },
+        "z_high": {
+          "const": "reservoir"
+        }
+      }
+    },
+    "reservoirInjectionPhysics": {
+      "type": "object",
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "w_particle"
+              ],
+              "not": {
+                "required": [
+                  "target_macro_particles_per_batch"
+                ]
+              }
+            },
+            {
+              "required": [
+                "target_macro_particles_per_batch"
+              ],
+              "not": {
+                "required": [
+                  "w_particle"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "velocity_distribution": {
+                "const": "grid"
+              }
+            },
+            "required": [
+              "velocity_distribution"
+            ]
+          },
+          "then": {
+            "required": [
+              "velocity_grid_path"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "particle_flux_m2_s"
+                ],
+                "not": {
+                  "required": [
+                    "current_density_a_m2"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "current_density_a_m2"
+                ],
+                "not": {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "number_density_cm3"
+                  ]
+                },
+                {
+                  "required": [
+                    "number_density_m3"
+                  ]
+                },
+                {
+                  "required": [
+                    "temperature_k"
+                  ]
+                },
+                {
+                  "required": [
+                    "temperature_ev"
+                  ]
+                }
+              ]
+            }
+          },
+          "else": {
+            "properties": {
+              "velocity_distribution": {
+                "const": "maxwellian"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "number_density_cm3"
+                ],
+                "not": {
+                  "required": [
+                    "number_density_m3"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "number_density_m3"
+                ],
+                "not": {
+                  "required": [
+                    "number_density_cm3"
+                  ]
+                }
+              }
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "velocity_grid_path"
+                  ]
+                },
+                {
+                  "required": [
+                    "particle_flux_m2_s"
+                  ]
+                },
+                {
+                  "required": [
+                    "current_density_a_m2"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
     "injectFace": {
       "description": "Box face identifier for particle injection.",
       "type": "string",
@@ -892,6 +1072,7 @@
           "enum": [
             "volume_seed",
             "reservoir_face",
+            "plane_source",
             "photo_raycast"
           ],
           "default": "volume_seed",
@@ -899,11 +1080,11 @@
         },
         "number_density_cm3": {
           "type": "number",
-          "description": "Upstream density [cm^-3] for reservoir_face."
+          "description": "Reservoir density [cm^-3] for reservoir_face, plane_source, or boundary_inflow."
         },
         "number_density_m3": {
           "type": "number",
-          "description": "Upstream density [m^-3] for reservoir_face."
+          "description": "Reservoir density [m^-3] for reservoir_face, plane_source, or boundary_inflow."
         },
         "q_particle": {
           "type": "number",
@@ -932,7 +1113,7 @@
               "minimum": 1
             }
           ],
-          "description": "For reservoir_face, either a positive count or -1 to reuse species[1] weight."
+          "description": "For flux-driven reservoir injection, either the total macro-particle target across all enabled inflow faces or a plane source, or -1 to reuse species[1] weight."
         },
         "pos_low": {
           "$ref": "#/$defs/vec3",
@@ -952,6 +1133,10 @@
           ],
           "description": "Upper bound of position range [m]."
         },
+        "source_normal": {
+          "$ref": "#/$defs/vec3",
+          "description": "Non-zero axis-aligned normal for plane_source injection; normalized internally."
+        },
         "velocity_distribution": {
           "type": "string",
           "enum": [
@@ -959,7 +1144,7 @@
             "grid"
           ],
           "default": "maxwellian",
-          "description": "Velocity distribution model. grid is available for reservoir_face."
+          "description": "Velocity distribution model. grid is available for flux-driven reservoir injection."
         },
         "velocity_grid_path": {
           "type": "string",
@@ -1044,6 +1229,10 @@
         "boundary": {
           "$ref": "#/$defs/speciesParticleBoundary",
           "description": "Optional per-species overrides for all six nonperiodic faces."
+        },
+        "boundary_inflow": {
+          "$ref": "#/$defs/speciesBoundaryInflow",
+          "description": "Reservoir inflow attached to full nonperiodic simulation-boundary faces."
         },
         "surface_charge_closure": {
           "type": "string",
@@ -1204,23 +1393,34 @@
         },
         {
           "if": {
-            "anyOf": [
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "not": {
+                      "required": [
+                        "source_mode"
+                      ]
+                    }
+                  },
+                  {
+                    "properties": {
+                      "source_mode": {
+                        "const": "volume_seed"
+                      }
+                    },
+                    "required": [
+                      "source_mode"
+                    ]
+                  }
+                ]
+              },
               {
                 "not": {
                   "required": [
-                    "source_mode"
+                    "boundary_inflow"
                   ]
                 }
-              },
-              {
-                "properties": {
-                  "source_mode": {
-                    "const": "volume_seed"
-                  }
-                },
-                "required": [
-                  "source_mode"
-                ]
               }
             ]
           },
@@ -1512,6 +1712,165 @@
                 }
               }
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_mode": {
+                "const": "plane_source"
+              }
+            },
+            "required": [
+              "source_mode"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/reservoirInjectionPhysics"
+              },
+              {
+                "required": [
+                  "pos_low",
+                  "pos_high",
+                  "source_normal"
+                ],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "npcls_per_step"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "inject_face"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "boundary_inflow"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "emit_current_density_a_m2"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "rays_per_batch"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "ray_direction"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "deposit_opposite_charge_on_emit"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "boundary_inflow"
+            ],
+            "properties": {
+              "boundary_inflow": {
+                "minProperties": 1
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "inject_face"
+                  ]
+                },
+                {
+                  "required": [
+                    "source_normal"
+                  ]
+                },
+                {
+                  "required": [
+                    "emit_current_density_a_m2"
+                  ]
+                },
+                {
+                  "required": [
+                    "rays_per_batch"
+                  ]
+                },
+                {
+                  "required": [
+                    "ray_direction"
+                  ]
+                },
+                {
+                  "required": [
+                    "deposit_opposite_charge_on_emit"
+                  ]
+                }
+              ]
+            },
+            "allOf": [
+              {
+                "$ref": "#/$defs/reservoirInjectionPhysics"
+              },
+              {
+                "if": {
+                  "properties": {
+                    "velocity_distribution": {
+                      "const": "grid"
+                    }
+                  },
+                  "required": [
+                    "velocity_distribution"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "npcls_per_step": {
+                      "maximum": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "source_mode": {
+                "const": "volume_seed"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "source_normal"
+            ]
+          },
+          "then": {
+            "required": [
+              "source_mode"
+            ],
+            "properties": {
+              "source_mode": {
+                "const": "plane_source"
+              }
+            }
           }
         },
         {

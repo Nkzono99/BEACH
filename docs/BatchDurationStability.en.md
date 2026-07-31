@@ -15,7 +15,7 @@ When `sim.batch_duration_step` is set, `sim.batch_duration = sim.dt * sim.batch_
 
 ### Prerequisites
 
-- `reservoir_face` and `photo_raycast` require a positive `sim.batch_duration`.
+- `boundary_inflow`, `plane_source`, `reservoir_face`, and `photo_raycast` require a positive `sim.batch_duration`.
 - Set `history_stride > 0` to save `charge_history.csv` for comparison.
 - Use the same mesh, particle distributions, RNG seed, and OpenMP/MPI layout.
 
@@ -63,8 +63,8 @@ not Richardson extrapolation, because it does not assume a power law for the err
 This path requires:
 
 - `[periodic2].nonzero_mode_backend = "cached_kneq0"`
-- a time-scaled `reservoir_face` or `photo_raycast` source
-- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for `reservoir_face`
+- time-scaled `boundary_inflow`, `plane_source`, `reservoir_face`, or `photo_raycast`
+- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow and surface sources
 - a positive `sim.batch_duration`
 
 This path does not support `volume_seed`.
@@ -145,6 +145,6 @@ geometry, potential, and the inflow distribution. Select the final value with th
 ## Related documents
 
 - [Input parameter reference](Parameters.en.html) — `sim.batch_duration` and `sim.batch_duration_step`
-- [`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
+- [boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
 - [Validate Results](ValidationGuide.en.html) — numerical convergence and physical validity
 - [Computational model overview](Algorithms.en.html) — batch loop

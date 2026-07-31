@@ -50,6 +50,97 @@ def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:
     assert estimate_workload(config, threads=1)["batch_totals"] == [2]
 
 
+def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() -> (
+    None
+):
+    config = {
+        "sim": {"batch_count": 1, "batch_duration": 1.0},
+        "domain": {
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [2.0, 3.0, 4.0],
+            "periodic_axes": [],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 2,
+                    "number_density_m3": 1.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "target_macro_particles_per_batch": 9,
+                    "drift_velocity": [1.0, 0.0, 1.0],
+                    "boundary_inflow": {
+                        "x_low": "reservoir",
+                        "z_low": "reservoir",
+                    },
+                }
+            ]
+        },
+    }
+
+    result = estimate_workload(config, threads=1)
+
+    assert result["species_per_batch"] == [[11]]
+    assert result["global_reservoir_particles"] == 9
+
+
+def test_estimate_workload_supports_internal_plane_source() -> None:
+    config = {
+        "sim": {"batch_count": 1, "batch_duration": 1.0},
+        "domain": {
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "plane_source",
+                    "number_density_m3": 100.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "target_macro_particles_per_batch": 10,
+                    "pos_low": [0.25, 0.25, 0.5],
+                    "pos_high": [0.75, 0.75, 0.5],
+                    "source_normal": [0.0, 0.0, 2.0],
+                    "drift_velocity": [0.0, 0.0, 2.0],
+                }
+            ]
+        },
+    }
+
+    result = estimate_workload(config, threads=1)
+
+    assert result["species_per_batch"] == [[10]]
+
+
+def test_estimate_workload_rejects_boundary_inflow_on_periodic_face() -> None:
+    config = {
+        "sim": {"batch_count": 1, "batch_duration": 1.0},
+        "domain": {
+            "box_min": [0.0, 0.0, 0.0],
+            "box_max": [1.0, 1.0, 1.0],
+            "periodic_axes": ["x"],
+        },
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": 0,
+                    "number_density_m3": 1.0,
+                    "temperature_k": 0.0,
+                    "m_particle": 1.0,
+                    "w_particle": 1.0,
+                    "boundary_inflow": {"x_low": "reservoir"},
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(SystemExit, match="periodic domain face"):
+        estimate_workload(config, threads=1)
+
+
 def test_estimate_workload_normalizes_high_level_face_region_without_mutation() -> None:
     high_level = {
         "sim": {
@@ -614,7 +705,7 @@ def test_estimate_workload_rejects_minus_one_if_species1_is_not_reservoir() -> N
         },
     }
 
-    with pytest.raises(SystemExit, match='source_mode="reservoir_face"'):
+    with pytest.raises(SystemExit, match="reservoir injection"):
         estimate_workload(config=config, threads=1)
 
 
@@ -920,6 +1011,22 @@ def test_read_macro_residuals_rejects_legacy_rank_path(tmp_path) -> None:
 
     with pytest.raises(SystemExit, match="legacy rank-local"):
         read_macro_residuals(path, 1)
+
+
+def test_read_macro_residuals_preserves_boundary_face_rows(tmp_path) -> None:
+    path = tmp_path / "macro_residuals.csv"
+    path.write_text(
+        "species_idx,face,residual\n"
+        "1,0,0.25\n"
+        "1,1,0.75\n"
+        "1,6,0.50\n",
+        encoding="utf-8",
+    )
+
+    residuals = read_macro_residuals(path, 1)
+    assert residuals == [0.25]
+    assert residuals.boundary[0][0] == 0.75
+    assert residuals.boundary[5][0] == 0.50
 
 
 def test_estimate_workload_supports_velocity_grid_particle_flux() -> None:

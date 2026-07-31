@@ -58,8 +58,8 @@ difference between candidate and batch-start charge, and accepts the first
 trial whose maximum absolute value is within the configured limit. A rejection
 fully restores the pre-trial RNG and macro-particle residuals before rebuilding
 the same batch at a shorter width. This trial loop is specific to
-`cached_kneq0` and does not support `volume_seed`. A `reservoir_face` source must use
-`target_macro_particles_per_batch`; fixed `w_particle` reservoirs are rejected.
+`cached_kneq0` and does not support an ordinary `volume_seed`. Time-scaled `boundary_inflow`, `plane_source`, and
+deprecated `reservoir_face` must use `target_macro_particles_per_batch`; fixed `w_particle` reservoirs are rejected.
 
 ### 1. Refresh the field snapshot
 
@@ -70,11 +70,11 @@ treecode, and FMM selection and
 
 ### 2. Generate the batch particles
 
-BEACH creates the particles to track in this trial from `volume_seed`, `reservoir_face`, and `photo_raycast`
-sources. Reservoir counts follow inflow flux and the trial width; photoelectrons originate at the first surface
+BEACH creates the particles to track in this trial from `volume_seed`, `plane_source`, boundary-reservoir inflow,
+deprecated `reservoir_face`, and `photo_raycast`. Reservoir counts follow inflow flux and the trial width; photoelectrons originate at the first surface
 hit by a ray. On an adaptive retry, particle counts and weights are recomputed
-from the restored RNG state and the shorter trial width. See [Particle sources](ParticleSourcesBoundaries.en.html),
-[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html), and
+from the restored RNG state and the shorter trial width. See [Particle sources and boundary inflow](ParticleSourcesBoundaries.en.html),
+[boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html), and
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
 
 ### 3. Advance a particle by one step

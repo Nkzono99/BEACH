@@ -49,7 +49,7 @@ contains
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
     logical :: must_have_checkpoint
-    integer(i32) :: local_rank, world_size, contract_status
+    integer(i32) :: local_rank, world_size, contract_status, residual_species
 
     stats = sim_stats()
     has_restart = .false.
@@ -113,9 +113,15 @@ contains
     call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
+      if (allocated(state%boundary_macro_residual)) state%boundary_macro_residual = 0.0d0
       if (has_residual .and. allocated(state%macro_residual)) then
         if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
         if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
+        if (present(mpi) .and. allocated(state%boundary_macro_residual)) then
+          do residual_species = 1_i32, int(size(state%boundary_macro_residual, 2), i32)
+            call mpi_bcast_real_dp_array(mpi, state%boundary_macro_residual(:, residual_species), 0_i32)
+          end do
+        end if
       end if
     end if
     has_restart = .true.
@@ -256,10 +262,16 @@ contains
     type(mpi_context), intent(in), optional :: mpi
 
     character(len=1024) :: path
-    integer :: u, ios, i
+    integer :: u, ios, i, face
     integer(i32) :: local_rank, world_size
 
     if (.not. allocated(state%macro_residual)) return
+    if (allocated(state%boundary_macro_residual)) then
+      if (size(state%boundary_macro_residual, 1) /= 6 .or. &
+          size(state%boundary_macro_residual, 2) /= size(state%macro_residual)) then
+        error stop 'injection_state boundary residual shape must be (6, nspecies).'
+      end if
+    end if
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_macro_residuals_file')
     if (local_rank /= 0_i32) return
@@ -268,9 +280,13 @@ contains
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'
 
-    write (u, '(a)') 'species_idx,residual'
+    write (u, '(a)') 'species_idx,face,residual'
     do i = 1, size(state%macro_residual)
-      write (u, '(i0,a,es24.16)') i, ',', state%macro_residual(i)
+      write (u, '(i0,a,i0,a,es24.16)') i, ',', 0, ',', state%macro_residual(i)
+      if (.not. allocated(state%boundary_macro_residual)) cycle
+      do face = 1, 6
+        write (u, '(i0,a,i0,a,es24.16)') i, ',', face, ',', state%boundary_macro_residual(face, i)
+      end do
     end do
     close (u)
   end subroutine write_macro_residuals_file
@@ -582,40 +598,83 @@ contains
     type(injection_state), intent(inout) :: state
 
     integer :: u, ios
-    integer(i32) :: species_idx
+    integer(i32) :: species_idx, face
     real(dp) :: residual
     character(len=512) :: header
-    logical, allocatable :: seen(:)
+    logical :: extended_format
+    logical, allocatable :: seen(:), boundary_seen(:, :)
 
     if (.not. allocated(state%macro_residual)) return
+    if (allocated(state%boundary_macro_residual)) then
+      if (size(state%boundary_macro_residual, 1) /= 6 .or. &
+          size(state%boundary_macro_residual, 2) /= size(state%macro_residual)) then
+        error stop 'injection_state boundary residual shape must be (6, nspecies).'
+      end if
+    end if
 
     allocate (seen(size(state%macro_residual)))
     seen = .false.
     state%macro_residual = 0.0d0
+    if (allocated(state%boundary_macro_residual)) then
+      allocate (boundary_seen(size(state%boundary_macro_residual, 1), size(state%boundary_macro_residual, 2)))
+      boundary_seen = .false.
+      state%boundary_macro_residual = 0.0d0
+    end if
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv for resume.'
 
     read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read macro_residuals.csv header.'
+    select case (trim(header))
+    case ('species_idx,face,residual')
+      extended_format = .true.
+    case ('species_idx,residual')
+      extended_format = .false.
+    case default
+      error stop 'Resume checkpoint macro_residuals.csv has an unsupported header.'
+    end select
 
     do
-      read (u, *, iostat=ios) species_idx, residual
+      if (extended_format) then
+        read (u, *, iostat=ios) species_idx, face, residual
+      else
+        read (u, *, iostat=ios) species_idx, residual
+        face = 0_i32
+      end if
       if (ios < 0) exit
       if (ios > 0) error stop 'Failed to parse macro_residuals.csv during resume.'
       if (species_idx < 1_i32 .or. species_idx > size(state%macro_residual)) then
         error stop 'Resume checkpoint macro_residuals.csv has an invalid species index.'
       end if
-      if (seen(species_idx)) then
-        error stop 'Resume checkpoint macro_residuals.csv contains duplicate species rows.'
-      end if
       if (.not. ieee_is_finite(residual) .or. residual < 0.0d0 .or. residual >= 1.0d0) then
         error stop 'Resume checkpoint macro_residuals.csv residual values must be finite and in [0, 1).'
       end if
-      seen(species_idx) = .true.
-      state%macro_residual(species_idx) = residual
+      if (face == 0_i32) then
+        if (seen(species_idx)) error stop 'Resume checkpoint macro_residuals.csv contains duplicate source rows.'
+        seen(species_idx) = .true.
+        state%macro_residual(species_idx) = residual
+      else
+        if (.not. extended_format .or. face < 1_i32 .or. face > 6_i32) then
+          error stop 'Resume checkpoint macro_residuals.csv has an invalid boundary face index.'
+        end if
+        if (.not. allocated(state%boundary_macro_residual)) cycle
+        if (boundary_seen(face, species_idx)) then
+          error stop 'Resume checkpoint macro_residuals.csv contains duplicate boundary rows.'
+        end if
+        boundary_seen(face, species_idx) = .true.
+        state%boundary_macro_residual(face, species_idx) = residual
+      end if
     end do
     close (u)
+    if (.not. all(seen)) then
+      error stop 'Resume checkpoint macro_residuals.csv is missing source rows.'
+    end if
+    if (extended_format .and. allocated(state%boundary_macro_residual)) then
+      if (.not. all(boundary_seen)) then
+        error stop 'Resume checkpoint macro_residuals.csv is missing boundary rows.'
+      end if
+    end if
   end subroutine load_macro_residual_file
 
   !> RNG状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。

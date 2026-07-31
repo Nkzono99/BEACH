@@ -4,7 +4,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 # periodic2有限画像構成
 
-このページは、局所 reservoir + closed PE によってレゴリス帯電と光電子の表面内再分配を調べる
+このページは、境界 reservoir + closed PE によってレゴリス帯電と光電子の表面内再分配を調べる
 `periodic2` 構成の正本です。太陽風 VDF は z-high 面で定義し、光電子だけを閉じ、電位は z-high 面平均からの
 差として読みます。自己整合 outer-plasma/sheath は解きません。
 
@@ -12,7 +12,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 | 構成 | 太陽風流入 | 光電子 | 電位基準 | 用途 |
 | --- | --- | --- | --- | --- |
-| **局所reservoir + closed PE** | z-highのVDFを補正せず使用 | z-high反射 + `neutral_return` | z-high面平均 | このページの基準構成。局所再分配とbatch感度 |
+| **境界reservoir + closed PE** | z-highのVDFを補正せず使用 | z-high反射 + `neutral_return` | z-high面平均 | このページの基準構成。表面内再分配とbatch感度 |
 | scalar barrier | `infinity_barrier` | 共通の`potential_barrier` | `phi_infty` | 一つのscalar障壁による比較 |
 
 同じrunでこれらを重ねません。特に、closed PE構成には`infinity_barrier`、
@@ -50,10 +50,10 @@ face_potential_grid_n = 5
 `[domain]` が cell と周期 topology を、`[field_boundary]` が場の closure を定めます。現行 `periodic2` は
 `periodic_axes=["x", "y"]` と非周期 z 軸の組合せだけを受理します。周期性は全粒子種に共通で、species や
 `[particle_boundary]` から上書きできません。
-旧 `[external_boundary]` は削除済みです。局所流入は `[reservoir]`、非周期面の粒子作用は
-`[particle_boundary]` に指定します。
+旧 `[external_boundary]` は削除済みです。外部 reservoir 条件は `[reservoir]`、species 別流入面は
+`[particles.species.boundary_inflow]`、非周期面の外向き粒子作用は `[particle_boundary]` に指定します。
 
-太陽風 electron/ion には通常の `reservoir_face` を使います。密度、温度、drift は
+太陽風 electron/ion には z-high の `boundary_inflow="reservoir"` を使います。密度、温度、drift は
 **z-high 面の局所 boundary VDF**であり、表面電位による到達率・速度補正は行いません。
 
 光電子speciesだけに閉じた表面電荷closureを指定します。
@@ -186,7 +186,7 @@ top-relative potentialにしても無限周期解にはなりません。画像�
    return位置の追加samplingについても粒子数とseedを変えて確認する。
 
 完全反射は人工的な上端 mirror であり、自己整合 sheath や準中性解ではありません。この構成が示すのは、
-指定した局所太陽風 flux の下で正味光電子電流を 0 としたときの表面内再分配です。
+指定した境界太陽風 flux の下で正味光電子電流を 0 としたときの表面内再分配です。
 
 ## scalar barrierを比較に使う場合
 

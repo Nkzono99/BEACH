@@ -260,13 +260,15 @@ contains
 
   !> 種数に合わせて注入状態をゼロ初期化する。
   !! @param[out] state 初期化する注入状態。
-  !! @param[in] n_species 粒子種数（`macro_residual` 配列長）。
+  !! @param[in] n_species 粒子種数（source残差と6面boundary流入残差の種方向配列長）。
   subroutine initialize_injection_state(state, n_species)
     type(injection_state), intent(out) :: state
     integer, intent(in) :: n_species
 
     allocate (state%macro_residual(n_species))
+    allocate (state%boundary_macro_residual(6, n_species))
     state%macro_residual = 0.0d0
+    state%boundary_macro_residual = 0.0d0
   end subroutine initialize_injection_state
 
 end program main

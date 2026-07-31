@@ -5,7 +5,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
-    species_from_defaults
+    particle_inflow_reservoir, species_from_defaults
   use bem_physics_config_types, only: normalize_legacy_physics_config, validate_active_physics_config, physics_config_ok
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
@@ -41,6 +41,18 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
     end subroutine validate_reservoir_species
+
+    !> box境界に結び付いた reservoir 流入設定を検証し、必要なら重みを解決する。
+    module subroutine validate_boundary_inflow_species(cfg, species_idx)
+      type(app_config), intent(inout) :: cfg
+      integer, intent(in) :: species_idx
+    end subroutine validate_boundary_inflow_species
+
+    !> `plane_source` 粒子種の物理量と内部矩形面を検証し、必要なら重みを解決する。
+    module subroutine validate_plane_source_species(cfg, species_idx)
+      type(app_config), intent(inout) :: cfg
+      integer, intent(in) :: species_idx
+    end subroutine validate_plane_source_species
 
     !> `photo_raycast` 粒子種の入力値を検証し、発射方向などを正規化する。
     module subroutine validate_photo_raycast_species(cfg, species_idx)
@@ -926,6 +938,9 @@ contains
       case ('ray_direction')
         call get_toml_real3(table, keys(ikey), spec%ray_direction, 'particles.species.ray_direction')
         spec%has_ray_direction = .true.
+      case ('source_normal')
+        call get_toml_real3(table, keys(ikey), spec%source_normal, 'particles.species.source_normal')
+        spec%has_source_normal = .true.
       case ('inject_face')
         call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
         spec%inject_face = lower_ascii(trim(spec%inject_face))
@@ -935,6 +950,12 @@ contains
         call require_toml_success(stat, 'particles.species.boundary')
         if (.not. associated(child)) error stop 'particles.species.boundary must be a table.'
         call apply_species_boundary_toml_table(spec, child)
+      case ('boundary_inflow')
+        nullify (child)
+        call get_value(table, keys(ikey), child, requested=.false., stat=stat)
+        call require_toml_success(stat, 'particles.species.boundary_inflow')
+        if (.not. associated(child)) error stop 'particles.species.boundary_inflow must be a table.'
+        call apply_species_boundary_inflow_toml_table(spec, child)
       case ('surface_charge_closure')
         call get_toml_string( &
           table, keys(ikey), spec%surface_charge_closure, 'particles.species.surface_charge_closure' &
@@ -997,6 +1018,65 @@ contains
       end select
     end do
   end subroutine apply_species_boundary_toml_table
+
+  !> `[particles.species.boundary_inflow]` の外部 reservoir 流入面を読み込む。
+  subroutine apply_species_boundary_inflow_toml_table(spec, table)
+    type(particle_species_spec), intent(inout) :: spec
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('x_low')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_low(1), 'particles.species.boundary_inflow.x_low' &
+          )
+      case ('x_high')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_high(1), 'particles.species.boundary_inflow.x_high' &
+          )
+      case ('y_low')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_low(2), 'particles.species.boundary_inflow.y_low' &
+          )
+      case ('y_high')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_high(2), 'particles.species.boundary_inflow.y_high' &
+          )
+      case ('z_low')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_low(3), 'particles.species.boundary_inflow.z_low' &
+          )
+      case ('z_high')
+        call get_toml_boundary_inflow_mode( &
+          table, keys(ikey), spec%boundary_inflow_high(3), 'particles.species.boundary_inflow.z_high' &
+          )
+      case default
+        error stop 'Unknown key in [particles.species.boundary_inflow]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_species_boundary_inflow_toml_table
+
+  !> reservoir境界流入モードを文字列から内部定数へ変換する。
+  subroutine get_toml_boundary_inflow_mode(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    integer(i32), intent(out) :: value
+    character(len=*), intent(in) :: context
+    character(len=32) :: mode
+
+    call get_toml_string(table, key, mode, context)
+    select case (trim(lower_ascii(mode)))
+    case ('reservoir')
+      value = particle_inflow_reservoir
+    case default
+      error stop trim(context)//' must be "reservoir". Omit the key to disable inflow.'
+    end select
+  end subroutine get_toml_boundary_inflow_mode
 
   !> `[mesh]` TOML テーブルをメッシュ入力設定へ適用する。
   subroutine apply_mesh_toml_table(cfg, table, authoring)

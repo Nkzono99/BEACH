@@ -6,7 +6,8 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 BEACH は box 外の plasma を時間発展させません。`[particle_boundary]` で非周期面を `open`、`reflect`、
 `redistributed_reflect` のいずれかにし、open 面へ `ordinary_open_model="escape" | "potential_barrier"` を適用します。この処理は
-source に依存せず、`reservoir_face`、`photo_raycast`、`volume_seed` に共通です。周期性は
+生成方法に依存せず、boundary reservoir流入、`plane_source`、`photo_raycast`、`volume_seed`、
+deprecatedな`reservoir_face`に共通です。周期性は
 `domain.periodic_axes` で定め、粒子境界へ `periodic` は指定しません。
 完全修飾キーは `particle_boundary.ordinary_open_model` です。
 

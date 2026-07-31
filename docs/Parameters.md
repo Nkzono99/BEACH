@@ -70,7 +70,7 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 も同一の設定を生成します。この入門ケースは`domain.periodic_axes=["x","y"]`と
 `field_boundary.mode="periodic2"`を使います。
 
-`reservoir_face`、閉じた光電子、無限周期補正は、そのケースが実行できた後に
+境界reservoir流入、`plane_source`、閉じた光電子、無限周期補正は、そのケースが実行できた後に
 [シミュレーションケースを設計する](ConfigurationRecipes.html)から追加する応用設定です。
 
 ---
@@ -89,6 +89,7 @@ beach.toml
 ├── [reservoir]
 ├── [particles]
 │   └── [[particles.species]]       # 1 件以上の array-of-tables
+│       ├── [particles.species.boundary_inflow]
 │       └── [particles.species.boundary]
 ├── [mesh]
 │   ├── [mesh.groups.<name>]        # 名前付きの子 table
@@ -105,17 +106,18 @@ beach.toml
 | `[domain]` | root | box使用時 | box geometryと周期軸 |
 | `[field_boundary]` | root | 任意 | 場の`free` / `periodic2` closure |
 | `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
-| `[reservoir]` | root | 任意 | 局所reservoirの流入障壁と基準電位 |
+| `[reservoir]` | root | 任意 | 外部reservoirの流入障壁と基準電位 |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
+| `[particles.species.boundary_inflow]` | 最新の`[[particles.species]]` | 任意 | 外部reservoirから流入する非周期面 |
 | `[mesh]` | root | 任意 | OBJ または組み込み template の選択 |
 | `[mesh.groups.<name>]` | `[mesh]` | 0 件以上 | 複数 template で共有する配置と scale |
 | `[[mesh.templates]]` | `[mesh]` | 0 件以上 | `mode="template"` で使う組み込み形状 |
 | `[periodic2]` | root | 条件付き | split periodic2 の非零モード・零モード・下側境界モデル |
 | `[output]` | root | 任意 | 出力先、履歴、checkpoint 再開 |
 
-`reservoir_face`または`photo_raycast`を使う場合、`[sim]`と`[domain]`が必要です。
+`boundary_inflow`、`plane_source`、`reservoir_face`、`photo_raycast`を使う場合、`[sim]`と`[domain]`が必要です。
 `[[particles.species]]` は 1 件以上必要です。
 
 ---
@@ -142,7 +144,7 @@ beach.toml
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大bounce数 |
 
 `batch_duration` と `batch_duration_step` の同時指定はエラーです。
-`reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
+`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
 
 #### 場ソルバ
 
@@ -311,7 +313,7 @@ edge / cornerの同時eventではevent maskに含まれない軸だけを再標�
 `potential_barrier`は境界通過点の電位`phi_boundary`と`reservoir.phi_infty`から
 `q_particle * (phi_infty - phi_boundary)`を評価し、法線運動エネルギーを超える正の障壁だけを反射します。
 
-### `[reservoir]`: 局所reservoir条件
+### `[reservoir]`: 外部reservoir条件
 
 ```toml
 [reservoir]
@@ -326,7 +328,8 @@ face_potential_grid_n = 3
 | `phi_infty` | float | `0.0` | barrierが参照する無限遠基準電位 [V] |
 | `face_potential_grid_n` | int | `3` | 注入面平均電位の`N x N`評価格子。`>=1` |
 
-`infinity_barrier`は注入面平均電位と`phi_infty`からreservoirの法線VDFを補正します。
+`infinity_barrier`は`boundary_inflow`の面平均電位と`phi_infty`からreservoirの法線VDFを補正します。
+内部の`plane_source`とdeprecatedな`reservoir_face`には適用しません。
 一様電場には有限な無限遠電位がないため、併用時は`phi_infty`を有効なreservoir基準として整合させます。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
@@ -363,8 +366,8 @@ $$
 棄却 trial は RNG とmacro粒子数残差を trial 前へ戻し、
 統計、履歴、charge ledger へ加えません。
 
-この機能は time-scaled な `reservoir_face` / `photo_raycast` sourceに対応します。`reservoir_face`には
-`target_macro_particles_per_batch`が必要で、固定`w_particle`は使えません。
+この機能はtime-scaledな`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`に対応します。
+流束駆動のspeciesには`target_macro_particles_per_batch`が必要で、固定`w_particle`は使えません。
 `volume_seed`とは併用できません。
 
 `sim.batch_count` は accepted batch数であり、`simulated_time_s` は受理した幅の総和です。
@@ -378,7 +381,7 @@ team size不一致またはcheckpointとの不一致はfail-fastします。
 ### periodic2の組合せ制約
 
 periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="periodic2"`が必要です。
-`examples/periodic2_closed_photoelectron.toml`は、x/y周期、局所reservoir、閉じた光電子を組み合わせた基準例です。
+`examples/periodic2_closed_photoelectron.toml`は、x/y周期、境界reservoir、閉じた光電子を組み合わせた基準例です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
 | `nonzero_mode_backend` | 意味 |
@@ -414,7 +417,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `enabled` | bool | `true` | 種を有効化 |
-| `source_mode` | string | `"volume_seed"` | `volume_seed` / `reservoir_face` / `photo_raycast` |
+| `source_mode` | string | `"volume_seed"` | `volume_seed` / `plane_source` / `photo_raycast` / deprecated `reservoir_face` |
 | `q_particle` | float | `-1.602176634e-19` | 粒子電荷 [C] |
 | `m_particle` | float | `9.10938356e-31` | 粒子質量 [kg] |
 | `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | 位置下限 [m] |
@@ -423,8 +426,10 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 | `temperature_k` | float | `2.0e4` | 温度 [K] |
 | `temperature_ev` | float | 未指定 | 温度 [eV]。`temperature_k` と排他 |
 | `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
-| `inject_face` | string | 未指定 | 注入面。`reservoir_face` / `photo_raycast` で必須 |
+| `inject_face` | string | 未指定 | `photo_raycast`の照射開口面。deprecatedな`reservoir_face`でも必須 |
+| `source_normal` | float[3] | 未指定 | `plane_source`の一方向法線。axis-alignedな非ゼロベクトル |
 | `boundary` | table | 未指定 | `[particles.species.boundary]` のspecies別6面override |
+| `boundary_inflow` | table | 未指定 | `[particles.species.boundary_inflow]`のspecies別reservoir流入面 |
 | `surface_charge_closure` | string | `"explicit"` | 表面source電荷closure。`explicit` / `neutral_return` |
 
 #### `[particles.species.boundary]`: species別override
@@ -443,7 +448,8 @@ z_high = "reflect"
 | `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
 
 `inherit`は`[particle_boundary]`のglobal作用を使います。周期面はoverrideできません。
-`inject_face`は粒子生成面、species境界は生成後の軌道作用です。
+`inject_face`は`photo_raycast`と旧`reservoir_face`の生成面、species境界は生成後の軌道作用です。
+`boundary_inflow`は外部からの生成であり、外向き作用を上書きしません。
 
 `surface_charge_closure="neutral_return"`は、負電荷`photo_raycast`、
 `deposit_opposite_charge_on_emit=true`、effectiveな`inject_face`境界が`reflect`または
@@ -464,10 +470,60 @@ z_high = "reflect"
 
 | 条件 | 内容 |
 |---|---|
-| 粒子数 | 有効 species 全体で `npcls_per_step` 合計が 1 以上必要 |
-| 重み自動解決 | `target_macro_particles_per_batch` は使用不可 |
+| 粒子数 | 境界流入を使わない場合、有効 species 全体で `npcls_per_step` 合計が 1 以上必要 |
+| 重み自動解決 | `boundary_inflow`を持たない`volume_seed`では`target_macro_particles_per_batch`は使用不可 |
 
-#### `source_mode = "reservoir_face"`
+`boundary_inflow`を持つspeciesでは`npcls_per_step=0`を許容します。Maxwell分布で正の値なら、
+体積seedと境界流入を同じspeciesに加えます。速度gridの境界流入は正の値と併用できません。
+
+#### `[particles.species.boundary_inflow]`
+
+このtableは直前の`[[particles.species]]`に属します。
+
+```toml
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+```
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `x_low`, `x_high` | string | 省略 | `reservoir`。省略時は流入なし |
+| `y_low`, `y_high` | string | 省略 | `reservoir`。省略時は流入なし |
+| `z_low`, `z_high` | string | 省略 | `reservoir`。省略時は流入なし |
+
+`reservoir`は選択したbox面全体から外部VDFを流入させます。周期面には指定できず、
+外向き作用は`[particle_boundary]`と`[particles.species.boundary]`で独立に決まります。
+流入面の有効作用は`open`でなければなりません。
+
+Maxwell分布では`number_density_*`と温度、速度gridでは`particle_flux_m2_s`または
+`current_density_a_m2`を使います。`w_particle`と`target_macro_particles_per_batch`は排他です。
+`reservoir.inflow_model="infinity_barrier"`の場合だけ、面平均電位と`phi_infty`から流入を補正します。
+複数面では`target_macro_particles_per_batch`を全流入面の合計targetとして重みを解決し、
+speciesとfaceの組ごとにマクロ粒子端数を保持します。
+
+初版では`source_mode="volume_seed"`とだけ併用できます。`plane_source`、`photo_raycast`、deprecatedな
+`reservoir_face`と同じspeciesには指定できません。将来、sourceの複数化を拡張できるよう責務は分離しています。
+詳しい流束と補正は[reservoir流入](ReservoirInjection.html)を参照してください。
+
+#### `source_mode = "plane_source"`
+
+`plane_source`はbox内部のaxis-aligned矩形面から`source_normal`方向へ一方向の流束を生成します。
+粒子数と速度分布に使うキーはdeprecatedな`reservoir_face`と同じです。
+
+| 条件 | 内容 |
+|---|---|
+| 領域 | `[domain]`が必須 |
+| 時間 | `sim.batch_duration > 0`が必須 |
+| 矩形面 | `pos_low` / `pos_high`はちょうど1軸で一致し、残る2軸は正の長さを持つ |
+| 配置 | 法線座標はbox境界より厳密に内側。接線範囲はbox内で、境界との一致を許容 |
+| 方向 | `source_normal`はzero-thickness軸に沿う非ゼロベクトル。内部で正規化し、入力は正負単位ベクトルを推奨 |
+| 外部補正 | `[reservoir]`の`infinity_barrier`、`phi_infty`、`face_potential_grid_n`は適用しない |
+
+Maxwell分布では片側流束をdensityとtemperatureから計算します。速度gridでは
+`particle_flux_m2_s`または`current_density_a_m2`を使います。面積、`batch_duration`、`w_particle`
+からマクロ粒子数を求め、端数を次のbatchへ持ち越します。
+
+#### `source_mode = "reservoir_face"`（deprecated）
 
 | キー | 型 | 説明 |
 |---|---|---|
@@ -522,6 +578,9 @@ n_injected = floor(residual + n_macro_expected)
 
 残差は次バッチへ繰り越されます。
 `target_macro_particles_per_batch > 0` のときは、その値に近づくよう `w_particle` を自動計算します。
+
+このmodeは既存caseの挙動を維持する互換入力です。BEACHは`boundary_inflow`または`plane_source`へ
+暗黙変換しません。新しい外部plasma条件には`boundary_inflow`、内部矩形面には`plane_source`を使います。
 
 #### `source_mode = "photo_raycast"`
 
@@ -797,7 +856,7 @@ z 軸方向の円柱です。
 | `top_reference_history.csv` | 上記に加えて`[domain]`があるとき。z-high全断面の平均・標準偏差・最小・最大電位 |
 | `performance_profile.csv` | `BEACH_PROFILE=1`のとき |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
-| `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差 |
+| `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差。species×faceを区別 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
 
 各値の場所は[構成固有の出力](OutputGuide.html#構成固有の値を探す)にまとめています。
@@ -848,8 +907,10 @@ MPI 実行時:
 
 - 旧形式の `macro_residuals_rankNNNNN.csv` がある checkpoint は、暗黙変換せず拒否します。
 - `summary.txt` の `mpi_world_size` は現在の rank 数と一致させます。
-- schema v2/v3/v4/v5はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
+- schema v2/v3/v4/v5/v6はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
 - schema v5はneutral-return補正量、係数、未解決率を`charge_ledger.csv`から復元します。
+- schema v6の`macro_residuals.csv`は`species_idx,face,residual`です。`face=0`は従来source、
+  `1..6`はboundary faceを表します。旧`species_idx,residual`の2列形式も読み込めます。
 - `[[particles.species]].species_key` は安定 ID です。省略時は `species_<1-based index>`、明示時は粒子種間で一意にします。
 
 ---

@@ -119,8 +119,11 @@ so that keys specific to another mode do not remain.
 | `source_mode` | Use | Main required keys |
 | --- | --- | --- |
 | `volume_seed` | Small tests with initial particles in the box | `npcls_per_step`, `pos_low`, `pos_high` |
-| `reservoir_face` | Local reservoir inflow through a face | `number_density_cm3`, `temperature_ev`, `inject_face`, `target_macro_particles_per_batch` |
+| `plane_source` | One-way flux from an internal rectangle | `pos_low`, `pos_high`, `source_normal`, and density or grid flux |
+| `reservoir_face` (deprecated) | Legacy local reservoir plane | `inject_face`, `pos_low`, `pos_high` |
 | `photo_raycast` | Raycast photoelectron emission from surfaces | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
+
+Add inflow from an external reservoir with `[particles.species.boundary_inflow]`, not another `source_mode`.
 
 ### `volume_seed`
 
@@ -141,10 +144,9 @@ temperature_k = 0.0
 
 **Interpretation:** This source does not derive its count from a physical face flux.
 
-### `reservoir_face`
+### Boundary-reservoir inflow
 
-**Prerequisite:** Configure `[domain]`, a positive `sim.batch_duration`, and `inject_face`.
-Select the inflow barrier in `[reservoir]`.
+**Prerequisite:** Configure `[domain]` and a positive `sim.batch_duration`. Select the inflow barrier in `[reservoir]`.
 
 ```toml
 [reservoir]
@@ -155,26 +157,50 @@ face_potential_grid_n = 3
 
 ```toml
 [[particles.species]]
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 300
-inject_face = "z_high"
-inject_region_mode = "face_fraction"
-uv_low = [0.0, 0.0]
-uv_high = [1.0, 1.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 ```
 
-**Expected output:** The local reservoir flux determines particle weight, and particles enter through the selected face.
+**Expected output:** External-reservoir flux determines particle weight, and particles enter through the complete z-high face.
 
 **Interpretation:** `target_macro_particles_per_batch` fixes the computational particle count per batch. Use `w_particle`
 instead to specify the weight directly. Do not set both `temperature_k` and `temperature_ev`.
 
 **Next choice:** See
-[`reservoir_face` inflow and velocity sampling](ReservoirInjection.en.html) for flux, weight, and velocity distributions.
+[reservoir inflow through simulation boundaries](ReservoirInjection.en.html) for flux, weight, velocity distributions, and
+`infinity_barrier`.
+
+### `plane_source`
+
+**Prerequisite:** Configure `[domain]`, a positive `sim.batch_duration`, and an axis-aligned rectangle inside the box.
+
+```toml
+[[particles.species]]
+source_mode = "plane_source"
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+q_particle = -1.602176634e-19
+m_particle = 9.10938356e-31
+target_macro_particles_per_batch = 300
+pos_low = [0.2, 0.2, 2.0]
+pos_high = [0.8, 0.8, 2.0]
+source_normal = [0.0, 0.0, -1.0]
+```
+
+**Expected output:** One-way flux is generated in the -z direction from the rectangle at z=2.0.
+
+**Interpretation:** Because this is not an external boundary,
+`reservoir.inflow_model="infinity_barrier"` and `phi_infty` do not apply. Legacy
+`source_mode = "reservoir_face"` remains compatible, but new cases should select `boundary_inflow` or `plane_source` by intent.
 
 ### `photo_raycast`
 
@@ -248,7 +274,7 @@ ordinary_open_model = "escape"
 **Next choice:** Select the operator in `[periodic2]`. Use
 [Finite periodic2 configuration](FinitePeriodicConfiguration.en.html) and
 [`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)
-for the reference local-reservoir + closed-PE case.
+for the reference boundary-reservoir + closed-PE case.
 
 ## Save histories
 

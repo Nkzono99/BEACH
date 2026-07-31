@@ -1,6 +1,6 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 
-# 有限画像 periodic2 で、太陽風は z-high の局所 reservoir から補正なしで注入し、
+# 有限画像 periodic2 で、太陽風は z-high の境界 reservoir から補正なしで注入し、
 # 光電子は z-high 反射と neutral-return closure で表面内再分配だけを解く最小例。
 # 外部シースは解かない。image layer、box 高さ、batch_duration、
 # dt、max_step、ray 数を目的量に対して収束させること。
@@ -39,29 +39,31 @@ face_potential_grid_n = 5
 # z-high で定義した局所 boundary VDF。電位による流入補正は行わない。
 [[particles.species]]
 species_key = "solar_wind_electron"
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 target_macro_particles_per_batch = 300
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 1.0e-3]
-pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 
 [[particles.species]]
 species_key = "solar_wind_ion"
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = 1.602176634e-19
 m_particle = 1.67262192369e-27
 target_macro_particles_per_batch = -1
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 1.0e-3]
-pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 
 # 光電子の放出元と解決済み帰還先を使って表面内の電荷再分配を作る。
 # max_step まで未帰還の電荷は、同じ batch の帰還先分布へ統計的に繰り込む。

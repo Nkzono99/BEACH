@@ -186,7 +186,8 @@ srun beach beach.toml
 
 ## 負荷を見積もってから実行する
 
-**前提:** `reservoir_face`または`photo_raycast`を使うcaseでは、batchあたり粒子数が設定から決まります。
+**前提:** `boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`、`photo_raycast`を使うcaseでは、
+batchあたり粒子数が設定から決まります。
 
 **操作:**
 
@@ -236,9 +237,9 @@ restart_from = "../parent_run/outputs/latest"
 - `sim.tol_rel`は監視・出力値であり、早期停止条件ではありません。
 - box geometryと周期軸は`[domain]`、場closureは`[field_boundary]`で指定します。
 - global粒子面は`[particle_boundary]`、species overrideは`[particles.species.boundary]`で指定します。
-- 局所reservoirの流入modelと`phi_infty`は`[reservoir]`に置きます。
+- 外部reservoirの流入modelと`phi_infty`は`[reservoir]`に置き、流入面は`[particles.species.boundary_inflow]`で選びます。
 - v1.0の標準surface modelはinsulator accumulationです。
-- 局所reservoir + closed PEは有限box内の局所closureであり、外部領域を自己無撞着に解くmodelではありません。
+- 境界reservoir + closed PEは有限box内のreduced closureであり、外部領域を自己無撞着に解くmodelではありません。
 - 実行成功、数値収束、物理妥当性は別々に確認します。
 
 公開API、設定、出力を変更した場合は、日英ドキュメント、examples、schema、対応testも同じ変更で更新してください。

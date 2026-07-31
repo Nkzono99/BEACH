@@ -21,7 +21,7 @@ machine-readable source of truth for file-generation conditions is
 
 `summary.txt` records statistics, resolved configuration, build information,
 checkpoint schema, and model / mesh / species fingerprints. The resolved
-local reservoir and ordinary-open state is reported as
+boundary reservoir and ordinary-open state is reported as
 `reservoir_inflow_map` and `particle_ordinary_open_model`.
 
 ## History
@@ -86,13 +86,16 @@ Rejected trials do not appear in history files or the charge ledger.
 | `charges.csv` | Element charges |
 | `rng_state.txt` | Serial RNG state |
 | `rng_state_rankNNNNN.txt` | Per-rank MPI RNG state |
-| `macro_residuals.csv` | Global macro-particle residuals, restored when present |
+| `macro_residuals.csv` | Global macro-particle residuals distinguished by species and face, restored when present |
 | `charge_ledger.csv` | Restored when summary contains ledger metadata |
 
 `output.restart_from` changes only the checkpoint read source. New output is
 written to `output.dir`. BEACH stops instead of falling back to a new run when a
 required file is missing or when fingerprints, mesh size, species count, or MPI
 world size differ.
+
+Checkpoint schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
+`1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.
 
 ## Reading from Python
 

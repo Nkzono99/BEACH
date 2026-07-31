@@ -49,7 +49,7 @@ MPIでは粒子の生成と追跡をrank間で分担し、各rankが同じmesh�
 
 ## 実行前に負荷を見積もる
 
-`reservoir_face`や`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
+`boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
 見積もりを推奨します。
 
 ```bash

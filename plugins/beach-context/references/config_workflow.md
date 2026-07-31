@@ -97,7 +97,7 @@ periodic_axes = ["x", "y"]
 
 ### 3.2 場・粒子・reservoir境界
 
-場closure、global粒子作用、局所reservoirは別tableで指定します。
+場closure、global粒子作用、外部reservoir条件は別tableで指定します。
 
 ```toml
 [field_boundary]
@@ -140,20 +140,36 @@ species側の各面は`inherit|open|reflect|redistributed_reflect`です。`inhe
 closed PEの`neutral_return`では、effectiveな`inject_face`作用を`reflect`または`redistributed_reflect`にします。
 後者は反射速度を保ったままreturn位置をevent面内で一様再配置します。
 
-### 3.3 注入領域
-
-`reservoir_face` と `photo_raycast` では、面内の割合で注入領域を指定できます。
+外部reservoir流入はspeciesごとのtableで非周期面へ指定します。
 
 ```toml
 [[particles.species]]
-source_mode = "reservoir_face"
-inject_face = "z_high"
-inject_region_mode = "face_fraction"
-uv_low = [0.25, 0.25]
-uv_high = [0.75, 0.75]
+source_mode = "volume_seed"
+npcls_per_step = 0
+# ... density, velocity, and weight keys ...
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 ```
 
-読み込み時に `pos_low` / `pos_high` に解決されます。
+選択したbox面全体から流入します。外向き作用とは独立であり、周期面には指定できません。
+流入面の有効な外向き作用は`open`にします。
+
+### 3.3 内部の明示的な平面source
+
+box内部のaxis-aligned矩形面から一方向fluxを与える場合は`plane_source`を使います。
+
+```toml
+[[particles.species]]
+source_mode = "plane_source"
+pos_low = [0.25, 0.25, 0.5]
+pos_high = [0.75, 0.75, 0.5]
+source_normal = [0.0, 0.0, -1.0]
+# ... density, velocity, and weight keys ...
+```
+
+内部平面には`reservoir.inflow_model="infinity_barrier"`や`phi_infty`を適用しません。
+旧`source_mode="reservoir_face"`は既存caseの互換入力として残り、暗黙変換されません。
 
 ### 3.4 メッシュ配置
 

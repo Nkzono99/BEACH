@@ -3,13 +3,13 @@ title: batch_duration の安定性と定常値の理論
 # `batch_duration` の安定性と定常値の理論
 
 この文書は、BEACH のバッチループにおける `sim.batch_duration`（または `sim.batch_duration_step` から決まる 1 バッチの物理時間）と、収束した壁面電荷分布の正当性・安定性の関係を理論的に整理したものです。
-現行実装では、`batch_duration_step` を使う場合は `sim.batch_duration = sim.dt * sim.batch_duration_step` と解釈され、`reservoir_face` 注入では 1 バッチの物理流入量からマクロ粒子数または重みが決まります。
+現行実装では、`batch_duration_step` を使う場合は `sim.batch_duration = sim.dt * sim.batch_duration_step` と解釈され、`boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`では 1 バッチの物理流入量からマクロ粒子数または重みが決まります。
 
 実装上の入口は次のとおりです。
 
 - バッチ計算手順: [`SPEC.md` §4](https://github.com/Nkzono99/BEACH/blob/main/SPEC.md)
 - パラメータ定義: [`docs/fortran_parameter_file.md`](fortran_parameter_file.html) の `sim.batch_duration` / `sim.batch_duration_step`
-- 注入での使用: `src/particles/bem_injection.f90`（`reservoir_face` / `photo_raycast`）
+- 注入での使用: `src/particles/bem_injection.f90`（`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`）
 - バッチ生成・重み解決: `src/config/bem_app_config_runtime.f90`
 
 ## 1. 連続時間モデルへの還元
@@ -122,7 +122,7 @@ $$
 \delta q^{n+1} \;=\; \left(1 - \frac{\Delta t_b}{\tau}\right)\,\delta q^n \;+\; \xi^n
 $$
 
-を考えると、定常分散は $\xi^n$ の分散に依存します。ここで重要なのは、**$\mathrm{Var}(\xi^n)$ の $\Delta t_b$ 依存性が、注入の正規化方式に依存する** ということです。BEACH の `reservoir_face` には 2 つの方式があります。
+を考えると、定常分散は $\xi^n$ の分散に依存します。ここで重要なのは、**$\mathrm{Var}(\xi^n)$ の $\Delta t_b$ 依存性が、注入の正規化方式に依存する** ということです。BEACH の流束駆動sourceと境界流入には 2 つの方式があります。
 
 ### 4.1 `w_particle` 固定の場合
 

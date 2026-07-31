@@ -188,6 +188,8 @@ def test_particle_boundary_overrides_resolve_after_global_defaults() -> None:
     photoelectron = config["particles"]["species"][-1]
     photoelectron["boundary"]["z_high"] = "inherit"
     photoelectron.pop("q_particle")
+    for inflow_species in config["particles"]["species"][:-1]:
+        inflow_species.setdefault("boundary", {})["z_high"] = "open"
     config["particle_boundary"]["z_high"] = "reflect"
 
     normalized = normalize_config_document(config)
@@ -213,6 +215,97 @@ def test_particle_boundary_cannot_override_periodic_topology() -> None:
     config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
     with pytest.raises(ConfigValidationError, match="periodic domain face"):
         normalize_config_document(config)
+
+
+def test_boundary_inflow_accepts_nonperiodic_faces_and_rejects_periodic_faces() -> None:
+    config = default_config()
+    config["sim"]["batch_duration"] = 1.0e-6
+    species = config["particles"]["species"][0]
+    species["number_density_m3"] = 1.0e6
+    species["temperature_k"] = 2.0e4
+    species["boundary_inflow"] = {
+        "z_low": "reservoir",
+        "z_high": "reservoir",
+    }
+
+    normalized = normalize_config_document(config)
+    assert normalized["particles"]["species"][0]["boundary_inflow"] == {
+        "z_low": "reservoir",
+        "z_high": "reservoir",
+    }
+
+    reflecting = copy.deepcopy(config)
+    reflecting["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
+    with pytest.raises(ConfigValidationError, match="requires an open"):
+        normalize_config_document(reflecting)
+
+    config["particles"]["species"][0]["boundary_inflow"]["x_low"] = "reservoir"
+    with pytest.raises(ConfigValidationError, match="periodic domain face"):
+        normalize_config_document(config)
+
+
+def test_boundary_inflow_requires_reservoir_physics_and_volume_source_mode() -> None:
+    config = default_config()
+    config["sim"]["batch_duration"] = 1.0e-6
+    species = config["particles"]["species"][0]
+    species["boundary_inflow"] = {"z_high": "reservoir"}
+
+    with pytest.raises(ConfigValidationError, match="number_density"):
+        normalize_config_document(config)
+
+    species["number_density_cm3"] = 5.0
+    photo = copy.deepcopy(config)
+    photo_species = photo["particles"]["species"][0]
+    photo_species["source_mode"] = "photo_raycast"
+    photo_species["emit_current_density_a_m2"] = 1.0
+    photo_species["rays_per_batch"] = 1
+    photo_species["inject_face"] = "z_high"
+    with pytest.raises(ConfigValidationError, match="cannot combine"):
+        normalize_config_document(photo)
+
+    species["source_mode"] = "plane_source"
+    species["source_normal"] = [0.0, 0.0, -1.0]
+    species["pos_low"] = [0.1, 0.1, 0.5]
+    species["pos_high"] = [0.9, 0.9, 0.5]
+    species.pop("npcls_per_step")
+    with pytest.raises(ConfigValidationError, match="cannot combine"):
+        normalize_config_document(config)
+
+
+def test_plane_source_requires_internal_rectangle_and_axis_normal() -> None:
+    config = default_config()
+    config["sim"]["batch_duration"] = 1.0e-6
+    species = config["particles"]["species"][0]
+    species["source_mode"] = "plane_source"
+    species.pop("npcls_per_step")
+    species["number_density_m3"] = 1.0e6
+    species["temperature_k"] = 2.0e4
+    species["pos_low"] = [0.1, 0.1, 0.5]
+    species["pos_high"] = [0.9, 0.9, 0.5]
+    species["source_normal"] = [0.0, 0.0, -1.0]
+
+    normalized = normalize_config_document(config)
+    assert normalized["particles"]["species"][0]["source_normal"] == [
+        0.0,
+        0.0,
+        -1.0,
+    ]
+
+    species["pos_low"][2] = 0.0
+    species["pos_high"][2] = 0.0
+    with pytest.raises(ConfigValidationError, match="strictly inside"):
+        normalize_config_document(config)
+
+    species["pos_low"][2] = 0.5
+    species["pos_high"][2] = 0.5
+    species["source_normal"] = [0.0, 0.5, -1.0]
+    with pytest.raises(ConfigValidationError, match="non-zero axis-aligned"):
+        normalize_config_document(config)
+
+    species["source_normal"] = [0.0, 0.0, -2.0]
+    assert normalize_config_document(config)["particles"]["species"][0][
+        "source_normal"
+    ] == [0.0, 0.0, -2.0]
 
 
 def test_runtime_validator_rejects_removed_external_boundary_contract() -> None:

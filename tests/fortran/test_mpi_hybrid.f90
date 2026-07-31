@@ -10,7 +10,7 @@ program test_mpi_hybrid
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
-                            init_particle_batch_from_config
+                            init_particle_batch_from_config, particle_inflow_reservoir
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
@@ -162,7 +162,8 @@ program test_mpi_hybrid
   reservoir_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
   reservoir_cfg%n_particle_species = 1_i32
   reservoir_cfg%particle_species(1) = species_from_defaults()
-  reservoir_cfg%particle_species(1)%source_mode = 'reservoir_face'
+  reservoir_cfg%particle_species(1)%source_mode = 'volume_seed'
+  reservoir_cfg%particle_species(1)%npcls_per_step = 0_i32
   reservoir_cfg%particle_species(1)%number_density_m3 = 1.0_dp
   reservoir_cfg%particle_species(1)%has_number_density_m3 = .true.
   reservoir_cfg%particle_species(1)%temperature_k = 0.0_dp
@@ -171,12 +172,11 @@ program test_mpi_hybrid
   reservoir_cfg%particle_species(1)%m_particle = 1.0_dp
   reservoir_cfg%particle_species(1)%w_particle = 4.0_dp
   reservoir_cfg%particle_species(1)%has_w_particle = .true.
-  reservoir_cfg%particle_species(1)%inject_face = 'z_low'
-  reservoir_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
-  reservoir_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
+  reservoir_cfg%particle_species(1)%boundary_inflow_low(3) = particle_inflow_reservoir
   reservoir_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
-  allocate (reservoir_state%macro_residual(1))
+  allocate (reservoir_state%macro_residual(1), reservoir_state%boundary_macro_residual(6, 1))
   reservoir_state%macro_residual = 0.0_dp
+  reservoir_state%boundary_macro_residual = 0.0_dp
   do batch_idx = 1_i32, 4_i32
     call init_particle_batch_from_config( &
       reservoir_cfg, batch_idx, reservoir_particles, state=reservoir_state, mpi=mpi &
@@ -188,8 +188,12 @@ program test_mpi_hybrid
       'MPI global reservoir count sequence mismatch' &
       )
     call assert_close_dp( &
-      reservoir_state%macro_residual(1), modulo(0.25_dp*real(batch_idx, dp), 1.0_dp), 1.0e-15_dp, &
-      'MPI global reservoir residual mismatch' &
+      reservoir_state%macro_residual(1), 0.0_dp, 1.0e-15_dp, &
+      'MPI source residual must remain zero' &
+      )
+    call assert_close_dp( &
+      reservoir_state%boundary_macro_residual(5, 1), modulo(0.25_dp*real(batch_idx, dp), 1.0_dp), 1.0e-15_dp, &
+      'MPI global boundary reservoir residual mismatch' &
       )
   end do
   call test_end()
@@ -202,8 +206,10 @@ program test_mpi_hybrid
   end if
   call mpi_world_barrier(mpi)
 
-  allocate (state%macro_residual(1))
+  allocate (state%macro_residual(1), state%boundary_macro_residual(6, 1))
   state%macro_residual(1) = 0.25d0 + 0.01d0*real(mpi%rank, dp)
+  state%boundary_macro_residual = 0.0_dp
+  state%boundary_macro_residual(2, 1) = 0.5_dp + 0.01_dp*real(mpi%rank, dp)
   call write_rng_state_file(out_dir, mpi=mpi)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
@@ -211,14 +217,19 @@ program test_mpi_hybrid
   call init_mesh(mesh_restart, v0, v1, v2)
   mesh_restart%elem_vacuum_sign = 1_i32
   mesh_restart%vacuum_normals = mesh_restart%normals
-  allocate (state_restart%macro_residual(1))
+  allocate (state_restart%macro_residual(1), state_restart%boundary_macro_residual(6, 1))
   state_restart%macro_residual = 0.0d0
+  state_restart%boundary_macro_residual = 0.0_dp
   call load_restart_checkpoint(out_dir, mesh_restart, stats_restart, has_restart, state_restart, mpi=mpi)
   call assert_true(has_restart, 'mpi restart should be detected')
   call assert_equal_i64(stats_restart%processed_particles, 8_i64, 'mpi restart processed_particles mismatch')
   call assert_equal_i32(stats_restart%batches, 2_i32, 'mpi restart batches mismatch')
   call assert_close_dp(mesh_restart%q_elem(1), 2.0d0, 1.0d-12, 'mpi restart charge mismatch')
   call assert_close_dp(state_restart%macro_residual(1), 0.25d0, 1.0d-12, 'MPI residual must be restored from root')
+  call assert_close_dp( &
+    state_restart%boundary_macro_residual(2, 1), 0.5_dp, 1.0e-12_dp, &
+    'MPI boundary residual must be restored from root' &
+    )
   call test_end()
 
   call delete_file_if_exists(rng_path)

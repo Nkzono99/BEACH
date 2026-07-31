@@ -90,8 +90,8 @@ beach beach.toml
 生成される `beach.toml` には `schemas/beach.schema.json` への `#:schema ...` directive を付けています。
 
 空間座標系まわりは、高水準記法で指定して Fortran parser が読み込み時に正規化できます。たとえば
-`domain.box_origin` + `domain.box_size`、`reservoir_face` / `photo_raycast` の
-`inject_region_mode = "face_fraction"`、`mesh.templates` の `placement_mode = "box_anchor"`、
+`domain.box_origin` + `domain.box_size`、deprecatedな`reservoir_face` / `photo_raycast`の
+`inject_region_mode = "face_fraction"`、`mesh.templates`の`placement_mode = "box_anchor"`、
 `mesh.groups.*` の `scale_from = "box_x"` は、具体的な座標や寸法へ変換されます。
 
 ### 2.1 推奨: `beach` コマンド

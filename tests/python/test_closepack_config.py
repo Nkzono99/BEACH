@@ -36,7 +36,7 @@ def test_generate_closepack_sphere_templates_matches_exp_bench_tree_geometry() -
         assert actual == pytest.approx(expected_center, abs=1.0e-6)
 
 
-def test_build_closepack_config_updates_box_mesh_and_injection_face() -> None:
+def test_build_closepack_config_updates_box_mesh_and_boundary_inflow() -> None:
     spec = ClosePackSpec(layers=4, radius=0.2, cells_x=3, cells_y=2)
 
     config = build_closepack_config(spec)
@@ -49,8 +49,11 @@ def test_build_closepack_config_updates_box_mesh_and_injection_face() -> None:
     assert config["mesh"]["templates"][0]["size_x"] == 3.0 * pitch
     assert config["mesh"]["templates"][0]["size_y"] == 2.0 * pitch
     for species in config["particles"]["species"]:
-        assert species["pos_low"] == [0.0, 0.0, 10.0]
-        assert species["pos_high"] == [3.0 * pitch, 2.0 * pitch, 10.0]
+        assert species["source_mode"] == "volume_seed"
+        assert species["npcls_per_step"] == 0
+        assert species["boundary_inflow"] == {"z_high": "reservoir"}
+        assert "pos_low" not in species
+        assert "pos_high" not in species
 
 
 def test_build_closepack_config_preserves_base_sim_and_output_values() -> None:

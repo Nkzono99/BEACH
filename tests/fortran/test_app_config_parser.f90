@@ -2,6 +2,7 @@
 program test_app_config_parser
   use bem_kinds, only: dp, i32
   use bem_types, only: bc_open, bc_reflect, bc_redistributed_reflect
+  use bem_app_config_types, only: particle_inflow_reservoir
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
                             particles_per_batch_from_config, total_particles_from_config
   use bem_config_helpers, only: resolve_particle_boundaries
@@ -38,6 +39,16 @@ program test_app_config_parser
   call assert_equal_i32(cfg%n_particle_species, 3_i32, 'closed case species count mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'closed case must use source VDF inflow')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'closed case must use ordinary escape')
+  call assert_true(trim(cfg%particle_species(1)%source_mode) == 'volume_seed', 'electron source mode mismatch')
+  call assert_equal_i32( &
+    cfg%particle_species(1)%boundary_inflow_high(3), particle_inflow_reservoir, &
+    'electron z-high boundary inflow mismatch' &
+    )
+  call assert_true(trim(cfg%particle_species(2)%source_mode) == 'volume_seed', 'ion source mode mismatch')
+  call assert_equal_i32( &
+    cfg%particle_species(2)%boundary_inflow_high(3), particle_inflow_reservoir, &
+    'ion z-high boundary inflow mismatch' &
+    )
   call assert_true(trim(cfg%particle_species(3)%source_mode) == 'photo_raycast', 'photoelectron source mode mismatch')
   call assert_equal_i32(cfg%particle_species(3)%boundary_high(3), bc_reflect, 'photoelectron top boundary mismatch')
   call assert_true( &

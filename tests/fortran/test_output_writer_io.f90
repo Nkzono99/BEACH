@@ -202,7 +202,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=5') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=6') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -227,7 +227,7 @@ program test_output_writer_io
                       index(line, 'neutral_return_unresolved_fraction') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v5')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v6')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')

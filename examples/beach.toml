@@ -50,21 +50,23 @@ face_potential_grid_n = 3
 
 [particles]
 [[particles.species]]
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 300
 # w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 
 # 任意速度グリッドを使う例:
 # [[particles.species]]
-# source_mode = "reservoir_face"
+# source_mode = "volume_seed"
+# npcls_per_step = 0
 # velocity_distribution = "grid"
 # velocity_grid_path = "examples/velocity_grid.csv"
 # velocity_grid_pdf_kind = "phase_space"  # or "flux_weighted"
@@ -74,9 +76,8 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # q_particle = -1.602176634e-19
 # m_particle = 9.10938356e-31
 # target_macro_particles_per_batch = 300
-# inject_face = "z_high"
-# pos_low = [0.0, 0.0, 4.0]
-# pos_high = [1.0, 1.0, 4.0]
+# [particles.species.boundary_inflow]
+# z_high = "reservoir"
 
 # [[particles.species]]
 # source_mode = "photo_raycast"
@@ -96,17 +97,18 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 # z_high = "reflect"  # 面内位置も一様再配置する場合は "redistributed_reflect"
 
 [[particles.species]]
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = 1.602176634e-19
 m_particle = 9.10938356e-28
 target_macro_particles_per_batch = -1
 # w_particle = 1.0e6  # 直接指定したい場合はこちらを有効化し、target は削除する
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 4.0]
-pos_high = [1.0, 1.0, 4.0]
 drift_velocity = [0.0, 0.0, -4.0e5]
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 
 [mesh]
 mode = "template"

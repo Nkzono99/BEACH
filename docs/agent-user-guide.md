@@ -13,7 +13,7 @@ BEACH は、境界要素法による電場評価と粒子追跡を組み合わ�
 電荷蓄積を計算します。現行の基準構成は次のとおりです。
 
 - 外部領域のプラズマ場や粒子輸送は解かない
-- 周囲粒子は `reservoir_face` から局所注入する
+- 周囲粒子は `[particles.species.boundary_inflow]` で非周期box面から注入する
 - 光電子は `photo_raycast`、`inject_face` と同じ species 面の反射、`neutral_return` で閉じる
 - mesh hit は吸収し、表面電荷差分を batch ごとに commit する
 - `sim.batch_count` まで実行し、`sim.max_step` を粒子ごとの上限とする
@@ -49,14 +49,15 @@ make run CONFIG=examples/beach.toml
 | 目的 | 出発点 | 次に読むページ |
 |---|---|---|
 | 最小の動作確認 | `examples/beach.toml` | [設定レシピ](ConfigurationRecipes.html) |
-| 局所 plasma reservoir | `source_mode="reservoir_face"` | [Reservoir 注入](ReservoirInjection.html) |
+| 外部 plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir 注入](ReservoirInjection.html) |
+| 内部の矩形面source | `source_mode="plane_source"` | [粒子源と境界流入](ParticleSourcesBoundaries.html) |
 | 閉じた光電子再分配 | `examples/periodic2_closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
 | free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
 | 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
 | 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](PostprocessTutorial.html) |
 | checkpoint から再開 | `output.resume=true` | [実行と再開](Execution.html) |
 
-局所 reservoir + closed PE の例は外部シースを自己無撞着に解くモデルではありません。
+境界 reservoir + closed PE の例は外部シースを自己無撞着に解くモデルではありません。
 box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、ray 数は目的量に
 対して収束確認が必要です。
 
@@ -73,7 +74,8 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 
 | 機能 | 必須条件 |
 |---|---|
-| `reservoir_face` | `[domain]` の box、解決後の `sim.batch_duration>0`、`inject_face` |
+| `boundary_inflow` | `[domain]`のbox、解決後の`sim.batch_duration>0`、非周期面、外部VDF |
+| `plane_source` | `[domain]`のbox、正の`batch_duration`、内部矩形の`pos_low/high`と`source_normal` |
 | `photo_raycast` | `[domain]` の box、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
 | closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect` または `redistributed_reflect`、`surface_charge_closure="neutral_return"` |
 | `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[periodic2]` の zero-mode 設定 |

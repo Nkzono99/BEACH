@@ -11,6 +11,8 @@ module bem_app_config_types
   integer, parameter :: max_templates = 8
   integer, parameter :: max_particle_species = 8
   integer(i32), parameter :: particle_bc_inherit = -1_i32
+  integer(i32), parameter :: particle_inflow_none = 0_i32
+  integer(i32), parameter :: particle_inflow_reservoir = 1_i32
 
   !> 1粒子種の注入設定を表す。
   type :: particle_species_spec
@@ -51,9 +53,13 @@ module bem_app_config_types
     real(dp) :: normal_drift_speed = 0.0d0
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.
+    real(dp) :: source_normal(3) = [0.0d0, 0.0d0, -1.0d0]
+    logical :: has_source_normal = .false.
     character(len=16) :: inject_face = ''
     integer(i32) :: boundary_low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     integer(i32) :: boundary_high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
+    integer(i32) :: boundary_inflow_low(3) = particle_inflow_none
+    integer(i32) :: boundary_inflow_high(3) = particle_inflow_none
     character(len=16) :: surface_charge_closure = 'explicit'
   end type particle_species_spec
 
@@ -148,11 +154,16 @@ contains
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
       case ('reservoir_face')
         has_dynamic_source = .true.
+      case ('plane_source')
+        has_dynamic_source = .true.
       case ('photo_raycast')
         has_dynamic_source = .true.
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
+      has_dynamic_source = has_dynamic_source .or. &
+                           any(cfg%particle_species(s)%boundary_inflow_low == particle_inflow_reservoir) .or. &
+                           any(cfg%particle_species(s)%boundary_inflow_high == particle_inflow_reservoir)
     end do
 
     if (batch_n <= 0_i32 .and. .not. has_dynamic_source) then

@@ -6,8 +6,9 @@ Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.m
 
 BEACH does not evolve plasma outside the box. `[particle_boundary]` makes each nonperiodic face `open`, `reflect`, or
 `redistributed_reflect`, and open
-faces apply `ordinary_open_model="escape" | "potential_barrier"`. The treatment is shared by `reservoir_face`,
-`photo_raycast`, and `volume_seed`. Periodicity belongs to `domain.periodic_axes`; particle-boundary tables cannot specify
+faces apply `ordinary_open_model="escape" | "potential_barrier"`. The treatment is shared by boundary-reservoir inflow,
+`plane_source`, `photo_raycast`, `volume_seed`, and deprecated `reservoir_face`. Periodicity belongs to
+`domain.periodic_axes`; particle-boundary tables cannot specify
 `periodic`.
 The fully qualified key is `particle_boundary.ordinary_open_model`.
 

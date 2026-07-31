@@ -25,8 +25,9 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - insulator accumulation
 - free-space に限った mesh 単位の浮遊 conductor 再配分
 - open / reflect / redistributed_reflect / periodic の box 境界
-- `volume_seed` / `reservoir_face` / `photo_raycast`
-- 局所 reservoir の流入補正
+- `volume_seed` / `plane_source` / `photo_raycast` と deprecated `reservoir_face`
+- species 別の simulation boundary reservoir 流入
+- 境界 reservoir の流入補正
 - closed photoelectron の局所反射と neutral-return closure
 - checkpoint 再開
 
@@ -62,7 +63,7 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 ## 4. 1 batch の計算手順
 
 1. 現在の要素電荷から静電 snapshot を構築する
-2. `reservoir_face`、`volume_seed`、`photo_raycast` の粒子を生成する
+2. boundary reservoir inflow、`plane_source`、`reservoir_face`、`volume_seed`、`photo_raycast` の粒子を生成する
 3. 各粒子を最大 `max_step` 回まで進める
 4. mesh hit、box escape、max-step survivor を分類する
 5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する
@@ -114,7 +115,7 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 ### 5.3 領域・粒子境界・reservoir
 
-公開 TOML は責務を4つのtableへ分離します。
+公開 TOML は topology、場、外向き粒子作用、外部 reservoir 条件、species 別流入を分離します。
 
 ```toml
 [domain]
@@ -134,12 +135,27 @@ ordinary_open_model = "escape" # または "potential_barrier"
 inflow_model = "source_vdf" # または "infinity_barrier"
 phi_infty = 0.0
 face_potential_grid_n = 5
+
+[[particles.species]]
+source_mode = "volume_seed"
+npcls_per_step = 0
+number_density_cm3 = 5.0
+temperature_ev = 10.0
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 ```
 
-- `source_vdf`: 指定した boundary VDF をそのまま局所注入する
-- `infinity_barrier`: `phi_infty` と注入面平均電位の scalar barrier で法線 VDF を補正する
+- `boundary_inflow`: 非周期 box 面全体から外部 reservoir VDF を流入させる
+- `source_vdf`: 指定した boundary VDF を補正せず境界から注入する
+- `infinity_barrier`: `phi_infty` と流入面平均電位の scalar barrier で法線 VDF を補正する
 - `escape`: open 面到達で粒子を消滅する
 - `potential_barrier`: event 位置の局所電位と法線運動エネルギーから反射／escape を判定する
+
+`boundary_inflow` は外向き粒子作用を上書きしません。周期面への reservoir 流入、および有効な外向き作用が
+`open` でない流入面は拒否します。
+同じ species では `source_mode="volume_seed"` とだけ併用でき、`plane_source`、`photo_raycast`、
+`reservoir_face` との併用は fail closed です。
 
 外部プラズマ profile、外部領域の particle transport、delayed return queue は現行スコープ外です。
 削除済みの `[outer_plasma]`、`[coupling]`、`[external_boundary]` は unknown input として拒否します。
@@ -170,21 +186,46 @@ box event は chord parameter で順序付けます。reflect / redistributed_re
 species 別の6面値は `inherit | open | reflect | redistributed_reflect` です。`inherit` はglobal粒子 actionを使います。
 周期面はspeciesから上書きできません。
 
-## 7. 注入モード
+## 7. 粒子 source と境界流入
 
 ### 7.1 `volume_seed`
 
 各 species で `npcls_per_step` 個を batch ごとに生成します。
 
-### 7.2 `reservoir_face`
+`boundary_inflow` を持つ species では `npcls_per_step=0` を許容します。
+
+### 7.2 `plane_source`
+
+`pos_low` と `pos_high` で box 内部の axis-aligned 矩形面を定義し、`source_normal` 方向へ一方向 flux を
+生成します。矩形面はちょうど 1 軸で zero thickness、残る 2 軸で正の面積を持ちます。法線座標は
+box 境界より厳密に内側で、接線範囲は box 内に置きます。
+`source_normal` は zero-thickness 軸に沿う非ゼロベクトルで、実装内部で単位ベクトルへ正規化します。
+
+Maxwell reservoir または速度 grid の flux、面積、batch duration から macro 粒子数を決めます。
+`reservoir.inflow_model`、`phi_infty`、`face_potential_grid_n` は内部平面へ適用しません。
+任意の内部面では外部 plasma 側と上流基準電位の対応が一意でないため、流入側の potential/barrier 補正は
+新しい設定では simulation boundary に結び付いた `boundary_inflow` が所有します。非推奨の
+`reservoir_face` は既存 case の数値挙動を保つため、従来の補正を互換動作として維持します。
+
+### 7.3 species 別 boundary reservoir 流入
+
+`[particles.species.boundary_inflow]` の 6 面キーへ `reservoir` を指定し、非周期 box 面全体から流入させます。
+複数面を指定でき、macro 粒子の端数は species と face の組ごとに batch 間で繰り越します。
+MPI では global 個数を rank へ分配します。
 
 流入 flux と面積、batch duration から macro 粒子数を決めます。`target_macro_particles_per_batch` 指定時は
-macro weight を自動解決します。端数は batch 間で繰り越し、MPI では global 個数を rank へ分配します。
+macro weight を自動解決します。
 
-`reservoir.inflow_model="infinity_barrier"` では注入面の `N x N` 電位標本を使い、
+`reservoir.inflow_model="infinity_barrier"` では各流入面の `N x N` 電位標本を使い、
 `reservoir.phi_infty` とのエネルギー差から法線速度 cutoff と到達速度を同じ写像で補正します。
 
-### 7.3 `photo_raycast`
+### 7.4 `reservoir_face`（deprecated）
+
+既存 case の `inject_face` と `pos_low` / `pos_high` による box 面開口の挙動を維持します。
+`boundary_inflow` または `plane_source` へ暗黙変換しません。外部 plasma 条件の新規 case は
+`boundary_inflow`、内部矩形面は `plane_source` を使います。
+
+### 7.5 `photo_raycast`
 
 指定方向へ `rays_per_batch` 本を飛ばし、各 ray の最初の mesh hit からだけ放出します。
 `deposit_opposite_charge_on_emit=true` では放出元へ逆符号電荷を加えます。
@@ -231,6 +272,8 @@ closed PE は次の組合せです。
 `macro_residuals.csv` と `charge_ledger.csv` は状態が記録されている場合に復元します。
 
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
+schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
+`1..6` は boundary face です。旧 2 列形式は読み込み互換です。
 globalまたはspecies境界のいずれかで`redistributed_reflect`を使う場合だけ、model fingerprintへ
 `sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。通常境界だけの既存fingerprintは変更しません。
 必須ファイルの欠落、world size の不一致、非有限値、species 数や mesh 要素数の不一致は

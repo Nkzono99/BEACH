@@ -5,14 +5,14 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 # Finite-image periodic2 configuration
 
 This page is the canonical `periodic2` setup for studying regolith charging and photoelectron surface redistribution with a
-local reservoir + closed PE. The solar-wind VDF is defined at z-high, only photoelectrons are closed, and potential is read
+boundary reservoir + closed PE. The solar-wind VDF is defined at z-high, only photoelectrons are closed, and potential is read
 relative to the z-high plane mean. BEACH does not solve a self-consistent outer-plasma/sheath model.
 
 ## Distinguish the two configurations first
 
 | Configuration | Solar-wind inflow | Photoelectrons | Potential reference | Use |
 | --- | --- | --- | --- | --- |
-| **Local reservoir + closed PE** | uncorrected VDF at z-high | z-high reflection + `neutral_return` | z-high plane mean | baseline on this page; local redistribution and batch sensitivity |
+| **Boundary reservoir + closed PE** | uncorrected VDF at z-high | z-high reflection + `neutral_return` | z-high plane mean | baseline on this page; surface redistribution and batch sensitivity |
 | Scalar barrier | `infinity_barrier` | common `potential_barrier` | `phi_infty` | comparison using one scalar barrier |
 
 Do not stack these alternatives in one run. In particular, do not add
@@ -50,10 +50,11 @@ face_potential_grid_n = 5
 `[domain]` owns the cell and periodic topology; `[field_boundary]` owns field closure. The current `periodic2` mode accepts
 only `periodic_axes=["x", "y"]` with a nonperiodic z axis. Periodicity is common to all species and cannot be overridden by a
 species or `[particle_boundary]`.
-The former `[external_boundary]` table has been removed. Configure local inflow in `[reservoir]` and particle actions on
-nonperiodic faces in `[particle_boundary]`.
+The former `[external_boundary]` table has been removed. Configure external-reservoir conditions in `[reservoir]`,
+per-species inflow faces in `[particles.species.boundary_inflow]`, and outward particle actions on nonperiodic faces in
+`[particle_boundary]`.
 
-Use ordinary `reservoir_face` species for solar-wind electrons and ions. Density, temperature, and drift describe a
+Use `boundary_inflow="reservoir"` on z-high for solar-wind electrons and ions. Density, temperature, and drift describe a
 **local boundary VDF on z-high**; surface potential does not filter accessibility or map speed.
 
 Only the photoelectron species gets the closed surface-charge closure:
@@ -187,7 +188,7 @@ follow the convergence procedure in
    seed for the additional return-position sampling.
 
 Full reflection is an artificial top mirror, not a self-consistent sheath or quasineutral solution. The result describes
-surface redistribution with zero net photoelectron current under the specified local solar-wind flux.
+surface redistribution with zero net photoelectron current under the specified boundary solar-wind flux.
 
 ## Scalar-barrier comparison
 

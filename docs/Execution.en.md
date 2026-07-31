@@ -48,7 +48,8 @@ on every rank. The root writes normal results, history, and the global macro res
 
 ## Estimate the workload
 
-For `reservoir_face` and `photo_raycast`, particle counts per batch are dynamic, so estimate the workload first.
+For `boundary_inflow`, `plane_source`, deprecated `reservoir_face`, and `photo_raycast`, particle counts per batch are
+dynamic, so estimate the workload first.
 
 ```bash
 beachx workload beach.toml --threads 8

@@ -55,7 +55,8 @@ flowchart TD
 `h0 = sim.batch_duration`、`h0/2`、`h0/4`、…の順で試します。候補電荷とbatch開始電荷の差が作る
 $k\ne0$電位を全panel重心で評価し、その最大絶対値が設定上限以下となる最初のtrialだけを受理します。
 棄却時はRNGとmacro粒子数残差をtrial前へ完全に戻し、短い幅で同じbatchを作り直します。
-このtrial loopは`cached_kneq0`専用であり、`volume_seed`には対応しません。`reservoir_face`は
+このtrial loopは`cached_kneq0`専用であり、通常の`volume_seed`には対応しません。time-scaledな
+`boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`は
 `target_macro_particles_per_batch`方式だけを受理し、固定`w_particle`は拒否します。
 
 ### 1. 電場・電位snapshotを更新
@@ -65,10 +66,10 @@ FMMの選択は[場の評価](FieldSolvers.html)、周期和は[periodic2静電�
 
 ### 2. batch粒子を生成
 
-`volume_seed`、`reservoir_face`、`photo_raycast`から、そのtrialで追跡する粒子を作ります。reservoir粒子の
-個数はtrial幅から決まり、光電子はrayが最初にhitした表面から放出されます。適応進行の再試行では、
+`volume_seed`、`plane_source`、boundary reservoir流入、deprecatedな`reservoir_face`、`photo_raycast`から、
+そのtrialで追跡する粒子を作ります。reservoir粒子の個数はtrial幅から決まり、光電子はrayが最初にhitした表面から放出されます。適応進行の再試行では、
 復元した同じRNG状態と短くしたtrial幅から粒子数・重みを再計算します。全体は
-[粒子源の全体像](ParticleSourcesBoundaries.html)で生成方式を整理し、[`reservoir_face` の流入量と速度サンプリング](ReservoirInjection.html)と
+[粒子源と境界流入](ParticleSourcesBoundaries.html)で生成方式を整理し、[境界reservoirの流入量と速度サンプリング](ReservoirInjection.html)と
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)で各sourceを詳しく説明します。
 
 ### 3. 粒子を1 step前進

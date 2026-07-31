@@ -19,7 +19,7 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 | 性能内訳 | `performance_profile.csv` |
 
 `summary.txt` には統計、設定の解決結果、build 情報、checkpoint schema、model / mesh / species fingerprint が
-記録されます。局所 reservoir と通常 open 面の解決結果は `reservoir_inflow_map` と
+記録されます。境界 reservoir と通常 open 面の解決結果は `reservoir_inflow_map` と
 `particle_ordinary_open_model` で確認できます。
 
 ## 履歴
@@ -80,12 +80,15 @@ closed PE では raw の吸収・未解決量を上書きしません。補正�
 | `charges.csv` | 要素電荷 |
 | `rng_state.txt` | serial の RNG |
 | `rng_state_rankNNNNN.txt` | MPI rank ごとの RNG |
-| `macro_residuals.csv` | global な macro 粒子数残差。存在時に復元 |
+| `macro_residuals.csv` | global な macro 粒子数残差。species×faceを区別し、存在時に復元 |
 | `charge_ledger.csv` | summary に ledger metadata がある場合に復元 |
 
 `output.restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は `output.dir` に書きます。
 必須ファイルの欠落、fingerprint、mesh 要素数、species 数、MPI world size の不一致では
 新規実行へ fallback せず停止します。
+
+checkpoint schema v6の`macro_residuals.csv`は`species_idx,face,residual`です。`face=0`は従来source、
+`1..6`はboundary faceを表します。旧`species_idx,residual`の2列形式も読み込めます。
 
 ## Python から読む
 

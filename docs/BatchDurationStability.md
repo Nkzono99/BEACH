@@ -15,7 +15,7 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 
 ### 前提
 
-- `reservoir_face`または`photo_raycast`には正の`sim.batch_duration`が必要です。
+- `boundary_inflow`、`plane_source`、`reservoir_face`、`photo_raycast`には正の`sim.batch_duration`が必要です。
 - 比較用に`history_stride > 0`を設定し、`charge_history.csv`を保存します。
 - 同じメッシュ、粒子分布、乱数seed、OpenMP/MPI構成を使います。
 
@@ -63,8 +63,8 @@ Richardson外挿ではなく、step-size sensitivity checkです。
 この経路は次を要求します。
 
 - `[periodic2].nonzero_mode_backend = "cached_kneq0"`
-- time-scaledな`reservoir_face`または`photo_raycast`
-- `reservoir_face`では固定`w_particle`ではなく`target_macro_particles_per_batch`
+- time-scaledな`boundary_inflow`、`plane_source`、`reservoir_face`、`photo_raycast`
+- reservoir流入と面sourceでは固定`w_particle`ではなく`target_macro_particles_per_batch`
 - 正の`sim.batch_duration`
 
 `volume_seed`はこの経路では使えません。
@@ -144,6 +144,6 @@ $\tau_\text{charge}\sim C_\text{eff}/G_\text{eff}$を別々に見積もれます
 ## 関連文書
 
 - [入力パラメータリファレンス](Parameters.html) — `sim.batch_duration`と`sim.batch_duration_step`
-- [`reservoir_face`の流入量と速度サンプリング](ReservoirInjection.html) — 粒子数と重み
+- [境界reservoirの流入量と速度サンプリング](ReservoirInjection.html) — 粒子数と重み
 - [結果を検証する](ValidationGuide.html) — 数値収束と物理妥当性
 - [計算モデルの全体像](Algorithms.html) — batch loop

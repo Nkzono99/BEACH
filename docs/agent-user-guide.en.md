@@ -14,7 +14,7 @@ BEACH combines boundary-element electric-field evaluation with particle tracking
 primarily to compute charge accumulation on insulator surfaces. The current baseline is:
 
 - no solved outer-plasma field or outer-region particle transport
-- ambient particles injected locally with `reservoir_face`
+- ambient particles injected through nonperiodic box faces with `[particles.species.boundary_inflow]`
 - photoelectrons closed with `photo_raycast`, species reflection on `inject_face`, and `neutral_return`
 - absorbing mesh hits with surface-charge deltas committed once per batch
 - execution through `sim.batch_count`, with `sim.max_step` as the per-particle limit
@@ -50,14 +50,15 @@ validity. Inspect outputs and convergence of the quantity of interest after the 
 | Goal | Starting point | Read next |
 |---|---|---|
 | Minimal smoke run | `examples/beach.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
-| Local plasma reservoir | `source_mode="reservoir_face"` | [Reservoir injection](ReservoirInjection.en.html) |
+| External plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir injection](ReservoirInjection.en.html) |
+| Internal rectangular source | `source_mode="plane_source"` | [Particle sources and boundary inflow](ParticleSourcesBoundaries.en.html) |
 | Closed photoelectron redistribution | `examples/periodic2_closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
 | Free-space field evaluation | `field_boundary.mode="free"` | [Field evaluation](FieldSolvers.en.html) |
 | Two-axis-periodic field evaluation | `field_boundary.mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
 | Output analysis | `beachx inspect` / `Beach(...)` | [Post-processing tutorial](PostprocessTutorial.en.html) |
 | Resume from a checkpoint | `output.resume=true` | [Execution and resume](Execution.en.html) |
 
-The local-reservoir plus closed-PE example is not a self-consistent outer-sheath
+The boundary-reservoir plus closed-PE example is not a self-consistent outer-sheath
 model. Converge box height, periodic images, `dt`, `max_step`, `batch_duration`,
 particle count, and ray count against the quantity of interest.
 
@@ -74,7 +75,8 @@ Check these constraints early:
 
 | Feature | Required conditions |
 |---|---|
-| `reservoir_face` | a `[domain]` box, resolved `sim.batch_duration>0`, and `inject_face` |
+| `boundary_inflow` | a `[domain]` box, resolved `sim.batch_duration>0`, a nonperiodic face, and an external VDF |
+| `plane_source` | a `[domain]` box, positive `batch_duration`, internal rectangular `pos_low/high`, and `source_normal` |
 | `photo_raycast` | a `[domain]` box, resolved `sim.batch_duration>0`, positive current density, and `rays_per_batch>=1` |
 | closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `reflect` or `redistributed_reflect` on `inject_face` in `[particles.species.boundary]`, and `surface_charge_closure="neutral_return"` |
 | `periodic2` | a `[domain]` box, exactly two entries in `domain.periodic_axes`, and a `[periodic2]` zero-mode policy |

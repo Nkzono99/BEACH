@@ -23,7 +23,7 @@ module bem_app_config_runtime
     resolve_external_boundary_contract
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, particles_per_batch_from_config, &
-    total_particles_from_config
+    total_particles_from_config, particle_inflow_reservoir
   use bem_string_utils, only: lower_ascii
   use bem_config_helpers, only: resolve_inward_normal
   use, intrinsic :: iso_fortran_env, only: error_unit
@@ -230,7 +230,9 @@ contains
     do s = 1, cfg%n_particle_species
       if (cfg%particle_species(s)%enabled) then
         if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
-            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
+            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source' .or. &
+            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast' .or. &
+            has_boundary_inflow(cfg%particle_species(s))) then
           error stop 'init_particles_from_config supports volume_seed only. Use init_particle_batch_from_config.'
         end if
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
@@ -308,7 +310,9 @@ contains
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       has_enabled_reservoir = has_enabled_reservoir .or. &
-                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face'
+                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
+                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source' .or. &
+                              has_boundary_inflow(cfg%particle_species(s))
     end do
     plan%use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
 
@@ -334,7 +338,14 @@ contains
         plan%effective_weight(s) = cfg%particle_species(s)%w_particle
         plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
         plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
-      case ('reservoir_face')
+        if (has_boundary_inflow(cfg%particle_species(s))) then
+          if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
+            plan%effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
+          else
+            plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
+          end if
+        end if
+      case ('reservoir_face', 'plane_source')
         if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
           plan%effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
         else
@@ -383,18 +394,22 @@ contains
     type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(particle_source_plan_type), intent(in), optional, target :: source_plan
 
-    integer(i32) :: s, i, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
+    integer(i32) :: s, i, face, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
+    integer(i32) :: source_begin, source_end, face_begin, face_end
     integer(i32) :: boundary_status
     integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
-    integer(i32), allocatable :: counts_max(:), counts_actual(:), global_counts(:), species_cursor(:), species_id(:), &
+    integer(i32), allocatable :: counts_max(:), counts_actual(:), source_counts(:), global_counts(:), &
+                                 boundary_counts(:, :), boundary_global_counts(:, :), species_cursor(:), species_id(:), &
                                  source_element(:), emit_elem_species(:, :)
-    real(dp), allocatable :: vmin_normal(:), barrier_normal(:), batch_density_m3(:), batch_weight(:)
+    real(dp), allocatable :: vmin_normal(:), barrier_normal(:), boundary_vmin(:, :), boundary_barrier(:, :), &
+                             batch_density_m3(:), batch_weight(:)
     logical :: use_collective_reservoir_count
     real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
     real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
     type(particle_source_plan_type), target :: generated_source_plan
     type(particle_source_plan_type), pointer :: active_source_plan
     type(external_boundary_contract_type) :: active_boundary_contract
+    type(particle_species_spec) :: face_spec
     real(dp) :: correction_vmin_normal
     character(len=256) :: boundary_message
 
@@ -432,6 +447,15 @@ contains
     if (present(state)) then
       if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
       if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
+      if (any([(has_boundary_inflow(cfg%particle_species(s)), s=1, cfg%n_particle_species)])) then
+        if (.not. allocated(state%boundary_macro_residual)) then
+          error stop 'boundary_inflow requires boundary_macro_residual in injection_state.'
+        end if
+        if (size(state%boundary_macro_residual, 1) < 6 .or. &
+            size(state%boundary_macro_residual, 2) < cfg%n_particle_species) then
+          error stop 'injection_state boundary residual size mismatch.'
+        end if
+      end if
     end if
     if (present(photo_emission_dq)) then
       if (.not. present(mesh)) error stop 'photo_emission_dq requires mesh in init_particle_batch_from_config.'
@@ -439,14 +463,24 @@ contains
       photo_emission_dq = 0.0d0
     end if
 
-    allocate (counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), global_counts(cfg%n_particle_species))
+    allocate ( &
+      counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), source_counts(cfg%n_particle_species), &
+      global_counts(cfg%n_particle_species) &
+      )
+    allocate (boundary_counts(6, cfg%n_particle_species), boundary_global_counts(6, cfg%n_particle_species))
     allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
+    allocate (boundary_vmin(6, cfg%n_particle_species), boundary_barrier(6, cfg%n_particle_species))
     allocate (batch_density_m3(cfg%n_particle_species), batch_weight(cfg%n_particle_species))
     counts_max = 0_i32
     counts_actual = 0_i32
+    source_counts = 0_i32
     global_counts = 0_i32
+    boundary_counts = 0_i32
+    boundary_global_counts = 0_i32
     vmin_normal = 0.0d0
     barrier_normal = 0.0d0
+    boundary_vmin = 0.0_dp
+    boundary_barrier = 0.0_dp
     batch_density_m3 = active_source_plan%effective_density_m3
     batch_weight = active_source_plan%effective_weight
     associate ( &
@@ -461,18 +495,20 @@ contains
       select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
         global_count = cfg%particle_species(s)%npcls_per_step
-        counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
-      case ('reservoir_face')
+        source_counts(s) = mpi_split_count(global_count, local_rank, n_ranks)
+      case ('reservoir_face', 'plane_source')
         if (.not. present(state)) then
-          error stop 'reservoir_face requires injection_state in init_particle_batch_from_config.'
+          error stop 'flux-driven source requires injection_state in init_particle_batch_from_config.'
         end if
-        call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), correction_vmin_normal, barrier_normal(s), mesh, snapshot, &
-          warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
-          boundary_contract=active_boundary_contract &
-          )
-        vmin_normal(s) = max(vmin_normal(s), correction_vmin_normal)
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face') then
+          call reservoir_face_velocity_correction( &
+            cfg, cfg%particle_species(s), correction_vmin_normal, barrier_normal(s), mesh, snapshot, &
+            warn_face_variation=local_rank == 0_i32 .and. &
+            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+            boundary_contract=active_boundary_contract &
+            )
+          vmin_normal(s) = max(vmin_normal(s), correction_vmin_normal)
+        end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
             cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
@@ -482,24 +518,61 @@ contains
             )
         end if
         if (.not. use_collective_reservoir_count) then
-          counts_max(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
+          source_counts(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
         end if
       case ('photo_raycast')
         global_count = cfg%particle_species(s)%rays_per_batch
-        counts_max(s) = mpi_split_count(global_count, local_rank, n_ranks)
+        source_counts(s) = mpi_split_count(global_count, local_rank, n_ranks)
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select
+      if (has_boundary_inflow(cfg%particle_species(s))) then
+        if (.not. present(state)) then
+          error stop 'boundary_inflow requires injection_state in init_particle_batch_from_config.'
+        end if
+        do face = 1, 6
+          if (.not. boundary_inflow_face_enabled(cfg%particle_species(s), face)) cycle
+          call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), face, face_spec)
+          call reservoir_face_velocity_correction( &
+            cfg, face_spec, correction_vmin_normal, boundary_barrier(face, s), mesh, snapshot, &
+            warn_face_variation=local_rank == 0_i32 .and. &
+            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
+            boundary_contract=active_boundary_contract &
+            )
+          boundary_vmin(face, s) = correction_vmin_normal
+          if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
+            call compute_macro_particles_for_species( &
+              cfg%sim, face_spec, state%boundary_macro_residual(face, s), boundary_global_counts(face, s), &
+              vmin_normal=boundary_vmin(face, s), number_density_override=batch_density_m3(s), &
+              particle_flux_override=effective_particle_flux_m2_s(s), &
+              temperature_k_override=effective_temperature_k(s), &
+              drift_velocity_override=effective_drift_velocity(:, s), w_particle_override=batch_weight(s) &
+              )
+          end if
+          if (.not. use_collective_reservoir_count) then
+            boundary_counts(face, s) = mpi_split_count(boundary_global_counts(face, s), local_rank, n_ranks)
+          end if
+        end do
+      end if
     end do
     if (use_collective_reservoir_count) then
       call mpi_bcast_i32_array(mpi, global_counts, 0_i32)
       call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
       do s = 1, cfg%n_particle_species
         if (.not. cfg%particle_species(s)%enabled) cycle
-        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'reservoir_face') cycle
-        counts_max(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
+        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
+            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source') then
+          source_counts(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
+        end if
+        if (.not. has_boundary_inflow(cfg%particle_species(s))) cycle
+        call mpi_bcast_i32_array(mpi, boundary_global_counts(:, s), 0_i32)
+        call mpi_bcast_real_dp_array(mpi, state%boundary_macro_residual(:, s), 0_i32)
+        do face = 1, 6
+          boundary_counts(face, s) = mpi_split_count(boundary_global_counts(face, s), local_rank, n_ranks)
+        end do
       end do
     end if
+    counts_max = source_counts + sum(boundary_counts, dim=1)
     max_rank = max(1_i32, maxval(counts_max))
     allocate (x_species(3, max_rank, cfg%n_particle_species))
     allocate (v_species(3, max_rank, cfg%n_particle_species))
@@ -511,53 +584,69 @@ contains
     emit_elem_species = -1_i32
     do s = 1, cfg%n_particle_species
       if (counts_max(s) <= 0_i32) cycle
-      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
-      case ('volume_seed', 'reservoir_face')
-        call sample_species_state( &
-          cfg%sim, cfg%particle_species(s), counts_max(s), &
-          x_species(:, 1:counts_max(s), s), v_species(:, 1:counts_max(s), s), &
-          barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
-          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
-          )
-        counts_actual(s) = counts_max(s)
-        w_species(1:counts_actual(s), s) = batch_weight(s)
-      case ('photo_raycast')
-        if (.not. present(mesh)) then
-          error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
-        end if
-        if (photo_emit_current_density(s) <= 0.0d0) then
-          counts_actual(s) = 0_i32
-          cycle
-        end if
-        call sample_photo_species_state( &
-          cfg%sim, cfg%particle_species(s), mesh, counts_max(s), x_species(:, 1:counts_max(s), s), &
-          v_species(:, 1:counts_max(s), s), w_species(1:counts_max(s), s), counts_actual(s), &
-          emit_elem_idx=emit_elem_species(1:counts_max(s), s), &
-          global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
-          emit_current_density_override=photo_emit_current_density(s), &
-          normal_drift_speed_override=photo_normal_drift_speed(s), &
-          collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
-          collision_failure_bounce=photo_collision_bounce &
-          )
-        if (photo_collision_status /= collision_query_ok) then
-          call finalize_particle_batch_collision_query( &
-            photo_collision_status, batch_idx, s, photo_collision_ray, photo_collision_bounce, &
-            collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+      source_begin = 1_i32
+      source_end = source_counts(s)
+      if (source_end >= source_begin) then
+        select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
+        case ('volume_seed', 'reservoir_face', 'plane_source')
+          call sample_species_state( &
+            cfg%sim, cfg%particle_species(s), source_counts(s), &
+            x_species(:, source_begin:source_end, s), v_species(:, source_begin:source_end, s), &
+            barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
+            temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
             )
-          return
-        end if
-        if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
-          do i = 1, counts_actual(s)
-            if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
-              error stop 'photo_raycast emitted invalid elem_idx.'
+          counts_actual(s) = source_counts(s)
+          w_species(source_begin:source_end, s) = batch_weight(s)
+        case ('photo_raycast')
+          if (.not. present(mesh)) then
+            error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
+          end if
+          if (photo_emit_current_density(s) > 0.0_dp) then
+            call sample_photo_species_state( &
+              cfg%sim, cfg%particle_species(s), mesh, source_counts(s), x_species(:, source_begin:source_end, s), &
+              v_species(:, source_begin:source_end, s), w_species(source_begin:source_end, s), counts_actual(s), &
+              emit_elem_idx=emit_elem_species(source_begin:source_end, s), &
+              global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
+              emit_current_density_override=photo_emit_current_density(s), &
+              normal_drift_speed_override=photo_normal_drift_speed(s), &
+              collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
+              collision_failure_bounce=photo_collision_bounce &
+              )
+            if (photo_collision_status /= collision_query_ok) then
+              call finalize_particle_batch_collision_query( &
+                photo_collision_status, batch_idx, s, photo_collision_ray, photo_collision_bounce, &
+                collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+                )
+              return
             end if
-            photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
-                                                         cfg%particle_species(s)%q_particle*w_species(i, s)
-          end do
-        end if
-      case default
-        error stop 'Unknown particles.species.source_mode.'
-      end select
+            if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
+              do i = 1, counts_actual(s)
+                if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
+                  error stop 'photo_raycast emitted invalid elem_idx.'
+                end if
+                photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
+                                                             cfg%particle_species(s)%q_particle*w_species(i, s)
+              end do
+            end if
+          end if
+        case default
+          error stop 'Unknown particles.species.source_mode.'
+        end select
+      end if
+      do face = 1, 6
+        if (boundary_counts(face, s) <= 0_i32) cycle
+        face_begin = counts_actual(s) + 1_i32
+        face_end = face_begin + boundary_counts(face, s) - 1_i32
+        call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), face, face_spec)
+        call sample_species_state( &
+          cfg%sim, face_spec, boundary_counts(face, s), x_species(:, face_begin:face_end, s), &
+          v_species(:, face_begin:face_end, s), barrier_normal_energy=boundary_barrier(face, s), &
+          vmin_normal=boundary_vmin(face, s), temperature_k_override=effective_temperature_k(s), &
+          drift_velocity_override=effective_drift_velocity(:, s) &
+          )
+        w_species(face_begin:face_end, s) = batch_weight(s)
+        counts_actual(s) = face_end
+      end do
     end do
 
     batch_n = sum(counts_actual)
@@ -656,7 +745,7 @@ contains
     real(dp), intent(in), optional :: temperature_k_override
     real(dp), intent(in), optional :: drift_velocity_override(3)
     logical :: apply_shift
-    real(dp) :: temperature_k_local, drift_velocity_local(3)
+    real(dp) :: temperature_k_local, drift_velocity_local(3), source_box_min(3), source_box_max(3)
 
     if (n <= 0_i32) return
     apply_shift = .true.
@@ -665,65 +754,70 @@ contains
     if (present(temperature_k_override)) temperature_k_local = temperature_k_override
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
+    source_box_min = sim%box_min
+    source_box_max = sim%box_max
+    if (trim(lower_ascii(spec%source_mode)) == 'plane_source') then
+      call configure_plane_source_box(spec, source_box_min, source_box_max)
+    end if
     select case (trim(lower_ascii(spec%source_mode)))
     case ('volume_seed')
       call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
       call sample_shifted_maxwell_velocities( &
         drift_velocity_local, spec%m_particle, v, temperature_k=temperature_k_local &
         )
-    case ('reservoir_face')
+    case ('reservoir_face', 'plane_source')
       if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
         if (present(barrier_normal_energy) .and. present(vmin_normal)) then
           call sample_reservoir_velocity_grid_particles( &
-            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
             barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
             apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else if (present(barrier_normal_energy)) then
           call sample_reservoir_velocity_grid_particles( &
-            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
             barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
             velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else if (present(vmin_normal)) then
           call sample_reservoir_velocity_grid_particles( &
-            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
             vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
             velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         else
           call sample_reservoir_velocity_grid_particles( &
-            sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
+            source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
             spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
             apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
             )
         end if
       else if (present(barrier_normal_energy) .and. present(vmin_normal)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
           spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
       else if (present(barrier_normal_energy)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
           spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
       else if (present(vmin_normal)) then
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
           spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
           vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
           )
       else
         call sample_reservoir_face_particles( &
-          sim%box_min, sim%box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
+          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
           spec%m_particle, temperature_k_local, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
           apply_barrier_energy_shift=apply_shift &
           )
@@ -733,7 +827,8 @@ contains
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select
-    if (trim(lower_ascii(spec%source_mode)) == 'reservoir_face') call normalize_reservoir_positions(sim, x)
+    if (trim(lower_ascii(spec%source_mode)) == 'reservoir_face' .or. &
+        trim(lower_ascii(spec%source_mode)) == 'plane_source') call normalize_reservoir_positions(sim, x)
   end subroutine sample_species_state
 
   !> reservoirの時間ジッタ後の位置を、設定されたbox境界条件に従って有効領域へ戻す。
@@ -755,6 +850,108 @@ contains
       end if
     end do
   end subroutine normalize_reservoir_positions
+
+  !> speciesに外部 reservoir 流入を指定したbox面があるかを返す。
+  pure logical function has_boundary_inflow(spec) result(has_inflow)
+    type(particle_species_spec), intent(in) :: spec
+
+    has_inflow = any(spec%boundary_inflow_low == particle_inflow_reservoir) .or. &
+                 any(spec%boundary_inflow_high == particle_inflow_reservoir)
+  end function has_boundary_inflow
+
+  !> face bit順の面に reservoir 流入が有効かを返す。
+  pure logical function boundary_inflow_face_enabled(spec, face) result(enabled)
+    type(particle_species_spec), intent(in) :: spec
+    integer(i32), intent(in) :: face
+
+    if (mod(face, 2_i32) == 1_i32) then
+      enabled = spec%boundary_inflow_low((face + 1_i32)/2_i32) == particle_inflow_reservoir
+    else
+      enabled = spec%boundary_inflow_high(face/2_i32) == particle_inflow_reservoir
+    end if
+  end function boundary_inflow_face_enabled
+
+  !> box全面を開口とする一時的な legacy reservoir spec を構築する。
+  pure subroutine make_boundary_inflow_spec(sim, source_spec, face, inflow_spec)
+    type(sim_config), intent(in) :: sim
+    type(particle_species_spec), intent(in) :: source_spec
+    integer(i32), intent(in) :: face
+    type(particle_species_spec), intent(out) :: inflow_spec
+    integer(i32) :: axis
+    logical :: high_side
+
+    inflow_spec = source_spec
+    inflow_spec%source_mode = 'reservoir_face'
+    call boundary_face_name(face, inflow_spec%inject_face)
+    inflow_spec%pos_low = sim%box_min
+    inflow_spec%pos_high = sim%box_max
+    axis = (face + 1_i32)/2_i32
+    high_side = mod(face, 2_i32) == 0_i32
+    if (high_side) then
+      inflow_spec%pos_low(axis) = sim%box_max(axis)
+      inflow_spec%pos_high(axis) = sim%box_max(axis)
+    else
+      inflow_spec%pos_low(axis) = sim%box_min(axis)
+      inflow_spec%pos_high(axis) = sim%box_min(axis)
+    end if
+    inflow_spec%has_npcls_per_step = .false.
+    inflow_spec%has_source_normal = .false.
+    inflow_spec%boundary_inflow_low = 0_i32
+    inflow_spec%boundary_inflow_high = 0_i32
+  end subroutine make_boundary_inflow_spec
+
+  !> plane_sourceの内部面をlegacy face samplerの仮想box境界へ写像する。
+  pure subroutine configure_plane_source_box(spec, box_min, box_max)
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(inout) :: box_min(3), box_max(3)
+    integer(i32) :: axis
+
+    select case (trim(lower_ascii(spec%inject_face)))
+    case ('x_low')
+      axis = 1_i32
+      box_min(axis) = spec%pos_low(axis)
+    case ('x_high')
+      axis = 1_i32
+      box_max(axis) = spec%pos_low(axis)
+    case ('y_low')
+      axis = 2_i32
+      box_min(axis) = spec%pos_low(axis)
+    case ('y_high')
+      axis = 2_i32
+      box_max(axis) = spec%pos_low(axis)
+    case ('z_low')
+      axis = 3_i32
+      box_min(axis) = spec%pos_low(axis)
+    case ('z_high')
+      axis = 3_i32
+      box_max(axis) = spec%pos_low(axis)
+    case default
+      error stop 'plane_source has invalid derived face.'
+    end select
+  end subroutine configure_plane_source_box
+
+  !> face bit順の面名を返す。
+  pure subroutine boundary_face_name(face, name)
+    integer(i32), intent(in) :: face
+    character(len=*), intent(out) :: name
+
+    select case (face)
+    case (1_i32)
+      name = 'x_low'
+    case (2_i32)
+      name = 'x_high'
+    case (3_i32)
+      name = 'y_low'
+    case (4_i32)
+      name = 'y_high'
+    case (5_i32)
+      name = 'z_low'
+    case (6_i32)
+      name = 'z_high'
+    case default
+      error stop 'invalid boundary inflow face.'
+    end select
+  end subroutine boundary_face_name
 
   !> photo_raycast 粒子種のレイキャスト放出を実行する。
   !! @param[in] sim シミュレーション設定。
