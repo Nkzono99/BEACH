@@ -147,10 +147,21 @@ rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません
 完全反射は有限 box の注入面に人工的な鏡を置く試験条件であり、自己整合な sheath や準中性性を解きません。
 `neutral_return` も未帰還軌道を解かず、正味光電子電流を 0 とする統計的 closure です。
 `abs(weight_scale-1)` と未帰還率が十分小さくなるよう `max_step`、`dt`、ray 数、batch 幅を収束させます。
+
+外部電流モデルと結合する場合は `surface_charge_closure="fixed_current"` を使い、
+`target_emission_current_a` と `target_absorbed_current_a` を signed surface current として別々に指定します。
+BEACH は raycast の放出元分布と軌道の帰還先分布をそれぞれ一様倍率で補正し、二つの大電流の差である net PE
+電流は倍率の分母に使いません。外部から return VDF を注入する構成では top 面を open にし、同じ species または
+別 species の `neutral_return` を併用しません。
+
+`[surface_current_model] model="zhao_stationary"`を使うと、PE emissionとescapeをZhao零電流定常根から計算し、
+returnを`escape - emission`として自動設定できます。この場合もemission元とtracked return先だけをBEACHが決め、
+box外のシース場・空間電荷・return軌道や遅延は解きません。完全な設定例は
+`examples/periodic2_zhao_fixed_current.toml`です。
+
 統合した場・流入・電位基準は
 [periodic2有限画像構成](FinitePeriodicConfiguration.html)にあります。
 
-通常の open 面に使う `particle_boundary.ordinary_open_model` と closed PE の使い分けは
 通常の open 面との使い分けは[粒子の escape と局所 return](ParticleEscapeReturn.html)にまとめています。
 
 ## 光電子放出の収束を確認する

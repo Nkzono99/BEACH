@@ -116,7 +116,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(15)
+  call test_init(17)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -283,6 +283,14 @@ program test_simulator
 
   call test_begin('neutral_return_closes_mean_charge_and_preserves_redistribution')
   call test_neutral_return_closure()
+  call test_end()
+
+  call test_begin('fixed_absorbed_current_preserves_spatial_mapping')
+  call test_fixed_absorbed_current_closure()
+  call test_end()
+
+  call test_begin('fixed_photo_currents_scale_emission_and_return_separately')
+  call test_fixed_photo_current_closure()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -781,6 +789,124 @@ contains
     call assert_true(sum(abs(neutral_mesh%q_elem)) > 0.0_dp, 'neutral-return must preserve local charge redistribution')
     call assert_close_dp(neutral_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'neutral-return ledger residual mismatch')
   end subroutine test_neutral_return_closure
+
+  subroutine test_fixed_absorbed_current_closure()
+    type(mesh_type) :: fixed_mesh
+    type(app_config) :: fixed_cfg
+    type(sim_stats) :: fixed_stats
+    type(charge_ledger_type) :: fixed_ledger
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
+    tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
+    fixed_mesh%elem_vacuum_sign = 1_i32
+    fixed_mesh%vacuum_normals = fixed_mesh%normals
+
+    call default_app_config(fixed_cfg)
+    fixed_cfg%sim%batch_count = 1_i32
+    fixed_cfg%sim%batch_duration = 1.0_dp
+    fixed_cfg%sim%dt = 1.0_dp
+    fixed_cfg%sim%max_step = 1_i32
+    fixed_cfg%sim%q_floor = 1.0e-30_dp
+    fixed_cfg%n_particle_species = 1_i32
+    fixed_cfg%particle_species(1) = species_from_defaults()
+    fixed_cfg%particle_species(1)%source_mode = 'volume_seed'
+    fixed_cfg%particle_species(1)%npcls_per_step = 1_i32
+    fixed_cfg%particle_species(1)%q_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%m_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%w_particle = 2.0_dp
+    fixed_cfg%particle_species(1)%pos_low = [0.2_dp, 0.2_dp, 0.5_dp]
+    fixed_cfg%particle_species(1)%pos_high = fixed_cfg%particle_species(1)%pos_low
+    fixed_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    fixed_cfg%particle_species(1)%temperature_k = 0.0_dp
+    fixed_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'
+    fixed_cfg%particle_species(1)%target_absorbed_current_a = 5.0_dp
+    fixed_cfg%particle_species(1)%has_target_absorbed_current_a = .true.
+
+    call seed_particles_from_config(fixed_cfg)
+    call run_absorption_insulator(fixed_mesh, fixed_cfg, fixed_stats, charge_ledger=fixed_ledger)
+    call assert_close_dp(fixed_mesh%q_elem(1), 5.0_dp, 1.0e-12_dp, 'fixed absorbed target charge mismatch')
+    call assert_close_dp( &
+      fixed_ledger%fixed_absorbed_weight_scale(1), 2.5_dp, 1.0e-12_dp, &
+      'fixed absorbed current scale mismatch' &
+      )
+    call assert_close_dp( &
+      fixed_ledger%fixed_current_correction(1), 3.0_dp, 1.0e-12_dp, &
+      'fixed absorbed current correction mismatch' &
+      )
+    call assert_close_dp(fixed_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'fixed absorbed ledger residual mismatch')
+  end subroutine test_fixed_absorbed_current_closure
+
+  subroutine test_fixed_photo_current_closure()
+    type(mesh_type) :: fixed_mesh
+    type(app_config) :: fixed_cfg
+    type(sim_stats) :: fixed_stats
+    type(charge_ledger_type) :: fixed_ledger
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.75_dp]
+    tri_v2(:, 1) = [1.0_dp, 1.0_dp, 0.75_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 0.75_dp]
+    tri_v1(:, 2) = [1.0_dp, 1.0_dp, 0.75_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0_dp, 0.75_dp]
+    call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
+    fixed_mesh%elem_vacuum_sign = 1_i32
+    fixed_mesh%vacuum_normals = fixed_mesh%normals
+
+    call default_app_config(fixed_cfg)
+    fixed_cfg%sim%rng_seed = 999_i32
+    fixed_cfg%sim%batch_count = 1_i32
+    fixed_cfg%sim%batch_duration = 1.0_dp
+    fixed_cfg%sim%dt = 0.6_dp
+    fixed_cfg%sim%max_step = 1_i32
+    fixed_cfg%sim%q_floor = 1.0e-30_dp
+    fixed_cfg%sim%use_box = .true.
+    fixed_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    fixed_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    fixed_cfg%sim%bc_high(3) = bc_open
+    fixed_cfg%n_particle_species = 1_i32
+    fixed_cfg%particle_species(1) = species_from_defaults()
+    fixed_cfg%particle_species(1)%source_mode = 'photo_raycast'
+    fixed_cfg%particle_species(1)%rays_per_batch = 256_i32
+    fixed_cfg%particle_species(1)%emit_current_density_a_m2 = 1.0_dp
+    fixed_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
+    fixed_cfg%particle_species(1)%boundary_high(3) = bc_reflect
+    fixed_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'
+    fixed_cfg%particle_species(1)%target_absorbed_current_a = -0.25_dp
+    fixed_cfg%particle_species(1)%has_target_absorbed_current_a = .true.
+    fixed_cfg%particle_species(1)%target_emission_current_a = 2.0_dp
+    fixed_cfg%particle_species(1)%has_target_emission_current_a = .true.
+    fixed_cfg%particle_species(1)%q_particle = -1.0_dp
+    fixed_cfg%particle_species(1)%m_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%temperature_k = 0.0_dp
+    fixed_cfg%particle_species(1)%normal_drift_speed = 1.0_dp
+    fixed_cfg%particle_species(1)%inject_face = 'z_high'
+    fixed_cfg%particle_species(1)%pos_low = [0.0_dp, 0.0_dp, 1.0_dp]
+    fixed_cfg%particle_species(1)%pos_high = [1.0_dp, 1.0_dp, 1.0_dp]
+    fixed_cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
+    fixed_cfg%particle_species(1)%has_ray_direction = .true.
+
+    call seed_particles_from_config(fixed_cfg)
+    call run_absorption_insulator(fixed_mesh, fixed_cfg, fixed_stats, charge_ledger=fixed_ledger)
+    call assert_equal_i64(fixed_stats%absorbed, 256_i64, 'fixed PE fixture must resolve every return')
+    call assert_close_dp(sum(fixed_mesh%q_elem), 1.75_dp, 1.0e-12_dp, 'fixed PE net surface charge mismatch')
+    call assert_close_dp( &
+      fixed_ledger%fixed_absorbed_target_charge(1), -0.25_dp, 1.0e-12_dp, &
+      'fixed PE return target mismatch' &
+      )
+    call assert_close_dp( &
+      fixed_ledger%fixed_emission_target_charge(1), 2.0_dp, 1.0e-12_dp, &
+      'fixed PE emission target mismatch' &
+      )
+    call assert_true( &
+      abs(fixed_ledger%fixed_absorbed_weight_scale(1) - fixed_ledger%fixed_emission_weight_scale(1)) > 1.0e-6_dp, &
+      'fixed PE emission and return channels must use independent scales' &
+      )
+    call assert_close_dp(fixed_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'fixed PE ledger residual mismatch')
+  end subroutine test_fixed_photo_current_closure
 
   subroutine test_multiple_box_event_failure_context()
     character(len=1024) :: executable_path, command, child_line

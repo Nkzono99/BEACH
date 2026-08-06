@@ -244,6 +244,52 @@ closed PE は次の組合せです。
 未解決率 `U/S` が 0.05 を超える、`R=0`、実 escape、soft discard、terminal 分類不整合のいずれかでは
 補正せず fail closed とします。
 
+### 7.6 species 別 fixed-current closure
+
+`surface_charge_closure="fixed_current"` は、species の吸収 channel と `photo_raycast` の放出反作用 channel を
+独立に補正します。signed target charge は accepted trial の batch 幅 $\Delta t$ に対して
+
+$$
+Q_{s,\mathrm{abs}}^{\mathrm{target}}=I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t,
+\qquad
+Q_{s,\mathrm{emit}}^{\mathrm{target}}=I_{s,\mathrm{emit}}^{\mathrm{target}}\Delta t
+$$
+
+です。raw channel 電荷を $R$ とすると、各要素の raw deposit を同じ $Q^{\mathrm{target}}/R$ で倍率化し、空間分布を
+保持します。`target_absorbed_current_a` の符号は `q_particle` と一致し、
+`target_emission_current_a` の符号は `q_particle` と逆です。非ゼロ target に対して $R=0$、非有限倍率、負倍率なら
+commit 前に fail closed とします。
+
+PE の emission と return は別 channel のまま扱い、net current を倍率分母に使いません。`fixed_current` と
+`neutral_return` は同じ species で排他です。外部 return VDF の注入と top reflection / `neutral_return` の併用は
+同じ return current を二重計上するため、構成上使用しません。
+
+### 7.7 自動表面電流model
+
+トップレベル`[surface_current_model]`は、設定型、model dispatch、model固有solver、species channelへの割当を分離します。
+未指定または`model="none"`はtargetを生成せず、speciesに記述した手動targetを使います。初期実装の
+`model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に一度解きます。
+新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
+
+Zhao modelはambient electron、cold ion、photoelectronの3つの`species_key`を明示的に参照します。各speciesは
+`surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
+z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、$T_i\le0.1T_e$をfail-closedに検証します。
+電流密度から電流へ変換する面積は`reference_area_m2`、省略時はdomainのx-y面積です。
+
+$n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$とし、解いたPE emissionを$J_{emit}>0$、escapeを$J_{escape}>0$とすると、
+
+$$
+J_{return}=J_{escape}-J_{emit}\le0,
+\qquad
+J_e+J_i+J_{escape}=0
+$$
+
+です。$AJ_e$、$AJ_i$、$AJ_{return}$を各吸収channel、$AJ_{emit}$をPE放出反作用channelへ渡します。
+PEの二つの大電流を独立に補正し、差であるnet PE電流をscaleの分母に使いません。
+
+このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、run中の表面電位に応じて
+targetを再計算しません。外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
+
 ## 8. 実行制御
 
 - 新規実行は `sim.batch_count` 個の accepted batch を処理する

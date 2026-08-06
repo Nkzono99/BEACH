@@ -24,6 +24,10 @@
       "$ref": "#/$defs/reservoir",
       "description": "Local reservoir inflow model."
     },
+    "surface_current_model": {
+      "$ref": "#/$defs/surfaceCurrentModel",
+      "description": "Optional external model that supplies species-resolved fixed surface currents."
+    },
     "particles": {
       "$ref": "#/$defs/particles",
       "description": "Particle species definitions."
@@ -403,6 +407,71 @@
           "type": "integer",
           "minimum": 1,
           "default": 3
+        }
+      }
+    },
+    "surfaceCurrentModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {"model": {"const": "zhao_stationary"}},
+            "required": ["model"]
+          },
+          "then": {
+            "required": [
+              "electron_species",
+              "ion_species",
+              "photoelectron_species",
+              "solar_elevation_deg",
+              "photoelectron_ref_density_m3"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "model": {
+          "enum": ["none", "zhao_stationary"]
+        },
+        "zhao_branch": {
+          "enum": ["auto", "a", "b", "c"],
+          "default": "auto"
+        },
+        "electron_species": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ion_species": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "photoelectron_species": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "solar_elevation_deg": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 90
+        },
+        "photoelectron_ref_density_m3": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "photoelectron_source_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1
+        },
+        "reference_area_m2": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Effective z-normal collection area [m^2]. Defaults to the domain x-y area."
         }
       }
     },
@@ -1238,10 +1307,19 @@
           "type": "string",
           "enum": [
             "explicit",
+            "fixed_current",
             "neutral_return"
           ],
           "default": "explicit",
-          "description": "Surface-charge treatment for this species. explicit commits tracked outcomes directly. neutral_return rescales resolved negative photoelectron returns so emission plus return has zero net surface charge; it requires negative photo_raycast, opposite-charge emission deposit, and reflect or redistributed_reflect on inject_face."
+          "description": "Surface-charge treatment for this species. fixed_current rescales absorbed and emission-reaction channels independently to signed target currents; neutral_return closes negative photoelectron emission plus return to zero net surface charge."
+        },
+        "target_absorbed_current_a": {
+          "type": "number",
+          "description": "Signed target surface current [A] for the absorbed-particle deposit channel. Its sign must match q_particle."
+        },
+        "target_emission_current_a": {
+          "type": "number",
+          "description": "Signed target surface current [A] for the photoemission reaction-charge channel. Its sign must oppose q_particle."
         },
         "inject_region_mode": {
           "type": "string",
@@ -1262,6 +1340,28 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              {"required": ["target_absorbed_current_a"]},
+              {"required": ["target_emission_current_a"]}
+            ]
+          },
+          "then": {
+            "required": ["surface_charge_closure"],
+            "properties": {"surface_charge_closure": {"const": "fixed_current"}}
+          }
+        },
+        {
+          "if": {"required": ["target_emission_current_a"]},
+          "then": {
+            "required": ["source_mode", "deposit_opposite_charge_on_emit"],
+            "properties": {
+              "source_mode": {"const": "photo_raycast"},
+              "deposit_opposite_charge_on_emit": {"const": true}
+            }
+          }
+        },
         {
           "not": {
             "required": [

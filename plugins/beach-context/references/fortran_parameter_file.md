@@ -78,7 +78,7 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 ## TOML の階層とセクション一覧
 
 `[sim]`、`[domain]`、`[field_boundary]`、`[particle_boundary]`、`[reservoir]`、
-`[particles]`、`[mesh]`、`[periodic2]`、`[output]`が公開構成です。
+`[surface_current_model]`、`[particles]`、`[mesh]`、`[periodic2]`、`[output]`が公開構成です。
 
 ```text
 beach.toml
@@ -87,6 +87,7 @@ beach.toml
 ├── [field_boundary]
 ├── [particle_boundary]
 ├── [reservoir]
+├── [surface_current_model]
 ├── [particles]
 │   └── [[particles.species]]       # 1 件以上の array-of-tables
 │       ├── [particles.species.boundary_inflow]
@@ -107,6 +108,7 @@ beach.toml
 | `[field_boundary]` | root | 任意 | 場の`free` / `periodic2` closure |
 | `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
 | `[reservoir]` | root | 任意 | 外部reservoirの流入障壁と基準電位 |
+| `[surface_current_model]` | root | 任意 | species別`fixed_current` targetを解く外部電流closure |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
@@ -332,6 +334,58 @@ face_potential_grid_n = 3
 内部の`plane_source`とdeprecatedな`reservoir_face`には適用しません。
 一様電場には有限な無限遠電位がないため、併用時は`phi_infty`を有効なreservoir基準として整合させます。
 
+### `[surface_current_model]`: 固定電流の自動計算
+
+このトップレベルtableを省略すると、speciesごとの`target_*_current_a`を使う手動設定になります。
+`model="zhao_stationary"`は、平面・無衝突・非磁化の外部シースについてZhaoのA/B/C零電流定常根を解き、
+ambient electron、ion、PE emission、PE escape、PE returnの電流を一度だけ決定します。
+
+```toml
+[surface_current_model]
+model = "zhao_stationary"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+solar_elevation_deg = 60.0
+photoelectron_ref_density_m3 = 6.4e7
+photoelectron_source_scale = 1.0
+# reference_area_m2 = 1.0e-8
+```
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `model` | string | `"none"` | 現在は`none` / `zhao_stationary` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。`auto`は有効な定常枝を探索 |
+| `electron_species` | string | 必須 | ambient electronの`species_key` |
+| `ion_species` | string | 必須 | cold ionの`species_key` |
+| `photoelectron_species` | string | 必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
+| `solar_elevation_deg` | float | 必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
+| `photoelectron_ref_density_m3` | float | 必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ の $s_{UV}$ |
+| `reference_area_m2` | float | domainのx-y面積 | 電流密度を総電流へ変換する面積 [m^2] |
+
+参照する3 speciesはenabledかつ相異なり、`surface_charge_closure="fixed_current"`を指定します。
+手動の`target_absorbed_current_a` / `target_emission_current_a`は同時指定できません。ambient electronとionは
+z-high reservoirから内向きに流入します。
+
+PEは負電荷`photo_raycast`、`inject_face="z_high"`、
+`deposit_opposite_charge_on_emit=true`を要求します。3 speciesは単価電荷で、ambient electronとPEの質量は一致、
+$T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$でなければなりません。
+
+`ion_species`の`number_density_*`を無限遠ion密度として使い、ambient electron密度は定常根が解きます。
+electron側の設定密度とPEの`emit_current_density_a_m2`はraw Monte Carlo mapを生成するためのsampling入力であり、
+fixed-current targetにはなりません。解いたelectron密度は`summary.txt`へ出力します。
+
+解いたsigned電流密度を$J_e<0$、$J_i>0$、$J_{emit}>0$、$J_{escape}>0$とすると、PE returnは
+$J_{return}=J_{escape}-J_{emit}\le0$です。BEACHは面積$A$を掛け、electron/ion/returnを各吸収channelへ、
+emissionをPE放出反作用channelへ渡します。定常根は$J_e+J_i+J_{escape}=0$を満たしますが、
+BEACH内のraycast・軌道追跡から得た要素別分布はそのまま保持します。
+
+このmodelはbox外の電場、空間電荷、Debye shielding、return軌道・遅延を解かず、batch中の表面電位から
+電流を更新しません。外部シースの自己無撞着な過渡解ではなく、固定された定常外部電流closureです。
+計算例は`examples/periodic2_zhao_fixed_current.toml`です。
+
 ### `[periodic2]`: 非零モード・零モード・下側境界
 
 `[periodic2]`はトップレベルtableです。`domain.periodic_axes=["x","y"]`と
@@ -430,7 +484,9 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 | `source_normal` | float[3] | 未指定 | `plane_source`の一方向法線。axis-alignedな非ゼロベクトル |
 | `boundary` | table | 未指定 | `[particles.species.boundary]` のspecies別6面override |
 | `boundary_inflow` | table | 未指定 | `[particles.species.boundary_inflow]`のspecies別reservoir流入面 |
-| `surface_charge_closure` | string | `"explicit"` | 表面source電荷closure。`explicit` / `neutral_return` |
+| `surface_charge_closure` | string | `"explicit"` | 表面 source 電荷 closure。`explicit` / `fixed_current` / `neutral_return` |
+| `target_absorbed_current_a` | float | 未指定 | `fixed_current` の signed 吸収電流 [A]。符号は `q_particle` と一致 |
+| `target_emission_current_a` | float | 未指定 | `fixed_current` の signed 放出反作用電流 [A]。符号は `q_particle` と逆 |
 
 #### `[particles.species.boundary]`: species別override
 
@@ -458,6 +514,24 @@ z_high = "reflect"
 
 実escapeまたは`soft_discard`が生じる条件とは併用できません。通常のtracked chargeを
 そのままcommitする`"explicit"`が既定です。未帰還率が固定上限5%を超える場合は補正せず停止します。
+
+`surface_charge_closure="fixed_current"` は、軌道追跡で得た要素別分布を保ったまま、species ごとの総電流を
+外部 closure の値へ合わせます。targetはspeciesで手動指定するか、トップレベルの
+`[surface_current_model]`で自動計算します。手動の吸収 channel は
+
+```toml
+surface_charge_closure = "fixed_current"
+target_absorbed_current_a = -2.0e-6
+```
+
+と指定し、raw 吸収電荷 $R_s$ を $I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$ 倍します。
+`photo_raycast` では `deposit_opposite_charge_on_emit=true` として
+`target_emission_current_a` も指定でき、放出反作用と帰還吸収を独立に補正します。二つの差である net PE 電流を
+直接倍率化しません。target が非ゼロなのに対応する raw channel が空なら fail closed します。
+
+`fixed_current` と `neutral_return` は同じ species では排他です。外部モデル由来の PE return VDF を別 species として
+top 面から注入する場合、その return species に `target_absorbed_current_a` を設定し、top 面の full reflection と
+`neutral_return` は使わないでください。同じ return current の二重計上を避けるためです。
 
 #### `source_mode = "volume_seed"`
 

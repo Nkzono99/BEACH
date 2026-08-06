@@ -552,6 +552,47 @@ history_stride = 1
         load_config_file(config_path)
 
 
+def test_fixed_current_requires_signed_independent_channels() -> None:
+    config = default_config()
+    species = config["particles"]["species"][0]
+    species["surface_charge_closure"] = "fixed_current"
+    species["target_absorbed_current_a"] = -2.0e-6
+    normalized = normalize_config_document(config)
+    assert normalized["particles"]["species"][0][
+        "target_absorbed_current_a"
+    ] == pytest.approx(-2.0e-6)
+
+    wrong_sign = copy.deepcopy(config)
+    wrong_sign["particles"]["species"][0]["target_absorbed_current_a"] = 2.0e-6
+    with pytest.raises(ConfigValidationError, match="same sign as q_particle"):
+        normalize_config_document(wrong_sign)
+
+    net_only = copy.deepcopy(config)
+    net_only["particles"]["species"][0].pop("target_absorbed_current_a")
+    with pytest.raises(ConfigValidationError, match="at least one target current"):
+        normalize_config_document(net_only)
+
+
+def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
+    root = Path(__file__).resolve().parents[2]
+    normalized = load_config_file(root / "examples/periodic2_zhao_fixed_current.toml")
+    assert normalized["surface_current_model"]["model"] == "zhao_stationary"
+    assert all(
+        item["surface_charge_closure"] == "fixed_current"
+        for item in normalized["particles"]["species"]
+    )
+
+    hot_ions = copy.deepcopy(normalized)
+    hot_ions["particles"]["species"][1]["temperature_ev"] = 2.0
+    with pytest.raises(ConfigValidationError, match="cold ions"):
+        normalize_config_document(hot_ions)
+
+    malformed_drift = copy.deepcopy(normalized)
+    malformed_drift["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0]
+    with pytest.raises(ConfigValidationError, match="inward z-high"):
+        normalize_config_document(malformed_drift)
+
+
 def test_config_cli_init_validate_and_diff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

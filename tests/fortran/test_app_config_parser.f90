@@ -12,8 +12,9 @@ program test_app_config_parser
 
   type(app_config) :: cfg
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
+  integer :: i
 
-  call test_init(4)
+  call test_init(6)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -22,6 +23,31 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('zhao_fixed_current_config')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'Zhao current model mismatch')
+  call assert_true(trim(cfg%surface_current%zhao_branch) == 'auto', 'Zhao branch mismatch')
+  call assert_true( &
+    all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'fixed_current', i=1, 3)]), &
+    'Zhao species must use fixed_current' &
+    )
+  call test_end()
+
+  call test_begin('fixed_current_config')
+  call default_app_config(cfg)
+  call load_app_config('tests/fortran/fixed_current.toml', cfg)
+  call assert_true( &
+    trim(cfg%particle_species(1)%surface_charge_closure) == 'fixed_current', &
+    'fixed-current closure mismatch' &
+    )
+  call assert_true(cfg%particle_species(1)%has_target_absorbed_current_a, 'fixed absorbed target presence mismatch')
+  call assert_close_dp( &
+    cfg%particle_species(1)%target_absorbed_current_a, -2.0_dp, 1.0e-15_dp, &
+    'fixed absorbed target mismatch' &
+    )
   call test_end()
 
   call test_begin('tutorial_config')

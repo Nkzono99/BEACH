@@ -20,6 +20,7 @@ module bem_simulator
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
                                             resolve_external_boundary_contract
   use bem_simulator_workspace, only: simulator_batch_workspace_type
+  use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_select_lowest_rank_i32_values

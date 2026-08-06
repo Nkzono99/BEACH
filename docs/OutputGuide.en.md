@@ -24,6 +24,11 @@ checkpoint schema, and model / mesh / species fingerprints. The resolved
 boundary reservoir and ordinary-open state is reported as
 `reservoir_inflow_map` and `particle_ordinary_open_model`.
 
+The `[surface_current_model]` receipt is recorded as `surface_current_model`. For `zhao_stationary`,
+`surface_current_model_*` fields report the selected branch, reference area, $\phi_0$, $\phi_m$, resolved ambient-electron
+density, and signed electron / ion / PE-emission / PE-escape / PE-return / net current densities. In particular,
+`surface_current_model_pe_return_current_density_A_m2` is negative, while emission and escape are positive.
+
 ## History
 
 | File | Condition | Main columns |
@@ -56,10 +61,13 @@ With `write_mesh_potential=true`, BEACH writes `mesh_potential.csv`.
 - Closed-PE `neutral_return_correction_C`
 - `neutral_return_weight_scale`
 - `neutral_return_unresolved_fraction`
+- `fixed_absorbed_target_charge_C` and `fixed_absorbed_weight_scale`
+- `fixed_emission_target_charge_C` and `fixed_emission_weight_scale`
+- `fixed_current_correction_C` added to surface charge by the external closure
 
 `charge_ledger_residual_C` in `summary.txt` combines changes in surface,
-local-flight, and unresolved stocks with external fluxes and the neutral-return
-correction.
+local-flight, and unresolved stocks with external fluxes, the neutral-return
+correction, and the fixed-current correction.
 
 For closed PE, BEACH preserves raw absorption and unresolved values. The
 correction and scale are separate, so the unresolved fraction remains

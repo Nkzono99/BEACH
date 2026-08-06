@@ -11,6 +11,7 @@ module bem_output_writer
                                             external_open_escape, external_open_potential_barrier, &
                                             resolve_external_boundary_contract
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
                             filesystem_success
@@ -279,6 +280,7 @@ contains
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
     type(external_boundary_contract_type) :: resolved_boundary
+    type(surface_current_model_result_type) :: current_model
     character(len=1024) :: summary_path
     character(len=256) :: boundary_message
     integer :: u, ios
@@ -291,6 +293,7 @@ contains
     if (boundary_status /= external_boundary_ok) then
       error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
     end if
+    call evaluate_surface_current_model(cfg, current_model)
     summary_path = trim(out_dir)//'/summary.txt'
     open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary file.'
@@ -344,6 +347,27 @@ contains
     write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
     write (u, '(a,a)') 'particle_ordinary_open_model=', &
       trim(external_open_model_name(resolved_boundary%ordinary_open_model))
+    write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
+    if (current_model%active) then
+      write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
+      write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
+      write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
+      write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
+      write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
+        current_model%ambient_electron_density_m3
+      write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &
+        current_model%electron_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_ion_current_density_A_m2=', &
+        current_model%ion_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_pe_emission_current_density_A_m2=', &
+        current_model%photoelectron_emission_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_current_density_A_m2=', &
+        current_model%photoelectron_escape_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_pe_return_current_density_A_m2=', &
+        current_model%photoelectron_return_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
+        current_model%net_current_density_a_m2
+    end if
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
       if (electrostatic_diagnostics%top_reference_available) then
@@ -383,6 +407,8 @@ contains
         charge_ledger%discarded_unresolved_abs()
       write (u, '(a,es24.16)') 'charge_ledger_neutral_return_correction_C=', &
         sum(charge_ledger%neutral_return_correction)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_current_correction_C=', &
+        sum(charge_ledger%fixed_current_correction)
     end if
     if (count_dielectric_surfaces(mesh) > 0_i32) then
       write (u, '(a,i0)') 'surface_model_dielectric_elem_count=', count_dielectric_surfaces(mesh)
@@ -438,9 +464,11 @@ contains
       'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,absorbed_on_surface_C,'// &
       'escaped_to_infinity_C,discarded_unresolved_C,'// &
       'neutral_return_correction_C,neutral_return_weight_scale,neutral_return_unresolved_fraction,'// &
+      'fixed_absorbed_target_charge_C,fixed_absorbed_weight_scale,'// &
+      'fixed_emission_target_charge_C,fixed_emission_weight_scale,fixed_current_correction_C,'// &
       'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
     do species_idx = 1, ledger%nspecies
-      write (u, '(i0,a,i0,8(a,es24.16),5(a,i0))') &
+      write (u, '(i0,a,i0,13(a,es24.16),5(a,i0))') &
         ledger%batch_count, ',', species_idx, &
         ',', ledger%injected_from_remote(species_idx), &
         ',', ledger%emitted_from_surface(species_idx), &
@@ -450,6 +478,11 @@ contains
         ',', ledger%neutral_return_correction(species_idx), &
         ',', ledger%neutral_return_weight_scale(species_idx), &
         ',', ledger%neutral_return_unresolved_fraction(species_idx), &
+        ',', ledger%fixed_absorbed_target_charge(species_idx), &
+        ',', ledger%fixed_absorbed_weight_scale(species_idx), &
+        ',', ledger%fixed_emission_target_charge(species_idx), &
+        ',', ledger%fixed_emission_weight_scale(species_idx), &
+        ',', ledger%fixed_current_correction(species_idx), &
         ',', ledger%injected_count(species_idx), &
         ',', ledger%emitted_count(species_idx), &
         ',', ledger%absorbed_count(species_idx), &

@@ -455,11 +455,11 @@ contains
     integer :: u, ios, pos
     integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
     integer(i64) :: count_values(5)
-    real(dp) :: charge_values(8), stock_values(6)
+    real(dp) :: charge_values(13), legacy_charge_values(8), stock_values(6)
     character(len=512) :: line, header
     character(len=96) :: key
     character(len=256) :: value
-    logical :: found_nspecies, found_batch, found_stocks(6)
+    logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns
     logical, allocatable :: seen(:)
 
     nspecies = 0_i32
@@ -530,9 +530,16 @@ contains
     if (ios /= 0) error stop 'Failed to open charge_ledger.csv for resume.'
     read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read charge_ledger.csv header.'
+    has_fixed_current_columns = index(header, 'fixed_current_correction_C') > 0
     do
-      read (u, *, iostat=ios) &
-        row_batch, species_idx, charge_values, count_values
+      charge_values = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, &
+                       0.0_dp, 1.0_dp, 0.0_dp, 1.0_dp, 0.0_dp]
+      if (has_fixed_current_columns) then
+        read (u, *, iostat=ios) row_batch, species_idx, charge_values, count_values
+      else
+        read (u, *, iostat=ios) row_batch, species_idx, legacy_charge_values, count_values
+        if (ios == 0) charge_values(1:8) = legacy_charge_values
+      end if
       if (ios < 0) exit
       if (ios > 0) error stop 'Failed to parse charge_ledger.csv during resume.'
       if (row_batch /= batch_count) error stop 'Resume charge ledger batch count mismatch.'
@@ -549,6 +556,11 @@ contains
       ledger%neutral_return_correction(species_idx) = charge_values(6)
       ledger%neutral_return_weight_scale(species_idx) = charge_values(7)
       ledger%neutral_return_unresolved_fraction(species_idx) = charge_values(8)
+      ledger%fixed_absorbed_target_charge(species_idx) = charge_values(9)
+      ledger%fixed_absorbed_weight_scale(species_idx) = charge_values(10)
+      ledger%fixed_emission_target_charge(species_idx) = charge_values(11)
+      ledger%fixed_emission_weight_scale(species_idx) = charge_values(12)
+      ledger%fixed_current_correction(species_idx) = charge_values(13)
       ledger%injected_count(species_idx) = count_values(1)
       ledger%emitted_count(species_idx) = count_values(2)
       ledger%absorbed_count(species_idx) = count_values(3)

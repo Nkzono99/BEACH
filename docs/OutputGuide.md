@@ -22,6 +22,11 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 記録されます。境界 reservoir と通常 open 面の解決結果は `reservoir_inflow_map` と
 `particle_ordinary_open_model` で確認できます。
 
+`[surface_current_model]`のreceiptは`surface_current_model`に記録されます。`zhao_stationary`では、選択branch、
+参照面積、$\phi_0$、$\phi_m$、解いたambient electron密度、およびelectron / ion / PE emission / PE escape /
+PE return / netのsigned電流密度を`surface_current_model_*`で出力します。特に
+`surface_current_model_pe_return_current_density_A_m2`は負、emissionとescapeは正です。
+
 ## 履歴
 
 | ファイル | 条件 | 主な列 |
@@ -52,9 +57,12 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 - closed PE の `neutral_return_correction_C`
 - `neutral_return_weight_scale`
 - `neutral_return_unresolved_fraction`
+- `fixed_absorbed_target_charge_C` と `fixed_absorbed_weight_scale`
+- `fixed_emission_target_charge_C` と `fixed_emission_weight_scale`
+- 外部 closure が表面電荷へ加えた `fixed_current_correction_C`
 
 `summary.txt` の `charge_ledger_residual_C` は surface / local-flight / unresolved stock の変化と
-外部 flux、neutral-return 補正から作る保存残差です。
+外部 flux、neutral-return 補正、fixed-current 補正から作る保存残差です。
 
 closed PE では raw の吸収・未解決量を上書きしません。補正量と係数を別に記録するため、
 表面総電荷が閉じていても未解決率を独立に確認できます。

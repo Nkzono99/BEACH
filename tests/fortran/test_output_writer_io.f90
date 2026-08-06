@@ -21,6 +21,7 @@ program test_output_writer_io
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
+  logical :: saw_surface_current_model
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit
   integer(i32) :: top_batch, top_sample_n
@@ -195,6 +196,7 @@ program test_output_writer_io
   saw_build_mode = .false.
   saw_source_commit = .false.
   saw_build_id = .false.
+  saw_surface_current_model = .false.
   open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open summary metadata fixture'
   do
@@ -214,6 +216,7 @@ program test_output_writer_io
     saw_build_mode = saw_build_mode .or. index(line, 'build_version_mode=') == 1
     saw_source_commit = saw_source_commit .or. index(line, 'build_source_commit=') == 1
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
+    saw_surface_current_model = saw_surface_current_model .or. index(line, 'surface_current_model=none') == 1
   end do
   close (literal_unit)
   open (newunit=literal_unit, file=out_dir_ledger//'/charge_ledger.csv', status='old', action='read', iostat=ios)
@@ -224,7 +227,10 @@ program test_output_writer_io
                       index(line, 'discarded_unresolved_C') > 0 .and. &
                       index(line, 'neutral_return_correction_C') > 0 .and. &
                       index(line, 'neutral_return_weight_scale') > 0 .and. &
-                      index(line, 'neutral_return_unresolved_fraction') > 0
+                      index(line, 'neutral_return_unresolved_fraction') > 0 .and. &
+                      index(line, 'fixed_absorbed_target_charge_C') > 0 .and. &
+                      index(line, 'fixed_emission_target_charge_C') > 0 .and. &
+                      index(line, 'fixed_current_correction_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
   call assert_true(saw_schema, 'summary should record checkpoint schema v6')
@@ -233,6 +239,7 @@ program test_output_writer_io
                    'summary should record executable build origin')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_closure, 'summary should record the neutral-return correction')
+  call assert_true(saw_surface_current_model, 'summary should record the surface-current model receipt')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()
 

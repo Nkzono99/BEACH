@@ -198,6 +198,9 @@ contains
       case ('reservoir')
         if (.not. associated(section)) error stop 'TOML section [reservoir] must be a table.'
         call apply_reservoir_toml_table(section, authoring%reservoir)
+      case ('surface_current_model')
+        if (.not. associated(section)) error stop 'TOML section [surface_current_model] must be a table.'
+        call apply_surface_current_model_toml_table(cfg, section)
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
         call apply_particles_toml_table(cfg, section, authoring)
@@ -215,6 +218,60 @@ contains
       end select
     end do
   end subroutine apply_toml_document
+
+  !> `[surface_current_model]` の外部固定電流モデルを読み込む。
+  subroutine apply_surface_current_model_toml_table(cfg, table)
+    type(app_config), intent(inout) :: cfg
+    type(toml_table), intent(inout) :: table
+    type(toml_key), allocatable :: keys(:)
+    integer :: ikey
+    character(len=:), allocatable :: k
+
+    call table%get_keys(keys)
+    do ikey = 1, size(keys)
+      k = lower_ascii(trim(keys(ikey)%key))
+      select case (trim(k))
+      case ('model')
+        call get_toml_string(table, keys(ikey), cfg%surface_current%model, 'surface_current_model.model')
+        cfg%surface_current%model = lower_ascii(trim(cfg%surface_current%model))
+      case ('zhao_branch')
+        call get_toml_string(table, keys(ikey), cfg%surface_current%zhao_branch, 'surface_current_model.zhao_branch')
+        cfg%surface_current%zhao_branch = lower_ascii(trim(cfg%surface_current%zhao_branch))
+      case ('electron_species')
+        call get_toml_string( &
+          table, keys(ikey), cfg%surface_current%electron_species, 'surface_current_model.electron_species' &
+          )
+      case ('ion_species')
+        call get_toml_string(table, keys(ikey), cfg%surface_current%ion_species, 'surface_current_model.ion_species')
+      case ('photoelectron_species')
+        call get_toml_string( &
+          table, keys(ikey), cfg%surface_current%photoelectron_species, &
+          'surface_current_model.photoelectron_species' &
+          )
+      case ('solar_elevation_deg')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%solar_elevation_deg, 'surface_current_model.solar_elevation_deg' &
+          )
+      case ('photoelectron_ref_density_m3')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%photoelectron_ref_density_m3, &
+          'surface_current_model.photoelectron_ref_density_m3' &
+          )
+      case ('photoelectron_source_scale')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%photoelectron_source_scale, &
+          'surface_current_model.photoelectron_source_scale' &
+          )
+      case ('reference_area_m2')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%reference_area_m2, 'surface_current_model.reference_area_m2' &
+          )
+        cfg%surface_current%has_reference_area_m2 = .true.
+      case default
+        error stop 'Unknown key in [surface_current_model]: '//trim(keys(ikey)%key)
+      end select
+    end do
+  end subroutine apply_surface_current_model_toml_table
 
   subroutine apply_periodic2_toml_table(table, authoring)
     type(toml_table), intent(inout) :: table
@@ -961,6 +1018,16 @@ contains
           table, keys(ikey), spec%surface_charge_closure, 'particles.species.surface_charge_closure' &
           )
         spec%surface_charge_closure = lower_ascii(trim(spec%surface_charge_closure))
+      case ('target_absorbed_current_a')
+        call get_toml_real( &
+          table, keys(ikey), spec%target_absorbed_current_a, 'particles.species.target_absorbed_current_a' &
+          )
+        spec%has_target_absorbed_current_a = .true.
+      case ('target_emission_current_a')
+        call get_toml_real( &
+          table, keys(ikey), spec%target_emission_current_a, 'particles.species.target_emission_current_a' &
+          )
+        spec%has_target_emission_current_a = .true.
       case ('inject_region_mode')
         call get_toml_string(table, keys(ikey), auth%inject_region_mode, 'particles.species.inject_region_mode')
         auth%inject_region_mode = lower_ascii(trim(auth%inject_region_mode))

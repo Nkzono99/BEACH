@@ -161,6 +161,17 @@ particle. Converge `max_step`, `dt`, ray count, and batch width until `abs(weigh
 [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
 for the integrated field, inflow, and potential-reference setup.
 
+For coupling to an external current model, use `surface_charge_closure="fixed_current"` and specify
+`target_emission_current_a` and `target_absorbed_current_a` as separate signed surface currents. BEACH uniformly rescales the
+raycast emission-origin distribution and the tracked return-destination distribution independently; it never uses the small
+net PE current, the difference of these two large channels, as a scale denominator. If the external model injects a return
+VDF, keep the top face open and do not also enable `neutral_return` on the same or another return channel.
+
+With `[surface_current_model] model="zhao_stationary"`, BEACH calculates PE emission and escape from the Zhao zero-current
+stationary root and sets return to `escape - emission`. BEACH still determines only the emission-origin and tracked-return
+spatial distributions; it does not solve the sheath field, space charge, return orbit, or return delay outside the box. See
+`examples/periodic2_zhao_fixed_current.toml` for the complete setup.
+
 See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between
 `particle_boundary.ordinary_open_model` and closed PE.
 

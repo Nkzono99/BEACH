@@ -298,6 +298,21 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
             neutral_return_unresolved_fraction = float(
                 row.get("neutral_return_unresolved_fraction") or 0.0
             )
+            fixed_absorbed_target_charge_c = float(
+                row.get("fixed_absorbed_target_charge_C") or 0.0
+            )
+            fixed_absorbed_weight_scale = float(
+                row.get("fixed_absorbed_weight_scale") or 1.0
+            )
+            fixed_emission_target_charge_c = float(
+                row.get("fixed_emission_target_charge_C") or 0.0
+            )
+            fixed_emission_weight_scale = float(
+                row.get("fixed_emission_weight_scale") or 1.0
+            )
+            fixed_current_correction_c = float(
+                row.get("fixed_current_correction_C") or 0.0
+            )
             if batch < 0 or species_idx < 1 or any(count < 0 for count in counts):
                 raise ValueError("charge_ledger.csv indices and counts are invalid.")
             neutral_values = (
@@ -305,7 +320,14 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
                 neutral_return_weight_scale,
                 neutral_return_unresolved_fraction,
             )
-            if not np.all(np.isfinite((*charges, *neutral_values))):
+            fixed_values = (
+                fixed_absorbed_target_charge_c,
+                fixed_absorbed_weight_scale,
+                fixed_emission_target_charge_c,
+                fixed_emission_weight_scale,
+                fixed_current_correction_c,
+            )
+            if not np.all(np.isfinite((*charges, *neutral_values, *fixed_values))):
                 raise ValueError("charge_ledger.csv charge values must be finite.")
             rows.append(
                 ChargeLedgerEntry(
@@ -316,6 +338,11 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
                     neutral_return_correction_c=neutral_return_correction_c,
                     neutral_return_weight_scale=neutral_return_weight_scale,
                     neutral_return_unresolved_fraction=neutral_return_unresolved_fraction,
+                    fixed_absorbed_target_charge_c=fixed_absorbed_target_charge_c,
+                    fixed_absorbed_weight_scale=fixed_absorbed_weight_scale,
+                    fixed_emission_target_charge_c=fixed_emission_target_charge_c,
+                    fixed_emission_weight_scale=fixed_emission_weight_scale,
+                    fixed_current_correction_c=fixed_current_correction_c,
                 )
             )
     return tuple(rows)

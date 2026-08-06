@@ -81,7 +81,7 @@ runs successfully.
 ## TOML Hierarchy and Section List
 
 `[sim]`, `[domain]`, `[field_boundary]`, `[particle_boundary]`, `[reservoir]`,
-`[particles]`, `[mesh]`, `[periodic2]`, and `[output]` form the public configuration.
+`[surface_current_model]`, `[particles]`, `[mesh]`, `[periodic2]`, and `[output]` form the public configuration.
 
 ```text
 beach.toml
@@ -90,6 +90,7 @@ beach.toml
 ├── [field_boundary]
 ├── [particle_boundary]
 ├── [reservoir]
+├── [surface_current_model]
 ├── [particles]
 │   └── [[particles.species]]       # one or more array-of-table entries
 │       ├── [particles.species.boundary_inflow]
@@ -110,6 +111,7 @@ Paths such as `sim.dt` and `domain.periodic_axes` mean “table name.key” in t
 | `[field_boundary]` | root | optional | `free` / `periodic2` field closure |
 | `[particle_boundary]` | root | optional | Global particle actions on nonperiodic faces |
 | `[reservoir]` | root | optional | External-reservoir inflow barrier and reference potential |
+| `[surface_current_model]` | root | optional | External current closure resolving per-species `fixed_current` targets |
 | `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
 | `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
 | `[particles.species.boundary]` | latest `[[particles.species]]` | optional | Nonperiodic-face overrides for that species |
@@ -344,6 +346,58 @@ face_potential_grid_n = 3
 It does not apply to an internal `plane_source` or deprecated `reservoir_face`.
 A uniform field has no finite potential at infinity, so use an effective reservoir reference when combining it with this model.
 
+### `[surface_current_model]`: Automatic Fixed-Current Calculation
+
+When this top-level table is omitted, configure each species manually with `target_*_current_a`.
+`model="zhao_stationary"` solves the Zhao A/B/C zero-current stationary root for a planar, collisionless, unmagnetized
+external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents once before batching.
+
+```toml
+[surface_current_model]
+model = "zhao_stationary"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+solar_elevation_deg = 60.0
+photoelectron_ref_density_m3 = 6.4e7
+photoelectron_source_scale = 1.0
+# reference_area_m2 = 1.0e-8
+```
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `model` | string | `"none"` | Currently `none` / `zhao_stationary` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; `auto` searches for a valid stationary branch |
+| `electron_species` | string | required | `species_key` for ambient electrons |
+| `ion_species` | string | required | `species_key` for cold ions |
+| `photoelectron_species` | string | required | `species_key` for the `photo_raycast` tracking PE emission and return |
+| `solar_elevation_deg` | float | required | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
+| `photoelectron_ref_density_m3` | float | required | Reference PE density $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ |
+| `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2] |
+
+The three referenced species must be enabled, distinct, and set `surface_charge_closure="fixed_current"`.
+They cannot also specify manual `target_absorbed_current_a` or `target_emission_current_a`. Ambient electrons and ions must
+enter inward from the z-high reservoir.
+
+PE requires a negative `photo_raycast`, `inject_face="z_high"`, and
+`deposit_opposite_charge_on_emit=true`. All three roles must be singly charged, the ambient-electron and PE masses must match,
+and $T_e>0$, $T_{pe}>0$, and $T_i\le0.1T_e$ must hold.
+
+The `ion_species` `number_density_*` supplies the ion density at infinity; the stationary root solves the ambient-electron
+density. The configured electron density and PE `emit_current_density_a_m2` are sampling inputs for the raw Monte Carlo maps,
+not fixed-current targets. The resolved electron density is recorded in `summary.txt`.
+
+For signed current densities $J_e<0$, $J_i>0$, $J_{emit}>0$, and $J_{escape}>0$, PE return is
+$J_{return}=J_{escape}-J_{emit}\le0$. BEACH multiplies them by area $A$, sends electron, ion, and return currents to their
+absorption channels, and sends emission to the PE source-reaction channel. The stationary root satisfies
+$J_e+J_i+J_{escape}=0$, while BEACH retains the element distribution measured by raycasting and trajectory tracking.
+
+This model does not solve the field, space charge, Debye shielding, return orbit, or return delay outside the box, and it does
+not update currents from the surface potential during batches. It is a fixed stationary external-current closure, not a
+self-consistent transient outer sheath. See `examples/periodic2_zhao_fixed_current.toml` for a complete case.
+
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
 `[periodic2]` is a top-level table. Set `domain.periodic_axes=["x","y"]`
@@ -446,7 +500,9 @@ used depend on `source_mode`.
 | `source_normal` | float[3] | unspecified | One-way `plane_source` normal. A nonzero axis-aligned vector |
 | `boundary` | table | unspecified | Per-species six-face overrides in `[particles.species.boundary]` |
 | `boundary_inflow` | table | unspecified | Per-species reservoir inflow faces in `[particles.species.boundary_inflow]` |
-| `surface_charge_closure` | string | `"explicit"` | Surface-source charge closure. `explicit` / `neutral_return` |
+| `surface_charge_closure` | string | `"explicit"` | Surface-source charge closure. `explicit` / `fixed_current` / `neutral_return` |
+| `target_absorbed_current_a` | float | unspecified | Signed absorbed target current [A] for `fixed_current`; its sign matches `q_particle` |
+| `target_emission_current_a` | float | unspecified | Signed emission-reaction target current [A] for `fixed_current`; its sign opposes `q_particle` |
 
 #### `[particles.species.boundary]`: Per-Species Overrides
 
@@ -477,6 +533,25 @@ It cannot be used when an actual escape or `soft_discard` occurs. The default
 `"explicit"` commits ordinary tracked
 charge without this closure. BEACH stops without correction when the unresolved
 fraction exceeds the fixed 5% limit.
+
+`surface_charge_closure="fixed_current"` preserves the element distribution measured by trajectory tracking while matching
+the species total to an external current closure. Supply targets manually on each species or calculate them with the top-level
+`[surface_current_model]`. Configure a manual absorbed channel as
+
+```toml
+surface_charge_closure = "fixed_current"
+target_absorbed_current_a = -2.0e-6
+```
+
+BEACH multiplies raw absorbed charge $R_s$ by
+$I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$. For `photo_raycast` with
+`deposit_opposite_charge_on_emit=true`, `target_emission_current_a` independently scales the source reaction channel. BEACH
+does not scale the net PE current formed by subtracting these two channels. A nonzero target with an empty raw channel fails
+closed.
+
+`fixed_current` and `neutral_return` are mutually exclusive for one species. When an external model supplies a PE-return VDF
+through a separate species at the top face, set `target_absorbed_current_a` on that return species and do not also use full
+reflection or `neutral_return`; those combinations count the same return current twice.
 
 #### `source_mode = "volume_seed"`
 

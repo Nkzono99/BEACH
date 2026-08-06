@@ -19,6 +19,7 @@ TOP_LEVEL_CONFIG_ORDER = (
     "field_boundary",
     "particle_boundary",
     "reservoir",
+    "surface_current_model",
     "periodic2",
     "particles",
     "mesh",
@@ -850,6 +851,9 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     field_boundary = _optional_runtime_table(final_config, "field_boundary")
     particle_boundary = _optional_runtime_table(final_config, "particle_boundary")
     reservoir = _optional_runtime_table(final_config, "reservoir")
+    surface_current_model = _optional_runtime_table(
+        final_config, "surface_current_model"
+    )
     periodic2_config = final_config.get("periodic2", {})
     removed_sim_keys = sorted(set(sim) & _REMOVED_SIM_KEYS)
     if removed_sim_keys:
@@ -876,6 +880,16 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         raise ConfigValidationError(
             "BEACH constraint error: particles.species must be a non-empty array of tables."
         )
+    automatic_current_species = set()
+    if surface_current_model is not None:
+        automatic_current_species = {
+            str(surface_current_model.get(key, ""))
+            for key in (
+                "electron_species",
+                "ion_species",
+                "photoelectron_species",
+            )
+        }
 
     resolved_batch_duration = _resolve_batch_duration(sim)
     use_box = domain is not None
@@ -1033,11 +1047,73 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         surface_charge_closure = species_table.get(
             "surface_charge_closure", "explicit"
         )
-        if surface_charge_closure not in {"explicit", "neutral_return"}:
+        if surface_charge_closure not in {
+            "explicit",
+            "fixed_current",
+            "neutral_return",
+        }:
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}]."
-                'surface_charge_closure must be "explicit" or "neutral_return".'
+                'surface_charge_closure must be "explicit", "fixed_current", '
+                'or "neutral_return".'
             )
+        fixed_absorbed_present = "target_absorbed_current_a" in species_table
+        fixed_emission_present = "target_emission_current_a" in species_table
+        if surface_charge_closure == "explicit" and (
+            fixed_absorbed_present or fixed_emission_present
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}] target "
+                'surface currents require surface_charge_closure="fixed_current".'
+            )
+        if surface_charge_closure == "fixed_current":
+            species_key = str(species_table.get("species_key", f"species_{index}"))
+            if not (
+                fixed_absorbed_present
+                or fixed_emission_present
+                or species_key in automatic_current_species
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}] "
+                    "fixed_current requires at least one target current."
+                )
+            q_particle = species_table.get("q_particle", -1.602176634e-19)
+            if not isinstance(q_particle, (int, float)) or isinstance(
+                q_particle, bool
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: particles.species[{index}]."
+                    "q_particle must be numeric for fixed_current."
+                )
+            if fixed_absorbed_present:
+                target = species_table["target_absorbed_current_a"]
+                if (
+                    not isinstance(target, (int, float))
+                    or isinstance(target, bool)
+                    or not math.isfinite(float(target))
+                    or float(target) * float(q_particle) < 0.0
+                ):
+                    raise ConfigValidationError(
+                        f"BEACH constraint error: particles.species[{index}]."
+                        "target_absorbed_current_a must be finite and have the "
+                        "same sign as q_particle."
+                    )
+            if fixed_emission_present:
+                target = species_table["target_emission_current_a"]
+                if (
+                    source_mode != "photo_raycast"
+                    or species_table.get("deposit_opposite_charge_on_emit") is not True
+                    or not isinstance(target, (int, float))
+                    or isinstance(target, bool)
+                    or not math.isfinite(float(target))
+                    or float(target) * float(q_particle) > 0.0
+                ):
+                    raise ConfigValidationError(
+                        f"BEACH constraint error: particles.species[{index}]."
+                        "target_emission_current_a requires photo_raycast, an "
+                        "opposite-charge emission deposit, and current sign "
+                        "opposite to q_particle."
+                    )
         if surface_charge_closure == "neutral_return":
             inject_face = species_table.get("inject_face")
             q_particle = species_table.get("q_particle", -1.602176634e-19)
@@ -1199,6 +1275,12 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             f"source_mode={source_mode!r}."
         )
 
+    _validate_surface_current_model(
+        surface_current_model,
+        species=species,
+        domain=domain,
+    )
+
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
         raise ConfigValidationError(
             "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
@@ -1227,6 +1309,204 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         raise ConfigValidationError(
             "BEACH constraint error: adaptive reservoir injection requires "
             "target_macro_particles_per_batch instead of fixed w_particle."
+        )
+
+
+def _validate_surface_current_model(
+    model_config: Mapping[str, Any] | None,
+    *,
+    species: list[Mapping[str, Any]],
+    domain: Mapping[str, Any] | None,
+) -> None:
+    if model_config is None or model_config.get("model", "none") == "none":
+        return
+    if model_config.get("model") != "zhao_stationary":
+        raise ConfigValidationError(
+            'BEACH constraint error: surface_current_model.model must be "none" '
+            'or "zhao_stationary".'
+        )
+    if model_config.get("zhao_branch", "auto") not in {"auto", "a", "b", "c"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.zhao_branch must be "
+            '"auto", "a", "b", or "c".'
+        )
+    for key in ("solar_elevation_deg", "photoelectron_ref_density_m3"):
+        value = model_config.get(key)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or float(value) <= 0.0
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: surface_current_model.{key} must be finite and > 0."
+            )
+    if float(model_config["solar_elevation_deg"]) > 90.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.solar_elevation_deg "
+            "must not exceed 90."
+        )
+    source_scale = model_config.get("photoelectron_source_scale", 1.0)
+    if (
+        not isinstance(source_scale, (int, float))
+        or isinstance(source_scale, bool)
+        or not math.isfinite(float(source_scale))
+        or float(source_scale) <= 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.photoelectron_source_scale "
+            "must be finite and > 0."
+        )
+    if "reference_area_m2" in model_config:
+        area = model_config["reference_area_m2"]
+        if (
+            not isinstance(area, (int, float))
+            or isinstance(area, bool)
+            or not math.isfinite(float(area))
+            or float(area) <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: surface_current_model.reference_area_m2 "
+                "must be finite and > 0."
+            )
+    elif domain is None:
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model requires reference_area_m2 "
+            "or a finite domain."
+        )
+
+    by_key = {
+        str(item.get("species_key", f"species_{index}")): item
+        for index, item in enumerate(species, start=1)
+        if item.get("enabled", True) is True
+    }
+    role_keys = {
+        role: model_config.get(f"{role}_species")
+        for role in ("electron", "ion", "photoelectron")
+    }
+    if any(not isinstance(value, str) or not value for value in role_keys.values()):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model requires electron_species, "
+            "ion_species, and photoelectron_species."
+        )
+    if len(set(role_keys.values())) != 3:
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model species references must be distinct."
+        )
+    if any(value not in by_key for value in role_keys.values()):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model references an unknown or disabled species."
+        )
+    selected = {role: by_key[key] for role, key in role_keys.items()}
+    for role, item in selected.items():
+        if item.get("surface_charge_closure", "explicit") != "fixed_current":
+            raise ConfigValidationError(
+                f"BEACH constraint error: Zhao {role} species requires "
+                'surface_charge_closure="fixed_current".'
+            )
+        if "target_absorbed_current_a" in item or "target_emission_current_a" in item:
+            raise ConfigValidationError(
+                "BEACH constraint error: automatic surface-current species cannot "
+                "also specify manual target currents."
+            )
+    q_e = float(selected["electron"].get("q_particle", -1.602176634e-19))
+    q_i = float(selected["ion"].get("q_particle", -1.602176634e-19))
+    q_pe = float(selected["photoelectron"].get("q_particle", -1.602176634e-19))
+    if q_e >= 0.0 or q_i <= 0.0 or q_pe >= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao roles require negative electron, positive ion, "
+            "and negative photoelectron species."
+        )
+    elementary_charge = 1.602176634e-19
+    if any(
+        abs(abs(charge) - elementary_charge) > 1.0e-6 * elementary_charge
+        for charge in (q_e, q_i, q_pe)
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao stationary current requires singly charged "
+            "electron, ion, and photoelectron species."
+        )
+    electron_mass = float(selected["electron"].get("m_particle", 9.10938356e-31))
+    photoelectron_mass = float(
+        selected["photoelectron"].get("m_particle", 9.10938356e-31)
+    )
+    if abs(photoelectron_mass - electron_mass) > 1.0e-6 * electron_mass:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao stationary current requires matching "
+            "ambient-electron and photoelectron masses."
+        )
+    photo = selected["photoelectron"]
+    if (
+        photo.get("source_mode", "volume_seed") != "photo_raycast"
+        or photo.get("deposit_opposite_charge_on_emit") is not True
+        or photo.get("inject_face") != "z_high"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao photoelectron species requires photo_raycast, "
+            "opposite-charge emission deposit, and inject_face=z_high."
+        )
+    for role in ("electron", "ion"):
+        item = selected[role]
+        boundary_inflow = item.get("boundary_inflow", {})
+        is_reservoir = (
+            isinstance(boundary_inflow, Mapping)
+            and boundary_inflow.get("z_high") == "reservoir"
+        ) or (
+            item.get("source_mode") == "reservoir_face"
+            and item.get("inject_face") == "z_high"
+        )
+        drift = item.get("drift_velocity", [0.0, 0.0, -8.0e5])
+        try:
+            drift_z = (
+                float(drift[2])
+                if isinstance(drift, Sequence)
+                and not isinstance(drift, (str, bytes))
+                and len(drift) == 3
+                else math.nan
+            )
+        except (TypeError, ValueError):
+            drift_z = math.nan
+        if not is_reservoir or not math.isfinite(drift_z) or drift_z >= 0.0:
+            raise ConfigValidationError(
+                f"BEACH constraint error: Zhao {role} species requires inward z-high "
+                "reservoir drift."
+            )
+
+    ion = selected["ion"]
+    if "number_density_cm3" in ion:
+        ion_density_m3 = float(ion["number_density_cm3"]) * 1.0e6
+    else:
+        ion_density_m3 = float(ion.get("number_density_m3", 0.0))
+    if not math.isfinite(ion_density_m3) or ion_density_m3 <= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao ion species requires a positive number density."
+        )
+
+    def temperature_k(item: Mapping[str, Any]) -> float:
+        if "temperature_ev" in item:
+            return float(item["temperature_ev"]) * 1.160451812e4
+        return float(item.get("temperature_k", 2.0e4))
+
+    electron_temperature_k = temperature_k(selected["electron"])
+    ion_temperature_k = temperature_k(ion)
+    photoelectron_temperature_k = temperature_k(selected["photoelectron"])
+    if (
+        not math.isfinite(electron_temperature_k)
+        or electron_temperature_k <= 0.0
+        or not math.isfinite(photoelectron_temperature_k)
+        or photoelectron_temperature_k <= 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao electron and photoelectron temperatures "
+            "must be positive."
+        )
+    if (
+        not math.isfinite(ion_temperature_k)
+        or ion_temperature_k > 0.1 * electron_temperature_k
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao stationary current requires cold ions "
+            "with T_i <= 0.1 T_e."
         )
 
 

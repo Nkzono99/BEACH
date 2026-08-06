@@ -14,6 +14,20 @@ module bem_app_config_types
   integer(i32), parameter :: particle_inflow_none = 0_i32
   integer(i32), parameter :: particle_inflow_reservoir = 1_i32
 
+  !> 表面固定電流を与える外部モデルの共通設定。
+  type :: surface_current_model_config
+    character(len=32) :: model = 'none'
+    character(len=16) :: zhao_branch = 'auto'
+    character(len=64) :: electron_species = ''
+    character(len=64) :: ion_species = ''
+    character(len=64) :: photoelectron_species = ''
+    real(dp) :: solar_elevation_deg = 0.0_dp
+    real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
+    real(dp) :: photoelectron_source_scale = 1.0_dp
+    real(dp) :: reference_area_m2 = 0.0_dp
+    logical :: has_reference_area_m2 = .false.
+  end type surface_current_model_config
+
   !> 1粒子種の注入設定を表す。
   type :: particle_species_spec
     character(len=64) :: species_key = ''
@@ -61,6 +75,10 @@ module bem_app_config_types
     integer(i32) :: boundary_inflow_low(3) = particle_inflow_none
     integer(i32) :: boundary_inflow_high(3) = particle_inflow_none
     character(len=16) :: surface_charge_closure = 'explicit'
+    real(dp) :: target_absorbed_current_a = 0.0_dp
+    logical :: has_target_absorbed_current_a = .false.
+    real(dp) :: target_emission_current_a = 0.0_dp
+    logical :: has_target_emission_current_a = .false.
   end type particle_species_spec
 
   !> 1つのテンプレート形状の有効化フラグと幾何パラメータを保持する。
@@ -126,6 +144,7 @@ module bem_app_config_types
     type(field_physics_config) :: field
     type(periodic2_physics_config) :: periodic2
     type(panel_kernel_config) :: panel
+    type(surface_current_model_config) :: surface_current
   end type app_config
 
 contains

@@ -42,6 +42,11 @@ source-dir = "tests/fortran"
 main = "test_charge_ledger.f90"
 
 [[test]]
+name = "test_surface_current_model"
+source-dir = "tests/fortran"
+main = "test_surface_current_model.f90"
+
+[[test]]
 name = "test_model_fingerprint"
 source-dir = "tests/fortran"
 main = "test_model_fingerprint.f90"

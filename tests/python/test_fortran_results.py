@@ -999,9 +999,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
         "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
         "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
         "neutral_return_correction_C,neutral_return_weight_scale,"
-        "neutral_return_unresolved_fraction,injected_count,"
+        "neutral_return_unresolved_fraction,fixed_absorbed_target_charge_C,"
+        "fixed_absorbed_weight_scale,fixed_emission_target_charge_C,"
+        "fixed_emission_weight_scale,fixed_current_correction_C,injected_count,"
         "emitted_count,absorbed_count,escaped_count,discarded_unresolved_count\n"
-        "1,1,-3,0,-2,-1,-0.1,-0.1,1.05,0.05,3,0,2,1,1\n",
+        "1,1,-3,0,-2,-1,-0.1,-0.1,1.05,0.05,-4,2,3,1.5,-2,3,0,2,1,1\n",
         encoding="utf-8",
     )
 
@@ -1021,6 +1023,11 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.charge_ledger[0].neutral_return_unresolved_fraction == pytest.approx(
         0.05
     )
+    assert result.charge_ledger[0].fixed_absorbed_target_charge_c == pytest.approx(-4.0)
+    assert result.charge_ledger[0].fixed_absorbed_weight_scale == pytest.approx(2.0)
+    assert result.charge_ledger[0].fixed_emission_target_charge_c == pytest.approx(3.0)
+    assert result.charge_ledger[0].fixed_emission_weight_scale == pytest.approx(1.5)
+    assert result.charge_ledger[0].fixed_current_correction_c == pytest.approx(-2.0)
     assert result.periodic2_cache_hit is True
     assert result.periodic2_operator_build_count == 0
     assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"

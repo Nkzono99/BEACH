@@ -21,6 +21,11 @@ module bem_charge_ledger
     real(dp), allocatable :: neutral_return_correction(:)
     real(dp), allocatable :: neutral_return_weight_scale(:)
     real(dp), allocatable :: neutral_return_unresolved_fraction(:)
+    real(dp), allocatable :: fixed_absorbed_target_charge(:)
+    real(dp), allocatable :: fixed_absorbed_weight_scale(:)
+    real(dp), allocatable :: fixed_emission_target_charge(:)
+    real(dp), allocatable :: fixed_emission_weight_scale(:)
+    real(dp), allocatable :: fixed_current_correction(:)
     integer(i64), allocatable :: injected_count(:)
     integer(i64), allocatable :: emitted_count(:)
     integer(i64), allocatable :: absorbed_count(:)
@@ -53,6 +58,9 @@ contains
         self%absorbed_on_surface(nspecies), self%escaped_to_infinity(nspecies), &
         self%discarded_unresolved(nspecies), self%neutral_return_correction(nspecies), &
         self%neutral_return_weight_scale(nspecies), self%neutral_return_unresolved_fraction(nspecies), &
+        self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
+        self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &
+        self%fixed_current_correction(nspecies), &
         self%injected_count(nspecies), &
         self%emitted_count(nspecies), self%absorbed_count(nspecies), self%escaped_count(nspecies), &
         self%discarded_unresolved_count(nspecies) &
@@ -84,6 +92,11 @@ contains
     self%neutral_return_correction = 0.0_dp
     self%neutral_return_weight_scale = 1.0_dp
     self%neutral_return_unresolved_fraction = 0.0_dp
+    self%fixed_absorbed_target_charge = 0.0_dp
+    self%fixed_absorbed_weight_scale = 1.0_dp
+    self%fixed_emission_target_charge = 0.0_dp
+    self%fixed_emission_weight_scale = 1.0_dp
+    self%fixed_current_correction = 0.0_dp
     self%injected_count = 0_i64
     self%emitted_count = 0_i64
     self%absorbed_count = 0_i64
@@ -99,7 +112,8 @@ contains
                (self%local_flight_charge_after - self%local_flight_charge_before) + &
                (self%unresolved_stock_after - self%unresolved_stock_before) - &
                sum(self%injected_from_remote) + sum(self%escaped_to_infinity) + &
-               sum(self%discarded_unresolved) - sum(self%neutral_return_correction)
+               sum(self%discarded_unresolved) - sum(self%neutral_return_correction) - &
+               sum(self%fixed_current_correction)
   end function charge_ledger_residual
 
   !> species 間で相殺しない max-step discard charge の絶対値和を返す。
@@ -123,7 +137,7 @@ contains
   subroutine accumulate_charge_ledger(cumulative, batch)
     type(charge_ledger_type), intent(inout) :: cumulative
     type(charge_ledger_type), intent(in) :: batch
-    logical :: first_batch
+    logical :: first_batch, absorbed_fixed_active, emission_fixed_active
     integer(i32) :: species_idx
 
     if (batch%nspecies < 1_i32 .or. .not. allocated(batch%injected_from_remote)) then
@@ -151,6 +165,34 @@ contains
     cumulative%discarded_unresolved = cumulative%discarded_unresolved + batch%discarded_unresolved
     cumulative%neutral_return_correction = &
       cumulative%neutral_return_correction + batch%neutral_return_correction
+    cumulative%fixed_absorbed_target_charge = &
+      cumulative%fixed_absorbed_target_charge + batch%fixed_absorbed_target_charge
+    cumulative%fixed_emission_target_charge = &
+      cumulative%fixed_emission_target_charge + batch%fixed_emission_target_charge
+    cumulative%fixed_current_correction = &
+      cumulative%fixed_current_correction + batch%fixed_current_correction
+    do species_idx = 1_i32, cumulative%nspecies
+      absorbed_fixed_active = cumulative%fixed_absorbed_target_charge(species_idx) /= 0.0_dp .or. &
+                              cumulative%fixed_absorbed_weight_scale(species_idx) /= 1.0_dp .or. &
+                              batch%fixed_absorbed_weight_scale(species_idx) /= 1.0_dp
+      emission_fixed_active = cumulative%fixed_emission_target_charge(species_idx) /= 0.0_dp .or. &
+                              cumulative%fixed_emission_weight_scale(species_idx) /= 1.0_dp .or. &
+                              batch%fixed_emission_weight_scale(species_idx) /= 1.0_dp
+      cumulative%fixed_absorbed_weight_scale(species_idx) = 1.0_dp
+      cumulative%fixed_emission_weight_scale(species_idx) = 1.0_dp
+      if (absorbed_fixed_active) then
+        if (cumulative%absorbed_on_surface(species_idx) /= 0.0_dp) then
+          cumulative%fixed_absorbed_weight_scale(species_idx) = &
+            cumulative%fixed_absorbed_target_charge(species_idx)/cumulative%absorbed_on_surface(species_idx)
+        end if
+      end if
+      if (emission_fixed_active) then
+        if (cumulative%emitted_from_surface(species_idx) /= 0.0_dp) then
+          cumulative%fixed_emission_weight_scale(species_idx) = &
+            -cumulative%fixed_emission_target_charge(species_idx)/cumulative%emitted_from_surface(species_idx)
+        end if
+      end if
+    end do
     cumulative%neutral_return_weight_scale = 1.0_dp
     cumulative%neutral_return_unresolved_fraction = 0.0_dp
     do species_idx = 1_i32, cumulative%nspecies
@@ -179,6 +221,8 @@ contains
       self%injected_from_remote, self%emitted_from_surface, self%absorbed_on_surface, &
       self%escaped_to_infinity, self%discarded_unresolved, self%neutral_return_correction, &
       self%neutral_return_weight_scale, self%neutral_return_unresolved_fraction, &
+      self%fixed_absorbed_target_charge, self%fixed_absorbed_weight_scale, &
+      self%fixed_emission_target_charge, self%fixed_emission_weight_scale, self%fixed_current_correction, &
       self%injected_count, self%emitted_count, self%absorbed_count, &
       self%escaped_count, self%discarded_unresolved_count &
       )

@@ -50,6 +50,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_app_config_parser \
 	test_physics_config_types \
 	test_charge_ledger \
+	test_surface_current_model \
 	test_model_fingerprint \
 	test_panel_moments \
 	test_panel_kernel \

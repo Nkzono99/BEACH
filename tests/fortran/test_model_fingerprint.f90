@@ -34,7 +34,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -109,6 +109,13 @@ program test_model_fingerprint
   cfg_changed = cfg
   cfg_changed%particle_species(1)%surface_charge_closure = 'neutral_return'
   call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'closure must alter fingerprint')
+  call test_end()
+
+  call test_begin('surface_current_model_change_detected')
+  cfg_changed = cfg
+  cfg_changed%surface_current%model = 'zhao_stationary'
+  cfg_changed%surface_current%solar_elevation_deg = 60.0_dp
+  call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'surface current model must alter fingerprint')
   call test_end()
 
   call test_begin('species_order_change_detected')

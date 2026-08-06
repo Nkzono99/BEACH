@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added a pluggable `[surface_current_model]` closure with a restored Zhao A/B/C stationary zero-current solver. It resolves
+  ambient-electron, ion, PE-emission, PE-escape, and PE-return targets independently and applies them through per-species
+  `fixed_current` spatial maps.
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed

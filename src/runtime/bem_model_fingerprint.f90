@@ -85,6 +85,19 @@ contains
       call feed_string(hash, 'redistributed_reflect_rng_v1')
       call feed_integer(hash, cfg%sim%rng_seed)
     end if
+    if (trim(cfg%surface_current%model) /= 'none') then
+      call feed_string(hash, 'surface_current_model_v1')
+      call feed_string(hash, cfg%surface_current%model)
+      call feed_string(hash, cfg%surface_current%zhao_branch)
+      call feed_string(hash, cfg%surface_current%electron_species)
+      call feed_string(hash, cfg%surface_current%ion_species)
+      call feed_string(hash, cfg%surface_current%photoelectron_species)
+      call feed_real(hash, cfg%surface_current%solar_elevation_deg)
+      call feed_real(hash, cfg%surface_current%photoelectron_ref_density_m3)
+      call feed_real(hash, cfg%surface_current%photoelectron_source_scale)
+      call feed_real(hash, cfg%surface_current%reference_area_m2)
+      call feed_logical(hash, cfg%surface_current%has_reference_area_m2)
+    end if
     fingerprint = finish_hash(hash)
   end function model_fingerprint
 
@@ -198,6 +211,13 @@ contains
     if (trim(spec%surface_charge_closure) /= 'explicit') then
       call feed_string(hash, 'surface_charge_closure_v1')
       call feed_string(hash, spec%surface_charge_closure)
+    end if
+    if (spec%has_target_absorbed_current_a .or. spec%has_target_emission_current_a) then
+      call feed_string(hash, 'fixed_surface_current_v1')
+      call feed_real(hash, spec%target_absorbed_current_a)
+      call feed_logical(hash, spec%has_target_absorbed_current_a)
+      call feed_real(hash, spec%target_emission_current_a)
+      call feed_logical(hash, spec%has_target_emission_current_a)
     end if
   end subroutine feed_species
 

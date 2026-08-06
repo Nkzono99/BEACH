@@ -1,6 +1,8 @@
 !> 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
-  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face
+  use bem_constants, only: qe
+  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face, &
+                                species_number_density_m3, species_temperature_k
   use bem_app_config_types, only: particle_inflow_none, particle_inflow_reservoir
   implicit none
 contains
@@ -301,7 +303,36 @@ contains
     end do
     select case (trim(cfg%particle_species(i)%surface_charge_closure))
     case ('explicit')
-      continue
+      if (cfg%particle_species(i)%has_target_absorbed_current_a .or. &
+          cfg%particle_species(i)%has_target_emission_current_a) then
+        error stop 'target surface currents require surface_charge_closure="fixed_current".'
+      end if
+    case ('fixed_current')
+      if (.not. cfg%particle_species(i)%has_target_absorbed_current_a .and. &
+          .not. cfg%particle_species(i)%has_target_emission_current_a .and. &
+          .not. is_automatic_current_species(cfg, i)) then
+        error stop 'surface_charge_closure="fixed_current" requires at least one target current.'
+      end if
+      if (cfg%particle_species(i)%has_target_absorbed_current_a) then
+        if (.not. ieee_is_finite(cfg%particle_species(i)%target_absorbed_current_a)) then
+          error stop 'particles.species.target_absorbed_current_a must be finite.'
+        end if
+        if (cfg%particle_species(i)%target_absorbed_current_a*cfg%particle_species(i)%q_particle < 0.0_dp) then
+          error stop 'target_absorbed_current_a sign must match q_particle.'
+        end if
+      end if
+      if (cfg%particle_species(i)%has_target_emission_current_a) then
+        if (trim(cfg%particle_species(i)%source_mode) /= 'photo_raycast' .or. &
+            .not. cfg%particle_species(i)%deposit_opposite_charge_on_emit) then
+          error stop 'target_emission_current_a requires photo_raycast with opposite-charge emission deposit.'
+        end if
+        if (.not. ieee_is_finite(cfg%particle_species(i)%target_emission_current_a)) then
+          error stop 'particles.species.target_emission_current_a must be finite.'
+        end if
+        if (cfg%particle_species(i)%target_emission_current_a*cfg%particle_species(i)%q_particle > 0.0_dp) then
+          error stop 'target_emission_current_a sign must oppose q_particle.'
+        end if
+      end if
     case ('neutral_return')
       if (trim(cfg%particle_species(i)%source_mode) /= 'photo_raycast' .or. &
           cfg%particle_species(i)%q_particle >= 0.0_dp) then
@@ -317,7 +348,7 @@ contains
         error stop 'surface_charge_closure="neutral_return" requires a reflecting action on the species inject_face.'
       end if
     case default
-      error stop 'particles.species.surface_charge_closure must be "explicit" or "neutral_return".'
+      error stop 'particles.species.surface_charge_closure must be "explicit", "fixed_current", or "neutral_return".'
     end select
     if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
         .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
@@ -424,6 +455,8 @@ contains
     end select
   end do
 
+  call validate_surface_current_model_config(cfg)
+
   if (per_batch_particles <= 0_i32 .and. .not. has_dynamic_source_species) then
     error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
   end if
@@ -452,6 +485,146 @@ contains
   call validate_active_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel, physics_status, physics_message)
   if (physics_status /= physics_config_ok) error stop trim(physics_message)
   end procedure finalize_loaded_config
+
+  logical function is_automatic_current_species(cfg, species_idx) result(selected)
+    type(app_config), intent(in) :: cfg
+    integer, intent(in) :: species_idx
+
+    selected = .false.
+    if (trim(lower_ascii(cfg%surface_current%model)) == 'none') return
+    selected = trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%electron_species) .or. &
+               trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%ion_species) .or. &
+               trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%photoelectron_species)
+  end function is_automatic_current_species
+
+  subroutine validate_surface_current_model_config(cfg)
+    type(app_config), intent(in) :: cfg
+    integer :: electron_idx, ion_idx, photo_idx
+    real(dp) :: electron_temperature, ion_temperature
+
+    select case (trim(lower_ascii(cfg%surface_current%model)))
+    case ('none')
+      return
+    case ('zhao_stationary')
+      continue
+    case default
+      error stop 'surface_current_model.model must be "none" or "zhao_stationary".'
+    end select
+    select case (trim(lower_ascii(cfg%surface_current%zhao_branch)))
+    case ('auto', 'a', 'b', 'c')
+      continue
+    case default
+      error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
+    end select
+    if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
+        cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. &
+        cfg%surface_current%solar_elevation_deg > 90.0_dp) then
+      error stop 'surface_current_model.solar_elevation_deg must be finite and in (0, 90].'
+    end if
+    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
+        cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
+      error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
+    end if
+    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
+        cfg%surface_current%photoelectron_source_scale <= 0.0_dp) then
+      error stop 'surface_current_model.photoelectron_source_scale must be finite and > 0.'
+    end if
+    if (cfg%surface_current%has_reference_area_m2) then
+      if (.not. ieee_is_finite(cfg%surface_current%reference_area_m2) .or. &
+          cfg%surface_current%reference_area_m2 <= 0.0_dp) then
+        error stop 'surface_current_model.reference_area_m2 must be finite and > 0.'
+      end if
+    else if (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2))) then
+      error stop 'surface_current_model requires reference_area_m2 or a finite x-y domain area.'
+    end if
+
+    electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
+    ion_idx = find_species_index(cfg, cfg%surface_current%ion_species)
+    photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
+    if (electron_idx == ion_idx .or. electron_idx == photo_idx .or. ion_idx == photo_idx) then
+      error stop 'surface_current_model species references must be distinct.'
+    end if
+    call validate_automatic_current_species(cfg, electron_idx, 'electron')
+    call validate_automatic_current_species(cfg, ion_idx, 'ion')
+    call validate_automatic_current_species(cfg, photo_idx, 'photoelectron')
+    if (cfg%particle_species(electron_idx)%q_particle >= 0.0_dp .or. &
+        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp .or. &
+        cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
+      error stop 'Zhao current species must be negative electron, positive ion, and negative photoelectron.'
+    end if
+    if (abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+        abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+      error stop 'Zhao stationary current model currently requires singly charged electron, ion, and photoelectron species.'
+    end if
+    if (abs(cfg%particle_species(photo_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
+        1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
+      error stop 'Zhao stationary current model requires matching ambient-electron and photoelectron masses.'
+    end if
+    if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
+        .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
+      error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
+    end if
+    if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
+        .not. is_z_high_reservoir(cfg%particle_species(ion_idx))) then
+      error stop 'Zhao ambient electron and ion species require z-high reservoir inflow.'
+    end if
+    if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
+      error stop 'Zhao photoelectron species requires inject_face="z_high".'
+    end if
+    if (-cfg%particle_species(electron_idx)%drift_velocity(3) <= 0.0_dp .or. &
+        -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then
+      error stop 'Zhao ambient species require positive inward drift at z-high.'
+    end if
+    if (species_number_density_m3(cfg%particle_species(ion_idx)) <= 0.0_dp) then
+      error stop 'Zhao ion species requires a positive number density.'
+    end if
+    electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
+    ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
+    if (electron_temperature <= 0.0_dp .or. &
+        species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
+      error stop 'Zhao electron and photoelectron temperatures must be positive.'
+    end if
+    if (ion_temperature > 0.1_dp*electron_temperature) then
+      error stop 'Zhao stationary current model requires cold ions with T_i <= 0.1 T_e.'
+    end if
+  end subroutine validate_surface_current_model_config
+
+  integer function find_species_index(cfg, species_key) result(species_idx)
+    type(app_config), intent(in) :: cfg
+    character(len=*), intent(in) :: species_key
+    integer :: idx
+
+    species_idx = 0
+    do idx = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(idx)%enabled) cycle
+      if (trim(cfg%particle_species(idx)%species_key) /= trim(species_key)) cycle
+      species_idx = idx
+      return
+    end do
+    error stop 'surface_current_model references an unknown or disabled species: '//trim(species_key)
+  end function find_species_index
+
+  subroutine validate_automatic_current_species(cfg, species_idx, role)
+    type(app_config), intent(in) :: cfg
+    integer, intent(in) :: species_idx
+    character(len=*), intent(in) :: role
+
+    if (trim(cfg%particle_species(species_idx)%surface_charge_closure) /= 'fixed_current') then
+      error stop 'surface_current_model '//trim(role)//' species requires surface_charge_closure="fixed_current".'
+    end if
+    if (cfg%particle_species(species_idx)%has_target_absorbed_current_a .or. &
+        cfg%particle_species(species_idx)%has_target_emission_current_a) then
+      error stop 'surface_current_model species cannot also specify manual target currents.'
+    end if
+  end subroutine validate_automatic_current_species
+
+  logical function is_z_high_reservoir(spec) result(enabled)
+    type(particle_species_spec), intent(in) :: spec
+
+    enabled = spec%boundary_inflow_high(3) == particle_inflow_reservoir .or. &
+              (trim(spec%source_mode) == 'reservoir_face' .and. trim(lower_ascii(spec%inject_face)) == 'z_high')
+  end function is_z_high_reservoir
 
   subroutine validate_particle_boundary_override(action, topology_action, context)
     integer(i32), intent(in) :: action, topology_action

@@ -45,6 +45,7 @@ contains
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
   type(external_boundary_contract_type) :: boundary_contract
+  type(surface_current_model_result_type) :: current_model_result
   type(app_config) :: trial_app
 
   stats = sim_stats()
@@ -70,6 +71,7 @@ contains
   nth = 1_i32
 !$ nth = max(1, omp_get_max_threads())
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
+  call evaluate_surface_current_model(app, current_model_result)
 
   history_enabled = present(history_unit)
   hist_unit = 0
@@ -217,6 +219,9 @@ contains
       end if
 
       call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
+      call apply_fixed_surface_current_closure( &
+        trial_app, current_model_result, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+        )
       if (adaptive_nonzero_mode) then
         call prepare_adaptive_charge_candidate(mesh, workspace, mpi_ctx)
         adaptive_metric_values = 0.0_dp
@@ -256,6 +261,11 @@ contains
       batch_ledger%neutral_return_correction = workspace%neutral_return_correction
       batch_ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
       batch_ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
+      batch_ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
+      batch_ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
+      batch_ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
+      batch_ledger%fixed_emission_weight_scale = workspace%fixed_emission_weight_scale
+      batch_ledger%fixed_current_correction = workspace%fixed_current_correction
     end if
 
     call perf_region_begin(perf_region_commit_charge, t0)
@@ -343,14 +353,15 @@ contains
   call workspace%reset_before_injection()
   if (present(inject_state)) then
     call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, inject_state, mesh=mesh, photo_emission_dq=workspace%photo_emission_dq, &
+      app, batch_idx, pcls_batch, inject_state, mesh=mesh, &
+      photo_emission_dq_by_species=workspace%photo_emission_dq, &
       mpi=mpi, collision_failure_status=collision_failure_status, &
       collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
       collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan &
       )
   else
     call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq=workspace%photo_emission_dq, mpi=mpi, &
+      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq_by_species=workspace%photo_emission_dq, mpi=mpi, &
       collision_failure_status=collision_failure_status, collision_failure_species=collision_failure_species, &
       collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce, &
       snapshot=snapshot, source_plan=source_plan &
@@ -556,7 +567,7 @@ contains
   if (workspace%charge_candidate_ready) then
     mesh%q_elem = workspace%candidate_charge
   else
-    workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+    workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
     mesh%q_elem = mesh%q_elem + workspace%dq
   end if
@@ -575,7 +586,7 @@ contains
     if (size(workspace%candidate_charge) /= mesh%nelem) then
       error stop 'adaptive candidate storage does not match the mesh.'
     end if
-    workspace%dq = sum(workspace%dq_thread, dim=2) + workspace%photo_emission_dq
+    workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
     workspace%candidate_charge = mesh%q_elem + workspace%dq
     if (.not. all(ieee_is_finite(workspace%candidate_charge))) then
@@ -714,6 +725,114 @@ contains
                                          (workspace%neutral_return_weight_scale(species_idx) - 1.0_dp)*macro_charge
     end do
   end subroutine apply_neutral_return_surface_closure
+
+  subroutine apply_fixed_surface_current_closure( &
+    app, current_model, pcls_batch, fresh_particle_count, workspace, mpi &
+    )
+    type(app_config), intent(in) :: app
+    type(surface_current_model_result_type), intent(in) :: current_model
+    type(particles_soa), intent(in) :: pcls_batch
+    integer(i32), intent(in) :: fresh_particle_count
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+    type(mpi_context), intent(in) :: mpi
+    integer(i32) :: i, species_idx, elem_idx, n
+    real(dp) :: macro_charge, raw_charge, target_charge, weight_scale, correction
+    real(dp) :: charge_tolerance
+    logical :: has_fixed_current
+
+    n = app%n_particle_species
+    has_fixed_current = .false.
+    do species_idx = 1_i32, n
+      if (.not. app%particle_species(species_idx)%enabled) cycle
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current') then
+        has_fixed_current = .true.
+      end if
+    end do
+    if (.not. has_fixed_current) return
+
+    workspace%fixed_current_charge_values = 0.0_dp
+    do i = 1_i32, fresh_particle_count
+      species_idx = pcls_batch%species_id(i)
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      if (.not. workspace%absorbed_flag(i)) cycle
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      workspace%fixed_current_charge_values(species_idx) = &
+        workspace%fixed_current_charge_values(species_idx) + macro_charge
+    end do
+    do species_idx = 1_i32, n
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
+    end do
+    call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
+
+    do species_idx = 1_i32, n
+      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
+          current_model%has_absorbed_target(species_idx)) then
+        raw_charge = workspace%fixed_current_charge_values(species_idx)
+        if (current_model%has_absorbed_target(species_idx)) then
+          target_charge = current_model%absorbed_current_a(species_idx)*app%sim%batch_duration
+        else
+          target_charge = app%particle_species(species_idx)%target_absorbed_current_a*app%sim%batch_duration
+        end if
+        charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
+        if (abs(raw_charge) <= charge_tolerance) then
+          if (abs(target_charge) > charge_tolerance) then
+            error stop 'fixed_current cannot map a nonzero absorbed target onto an empty raw channel.'
+          end if
+          weight_scale = 1.0_dp
+          correction = 0.0_dp
+        else
+          weight_scale = target_charge/raw_charge
+          correction = target_charge - raw_charge
+        end if
+        if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
+          error stop 'fixed_current absorbed scale is invalid.'
+        end if
+        workspace%fixed_absorbed_target_charge(species_idx) = target_charge
+        workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
+        workspace%fixed_current_correction(species_idx) = &
+          workspace%fixed_current_correction(species_idx) + correction
+        do i = 1_i32, fresh_particle_count
+          if (pcls_batch%species_id(i) /= species_idx .or. .not. workspace%absorbed_flag(i)) cycle
+          elem_idx = workspace%absorbed_element(i)
+          macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+          workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
+                                             (weight_scale - 1.0_dp)*macro_charge
+        end do
+      end if
+
+      if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
+          current_model%has_emission_target(species_idx)) then
+        raw_charge = workspace%fixed_current_charge_values(n + species_idx)
+        if (current_model%has_emission_target(species_idx)) then
+          target_charge = current_model%emission_current_a(species_idx)*app%sim%batch_duration
+        else
+          target_charge = app%particle_species(species_idx)%target_emission_current_a*app%sim%batch_duration
+        end if
+        charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
+        if (abs(raw_charge) <= charge_tolerance) then
+          if (abs(target_charge) > charge_tolerance) then
+            error stop 'fixed_current cannot map a nonzero emission target onto an empty raw channel.'
+          end if
+          weight_scale = 1.0_dp
+          correction = 0.0_dp
+        else
+          weight_scale = target_charge/raw_charge
+          correction = target_charge - raw_charge
+        end if
+        if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
+          error stop 'fixed_current emission scale is invalid.'
+        end if
+        workspace%fixed_emission_target_charge(species_idx) = target_charge
+        workspace%fixed_emission_weight_scale(species_idx) = weight_scale
+        workspace%fixed_current_correction(species_idx) = &
+          workspace%fixed_current_correction(species_idx) + correction
+        workspace%photo_emission_dq(:, species_idx) = &
+          weight_scale*workspace%photo_emission_dq(:, species_idx)
+      end if
+    end do
+  end subroutine apply_fixed_surface_current_closure
 
   subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
     type(app_config), intent(in) :: app

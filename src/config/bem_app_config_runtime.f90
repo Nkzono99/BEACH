@@ -376,10 +376,11 @@ contains
   !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   !! @param[in] source_plan run中に再利用する粒子source導出値（省略時は呼出し内で構築）。
+  !! @param[out] photo_emission_dq_by_species species別のphoto放出反作用電荷 `photo_emission_dq_by_species(nelem, nspecies)`（省略可）。
   subroutine init_particle_batch_from_config( &
     cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
     collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot, &
-    source_plan &
+    source_plan, photo_emission_dq_by_species &
     )
     type(app_config), intent(in) :: cfg
     integer(i32), intent(in) :: batch_idx
@@ -393,6 +394,7 @@ contains
     integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
     type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
     type(particle_source_plan_type), intent(in), optional, target :: source_plan
+    real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
 
     integer(i32) :: s, i, face, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
     integer(i32) :: source_begin, source_end, face_begin, face_end
@@ -461,6 +463,16 @@ contains
       if (.not. present(mesh)) error stop 'photo_emission_dq requires mesh in init_particle_batch_from_config.'
       if (size(photo_emission_dq) /= mesh%nelem) error stop 'photo_emission_dq size mismatch.'
       photo_emission_dq = 0.0d0
+    end if
+    if (present(photo_emission_dq_by_species)) then
+      if (.not. present(mesh)) then
+        error stop 'photo_emission_dq_by_species requires mesh in init_particle_batch_from_config.'
+      end if
+      if (size(photo_emission_dq_by_species, 1) /= mesh%nelem .or. &
+          size(photo_emission_dq_by_species, 2) /= cfg%n_particle_species) then
+        error stop 'photo_emission_dq_by_species size mismatch.'
+      end if
+      photo_emission_dq_by_species = 0.0_dp
     end if
 
     allocate ( &
@@ -619,13 +631,21 @@ contains
                 )
               return
             end if
-            if (present(photo_emission_dq) .and. cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
+            if ((present(photo_emission_dq) .or. present(photo_emission_dq_by_species)) .and. &
+                cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
               do i = 1, counts_actual(s)
-                if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > size(photo_emission_dq)) then
+                if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > mesh%nelem) then
                   error stop 'photo_raycast emitted invalid elem_idx.'
                 end if
-                photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
-                                                             cfg%particle_species(s)%q_particle*w_species(i, s)
+                if (present(photo_emission_dq)) then
+                  photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
+                                                               cfg%particle_species(s)%q_particle*w_species(i, s)
+                end if
+                if (present(photo_emission_dq_by_species)) then
+                  photo_emission_dq_by_species(emit_elem_species(i, s), s) = &
+                    photo_emission_dq_by_species(emit_elem_species(i, s), s) - &
+                    cfg%particle_species(s)%q_particle*w_species(i, s)
+                end if
               end do
             end if
           end if

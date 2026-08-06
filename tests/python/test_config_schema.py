@@ -163,6 +163,41 @@ def test_schema_constrains_neutral_return_to_closed_negative_photoelectrons() ->
     assert schema_errors(no_reflect, schema) == []
 
 
+def test_schema_constrains_fixed_surface_current_channels() -> None:
+    schema, _ = load_schema()
+    config = load_toml_file(ROOT / "examples/periodic2_closed_photoelectron.toml")
+    species = config["particles"]["species"][-1]
+    species["surface_charge_closure"] = "fixed_current"
+    species["target_absorbed_current_a"] = -2.0e-6
+    species["target_emission_current_a"] = 3.0e-6
+    assert schema_errors(config, schema) == []
+
+    no_target = copy.deepcopy(config)
+    no_target["particles"]["species"][-1].pop("target_absorbed_current_a")
+    no_target["particles"]["species"][-1].pop("target_emission_current_a")
+    # Cross-species automatic models may supply both targets; semantic
+    # validation rejects a target-less fixed_current when no model does so.
+    assert schema_errors(no_target, schema) == []
+
+    implicit = copy.deepcopy(config)
+    implicit["particles"]["species"][-1].pop("surface_charge_closure")
+    assert schema_errors(implicit, schema)
+
+    nonphoto_emission = copy.deepcopy(config)
+    nonphoto_emission["particles"]["species"][-1]["source_mode"] = "volume_seed"
+    assert schema_errors(nonphoto_emission, schema)
+
+
+def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
+    schema, _ = load_schema()
+    config = load_toml_file(ROOT / "examples/periodic2_zhao_fixed_current.toml")
+    assert schema_errors(config, schema) == []
+
+    disabled = copy.deepcopy(config)
+    disabled["surface_current_model"] = {"model": "none"}
+    assert schema_errors(disabled, schema) == []
+
+
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
     schema, _ = load_schema()
     disabled = load_toml_file(ROOT / "examples/beach.toml")
