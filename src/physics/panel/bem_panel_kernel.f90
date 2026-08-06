@@ -31,7 +31,7 @@ contains
     end if
     height = dot_product(target - geometry%vertex(:, 1), geometry%normal)
     projection = target - height*geometry%normal
-    scale = max(1.0_dp, maxval(geometry%edge_length))
+    scale = maxval(geometry%edge_length)
     plane_tolerance = 64.0_dp*epsilon(1.0_dp)*scale
     on_surface = abs(height) <= plane_tolerance
 
@@ -83,7 +83,7 @@ contains
     real(dp) :: edge_vector(3), point_vector(3), signed_edge, tolerance
     integer :: edge, next_edge
 
-    tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, maxval(geometry%edge_length))
+    tolerance = 128.0_dp*epsilon(1.0_dp)*maxval(geometry%edge_length)**2
     inside = .true.
     do edge = 1, 3
       next_edge = merge(edge + 1, 1, edge < 3)

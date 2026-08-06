@@ -30,7 +30,7 @@ contains
     real(dp), intent(in) :: v0(3), v1(3), v2(3)
     type(panel_geometry_type), intent(out) :: geometry
     integer(i32), intent(out) :: status
-    real(dp) :: edge1(3), edge2(3), cross12(3), norm_cross, scale
+    real(dp) :: edge1(3), edge2(3), cross12(3), norm_cross, lref
     real(dp) :: vertex_sum(3)
     integer :: edge, next_edge
 
@@ -46,9 +46,10 @@ contains
     edge2 = v2 - v0
     cross12 = cross_product(edge1, edge2)
     norm_cross = sqrt(sum(cross12*cross12))
-    scale = max(1.0_dp, maxval(abs(geometry%vertex)))
+    lref = max(norm2(edge1), norm2(edge2), norm2(v2 - v1))
     status = panel_geometry_degenerate
-    if (norm_cross <= 64.0_dp*epsilon(1.0_dp)*scale*scale) return
+    if (lref <= 0.0_dp) return
+    if (norm_cross <= 128.0_dp*epsilon(1.0_dp)*lref*lref) return
 
     geometry%area = 0.5_dp*norm_cross
     geometry%normal = cross12/norm_cross
@@ -130,6 +131,12 @@ contains
 
     c = [a(2)*b(3) - a(3)*b(2), a(3)*b(1) - a(1)*b(3), a(1)*b(2) - a(2)*b(1)]
   end function cross_product
+
+  pure real(dp) function norm2(vector) result(norm)
+    real(dp), intent(in) :: vector(3)
+
+    norm = sqrt(sum(vector*vector))
+  end function norm2
 
   pure function outer_product(a, b) result(product)
     real(dp), intent(in) :: a(3), b(3)

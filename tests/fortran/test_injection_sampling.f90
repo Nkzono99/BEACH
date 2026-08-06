@@ -1,6 +1,7 @@
 !> 粒子注入モジュールのサンプリング分岐を重点的に検証するテスト。
 program test_injection_sampling
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_boltzmann
   use bem_types, only: particles_soa, mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_injection, only: &
@@ -21,6 +22,11 @@ program test_injection_sampling
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
   integer(i32) :: n_macro, n_emit, collision_status, failure_ray, failure_bounce
   integer :: i
+  real(dp), parameter :: rare_tail_a(6) = [0.0_dp, 4.0_dp, 6.0_dp, 8.0_dp, 10.0_dp, 12.0_dp]
+  real(dp), parameter :: rare_tail_reference(6) = [ &
+                         3.9894228040143268e-1_dp, 7.145258432405667e-6_dp, 1.5635697959709664e-10_dp, &
+                         7.550262411946499e-17_dp, 7.474560254589328e-25_dp, 1.4605201169845548e-34_dp &
+                         ]
   character(len=64) :: run_mode
   character(len=*), parameter :: photo_failure_path = 'test_injection_sampling_photo_failure_tmp.log'
 
@@ -30,20 +36,32 @@ program test_injection_sampling
     error stop 'photo query failure probe unexpectedly completed'
   end if
 
-  call test_init(18)
+  call test_init(20)
 
   call seed_rng()
 
   call test_begin('thermal_velocity_sampling')
-  allocate (v(3, 8))
+  allocate (x(3, 16), v(3, 16))
   call sample_shifted_maxwell_velocities( &
-    [10.0d0, -5.0d0, 2.0d0], 2.0d0, v, thermal_speed=3.0d0, sigma_cutoff=0.5d0 &
+    [10.0d0, -5.0d0, 2.0d0], 2.0d0, v(:, 1:8), thermal_speed=3.0d0, sigma_cutoff=0.5d0 &
     )
-  call assert_true(all(abs(v) < 1.0d3), 'thermal_speed branch produced invalid velocities')
+  call assert_true(all(abs(v(:, 1:8)) < 1.0d3), 'thermal_speed branch produced invalid velocities')
   call assert_true( &
-    all(abs(v - spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=size(v, 2))) <= 1.5d0), &
+    all(abs(v(:, 1:8) - spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=8)) <= 1.5d0), &
     'thermal_speed branch should honor sigma_cutoff' &
     )
+  call test_end()
+
+  call test_begin('rare_tail_inflow_flux')
+  do i = 1, size(rare_tail_a)
+    gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
+               1.0_dp, 1.0_dp, k_boltzmann, [-rare_tail_a(i), 0.0_dp, 0.0_dp], [1.0_dp, 0.0_dp, 0.0_dp] &
+               )
+    call assert_close_dp( &
+      gamma_in, rare_tail_reference(i), max(1.0e-12_dp*rare_tail_reference(i), tiny(1.0_dp)), &
+      'rare-tail inflow flux mismatch' &
+      )
+  end do
   call test_end()
 
   call test_begin('beam_particles')
@@ -54,6 +72,15 @@ program test_injection_sampling
     )
   call assert_equal_i32(pcls%n, 4_i32, 'init_random_beam_particles count mismatch')
   call assert_true(all(pcls%alive), 'init_random_beam_particles should initialize alive flags')
+  call test_end()
+
+  call test_begin('rare_tail_reservoir_sampling')
+  call sample_reservoir_face_particles( &
+    [-1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 'x_low', &
+    [-1.0_dp, -0.1_dp, -0.1_dp], [-1.0_dp, 0.1_dp, 0.1_dp], [-8.0_dp, 0.0_dp, 0.0_dp], &
+    k_boltzmann, 1.0_dp, 0.1_dp, x(:, 1:16), v(:, 1:16) &
+    )
+  call assert_true(all(v(1, 1:16) > 0.0_dp), 'rare positive tail collapsed to zero normal velocity')
   call test_end()
 
   call test_begin('inflow_flux')
@@ -75,8 +102,6 @@ program test_injection_sampling
   call assert_close_dp(area, 32.0d0, 1.0d-12, 'face area (y_high) mismatch')
   call test_end()
 
-  deallocate (v)
-  allocate (x(3, 16), v(3, 16))
   call test_begin('reservoir_face_basic')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &

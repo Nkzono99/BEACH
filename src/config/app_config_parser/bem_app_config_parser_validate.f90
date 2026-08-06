@@ -662,7 +662,8 @@ contains
 
   !> drifting Maxwellian の片側流入束 `[1/m^2/s]` を評価する。
   module procedure compute_inflow_flux_from_drifting_maxwellian
-  real(dp) :: sigma, alpha, u_n
+  real(dp) :: sigma, x, u_n, pdf, survival, residual
+  real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
 
   u_n = dot_product(drift_velocity, inward_normal)
   sigma = sqrt(k_boltzmann*temperature_k/m_particle)
@@ -671,9 +672,36 @@ contains
     return
   end if
 
-  alpha = u_n/sigma
-  gamma_in = number_density_m3*(sigma*standard_normal_pdf(alpha) + u_n*standard_normal_cdf(alpha))
+  x = -u_n/sigma
+  pdf = standard_normal_pdf(x)
+  survival = 0.5_dp*erfc(x*inv_sqrt_2)
+  if (x > 8.0_dp) then
+    residual = pdf*normal_tail_residual_ratio(x)
+  else
+    residual = pdf - x*survival
+  end if
+  gamma_in = number_density_m3*sigma*max(0.0_dp, residual)
   end procedure compute_inflow_flux_from_drifting_maxwellian
+
+  pure real(dp) function normal_tail_residual_ratio(x) result(ratio)
+    real(dp), intent(in) :: x
+    real(dp) :: inv_x2, term, candidate, previous_abs
+    integer :: order
+
+    inv_x2 = 1.0_dp/(x*x)
+    term = inv_x2
+    ratio = term
+    previous_abs = abs(term)
+    do order = 2, 64
+      term = -term*real(2*order - 1, dp)*inv_x2
+      if (abs(term) >= previous_abs) exit
+      candidate = ratio + term
+      if (candidate <= 0.0_dp) exit
+      ratio = candidate
+      previous_abs = abs(term)
+      if (abs(term) <= epsilon(1.0_dp)*abs(ratio)) exit
+    end do
+  end function normal_tail_residual_ratio
 
   !> 標準正規分布の PDF を評価する。
   module procedure standard_normal_pdf

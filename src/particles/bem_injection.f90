@@ -14,6 +14,7 @@ module bem_injection
 
   private
   real(dp), parameter :: default_velocity_sigma_cutoff = 6.0_dp
+  real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
   public :: seed_rng
   public :: sample_uniform_positions
   public :: sample_shifted_maxwell_velocities
@@ -1397,7 +1398,7 @@ contains
     real(dp), intent(in), optional :: sigma_cutoff
     real(dp), intent(out) :: vn(:)
     integer :: i
-    real(dp) :: target, low, high, mid, vmin, vmax, cutoff, tail_min, tail_max, denom, cdf_mid
+    real(dp) :: target, low, high, mid, vmin, cutoff, tail_min, target_tail, tail_high, width, tolerance
 
     if (size(vn) == 0) return
     vmin = 0.0_dp
@@ -1409,23 +1410,29 @@ contains
       vn = max(mu, vmin)
       return
     end if
-    vmax = max(vmin, mu + cutoff*sigma)
     tail_min = flux_weighted_normal_tail(vmin, mu, sigma)
-    tail_max = flux_weighted_normal_tail(vmax, mu, sigma)
-    denom = tail_min - tail_max
-    if (denom <= tiny(1.0_dp)) then
+    if (tail_min <= 0.0_dp) then
       vn = vmin
       return
     end if
 
     do i = 1, size(vn)
       call random_number(target)
+      target_tail = tail_min*(1.0_dp - target)
       low = vmin
-      high = vmax
-      do while ((high - low) > max(1.0d-12, 1.0d-10*(1.0d0 + high)))
+      width = max(sigma, spacing(max(abs(vmin), sigma)))
+      high = vmin + width
+      tail_high = flux_weighted_normal_tail(high, mu, sigma)
+      do while (tail_high > target_tail)
+        width = 2.0_dp*width
+        high = vmin + width
+        if (.not. ieee_is_finite(high)) error stop "flux-weighted normal inverse survival bracket overflow"
+        tail_high = flux_weighted_normal_tail(high, mu, sigma)
+      end do
+      tolerance = sqrt(epsilon(1.0_dp))*max(sigma, abs(vmin), abs(high), tiny(1.0_dp))
+      do while ((high - low) > tolerance)
         mid = 0.5_dp*(low + high)
-        cdf_mid = (tail_min - flux_weighted_normal_tail(mid, mu, sigma))/denom
-        if (cdf_mid < target) then
+        if (flux_weighted_normal_tail(mid, mu, sigma) > target_tail) then
           low = mid
         else
           high = mid
@@ -1474,7 +1481,7 @@ contains
   !! @return tail tail 積分値 [m/s]。
   pure real(dp) function flux_weighted_normal_tail(vmin, mu, sigma) result(tail)
     real(dp), intent(in) :: vmin, mu, sigma
-    real(dp) :: x
+    real(dp) :: x, pdf, survival, residual
 
     if (sigma <= 0.0_dp) then
       if (mu >= vmin) then
@@ -1486,8 +1493,35 @@ contains
     end if
 
     x = (vmin - mu)/sigma
-    tail = mu*(1.0_dp - standard_normal_cdf(x)) + sigma*standard_normal_pdf(x)
-    if (tail < 0.0_dp) tail = 0.0_dp
+    pdf = standard_normal_pdf(x)
+    survival = 0.5_dp*erfc(x*inv_sqrt_2)
+    if (x > 8.0_dp) then
+      residual = pdf*normal_tail_residual_ratio(x)
+    else
+      residual = pdf - x*survival
+    end if
+    tail = vmin*survival + sigma*max(0.0_dp, residual)
   end function flux_weighted_normal_tail
+
+  !> `phi(x) - x Q(x) = phi(x) h(x)` の large-x 漸近係数を返す。
+  pure real(dp) function normal_tail_residual_ratio(x) result(ratio)
+    real(dp), intent(in) :: x
+    real(dp) :: inv_x2, term, candidate, previous_abs
+    integer :: order
+
+    inv_x2 = 1.0_dp/(x*x)
+    term = inv_x2
+    ratio = term
+    previous_abs = abs(term)
+    do order = 2, 64
+      term = -term*real(2*order - 1, dp)*inv_x2
+      if (abs(term) >= previous_abs) exit
+      candidate = ratio + term
+      if (candidate <= 0.0_dp) exit
+      ratio = candidate
+      previous_abs = abs(term)
+      if (abs(term) <= epsilon(1.0_dp)*abs(ratio)) exit
+    end do
+  end function normal_tail_residual_ratio
 
 end module bem_injection
