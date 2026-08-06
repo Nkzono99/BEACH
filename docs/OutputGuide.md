@@ -74,6 +74,19 @@ closed PE では raw の吸収・未解決量を上書きしません。補正�
 
 ## 再開に使うファイル
 
+`output.checkpoint_stride > 0` では、accepted batch の commit 後に次の構造を更新します。
+
+```text
+outputs/latest/
+├── checkpoint_latest.txt
+└── checkpoints/
+    ├── slot0/
+    └── slot1/
+```
+
+各 slot には下表の再開用ファイル一式が入ります。非 active slot を書き終えてから
+`checkpoint_latest.txt` を原子的に切り替えるため、同時に保持するのは最大 2 世代です。
+
 | ファイル | 役割 |
 | --- | --- |
 | `summary.txt` | 統計、schema、fingerprint、ledger stock |
@@ -84,6 +97,8 @@ closed PE では raw の吸収・未解決量を上書きしません。補正�
 | `charge_ledger.csv` | summary に ledger metadata がある場合に復元 |
 
 `output.restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は `output.dir` に書きます。
+読み込み元に `checkpoint_latest.txt` があれば、直下の最終出力と定期 slot のうち、必須ファイルが揃い
+`batches` が最大の checkpoint を自動選択します。
 必須ファイルの欠落、fingerprint、mesh 要素数、species 数、MPI world size の不一致では
 新規実行へ fallback せず停止します。
 

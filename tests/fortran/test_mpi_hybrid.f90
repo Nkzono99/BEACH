@@ -13,6 +13,7 @@ program test_mpi_hybrid
                             init_particle_batch_from_config, particle_inflow_reservoir
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
+  use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
@@ -38,6 +39,7 @@ program test_mpi_hybrid
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
+  character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
 
   call mpi_initialize(mpi)
 
@@ -54,6 +56,17 @@ program test_mpi_hybrid
   residual_path = restart_macro_residual_path(out_dir, mpi=mpi)
   call delete_file_if_exists(rng_path)
   if (mpi_is_root(mpi)) call delete_file_if_exists(residual_path)
+  periodic_rng_path = restart_rng_state_path(out_dir//'/checkpoints/slot0', mpi=mpi)
+  call delete_file_if_exists(periodic_rng_path)
+  periodic_rng_path = restart_rng_state_path(out_dir//'/checkpoints/slot1', mpi=mpi)
+  call delete_file_if_exists(periodic_rng_path)
+  call mpi_world_barrier(mpi)
+  if (mpi_is_root(mpi)) then
+    call cleanup_periodic_slot(out_dir//'/checkpoints/slot0')
+    call cleanup_periodic_slot(out_dir//'/checkpoints/slot1')
+    call delete_file_if_exists(out_dir//'/checkpoint_latest.txt')
+    call remove_empty_directory(out_dir//'/checkpoints')
+  end if
   call mpi_world_barrier(mpi)
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -69,6 +82,8 @@ program test_mpi_hybrid
   cfg%sim%dt = 1.0d0
   cfg%sim%max_step = 1_i32
   cfg%sim%q_floor = 1.0d-30
+  cfg%output_dir = out_dir
+  cfg%checkpoint_stride = 1_i32
   cfg%sim%use_box = .true.
   cfg%sim%box_min = [-1.0d0, -1.0d0, -2.0d0]
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -129,6 +144,20 @@ program test_mpi_hybrid
   call assert_equal_i64(ledger%absorbed_count(1), 4_i64, 'mpi ledger absorbed count mismatch')
   call assert_close_dp(ledger%injected_from_remote(1), 4.0_dp, 1.0e-12_dp, 'mpi ledger injected charge mismatch')
   call assert_close_dp(ledger%residual(), 0.0_dp, 1.0e-12_dp, 'mpi ledger residual mismatch')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'MPI periodic checkpoint should publish slot0' &
+    )
+  call init_mesh(mesh_restart, v0, v1, v2)
+  mesh_restart%elem_vacuum_sign = 1_i32
+  mesh_restart%vacuum_normals = mesh_restart%normals
+  call load_restart_checkpoint( &
+    trim(resolved_checkpoint_dir), mesh_restart, stats_restart, has_restart, mpi=mpi, app=cfg &
+    )
+  call assert_true(has_restart, 'MPI periodic checkpoint should load')
+  call assert_equal_i32(stats_restart%batches, 1_i32, 'MPI periodic checkpoint batch mismatch')
+  call assert_close_dp(mesh_restart%q_elem(1), 4.0_dp, 1.0e-12_dp, 'MPI periodic checkpoint charge mismatch')
   call test_end()
 
   call test_begin('mpi_neutral_return_layout_invariance')
@@ -234,12 +263,20 @@ program test_mpi_hybrid
 
   call delete_file_if_exists(rng_path)
   if (mpi_is_root(mpi)) call delete_file_if_exists(residual_path)
+  periodic_rng_path = restart_rng_state_path(out_dir//'/checkpoints/slot0', mpi=mpi)
+  call delete_file_if_exists(periodic_rng_path)
   call mpi_world_barrier(mpi)
   if (mpi_is_root(mpi)) then
     call delete_file_if_exists(out_dir//'/summary.txt')
     call delete_file_if_exists(out_dir//'/charges.csv')
     call delete_file_if_exists(out_dir//'/rng_state.txt')
     call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+    call delete_file_if_exists(out_dir//'/checkpoint_latest.txt')
+    call delete_file_if_exists(out_dir//'/checkpoints/slot0/summary.txt')
+    call delete_file_if_exists(out_dir//'/checkpoints/slot0/charges.csv')
+    call delete_file_if_exists(out_dir//'/checkpoints/slot0/charge_ledger.csv')
+    call remove_empty_directory(out_dir//'/checkpoints/slot0')
+    call remove_empty_directory(out_dir//'/checkpoints')
     call remove_empty_directory(out_dir)
   end if
 
@@ -348,6 +385,16 @@ contains
       'neutral-return MPI ledger residual must close' &
       )
   end subroutine run_mpi_neutral_return_layout_test
+
+  subroutine cleanup_periodic_slot(slot_dir)
+    character(len=*), intent(in) :: slot_dir
+
+    call delete_file_if_exists(trim(slot_dir)//'/summary.txt')
+    call delete_file_if_exists(trim(slot_dir)//'/charges.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/macro_residuals.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/charge_ledger.csv')
+    call remove_empty_directory(slot_dir)
+  end subroutine cleanup_periodic_slot
 
   subroutine setup_mpi_neutral_return_fixture(mesh, cfg, global_rays_per_batch)
     type(mesh_type), intent(out) :: mesh

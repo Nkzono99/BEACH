@@ -24,6 +24,7 @@ module bem_output_writer
   public :: write_top_reference_history_snapshot
   public :: print_run_summary
   public :: write_result_files
+  public :: write_checkpoint_state_files
   public :: ensure_output_dir
 
 contains
@@ -225,6 +226,23 @@ contains
     if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
   end subroutine write_result_files
 
+  !> 再開に必要な root-rank 共通状態だけをチェックポイントへ保存する。
+  subroutine write_checkpoint_state_files(out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger)
+    character(len=*), intent(in) :: out_dir
+    type(mesh_type), intent(in) :: mesh
+    type(sim_stats), intent(in) :: stats
+    type(app_config), intent(in) :: cfg
+    integer(i32), intent(in), optional :: mpi_world_size
+    type(charge_ledger_type), intent(in), optional :: charge_ledger
+
+    call ensure_output_dir(out_dir)
+    call write_summary_file( &
+      out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger &
+      )
+    call write_charges_file(out_dir, mesh)
+    if (present(charge_ledger)) call write_charge_ledger_file(out_dir, charge_ledger)
+  end subroutine write_checkpoint_state_files
+
   !> 出力ディレクトリを作成する。
   !! @param[in] out_dir 作成対象ディレクトリのパス。
   subroutine ensure_output_dir(out_dir)
@@ -294,6 +312,7 @@ contains
     write (u, '(a,i0)') 'absorbed=', stats%absorbed
     write (u, '(a,i0)') 'escaped=', stats%escaped
     write (u, '(a,i0)') 'batches=', stats%batches
+    write (u, '(a,i0)') 'checkpoint_stride=', cfg%checkpoint_stride
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
     write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded

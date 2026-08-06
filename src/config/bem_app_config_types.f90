@@ -119,6 +119,7 @@ module bem_app_config_types
     character(len=256) :: output_dir = 'outputs/latest'
     character(len=256) :: output_restart_from = ''
     integer(i32) :: history_stride = 1
+    integer(i32) :: checkpoint_stride = 0
     logical :: resume_output = .false.
 
     type(sim_config) :: sim
@@ -209,6 +210,7 @@ contains
     cfg%output_dir = 'outputs/latest'
     cfg%output_restart_from = ''
     cfg%history_stride = 1_i32
+    cfg%checkpoint_stride = 0_i32
     cfg%resume_output = .false.
     cfg%sim = sim_config()
     allocate (cfg%templates(max_templates))

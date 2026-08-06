@@ -1347,6 +1347,8 @@ contains
         call get_toml_string(table, keys(ikey), cfg%output_dir, 'output.dir')
       case ('history_stride')
         call get_toml_int(table, keys(ikey), cfg%history_stride, 'output.history_stride')
+      case ('checkpoint_stride')
+        call get_toml_int(table, keys(ikey), cfg%checkpoint_stride, 'output.checkpoint_stride')
       case ('resume')
         call get_toml_logical(table, keys(ikey), cfg%resume_output, 'output.resume')
       case ('restart_from')

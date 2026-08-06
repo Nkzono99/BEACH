@@ -6,7 +6,9 @@ program test_restart
                          restart_rng_state_path, restart_macro_residual_path, validate_restart_contract, &
                          restart_contract_ok, restart_contract_mismatch
   use bem_output_writer, only: write_result_files
+  use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, resolve_latest_checkpoint_dir
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
+  use bem_mpi, only: mpi_context
   use bem_charge_ledger, only: charge_ledger_type
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
@@ -19,14 +21,16 @@ program test_restart
   type(injection_state) :: state
   type(app_config) :: cfg, cfg_changed
   type(charge_ledger_type) :: ledger, restored_ledger
+  type(mpi_context) :: mpi
   logical :: has_restart, exists
   integer(i32) :: contract_status
   character(len=256) :: contract_message
   character(len=1024) :: rng_rank_path, residual_global_path
+  character(len=1024) :: resolved_checkpoint_dir
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -110,6 +114,49 @@ program test_restart
   call assert_equal_i32(contract_status, restart_contract_ok, 'matching contract should be accepted')
   call test_end()
 
+  call test_begin('periodic_checkpoint_slots')
+  cfg%output_dir = out_dir
+  cfg%checkpoint_stride = 4_i32
+  stats%batches = 4_i32
+  stats%processed_particles = 20_i64
+  ledger%batch_count = 4_i32
+  mesh%q_elem = [4.0e-12_dp, -1.0e-12_dp]
+  call maybe_write_periodic_checkpoint(cfg, mesh, stats, state, mpi, ledger)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'first periodic checkpoint should publish slot0' &
+    )
+
+  stats%batches = 8_i32
+  stats%processed_particles = 40_i64
+  ledger%batch_count = 8_i32
+  mesh%q_elem = [8.0e-12_dp, -3.0e-12_dp]
+  call maybe_write_periodic_checkpoint(cfg, mesh, stats, state, mpi, ledger)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
+    'second periodic checkpoint should publish slot1' &
+    )
+
+  call build_test_mesh(mesh)
+  call load_restart_checkpoint( &
+    trim(resolved_checkpoint_dir), mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger &
+    )
+  call assert_true(has_restart, 'resolved periodic checkpoint should load')
+  call assert_equal_i32(stats%batches, 8_i32, 'latest periodic checkpoint batch mismatch')
+  call assert_allclose_1d(mesh%q_elem, [8.0e-12_dp, -3.0e-12_dp], 1.0e-24_dp, 'periodic charge mismatch')
+
+  stats%batches = 12_i32
+  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
+  call delete_file_if_exists(out_dir//'/rng_state.txt')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
+    'incomplete newer final output must not hide the last complete periodic checkpoint' &
+    )
+  call test_end()
+
   call test_begin('write_checkpoint')
   call ensure_directory(out_dir)
   call write_summary_fixture(out_dir)
@@ -185,8 +232,24 @@ contains
     call delete_file_if_exists(trim(dir_path)//'/mesh_triangles.csv')
     call delete_file_if_exists(trim(dir_path)//'/mesh_sources.csv')
     call delete_file_if_exists(trim(dir_path)//'/charge_ledger.csv')
+    call delete_file_if_exists(trim(dir_path)//'/checkpoint_latest.txt')
+    call delete_file_if_exists(trim(dir_path)//'/checkpoint_latest.txt.tmp')
+    call cleanup_checkpoint_slot(trim(dir_path)//'/checkpoints/slot0')
+    call cleanup_checkpoint_slot(trim(dir_path)//'/checkpoints/slot1')
+    call remove_empty_directory(trim(dir_path)//'/checkpoints')
     call remove_empty_directory(dir_path)
   end subroutine cleanup_restart_fixture
+
+  subroutine cleanup_checkpoint_slot(slot_dir)
+    character(len=*), intent(in) :: slot_dir
+
+    call delete_file_if_exists(trim(slot_dir)//'/summary.txt')
+    call delete_file_if_exists(trim(slot_dir)//'/charges.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/rng_state.txt')
+    call delete_file_if_exists(trim(slot_dir)//'/macro_residuals.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/charge_ledger.csv')
+    call remove_empty_directory(slot_dir)
+  end subroutine cleanup_checkpoint_slot
 
   !> 2要素メッシュを初期化する。
   subroutine build_test_mesh(mesh)

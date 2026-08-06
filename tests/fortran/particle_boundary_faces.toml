@@ -49,4 +49,6 @@ nx = 1
 ny = 1
 
 [output]
-write_files = false
+write_files = true
+checkpoint_stride = 2
+dir = "test_particle_boundary_faces_output"

@@ -271,6 +271,11 @@ closed PE は次の組合せです。
 再開時の必須ファイルは `summary.txt`、`charges.csv`、対応する RNG state です。
 `macro_residuals.csv` と `charge_ledger.csv` は状態が記録されている場合に復元します。
 
+`output.checkpoint_stride > 0` では accepted batch の commit 後だけ定期 checkpoint を作ります。
+`checkpoints/slot0` と `slot1` を交互に使い、全 rank の状態を書き終えてから `checkpoint_latest.txt` を
+原子的に切り替えます。再開時は直下の最終出力と active slot のうち、必須ファイルが揃い
+`batches` が最大のものを選びます。`checkpoint_stride=0` でも正常終了時の最終 checkpoint は出力します。
+
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。

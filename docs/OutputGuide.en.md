@@ -80,6 +80,19 @@ Rejected trials do not appear in history files or the charge ledger.
 
 ## Files used for resume
 
+With `output.checkpoint_stride > 0`, BEACH updates this structure after an accepted-batch commit:
+
+```text
+outputs/latest/
+├── checkpoint_latest.txt
+└── checkpoints/
+    ├── slot0/
+    └── slot1/
+```
+
+Each slot contains the restart files in the table below. BEACH finishes the inactive slot before atomically switching
+`checkpoint_latest.txt`, so at most two generations are retained.
+
 | File | Role |
 | --- | --- |
 | `summary.txt` | Statistics, schema, fingerprints, and ledger stocks |
@@ -90,7 +103,8 @@ Rejected trials do not appear in history files or the charge ledger.
 | `charge_ledger.csv` | Restored when summary contains ledger metadata |
 
 `output.restart_from` changes only the checkpoint read source. New output is
-written to `output.dir`. BEACH stops instead of falling back to a new run when a
+written to `output.dir`. When the source contains `checkpoint_latest.txt`, BEACH automatically selects the complete
+checkpoint with the largest `batches` value from the final output and periodic slot. BEACH stops instead of falling back to a new run when a
 required file is missing or when fingerprints, mesh size, species count, or MPI
 world size differ.
 

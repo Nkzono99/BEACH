@@ -10,6 +10,7 @@ program main
                                      perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
+  use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
                                print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
@@ -216,6 +217,7 @@ contains
       if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
       restart_dir = app%output_dir
       if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
+      call resolve_latest_checkpoint_dir(trim(restart_dir), restart_dir)
       call load_restart_checkpoint( &
         trim(restart_dir), mesh, initial_stats, resumed, inject_state, &
         mpi=mpi, require_checkpoint=.true., app=app, charge_ledger=charge_ledger &

@@ -9,6 +9,7 @@ submodule(bem_simulator) bem_simulator_loop
                                      perf_region_particle_batch, perf_region_prepare_batch, perf_region_simulation_total, &
                                      perf_region_stats_update
   use bem_mpi, only: mpi_allreduce_max_real_dp_array
+  use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint
   implicit none
   real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
   integer(i32), parameter :: adaptive_max_halvings = 24_i32
@@ -297,6 +298,17 @@ contains
       end if
     end if
     call perf_region_end(perf_region_history_write, t0)
+    if (present(inject_state)) then
+      if (ledger_enabled) then
+        call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
+      else
+        call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx)
+      end if
+    else if (ledger_enabled) then
+      call maybe_write_periodic_checkpoint(app, mesh, stats, mpi=mpi_ctx, charge_ledger=charge_ledger)
+    else
+      call maybe_write_periodic_checkpoint(app, mesh, stats, mpi=mpi_ctx)
+    end if
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)

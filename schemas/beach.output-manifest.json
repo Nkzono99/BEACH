@@ -74,6 +74,13 @@
       "consumer": "src/runtime/bem_restart.f90"
     },
     {
+      "name": "checkpoint_latest.txt",
+      "producer": "src/runtime/bem_periodic_checkpoint.f90",
+      "condition": "output.write_files=true and output.checkpoint_stride>0 after a matching accepted batch",
+      "restart_role": "selects the latest complete periodic checkpoint slot",
+      "consumer": "src/runtime/bem_periodic_checkpoint.f90"
+    },
+    {
       "name": "performance_profile.csv",
       "producer": "src/runtime/bem_performance_profile.f90",
       "condition": "BEACH_PROFILE=1 and output.write_files=true",

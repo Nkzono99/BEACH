@@ -21,6 +21,7 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field boundary mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
+  call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
   call test_end()
 
   call test_begin('tutorial_config')
@@ -79,6 +80,7 @@ program test_app_config_parser
     all(effective_boundary_high == [bc_open, bc_reflect, bc_redistributed_reflect]), &
     'effective high faces mismatch' &
     )
+  call assert_equal_i32(cfg%checkpoint_stride, 2_i32, 'checkpoint stride mismatch')
   call test_end()
 
   call test_summary()

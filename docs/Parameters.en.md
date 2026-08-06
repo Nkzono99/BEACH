@@ -871,6 +871,7 @@ Use `outward_closed` only for consistently oriented, closed two-manifold compone
 | `write_potential_history` | bool | `false` | Output `potential_history.csv`; with `[domain]`, also output same-batch `top_reference_history.csv` |
 | `dir` | string | `"outputs/latest"` | Output directory |
 | `history_stride` | int | `1` | Output interval for history CSV [batch] |
+| `checkpoint_stride` | int | `0` | Restart-checkpoint interval [accepted batches]. `0` disables periodic output |
 | `resume` | bool | `false` | Resume from an existing checkpoint |
 | `restart_from` | string | none | Checkpoint source when `resume=true` |
 
@@ -890,6 +891,7 @@ Output files:
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file, distinguished by species and face |
 | `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
+| `checkpoint_latest.txt` | With `checkpoint_stride > 0`; identifies the latest complete periodic checkpoint slot |
 
 See [Configuration-specific output](OutputGuide.en.html#locate-configuration-specific-values) to locate these values.
 
@@ -927,6 +929,12 @@ Requirements for `resume=true`:
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
 `restart_from` changes only the checkpoint read source. New output is always written to `output.dir`.
+
+With `checkpoint_stride > 0`, BEACH alternates between `checkpoints/slot0` and `slot1` after accepted-batch commit.
+It switches `checkpoint_latest.txt` only after all files are closed, preserving the previous slot if writing is interrupted.
+
+On resume, BEACH compares the final output and the periodic slot below `output.dir` or `restart_from`, then selects the
+complete checkpoint with the largest `batches` value. Final output remains restartable regardless of `checkpoint_stride`.
 
 During MPI execution:
 

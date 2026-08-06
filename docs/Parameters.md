@@ -839,6 +839,7 @@ z 軸方向の円柱です。
 | `write_potential_history` | bool | `false` | `potential_history.csv`を出力。`[domain]`があれば同じbatchの`top_reference_history.csv`も出力 |
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 | `history_stride` | int | `1` | 履歴 CSV の出力間隔 [batch] |
+| `checkpoint_stride` | int | `0` | 再開用 checkpoint の出力間隔 [accepted batch]。`0` は定期出力なし |
 | `resume` | bool | `false` | 既存 checkpoint から再開 |
 | `restart_from` | string | なし | `resume=true` 時の checkpoint 読み込み元 |
 
@@ -858,6 +859,7 @@ z 軸方向の円柱です。
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差。species×faceを区別 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
+| `checkpoint_latest.txt` | `checkpoint_stride > 0` のとき。最新の完全な定期 checkpoint slot を示す |
 
 各値の場所は[構成固有の出力](OutputGuide.html#構成固有の値を探す)にまとめています。
 
@@ -895,6 +897,12 @@ z 軸方向の円柱です。
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は常に `output.dir` に書きます。
+
+`checkpoint_stride > 0` では、accepted batch の commit 後に `checkpoints/slot0` と `slot1` を交互に更新します。
+全ファイルの書き込み後に `checkpoint_latest.txt` を切り替えるため、書き込み中に停止しても一つ前の slot を保持します。
+
+再開時は `output.dir` または `restart_from` 直下の最終出力と定期 slot を比較し、完全な checkpoint のうち
+`batches` が最大のものを選びます。最終出力は `checkpoint_stride` に関係なく従来どおり作成します。
 
 MPI 実行時:
 

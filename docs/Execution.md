@@ -91,6 +91,17 @@ dir = "outputs/latest"
 resume = true
 ```
 
+長時間実行では、accepted batch 数で定期 checkpoint を有効にできます。
+
+```toml
+[output]
+dir = "outputs/latest"
+checkpoint_stride = 1000
+```
+
+この例は 1000 accepted batch ごとに再開状態を二重 slot へ保存します。`0` は定期保存を無効にしますが、
+正常終了時の最終 checkpoint は引き続き出力します。
+
 checkpointと新しい出力先を分ける場合は`restart_from`を指定します。
 
 ```toml

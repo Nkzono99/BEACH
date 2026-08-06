@@ -62,6 +62,12 @@ contains
   if (len_trim(cfg%output_restart_from) > 0 .and. .not. cfg%resume_output) then
     error stop 'output.restart_from requires output.resume = true.'
   end if
+  if (cfg%checkpoint_stride < 0_i32) then
+    error stop 'output.checkpoint_stride must be >= 0.'
+  end if
+  if (cfg%checkpoint_stride > 0_i32 .and. .not. cfg%write_output) then
+    error stop 'output.checkpoint_stride > 0 requires output.write_files = true.'
+  end if
 
   cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
   select case (trim(cfg%mesh_mode))

@@ -90,6 +90,17 @@ dir = "outputs/latest"
 resume = true
 ```
 
+For a long run, enable periodic checkpoints by accepted-batch count:
+
+```toml
+[output]
+dir = "outputs/latest"
+checkpoint_stride = 1000
+```
+
+This saves restart state to two alternating slots every 1000 accepted batches. `0` disables periodic saves while
+preserving the final checkpoint written after normal completion.
+
 Use `restart_from` to separate the checkpoint from the new output directory.
 
 ```toml

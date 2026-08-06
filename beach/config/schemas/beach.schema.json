@@ -2553,6 +2553,12 @@
           "default": 1,
           "description": "Output interval for charge_history.csv [batches]. 0 disables."
         },
+        "checkpoint_stride": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Output interval for restart checkpoints [accepted batches]. 0 disables periodic checkpoints; final output remains restartable."
+        },
         "resume": {
           "type": "boolean",
           "default": false,
@@ -2564,6 +2570,25 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "checkpoint_stride": {
+                "minimum": 1
+              }
+            },
+            "required": [
+              "checkpoint_stride"
+            ]
+          },
+          "then": {
+            "properties": {
+              "write_files": {
+                "const": true
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {
