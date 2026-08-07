@@ -1,6 +1,6 @@
 !> 局所 reservoir 流入と通常 open 面の処理を実行時契約へ正規化する。
 module bem_external_boundary_contract
-  use bem_kinds, only: i32
+  use bem_kinds, only: dp, i32
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -17,6 +17,10 @@ module bem_external_boundary_contract
   type, public :: external_boundary_contract_type
     integer(i32) :: inflow_map = external_inflow_none
     integer(i32) :: ordinary_open_model = external_open_escape
+    logical :: barrier_override_low(3) = .false.
+    logical :: barrier_override_high(3) = .false.
+    real(dp) :: barrier_potential_low_v(3) = 0.0_dp
+    real(dp) :: barrier_potential_high_v(3) = 0.0_dp
   end type external_boundary_contract_type
 
   public :: resolve_external_boundary_contract

@@ -289,9 +289,9 @@ contains
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       alive = .true.
       escaped = .false.
-      if (active_boundary_contract%ordinary_open_model == external_open_potential_barrier) then
+      if (event_uses_potential_barrier(event, active_boundary_contract)) then
         call apply_potential_barrier_event( &
-          mesh, sim, snapshot, event, q, m, x_event, v_event, alive, escaped, boundary_status, &
+          mesh, sim, snapshot, event, active_boundary_contract, q, m, x_event, v_event, alive, escaped, boundary_status, &
           redistribution_uniform &
           )
       else
@@ -393,12 +393,13 @@ contains
 
   !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
   subroutine apply_potential_barrier_event( &
-    mesh, sim, snapshot, event, q, m, x, v, alive, escaped, status, redistribution_uniform &
+    mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(boundary_event_type), intent(in) :: event
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
     real(dp), intent(in) :: q, m
     real(dp), intent(inout) :: x(3), v(3)
     logical, intent(inout) :: alive
@@ -408,7 +409,7 @@ contains
 
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
-    real(dp) :: phi_boundary, outward_v, kinetic_normal, potential_barrier
+    real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, potential_barrier
     integer(i32) :: axis, face_index, open_count
     logical :: high_side, reflect_open
 
@@ -449,6 +450,16 @@ contains
     end if
 
     axis = (face_index + 1_i32)/2_i32
+    barrier_potential_v = sim%phi_infty
+    if (high_side) then
+      if (boundary_contract%barrier_override_high(axis)) then
+        barrier_potential_v = boundary_contract%barrier_potential_high_v(axis)
+      end if
+    else
+      if (boundary_contract%barrier_override_low(axis)) then
+        barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
+      end if
+    end if
     call snapshot%eval_local_phi(mesh, sim, x, phi_boundary)
     if (.not. ieee_is_finite(phi_boundary)) then
       status = particle_step_invalid_boundary
@@ -460,7 +471,7 @@ contains
       outward_v = -v(axis)
     end if
     kinetic_normal = 0.5_dp*m*outward_v*outward_v
-    potential_barrier = q*(sim%phi_infty - phi_boundary)
+    potential_barrier = q*(barrier_potential_v - phi_boundary)
     if (.not. ieee_is_finite(kinetic_normal) .or. .not. ieee_is_finite(potential_barrier)) then
       status = particle_step_invalid_boundary
       return
@@ -483,6 +494,27 @@ contains
       )
   end subroutine apply_potential_barrier_event
 
+  !> eventに含まれるopen面へglobalまたはspecies別のpotential barrierを適用するか返す。
+  pure logical function event_uses_potential_barrier(event, boundary_contract) result(uses_barrier)
+    type(boundary_event_type), intent(in) :: event
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
+    integer(i32) :: axis
+
+    uses_barrier = .false.
+    do axis = 1_i32, 3_i32
+      if (btest(event%face_mask, 2_i32*axis - 2_i32) .and. event%face_bc(2_i32*axis - 1_i32) == bc_open) then
+        uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier .or. &
+                       boundary_contract%barrier_override_low(axis)
+      end if
+      if (uses_barrier) return
+      if (btest(event%face_mask, 2_i32*axis - 1_i32) .and. event%face_bc(2_i32*axis) == bc_open) then
+        uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier .or. &
+                       boundary_contract%barrier_override_high(axis)
+      end if
+      if (uses_barrier) return
+    end do
+  end function event_uses_potential_barrier
+
   !> event作用が面内再配置用の一意なcounterを必要とするかを返す。
   pure logical function event_requires_redistribution_counter(event, boundary_contract) result(requires)
     type(boundary_event_type), intent(in) :: event
@@ -499,7 +531,7 @@ contains
                                   event%face_bc(face) == bc_redistributed_reflect
     end do
     requires = has_redistributed_reflect .and. &
-               (.not. has_open .or. boundary_contract%ordinary_open_model == external_open_potential_barrier)
+               (.not. has_open .or. event_uses_potential_barrier(event, boundary_contract))
   end function event_requires_redistribution_counter
 
   !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する。

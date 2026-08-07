@@ -166,7 +166,13 @@ contains
       end do
 
       call perf_region_begin(perf_region_prepare_batch, t0)
-      call build_particle_source_plan(trial_app, source_plan, mpi=mpi_ctx)
+      call build_particle_source_plan( &
+        trial_app, source_plan, mpi=mpi_ctx, &
+        kinetic_inflow_active=current_model_result%has_inflow_kinetic_map, &
+        kinetic_reservoir_potential_v=current_model_result%inflow_reservoir_potential_v, &
+        kinetic_access_potential_v=current_model_result%inflow_access_potential_v, &
+        kinetic_inflow_face=current_model_result%inflow_kinetic_face &
+        )
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
         photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
@@ -190,7 +196,7 @@ contains
 
       call perf_region_begin(perf_region_particle_batch, t0)
       call process_particle_batch( &
-        mesh, trial_app, boundary_contract, snapshot, pcls_batch, workspace%dq_thread, &
+        mesh, trial_app, boundary_contract, current_model_result, snapshot, pcls_batch, workspace%dq_thread, &
         workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
         workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
@@ -382,6 +388,7 @@ contains
   type(hit_info) :: hit
   type(particle_step_result) :: step_result
   type(sim_config) :: particle_sim
+  type(external_boundary_contract_type) :: particle_boundary_contract
   logical :: candidate_inside, used_event_resolver
 
   nth = size(dq_thread, 2)
@@ -392,11 +399,12 @@ contains
   collision_failure_v = 0.0_dp
 
   !$omp parallel default(none) &
-  !$omp shared(mesh,pcls_batch,app,boundary_contract,snapshot,dq_thread,bfield,escaped_boundary_flag,absorbed_flag,nth) &
+  !$omp shared(mesh,pcls_batch,app,boundary_contract,current_model,snapshot,dq_thread,bfield) &
+  !$omp shared(escaped_boundary_flag,absorbed_flag,nth) &
   !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,particle_sim,tid,qdep,species_idx) &
+  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
   !$omp private(collision_status,candidate_inside,used_event_resolver)
   tid = 1_i32
 !$ tid = omp_get_thread_num() + 1
@@ -409,6 +417,8 @@ contains
       app%sim, app%particle_boundary_low, app%particle_boundary_high, app%particle_species(species_idx), &
       particle_sim%bc_low, particle_sim%bc_high &
       )
+    particle_boundary_contract = boundary_contract
+    call apply_species_kinetic_barrier(current_model, species_idx, particle_boundary_contract)
     do step = 1_i32, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
@@ -428,7 +438,7 @@ contains
         if (.not. candidate_inside) then
           call resolve_particle_boundary_candidate( &
             mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-            result=step_result, boundary_contract=boundary_contract, &
+            result=step_result, boundary_contract=particle_boundary_contract, &
             boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
             )
           used_event_resolver = .true.
@@ -450,7 +460,7 @@ contains
       else
         call resolve_particle_boundary_candidate( &
           mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
-          hit=hit, result=step_result, boundary_contract=boundary_contract, &
+          hit=hit, result=step_result, boundary_contract=particle_boundary_contract, &
           boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
           )
         used_event_resolver = .true.
@@ -488,6 +498,29 @@ contains
   !$omp end parallel
 
 contains
+  subroutine apply_species_kinetic_barrier(current_model, species_idx, contract)
+    type(surface_current_model_result_type), intent(in) :: current_model
+    integer(i32), intent(in) :: species_idx
+    type(external_boundary_contract_type), intent(inout) :: contract
+
+    integer(i32) :: axis, face
+
+    if (.not. current_model%active) return
+    if (.not. allocated(current_model%has_outflow_kinetic_barrier)) return
+    if (species_idx < 1_i32 .or. species_idx > size(current_model%has_outflow_kinetic_barrier)) return
+    if (.not. current_model%has_outflow_kinetic_barrier(species_idx)) return
+    face = current_model%outflow_barrier_face(species_idx)
+    if (face < 1_i32 .or. face > 6_i32) return
+    axis = (face + 1_i32)/2_i32
+    if (mod(face, 2_i32) == 0_i32) then
+      contract%barrier_override_high(axis) = .true.
+      contract%barrier_potential_high_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+    else
+      contract%barrier_override_low(axis) = .true.
+      contract%barrier_potential_low_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+    end if
+  end subroutine apply_species_kinetic_barrier
+
   subroutine record_collision_failure(status, particle_index, particle_step, failure_x, failure_v)
     integer(i32), intent(in) :: status, particle_index, particle_step
     real(dp), intent(in) :: failure_x(3), failure_v(3)

@@ -592,6 +592,13 @@ def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
     with pytest.raises(ConfigValidationError, match="inward z-high"):
         normalize_config_document(malformed_drift)
 
+    reflected_photoelectrons = copy.deepcopy(normalized)
+    reflected_photoelectrons["particles"]["species"][2]["boundary"] = {
+        "z_high": "reflect"
+    }
+    with pytest.raises(ConfigValidationError, match="open z-high"):
+        normalize_config_document(reflected_photoelectrons)
+
 
 def test_config_cli_init_validate_and_diff(
     tmp_path: Path,

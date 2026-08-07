@@ -500,6 +500,7 @@ contains
   subroutine validate_surface_current_model_config(cfg)
     type(app_config), intent(in) :: cfg
     integer :: electron_idx, ion_idx, photo_idx
+    integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
     real(dp) :: electron_temperature, ion_temperature
 
     select case (trim(lower_ascii(cfg%surface_current%model)))
@@ -571,6 +572,13 @@ contains
     end if
     if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
       error stop 'Zhao photoelectron species requires inject_face="z_high".'
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &
+      effective_boundary_low, effective_boundary_high &
+      )
+    if (effective_boundary_high(3) /= bc_open) then
+      error stop 'Zhao photoelectron kinetic closure requires an open z-high particle boundary.'
     end if
     if (-cfg%particle_species(electron_idx)%drift_velocity(3) <= 0.0_dp .or. &
         -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then

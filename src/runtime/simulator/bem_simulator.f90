@@ -68,7 +68,7 @@ module bem_simulator
     end subroutine prepare_batch_state
 
     module subroutine process_particle_batch( &
-      mesh, app, boundary_contract, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
+      mesh, app, boundary_contract, current_model, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
       absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
       collision_failure_x, collision_failure_v &
@@ -76,6 +76,7 @@ module bem_simulator
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
       type(external_boundary_contract_type), intent(in) :: boundary_contract
+      type(surface_current_model_result_type), intent(in) :: current_model
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(particles_soa), intent(inout) :: pcls_batch
       real(dp), intent(inout) :: dq_thread(:, :)

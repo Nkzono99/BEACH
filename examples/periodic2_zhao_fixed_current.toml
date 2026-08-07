@@ -1,7 +1,7 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 
-# Zhao の定常シース電流を species 別 fixed_current target として使う例。
-# Zhao は外部の平面・無衝突・非磁化シースclosureであり、box外の場や軌道は解かない。
+# Zhao の定常シース電流と1-D kinetic barrierを species 別 closure として使う例。
+# box外の軌道・turnaround時間・空間電荷は解かず、z-high 面で速度空間へ縮約する。
 
 [sim]
 dt = 2.0e-12
@@ -72,7 +72,7 @@ z_high = "reservoir"
 [[particles.species]]
 species_key = "photoelectron"
 source_mode = "photo_raycast"
-# Raw raycast sampling current only; Zhao supplies the committed fixed-current target.
+# 放出VDFはこのMaxwell分布を使い、Zhaoがescape/return barrierと固定電流targetを与える。
 emit_current_density_a_m2 = 1.0e-4
 rays_per_batch = 300
 deposit_opposite_charge_on_emit = true
@@ -85,9 +85,6 @@ inject_face = "z_high"
 pos_low = [0.0, 0.0, 1.0e-3]
 pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
 ray_direction = [0.0, 0.0, -1.0]
-
-[particles.species.boundary]
-z_high = "reflect"
 
 [mesh]
 mode = "template"

@@ -30,12 +30,20 @@ module bem_surface_current_model
     real(dp) :: net_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
     real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
+    character(len=32) :: kinetic_contract = 'none'
     logical, allocatable :: has_absorbed_target(:)
     logical, allocatable :: has_emission_target(:)
     logical, allocatable :: has_escape_target(:)
+    logical, allocatable :: has_inflow_kinetic_map(:)
+    logical, allocatable :: has_outflow_kinetic_barrier(:)
     real(dp), allocatable :: absorbed_current_a(:)
     real(dp), allocatable :: emission_current_a(:)
     real(dp), allocatable :: escaped_particle_current_a(:)
+    real(dp), allocatable :: inflow_reservoir_potential_v(:)
+    real(dp), allocatable :: inflow_access_potential_v(:)
+    integer(i32), allocatable :: inflow_kinetic_face(:)
+    real(dp), allocatable :: outflow_barrier_potential_v(:)
+    integer(i32), allocatable :: outflow_barrier_face(:)
   end type surface_current_model_result_type
 
   public :: evaluate_surface_current_model
@@ -51,16 +59,30 @@ contains
       result%has_absorbed_target(app%n_particle_species), &
       result%has_emission_target(app%n_particle_species), &
       result%has_escape_target(app%n_particle_species), &
+      result%has_inflow_kinetic_map(app%n_particle_species), &
+      result%has_outflow_kinetic_barrier(app%n_particle_species), &
       result%absorbed_current_a(app%n_particle_species), &
       result%emission_current_a(app%n_particle_species), &
-      result%escaped_particle_current_a(app%n_particle_species) &
+      result%escaped_particle_current_a(app%n_particle_species), &
+      result%inflow_reservoir_potential_v(app%n_particle_species), &
+      result%inflow_access_potential_v(app%n_particle_species), &
+      result%inflow_kinetic_face(app%n_particle_species), &
+      result%outflow_barrier_potential_v(app%n_particle_species), &
+      result%outflow_barrier_face(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
     result%has_escape_target = .false.
+    result%has_inflow_kinetic_map = .false.
+    result%has_outflow_kinetic_barrier = .false.
     result%absorbed_current_a = 0.0_dp
     result%emission_current_a = 0.0_dp
     result%escaped_particle_current_a = 0.0_dp
+    result%inflow_reservoir_potential_v = 0.0_dp
+    result%inflow_access_potential_v = 0.0_dp
+    result%inflow_kinetic_face = 0_i32
+    result%outflow_barrier_potential_v = 0.0_dp
+    result%outflow_barrier_face = 0_i32
     result%model = trim(lower_ascii(app%surface_current%model))
 
     select case (trim(result%model))
@@ -80,7 +102,7 @@ contains
     integer(i32) :: electron_idx, ion_idx, photo_idx
     real(dp) :: electron_temperature_ev, photo_temperature_ev
     real(dp) :: electron_drift_mps, ion_drift_mps, a_swe, electron_term, ion_term, photo_escape_term
-    real(dp) :: scale, area, budget_scale, budget_tolerance
+    real(dp) :: scale, area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
     character(len=16) :: solver_name
     logical :: success
 
@@ -187,6 +209,22 @@ contains
     result%emission_current_a(photo_idx) = area*result%photoelectron_emission_current_density_a_m2
     ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
     result%escaped_particle_current_a(photo_idx) = -area*result%photoelectron_escape_current_density_a_m2
+
+    ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
+    ! Type Aの電子はphi_mがaccess bottleneckであり、Type B/Cはphi_infinity=0を使う。
+    electron_bottleneck_potential_v = 0.0_dp
+    if (result%zhao_branch == 'A') electron_bottleneck_potential_v = result%phi_m_v
+    result%kinetic_contract = 'zhao_barrier_v1'
+    result%has_inflow_kinetic_map([electron_idx, ion_idx]) = .true.
+    result%inflow_reservoir_potential_v([electron_idx, ion_idx]) = 0.0_dp
+    result%inflow_access_potential_v(electron_idx) = electron_bottleneck_potential_v
+    result%inflow_access_potential_v(ion_idx) = 0.0_dp
+    result%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32
+    result%has_outflow_kinetic_barrier([electron_idx, ion_idx, photo_idx]) = .true.
+    result%outflow_barrier_potential_v(electron_idx) = electron_bottleneck_potential_v
+    result%outflow_barrier_potential_v(ion_idx) = 0.0_dp
+    result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
+    result%outflow_barrier_face([electron_idx, ion_idx, photo_idx]) = 6_i32
   end subroutine evaluate_zhao_stationary_current
 
   integer(i32) function species_index(app, species_key) result(index_value)

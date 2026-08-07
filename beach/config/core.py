@@ -1279,6 +1279,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         surface_current_model,
         species=species,
         domain=domain,
+        particle_boundary=particle_boundary,
     )
 
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
@@ -1317,6 +1318,7 @@ def _validate_surface_current_model(
     *,
     species: list[Mapping[str, Any]],
     domain: Mapping[str, Any] | None,
+    particle_boundary: Mapping[str, Any] | None,
 ) -> None:
     if model_config is None or model_config.get("model", "none") == "none":
         return
@@ -1444,6 +1446,17 @@ def _validate_surface_current_model(
         raise ConfigValidationError(
             "BEACH constraint error: Zhao photoelectron species requires photo_raycast, "
             "opposite-charge emission deposit, and inject_face=z_high."
+        )
+    photo_boundary = photo.get("boundary", {})
+    if not isinstance(photo_boundary, Mapping):
+        photo_boundary = {}
+    photo_z_high = photo_boundary.get("z_high", "inherit")
+    if photo_z_high == "inherit":
+        photo_z_high = (particle_boundary or {}).get("z_high", "open")
+    if photo_z_high != "open":
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao photoelectron kinetic closure requires "
+            "an open z-high particle boundary."
         )
     for role in ("electron", "ion"):
         item = selected[role]

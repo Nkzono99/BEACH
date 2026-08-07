@@ -149,6 +149,10 @@ batch 開始時の平均値 $\bar\phi_f$ を使います。固定 P0 三角形 k
 局所電位を使い、外向き粒子の return または escape を判定します。流入側の `infinity_barrier` は面平均、
 流出側の `potential_barrier` は event 位置という違いがあります。
 
+`[surface_current_model] model="zhao_stationary"`は、参照したambient electron/ionのz-highにmodel固有の写像を
+追加します。無限遠0 Vから現在の面平均電位まで速度を写像し、Type A electronでは$\phi_m$もaccess bottleneckに
+含めます。この写像は選択speciesのz-highだけに作用し、`reservoir.inflow_model`の一般設定を他面について変更しません。
+
 ## このモデルが表す範囲
 
 境界流入として定義することで、密度、温度、VDF、`phi_infty` を「ボックス外側の条件」として一貫して解釈できます。

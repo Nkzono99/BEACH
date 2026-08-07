@@ -171,8 +171,13 @@ With `[surface_current_model] model="zhao_stationary"`, BEACH independently calc
 from the Zhao zero-current stationary root. Emission and return are applied to surface channels; escape is recorded as
 an external-boundary target that is not deposited onto the surface. The closure never uses the PE net current as a
 scaling denominator, so it remains stable when large currents nearly cancel. Raw escape statistics are preserved for
-comparison with target / applied / correction values. BEACH does not solve the sheath field, space charge, return orbit,
-or return delay outside the box. See `examples/periodic2_zhao_fixed_current.toml` for the complete setup.
+comparison with target / applied / correction values.
+
+The emission VDF remains the configured surface half-Maxwellian. Keep z-high open; the outward crossing test uses $\phi_m$
+for Type A and 0 V for Type B/C as the outside barrier potential, together with the local crossing potential and normal
+kinetic energy, to split return from escape. This reflection contracts the outer turning point onto z-high: BEACH does not
+solve the outside sheath field, space charge, return distance, or return delay. See
+`examples/periodic2_zhao_fixed_current.toml` for the complete setup.
 
 See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between
 `particle_boundary.ordinary_open_model` and closed PE.

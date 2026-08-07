@@ -338,7 +338,7 @@ face_potential_grid_n = 3
 
 このトップレベルtableを省略すると、speciesごとの`target_*_current_a`を使う手動設定になります。
 `model="zhao_stationary"`は、平面・無衝突・非磁化の外部シースについてZhaoのA/B/C零電流定常根を解き、
-ambient electron、ion、PE emission、PE escape、PE returnの電流を一度だけ決定します。
+ambient electron、ion、PE emission、PE escape、PE returnの電流とz-high kinetic barrierを一度だけ決定します。
 
 ```toml
 [surface_current_model]
@@ -370,7 +370,7 @@ photoelectron_source_scale = 1.0
 z-high reservoirから内向きに流入します。
 
 PEは負電荷`photo_raycast`、`inject_face="z_high"`、
-`deposit_opposite_charge_on_emit=true`を要求します。3 speciesは単価電荷で、ambient electronとPEの質量は一致、
+`deposit_opposite_charge_on_emit=true`、有効なz-high particle boundaryの`open`を要求します。3 speciesは単価電荷で、ambient electronとPEの質量は一致、
 $T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$でなければなりません。
 
 `ion_species`の`number_density_*`を無限遠ion密度として使い、ambient electron密度は定常根が解きます。
@@ -386,8 +386,19 @@ escape targetは表面要素へdepositされません。rawな境界escape電荷
 BEACH内のraycast・軌道追跡から得た要素別分布とraw escape統計は上書きされません。吸収・放出には
 raw / target / applied、escapeにはraw / target / applied / correctionを出力します。
 
+Zhaoを有効にすると、選択したambient speciesのz-high流入VDFは無限遠0 Vから現在の面平均電位まで
+エネルギー保存で写像されます。Type A electronは$\phi_m$もaccess bottleneckとして通過するtailだけを生成し、
+Type B/C electronとionの外部bottleneckは0 Vです。
+
+PE放出VDFは`temperature_ev`と`normal_drift_speed`で指定した表面half-Maxwellianのままです。外向きPEは
+Type Aでは$\phi_m$、Type B/Cでは0 Vまでの残りのbarrierをz-highで
+判定し、不足分をreturn、高エネルギーtailをescapeへ分けます。fixed-current補正はこのraw分布を保って総量を
+Zhao targetへ合わせます。このmodel固有写像は参照speciesのz-highにだけ適用され、一般の`reservoir.inflow_model`
+とは独立です。
+
 このmodelはbox外の電場、空間電荷、Debye shielding、return軌道・遅延を解かず、batch中の表面電位から
-電流を更新しません。外部シースの自己無撞着な過渡解ではなく、固定された定常外部電流closureです。
+電流を更新しません。z-highでのreturnは外部turning pointまでの距離と時間を省略します。外部シースの
+自己無撞着な過渡解ではなく、固定された定常外部電流closureです。
 計算例は`examples/periodic2_zhao_fixed_current.toml`です。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界

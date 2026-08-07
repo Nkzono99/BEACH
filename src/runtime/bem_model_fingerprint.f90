@@ -86,7 +86,7 @@ contains
       call feed_integer(hash, cfg%sim%rng_seed)
     end if
     if (trim(cfg%surface_current%model) /= 'none') then
-      call feed_string(hash, 'surface_current_model_v1')
+      call feed_string(hash, 'surface_current_model_v2')
       call feed_string(hash, cfg%surface_current%model)
       call feed_string(hash, cfg%surface_current%zhao_branch)
       call feed_string(hash, cfg%surface_current%electron_species)

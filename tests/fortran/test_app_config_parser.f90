@@ -34,6 +34,11 @@ program test_app_config_parser
     all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'fixed_current', i=1, 3)]), &
     'Zhao species must use fixed_current' &
     )
+  call resolve_particle_boundaries( &
+    cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(3), &
+    effective_boundary_low, effective_boundary_high &
+    )
+  call assert_equal_i32(effective_boundary_high(3), bc_open, 'Zhao PE z-high boundary must be open')
   call test_end()
 
   call test_begin('fixed_current_config')

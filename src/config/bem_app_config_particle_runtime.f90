@@ -43,6 +43,10 @@ module bem_app_config_particle_runtime
     real(dp), allocatable :: effective_weight(:)
     real(dp), allocatable :: photo_emit_current_density(:)
     real(dp), allocatable :: photo_normal_drift_speed(:)
+    logical, allocatable :: kinetic_inflow_active(:)
+    real(dp), allocatable :: kinetic_reservoir_potential_v(:)
+    real(dp), allocatable :: kinetic_access_potential_v(:)
+    integer(i32), allocatable :: kinetic_inflow_face(:)
   end type particle_source_plan_type
 
 contains
@@ -131,11 +135,17 @@ contains
 
   !> 設定とMPI配置だけに依存する粒子 source の導出値を構築する。
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
-  subroutine build_particle_source_plan(cfg, plan, mpi_rank, mpi_size, mpi)
+  subroutine build_particle_source_plan( &
+    cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_reservoir_potential_v, &
+    kinetic_access_potential_v, kinetic_inflow_face &
+    )
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
     integer(i32), intent(in), optional :: mpi_rank, mpi_size
     type(mpi_context), intent(in), optional :: mpi
+    logical, intent(in), optional :: kinetic_inflow_active(:)
+    real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
+    integer(i32), intent(in), optional :: kinetic_inflow_face(:)
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
@@ -162,6 +172,10 @@ contains
     allocate (plan%effective_weight(cfg%n_particle_species))
     allocate (plan%photo_emit_current_density(cfg%n_particle_species))
     allocate (plan%photo_normal_drift_speed(cfg%n_particle_species))
+    allocate (plan%kinetic_inflow_active(cfg%n_particle_species))
+    allocate (plan%kinetic_reservoir_potential_v(cfg%n_particle_species))
+    allocate (plan%kinetic_access_potential_v(cfg%n_particle_species))
+    allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
     plan%effective_density_m3 = 0.0_dp
     plan%effective_particle_flux_m2_s = 0.0_dp
     plan%effective_temperature_k = 0.0_dp
@@ -169,6 +183,36 @@ contains
     plan%effective_weight = 0.0_dp
     plan%photo_emit_current_density = 0.0_dp
     plan%photo_normal_drift_speed = 0.0_dp
+    plan%kinetic_inflow_active = .false.
+    plan%kinetic_reservoir_potential_v = 0.0_dp
+    plan%kinetic_access_potential_v = 0.0_dp
+    plan%kinetic_inflow_face = 0_i32
+
+    if (present(kinetic_inflow_active) .or. present(kinetic_reservoir_potential_v) .or. &
+        present(kinetic_access_potential_v) .or. present(kinetic_inflow_face)) then
+      if (.not. present(kinetic_inflow_active) .or. .not. present(kinetic_reservoir_potential_v) .or. &
+          .not. present(kinetic_access_potential_v) .or. .not. present(kinetic_inflow_face)) then
+        error stop 'particle source kinetic map requires active, reservoir, access, and face arrays together.'
+      end if
+      if (size(kinetic_inflow_active) /= cfg%n_particle_species .or. &
+          size(kinetic_reservoir_potential_v) /= cfg%n_particle_species .or. &
+          size(kinetic_access_potential_v) /= cfg%n_particle_species .or. &
+          size(kinetic_inflow_face) /= cfg%n_particle_species) then
+        error stop 'particle source kinetic map species count mismatch.'
+      end if
+      if (.not. all(ieee_is_finite(kinetic_reservoir_potential_v)) .or. &
+          .not. all(ieee_is_finite(kinetic_access_potential_v))) then
+        error stop 'particle source kinetic map potentials must be finite.'
+      end if
+      plan%kinetic_inflow_active = kinetic_inflow_active
+      plan%kinetic_reservoir_potential_v = kinetic_reservoir_potential_v
+      plan%kinetic_access_potential_v = kinetic_access_potential_v
+      plan%kinetic_inflow_face = kinetic_inflow_face
+      if (any(plan%kinetic_inflow_active .and. &
+              (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
+        error stop 'active particle source kinetic map face must be in [1, 6].'
+      end if
+    end if
 
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
@@ -252,6 +296,7 @@ contains
     type(external_boundary_contract_type) :: active_boundary_contract
     type(particle_species_spec) :: face_spec
     real(dp) :: correction_vmin_normal
+    real(dp) :: kinetic_vmin_normal, kinetic_barrier_normal
     character(len=256) :: boundary_message
 
     if (present(collision_failure_status)) collision_failure_status = collision_query_ok
@@ -359,6 +404,17 @@ contains
             boundary_contract=active_boundary_contract &
             )
           vmin_normal(s) = max(vmin_normal(s), correction_vmin_normal)
+          if (active_source_plan%kinetic_inflow_active(s) .and. &
+              injection_face_index(cfg%particle_species(s)%inject_face) == active_source_plan%kinetic_inflow_face(s)) then
+            call external_kinetic_face_velocity_correction( &
+              cfg, cfg%particle_species(s), active_source_plan%kinetic_reservoir_potential_v(s), &
+              active_source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
+              mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
+              (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+              )
+            vmin_normal(s) = max(vmin_normal(s), kinetic_vmin_normal)
+            barrier_normal(s) = kinetic_barrier_normal
+          end if
         end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
@@ -391,6 +447,16 @@ contains
             boundary_contract=active_boundary_contract &
             )
           boundary_vmin(face, s) = correction_vmin_normal
+          if (active_source_plan%kinetic_inflow_active(s) .and. face == active_source_plan%kinetic_inflow_face(s)) then
+            call external_kinetic_face_velocity_correction( &
+              cfg, face_spec, active_source_plan%kinetic_reservoir_potential_v(s), &
+              active_source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
+              mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
+              (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
+              )
+            boundary_vmin(face, s) = max(boundary_vmin(face, s), kinetic_vmin_normal)
+            boundary_barrier(face, s) = kinetic_barrier_normal
+          end if
           if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
             call compute_macro_particles_for_species( &
               cfg%sim, face_spec, state%boundary_macro_residual(face, s), boundary_global_counts(face, s), &
@@ -812,6 +878,28 @@ contains
     end select
   end subroutine boundary_face_name
 
+  !> 面名をboundary bit順のindexへ変換する。
+  pure integer(i32) function injection_face_index(face_name) result(face)
+    character(len=*), intent(in) :: face_name
+
+    select case (trim(lower_ascii(face_name)))
+    case ('x_low')
+      face = 1_i32
+    case ('x_high')
+      face = 2_i32
+    case ('y_low')
+      face = 3_i32
+    case ('y_high')
+      face = 4_i32
+    case ('z_low')
+      face = 5_i32
+    case ('z_high')
+      face = 6_i32
+    case default
+      face = 0_i32
+    end select
+  end function injection_face_index
+
   !> photo_raycast 粒子種のレイキャスト放出を実行する。
   !! @param[in] sim シミュレーション設定。
   !! @param[in] spec photo_raycast 粒子種設定。
@@ -1028,6 +1116,48 @@ contains
       error stop 'Unknown external inflow map in runtime.'
     end select
   end subroutine reservoir_face_velocity_correction
+
+  !> 外部kinetic closureのaccess bottleneckと、reservoirからbox面までの速度写像を分離して返す。
+  subroutine external_kinetic_face_velocity_correction( &
+    cfg, spec, reservoir_potential_v, access_potential_v, vmin_normal, barrier_normal, &
+    mesh, snapshot, warn_face_variation &
+    )
+    type(app_config), intent(in) :: cfg
+    type(particle_species_spec), intent(in) :: spec
+    real(dp), intent(in) :: reservoir_potential_v, access_potential_v
+    real(dp), intent(out) :: vmin_normal, barrier_normal
+    type(mesh_type), intent(in), optional :: mesh
+    type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
+    logical, intent(in), optional :: warn_face_variation
+
+    real(dp) :: phi_face, phi_std, phi_min, phi_max, access_barrier_normal
+    logical :: emit_warning
+
+    if (.not. present(mesh)) then
+      error stop 'external kinetic inflow map requires mesh in init_particle_batch_from_config.'
+    end if
+    if (.not. present(snapshot)) then
+      error stop 'external kinetic inflow map requires a refreshed electrostatic snapshot.'
+    end if
+    if (.not. all(ieee_is_finite([reservoir_potential_v, access_potential_v]))) then
+      error stop 'external kinetic inflow map potentials must be finite.'
+    end if
+    call compute_face_average_potential(mesh, cfg%sim, spec, snapshot, phi_face, phi_std, phi_min, phi_max)
+    emit_warning = .false.
+    if (present(warn_face_variation)) emit_warning = warn_face_variation
+    if (emit_warning) then
+      call warn_face_average_potential_variation(cfg%sim, spec, phi_face, phi_std, phi_min, phi_max)
+    end if
+
+    barrier_normal = 2.0_dp*spec%q_particle*(phi_face - reservoir_potential_v)/spec%m_particle
+    access_barrier_normal = &
+      2.0_dp*spec%q_particle*(access_potential_v - reservoir_potential_v)/spec%m_particle
+    if (.not. all(ieee_is_finite([barrier_normal, access_barrier_normal]))) then
+      error stop 'external kinetic inflow map produced a non-finite velocity barrier.'
+    end if
+    ! reservoirから現在の注入面までに、Zhaoの外部bottleneckと局所面電位の両方を通過できるtailを数える。
+    vmin_normal = sqrt(max(0.0_dp, access_barrier_normal, barrier_normal))
+  end subroutine external_kinetic_face_velocity_correction
 
   !> 粒子種設定から実効密度[m^-3]を返す。
   !! @param[in] spec 粒子種設定。

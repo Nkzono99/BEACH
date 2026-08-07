@@ -266,14 +266,15 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 
 ### 7.7 自動表面電流model
 
-トップレベル`[surface_current_model]`は、設定型、model dispatch、model固有solver、species channelへの割当を分離します。
+トップレベル`[surface_current_model]`は、設定型、model dispatch、model固有solver、species channelとkinetic境界写像への割当を分離します。
 未指定または`model="none"`はtargetを生成せず、speciesに記述した手動targetを使います。初期実装の
 `model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に一度解きます。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
 Zhao modelはambient electron、cold ion、photoelectronの3つの`species_key`を明示的に参照します。各speciesは
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
-z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、$T_i\le0.1T_e$をfail-closedに検証します。
+z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
+fail-closedに検証します。
 電流密度から電流へ変換する面積は`reference_area_m2`、省略時はdomainのx-y面積です。
 
 $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$とし、解いたPE emissionを$J_{emit}>0$、escapeを$J_{escape}>0$とすると、
@@ -297,8 +298,20 @@ $$
 を独立に検証できます。PEの大きなemission、return、escapeを別channelで補正し、差であるnet PE電流を
 scaleの分母に使いません。raw軌道統計は上書きせず、raw / target / appliedを別々に出力します。
 
+Zhaoの定常電位は`zhao_barrier_v1` kinetic contractとしてz-highへも適用します。ambientの設定Maxwell VDFを
+無限遠電位0 Vのreservoir分布とし、Type A electronは$\phi_m$、Type B/C electronとionは0 Vを外部access
+bottleneckとして使います。各batchのz-high面平均電位を$\phi_f$とすると、流入tailは外部bottleneckと
+$\phi_f$の両方へ到達できる粒子から生成し、法線速度を0 Vから$\phi_f$までエネルギー保存で写像します。
+
+PE放出速度は従来どおり設定した表面half-Maxwellianです。PE、ambient electron、ionがopenなz-highを外向きに
+横切るとき、粒子位置の局所電位から残りのZhao barrierを評価します。electron/PEのbarrier電位はType Aで
+$\phi_m$、Type B/Cで0 V、ionは0 Vです。法線運動エネルギーが不足する粒子はz-highで鏡面反射してreturnへ、
+十分な粒子だけをescapeへ分類します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
+rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支を決めます。
+
 このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、run中の表面電位に応じて
-targetを再計算しません。外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
+targetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
+外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
 
 ## 8. 実行制御
 

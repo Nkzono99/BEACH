@@ -349,6 +349,7 @@ contains
       trim(external_open_model_name(resolved_boundary%ordinary_open_model))
     write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
     if (current_model%active) then
+      write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
       write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
       write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
       write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
@@ -374,6 +375,16 @@ contains
         current_model%surface_budget_residual_current_density_a_m2
       write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
         current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
+        current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
+      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
+        current_model%inflow_access_potential_v(current_model%electron_species_idx)
+      write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
+        current_model%inflow_kinetic_face(current_model%electron_species_idx)
+      write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
+        current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+      write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
+        current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
     end if
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available

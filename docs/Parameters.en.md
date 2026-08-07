@@ -350,7 +350,8 @@ A uniform field has no finite potential at infinity, so use an effective reservo
 
 When this top-level table is omitted, configure each species manually with `target_*_current_a`.
 `model="zhao_stationary"` solves the Zhao A/B/C zero-current stationary root for a planar, collisionless, unmagnetized
-external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents once before batching.
+external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents plus a z-high kinetic
+barrier once before batching.
 
 ```toml
 [surface_current_model]
@@ -381,8 +382,8 @@ The three referenced species must be enabled, distinct, and set `surface_charge_
 They cannot also specify manual `target_absorbed_current_a` or `target_emission_current_a`. Ambient electrons and ions must
 enter inward from the z-high reservoir.
 
-PE requires a negative `photo_raycast`, `inject_face="z_high"`, and
-`deposit_opposite_charge_on_emit=true`. All three roles must be singly charged, the ambient-electron and PE masses must match,
+PE requires a negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, and an effective
+open z-high particle boundary. All three roles must be singly charged, the ambient-electron and PE masses must match,
 and $T_e>0$, $T_{pe}>0$, and $T_i\le0.1T_e$ must hold.
 
 The `ion_species` `number_density_*` supplies the ion density at infinity; the stationary root solves the ambient-electron
@@ -401,9 +402,21 @@ The element distribution and raw escape statistics measured by BEACH raycasting 
 overwritten. Outputs distinguish raw / target / applied for absorption and emission, and raw / target / applied /
 correction for escape.
 
+When Zhao is active, the selected ambient species z-high inflow VDF is energy-mapped from a 0 V infinity reservoir to the
+current mean face potential. Type A electrons must also cross $\phi_m$ as an access bottleneck; Type B/C electrons and ions
+use 0 V as the outside bottleneck.
+
+The PE emission VDF remains the configured surface half-Maxwellian from `temperature_ev` and `normal_drift_speed`. At
+outward z-high crossings, PE uses the remaining barrier to $\phi_m$ for Type A and to 0 V for
+Type B/C: sub-barrier particles return and the energetic tail escapes.
+
+Fixed-current scaling then preserves these raw maps while matching the Zhao channel totals. This model-specific map applies
+only to the referenced species on z-high and is independent of the generic `reservoir.inflow_model`.
+
 This model does not solve the field, space charge, Debye shielding, return orbit, or return delay outside the box, and it does
-not update currents from the surface potential during batches. It is a fixed stationary external-current closure, not a
-self-consistent transient outer sheath. See `examples/periodic2_zhao_fixed_current.toml` for a complete case.
+not update currents from the surface potential during batches. A return at z-high omits the distance and time to the outer
+turning point. It is a fixed stationary external-current closure, not a self-consistent transient outer sheath. See
+`examples/periodic2_zhao_fixed_current.toml` for a complete case.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 

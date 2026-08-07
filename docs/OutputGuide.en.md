@@ -31,6 +31,9 @@ density, and signed electron / ion / PE-emission / PE-escape / PE-return / net c
 `surface_current_model_pe_escape_particle_current_A` is negative because it is the signed current carried outward by
 PE particles. The two budget residuals independently check PE emission-return-escape continuity and the stationary
 surface-current balance.
+`surface_current_model_kinetic_contract` and the inflow-access / outflow-barrier potential and face receipts record the
+velocity-space boundary map paired with the Zhao currents. Face indices are
+`1..6 = x_low, x_high, y_low, y_high, z_low, z_high`.
 
 ## History
 

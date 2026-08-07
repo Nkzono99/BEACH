@@ -149,6 +149,11 @@ convention, including the fixed P0 triangle kernel, periodic field, zero mode, a
 particle's actual crossing point to decide outward return or escape. Thus, inflow `infinity_barrier` uses a face mean,
 whereas outward `potential_barrier` uses the event position.
 
+`[surface_current_model] model="zhao_stationary"` adds a model-specific map to z-high for the referenced ambient electron
+and ion species. It maps velocity from a 0 V infinity reservoir to the current mean face potential and, for Type A electrons,
+also includes $\phi_m$ as an access bottleneck. This map affects only the selected species on z-high and does not change the
+generic `reservoir.inflow_model` behavior on other faces.
+
 ## Model scope
 
 Defining this model on a boundary gives density, temperature, VDF, and `phi_infty` a consistent interpretation as conditions

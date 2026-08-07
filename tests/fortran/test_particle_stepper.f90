@@ -6,6 +6,7 @@ program test_particle_stepper
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
+  use bem_external_boundary_contract, only: external_boundary_contract_type
   use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   resolve_particle_boundary_candidate, particle_step_result, &
@@ -14,7 +15,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(18)
+  call test_init(19)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -78,6 +79,10 @@ program test_particle_stepper
 
   call test_begin('potential_barrier_uses_crossing_potential')
   call test_potential_barrier_uses_crossing_potential()
+  call test_end()
+
+  call test_begin('species_barrier_override_is_face_local')
+  call test_species_barrier_override_is_face_local()
   call test_end()
 
   call test_begin('advance_potential_barrier_single_face_only')
@@ -608,6 +613,35 @@ contains
       )
     call assert_true(.not. result%escaped_boundary, 'x=0.75 crossing potential should cause return')
   end subroutine test_potential_barrier_uses_crossing_potential
+
+  subroutine test_species_barrier_override_is_face_local()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -1.0_dp
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract &
+      )
+    call assert_true(result%status == particle_step_ok, 'species barrier override status mismatch')
+    call assert_true(.not. result%escaped_boundary, 'z-high override should return a sub-barrier electron')
+    call assert_true(result%v(3) < 0.0_dp, 'returned electron must reverse its outward velocity')
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.1_dp], [0.0_dp, 0.0_dp, -1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract &
+      )
+    call assert_true(result%escaped_boundary, 'z-low must remain ordinary escape when only z-high is overridden')
+  end subroutine test_species_barrier_override_is_face_local
 
   subroutine test_advance_potential_barrier_single_face_only()
     type(mesh_type) :: mesh

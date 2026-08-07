@@ -28,6 +28,8 @@ PE return / netのsigned電流密度を`surface_current_model_*`で出力しま�
 `surface_current_model_pe_return_current_density_A_m2`は負、emissionとescapeは正です。
 `surface_current_model_pe_escape_particle_current_A`は外向きPE粒子が運ぶsigned電流なので負です。
 二つのbudget residualは、PEのemission-return-escape連続条件と表面定常電流を独立に検証します。
+`surface_current_model_kinetic_contract`とinflow access / outflow barrierの電位・face receiptは、Zhao電流に対応する
+速度空間境界写像を記録します。face番号は`1..6 = x_low, x_high, y_low, y_high, z_low, z_high`です。
 
 ## 履歴
 

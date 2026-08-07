@@ -25,6 +25,7 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'B', 'explicit Zhao Type B was not selected')
   call assert_current_decomposition(result, 'Type B')
+  call assert_kinetic_contract(result, 0.0_dp, 'Type B')
   call test_end()
 
   call test_begin('zhao_stationary_type_c_channels')
@@ -33,6 +34,7 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'C', 'explicit Zhao Type C was not selected')
   call assert_current_decomposition(result, 'Type C')
+  call assert_kinetic_contract(result, 0.0_dp, 'Type C')
   call test_end()
 
   call test_begin('zhao_stationary_type_a_channels')
@@ -71,6 +73,7 @@ program test_surface_current_model
     2.0_dp*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
     'PE total target current must use the configured reference area' &
     )
+  call assert_kinetic_contract(result, result%phi_m_v, 'Type A')
   call test_end()
 
   call test_summary()
@@ -148,5 +151,29 @@ contains
       trim(label)//' stationary net current mismatch' &
       )
   end subroutine assert_current_decomposition
+
+  subroutine assert_kinetic_contract(current, electron_bottleneck_v, label)
+    type(surface_current_model_result_type), intent(in) :: current
+    real(dp), intent(in) :: electron_bottleneck_v
+    character(len=*), intent(in) :: label
+
+    call assert_true(trim(current%kinetic_contract) == 'zhao_barrier_v1', trim(label)//' kinetic contract mismatch')
+    call assert_true(all(current%has_inflow_kinetic_map(1:2)), trim(label)//' ambient inflow map must be active')
+    call assert_true(all(current%inflow_kinetic_face(1:2) == 6_i32), trim(label)//' inflow map face must be z-high')
+    call assert_close_dp( &
+      current%inflow_access_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
+      trim(label)//' electron access bottleneck mismatch' &
+      )
+    call assert_close_dp( &
+      current%inflow_access_potential_v(2), 0.0_dp, 1.0e-12_dp, &
+      trim(label)//' ion access bottleneck mismatch' &
+      )
+    call assert_true(all(current%has_outflow_kinetic_barrier(1:3)), trim(label)//' outflow barriers must be active')
+    call assert_close_dp( &
+      current%outflow_barrier_potential_v(3), electron_bottleneck_v, 1.0e-12_dp, &
+      trim(label)//' PE barrier potential mismatch' &
+      )
+    call assert_true(all(current%outflow_barrier_face(1:3) == 6_i32), trim(label)//' barrier face must be z-high')
+  end subroutine assert_kinetic_contract
 
 end program test_surface_current_model
