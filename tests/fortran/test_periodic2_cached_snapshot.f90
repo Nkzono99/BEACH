@@ -72,18 +72,11 @@ program test_periodic2_cached_snapshot
   real(dp) :: total_field(3), expected_field(3), nonzero_field(3), zero_field, zero_potential
   real(dp) :: total_potential, expected_potential, nonzero_potential
   real(dp) :: reference_field(3), reference_potential, field_error, potential_error, charge_scale
-  character(len=512) :: cache_path, cache_dir, team_mismatch_path
-  character(len=64) :: run_mode
+  character(len=512) :: cache_path, cache_dir
   integer(i64) :: clock_count
 
-  call get_command_argument(1, run_mode)
-  if (trim(run_mode) == '--adaptive-team-mismatch-probe') then
-    call run_adaptive_team_mismatch_probe()
-    error stop 'adaptive team-mismatch probe unexpectedly completed'
-  end if
   call system_clock(count=clock_count)
   write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
-  team_mismatch_path = trim(cache_dir)//'/adaptive_team_mismatch.log'
   call configure_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2)
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   cache_path = snapshot%nonzero_solver%fmm_core_plan%periodic_cache_path
@@ -343,6 +336,7 @@ contains
       1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
       'rejected full-duration charge leaked into the committed mesh state' &
       )
+    adaptive_stats%adaptive_nonzero_mode_omp_threads = actual_team_size + 1_i32
     call run_absorption_insulator( &
       adaptive_mesh, adaptive_cfg, adaptive_resume_stats, initial_stats=adaptive_stats &
       )
@@ -350,8 +344,8 @@ contains
                           'same-team adaptive zero-batch resume changed the accepted batch count')
     call assert_equal_i32( &
       adaptive_resume_stats%adaptive_nonzero_mode_omp_threads, &
-      adaptive_stats%adaptive_nonzero_mode_omp_threads, &
-      'same-team adaptive resume changed its checkpointed OpenMP team size' &
+      actual_team_size, &
+      'adaptive resume must record the current team size rather than require the checkpoint value' &
       )
     call assert_close_dp( &
       adaptive_resume_stats%simulated_time, adaptive_stats%simulated_time, 0.0_dp, &
@@ -362,64 +356,10 @@ contains
       1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
       'same-team adaptive zero-batch resume changed the mesh charge' &
       )
-    call test_adaptive_team_mismatch_context()
 !$  call omp_set_schedule(schedule_before_kind, schedule_before_chunk)
 !$  call omp_set_dynamic(dynamic_before)
     call test_end()
   end subroutine test_adaptive_kneq0_rejects_then_accepts_half_step
-
-  subroutine test_adaptive_team_mismatch_context()
-    character(len=1024) :: executable_path, command, child_line
-    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_mismatch, saw_checkpoint_size, saw_current_size
-
-    call get_command_argument(0, executable_path)
-    call delete_file_if_exists(team_mismatch_path)
-    command = 'OMP_DYNAMIC=FALSE OMP_NUM_THREADS=1 "'//trim(executable_path)// &
-              '" --adaptive-team-mismatch-probe > '//team_mismatch_path//' 2>&1'
-    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'adaptive team-mismatch command status mismatch')
-    call assert_true(child_exit_status /= 0, 'adaptive team-mismatch probe should terminate with nonzero status')
-
-    saw_mismatch = .false.
-    saw_checkpoint_size = .false.
-    saw_current_size = .false.
-    open (newunit=child_unit, file=team_mismatch_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read adaptive team-mismatch probe output'
-    do
-      read (child_unit, '(A)', iostat=child_ios) child_line
-      if (child_ios /= 0) exit
-      saw_mismatch = saw_mismatch .or. index(child_line, 'team-size mismatch with checkpoint') > 0
-      saw_checkpoint_size = saw_checkpoint_size .or. index(child_line, 'checkpoint=2') > 0
-      saw_current_size = saw_current_size .or. index(child_line, 'current=1') > 0
-    end do
-    close (child_unit)
-    call delete_file_if_exists(team_mismatch_path)
-    call assert_true( &
-      saw_mismatch .and. saw_checkpoint_size .and. saw_current_size, &
-      'adaptive resume team-size mismatch diagnostic is incomplete' &
-      )
-  end subroutine test_adaptive_team_mismatch_context
-
-  subroutine run_adaptive_team_mismatch_probe()
-    type(mesh_type) :: probe_mesh
-    type(app_config) :: probe_cfg
-    type(sim_stats) :: checkpoint_stats, probe_stats
-    real(dp) :: probe_v0(3, 1), probe_v1(3, 1), probe_v2(3, 1)
-
-    probe_v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
-    probe_v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
-    probe_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
-    call init_mesh(probe_mesh, probe_v0, probe_v1, probe_v2)
-    call default_app_config(probe_cfg)
-    probe_cfg%sim%batch_count = 0_i32
-    probe_cfg%periodic2%max_nonzero_mode_potential_step = 1.0_dp
-    checkpoint_stats = sim_stats()
-    checkpoint_stats%adaptive_nonzero_mode_omp_threads = 2_i32
-    call run_absorption_insulator( &
-      probe_mesh, probe_cfg, probe_stats, initial_stats=checkpoint_stats &
-      )
-  end subroutine run_adaptive_team_mismatch_probe
 
   subroutine evaluate_components(expected_e, expected_phi, nonzero_e, nonzero_phi, zero_e, zero_phi)
     real(dp), intent(out) :: expected_e(3), expected_phi, nonzero_e(3), nonzero_phi, zero_e, zero_phi

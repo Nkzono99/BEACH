@@ -461,10 +461,9 @@ Flux-driven species must specify `target_macro_particles_per_batch`; fixed `w_pa
 It cannot be combined with an ordinary `volume_seed`.
 
 `sim.batch_count` counts accepted batches, while `simulated_time_s` is the sum
-of accepted widths. An adaptive restart must use the same actual OpenMP team
-size as its checkpoint so that the reduction order and accepted ladder can be
-reproduced. Dynamic teams are disabled during adaptive progression; unequal
-team sizes across MPI ranks or a checkpoint mismatch fail fast.
+of accepted widths. Dynamic teams are disabled during adaptive progression, and
+MPI ranks use equal team sizes within a run. A restart may use a different team
+size; the resumed run records its actual size as the new diagnostic value.
 
 The test is a
 local-voltage trust bound for the frozen-field approximation, not a
@@ -768,7 +767,6 @@ For closed PE, set its `inject_face` to `reflect` or `redistributed_reflect` in 
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ file path |
 | `surface_model` | string | `"insulator"` | Surface model for the whole OBJ |
 | `surface_side` | string | required with `mode="obj"` or `"auto"` | Vacuum side of OBJ panels: `normal_plus` / `normal_minus` / `outward_closed` |
-| `epsilon_r` | float | `1.0` | Relative permittivity for the whole OBJ. `>= 1` |
 | `obj_scale` | float | `1.0` | Uniform scale after loading the OBJ |
 | `obj_rotation` | float[3] | `[0,0,0]` | Rotation angle after loading the OBJ [deg] |
 | `obj_offset` | float[3] | `[0,0,0]` | Translation after loading the OBJ [m] |
@@ -804,9 +802,8 @@ Common keys:
 |---|---|---:|---|
 | `enabled` | bool | `true` | Enable the template |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
-| `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
+| `surface_model` | string | `"insulator"` | `insulator` / `conductor` |
 | `surface_side` | string | required when `enabled=true` | Vacuum side of the panel: `normal_plus` / `normal_minus` / `outward_closed` |
-| `epsilon_r` | float | `1.0` | Relative permittivity. `>= 1` |
 | `center` | float[3] | `[0,0,0]` | Shape center [m] |
 
 When `[[mesh.templates]]` entries are written, the number of templates actually
@@ -948,7 +945,9 @@ Surface model:
 |---|---|
 | `insulator` | Accumulate the charge of colliding particles on elements |
 | `conductor` | Redistribute element charge for each `mesh_id` floating conductor so it becomes equipotential while conserving total charge |
-| `dielectric` | Store `epsilon_r` as metadata. Current field calculation and charge accumulation do not yet branch for dielectric polarization |
+
+`dielectric` and `epsilon_r` were removed from input because they only acted as metadata aliases without solving
+polarization. Dielectric polarization, permittivity interface conditions, and internal fields remain unimplemented.
 
 `conductor` constraints:
 
@@ -968,7 +967,7 @@ an unknown table or key.
 | --- | --- |
 | Source | Treat each `q_elem` as a constant surface-charge density over its triangle |
 | Solver | `direct` / `treecode` / `fmm` / `auto`; `auto` selects direct / FMM with `tree_min_nelem` |
-| Surface models | Common source discretization for `insulator`, `conductor`, and `dielectric` |
+| Surface models | Common source discretization for `insulator` and `conductor` |
 | Treecode | exact panel near + monopole far |
 | FMM | exact panel near + exact triangle P2M |
 | Surface side | `[mesh].surface_side` for OBJ; `surface_side` on every enabled template |
@@ -997,7 +996,7 @@ Output files:
 | `summary.txt` | Run statistics and configuration summary |
 | `charges.csv` | Final element charges |
 | `mesh_triangles.csv` | Element geometry. Includes the `mesh_id` column |
-| `mesh_sources.csv` | Original mesh kind, surface model, `epsilon_r`, and element count for each `mesh_id` |
+| `mesh_sources.csv` | Original mesh kind, surface model, compatibility `epsilon_r` column, and element count; current inputs write `epsilon_r=1` |
 | `mesh_potential.csv` | When `write_mesh_potential=true` |
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |

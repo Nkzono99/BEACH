@@ -1,6 +1,6 @@
 !> アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。
 module bem_app_config_types
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, i32
   use bem_types, only: sim_config
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -123,7 +123,6 @@ module bem_app_config_types
     integer(i32) :: n_templates = 0_i32
     type(template_spec), allocatable :: templates(:)
 
-    integer(i32) :: n_particles = 0_i32
     integer(i32) :: n_particle_species = 0_i32
     type(particle_species_spec), allocatable :: particle_species(:)
     integer(i32) :: particle_boundary_low(3) = &
@@ -191,23 +190,6 @@ contains
     end if
   end function particles_per_batch_from_config
 
-  !> バッチ数と1バッチ粒子数から総粒子数を返す。
-  !! @param[in] cfg バッチ数と粒子種設定を含むアプリ設定。
-  !! @return total_n 総粒子数。
-  integer(i32) function total_particles_from_config(cfg) result(total_n)
-    type(app_config), intent(in) :: cfg
-    integer(i64) :: total_n_i64
-
-    if (cfg%sim%batch_count <= 0_i32) then
-      error stop 'sim.batch_count must be > 0.'
-    end if
-    total_n_i64 = int(cfg%sim%batch_count, i64)*int(particles_per_batch_from_config(cfg), i64)
-    if (total_n_i64 > int(huge(0_i32), i64)) then
-      error stop 'total particle count overflows 32-bit integer. Reduce batch_count or npcls_per_step.'
-    end if
-    total_n = int(total_n_i64, i32)
-  end function total_particles_from_config
-
   !> `app_config` を既定値で初期化し、TOML 上書き前の状態を作る。
   !! @param[out] cfg 既定値で初期化したアプリ設定。
   subroutine default_app_config(cfg)
@@ -221,7 +203,6 @@ contains
     cfg%obj_rotation = [0.0d0, 0.0d0, 0.0d0]
     cfg%obj_offset = [0.0d0, 0.0d0, 0.0d0]
     cfg%n_templates = 0_i32
-    cfg%n_particles = 0_i32
     cfg%n_particle_species = 0_i32
     cfg%write_output = .true.
     cfg%write_mesh_potential = .false.
@@ -266,7 +247,6 @@ contains
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
     cfg%n_templates = 1_i32
-    cfg%n_particles = 0_i32
 
     cfg%templates(1)%enabled = .true.
     cfg%templates(1)%kind = 'plane'

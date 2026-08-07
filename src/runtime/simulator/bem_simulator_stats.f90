@@ -46,8 +46,11 @@ contains
                                              stats%multiple_box_events_soft_discarded, batch_counts(6), &
                                              'multiple_box_events_soft_discarded' &
                                              )
-  stats%multiple_box_events_soft_discarded_abs_charge = &
-    stats%multiple_box_events_soft_discarded_abs_charge + soft_discarded_abs_charge
+  stats%multiple_box_events_soft_discarded_abs_charge = checked_add_nonnegative_real( &
+                                                        stats%multiple_box_events_soft_discarded_abs_charge, &
+                                                        soft_discarded_abs_charge, &
+                                                        'multiple_box_events_soft_discarded_abs_charge' &
+                                                        )
   end procedure accumulate_batch_stats
 
   !> 非負の64bit累積カウンタを符号反転させずに加算する。
@@ -64,5 +67,20 @@ contains
     end if
     total = accumulated + increment
   end function checked_add_nonnegative_i64
+
+  function checked_add_nonnegative_real(accumulated, increment, field_name) result(total)
+    real(dp), intent(in) :: accumulated, increment
+    character(len=*), intent(in) :: field_name
+    real(dp) :: total
+
+    if (.not. all(ieee_is_finite([accumulated, increment])) .or. &
+        accumulated < 0.0_dp .or. increment < 0.0_dp) then
+      error stop 'simulation statistic must be finite and nonnegative: '//trim(field_name)
+    end if
+    total = accumulated + increment
+    if (.not. ieee_is_finite(total) .or. total < accumulated) then
+      error stop 'simulation statistic overflow: '//trim(field_name)
+    end if
+  end function checked_add_nonnegative_real
 
 end submodule bem_simulator_stats

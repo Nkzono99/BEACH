@@ -31,6 +31,7 @@ module bem_physics_config_types
   end type panel_kernel_config
 
   public :: normalize_legacy_physics_config
+  public :: derive_field_panel_config
   public :: validate_phase1_panel_config
   public :: validate_active_physics_config
 
@@ -44,22 +45,8 @@ contains
     type(panel_kernel_config), intent(out) :: panel
     character(len=32) :: bc_mode, far_mode
 
-    field = field_physics_config()
+    call derive_field_panel_config(sim, field, panel)
     periodic2 = periodic2_physics_config()
-    panel = panel_kernel_config()
-
-    field%backend = lower_ascii(trim(sim%field_solver))
-    field%normalization = lower_ascii(trim(sim%field_normalization))
-    select case (trim(field%backend))
-    case ('direct')
-      panel%kernel_id = 'triangle_p0_exact_direct'
-    case ('treecode')
-      panel%kernel_id = 'triangle_p0_exact_tree_near'
-    case ('fmm')
-      panel%kernel_id = 'triangle_p0_exact_p2m_near'
-    case default
-      panel%kernel_id = 'triangle_p0_exact_auto'
-    end select
 
     bc_mode = lower_ascii(trim(sim%field_bc_mode))
     if (trim(bc_mode) /= 'periodic2') return
@@ -80,6 +67,28 @@ contains
       periodic2%lower_boundary_model = 'invalid'
     end select
   end subroutine normalize_legacy_physics_config
+
+  !> `[sim]` だけから field/panel の派生契約を構築する。
+  pure subroutine derive_field_panel_config(sim, field, panel)
+    type(sim_config), intent(in) :: sim
+    type(field_physics_config), intent(out) :: field
+    type(panel_kernel_config), intent(out) :: panel
+
+    field = field_physics_config()
+    panel = panel_kernel_config()
+    field%backend = lower_ascii(trim(sim%field_solver))
+    field%normalization = lower_ascii(trim(sim%field_normalization))
+    select case (trim(field%backend))
+    case ('direct')
+      panel%kernel_id = 'triangle_p0_exact_direct'
+    case ('treecode')
+      panel%kernel_id = 'triangle_p0_exact_tree_near'
+    case ('fmm')
+      panel%kernel_id = 'triangle_p0_exact_p2m_near'
+    case default
+      panel%kernel_id = 'triangle_p0_exact_auto'
+    end select
+  end subroutine derive_field_panel_config
 
   !> triangle P0 direct/treecode/FMM kernel の solver/boundary 契約を検証する。
   subroutine validate_phase1_panel_config(sim, panel, status, message)

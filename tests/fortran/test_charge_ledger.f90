@@ -38,27 +38,21 @@ program test_charge_ledger
   call ledger%reset(1_i32)
   ledger%absorbed_on_surface(1) = -2.0_dp
   ledger%fixed_absorbed_target_charge(1) = -5.0_dp
-  ledger%fixed_absorbed_applied_charge(1) = -5.0_dp
   ledger%fixed_absorbed_weight_scale(1) = 2.5_dp
   ledger%emitted_from_surface(2) = -4.0_dp
   ledger%fixed_emission_target_charge(2) = 2.0_dp
-  ledger%fixed_emission_applied_charge(2) = 2.0_dp
   ledger%fixed_emission_weight_scale(2) = 0.5_dp
   ledger%fixed_escape_target_charge(2) = -1.0_dp
-  ledger%fixed_escape_applied_charge(2) = -1.0_dp
   ledger%fixed_escape_correction(2) = -0.25_dp
   call batch2%init(2_i32)
   call batch2%reset(2_i32)
   batch2%absorbed_on_surface(1) = -6.0_dp
   batch2%fixed_absorbed_target_charge(1) = -3.0_dp
-  batch2%fixed_absorbed_applied_charge(1) = -3.0_dp
   batch2%fixed_absorbed_weight_scale(1) = 0.5_dp
   batch2%emitted_from_surface(2) = -1.0_dp
   batch2%fixed_emission_target_charge(2) = 3.0_dp
-  batch2%fixed_emission_applied_charge(2) = 3.0_dp
   batch2%fixed_emission_weight_scale(2) = 3.0_dp
   batch2%fixed_escape_target_charge(2) = -2.0_dp
-  batch2%fixed_escape_applied_charge(2) = -2.0_dp
   batch2%fixed_escape_correction(2) = -0.5_dp
   call accumulate_charge_ledger(cumulative, ledger)
   call accumulate_charge_ledger(cumulative, batch2)
@@ -73,10 +67,6 @@ program test_charge_ledger
   call assert_close_dp( &
     cumulative%fixed_escape_target_charge(2), -3.0_dp, 1.0d-14, &
     'cumulative fixed escape target mismatch' &
-    )
-  call assert_close_dp( &
-    cumulative%fixed_escape_applied_charge(2), -3.0_dp, 1.0d-14, &
-    'cumulative fixed escape applied mismatch' &
     )
   call assert_close_dp( &
     cumulative%fixed_escape_correction(2), -0.75_dp, 1.0d-14, &

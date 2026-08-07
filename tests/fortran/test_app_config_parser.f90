@@ -4,7 +4,7 @@ program test_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_redistributed_reflect
   use bem_app_config_types, only: particle_inflow_reservoir
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
-                            particles_per_batch_from_config, total_particles_from_config
+                            particles_per_batch_from_config
   use bem_config_helpers, only: resolve_particle_boundaries
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
@@ -87,7 +87,6 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_bc_mode) == 'periodic2', 'tutorial field boundary mismatch')
   call assert_equal_i32(cfg%n_particle_species, 1_i32, 'tutorial species count mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg), 1_i32, 'tutorial batch particle count mismatch')
-  call assert_equal_i32(total_particles_from_config(cfg), cfg%sim%batch_count, 'tutorial total particle count mismatch')
   call test_end()
 
   call test_begin('closed_photoelectron_config')

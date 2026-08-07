@@ -48,7 +48,6 @@ models do not rewrite triangle winding.
 | --- | --- | --- |
 | `insulator` | Retain charge on the hit element | Main v1.0 model |
 | `conductor` | Equalize each `mesh_id` object while conserving total charge | `field_bc_mode="free"` only |
-| `dielectric` | Retain charge and output `epsilon_r` metadata | Polarization not implemented |
 
 ## Insulator accumulation
 
@@ -103,11 +102,11 @@ influence matrix. It cannot be combined with periodic or outer fields; current
 validation accepts only `field_bc_mode="free"`. Check convergence of object
 potential and charge distribution with mesh refinement.
 
-## Dielectric metadata
+## Dielectric is not implemented
 
-`surface_model="dielectric"` and `epsilon_r` currently preserve geometry and material identity in output. BEACH does not solve
-permittivity interface conditions, normal-$\mathbf D$ jumps, polarization charge, or internal field. Supplying `epsilon_r` does
-not change field or charge update from the insulator behavior and must not be interpreted as dielectric polarization.
+Input no longer accepts `surface_model="dielectric"` or `epsilon_r`. They previously acted as metadata aliases while running
+the insulator calculation, which could be mistaken for a polarization model. A distinct dielectric model requires implemented
+permittivity interface conditions, normal-$\mathbf D$ jumps, polarization charge, and internal fields.
 
 ## OpenMP and MPI commit
 

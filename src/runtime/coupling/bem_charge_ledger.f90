@@ -23,13 +23,10 @@ module bem_charge_ledger
     real(dp), allocatable :: neutral_return_weight_scale(:)
     real(dp), allocatable :: neutral_return_unresolved_fraction(:)
     real(dp), allocatable :: fixed_absorbed_target_charge(:)
-    real(dp), allocatable :: fixed_absorbed_applied_charge(:)
     real(dp), allocatable :: fixed_absorbed_weight_scale(:)
     real(dp), allocatable :: fixed_emission_target_charge(:)
-    real(dp), allocatable :: fixed_emission_applied_charge(:)
     real(dp), allocatable :: fixed_emission_weight_scale(:)
     real(dp), allocatable :: fixed_escape_target_charge(:)
-    real(dp), allocatable :: fixed_escape_applied_charge(:)
     real(dp), allocatable :: fixed_escape_correction(:)
     real(dp), allocatable :: fixed_current_correction(:)
     integer(i64), allocatable :: injected_count(:)
@@ -66,11 +63,9 @@ contains
         self%absorbed_on_surface(nspecies), self%escaped_to_infinity(nspecies), &
         self%discarded_unresolved(nspecies), self%neutral_return_correction(nspecies), &
         self%neutral_return_weight_scale(nspecies), self%neutral_return_unresolved_fraction(nspecies), &
-        self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_applied_charge(nspecies), &
-        self%fixed_absorbed_weight_scale(nspecies), &
-        self%fixed_emission_target_charge(nspecies), self%fixed_emission_applied_charge(nspecies), &
-        self%fixed_emission_weight_scale(nspecies), &
-        self%fixed_escape_target_charge(nspecies), self%fixed_escape_applied_charge(nspecies), &
+        self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
+        self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &
+        self%fixed_escape_target_charge(nspecies), &
         self%fixed_escape_correction(nspecies), &
         self%fixed_current_correction(nspecies), &
         self%injected_count(nspecies), &
@@ -105,13 +100,10 @@ contains
     self%neutral_return_weight_scale = 1.0_dp
     self%neutral_return_unresolved_fraction = 0.0_dp
     self%fixed_absorbed_target_charge = 0.0_dp
-    self%fixed_absorbed_applied_charge = 0.0_dp
     self%fixed_absorbed_weight_scale = 1.0_dp
     self%fixed_emission_target_charge = 0.0_dp
-    self%fixed_emission_applied_charge = 0.0_dp
     self%fixed_emission_weight_scale = 1.0_dp
     self%fixed_escape_target_charge = 0.0_dp
-    self%fixed_escape_applied_charge = 0.0_dp
     self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
     self%injected_count = 0_i64
@@ -206,19 +198,10 @@ contains
       candidate%fixed_absorbed_target_charge, batch%fixed_absorbed_target_charge, 'fixed absorbed target charge' &
       )
     call checked_accumulate_charge_array( &
-      candidate%fixed_absorbed_applied_charge, batch%fixed_absorbed_applied_charge, 'fixed absorbed applied charge' &
-      )
-    call checked_accumulate_charge_array( &
       candidate%fixed_emission_target_charge, batch%fixed_emission_target_charge, 'fixed emission target charge' &
       )
     call checked_accumulate_charge_array( &
-      candidate%fixed_emission_applied_charge, batch%fixed_emission_applied_charge, 'fixed emission applied charge' &
-      )
-    call checked_accumulate_charge_array( &
       candidate%fixed_escape_target_charge, batch%fixed_escape_target_charge, 'fixed escape target charge' &
-      )
-    call checked_accumulate_charge_array( &
-      candidate%fixed_escape_applied_charge, batch%fixed_escape_applied_charge, 'fixed escape applied charge' &
       )
     call checked_accumulate_charge_array( &
       candidate%fixed_escape_correction, batch%fixed_escape_correction, 'fixed escape correction' &
@@ -416,13 +399,10 @@ contains
         .not. all(ieee_is_finite(ledger%neutral_return_weight_scale)) .or. &
         .not. all(ieee_is_finite(ledger%neutral_return_unresolved_fraction)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_absorbed_target_charge)) .or. &
-        .not. all(ieee_is_finite(ledger%fixed_absorbed_applied_charge)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_absorbed_weight_scale)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_emission_target_charge)) .or. &
-        .not. all(ieee_is_finite(ledger%fixed_emission_applied_charge)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_emission_weight_scale)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_escape_target_charge)) .or. &
-        .not. all(ieee_is_finite(ledger%fixed_escape_applied_charge)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_escape_correction)) .or. &
         .not. all(ieee_is_finite(ledger%fixed_current_correction))) then
       error stop trim(context)//' diagnostics must be finite.'
@@ -441,9 +421,9 @@ contains
       self%injected_from_remote, self%emitted_from_surface, self%absorbed_on_surface, &
       self%escaped_to_infinity, self%discarded_unresolved, self%neutral_return_correction, &
       self%neutral_return_weight_scale, self%neutral_return_unresolved_fraction, &
-      self%fixed_absorbed_target_charge, self%fixed_absorbed_applied_charge, self%fixed_absorbed_weight_scale, &
-      self%fixed_emission_target_charge, self%fixed_emission_applied_charge, self%fixed_emission_weight_scale, &
-      self%fixed_escape_target_charge, self%fixed_escape_applied_charge, self%fixed_escape_correction, &
+      self%fixed_absorbed_target_charge, self%fixed_absorbed_weight_scale, &
+      self%fixed_emission_target_charge, self%fixed_emission_weight_scale, &
+      self%fixed_escape_target_charge, self%fixed_escape_correction, &
       self%fixed_current_correction, &
       self%injected_count, self%emitted_count, self%absorbed_count, &
       self%escaped_count, self%discarded_unresolved_count &

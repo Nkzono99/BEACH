@@ -15,6 +15,8 @@ contains
   logical :: has_dynamic_source_species, has_enabled_volume_seed, adaptive_nonzero_mode, has_boundary_inflow
   character(len=64) :: generated_species_key
   character(len=256) :: physics_message
+  type(field_physics_config) :: field_config
+  type(panel_kernel_config) :: panel_config
 
   call lower_boundary_authoring(cfg, authoring)
   call normalize_high_level_config(cfg, authoring)
@@ -80,25 +82,23 @@ contains
   end select
   cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
   select case (trim(cfg%mesh_surface_model))
-  case ('insulator', 'conductor', 'dielectric')
+  case ('insulator', 'conductor')
     continue
+  case ('dielectric')
+    error stop 'mesh.surface_model="dielectric" is not implemented; use "insulator" for charge accumulation.'
   case default
-    error stop 'mesh.surface_model must be "insulator", "conductor", or "dielectric".'
+    error stop 'mesh.surface_model must be "insulator" or "conductor".'
   end select
-  if (.not. ieee_is_finite(cfg%mesh_epsilon_r) .or. cfg%mesh_epsilon_r < 1.0d0) then
-    error stop 'mesh.epsilon_r must be finite and >= 1.'
-  end if
   do i = 1, cfg%n_templates
     cfg%templates(i)%surface_model = lower_ascii(trim(cfg%templates(i)%surface_model))
     select case (trim(cfg%templates(i)%surface_model))
-    case ('insulator', 'conductor', 'dielectric')
+    case ('insulator', 'conductor')
       continue
+    case ('dielectric')
+      error stop 'mesh.templates.surface_model="dielectric" is not implemented; use "insulator".'
     case default
-      error stop 'mesh.templates.surface_model must be "insulator", "conductor", or "dielectric".'
+      error stop 'mesh.templates.surface_model must be "insulator" or "conductor".'
     end select
-    if (.not. ieee_is_finite(cfg%templates(i)%epsilon_r) .or. cfg%templates(i)%epsilon_r < 1.0d0) then
-      error stop 'mesh.templates.epsilon_r must be finite and >= 1.'
-    end if
   end do
   cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
   select case (trim(cfg%sim%field_solver))
@@ -148,25 +148,25 @@ contains
       error stop 'sim.field_periodic_ewald_layers must be >= 1 when far correction is enabled.'
     end if
   end if
-  if (cfg%sim%field_periodic_image_layers < 0_i32) then
-    error stop 'sim.field_periodic_image_layers must be >= 0.'
+  if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
+    if (cfg%sim%field_periodic_image_layers < 0_i32) then
+      error stop 'sim.field_periodic_image_layers must be >= 0 for periodic2.'
+    end if
   end if
-  if (trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0' .and. &
-      cfg%sim%field_periodic_image_layers < 1_i32) then
-    error stop 'cached_kneq0 requires sim.field_periodic_image_layers >= 1.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0d0) then
-    error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0.'
-  end if
-  if (cfg%sim%field_periodic_ewald_layers < 0_i32) then
-    error stop 'sim.field_periodic_ewald_layers must be >= 0.'
-  end if
-  if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
-    error stop 'sim.field_periodic_cache_dir must not be empty.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
-      cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
-    error stop 'sim.field_periodic_generation_tolerance must be finite and > 0.'
+  if (trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0') then
+    if (cfg%sim%field_periodic_image_layers < 1_i32) then
+      error stop 'cached_kneq0 requires sim.field_periodic_image_layers >= 1.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0d0) then
+      error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0 for cached_kneq0.'
+    end if
+    if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
+      error stop 'sim.field_periodic_cache_dir must not be empty for cached_kneq0.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
+        cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
+      error stop 'sim.field_periodic_generation_tolerance must be finite and > 0 for cached_kneq0.'
+    end if
   end if
   select case (trim(cfg%sim%field_solver))
   case ('direct', 'treecode', 'auto')
@@ -201,14 +201,16 @@ contains
   if (trim(cfg%sim%field_bc_mode) /= 'free' .and. config_uses_conductor_surface_model(cfg)) then
     error stop 'surface_model="conductor" currently requires sim.field_bc_mode="free".'
   end if
-  if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
-    error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1.'
-  end if
-  if (cfg%sim%tree_leaf_max < 1_i32) then
-    error stop 'sim.tree_leaf_max must be >= 1.'
-  end if
-  if (cfg%sim%tree_min_nelem < 1_i32) then
-    error stop 'sim.tree_min_nelem must be >= 1.'
+  if (trim(cfg%sim%field_solver) /= 'direct') then
+    if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0d0 .or. cfg%sim%tree_theta > 1.0d0) then
+      error stop 'sim.tree_theta must be finite and satisfy 0 < theta <= 1 for tree-capable solvers.'
+    end if
+    if (cfg%sim%tree_leaf_max < 1_i32) then
+      error stop 'sim.tree_leaf_max must be >= 1 for tree-capable solvers.'
+    end if
+    if (cfg%sim%tree_min_nelem < 1_i32) then
+      error stop 'sim.tree_min_nelem must be >= 1 for tree-capable solvers.'
+    end if
   end if
   call resolve_external_e_field(cfg)
   cfg%sim%reservoir_potential_model = lower_ascii(trim(cfg%sim%reservoir_potential_model))
@@ -232,18 +234,17 @@ contains
   case default
     error stop 'sim.multiple_box_events_policy must be "abort" or "soft_discard".'
   end select
-  if (cfg%sim%multiple_box_events_soft_discard_count_limit < 1_i32) then
-    error stop 'sim.multiple_box_events_soft_discard_count_limit must be >= 1.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%multiple_box_events_soft_discard_abs_charge_limit) .or. &
-      cfg%sim%multiple_box_events_soft_discard_abs_charge_limit <= 0.0_dp) then
-    error stop 'sim.multiple_box_events_soft_discard_abs_charge_limit must be finite and > 0.'
+  if (trim(cfg%sim%multiple_box_events_policy) == 'soft_discard') then
+    if (cfg%sim%multiple_box_events_soft_discard_count_limit < 1_i32) then
+      error stop 'sim.multiple_box_events_soft_discard_count_limit must be >= 1 for soft_discard.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%multiple_box_events_soft_discard_abs_charge_limit) .or. &
+        cfg%sim%multiple_box_events_soft_discard_abs_charge_limit <= 0.0_dp) then
+      error stop 'sim.multiple_box_events_soft_discard_abs_charge_limit must be finite and > 0 for soft_discard.'
+    end if
   end if
   if (cfg%sim%injection_face_phi_grid_n < 1_i32) then
     error stop 'sim.injection_face_phi_grid_n must be >= 1.'
-  end if
-  if (cfg%sim%raycast_max_bounce < 1_i32) then
-    error stop 'sim.raycast_max_bounce must be >= 1.'
   end if
   if (.not. ieee_is_finite(cfg%sim%phi_infty)) then
     error stop 'sim.phi_infty must be finite.'
@@ -442,6 +443,9 @@ contains
       has_dynamic_source_species = .true.
       call validate_plane_source_species(cfg, i)
     case ('photo_raycast')
+      if (cfg%sim%raycast_max_bounce < 1_i32) then
+        error stop 'sim.raycast_max_bounce must be >= 1 when photo_raycast is enabled.'
+      end if
       if (cfg%particle_species(i)%has_source_normal) then
         error stop 'source_normal is only valid for source_mode="plane_source".'
       end if
@@ -481,8 +485,8 @@ contains
       end if
     end do
   end if
-  cfg%n_particles = cfg%sim%batch_count*per_batch_particles
-  call validate_active_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel, physics_status, physics_message)
+  call derive_field_panel_config(cfg%sim, field_config, panel_config)
+  call validate_active_physics_config(cfg%sim, field_config, cfg%periodic2, panel_config, physics_status, physics_message)
   if (physics_status /= physics_config_ok) error stop trim(physics_message)
   end procedure finalize_loaded_config
 

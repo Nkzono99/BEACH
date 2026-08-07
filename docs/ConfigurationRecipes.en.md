@@ -84,7 +84,8 @@ n_lat = 12
 
 **Interpretation:** Increasing the resolution also increases field-evaluation and collision costs. Check placement and collisions
 with a coarse mesh first. Use `surface_model="insulator"` for the standard charging model.
-`conductor` is supported only with `field_boundary.mode="free"`, and `dielectric` `epsilon_r` is currently metadata; polarization is not solved.
+`conductor` is supported only with `field_boundary.mode="free"`. `dielectric` and `epsilon_r` are rejected because
+polarization is not implemented.
 
 **Next choice:** See the
 [built-in geometry reference](Parameters.en.html#meshtemplates-built-in-geometries) for element counts and constraints.

@@ -443,9 +443,8 @@ $$
 `volume_seed`とは併用できません。
 
 `sim.batch_count` は accepted batch数であり、`simulated_time_s` は受理した幅の総和です。
-適応runの再開では、加算順と受理ladderを再現するため、checkpoint作成時と同じ
-実OpenMP team sizeを使う必要があります。適応区間ではdynamic teamを無効化し、全MPI rankの
-team size不一致またはcheckpointとの不一致はfail-fastします。
+適応区間ではdynamic teamを無効化し、同じ実行内では全MPI rankの実OpenMP team sizeを揃えます。
+restart前後のteam size一致は要求せず、再開後の実team sizeを新しい診断値として記録します。
 
 この判定は frozen-field近似中の局所電位変化を制限するtrust boundであり、局所打切り誤差を
 保証しません。結果の時間幅収束は、この上限を半分にした計算と比較してください。
@@ -735,7 +734,6 @@ species境界が`inherit`なら`[particle_boundary]`の作用を使います。c
 | `obj_path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
 | `surface_model` | string | `"insulator"` | OBJ 全体の表面モデル |
 | `surface_side` | string | `mode="obj"`または`"auto"`で必須 | OBJ panelの真空側: `normal_plus` / `normal_minus` / `outward_closed` |
-| `epsilon_r` | float | `1.0` | OBJ 全体の相対誘電率。`>= 1` |
 | `obj_scale` | float | `1.0` | OBJ 読み込み後の一様スケール |
 | `obj_rotation` | float[3] | `[0,0,0]` | OBJ 読み込み後の回転角 [deg] |
 | `obj_offset` | float[3] | `[0,0,0]` | OBJ 読み込み後の平行移動 [m] |
@@ -770,9 +768,8 @@ OBJ の対応範囲:
 |---|---|---:|---|
 | `enabled` | bool | `true` | template を有効化 |
 | `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
-| `surface_model` | string | `"insulator"` | `insulator` / `conductor` / `dielectric` |
+| `surface_model` | string | `"insulator"` | `insulator` / `conductor` |
 | `surface_side` | string | `enabled=true` で必須 | panel の真空側: `normal_plus` / `normal_minus` / `outward_closed` |
-| `epsilon_r` | float | `1.0` | 相対誘電率。`>= 1` |
 | `center` | float[3] | `[0,0,0]` | 形状中心 [m] |
 
 `[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は定義件数で決まります。
@@ -909,7 +906,9 @@ z 軸方向の円柱です。
 |---|---|
 | `insulator` | 衝突粒子の電荷を要素へ蓄積 |
 | `conductor` | `mesh_id` ごとの浮遊導体として、総電荷を保存しながら等電位になるよう要素電荷を再配分 |
-| `dielectric` | `epsilon_r` をメタデータとして保存。現行の場計算・電荷蓄積では誘電体分極をまだ分岐しない |
+
+`dielectric`と`epsilon_r`は、分極を解かないmetadata aliasになっていたため入力から削除しました。
+誘電体分極、誘電率interface条件、内部fieldは未実装です。
 
 `conductor` の制約:
 
@@ -928,7 +927,7 @@ z 軸方向の円柱です。
 | --- | --- |
 | source | 各 `q_elem` を三角形上の一様な面電荷密度として扱う |
 | solver | `direct` / `treecode` / `fmm` / `auto`。`auto` は `tree_min_nelem` で direct / FMM を選ぶ |
-| 対象表面 | `insulator` / `conductor` / `dielectric` の共通 source 離散化 |
+| 対象表面 | `insulator` / `conductor` の共通 source 離散化 |
 | Treecode | 厳密 panel near + monopole far |
 | FMM | 厳密 panel near + 厳密 triangle P2M |
 | 面の向き | OBJ は `[mesh].surface_side`、template は各 `[[mesh.templates]].surface_side` を指定 |
@@ -957,7 +956,7 @@ z 軸方向の円柱です。
 | `summary.txt` | 実行統計と設定概要 |
 | `charges.csv` | 最終要素電荷 |
 | `mesh_triangles.csv` | 要素 geometry。`mesh_id` 列を含む |
-| `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、`epsilon_r`、要素数 |
+| `mesh_sources.csv` | `mesh_id` ごとの元メッシュ種別、表面モデル、互換用`epsilon_r`列、要素数。現行入力では`epsilon_r=1` |
 | `mesh_potential.csv` | `write_mesh_potential=true` のとき |
 | `charge_history.csv` | `history_stride > 0` のとき |
 | `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` のとき |

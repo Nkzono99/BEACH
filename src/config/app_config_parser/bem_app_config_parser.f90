@@ -6,7 +6,9 @@ module bem_app_config_parser
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
     particle_inflow_reservoir, species_from_defaults
-  use bem_physics_config_types, only: normalize_legacy_physics_config, validate_active_physics_config, physics_config_ok
+  use bem_physics_config_types, only: &
+    field_physics_config, panel_kernel_config, normalize_legacy_physics_config, derive_field_panel_config, &
+    validate_active_physics_config, physics_config_ok
   use bem_app_config_authoring, only: &
     app_config_authoring, sim_authoring_spec, particle_authoring_spec, template_authoring_spec, mesh_group_authoring_spec, &
     domain_authoring_spec, field_boundary_authoring_spec, particle_boundary_authoring_spec, reservoir_authoring_spec, &
@@ -1168,8 +1170,6 @@ contains
       case ('surface_side')
         call get_toml_string(table, keys(ikey), cfg%mesh_surface_side_policy, 'mesh.surface_side')
         cfg%mesh_surface_side_policy = lower_ascii(trim(cfg%mesh_surface_side_policy))
-      case ('epsilon_r')
-        call get_toml_real(table, keys(ikey), cfg%mesh_epsilon_r, 'mesh.epsilon_r')
       case ('obj_scale')
         call get_toml_real(table, keys(ikey), cfg%obj_scale, 'mesh.obj_scale')
       case ('obj_rotation')
@@ -1310,8 +1310,6 @@ contains
       case ('surface_side')
         call get_toml_string(table, keys(ikey), spec%surface_side_policy, 'mesh.templates.surface_side')
         spec%surface_side_policy = lower_ascii(trim(spec%surface_side_policy))
-      case ('epsilon_r')
-        call get_toml_real(table, keys(ikey), spec%epsilon_r, 'mesh.templates.epsilon_r')
       case ('center')
         call get_toml_real3(table, keys(ikey), spec%center, 'mesh.templates.center')
         auth%has_center = .true.

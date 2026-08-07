@@ -487,6 +487,42 @@ def test_load_config_file_rejects_conductor_with_periodic2(tmp_path: Path) -> No
         load_config_file(config_path)
 
 
+def test_config_rejects_unimplemented_dielectric_inputs() -> None:
+    config = default_config()
+    config["mesh"]["templates"][0]["surface_model"] = "dielectric"
+    with pytest.raises(ConfigValidationError, match="dielectric.*not implemented"):
+        normalize_config_document(config)
+
+    config = default_config()
+    config["mesh"]["templates"][0]["epsilon_r"] = 3.9
+    with pytest.raises(ConfigValidationError, match="epsilon_r was removed"):
+        normalize_config_document(config)
+
+
+def test_inactive_sim_controls_do_not_enforce_backend_specific_bounds() -> None:
+    config = default_config()
+    config["sim"].update(
+        {
+            "field_solver": "direct",
+            "field_periodic_far_correction": "none",
+            "field_periodic_generation_tolerance": -1.0,
+            "field_periodic_cache_dir": "",
+            "tree_theta": -1.0,
+            "tree_leaf_max": 0,
+            "tree_min_nelem": 0,
+            "multiple_box_events_policy": "abort",
+            "multiple_box_events_soft_discard_count_limit": 0,
+            "multiple_box_events_soft_discard_abs_charge_limit": -1.0,
+            "raycast_max_bounce": 0,
+        }
+    )
+    config["field_boundary"]["mode"] = "free"
+
+    normalized = normalize_config_document(config)
+
+    assert normalized["sim"]["field_solver"] == "direct"
+
+
 def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     _write_base_config(config_path)

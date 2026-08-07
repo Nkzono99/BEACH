@@ -195,9 +195,9 @@ $$
 狭い box、または高速粒子を検出する安全上限です。guard 幅を変えてもこの上限は変わりません。
 
 既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
-感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させ、batch、rank、
-particle、species、step、macro charge、位置、速度を標準エラーへ記録します。件数と絶対macro chargeは
-`summary.txt`、restart、charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
+感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させます。標準エラーには
+batchごとの全rank合計件数と絶対macro chargeだけを記録します。同じ集計値は`summary.txt`、restart、
+charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
 これは局所的な数値回避策であり、物理境界条件そのものの代替ではありません。
 
 ## 判定を完了できなければ停止する

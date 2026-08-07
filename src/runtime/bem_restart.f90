@@ -6,7 +6,9 @@ module bem_restart
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
-  use bem_physics_config_types, only: validate_active_physics_config, physics_config_ok
+  use bem_physics_config_types, only: &
+    field_physics_config, panel_kernel_config, derive_field_panel_config, &
+    validate_active_physics_config, physics_config_ok
   use bem_checkpoint_contract, only: checkpoint_schema_is_loadable, checkpoint_schema_version_current, &
                                      inspect_checkpoint_directory
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
@@ -155,6 +157,8 @@ contains
     logical :: found_schema, found_model, found_mesh, found_species
     integer(i32) :: physics_status
     character(len=256) :: physics_message
+    type(field_physics_config) :: field_config
+    type(panel_kernel_config) :: panel_config
 
     status = restart_contract_ok
     message = ''
@@ -205,8 +209,9 @@ contains
 
     ! Legacy checkpoints predate fingerprints and are accepted only for implemented Phase 0 point-source modes.
     if (.not. found_schema) then
+      call derive_field_panel_config(app%sim, field_config, panel_config)
       call validate_active_physics_config( &
-        app%sim, app%field, app%periodic2, app%panel, physics_status, physics_message &
+        app%sim, field_config, app%periodic2, panel_config, physics_status, physics_message &
         )
       if (physics_status /= physics_config_ok) then
         status = restart_contract_mismatch
@@ -571,6 +576,10 @@ contains
       if (species_idx < 1_i32 .or. species_idx > nspecies) error stop 'Resume charge ledger species index is invalid.'
       if (seen(species_idx)) error stop 'Resume charge ledger contains duplicate species rows.'
       if (any(.not. ieee_is_finite(charge_values))) error stop 'Resume charge ledger charges must be finite.'
+      if (charge_values(14) /= charge_values(9) .or. charge_values(15) /= charge_values(11) .or. &
+          charge_values(17) /= charge_values(16)) then
+        error stop 'Resume charge ledger applied-charge aliases must match their target charges.'
+      end if
       if (any(count_values < 0_i64)) error stop 'Resume charge ledger counts must be nonnegative.'
       seen(species_idx) = .true.
       ledger%injected_from_remote(species_idx) = charge_values(1)
@@ -581,15 +590,14 @@ contains
       ledger%neutral_return_correction(species_idx) = charge_values(6)
       ledger%neutral_return_weight_scale(species_idx) = charge_values(7)
       ledger%neutral_return_unresolved_fraction(species_idx) = charge_values(8)
+      ! Applied-charge CSV columns are backward-compatible aliases.  Only the
+      ! target charge is retained in memory because the closure applies it exactly.
       ledger%fixed_absorbed_target_charge(species_idx) = charge_values(9)
       ledger%fixed_absorbed_weight_scale(species_idx) = charge_values(10)
       ledger%fixed_emission_target_charge(species_idx) = charge_values(11)
       ledger%fixed_emission_weight_scale(species_idx) = charge_values(12)
       ledger%fixed_current_correction(species_idx) = charge_values(13)
-      ledger%fixed_absorbed_applied_charge(species_idx) = charge_values(14)
-      ledger%fixed_emission_applied_charge(species_idx) = charge_values(15)
       ledger%fixed_escape_target_charge(species_idx) = charge_values(16)
-      ledger%fixed_escape_applied_charge(species_idx) = charge_values(17)
       ledger%fixed_escape_correction(species_idx) = charge_values(18)
       ledger%injected_count(species_idx) = count_values(1)
       ledger%emitted_count(species_idx) = count_values(2)

@@ -198,9 +198,9 @@ One local continuation processes at most eight box events. If a ninth is require
 large `dt`, narrow box, or fast particle; changing the scale-aware guard does not change it.
 
 The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
-`"soft_discard"` removes the affected macro-particle and records batch, rank, particle, species, step, macro charge,
-position, and velocity on standard error. Count and absolute macro charge are also retained in `summary.txt`, restart,
-and the charge ledger. The run aborts when either configured cumulative limit is exceeded. This is a bounded numerical
+`"soft_discard"` removes the affected macro-particle. Standard error records only the per-batch, all-rank count and
+absolute macro charge. The same aggregates are retained in `summary.txt`, restart, and the charge ledger. The run aborts
+when either configured cumulative limit is exceeded. This is a bounded numerical
 workaround for qualitative comparisons, not a replacement for a physical boundary model.
 
 ## Stop when the query cannot be completed

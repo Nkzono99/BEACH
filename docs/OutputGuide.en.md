@@ -76,13 +76,14 @@ With `write_mesh_potential=true`, BEACH writes `mesh_potential.csv`.
 - `fixed_absorbed_target_charge_C` and `fixed_absorbed_weight_scale`
 - `fixed_emission_target_charge_C` and `fixed_emission_weight_scale`
 - `fixed_current_correction_C` added to surface charge by the external closure
-- applied absorption/emission values in `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`
-- external-escape values in `fixed_escape_target_charge_C` / `fixed_escape_applied_charge_C`
+- compatibility columns `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`, equal to their target columns
+- external escape in `fixed_escape_target_charge_C` plus the equal compatibility column `fixed_escape_applied_charge_C`
 - the difference from raw escape in `fixed_escape_correction_C`
 
 `escaped_to_infinity_C` remains the raw trajectory result. Zhao fixed-current operation preserves it and stores the
 external escape target alongside it. Because the escape correction is not deposited onto surface elements, analysis
 can keep the surface update separate from the external-boundary budget.
+The `*_applied_charge_C` fields remain as output aliases for existing readers; the in-memory ledger stores only targets.
 
 `charge_ledger_residual_C` in `summary.txt` combines changes in surface,
 local-flight, and unresolved stocks with external fluxes, the neutral-return

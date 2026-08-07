@@ -33,9 +33,7 @@ _RESERVED_TOP_LEVEL_KEYS = frozenset(
 )
 _FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
 _RESERVOIR_SOURCE_MODES = frozenset({"reservoir_face", "plane_source"})
-_FACE_KEYS = frozenset(
-    {"x_low", "x_high", "y_low", "y_high", "z_low", "z_high"}
-)
+_FACE_KEYS = frozenset({"x_low", "x_high", "y_low", "y_high", "z_low", "z_high"})
 _REMOVED_SIM_KEYS = frozenset(
     {
         "reservoir_potential_model",
@@ -911,9 +909,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         adaptive_nonzero_mode_limit = float(raw_adaptive_limit)
 
     field_bc_mode = (
-        field_boundary.get("mode", "free")
-        if field_boundary is not None
-        else "free"
+        field_boundary.get("mode", "free") if field_boundary is not None else "free"
     )
     field_solver = sim.get("field_solver", "auto")
     if field_solver not in {"direct", "treecode", "fmm", "auto"}:
@@ -921,6 +917,77 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             'BEACH constraint error: sim.field_solver must be "direct", "treecode", '
             '"fmm", or "auto".'
         )
+    if field_solver != "direct":
+        tree_theta = sim.get("tree_theta", 0.5)
+        if (
+            not isinstance(tree_theta, (int, float))
+            or isinstance(tree_theta, bool)
+            or not math.isfinite(float(tree_theta))
+            or not 0.0 < float(tree_theta) <= 1.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.tree_theta must satisfy 0 < theta <= 1 "
+                "for tree-capable solvers."
+            )
+        for key, default in (("tree_leaf_max", 16), ("tree_min_nelem", 256)):
+            value = sim.get(key, default)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise ConfigValidationError(
+                    f"BEACH constraint error: sim.{key} must be an integer >= 1 "
+                    "for tree-capable solvers."
+                )
+    if (
+        field_bc_mode == "periodic2"
+        and sim.get("field_periodic_far_correction", "none") == "cached_kneq0"
+    ):
+        image_layers = sim.get("field_periodic_image_layers", 1)
+        ewald_layers = sim.get("field_periodic_ewald_layers", 4)
+        ewald_alpha = sim.get("field_periodic_ewald_alpha", 0.0)
+        if (
+            not isinstance(image_layers, int)
+            or isinstance(image_layers, bool)
+            or image_layers < 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.field_periodic_image_layers must be an integer >= 1 "
+                "for cached_kneq0."
+            )
+        if (
+            not isinstance(ewald_layers, int)
+            or isinstance(ewald_layers, bool)
+            or ewald_layers < 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.field_periodic_ewald_layers must be an integer >= 1 "
+                "for cached_kneq0."
+            )
+        if (
+            not isinstance(ewald_alpha, (int, float))
+            or isinstance(ewald_alpha, bool)
+            or not math.isfinite(float(ewald_alpha))
+            or float(ewald_alpha) < 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.field_periodic_ewald_alpha must be finite and >= 0 "
+                "for cached_kneq0."
+            )
+        tolerance = sim.get("field_periodic_generation_tolerance", 1.0e-8)
+        if (
+            not isinstance(tolerance, (int, float))
+            or isinstance(tolerance, bool)
+            or not math.isfinite(float(tolerance))
+            or float(tolerance) <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.field_periodic_generation_tolerance must be "
+                "finite and > 0 for cached_kneq0."
+            )
+        cache_dir = sim.get("field_periodic_cache_dir", ".beach_cache/periodic2")
+        if not isinstance(cache_dir, str) or not cache_dir:
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.field_periodic_cache_dir must be a non-empty "
+                "string for cached_kneq0."
+            )
     phi_infty = reservoir.get("phi_infty", 0.0) if reservoir is not None else 0.0
     if (
         not isinstance(phi_infty, (int, float))
@@ -1002,8 +1069,50 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         if domain is not None
         else None
     )
-    periodic_axes = set(domain.get("periodic_axes", [])) if domain is not None else set()
+    periodic_axes = (
+        set(domain.get("periodic_axes", [])) if domain is not None else set()
+    )
     global_particle_boundary = particle_boundary or {}
+
+    multiple_event_policy = sim.get("multiple_box_events_policy", "abort")
+    if multiple_event_policy == "soft_discard":
+        count_limit = sim.get("multiple_box_events_soft_discard_count_limit", 1000)
+        charge_limit = sim.get(
+            "multiple_box_events_soft_discard_abs_charge_limit", 1.0e-12
+        )
+        if (
+            not isinstance(count_limit, int)
+            or isinstance(count_limit, bool)
+            or count_limit < 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: soft_discard count limit must be an integer >= 1."
+            )
+        if (
+            not isinstance(charge_limit, (int, float))
+            or isinstance(charge_limit, bool)
+            or not math.isfinite(float(charge_limit))
+            or float(charge_limit) <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: soft_discard absolute charge limit must be finite and > 0."
+            )
+
+    if any(
+        bool(item.get("enabled", True))
+        and item.get("source_mode", "volume_seed") == "photo_raycast"
+        for item in species
+    ):
+        max_bounce = sim.get("raycast_max_bounce", 16)
+        if (
+            not isinstance(max_bounce, int)
+            or isinstance(max_bounce, bool)
+            or max_bounce < 1
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.raycast_max_bounce must be an integer >= 1 "
+                "when photo_raycast is enabled."
+            )
 
     uses_face_sources = False
     has_volume_seed = False
@@ -1027,9 +1136,8 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             periodic_axes=periodic_axes,
             effective_boundary=effective_particle_boundary,
         )
-        has_reservoir_injection = (
-            source_mode in _RESERVOIR_SOURCE_MODES
-            or bool(boundary_inflow_faces)
+        has_reservoir_injection = source_mode in _RESERVOIR_SOURCE_MODES or bool(
+            boundary_inflow_faces
         )
         if has_reservoir_injection:
             uses_face_sources = True
@@ -1044,9 +1152,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 index=index,
                 source_mode=source_mode,
             )
-        surface_charge_closure = species_table.get(
-            "surface_charge_closure", "explicit"
-        )
+        surface_charge_closure = species_table.get("surface_charge_closure", "explicit")
         if surface_charge_closure not in {
             "explicit",
             "fixed_current",
@@ -1078,9 +1184,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                     "fixed_current requires at least one target current."
                 )
             q_particle = species_table.get("q_particle", -1.602176634e-19)
-            if not isinstance(q_particle, (int, float)) or isinstance(
-                q_particle, bool
-            ):
+            if not isinstance(q_particle, (int, float)) or isinstance(q_particle, bool):
                 raise ConfigValidationError(
                     f"BEACH constraint error: particles.species[{index}]."
                     "q_particle must be numeric for fixed_current."
@@ -1655,6 +1759,7 @@ def _validate_high_level_fragment(
                     'but source_mode must be "reservoir_face" or "photo_raycast".'
                 )
 
+
 def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
     dt = float(sim.get("dt", 1.0e-9))
     has_batch_duration = "batch_duration" in sim
@@ -1910,9 +2015,7 @@ def _optional_runtime_table(
     if value is None:
         return None
     if not isinstance(value, Mapping):
-        raise ConfigValidationError(
-            f"BEACH constraint error: [{key}] must be a table."
-        )
+        raise ConfigValidationError(f"BEACH constraint error: [{key}] must be a table.")
     return dict(value)
 
 
@@ -2062,9 +2165,7 @@ def _validate_species_particle_boundary(
     if unknown:
         raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}].boundary has "
-            "unsupported key(s): "
-            + ", ".join(sorted(unknown))
-            + "."
+            "unsupported key(s): " + ", ".join(sorted(unknown)) + "."
         )
 
     effective: dict[str, str] = {}
@@ -2113,9 +2214,7 @@ def _validate_species_boundary_inflow(
     if unknown:
         raise ConfigValidationError(
             f"BEACH constraint error: particles.species[{index}].boundary_inflow has "
-            "unsupported key(s): "
-            + ", ".join(sorted(unknown))
-            + "."
+            "unsupported key(s): " + ", ".join(sorted(unknown)) + "."
         )
 
     enabled_faces: list[str] = []
@@ -2231,9 +2330,7 @@ def _validate_reservoir_physics(
                 )
 
     velocity_distribution = (
-        str(species_table.get("velocity_distribution", "maxwellian"))
-        .strip()
-        .lower()
+        str(species_table.get("velocity_distribution", "maxwellian")).strip().lower()
     )
     if velocity_distribution == "grid":
         npcls_per_step = species_table.get("npcls_per_step", 0)
@@ -2359,9 +2456,7 @@ def _validate_plane_source_geometry(
                     f"BEACH constraint error: particles.species[{index}] plane_source "
                     "must lie strictly inside the box along its normal axis."
                 )
-        elif not (
-            low_bound <= pos_low[axis] < pos_high[axis] <= high_bound
-        ):
+        elif not (low_bound <= pos_low[axis] < pos_high[axis] <= high_bound):
             raise ConfigValidationError(
                 f"BEACH constraint error: particles.species[{index}] plane_source "
                 "must have positive in-box extent along both tangential axes."
@@ -2395,7 +2490,10 @@ def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
         mesh.get("surface_model", "insulator"),
         name="mesh.surface_model",
     )
-    _validate_epsilon_r(mesh.get("epsilon_r", 1.0), name="mesh.epsilon_r")
+    if "epsilon_r" in mesh:
+        raise ConfigValidationError(
+            "BEACH constraint error: mesh.epsilon_r was removed because dielectric polarization is not implemented."
+        )
     templates = mesh.get("templates")
     if templates is None:
         return
@@ -2426,10 +2524,11 @@ def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> No
         template.get("surface_model", "insulator"),
         name=f"mesh.templates[{index}].surface_model",
     )
-    _validate_epsilon_r(
-        template.get("epsilon_r", 1.0),
-        name=f"mesh.templates[{index}].epsilon_r",
-    )
+    if "epsilon_r" in template:
+        raise ConfigValidationError(
+            f"BEACH constraint error: mesh.templates[{index}].epsilon_r was removed because "
+            "dielectric polarization is not implemented."
+        )
     if enabled:
         _validate_surface_side(
             template.get("surface_side"),
@@ -2514,9 +2613,14 @@ def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> No
 def _validate_surface_model(value: object, *, name: str) -> None:
     if not isinstance(value, str):
         raise ConfigValidationError(f"BEACH constraint error: {name} must be a string.")
-    if value not in {"insulator", "conductor", "dielectric"}:
+    if value == "dielectric":
         raise ConfigValidationError(
-            f'BEACH constraint error: {name} must be "insulator", "conductor", or "dielectric".'
+            f'BEACH constraint error: {name}="dielectric" is not implemented; '
+            'use "insulator" for charge accumulation.'
+        )
+    if value not in {"insulator", "conductor"}:
+        raise ConfigValidationError(
+            f'BEACH constraint error: {name} must be "insulator" or "conductor".'
         )
 
 
@@ -2559,15 +2663,6 @@ def _validate_nonnegative_finite_number(value: object, *, name: str) -> None:
         raise ConfigValidationError(f"BEACH constraint error: {name} must be finite.")
     if numeric < 0.0:
         raise ConfigValidationError(f"BEACH constraint error: {name} must be >= 0.")
-
-
-def _validate_epsilon_r(value: object, *, name: str) -> None:
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        raise ConfigValidationError(f"BEACH constraint error: {name} must be numeric.")
-    if not math.isfinite(float(value)):
-        raise ConfigValidationError(f"BEACH constraint error: {name} must be finite.")
-    if float(value) < 1.0:
-        raise ConfigValidationError(f"BEACH constraint error: {name} must be >= 1.")
 
 
 def _positive_template_scalar(

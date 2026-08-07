@@ -31,22 +31,24 @@ contains
     ! boundary-event velocity and surface-launch trajectories used different rules.
     call feed_string(hash, 'boundary_event_chord_work_velocity_v4')
     call feed_string(hash, 'surface_injection_ulp_launch_v2')
-    call feed_string(hash, cfg%field%backend)
-    call feed_string(hash, cfg%field%normalization)
-    call feed_string(hash, cfg%periodic2%nonzero_mode_backend)
-    call feed_string(hash, cfg%periodic2%zero_mode_policy)
-    call feed_string(hash, cfg%periodic2%lower_boundary_model)
-    call feed_integer(hash, cfg%periodic2%reference_mode_layers)
-    call feed_integer(hash, cfg%periodic2%panel_quadrature_order)
-    if (cfg%periodic2%max_nonzero_mode_potential_step > 0.0_dp) then
-      call feed_string(hash, 'adaptive_nonzero_mode_v1')
-      call feed_real(hash, cfg%periodic2%max_nonzero_mode_potential_step)
+    call feed_string(hash, cfg%sim%field_solver)
+    call feed_string(hash, cfg%sim%field_normalization)
+    if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
+      call feed_string(hash, cfg%periodic2%nonzero_mode_backend)
+      call feed_string(hash, cfg%periodic2%zero_mode_policy)
+      call feed_string(hash, cfg%periodic2%lower_boundary_model)
+      call feed_integer(hash, cfg%periodic2%reference_mode_layers)
+      call feed_integer(hash, cfg%periodic2%panel_quadrature_order)
+      if (cfg%periodic2%max_nonzero_mode_potential_step > 0.0_dp) then
+        call feed_string(hash, 'adaptive_nonzero_mode_v1')
+        call feed_real(hash, cfg%periodic2%max_nonzero_mode_potential_step)
+      end if
     end if
     ! Preserve the former source-model slot at the only supported model so
     ! existing triangle_p0 checkpoints keep the same ordered fingerprint.
     call feed_string(hash, 'triangle_p0')
-    call feed_string(hash, cfg%panel%kernel_id)
-    call feed_string(hash, cfg%panel%surface_side_policy)
+    call feed_string(hash, 'derived_triangle_p0_kernel')
+    call feed_string(hash, 'per_element')
     call feed_real(hash, cfg%sim%dt)
     call feed_integer(hash, cfg%sim%max_step)
     call feed_real(hash, cfg%sim%batch_duration)
@@ -55,29 +57,35 @@ contains
     call feed_logical(hash, cfg%sim%has_batch_duration_step)
     ! Preserve the retired softening slot at the triangle_p0 contract value.
     call feed_real(hash, 0.0_dp)
-    call feed_real(hash, cfg%sim%field_length_scale)
+    if (trim(cfg%sim%field_normalization) == 'length') call feed_real(hash, cfg%sim%field_length_scale)
     call feed_string(hash, cfg%sim%field_bc_mode)
-    call feed_integer(hash, cfg%sim%field_periodic_image_layers)
-    call feed_real(hash, cfg%sim%field_periodic_ewald_alpha)
-    call feed_integer(hash, cfg%sim%field_periodic_ewald_layers)
-    call feed_real(hash, cfg%sim%field_periodic_generation_tolerance)
-    call feed_real(hash, cfg%sim%tree_theta)
-    call feed_logical(hash, cfg%sim%has_tree_theta)
-    call feed_integer(hash, cfg%sim%tree_leaf_max)
-    call feed_logical(hash, cfg%sim%has_tree_leaf_max)
-    call feed_integer(hash, cfg%sim%tree_min_nelem)
+    if (trim(cfg%sim%field_bc_mode) == 'periodic2') then
+      call feed_integer(hash, cfg%sim%field_periodic_image_layers)
+      if (trim(cfg%sim%field_periodic_far_correction) == 'cached_kneq0') then
+        call feed_real(hash, cfg%sim%field_periodic_ewald_alpha)
+        call feed_integer(hash, cfg%sim%field_periodic_ewald_layers)
+        call feed_real(hash, cfg%sim%field_periodic_generation_tolerance)
+      end if
+    end if
+    if (trim(cfg%sim%field_solver) /= 'direct') then
+      call feed_real(hash, cfg%sim%tree_theta)
+      call feed_logical(hash, cfg%sim%has_tree_theta)
+      call feed_integer(hash, cfg%sim%tree_leaf_max)
+      call feed_logical(hash, cfg%sim%has_tree_leaf_max)
+      call feed_integer(hash, cfg%sim%tree_min_nelem)
+    end if
     call feed_real_vector(hash, cfg%sim%e0)
     call feed_real_vector(hash, cfg%sim%b0)
     call feed_string(hash, cfg%sim%reservoir_potential_model)
-    call feed_real(hash, cfg%sim%phi_infty)
+    if (trim(cfg%sim%reservoir_potential_model) /= 'none' .or. &
+        trim(cfg%sim%open_boundary_model) == 'potential_barrier') call feed_real(hash, cfg%sim%phi_infty)
     call feed_string(hash, cfg%sim%open_boundary_model)
     if (trim(cfg%sim%multiple_box_events_policy) /= 'abort') then
       call feed_string(hash, cfg%sim%multiple_box_events_policy)
       call feed_integer(hash, cfg%sim%multiple_box_events_soft_discard_count_limit)
       call feed_real(hash, cfg%sim%multiple_box_events_soft_discard_abs_charge_limit)
     end if
-    call feed_integer(hash, cfg%sim%injection_face_phi_grid_n)
-    call feed_integer(hash, cfg%sim%raycast_max_bounce)
+    if (uses_photo_raycast(cfg)) call feed_integer(hash, cfg%sim%raycast_max_bounce)
     call feed_logical(hash, cfg%sim%use_box)
     call feed_real_vector(hash, cfg%sim%box_min)
     call feed_real_vector(hash, cfg%sim%box_max)
@@ -126,6 +134,20 @@ contains
     end do
   end function uses_redistributed_reflect
 
+  pure logical function uses_photo_raycast(cfg) result(uses)
+    type(app_config), intent(in) :: cfg
+    integer(i32) :: species
+
+    uses = .false.
+    do species = 1_i32, cfg%n_particle_species
+      if (.not. cfg%particle_species(species)%enabled) cycle
+      if (trim(lower_ascii(cfg%particle_species(species)%source_mode)) == 'photo_raycast') then
+        uses = .true.
+        return
+      end if
+    end do
+  end function uses_photo_raycast
+
   function mesh_fingerprint(mesh) result(fingerprint)
     type(mesh_type), intent(in) :: mesh
     character(len=16) :: fingerprint
@@ -166,6 +188,7 @@ contains
 
     call feed_string(hash, spec%species_key)
     call feed_logical(hash, spec%enabled)
+    if (.not. spec%enabled) return
     call feed_integer(hash, spec%npcls_per_step)
     call feed_logical(hash, spec%has_npcls_per_step)
     call feed_string(hash, spec%source_mode)

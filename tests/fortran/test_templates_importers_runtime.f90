@@ -9,7 +9,7 @@ program test_templates_importers_runtime
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
-    build_mesh_from_config, init_particles_from_config, seed_particles_from_config, init_particle_batch_from_config, &
+    build_mesh_from_config, seed_particles_from_config, init_particle_batch_from_config, &
     sample_species_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
@@ -235,51 +235,6 @@ program test_templates_importers_runtime
   cfg%templates(1)%has_cap_bottom = .true.
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 24_i32, 'mesh_mode=template cylinder cap_top/cap_bottom mismatch')
-  call test_end()
-
-  call test_begin('seed_and_init_particles')
-  call default_app_config(cfg)
-  cfg%sim%rng_seed = 2468_i32
-  cfg%sim%batch_count = 2_i32
-  cfg%n_particle_species = 3_i32
-
-  cfg%particle_species(1) = species_from_defaults()
-  cfg%particle_species(1)%source_mode = 'volume_seed'
-  cfg%particle_species(1)%npcls_per_step = 2_i32
-  cfg%particle_species(1)%q_particle = 1.0d0
-  cfg%particle_species(1)%m_particle = 1.0d0
-  cfg%particle_species(1)%w_particle = 10.0d0
-  cfg%particle_species(1)%pos_low = [0.0d0, 0.0d0, 0.0d0]
-  cfg%particle_species(1)%pos_high = [0.0d0, 0.0d0, 0.0d0]
-  cfg%particle_species(1)%drift_velocity = [1.0d0, 0.0d0, 0.0d0]
-  cfg%particle_species(1)%temperature_k = 0.0d0
-
-  cfg%particle_species(2) = species_from_defaults()
-  cfg%particle_species(2)%source_mode = 'volume_seed'
-  cfg%particle_species(2)%npcls_per_step = 1_i32
-  cfg%particle_species(2)%q_particle = -2.0d0
-  cfg%particle_species(2)%m_particle = 1.0d0
-  cfg%particle_species(2)%w_particle = 20.0d0
-  cfg%particle_species(2)%pos_low = [1.0d0, 1.0d0, 1.0d0]
-  cfg%particle_species(2)%pos_high = [1.0d0, 1.0d0, 1.0d0]
-  cfg%particle_species(2)%drift_velocity = [0.0d0, 1.0d0, 0.0d0]
-  cfg%particle_species(2)%temperature_k = 0.0d0
-
-  call seed_particles_from_config(cfg)
-  call init_particles_from_config(cfg, pcls)
-  call assert_equal_i32(pcls%n, 6_i32, 'init_particles_from_config count mismatch')
-  call assert_close_dp(pcls%q(1), 1.0d0, 1.0d-12, 'species interleave q(1) mismatch')
-  call assert_close_dp(pcls%q(2), -2.0d0, 1.0d-12, 'species interleave q(2) mismatch')
-  call assert_close_dp(pcls%q(3), 1.0d0, 1.0d-12, 'species interleave q(3) mismatch')
-  call assert_close_dp(pcls%q(4), -2.0d0, 1.0d-12, 'species interleave q(4) mismatch')
-  call assert_close_dp(pcls%q(5), 1.0d0, 1.0d-12, 'species interleave q(5) mismatch')
-  call assert_close_dp(pcls%q(6), 1.0d0, 1.0d-12, 'species interleave q(6) mismatch')
-  call assert_allclose_1d(pcls%x(:, 2), [1.0d0, 1.0d0, 1.0d0], 1.0d-12, 'species-2 position mismatch')
-  call assert_allclose_1d(pcls%v(:, 2), [0.0d0, 1.0d0, 0.0d0], 1.0d-12, 'species-2 velocity mismatch')
-  call assert_allclose_1d(pcls%x(:, 5), [0.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 position mismatch')
-  call assert_allclose_1d(pcls%v(:, 5), [1.0d0, 0.0d0, 0.0d0], 1.0d-12, 'species-1 velocity mismatch')
-  call assert_true(all(pcls%alive), 'all particles should start alive')
-  call assert_true(all(pcls%source_element == -1_i32), 'non-photo particles must not carry surface provenance')
   call test_end()
 
   call test_begin('photo_batch')

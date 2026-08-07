@@ -68,12 +68,13 @@ PE return / netのsigned電流密度を`surface_current_model_*`で出力しま�
 - `fixed_absorbed_target_charge_C` と `fixed_absorbed_weight_scale`
 - `fixed_emission_target_charge_C` と `fixed_emission_weight_scale`
 - 外部 closure が表面電荷へ加えた `fixed_current_correction_C`
-- 吸収・放出の適用値 `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`
-- 外部escapeの `fixed_escape_target_charge_C` / `fixed_escape_applied_charge_C`
+- 互換列 `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`。各target列と同値
+- 外部escapeの `fixed_escape_target_charge_C` と、同値の互換列 `fixed_escape_applied_charge_C`
 - raw escapeとの差 `fixed_escape_correction_C`
 
 `escaped_to_infinity_C`は軌道追跡で得たraw値です。Zhao固定電流ではこれを上書きせず、外部escape targetと
 並べて保存します。escape補正は表面要素へdepositされないため、表面電荷更新と外部境界収支を分けて解析できます。
+`*_applied_charge_C`は既存reader向けに残した出力aliasで、内部ledgerは`*_target_charge_C`だけを保持します。
 
 `summary.txt` の `charge_ledger_residual_C` は surface / local-flight / unresolved stock の変化と
 外部 flux、neutral-return 補正、fixed-current 補正から作る保存残差です。

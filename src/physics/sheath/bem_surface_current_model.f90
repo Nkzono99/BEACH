@@ -4,6 +4,7 @@ module bem_surface_current_model
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, pi, qe
   use bem_app_config_types, only: app_config
+  use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use bem_sheath_model_core, only: zhao_params_type, build_zhao_params, try_solve_zhao_unknowns, &
                                    swe_free_current_term
@@ -11,8 +12,7 @@ module bem_surface_current_model
   implicit none
   private
 
-  type, public :: surface_current_model_result_type
-    logical :: active = .false.
+  type, extends(surface_closure_contract_type), public :: surface_current_model_result_type
     character(len=32) :: model = 'none'
     character(len=1) :: zhao_branch = ' '
     integer(i32) :: electron_species_idx = 0_i32
@@ -31,24 +31,22 @@ module bem_surface_current_model
     real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
     real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
     character(len=32) :: kinetic_contract = 'none'
-    logical, allocatable :: has_absorbed_target(:)
-    logical, allocatable :: has_emission_target(:)
-    logical, allocatable :: has_escape_target(:)
-    logical, allocatable :: has_inflow_kinetic_map(:)
-    logical, allocatable :: has_outflow_kinetic_barrier(:)
-    real(dp), allocatable :: absorbed_current_a(:)
-    real(dp), allocatable :: emission_current_a(:)
-    real(dp), allocatable :: escaped_particle_current_a(:)
-    real(dp), allocatable :: inflow_reservoir_potential_v(:)
-    real(dp), allocatable :: inflow_access_potential_v(:)
-    integer(i32), allocatable :: inflow_kinetic_face(:)
-    real(dp), allocatable :: outflow_barrier_potential_v(:)
-    integer(i32), allocatable :: outflow_barrier_face(:)
   end type surface_current_model_result_type
 
   public :: evaluate_surface_current_model
+  public :: evaluate_surface_closure
 
 contains
+
+  !> モデル固有の診断値をシミュレータへ漏らさず、境界契約だけを返す。
+  subroutine evaluate_surface_closure(app, contract)
+    type(app_config), intent(in) :: app
+    type(surface_closure_contract_type), intent(out) :: contract
+    type(surface_current_model_result_type) :: detailed_result
+
+    call evaluate_surface_current_model(app, detailed_result)
+    contract = detailed_result%surface_closure_contract_type
+  end subroutine evaluate_surface_closure
 
   !> 設定されたmodelをdispatchし、固定電流closure用のtarget配列を返す。
   subroutine evaluate_surface_current_model(app, result)

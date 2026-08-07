@@ -13,7 +13,7 @@ Lang: [English](Troubleshooting.en.md) | [日本語](Troubleshooting.md)
 | many `survived_max_step` particles | Revisit `dt`, `max_step`, box size, and injection velocity; do not relabel unresolved particles |
 | empty or huge history | Check `history_stride`; increase it and enable potential history only when needed |
 | restart rejected | Compare model/mesh/species fingerprints, `restart_from`, and cumulative `batch_count` |
-| unsupported conductor/dielectric/periodic combination | Consult the support matrix; BEACH does not silently fall back |
+| unsupported conductor/periodic combination or dielectric input | Consult the support matrix; dielectric polarization is not implemented |
 | slow far correction | Reuse a `cached_kneq0` warm cache and check how often cold operator generation occurs |
 
 For a reproducible issue, provide the configuration, BEACH version, compiler/MPI, rank/thread counts,

@@ -3,13 +3,13 @@ module bem_app_config
   use bem_app_config_types, only: &
     max_templates, max_particle_species, particle_bc_inherit, particle_inflow_none, particle_inflow_reservoir, &
     particle_species_spec, template_spec, app_config, &
-    particles_per_batch_from_config, total_particles_from_config, default_app_config, species_from_defaults
+    particles_per_batch_from_config, default_app_config, species_from_defaults
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_app_config_parser, only: load_app_config, load_toml_config
   use bem_string_utils, only: lower_ascii
   use bem_app_config_runtime, only: &
-    build_mesh_from_config, init_particles_from_config, seed_particles_from_config, &
+    build_mesh_from_config, seed_particles_from_config, &
     init_particle_batch_from_config, sample_species_state, build_template_mesh, build_one_template, &
     append_triangles
   implicit none

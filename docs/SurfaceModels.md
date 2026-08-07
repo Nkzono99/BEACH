@@ -48,7 +48,6 @@ collisionに使うordered triangleと、fieldのone-sided traceに使う`elem_va
 | --- | --- | --- |
 | `insulator` | hit要素に電荷を保持 | v1.0の中心model |
 | `conductor` | `mesh_id`ごとに総電荷を保存して等電位化 | `field_bc_mode="free"`のみ |
-| `dielectric` | 電荷を保持し`epsilon_r`をmetadata出力 | polarization未実装 |
 
 ## insulator accumulation
 
@@ -99,11 +98,11 @@ non-conductor要素も変更しません。
 periodic/outer fieldとは併用できず、現行実装は`field_bc_mode="free"`だけを受理します。
 要素細分化に対するobject potential・電荷分布の収束を確認してください。
 
-## dielectric metadata
+## dielectricは未実装
 
-`surface_model="dielectric"`と`epsilon_r`は、現行版ではgeometry/material identityを出力へ残すmetadataです。
-誘電率interface条件、法線$\mathbf D$のjump、polarization charge、内部fieldを解きません。
-`epsilon_r`を指定しても場や電荷更新はinsulatorから変わらないため、誘電分極を含む結果として解釈しないでください。
+`surface_model="dielectric"`と`epsilon_r`は入力として受理しません。以前はinsulatorと同じ計算を行う
+metadata aliasでしたが、分極を解くmodelと誤認されるため削除しました。誘電率interface条件、法線
+$\mathbf D$のjump、polarization charge、内部fieldを実装してから独立したmodelとして追加します。
 
 ## OpenMPとMPI commit
 

@@ -6,6 +6,7 @@ module bem_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
+  use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_config_helpers, only: resolve_particle_boundaries
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
@@ -19,8 +20,9 @@ module bem_simulator
   use bem_string_utils, only: lower_ascii
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
                                             resolve_external_boundary_contract
-  use bem_simulator_workspace, only: simulator_batch_workspace_type, soft_discard_context_type
-  use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
+  use bem_simulator_workspace, only: simulator_batch_workspace_type
+  use bem_surface_closure_contract, only: surface_closure_contract_type
+  use bem_surface_current_model, only: evaluate_surface_closure
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
@@ -69,7 +71,7 @@ module bem_simulator
 
     module subroutine process_particle_batch( &
       mesh, app, boundary_contract, current_model, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
-      absorbed_element, soft_discarded_boundary_flag, soft_discard_context, bfield, batch_idx, mpi_rank, &
+      absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
       collision_failure_x, collision_failure_v &
@@ -77,14 +79,13 @@ module bem_simulator
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
       type(external_boundary_contract_type), intent(in) :: boundary_contract
-      type(surface_current_model_result_type), intent(in) :: current_model
+      type(surface_closure_contract_type), intent(in) :: current_model
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(particles_soa), intent(inout) :: pcls_batch
       real(dp), intent(inout) :: dq_thread(:, :)
       logical, intent(inout) :: escaped_boundary_flag(:), absorbed_flag(:)
       integer(i32), intent(inout) :: absorbed_element(:)
       logical, intent(inout) :: soft_discarded_boundary_flag(:)
-      type(soft_discard_context_type), intent(inout) :: soft_discard_context
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx, mpi_rank
       integer(i32), intent(out) :: actual_team_size

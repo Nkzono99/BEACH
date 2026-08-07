@@ -446,13 +446,6 @@ contains
     workspace%neutral_return_weight_scale = 6.0_dp
     workspace%neutral_return_correction = 7.0_dp
     workspace%neutral_return_unresolved_fraction = 8.0_dp
-    workspace%soft_discard_context%available = .true.
-    workspace%soft_discard_context%particle = 4_i32
-    workspace%soft_discard_context%species = 2_i32
-    workspace%soft_discard_context%step = 3_i32
-    workspace%soft_discard_context%macro_charge = 9.0_dp
-    workspace%soft_discard_context%x = 10.0_dp
-    workspace%soft_discard_context%v = 11.0_dp
 
     call workspace%reset_before_injection()
     call workspace%prepare_particle_flags(2_i32)
@@ -474,17 +467,6 @@ contains
     call assert_true( &
       all(workspace%neutral_return_correction == 0.0_dp), &
       'workspace neutral-return correction reset mismatch' &
-      )
-    call assert_true(.not. workspace%soft_discard_context%available, 'workspace soft-discard context reset mismatch')
-    call assert_equal_i32( &
-      workspace%soft_discard_context%particle, huge(0_i32), &
-      'workspace soft-discard representative reset mismatch' &
-      )
-    call assert_true( &
-      workspace%soft_discard_context%macro_charge == 0.0_dp .and. &
-      all(workspace%soft_discard_context%x == 0.0_dp) .and. &
-      all(workspace%soft_discard_context%v == 0.0_dp), &
-      'workspace soft-discard state reset mismatch' &
       )
     call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'workspace escaped flag reset mismatch')
     call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
@@ -1057,7 +1039,7 @@ contains
       'fixed PE return target mismatch' &
       )
     call assert_close_dp( &
-      fixed_ledger%fixed_absorbed_applied_charge(1), -0.25_dp, 1.0e-12_dp, &
+      fixed_ledger%fixed_absorbed_target_charge(1), -0.25_dp, 1.0e-12_dp, &
       'fixed PE return applied mismatch' &
       )
     call assert_close_dp( &
@@ -1065,7 +1047,7 @@ contains
       'fixed PE emission target mismatch' &
       )
     call assert_close_dp( &
-      fixed_ledger%fixed_emission_applied_charge(1), 2.0_dp, 1.0e-12_dp, &
+      fixed_ledger%fixed_emission_target_charge(1), 2.0_dp, 1.0e-12_dp, &
       'fixed PE emission applied mismatch' &
       )
     call assert_true( &
@@ -1183,7 +1165,7 @@ contains
       'Zhao PE escape target must carry negative particle charge outward' &
       )
     call assert_close_dp( &
-      zhao_ledger%fixed_escape_applied_charge(photo_idx), &
+      zhao_ledger%fixed_escape_target_charge(photo_idx), &
       zhao_ledger%fixed_escape_target_charge(photo_idx), 1.0e-18_dp, &
       'Zhao PE escape applied charge must equal its target' &
       )
@@ -1193,13 +1175,13 @@ contains
       'Zhao PE escape correction must separate target from zero raw escape' &
       )
     call assert_close_dp( &
-      zhao_ledger%fixed_absorbed_applied_charge(photo_idx) + &
-      zhao_ledger%fixed_emission_applied_charge(photo_idx) + &
-      zhao_ledger%fixed_escape_applied_charge(photo_idx), &
+      zhao_ledger%fixed_absorbed_target_charge(photo_idx) + &
+      zhao_ledger%fixed_emission_target_charge(photo_idx) + &
+      zhao_ledger%fixed_escape_target_charge(photo_idx), &
       0.0_dp, 1.0e-12_dp, 'Zhao PE applied channel continuity mismatch' &
       )
     call assert_close_dp( &
-      sum(zhao_ledger%fixed_absorbed_applied_charge) + sum(zhao_ledger%fixed_emission_applied_charge), &
+      sum(zhao_ledger%fixed_absorbed_target_charge) + sum(zhao_ledger%fixed_emission_target_charge), &
       0.0_dp, 1.0e-12_dp, 'Zhao applied surface-current budget must close' &
       )
   end subroutine test_zhao_fixed_current_budget
@@ -1325,7 +1307,7 @@ contains
     character(len=1024) :: executable_path, command, child_line
     integer :: child_exit_status, child_cmd_status, child_unit, child_ios
     integer(i32) :: accepted_summary_count
-    logical :: saw_batch, saw_rank, saw_particle, saw_species, saw_step, saw_status, saw_macro_charge, saw_x, saw_v
+    logical :: saw_batch, saw_global_abs_charge, saw_detail_fields
     logical :: saw_limit_summary, saw_expected_count, saw_expected_count_limit
     logical :: saw_abs_charge, saw_abs_charge_limit, saw_global_count
 
@@ -1338,14 +1320,8 @@ contains
     call assert_true(child_exit_status /= 0, 'soft-discard limit probe should terminate with nonzero status')
 
     saw_batch = .false.
-    saw_rank = .false.
-    saw_particle = .false.
-    saw_species = .false.
-    saw_step = .false.
-    saw_status = .false.
-    saw_macro_charge = .false.
-    saw_x = .false.
-    saw_v = .false.
+    saw_global_abs_charge = .false.
+    saw_detail_fields = .false.
     saw_limit_summary = .false.
     saw_expected_count = .false.
     saw_expected_count_limit = .false.
@@ -1359,20 +1335,18 @@ contains
       read (child_unit, '(A)', iostat=child_ios) child_line
       if (child_ios /= 0) exit
       saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
-      saw_rank = saw_rank .or. index(child_line, 'rank=0') > 0
-      saw_particle = saw_particle .or. index(child_line, 'particle=1') > 0
-      saw_species = saw_species .or. index(child_line, 'species=1') > 0
-      saw_step = saw_step .or. index(child_line, 'step=1') > 0
-      saw_status = saw_status .or. index(child_line, 'status=multiple_box_events') > 0
-      saw_macro_charge = saw_macro_charge .or. index(child_line, 'macro_charge_C=') > 0
-      saw_x = saw_x .or. index(child_line, ' x=') > 0
-      saw_v = saw_v .or. index(child_line, ' v=') > 0
       saw_limit_summary = saw_limit_summary .or. &
                           index(child_line, 'soft-discard cumulative limit exceeded') > 0
       saw_abs_charge = saw_abs_charge .or. index(child_line, 'abs_charge_C=') > 0
       saw_abs_charge_limit = saw_abs_charge_limit .or. index(child_line, 'abs_charge_limit_C=') > 0
       if (index(child_line, 'multiple_box_events soft discard accepted:') > 0) then
         accepted_summary_count = accepted_summary_count + 1_i32
+        saw_global_abs_charge = saw_global_abs_charge .or. index(child_line, ' global_abs_charge_C=') > 0
+        saw_detail_fields = saw_detail_fields .or. index(child_line, ' rank=') > 0 .or. &
+                            index(child_line, ' particle=') > 0 .or. index(child_line, ' species=') > 0 .or. &
+                            index(child_line, ' step=') > 0 .or. index(child_line, ' status=') > 0 .or. &
+                            index(child_line, ' macro_charge_C=') > 0 .or. index(child_line, ' x=') > 0 .or. &
+                            index(child_line, ' v=') > 0
         if (charge_limit_probe) then
           saw_global_count = saw_global_count .or. index(child_line, ' global_count=1 ') > 0
         else
@@ -1390,16 +1364,11 @@ contains
     close (child_unit)
     call delete_file_if_exists(output_path)
 
-    call assert_true( &
-      saw_batch .and. saw_rank .and. saw_particle .and. saw_species .and. saw_step .and. saw_status, &
-      'soft discard detail must include batch, rank, particle, species, step, and status' &
-      )
-    call assert_true( &
-      saw_macro_charge .and. saw_x .and. saw_v, &
-      'soft discard detail must include macro charge, position, and velocity' &
-      )
-    call assert_equal_i32(accepted_summary_count, 1_i32, 'soft discard detail output must be bounded to one line')
+    call assert_true(saw_batch, 'soft discard accepted summary is missing its batch index')
+    call assert_equal_i32(accepted_summary_count, 1_i32, 'soft discard accepted output must be one aggregate line')
     call assert_true(saw_global_count, 'soft discard accepted summary is missing its global count')
+    call assert_true(saw_global_abs_charge, 'soft discard accepted summary is missing its global absolute charge')
+    call assert_true(.not. saw_detail_fields, 'soft discard accepted summary must not contain per-particle detail')
     call assert_true(saw_limit_summary, 'soft-discard cumulative-limit summary is missing')
     call assert_true( &
       saw_expected_count .and. saw_expected_count_limit .and. saw_abs_charge .and. saw_abs_charge_limit, &

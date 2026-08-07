@@ -5,7 +5,7 @@ module bem_app_config_runtime
     apply_uniform_surface_model, apply_uniform_epsilon_r, build_template_mesh, build_one_template, &
     append_triangles, append_mesh_ids, append_real_values, surface_model_id_from_name
   use bem_app_config_particle_runtime, only: &
-    particle_source_plan_type, init_particles_from_config, seed_particles_from_config, &
+    particle_source_plan_type, seed_particles_from_config, &
     build_particle_source_plan, init_particle_batch_from_config, sample_species_state, &
     normalize_reservoir_positions, has_boundary_inflow, boundary_inflow_face_enabled, &
     make_boundary_inflow_spec, configure_plane_source_box, boundary_face_name, &

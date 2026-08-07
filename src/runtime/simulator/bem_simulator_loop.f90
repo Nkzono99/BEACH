@@ -18,7 +18,7 @@ contains
 
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
-  integer(i32) :: team_size_min, team_size_max, checkpoint_team_size_min, checkpoint_team_size_max
+  integer(i32) :: team_size_min, team_size_max
   integer(i32) :: particle_team_size, particle_team_size_min, particle_team_size_max
   integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
   integer(i32) :: collision_failure_particle, collision_failure_step
@@ -49,8 +49,11 @@ contains
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
   type(external_boundary_contract_type) :: boundary_contract
-  type(surface_current_model_result_type) :: current_model_result
+  type(surface_closure_contract_type) :: surface_closure
+  type(field_physics_config) :: field_config
+  type(panel_kernel_config) :: panel_config
   type(app_config) :: trial_app
+  type(sim_stats) :: stats_candidate
 
   stats = sim_stats()
   if (present(initial_stats)) stats = initial_stats
@@ -96,32 +99,9 @@ contains
       error stop 'adaptive OpenMP team size must match across MPI ranks.'
     end if
 
-    checkpoint_team_size_min = stats%adaptive_nonzero_mode_omp_threads
-    checkpoint_team_size_max = stats%adaptive_nonzero_mode_omp_threads
-    call mpi_allreduce_min_i32_scalar(mpi_ctx, checkpoint_team_size_min)
-    call mpi_allreduce_max_i32_scalar(mpi_ctx, checkpoint_team_size_max)
-    if (checkpoint_team_size_min /= checkpoint_team_size_max) then
-      if (mpi_is_root(mpi_ctx)) then
-        write (error_unit, '(a,i0,a,i0)') &
-          'adaptive checkpoint OpenMP team-size mismatch across MPI ranks: min=', &
-          checkpoint_team_size_min, ' max=', checkpoint_team_size_max
-        flush (error_unit)
-      end if
-      error stop 'adaptive checkpoint OpenMP team size must match across MPI ranks.'
-    end if
-    if (checkpoint_team_size_min < 0_i32) then
-      error stop 'adaptive checkpoint OpenMP team size must be nonnegative.'
-    else if (checkpoint_team_size_min > 0_i32 .and. checkpoint_team_size_min /= nth) then
-      if (mpi_is_root(mpi_ctx)) then
-        write (error_unit, '(a,i0,a,i0)') &
-          'adaptive OpenMP team-size mismatch with checkpoint: checkpoint=', checkpoint_team_size_min, &
-          ' current=', nth
-        flush (error_unit)
-      end if
-      error stop 'adaptive OpenMP team size does not match the checkpoint.'
-    else if (checkpoint_team_size_min == 0_i32 .and. stats%batches > 0_i32) then
-      error stop 'adaptive checkpoint is missing its OpenMP team size.'
-    end if
+    ! Rejected trials within this run still use one fixed team size.  A restart may
+    ! use a different team size because checkpoint compatibility is numerical, not
+    ! bitwise-replay compatibility with the previous process.
     stats%adaptive_nonzero_mode_omp_threads = nth
   else
 !$  nth = max(1_i32, int(omp_get_max_threads(), i32))
@@ -132,7 +112,7 @@ contains
   end if
   call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0.0_dp, mpi_ctx)
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
-  call evaluate_surface_current_model(app, current_model_result)
+  call evaluate_surface_closure(app, surface_closure)
 
   history_enabled = present(history_unit)
   hist_unit = 0
@@ -164,7 +144,8 @@ contains
 
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
-  call snapshot%init(mesh, app%sim, app%field, app%periodic2, app%panel)
+  call derive_field_panel_config(app%sim, field_config, panel_config)
+  call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
   call perf_region_end(perf_region_field_solver_init, t0)
 
   if (adaptive_nonzero_mode) then
@@ -230,10 +211,10 @@ contains
       call perf_region_begin(perf_region_prepare_batch, t0)
       call build_particle_source_plan( &
         trial_app, source_plan, mpi=mpi_ctx, &
-        kinetic_inflow_active=current_model_result%has_inflow_kinetic_map, &
-        kinetic_reservoir_potential_v=current_model_result%inflow_reservoir_potential_v, &
-        kinetic_access_potential_v=current_model_result%inflow_access_potential_v, &
-        kinetic_inflow_face=current_model_result%inflow_kinetic_face &
+        kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
+        kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
+        kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
+        kinetic_inflow_face=surface_closure%inflow_kinetic_face &
         )
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
@@ -258,9 +239,9 @@ contains
 
       call perf_region_begin(perf_region_particle_batch, t0)
       call process_particle_batch( &
-        mesh, trial_app, boundary_contract, current_model_result, snapshot, pcls_batch, workspace%dq_thread, &
+        mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
         workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
-        workspace%soft_discarded_boundary_flag, workspace%soft_discard_context, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, &
         particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
         collision_failure_x, collision_failure_v &
@@ -305,7 +286,7 @@ contains
 
       call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
       call apply_fixed_surface_current_closure( &
-        trial_app, current_model_result, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+        trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
         )
       if (adaptive_nonzero_mode) then
         call prepare_adaptive_charge_candidate(mesh, workspace, mpi_ctx)
@@ -344,17 +325,27 @@ contains
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_counts)
     call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
     call perf_region_end(perf_region_mpi_reduce, t0)
-    call report_soft_discard_summary( &
-      batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, workspace%soft_discard_context, mpi_ctx &
-      )
+    call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
     call enforce_soft_discard_limits( &
       app%sim, stats, batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx &
       )
-    call validate_batch_stat_capacity(stats, batch_counts, trial_halvings, adaptive_nonzero_mode)
     projected_simulated_time = stats%simulated_time + trial_batch_duration
     if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp .or. &
         .not. ieee_is_finite(projected_simulated_time) .or. projected_simulated_time < stats%simulated_time) then
       error stop 'simulation statistic overflow: simulated_time'
+    end if
+    ! Build the complete statistics update before mutating mesh/ledger state.  The
+    ! checked add routines are the single overflow guard; commit only after all pass.
+    stats_candidate = stats
+    call accumulate_batch_stats(stats_candidate, batch_counts, batch_soft_discarded_abs_charge, 0.0_dp)
+    stats_candidate%simulated_time = projected_simulated_time
+    if (adaptive_nonzero_mode) then
+      stats_candidate%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
+      stats_candidate%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
+      stats_candidate%adaptive_nonzero_mode_rejected_trials = checked_add_adaptive_rejected_trials( &
+                                                              stats%adaptive_nonzero_mode_rejected_trials, &
+                                                              trial_halvings &
+                                                              )
     end if
 
     if (ledger_enabled) then
@@ -370,13 +361,10 @@ contains
       batch_ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
       batch_ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
       batch_ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
-      batch_ledger%fixed_absorbed_applied_charge = workspace%fixed_absorbed_applied_charge
       batch_ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
       batch_ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
-      batch_ledger%fixed_emission_applied_charge = workspace%fixed_emission_applied_charge
       batch_ledger%fixed_emission_weight_scale = workspace%fixed_emission_weight_scale
       batch_ledger%fixed_escape_target_charge = workspace%fixed_escape_target_charge
-      batch_ledger%fixed_escape_applied_charge = workspace%fixed_escape_applied_charge
       batch_ledger%fixed_escape_correction = workspace%fixed_escape_correction
       batch_ledger%fixed_current_correction = workspace%fixed_current_correction
     end if
@@ -386,21 +374,14 @@ contains
       mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, workspace, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
+    stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
       call accumulate_charge_ledger(charge_ledger, batch_ledger)
     end if
 
     call perf_region_begin(perf_region_stats_update, t0)
-    call accumulate_batch_stats(stats, batch_counts, batch_soft_discarded_abs_charge, rel)
-    stats%simulated_time = projected_simulated_time
-    if (adaptive_nonzero_mode) then
-      stats%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
-      stats%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
-      stats%adaptive_nonzero_mode_rejected_trials = checked_add_adaptive_rejected_trials( &
-                                                    stats%adaptive_nonzero_mode_rejected_trials, trial_halvings &
-                                                    )
-    end if
+    stats = stats_candidate
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -506,7 +487,7 @@ contains
   !$omp parallel default(none) num_threads(nth) &
   !$omp shared(mesh,pcls_batch,app,boundary_contract,current_model,snapshot,dq_thread,bfield) &
   !$omp shared(escaped_boundary_flag,absorbed_flag,nth,actual_team_size) &
-  !$omp shared(absorbed_element,soft_discarded_boundary_flag,soft_discard_context,batch_idx,mpi_rank) &
+  !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
   !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result) &
@@ -580,7 +561,6 @@ contains
         if (step_result%status /= collision_query_ok) then
           if (step_result%status == particle_step_multiple_box_events .and. &
               trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard') then
-            call record_soft_discard_context(i, species_idx, step, x0, v0)
             pcls_batch%alive(i) = .false.
             soft_discarded_boundary_flag(i) = .true.
             exit
@@ -611,29 +591,8 @@ contains
 !$ call omp_set_schedule(previous_schedule_kind, previous_schedule_chunk)
 
 contains
-  subroutine record_soft_discard_context(particle_index, species_index, particle_step, x, v)
-    integer(i32), intent(in) :: particle_index, species_index, particle_step
-    real(dp), intent(in) :: x(3), v(3)
-    real(dp) :: macro_charge
-
-    macro_charge = pcls_batch%q(particle_index)*pcls_batch%w(particle_index)
-    !$omp critical (beach_soft_discard_context)
-    if (.not. soft_discard_context%available .or. &
-        particle_index < soft_discard_context%particle .or. &
-        (particle_index == soft_discard_context%particle .and. particle_step < soft_discard_context%step)) then
-      soft_discard_context%available = .true.
-      soft_discard_context%particle = particle_index
-      soft_discard_context%species = species_index
-      soft_discard_context%step = particle_step
-      soft_discard_context%macro_charge = macro_charge
-      soft_discard_context%x = x
-      soft_discard_context%v = v
-    end if
-    !$omp end critical (beach_soft_discard_context)
-  end subroutine record_soft_discard_context
-
   subroutine apply_species_kinetic_barrier(current_model, species_idx, contract)
-    type(surface_current_model_result_type), intent(in) :: current_model
+    type(surface_closure_contract_type), intent(in) :: current_model
     integer(i32), intent(in) :: species_idx
     type(external_boundary_contract_type), intent(inout) :: contract
 
@@ -686,41 +645,6 @@ contains
     total = accumulated + increment
   end function checked_add_adaptive_rejected_trials
 
-  !> accepted batchをcommitする前に、累積統計が64bit範囲に収まることを確認する。
-  subroutine validate_batch_stat_capacity(stats, batch_counts, trial_halvings, adaptive_nonzero_mode)
-    type(sim_stats), intent(in) :: stats
-    integer(i64), intent(in) :: batch_counts(6)
-    integer(i32), intent(in) :: trial_halvings
-    logical, intent(in) :: adaptive_nonzero_mode
-
-    call validate_stat_capacity(stats%processed_particles, batch_counts(1), 'processed_particles')
-    call validate_stat_capacity(stats%absorbed, batch_counts(2), 'absorbed')
-    call validate_stat_capacity(stats%escaped, batch_counts(3), 'escaped')
-    call validate_stat_capacity(stats%escaped_boundary, batch_counts(4), 'escaped_boundary')
-    call validate_stat_capacity(stats%survived_max_step, batch_counts(5), 'survived_max_step')
-    call validate_stat_capacity( &
-      stats%multiple_box_events_soft_discarded, batch_counts(6), 'multiple_box_events_soft_discarded' &
-      )
-    if (adaptive_nonzero_mode) then
-      call validate_stat_capacity( &
-        stats%adaptive_nonzero_mode_rejected_trials, int(trial_halvings, i64), &
-        'adaptive_nonzero_mode_rejected_trials' &
-        )
-    end if
-  end subroutine validate_batch_stat_capacity
-
-  subroutine validate_stat_capacity(accumulated, increment, field_name)
-    integer(i64), intent(in) :: accumulated, increment
-    character(len=*), intent(in) :: field_name
-
-    if (accumulated < 0_i64 .or. increment < 0_i64) then
-      error stop 'simulation statistic must be nonnegative: '//trim(field_name)
-    end if
-    if (accumulated > huge(accumulated) - increment) then
-      error stop 'simulation statistic overflow: '//trim(field_name)
-    end if
-  end subroutine validate_stat_capacity
-
   subroutine stop_for_collision_failure(batch_idx, rank, status, particle, step, dt, x, v)
     integer(i32), intent(in) :: batch_idx, rank, status, particle, step
     real(dp), intent(in) :: dt, x(3), v(3)
@@ -741,46 +665,20 @@ contains
     error stop 'photo ray collision query failed.'
   end subroutine stop_for_photo_collision_failure
 
-  !> accepted trial の soft-discard 集約と、全rankで一意な代表事象1件だけをrootへ出力する。
-  subroutine report_soft_discard_summary(batch_idx, global_count, global_abs_charge, local_context, mpi)
+  !> accepted trial の soft-discard 集約だけを root へ出力する。
+  subroutine report_soft_discard_summary(batch_idx, global_count, global_abs_charge, mpi)
     integer(i32), intent(in) :: batch_idx
     integer(i64), intent(in) :: global_count
     real(dp), intent(in) :: global_abs_charge
-    type(soft_discard_context_type), intent(in) :: local_context
     type(mpi_context), intent(in) :: mpi
-    integer(i32) :: selected_rank, local_values(3), selected_values(3)
-    real(dp) :: selected_state(7)
 
     if (global_count < 0_i64) error stop 'soft-discard global count overflowed.'
     if (global_count == 0_i64) return
 
-    local_values = 0_i32
-    if (local_context%available) then
-      local_values = [local_context%particle, local_context%species, local_context%step]
-    end if
-    call mpi_select_lowest_rank_i32_values( &
-      mpi, local_context%available, local_values, selected_rank, selected_values &
-      )
-    if (selected_rank < 0_i32) then
-      error stop 'soft-discard aggregate is missing representative context.'
-    end if
-
-    selected_state = 0.0_dp
-    if (mpi%rank == selected_rank) then
-      selected_state(1) = local_context%macro_charge
-      selected_state(2:4) = local_context%x
-      selected_state(5:7) = local_context%v
-    end if
-    call mpi_allreduce_sum_real_dp_array(mpi, selected_state)
-
     if (mpi_is_root(mpi)) then
-      write (error_unit, '(a,i0,a,i0,a,es13.5,a,i0,a,i0,a,i0,a,i0,a,es13.5,a,3es13.5,a,3es13.5)') &
+      write (error_unit, '(a,i0,a,i0,a,es13.5)') &
         'multiple_box_events soft discard accepted: batch=', batch_idx, &
-        ' global_count=', global_count, ' global_abs_charge_C=', global_abs_charge, &
-        ' representative_rank=', selected_rank, ' particle=', selected_values(1), &
-        ' species=', selected_values(2), ' step=', selected_values(3), &
-        ' status=multiple_box_events macro_charge_C=', selected_state(1), &
-        ' x=', selected_state(2:4), ' v=', selected_state(5:7)
+        ' global_count=', global_count, ' global_abs_charge_C=', global_abs_charge
       flush (error_unit)
     end if
   end subroutine report_soft_discard_summary
@@ -796,6 +694,7 @@ contains
     real(dp) :: projected_abs_charge
     logical :: count_exceeded, charge_exceeded
 
+    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
     count_limit = int(sim%multiple_box_events_soft_discard_count_limit, i64)
     if (batch_count < 0_i64) error stop 'soft-discard batch count overflowed.'
     if (stats%multiple_box_events_soft_discarded > huge(projected_count) - batch_count) then
@@ -1109,7 +1008,7 @@ contains
     app, current_model, pcls_batch, fresh_particle_count, workspace, mpi &
     )
     type(app_config), intent(in) :: app
-    type(surface_current_model_result_type), intent(in) :: current_model
+    type(surface_closure_contract_type), intent(in) :: current_model
     type(particles_soa), intent(in) :: pcls_batch
     integer(i32), intent(in) :: fresh_particle_count
     type(simulator_batch_workspace_type), intent(inout) :: workspace
@@ -1184,7 +1083,6 @@ contains
           error stop 'fixed_current absorbed scale is invalid.'
         end if
         workspace%fixed_absorbed_target_charge(species_idx) = target_charge
-        workspace%fixed_absorbed_applied_charge(species_idx) = target_charge
         workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
         workspace%fixed_current_correction(species_idx) = &
           workspace%fixed_current_correction(species_idx) + correction
@@ -1231,7 +1129,6 @@ contains
           error stop 'fixed_current emission scale is invalid.'
         end if
         workspace%fixed_emission_target_charge(species_idx) = target_charge
-        workspace%fixed_emission_applied_charge(species_idx) = target_charge
         workspace%fixed_emission_weight_scale(species_idx) = weight_scale
         workspace%fixed_current_correction(species_idx) = &
           workspace%fixed_current_correction(species_idx) + correction
@@ -1258,7 +1155,6 @@ contains
           error stop 'fixed_current escape target sign must match the escaped particle charge.'
         end if
         workspace%fixed_escape_target_charge(species_idx) = target_charge
-        workspace%fixed_escape_applied_charge(species_idx) = target_charge
         workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
         if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
           error stop 'fixed_current escape correction is not finite.'

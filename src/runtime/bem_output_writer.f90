@@ -13,6 +13,7 @@ module bem_output_writer
                                             external_open_escape, external_open_potential_barrier, &
                                             resolve_external_boundary_contract
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
   use bem_filesystem, only: create_directories, filesystem_empty_path, filesystem_not_directory, filesystem_os_error, &
@@ -285,6 +286,8 @@ contains
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
     type(external_boundary_contract_type) :: resolved_boundary
     type(surface_current_model_result_type) :: current_model
+    type(field_physics_config) :: field_config
+    type(panel_kernel_config) :: panel_config
     character(len=1024) :: summary_path
     character(len=256) :: boundary_message
     character(len=16) :: resolved_field_solver
@@ -300,6 +303,7 @@ contains
       error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
     end if
     call evaluate_surface_current_model(cfg, current_model)
+    call derive_field_panel_config(cfg%sim, field_config, panel_config)
     call resolve_field_solver_tree_params( &
       mesh%nelem, cfg%sim, resolved_tree_theta, resolved_tree_leaf_max &
       )
@@ -342,10 +346,10 @@ contains
     write (u, '(a,i0)') 'adaptive_nonzero_mode_omp_threads=', &
       stats%adaptive_nonzero_mode_omp_threads
     write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
-    write (u, '(a,a)') 'field_backend=', trim(cfg%field%backend)
-    write (u, '(a,a)') 'field_normalization=', trim(cfg%field%normalization)
+    write (u, '(a,a)') 'field_backend=', trim(field_config%backend)
+    write (u, '(a,a)') 'field_normalization=', trim(field_config%normalization)
     write (u, '(a)') 'field_source_model=triangle_p0'
-    write (u, '(a,a)') 'field_kernel_id=', trim(cfg%panel%kernel_id)
+    write (u, '(a,a)') 'field_kernel_id=', trim(panel_config%kernel_id)
     write (u, '(a)') 'field_reconstruction_schema_version=2'
     write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
     write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
@@ -468,29 +472,29 @@ contains
       write (u, '(a,es24.16)') 'charge_ledger_fixed_current_correction_C=', &
         finite_charge_sum(charge_ledger%fixed_current_correction, 'summary fixed-current correction')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_absorbed_applied_charge_C=', &
-        finite_charge_sum(charge_ledger%fixed_absorbed_applied_charge, 'summary fixed absorbed applied charge')
+        finite_charge_sum(charge_ledger%fixed_absorbed_target_charge, 'summary fixed absorbed applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_emission_applied_charge_C=', &
-        finite_charge_sum(charge_ledger%fixed_emission_applied_charge, 'summary fixed emission applied charge')
+        finite_charge_sum(charge_ledger%fixed_emission_target_charge, 'summary fixed emission applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_raw_escape_charge_C=', &
         finite_charge_sum(charge_ledger%escaped_to_infinity, 'summary raw escape charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_target_charge_C=', &
         finite_charge_sum(charge_ledger%fixed_escape_target_charge, 'summary fixed escape target charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_applied_charge_C=', &
-        finite_charge_sum(charge_ledger%fixed_escape_applied_charge, 'summary fixed escape applied charge')
+        finite_charge_sum(charge_ledger%fixed_escape_target_charge, 'summary fixed escape applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_correction_C=', &
         finite_charge_sum(charge_ledger%fixed_escape_correction, 'summary fixed escape correction')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_applied_surface_net_charge_C=', &
         finite_charge_sum( &
-        [charge_ledger%fixed_absorbed_applied_charge, charge_ledger%fixed_emission_applied_charge], &
+        [charge_ledger%fixed_absorbed_target_charge, charge_ledger%fixed_emission_target_charge], &
         'summary fixed applied surface net charge' &
         )
       if (current_model%active) then
         write (u, '(a,es24.16)') 'charge_ledger_fixed_pe_continuity_residual_C=', &
           finite_charge_sum( &
           [ &
-          charge_ledger%fixed_absorbed_applied_charge(current_model%photoelectron_species_idx), &
-          charge_ledger%fixed_emission_applied_charge(current_model%photoelectron_species_idx), &
-          charge_ledger%fixed_escape_applied_charge(current_model%photoelectron_species_idx) &
+          charge_ledger%fixed_absorbed_target_charge(current_model%photoelectron_species_idx), &
+          charge_ledger%fixed_emission_target_charge(current_model%photoelectron_species_idx), &
+          charge_ledger%fixed_escape_target_charge(current_model%photoelectron_species_idx) &
           ], &
           'summary fixed photoelectron continuity residual' &
           )
@@ -555,6 +559,8 @@ contains
       'fixed_absorbed_applied_charge_C,fixed_emission_applied_charge_C,'// &
       'fixed_escape_target_charge_C,fixed_escape_applied_charge_C,fixed_escape_correction_C,'// &
       'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
+    ! Keep the three applied-charge columns as file-format aliases for existing
+    ! readers; the ledger stores only the identical target values.
     do species_idx = 1, ledger%nspecies
       write (u, '(i0,a,i0,18(a,es24.16),5(a,i0))') &
         ledger%batch_count, ',', species_idx, &
@@ -571,10 +577,10 @@ contains
         ',', ledger%fixed_emission_target_charge(species_idx), &
         ',', ledger%fixed_emission_weight_scale(species_idx), &
         ',', ledger%fixed_current_correction(species_idx), &
-        ',', ledger%fixed_absorbed_applied_charge(species_idx), &
-        ',', ledger%fixed_emission_applied_charge(species_idx), &
+        ',', ledger%fixed_absorbed_target_charge(species_idx), &
+        ',', ledger%fixed_emission_target_charge(species_idx), &
         ',', ledger%fixed_escape_target_charge(species_idx), &
-        ',', ledger%fixed_escape_applied_charge(species_idx), &
+        ',', ledger%fixed_escape_target_charge(species_idx), &
         ',', ledger%fixed_escape_correction(species_idx), &
         ',', ledger%injected_count(species_idx), &
         ',', ledger%emitted_count(species_idx), &

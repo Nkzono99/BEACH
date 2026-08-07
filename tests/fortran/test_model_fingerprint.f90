@@ -196,10 +196,13 @@ program test_model_fingerprint
     )
   call test_end()
 
-  call test_begin('periodic_generation_tolerance_change_detected')
+  call test_begin('inactive_periodic_generation_tolerance_ignored')
   cfg_changed = cfg
   cfg_changed%sim%field_periodic_generation_tolerance = 2.0_dp*cfg%sim%field_periodic_generation_tolerance
-  call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'tolerance must alter fingerprint')
+  call assert_true( &
+    model_fingerprint(cfg_changed) == model_fingerprint(cfg), &
+    'inactive cached-kneq0 tolerance must not alter the model fingerprint' &
+    )
   call test_end()
 
   call test_summary()

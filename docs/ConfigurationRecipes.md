@@ -83,7 +83,7 @@ n_lat = 12
 
 **解釈:** 分割数を増やすと場計算と衝突判定のコストも増えます。まず粗いメッシュで配置と衝突を確認します。
 通常の帯電計算は`surface_model="insulator"`を使います。`conductor`は`field_boundary.mode="free"`だけに対応し、
-`dielectric`の`epsilon_r`は現状ではメタデータであり、分極を解きません。
+`dielectric`と`epsilon_r`は分極未実装のため入力として受理しません。
 
 **次の選択:** 形状と要素数の制約は
 [組み込み形状リファレンス](Parameters.html#meshtemplates-組み込み形状)にまとめています。

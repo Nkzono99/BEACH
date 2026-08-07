@@ -89,7 +89,8 @@ does not exceed the limit.
 - `batch_count` counts accepted batches, so physical time is not generally
   `batch_count * batch_duration`.
 
-For restart reproducibility, use the same actual OpenMP team size as the checkpoint so that the reduction order and accepted ladder match.
+Rejected trials within one run use a fixed OpenMP team size. A restart may use a different team size, so compare charge
+distributions and accepted widths numerically instead of requiring bitwise identity across the restart.
 
 ### Interpretation
 

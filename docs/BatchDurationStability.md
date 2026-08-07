@@ -88,7 +88,8 @@ $k\ne0$電位を全panel重心で評価し、最大絶対値が上限以下と�
 - `batch_count`はaccepted batch数であり、物理時間は一般に
   `batch_count * batch_duration`ではありません。
 
-再開時はcheckpointと同じ実OpenMP team sizeを使い、加算順とaccepted ladderを再現します。
+同じ実行内の棄却trialは固定OpenMP team sizeで再現します。restart後は別のteam sizeを使用できるため、
+restart前後のbitwise一致ではなく、電荷分布とaccepted widthの数値的一致を確認します。
 
 ### 解釈
 

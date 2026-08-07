@@ -17,8 +17,7 @@ module bem_app_config_particle_runtime
     external_boundary_contract_type, external_boundary_ok, external_inflow_none, external_inflow_scalar_barrier, &
     resolve_external_boundary_contract
   use bem_app_config_types, only: &
-    app_config, particle_species_spec, particles_per_batch_from_config, &
-    total_particles_from_config, particle_inflow_reservoir
+    app_config, particle_species_spec, particles_per_batch_from_config, particle_inflow_reservoir
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
@@ -50,72 +49,6 @@ module bem_app_config_particle_runtime
   end type particle_source_plan_type
 
 contains
-
-  !> 設定全体ぶんの粒子群を生成し、SoA へ詰める。
-  !! 粒子種ごとに乱数サンプルした後、種ごとに rank を揃えて interleave する。
-  !! @param[in] cfg 粒子種設定を含むアプリ設定。
-  !! @param[out] pcls 生成した全粒子群。
-  subroutine init_particles_from_config(cfg, pcls)
-    type(app_config), intent(in) :: cfg
-    type(particles_soa), intent(out) :: pcls
-
-    integer(i32) :: s, total_n, max_n, out_idx, rank_idx
-    integer(i32), allocatable :: counts(:)
-    real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :)
-    real(dp), allocatable :: q(:), m(:), w(:), x(:, :), v(:, :)
-
-    if (cfg%n_particle_species <= 0) error stop 'At least one [[particles.species]] entry is required.'
-
-    call seed_rng([cfg%sim%rng_seed])
-
-    allocate (counts(cfg%n_particle_species))
-    counts = 0_i32
-    do s = 1, cfg%n_particle_species
-      if (cfg%particle_species(s)%enabled) then
-        if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
-            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source' .or. &
-            trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast' .or. &
-            has_boundary_inflow(cfg%particle_species(s))) then
-          error stop 'init_particles_from_config supports volume_seed only. Use init_particle_batch_from_config.'
-        end if
-        if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
-          error stop 'particles.species.npcls_per_step must be >= 0.'
-        end if
-        counts(s) = cfg%sim%batch_count*cfg%particle_species(s)%npcls_per_step
-      end if
-    end do
-
-    total_n = total_particles_from_config(cfg)
-    max_n = max(1_i32, maxval(counts))
-
-    allocate (x_species(3, max_n, cfg%n_particle_species))
-    allocate (v_species(3, max_n, cfg%n_particle_species))
-    x_species = 0.0d0
-    v_species = 0.0d0
-
-    do s = 1, cfg%n_particle_species
-      if (counts(s) <= 0_i32) cycle
-      call sample_species_state( &
-        cfg%sim, cfg%particle_species(s), counts(s), x_species(:, 1:counts(s), s), v_species(:, 1:counts(s), s) &
-        )
-    end do
-
-    allocate (x(3, total_n), v(3, total_n), q(total_n), m(total_n), w(total_n))
-    out_idx = 0_i32
-    do rank_idx = 1, maxval(counts)
-      do s = 1, cfg%n_particle_species
-        if (rank_idx > counts(s)) cycle
-        out_idx = out_idx + 1_i32
-        x(:, out_idx) = x_species(:, rank_idx, s)
-        v(:, out_idx) = v_species(:, rank_idx, s)
-        q(out_idx) = cfg%particle_species(s)%q_particle
-        m(out_idx) = cfg%particle_species(s)%m_particle
-        w(out_idx) = cfg%particle_species(s)%w_particle
-      end do
-    end do
-
-    call init_particles(pcls, x, v, q, m, w)
-  end subroutine init_particles_from_config
 
   !> バッチ生成前に乱数シードだけを初期化する。
   !! @param[in] cfg 乱数シード値 `sim.rng_seed` を含むアプリ設定。

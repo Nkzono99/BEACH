@@ -3,12 +3,15 @@ program test_surface_current_model
   use bem_kinds, only: dp, i32
   use bem_app_config, only: app_config, default_app_config
   use bem_app_config_types, only: particle_species_spec
-  use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
+  use bem_surface_closure_contract, only: surface_closure_contract_type
+  use bem_surface_current_model, only: &
+    surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
   type(app_config) :: cfg
   type(surface_current_model_result_type) :: result
+  type(surface_closure_contract_type) :: closure
   real(dp) :: inward_speed
 
   call test_init(4)
@@ -17,6 +20,8 @@ program test_surface_current_model
   call default_app_config(cfg)
   call evaluate_surface_current_model(cfg, result)
   call assert_true(.not. result%active, 'none current model must stay inactive')
+  call evaluate_surface_closure(cfg, closure)
+  call assert_true(.not. closure%active, 'none surface closure must stay inactive')
   call test_end()
 
   call test_begin('zhao_stationary_type_b_channels')
