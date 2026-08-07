@@ -1,4 +1,5 @@
 program test_periodic2_cached_snapshot
+!$ use omp_lib
   use, intrinsic :: iso_c_binding, only: c_char, c_double, c_int, c_loc, c_ptr
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0, qe
@@ -71,16 +72,25 @@ program test_periodic2_cached_snapshot
   real(dp) :: total_field(3), expected_field(3), nonzero_field(3), zero_field, zero_potential
   real(dp) :: total_potential, expected_potential, nonzero_potential
   real(dp) :: reference_field(3), reference_potential, field_error, potential_error, charge_scale
-  character(len=512) :: cache_path
-  character(len=*), parameter :: cache_dir = 'test_periodic2_cached_snapshot_tmp'
+  character(len=512) :: cache_path, cache_dir, team_mismatch_path
+  character(len=64) :: run_mode
+  integer(i64) :: clock_count
 
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--adaptive-team-mismatch-probe') then
+    call run_adaptive_team_mismatch_probe()
+    error stop 'adaptive team-mismatch probe unexpectedly completed'
+  end if
+  call system_clock(count=clock_count)
+  write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
+  team_mismatch_path = trim(cache_dir)//'/adaptive_team_mismatch.log'
   call configure_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2)
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   cache_path = snapshot%nonzero_solver%fmm_core_plan%periodic_cache_path
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
 
-  call test_init(7)
+  call test_init(5)
   call test_begin('cached_snapshot_composes_kneq0_and_k0_once')
   call assert_true(snapshot%use_cached_kneq0 .and. snapshot%use_zero_mode, 'cached split flags must be active')
   call assert_true( &
@@ -206,8 +216,25 @@ contains
     real(dp), parameter :: opening_high = 0.25_dp
     real(dp), parameter :: emit_current_density = 1.0e-6_dp
     real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
+    integer(i32) :: actual_team_size
+    logical :: dynamic_before, dynamic_after
+!$  integer(kind=omp_sched_kind) :: schedule_before_kind, schedule_after_kind
+!$  integer :: schedule_before_chunk, schedule_after_chunk
 
     call test_begin('adaptive_kneq0_rejects_full_step_and_commits_only_half_step')
+    actual_team_size = 1_i32
+    dynamic_before = .false.
+    dynamic_after = .true.
+!$  dynamic_before = omp_get_dynamic()
+!$  call omp_get_schedule(schedule_before_kind, schedule_before_chunk)
+!$  call omp_set_dynamic(.false.)
+    !$omp parallel default(none) shared(actual_team_size)
+    !$omp single
+!$  actual_team_size = int(omp_get_num_threads(), i32)
+    !$omp end single
+    !$omp end parallel
+!$  call omp_set_dynamic(.true.)
+!$  call omp_set_schedule(omp_sched_dynamic, 3)
     call init_mesh(adaptive_mesh, v0, v1, v2)
     adaptive_mesh%elem_vacuum_sign = 1_i32
     adaptive_mesh%vacuum_normals = adaptive_mesh%normals
@@ -268,13 +295,26 @@ contains
     call run_absorption_insulator( &
       adaptive_mesh, adaptive_cfg, adaptive_stats, charge_ledger=adaptive_ledger &
       )
+!$  dynamic_after = omp_get_dynamic()
+    call assert_true(dynamic_after, 'adaptive run did not restore the caller OpenMP dynamic ICV')
+!$  call omp_get_schedule(schedule_after_kind, schedule_after_chunk)
+!$  call assert_equal_i32( &
+!$    int(schedule_after_kind, i32), int(omp_sched_dynamic, i32), &
+!$    'adaptive run did not restore the caller OpenMP schedule kind' &
+!$    )
+!$  call assert_equal_i32( &
+!$    int(schedule_after_chunk, i32), 3_i32, &
+!$    'adaptive run did not restore the caller OpenMP schedule chunk' &
+!$    )
 
     call assert_equal_i64(adaptive_stats%adaptive_nonzero_mode_rejected_trials, 1_i64, &
                           'adaptive batch must reject the full-duration trial exactly once')
     call assert_equal_i32(adaptive_stats%batches, 1_i32, &
                           'rejected adaptive trials must not increment the accepted batch count')
-    call assert_true(adaptive_stats%adaptive_nonzero_mode_omp_threads > 0_i32, &
-                     'adaptive run must checkpoint its OpenMP thread count')
+    call assert_equal_i32( &
+      adaptive_stats%adaptive_nonzero_mode_omp_threads, actual_team_size, &
+      'adaptive run must checkpoint its actual OpenMP team size' &
+      )
     call assert_equal_i64(adaptive_stats%processed_particles, 1_i64, &
                           'rejected adaptive trials must not enter particle statistics')
     call assert_equal_i64(adaptive_ledger%emitted_count(1), 1_i64, &
@@ -322,8 +362,64 @@ contains
       1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
       'same-team adaptive zero-batch resume changed the mesh charge' &
       )
+    call test_adaptive_team_mismatch_context()
+!$  call omp_set_schedule(schedule_before_kind, schedule_before_chunk)
+!$  call omp_set_dynamic(dynamic_before)
     call test_end()
   end subroutine test_adaptive_kneq0_rejects_then_accepts_half_step
+
+  subroutine test_adaptive_team_mismatch_context()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_mismatch, saw_checkpoint_size, saw_current_size
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(team_mismatch_path)
+    command = 'OMP_DYNAMIC=FALSE OMP_NUM_THREADS=1 "'//trim(executable_path)// &
+              '" --adaptive-team-mismatch-probe > '//team_mismatch_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'adaptive team-mismatch command status mismatch')
+    call assert_true(child_exit_status /= 0, 'adaptive team-mismatch probe should terminate with nonzero status')
+
+    saw_mismatch = .false.
+    saw_checkpoint_size = .false.
+    saw_current_size = .false.
+    open (newunit=child_unit, file=team_mismatch_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read adaptive team-mismatch probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_mismatch = saw_mismatch .or. index(child_line, 'team-size mismatch with checkpoint') > 0
+      saw_checkpoint_size = saw_checkpoint_size .or. index(child_line, 'checkpoint=2') > 0
+      saw_current_size = saw_current_size .or. index(child_line, 'current=1') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(team_mismatch_path)
+    call assert_true( &
+      saw_mismatch .and. saw_checkpoint_size .and. saw_current_size, &
+      'adaptive resume team-size mismatch diagnostic is incomplete' &
+      )
+  end subroutine test_adaptive_team_mismatch_context
+
+  subroutine run_adaptive_team_mismatch_probe()
+    type(mesh_type) :: probe_mesh
+    type(app_config) :: probe_cfg
+    type(sim_stats) :: checkpoint_stats, probe_stats
+    real(dp) :: probe_v0(3, 1), probe_v1(3, 1), probe_v2(3, 1)
+
+    probe_v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    probe_v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
+    probe_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(probe_mesh, probe_v0, probe_v1, probe_v2)
+    call default_app_config(probe_cfg)
+    probe_cfg%sim%batch_count = 0_i32
+    probe_cfg%periodic2%max_nonzero_mode_potential_step = 1.0_dp
+    checkpoint_stats = sim_stats()
+    checkpoint_stats%adaptive_nonzero_mode_omp_threads = 2_i32
+    call run_absorption_insulator( &
+      probe_mesh, probe_cfg, probe_stats, initial_stats=checkpoint_stats &
+      )
+  end subroutine run_adaptive_team_mismatch_probe
 
   subroutine evaluate_components(expected_e, expected_phi, nonzero_e, nonzero_phi, zero_e, zero_phi)
     real(dp), intent(out) :: expected_e(3), expected_phi, nonzero_e(3), nonzero_phi, zero_e, zero_phi
@@ -347,7 +443,7 @@ contains
     real(c_double), target :: target_points(3, ntarget), target_z(ntarget)
     real(c_double), target :: nonzero_e(3, ntarget), nonzero_phi(ntarget)
     real(c_double), target :: zero_e(ntarget), zero_phi(ntarget)
-    character(kind=c_char), target :: cache_bytes(len(cache_dir))
+    character(kind=c_char), allocatable, target :: cache_bytes(:)
     character(kind=c_char), target :: fingerprint_buffer(129), path_buffer(513)
     real(dp) :: snapshot_e(3), expected_e(3), snapshot_phi, expected_phi
     character(len=160) :: message
@@ -366,7 +462,8 @@ contains
     periodic_length = real(snapshot%nonzero_solver%fmm_core_options%periodic_len, c_double)
     box_min = real(snapshot%nonzero_solver%fmm_core_options%target_box_min, c_double)
     box_max = real(snapshot%nonzero_solver%fmm_core_options%target_box_max, c_double)
-    call set_c_text(cache_bytes, cache_dir)
+    allocate (cache_bytes(len_trim(cache_dir)))
+    call set_c_text(cache_bytes, trim(cache_dir))
 
     status = beach_kernel_create(kernel_handle)
     call assert_c_ok(status, 'FieldKernel create status')

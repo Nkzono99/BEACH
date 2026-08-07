@@ -19,11 +19,11 @@ module bem_simulator
   use bem_string_utils, only: lower_ascii
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
                                             resolve_external_boundary_contract
-  use bem_simulator_workspace, only: simulator_batch_workspace_type
+  use bem_simulator_workspace, only: simulator_batch_workspace_type, soft_discard_context_type
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_i32_array, &
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
-                     mpi_select_lowest_rank_i32_values
+                     mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
   implicit none
   private
 
@@ -69,7 +69,8 @@ module bem_simulator
 
     module subroutine process_particle_batch( &
       mesh, app, boundary_contract, current_model, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
-      absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
+      absorbed_element, soft_discarded_boundary_flag, soft_discard_context, bfield, batch_idx, mpi_rank, &
+      actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
       collision_failure_x, collision_failure_v &
       )
@@ -83,8 +84,10 @@ module bem_simulator
       logical, intent(inout) :: escaped_boundary_flag(:), absorbed_flag(:)
       integer(i32), intent(inout) :: absorbed_element(:)
       logical, intent(inout) :: soft_discarded_boundary_flag(:)
+      type(soft_discard_context_type), intent(inout) :: soft_discard_context
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx, mpi_rank
+      integer(i32), intent(out) :: actual_team_size
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
     end subroutine process_particle_batch
@@ -105,13 +108,13 @@ module bem_simulator
       )
       type(particles_soa), intent(in) :: pcls_batch
       logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
-      integer(i32), intent(out) :: batch_counts(6)
+      integer(i64), intent(out) :: batch_counts(6)
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
     module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, rel)
       type(sim_stats), intent(inout) :: stats
-      integer(i32), intent(in) :: batch_counts(6)
+      integer(i64), intent(in) :: batch_counts(6)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel
     end subroutine accumulate_batch_stats
 

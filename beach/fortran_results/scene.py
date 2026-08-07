@@ -293,7 +293,7 @@ class BeachScene:
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
-        order: int = 4,
+        order: int | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ) -> FieldKernel:
@@ -321,7 +321,7 @@ class BeachScene:
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
-        order: int = 4,
+        order: int | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ) -> tuple[KernelObjectForceRecord, ...]:

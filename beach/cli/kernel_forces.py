@@ -53,8 +53,8 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--order",
         type=int,
-        default=4,
-        help="FMM Cartesian expansion order",
+        default=None,
+        help="FMM Cartesian expansion order (default: receipt, or 4 for legacy output)",
     )
     parser.add_argument(
         "--library",
@@ -96,7 +96,7 @@ def run(args: argparse.Namespace) -> None:
     require_positive_finite(parser, args.theta, "--theta")
     if args.leaf_max is not None and args.leaf_max <= 0:
         parser.error("--leaf-max must be > 0.")
-    if args.order < 1:
+    if args.order is not None and args.order < 1:
         parser.error("--order must be >= 1.")
 
     output_dir = Path(args.output_dir)

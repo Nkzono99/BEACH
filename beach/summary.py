@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 
-CURRENT_CHECKPOINT_SCHEMA_VERSION = 7
+CURRENT_CHECKPOINT_SCHEMA_VERSION = 8
 CORE_SUMMARY_REQUIRED_KEYS = (
     "mesh_nelem",
     "processed_particles",

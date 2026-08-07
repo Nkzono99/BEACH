@@ -3,6 +3,8 @@ module bem_model_fingerprint
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, bc_redistributed_reflect
   use bem_app_config_types, only: app_config, particle_species_spec, particle_bc_inherit
+  use bem_injection_velocity_grid, only: get_velocity_grid_snapshot
+  use bem_string_utils, only: lower_ascii
   implicit none
   private
 
@@ -25,6 +27,10 @@ contains
     type(hash_state) :: hash
 
     call feed_string(hash, 'same_time_midpoint_boris')
+    ! These version tags intentionally invalidate older checkpoints whose
+    ! boundary-event velocity and surface-launch trajectories used different rules.
+    call feed_string(hash, 'boundary_event_chord_work_velocity_v4')
+    call feed_string(hash, 'surface_injection_ulp_launch_v2')
     call feed_string(hash, cfg%field%backend)
     call feed_string(hash, cfg%field%normalization)
     call feed_string(hash, cfg%periodic2%nonzero_mode_backend)
@@ -56,7 +62,9 @@ contains
     call feed_integer(hash, cfg%sim%field_periodic_ewald_layers)
     call feed_real(hash, cfg%sim%field_periodic_generation_tolerance)
     call feed_real(hash, cfg%sim%tree_theta)
+    call feed_logical(hash, cfg%sim%has_tree_theta)
     call feed_integer(hash, cfg%sim%tree_leaf_max)
+    call feed_logical(hash, cfg%sim%has_tree_leaf_max)
     call feed_integer(hash, cfg%sim%tree_min_nelem)
     call feed_real_vector(hash, cfg%sim%e0)
     call feed_real_vector(hash, cfg%sim%b0)
@@ -153,6 +161,8 @@ contains
   subroutine feed_species(hash, spec)
     type(hash_state), intent(inout) :: hash
     type(particle_species_spec), intent(in) :: spec
+    real(dp), allocatable :: velocity_grid(:, :), velocity_weights(:)
+    integer :: row
 
     call feed_string(hash, spec%species_key)
     call feed_logical(hash, spec%enabled)
@@ -175,6 +185,15 @@ contains
     call feed_string(hash, spec%velocity_grid_path)
     call feed_string(hash, spec%velocity_grid_pdf_kind)
     call feed_string(hash, spec%velocity_grid_sampling)
+    if (spec%enabled .and. trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
+      call feed_string(hash, 'velocity_grid_snapshot_v2')
+      call get_velocity_grid_snapshot(trim(spec%velocity_grid_path), velocity_grid, velocity_weights)
+      call feed_integer(hash, int(size(velocity_weights), i32))
+      do row = 1, size(velocity_weights)
+        call feed_real_vector(hash, velocity_grid(:, row))
+        call feed_real(hash, velocity_weights(row))
+      end do
+    end if
     call feed_real(hash, spec%particle_flux_m2_s)
     call feed_logical(hash, spec%has_particle_flux_m2_s)
     call feed_real(hash, spec%current_density_a_m2)

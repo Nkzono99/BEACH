@@ -1,3 +1,4 @@
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -11,6 +12,7 @@ from beach import (
     FieldKernelDiagnostics,
     FieldKernelError,
     FieldKernelOptions,
+    FieldReconstructionReceipt,
     FortranRunResult,
     ObjectInteractionSnapshot,
     RigidTransform,
@@ -111,6 +113,36 @@ e0 = [7.0, 8.0, 9.0]
             + periodic_policy
         ),
         encoding="utf-8",
+    )
+
+
+def _cached_field_receipt(
+    *, lower_boundary_model: str = "symmetric_vacuum"
+) -> FieldReconstructionReceipt:
+    return FieldReconstructionReceipt(
+        schema_version=2,
+        resolved_field_solver="fmm",
+        fmm_expansion_order=4,
+        field_bc_mode="periodic2",
+        tree_theta=0.4,
+        tree_leaf_max=12,
+        external_e0_v_m=(1.0, 2.0, 3.0),
+        use_box=True,
+        box_min_m=(0.0, 0.0, 0.0),
+        box_max_m=(4.0, 4.0, 4.0),
+        boundary_low=(2, 2, 0),
+        boundary_high=(2, 2, 0),
+        periodic_image_layers=1,
+        periodic_far_correction="cached_kneq0",
+        periodic_nonzero_mode_backend="cached_kneq0",
+        periodic_zero_mode_policy="exclude_k0",
+        periodic_lower_boundary_model=lower_boundary_model,
+        periodic_reference_mode_layers=4,
+        periodic_panel_quadrature_order=12,
+        periodic_ewald_alpha=0.0,
+        periodic_ewald_layers=4,
+        periodic_cache_dir=".beach_cache/periodic2",
+        periodic_generation_tolerance=1.0e-8,
     )
 
 
@@ -625,6 +657,51 @@ def test_cached_zero_mode_updates_bottom_field_for_each_charge_subset(
     np.testing.assert_allclose(
         zero.e_bottom_history,
         factor * np.array([3.0, 2.0, 1.0, 3.0]),
+    )
+
+
+def test_field_receipt_makes_cached_object_interaction_self_contained_and_authoritative(
+    tmp_path: Path,
+    fake_native,
+) -> None:
+    _, fake_zero = fake_native
+    result = replace(
+        _result(
+            tmp_path,
+            np.array([[1.0, 1.0, 1.0]]),
+            np.array([1.0]),
+            np.array([1]),
+        ),
+        field_reconstruction=_cached_field_receipt(
+            lower_boundary_model="symmetric_vacuum"
+        ),
+    )
+    expected_bottom_field = -1.0 / (2.0 * interaction_module._EPS0_F_M * 16.0)
+
+    with ObjectInteractionSnapshot.from_result(result, step=None) as snapshot:
+        uniform = snapshot.object_probe(1).wrench().components["external_uniform"]
+
+    np.testing.assert_allclose(uniform.force_N, [1.0, 2.0, 3.0])
+    assert fake_zero.instances[-1].default_e_bottom_V_m == pytest.approx(
+        expected_bottom_field
+    )
+
+    stale_config = tmp_path / "stale.toml"
+    _write_periodic_config(
+        stale_config,
+        far_correction="cached_kneq0",
+        lower_boundary_model="e_bottom_zero",
+    )
+    with ObjectInteractionSnapshot.from_result(
+        result,
+        step=None,
+        config_path=stale_config,
+    ) as snapshot:
+        uniform = snapshot.object_probe(1).wrench().components["external_uniform"]
+
+    np.testing.assert_allclose(uniform.force_N, [1.0, 2.0, 3.0])
+    assert fake_zero.instances[-1].default_e_bottom_V_m == pytest.approx(
+        expected_bottom_field
     )
 
 

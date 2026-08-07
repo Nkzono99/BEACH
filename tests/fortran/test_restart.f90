@@ -7,6 +7,8 @@ program test_restart
                          restart_contract_ok, restart_contract_mismatch
   use bem_output_writer, only: write_result_files
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, resolve_latest_checkpoint_dir
+  use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current, &
+                                     inspect_checkpoint_directory, publish_checkpoint_manifest
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_mpi, only: mpi_context
   use bem_charge_ledger, only: charge_ledger_type
@@ -24,6 +26,7 @@ program test_restart
   type(mpi_context) :: mpi
   logical :: has_restart, exists
   integer(i32) :: contract_status
+  real(dp) :: rng_probe
   character(len=256) :: contract_message
   character(len=1024) :: rng_rank_path, residual_global_path
   character(len=1024) :: resolved_checkpoint_dir
@@ -80,6 +83,7 @@ program test_restart
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
   call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
+  call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
 
   call build_test_mesh(mesh)
   state%macro_residual = 0.0_dp
@@ -181,6 +185,26 @@ program test_restart
     'second periodic checkpoint should publish slot1' &
     )
 
+  ! complete manifestを持つslotは、indexが欠落、破損、古い場合も回収する。
+  call delete_file_if_exists(out_dir//'/checkpoint_latest.txt')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
+    'missing index must not hide a complete periodic checkpoint' &
+    )
+  call write_checkpoint_index_fixture(out_dir, -1_i32, -1_i32, malformed=.true.)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
+    'malformed index must not hide a complete periodic checkpoint' &
+    )
+  call write_checkpoint_index_fixture(out_dir, 0_i32, 4_i32)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
+    'stale index must not hide a newer complete periodic checkpoint' &
+    )
+
   call build_test_mesh(mesh)
   call load_restart_checkpoint( &
     trim(resolved_checkpoint_dir), mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger &
@@ -189,13 +213,85 @@ program test_restart
   call assert_equal_i32(stats%batches, 8_i32, 'latest periodic checkpoint batch mismatch')
   call assert_allclose_1d(mesh%q_elem, [8.0e-12_dp, -3.0e-12_dp], 1.0e-24_dp, 'periodic charge mismatch')
 
+  ! stale indexがslot0を指していても、最新slot1をactiveとみなしてslot0へ次世代を書く。
   stats%batches = 12_i32
-  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
-  call delete_file_if_exists(out_dir//'/rng_state.txt')
+  stats%processed_particles = 60_i64
+  ledger%batch_count = 12_i32
+  mesh%q_elem = [12.0e-12_dp, -4.0e-12_dp]
+  call maybe_write_periodic_checkpoint(cfg, mesh, stats, state, mpi, ledger)
   call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
   call assert_true( &
-    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot1', &
-    'incomplete newer final output must not hide the last complete periodic checkpoint' &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'recovered latest slot must be preserved while the other slot is updated' &
+    )
+
+  ! loadできないfuture schemaのroot/slotは、より古いload可能なslotを隠さない。
+  call begin_checkpoint_publish(out_dir//'/checkpoints/slot1')
+  call write_structural_summary_fixture( &
+    out_dir//'/checkpoints/slot1', checkpoint_schema_version_current + 1_i32, 100_i32, 1_i32 &
+    )
+  call publish_checkpoint_manifest( &
+    out_dir//'/checkpoints/slot1', 100_i32, 1_i32, .false., .false. &
+    )
+  call inspect_checkpoint_directory(out_dir//'/checkpoints/slot1', exists)
+  call assert_true(.not. exists, 'future schema must not be reported as a loadable complete checkpoint')
+  call begin_checkpoint_publish(out_dir)
+  call write_structural_summary_fixture( &
+    out_dir, checkpoint_schema_version_current + 1_i32, 99_i32, 1_i32 &
+    )
+  call publish_checkpoint_manifest(out_dir, 99_i32, 1_i32, .false., .false.)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'unsupported newer root or slot schema must not hide a loadable periodic checkpoint' &
+    )
+
+  stats%batches = 16_i32
+  ledger%batch_count = 16_i32
+  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
+  call write_rng_state_file(out_dir)
+  call write_macro_residuals_file(out_dir, state)
+  call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir, &
+    'newer loadable complete final output must win over both periodic slots' &
+    )
+
+  ! 同じbatch番号の新しい世代を書き始め、旧RNG/residualが残った時点を再現する。
+  mesh%q_elem = [16.0e-12_dp, -5.0e-12_dp]
+  state%macro_residual = [0.5_dp, 0.25_dp]
+  call random_number(rng_probe)
+  call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
+  inquire (file=out_dir//'/rng_state.txt', exist=exists)
+  call assert_true(exists, 'mixed-generation fixture must retain a stale RNG state')
+  inquire (file=out_dir//'/macro_residuals.csv', exist=exists)
+  call assert_true(exists, 'mixed-generation fixture must retain a stale macro residual')
+  inquire (file=out_dir//'/charge_ledger.csv', exist=exists)
+  call assert_true(exists, 'mixed-generation fixture must retain its conditional charge ledger')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'stale-but-present final state must not hide the last complete periodic checkpoint' &
+    )
+
+  call write_rng_state_file(out_dir)
+  call write_macro_residuals_file(out_dir, state)
+  call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
+  call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'missing residual declared by manifest must fall back to the complete periodic checkpoint' &
+    )
+  call begin_checkpoint_publish(out_dir)
+  call write_macro_residuals_file(out_dir, state)
+  call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
+  call delete_file_if_exists(out_dir//'/charge_ledger.csv')
+  call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
+  call assert_true( &
+    trim(resolved_checkpoint_dir) == out_dir//'/checkpoints/slot0', &
+    'missing ledger declared by summary must fall back to the complete periodic checkpoint' &
     )
   call test_end()
 
@@ -262,6 +358,46 @@ program test_restart
 
 contains
 
+  subroutine write_checkpoint_index_fixture(dir_path, slot, batches, malformed)
+    character(len=*), intent(in) :: dir_path
+    integer(i32), intent(in) :: slot, batches
+    logical, intent(in), optional :: malformed
+    integer :: u, ios
+    logical :: write_malformed
+
+    write_malformed = .false.
+    if (present(malformed)) write_malformed = malformed
+    open ( &
+      newunit=u, file=trim(dir_path)//'/checkpoint_latest.txt', &
+      status='replace', action='write', iostat=ios &
+      )
+    if (ios /= 0) error stop 'failed to open checkpoint index fixture'
+    if (write_malformed) then
+      write (u, '(a)') 'malformed checkpoint index fixture'
+    else
+      write (u, '(a)') 'schema_version=1'
+      write (u, '(a,i0)') 'slot=', slot
+      write (u, '(a,i0)') 'batches=', batches
+    end if
+    close (u)
+  end subroutine write_checkpoint_index_fixture
+
+  subroutine write_structural_summary_fixture(dir_path, schema_version, batches, mpi_world_size)
+    character(len=*), intent(in) :: dir_path
+    integer(i32), intent(in) :: schema_version, batches, mpi_world_size
+    integer :: u, ios
+
+    open ( &
+      newunit=u, file=trim(dir_path)//'/summary.txt', &
+      status='replace', action='write', iostat=ios &
+      )
+    if (ios /= 0) error stop 'failed to open structural summary fixture'
+    write (u, '(a,i0)') 'checkpoint_schema_version=', schema_version
+    write (u, '(a,i0)') 'batches=', batches
+    write (u, '(a,i0)') 'mpi_world_size=', mpi_world_size
+    close (u)
+  end subroutine write_structural_summary_fixture
+
   subroutine cleanup_restart_fixture(dir_path)
     character(len=*), intent(in) :: dir_path
 
@@ -276,6 +412,8 @@ contains
     call delete_file_if_exists(trim(dir_path)//'/charge_ledger.csv')
     call delete_file_if_exists(trim(dir_path)//'/checkpoint_latest.txt')
     call delete_file_if_exists(trim(dir_path)//'/checkpoint_latest.txt.tmp')
+    call delete_file_if_exists(trim(dir_path)//'/checkpoint_complete.txt')
+    call delete_file_if_exists(trim(dir_path)//'/checkpoint_complete.txt.tmp')
     call cleanup_checkpoint_slot(trim(dir_path)//'/checkpoints/slot0')
     call cleanup_checkpoint_slot(trim(dir_path)//'/checkpoints/slot1')
     call remove_empty_directory(trim(dir_path)//'/checkpoints')
@@ -290,6 +428,8 @@ contains
     call delete_file_if_exists(trim(slot_dir)//'/rng_state.txt')
     call delete_file_if_exists(trim(slot_dir)//'/macro_residuals.csv')
     call delete_file_if_exists(trim(slot_dir)//'/charge_ledger.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/checkpoint_complete.txt')
+    call delete_file_if_exists(trim(slot_dir)//'/checkpoint_complete.txt.tmp')
     call remove_empty_directory(slot_dir)
   end subroutine cleanup_checkpoint_slot
 

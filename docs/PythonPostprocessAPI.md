@@ -18,7 +18,7 @@ BEACHのPython package (`beach`) は、Fortranシミュレーションの結果�
 | `beach.fortran_results.facade` | 高水準ファサード `Beach` クラス |
 | `beach.fortran_results.potential` | 電位再構成 (`compute_potential_mesh`, `compute_potential_points`, `compute_potential_slices`) |
 | `beach.fortran_results.coulomb` | Coulomb 力/トルク計算 (`calc_coulomb`) |
-| `beach.fortran_results.kernel` | Fortran FMM field kernel の共有ライブラリ呼び出し (`FieldKernel`, `calc_object_forces_kernel`) |
+| `beach.fortran_results.kernel` | Fortran native field kernel の共有ライブラリ呼び出し (`FieldKernel`, `calc_object_forces_kernel`) |
 | `beach.fortran_results.object_interaction` | 凍結した source 電荷に対する object の力・トルク・鉛直経路 (`ObjectInteractionSnapshot`, `ObjectProbe`) |
 | `beach.fortran_results.detachment` | 経路仕事、付着、重力、速度、from-rest barrier の immutable 結果型 |
 | `beach.fortran_results.periodic_force_oracle` | 有限周期画像 shell と `E_bottom=0` 境界条件の収束診断 |
@@ -47,9 +47,11 @@ b = Beach("outputs/latest")
 
 `Beach("outputs/latest", config_path="path/to/beach.toml")`のように、設定ファイルを明示できます。
 `config_path=None`の場合は、`output_dir/beach.toml`、親ディレクトリ、祖父ディレクトリの順に自動探索します。
-object や kernel の設定を参照する解析では、この `beach.toml` から object kind/order、
-`field_boundary.mode`、`domain.periodic_axes` と box、periodic2、tree パラメータを取得します。
-全電場を再計算する高水準APIは、境界・一様場・外部場を推測しないため、この設定ファイルを必須とします。
+object 設定を参照する解析では、この `beach.toml` から object kind/order などを取得します。
+新しい出力では、全電場再構成に必要な境界・box・一様場・periodic2・実際のsolver・tree/FMMパラメータを
+`summary.txt` の `field_reconstruction_*` receipt から取得します。この receipt がある場合、近傍または
+`config_path` で指定した別の `beach.toml` は field 設定を上書きしません。receipt のない旧出力だけは、
+境界や外部場を推測しないため、実行時と同じ `beach.toml` が必要です。
 simulatorが保存した`mesh_potential.csv`をそのまま読む経路では再計算しないため不要です。
 
 ### 2.1 コンストラクタ
@@ -404,11 +406,17 @@ fig.savefig("field_lines.png", dpi=150)
 
 ### 8.1 自動判定（`periodic2=None`）
 
-デフォルトの `None` では、出力ディレクトリ近傍の `beach.toml` を探索します。
-`field_boundary.mode="periodic2"` の場合、`domain.periodic_axes` と `domain.box_min` / `domain.box_max` から
-周期軸、長さ、原点を自動解決します。
-設定ファイルが見つからない場合、全電場を再計算する高水準APIは自由空間へ黙ってfallbackせず停止します。
-設定の `field_boundary.mode` が `free` に解決される場合は自由空間として再計算します。
+デフォルトの `None` では、まず出力の `field_reconstruction_*` receipt から、実行時に解決済みの
+field boundary、周期軸、長さ、原点を復元します。receipt のない旧出力では、出力ディレクトリ近傍の
+`beach.toml` を探索し、`field_boundary.mode="periodic2"` の場合は `domain.periodic_axes` と
+`domain.box_min` / `domain.box_max` から自動解決します。旧出力で設定ファイルが見つからない場合、
+全電場を再計算する高水準APIは自由空間へ黙ってfallbackせず停止します。field boundary が `free` に
+解決される場合は自由空間として再計算します。
+`panel_spectral_reference`のsplit-periodic receiptはfinite-image native kernelへ置換せず、全電場を再計算する
+高水準APIで停止します。この場合はsimulator保存済み電位または専用のperiodic reference検証を使ってください。
+receiptの実際のsolverが`direct`なら非周期exact-direct kernel、`fmm`ならreceiptのFMM展開次数を使います。
+`treecode`はFMMへ置換せず、高水準の電場・電位・力APIで停止します。明示的な`periodic2`を渡しても
+`treecode`をFMMへすり替えません。
 
 ### 8.2 明示指定
 
@@ -460,7 +468,7 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 
 ### 10.1 `FieldKernel`
 
-`make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じFortran field coreでP0 triangle panelの電場・電位を評価します。`config_path` または自動探索された `beach.toml` から、periodic2、tree 設定を読みます。
+`make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じFortran field coreでP0 triangle panelの電場・電位を評価します。新しい出力では `field_reconstruction_*` receipt、旧出力では `config_path` または自動探索された `beach.toml` から solver、periodic2、tree 設定を読みます。
 
 ```python
 from beach import Beach, FieldKernel
@@ -474,6 +482,10 @@ with FieldKernel.from_result(run) as kernel:
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 
 `eval_e()` / `eval_phi()` は、構築時に選んだ free / finite periodic / cached periodic 設定を使います。
+自動構築ではresolved `direct`をexact-directへ、resolved `fmm`をFMMへ対応させ、resolved `treecode`は
+再現不能として停止します。FMMの`order`はreceiptの展開次数がデフォルトで、明示`order=`だけが上書きします。
+resolved `direct`では`eval_e()`、`eval_phi()`、`force_on_charges()`のすべてがexact-directを使い、uniform
+`sim.e0`はそれぞれ一度だけ合成します。
 ただし cached plan の返り値は `cached_kneq0` の $k\ne0$ 成分と `sim.e0` だけで、physical zero mode を含む
 simulator 全電場ではありません。`FieldKernel` はこの成分を明示的に扱う低水準 API です。
 `eval_e_direct()` / `eval_phi_direct()`は、同じsource geometryとchargeを非周期のexact direct法で評価する診断APIです。

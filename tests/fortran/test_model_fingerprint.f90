@@ -6,13 +6,17 @@ program test_model_fingerprint
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, particle_inflow_reservoir
   use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
+  use bem_injection_velocity_grid, only: reset_velocity_grid_snapshot_cache
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
+                          delete_file_if_exists
   implicit none
 
   type(mesh_type) :: mesh, mesh_changed
   type(app_config) :: cfg, cfg_changed
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
   character(len=16) :: fp_a, fp_b
+  character(len=*), parameter :: velocity_grid_path = 'test_model_fingerprint_velocity_grid.csv'
+  integer :: u, ios
 
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
   v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
@@ -34,7 +38,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(15)
+  call test_init(18)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -131,6 +135,41 @@ program test_model_fingerprint
   call assert_true(species_fingerprint(cfg_changed) /= species_fingerprint(cfg), 'presence flag must alter fingerprint')
   call test_end()
 
+  call test_begin('velocity_grid_snapshot_is_immutable_within_run')
+  call delete_file_if_exists(velocity_grid_path)
+  open (newunit=u, file=velocity_grid_path, status='replace', action='write', iostat=ios)
+  call assert_equal_i32(int(ios, i32), 0_i32, 'failed to create velocity-grid fingerprint fixture')
+  write (u, '(a)') 'vx,vy,vz,f'
+  write (u, '(a)') '1,0,0,1'
+  close (u)
+  cfg_changed = cfg
+  ! Match runtime dispatch: programmatically constructed configs may use mixed case.
+  cfg_changed%particle_species(1)%velocity_distribution = 'GRID'
+  cfg_changed%particle_species(1)%velocity_grid_path = velocity_grid_path
+  fp_a = species_fingerprint(cfg_changed)
+  open (newunit=u, file=velocity_grid_path, status='replace', action='write', iostat=ios)
+  call assert_equal_i32(int(ios, i32), 0_i32, 'failed to replace velocity-grid fingerprint fixture')
+  write (u, '(a)') 'vx,vy,vz,f'
+  write (u, '(a)') '1,0,0,2'
+  close (u)
+  fp_b = species_fingerprint(cfg_changed)
+  call assert_true(fp_a == fp_b, 'an active run must retain its initial velocity-grid snapshot')
+  call reset_velocity_grid_snapshot_cache()
+  fp_b = species_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'a new run must fingerprint the replacement velocity-grid contents')
+  call reset_velocity_grid_snapshot_cache()
+  call delete_file_if_exists(velocity_grid_path)
+  call test_end()
+
+  call test_begin('disabled_velocity_grid_does_not_require_file')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%enabled = .false.
+  cfg_changed%particle_species(1)%velocity_distribution = 'grid'
+  cfg_changed%particle_species(1)%velocity_grid_path = 'missing-disabled-velocity-grid.csv'
+  fp_a = species_fingerprint(cfg_changed)
+  call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'disabled species fingerprint length mismatch')
+  call test_end()
+
   call test_begin('model_backend_change_detected')
   cfg_changed = cfg
   cfg_changed%sim%field_solver = 'fmm'
@@ -140,6 +179,21 @@ program test_model_fingerprint
     cfg_changed%sim, cfg_changed%field, cfg_changed%periodic2, cfg_changed%panel &
     )
   call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'backend change must alter fingerprint')
+  call test_end()
+
+  call test_begin('tree_override_presence_change_detected')
+  cfg_changed = cfg
+  cfg_changed%sim%has_tree_theta = .true.
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'explicit tree theta must differ from an equal-valued automatic setting' &
+    )
+  cfg_changed = cfg
+  cfg_changed%sim%has_tree_leaf_max = .true.
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'explicit tree leaf size must differ from an equal-valued automatic setting' &
+    )
   call test_end()
 
   call test_begin('periodic_generation_tolerance_change_detected')

@@ -21,6 +21,10 @@ BEACH の出力は、最終状態、履歴、再開状態に分かれます。�
 `summary.txt` には統計、設定の解決結果、build 情報、checkpoint schema、model / mesh / species fingerprint が
 記録されます。境界 reservoir と通常 open 面の解決結果は `reservoir_inflow_map` と
 `particle_ordinary_open_model` で確認できます。
+`field_reconstruction_*`は、実行時に解決された`E0`、box、境界、periodic nonzero/zero-mode model、
+tree設定、実際のfield solver、およびFMM展開次数のreceiptです。schema v2では
+`field_reconstruction_resolved_field_solver`と`field_reconstruction_fmm_expansion_order`を必須とします。
+新しい出力をPythonで電場再構成するときは近傍の`beach.toml`ではなく、このreceiptを使います。
 
 `[surface_current_model]`のreceiptは`surface_current_model`に記録されます。`zhao_stationary`では、選択branch、
 参照面積、$\phi_0$、$\phi_m$、解いたambient electron密度、およびelectron / ion / PE emission / PE escape /
@@ -74,6 +78,11 @@ PE return / netのsigned電流密度を`surface_current_model_*`で出力しま�
 `summary.txt` の `charge_ledger_residual_C` は surface / local-flight / unresolved stock の変化と
 外部 flux、neutral-return 補正、fixed-current 補正から作る保存残差です。
 
+`fixed_current`の統計診断では、対象channelの`absorbed_count`または`emitted_count`、対応するraw charge、
+`fixed_*_weight_scale`を組にして読みます。countが1ならtarget全量が1標本の要素へ局所化されます。
+保存残差が小さくてもこの標本分散は検出できないため、粒子数・ray数・batch幅・乱数seedを変えた
+要素別電荷分布の収束を別に確認します。
+
 closed PE では raw の吸収・未解決量を上書きしません。補正量と係数を別に記録するため、
 表面総電荷が閉じていても未解決率を独立に確認できます。
 
@@ -96,6 +105,7 @@ closed PE では raw の吸収・未解決量を上書きしません。補正�
 
 ```text
 outputs/latest/
+├── checkpoint_complete.txt
 ├── checkpoint_latest.txt
 └── checkpoints/
     ├── slot0/
@@ -111,12 +121,18 @@ outputs/latest/
 | `charges.csv` | 要素電荷 |
 | `rng_state.txt` | serial の RNG |
 | `rng_state_rankNNNNN.txt` | MPI rank ごとの RNG |
-| `macro_residuals.csv` | global な macro 粒子数残差。species×faceを区別し、存在時に復元 |
+| `macro_residuals.csv` | global な macro 粒子数残差。species×faceを区別し、schema v8 以降は manifest 宣言時に必須 |
 | `charge_ledger.csv` | summary に ledger metadata がある場合に復元 |
+| `checkpoint_complete.txt` | schema v8 以降の checkpoint 一式を最後に公開する完了 manifest |
 
 `output.restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は `output.dir` に書きます。
-読み込み元に `checkpoint_latest.txt` があれば、直下の最終出力と定期 slot のうち、必須ファイルが揃い
-`batches` が最大の checkpoint を自動選択します。
+直下の最終出力と両定期 slot のうち、必須ファイルが揃う load 可能な checkpoint を比較し、
+`batches` が最大のものを自動選択します。`checkpoint_latest.txt` が欠落、破損、または古い場合も、
+完了 manifest を持つ slot は回収対象です。
+schema v8 以降では、再開状態を書き始める前に `checkpoint_complete.txt` を `in_progress` にし、
+summary、charges、全 rank の RNG、manifest で宣言した residual と ledger を閉じてから `complete` を原子的に公開します。
+この schema では `checkpoint_complete.txt` 自体が再開の必須ファイルです。
+直下の最終出力が中断されて新旧世代のファイルが残った場合は、その出力を選ばず完全な定期 slot へ戻ります。
 必須ファイルの欠落、fingerprint、mesh 要素数、species 数、MPI world size の不一致では
 新規実行へ fallback せず停止します。
 

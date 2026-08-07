@@ -511,6 +511,12 @@ contains
     case default
       error stop 'surface_current_model.model must be "none" or "zhao_stationary".'
     end select
+    if (any(cfg%sim%b0 /= 0.0_dp)) then
+      error stop 'surface_current_model="zhao_stationary" requires sim.b0=[0,0,0] for its unmagnetized sheath closure.'
+    end if
+    if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
+      error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
+    end if
     select case (trim(lower_ascii(cfg%surface_current%zhao_branch)))
     case ('auto', 'a', 'b', 'c')
       continue
@@ -572,6 +578,20 @@ contains
     end if
     if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
       error stop 'Zhao photoelectron species requires inject_face="z_high".'
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(electron_idx), &
+      effective_boundary_low, effective_boundary_high &
+      )
+    if (effective_boundary_high(3) /= bc_open) then
+      error stop 'Zhao ambient-electron kinetic closure requires an open z-high particle boundary.'
+    end if
+    call resolve_particle_boundaries( &
+      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(ion_idx), &
+      effective_boundary_low, effective_boundary_high &
+      )
+    if (effective_boundary_high(3) /= bc_open) then
+      error stop 'Zhao ion kinetic closure requires an open z-high particle boundary.'
     end if
     call resolve_particle_boundaries( &
       cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &

@@ -3,9 +3,11 @@ module bem_output_writer
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_stats, surface_model_insulator, surface_model_conductor, surface_model_dielectric
   use bem_app_config_types, only: app_config
-  use bem_charge_ledger, only: charge_ledger_type
-  use bem_checkpoint_contract, only: checkpoint_schema_version_current
+  use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
+  use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+  use bem_field_solver, only: field_solver_fmm_expansion_order, resolve_field_solver_mode, &
+                              resolve_field_solver_tree_params
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
                                             external_inflow_none, external_inflow_scalar_barrier, &
                                             external_open_escape, external_open_potential_barrier, &
@@ -211,6 +213,7 @@ contains
     type(charge_ledger_type), intent(in), optional :: charge_ledger
     type(electrostatic_diagnostics_type), intent(in), optional :: electrostatic_diagnostics
     call ensure_output_dir(out_dir)
+    call begin_checkpoint_publish(out_dir)
     call write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger, &
       electrostatic_diagnostics=electrostatic_diagnostics &
@@ -237,6 +240,7 @@ contains
     type(charge_ledger_type), intent(in), optional :: charge_ledger
 
     call ensure_output_dir(out_dir)
+    call begin_checkpoint_publish(out_dir)
     call write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size=mpi_world_size, charge_ledger=charge_ledger &
       )
@@ -283,8 +287,10 @@ contains
     type(surface_current_model_result_type) :: current_model
     character(len=1024) :: summary_path
     character(len=256) :: boundary_message
+    character(len=16) :: resolved_field_solver
     integer :: u, ios
-    integer(i32) :: world_size, boundary_status
+    integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
+    real(dp) :: resolved_tree_theta
 
     call resolve_external_boundary_contract( &
       cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
@@ -294,6 +300,10 @@ contains
       error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
     end if
     call evaluate_surface_current_model(cfg, current_model)
+    call resolve_field_solver_tree_params( &
+      mesh%nelem, cfg%sim, resolved_tree_theta, resolved_tree_leaf_max &
+      )
+    resolved_field_solver = resolve_field_solver_mode(mesh%nelem, cfg%sim)
     summary_path = trim(out_dir)//'/summary.txt'
     open (newunit=u, file=trim(summary_path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary file.'
@@ -336,6 +346,36 @@ contains
     write (u, '(a,a)') 'field_normalization=', trim(cfg%field%normalization)
     write (u, '(a)') 'field_source_model=triangle_p0'
     write (u, '(a,a)') 'field_kernel_id=', trim(cfg%panel%kernel_id)
+    write (u, '(a)') 'field_reconstruction_schema_version=2'
+    write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
+    write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
+    write (u, '(a,a)') 'field_reconstruction_field_bc_mode=', trim(cfg%sim%field_bc_mode)
+    write (u, '(a,es24.16)') 'field_reconstruction_tree_theta=', resolved_tree_theta
+    write (u, '(a,i0)') 'field_reconstruction_tree_leaf_max=', resolved_tree_leaf_max
+    write (u, '(a,3(1x,es24.16))') 'field_reconstruction_e0_V_m=', cfg%sim%e0
+    write (u, '(a,l1)') 'field_reconstruction_use_box=', cfg%sim%use_box
+    write (u, '(a,3(1x,es24.16))') 'field_reconstruction_box_min_m=', cfg%sim%box_min
+    write (u, '(a,3(1x,es24.16))') 'field_reconstruction_box_max_m=', cfg%sim%box_max
+    write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_low=', cfg%sim%bc_low
+    write (u, '(a,3(1x,i0))') 'field_reconstruction_boundary_high=', cfg%sim%bc_high
+    write (u, '(a,i0)') 'field_reconstruction_periodic_image_layers=', cfg%sim%field_periodic_image_layers
+    write (u, '(a,a)') 'field_reconstruction_periodic_far_correction=', &
+      trim(cfg%sim%field_periodic_far_correction)
+    write (u, '(a,a)') 'field_reconstruction_periodic_nonzero_mode_backend=', &
+      trim(cfg%periodic2%nonzero_mode_backend)
+    write (u, '(a,a)') 'field_reconstruction_periodic_zero_mode_policy=', &
+      trim(cfg%periodic2%zero_mode_policy)
+    write (u, '(a,a)') 'field_reconstruction_periodic_lower_boundary_model=', &
+      trim(cfg%periodic2%lower_boundary_model)
+    write (u, '(a,i0)') 'field_reconstruction_periodic_reference_mode_layers=', &
+      cfg%periodic2%reference_mode_layers
+    write (u, '(a,i0)') 'field_reconstruction_periodic_panel_quadrature_order=', &
+      cfg%periodic2%panel_quadrature_order
+    write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%field_periodic_ewald_alpha
+    write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%field_periodic_ewald_layers
+    write (u, '(a,a)') 'field_reconstruction_periodic_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
+    write (u, '(a,es24.16)') 'field_reconstruction_periodic_generation_tolerance=', &
+      cfg%sim%field_periodic_generation_tolerance
     write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
     write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
     write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cfg%periodic2%lower_boundary_model)
@@ -424,28 +464,36 @@ contains
       write (u, '(a,es24.16)') 'charge_ledger_discarded_unresolved_abs_C=', &
         charge_ledger%discarded_unresolved_abs()
       write (u, '(a,es24.16)') 'charge_ledger_neutral_return_correction_C=', &
-        sum(charge_ledger%neutral_return_correction)
+        finite_charge_sum(charge_ledger%neutral_return_correction, 'summary neutral-return correction')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_current_correction_C=', &
-        sum(charge_ledger%fixed_current_correction)
+        finite_charge_sum(charge_ledger%fixed_current_correction, 'summary fixed-current correction')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_absorbed_applied_charge_C=', &
-        sum(charge_ledger%fixed_absorbed_applied_charge)
+        finite_charge_sum(charge_ledger%fixed_absorbed_applied_charge, 'summary fixed absorbed applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_emission_applied_charge_C=', &
-        sum(charge_ledger%fixed_emission_applied_charge)
+        finite_charge_sum(charge_ledger%fixed_emission_applied_charge, 'summary fixed emission applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_raw_escape_charge_C=', &
-        sum(charge_ledger%escaped_to_infinity)
+        finite_charge_sum(charge_ledger%escaped_to_infinity, 'summary raw escape charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_target_charge_C=', &
-        sum(charge_ledger%fixed_escape_target_charge)
+        finite_charge_sum(charge_ledger%fixed_escape_target_charge, 'summary fixed escape target charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_applied_charge_C=', &
-        sum(charge_ledger%fixed_escape_applied_charge)
+        finite_charge_sum(charge_ledger%fixed_escape_applied_charge, 'summary fixed escape applied charge')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_correction_C=', &
-        sum(charge_ledger%fixed_escape_correction)
+        finite_charge_sum(charge_ledger%fixed_escape_correction, 'summary fixed escape correction')
       write (u, '(a,es24.16)') 'charge_ledger_fixed_applied_surface_net_charge_C=', &
-        sum(charge_ledger%fixed_absorbed_applied_charge) + sum(charge_ledger%fixed_emission_applied_charge)
+        finite_charge_sum( &
+        [charge_ledger%fixed_absorbed_applied_charge, charge_ledger%fixed_emission_applied_charge], &
+        'summary fixed applied surface net charge' &
+        )
       if (current_model%active) then
         write (u, '(a,es24.16)') 'charge_ledger_fixed_pe_continuity_residual_C=', &
-          charge_ledger%fixed_absorbed_applied_charge(current_model%photoelectron_species_idx) + &
-          charge_ledger%fixed_emission_applied_charge(current_model%photoelectron_species_idx) + &
-          charge_ledger%fixed_escape_applied_charge(current_model%photoelectron_species_idx)
+          finite_charge_sum( &
+          [ &
+          charge_ledger%fixed_absorbed_applied_charge(current_model%photoelectron_species_idx), &
+          charge_ledger%fixed_emission_applied_charge(current_model%photoelectron_species_idx), &
+          charge_ledger%fixed_escape_applied_charge(current_model%photoelectron_species_idx) &
+          ], &
+          'summary fixed photoelectron continuity residual' &
+          )
       end if
     end if
     if (count_dielectric_surfaces(mesh) > 0_i32) then

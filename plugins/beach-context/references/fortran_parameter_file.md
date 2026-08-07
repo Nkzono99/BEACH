@@ -373,6 +373,9 @@ PEは負電荷`photo_raycast`、`inject_face="z_high"`、
 `deposit_opposite_charge_on_emit=true`、有効なz-high particle boundaryの`open`を要求します。3 speciesは単価電荷で、ambient electronとPEの質量は一致、
 $T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$でなければなりません。
 
+外部closureは非磁化なので`sim.b0=[0,0,0]`も必須です。Zhao固有の0 V reservoirを使うため、
+`reservoir.inflow_model="infinity_barrier"`とは併用できません。
+
 `ion_species`の`number_density_*`を無限遠ion密度として使い、ambient electron密度は定常根が解きます。
 electron側の設定密度とPEの`emit_current_density_a_m2`はraw Monte Carlo mapを生成するためのsampling入力であり、
 fixed-current targetにはなりません。解いたelectron密度は`summary.txt`へ出力します。
@@ -544,6 +547,13 @@ target_absorbed_current_a = -2.0e-6
 `target_emission_current_a` も指定でき、放出反作用と帰還吸収を独立に補正します。二つの差である net PE 電流を
 直接倍率化しません。target が非ゼロなのに対応する raw channel が空なら fail closed します。
 
+`fixed_current`はraw標本の要素別経験分布を倍率化します。raw hitが1件ならtarget全量がその要素へ入ります。
+必要なhit数や許容倍率はmeshと評価量の誤差要件からは自動決定できないため、固定の最小countや最大scaleはありません。
+
+`charge_ledger.csv`の`absorbed_count` / `emitted_count`、raw charge、`fixed_*_weight_scale`を確認し、
+マクロ粒子数・`rays_per_batch`・batch幅・乱数seedを変えた要素別電荷分布の収束を確認してください。
+ledger residualは収支診断であり、空間分布の統計精度を保証しません。
+
 `fixed_current` と `neutral_return` は同じ species では排他です。外部モデル由来の PE return VDF を別 species として
 top 面から注入する場合、その return species に `target_absorbed_current_a` を設定し、top 面の full reflection と
 `neutral_return` は使わないでください。同じ return current の二重計上を避けるためです。
@@ -656,6 +666,14 @@ Grid 分布では、`velocity_grid_path` の CSV を読み込みます。
 
 どちらの PDF でも、`v_n > 0` の速度だけを使います。
 `velocity_grid_path` の相対パスは実行時のカレントディレクトリ基準です。
+
+CSVの内容はordered species fingerprintに含まれます。同じパスのCSVを変更すると、既存checkpointからの再開は
+分布変更として拒否されます。
+
+CSVはrun内の初回利用時に1回だけ読み込んでsnapshot化し、以後のsamplingと
+checkpoint fingerprintは同じsnapshotを使います。実行中にディスク上のCSVを置換しても、途中のbatchから
+分布が切り替わることはありません。次のprocessは置換後の内容を新しいmodelとして読み込みます。
+
 `velocity_distribution="grid"`にも、他の `reservoir_face` と同じ面・時間・流束の制約を適用します。
 
 粒子数は次のように決まります。
@@ -948,7 +966,8 @@ z 軸方向の円柱です。
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | serialまたはMPI rank別の乱数状態 |
 | `macro_residuals.csv` | MPIでも単一のglobalマクロ粒子数残差。species×faceを区別 |
 | `charge_ledger.csv` | 粒子種別の電荷収支、粒子数、再開用累積値 |
-| `checkpoint_latest.txt` | `checkpoint_stride > 0` のとき。最新の完全な定期 checkpoint slot を示す |
+| `checkpoint_complete.txt` | schema v8 以降の最終出力と各定期 slot の完了 manifest |
+| `checkpoint_latest.txt` | `checkpoint_stride > 0` のとき。正常公開された最新 slot を示す advisory index |
 
 各値の場所は[構成固有の出力](OutputGuide.html#構成固有の値を探す)にまとめています。
 
@@ -980,18 +999,20 @@ z 軸方向の円柱です。
 |---|---|
 | 出力 | `write_files=true` が必須 |
 | 読み込み元 | `restart_from` 未指定なら `output.dir`、指定時は `restart_from` |
-| 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt` |
+| 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt`。schema v8 以降は`checkpoint_complete.txt`も必須 |
 | 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv` |
-| 任意state | `macro_residuals.csv`が存在すればglobal残差を復元 |
+| 条件付き state | schema v8 以降は`checkpoint_complete.txt`が宣言した`macro_residuals.csv`を必須とし、旧schemaでは存在時に復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |
 
 `restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は常に `output.dir` に書きます。
 
 `checkpoint_stride > 0` では、accepted batch の commit 後に `checkpoints/slot0` と `slot1` を交互に更新します。
-全ファイルの書き込み後に `checkpoint_latest.txt` を切り替えるため、書き込み中に停止しても一つ前の slot を保持します。
+各 directory の `checkpoint_complete.txt` を全ファイルの書き込み後に原子的に完了状態へ切り替え、定期出力では続けて
+`checkpoint_latest.txt` を切り替えるため、書き込み中に停止しても一つ前の slot を保持します。
 
-再開時は `output.dir` または `restart_from` 直下の最終出力と定期 slot を比較し、完全な checkpoint のうち
-`batches` が最大のものを選びます。最終出力は `checkpoint_stride` に関係なく従来どおり作成します。
+再開時は `output.dir` または `restart_from` 直下の最終出力と両定期 slot を比較し、load 可能で完全な
+checkpoint のうち `batches` が最大のものを選びます。`checkpoint_latest.txt` が欠落、破損、または古い場合も、
+完了 manifest を持つ slot を直接検査します。最終出力は `checkpoint_stride` に関係なく従来どおり作成します。
 
 MPI 実行時:
 
@@ -1004,7 +1025,13 @@ MPI 実行時:
 
 - 旧形式の `macro_residuals_rankNNNNN.csv` がある checkpoint は、暗黙変換せず拒否します。
 - `summary.txt` の `mpi_world_size` は現在の rank 数と一致させます。
-- schema v2/v3/v4/v5/v6はmodel、ordered mesh、ordered speciesのfingerprint一致が必要です。
+- 両 slot の回収時は、現行 loader が対応しない checkpoint schema を候補から除外します。
+- schema v2 以降は model、ordered mesh、ordered species の fingerprint 一致が必要です。
+- model fingerprint は境界eventのchord方向・離散電場work整合velocityと、表面注入位置のtrajectory契約versionも
+  含みます。旧契約のcheckpointは、再開途中で運動則を切り替えないため意図的に拒否します。
+- `tree_theta` / `tree_leaf_max` は値に加えて明示指定の有無も含みます。同じraw値でも、
+  自動推定を使う設定と明示overrideを使う設定は異なるsolver契約です。
+- schema v8 以降は `checkpoint_complete.txt` と summary の batch、MPI world size、条件付きファイル宣言が一致する必要があります。
 - schema v5はneutral-return補正量、係数、未解決率を`charge_ledger.csv`から復元します。
 - schema v6の`macro_residuals.csv`は`species_idx,face,residual`です。`face=0`は従来source、
   `1..6`はboundary faceを表します。旧`species_idx,residual`の2列形式も読み込めます。

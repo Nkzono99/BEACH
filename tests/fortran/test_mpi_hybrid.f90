@@ -4,7 +4,7 @@ program test_mpi_hybrid
   use bem_constants, only: eps0, pi, qe
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, &
-                     mpi_allreduce_sum_i64_array, &
+                     mpi_allreduce_sum_i64_array, mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, &
                      mpi_bcast_i32_array, mpi_bcast_real_dp_array, mpi_gatherv_real_dp_array, &
                      mpi_world_barrier
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
@@ -35,7 +35,7 @@ program test_mpi_hybrid
   integer :: u, ios
   character(len=256) :: line
   integer(i32) :: n_lines, selected_rank, expected_rank, batch_idx, global_reservoir_count
-  integer(i32) :: local_failure_values(4), selected_failure_values(4)
+  integer(i32) :: local_failure_values(4), selected_failure_values(4), reduced_min, reduced_max
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
@@ -49,6 +49,8 @@ program test_mpi_hybrid
     call delete_file_if_exists(out_dir//'/charges.csv')
     call delete_file_if_exists(out_dir//'/rng_state.txt')
     call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
   end if
   call mpi_world_barrier(mpi)
 
@@ -65,6 +67,7 @@ program test_mpi_hybrid
     call cleanup_periodic_slot(out_dir//'/checkpoints/slot0')
     call cleanup_periodic_slot(out_dir//'/checkpoints/slot1')
     call delete_file_if_exists(out_dir//'/checkpoint_latest.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_latest.txt.tmp')
     call remove_empty_directory(out_dir//'/checkpoints')
   end if
   call mpi_world_barrier(mpi)
@@ -102,7 +105,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -121,6 +124,12 @@ program test_mpi_hybrid
     )
   call assert_equal_i32(selected_rank, 0_i32, 'lowest failure rank selection mismatch')
   call assert_true(all(selected_failure_values == [1_i32, 20_i32, 4_i32, 2_i32]), 'lowest rank metadata mismatch')
+  reduced_min = mpi%rank + 1_i32
+  reduced_max = reduced_min
+  call mpi_allreduce_min_i32_scalar(mpi, reduced_min)
+  call mpi_allreduce_max_i32_scalar(mpi, reduced_max)
+  call assert_equal_i32(reduced_min, 1_i32, 'MPI i32 minimum reduction mismatch')
+  call assert_equal_i32(reduced_max, mpi%size, 'MPI i32 maximum reduction mismatch')
   call test_end()
 
   call test_begin('mpi_simulation')
@@ -158,6 +167,10 @@ program test_mpi_hybrid
   call assert_true(has_restart, 'MPI periodic checkpoint should load')
   call assert_equal_i32(stats_restart%batches, 1_i32, 'MPI periodic checkpoint batch mismatch')
   call assert_close_dp(mesh_restart%q_elem(1), 4.0_dp, 1.0e-12_dp, 'MPI periodic checkpoint charge mismatch')
+  call test_end()
+
+  call test_begin('mpi_soft_discard_global_aggregation')
+  call run_mpi_soft_discard_aggregation_test(mpi)
   call test_end()
 
   call test_begin('mpi_neutral_return_layout_invariance')
@@ -271,10 +284,15 @@ program test_mpi_hybrid
     call delete_file_if_exists(out_dir//'/charges.csv')
     call delete_file_if_exists(out_dir//'/rng_state.txt')
     call delete_file_if_exists(out_dir//'/macro_residuals.csv')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/checkpoint_latest.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_latest.txt.tmp')
     call delete_file_if_exists(out_dir//'/checkpoints/slot0/summary.txt')
     call delete_file_if_exists(out_dir//'/checkpoints/slot0/charges.csv')
     call delete_file_if_exists(out_dir//'/checkpoints/slot0/charge_ledger.csv')
+    call delete_file_if_exists(out_dir//'/checkpoints/slot0/checkpoint_complete.txt')
+    call delete_file_if_exists(out_dir//'/checkpoints/slot0/checkpoint_complete.txt.tmp')
     call remove_empty_directory(out_dir//'/checkpoints/slot0')
     call remove_empty_directory(out_dir//'/checkpoints')
     call remove_empty_directory(out_dir)
@@ -285,6 +303,56 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine run_mpi_soft_discard_aggregation_test(mpi)
+    type(mpi_context), intent(in) :: mpi
+    type(mesh_type) :: soft_mesh
+    type(app_config) :: soft_cfg
+    type(sim_stats) :: soft_stats
+    real(dp) :: soft_v0(3, 1), soft_v1(3, 1), soft_v2(3, 1)
+
+    soft_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
+    soft_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
+    soft_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(soft_mesh, soft_v0, soft_v1, soft_v2)
+    soft_mesh%elem_vacuum_sign = 1_i32
+    soft_mesh%vacuum_normals = soft_mesh%normals
+    call default_app_config(soft_cfg)
+    soft_cfg%sim%rng_seed = 5119_i32
+    soft_cfg%sim%batch_count = 1_i32
+    soft_cfg%sim%dt = 1.0_dp
+    soft_cfg%sim%max_step = 1_i32
+    soft_cfg%sim%use_box = .true.
+    soft_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    soft_cfg%sim%bc_low(1) = bc_reflect
+    soft_cfg%sim%bc_high(1) = bc_reflect
+    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
+    soft_cfg%sim%multiple_box_events_soft_discard_count_limit = 100000_i32
+    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
+    soft_cfg%n_particle_species = 1_i32
+    soft_cfg%particle_species(1) = species_from_defaults()
+    soft_cfg%particle_species(1)%source_mode = 'volume_seed'
+    soft_cfg%particle_species(1)%npcls_per_step = mpi%size
+    soft_cfg%particle_species(1)%q_particle = 2.0_dp
+    soft_cfg%particle_species(1)%m_particle = 1.0_dp
+    soft_cfg%particle_species(1)%w_particle = 3.0_dp
+    soft_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
+    soft_cfg%particle_species(1)%pos_high = soft_cfg%particle_species(1)%pos_low
+    soft_cfg%particle_species(1)%drift_velocity = [9.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(soft_cfg, mpi=mpi)
+
+    call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, mpi=mpi)
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_soft_discarded, int(mpi%size, i64), &
+      'MPI soft-discard count was not globally reduced' &
+      )
+    call assert_close_dp( &
+      soft_stats%multiple_box_events_soft_discarded_abs_charge, 6.0_dp*real(mpi%size, dp), 1.0e-12_dp, &
+      'MPI soft-discard absolute charge was not globally reduced' &
+      )
+  end subroutine run_mpi_soft_discard_aggregation_test
 
   !> 同一ray集合を複製したMPI実行とserial参照でneutral-return閉包を比較する。
   !!
@@ -393,6 +461,8 @@ contains
     call delete_file_if_exists(trim(slot_dir)//'/charges.csv')
     call delete_file_if_exists(trim(slot_dir)//'/macro_residuals.csv')
     call delete_file_if_exists(trim(slot_dir)//'/charge_ledger.csv')
+    call delete_file_if_exists(trim(slot_dir)//'/checkpoint_complete.txt')
+    call delete_file_if_exists(trim(slot_dir)//'/checkpoint_complete.txt.tmp')
     call remove_empty_directory(slot_dir)
   end subroutine cleanup_periodic_slot
 

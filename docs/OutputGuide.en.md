@@ -23,6 +23,12 @@ machine-readable source of truth for file-generation conditions is
 checkpoint schema, and model / mesh / species fingerprints. The resolved
 boundary reservoir and ordinary-open state is reported as
 `reservoir_inflow_map` and `particle_ordinary_open_model`.
+The `field_reconstruction_*` receipt records the resolved `E0`, box, boundary,
+periodic nonzero/zero-mode model, tree settings, actual field solver, and FMM
+expansion order. Schema v2 requires
+`field_reconstruction_resolved_field_solver` and
+`field_reconstruction_fmm_expansion_order`. Python field reconstruction uses
+this receipt for new outputs rather than guessing from a nearby `beach.toml`.
 
 The `[surface_current_model]` receipt is recorded as `surface_current_model`. For `zhao_stationary`,
 `surface_current_model_*` fields report the selected branch, reference area, $\phi_0$, $\phi_m$, resolved ambient-electron
@@ -82,6 +88,11 @@ can keep the surface update separate from the external-boundary budget.
 local-flight, and unresolved stocks with external fluxes, the neutral-return
 correction, and the fixed-current correction.
 
+For `fixed_current` statistical diagnostics, read the channel's `absorbed_count` or `emitted_count` together with its raw
+charge and `fixed_*_weight_scale`. A count of one localizes the entire target onto the element represented by that one
+sample. A small conservation residual cannot detect this sampling variance; separately test convergence of the elementwise
+charge distribution across particle or ray counts, batch widths, and RNG seeds.
+
 For closed PE, BEACH preserves raw absorption and unresolved values. The
 correction and scale are separate, so the unresolved fraction remains
 independently inspectable even when total surface charge closes.
@@ -105,6 +116,7 @@ With `output.checkpoint_stride > 0`, BEACH updates this structure after an accep
 
 ```text
 outputs/latest/
+├── checkpoint_complete.txt
 ├── checkpoint_latest.txt
 └── checkpoints/
     ├── slot0/
@@ -120,14 +132,22 @@ Each slot contains the restart files in the table below. BEACH finishes the inac
 | `charges.csv` | Element charges |
 | `rng_state.txt` | Serial RNG state |
 | `rng_state_rankNNNNN.txt` | Per-rank MPI RNG state |
-| `macro_residuals.csv` | Global macro-particle residuals distinguished by species and face, restored when present |
+| `macro_residuals.csv` | Global macro-particle residuals by species and face; required when declared by a schema v8+ manifest |
 | `charge_ledger.csv` | Restored when summary contains ledger metadata |
+| `checkpoint_complete.txt` | Completion manifest published last for schema v8 and later checkpoints |
 
 `output.restart_from` changes only the checkpoint read source. New output is
-written to `output.dir`. When the source contains `checkpoint_latest.txt`, BEACH automatically selects the complete
-checkpoint with the largest `batches` value from the final output and periodic slot. BEACH stops instead of falling back to a new run when a
+written to `output.dir`. BEACH compares the final output and both periodic slots, then selects the loadable complete
+checkpoint with the largest `batches` value. A slot with a complete manifest remains recoverable when
+`checkpoint_latest.txt` is missing, malformed, or stale. BEACH stops instead of falling back to a new run when a
 required file is missing or when fingerprints, mesh size, species count, or MPI
 world size differ.
+
+For schema v8 and later, BEACH changes `checkpoint_complete.txt` to `in_progress` before replacing restart state. It
+atomically publishes `complete` only after closing summary, charges, every rank's RNG state, and the residual and ledger
+declared by the manifest. `checkpoint_complete.txt` itself is a required restart file for these schemas. If final-output
+writing is interrupted and leaves files from different generations, BEACH
+rejects that directory and falls back to the complete periodic slot.
 
 Checkpoint schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
 `1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.

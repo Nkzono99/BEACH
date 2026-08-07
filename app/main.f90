@@ -4,13 +4,14 @@ program main
   use bem_kinds, only: dp, i32
   use bem_version, only: beach_build_info, beach_version
   use bem_types, only: sim_stats, mesh_type, injection_state
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_size
+  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_world_barrier, mpi_world_size
   use bem_performance_profile, only: perf_configure_from_env, perf_set_output_context, perf_region_begin, &
                                      perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
                                      perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
+  use bem_checkpoint_contract, only: publish_checkpoint_manifest
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
                                print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
@@ -151,9 +152,18 @@ program main
       end if
       call perf_region_end(perf_region_write_results, perf_t0)
     end if
+    ! rootが旧完了manifestを無効化してから、全rankでrestart stateの公開へ進む。
+    call mpi_world_barrier(mpi)
     call perf_region_begin(perf_region_write_checkpoint, perf_t0)
     call write_rng_state_file(trim(app%output_dir), mpi=mpi)
     call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
+    call mpi_world_barrier(mpi)
+    if (mpi_is_root(mpi)) then
+      call publish_checkpoint_manifest( &
+        trim(app%output_dir), stats%batches, mpi_world_size(mpi), allocated(inject_state%macro_residual), .true. &
+        )
+    end if
+    call mpi_world_barrier(mpi)
     call perf_region_end(perf_region_write_checkpoint, perf_t0)
     if (mpi_is_root(mpi)) print '(a,a)', 'results written to ', trim(app%output_dir)
   end if

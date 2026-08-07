@@ -49,6 +49,7 @@ program test_field_kernel_c
   call assert_equal_i32(abi_major, beach_kernel_abi_major, 'ABI major version')
   call assert_equal_i32(abi_minor, beach_kernel_abi_minor, 'ABI minor version')
   call assert_equal_i32(abi_major, 2_i32, 'panel-only ABI major version')
+  call assert_equal_i32(abi_minor, 1_i32, 'direct-evaluation ABI minor version')
 
   call test_begin('field_kernel_c_build_info')
   build_info_buffer = achar(88, kind=c_char)

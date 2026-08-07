@@ -260,6 +260,12 @@ $$
 `target_emission_current_a` の符号は `q_particle` と逆です。非ゼロ target に対して $R=0$、非有限倍率、負倍率なら
 commit 前に fail closed とします。
 
+この倍率化が保持するのは raw Monte Carlo 標本の経験分布であり、母分布の統計精度ではありません。raw hit が
+1 件なら target 全量をその hit 要素へ割り当てます。必要標本数や許容倍率は mesh 解像度と評価量の許容誤差に依存するため、
+BEACH は恣意的な count / scale 閾値では停止しません。`charge_ledger.csv` の raw charge、`absorbed_count` / `emitted_count`、
+`fixed_*_weight_scale`を確認し、粒子数・ray 数・batch 幅・乱数 seed を変えた要素別電荷分布の収束で妥当性を判定します。
+ledger の保存残差が小さいことは電荷収支を検証しますが、この統計収束を保証しません。
+
 PE の emission と return は別 channel のまま扱い、net current を倍率分母に使いません。`fixed_current` と
 `neutral_return` は同じ species で排他です。外部 return VDF の注入と top reflection / `neutral_return` の併用は
 同じ return current を二重計上するため、構成上使用しません。
@@ -275,6 +281,8 @@ Zhao modelはambient electron、cold ion、photoelectronの3つの`species_key`�
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
 z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
 fail-closedに検証します。
+非磁化closureなので`sim.b0`はゼロを要求します。Zhao固有の0 V reservoirと速度写像を使うため、genericな
+`reservoir.inflow_model="infinity_barrier"`との併用も拒否します。
 電流密度から電流へ変換する面積は`reference_area_m2`、省略時はdomainのx-y面積です。
 
 $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$とし、解いたPE emissionを$J_{emit}>0$、escapeを$J_{escape}>0$とすると、
@@ -297,6 +305,8 @@ $$
 
 を独立に検証できます。PEの大きなemission、return、escapeを別channelで補正し、差であるnet PE電流を
 scaleの分母に使いません。raw軌道統計は上書きせず、raw / target / appliedを別々に出力します。
+Zhao の零電流根と budget residual は総電流 closure を検証するだけで、raw kinetic map の空間的な統計精度を
+保証しません。各 target channel には上記 fixed-current の収束確認を適用します。
 
 Zhaoの定常電位は`zhao_barrier_v1` kinetic contractとしてz-highへも適用します。ambientの設定Maxwell VDFを
 無限遠電位0 Vのreservoir分布とし、Type A electronは$\phi_m$、Type B/C electronとionは0 Vを外部access
@@ -333,23 +343,33 @@ targetを再計算しません。z-high反射は外部turning pointまでの距�
 - `charge_ledger.csv`（ledger がある場合）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`
+- `checkpoint_complete.txt`
 - `performance_profile.csv`（`BEACH_PROFILE=1`）
 
 出力ファイルの条件は `schemas/beach.output-manifest.json` を正本とします。
 
 再開時の必須ファイルは `summary.txt`、`charges.csv`、対応する RNG state です。
-`macro_residuals.csv` と `charge_ledger.csv` は状態が記録されている場合に復元します。
+schema v8 以降は `checkpoint_complete.txt` 自体も必須で、manifest が宣言する
+`macro_residuals.csv` と `charge_ledger.csv` も必須です。
+summary に ledger metadata があれば、schema の世代によらず `charge_ledger.csv` の欠落を拒否します。
 
 `output.checkpoint_stride > 0` では accepted batch の commit 後だけ定期 checkpoint を作ります。
-`checkpoints/slot0` と `slot1` を交互に使い、全 rank の状態を書き終えてから `checkpoint_latest.txt` を
-原子的に切り替えます。再開時は直下の最終出力と active slot のうち、必須ファイルが揃い
-`batches` が最大のものを選びます。`checkpoint_stride=0` でも正常終了時の最終 checkpoint は出力します。
+`checkpoints/slot0` と `slot1` を交互に使い、全 rank の状態を書き終えて `checkpoint_complete.txt` を完了状態へ
+原子的に切り替えてから、`checkpoint_latest.txt` を原子的に切り替えます。再開時は直下の最終出力と両 slot を検査し、
+必須ファイルが揃う load 可能な checkpoint のうち `batches` が最大のものを選びます。
+`checkpoint_latest.txt` が欠落、破損、または古い場合も、完了 manifest を持つ slot は回収対象です。
+`checkpoint_stride=0` でも正常終了時の最終 checkpoint は出力します。
 
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
 globalまたはspecies境界のいずれかで`redistributed_reflect`を使う場合だけ、model fingerprintへ
-`sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。通常境界だけの既存fingerprintは変更しません。
+`sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。また、境界event速度をchord方向かつ
+予測中点電場の離散workと整合させる契約と、表面注入を未照会飛行なしで1 ULP内側から開始する契約にも
+version tagを持たせます。
+tree solverの`tree_theta`と`tree_leaf_max`は値だけでなく明示指定の有無もfingerprintへ含め、
+自動推定と明示overrideを再開途中で切り替えません。
+旧trajectory契約のcheckpointはfingerprint不一致として意図的に拒否し、再開途中で運動則を切り替えません。
 必須ファイルの欠落、world size の不一致、非有限値、species 数や mesh 要素数の不一致は
 新規実行へ fallback せず停止します。
 
@@ -364,6 +384,10 @@ globalまたはspecies境界のいずれかで`redistributed_reflect`を使う�
 
 Python package `beach` は Fortran 出力を読み込み、電位・電場・Coulomb 力・可視化を提供します。
 任意点の再評価は三角形 geometry を渡す native `triangle_p0` kernel を使います。
+`summary.txt`のfield-reconstruction schema v2は、実際に解決された`direct` / `treecode` / `fmm`と
+固定FMM展開次数を記録します。自動再構成は`direct`を非周期exact-directへ、`fmm`をreceiptの展開次数を
+使うFMMへ対応させます。`treecode`は高水準の電場・電位・力APIでFMMへ置換せず停止します。
+resolved `direct`の電場・電位・力はexact-directで評価し、uniform `E0`を一度だけ合成します。
 
 `cached_kneq0` は非零 mode だけの低水準 operator であり、total field として使うには Fortran と同じ
 物理的 zero mode の合成が必要です。設定が見つからない total-field 再計算は free-space へ暗黙 fallback しません。

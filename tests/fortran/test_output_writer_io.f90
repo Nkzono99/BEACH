@@ -22,6 +22,7 @@ program test_output_writer_io
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model
+  logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit
   integer(i32) :: top_batch, top_sample_n
@@ -79,6 +80,16 @@ program test_output_writer_io
   cfg%output_dir = out_dir_disabled
   cfg%write_mesh_potential = .false.
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call scan_resolved_field_solver( &
+    out_dir_disabled//'/summary.txt', 'direct', saw_auto_resolved_direct &
+    )
+  call assert_true(saw_auto_resolved_direct, 'auto field solver receipt should resolve a small mesh to direct')
+  cfg%sim%tree_min_nelem = 2_i32
+  call write_result_files(out_dir_disabled, mesh, stats, cfg)
+  call scan_resolved_field_solver( &
+    out_dir_disabled//'/summary.txt', 'fmm', saw_auto_resolved_fmm &
+    )
+  call assert_true(saw_auto_resolved_fmm, 'auto field solver receipt should record the resolved fmm backend')
   inquire (file=trim(out_dir_disabled)//'/mesh_potential.csv', exist=exists)
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
   call test_end()
@@ -181,6 +192,9 @@ program test_output_writer_io
   ledger%injected_count(1) = 1
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
+  cfg%sim%field_solver = 'fmm'
+  cfg%field%backend = 'fmm'
+  cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
 
   saw_integrator = .false.
@@ -197,6 +211,7 @@ program test_output_writer_io
   saw_source_commit = .false.
   saw_build_id = .false.
   saw_surface_current_model = .false.
+  saw_field_reconstruction = .false.
   open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open summary metadata fixture'
   do
@@ -204,7 +219,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=7') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=8') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -217,6 +232,52 @@ program test_output_writer_io
     saw_source_commit = saw_source_commit .or. index(line, 'build_source_commit=') == 1
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
     saw_surface_current_model = saw_surface_current_model .or. index(line, 'surface_current_model=none') == 1
+    saw_field_reconstruction(1) = saw_field_reconstruction(1) .or. &
+                                  trim(line) == 'field_reconstruction_schema_version=2'
+    saw_field_reconstruction(2) = saw_field_reconstruction(2) .or. &
+                                  trim(line) == 'field_reconstruction_resolved_field_solver=fmm'
+    saw_field_reconstruction(3) = saw_field_reconstruction(3) .or. &
+                                  trim(line) == 'field_reconstruction_fmm_expansion_order=4'
+    saw_field_reconstruction(4) = saw_field_reconstruction(4) .or. &
+                                  trim(line) == 'field_reconstruction_field_bc_mode=free'
+    saw_field_reconstruction(5) = saw_field_reconstruction(5) .or. &
+                                  index(line, 'field_reconstruction_tree_theta=') == 1
+    saw_field_reconstruction(6) = saw_field_reconstruction(6) .or. &
+                                  trim(line) == 'field_reconstruction_tree_leaf_max=12'
+    saw_field_reconstruction(7) = saw_field_reconstruction(7) .or. &
+                                  index(line, 'field_reconstruction_e0_V_m=') == 1
+    saw_field_reconstruction(8) = saw_field_reconstruction(8) .or. &
+                                  trim(line) == 'field_reconstruction_use_box=T'
+    saw_field_reconstruction(9) = saw_field_reconstruction(9) .or. &
+                                  index(line, 'field_reconstruction_box_min_m=') == 1
+    saw_field_reconstruction(10) = saw_field_reconstruction(10) .or. &
+                                   index(line, 'field_reconstruction_box_max_m=') == 1
+    saw_field_reconstruction(11) = saw_field_reconstruction(11) .or. &
+                                   index(line, 'field_reconstruction_boundary_low=') == 1
+    saw_field_reconstruction(12) = saw_field_reconstruction(12) .or. &
+                                   index(line, 'field_reconstruction_boundary_high=') == 1
+    saw_field_reconstruction(13) = saw_field_reconstruction(13) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_image_layers=1'
+    saw_field_reconstruction(14) = saw_field_reconstruction(14) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_far_correction=none'
+    saw_field_reconstruction(15) = saw_field_reconstruction(15) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_nonzero_mode_backend=not_applicable'
+    saw_field_reconstruction(16) = saw_field_reconstruction(16) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_zero_mode_policy=not_applicable'
+    saw_field_reconstruction(17) = saw_field_reconstruction(17) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_lower_boundary_model=not_applicable'
+    saw_field_reconstruction(18) = saw_field_reconstruction(18) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_reference_mode_layers=4'
+    saw_field_reconstruction(19) = saw_field_reconstruction(19) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_panel_quadrature_order=12'
+    saw_field_reconstruction(20) = saw_field_reconstruction(20) .or. &
+                                   index(line, 'field_reconstruction_periodic_ewald_alpha=') == 1
+    saw_field_reconstruction(21) = saw_field_reconstruction(21) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_ewald_layers=4'
+    saw_field_reconstruction(22) = saw_field_reconstruction(22) .or. &
+                                   trim(line) == 'field_reconstruction_periodic_cache_dir=.beach_cache/periodic2'
+    saw_field_reconstruction(23) = saw_field_reconstruction(23) .or. &
+                                   index(line, 'field_reconstruction_periodic_generation_tolerance=') == 1
   end do
   close (literal_unit)
   open (newunit=literal_unit, file=out_dir_ledger//'/charge_ledger.csv', status='old', action='read', iostat=ios)
@@ -238,13 +299,14 @@ program test_output_writer_io
                       index(line, 'fixed_current_correction_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v7')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v8')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_closure, 'summary should record the neutral-return correction')
   call assert_true(saw_surface_current_model, 'summary should record the surface-current model receipt')
+  call assert_true(all(saw_field_reconstruction), 'summary should record the field-reconstruction receipt')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()
 
@@ -254,6 +316,24 @@ program test_output_writer_io
   call test_summary()
 
 contains
+
+  subroutine scan_resolved_field_solver(summary_path, expected_solver, found)
+    character(len=*), intent(in) :: summary_path, expected_solver
+    logical, intent(out) :: found
+    integer :: summary_unit, summary_ios
+    character(len=2048) :: summary_line
+
+    found = .false.
+    open (newunit=summary_unit, file=trim(summary_path), status='old', action='read', iostat=summary_ios)
+    if (summary_ios /= 0) error stop 'failed to open field-solver receipt fixture'
+    do
+      read (summary_unit, '(A)', iostat=summary_ios) summary_line
+      if (summary_ios /= 0) exit
+      found = found .or. trim(summary_line) == &
+        'field_reconstruction_resolved_field_solver='//trim(expected_solver)
+    end do
+    close (summary_unit)
+  end subroutine scan_resolved_field_solver
 
   subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
     character(len=*), intent(in) :: path, inflow_map, open_model
@@ -324,6 +404,8 @@ contains
     call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
     call delete_file_if_exists(out_dir//'/mesh_sources.csv')
     call delete_file_if_exists(out_dir//'/charge_ledger.csv')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/top_reference_history.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir

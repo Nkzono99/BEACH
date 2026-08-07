@@ -99,8 +99,23 @@ the candidate trajectory has no triangle collision or box-boundary crossing.
 
 Triangle collisions and ordinary box crossings are ordered along the **straight trajectory segment within the step** that
 connects $\mathbf{x}^n$ and $\mathbf{x}^{n+1}$. A triangle collision absorbs the particle at the hit point. If a reflection
-action (`reflect` or `redistributed_reflect`) or periodic face is crossed first, BEACH interpolates position and velocity to
-the crossing time and constructs a new Boris candidate for the remaining interval. At the z-high outer interface, the
+action (`reflect` or `redistributed_reflect`) or periodic face is crossed first, BEACH obtains the position from the chord
+parameter. The event velocity follows the chord tangent and is normalized to the speed implied by the discrete work of the
+predicted-midpoint electric field,
+
+$$
+\lVert\mathbf{v}_\mathrm{event}\rVert^2=
+\lVert\mathbf{v}^n\rVert^2+
+2\frac{q}{m}\mathbf{E}_\mathrm{mid}\cdot
+(\mathbf{x}_\mathrm{event}-\mathbf{x}^n).
+$$
+
+BEACH then constructs a new Boris candidate for the remaining interval. This keeps the normal velocity direction consistent
+with the chord crossing and preserves event speed for any pure magnetic field. A non-positive or non-finite reconstructed
+speed fails closed. However, BEACH also uses the chord crossing fraction as the remaining-time fraction; it does not solve the
+exact physical crossing time under acceleration or magnetic rotation. This is a time-discretization approximation of the
+trajectory-chord event model, so runs that use boundary actions or the potential-barrier decision must check convergence with
+`dt`, `dt/2`, and, when needed, `dt/4`. At the z-high outer interface, the
 applicable coupling path refines crossing time from a quadratic trajectory consistent with the Boris endpoints. See
 [Particle collision and boundary events](ParticleEvents.en.html).
 

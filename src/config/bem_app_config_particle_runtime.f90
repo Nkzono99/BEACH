@@ -756,7 +756,7 @@ contains
         trim(lower_ascii(spec%source_mode)) == 'plane_source') call normalize_reservoir_positions(sim, x)
   end subroutine sample_species_state
 
-  !> reservoirの時間ジッタ後の位置を、設定されたbox境界条件に従って有効領域へ戻す。
+  !> reservoir/plane sourceの初期位置を、設定されたbox境界条件に従って有効領域へ正規化する。
   pure subroutine normalize_reservoir_positions(sim, x)
     type(sim_config), intent(in) :: sim
     real(dp), intent(inout) :: x(:, :)

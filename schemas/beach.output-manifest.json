@@ -70,14 +70,21 @@
       "name": "macro_residuals.csv",
       "producer": "src/runtime/bem_restart.f90",
       "condition": "output.write_files=true and macro-particle residual state is allocated; one global file in serial and MPI",
-      "restart_role": "optional: restore when present",
+      "restart_role": "schema v8+: required when checkpoint_complete.txt declares it present; legacy: restore when present",
       "consumer": "src/runtime/bem_restart.f90"
+    },
+    {
+      "name": "checkpoint_complete.txt",
+      "producer": "src/runtime/bem_checkpoint_contract.f90",
+      "condition": "output.write_files=true for final output and each periodic checkpoint slot",
+      "restart_role": "schema v8+ transactional completion manifest",
+      "consumer": "src/runtime/bem_checkpoint_contract.f90"
     },
     {
       "name": "checkpoint_latest.txt",
       "producer": "src/runtime/bem_periodic_checkpoint.f90",
       "condition": "output.write_files=true and output.checkpoint_stride>0 after a matching accepted batch",
-      "restart_role": "selects the latest complete periodic checkpoint slot",
+      "restart_role": "advisory tie-break for periodic slots; complete slot manifests are scanned when this index is missing, malformed, or stale",
       "consumer": "src/runtime/bem_periodic_checkpoint.f90"
     },
     {

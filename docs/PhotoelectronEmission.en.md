@@ -173,6 +173,11 @@ an external-boundary target that is not deposited onto the surface. The closure 
 scaling denominator, so it remains stable when large currents nearly cancel. Raw escape statistics are preserved for
 comparison with target / applied / correction values.
 
+This stability concerns total-current normalization, not the statistical accuracy of the raw spatial map. If there is one
+return hit, that element receives the entire return target. BEACH imposes no fixed minimum hit count, so inspect the raw
+ledger counts and `fixed_*_weight_scale`, then test the elementwise distribution across `rays_per_batch`, batch widths, and
+RNG seeds. Closure of the Zhao zero-current budget does not replace this convergence check.
+
 The emission VDF remains the configured surface half-Maxwellian. Keep z-high open; the outward crossing test uses $\phi_m$
 for Type A and 0 V for Type B/C as the outside barrier potential, together with the local crossing potential and normal
 kinetic energy, to split return from escape. This reflection contracts the outer turning point onto z-high: BEACH does not

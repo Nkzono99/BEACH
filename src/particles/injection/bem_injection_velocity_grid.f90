@@ -7,7 +7,17 @@ module bem_injection_velocity_grid
   implicit none
   private
 
+  type :: velocity_grid_snapshot_entry
+    character(len=:), allocatable :: path
+    real(dp), allocatable :: grid_v(:, :)
+    real(dp), allocatable :: f(:)
+  end type velocity_grid_snapshot_entry
+
+  type(velocity_grid_snapshot_entry), allocatable, save :: velocity_grid_snapshots(:)
+
   public :: sample_reservoir_velocity_grid_particles
+  public :: get_velocity_grid_snapshot
+  public :: reset_velocity_grid_snapshot_cache
 
 contains
 
@@ -74,16 +84,16 @@ contains
     call random_number(u)
     if (jitter_dt > 0.0_dp) then
       allocate (tau(size(x, 2)))
+      ! Keep the historical draw count so MPI ranks and restarted runs retain the same RNG stream.
       call random_number(tau)
     end if
 
     do i = 1, size(x, 2)
       x(:, i) = 0.0_dp
-      x(axis_n, i) = boundary_value
+      ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
+      x(axis_n, i) = nearest(boundary_value, inward_normal(axis_n))
       x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
       x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
-      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i)*(tau(i)*jitter_dt)
-      x(:, i) = x(:, i) + inward_normal*1.0d-12
     end do
   end subroutine sample_reservoir_velocity_grid_particles
 
@@ -100,7 +110,7 @@ contains
 
     if (size(v, 1) /= 3) error stop "v first dimension must be 3"
     if (size(v, 2) == 0) return
-    call read_velocity_grid_csv(path, grid_v, f)
+    call get_velocity_grid_snapshot(path, grid_v, f)
     ngrid = size(f)
     if (ngrid <= 0) error stop "velocity grid must contain at least one row"
 
@@ -472,46 +482,73 @@ contains
     end do
   end function axis_index
 
-  !> `vx,vy,vz,f` CSV を読み込む。先頭の非数値行は header とみなして無視する。
+  !> 最初の読込み結果をpathごとに固定し、同一runのsamplingとfingerprintで共有する。
+  subroutine get_velocity_grid_snapshot(path, grid_v, f)
+    character(len=*), intent(in) :: path
+    real(dp), allocatable, intent(out) :: grid_v(:, :)
+    real(dp), allocatable, intent(out) :: f(:)
+
+    type(velocity_grid_snapshot_entry), allocatable :: grown(:)
+    real(dp), allocatable :: loaded_grid_v(:, :), loaded_f(:)
+    character(len=:), allocatable :: normalized_path
+    integer :: entry, old_size
+
+    normalized_path = trim(path)
+    if (len(normalized_path) == 0) error stop 'velocity_grid_path must not be empty.'
+    if (allocated(velocity_grid_snapshots)) then
+      do entry = 1, size(velocity_grid_snapshots)
+        if (velocity_grid_snapshots(entry)%path == normalized_path) then
+          allocate (grid_v, source=velocity_grid_snapshots(entry)%grid_v)
+          allocate (f, source=velocity_grid_snapshots(entry)%f)
+          return
+        end if
+      end do
+      old_size = size(velocity_grid_snapshots)
+    else
+      old_size = 0
+    end if
+
+    call read_velocity_grid_csv(normalized_path, loaded_grid_v, loaded_f)
+    allocate (grown(old_size + 1))
+    if (old_size > 0) grown(:old_size) = velocity_grid_snapshots
+    grown(old_size + 1)%path = normalized_path
+    grown(old_size + 1)%grid_v = loaded_grid_v
+    grown(old_size + 1)%f = loaded_f
+    call move_alloc(grown, velocity_grid_snapshots)
+    allocate (grid_v, source=loaded_grid_v)
+    allocate (f, source=loaded_f)
+  end subroutine get_velocity_grid_snapshot
+
+  !> 独立runを同一processで開始するtest/support用途にsnapshot cacheを解放する。
+  subroutine reset_velocity_grid_snapshot_cache()
+    if (allocated(velocity_grid_snapshots)) deallocate (velocity_grid_snapshots)
+  end subroutine reset_velocity_grid_snapshot_cache
+
+  !> `vx,vy,vz,f` CSV を一度だけ走査する。先頭の非数値行は header とみなして無視する。
   subroutine read_velocity_grid_csv(path, grid_v, f)
     character(len=*), intent(in) :: path
     real(dp), allocatable, intent(out) :: grid_v(:, :)
     real(dp), allocatable, intent(out) :: f(:)
 
-    integer :: u, ios, parse_ios, n, row
+    integer :: u, ios, parse_ios, row, capacity
     character(len=512) :: line
     real(dp) :: vx, vy, vz, weight
     logical :: skipped_header
+    real(dp), allocatable :: grid_work(:, :), f_work(:)
 
-    n = 0
+    capacity = 64
+    allocate (grid_work(3, capacity), f_work(capacity))
+    row = 0
     skipped_header = .false.
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop "could not open velocity_grid_path"
     do
       read (u, '(A)', iostat=ios) line
-      if (ios /= 0) exit
-      if (is_blank_or_comment(line)) cycle
-      read (line, *, iostat=parse_ios) vx, vy, vz, weight
-      if (parse_ios /= 0) then
-        if (.not. skipped_header .and. n == 0) then
-          skipped_header = .true.
-          cycle
-        end if
-        error stop "invalid velocity grid CSV row"
+      if (ios < 0) exit
+      if (ios > 0) then
+        close (u)
+        error stop 'failed to read velocity grid CSV'
       end if
-      n = n + 1
-    end do
-    close (u)
-
-    if (n <= 0) error stop "velocity grid CSV contains no numeric rows"
-    allocate (grid_v(3, n), f(n))
-    row = 0
-    skipped_header = .false.
-    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop "could not reopen velocity_grid_path"
-    do
-      read (u, '(A)', iostat=ios) line
-      if (ios /= 0) exit
       if (is_blank_or_comment(line)) cycle
       read (line, *, iostat=parse_ios) vx, vy, vz, weight
       if (parse_ios /= 0) then
@@ -519,16 +556,44 @@ contains
           skipped_header = .true.
           cycle
         end if
+        close (u)
         error stop "invalid velocity grid CSV row"
       end if
-      if (.not. all(ieee_is_finite([vx, vy, vz, weight]))) error stop "velocity grid values must be finite"
-      if (weight < 0.0_dp) error stop "velocity grid f values must be >= 0"
+      if (.not. all(ieee_is_finite([vx, vy, vz, weight]))) then
+        close (u)
+        error stop "velocity grid values must be finite"
+      end if
+      if (weight < 0.0_dp) then
+        close (u)
+        error stop "velocity grid f values must be >= 0"
+      end if
+      if (row >= capacity) call grow_velocity_grid_buffers(grid_work, f_work, capacity)
       row = row + 1
-      grid_v(:, row) = [vx, vy, vz]
-      f(row) = weight
+      grid_work(:, row) = [vx, vy, vz]
+      f_work(row) = weight
     end do
     close (u)
+    if (row <= 0) error stop "velocity grid CSV contains no numeric rows"
+    allocate (grid_v(3, row), f(row))
+    grid_v = grid_work(:, :row)
+    f = f_work(:row)
   end subroutine read_velocity_grid_csv
+
+  subroutine grow_velocity_grid_buffers(grid_v, f, capacity)
+    real(dp), allocatable, intent(inout) :: grid_v(:, :), f(:)
+    integer, intent(inout) :: capacity
+    real(dp), allocatable :: grown_grid(:, :), grown_f(:)
+    integer :: new_capacity
+
+    new_capacity = 2*capacity
+    if (new_capacity <= capacity) error stop 'velocity grid CSV row capacity overflow'
+    allocate (grown_grid(3, new_capacity), grown_f(new_capacity))
+    grown_grid(:, :capacity) = grid_v
+    grown_f(:capacity) = f
+    call move_alloc(grown_grid, grid_v)
+    call move_alloc(grown_f, f)
+    capacity = new_capacity
+  end subroutine grow_velocity_grid_buffers
 
   !> 空行または `#` コメント行かを判定する。
   pure logical function is_blank_or_comment(line) result(is_skip)

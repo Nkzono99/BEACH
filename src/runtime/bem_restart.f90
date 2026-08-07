@@ -7,7 +7,8 @@ module bem_restart
   use bem_charge_ledger, only: charge_ledger_type
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_physics_config_types, only: validate_active_physics_config, physics_config_ok
-  use bem_checkpoint_contract, only: checkpoint_schema_version_current
+  use bem_checkpoint_contract, only: checkpoint_schema_is_loadable, checkpoint_schema_version_current, &
+                                     inspect_checkpoint_directory
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
 
@@ -48,8 +49,9 @@ contains
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
+    logical :: checkpoint_complete, checkpoint_has_residual, checkpoint_has_ledger
     logical :: must_have_checkpoint
-    integer(i32) :: local_rank, world_size, contract_status, residual_species
+    integer(i32) :: local_rank, world_size, contract_status, residual_species, checkpoint_schema
 
     stats = sim_stats()
     has_restart = .false.
@@ -79,7 +81,14 @@ contains
       return
     end if
 
-    if (.not. (has_summary .and. has_charges .and. has_rng)) then
+    call inspect_checkpoint_directory( &
+      trim(out_dir), checkpoint_complete, has_macro_residuals=checkpoint_has_residual, &
+      has_charge_ledger=checkpoint_has_ledger, schema_version=checkpoint_schema &
+      )
+    if (has_summary .and. .not. checkpoint_schema_is_loadable(checkpoint_schema)) then
+      error stop 'Resume requested but checkpoint schema is unsupported.'
+    end if
+    if (.not. checkpoint_complete) then
       error stop 'Resume requested but checkpoint files are incomplete in checkpoint directory.'
     end if
 
@@ -93,7 +102,10 @@ contains
     call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
-      if (has_ledger) then
+      if (checkpoint_has_ledger) then
+        if (.not. has_ledger) then
+          error stop 'Resume summary contains charge ledger metadata but charge_ledger.csv is missing.'
+        end if
         call load_charge_ledger_checkpoint(trim(summary_path), trim(ledger_path), charge_ledger)
         if (charge_ledger%batch_count /= stats%batches) then
           error stop 'Resume charge ledger batch count does not match summary statistics.'
@@ -114,7 +126,7 @@ contains
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (allocated(state%boundary_macro_residual)) state%boundary_macro_residual = 0.0d0
-      if (has_residual .and. allocated(state%macro_residual)) then
+      if (checkpoint_has_residual .and. has_residual .and. allocated(state%macro_residual)) then
         if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
         if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
         if (present(mpi) .and. allocated(state%boundary_macro_residual)) then
@@ -225,6 +237,8 @@ contains
   end subroutine validate_restart_contract
 
   !> 現在の Fortran 乱数状態をファイルへ保存する。
+  !! checkpoint transactionのownerは、全rankがこの手続きへ入る前に
+  !! completion manifestを無効化し、書き終わり後に全rankを同期する。
   !! @param[in] out_dir 出力ディレクトリ。
   subroutine write_rng_state_file(out_dir, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
@@ -253,8 +267,9 @@ contains
   end subroutine write_rng_state_file
 
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
-    !! @param[in] out_dir 出力ディレクトリ。
-    !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
+  !! completion manifestの無効化と最終公開はcheckpoint transactionのownerが行う。
+  !! @param[in] out_dir 出力ディレクトリ。
+  !! @param[in] state 種別ごとのマクロ粒子残差を保持した注入状態。
   subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size, mpi)
     character(len=*), intent(in) :: out_dir
     type(injection_state), intent(in) :: state
@@ -275,7 +290,6 @@ contains
 
     call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_macro_residuals_file')
     if (local_rank /= 0_i32) return
-
     path = restart_macro_residual_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open macro_residuals.csv.'

@@ -116,7 +116,7 @@ program test_injection_sampling
   end do
   call test_end()
 
-  call test_begin('reservoir_face_jitter')
+  call test_begin('reservoir_face_launch_has_no_untracked_jitter')
   jitter_dt = 1.0d-3
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
@@ -124,8 +124,10 @@ program test_injection_sampling
     1.0d0, 0.0d0, 50.0d0, x(:, 1:4), v(:, 1:4), position_jitter_dt=jitter_dt &
     )
   do i = 1, 4
-    call assert_true(x(1, i) > -1.0d0, 'reservoir jittered x should stay inside the domain')
-    call assert_true(x(1, i) <= -1.0d0 + 2.0d0*jitter_dt + 1.0d-12, 'reservoir jittered x exceeded dt bound')
+    call assert_true( &
+      x(1, i) == nearest(-1.0_dp, 1.0_dp), &
+      'reservoir launch must be one representable step inward, without an untracked flight segment' &
+      )
   end do
   call test_end()
 

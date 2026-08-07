@@ -80,13 +80,18 @@ beach_kernel_build(handle, vertex0_xyz, vertex1_xyz, vertex2_xyz, options...)
 beach_kernel_update_charges(handle, src_q)
 beach_kernel_eval_e(handle, target_pos, e)
 beach_kernel_eval_phi(handle, target_pos, phi)
+beach_kernel_eval_e_direct(handle, target_pos, e)
+beach_kernel_eval_phi_direct(handle, target_pos, phi)
 beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
 ```
 
 The public header is `beach/include/beach_field_kernel.h` in the Python package.
-The current ABI is `2.0`. Before calling the other functions, a C caller should
-call `beach_kernel_get_abi_version` and require an equal major version and a
-library minor version greater than or equal to its required minor version.
+The current ABI is `2.1`. Before calling the other functions, a C caller should
+call `beach_kernel_get_abi_version`, require major version `2`, and require a
+library minor version greater than or equal to the needed minor (`1` for the
+direct APIs). `eval_e_direct` and `eval_phi_direct` are available only for a
+non-periodic plan and return its exact-direct, non-periodic field or potential
+for the same source geometry and charges. A periodic plan returns invalid argument.
 Coordinate and vector arrays use `values[3 * point_index + component]` storage.
 The public header defines status codes, periodic far-correction codes, and handle
 ownership.

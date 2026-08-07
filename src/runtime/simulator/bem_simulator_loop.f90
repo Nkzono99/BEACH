@@ -10,6 +10,7 @@ submodule(bem_simulator) bem_simulator_loop
                                      perf_region_stats_update
   use bem_mpi, only: mpi_allreduce_max_real_dp_array
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint
+  use bem_charge_ledger, only: checked_accumulate_charge, finite_charge_sum
   implicit none
   real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
   integer(i32), parameter :: adaptive_max_halvings = 24_i32
@@ -17,6 +18,8 @@ contains
 
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
+  integer(i32) :: team_size_min, team_size_max, checkpoint_team_size_min, checkpoint_team_size_max
+  integer(i32) :: particle_team_size, particle_team_size_min, particle_team_size_max
   integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
   integer(i32) :: collision_failure_particle, collision_failure_step
   integer(i32) :: local_failure_values(3), selected_failure_values(3)
@@ -28,12 +31,13 @@ contains
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
-  logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted
+  logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
-  integer(i32) :: batch_counts(6)
+  integer(i64) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
+  real(dp) :: projected_simulated_time
   real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
   character(len=256) :: boundary_message
   type(particles_soa) :: pcls_batch
@@ -68,8 +72,65 @@ contains
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  omp_dynamic_before = .false.
+!$ omp_dynamic_before = omp_get_dynamic()
   nth = 1_i32
-!$ nth = max(1, omp_get_max_threads())
+  if (adaptive_nonzero_mode) then
+!$  call omp_set_dynamic(.false.)
+    !$omp parallel default(none) shared(nth)
+    !$omp single
+!$  nth = int(omp_get_num_threads(), i32)
+    !$omp end single
+    !$omp end parallel
+
+    team_size_min = nth
+    team_size_max = nth
+    call mpi_allreduce_min_i32_scalar(mpi_ctx, team_size_min)
+    call mpi_allreduce_max_i32_scalar(mpi_ctx, team_size_max)
+    if (team_size_min /= team_size_max) then
+      if (mpi_is_root(mpi_ctx)) then
+        write (error_unit, '(a,i0,a,i0)') &
+          'adaptive OpenMP team-size mismatch across MPI ranks: min=', team_size_min, ' max=', team_size_max
+        flush (error_unit)
+      end if
+      error stop 'adaptive OpenMP team size must match across MPI ranks.'
+    end if
+
+    checkpoint_team_size_min = stats%adaptive_nonzero_mode_omp_threads
+    checkpoint_team_size_max = stats%adaptive_nonzero_mode_omp_threads
+    call mpi_allreduce_min_i32_scalar(mpi_ctx, checkpoint_team_size_min)
+    call mpi_allreduce_max_i32_scalar(mpi_ctx, checkpoint_team_size_max)
+    if (checkpoint_team_size_min /= checkpoint_team_size_max) then
+      if (mpi_is_root(mpi_ctx)) then
+        write (error_unit, '(a,i0,a,i0)') &
+          'adaptive checkpoint OpenMP team-size mismatch across MPI ranks: min=', &
+          checkpoint_team_size_min, ' max=', checkpoint_team_size_max
+        flush (error_unit)
+      end if
+      error stop 'adaptive checkpoint OpenMP team size must match across MPI ranks.'
+    end if
+    if (checkpoint_team_size_min < 0_i32) then
+      error stop 'adaptive checkpoint OpenMP team size must be nonnegative.'
+    else if (checkpoint_team_size_min > 0_i32 .and. checkpoint_team_size_min /= nth) then
+      if (mpi_is_root(mpi_ctx)) then
+        write (error_unit, '(a,i0,a,i0)') &
+          'adaptive OpenMP team-size mismatch with checkpoint: checkpoint=', checkpoint_team_size_min, &
+          ' current=', nth
+        flush (error_unit)
+      end if
+      error stop 'adaptive OpenMP team size does not match the checkpoint.'
+    else if (checkpoint_team_size_min == 0_i32 .and. stats%batches > 0_i32) then
+      error stop 'adaptive checkpoint is missing its OpenMP team size.'
+    end if
+    stats%adaptive_nonzero_mode_omp_threads = nth
+  else
+!$  nth = max(1_i32, int(omp_get_max_threads(), i32))
+    stats%adaptive_nonzero_mode_rejected_trials = 0_i64
+    stats%adaptive_nonzero_mode_last_batch_duration = 0.0_dp
+    stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
+    stats%adaptive_nonzero_mode_omp_threads = 0_i32
+  end if
+  call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0.0_dp, mpi_ctx)
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
   call evaluate_surface_current_model(app, current_model_result)
 
@@ -120,6 +181,7 @@ contains
       end if
     end if
   end if
+  adaptive_potential_step = 0.0_dp
 
   do local_batch_idx = 1_i32, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
@@ -198,11 +260,28 @@ contains
       call process_particle_batch( &
         mesh, trial_app, boundary_contract, current_model_result, snapshot, pcls_batch, workspace%dq_thread, &
         workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
-        workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, &
+        workspace%soft_discarded_boundary_flag, workspace%soft_discard_context, bfield, batch_idx, mpi_ctx%rank, &
+        particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
         collision_failure_x, collision_failure_v &
         )
       call perf_region_end(perf_region_particle_batch, t0)
+
+      if (adaptive_nonzero_mode) then
+        particle_team_size_min = particle_team_size
+        particle_team_size_max = particle_team_size
+        call mpi_allreduce_min_i32_scalar(mpi_ctx, particle_team_size_min)
+        call mpi_allreduce_max_i32_scalar(mpi_ctx, particle_team_size_max)
+        if (particle_team_size_min /= nth .or. particle_team_size_max /= nth) then
+          if (mpi_is_root(mpi_ctx)) then
+            write (error_unit, '(a,i0,a,i0,a,i0)') &
+              'adaptive OpenMP team size changed after replay probe: expected=', nth, &
+              ' min=', particle_team_size_min, ' max=', particle_team_size_max
+            flush (error_unit)
+          end if
+          error stop 'adaptive OpenMP team size changed after the replay probe.'
+        end if
+      end if
 
       collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
       call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
@@ -255,9 +334,32 @@ contains
       end if
     end do
 
+    call perf_region_begin(perf_region_count_outcomes, t0)
+    call count_batch_outcomes( &
+      pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
+      workspace%soft_discarded_boundary_flag, batch_counts, batch_soft_discarded_abs_charge &
+      )
+    call perf_region_end(perf_region_count_outcomes, t0)
+    call perf_region_begin(perf_region_mpi_reduce, t0)
+    call mpi_allreduce_sum_i64_array(mpi_ctx, batch_counts)
+    call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
+    call perf_region_end(perf_region_mpi_reduce, t0)
+    call report_soft_discard_summary( &
+      batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, workspace%soft_discard_context, mpi_ctx &
+      )
+    call enforce_soft_discard_limits( &
+      app%sim, stats, batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx &
+      )
+    call validate_batch_stat_capacity(stats, batch_counts, trial_halvings, adaptive_nonzero_mode)
+    projected_simulated_time = stats%simulated_time + trial_batch_duration
+    if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp .or. &
+        .not. ieee_is_finite(projected_simulated_time) .or. projected_simulated_time < stats%simulated_time) then
+      error stop 'simulation statistic overflow: simulated_time'
+    end if
+
     if (ledger_enabled) then
       call batch_ledger%reset(batch_idx)
-      batch_ledger%surface_charge_before = sum(mesh%q_elem)
+      batch_ledger%surface_charge_before = finite_charge_sum(mesh%q_elem, 'batch surface charge before commit')
       call record_batch_initial_charge(trial_app, pcls_batch, fresh_particle_count, batch_ledger)
       call record_batch_outcome_charge( &
         pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
@@ -285,26 +387,20 @@ contains
       )
     call perf_region_end(perf_region_commit_charge, t0)
     if (ledger_enabled) then
-      batch_ledger%surface_charge_after = sum(mesh%q_elem)
+      batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
       call accumulate_charge_ledger(charge_ledger, batch_ledger)
     end if
 
-    call perf_region_begin(perf_region_count_outcomes, t0)
-    call count_batch_outcomes( &
-      pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
-      workspace%soft_discarded_boundary_flag, batch_counts, batch_soft_discarded_abs_charge &
-      )
-    call perf_region_end(perf_region_count_outcomes, t0)
-    call perf_region_begin(perf_region_mpi_reduce, t0)
-    call mpi_allreduce_sum_i32_array(mpi_ctx, batch_counts)
-    call perf_region_end(perf_region_mpi_reduce, t0)
     call perf_region_begin(perf_region_stats_update, t0)
     call accumulate_batch_stats(stats, batch_counts, batch_soft_discarded_abs_charge, rel)
-    stats%simulated_time = stats%simulated_time + trial_batch_duration
-    stats%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
-    stats%adaptive_nonzero_mode_last_potential_step = merge(adaptive_potential_step, 0.0_dp, adaptive_nonzero_mode)
-    stats%adaptive_nonzero_mode_rejected_trials = &
-      stats%adaptive_nonzero_mode_rejected_trials + int(trial_halvings, i64)
+    stats%simulated_time = projected_simulated_time
+    if (adaptive_nonzero_mode) then
+      stats%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
+      stats%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
+      stats%adaptive_nonzero_mode_rejected_trials = checked_add_adaptive_rejected_trials( &
+                                                    stats%adaptive_nonzero_mode_rejected_trials, trial_halvings &
+                                                    )
+    end if
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -333,6 +429,7 @@ contains
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)
+!$ if (adaptive_nonzero_mode) call omp_set_dynamic(omp_dynamic_before)
 
   if (present(mesh_potential_v) .and. mpi_is_root(mpi_ctx)) then
     call snapshot%refresh(mesh)
@@ -384,30 +481,42 @@ contains
 
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, collision_status, species_idx
-  real(dp) :: x0(3), v0(3), x1(3), v1(3), qdep
+  real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
   type(hit_info) :: hit
   type(particle_step_result) :: step_result
   type(sim_config) :: particle_sim
   type(external_boundary_contract_type) :: particle_boundary_contract
-  logical :: candidate_inside, used_event_resolver
+  logical :: candidate_inside, used_event_resolver, adaptive_nonzero_mode
+!$ integer(kind=omp_sched_kind) :: previous_schedule_kind
+!$ integer :: previous_schedule_chunk
 
   nth = size(dq_thread, 2)
+  actual_team_size = nth
   collision_failure_status = collision_query_ok
   collision_failure_particle = huge(0_i32)
   collision_failure_step = 0_i32
   collision_failure_x = 0.0_dp
   collision_failure_v = 0.0_dp
+  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  ! Replayed adaptive trials require an identical particle-index partition.
+  ! Keep the normal runtime schedule, but override its ICV with static only for this adaptive loop.
+!$ call omp_get_schedule(previous_schedule_kind, previous_schedule_chunk)
+!$ if (adaptive_nonzero_mode) call omp_set_schedule(omp_sched_static, 0)
 
-  !$omp parallel default(none) &
+  !$omp parallel default(none) num_threads(nth) &
   !$omp shared(mesh,pcls_batch,app,boundary_contract,current_model,snapshot,dq_thread,bfield) &
-  !$omp shared(escaped_boundary_flag,absorbed_flag,nth) &
-  !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
+  !$omp shared(escaped_boundary_flag,absorbed_flag,nth,actual_team_size) &
+  !$omp shared(absorbed_element,soft_discarded_boundary_flag,soft_discard_context,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp private(i,step,x0,v0,x1,v1,hit,step_result,particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
+  !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result) &
+  !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
   !$omp private(collision_status,candidate_inside,used_event_resolver)
   tid = 1_i32
 !$ tid = omp_get_thread_num() + 1
+  !$omp single
+!$ actual_team_size = int(omp_get_num_threads(), i32)
+  !$omp end single
   !$omp do schedule(runtime)
   do i = 1_i32, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
@@ -424,7 +533,7 @@ contains
       v0 = pcls_batch%v(:, i)
       call build_particle_step_candidate( &
         mesh, particle_sim, snapshot, bfield, x0, v0, &
-        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1 &
+        pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, sampled_electric_field &
         )
       if (.not. all(ieee_is_finite(x1)) .or. .not. all(ieee_is_finite(v1))) then
         call record_collision_failure(particle_step_invalid_boundary, i, step, x0, v0)
@@ -439,7 +548,8 @@ contains
           call resolve_particle_boundary_candidate( &
             mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
             result=step_result, boundary_contract=particle_boundary_contract, &
-            boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
+            boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64), &
+            sampled_electric_field=sampled_electric_field &
             )
           used_event_resolver = .true.
         else
@@ -461,7 +571,8 @@ contains
         call resolve_particle_boundary_candidate( &
           mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
           hit=hit, result=step_result, boundary_contract=particle_boundary_contract, &
-          boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
+          boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64), &
+          sampled_electric_field=sampled_electric_field &
           )
         used_event_resolver = .true.
       end if
@@ -469,6 +580,7 @@ contains
         if (step_result%status /= collision_query_ok) then
           if (step_result%status == particle_step_multiple_box_events .and. &
               trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard') then
+            call record_soft_discard_context(i, species_idx, step, x0, v0)
             pcls_batch%alive(i) = .false.
             soft_discarded_boundary_flag(i) = .true.
             exit
@@ -496,8 +608,30 @@ contains
   end do
   !$omp end do
   !$omp end parallel
+!$ call omp_set_schedule(previous_schedule_kind, previous_schedule_chunk)
 
 contains
+  subroutine record_soft_discard_context(particle_index, species_index, particle_step, x, v)
+    integer(i32), intent(in) :: particle_index, species_index, particle_step
+    real(dp), intent(in) :: x(3), v(3)
+    real(dp) :: macro_charge
+
+    macro_charge = pcls_batch%q(particle_index)*pcls_batch%w(particle_index)
+    !$omp critical (beach_soft_discard_context)
+    if (.not. soft_discard_context%available .or. &
+        particle_index < soft_discard_context%particle .or. &
+        (particle_index == soft_discard_context%particle .and. particle_step < soft_discard_context%step)) then
+      soft_discard_context%available = .true.
+      soft_discard_context%particle = particle_index
+      soft_discard_context%species = species_index
+      soft_discard_context%step = particle_step
+      soft_discard_context%macro_charge = macro_charge
+      soft_discard_context%x = x
+      soft_discard_context%v = v
+    end if
+    !$omp end critical (beach_soft_discard_context)
+  end subroutine record_soft_discard_context
+
   subroutine apply_species_kinetic_barrier(current_model, species_idx, contract)
     type(surface_current_model_result_type), intent(in) :: current_model
     integer(i32), intent(in) :: species_idx
@@ -537,6 +671,56 @@ contains
   end subroutine record_collision_failure
   end procedure process_particle_batch
 
+  function checked_add_adaptive_rejected_trials(accumulated, trial_halvings) result(total)
+    integer(i64), intent(in) :: accumulated
+    integer(i32), intent(in) :: trial_halvings
+    integer(i64) :: increment, total
+
+    increment = int(trial_halvings, i64)
+    if (accumulated < 0_i64 .or. increment < 0_i64) then
+      error stop 'adaptive rejected-trial count must be nonnegative.'
+    end if
+    if (accumulated > huge(accumulated) - increment) then
+      error stop 'adaptive rejected-trial count overflow.'
+    end if
+    total = accumulated + increment
+  end function checked_add_adaptive_rejected_trials
+
+  !> accepted batchをcommitする前に、累積統計が64bit範囲に収まることを確認する。
+  subroutine validate_batch_stat_capacity(stats, batch_counts, trial_halvings, adaptive_nonzero_mode)
+    type(sim_stats), intent(in) :: stats
+    integer(i64), intent(in) :: batch_counts(6)
+    integer(i32), intent(in) :: trial_halvings
+    logical, intent(in) :: adaptive_nonzero_mode
+
+    call validate_stat_capacity(stats%processed_particles, batch_counts(1), 'processed_particles')
+    call validate_stat_capacity(stats%absorbed, batch_counts(2), 'absorbed')
+    call validate_stat_capacity(stats%escaped, batch_counts(3), 'escaped')
+    call validate_stat_capacity(stats%escaped_boundary, batch_counts(4), 'escaped_boundary')
+    call validate_stat_capacity(stats%survived_max_step, batch_counts(5), 'survived_max_step')
+    call validate_stat_capacity( &
+      stats%multiple_box_events_soft_discarded, batch_counts(6), 'multiple_box_events_soft_discarded' &
+      )
+    if (adaptive_nonzero_mode) then
+      call validate_stat_capacity( &
+        stats%adaptive_nonzero_mode_rejected_trials, int(trial_halvings, i64), &
+        'adaptive_nonzero_mode_rejected_trials' &
+        )
+    end if
+  end subroutine validate_batch_stat_capacity
+
+  subroutine validate_stat_capacity(accumulated, increment, field_name)
+    integer(i64), intent(in) :: accumulated, increment
+    character(len=*), intent(in) :: field_name
+
+    if (accumulated < 0_i64 .or. increment < 0_i64) then
+      error stop 'simulation statistic must be nonnegative: '//trim(field_name)
+    end if
+    if (accumulated > huge(accumulated) - increment) then
+      error stop 'simulation statistic overflow: '//trim(field_name)
+    end if
+  end subroutine validate_stat_capacity
+
   subroutine stop_for_collision_failure(batch_idx, rank, status, particle, step, dt, x, v)
     integer(i32), intent(in) :: batch_idx, rank, status, particle, step
     real(dp), intent(in) :: dt, x(3), v(3)
@@ -556,6 +740,85 @@ contains
     flush (error_unit)
     error stop 'photo ray collision query failed.'
   end subroutine stop_for_photo_collision_failure
+
+  !> accepted trial の soft-discard 集約と、全rankで一意な代表事象1件だけをrootへ出力する。
+  subroutine report_soft_discard_summary(batch_idx, global_count, global_abs_charge, local_context, mpi)
+    integer(i32), intent(in) :: batch_idx
+    integer(i64), intent(in) :: global_count
+    real(dp), intent(in) :: global_abs_charge
+    type(soft_discard_context_type), intent(in) :: local_context
+    type(mpi_context), intent(in) :: mpi
+    integer(i32) :: selected_rank, local_values(3), selected_values(3)
+    real(dp) :: selected_state(7)
+
+    if (global_count < 0_i64) error stop 'soft-discard global count overflowed.'
+    if (global_count == 0_i64) return
+
+    local_values = 0_i32
+    if (local_context%available) then
+      local_values = [local_context%particle, local_context%species, local_context%step]
+    end if
+    call mpi_select_lowest_rank_i32_values( &
+      mpi, local_context%available, local_values, selected_rank, selected_values &
+      )
+    if (selected_rank < 0_i32) then
+      error stop 'soft-discard aggregate is missing representative context.'
+    end if
+
+    selected_state = 0.0_dp
+    if (mpi%rank == selected_rank) then
+      selected_state(1) = local_context%macro_charge
+      selected_state(2:4) = local_context%x
+      selected_state(5:7) = local_context%v
+    end if
+    call mpi_allreduce_sum_real_dp_array(mpi, selected_state)
+
+    if (mpi_is_root(mpi)) then
+      write (error_unit, '(a,i0,a,i0,a,es13.5,a,i0,a,i0,a,i0,a,i0,a,es13.5,a,3es13.5,a,3es13.5)') &
+        'multiple_box_events soft discard accepted: batch=', batch_idx, &
+        ' global_count=', global_count, ' global_abs_charge_C=', global_abs_charge, &
+        ' representative_rank=', selected_rank, ' particle=', selected_values(1), &
+        ' species=', selected_values(2), ' step=', selected_values(3), &
+        ' status=multiple_box_events macro_charge_C=', selected_state(1), &
+        ' x=', selected_state(2:4), ' v=', selected_state(5:7)
+      flush (error_unit)
+    end if
+  end subroutine report_soft_discard_summary
+
+  subroutine enforce_soft_discard_limits(sim, stats, batch_idx, batch_count, batch_abs_charge, mpi)
+    type(sim_config), intent(in) :: sim
+    type(sim_stats), intent(in) :: stats
+    integer(i32), intent(in) :: batch_idx
+    integer(i64), intent(in) :: batch_count
+    real(dp), intent(in) :: batch_abs_charge
+    type(mpi_context), intent(in) :: mpi
+    integer(i64) :: projected_count, count_limit
+    real(dp) :: projected_abs_charge
+    logical :: count_exceeded, charge_exceeded
+
+    count_limit = int(sim%multiple_box_events_soft_discard_count_limit, i64)
+    if (batch_count < 0_i64) error stop 'soft-discard batch count overflowed.'
+    if (stats%multiple_box_events_soft_discarded > huge(projected_count) - batch_count) then
+      projected_count = huge(projected_count)
+    else
+      projected_count = stats%multiple_box_events_soft_discarded + batch_count
+    end if
+    projected_abs_charge = stats%multiple_box_events_soft_discarded_abs_charge + batch_abs_charge
+    count_exceeded = projected_count > count_limit
+    charge_exceeded = .not. ieee_is_finite(projected_abs_charge) .or. &
+                      projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
+    if (.not. count_exceeded .and. .not. charge_exceeded) return
+
+    if (mpi_is_root(mpi)) then
+      write (error_unit, '(a,i0,a,i0,a,i0,a,es13.5,a,es13.5)') &
+        'multiple_box_events soft-discard cumulative limit exceeded: batch=', batch_idx, &
+        ' count=', projected_count, ' count_limit=', count_limit, &
+        ' abs_charge_C=', projected_abs_charge, &
+        ' abs_charge_limit_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
+      flush (error_unit)
+    end if
+    error stop 'multiple_box_events soft-discard cumulative limit exceeded.'
+  end subroutine enforce_soft_discard_limits
 
   pure function particle_failure_name(status) result(name)
     integer(i32), intent(in) :: status
@@ -601,19 +864,37 @@ contains
 
   module procedure commit_batch_charge
   real(dp) :: norm_dq, norm_q
+  if (.not. all(ieee_is_finite(mesh%q_elem))) then
+    error stop 'committed surface charge is not finite before batch update.'
+  end if
   workspace%q_before = mesh%q_elem
   if (workspace%charge_candidate_ready) then
+    if (.not. all(ieee_is_finite(workspace%candidate_charge))) then
+      error stop 'adaptive candidate charge is not finite at commit.'
+    end if
     mesh%q_elem = workspace%candidate_charge
   else
     workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
+    call validate_finite_charge_addition( &
+      mesh%q_elem, workspace%dq, 'batch surface-charge update' &
+      )
     mesh%q_elem = mesh%q_elem + workspace%dq
   end if
+  if (.not. all(ieee_is_finite(mesh%q_elem))) then
+    error stop 'batch surface-charge update produced a non-finite charge.'
+  end if
   call apply_surface_model_charge_relaxation(mesh, external_e, field_bc_mode=field_bc_mode)
+  if (.not. all(ieee_is_finite(mesh%q_elem))) then
+    error stop 'surface-model charge relaxation produced a non-finite charge.'
+  end if
+  call validate_finite_charge_addition( &
+    mesh%q_elem, -workspace%q_before, 'batch surface-charge difference' &
+    )
   workspace%dq = mesh%q_elem - workspace%q_before
-  norm_dq = sqrt(sum(workspace%dq*workspace%dq))
-  norm_q = sqrt(sum(mesh%q_elem*mesh%q_elem))
-  rel = norm_dq/max(norm_q, q_floor)
+  norm_dq = stable_l2_norm(workspace%dq)
+  norm_q = stable_l2_norm(mesh%q_elem)
+  rel = finite_nonnegative_ratio(norm_dq, max(norm_q, q_floor))
   workspace%charge_candidate_ready = .false.
   end procedure commit_batch_charge
 
@@ -626,12 +907,72 @@ contains
     end if
     workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
+    call validate_finite_charge_addition( &
+      mesh%q_elem, workspace%dq, 'adaptive candidate surface-charge update' &
+      )
     workspace%candidate_charge = mesh%q_elem + workspace%dq
     if (.not. all(ieee_is_finite(workspace%candidate_charge))) then
       error stop 'adaptive candidate charge is not finite.'
     end if
     workspace%charge_candidate_ready = .true.
   end subroutine prepare_adaptive_charge_candidate
+
+  !> Finiteな二項の加算が表現可能範囲を越えないことを、演算前に検証する。
+  subroutine validate_finite_charge_addition(base, increment, operation)
+    real(dp), intent(in) :: base(:), increment(:)
+    character(len=*), intent(in) :: operation
+    integer :: i
+
+    if (size(base) /= size(increment)) then
+      error stop trim(operation)//' array sizes do not match.'
+    end if
+    if (.not. all(ieee_is_finite(base)) .or. .not. all(ieee_is_finite(increment))) then
+      error stop trim(operation)//' contains a non-finite operand.'
+    end if
+    do i = 1, size(base)
+      if (increment(i) > 0.0_dp .and. base(i) > huge(base(i)) - increment(i)) then
+        error stop trim(operation)//' overflowed.'
+      end if
+      if (increment(i) < 0.0_dp .and. base(i) < -huge(base(i)) - increment(i)) then
+        error stop trim(operation)//' overflowed.'
+      end if
+    end do
+  end subroutine validate_finite_charge_addition
+
+  !> 二乗の中間overflowを避けて有限vectorのL2 normを返す。
+  pure real(dp) function stable_l2_norm(values) result(norm)
+    real(dp), intent(in) :: values(:)
+    real(dp) :: scale, unit_norm
+
+    if (size(values) == 0) then
+      norm = 0.0_dp
+      return
+    end if
+    scale = maxval(abs(values))
+    if (scale == 0.0_dp) then
+      norm = 0.0_dp
+      return
+    end if
+    unit_norm = sqrt(sum((values/scale)*(values/scale)))
+    if (scale > huge(norm)/unit_norm) then
+      norm = huge(norm)
+    else
+      norm = scale*unit_norm
+    end if
+  end function stable_l2_norm
+
+  !> 非負の有限比をoverflow時は最大有限値へ飽和させる。
+  pure real(dp) function finite_nonnegative_ratio(numerator, denominator) result(ratio)
+    real(dp), intent(in) :: numerator, denominator
+
+    if (numerator == 0.0_dp) then
+      ratio = 0.0_dp
+    else if (denominator < 1.0_dp .and. numerator > huge(ratio)*denominator) then
+      ratio = huge(ratio)
+    else
+      ratio = numerator/denominator
+    end if
+  end function finite_nonnegative_ratio
 
   subroutine apply_neutral_return_surface_closure(app, pcls_batch, fresh_particle_count, workspace, mpi)
     type(app_config), intent(in) :: app
@@ -774,7 +1115,7 @@ contains
     type(simulator_batch_workspace_type), intent(inout) :: workspace
     type(mpi_context), intent(in) :: mpi
     integer(i32) :: i, species_idx, elem_idx, n
-    real(dp) :: macro_charge, raw_charge, target_charge, weight_scale, correction
+    real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
     real(dp) :: charge_tolerance
     logical :: has_fixed_current
 
@@ -813,9 +1154,20 @@ contains
           current_model%has_absorbed_target(species_idx)) then
         raw_charge = workspace%fixed_current_charge_values(species_idx)
         if (current_model%has_absorbed_target(species_idx)) then
-          target_charge = current_model%absorbed_current_a(species_idx)*app%sim%batch_duration
+          target_current = current_model%absorbed_current_a(species_idx)
         else
-          target_charge = app%particle_species(species_idx)%target_absorbed_current_a*app%sim%batch_duration
+          target_current = app%particle_species(species_idx)%target_absorbed_current_a
+        end if
+        if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+          error stop 'fixed_current absorbed raw/current/duration value is not finite.'
+        end if
+        if (app%sim%batch_duration > 1.0_dp .and. &
+            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
+          error stop 'fixed_current absorbed target charge overflowed for this batch duration.'
+        end if
+        target_charge = target_current*app%sim%batch_duration
+        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
+          error stop 'fixed_current absorbed target charge underflowed for this batch duration.'
         end if
         charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
         if (abs(raw_charge) <= charge_tolerance) then
@@ -849,9 +1201,20 @@ contains
           current_model%has_emission_target(species_idx)) then
         raw_charge = workspace%fixed_current_charge_values(n + species_idx)
         if (current_model%has_emission_target(species_idx)) then
-          target_charge = current_model%emission_current_a(species_idx)*app%sim%batch_duration
+          target_current = current_model%emission_current_a(species_idx)
         else
-          target_charge = app%particle_species(species_idx)%target_emission_current_a*app%sim%batch_duration
+          target_current = app%particle_species(species_idx)%target_emission_current_a
+        end if
+        if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+          error stop 'fixed_current emission raw/current/duration value is not finite.'
+        end if
+        if (app%sim%batch_duration > 1.0_dp .and. &
+            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
+          error stop 'fixed_current emission target charge overflowed for this batch duration.'
+        end if
+        target_charge = target_current*app%sim%batch_duration
+        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
+          error stop 'fixed_current emission target charge underflowed for this batch duration.'
         end if
         charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
         if (abs(raw_charge) <= charge_tolerance) then
@@ -878,9 +1241,17 @@ contains
 
       if (current_model%has_escape_target(species_idx)) then
         raw_charge = workspace%fixed_current_charge_values(2*n + species_idx)
-        target_charge = current_model%escaped_particle_current_a(species_idx)*app%sim%batch_duration
-        if (.not. ieee_is_finite(target_charge)) then
-          error stop 'fixed_current escape target is not finite.'
+        target_current = current_model%escaped_particle_current_a(species_idx)
+        if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+          error stop 'fixed_current escape raw/current/duration value is not finite.'
+        end if
+        if (app%sim%batch_duration > 1.0_dp .and. &
+            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
+          error stop 'fixed_current escape target charge overflowed for this batch duration.'
+        end if
+        target_charge = target_current*app%sim%batch_duration
+        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
+          error stop 'fixed_current escape target charge underflowed for this batch duration.'
         end if
         if (target_charge /= 0.0_dp .and. &
             sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
@@ -889,6 +1260,9 @@ contains
         workspace%fixed_escape_target_charge(species_idx) = target_charge
         workspace%fixed_escape_applied_charge(species_idx) = target_charge
         workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
+        if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
+          error stop 'fixed_current escape correction is not finite.'
+        end if
       end if
     end do
   end subroutine apply_fixed_surface_current_closure
@@ -902,12 +1276,16 @@ contains
     real(dp) :: macro_charge
     do i = 1_i32, fresh_particle_count
       species_idx = pcls_batch%species_id(i)
-      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      macro_charge = checked_macro_charge(pcls_batch%q(i), pcls_batch%w(i), 'initial batch charge ledger')
       if (trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast') then
-        ledger%emitted_from_surface(species_idx) = ledger%emitted_from_surface(species_idx) + macro_charge
+        call checked_accumulate_charge( &
+          ledger%emitted_from_surface(species_idx), macro_charge, 'local emitted charge ledger' &
+          )
         ledger%emitted_count(species_idx) = ledger%emitted_count(species_idx) + 1_i64
       else
-        ledger%injected_from_remote(species_idx) = ledger%injected_from_remote(species_idx) + macro_charge
+        call checked_accumulate_charge( &
+          ledger%injected_from_remote(species_idx), macro_charge, 'local injected charge ledger' &
+          )
         ledger%injected_count(species_idx) = ledger%injected_count(species_idx) + 1_i64
       end if
     end do
@@ -923,15 +1301,21 @@ contains
     real(dp) :: macro_charge
     do i = 1_i32, pcls_batch%n
       species_idx = pcls_batch%species_id(i)
-      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      macro_charge = checked_macro_charge(pcls_batch%q(i), pcls_batch%w(i), 'outcome batch charge ledger')
       if (absorbed_flag(i)) then
-        ledger%absorbed_on_surface(species_idx) = ledger%absorbed_on_surface(species_idx) + macro_charge
+        call checked_accumulate_charge( &
+          ledger%absorbed_on_surface(species_idx), macro_charge, 'local absorbed charge ledger' &
+          )
         ledger%absorbed_count(species_idx) = ledger%absorbed_count(species_idx) + 1_i64
       else if (escaped_boundary_flag(i)) then
-        ledger%escaped_to_infinity(species_idx) = ledger%escaped_to_infinity(species_idx) + macro_charge
+        call checked_accumulate_charge( &
+          ledger%escaped_to_infinity(species_idx), macro_charge, 'local escaped charge ledger' &
+          )
         ledger%escaped_count(species_idx) = ledger%escaped_count(species_idx) + 1_i64
       else if (soft_discarded_boundary_flag(i) .or. pcls_batch%alive(i)) then
-        ledger%discarded_unresolved(species_idx) = ledger%discarded_unresolved(species_idx) + macro_charge
+        call checked_accumulate_charge( &
+          ledger%discarded_unresolved(species_idx), macro_charge, 'local discarded charge ledger' &
+          )
         ledger%discarded_unresolved_count(species_idx) = ledger%discarded_unresolved_count(species_idx) + 1_i64
       end if
     end do
@@ -947,7 +1331,13 @@ contains
                                      ledger%injected_from_remote, ledger%emitted_from_surface, ledger%absorbed_on_surface, &
                                      ledger%escaped_to_infinity, ledger%discarded_unresolved &
                                      ]
+    if (.not. all(ieee_is_finite(workspace%ledger_charge_values))) then
+      error stop 'local batch charge ledger contains non-finite fluxes before MPI reduction.'
+    end if
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%ledger_charge_values)
+    if (.not. all(ieee_is_finite(workspace%ledger_charge_values))) then
+      error stop 'global batch charge ledger overflowed during MPI reduction.'
+    end if
     ledger%injected_from_remote = workspace%ledger_charge_values(1:n)
     ledger%emitted_from_surface = workspace%ledger_charge_values(n + 1:2*n)
     ledger%absorbed_on_surface = workspace%ledger_charge_values(2*n + 1:3*n)
@@ -957,12 +1347,36 @@ contains
                                     ledger%injected_count, ledger%emitted_count, ledger%absorbed_count, ledger%escaped_count, &
                                     ledger%discarded_unresolved_count &
                                     ]
+    if (any(workspace%ledger_count_values < 0_i64)) then
+      error stop 'local batch charge ledger contains invalid counts before MPI reduction.'
+    end if
     call mpi_allreduce_sum_i64_array(mpi, workspace%ledger_count_values)
+    if (any(workspace%ledger_count_values < 0_i64)) then
+      error stop 'global batch charge ledger count overflowed during MPI reduction.'
+    end if
     ledger%injected_count = workspace%ledger_count_values(1:n)
     ledger%emitted_count = workspace%ledger_count_values(n + 1:2*n)
     ledger%absorbed_count = workspace%ledger_count_values(2*n + 1:3*n)
     ledger%escaped_count = workspace%ledger_count_values(3*n + 1:4*n)
     ledger%discarded_unresolved_count = workspace%ledger_count_values(4*n + 1:5*n)
   end subroutine reduce_charge_ledger_fluxes
+
+  !> finiteな粒子電荷とweightから、overflow/zero-underflowを拒否してmacro chargeを返す。
+  real(dp) function checked_macro_charge(particle_charge, particle_weight, context) result(macro_charge)
+    real(dp), intent(in) :: particle_charge, particle_weight
+    character(len=*), intent(in) :: context
+
+    if (.not. ieee_is_finite(particle_charge) .or. .not. ieee_is_finite(particle_weight)) then
+      error stop trim(context)//' has a non-finite particle charge or weight.'
+    end if
+    if (abs(particle_weight) > 1.0_dp .and. abs(particle_charge) > huge(macro_charge)/abs(particle_weight)) then
+      error stop trim(context)//' macro charge overflowed.'
+    end if
+    macro_charge = particle_charge*particle_weight
+    if (.not. ieee_is_finite(macro_charge)) error stop trim(context)//' macro charge is not finite.'
+    if (particle_charge /= 0.0_dp .and. particle_weight /= 0.0_dp .and. macro_charge == 0.0_dp) then
+      error stop trim(context)//' macro charge underflowed to zero.'
+    end if
+  end function checked_macro_charge
 
 end submodule bem_simulator_loop

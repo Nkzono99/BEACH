@@ -18,7 +18,7 @@ module bem_field_kernel_c
   integer(c_int), parameter, public :: beach_kernel_invalid_argument = 2_c_int
   integer(c_int), parameter, public :: beach_kernel_not_ready = 3_c_int
   integer(c_int), parameter, public :: beach_kernel_abi_major = 2_c_int
-  integer(c_int), parameter, public :: beach_kernel_abi_minor = 0_c_int
+  integer(c_int), parameter, public :: beach_kernel_abi_minor = 1_c_int
   integer, parameter :: periodic_cache_path_max_bytes = 256
   character(len=*), parameter :: default_periodic_cache_dir = '.beach_cache/periodic2'
   real(dp), parameter :: default_periodic_generation_tolerance = 1.0d-8
@@ -259,6 +259,22 @@ contains
     options%periodic_cache_dir = kernel%periodic_cache_dir
     options%periodic_generation_tolerance = kernel%periodic_generation_tolerance
 
+    if (c_associated(box_min_ptr) .neqv. c_associated(box_max_ptr)) then
+      status = beach_kernel_invalid_argument
+      return
+    end if
+    if (c_associated(box_min_ptr)) then
+      call c_f_pointer(box_min_ptr, box_min, [3])
+      call c_f_pointer(box_max_ptr, box_max, [3])
+      if (.not. all(ieee_is_finite(box_min)) .or. .not. all(ieee_is_finite(box_max)) .or. &
+          any(box_max <= box_min)) then
+        status = beach_kernel_invalid_argument
+        return
+      end if
+      options%target_box_min = real(box_min, dp)
+      options%target_box_max = real(box_max, dp)
+    end if
+
     if (use_periodic2 /= 0_c_int) then
       if (.not. c_associated(periodic_axes_ptr) .or. .not. c_associated(periodic_len_ptr) .or. &
           .not. c_associated(box_min_ptr) .or. .not. c_associated(box_max_ptr) .or. &
@@ -269,8 +285,6 @@ contains
       end if
       call c_f_pointer(periodic_axes_ptr, periodic_axes, [2])
       call c_f_pointer(periodic_len_ptr, periodic_len, [2])
-      call c_f_pointer(box_min_ptr, box_min, [3])
-      call c_f_pointer(box_max_ptr, box_max, [3])
       if (any(periodic_axes < 1_c_int) .or. any(periodic_axes > 3_c_int) .or. &
           periodic_axes(1) == periodic_axes(2) .or. .not. all(ieee_is_finite(periodic_len)) .or. &
           any(periodic_len <= 0.0_c_double) .or. .not. all(ieee_is_finite(box_min)) .or. &
@@ -284,8 +298,6 @@ contains
       options%periodic_image_layers = int(image_layers, i32)
       options%periodic_ewald_alpha = real(ewald_alpha, dp)
       options%periodic_ewald_layers = int(ewald_layers, i32)
-      options%target_box_min = real(box_min, dp)
-      options%target_box_max = real(box_max, dp)
       select case (far_correction)
       case (0_c_int, 1_c_int)
         options%periodic_far_correction = 'none'

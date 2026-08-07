@@ -38,19 +38,21 @@ contains
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。
   subroutine build_particle_step_candidate( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x1, v1 &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x1, v1, sampled_electric_field &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     real(dp), intent(out) :: x1(3), v1(3)
+    real(dp), intent(out), optional :: sampled_electric_field(3)
     real(dp) :: x_mid(3), e_mid(3)
 
     x_mid = x0 + 0.5d0*v0*dt
     call project_field_sample_to_box(sim, x_mid)
     call snapshot%eval_local_e(mesh, x_mid, e_mid)
     call boris_push(x0, v0, q, m, dt, e_mid, bfield, x1, v1)
+    if (present(sampled_electric_field)) sampled_electric_field = e_mid
   end subroutine build_particle_step_candidate
 
   !> 境界を越えるcandidateでも、場評価点はsolverのprimitive target box内に保つ。
@@ -86,7 +88,7 @@ contains
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
 
     type(hit_info) :: hit
-    real(dp) :: x_candidate(3), v_candidate(3)
+    real(dp) :: x_candidate(3), v_candidate(3), candidate_electric_field(3)
     integer(i32) :: query_status
     integer(i64) :: active_boundary_rng_counter(4)
     logical :: has_boundary_rng_counter
@@ -102,7 +104,9 @@ contains
       return
     end if
 
-    call build_particle_step_candidate(mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate)
+    call build_particle_step_candidate( &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field &
+      )
     result%field_eval_count = 1_i32
     if (.not. all(ieee_is_finite(x_candidate)) .or. .not. all(ieee_is_finite(v_candidate))) then
       result%status = particle_step_invalid_boundary
@@ -114,7 +118,7 @@ contains
     if (query_status /= collision_query_ok) then
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
-          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, result=result, &
+          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, result=result, &
           boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
           has_boundary_rng_counter=has_boundary_rng_counter &
           )
@@ -134,16 +138,16 @@ contains
     end if
 
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
       boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
       has_boundary_rng_counter=has_boundary_rng_counter &
       )
   end subroutine advance_particle_step
 
-  !> 構築済みcandidateがbox crossing候補のとき、fieldを再評価せずeventを解決する。
+  !> 構築済みcandidateとその場評価値からbox eventを解決する。
   subroutine resolve_particle_boundary_candidate( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
-    boundary_rng_counter &
+    boundary_rng_counter, sampled_electric_field &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -153,7 +157,9 @@ contains
     type(particle_step_result), intent(out) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
+    real(dp), intent(in), optional :: sampled_electric_field(3)
     integer(i64) :: active_boundary_rng_counter(4)
+    real(dp) :: active_electric_field(3), x_mid(3)
     logical :: has_boundary_rng_counter
 
     result = particle_step_result()
@@ -169,21 +175,34 @@ contains
       result%status = particle_step_invalid_boundary
       return
     end if
+    if (present(sampled_electric_field)) then
+      active_electric_field = sampled_electric_field
+    else
+      x_mid = x0 + 0.5_dp*v0*dt
+      call project_field_sample_to_box(sim, x_mid)
+      call snapshot%eval_local_e(mesh, x_mid, active_electric_field)
+      result%field_eval_count = result%field_eval_count + 1_i32
+    end if
+    if (.not. all(ieee_is_finite(active_electric_field))) then
+      result%status = particle_step_invalid_boundary
+      return
+    end if
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
-      active_boundary_rng_counter, has_boundary_rng_counter &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, active_electric_field, hit, result, &
+      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、最大八つのeventとremainderを処理する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, hit, result, boundary_contract, &
-    boundary_rng_counter, has_boundary_rng_counter &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
+    boundary_contract, boundary_rng_counter, has_boundary_rng_counter &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
+    real(dp), intent(in) :: candidate_electric_field(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
@@ -193,7 +212,7 @@ contains
     integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
     type(hit_info) :: remainder_hit
-    real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3)
+    real(dp) :: x_start(3), v_start(3), x_trial(3), v_trial(3), x_event(3), v_event(3), segment_electric_field(3)
     real(dp) :: dt_segment, dt_remaining
     real(dp) :: redistribution_uniform(3)
     integer(i32) :: query_status, boundary_status, event_count
@@ -216,6 +235,7 @@ contains
     v_start = v0
     x_trial = x_candidate
     v_trial = v_candidate
+    segment_electric_field = candidate_electric_field
     dt_segment = dt
     event_count = 0_i32
     first_segment = .true.
@@ -265,9 +285,14 @@ contains
         end if
       end if
 
-      call interpolate_boundary_state( &
-        sim, event, x_start, v_start, x_trial, v_trial, dt_segment, .false., x_event, v_event &
+      call evaluate_boundary_state( &
+        sim, event, x_start, v_start, x_trial, v_trial, bfield, q, m, dt_segment, segment_electric_field, x_event, v_event, &
+        boundary_status &
         )
+      if (boundary_status /= boundary_event_ok) then
+        result%status = particle_step_invalid_boundary
+        return
+      end if
       if (.not. (first_segment .and. present(hit))) then
         call query_particle_chord(mesh, sim, x_start, v_start, x_event, v_event, result, remainder_hit, query_status)
         if (query_status /= collision_query_ok .or. result%absorbed) return
@@ -323,7 +348,7 @@ contains
       v_start = v_event
       dt_segment = dt_remaining
       call build_particle_step_candidate( &
-        mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, x_trial, v_trial &
+        mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, x_trial, v_trial, segment_electric_field &
         )
       result%field_eval_count = result%field_eval_count + 1_i32
       if (.not. all(ieee_is_finite(x_trial)) .or. .not. all(ieee_is_finite(v_trial))) then
@@ -369,29 +394,49 @@ contains
     result%elem_idx = hit%elem_idx
   end subroutine query_particle_chord
 
-  !> Event fractionのdense stateを作り、setされたface座標をbox値へ正確に揃える。
-  subroutine interpolate_boundary_state(sim, event, x0, v0, x1, v1, dt, use_dense_position, x_event, v_event)
+  !> Chord上のevent位置と、その接線方向・離散workに整合する速度を返す。
+  subroutine evaluate_boundary_state( &
+    sim, event, x0, v0, x1, v1, bfield, q, m, dt, electric_field, x_event, v_event, status &
+    )
     type(sim_config), intent(in) :: sim
     type(boundary_event_type), intent(in) :: event
-    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt
-    logical, intent(in) :: use_dense_position
+    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), bfield(3), q, m, dt, electric_field(3)
     real(dp), intent(out) :: x_event(3), v_event(3)
+    integer(i32), intent(out) :: status
     integer(i32) :: axis
+    real(dp) :: chord_velocity(3), chord_speed2, event_speed2, speed_scale, speed_tolerance
+    logical :: force_free
 
-    if (use_dense_position) then
-      x_event = x0 + event%fraction*dt*v0 + &
-                0.5_dp*event%fraction*event%fraction*dt*(v1 - v0)
-    else
-      x_event = x0 + event%fraction*(x1 - x0)
-    end if
-    v_event = v0 + event%fraction*(v1 - v0)
+    status = boundary_event_ok
+    x_event = x0 + event%fraction*(x1 - x0)
     do axis = 1_i32, 3_i32
       if (btest(event%face_mask, 2_i32*axis - 2_i32)) x_event(axis) = sim%box_min(axis)
       if (btest(event%face_mask, 2_i32*axis - 1_i32)) x_event(axis) = sim%box_max(axis)
     end do
-  end subroutine interpolate_boundary_state
+    chord_velocity = (x1 - x0)/dt
+    chord_speed2 = sum(chord_velocity*chord_velocity)
+    event_speed2 = sum(v0*v0) + 2.0_dp*(q/m)*dot_product(electric_field, x_event - x0)
+    speed_tolerance = 256.0_dp*epsilon(1.0_dp)*max(tiny(1.0_dp), sum(v0*v0), chord_speed2, abs(event_speed2))
+    if (.not. ieee_is_finite(chord_speed2) .or. .not. ieee_is_finite(event_speed2) .or. &
+        chord_speed2 <= tiny(1.0_dp) .or. event_speed2 <= speed_tolerance) then
+      v_event = 0.0_dp
+      status = boundary_event_invalid_geometry
+      return
+    end if
+    force_free = q == 0.0_dp .or. (all(electric_field == 0.0_dp) .and. all(bfield == 0.0_dp))
+    if (force_free .and. all(v1 == v0)) then
+      v_event = v0
+      if (.not. all(ieee_is_finite(x_event))) status = boundary_event_invalid_geometry
+      return
+    end if
+    speed_scale = sqrt(event_speed2/chord_speed2)
+    v_event = speed_scale*chord_velocity
+    if (.not. all(ieee_is_finite(x_event)) .or. .not. all(ieee_is_finite(v_event))) then
+      status = boundary_event_invalid_geometry
+    end if
+  end subroutine evaluate_boundary_state
 
-  !> 単一open面のpotential-barrier式をevent位置と補間速度で評価する。
+  !> 単一barrier-open面のpotential-barrier式をevent位置とevent時速度で評価する。
   subroutine apply_potential_barrier_event( &
     mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform &
     )
@@ -410,27 +455,41 @@ contains
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
     real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, potential_barrier
-    integer(i32) :: axis, face_index, open_count
+    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count
     logical :: high_side, reflect_open
 
     status = boundary_event_ok
     escaped = .false.
-    open_count = 0_i32
+    barrier_open_count = 0_i32
+    ordinary_open_count = 0_i32
     face_index = 0_i32
     high_side = .false.
     do axis = 1_i32, 3_i32
       if (btest(event%face_mask, 2_i32*axis - 2_i32) .and. event%face_bc(2_i32*axis - 1_i32) == bc_open) then
-        open_count = open_count + 1_i32
-        face_index = 2_i32*axis - 1_i32
-        high_side = .false.
+        if (open_face_uses_potential_barrier(2_i32*axis - 1_i32, boundary_contract)) then
+          barrier_open_count = barrier_open_count + 1_i32
+          face_index = 2_i32*axis - 1_i32
+          high_side = .false.
+        else
+          ordinary_open_count = ordinary_open_count + 1_i32
+        end if
       end if
       if (btest(event%face_mask, 2_i32*axis - 1_i32) .and. event%face_bc(2_i32*axis) == bc_open) then
-        open_count = open_count + 1_i32
-        face_index = 2_i32*axis
-        high_side = .true.
+        if (open_face_uses_potential_barrier(2_i32*axis, boundary_contract)) then
+          barrier_open_count = barrier_open_count + 1_i32
+          face_index = 2_i32*axis
+          high_side = .true.
+        else
+          ordinary_open_count = ordinary_open_count + 1_i32
+        end if
       end if
     end do
-    if (open_count > 1_i32) then
+    if (ordinary_open_count > 0_i32) then
+      alive = .false.
+      escaped = .true.
+      return
+    end if
+    if (barrier_open_count > 1_i32) then
       status = particle_step_ambiguous_open_corner
       return
     end if
@@ -438,7 +497,7 @@ contains
     action_sim = sim
     action_sim%open_boundary_model = 'escape'
     action_event = event
-    if (open_count == 0_i32) then
+    if (barrier_open_count == 0_i32) then
       call apply_escape_reflect_periodic_event( &
         action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
         )
@@ -498,39 +557,51 @@ contains
   pure logical function event_uses_potential_barrier(event, boundary_contract) result(uses_barrier)
     type(boundary_event_type), intent(in) :: event
     type(external_boundary_contract_type), intent(in) :: boundary_contract
-    integer(i32) :: axis
+    integer(i32) :: face
 
     uses_barrier = .false.
-    do axis = 1_i32, 3_i32
-      if (btest(event%face_mask, 2_i32*axis - 2_i32) .and. event%face_bc(2_i32*axis - 1_i32) == bc_open) then
-        uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier .or. &
-                       boundary_contract%barrier_override_low(axis)
-      end if
-      if (uses_barrier) return
-      if (btest(event%face_mask, 2_i32*axis - 1_i32) .and. event%face_bc(2_i32*axis) == bc_open) then
-        uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier .or. &
-                       boundary_contract%barrier_override_high(axis)
-      end if
+    do face = 1_i32, 6_i32
+      if (.not. btest(event%face_mask, face - 1_i32) .or. event%face_bc(face) /= bc_open) cycle
+      uses_barrier = open_face_uses_potential_barrier(face, boundary_contract)
       if (uses_barrier) return
     end do
   end function event_uses_potential_barrier
+
+  !> face bit順のopen面がglobalまたはspecies別barrierの対象かを返す。
+  pure logical function open_face_uses_potential_barrier(face, boundary_contract) result(uses_barrier)
+    integer(i32), intent(in) :: face
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
+    integer(i32) :: axis
+
+    axis = (face + 1_i32)/2_i32
+    uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier
+    if (mod(face, 2_i32) == 1_i32) then
+      uses_barrier = uses_barrier .or. boundary_contract%barrier_override_low(axis)
+    else
+      uses_barrier = uses_barrier .or. boundary_contract%barrier_override_high(axis)
+    end if
+  end function open_face_uses_potential_barrier
 
   !> event作用が面内再配置用の一意なcounterを必要とするかを返す。
   pure logical function event_requires_redistribution_counter(event, boundary_contract) result(requires)
     type(boundary_event_type), intent(in) :: event
     type(external_boundary_contract_type), intent(in) :: boundary_contract
     integer(i32) :: face
-    logical :: has_open, has_redistributed_reflect
+    logical :: has_open, has_ordinary_open, has_redistributed_reflect
 
     has_open = .false.
+    has_ordinary_open = .false.
     has_redistributed_reflect = .false.
     do face = 1_i32, 6_i32
       if (.not. btest(event%face_mask, face - 1_i32)) cycle
       has_open = has_open .or. event%face_bc(face) == bc_open
+      if (event%face_bc(face) == bc_open) then
+        has_ordinary_open = has_ordinary_open .or. .not. open_face_uses_potential_barrier(face, boundary_contract)
+      end if
       has_redistributed_reflect = has_redistributed_reflect .or. &
                                   event%face_bc(face) == bc_redistributed_reflect
     end do
-    requires = has_redistributed_reflect .and. &
+    requires = has_redistributed_reflect .and. .not. has_ordinary_open .and. &
                (.not. has_open .or. event_uses_potential_barrier(event, boundary_contract))
   end function event_requires_redistribution_counter
 

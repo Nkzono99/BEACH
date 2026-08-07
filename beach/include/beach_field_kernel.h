@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 #define BEACH_FIELD_KERNEL_ABI_MAJOR 2
-#define BEACH_FIELD_KERNEL_ABI_MINOR 0
+#define BEACH_FIELD_KERNEL_ABI_MINOR 1
 
 typedef void *beach_kernel_handle;
 

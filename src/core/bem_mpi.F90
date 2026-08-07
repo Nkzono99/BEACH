@@ -31,6 +31,8 @@ module bem_mpi
   public :: mpi_allreduce_sum_i32_array
   public :: mpi_allreduce_sum_i64_array
   public :: mpi_allreduce_sum_i32_scalar
+  public :: mpi_allreduce_min_i32_scalar
+  public :: mpi_allreduce_max_i32_scalar
   public :: mpi_bcast_i32_array
   public :: mpi_bcast_real_dp_array
   public :: mpi_gatherv_real_dp_array
@@ -333,6 +335,34 @@ contains
     value = int(recvval, kind=i32)
 #endif
   end subroutine mpi_allreduce_sum_i32_scalar
+
+  !> 32bit整数スカラの最小値Allreduceをin-placeで実行する。
+  subroutine mpi_allreduce_min_i32_scalar(ctx, value)
+    type(mpi_context), intent(in) :: ctx
+    integer(i32), intent(inout) :: value
+#ifdef USE_MPI
+    integer :: sendval, recvval, ierr
+
+    if (.not. ctx%enabled) return
+    sendval = int(value, kind=kind(0))
+    call MPI_Allreduce(sendval, recvval, 1, MPI_INTEGER, MPI_MIN, MPI_COMM_WORLD, ierr)
+    value = int(recvval, kind=i32)
+#endif
+  end subroutine mpi_allreduce_min_i32_scalar
+
+  !> 32bit整数スカラの最大値Allreduceをin-placeで実行する。
+  subroutine mpi_allreduce_max_i32_scalar(ctx, value)
+    type(mpi_context), intent(in) :: ctx
+    integer(i32), intent(inout) :: value
+#ifdef USE_MPI
+    integer :: sendval, recvval, ierr
+
+    if (.not. ctx%enabled) return
+    sendval = int(value, kind=kind(0))
+    call MPI_Allreduce(sendval, recvval, 1, MPI_INTEGER, MPI_MAX, MPI_COMM_WORLD, ierr)
+    value = int(recvval, kind=i32)
+#endif
+  end subroutine mpi_allreduce_max_i32_scalar
 
   !> root rankの32bit整数配列を全rankへbroadcastする。
   subroutine mpi_bcast_i32_array(ctx, values, root)

@@ -159,6 +159,11 @@ BEACH は raycast の放出元分布と軌道の帰還先分布をそれぞれ�
 記録します。PE net電流を倍率分母に使わないため、大電流同士の相殺が強い場合にも安定です。raw escape統計は
 保持され、target / applied / correctionと比較できます。
 
+この安定性は総電流の倍率計算についての性質であり、raw空間mapの統計精度ではありません。return hitが1件なら
+return target全量がその要素へ割り当てられます。固定の最小hit数は設けていないため、ledgerのraw countと
+`fixed_*_weight_scale`に加え、`rays_per_batch`、batch幅、乱数seedを変えた要素別分布の収束を確認してください。
+Zhaoの零電流budgetが閉じても、この収束確認は省略できません。
+
 放出時のVDFはここで指定した表面half-Maxwellianのままです。z-highはopenにし、Type Aでは$\phi_m$、Type B/Cでは
 0 Vを外部barrier電位として、上面通過時の局所電位と法線運動エネルギーからreturn/escapeを分けます。
 この反射は外部turning pointをz-highへ縮約したもので、box外のシース場・空間電荷・return距離や遅延は解きません。

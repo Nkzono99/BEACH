@@ -166,9 +166,12 @@ A uniform external electric field has no finite potential at infinity. When it i
 
 ## Initial position, MPI, and restart
 
-To avoid artificial alignment on one face-time plane, BEACH assigns each particle a uniform virtual interval
-$\tau\in[0,\texttt{sim.dt})$ and shifts only its initial position before tracking:
-$\mathbf x\leftarrow\mathbf x+\mathbf v\tau$. Global simulation time and each particle's tracking horizon are unchanged.
+Each particle's normal position is initialized one representable step inward from the injection-face coordinate, while its
+tangential position is sampled within the configured aperture. BEACH does not apply a virtual $\mathbf v\tau$ flight before
+tracking, so injection cannot skip a trajectory segment on which mesh collisions and box events were never queried. The
+legacy launch-phase random draw associated with `sim.dt` is still consumed to preserve the subsequent random stream across
+checkpoint execution with the same MPI layout, but it changes neither position nor physical time. Motion away from the face
+begins with the ordinary particle step after creation.
 
 With MPI, the root rank determines global counts and remainders before splitting particles across ranks. Remainders are stored
 in checkpoints and restored on resume. When checking results, distinguish species- and face-resolved injected count and charge,

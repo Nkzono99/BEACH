@@ -1311,7 +1311,7 @@
             "neutral_return"
           ],
           "default": "explicit",
-          "description": "Surface-charge treatment for this species. fixed_current rescales absorbed and emission-reaction channels independently to signed target currents; neutral_return closes negative photoelectron emission plus return to zero net surface charge."
+          "description": "Surface-charge treatment for this species. fixed_current rescales absorbed and emission-reaction channels independently to signed target currents and fails on an empty nonzero-target channel, but does not impose a statistical minimum sample count or maximum scale; neutral_return closes negative photoelectron emission plus return to zero net surface charge."
         },
         "target_absorbed_current_a": {
           "type": "number",

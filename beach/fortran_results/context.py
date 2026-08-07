@@ -133,6 +133,9 @@ class RunContext:
 
     @cached_property
     def sim(self) -> Mapping[str, object] | None:
+        receipt = self.result.field_reconstruction
+        if receipt is not None:
+            return receipt.as_legacy_sim_mapping()
         if self.config is None:
             return None
         sim = self.config.get("sim")
@@ -140,6 +143,8 @@ class RunContext:
 
     @cached_property
     def domain(self) -> Mapping[str, object] | None:
+        if self.result.field_reconstruction is not None:
+            return None
         if self.config is None:
             return None
         domain = self.config.get("domain")
@@ -147,6 +152,8 @@ class RunContext:
 
     @cached_property
     def field_boundary(self) -> Mapping[str, object] | None:
+        if self.result.field_reconstruction is not None:
+            return None
         if self.config is None:
             return None
         boundary = self.config.get("field_boundary")

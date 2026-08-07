@@ -15,7 +15,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(19)
+  call test_init(26)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -57,6 +57,26 @@ program test_particle_stepper
   call test_advance_periodic_remainder()
   call test_end()
 
+  call test_begin('pure_b_periodic_preserves_energy')
+  call test_pure_b_periodic_preserves_energy()
+  call test_end()
+
+  call test_begin('pure_b_reflect_preserves_energy')
+  call test_pure_b_reflect_preserves_energy()
+  call test_end()
+
+  call test_begin('pure_b_barrier_preserves_energy')
+  call test_pure_b_barrier_preserves_energy()
+  call test_end()
+
+  call test_begin('strong_b_boundary_velocity_follows_outward_chord')
+  call test_strong_b_boundary_velocity_follows_outward_chord()
+  call test_end()
+
+  call test_begin('constant_e_boundary_speed_matches_snapped_work')
+  call test_constant_e_boundary_speed_matches_snapped_work()
+  call test_end()
+
   call test_begin('advance_corner_reflection')
   call test_advance_corner_reflection()
   call test_end()
@@ -83,6 +103,14 @@ program test_particle_stepper
 
   call test_begin('species_barrier_override_is_face_local')
   call test_species_barrier_override_is_face_local()
+  call test_end()
+
+  call test_begin('species_barrier_corner_ordinary_open_escapes')
+  call test_species_barrier_corner_ordinary_open_escapes()
+  call test_end()
+
+  call test_begin('species_barrier_corner_redistribution_requires_counter')
+  call test_species_barrier_corner_redistribution_requires_counter()
   call test_end()
 
   call test_begin('advance_potential_barrier_single_face_only')
@@ -471,6 +499,114 @@ contains
     call assert_close_dp(result%v(1), 1.0_dp, 0.0_dp, 'periodic remainder velocity mismatch')
   end subroutine test_advance_periodic_remainder
 
+  subroutine test_pure_b_periodic_preserves_energy()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
+      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'pure-B periodic step status mismatch')
+    call assert_true(.not. result%escaped_boundary, 'pure-B periodic particle should survive')
+    call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'pure-B periodic speed must be conserved')
+  end subroutine test_pure_b_periodic_preserves_energy
+
+  subroutine test_pure_b_reflect_preserves_energy()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_high(1) = bc_reflect
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
+      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'pure-B reflection step status mismatch')
+    call assert_true(.not. result%escaped_boundary, 'pure-B reflected particle should survive')
+    call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'pure-B reflected speed must be conserved')
+  end subroutine test_pure_b_reflect_preserves_energy
+
+  subroutine test_pure_b_barrier_preserves_energy()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%open_boundary_model = 'potential_barrier'
+    sim%phi_infty = 0.15_dp
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
+      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'pure-B barrier step status mismatch')
+    call assert_true(result%escaped_boundary, 'chord-event normal energy should clear the pure-B barrier')
+    call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'pure-B barrier decision must conserve speed')
+  end subroutine test_pure_b_barrier_preserves_energy
+
+  subroutine test_strong_b_boundary_velocity_follows_outward_chord()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 4.0_dp], &
+      [0.81_dp, 0.5_dp, 0.5_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'strong-B boundary step status mismatch')
+    call assert_true(result%escaped_boundary, 'strong-B chord crossing should escape through x-high')
+    call assert_close_dp(result%x(1), sim%box_max(1), 0.0_dp, 'strong-B event must lie on x-high')
+    call assert_true(result%v(1) > 0.0_dp, 'strong-B event velocity must point along the outward chord')
+    call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'strong-B event speed must be conserved')
+  end subroutine test_strong_b_boundary_velocity_follows_outward_chord
+
+  subroutine test_constant_e_boundary_speed_matches_snapped_work()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3), expected_speed2
+
+    call init_x_plane_mesh(mesh, 10.0_dp)
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'si'
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [0.3_dp, 1.0_dp, 1.0_dp]
+    sim%e0 = [2.0_dp, 0.0_dp, 0.0_dp]
+    call field_solver%init(mesh, sim)
+    call field_solver%refresh(mesh)
+    x0 = [0.1_dp, 0.5_dp, 0.5_dp]
+    v0 = [1.0_dp, 0.0_dp, 0.0_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 1.0_dp, 1.0_dp, 0.4_dp, result &
+      )
+
+    expected_speed2 = sum(v0*v0) + 2.0_dp*dot_product(sim%e0, result%x - x0)
+    call assert_true(result%status == particle_step_ok, 'constant-E boundary step status mismatch')
+    call assert_true(result%escaped_boundary, 'constant-E boundary crossing should escape')
+    call assert_close_dp(result%x(1), sim%box_max(1), 0.0_dp, 'constant-E event position must be snapped to the face')
+    call assert_close_dp( &
+      sum(result%v*result%v), expected_speed2, 2.0e-14_dp, &
+      'constant-E event speed must use discrete work to the snapped event position' &
+      )
+  end subroutine test_constant_e_boundary_speed_matches_snapped_work
+
   subroutine test_advance_corner_reflection()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
@@ -642,6 +778,59 @@ contains
       )
     call assert_true(result%escaped_boundary, 'z-low must remain ordinary escape when only z-high is overridden')
   end subroutine test_species_barrier_override_is_face_local
+
+  subroutine test_species_barrier_corner_ordinary_open_escapes()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_high(2) = bc_redistributed_reflect
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -10.0_dp
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.9_dp, 0.9_dp], [1.0_dp, 1.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'ordinary-open barrier corner status mismatch')
+    call assert_true(result%escaped_boundary, 'an ordinary-open face must make the corner terminal')
+  end subroutine test_species_barrier_corner_ordinary_open_escapes
+
+  subroutine test_species_barrier_corner_redistribution_requires_counter()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_high(1) = bc_redistributed_reflect
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -10.0_dp
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract &
+      )
+    call assert_true( &
+      result%status == particle_step_invalid_boundary, &
+      'barrier return with redistributed reflection must require a unique counter' &
+      )
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract, boundary_rng_counter=[1_i64, 0_i64, 1_i64, 1_i64] &
+      )
+    call assert_true(result%status == particle_step_ok, 'counter-backed barrier redistribution status mismatch')
+    call assert_true(.not. result%escaped_boundary, 'counter-backed barrier return should survive')
+  end subroutine test_species_barrier_corner_redistribution_requires_counter
 
   subroutine test_advance_potential_barrier_single_face_only()
     type(mesh_type) :: mesh

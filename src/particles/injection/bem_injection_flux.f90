@@ -160,7 +160,7 @@ contains
   !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
   !! @param[in] barrier_normal_energy 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（省略時 0）。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は `barrier_normal_energy` から自動導出）。
-  !! @param[in] position_jitter_dt 初期位置に速度方向で与えるランダムジッタ時間幅[s]（省略時は 0）。
+  !! @param[in] position_jitter_dt 互換用のlaunch位相時間幅[s]。乱数列は保つが位置移動には使わない。
   !! @param[in] apply_barrier_energy_shift `.true.` のとき法線速度へ障壁エネルギー変換を適用する。
   subroutine sample_reservoir_face_particles( &
     box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
@@ -222,16 +222,16 @@ contains
     call random_number(u)
     if (jitter_dt > 0.0_dp) then
       allocate (tau(size(x, 2)))
+      ! Keep the historical draw count so MPI ranks and restarted runs retain the same RNG stream.
       call random_number(tau)
     end if
 
     do i = 1, size(x, 2)
       x(:, i) = 0.0_dp
-      x(axis_n, i) = boundary_value
+      ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
+      x(axis_n, i) = nearest(boundary_value, inward_normal(axis_n))
       x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
       x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
-      if (jitter_dt > 0.0_dp) x(:, i) = x(:, i) + v(:, i)*(tau(i)*jitter_dt)
-      x(:, i) = x(:, i) + inward_normal*1.0d-12
     end do
   end subroutine sample_reservoir_face_particles
 

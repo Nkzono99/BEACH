@@ -5,6 +5,18 @@ module bem_simulator_workspace
   private
 
   public :: simulator_batch_workspace_type
+  public :: soft_discard_context_type
+
+  !> soft-discard事象から決定論的に選ぶrankローカル代表context。
+  type :: soft_discard_context_type
+    logical :: available = .false.
+    integer(i32) :: particle = huge(0_i32)
+    integer(i32) :: species = 0_i32
+    integer(i32) :: step = 0_i32
+    real(dp) :: macro_charge = 0.0_dp
+    real(dp) :: x(3) = 0.0_dp
+    real(dp) :: v(3) = 0.0_dp
+  end type soft_discard_context_type
 
   type :: simulator_batch_workspace_type
     real(dp), allocatable :: dq_thread(:, :)
@@ -14,6 +26,7 @@ module bem_simulator_workspace
     logical, allocatable :: absorbed_flag(:)
     integer(i32), allocatable :: absorbed_element(:)
     logical, allocatable :: soft_discarded_boundary_flag(:)
+    type(soft_discard_context_type) :: soft_discard_context
     real(dp), allocatable :: q_before(:)
     real(dp), allocatable :: candidate_charge(:)
     logical :: charge_candidate_ready = .false.
@@ -101,6 +114,7 @@ contains
     self%photo_emission_dq = 0.0_dp
     self%candidate_charge = 0.0_dp
     self%charge_candidate_ready = .false.
+    self%soft_discard_context = soft_discard_context_type()
     self%neutral_return_charge_values = 0.0_dp
     self%neutral_return_terminal_counts = 0_i64
     self%neutral_return_emitted_charge = 0.0_dp

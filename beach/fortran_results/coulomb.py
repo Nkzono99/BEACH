@@ -88,7 +88,7 @@ def calc_coulomb(
         periodic2=periodic2,
         theta=None,
         leaf_max=None,
-        order=4,
+        order=None,
         config_path=config_path,
         context=context,
     )

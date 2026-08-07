@@ -168,8 +168,21 @@ Reservoir inflow correction and closed PE are outside this page's scope. See
 
 ## Advance the time remaining after a boundary crossing
 
-Position and velocity at a box event are interpolated between candidate input and output states, and every coordinate in the
-event mask is set exactly to its corresponding box face. After applying the surviving action, BEACH uses a guard derived from
+The position at a box event is obtained from the candidate chord fraction, and every coordinate in the event mask is set
+exactly to its corresponding box face. The event velocity follows the chord tangent. Its speed is reconstructed from the
+discrete work of the predicted-midpoint electric field:
+
+$$
+\lVert\mathbf{v}_\mathrm{event}\rVert^2=\lVert\mathbf{v}_0\rVert^2+
+2(q/m)\mathbf{E}_\mathrm{mid}\cdot(\mathbf{x}_\mathrm{event}-\mathbf{x}_0).
+$$
+
+Thus an outward chord crossing cannot be processed with an inward partial-step Boris velocity, and a pure magnetic field
+preserves the event-speed norm. A non-positive or non-finite reconstructed speed, or a zero-length chord, fails closed as an
+unresolved event. BEACH also uses the chord crossing fraction as the remaining-time fraction, but this is not the exact
+physical crossing time under acceleration or magnetic rotation. Check the effect of this time-discretization approximation
+on boundary actions and potential-barrier decisions with `dt`, `dt/2`, and, when needed, `dt/4`. After applying the surviving
+action, BEACH uses a guard derived from
 the box coordinates and span to place reflected or periodic event-axis coordinates inside the face. This avoids a subnormal
 one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
 

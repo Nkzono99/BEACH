@@ -246,11 +246,11 @@ class Beach:
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
-        order: int = 4,
+        order: int | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ):
-        """Build a Python handle to the Fortran FMM field kernel."""
+        """Build a Python handle to the resolved native field kernel."""
 
         return FieldKernel.from_result(
             self.result,
@@ -293,11 +293,11 @@ class Beach:
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
-        order: int = 4,
+        order: int | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ):
-        """Compute object-wise net force using the Fortran FMM field kernel."""
+        """Compute object-wise net force using the resolved native field kernel."""
 
         return calc_object_forces_kernel(
             self.result,

@@ -115,6 +115,9 @@ contains
     ion_drift_mps = -app%particle_species(ion_idx)%drift_velocity(3)
     area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
     if (app%surface_current%has_reference_area_m2) area = app%surface_current%reference_area_m2
+    if (.not. ieee_is_finite(area) .or. area <= 0.0_dp) then
+      error stop 'Zhao stationary surface-current reference area must be finite and positive.'
+    end if
 
     call build_zhao_params( &
       app%surface_current%solar_elevation_deg, &
@@ -177,9 +180,12 @@ contains
                                  ]))) then
       error stop 'Zhao stationary surface-current evaluation produced non-finite currents.'
     end if
-    if (result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
+    if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
+        result%ion_current_density_a_m2 <= 0.0_dp .or. &
+        result%photoelectron_emission_current_density_a_m2 <= 0.0_dp .or. &
+        result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
-      error stop 'Zhao stationary surface-current evaluation produced invalid PE current signs.'
+      error stop 'Zhao stationary surface-current evaluation produced invalid channel signs.'
     end if
     budget_scale = max( &
                    abs(result%electron_current_density_a_m2), abs(result%ion_current_density_a_m2), &
@@ -203,12 +209,16 @@ contains
     result%has_absorbed_target([electron_idx, ion_idx, photo_idx]) = .true.
     result%has_emission_target(photo_idx) = .true.
     result%has_escape_target(photo_idx) = .true.
-    result%absorbed_current_a(electron_idx) = area*result%electron_current_density_a_m2
-    result%absorbed_current_a(ion_idx) = area*result%ion_current_density_a_m2
-    result%absorbed_current_a(photo_idx) = area*result%photoelectron_return_current_density_a_m2
-    result%emission_current_a(photo_idx) = area*result%photoelectron_emission_current_density_a_m2
+    result%absorbed_current_a(electron_idx) = &
+      checked_area_current(area, result%electron_current_density_a_m2)
+    result%absorbed_current_a(ion_idx) = checked_area_current(area, result%ion_current_density_a_m2)
+    result%absorbed_current_a(photo_idx) = &
+      checked_area_current(area, result%photoelectron_return_current_density_a_m2)
+    result%emission_current_a(photo_idx) = &
+      checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
     ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
-    result%escaped_particle_current_a(photo_idx) = -area*result%photoelectron_escape_current_density_a_m2
+    result%escaped_particle_current_a(photo_idx) = &
+      -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
     ! Type Aの電子はphi_mがaccess bottleneckであり、Type B/Cはphi_infinity=0を使う。
@@ -241,5 +251,23 @@ contains
     end do
     error stop 'Surface current model species resolution failed: '//trim(species_key)
   end function species_index
+
+  real(dp) function checked_area_current(area_m2, current_density_a_m2) result(current_a)
+    real(dp), intent(in) :: area_m2, current_density_a_m2
+
+    if (.not. all(ieee_is_finite([area_m2, current_density_a_m2])) .or. area_m2 <= 0.0_dp) then
+      error stop 'Zhao stationary surface-current target conversion received invalid input.'
+    end if
+    if (area_m2 > 1.0_dp .and. abs(current_density_a_m2) > huge(current_a)/area_m2) then
+      error stop 'Zhao stationary surface-current target conversion overflowed.'
+    end if
+    current_a = area_m2*current_density_a_m2
+    if (.not. ieee_is_finite(current_a)) then
+      error stop 'Zhao stationary surface-current target conversion produced a non-finite current.'
+    end if
+    if (current_density_a_m2 /= 0.0_dp .and. current_a == 0.0_dp) then
+      error stop 'Zhao stationary surface-current target conversion underflowed.'
+    end if
+  end function checked_area_current
 
 end module bem_surface_current_model

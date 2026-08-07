@@ -97,8 +97,22 @@ $$
 三角形との衝突と通常のbox面交差は、$\mathbf{x}^n$と$\mathbf{x}^{n+1}$を結ぶ
 **step内の軌道線分**上で発生順を決めます。三角形との衝突が先なら、その位置で粒子を吸収します。
 反射作用（`reflect`または`redistributed_reflect`）の面、または周期境界面との交差が先なら、
-交差時刻の位置と速度を補間し、残り時間について新たな
+交差位置は線分parameterで求めます。event速度は線分の接線方向を使い、予測中点電場がevent位置までに行う
+離散workと一致する速さへ正規化してから、残り時間について新たな
 予測中点場とBoris候補を計算します。
+
+$$
+\lVert\mathbf{v}_\mathrm{event}\rVert^2=
+\lVert\mathbf{v}^n\rVert^2+
+2\frac{q}{m}\mathbf{E}_\mathrm{mid}\cdot
+(\mathbf{x}_\mathrm{event}-\mathbf{x}^n).
+$$
+
+これにより速度の法線向きは実際に判定したchord crossingと一致し、電場がゼロなら磁場の強さによらず
+event前後の速さを保存します。速さが非正または非有限となる退化eventはfail closedです。
+ただし、chordの交差fractionを残り時間のfractionにも使うため、加速または磁場旋回中の真の交差時刻を
+解いているわけではありません。これは軌道線分eventモデルの時間離散化近似であり、境界作用や
+potential-barrier判定を使う計算でも`dt`、`dt/2`、必要なら`dt/4`で結果の収束を確認する必要があります。
 
 z-high outer interfaceでは、Boris更新の両端と整合する二次軌道をcoupling経路で構成し、交差時刻を
 再評価します。[<sup>2</sup>](ParticleEvents.html)

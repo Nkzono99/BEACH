@@ -16,7 +16,7 @@ program test_external_field_velocity_grid
   real(dp) :: x(3, 5), v(3, 5)
   real(dp) :: x_interp(3, 32), v_interp(3, 32)
 
-  call test_init(5)
+  call test_init(6)
 
   call write_velocity_grid_fixture(grid_path)
   call write_velocity_grid_interp_fixture(interp_grid_path)
@@ -52,11 +52,27 @@ program test_external_field_velocity_grid
   call seed_rng([123_i32])
   call sample_reservoir_velocity_grid_particles( &
     [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], 'z_high', &
-    [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], grid_path, 'phase_space', 1.0d0, x, v &
+    [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], grid_path, 'phase_space', 1.0d0, x, v, &
+    position_jitter_dt=0.25_dp &
     )
   call assert_true(all(v(3, :) < 0.0d0), 'velocity grid should sample inward velocities only')
   call assert_true(all(v(3, :) >= -2.0d0), 'line grid interpolation lower bound mismatch')
   call assert_true(any(abs(v(3, :) + 2.0d0) > 1.0d-9), 'line grid should interpolate between rows')
+  call assert_true( &
+    all(x(3, :) == nearest(1.0_dp, -1.0_dp)), &
+    'velocity-grid launch must not teleport across an unqueried segment' &
+    )
+  call test_end()
+
+  call test_begin('velocity_grid_snapshot_survives_file_replacement')
+  call write_outward_only_velocity_grid_fixture(grid_path)
+  call seed_rng([124_i32])
+  call sample_reservoir_velocity_grid_particles( &
+    [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], 'z_high', &
+    [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], grid_path, 'phase_space', 1.0d0, x, v, &
+    velocity_grid_sampling='discrete' &
+    )
+  call assert_true(all(abs(v(3, :) + 2.0d0) <= 1.0d-12), 'sampling must retain the initial in-memory grid snapshot')
   call test_end()
 
   call test_begin('velocity_grid_discrete_sampling_keeps_rows')
@@ -125,6 +141,17 @@ contains
     end do
     close (u)
   end subroutine write_velocity_grid_interp_fixture
+
+  subroutine write_outward_only_velocity_grid_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: u, ios
+
+    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to replace velocity grid fixture'
+    write (u, '(a)') 'vx_m_s,vy_m_s,vz_m_s,f'
+    write (u, '(a)') '0.0,0.0,1.0,1.0'
+    close (u)
+  end subroutine write_outward_only_velocity_grid_fixture
 
   subroutine write_config_fixture(path, grid_csv)
     character(len=*), intent(in) :: path, grid_csv

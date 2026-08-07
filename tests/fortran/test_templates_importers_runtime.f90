@@ -64,7 +64,7 @@ program test_templates_importers_runtime
   call assert_equal_i32(mesh%nelem, 48_i32, 'sphere element count mismatch')
   call test_end()
 
-  call test_begin('reservoir_jitter_wraps_periodic_axes')
+  call test_begin('reservoir_launch_has_no_unqueried_flight')
   call default_app_config(cfg)
   cfg%sim%dt = 0.5_dp
   cfg%sim%use_box = .true.
@@ -82,16 +82,16 @@ program test_templates_importers_runtime
   cfg%particle_species(1)%m_particle = 1.0_dp
   call sample_species_state(cfg%sim, cfg%particle_species(1), 128_i32, reservoir_x, reservoir_v)
   call assert_true( &
-    all(reservoir_x(1, :) >= cfg%sim%box_min(1) .and. reservoir_x(1, :) < cfg%sim%box_max(1)), &
-    'reservoir jitter must wrap x into the periodic cell' &
+    all(reservoir_x(1, :) == cfg%particle_species(1)%pos_low(1)), &
+    'reservoir launch must retain the sampled aperture x coordinate' &
     )
   call assert_true( &
-    all(reservoir_x(2, :) >= cfg%sim%box_min(2) .and. reservoir_x(2, :) < cfg%sim%box_max(2)), &
-    'reservoir jitter must keep y in the periodic cell' &
+    all(reservoir_x(2, :) == cfg%particle_species(1)%pos_low(2)), &
+    'reservoir launch must retain the sampled aperture y coordinate' &
     )
   call assert_true( &
-    all(reservoir_x(3, :) >= cfg%sim%box_min(3) .and. reservoir_x(3, :) <= cfg%sim%box_max(3)), &
-    'reservoir jitter must keep the normal coordinate in the box' &
+    all(reservoir_x(3, :) == nearest(cfg%sim%box_max(3), -1.0_dp)), &
+    'reservoir launch must start one representable step inward without an unqueried flight' &
     )
   call test_end()
 

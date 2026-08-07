@@ -247,8 +247,10 @@ contains
     call init_particle_batch_from_config(plane_cfg, 1_i32, particles, state=state)
 
     call assert_equal_i32(particles%n, 8_i32, 'plane source flux count mismatch')
-    call assert_true(all(particles%x(1, :) > 0.5_dp), 'plane source positions must be jittered along source_normal')
-    call assert_true(all(particles%x(1, :) < 0.5_dp + 1.0e-6_dp), 'plane source normal jitter exceeded dt bound')
+    call assert_true( &
+      all(particles%x(1, :) == nearest(0.5_dp, 1.0_dp)), &
+      'plane source positions must start one representable step inward without teleportation' &
+      )
     call assert_true( &
       all(particles%x(2, :) >= 0.0_dp .and. particles%x(2, :) <= 2.0_dp), &
       'plane source y positions must stay on the configured rectangle' &

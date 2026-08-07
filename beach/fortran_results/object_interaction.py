@@ -29,7 +29,7 @@ from .selection import (
     _require_triangle_source_model,
     _require_triangles,
 )
-from .types import FortranRunResult
+from .types import FieldReconstructionReceipt, FortranRunResult
 
 
 _PHYSICAL_COMPONENTS = (
@@ -133,13 +133,16 @@ class ObjectInteractionSnapshot:
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
         _require_triangle_source_model(resolved)
-        full_config = context.config
-        if full_config is None:
-            raise ValueError(
-                "Object interaction requires the run's beach.toml so boundary, "
-                "uniform-field and box policies cannot silently change."
-            )
-        _validate_full_box_config(full_config)
+        receipt = resolved.field_reconstruction
+        full_config: Mapping[str, object] | None = None
+        if receipt is None:
+            full_config = context.config
+            if full_config is None:
+                raise ValueError(
+                    "Object interaction requires the run's beach.toml so boundary, "
+                    "uniform-field and box policies cannot silently change."
+                )
+            _validate_full_box_config(full_config)
         triangles = np.asarray(_require_triangles(resolved), dtype=np.float64)
         charges = np.asarray(_charges_for_step(resolved, step=step), dtype=np.float64)
         mesh_ids = np.asarray(_mesh_ids_or_default(resolved), dtype=np.int64)
@@ -151,7 +154,7 @@ class ObjectInteractionSnapshot:
             periodic2=None,
             theta=None,
             leaf_max=None,
-            order=4,
+            order=None,
             config_path=config_path,
             context=context,
         )
@@ -199,7 +202,15 @@ class ObjectInteractionSnapshot:
         zero_mode_area_xy_m2: float | None = None
         if far_correction == "cached_kneq0":
             assert periodic2 is not None
-            zero_mode_lower_boundary = _resolve_zero_mode_lower_boundary(full_config)
+            if receipt is None:
+                assert full_config is not None
+                zero_mode_lower_boundary = _resolve_zero_mode_lower_boundary(
+                    full_config
+                )
+            else:
+                zero_mode_lower_boundary = (
+                    _resolve_receipt_zero_mode_lower_boundary(receipt)
+                )
             zero_mode_area_xy_m2 = float(periodic2.lengths[0] * periodic2.lengths[1])
         try:
             periodic = FieldKernel(
@@ -554,6 +565,7 @@ class ObjectProbe:
             theta=snapshot._options.theta,
             leaf_max=snapshot._options.leaf_max,
             order=snapshot._options.order,
+            resolved_field_solver=snapshot._options.resolved_field_solver,
         )
         self._primary = FieldKernel(
             self._target_triangles_m,
@@ -1217,6 +1229,31 @@ def _resolve_zero_mode_lower_boundary(config: Mapping[str, object]) -> str:
         raise ValueError(
             "cached_kneq0 object interaction requires "
             "periodic2.lower_boundary_model='e_bottom_zero' or "
+            "'symmetric_vacuum'."
+        )
+    return lower_boundary
+
+
+def _resolve_receipt_zero_mode_lower_boundary(
+    receipt: FieldReconstructionReceipt,
+) -> str:
+    nonzero_backend = receipt.periodic_nonzero_mode_backend.strip().lower()
+    if nonzero_backend != "cached_kneq0":
+        raise ValueError(
+            "cached_kneq0 object interaction requires the field receipt's "
+            "periodic_nonzero_mode_backend='cached_kneq0'."
+        )
+    zero_mode_policy = receipt.periodic_zero_mode_policy.strip().lower()
+    if zero_mode_policy != "exclude_k0":
+        raise ValueError(
+            "cached_kneq0 object interaction requires the field receipt's "
+            "periodic_zero_mode_policy='exclude_k0'."
+        )
+    lower_boundary = receipt.periodic_lower_boundary_model.strip().lower()
+    if lower_boundary not in {"e_bottom_zero", "symmetric_vacuum"}:
+        raise ValueError(
+            "cached_kneq0 object interaction requires the field receipt's "
+            "periodic_lower_boundary_model='e_bottom_zero' or "
             "'symmetric_vacuum'."
         )
     return lower_boundary

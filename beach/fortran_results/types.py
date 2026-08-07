@@ -248,6 +248,65 @@ class ChargeLedgerEntry:
 
 
 @dataclass(frozen=True)
+class FieldReconstructionReceipt:
+    """Resolved simulator settings required to reconstruct its electric field."""
+
+    schema_version: int
+    resolved_field_solver: str
+    fmm_expansion_order: int
+    field_bc_mode: str
+    tree_theta: float
+    tree_leaf_max: int
+    external_e0_v_m: tuple[float, float, float]
+    use_box: bool
+    box_min_m: tuple[float, float, float]
+    box_max_m: tuple[float, float, float]
+    boundary_low: tuple[int, int, int]
+    boundary_high: tuple[int, int, int]
+    periodic_image_layers: int
+    periodic_far_correction: str
+    periodic_nonzero_mode_backend: str
+    periodic_zero_mode_policy: str
+    periodic_lower_boundary_model: str
+    periodic_reference_mode_layers: int
+    periodic_panel_quadrature_order: int
+    periodic_ewald_alpha: float
+    periodic_ewald_layers: int
+    periodic_cache_dir: str
+    periodic_generation_tolerance: float
+
+    def as_legacy_sim_mapping(self) -> dict[str, object]:
+        """Return the combined simulator mapping consumed by field utilities."""
+
+        sim: dict[str, object] = {
+            "field_solver": self.resolved_field_solver,
+            "field_bc_mode": self.field_bc_mode,
+            "tree_theta": self.tree_theta,
+            "tree_leaf_max": self.tree_leaf_max,
+            "e0": self.external_e0_v_m,
+            "field_periodic_image_layers": self.periodic_image_layers,
+            "field_periodic_far_correction": self.periodic_far_correction,
+            "field_periodic_ewald_alpha": self.periodic_ewald_alpha,
+            "field_periodic_ewald_layers": self.periodic_ewald_layers,
+            "field_periodic_cache_dir": self.periodic_cache_dir,
+            "field_periodic_generation_tolerance": (
+                self.periodic_generation_tolerance
+            ),
+        }
+        if self.use_box:
+            sim["box_min"] = self.box_min_m
+            sim["box_max"] = self.box_max_m
+        for axis, name in enumerate(("x", "y", "z")):
+            sim[f"bc_{name}_low"] = (
+                "periodic" if self.boundary_low[axis] == 2 else "open"
+            )
+            sim[f"bc_{name}_high"] = (
+                "periodic" if self.boundary_high[axis] == 2 else "open"
+            )
+        return sim
+
+
+@dataclass(frozen=True)
 class FortranRunResult:
     """Container for one Fortran simulation output directory.
 
@@ -295,6 +354,8 @@ class FortranRunResult:
         OpenMP team size recorded and enforced for an adaptive restart.
     periodic2_max_nonzero_mode_potential_step_v : float or None, default None
         Configured adaptive ``k != 0`` potential-change limit.
+    field_reconstruction : FieldReconstructionReceipt or None, default None
+        Resolved field-model receipt embedded in new ``summary.txt`` outputs.
     """
 
     directory: Path
@@ -333,6 +394,7 @@ class FortranRunResult:
     adaptive_nonzero_mode_last_potential_step_v: float | None = None
     adaptive_nonzero_mode_omp_threads: int | None = None
     periodic2_max_nonzero_mode_potential_step_v: float | None = None
+    field_reconstruction: FieldReconstructionReceipt | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

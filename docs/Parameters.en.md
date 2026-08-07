@@ -386,6 +386,9 @@ PE requires a negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposit
 open z-high particle boundary. All three roles must be singly charged, the ambient-electron and PE masses must match,
 and $T_e>0$, $T_{pe}>0$, and $T_i\le0.1T_e$ must hold.
 
+The external closure is unmagnetized, so `sim.b0=[0,0,0]` is also required. Because Zhao uses its own 0 V reservoir,
+it cannot be combined with `reservoir.inflow_model="infinity_barrier"`.
+
 The `ion_species` `number_density_*` supplies the ion density at infinity; the stationary root solves the ambient-electron
 density. The configured electron density and PE `emit_current_density_a_m2` are sampling inputs for the raw Monte Carlo maps,
 not fixed-current targets. The resolved electron density is recorded in `summary.txt`.
@@ -569,6 +572,15 @@ $I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$. For `photo_raycast` with
 does not scale the net PE current formed by subtracting these two channels. A nonzero target with an empty raw channel fails
 closed.
 
+`fixed_current` rescales the elementwise empirical distribution of the raw samples. If only one raw hit exists, that
+element receives the entire target. The required hit count and acceptable scale depend on the mesh and the error tolerance
+of the measured quantity, so BEACH does not impose a fixed minimum count or maximum scale.
+
+Inspect `absorbed_count` / `emitted_count`, raw charge, and `fixed_*_weight_scale` in `charge_ledger.csv`, then test
+convergence of the elementwise
+charge distribution across macro-particle or `rays_per_batch` counts, batch widths, and RNG seeds. A small ledger residual
+checks charge balance; it does not establish statistical accuracy of the spatial map.
+
 `fixed_current` and `neutral_return` are mutually exclusive for one species. When an external model supplies a PE-return VDF
 through a separate species at the top face, set `target_absorbed_current_a` on that return species and do not also use full
 reflection or `neutral_return`; those combinations count the same return current twice.
@@ -683,6 +695,14 @@ the inflow amount is set by `particle_flux_m2_s` or `current_density_a_m2`.
 
 For either PDF, only velocities with `v_n > 0` are used. The relative path in
 `velocity_grid_path` is based on the runtime current directory.
+
+The CSV contents are included in the ordered-species fingerprint. Changing a CSV in place therefore makes an existing
+checkpoint incompatible instead of silently resuming with a different distribution.
+
+The CSV is read once at its first use in a run. Later sampling and checkpoint fingerprints share that in-memory snapshot, so
+replacing the file on disk cannot switch the distribution partway through a run. A new process reads the replacement as a new
+physical model.
+
 `velocity_distribution="grid"` follows the same face, time, and flux constraints as other `reservoir_face` sources.
 
 The particle count is determined as follows.
@@ -986,7 +1006,8 @@ Output files:
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file, distinguished by species and face |
 | `charge_ledger.csv` | Per-species signed-charge flux, counts, and restartable cumulative values |
-| `checkpoint_latest.txt` | With `checkpoint_stride > 0`; identifies the latest complete periodic checkpoint slot |
+| `checkpoint_complete.txt` | Completion manifest for schema v8+ final output and each periodic slot |
+| `checkpoint_latest.txt` | With `checkpoint_stride > 0`; advisory index of the latest normally published periodic slot |
 
 See [Configuration-specific output](OutputGuide.en.html#locate-configuration-specific-values) to locate these values.
 
@@ -1018,18 +1039,20 @@ Requirements for `resume=true`:
 |---|---|
 | Output | `write_files=true` is required |
 | Source | If `restart_from` is unspecified, use `output.dir`; otherwise use `restart_from` |
-| Required files | `summary.txt`, `charges.csv`, and either serial `rng_state.txt` or every MPI `rng_state_rankNNNNN.txt` |
+| Required files | `summary.txt`, `charges.csv`, and either serial `rng_state.txt` or every MPI `rng_state_rankNNNNN.txt`; schema v8+ also requires `checkpoint_complete.txt` |
 | Conditional files | `charge_ledger.csv` when ledger metadata is present |
-| Optional state | Restore the global residual when `macro_residuals.csv` exists |
+| Conditional state | Schema v8+ requires `macro_residuals.csv` when declared by `checkpoint_complete.txt`; legacy schemas restore it when present |
 | Behavior | If a required checkpoint is missing, stop instead of falling back to a new run |
 
 `restart_from` changes only the checkpoint read source. New output is always written to `output.dir`.
 
 With `checkpoint_stride > 0`, BEACH alternates between `checkpoints/slot0` and `slot1` after accepted-batch commit.
-It switches `checkpoint_latest.txt` only after all files are closed, preserving the previous slot if writing is interrupted.
+It atomically marks each directory complete with `checkpoint_complete.txt` only after all files are closed, then switches
+`checkpoint_latest.txt` for periodic output. This preserves the previous slot if writing is interrupted.
 
-On resume, BEACH compares the final output and the periodic slot below `output.dir` or `restart_from`, then selects the
-complete checkpoint with the largest `batches` value. Final output remains restartable regardless of `checkpoint_stride`.
+On resume, BEACH compares the final output and both periodic slots below `output.dir` or `restart_from`, then selects the
+loadable complete checkpoint with the largest `batches` value. It scans complete slot manifests directly when
+`checkpoint_latest.txt` is missing, malformed, or stale. Final output remains restartable regardless of `checkpoint_stride`.
 
 During MPI execution:
 
@@ -1042,7 +1065,15 @@ Resume consistency rules:
 
 - Reject checkpoints with legacy `macro_residuals_rankNNNNN.csv` instead of converting them implicitly.
 - Match `mpi_world_size` in `summary.txt` to the current rank count.
-- Schema v2/v3/v4/v5/v6 requires matching model, ordered-mesh, and ordered-species fingerprints.
+- Exclude checkpoint schemas unsupported by the current loader when recovering either periodic slot.
+- Schema v2 and later require matching model, ordered-mesh, and ordered-species fingerprints.
+- The model fingerprint also includes trajectory-contract versions for the boundary-event velocity aligned with the chord and
+  discrete electric-field work, and for the surface-injection position. Checkpoints from
+  the former contract are intentionally rejected instead of switching motion
+  rules during a resumed run.
+- `tree_theta` and `tree_leaf_max` include both their values and whether they were explicitly specified. Equal raw values still
+  represent different solver contracts when one uses automatic estimates and the other uses explicit overrides.
+- Schema v8 and later require `checkpoint_complete.txt` to match the summary batch, MPI world size, and conditional-file declarations.
 - Schema v5 restores neutral-return correction, scale, and unresolved fraction from `charge_ledger.csv`.
 - Schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
   `1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.

@@ -33,7 +33,11 @@ program test_simulator
   character(len=*), parameter :: collision_failure_path = 'test_simulator_collision_failure_tmp.log'
   character(len=*), parameter :: photo_collision_failure_path = 'test_simulator_photo_collision_failure_tmp.log'
   character(len=*), parameter :: box_event_failure_path = 'test_simulator_box_event_failure_tmp.log'
+  character(len=*), parameter :: soft_discard_count_limit_path = 'test_simulator_soft_discard_count_limit_tmp.log'
+  character(len=*), parameter :: soft_discard_charge_limit_path = 'test_simulator_soft_discard_charge_limit_tmp.log'
+  character(len=*), parameter :: statistics_overflow_path = 'test_simulator_statistics_overflow_tmp.log'
   character(len=*), parameter :: invalid_candidate_failure_path = 'test_simulator_invalid_candidate_failure_tmp.log'
+  character(len=*), parameter :: fixed_current_nonfinite_path = 'test_simulator_fixed_current_nonfinite_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -46,9 +50,21 @@ program test_simulator
   else if (trim(run_mode) == '--multiple-box-event-probe') then
     call run_multiple_box_event_failure_probe()
     error stop 'multiple box event failure probe unexpectedly completed'
+  else if (trim(run_mode) == '--soft-discard-count-limit-probe') then
+    call run_multiple_box_event_soft_discard_limit_probe(.false.)
+    error stop 'soft-discard count-limit probe unexpectedly completed'
+  else if (trim(run_mode) == '--soft-discard-charge-limit-probe') then
+    call run_multiple_box_event_soft_discard_limit_probe(.true.)
+    error stop 'soft-discard charge-limit probe unexpectedly completed'
+  else if (trim(run_mode) == '--statistics-overflow-probe') then
+    call run_statistics_overflow_probe()
+    error stop 'statistics overflow probe unexpectedly completed'
   else if (trim(run_mode) == '--invalid-candidate-probe') then
     call run_invalid_candidate_failure_probe()
     error stop 'invalid candidate failure probe unexpectedly completed'
+  else if (trim(run_mode) == '--fixed-current-nonfinite-probe') then
+    call run_fixed_current_nonfinite_target_probe()
+    error stop 'fixed-current nonfinite target probe unexpectedly completed'
   end if
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -116,7 +132,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(18)
+  call test_init(21)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -141,6 +157,22 @@ program test_simulator
   call assert_equal_i64(stats%escaped_boundary, 2_i64, 'escaped_boundary mismatch')
   call assert_equal_i64(stats%survived_max_step, 0_i64, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
+  call assert_equal_i64( &
+    stats%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    'non-adaptive run must not record rejected adaptive trials' &
+    )
+  call assert_equal_i32( &
+    stats%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    'non-adaptive run must not record an adaptive OpenMP team size' &
+    )
+  call assert_close_dp( &
+    stats%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    'non-adaptive run must not record an adaptive batch duration' &
+    )
+  call assert_close_dp( &
+    stats%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    'non-adaptive run must not record an adaptive potential step' &
+    )
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
   call assert_true(stats%last_rel_change > 0.0d0, 'last_rel_change should be positive')
   call assert_close_dp(charge_ledger%surface_charge_before, 0.0_dp, 1.0d-12, 'ledger surface before mismatch')
@@ -253,6 +285,11 @@ program test_simulator
   stats_seed%survived_max_step = 3_i64
   stats_seed%batches = 7_i32
   stats_seed%last_rel_change = 1.0d-3
+  ! schema v7以前のnon-adaptive出力が誤って保持した値をresume時に除去する。
+  stats_seed%adaptive_nonzero_mode_rejected_trials = 9_i64
+  stats_seed%adaptive_nonzero_mode_last_batch_duration = 0.25_dp
+  stats_seed%adaptive_nonzero_mode_last_potential_step = 3.0_dp
+  stats_seed%adaptive_nonzero_mode_omp_threads = 4_i32
   call run_absorption_insulator(mesh_resume, cfg, stats_resume, initial_stats=stats_seed)
 
   call assert_equal_i64(stats_resume%processed_particles, 14_i64, 'resume processed_particles mismatch')
@@ -261,6 +298,22 @@ program test_simulator
   call assert_equal_i64(stats_resume%escaped_boundary, 5_i64, 'resume escaped_boundary mismatch')
   call assert_equal_i64(stats_resume%survived_max_step, 3_i64, 'resume survived_max_step mismatch')
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
+  call assert_equal_i64( &
+    stats_resume%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    'non-adaptive resume must clear stale adaptive rejected trials' &
+    )
+  call assert_equal_i32( &
+    stats_resume%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    'non-adaptive resume must clear stale adaptive OpenMP team size' &
+    )
+  call assert_close_dp( &
+    stats_resume%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    'non-adaptive resume must clear stale adaptive batch duration' &
+    )
+  call assert_close_dp( &
+    stats_resume%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    'non-adaptive resume must clear stale adaptive potential step' &
+    )
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
   call assert_true(stats_resume%last_rel_change > 0.0d0, 'resume last_rel_change should be positive')
   call test_end()
@@ -289,6 +342,10 @@ program test_simulator
   call test_fixed_absorbed_current_closure()
   call test_end()
 
+  call test_begin('fixed_current_nonfinite_target_fails_closed')
+  call test_fixed_current_nonfinite_target_fails_closed()
+  call test_end()
+
   call test_begin('fixed_photo_currents_scale_emission_and_return_separately')
   call test_fixed_photo_current_closure()
   call test_end()
@@ -303,6 +360,14 @@ program test_simulator
 
   call test_begin('multiple_box_event_soft_discard')
   call test_multiple_box_event_soft_discard()
+  call test_end()
+
+  call test_begin('statistics_overflow_fails_closed')
+  call test_statistics_overflow_fails_closed()
+  call test_end()
+
+  call test_begin('large_finite_charge_norm_stays_finite')
+  call test_large_finite_charge_norm_stays_finite()
   call test_end()
 
   call test_begin('invalid_candidate_failure_context')
@@ -381,6 +446,13 @@ contains
     workspace%neutral_return_weight_scale = 6.0_dp
     workspace%neutral_return_correction = 7.0_dp
     workspace%neutral_return_unresolved_fraction = 8.0_dp
+    workspace%soft_discard_context%available = .true.
+    workspace%soft_discard_context%particle = 4_i32
+    workspace%soft_discard_context%species = 2_i32
+    workspace%soft_discard_context%step = 3_i32
+    workspace%soft_discard_context%macro_charge = 9.0_dp
+    workspace%soft_discard_context%x = 10.0_dp
+    workspace%soft_discard_context%v = 11.0_dp
 
     call workspace%reset_before_injection()
     call workspace%prepare_particle_flags(2_i32)
@@ -402,6 +474,17 @@ contains
     call assert_true( &
       all(workspace%neutral_return_correction == 0.0_dp), &
       'workspace neutral-return correction reset mismatch' &
+      )
+    call assert_true(.not. workspace%soft_discard_context%available, 'workspace soft-discard context reset mismatch')
+    call assert_equal_i32( &
+      workspace%soft_discard_context%particle, huge(0_i32), &
+      'workspace soft-discard representative reset mismatch' &
+      )
+    call assert_true( &
+      workspace%soft_discard_context%macro_charge == 0.0_dp .and. &
+      all(workspace%soft_discard_context%x == 0.0_dp) .and. &
+      all(workspace%soft_discard_context%v == 0.0_dp), &
+      'workspace soft-discard state reset mismatch' &
       )
     call assert_true(all(.not. workspace%escaped_boundary_flag(:2)), 'workspace escaped flag reset mismatch')
     call assert_true(all(.not. workspace%absorbed_flag(:2)), 'workspace absorbed flag reset mismatch')
@@ -831,6 +914,14 @@ contains
 
     call seed_particles_from_config(fixed_cfg)
     call run_absorption_insulator(fixed_mesh, fixed_cfg, fixed_stats, charge_ledger=fixed_ledger)
+    call assert_equal_i64( &
+      fixed_ledger%absorbed_count(1), 1_i64, &
+      'single-sample fixed-current mapping must remain visible in raw diagnostics' &
+      )
+    call assert_close_dp( &
+      fixed_ledger%absorbed_on_surface(1), 2.0_dp, 1.0e-12_dp, &
+      'single-sample fixed-current mapping must preserve raw absorbed charge' &
+      )
     call assert_close_dp(fixed_mesh%q_elem(1), 5.0_dp, 1.0e-12_dp, 'fixed absorbed target charge mismatch')
     call assert_close_dp( &
       fixed_ledger%fixed_absorbed_weight_scale(1), 2.5_dp, 1.0e-12_dp, &
@@ -842,6 +933,70 @@ contains
       )
     call assert_close_dp(fixed_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'fixed absorbed ledger residual mismatch')
   end subroutine test_fixed_absorbed_current_closure
+
+  subroutine test_fixed_current_nonfinite_target_fails_closed()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_nonfinite_error
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(fixed_current_nonfinite_path)
+    command = '"'//trim(executable_path)//'" --fixed-current-nonfinite-probe > '// &
+              fixed_current_nonfinite_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'fixed-current nonfinite command status mismatch')
+    call assert_true(child_exit_status /= 0, 'fixed-current nonfinite target probe should terminate with nonzero status')
+
+    saw_nonfinite_error = .false.
+    open (newunit=child_unit, file=fixed_current_nonfinite_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read fixed-current nonfinite target probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_nonfinite_error = saw_nonfinite_error .or. &
+                            index(child_line, 'fixed_current absorbed target charge overflowed') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(fixed_current_nonfinite_path)
+    call assert_true(saw_nonfinite_error, 'fixed-current nonfinite target probe should report the rejected conversion')
+  end subroutine test_fixed_current_nonfinite_target_fails_closed
+
+  subroutine run_fixed_current_nonfinite_target_probe()
+    type(mesh_type) :: fixed_mesh
+    type(app_config) :: fixed_cfg
+    type(sim_stats) :: fixed_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
+    tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(fixed_mesh, tri_v0, tri_v1, tri_v2)
+    fixed_mesh%elem_vacuum_sign = 1_i32
+    fixed_mesh%vacuum_normals = fixed_mesh%normals
+
+    call default_app_config(fixed_cfg)
+    fixed_cfg%sim%batch_count = 1_i32
+    fixed_cfg%sim%batch_duration = 2.0_dp
+    fixed_cfg%sim%dt = 1.0_dp
+    fixed_cfg%sim%max_step = 1_i32
+    fixed_cfg%n_particle_species = 1_i32
+    fixed_cfg%particle_species(1) = species_from_defaults()
+    fixed_cfg%particle_species(1)%source_mode = 'volume_seed'
+    fixed_cfg%particle_species(1)%npcls_per_step = 1_i32
+    fixed_cfg%particle_species(1)%q_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%m_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%w_particle = 1.0_dp
+    fixed_cfg%particle_species(1)%pos_low = [0.2_dp, 0.2_dp, 0.5_dp]
+    fixed_cfg%particle_species(1)%pos_high = fixed_cfg%particle_species(1)%pos_low
+    fixed_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    fixed_cfg%particle_species(1)%temperature_k = 0.0_dp
+    fixed_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'
+    fixed_cfg%particle_species(1)%target_absorbed_current_a = huge(1.0_dp)
+    fixed_cfg%particle_species(1)%has_target_absorbed_current_a = .true.
+
+    call seed_particles_from_config(fixed_cfg)
+    call run_absorption_insulator(fixed_mesh, fixed_cfg, fixed_stats)
+  end subroutine run_fixed_current_nonfinite_target_probe
 
   subroutine test_fixed_photo_current_closure()
     type(mesh_type) :: fixed_mesh
@@ -1129,39 +1284,10 @@ contains
     type(app_config) :: soft_cfg
     type(sim_stats) :: soft_stats
     type(charge_ledger_type) :: soft_ledger
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
-    tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
-    tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
-    call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
-    soft_mesh%elem_vacuum_sign = 1_i32
-    soft_mesh%vacuum_normals = soft_mesh%normals
-    call default_app_config(soft_cfg)
-    soft_cfg%sim%rng_seed = 995_i32
-    soft_cfg%sim%batch_count = 1_i32
-    soft_cfg%sim%dt = 1.0_dp
-    soft_cfg%sim%max_step = 1_i32
-    soft_cfg%sim%use_box = .true.
-    soft_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    soft_cfg%sim%bc_low(1) = bc_reflect
-    soft_cfg%sim%bc_high(1) = bc_reflect
-    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
-    soft_cfg%sim%multiple_box_events_soft_discard_count_limit = 100000_i32
-    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
-    soft_cfg%n_particle_species = 1_i32
-    soft_cfg%particle_species(1) = species_from_defaults()
-    soft_cfg%particle_species(1)%source_mode = 'volume_seed'
-    soft_cfg%particle_species(1)%npcls_per_step = 1_i32
-    soft_cfg%particle_species(1)%q_particle = 2.0_dp
-    soft_cfg%particle_species(1)%m_particle = 1.0_dp
-    soft_cfg%particle_species(1)%w_particle = 3.0_dp
-    soft_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
-    soft_cfg%particle_species(1)%pos_high = soft_cfg%particle_species(1)%pos_low
-    soft_cfg%particle_species(1)%drift_velocity = [9.0_dp, 0.0_dp, 0.0_dp]
-    soft_cfg%particle_species(1)%temperature_k = 0.0_dp
-    call seed_particles_from_config(soft_cfg)
+    call configure_multiple_box_event_soft_discard_fixture( &
+      soft_mesh, soft_cfg, 1_i32, 100000_i32, 1.0e9_dp &
+      )
 
     call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, charge_ledger=soft_ledger)
     call assert_equal_i64(soft_stats%processed_particles, 1_i64, 'soft discard processed count mismatch')
@@ -1181,7 +1307,251 @@ contains
       soft_ledger%discarded_unresolved(1), 6.0_dp, 1.0e-12_dp, 'soft discard ledger charge mismatch' &
       )
     call assert_close_dp(soft_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'soft discard ledger residual mismatch')
+    call test_multiple_box_event_soft_discard_limits_and_context()
   end subroutine test_multiple_box_event_soft_discard
+
+  subroutine test_multiple_box_event_soft_discard_limits_and_context()
+    call assert_soft_discard_limit_probe( &
+      '--soft-discard-count-limit-probe', soft_discard_count_limit_path, .false. &
+      )
+    call assert_soft_discard_limit_probe( &
+      '--soft-discard-charge-limit-probe', soft_discard_charge_limit_path, .true. &
+      )
+  end subroutine test_multiple_box_event_soft_discard_limits_and_context
+
+  subroutine assert_soft_discard_limit_probe(run_mode, output_path, charge_limit_probe)
+    character(len=*), intent(in) :: run_mode, output_path
+    logical, intent(in) :: charge_limit_probe
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    integer(i32) :: accepted_summary_count
+    logical :: saw_batch, saw_rank, saw_particle, saw_species, saw_step, saw_status, saw_macro_charge, saw_x, saw_v
+    logical :: saw_limit_summary, saw_expected_count, saw_expected_count_limit
+    logical :: saw_abs_charge, saw_abs_charge_limit, saw_global_count
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(output_path)
+    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)//'" '//trim(run_mode)// &
+              ' > '//trim(output_path)//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'soft-discard limit command status mismatch')
+    call assert_true(child_exit_status /= 0, 'soft-discard limit probe should terminate with nonzero status')
+
+    saw_batch = .false.
+    saw_rank = .false.
+    saw_particle = .false.
+    saw_species = .false.
+    saw_step = .false.
+    saw_status = .false.
+    saw_macro_charge = .false.
+    saw_x = .false.
+    saw_v = .false.
+    saw_limit_summary = .false.
+    saw_expected_count = .false.
+    saw_expected_count_limit = .false.
+    saw_abs_charge = .false.
+    saw_abs_charge_limit = .false.
+    saw_global_count = .false.
+    accepted_summary_count = 0_i32
+    open (newunit=child_unit, file=output_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read soft-discard limit probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
+      saw_rank = saw_rank .or. index(child_line, 'rank=0') > 0
+      saw_particle = saw_particle .or. index(child_line, 'particle=1') > 0
+      saw_species = saw_species .or. index(child_line, 'species=1') > 0
+      saw_step = saw_step .or. index(child_line, 'step=1') > 0
+      saw_status = saw_status .or. index(child_line, 'status=multiple_box_events') > 0
+      saw_macro_charge = saw_macro_charge .or. index(child_line, 'macro_charge_C=') > 0
+      saw_x = saw_x .or. index(child_line, ' x=') > 0
+      saw_v = saw_v .or. index(child_line, ' v=') > 0
+      saw_limit_summary = saw_limit_summary .or. &
+                          index(child_line, 'soft-discard cumulative limit exceeded') > 0
+      saw_abs_charge = saw_abs_charge .or. index(child_line, 'abs_charge_C=') > 0
+      saw_abs_charge_limit = saw_abs_charge_limit .or. index(child_line, 'abs_charge_limit_C=') > 0
+      if (index(child_line, 'multiple_box_events soft discard accepted:') > 0) then
+        accepted_summary_count = accepted_summary_count + 1_i32
+        if (charge_limit_probe) then
+          saw_global_count = saw_global_count .or. index(child_line, ' global_count=1 ') > 0
+        else
+          saw_global_count = saw_global_count .or. index(child_line, ' global_count=2 ') > 0
+        end if
+      end if
+      if (charge_limit_probe) then
+        saw_expected_count = saw_expected_count .or. index(child_line, ' count=1 ') > 0
+        saw_expected_count_limit = saw_expected_count_limit .or. index(child_line, ' count_limit=100 ') > 0
+      else
+        saw_expected_count = saw_expected_count .or. index(child_line, ' count=2 ') > 0
+        saw_expected_count_limit = saw_expected_count_limit .or. index(child_line, ' count_limit=1 ') > 0
+      end if
+    end do
+    close (child_unit)
+    call delete_file_if_exists(output_path)
+
+    call assert_true( &
+      saw_batch .and. saw_rank .and. saw_particle .and. saw_species .and. saw_step .and. saw_status, &
+      'soft discard detail must include batch, rank, particle, species, step, and status' &
+      )
+    call assert_true( &
+      saw_macro_charge .and. saw_x .and. saw_v, &
+      'soft discard detail must include macro charge, position, and velocity' &
+      )
+    call assert_equal_i32(accepted_summary_count, 1_i32, 'soft discard detail output must be bounded to one line')
+    call assert_true(saw_global_count, 'soft discard accepted summary is missing its global count')
+    call assert_true(saw_limit_summary, 'soft-discard cumulative-limit summary is missing')
+    call assert_true( &
+      saw_expected_count .and. saw_expected_count_limit .and. saw_abs_charge .and. saw_abs_charge_limit, &
+      'soft-discard cumulative-limit summary is incomplete' &
+      )
+  end subroutine assert_soft_discard_limit_probe
+
+  subroutine run_multiple_box_event_soft_discard_limit_probe(charge_limit_probe)
+    logical, intent(in) :: charge_limit_probe
+    type(mesh_type) :: soft_mesh
+    type(app_config) :: soft_cfg
+    type(sim_stats) :: soft_stats
+
+    if (charge_limit_probe) then
+      call configure_multiple_box_event_soft_discard_fixture( &
+        soft_mesh, soft_cfg, 1_i32, 100_i32, 5.0_dp &
+        )
+    else
+      call configure_multiple_box_event_soft_discard_fixture( &
+        soft_mesh, soft_cfg, 2_i32, 1_i32, 1.0e9_dp &
+        )
+    end if
+    call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats)
+  end subroutine run_multiple_box_event_soft_discard_limit_probe
+
+  subroutine test_statistics_overflow_fails_closed()
+    character(len=1024) :: executable_path, command, child_line
+    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    logical :: saw_overflow, saw_field
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(statistics_overflow_path)
+    command = '"'//trim(executable_path)//'" --statistics-overflow-probe > '//statistics_overflow_path//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'statistics overflow probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'statistics overflow probe should terminate with nonzero status')
+
+    saw_overflow = .false.
+    saw_field = .false.
+    open (newunit=child_unit, file=statistics_overflow_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read statistics overflow probe output'
+    do
+      read (child_unit, '(A)', iostat=child_ios) child_line
+      if (child_ios /= 0) exit
+      saw_overflow = saw_overflow .or. index(child_line, 'simulation statistic overflow') > 0
+      saw_field = saw_field .or. index(child_line, 'processed_particles') > 0
+    end do
+    close (child_unit)
+    call delete_file_if_exists(statistics_overflow_path)
+    call assert_true(saw_overflow .and. saw_field, 'statistics overflow diagnostic is incomplete')
+  end subroutine test_statistics_overflow_fails_closed
+
+  subroutine run_statistics_overflow_probe()
+    type(mesh_type) :: overflow_mesh
+    type(app_config) :: overflow_cfg
+    type(sim_stats) :: overflow_seed, overflow_stats
+
+    call configure_multiple_box_event_soft_discard_fixture( &
+      overflow_mesh, overflow_cfg, 1_i32, 100_i32, 1.0e9_dp &
+      )
+    overflow_seed = sim_stats()
+    overflow_seed%processed_particles = huge(0_i64)
+    call run_absorption_insulator( &
+      overflow_mesh, overflow_cfg, overflow_stats, initial_stats=overflow_seed &
+      )
+  end subroutine run_statistics_overflow_probe
+
+  subroutine test_large_finite_charge_norm_stays_finite()
+    type(mesh_type) :: large_mesh
+    type(app_config) :: large_cfg
+    type(sim_stats) :: large_stats
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
+    tri_v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
+    tri_v2(:, 1) = [0.0_dp, 1.0_dp, 0.0_dp]
+    call init_mesh(large_mesh, tri_v0, tri_v1, tri_v2)
+    large_mesh%elem_vacuum_sign = 1_i32
+    large_mesh%vacuum_normals = large_mesh%normals
+
+    call default_app_config(large_cfg)
+    large_cfg%sim%batch_count = 1_i32
+    large_cfg%sim%dt = 1.0_dp
+    large_cfg%sim%max_step = 1_i32
+    large_cfg%sim%q_floor = 1.0e-30_dp
+    large_cfg%n_particle_species = 1_i32
+    large_cfg%particle_species(1) = species_from_defaults()
+    large_cfg%particle_species(1)%source_mode = 'volume_seed'
+    large_cfg%particle_species(1)%npcls_per_step = 1_i32
+    large_cfg%particle_species(1)%q_particle = 1.0e160_dp
+    large_cfg%particle_species(1)%m_particle = 1.0e160_dp
+    large_cfg%particle_species(1)%w_particle = 1.0_dp
+    large_cfg%particle_species(1)%pos_low = [0.2_dp, 0.2_dp, 0.5_dp]
+    large_cfg%particle_species(1)%pos_high = large_cfg%particle_species(1)%pos_low
+    large_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    large_cfg%particle_species(1)%temperature_k = 0.0_dp
+
+    call seed_particles_from_config(large_cfg)
+    call run_absorption_insulator(large_mesh, large_cfg, large_stats)
+    call assert_equal_i64(large_stats%absorbed, 1_i64, 'large finite charge fixture must absorb its particle')
+    call assert_true(large_mesh%q_elem(1) < huge(1.0_dp), 'large finite committed charge must remain finite')
+    call assert_close_dp( &
+      large_mesh%q_elem(1)/1.0e160_dp, 1.0_dp, 1.0e-12_dp, &
+      'large finite committed charge mismatch' &
+      )
+    call assert_close_dp( &
+      large_stats%last_rel_change, 1.0_dp, 1.0e-12_dp, &
+      'scaled charge norm must preserve the relative change' &
+      )
+  end subroutine test_large_finite_charge_norm_stays_finite
+
+  subroutine configure_multiple_box_event_soft_discard_fixture( &
+    soft_mesh, soft_cfg, particle_count, count_limit, abs_charge_limit &
+    )
+    type(mesh_type), intent(out) :: soft_mesh
+    type(app_config), intent(out) :: soft_cfg
+    integer(i32), intent(in) :: particle_count, count_limit
+    real(dp), intent(in) :: abs_charge_limit
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [10.0_dp, -1.0_dp, -1.0_dp]
+    tri_v1(:, 1) = [10.0_dp, 1.0_dp, -1.0_dp]
+    tri_v2(:, 1) = [10.0_dp, 0.0_dp, 1.0_dp]
+    call init_mesh(soft_mesh, tri_v0, tri_v1, tri_v2)
+    soft_mesh%elem_vacuum_sign = 1_i32
+    soft_mesh%vacuum_normals = soft_mesh%normals
+    call default_app_config(soft_cfg)
+    soft_cfg%sim%rng_seed = 995_i32
+    soft_cfg%sim%batch_count = 1_i32
+    soft_cfg%sim%dt = 1.0_dp
+    soft_cfg%sim%max_step = 1_i32
+    soft_cfg%sim%use_box = .true.
+    soft_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    soft_cfg%sim%bc_low(1) = bc_reflect
+    soft_cfg%sim%bc_high(1) = bc_reflect
+    soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
+    soft_cfg%sim%multiple_box_events_soft_discard_count_limit = count_limit
+    soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = abs_charge_limit
+    soft_cfg%n_particle_species = 1_i32
+    soft_cfg%particle_species(1) = species_from_defaults()
+    soft_cfg%particle_species(1)%source_mode = 'volume_seed'
+    soft_cfg%particle_species(1)%npcls_per_step = particle_count
+    soft_cfg%particle_species(1)%q_particle = 2.0_dp
+    soft_cfg%particle_species(1)%m_particle = 1.0_dp
+    soft_cfg%particle_species(1)%w_particle = 3.0_dp
+    soft_cfg%particle_species(1)%pos_low = [0.9_dp, 0.2_dp, 0.2_dp]
+    soft_cfg%particle_species(1)%pos_high = soft_cfg%particle_species(1)%pos_low
+    soft_cfg%particle_species(1)%drift_velocity = [9.0_dp, 0.0_dp, 0.0_dp]
+    soft_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(soft_cfg)
+  end subroutine configure_multiple_box_event_soft_discard_fixture
 
   subroutine test_invalid_candidate_failure_context()
     character(len=1024) :: executable_path, command, child_line

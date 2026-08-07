@@ -150,6 +150,12 @@ contains
       current%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, &
       trim(label)//' stationary net current mismatch' &
       )
+    call assert_true( &
+      current%absorbed_current_a(1) < 0.0_dp .and. current%absorbed_current_a(2) > 0.0_dp .and. &
+      current%absorbed_current_a(3) <= 0.0_dp .and. current%emission_current_a(3) > 0.0_dp .and. &
+      current%escaped_particle_current_a(3) <= 0.0_dp, &
+      trim(label)//' total-current channel signs mismatch' &
+      )
   end subroutine assert_current_decomposition
 
   subroutine assert_kinetic_contract(current, electron_bottleneck_v, label)

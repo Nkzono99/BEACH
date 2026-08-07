@@ -11,6 +11,8 @@ module bem_field_solver
   implicit none
   private
 
+  integer(i32), parameter, public :: field_solver_fmm_expansion_order = 4_i32
+
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
     character(len=16) :: field_bc_mode = 'free'
@@ -91,6 +93,8 @@ module bem_field_solver
   end type field_solver_type
 
   public :: field_solver_type
+  public :: resolve_field_solver_mode
+  public :: resolve_field_solver_tree_params
 
   interface
     !> 設定とメッシュから電場ソルバを初期化する。
@@ -109,6 +113,21 @@ module bem_field_solver
       real(dp), intent(out) :: theta
       integer(i32), intent(out) :: leaf_max
     end subroutine estimate_auto_tree_params
+
+    !> solver mode、要素数、明示overrideから実際に使うtree/FMMパラメータを解決する。
+    pure module subroutine resolve_field_solver_tree_params(nelem, sim, theta, leaf_max)
+      integer(i32), intent(in) :: nelem
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(out) :: theta
+      integer(i32), intent(out) :: leaf_max
+    end subroutine resolve_field_solver_tree_params
+
+    !> solver指定と要素数から実際に使用する direct/treecode/fmm mode を解決する。
+    module function resolve_field_solver_mode(nelem, sim) result(mode)
+      integer(i32), intent(in) :: nelem
+      type(sim_config), intent(in) :: sim
+      character(len=16) :: mode
+    end function resolve_field_solver_mode
 
     !> 現在の要素電荷から treecode/FMM モーメントを再計算する。
     module subroutine refresh_field_solver(self, mesh)

@@ -207,6 +207,8 @@ contains
     call delete_file_if_exists(out_dir//'/summary.txt')
     call delete_file_if_exists(out_dir//'/charges.csv')
     call delete_file_if_exists(out_dir//'/mesh_potential.csv')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt')
+    call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/mesh_triangles.csv')
     call delete_file_if_exists(out_dir//'/mesh_sources.csv')
     call remove_empty_directory(out_dir)

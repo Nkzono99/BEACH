@@ -111,22 +111,7 @@ contains
     error stop 'Unknown sim.field_bc_mode in field solver init.'
   end select
 
-  select case (trim(requested_mode))
-  case ('direct')
-    self%mode = 'direct'
-  case ('treecode')
-    self%mode = 'treecode'
-  case ('fmm')
-    self%mode = 'fmm'
-  case ('auto')
-    if (mesh%nelem >= self%min_nelem) then
-      self%mode = 'fmm'
-    else
-      self%mode = 'direct'
-    end if
-  case default
-    error stop 'Unknown sim.field_solver in field solver init.'
-  end select
+  self%mode = resolve_field_solver_mode(mesh%nelem, sim)
 
   if (trim(self%mode) == 'fmm' .and. sim%use_box) then
     if (any(sim%box_max <= sim%box_min)) then
@@ -136,19 +121,12 @@ contains
     self%target_box_max = sim%box_max
   end if
 
-  if (trim(self%mode) == 'treecode' .or. trim(self%mode) == 'fmm') then
-    call estimate_auto_tree_params(mesh%nelem, self%theta, self%leaf_max)
-    if (sim%has_tree_theta) self%theta = sim%tree_theta
-    if (sim%has_tree_leaf_max) self%leaf_max = sim%tree_leaf_max
-  else
-    self%theta = sim%tree_theta
-    self%leaf_max = sim%tree_leaf_max
-  end if
+  call resolve_field_solver_tree_params(mesh%nelem, sim, self%theta, self%leaf_max)
 
   self%fmm_core_options = fmm_options_type()
   self%fmm_core_options%theta = self%theta
   self%fmm_core_options%leaf_max = self%leaf_max
-  self%fmm_core_options%order = 4_i32
+  self%fmm_core_options%order = field_solver_fmm_expansion_order
   self%fmm_core_options%softening = 0.0_dp
   self%fmm_core_options%use_periodic2 = self%use_periodic2
   self%fmm_core_options%periodic_far_correction = self%periodic_far_correction
@@ -266,5 +244,39 @@ contains
     leaf_max = 24_i32
   end if
   end procedure estimate_auto_tree_params
+
+  module procedure resolve_field_solver_tree_params
+  character(len=16) :: requested_mode
+  logical :: uses_tree
+
+  requested_mode = lower_ascii(trim(sim%field_solver))
+  uses_tree = trim(requested_mode) == 'treecode' .or. trim(requested_mode) == 'fmm' .or. &
+              (trim(requested_mode) == 'auto' .and. nelem >= sim%tree_min_nelem)
+  theta = sim%tree_theta
+  leaf_max = sim%tree_leaf_max
+  if (.not. uses_tree) return
+
+  call estimate_auto_tree_params(nelem, theta, leaf_max)
+  if (sim%has_tree_theta) theta = sim%tree_theta
+  if (sim%has_tree_leaf_max) leaf_max = sim%tree_leaf_max
+  end procedure resolve_field_solver_tree_params
+
+  module procedure resolve_field_solver_mode
+  character(len=16) :: requested_mode
+
+  requested_mode = lower_ascii(trim(sim%field_solver))
+  select case (trim(requested_mode))
+  case ('direct', 'treecode', 'fmm')
+    mode = requested_mode
+  case ('auto')
+    if (nelem >= sim%tree_min_nelem) then
+      mode = 'fmm'
+    else
+      mode = 'direct'
+    end if
+  case default
+    error stop 'Unknown sim.field_solver in field solver mode resolution.'
+  end select
+  end procedure resolve_field_solver_mode
 
 end submodule bem_field_solver_config

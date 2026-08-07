@@ -1,14 +1,28 @@
 !> 電荷収支の符号規約、stock 差分、累積を検証する。
 program test_charge_ledger
   use bem_kinds, only: dp, i32, i64
-  use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
+  use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger, finite_charge_sum
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp
   implicit none
 
   type(charge_ledger_type) :: ledger, batch2, cumulative
+  character(len=64) :: run_mode
 
-  call test_init(10)
+  call get_command_argument(1, run_mode)
+  select case (trim(run_mode))
+  case ('--real-overflow-probe')
+    call run_real_overflow_probe()
+    error stop 'real overflow probe unexpectedly completed'
+  case ('--count-overflow-probe')
+    call run_count_overflow_probe()
+    error stop 'count overflow probe unexpectedly completed'
+  case ('--ratio-overflow-probe')
+    call run_ratio_overflow_probe()
+    error stop 'ratio overflow probe unexpectedly completed'
+  end select
+
+  call test_init(14)
 
   call test_begin('initialization')
   call ledger%init(2_i32)
@@ -181,5 +195,77 @@ program test_charge_ledger
   call assert_close_dp(cumulative%residual(), 0.0_dp, 1.0d-14, 'cumulative neutral-return residual mismatch')
   call test_end()
 
+  call test_begin('scaled_signed_sum_avoids_intermediate_overflow')
+  call assert_close_dp( &
+    finite_charge_sum( &
+    [0.75_dp*huge(1.0_dp), 0.75_dp*huge(1.0_dp), -0.75_dp*huge(1.0_dp), -0.75_dp*huge(1.0_dp)], &
+    'scaled signed sum test' &
+    ), &
+    0.0_dp, 0.0_dp, 'scaled signed charge sum mismatch' &
+    )
+  call test_end()
+
+  call test_begin('real_accumulation_overflow_fails_closed')
+  call assert_probe_fails('--real-overflow-probe', 'real ledger overflow probe must fail')
+  call test_end()
+
+  call test_begin('count_accumulation_overflow_fails_closed')
+  call assert_probe_fails('--count-overflow-probe', 'count ledger overflow probe must fail')
+  call test_end()
+
+  call test_begin('derived_ratio_overflow_fails_closed')
+  call assert_probe_fails('--ratio-overflow-probe', 'derived ledger ratio overflow probe must fail')
+  call test_end()
+
   call test_summary()
+
+contains
+
+  subroutine assert_probe_fails(mode, message)
+    character(len=*), intent(in) :: mode, message
+    character(len=1024) :: executable_path, command
+    integer :: exit_status, command_status
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" '//trim(mode)//' > /dev/null 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, trim(message)//' command status')
+    call assert_true(exit_status /= 0, message)
+  end subroutine assert_probe_fails
+
+  subroutine run_real_overflow_probe()
+    type(charge_ledger_type) :: accumulated, increment
+
+    call accumulated%init(1_i32)
+    call accumulated%reset(1_i32)
+    accumulated%injected_from_remote(1) = huge(1.0_dp)
+    call increment%init(1_i32)
+    call increment%reset(2_i32)
+    increment%injected_from_remote(1) = huge(1.0_dp)
+    call accumulate_charge_ledger(accumulated, increment)
+  end subroutine run_real_overflow_probe
+
+  subroutine run_count_overflow_probe()
+    type(charge_ledger_type) :: accumulated, increment
+
+    call accumulated%init(1_i32)
+    call accumulated%reset(1_i32)
+    accumulated%injected_count(1) = huge(0_i64)
+    call increment%init(1_i32)
+    call increment%reset(2_i32)
+    increment%injected_count(1) = 1_i64
+    call accumulate_charge_ledger(accumulated, increment)
+  end subroutine run_count_overflow_probe
+
+  subroutine run_ratio_overflow_probe()
+    type(charge_ledger_type) :: accumulated, increment
+
+    accumulated = charge_ledger_type()
+    call increment%init(1_i32)
+    call increment%reset(1_i32)
+    increment%absorbed_on_surface(1) = -tiny(1.0_dp)
+    increment%fixed_absorbed_target_charge(1) = -huge(1.0_dp)
+    increment%fixed_absorbed_weight_scale(1) = 2.0_dp
+    call accumulate_charge_ledger(accumulated, increment)
+  end subroutine run_ratio_overflow_probe
 end program test_charge_ledger

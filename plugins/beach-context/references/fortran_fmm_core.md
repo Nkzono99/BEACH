@@ -88,12 +88,16 @@ beach_kernel_build(handle, vertex0_xyz, vertex1_xyz, vertex2_xyz, options...)
 beach_kernel_update_charges(handle, src_q)
 beach_kernel_eval_e(handle, target_pos, e)
 beach_kernel_eval_phi(handle, target_pos, phi)
+beach_kernel_eval_e_direct(handle, target_pos, e)
+beach_kernel_eval_phi_direct(handle, target_pos, phi)
 beach_kernel_force_on_charges(handle, target_pos, target_q, origin, force, torque)
 ```
 
 公開ヘッダは Python package 内の `beach/include/beach_field_kernel.h` にあります。現行 ABI は
-`2.0` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
-major が一致し、library の minor が必要な minor 以上であることを確認してください。座標と
+`2.1` です。C の呼び出し側は、ほかの関数を使う前に `beach_kernel_get_abi_version` を呼び、
+major が `2` と一致し、library の minor が必要な minor（direct APIを使う場合は `1`）以上であることを
+確認してください。`eval_e_direct` / `eval_phi_direct` は非周期planだけで利用でき、同じsource geometryと
+chargeの非周期exact-direct値を返します。周期planに対してはinvalid argumentを返します。座標と
 vector の配列は `values[3 * point_index + component]` の順で格納します。status code、
 periodic far-correction code、handle の所有権は公開ヘッダに定義しています。
 

@@ -43,7 +43,7 @@ _FAR_CORRECTION_CODES = {
 }
 
 FIELD_KERNEL_ABI_MAJOR = 2
-FIELD_KERNEL_ABI_MINOR = 0
+FIELD_KERNEL_ABI_MINOR = 1
 
 
 class FieldKernelError(RuntimeError):
@@ -52,7 +52,7 @@ class FieldKernelError(RuntimeError):
 
 @dataclass(frozen=True)
 class FieldKernelOptions:
-    """Options passed to the Fortran Coulomb FMM kernel."""
+    """Options passed to the native Fortran triangle-panel kernel."""
 
     theta: float = 0.5
     leaf_max: int = 16
@@ -63,6 +63,7 @@ class FieldKernelOptions:
     external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
     periodic_cache_dir: str = ".beach_cache/periodic2"
     periodic_generation_tolerance: float = 1.0e-8
+    resolved_field_solver: str = "fmm"
 
 
 @dataclass(frozen=True)
@@ -198,6 +199,7 @@ class FieldKernel:
         self._closed = False
         self._source_count = 0
         self._options = FieldKernelOptions()
+        self._resolved_field_solver = "fmm"
         self._cached_target_free_axis: int | None = None
         self._cached_target_free_bounds: tuple[float, float] | None = None
         status = self._lib.beach_kernel_create(ctypes.byref(self._handle))
@@ -218,7 +220,7 @@ class FieldKernel:
         periodic2: Mapping[str, object] | None = None,
         theta: float | None = None,
         leaf_max: int | None = None,
-        order: int = 4,
+        order: int | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ) -> "FieldKernel":
@@ -281,6 +283,28 @@ class FieldKernel:
             raise ValueError("FMM expansion order must be >= 1.")
 
         periodic_cfg = _coerce_periodic2(opts.periodic2, allow_cached_kneq0=True)
+        resolved_field_solver = _coerce_resolved_field_solver(
+            opts.resolved_field_solver
+        )
+        if resolved_field_solver == "treecode":
+            raise ValueError(
+                "native automatic reconstruction does not implement the simulator's "
+                "treecode backend."
+            )
+        if resolved_field_solver == "direct" and periodic_cfg is not None:
+            raise ValueError(
+                "exact-direct reconstruction requires a non-periodic field plan."
+            )
+        if resolved_field_solver == "direct":
+            for symbol in (
+                "beach_kernel_eval_e_direct",
+                "beach_kernel_eval_phi_direct",
+            ):
+                if getattr(self._lib, symbol, None) is None:
+                    raise FieldKernelError(
+                        "resolved direct reconstruction requires shared-library "
+                        f"symbol {symbol}."
+                    )
         periodic_axes = _null_ptr()
         periodic_len = _null_ptr()
         box_min = _null_ptr()
@@ -295,7 +319,31 @@ class FieldKernel:
         keepalive: list[np.ndarray] = [*panel_vertices]
 
         far_key = "none"
-        if periodic_cfg is not None:
+        if periodic_cfg is None:
+            if (opts.box_min is None) != (opts.box_max is None):
+                raise ValueError("box_min and box_max must be provided together.")
+            if opts.box_min is not None and opts.box_max is not None:
+                box_min_arr = np.ascontiguousarray(
+                    np.asarray(opts.box_min, dtype=np.float64)
+                )
+                box_max_arr = np.ascontiguousarray(
+                    np.asarray(opts.box_max, dtype=np.float64)
+                )
+                if (
+                    box_min_arr.shape != (3,)
+                    or box_max_arr.shape != (3,)
+                    or not np.all(np.isfinite(box_min_arr))
+                    or not np.all(np.isfinite(box_max_arr))
+                    or np.any(box_max_arr <= box_min_arr)
+                ):
+                    raise ValueError(
+                        "box_min and box_max must be finite length-3 bounds "
+                        "with box_max > box_min."
+                    )
+                keepalive.extend([box_min_arr, box_max_arr])
+                box_min = box_min_arr.ctypes.data_as(ctypes.c_void_p)
+                box_max = box_max_arr.ctypes.data_as(ctypes.c_void_p)
+        else:
             axes = periodic_cfg.axes
             lengths = periodic_cfg.lengths
             image_layers = periodic_cfg.image_layers
@@ -356,6 +404,7 @@ class FieldKernel:
         _check_status(status, "beach_kernel_build")
         self._source_count = nsrc
         self._options = opts
+        self._resolved_field_solver = resolved_field_solver
         self._cached_target_free_axis = cached_target_free_axis
         self._cached_target_free_bounds = cached_target_free_bounds
         self._keepalive = keepalive
@@ -424,13 +473,18 @@ class FieldKernel:
         e = np.zeros((3, ntarget), dtype=np.float64, order="F")
         if ntarget == 0:
             return np.empty((0, 3), dtype=np.float64)
-        status = self._lib.beach_kernel_eval_e(
+        operation = "beach_kernel_eval_e"
+        evaluator = self._lib.beach_kernel_eval_e
+        if self._resolved_field_solver == "direct":
+            operation = "beach_kernel_eval_e_direct"
+            evaluator = self._direct_evaluator(operation)
+        status = evaluator(
             self._handle,
             ctypes.c_int(ntarget),
             target_pos.ctypes.data_as(ctypes.c_void_p),
             e.ctypes.data_as(ctypes.c_void_p),
         )
-        _check_status(status, "beach_kernel_eval_e")
+        _check_status(status, operation)
         field = np.ascontiguousarray(e.T)
         external_e0 = np.asarray(self._options.external_e0, dtype=np.float64)
         if np.any(external_e0 != 0.0):
@@ -450,13 +504,18 @@ class FieldKernel:
         phi = np.zeros(ntarget, dtype=np.float64)
         if ntarget == 0:
             return phi
-        status = self._lib.beach_kernel_eval_phi(
+        operation = "beach_kernel_eval_phi"
+        evaluator = self._lib.beach_kernel_eval_phi
+        if self._resolved_field_solver == "direct":
+            operation = "beach_kernel_eval_phi_direct"
+            evaluator = self._direct_evaluator(operation)
+        status = evaluator(
             self._handle,
             ctypes.c_int(ntarget),
             target_pos.ctypes.data_as(ctypes.c_void_p),
             phi.ctypes.data_as(ctypes.c_void_p),
         )
-        _check_status(status, "beach_kernel_eval_phi")
+        _check_status(status, operation)
         external_e0 = np.asarray(self._options.external_e0, dtype=np.float64)
         if np.any(external_e0 != 0.0):
             phi = phi - target_pos.T @ external_e0
@@ -518,6 +577,13 @@ class FieldKernel:
         ntarget = target_pos.shape[1]
         target_q = _charges_1d(charges, expected=ntarget, name="charges")
         origin_arr = _vec3(origin, name="origin")
+        if self._resolved_field_solver == "direct":
+            field = self.eval_e(np.ascontiguousarray(target_pos.T))
+            force_i = target_q[:, None] * field
+            rel_pos = target_pos.T - origin_arr[None, :]
+            return np.sum(force_i, axis=0), np.sum(
+                np.cross(rel_pos, force_i), axis=0
+            )
         force = np.zeros(3, dtype=np.float64)
         torque = np.zeros(3, dtype=np.float64)
         status = self._lib.beach_kernel_force_on_charges(
@@ -685,11 +751,11 @@ def calc_object_forces_kernel(
     periodic2: Mapping[str, object] | None = None,
     theta: float | None = None,
     leaf_max: int | None = None,
-    order: int = 4,
+    order: int | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
 ) -> tuple[KernelObjectForceRecord, ...]:
-    """Compute object-wise net force using the Fortran FMM field kernel.
+    """Compute object-wise net force using the resolved native field kernel.
 
     For each target object, its own source charges are zeroed before evaluating
     the target panel lattice is integrated with seventh-order Gauss-Duffy
@@ -780,7 +846,7 @@ def field_kernel_options_from_result(
     periodic2: Mapping[str, object] | None = None,
     theta: float | None = None,
     leaf_max: int | None = None,
-    order: int = 4,
+    order: int | None = None,
     config_path: str | Path | None = None,
 ) -> FieldKernelOptions:
     """Resolve field-kernel options from a BEACH result and optional config."""
@@ -805,11 +871,22 @@ def _options_from_result(
     periodic2: Mapping[str, object] | None,
     theta: float | None,
     leaf_max: int | None,
-    order: int,
+    order: int | None,
     config_path: str | Path | None,
     context: RunContext | None = None,
 ) -> FieldKernelOptions:
     run_context = context or RunContext.from_value(resolved, config_path=config_path)
+    if (
+        periodic2 is None
+        and _periodic_nonzero_mode_backend(run_context)
+        == "panel_spectral_reference"
+    ):
+        raise ValueError(
+            "field-kernel options cannot automatically translate a "
+            "saved/configured periodic2.nonzero_mode_backend="
+            "panel_spectral_reference model to a "
+            "finite-image plan."
+        )
     sim = (
         None
         if run_context.sim is None
@@ -831,6 +908,20 @@ def _options_from_result(
             allow_cached_kneq0=True,
             allow_historical_root_oracle=allow_historical_root_oracle,
         )
+    resolved_field_solver = _resolved_field_solver(run_context)
+    if resolved_field_solver == "treecode":
+        raise ValueError(
+            "field reconstruction cannot automatically reproduce the simulator's "
+            "resolved treecode backend; use simulator-written field/potential output "
+            "or rerun with direct or fmm."
+        )
+    if periodic_cfg is not None:
+        # An explicit or configured finite-periodic model is a native FMM model.
+        # panel_spectral_reference was rejected above instead of being translated.
+        resolved_field_solver = "fmm"
+    receipt = run_context.result.field_reconstruction
+    receipt_order = 4 if receipt is None else receipt.fmm_expansion_order
+    resolved_order = receipt_order if order is None else int(order)
     resolved_theta = float(
         theta if theta is not None else (sim or {}).get("tree_theta", 0.5)
     )
@@ -843,10 +934,11 @@ def _options_from_result(
         box_min = tuple(float(v) for v in sim["box_min"])  # type: ignore[index]
         box_max = tuple(float(v) for v in sim["box_max"])  # type: ignore[index]
     return FieldKernelOptions(
+        resolved_field_solver=resolved_field_solver,
         external_e0=_external_e0_from_sim(sim),
         theta=resolved_theta,
         leaf_max=resolved_leaf_max,
-        order=int(order),
+        order=resolved_order,
         periodic2=periodic_cfg,
         box_min=box_min,
         box_max=box_max,
@@ -878,12 +970,41 @@ def _require_total_field_config(
 ) -> None:
     """Validate configuration before resolving a total-field kernel."""
 
+    receipt = context.result.field_reconstruction
+    if receipt is not None:
+        if receipt.resolved_field_solver == "treecode":
+            raise ValueError(
+                f"{operation} cannot automatically reproduce the simulator's "
+                "resolved treecode backend; use simulator-written field/potential "
+                "output or rerun with direct or fmm."
+            )
+        if receipt.periodic_nonzero_mode_backend == "panel_spectral_reference":
+            raise ValueError(
+                f"{operation} cannot reconstruct the simulator's "
+                "panel_spectral_reference split-periodic field with the native "
+                "finite-image kernel; use simulator-written potential output or "
+                "the dedicated periodic reference validation workflow."
+            )
+        return
     config = context.config
     if config is None:
         raise ValueError(
             f"{operation} requires the run's beach.toml to reconstruct the "
             "simulator total field; pass config_path or keep beach.toml near "
             "the output directory."
+        )
+    if _periodic_nonzero_mode_backend(context) == "panel_spectral_reference":
+        raise ValueError(
+            f"{operation} cannot reconstruct the simulator's "
+            "panel_spectral_reference split-periodic field with the native "
+            "finite-image kernel; use simulator-written potential output or "
+            "the dedicated periodic reference validation workflow."
+        )
+    if _resolved_field_solver(context) == "treecode":
+        raise ValueError(
+            f"{operation} cannot automatically reproduce the simulator's resolved "
+            "treecode backend; use simulator-written field/potential output or "
+            "rerun with direct or fmm."
         )
     sim = context.sim
     if (
@@ -898,6 +1019,54 @@ def _require_total_field_config(
         )
 
 
+def _periodic_nonzero_mode_backend(context: RunContext) -> str | None:
+    receipt = context.result.field_reconstruction
+    if receipt is not None:
+        return receipt.periodic_nonzero_mode_backend
+    config = context.config
+    if config is None:
+        return None
+    periodic2 = config.get("periodic2")
+    if not isinstance(periodic2, Mapping):
+        return None
+    value = periodic2.get("nonzero_mode_backend")
+    return None if value is None else str(value).strip().lower()
+
+
+def _resolved_field_solver(context: RunContext) -> str:
+    """Resolve the simulator backend for automatic result reconstruction."""
+
+    receipt = context.result.field_reconstruction
+    if receipt is not None:
+        return _coerce_resolved_field_solver(receipt.resolved_field_solver)
+    sim = context.sim
+    if sim is None:
+        # Low-level FieldKernel.from_result historically permits a result without
+        # its config. High-level total-field APIs reject that case separately.
+        return "fmm"
+    requested = str(sim.get("field_solver", "auto")).strip().lower()
+    if requested in {"direct", "treecode", "fmm"}:
+        return requested
+    if requested != "auto":
+        raise ValueError(
+            "sim.field_solver must be direct, treecode, fmm, or auto for field "
+            "reconstruction."
+        )
+    tree_min_nelem = int(sim.get("tree_min_nelem", 256))
+    if tree_min_nelem < 1:
+        raise ValueError("sim.tree_min_nelem must be >= 1 for field reconstruction.")
+    return "fmm" if context.result.mesh_nelem >= tree_min_nelem else "direct"
+
+
+def _coerce_resolved_field_solver(value: object) -> str:
+    resolved = str(value).strip().lower()
+    if resolved not in {"direct", "treecode", "fmm"}:
+        raise ValueError(
+            "resolved_field_solver must be direct, treecode, or fmm."
+        )
+    return resolved
+
+
 def _require_complete_total_kernel(
     options: FieldKernelOptions,
     *,
@@ -905,10 +1074,23 @@ def _require_complete_total_kernel(
 ) -> None:
     """Reject a native kernel option set that represents only one component."""
 
+    resolved_field_solver = _coerce_resolved_field_solver(
+        options.resolved_field_solver
+    )
+    if resolved_field_solver == "treecode":
+        raise ValueError(
+            f"{operation} cannot automatically reproduce the simulator's resolved "
+            "treecode backend."
+        )
     periodic_cfg = _coerce_periodic2(
         options.periodic2,
         allow_cached_kneq0=True,
     )
+    if resolved_field_solver == "direct" and periodic_cfg is not None:
+        raise ValueError(
+            f"{operation} cannot combine exact-direct reconstruction with a "
+            "periodic field plan."
+        )
     if periodic_cfg is not None and periodic_cfg.far_correction == "cached_kneq0":
         raise ValueError(
             f"{operation} cannot treat cached_kneq0 as the simulator total "

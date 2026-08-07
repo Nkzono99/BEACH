@@ -167,8 +167,19 @@ reservoir 粒子の流入補正と closed PE はこのページの対象外で�
 
 ## 境界通過後の残り時間を進める
 
-box境界イベント時の位置と速度は、候補軌道の入出力状態を交差fractionで補間します。そのうえで、
-event maskに含まれる各軸の座標を対応するbox面の値へ正確に揃えます。粒子が生存する境界作用を適用した後、
+box境界イベント位置は候補chordの交差fractionで求め、event maskに含まれる各軸を対応するbox面へ正確に
+揃えます。event速度の向きはchord接線に合わせ、速さは予測中点電場がevent位置までに行う離散workから求めます。
+
+$$
+\lVert\mathbf{v}_\mathrm{event}\rVert^2=\lVert\mathbf{v}_0\rVert^2+
+2(q/m)\mathbf{E}_\mathrm{mid}\cdot(\mathbf{x}_\mathrm{event}-\mathbf{x}_0)
+$$
+
+これにより、強い磁場で部分stepのBoris速度だけが内向きへ反転していても、外向きchord crossingへ内向き速度を
+適用しません。純磁場ではevent速度のノルムを保存します。非正・非有限の速さ、または零長chordは
+未解決eventとしてfail closedです。chord交差fractionは残り時間のfractionにも使いますが、加速または
+磁場旋回中の真の交差時刻ではありません。この時間離散化近似が境界作用やpotential-barrier判定へ与える影響は、
+`dt`、`dt/2`、必要なら`dt/4`で収束を確認します。粒子が生存する境界作用を適用した後、
 reflect系/periodic後のevent軸座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
 なる1 ULP offsetを避け、残り軌道による次のevent fractionが0へunderflowする境界chatterを防ぎます。
 
