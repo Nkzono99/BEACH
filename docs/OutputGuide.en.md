@@ -28,6 +28,9 @@ The `[surface_current_model]` receipt is recorded as `surface_current_model`. Fo
 `surface_current_model_*` fields report the selected branch, reference area, $\phi_0$, $\phi_m$, resolved ambient-electron
 density, and signed electron / ion / PE-emission / PE-escape / PE-return / net current densities. In particular,
 `surface_current_model_pe_return_current_density_A_m2` is negative, while emission and escape are positive.
+`surface_current_model_pe_escape_particle_current_A` is negative because it is the signed current carried outward by
+PE particles. The two budget residuals independently check PE emission-return-escape continuity and the stationary
+surface-current balance.
 
 ## History
 
@@ -64,6 +67,13 @@ With `write_mesh_potential=true`, BEACH writes `mesh_potential.csv`.
 - `fixed_absorbed_target_charge_C` and `fixed_absorbed_weight_scale`
 - `fixed_emission_target_charge_C` and `fixed_emission_weight_scale`
 - `fixed_current_correction_C` added to surface charge by the external closure
+- applied absorption/emission values in `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`
+- external-escape values in `fixed_escape_target_charge_C` / `fixed_escape_applied_charge_C`
+- the difference from raw escape in `fixed_escape_correction_C`
+
+`escaped_to_infinity_C` remains the raw trajectory result. Zhao fixed-current operation preserves it and stores the
+external escape target alongside it. Because the escape correction is not deposited onto surface elements, analysis
+can keep the surface update separate from the external-boundary budget.
 
 `charge_ledger_residual_C` in `summary.txt` combines changes in surface,
 local-flight, and unresolved stocks with external fluxes, the neutral-return

@@ -116,7 +116,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(17)
+  call test_init(18)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -291,6 +291,10 @@ program test_simulator
 
   call test_begin('fixed_photo_currents_scale_emission_and_return_separately')
   call test_fixed_photo_current_closure()
+  call test_end()
+
+  call test_begin('zhao_budget_applies_escape_closure_separately_from_raw_trajectory')
+  call test_zhao_fixed_current_budget()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -898,8 +902,16 @@ contains
       'fixed PE return target mismatch' &
       )
     call assert_close_dp( &
+      fixed_ledger%fixed_absorbed_applied_charge(1), -0.25_dp, 1.0e-12_dp, &
+      'fixed PE return applied mismatch' &
+      )
+    call assert_close_dp( &
       fixed_ledger%fixed_emission_target_charge(1), 2.0_dp, 1.0e-12_dp, &
       'fixed PE emission target mismatch' &
+      )
+    call assert_close_dp( &
+      fixed_ledger%fixed_emission_applied_charge(1), 2.0_dp, 1.0e-12_dp, &
+      'fixed PE emission applied mismatch' &
       )
     call assert_true( &
       abs(fixed_ledger%fixed_absorbed_weight_scale(1) - fixed_ledger%fixed_emission_weight_scale(1)) > 1.0e-6_dp, &
@@ -907,6 +919,135 @@ contains
       )
     call assert_close_dp(fixed_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'fixed PE ledger residual mismatch')
   end subroutine test_fixed_photo_current_closure
+
+  subroutine test_zhao_fixed_current_budget()
+    real(dp), parameter :: electron_mass = 9.1093837015e-31_dp
+    real(dp), parameter :: proton_mass = 1.67262192369e-27_dp
+    type(mesh_type) :: zhao_mesh
+    type(app_config) :: zhao_cfg
+    type(sim_stats) :: zhao_stats
+    type(charge_ledger_type) :: zhao_ledger
+    real(dp) :: tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2), inward_speed
+    integer(i32) :: photo_idx
+
+    tri_v0(:, 1) = [0.0_dp, 0.0_dp, 7.5e5_dp]
+    tri_v1(:, 1) = [1.0e7_dp, 0.0_dp, 7.5e5_dp]
+    tri_v2(:, 1) = [1.0e7_dp, 1.0e7_dp, 7.5e5_dp]
+    tri_v0(:, 2) = [0.0_dp, 0.0_dp, 7.5e5_dp]
+    tri_v1(:, 2) = [1.0e7_dp, 1.0e7_dp, 7.5e5_dp]
+    tri_v2(:, 2) = [0.0_dp, 1.0e7_dp, 7.5e5_dp]
+    call init_mesh(zhao_mesh, tri_v0, tri_v1, tri_v2)
+    zhao_mesh%elem_vacuum_sign = 1_i32
+    zhao_mesh%vacuum_normals = zhao_mesh%normals
+
+    call default_app_config(zhao_cfg)
+    zhao_cfg%sim%rng_seed = 1234_i32
+    zhao_cfg%sim%batch_count = 1_i32
+    zhao_cfg%sim%batch_duration = 1.0_dp
+    zhao_cfg%sim%dt = 1.0_dp
+    zhao_cfg%sim%max_step = 2_i32
+    zhao_cfg%sim%q_floor = 1.0e-30_dp
+    zhao_cfg%sim%use_box = .true.
+    zhao_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    zhao_cfg%sim%box_max = [1.0e7_dp, 1.0e7_dp, 1.0e6_dp]
+    zhao_cfg%sim%bc_high(3) = bc_open
+    zhao_cfg%n_particle_species = 3_i32
+    inward_speed = 4.68e5_dp*sin(60.0_dp*acos(-1.0_dp)/180.0_dp)
+
+    zhao_cfg%particle_species(1) = species_from_defaults()
+    zhao_cfg%particle_species(1)%species_key = 'electron'
+    zhao_cfg%particle_species(1)%source_mode = 'volume_seed'
+    zhao_cfg%particle_species(1)%npcls_per_step = 512_i32
+    zhao_cfg%particle_species(1)%q_particle = -1.0_dp
+    zhao_cfg%particle_species(1)%m_particle = electron_mass
+    zhao_cfg%particle_species(1)%w_particle = 1.0_dp
+    zhao_cfg%particle_species(1)%temperature_ev = 12.0_dp
+    zhao_cfg%particle_species(1)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
+    zhao_cfg%particle_species(1)%pos_low = [5.0e6_dp, 5.0e6_dp, 9.0e5_dp]
+    zhao_cfg%particle_species(1)%pos_high = zhao_cfg%particle_species(1)%pos_low
+    zhao_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'
+
+    zhao_cfg%particle_species(2) = species_from_defaults()
+    zhao_cfg%particle_species(2)%species_key = 'ion'
+    zhao_cfg%particle_species(2)%source_mode = 'volume_seed'
+    zhao_cfg%particle_species(2)%npcls_per_step = 128_i32
+    zhao_cfg%particle_species(2)%q_particle = 1.0_dp
+    zhao_cfg%particle_species(2)%m_particle = proton_mass
+    zhao_cfg%particle_species(2)%w_particle = 1.0_dp
+    zhao_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
+    zhao_cfg%particle_species(2)%has_number_density_m3 = .true.
+    zhao_cfg%particle_species(2)%temperature_ev = 0.1_dp
+    zhao_cfg%particle_species(2)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
+    zhao_cfg%particle_species(2)%pos_low = [5.0e6_dp, 5.0e6_dp, 9.0e5_dp]
+    zhao_cfg%particle_species(2)%pos_high = zhao_cfg%particle_species(2)%pos_low
+    zhao_cfg%particle_species(2)%surface_charge_closure = 'fixed_current'
+
+    photo_idx = 3_i32
+    zhao_cfg%particle_species(photo_idx) = species_from_defaults()
+    zhao_cfg%particle_species(photo_idx)%species_key = 'photoelectron'
+    zhao_cfg%particle_species(photo_idx)%source_mode = 'photo_raycast'
+    zhao_cfg%particle_species(photo_idx)%rays_per_batch = 256_i32
+    zhao_cfg%particle_species(photo_idx)%emit_current_density_a_m2 = 1.0_dp
+    zhao_cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit = .true.
+    zhao_cfg%particle_species(photo_idx)%boundary_high(3) = bc_reflect
+    zhao_cfg%particle_species(photo_idx)%surface_charge_closure = 'fixed_current'
+    zhao_cfg%particle_species(photo_idx)%q_particle = -1.0_dp
+    zhao_cfg%particle_species(photo_idx)%m_particle = electron_mass
+    zhao_cfg%particle_species(photo_idx)%temperature_ev = 2.2_dp
+    zhao_cfg%particle_species(photo_idx)%has_temperature_ev = .true.
+    zhao_cfg%particle_species(photo_idx)%normal_drift_speed = 1.0e6_dp
+    zhao_cfg%particle_species(photo_idx)%inject_face = 'z_high'
+    zhao_cfg%particle_species(photo_idx)%pos_low = [0.0_dp, 0.0_dp, 1.0e6_dp]
+    zhao_cfg%particle_species(photo_idx)%pos_high = [1.0e7_dp, 1.0e7_dp, 1.0e6_dp]
+    zhao_cfg%particle_species(photo_idx)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
+    zhao_cfg%particle_species(photo_idx)%has_ray_direction = .true.
+
+    zhao_cfg%surface_current%model = 'zhao_stationary'
+    zhao_cfg%surface_current%zhao_branch = 'auto'
+    zhao_cfg%surface_current%electron_species = 'electron'
+    zhao_cfg%surface_current%ion_species = 'ion'
+    zhao_cfg%surface_current%photoelectron_species = 'photoelectron'
+    zhao_cfg%surface_current%solar_elevation_deg = 60.0_dp
+    zhao_cfg%surface_current%photoelectron_ref_density_m3 = 64.0e6_dp
+    zhao_cfg%surface_current%reference_area_m2 = 1.0_dp
+    zhao_cfg%surface_current%has_reference_area_m2 = .true.
+
+    call seed_particles_from_config(zhao_cfg)
+    call run_absorption_insulator(zhao_mesh, zhao_cfg, zhao_stats, charge_ledger=zhao_ledger)
+    call assert_true(zhao_ledger%absorbed_count(1) > 0_i64, 'Zhao fixture needs raw electron absorption')
+    call assert_true(zhao_ledger%absorbed_count(2) > 0_i64, 'Zhao fixture needs raw ion absorption')
+    call assert_true(zhao_ledger%absorbed_count(photo_idx) > 0_i64, 'Zhao fixture needs raw PE return')
+    call assert_close_dp( &
+      zhao_ledger%escaped_to_infinity(photo_idx), 0.0_dp, 0.0_dp, &
+      'reflected raw PE trajectory must not escape' &
+      )
+    call assert_true( &
+      zhao_ledger%fixed_escape_target_charge(photo_idx) < 0.0_dp, &
+      'Zhao PE escape target must carry negative particle charge outward' &
+      )
+    call assert_close_dp( &
+      zhao_ledger%fixed_escape_applied_charge(photo_idx), &
+      zhao_ledger%fixed_escape_target_charge(photo_idx), 1.0e-18_dp, &
+      'Zhao PE escape applied charge must equal its target' &
+      )
+    call assert_close_dp( &
+      zhao_ledger%fixed_escape_correction(photo_idx), &
+      zhao_ledger%fixed_escape_target_charge(photo_idx), 1.0e-18_dp, &
+      'Zhao PE escape correction must separate target from zero raw escape' &
+      )
+    call assert_close_dp( &
+      zhao_ledger%fixed_absorbed_applied_charge(photo_idx) + &
+      zhao_ledger%fixed_emission_applied_charge(photo_idx) + &
+      zhao_ledger%fixed_escape_applied_charge(photo_idx), &
+      0.0_dp, 1.0e-12_dp, 'Zhao PE applied channel continuity mismatch' &
+      )
+    call assert_close_dp( &
+      sum(zhao_ledger%fixed_absorbed_applied_charge) + sum(zhao_ledger%fixed_emission_applied_charge), &
+      0.0_dp, 1.0e-12_dp, 'Zhao applied surface-current budget must close' &
+      )
+  end subroutine test_zhao_fixed_current_budget
 
   subroutine test_multiple_box_event_failure_context()
     character(len=1024) :: executable_path, command, child_line

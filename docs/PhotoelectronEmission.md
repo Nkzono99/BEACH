@@ -154,9 +154,11 @@ BEACH は raycast の放出元分布と軌道の帰還先分布をそれぞれ�
 電流は倍率の分母に使いません。外部から return VDF を注入する構成では top 面を open にし、同じ species または
 別 species の `neutral_return` を併用しません。
 
-`[surface_current_model] model="zhao_stationary"`を使うと、PE emissionとescapeをZhao零電流定常根から計算し、
-returnを`escape - emission`として自動設定できます。この場合もemission元とtracked return先だけをBEACHが決め、
-box外のシース場・空間電荷・return軌道や遅延は解きません。完全な設定例は
+`[surface_current_model] model="zhao_stationary"`を使うと、PE emission、escape、returnをZhao零電流定常根から
+独立に計算できます。emissionとreturnは表面channelへ適用し、escapeは表面にdepositしない外部境界targetとして
+記録します。PE net電流を倍率分母に使わないため、大電流同士の相殺が強い場合にも安定です。raw escape統計は
+保持され、target / applied / correctionと比較できます。box外のシース場・空間電荷・return軌道や遅延は解きません。
+完全な設定例は
 `examples/periodic2_zhao_fixed_current.toml`です。
 
 統合した場・流入・電位基準は

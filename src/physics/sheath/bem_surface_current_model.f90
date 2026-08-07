@@ -28,10 +28,14 @@ module bem_surface_current_model
     real(dp) :: photoelectron_escape_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_return_current_density_a_m2 = 0.0_dp
     real(dp) :: net_current_density_a_m2 = 0.0_dp
+    real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
+    real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
     logical, allocatable :: has_absorbed_target(:)
     logical, allocatable :: has_emission_target(:)
+    logical, allocatable :: has_escape_target(:)
     real(dp), allocatable :: absorbed_current_a(:)
     real(dp), allocatable :: emission_current_a(:)
+    real(dp), allocatable :: escaped_particle_current_a(:)
   end type surface_current_model_result_type
 
   public :: evaluate_surface_current_model
@@ -46,13 +50,17 @@ contains
     allocate ( &
       result%has_absorbed_target(app%n_particle_species), &
       result%has_emission_target(app%n_particle_species), &
+      result%has_escape_target(app%n_particle_species), &
       result%absorbed_current_a(app%n_particle_species), &
-      result%emission_current_a(app%n_particle_species) &
+      result%emission_current_a(app%n_particle_species), &
+      result%escaped_particle_current_a(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
+    result%has_escape_target = .false.
     result%absorbed_current_a = 0.0_dp
     result%emission_current_a = 0.0_dp
+    result%escaped_particle_current_a = 0.0_dp
     result%model = trim(lower_ascii(app%surface_current%model))
 
     select case (trim(result%model))
@@ -72,7 +80,7 @@ contains
     integer(i32) :: electron_idx, ion_idx, photo_idx
     real(dp) :: electron_temperature_ev, photo_temperature_ev
     real(dp) :: electron_drift_mps, ion_drift_mps, a_swe, electron_term, ion_term, photo_escape_term
-    real(dp) :: scale, area
+    real(dp) :: scale, area, budget_scale, budget_tolerance
     character(len=16) :: solver_name
     logical :: success
 
@@ -129,17 +137,40 @@ contains
     result%net_current_density_a_m2 = result%electron_current_density_a_m2 + &
                                       result%ion_current_density_a_m2 + &
                                       result%photoelectron_escape_current_density_a_m2
+    result%photoelectron_budget_residual_current_density_a_m2 = &
+      result%photoelectron_emission_current_density_a_m2 + &
+      result%photoelectron_return_current_density_a_m2 - &
+      result%photoelectron_escape_current_density_a_m2
+    result%surface_budget_residual_current_density_a_m2 = &
+      result%electron_current_density_a_m2 + result%ion_current_density_a_m2 + &
+      result%photoelectron_emission_current_density_a_m2 + &
+      result%photoelectron_return_current_density_a_m2
     if (.not. all(ieee_is_finite([ &
                                  result%electron_current_density_a_m2, result%ion_current_density_a_m2, &
                                  result%photoelectron_emission_current_density_a_m2, &
                                  result%photoelectron_escape_current_density_a_m2, &
-                                 result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2 &
+                                 result%photoelectron_return_current_density_a_m2, result%net_current_density_a_m2, &
+                                 result%photoelectron_budget_residual_current_density_a_m2, &
+                                 result%surface_budget_residual_current_density_a_m2 &
                                  ]))) then
       error stop 'Zhao stationary surface-current evaluation produced non-finite currents.'
     end if
     if (result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
       error stop 'Zhao stationary surface-current evaluation produced invalid PE current signs.'
+    end if
+    budget_scale = max( &
+                   abs(result%electron_current_density_a_m2), abs(result%ion_current_density_a_m2), &
+                   abs(result%photoelectron_emission_current_density_a_m2), &
+                   abs(result%photoelectron_escape_current_density_a_m2), &
+                   abs(result%photoelectron_return_current_density_a_m2), tiny(1.0_dp) &
+                   )
+    budget_tolerance = sqrt(epsilon(1.0_dp))*budget_scale
+    if (abs(result%photoelectron_budget_residual_current_density_a_m2) > budget_tolerance) then
+      error stop 'Zhao stationary PE current budget does not close.'
+    end if
+    if (abs(result%surface_budget_residual_current_density_a_m2) > budget_tolerance) then
+      error stop 'Zhao stationary surface current budget does not close.'
     end if
 
     result%active = .true.
@@ -149,10 +180,13 @@ contains
     result%photoelectron_species_idx = photo_idx
     result%has_absorbed_target([electron_idx, ion_idx, photo_idx]) = .true.
     result%has_emission_target(photo_idx) = .true.
+    result%has_escape_target(photo_idx) = .true.
     result%absorbed_current_a(electron_idx) = area*result%electron_current_density_a_m2
     result%absorbed_current_a(ion_idx) = area*result%ion_current_density_a_m2
     result%absorbed_current_a(photo_idx) = area*result%photoelectron_return_current_density_a_m2
     result%emission_current_a(photo_idx) = area*result%photoelectron_emission_current_density_a_m2
+    ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
+    result%escaped_particle_current_a(photo_idx) = -area*result%photoelectron_escape_current_density_a_m2
   end subroutine evaluate_zhao_stationary_current
 
   integer(i32) function species_index(app, species_key) result(index_value)

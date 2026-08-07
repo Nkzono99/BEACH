@@ -56,6 +56,12 @@ program test_surface_current_model
     result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
     'PE emission/return/escape identity mismatch' &
     )
+  call assert_true(result%has_escape_target(3), 'Zhao PE escape target must be active')
+  call assert_close_dp( &
+    result%escaped_particle_current_a(3), &
+    -result%reference_area_m2*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
+    'Zhao escaped particle current sign mismatch' &
+    )
   call assert_close_dp( &
     result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, &
     'stationary Zhao current must close to zero' &
@@ -128,6 +134,14 @@ contains
       current%photoelectron_return_current_density_a_m2, &
       current%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
       trim(label)//' PE emission/return/escape identity mismatch' &
+      )
+    call assert_close_dp( &
+      current%photoelectron_budget_residual_current_density_a_m2, 0.0_dp, 1.0e-18_dp, &
+      trim(label)//' PE budget residual mismatch' &
+      )
+    call assert_close_dp( &
+      current%surface_budget_residual_current_density_a_m2, 0.0_dp, 1.0e-12_dp, &
+      trim(label)//' surface budget residual mismatch' &
       )
     call assert_close_dp( &
       current%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, &

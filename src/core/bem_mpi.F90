@@ -1,6 +1,9 @@
 !> MPIの初期化・集約を抽象化し、非MPIビルドでは単一ランク動作へフォールバックする。
 module bem_mpi
   use bem_kinds, only: dp, i32, i64
+#ifdef USE_MPI
+  use mpi
+#endif
   implicit none
   private
 
@@ -39,7 +42,6 @@ contains
   subroutine mpi_initialize(ctx)
     type(mpi_context), intent(out) :: ctx
 #ifdef USE_MPI
-    include 'mpif.h'
     logical :: is_initialized
     integer :: ierr
     integer :: rank_int, size_int
@@ -76,7 +78,6 @@ contains
   subroutine mpi_shutdown(ctx)
     type(mpi_context), intent(inout) :: ctx
 #ifdef USE_MPI
-    include 'mpif.h'
     logical :: is_finalized
     integer :: ierr
 
@@ -234,7 +235,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    include 'mpif.h'
     real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
@@ -250,7 +250,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: value
 #ifdef USE_MPI
-    include 'mpif.h'
     real(dp) :: recvval
     integer :: ierr
 
@@ -265,7 +264,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    include 'mpif.h'
     real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
@@ -281,7 +279,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     real(dp), intent(inout) :: values(:)
 #ifdef USE_MPI
-    include 'mpif.h'
     real(dp), allocatable :: recvbuf(:)
     integer :: ierr
 
@@ -297,7 +294,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     integer(i32), intent(inout) :: values(:)
 #ifdef USE_MPI
-    include 'mpif.h'
     integer, allocatable :: sendbuf(:), recvbuf(:)
     integer :: ierr
 
@@ -314,7 +310,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     integer(i64), intent(inout) :: values(:)
 #ifdef USE_MPI
-    include 'mpif.h'
     integer(i64), allocatable :: recvbuf(:)
     integer :: ierr
 
@@ -330,7 +325,6 @@ contains
     type(mpi_context), intent(in) :: ctx
     integer(i32), intent(inout) :: value
 #ifdef USE_MPI
-    include 'mpif.h'
     integer :: sendval, recvval, ierr
 
     if (.not. ctx%enabled) return
@@ -346,7 +340,6 @@ contains
     integer(i32), intent(inout) :: values(:)
     integer(i32), intent(in) :: root
 #ifdef USE_MPI
-    include 'mpif.h'
     integer, allocatable :: buffer(:)
     integer :: ierr
 #endif
@@ -369,7 +362,6 @@ contains
     real(dp), intent(inout) :: values(:)
     integer(i32), intent(in) :: root
 #ifdef USE_MPI
-    include 'mpif.h'
     integer :: ierr
 #endif
 
@@ -392,7 +384,6 @@ contains
     real(dp), allocatable, intent(out) :: global_values(:)
     integer(i32), intent(in) :: root
 #ifdef USE_MPI
-    include 'mpif.h'
     integer, allocatable :: counts(:), displacements(:)
     integer :: ierr, local_count, rank_index, total_count
 #endif
@@ -438,9 +429,7 @@ contains
   subroutine mpi_world_barrier(ctx)
     type(mpi_context), intent(in) :: ctx
 #ifdef USE_MPI
-    include 'mpif.h'
     integer :: ierr
-
     if (.not. ctx%enabled) return
     call MPI_Barrier(MPI_COMM_WORLD, ierr)
 #endif

@@ -167,10 +167,12 @@ raycast emission-origin distribution and the tracked return-destination distribu
 net PE current, the difference of these two large channels, as a scale denominator. If the external model injects a return
 VDF, keep the top face open and do not also enable `neutral_return` on the same or another return channel.
 
-With `[surface_current_model] model="zhao_stationary"`, BEACH calculates PE emission and escape from the Zhao zero-current
-stationary root and sets return to `escape - emission`. BEACH still determines only the emission-origin and tracked-return
-spatial distributions; it does not solve the sheath field, space charge, return orbit, or return delay outside the box. See
-`examples/periodic2_zhao_fixed_current.toml` for the complete setup.
+With `[surface_current_model] model="zhao_stationary"`, BEACH independently calculates PE emission, escape, and return
+from the Zhao zero-current stationary root. Emission and return are applied to surface channels; escape is recorded as
+an external-boundary target that is not deposited onto the surface. The closure never uses the PE net current as a
+scaling denominator, so it remains stable when large currents nearly cancel. Raw escape statistics are preserved for
+comparison with target / applied / correction values. BEACH does not solve the sheath field, space charge, return orbit,
+or return delay outside the box. See `examples/periodic2_zhao_fixed_current.toml` for the complete setup.
 
 See [Particle escape and local return](ParticleEscapeReturn.en.html) to choose between
 `particle_boundary.ordinary_open_model` and closed PE.

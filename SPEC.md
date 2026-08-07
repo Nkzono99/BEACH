@@ -285,7 +285,17 @@ J_e+J_i+J_{escape}=0
 $$
 
 です。$AJ_e$、$AJ_i$、$AJ_{return}$を各吸収channel、$AJ_{emit}$をPE放出反作用channelへ渡します。
-PEの二つの大電流を独立に補正し、差であるnet PE電流をscaleの分母に使いません。
+さらに、外向きPE粒子電流$-AJ_{escape}$を外部escape targetとして記録します。escape targetは表面要素へ
+depositせず、rawな境界escape電荷との差を外部境界closureの補正としてledgerへ記録します。したがって、適用後は
+
+$$
+AJ_{return}+AJ_{emit}-AJ_{escape}=0,
+\qquad
+AJ_e+AJ_i+AJ_{return}+AJ_{emit}=0
+$$
+
+を独立に検証できます。PEの大きなemission、return、escapeを別channelで補正し、差であるnet PE電流を
+scaleの分母に使いません。raw軌道統計は上書きせず、raw / target / appliedを別々に出力します。
 
 このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、run中の表面電位に応じて
 targetを再計算しません。外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。

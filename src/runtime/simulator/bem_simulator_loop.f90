@@ -262,9 +262,14 @@ contains
       batch_ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
       batch_ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
       batch_ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
+      batch_ledger%fixed_absorbed_applied_charge = workspace%fixed_absorbed_applied_charge
       batch_ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
       batch_ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
+      batch_ledger%fixed_emission_applied_charge = workspace%fixed_emission_applied_charge
       batch_ledger%fixed_emission_weight_scale = workspace%fixed_emission_weight_scale
+      batch_ledger%fixed_escape_target_charge = workspace%fixed_escape_target_charge
+      batch_ledger%fixed_escape_applied_charge = workspace%fixed_escape_applied_charge
+      batch_ledger%fixed_escape_correction = workspace%fixed_escape_correction
       batch_ledger%fixed_current_correction = workspace%fixed_current_correction
     end if
 
@@ -754,10 +759,14 @@ contains
     do i = 1_i32, fresh_particle_count
       species_idx = pcls_batch%species_id(i)
       if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
-      if (.not. workspace%absorbed_flag(i)) cycle
       macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
-      workspace%fixed_current_charge_values(species_idx) = &
-        workspace%fixed_current_charge_values(species_idx) + macro_charge
+      if (workspace%absorbed_flag(i)) then
+        workspace%fixed_current_charge_values(species_idx) = &
+          workspace%fixed_current_charge_values(species_idx) + macro_charge
+      else if (workspace%escaped_boundary_flag(i)) then
+        workspace%fixed_current_charge_values(2*n + species_idx) = &
+          workspace%fixed_current_charge_values(2*n + species_idx) + macro_charge
+      end if
     end do
     do species_idx = 1_i32, n
       if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
@@ -790,6 +799,7 @@ contains
           error stop 'fixed_current absorbed scale is invalid.'
         end if
         workspace%fixed_absorbed_target_charge(species_idx) = target_charge
+        workspace%fixed_absorbed_applied_charge(species_idx) = target_charge
         workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
         workspace%fixed_current_correction(species_idx) = &
           workspace%fixed_current_correction(species_idx) + correction
@@ -825,11 +835,27 @@ contains
           error stop 'fixed_current emission scale is invalid.'
         end if
         workspace%fixed_emission_target_charge(species_idx) = target_charge
+        workspace%fixed_emission_applied_charge(species_idx) = target_charge
         workspace%fixed_emission_weight_scale(species_idx) = weight_scale
         workspace%fixed_current_correction(species_idx) = &
           workspace%fixed_current_correction(species_idx) + correction
         workspace%photo_emission_dq(:, species_idx) = &
           weight_scale*workspace%photo_emission_dq(:, species_idx)
+      end if
+
+      if (current_model%has_escape_target(species_idx)) then
+        raw_charge = workspace%fixed_current_charge_values(2*n + species_idx)
+        target_charge = current_model%escaped_particle_current_a(species_idx)*app%sim%batch_duration
+        if (.not. ieee_is_finite(target_charge)) then
+          error stop 'fixed_current escape target is not finite.'
+        end if
+        if (target_charge /= 0.0_dp .and. &
+            sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
+          error stop 'fixed_current escape target sign must match the escaped particle charge.'
+        end if
+        workspace%fixed_escape_target_charge(species_idx) = target_charge
+        workspace%fixed_escape_applied_charge(species_idx) = target_charge
+        workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
       end if
     end do
   end subroutine apply_fixed_surface_current_closure

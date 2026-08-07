@@ -301,14 +301,31 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
             fixed_absorbed_target_charge_c = float(
                 row.get("fixed_absorbed_target_charge_C") or 0.0
             )
+            fixed_absorbed_applied_charge_c = float(
+                row.get("fixed_absorbed_applied_charge_C")
+                or fixed_absorbed_target_charge_c
+            )
             fixed_absorbed_weight_scale = float(
                 row.get("fixed_absorbed_weight_scale") or 1.0
             )
             fixed_emission_target_charge_c = float(
                 row.get("fixed_emission_target_charge_C") or 0.0
             )
+            fixed_emission_applied_charge_c = float(
+                row.get("fixed_emission_applied_charge_C")
+                or fixed_emission_target_charge_c
+            )
             fixed_emission_weight_scale = float(
                 row.get("fixed_emission_weight_scale") or 1.0
+            )
+            fixed_escape_target_charge_c = float(
+                row.get("fixed_escape_target_charge_C") or 0.0
+            )
+            fixed_escape_applied_charge_c = float(
+                row.get("fixed_escape_applied_charge_C") or 0.0
+            )
+            fixed_escape_correction_c = float(
+                row.get("fixed_escape_correction_C") or 0.0
             )
             fixed_current_correction_c = float(
                 row.get("fixed_current_correction_C") or 0.0
@@ -322,9 +339,14 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
             )
             fixed_values = (
                 fixed_absorbed_target_charge_c,
+                fixed_absorbed_applied_charge_c,
                 fixed_absorbed_weight_scale,
                 fixed_emission_target_charge_c,
+                fixed_emission_applied_charge_c,
                 fixed_emission_weight_scale,
+                fixed_escape_target_charge_c,
+                fixed_escape_applied_charge_c,
+                fixed_escape_correction_c,
                 fixed_current_correction_c,
             )
             if not np.all(np.isfinite((*charges, *neutral_values, *fixed_values))):
@@ -339,9 +361,14 @@ def _load_charge_ledger_if_exists(path: Path) -> tuple[ChargeLedgerEntry, ...] |
                     neutral_return_weight_scale=neutral_return_weight_scale,
                     neutral_return_unresolved_fraction=neutral_return_unresolved_fraction,
                     fixed_absorbed_target_charge_c=fixed_absorbed_target_charge_c,
+                    fixed_absorbed_applied_charge_c=fixed_absorbed_applied_charge_c,
                     fixed_absorbed_weight_scale=fixed_absorbed_weight_scale,
                     fixed_emission_target_charge_c=fixed_emission_target_charge_c,
+                    fixed_emission_applied_charge_c=fixed_emission_applied_charge_c,
                     fixed_emission_weight_scale=fixed_emission_weight_scale,
+                    fixed_escape_target_charge_c=fixed_escape_target_charge_c,
+                    fixed_escape_applied_charge_c=fixed_escape_applied_charge_c,
+                    fixed_escape_correction_c=fixed_escape_correction_c,
                     fixed_current_correction_c=fixed_current_correction_c,
                 )
             )

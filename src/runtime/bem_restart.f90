@@ -455,11 +455,12 @@ contains
     integer :: u, ios, pos
     integer(i32) :: nspecies, batch_count, row_batch, species_idx, loaded
     integer(i64) :: count_values(5)
-    real(dp) :: charge_values(13), legacy_charge_values(8), stock_values(6)
-    character(len=512) :: line, header
+    real(dp) :: charge_values(18), fixed_charge_values(13), legacy_charge_values(8), stock_values(6)
+    character(len=512) :: line
+    character(len=2048) :: header
     character(len=96) :: key
     character(len=256) :: value
-    logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns
+    logical :: found_nspecies, found_batch, found_stocks(6), has_fixed_current_columns, has_current_budget_columns
     logical, allocatable :: seen(:)
 
     nspecies = 0_i32
@@ -531,11 +532,21 @@ contains
     read (u, '(A)', iostat=ios) header
     if (ios /= 0) error stop 'Failed to read charge_ledger.csv header.'
     has_fixed_current_columns = index(header, 'fixed_current_correction_C') > 0
+    has_current_budget_columns = index(header, 'fixed_escape_correction_C') > 0
     do
-      charge_values = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, &
-                       0.0_dp, 1.0_dp, 0.0_dp, 1.0_dp, 0.0_dp]
-      if (has_fixed_current_columns) then
+      charge_values = [ &
+                      0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, &
+                      0.0_dp, 1.0_dp, 0.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp &
+                      ]
+      if (has_current_budget_columns) then
         read (u, *, iostat=ios) row_batch, species_idx, charge_values, count_values
+      else if (has_fixed_current_columns) then
+        read (u, *, iostat=ios) row_batch, species_idx, fixed_charge_values, count_values
+        if (ios == 0) then
+          charge_values(1:13) = fixed_charge_values
+          charge_values(14) = fixed_charge_values(9)
+          charge_values(15) = fixed_charge_values(11)
+        end if
       else
         read (u, *, iostat=ios) row_batch, species_idx, legacy_charge_values, count_values
         if (ios == 0) charge_values(1:8) = legacy_charge_values
@@ -561,6 +572,11 @@ contains
       ledger%fixed_emission_target_charge(species_idx) = charge_values(11)
       ledger%fixed_emission_weight_scale(species_idx) = charge_values(12)
       ledger%fixed_current_correction(species_idx) = charge_values(13)
+      ledger%fixed_absorbed_applied_charge(species_idx) = charge_values(14)
+      ledger%fixed_emission_applied_charge(species_idx) = charge_values(15)
+      ledger%fixed_escape_target_charge(species_idx) = charge_values(16)
+      ledger%fixed_escape_applied_charge(species_idx) = charge_values(17)
+      ledger%fixed_escape_correction(species_idx) = charge_values(18)
       ledger%injected_count(species_idx) = count_values(1)
       ledger%emitted_count(species_idx) = count_values(2)
       ledger%absorbed_count(species_idx) = count_values(3)

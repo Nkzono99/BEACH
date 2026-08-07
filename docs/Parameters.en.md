@@ -391,8 +391,15 @@ not fixed-current targets. The resolved electron density is recorded in `summary
 
 For signed current densities $J_e<0$, $J_i>0$, $J_{emit}>0$, and $J_{escape}>0$, PE return is
 $J_{return}=J_{escape}-J_{emit}\le0$. BEACH multiplies them by area $A$, sends electron, ion, and return currents to their
-absorption channels, and sends emission to the PE source-reaction channel. The stationary root satisfies
-$J_e+J_i+J_{escape}=0$, while BEACH retains the element distribution measured by raycasting and trajectory tracking.
+absorption channels, and sends emission to the PE source-reaction channel.
+
+The outward PE particle current $-AJ_{escape}$ is recorded as an external escape target. It is not deposited onto
+surface elements. Its difference from the raw boundary-escape charge is recorded as an external-boundary closure
+correction, so PE continuity and the stationary surface-current budget can be checked independently.
+
+The element distribution and raw escape statistics measured by BEACH raycasting and trajectory tracking are not
+overwritten. Outputs distinguish raw / target / applied for absorption and emission, and raw / target / applied /
+correction for escape.
 
 This model does not solve the field, space charge, Debye shielding, return orbit, or return delay outside the box, and it does
 not update currents from the surface potential during batches. It is a fixed stationary external-current closure, not a

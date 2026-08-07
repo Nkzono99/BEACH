@@ -236,9 +236,14 @@ class ChargeLedgerEntry:
     neutral_return_weight_scale: float = 1.0
     neutral_return_unresolved_fraction: float = 0.0
     fixed_absorbed_target_charge_c: float = 0.0
+    fixed_absorbed_applied_charge_c: float = 0.0
     fixed_absorbed_weight_scale: float = 1.0
     fixed_emission_target_charge_c: float = 0.0
+    fixed_emission_applied_charge_c: float = 0.0
     fixed_emission_weight_scale: float = 1.0
+    fixed_escape_target_charge_c: float = 0.0
+    fixed_escape_applied_charge_c: float = 0.0
+    fixed_escape_correction_c: float = 0.0
     fixed_current_correction_c: float = 0.0
 
 

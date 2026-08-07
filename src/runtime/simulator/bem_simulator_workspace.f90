@@ -26,9 +26,14 @@ module bem_simulator_workspace
     real(dp), allocatable :: neutral_return_unresolved_fraction(:)
     real(dp), allocatable :: fixed_current_charge_values(:)
     real(dp), allocatable :: fixed_absorbed_target_charge(:)
+    real(dp), allocatable :: fixed_absorbed_applied_charge(:)
     real(dp), allocatable :: fixed_absorbed_weight_scale(:)
     real(dp), allocatable :: fixed_emission_target_charge(:)
+    real(dp), allocatable :: fixed_emission_applied_charge(:)
     real(dp), allocatable :: fixed_emission_weight_scale(:)
+    real(dp), allocatable :: fixed_escape_target_charge(:)
+    real(dp), allocatable :: fixed_escape_applied_charge(:)
+    real(dp), allocatable :: fixed_escape_correction(:)
     real(dp), allocatable :: fixed_current_correction(:)
     integer(i64), allocatable :: neutral_return_terminal_counts(:)
     real(dp), allocatable :: ledger_charge_values(:)
@@ -68,10 +73,14 @@ contains
       self%neutral_return_unresolved_charge(nspecies), self%neutral_return_weight_scale(nspecies), &
       self%neutral_return_correction(nspecies), self%neutral_return_unresolved_fraction(nspecies) &
       )
-    allocate (self%fixed_current_charge_values(2_i32*nspecies))
+    allocate (self%fixed_current_charge_values(3_i32*nspecies))
     allocate ( &
-      self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
-      self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &
+      self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_applied_charge(nspecies), &
+      self%fixed_absorbed_weight_scale(nspecies), &
+      self%fixed_emission_target_charge(nspecies), self%fixed_emission_applied_charge(nspecies), &
+      self%fixed_emission_weight_scale(nspecies), &
+      self%fixed_escape_target_charge(nspecies), self%fixed_escape_applied_charge(nspecies), &
+      self%fixed_escape_correction(nspecies), &
       self%fixed_current_correction(nspecies) &
       )
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
@@ -102,9 +111,14 @@ contains
     self%neutral_return_unresolved_fraction = 0.0_dp
     self%fixed_current_charge_values = 0.0_dp
     self%fixed_absorbed_target_charge = 0.0_dp
+    self%fixed_absorbed_applied_charge = 0.0_dp
     self%fixed_absorbed_weight_scale = 1.0_dp
     self%fixed_emission_target_charge = 0.0_dp
+    self%fixed_emission_applied_charge = 0.0_dp
     self%fixed_emission_weight_scale = 1.0_dp
+    self%fixed_escape_target_charge = 0.0_dp
+    self%fixed_escape_applied_charge = 0.0_dp
+    self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
   end subroutine reset_before_injection
 

@@ -4,6 +4,6 @@ module bem_checkpoint_contract
   implicit none
   private
 
-  integer(i32), parameter, public :: checkpoint_schema_version_current = 6_i32
+  integer(i32), parameter, public :: checkpoint_schema_version_current = 7_i32
 
 end module bem_checkpoint_contract

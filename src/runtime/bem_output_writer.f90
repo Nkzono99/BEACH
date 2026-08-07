@@ -367,6 +367,13 @@ contains
         current_model%photoelectron_return_current_density_a_m2
       write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
         current_model%net_current_density_a_m2
+      write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
+      write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
+        current_model%photoelectron_budget_residual_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
+        current_model%surface_budget_residual_current_density_a_m2
+      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
+        current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
     end if
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
@@ -409,6 +416,26 @@ contains
         sum(charge_ledger%neutral_return_correction)
       write (u, '(a,es24.16)') 'charge_ledger_fixed_current_correction_C=', &
         sum(charge_ledger%fixed_current_correction)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_absorbed_applied_charge_C=', &
+        sum(charge_ledger%fixed_absorbed_applied_charge)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_emission_applied_charge_C=', &
+        sum(charge_ledger%fixed_emission_applied_charge)
+      write (u, '(a,es24.16)') 'charge_ledger_raw_escape_charge_C=', &
+        sum(charge_ledger%escaped_to_infinity)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_target_charge_C=', &
+        sum(charge_ledger%fixed_escape_target_charge)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_applied_charge_C=', &
+        sum(charge_ledger%fixed_escape_applied_charge)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_escape_correction_C=', &
+        sum(charge_ledger%fixed_escape_correction)
+      write (u, '(a,es24.16)') 'charge_ledger_fixed_applied_surface_net_charge_C=', &
+        sum(charge_ledger%fixed_absorbed_applied_charge) + sum(charge_ledger%fixed_emission_applied_charge)
+      if (current_model%active) then
+        write (u, '(a,es24.16)') 'charge_ledger_fixed_pe_continuity_residual_C=', &
+          charge_ledger%fixed_absorbed_applied_charge(current_model%photoelectron_species_idx) + &
+          charge_ledger%fixed_emission_applied_charge(current_model%photoelectron_species_idx) + &
+          charge_ledger%fixed_escape_applied_charge(current_model%photoelectron_species_idx)
+      end if
     end if
     if (count_dielectric_surfaces(mesh) > 0_i32) then
       write (u, '(a,i0)') 'surface_model_dielectric_elem_count=', count_dielectric_surfaces(mesh)
@@ -466,9 +493,11 @@ contains
       'neutral_return_correction_C,neutral_return_weight_scale,neutral_return_unresolved_fraction,'// &
       'fixed_absorbed_target_charge_C,fixed_absorbed_weight_scale,'// &
       'fixed_emission_target_charge_C,fixed_emission_weight_scale,fixed_current_correction_C,'// &
+      'fixed_absorbed_applied_charge_C,fixed_emission_applied_charge_C,'// &
+      'fixed_escape_target_charge_C,fixed_escape_applied_charge_C,fixed_escape_correction_C,'// &
       'injected_count,emitted_count,absorbed_count,escaped_count,discarded_unresolved_count'
     do species_idx = 1, ledger%nspecies
-      write (u, '(i0,a,i0,13(a,es24.16),5(a,i0))') &
+      write (u, '(i0,a,i0,18(a,es24.16),5(a,i0))') &
         ledger%batch_count, ',', species_idx, &
         ',', ledger%injected_from_remote(species_idx), &
         ',', ledger%emitted_from_surface(species_idx), &
@@ -483,6 +512,11 @@ contains
         ',', ledger%fixed_emission_target_charge(species_idx), &
         ',', ledger%fixed_emission_weight_scale(species_idx), &
         ',', ledger%fixed_current_correction(species_idx), &
+        ',', ledger%fixed_absorbed_applied_charge(species_idx), &
+        ',', ledger%fixed_emission_applied_charge(species_idx), &
+        ',', ledger%fixed_escape_target_charge(species_idx), &
+        ',', ledger%fixed_escape_applied_charge(species_idx), &
+        ',', ledger%fixed_escape_correction(species_idx), &
         ',', ledger%injected_count(species_idx), &
         ',', ledger%emitted_count(species_idx), &
         ',', ledger%absorbed_count(species_idx), &

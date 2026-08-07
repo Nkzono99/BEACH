@@ -26,7 +26,7 @@ program test_output_writer_io
   integer :: literal_unit, ios, top_history_unit
   integer(i32) :: top_batch, top_sample_n
   real(dp) :: top_time, top_z, top_mean, top_std, top_min, top_max
-  character(len=512) :: line
+  character(len=2048) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
@@ -204,7 +204,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=6') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=7') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -230,10 +230,15 @@ program test_output_writer_io
                       index(line, 'neutral_return_unresolved_fraction') > 0 .and. &
                       index(line, 'fixed_absorbed_target_charge_C') > 0 .and. &
                       index(line, 'fixed_emission_target_charge_C') > 0 .and. &
+                      index(line, 'fixed_absorbed_applied_charge_C') > 0 .and. &
+                      index(line, 'fixed_emission_applied_charge_C') > 0 .and. &
+                      index(line, 'fixed_escape_target_charge_C') > 0 .and. &
+                      index(line, 'fixed_escape_applied_charge_C') > 0 .and. &
+                      index(line, 'fixed_escape_correction_C') > 0 .and. &
                       index(line, 'fixed_current_correction_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v6')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v7')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')

@@ -379,8 +379,12 @@ fixed-current targetにはなりません。解いたelectron密度は`summary.t
 
 解いたsigned電流密度を$J_e<0$、$J_i>0$、$J_{emit}>0$、$J_{escape}>0$とすると、PE returnは
 $J_{return}=J_{escape}-J_{emit}\le0$です。BEACHは面積$A$を掛け、electron/ion/returnを各吸収channelへ、
-emissionをPE放出反作用channelへ渡します。定常根は$J_e+J_i+J_{escape}=0$を満たしますが、
-BEACH内のraycast・軌道追跡から得た要素別分布はそのまま保持します。
+emissionをPE放出反作用channelへ渡し、外向きPE粒子電流$-AJ_{escape}$を外部escape targetとして記録します。
+escape targetは表面要素へdepositされません。rawな境界escape電荷との差は外部境界closureの補正としてledgerへ
+記録されます。これによりPE連続条件と表面定常電流を別々に検証できます。
+
+BEACH内のraycast・軌道追跡から得た要素別分布とraw escape統計は上書きされません。吸収・放出には
+raw / target / applied、escapeにはraw / target / applied / correctionを出力します。
 
 このmodelはbox外の電場、空間電荷、Debye shielding、return軌道・遅延を解かず、batch中の表面電位から
 電流を更新しません。外部シースの自己無撞着な過渡解ではなく、固定された定常外部電流closureです。

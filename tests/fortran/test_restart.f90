@@ -62,9 +62,14 @@ program test_restart
   ledger%neutral_return_weight_scale = [1.25_dp, 1.0_dp]
   ledger%neutral_return_unresolved_fraction = [0.2_dp, 0.0_dp]
   ledger%fixed_absorbed_target_charge = [-2.0_dp, 3.0_dp]
+  ledger%fixed_absorbed_applied_charge = [-2.0_dp, 3.0_dp]
   ledger%fixed_absorbed_weight_scale = [2.0_dp, 1.5_dp]
   ledger%fixed_emission_target_charge = [4.0_dp, 0.0_dp]
+  ledger%fixed_emission_applied_charge = [4.0_dp, 0.0_dp]
   ledger%fixed_emission_weight_scale = [1.25_dp, 1.0_dp]
+  ledger%fixed_escape_target_charge = [-1.5_dp, 0.0_dp]
+  ledger%fixed_escape_applied_charge = [-1.5_dp, 0.0_dp]
+  ledger%fixed_escape_correction = [-0.5_dp, 0.0_dp]
   ledger%fixed_current_correction = [-0.5_dp, 0.25_dp]
   mesh%q_elem = [1.0e-12_dp, -2.0e-12_dp]
   allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
@@ -107,6 +112,26 @@ program test_restart
   call assert_allclose_1d( &
     restored_ledger%fixed_emission_target_charge, [4.0_dp, 0.0_dp], 1.0e-12_dp, &
     'fixed emission target restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%fixed_absorbed_applied_charge, [-2.0_dp, 3.0_dp], 1.0e-12_dp, &
+    'fixed absorbed applied restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%fixed_emission_applied_charge, [4.0_dp, 0.0_dp], 1.0e-12_dp, &
+    'fixed emission applied restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%fixed_escape_target_charge, [-1.5_dp, 0.0_dp], 1.0e-12_dp, &
+    'fixed escape target restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%fixed_escape_applied_charge, [-1.5_dp, 0.0_dp], 1.0e-12_dp, &
+    'fixed escape applied restore mismatch' &
+    )
+  call assert_allclose_1d( &
+    restored_ledger%fixed_escape_correction, [-0.5_dp, 0.0_dp], 1.0e-12_dp, &
+    'fixed escape correction restore mismatch' &
     )
   call assert_allclose_1d( &
     restored_ledger%fixed_current_correction, [-0.5_dp, 0.25_dp], 1.0e-12_dp, &
