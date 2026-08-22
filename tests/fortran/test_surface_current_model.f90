@@ -14,7 +14,7 @@ program test_surface_current_model
   type(surface_closure_contract_type) :: closure
   real(dp) :: inward_speed
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -79,6 +79,28 @@ program test_surface_current_model
     'PE total target current must use the configured reference area' &
     )
   call assert_kinetic_contract(result, result%phi_m_v, 'Type A')
+  call test_end()
+
+  call test_begin('zhao_stationary_without_photoelectrons')
+  call configure_zhao_fixture(cfg)
+  cfg%n_particle_species = 2_i32
+  cfg%surface_current%photoelectron_species = ''
+  cfg%surface_current%solar_elevation_deg = 0.0_dp
+  cfg%surface_current%photoelectron_ref_density_m3 = 0.0_dp
+  cfg%surface_current%photoelectron_source_scale = 0.0_dp
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%active, 'no-PE Zhao current model must be active')
+  call assert_true(.not. result%photoelectron_active, 'no-PE Zhao result must disable photoelectron channels')
+  call assert_true(result%photoelectron_species_idx == 0_i32, 'no-PE Zhao result must not resolve a PE species')
+  call assert_true(result%zhao_branch == 'C', 'no-PE Zhao model must select Type C')
+  call assert_true(all(result%has_absorbed_target(1:2)), 'no-PE Zhao must target electron and ion absorption')
+  call assert_true(.not. any(result%has_emission_target), 'no-PE Zhao must not create emission targets')
+  call assert_true(.not. any(result%has_escape_target), 'no-PE Zhao must not create PE escape targets')
+  call assert_true(all(result%has_outflow_kinetic_barrier(1:2)), 'no-PE Zhao ambient barriers must be active')
+  call assert_close_dp(result%photoelectron_emission_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE emission')
+  call assert_close_dp(result%photoelectron_escape_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE escape')
+  call assert_close_dp(result%photoelectron_return_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE return')
+  call assert_close_dp(result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, 'no-PE stationary net current')
   call test_end()
 
   call test_summary()

@@ -29,6 +29,7 @@ tree設定、実際のfield solver、およびFMM展開次数のreceiptです。
 `[surface_current_model]`のreceiptは`surface_current_model`に記録されます。`zhao_stationary`では、選択branch、
 参照面積、$\phi_0$、$\phi_m$、解いたambient electron密度、およびelectron / ion / PE emission / PE escape /
 PE return / netのsigned電流密度を`surface_current_model_*`で出力します。特に
+`surface_current_model_photoelectron_active`はPE channelの有無を示し、falseではPE関連receiptはゼロです。
 `surface_current_model_pe_return_current_density_A_m2`は負、emissionとescapeは正です。
 `surface_current_model_pe_escape_particle_current_A`は外向きPE粒子が運ぶsigned電流なので負です。
 二つのbudget residualは、PEのemission-return-escape連続条件と表面定常電流を独立に検証します。

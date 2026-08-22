@@ -506,6 +506,7 @@ contains
     integer :: electron_idx, ion_idx, photo_idx
     integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
     real(dp) :: electron_temperature, ion_temperature
+    logical :: photoelectron_active
 
     select case (trim(lower_ascii(cfg%surface_current%model)))
     case ('none')
@@ -527,18 +528,38 @@ contains
     case default
       error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
     end select
-    if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
-        cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. &
-        cfg%surface_current%solar_elevation_deg > 90.0_dp) then
-      error stop 'surface_current_model.solar_elevation_deg must be finite and in (0, 90].'
-    end if
-    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
-        cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
-      error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
-    end if
     if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
-        cfg%surface_current%photoelectron_source_scale <= 0.0_dp) then
-      error stop 'surface_current_model.photoelectron_source_scale must be finite and > 0.'
+        cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
+      error stop 'surface_current_model.photoelectron_source_scale must be finite and >= 0.'
+    end if
+    photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
+    if (.not. photoelectron_active .and. &
+        trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
+        trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
+      error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+    end if
+    if (photoelectron_active) then
+      if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
+          cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. &
+          cfg%surface_current%solar_elevation_deg > 90.0_dp) then
+        error stop 'surface_current_model.solar_elevation_deg must be finite and in (0, 90].'
+      end if
+      if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
+          cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
+        error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
+      end if
+      if (len_trim(cfg%surface_current%photoelectron_species) == 0) then
+        error stop 'positive photoelectron_source_scale requires surface_current_model.photoelectron_species.'
+      end if
+    else
+      if (cfg%surface_current%has_photoelectron_species .or. &
+          cfg%surface_current%has_solar_elevation_deg .or. &
+          cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
+          len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
+          cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
+          cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
+        error stop 'photoelectron_source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
+      end if
     end if
     if (cfg%surface_current%has_reference_area_m2) then
       if (.not. ieee_is_finite(cfg%surface_current%reference_area_m2) .or. &
@@ -551,37 +572,47 @@ contains
 
     electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
     ion_idx = find_species_index(cfg, cfg%surface_current%ion_species)
-    photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
-    if (electron_idx == ion_idx .or. electron_idx == photo_idx .or. ion_idx == photo_idx) then
+    photo_idx = 0
+    if (photoelectron_active) photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
+    if (electron_idx == ion_idx .or. &
+        (photoelectron_active .and. (electron_idx == photo_idx .or. ion_idx == photo_idx))) then
       error stop 'surface_current_model species references must be distinct.'
     end if
     call validate_automatic_current_species(cfg, electron_idx, 'electron')
     call validate_automatic_current_species(cfg, ion_idx, 'ion')
-    call validate_automatic_current_species(cfg, photo_idx, 'photoelectron')
+    if (photoelectron_active) call validate_automatic_current_species(cfg, photo_idx, 'photoelectron')
     if (cfg%particle_species(electron_idx)%q_particle >= 0.0_dp .or. &
-        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp .or. &
-        cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
-      error stop 'Zhao current species must be negative electron, positive ion, and negative photoelectron.'
+        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp) then
+      error stop 'Zhao current species must be negative electron and positive ion.'
     end if
     if (abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
-        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
-        abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
-      error stop 'Zhao stationary current model currently requires singly charged electron, ion, and photoelectron species.'
+        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+      error stop 'Zhao stationary current model currently requires singly charged electron and ion species.'
     end if
-    if (abs(cfg%particle_species(photo_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
-        1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
-      error stop 'Zhao stationary current model requires matching ambient-electron and photoelectron masses.'
-    end if
-    if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
-        .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
-      error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
+    if (photoelectron_active) then
+      if (cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
+        error stop 'Zhao photoelectron species must have negative charge.'
+      end if
+      if (abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+        error stop 'Zhao stationary current model currently requires singly charged photoelectrons.'
+      end if
+      if (abs(cfg%particle_species(photo_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
+          1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
+        error stop 'Zhao stationary current model requires matching ambient-electron and photoelectron masses.'
+      end if
+      if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
+          .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
+        error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
+      end if
     end if
     if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
         .not. is_z_high_reservoir(cfg%particle_species(ion_idx))) then
       error stop 'Zhao ambient electron and ion species require z-high reservoir inflow.'
     end if
-    if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
-      error stop 'Zhao photoelectron species requires inject_face="z_high".'
+    if (photoelectron_active) then
+      if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
+        error stop 'Zhao photoelectron species requires inject_face="z_high".'
+      end if
     end if
     call resolve_particle_boundaries( &
       cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(electron_idx), &
@@ -597,12 +628,14 @@ contains
     if (effective_boundary_high(3) /= bc_open) then
       error stop 'Zhao ion kinetic closure requires an open z-high particle boundary.'
     end if
-    call resolve_particle_boundaries( &
-      cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &
-      effective_boundary_low, effective_boundary_high &
-      )
-    if (effective_boundary_high(3) /= bc_open) then
-      error stop 'Zhao photoelectron kinetic closure requires an open z-high particle boundary.'
+    if (photoelectron_active) then
+      call resolve_particle_boundaries( &
+        cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, cfg%particle_species(photo_idx), &
+        effective_boundary_low, effective_boundary_high &
+        )
+      if (effective_boundary_high(3) /= bc_open) then
+        error stop 'Zhao photoelectron kinetic closure requires an open z-high particle boundary.'
+      end if
     end if
     if (-cfg%particle_species(electron_idx)%drift_velocity(3) <= 0.0_dp .or. &
         -cfg%particle_species(ion_idx)%drift_velocity(3) <= 0.0_dp) then
@@ -613,9 +646,13 @@ contains
     end if
     electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
     ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
-    if (electron_temperature <= 0.0_dp .or. &
-        species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
-      error stop 'Zhao electron and photoelectron temperatures must be positive.'
+    if (electron_temperature <= 0.0_dp) then
+      error stop 'Zhao electron temperature must be positive.'
+    end if
+    if (photoelectron_active) then
+      if (species_temperature_k(cfg%particle_species(photo_idx)) <= 0.0_dp) then
+        error stop 'Zhao photoelectron temperature must be positive.'
+      end if
     end if
     if (ion_temperature > 0.1_dp*electron_temperature) then
       error stop 'Zhao stationary current model requires cold ions with T_i <= 0.1 T_e.'

@@ -395,6 +395,7 @@ contains
     if (current_model%active) then
       write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
       write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
+      write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
       write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
       write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
       write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
@@ -417,18 +418,27 @@ contains
         current_model%photoelectron_budget_residual_current_density_a_m2
       write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
         current_model%surface_budget_residual_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
-        current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+      if (current_model%photoelectron_active) then
+        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
+          current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+      else
+        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
+      end if
       write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
         current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
       write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
         current_model%inflow_access_potential_v(current_model%electron_species_idx)
       write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
         current_model%inflow_kinetic_face(current_model%electron_species_idx)
-      write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
-        current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
-      write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
-        current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+      if (current_model%photoelectron_active) then
+        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
+          current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
+          current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+      else
+        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
+        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
+      end if
     end if
     if (present(electrostatic_diagnostics)) then
       write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
@@ -488,7 +498,7 @@ contains
         [charge_ledger%fixed_absorbed_target_charge, charge_ledger%fixed_emission_target_charge], &
         'summary fixed applied surface net charge' &
         )
-      if (current_model%active) then
+      if (current_model%active .and. current_model%photoelectron_active) then
         write (u, '(a,es24.16)') 'charge_ledger_fixed_pe_continuity_residual_C=', &
           finite_charge_sum( &
           [ &

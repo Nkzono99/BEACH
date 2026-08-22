@@ -21,8 +21,11 @@ module bem_app_config_types
     character(len=64) :: electron_species = ''
     character(len=64) :: ion_species = ''
     character(len=64) :: photoelectron_species = ''
+    logical :: has_photoelectron_species = .false.
     real(dp) :: solar_elevation_deg = 0.0_dp
+    logical :: has_solar_elevation_deg = .false.
     real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
+    logical :: has_photoelectron_ref_density_m3 = .false.
     real(dp) :: photoelectron_source_scale = 1.0_dp
     real(dp) :: reference_area_m2 = 0.0_dp
     logical :: has_reference_area_m2 = .false.

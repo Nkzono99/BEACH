@@ -5,7 +5,7 @@ program test_output_writer_io
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, &
                                write_result_files, write_top_reference_history_snapshot
-  use bem_app_config, only: app_config, default_app_config
+  use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
@@ -22,6 +22,7 @@ program test_output_writer_io
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model
+  logical :: saw_photoelectron_active_receipt
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit
@@ -30,6 +31,7 @@ program test_output_writer_io
   character(len=2048) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
+  character(len=*), parameter :: out_dir_no_photo = 'test_output_writer_io_no_photo_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
   character(len=*), parameter :: marker_path = 'test_output_writer_io_shell_marker_tmp'
   character(len=*), parameter :: literal_dir = &
@@ -43,12 +45,13 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(5)
+  call test_init(6)
 
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
+  call cleanup_output_dir(out_dir_no_photo)
 
   call delete_file_if_exists(marker_path)
   call remove_test_directory(literal_dir)
@@ -310,8 +313,23 @@ program test_output_writer_io
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()
 
+  call test_begin('no_photo_surface_current_receipt')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_no_photo_fixed_current.toml', cfg)
+  cfg%output_dir = out_dir_no_photo
+  call write_result_files(out_dir_no_photo, mesh, stats, cfg)
+  call scan_no_photo_surface_current_receipt( &
+    out_dir_no_photo//'/summary.txt', saw_photoelectron_active_receipt &
+    )
+  call assert_true( &
+    saw_photoelectron_active_receipt, &
+    'no-PE summary should record surface_current_model_photoelectron_active=F' &
+    )
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
+  call cleanup_output_dir(out_dir_no_photo)
 
   call test_summary()
 
@@ -334,6 +352,23 @@ contains
     end do
     close (summary_unit)
   end subroutine scan_resolved_field_solver
+
+  subroutine scan_no_photo_surface_current_receipt(summary_path, found)
+    character(len=*), intent(in) :: summary_path
+    logical, intent(out) :: found
+    integer :: summary_unit, summary_ios
+    character(len=2048) :: summary_line
+
+    found = .false.
+    open (newunit=summary_unit, file=trim(summary_path), status='old', action='read', iostat=summary_ios)
+    if (summary_ios /= 0) error stop 'failed to open no-PE surface-current receipt fixture'
+    do
+      read (summary_unit, '(A)', iostat=summary_ios) summary_line
+      if (summary_ios /= 0) exit
+      found = found .or. trim(summary_line) == 'surface_current_model_photoelectron_active=F'
+    end do
+    close (summary_unit)
+  end subroutine scan_no_photo_surface_current_receipt
 
   subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
     character(len=*), intent(in) :: path, inflow_map, open_model

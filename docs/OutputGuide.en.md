@@ -33,6 +33,7 @@ this receipt for new outputs rather than guessing from a nearby `beach.toml`.
 The `[surface_current_model]` receipt is recorded as `surface_current_model`. For `zhao_stationary`,
 `surface_current_model_*` fields report the selected branch, reference area, $\phi_0$, $\phi_m$, resolved ambient-electron
 density, and signed electron / ion / PE-emission / PE-escape / PE-return / net current densities. In particular,
+`surface_current_model_photoelectron_active` reports whether PE channels exist; PE receipts are zero when it is false.
 `surface_current_model_pe_return_current_density_A_m2` is negative, while emission and escape are positive.
 `surface_current_model_pe_escape_particle_current_A` is negative because it is the signed current carried outward by
 PE particles. The two budget residuals independently check PE emission-return-escape continuity and the stationary

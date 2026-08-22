@@ -1,0 +1,86 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+
+# 光電子なしで、Zhao の定常シース電流を electron/ion の fixed-current closure に使う例。
+
+[sim]
+dt = 2.0e-12
+batch_duration = 0.5
+batch_count = 10
+max_step = 100000
+rng_seed = 12345
+field_solver = "fmm"
+field_periodic_image_layers = 1
+field_periodic_far_correction = "none"
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0e-4, 1.0e-4, 1.0e-3]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+
+[reservoir]
+inflow_model = "source_vdf"
+
+[surface_current_model]
+model = "zhao_stationary"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_source_scale = 0.0
+
+[particles]
+
+[[particles.species]]
+species_key = "solar_wind_electron"
+source_mode = "volume_seed"
+npcls_per_step = 0
+number_density_cm3 = 8.7
+temperature_ev = 12.0
+q_particle = -1.602176634e-19
+m_particle = 9.1093837139e-31
+target_macro_particles_per_batch = 300
+drift_velocity = [0.0, 0.0, -4.0529988897e5]
+surface_charge_closure = "fixed_current"
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+
+[[particles.species]]
+species_key = "solar_wind_ion"
+source_mode = "volume_seed"
+npcls_per_step = 0
+number_density_cm3 = 8.7
+temperature_ev = 0.1
+q_particle = 1.602176634e-19
+m_particle = 1.67262192369e-27
+target_macro_particles_per_batch = 300
+drift_velocity = [0.0, 0.0, -4.0529988897e5]
+surface_charge_closure = "fixed_current"
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+surface_model = "insulator"
+surface_side = "normal_plus"
+size_x = 1.0e-4
+size_y = 1.0e-4
+nx = 8
+ny = 8
+center = [5.0e-5, 5.0e-5, 2.0e-6]
+
+[output]
+write_files = true
+dir = "outputs/periodic2_zhao_no_photo_fixed_current"
+history_stride = 1

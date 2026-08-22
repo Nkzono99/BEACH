@@ -635,6 +635,27 @@ def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
     with pytest.raises(ConfigValidationError, match="open z-high"):
         normalize_config_document(reflected_photoelectrons)
 
+    no_photo = load_config_file(
+        root / "examples/periodic2_zhao_no_photo_fixed_current.toml"
+    )
+    assert no_photo["surface_current_model"]["photoelectron_source_scale"] == 0.0
+    assert len(no_photo["particles"]["species"]) == 2
+
+    explicit_no_photo_type_c = copy.deepcopy(no_photo)
+    explicit_no_photo_type_c["surface_current_model"]["zhao_branch"] = "c"
+    normalized_no_photo_type_c = normalize_config_document(explicit_no_photo_type_c)
+    assert normalized_no_photo_type_c["surface_current_model"]["zhao_branch"] == "c"
+
+    stale_photo_setting = copy.deepcopy(no_photo)
+    stale_photo_setting["surface_current_model"]["solar_elevation_deg"] = 60.0
+    with pytest.raises(ConfigValidationError, match="omitting all photoelectron"):
+        normalize_config_document(stale_photo_setting)
+
+    invalid_no_photo_branch = copy.deepcopy(no_photo)
+    invalid_no_photo_branch["surface_current_model"]["zhao_branch"] = "a"
+    with pytest.raises(ConfigValidationError, match="zhao_branch.*auto.*c"):
+        normalize_config_document(invalid_no_photo_branch)
+
 
 def test_config_cli_init_validate_and_diff(
     tmp_path: Path,

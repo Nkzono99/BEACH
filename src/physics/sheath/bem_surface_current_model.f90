@@ -18,6 +18,7 @@ module bem_surface_current_model
     integer(i32) :: electron_species_idx = 0_i32
     integer(i32) :: ion_species_idx = 0_i32
     integer(i32) :: photoelectron_species_idx = 0_i32
+    logical :: photoelectron_active = .false.
     real(dp) :: reference_area_m2 = 0.0_dp
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
@@ -98,17 +99,28 @@ contains
     type(surface_current_model_result_type), intent(inout) :: result
     type(zhao_params_type) :: params
     integer(i32) :: electron_idx, ion_idx, photo_idx
-    real(dp) :: electron_temperature_ev, photo_temperature_ev
+    real(dp) :: electron_temperature_ev, photo_temperature_ev, solar_elevation_deg, photoelectron_ref_density_m3
     real(dp) :: electron_drift_mps, ion_drift_mps, a_swe, electron_term, ion_term, photo_escape_term
     real(dp) :: scale, area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
     character(len=16) :: solver_name
-    logical :: success
+    logical :: success, photoelectron_active
 
     electron_idx = species_index(app, app%surface_current%electron_species)
     ion_idx = species_index(app, app%surface_current%ion_species)
-    photo_idx = species_index(app, app%surface_current%photoelectron_species)
+    photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
+    photo_idx = 0_i32
+    if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
     electron_temperature_ev = species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
-    photo_temperature_ev = species_temperature_k(app%particle_species(photo_idx))*k_boltzmann/qe
+    if (photoelectron_active) then
+      photo_temperature_ev = species_temperature_k(app%particle_species(photo_idx))*k_boltzmann/qe
+      solar_elevation_deg = app%surface_current%solar_elevation_deg
+      photoelectron_ref_density_m3 = app%surface_current%photoelectron_ref_density_m3
+    else
+      ! source_scale=0ではPE正規化量は解に寄与しない。正のambient量でcore契約だけを満たす。
+      photo_temperature_ev = electron_temperature_ev
+      solar_elevation_deg = 90.0_dp
+      photoelectron_ref_density_m3 = species_number_density_m3(app%particle_species(ion_idx))
+    end if
     electron_drift_mps = -app%particle_species(electron_idx)%drift_velocity(3)
     ion_drift_mps = -app%particle_species(ion_idx)%drift_velocity(3)
     area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
@@ -118,14 +130,23 @@ contains
     end if
 
     call build_zhao_params( &
-      app%surface_current%solar_elevation_deg, &
+      solar_elevation_deg, &
       species_number_density_m3(app%particle_species(ion_idx)), &
-      app%surface_current%photoelectron_ref_density_m3, &
+      photoelectron_ref_density_m3, &
       electron_temperature_ev, photo_temperature_ev, electron_drift_mps, ion_drift_mps, &
       app%particle_species(ion_idx)%m_particle, app%particle_species(electron_idx)%m_particle, params, &
       photoelectron_source_scale=app%surface_current%photoelectron_source_scale &
       )
-    solver_name = 'zhao_'//trim(lower_ascii(app%surface_current%zhao_branch))
+    if (.not. photoelectron_active) then
+      select case (trim(lower_ascii(app%surface_current%zhao_branch)))
+      case ('auto', 'c')
+        solver_name = 'zhao_c'
+      case default
+        error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+      end select
+    else
+      solver_name = 'zhao_'//trim(lower_ascii(app%surface_current%zhao_branch))
+    end if
     call try_solve_zhao_unknowns( &
       trim(solver_name), params, result%phi0_v, result%phi_m_v, result%ambient_electron_density_m3, &
       result%zhao_branch, success &
@@ -180,10 +201,20 @@ contains
     end if
     if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
         result%ion_current_density_a_m2 <= 0.0_dp .or. &
-        result%photoelectron_emission_current_density_a_m2 <= 0.0_dp .or. &
         result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
       error stop 'Zhao stationary surface-current evaluation produced invalid channel signs.'
+    end if
+    if (photoelectron_active) then
+      if (result%photoelectron_emission_current_density_a_m2 <= 0.0_dp) then
+        error stop 'Zhao stationary photoelectron closure requires a positive emission current.'
+      end if
+    else if (any([ &
+                 result%photoelectron_emission_current_density_a_m2, &
+                 result%photoelectron_escape_current_density_a_m2, &
+                 result%photoelectron_return_current_density_a_m2 &
+                 ] /= 0.0_dp)) then
+      error stop 'Zhao stationary no-photoelectron closure produced a nonzero photoelectron current.'
     end if
     budget_scale = max( &
                    abs(result%electron_current_density_a_m2), abs(result%ion_current_density_a_m2), &
@@ -204,19 +235,23 @@ contains
     result%electron_species_idx = electron_idx
     result%ion_species_idx = ion_idx
     result%photoelectron_species_idx = photo_idx
-    result%has_absorbed_target([electron_idx, ion_idx, photo_idx]) = .true.
-    result%has_emission_target(photo_idx) = .true.
-    result%has_escape_target(photo_idx) = .true.
+    result%photoelectron_active = photoelectron_active
+    result%has_absorbed_target([electron_idx, ion_idx]) = .true.
     result%absorbed_current_a(electron_idx) = &
       checked_area_current(area, result%electron_current_density_a_m2)
     result%absorbed_current_a(ion_idx) = checked_area_current(area, result%ion_current_density_a_m2)
-    result%absorbed_current_a(photo_idx) = &
-      checked_area_current(area, result%photoelectron_return_current_density_a_m2)
-    result%emission_current_a(photo_idx) = &
-      checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
-    ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
-    result%escaped_particle_current_a(photo_idx) = &
-      -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+    if (photoelectron_active) then
+      result%has_absorbed_target(photo_idx) = .true.
+      result%has_emission_target(photo_idx) = .true.
+      result%has_escape_target(photo_idx) = .true.
+      result%absorbed_current_a(photo_idx) = &
+        checked_area_current(area, result%photoelectron_return_current_density_a_m2)
+      result%emission_current_a(photo_idx) = &
+        checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
+      ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
+      result%escaped_particle_current_a(photo_idx) = &
+        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+    end if
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
     ! Type Aの電子はphi_mがaccess bottleneckであり、Type B/Cはphi_infinity=0を使う。
@@ -228,11 +263,15 @@ contains
     result%inflow_access_potential_v(electron_idx) = electron_bottleneck_potential_v
     result%inflow_access_potential_v(ion_idx) = 0.0_dp
     result%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32
-    result%has_outflow_kinetic_barrier([electron_idx, ion_idx, photo_idx]) = .true.
+    result%has_outflow_kinetic_barrier([electron_idx, ion_idx]) = .true.
     result%outflow_barrier_potential_v(electron_idx) = electron_bottleneck_potential_v
     result%outflow_barrier_potential_v(ion_idx) = 0.0_dp
-    result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
-    result%outflow_barrier_face([electron_idx, ion_idx, photo_idx]) = 6_i32
+    result%outflow_barrier_face([electron_idx, ion_idx]) = 6_i32
+    if (photoelectron_active) then
+      result%has_outflow_kinetic_barrier(photo_idx) = .true.
+      result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
+      result%outflow_barrier_face(photo_idx) = 6_i32
+    end if
   end subroutine evaluate_zhao_stationary_current
 
   integer(i32) function species_index(app, species_key) result(index_value)

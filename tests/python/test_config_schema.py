@@ -197,6 +197,23 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     disabled["surface_current_model"] = {"model": "none"}
     assert schema_errors(disabled, schema) == []
 
+    no_photo = load_toml_file(
+        ROOT / "examples/periodic2_zhao_no_photo_fixed_current.toml"
+    )
+    assert schema_errors(no_photo, schema) == []
+
+    explicit_no_photo_type_c = copy.deepcopy(no_photo)
+    explicit_no_photo_type_c["surface_current_model"]["zhao_branch"] = "c"
+    assert schema_errors(explicit_no_photo_type_c, schema) == []
+
+    stale_photo_setting = copy.deepcopy(no_photo)
+    stale_photo_setting["surface_current_model"]["solar_elevation_deg"] = 60.0
+    assert schema_errors(stale_photo_setting, schema)
+
+    invalid_no_photo_branch = copy.deepcopy(no_photo)
+    invalid_no_photo_branch["surface_current_model"]["zhao_branch"] = "a"
+    assert schema_errors(invalid_no_photo_branch, schema)
+
 
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
     schema, _ = load_schema()

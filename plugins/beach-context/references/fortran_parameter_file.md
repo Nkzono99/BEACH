@@ -340,6 +340,8 @@ face_potential_grid_n = 3
 `model="zhao_stationary"`は、平面・無衝突・非磁化の外部シースについてZhaoのA/B/C零電流定常根を解き、
 ambient electron、ion、PE emission、PE escape、PE returnの電流とz-high kinetic barrierを一度だけ決定します。
 
+`photoelectron_source_scale=0.0`ではPE channelを作らず、ambient electronとionだけの零電流根を使えます。
+
 ```toml
 [surface_current_model]
 model = "zhao_stationary"
@@ -353,23 +355,39 @@ photoelectron_source_scale = 1.0
 # reference_area_m2 = 1.0e-8
 ```
 
+光電子なしではPE固有キーをすべて省略し、source scaleを明示的にゼロにします。
+
+```toml
+[surface_current_model]
+model = "zhao_stationary"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_source_scale = 0.0
+```
+
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `model` | string | `"none"` | 現在は`none` / `zhao_stationary` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。`auto`は有効な定常枝を探索 |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。`auto`は有効な定常枝を探索。PEなしは`auto` / `c`のみ |
 | `electron_species` | string | 必須 | ambient electronの`species_key` |
 | `ion_species` | string | 必須 | cold ionの`species_key` |
-| `photoelectron_species` | string | 必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
-| `solar_elevation_deg` | float | 必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
-| `photoelectron_ref_density_m3` | float | 必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
-| `photoelectron_source_scale` | float | `1.0` | $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ の $s_{UV}$ |
+| `photoelectron_species` | string | PE有効時に必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
+| `solar_elevation_deg` | float | PE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
+| `photoelectron_ref_density_m3` | float | PE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ の $s_{UV}$。`0.0`はPEなし |
 | `reference_area_m2` | float | domainのx-y面積 | 電流密度を総電流へ変換する面積 [m^2] |
 
-参照する3 speciesはenabledかつ相異なり、`surface_charge_closure="fixed_current"`を指定します。
+参照するspeciesはenabledかつ相異なり、`surface_charge_closure="fixed_current"`を指定します。
 手動の`target_absorbed_current_a` / `target_emission_current_a`は同時指定できません。ambient electronとionは
 z-high reservoirから内向きに流入します。
 
-PEは負電荷`photo_raycast`、`inject_face="z_high"`、
+`photoelectron_source_scale=0.0`では`photoelectron_species`、`solar_elevation_deg`、
+`photoelectron_ref_density_m3`を指定せず、`zhao_branch`は`"auto"`または`"c"`にします。
+Zhao Type Cの$J_e+J_i=0$を解き、electron/ionの吸収targetとz-high kinetic mapだけを生成します。
+PE emission、return、escape targetは生成しません。
+
+PEを有効にする場合、PEは負電荷`photo_raycast`、`inject_face="z_high"`、
 `deposit_opposite_charge_on_emit=true`、有効なz-high particle boundaryの`open`を要求します。3 speciesは単価電荷で、ambient electronとPEの質量は一致、
 $T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$でなければなりません。
 

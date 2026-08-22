@@ -1431,37 +1431,56 @@ def _validate_surface_current_model(
             'BEACH constraint error: surface_current_model.model must be "none" '
             'or "zhao_stationary".'
         )
-    if model_config.get("zhao_branch", "auto") not in {"auto", "a", "b", "c"}:
+    zhao_branch = model_config.get("zhao_branch", "auto")
+    if zhao_branch not in {"auto", "a", "b", "c"}:
         raise ConfigValidationError(
             "BEACH constraint error: surface_current_model.zhao_branch must be "
             '"auto", "a", "b", or "c".'
-        )
-    for key in ("solar_elevation_deg", "photoelectron_ref_density_m3"):
-        value = model_config.get(key)
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(float(value))
-            or float(value) <= 0.0
-        ):
-            raise ConfigValidationError(
-                f"BEACH constraint error: surface_current_model.{key} must be finite and > 0."
-            )
-    if float(model_config["solar_elevation_deg"]) > 90.0:
-        raise ConfigValidationError(
-            "BEACH constraint error: surface_current_model.solar_elevation_deg "
-            "must not exceed 90."
         )
     source_scale = model_config.get("photoelectron_source_scale", 1.0)
     if (
         not isinstance(source_scale, (int, float))
         or isinstance(source_scale, bool)
         or not math.isfinite(float(source_scale))
-        or float(source_scale) <= 0.0
+        or float(source_scale) < 0.0
     ):
         raise ConfigValidationError(
             "BEACH constraint error: surface_current_model.photoelectron_source_scale "
-            "must be finite and > 0."
+            "must be finite and >= 0."
+    )
+    photoelectron_active = float(source_scale) > 0.0
+    if not photoelectron_active and zhao_branch not in {"auto", "c"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: photoelectron_source_scale=0 requires "
+            'surface_current_model.zhao_branch to be "auto" or "c".'
+        )
+    photoelectron_keys = (
+        "photoelectron_species",
+        "solar_elevation_deg",
+        "photoelectron_ref_density_m3",
+    )
+    if photoelectron_active:
+        for key in ("solar_elevation_deg", "photoelectron_ref_density_m3"):
+            value = model_config.get(key)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+                or float(value) <= 0.0
+            ):
+                raise ConfigValidationError(
+                    f"BEACH constraint error: surface_current_model.{key} "
+                    "must be finite and > 0."
+                )
+        if float(model_config["solar_elevation_deg"]) > 90.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: surface_current_model.solar_elevation_deg "
+                "must not exceed 90."
+            )
+    elif any(key in model_config for key in photoelectron_keys):
+        raise ConfigValidationError(
+            "BEACH constraint error: photoelectron_source_scale=0 requires omitting "
+            "all photoelectron-specific Zhao settings."
         )
     if "reference_area_m2" in model_config:
         area = model_config["reference_area_m2"]
@@ -1486,16 +1505,15 @@ def _validate_surface_current_model(
         for index, item in enumerate(species, start=1)
         if item.get("enabled", True) is True
     }
-    role_keys = {
-        role: model_config.get(f"{role}_species")
-        for role in ("electron", "ion", "photoelectron")
-    }
+    roles = ["electron", "ion"]
+    if photoelectron_active:
+        roles.append("photoelectron")
+    role_keys = {role: model_config.get(f"{role}_species") for role in roles}
     if any(not isinstance(value, str) or not value for value in role_keys.values()):
         raise ConfigValidationError(
-            "BEACH constraint error: surface_current_model requires electron_species, "
-            "ion_species, and photoelectron_species."
+            "BEACH constraint error: surface_current_model requires its active species roles."
         )
-    if len(set(role_keys.values())) != 3:
+    if len(set(role_keys.values())) != len(roles):
         raise ConfigValidationError(
             "BEACH constraint error: surface_current_model species references must be distinct."
         )
@@ -1517,51 +1535,60 @@ def _validate_surface_current_model(
             )
     q_e = float(selected["electron"].get("q_particle", -1.602176634e-19))
     q_i = float(selected["ion"].get("q_particle", -1.602176634e-19))
-    q_pe = float(selected["photoelectron"].get("q_particle", -1.602176634e-19))
-    if q_e >= 0.0 or q_i <= 0.0 or q_pe >= 0.0:
+    if q_e >= 0.0 or q_i <= 0.0:
         raise ConfigValidationError(
-            "BEACH constraint error: Zhao roles require negative electron, positive ion, "
-            "and negative photoelectron species."
+            "BEACH constraint error: Zhao roles require negative electron and positive ion species."
         )
+    q_pe = None
+    if photoelectron_active:
+        q_pe = float(selected["photoelectron"].get("q_particle", -1.602176634e-19))
+        if q_pe >= 0.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: Zhao photoelectron species requires negative charge."
+            )
     elementary_charge = 1.602176634e-19
+    role_charges = [q_e, q_i]
+    if q_pe is not None:
+        role_charges.append(q_pe)
     if any(
         abs(abs(charge) - elementary_charge) > 1.0e-6 * elementary_charge
-        for charge in (q_e, q_i, q_pe)
+        for charge in role_charges
     ):
         raise ConfigValidationError(
             "BEACH constraint error: Zhao stationary current requires singly charged "
-            "electron, ion, and photoelectron species."
+            "active species."
         )
-    electron_mass = float(selected["electron"].get("m_particle", 9.10938356e-31))
-    photoelectron_mass = float(
-        selected["photoelectron"].get("m_particle", 9.10938356e-31)
-    )
-    if abs(photoelectron_mass - electron_mass) > 1.0e-6 * electron_mass:
-        raise ConfigValidationError(
-            "BEACH constraint error: Zhao stationary current requires matching "
-            "ambient-electron and photoelectron masses."
+    if photoelectron_active:
+        electron_mass = float(selected["electron"].get("m_particle", 9.10938356e-31))
+        photoelectron_mass = float(
+            selected["photoelectron"].get("m_particle", 9.10938356e-31)
         )
-    photo = selected["photoelectron"]
-    if (
-        photo.get("source_mode", "volume_seed") != "photo_raycast"
-        or photo.get("deposit_opposite_charge_on_emit") is not True
-        or photo.get("inject_face") != "z_high"
-    ):
-        raise ConfigValidationError(
-            "BEACH constraint error: Zhao photoelectron species requires photo_raycast, "
-            "opposite-charge emission deposit, and inject_face=z_high."
-        )
-    photo_boundary = photo.get("boundary", {})
-    if not isinstance(photo_boundary, Mapping):
-        photo_boundary = {}
-    photo_z_high = photo_boundary.get("z_high", "inherit")
-    if photo_z_high == "inherit":
-        photo_z_high = (particle_boundary or {}).get("z_high", "open")
-    if photo_z_high != "open":
-        raise ConfigValidationError(
-            "BEACH constraint error: Zhao photoelectron kinetic closure requires "
-            "an open z-high particle boundary."
-        )
+        if abs(photoelectron_mass - electron_mass) > 1.0e-6 * electron_mass:
+            raise ConfigValidationError(
+                "BEACH constraint error: Zhao stationary current requires matching "
+                "ambient-electron and photoelectron masses."
+            )
+        photo = selected["photoelectron"]
+        if (
+            photo.get("source_mode", "volume_seed") != "photo_raycast"
+            or photo.get("deposit_opposite_charge_on_emit") is not True
+            or photo.get("inject_face") != "z_high"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: Zhao photoelectron species requires photo_raycast, "
+                "opposite-charge emission deposit, and inject_face=z_high."
+            )
+        photo_boundary = photo.get("boundary", {})
+        if not isinstance(photo_boundary, Mapping):
+            photo_boundary = {}
+        photo_z_high = photo_boundary.get("z_high", "inherit")
+        if photo_z_high == "inherit":
+            photo_z_high = (particle_boundary or {}).get("z_high", "open")
+        if photo_z_high != "open":
+            raise ConfigValidationError(
+                "BEACH constraint error: Zhao photoelectron kinetic closure requires "
+                "an open z-high particle boundary."
+            )
     for role in ("electron", "ion"):
         item = selected[role]
         boundary_inflow = item.get("boundary_inflow", {})
@@ -1606,17 +1633,19 @@ def _validate_surface_current_model(
 
     electron_temperature_k = temperature_k(selected["electron"])
     ion_temperature_k = temperature_k(ion)
-    photoelectron_temperature_k = temperature_k(selected["photoelectron"])
-    if (
-        not math.isfinite(electron_temperature_k)
-        or electron_temperature_k <= 0.0
-        or not math.isfinite(photoelectron_temperature_k)
-        or photoelectron_temperature_k <= 0.0
-    ):
+    if not math.isfinite(electron_temperature_k) or electron_temperature_k <= 0.0:
         raise ConfigValidationError(
-            "BEACH constraint error: Zhao electron and photoelectron temperatures "
-            "must be positive."
+            "BEACH constraint error: Zhao electron temperature must be positive."
         )
+    if photoelectron_active:
+        photoelectron_temperature_k = temperature_k(selected["photoelectron"])
+        if (
+            not math.isfinite(photoelectron_temperature_k)
+            or photoelectron_temperature_k <= 0.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: Zhao photoelectron temperature must be positive."
+            )
     if (
         not math.isfinite(ion_temperature_k)
         or ion_temperature_k > 0.1 * electron_temperature_k

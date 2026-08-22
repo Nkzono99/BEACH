@@ -423,10 +423,33 @@
           "then": {
             "required": [
               "electron_species",
-              "ion_species",
-              "photoelectron_species",
-              "solar_elevation_deg",
-              "photoelectron_ref_density_m3"
+              "ion_species"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "photoelectron_species",
+                  "solar_elevation_deg",
+                  "photoelectron_ref_density_m3"
+                ],
+                "properties": {
+                  "photoelectron_source_scale": {"exclusiveMinimum": 0}
+                }
+              },
+              {
+                "required": ["photoelectron_source_scale"],
+                "properties": {
+                  "photoelectron_source_scale": {"const": 0},
+                  "zhao_branch": {"enum": ["auto", "c"]}
+                },
+                "not": {
+                  "anyOf": [
+                    {"required": ["photoelectron_species"]},
+                    {"required": ["solar_elevation_deg"]},
+                    {"required": ["photoelectron_ref_density_m3"]}
+                  ]
+                }
+              }
             ]
           }
         }
@@ -465,7 +488,7 @@
         },
         "photoelectron_source_scale": {
           "type": "number",
-          "exclusiveMinimum": 0,
+          "minimum": 0,
           "default": 1
         },
         "reference_area_m2": {

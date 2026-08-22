@@ -250,15 +250,18 @@ contains
           table, keys(ikey), cfg%surface_current%photoelectron_species, &
           'surface_current_model.photoelectron_species' &
           )
+        cfg%surface_current%has_photoelectron_species = .true.
       case ('solar_elevation_deg')
         call get_toml_real( &
           table, keys(ikey), cfg%surface_current%solar_elevation_deg, 'surface_current_model.solar_elevation_deg' &
           )
+        cfg%surface_current%has_solar_elevation_deg = .true.
       case ('photoelectron_ref_density_m3')
         call get_toml_real( &
           table, keys(ikey), cfg%surface_current%photoelectron_ref_density_m3, &
           'surface_current_model.photoelectron_ref_density_m3' &
           )
+        cfg%surface_current%has_photoelectron_ref_density_m3 = .true.
       case ('photoelectron_source_scale')
         call get_toml_real( &
           table, keys(ikey), cfg%surface_current%photoelectron_source_scale, &

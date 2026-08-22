@@ -277,13 +277,18 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 `model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に一度解きます。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
-Zhao modelはambient electron、cold ion、photoelectronの3つの`species_key`を明示的に参照します。各speciesは
+Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
 z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
 fail-closedに検証します。
 非磁化closureなので`sim.b0`はゼロを要求します。Zhao固有の0 V reservoirと速度写像を使うため、genericな
 `reservoir.inflow_model="infinity_barrier"`との併用も拒否します。
 電流密度から電流へ変換する面積は`reference_area_m2`、省略時はdomainのx-y面積です。
+
+`photoelectron_source_scale=0.0`は光電子なしの契約です。この場合はPE固有設定とPE speciesを省略し、
+`zhao_branch`は`"auto"`または`"c"`を指定します。Zhao Type Cの$J_e+J_i=0$を解いて
+electron/ionの吸収targetとkinetic境界写像だけを生成します。
+PE emission、return、escape targetは生成しません。
 
 $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$とし、解いたPE emissionを$J_{emit}>0$、escapeを$J_{escape}>0$とすると、
 

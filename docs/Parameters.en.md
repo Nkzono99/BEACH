@@ -353,6 +353,8 @@ When this top-level table is omitted, configure each species manually with `targ
 external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents plus a z-high kinetic
 barrier once before batching.
 
+With `photoelectron_source_scale=0.0`, it creates no PE channels and uses the ambient-electron/ion zero-current root.
+
 ```toml
 [surface_current_model]
 model = "zhao_stationary"
@@ -366,23 +368,39 @@ photoelectron_source_scale = 1.0
 # reference_area_m2 = 1.0e-8
 ```
 
+For a no-photoelectron closure, omit every PE-specific key and explicitly set the source scale to zero.
+
+```toml
+[surface_current_model]
+model = "zhao_stationary"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_source_scale = 0.0
+```
+
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `model` | string | `"none"` | Currently `none` / `zhao_stationary` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; `auto` searches for a valid stationary branch |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; `auto` searches for a valid stationary branch; no-PE accepts only `auto` / `c` |
 | `electron_species` | string | required | `species_key` for ambient electrons |
 | `ion_species` | string | required | `species_key` for cold ions |
-| `photoelectron_species` | string | required | `species_key` for the `photo_raycast` tracking PE emission and return |
-| `solar_elevation_deg` | float | required | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
-| `photoelectron_ref_density_m3` | float | required | Reference PE density $n_{pe,ref}$ [m^-3] |
-| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ |
+| `photoelectron_species` | string | required with PE | `species_key` for the `photo_raycast` tracking PE emission and return |
+| `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
+| `photoelectron_ref_density_m3` | float | required with PE | Reference PE density $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$; `0.0` disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2] |
 
-The three referenced species must be enabled, distinct, and set `surface_charge_closure="fixed_current"`.
+The referenced species must be enabled, distinct, and set `surface_charge_closure="fixed_current"`.
 They cannot also specify manual `target_absorbed_current_a` or `target_emission_current_a`. Ambient electrons and ions must
 enter inward from the z-high reservoir.
 
-PE requires a negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, and an effective
+With `photoelectron_source_scale=0.0`, omit `photoelectron_species`, `solar_elevation_deg`, and
+`photoelectron_ref_density_m3`, and set `zhao_branch` to `"auto"` or `"c"`. BEACH solves the Zhao Type C
+$J_e+J_i=0$ closure and creates only the electron/ion absorption targets and z-high kinetic map; it creates no PE
+emission, return, or escape targets.
+
+When enabled, PE requires a negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, and an effective
 open z-high particle boundary. All three roles must be singly charged, the ambient-electron and PE masses must match,
 and $T_e>0$, $T_{pe}>0$, and $T_i\le0.1T_e$ must hold.
 

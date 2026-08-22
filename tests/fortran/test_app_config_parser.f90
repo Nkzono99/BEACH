@@ -17,6 +17,8 @@ program test_app_config_parser
   character(len=512) :: probe_config_path
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
   character(len=*), parameter :: zhao_generic_barrier_path = 'test_zhao_generic_barrier_tmp.toml'
+  character(len=*), parameter :: zhao_no_photo_stale_path = 'test_zhao_no_photo_stale_tmp.toml'
+  character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
   call get_command_argument(1, run_mode)
@@ -27,7 +29,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(8)
+  call test_init(11)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -64,6 +66,38 @@ program test_app_config_parser
     effective_boundary_low, effective_boundary_high &
     )
   call assert_equal_i32(effective_boundary_high(3), bc_open, 'Zhao PE z-high boundary must be open')
+  call test_end()
+
+  call test_begin('zhao_no_photo_fixed_current_config')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_no_photo_fixed_current.toml', cfg)
+  call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'no-PE Zhao current model mismatch')
+  call assert_close_dp( &
+    cfg%surface_current%photoelectron_source_scale, 0.0_dp, 0.0_dp, 'no-PE Zhao source scale mismatch' &
+    )
+  call assert_true(len_trim(cfg%surface_current%photoelectron_species) == 0, 'no-PE Zhao must omit PE species')
+  call assert_equal_i32(cfg%n_particle_species, 2_i32, 'no-PE Zhao species count mismatch')
+  call assert_true( &
+    all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'fixed_current', i=1, 2)]), &
+    'no-PE Zhao ambient species must use fixed_current' &
+    )
+  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'c', .false.)
+  call default_app_config(cfg)
+  call load_app_config(zhao_no_photo_branch_path, cfg)
+  call assert_true(trim(cfg%surface_current%zhao_branch) == 'c', 'no-PE Zhao must accept explicit Type C')
+  call delete_file_if_exists(zhao_no_photo_branch_path)
+  call test_end()
+
+  call test_begin('zhao_no_photo_rejects_explicit_pe_key')
+  call write_no_photo_zhao_variant(zhao_no_photo_stale_path, 'auto', .true.)
+  call assert_config_rejected(zhao_no_photo_stale_path, 'requires omitting all photoelectron-specific Zhao settings')
+  call delete_file_if_exists(zhao_no_photo_stale_path)
+  call test_end()
+
+  call test_begin('zhao_no_photo_rejects_non_c_branch')
+  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'a', .false.)
+  call assert_config_rejected(zhao_no_photo_branch_path, 'zhao_branch="auto" or "c"')
+  call delete_file_if_exists(zhao_no_photo_branch_path)
   call test_end()
 
   call test_begin('fixed_current_config')
@@ -176,6 +210,41 @@ contains
       error stop 'failed to specialize Zhao invalid-config fixture'
     end if
   end subroutine write_zhao_variant
+
+  subroutine write_no_photo_zhao_variant(path, zhao_branch, include_stale_photo_setting)
+    character(len=*), intent(in) :: path, zhao_branch
+    logical, intent(in) :: include_stale_photo_setting
+    character(len=1024) :: line
+    integer :: source_unit, output_unit, ios
+    logical :: replaced_branch, inserted_stale_photo_setting
+
+    replaced_branch = .false.
+    inserted_stale_photo_setting = .not. include_stale_photo_setting
+    open (newunit=source_unit, file='examples/periodic2_zhao_no_photo_fixed_current.toml', &
+          status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open no-PE Zhao example fixture'
+    open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create no-PE Zhao invalid-config fixture'
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (trim(line) == 'zhao_branch = "auto"') then
+        write (output_unit, '(a)') 'zhao_branch = "'//trim(zhao_branch)//'"'
+        replaced_branch = .true.
+      else
+        write (output_unit, '(a)') trim(line)
+      end if
+      if (include_stale_photo_setting .and. trim(line) == 'photoelectron_source_scale = 0.0') then
+        write (output_unit, '(a)') 'solar_elevation_deg = 0.0'
+        inserted_stale_photo_setting = .true.
+      end if
+    end do
+    close (source_unit)
+    close (output_unit)
+    if (.not. replaced_branch .or. .not. inserted_stale_photo_setting) then
+      error stop 'failed to specialize no-PE Zhao invalid-config fixture'
+    end if
+  end subroutine write_no_photo_zhao_variant
 
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment
