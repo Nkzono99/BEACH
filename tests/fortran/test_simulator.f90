@@ -561,7 +561,8 @@ contains
     failure_cfg%particle_species(1)%w_particle = 1.0d0
     failure_cfg%particle_species(1)%pos_low = [0.2d0, 0.25d0, 0.5d0]
     failure_cfg%particle_species(1)%pos_high = failure_cfg%particle_species(1)%pos_low
-    failure_cfg%particle_species(1)%drift_velocity = [5000.0d0, 0.0d0, 0.0d0]
+    ! Keep the failure probe beyond the periodic-subdivision recovery limit.
+    failure_cfg%particle_species(1)%drift_velocity = [1.0d6, 0.0d0, 0.0d0]
     failure_cfg%particle_species(1)%temperature_k = 0.0d0
 
     call prepare_periodic2_collision_mesh(failure_mesh, failure_cfg%sim)
