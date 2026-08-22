@@ -36,7 +36,7 @@ program test_injection_sampling
     error stop 'photo query failure probe unexpectedly completed'
   end if
 
-  call test_init(20)
+  call test_init(21)
 
   call seed_rng()
 
@@ -256,8 +256,26 @@ program test_injection_sampling
     1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')
-  call assert_true(x(2, 1) >= -1.0d-12, 'photo_raycast periodic2 wrapped y should stay in primary cell')
-  call assert_true(x(2, 1) < sim%box_max(2) + 1.0d-12, 'photo_raycast periodic2 should use wrapped emission position')
+  call assert_true(x(2, 1) > sim%box_min(2), 'photo_raycast periodic2 wrapped y should be strictly inside the primary cell')
+  call assert_true(x(2, 1) < sim%box_max(2), 'photo_raycast periodic2 should use wrapped emission position')
+  call test_end()
+
+  call test_begin('photo_raycast_periodic2_normal_offset_wraps')
+  tri_v0(:, 1) = [0.20d0, 0.90d0, 0.50d0]
+  tri_v1(:, 1) = [0.80d0, 0.90d0, 0.50d0]
+  tri_v2(:, 1) = [0.20d0, 1.10d0, 0.30d0]
+  tri_v0(:, 2) = [0.70d0, 0.70d0, 0.60d0]
+  tri_v1(:, 2) = [0.90d0, 0.70d0, 0.60d0]
+  tri_v2(:, 2) = [0.70d0, 0.90d0, 0.60d0]
+  call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  call prepare_periodic2_collision_mesh(mesh, sim)
+  call sample_photo_raycast_particles( &
+    mesh, sim, 'z_high', [0.30d0, 1.0d0 - 2.5d-13, 1.0d0], [0.40d0, 1.0d0 - 1.25d-13, 1.0d0], ray_dir, &
+    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+    )
+  call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 seam case should emit one particle')
+  call assert_true(x(2, 1) > sim%box_min(2), 'normal-offset emission should wrap above the periodic low face')
+  call assert_true(x(2, 1) < sim%box_max(2), 'normal-offset emission should stay below the periodic high face')
   call test_end()
 
   call test_begin('photo_raycast_max_bounce')

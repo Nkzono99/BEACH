@@ -3,7 +3,7 @@ module bem_photoelectron_injection
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
-  use bem_types, only: mesh_type, sim_config, hit_info
+  use bem_types, only: mesh_type, sim_config, hit_info, bc_periodic
   use bem_boundary, only: apply_box_boundary
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
@@ -178,6 +178,7 @@ contains
           if (dot_product(surf_normal, ray_dir) > 0.0_dp) surf_normal = -surf_normal
           if (use_periodic2_mode) then
             hit_pos(:, i) = hit%pos_wrapped + surf_normal*eps
+            call canonicalize_periodic_emission_position(sim, hit_pos(:, i))
           else
             hit_pos(:, i) = hit%pos + surf_normal*eps
           end if
@@ -225,6 +226,24 @@ contains
       if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit_elem(i)
     end do
   end subroutine sample_photo_raycast_particles
+
+  !> 法線offset後の周期軸をprimary cellのstrict interiorへ戻す。
+  pure subroutine canonicalize_periodic_emission_position(sim, position)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(inout) :: position(3)
+    integer(i32) :: axis
+    real(dp) :: span, scale, inset
+
+    do axis = 1_i32, 3_i32
+      if (sim%bc_low(axis) /= bc_periodic .or. sim%bc_high(axis) /= bc_periodic) cycle
+      span = sim%box_max(axis) - sim%box_min(axis)
+      scale = max(abs(sim%box_min(axis)), abs(sim%box_max(axis)), span, tiny(1.0_dp))
+      inset = max(64.0_dp*epsilon(1.0_dp)*scale, spacing(scale))
+      inset = min(0.25_dp*span, inset)
+      position(axis) = sim%box_min(axis) + modulo(position(axis) - sim%box_min(axis), span)
+      position(axis) = min(max(position(axis), sim%box_min(axis) + inset), sim%box_max(axis) - inset)
+    end do
+  end subroutine canonicalize_periodic_emission_position
 
   !> photo ray の不完全な衝突照会を返し、status 未要求なら OpenMP 外で停止する。
   subroutine finalize_photo_collision_query( &
