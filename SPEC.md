@@ -328,6 +328,74 @@ rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支
 targetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
 外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
 
+### 7.8 matching-plane 準定常連成
+
+`model="matching_plane_quasistatic"`は、`domain.box_max`のz成分をmatching plane $H$ とし、外部1Dシースを
+事前計算済み非線形境界演算子としてBEACHへ接続します。全mesh頂点は$H$より厳密に下へ置きます。BEACHは
+全triangleの実表面電荷を保持し、$H$より下の
+$k=0$と$k\neq0$を解きます。外部Zhao/PIC場をmicrodomainへ重ねず、Zhaoの定常壁電位または表面電荷も追加しません。
+speciesの表面電荷更新は`surface_charge_closure="explicit"`のraw trajectory depositであり、fixed-current倍率を使いません。
+
+このmodelはexplicitな`periodic2`構成だけに対応します。nonzero backendは`cached_kneq0`または
+`panel_spectral_reference`、zero-mode policyは`exclude_k0`、lower boundaryは`e_bottom_zero`または
+`symmetric_vacuum`とします。x/yはperiodic、z-low/z-highはopen、`sim.e0`と`sim.b0`はゼロです。
+enabled speciesはambient electron、ion、photoelectronの3 roleだけを別speciesとして明示し、前2者はz-high
+reservoir流入、PEは負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
+`reference_area_m2`、Zhao固有parameterは併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
+1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`に固定します。
+
+response CSV v1は、headerより前に一意な`# matching_plane_z_m=<finite>`を持ち、その値を$H$と照合します。
+入力5列は
+
+$$
+(D_H,\ \Gamma_{pe}^{out},\ \langle K_{pe,n}^{out}\rangle,\
+ \Gamma_e^{out},\ \Gamma_i^{out})
+$$
+
+であり、出力6列は
+
+$$
+(\Phi_H,\ \Gamma_e^{in},\ \Gamma_i^{in},\
+ \Phi_{e,access},\ \Phi_{i,access},\ \Phi_{pe,barrier})
+$$
+
+です。列名と単位は`docs/MatchingPlaneCoupling.md`を正本とします。rowは5入力軸の完全Cartesian productで、
+重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2--5軸は初期評価のため
+ゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
+singleton軸はそのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
+tableはprocess内でpathごとのimmutable snapshotとして読み、canonical axis/value列をmodel fingerprintへ含めます。
+potential 4列は同じgaugeを使い、外部modelの上流reservoirを0 Vとします。inward VDFはこの0 Vから
+access potentialと$\Phi_H$へ写像するため、potential列だけの定数shiftは同値ではありません。
+
+各batch trialでは、表面総電荷とlower boundaryから
+
+$$
+D_H=D_b+Q_{cell}/A
+$$
+
+を得ます。accepted済みouter feedback $X^0$（新規runはゼロ）から、response補間、$\Phi_H$を指定したinner field、
+応答flux/barrierを使う粒子追跡、実際の$H$外向きmoment測定を反復します。同じbatch開始RNG stateと
+macro-particle端数を毎反復で再生し、Monte Carlo写像を反復間で変えません。raw response $X_{raw}^{m+1}$は
+
+$$
+X^{m+1}=(1-\alpha)X^m+\alpha X_{raw}^{m+1},
+\qquad 0<\alpha\le1
+$$
+
+で緩和します。複数nodeを持つfeedback軸のspanで正規化した最大残差が`coupling_rtol`以下になるまで反復し、
+singleton軸は残差判定から除外します。`coupling_max_iterations`で未収束、またはactive軸の補間範囲外なら
+fail closedとします。収束したtrialだけが表面電荷、RNG、注入端数、ledger、history、outer stateをcommitします。
+adaptive batch-durationで棄却したtrialはouter stateもbatch開始値へrollbackします。
+
+z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEについては外向き数、法線energy、外部barrierでの
+return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
+accepted outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは同じtable内容と
+matching構成のfingerprintを要求し、保存したfeedbackから反復を再開します。
+
+このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
+外部過渡、BEACH領域内volume plasma chargeは解きません。production tableは独立に検証したZhao/1D PIC sweepから
+作成し、matching-plane高度$H$をoverlap region内で変えたときの主要量の不変性を連成検証とします。
+
 ## 8. 実行制御
 
 - 新規実行は `sim.batch_count` 個の accepted batch を処理する
@@ -345,6 +413,7 @@ targetを再計算しません。z-high反射は外部turning pointまでの距�
 - `mesh_sources.csv`
 - `mesh_potential.csv`（設定時）
 - `charge_history.csv` / `potential_history.csv` / `top_reference_history.csv`（設定時）
+- `matching_plane_history.csv`（matching-plane連成かつ履歴出力時）
 - `charge_ledger.csv`（ledger がある場合）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`
@@ -368,6 +437,8 @@ summary に ledger metadata があれば、schema の世代によらず `charge_
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
+schema v9はmatching-planeのaccepted feedback、potential、return/escape flux、反復receiptを`summary.txt`へ保存します。
+non-matching modelではこれらを無効値として保持し、v8以前のload可能なcheckpointとの互換性を維持します。
 globalまたはspecies境界のいずれかで`redistributed_reflect`を使う場合だけ、model fingerprintへ
 `sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。また、境界event速度をchord方向かつ
 予測中点電場の離散workと整合させる契約と、表面注入を未照会飛行なしで1 ULP内側から開始する契約にも

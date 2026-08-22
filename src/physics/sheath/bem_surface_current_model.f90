@@ -60,6 +60,7 @@ contains
       result%has_escape_target(app%n_particle_species), &
       result%has_inflow_kinetic_map(app%n_particle_species), &
       result%has_outflow_kinetic_barrier(app%n_particle_species), &
+      result%has_inflow_number_flux(app%n_particle_species), &
       result%absorbed_current_a(app%n_particle_species), &
       result%emission_current_a(app%n_particle_species), &
       result%escaped_particle_current_a(app%n_particle_species), &
@@ -67,13 +68,15 @@ contains
       result%inflow_access_potential_v(app%n_particle_species), &
       result%inflow_kinetic_face(app%n_particle_species), &
       result%outflow_barrier_potential_v(app%n_particle_species), &
-      result%outflow_barrier_face(app%n_particle_species) &
+      result%outflow_barrier_face(app%n_particle_species), &
+      result%inflow_number_flux_m2_s(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
     result%has_escape_target = .false.
     result%has_inflow_kinetic_map = .false.
     result%has_outflow_kinetic_barrier = .false.
+    result%has_inflow_number_flux = .false.
     result%absorbed_current_a = 0.0_dp
     result%emission_current_a = 0.0_dp
     result%escaped_particle_current_a = 0.0_dp
@@ -82,6 +85,7 @@ contains
     result%inflow_kinetic_face = 0_i32
     result%outflow_barrier_potential_v = 0.0_dp
     result%outflow_barrier_face = 0_i32
+    result%inflow_number_flux_m2_s = 0.0_dp
     result%model = trim(lower_ascii(app%surface_current%model))
 
     select case (trim(result%model))
@@ -89,6 +93,11 @@ contains
       return
     case ('zhao_stationary')
       call evaluate_zhao_stationary_current(app, result)
+    case ('matching_plane_quasistatic')
+      ! Batch-local response evaluation is owned by the simulator fixed point.
+      ! Keep this static dispatch side-effect free for output/config callers.
+      result%active = .true.
+      result%kinetic_contract = 'matching_plane_v1'
     case default
       error stop 'Unknown surface current model dispatch.'
     end select

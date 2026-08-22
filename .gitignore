@@ -226,6 +226,7 @@ __marimo__/
 
 outputs/
 .beach_cache/
+slurm-*.out
 
 # Fortran coverage artifacts
 *.gcov

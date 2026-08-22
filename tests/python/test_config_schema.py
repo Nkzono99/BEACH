@@ -197,6 +197,10 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     disabled["surface_current_model"] = {"model": "none"}
     assert schema_errors(disabled, schema) == []
 
+    disabled_with_model_key = copy.deepcopy(disabled)
+    disabled_with_model_key["surface_current_model"]["coupling_rtol"] = 1.0e-4
+    assert schema_errors(disabled_with_model_key, schema)
+
     no_photo = load_toml_file(
         ROOT / "examples/periodic2_zhao_no_photo_fixed_current.toml"
     )
@@ -213,6 +217,45 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     invalid_no_photo_branch = copy.deepcopy(no_photo)
     invalid_no_photo_branch["surface_current_model"]["zhao_branch"] = "a"
     assert schema_errors(invalid_no_photo_branch, schema)
+
+
+def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
+    schema, _ = load_schema()
+    matching = load_toml_file(
+        ROOT / "tests/fortran/matching_plane_quasistatic.toml"
+    )
+
+    assert schema_errors(matching, schema) == []
+
+    missing_response = copy.deepcopy(matching)
+    missing_response["surface_current_model"].pop("response_table_path")
+    assert schema_errors(missing_response, schema)
+
+    zhao_key = copy.deepcopy(matching)
+    zhao_key["surface_current_model"]["zhao_branch"] = "auto"
+    assert schema_errors(zhao_key, schema)
+
+    reference_area = copy.deepcopy(matching)
+    reference_area["surface_current_model"]["reference_area_m2"] = 1.0
+    assert schema_errors(reference_area, schema)
+
+    no_split_zero_mode = copy.deepcopy(matching)
+    no_split_zero_mode.pop("periodic2")
+    assert schema_errors(no_split_zero_mode, schema)
+
+    nonzero_field = copy.deepcopy(matching)
+    nonzero_field["sim"]["b0"] = [0.0, 0.0, 1.0]
+    assert schema_errors(nonzero_field, schema)
+
+    generic_open_barrier = copy.deepcopy(matching)
+    generic_open_barrier["particle_boundary"]["ordinary_open_model"] = (
+        "potential_barrier"
+    )
+    assert schema_errors(generic_open_barrier, schema)
+
+    zhao = load_toml_file(ROOT / "examples/periodic2_zhao_fixed_current.toml")
+    zhao["surface_current_model"]["response_table_path"] = "outer-response.csv"
+    assert schema_errors(zhao, schema)
 
 
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:

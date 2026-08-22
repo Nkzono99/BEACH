@@ -133,6 +133,12 @@ For total surface charge $Q=\sum_iq_i$, current choices are:
 Neither solves dielectric screening or polarization. `symmetric_vacuum` is the minimal symmetric closure without an additional
 interface or permittivity; `e_bottom_zero` exists for legacy reproduction and is not a universal physical default.
 
+With `matching_plane_quasistatic`, BEACH passes
+$D_H=\epsilon_0E_\mathrm{bottom}+Q/A$, derived from the same lower closure and complete surface charge, to the outer response.
+The returned $(H,\Phi_H)$ becomes the zero-mode gauge point. This preserves the field and Gauss's law while making the inner
+potential continuous with the outer sheath; it does not add the outer field profile inside BEACH. See
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for configuration and the height-dependence test.
+
 ## Search periodic images reachable by particle trajectories
 
 Field targets are wrapped into the primary periodic cell, while physical trajectory-event positions are retained. Mesh collision

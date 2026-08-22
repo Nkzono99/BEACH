@@ -14,12 +14,15 @@ module bem_app_config_types
   integer(i32), parameter :: particle_inflow_none = 0_i32
   integer(i32), parameter :: particle_inflow_reservoir = 1_i32
 
-  !> 表面固定電流を与える外部モデルの共通設定。
+  !> 外部シース電流またはmatching-plane応答を与えるモデルの共通設定。
   type :: surface_current_model_config
     character(len=32) :: model = 'none'
     character(len=16) :: zhao_branch = 'auto'
+    logical :: has_zhao_branch = .false.
     character(len=64) :: electron_species = ''
+    logical :: has_electron_species = .false.
     character(len=64) :: ion_species = ''
+    logical :: has_ion_species = .false.
     character(len=64) :: photoelectron_species = ''
     logical :: has_photoelectron_species = .false.
     real(dp) :: solar_elevation_deg = 0.0_dp
@@ -27,8 +30,17 @@ module bem_app_config_types
     real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
     logical :: has_photoelectron_ref_density_m3 = .false.
     real(dp) :: photoelectron_source_scale = 1.0_dp
+    logical :: has_photoelectron_source_scale = .false.
     real(dp) :: reference_area_m2 = 0.0_dp
     logical :: has_reference_area_m2 = .false.
+    character(len=256) :: response_table_path = ''
+    logical :: has_response_table_path = .false.
+    real(dp) :: coupling_rtol = 1.0e-4_dp
+    logical :: has_coupling_rtol = .false.
+    integer(i32) :: coupling_max_iterations = 20_i32
+    logical :: has_coupling_max_iterations = .false.
+    real(dp) :: coupling_relaxation = 0.5_dp
+    logical :: has_coupling_relaxation = .false.
   end type surface_current_model_config
 
   !> 1粒子種の注入設定を表す。

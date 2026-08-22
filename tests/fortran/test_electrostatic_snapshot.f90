@@ -20,7 +20,7 @@ program test_electrostatic_snapshot
   real(dp) :: potential_without_self, expected_potential, self_potential, self_field(3)
   integer(i32) :: panel_status
 
-  call test_init(4)
+  call test_init(5)
   v0(:, 1) = [-0.5_dp, -0.5_dp, 0.0_dp]
   v1(:, 1) = [0.5_dp, -0.5_dp, 0.0_dp]
   v2(:, 1) = [0.0_dp, 0.5_dp, 0.0_dp]
@@ -81,6 +81,25 @@ program test_electrostatic_snapshot
     potential_without_self, potential - self_potential, 1.0e-12_dp*max(1.0_dp, abs(potential)), &
     'panel spectral primary self exclusion mismatch' &
     )
+  call test_end()
+
+  call test_begin('matching_plane_gauge_and_displacement')
+  call snapshot%set_matching_plane_gauge(mesh, sim%box_max(3), -2.5_dp)
+  call assert_close_dp(snapshot%zero_state%z_gauge, 1.0_dp, 1.0e-14_dp, 'matching-plane z gauge mismatch')
+  call assert_close_dp(snapshot%zero_state%phi_gauge, -2.5_dp, 1.0e-14_dp, 'matching-plane phi gauge mismatch')
+  call assert_close_dp( &
+    snapshot%get_matching_plane_displacement(), 2.0e-12_dp, 1.0e-24_dp, &
+    'matching-plane displacement mismatch' &
+    )
+  mesh%q_elem = 3.0e-12_dp
+  call snapshot%refresh(mesh)
+  call assert_close_dp(snapshot%zero_state%phi_gauge, -2.5_dp, 1.0e-14_dp, 'matching-plane gauge was not retained')
+  call assert_close_dp( &
+    snapshot%get_matching_plane_displacement(), 3.0e-12_dp, 1.0e-24_dp, &
+    'matching-plane displacement was not refreshed' &
+    )
+  mesh%q_elem = 2.0e-12_dp
+  call snapshot%clear_matching_plane_gauge(mesh)
   call test_end()
 
   call test_begin('mesh_potential_uses_same_snapshot')

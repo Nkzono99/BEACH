@@ -22,8 +22,11 @@ module bem_app_config_authoring
   type :: periodic2_authoring_spec
     logical :: present = .false.
     character(len=32) :: nonzero_mode_backend = 'panel_spectral_reference'
+    logical :: has_nonzero_mode_backend = .false.
     character(len=32) :: zero_mode_policy = 'exclude_k0'
+    logical :: has_zero_mode_policy = .false.
     character(len=32) :: lower_boundary_model = 'e_bottom_zero'
+    logical :: has_lower_boundary_model = .false.
     integer(i32) :: reference_mode_layers = 4_i32
     integer(i32) :: panel_quadrature_order = 12_i32
     real(dp) :: max_nonzero_mode_potential_step = 0.0_dp

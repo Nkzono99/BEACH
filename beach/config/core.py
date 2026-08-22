@@ -134,7 +134,24 @@ def load_config_file(path: str | Path) -> dict[str, Any]:
     """Load, normalize, and validate one direct ``beach.toml`` file."""
 
     raw = load_toml_file(path)
+    _resolve_surface_response_table_path(raw, config_path=Path(path))
     return normalize_config_document(raw)
+
+
+def _resolve_surface_response_table_path(
+    config: dict[str, Any], *, config_path: Path
+) -> None:
+    """Resolve a relative outer-response path from the config directory."""
+
+    model = config.get("surface_current_model")
+    if not isinstance(model, dict):
+        return
+    raw_path = model.get("response_table_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return
+    if Path(raw_path).is_absolute():
+        return
+    model["response_table_path"] = str(config_path.parent / raw_path)
 
 
 def normalize_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
@@ -879,7 +896,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             "BEACH constraint error: particles.species must be a non-empty array of tables."
         )
     automatic_current_species = set()
-    if surface_current_model is not None:
+    if (
+        surface_current_model is not None
+        and surface_current_model.get("model") == "zhao_stationary"
+    ):
         automatic_current_species = {
             str(surface_current_model.get(key, ""))
             for key in (
@@ -1382,8 +1402,12 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     _validate_surface_current_model(
         surface_current_model,
         species=species,
+        sim=sim,
         domain=domain,
+        field_boundary=field_boundary,
         particle_boundary=particle_boundary,
+        reservoir=reservoir,
+        periodic2_config=periodic2_config,
     )
 
     if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
@@ -1421,15 +1445,50 @@ def _validate_surface_current_model(
     model_config: Mapping[str, Any] | None,
     *,
     species: list[Mapping[str, Any]],
+    sim: Mapping[str, Any],
     domain: Mapping[str, Any] | None,
+    field_boundary: Mapping[str, Any] | None,
     particle_boundary: Mapping[str, Any] | None,
+    reservoir: Mapping[str, Any] | None,
+    periodic2_config: object,
 ) -> None:
-    if model_config is None or model_config.get("model", "none") == "none":
+    if model_config is None:
         return
-    if model_config.get("model") != "zhao_stationary":
+    model = model_config.get("model")
+    if model is None or model == "none":
+        if set(model_config) - {"model"}:
+            raise ConfigValidationError(
+                'BEACH constraint error: surface_current_model.model="none" cannot '
+                "use Zhao or matching-plane settings."
+            )
+        return
+    matching_keys = {
+        "response_table_path",
+        "coupling_rtol",
+        "coupling_max_iterations",
+        "coupling_relaxation",
+    }
+    if model == "matching_plane_quasistatic":
+        _validate_matching_plane_model(
+            model_config,
+            species=species,
+            sim=sim,
+            domain=domain,
+            field_boundary=field_boundary,
+            particle_boundary=particle_boundary,
+            reservoir=reservoir,
+            periodic2_config=periodic2_config,
+        )
+        return
+    if model != "zhao_stationary":
         raise ConfigValidationError(
-            'BEACH constraint error: surface_current_model.model must be "none" '
-            'or "zhao_stationary".'
+            'BEACH constraint error: surface_current_model.model must be "none", '
+            '"zhao_stationary", or "matching_plane_quasistatic".'
+        )
+    if matching_keys.intersection(model_config):
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao surface-current model cannot use "
+            "matching-plane-specific settings."
         )
     zhao_branch = model_config.get("zhao_branch", "auto")
     if zhao_branch not in {"auto", "a", "b", "c"}:
@@ -1654,6 +1713,266 @@ def _validate_surface_current_model(
             "BEACH constraint error: Zhao stationary current requires cold ions "
             "with T_i <= 0.1 T_e."
         )
+
+
+def _validate_matching_plane_model(
+    model_config: Mapping[str, Any],
+    *,
+    species: list[Mapping[str, Any]],
+    sim: Mapping[str, Any],
+    domain: Mapping[str, Any] | None,
+    field_boundary: Mapping[str, Any] | None,
+    particle_boundary: Mapping[str, Any] | None,
+    reservoir: Mapping[str, Any] | None,
+    periodic2_config: object,
+) -> None:
+    zhao_keys = {
+        "zhao_branch",
+        "solar_elevation_deg",
+        "photoelectron_ref_density_m3",
+        "photoelectron_source_scale",
+        "reference_area_m2",
+    }
+    if zhao_keys.intersection(model_config):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic cannot use "
+            "Zhao-specific settings or reference_area_m2."
+        )
+
+    response_path = model_config.get("response_table_path")
+    if (
+        not isinstance(response_path, str)
+        or not response_path.strip()
+        or len(response_path) > 256
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires a "
+            "non-empty response_table_path of at most 256 characters."
+        )
+    for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
+        value = model_config.get(key, default)
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or not 0.0 < float(value) <= 1.0
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: surface_current_model.{key} must be "
+                "finite and in (0, 1]."
+            )
+    max_iterations = model_config.get("coupling_max_iterations", 20)
+    if (
+        not isinstance(max_iterations, int)
+        or isinstance(max_iterations, bool)
+        or max_iterations < 1
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.coupling_max_iterations "
+            "must be an integer >= 1."
+        )
+
+    if domain is None or field_boundary is None:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires a "
+            "periodic2 [domain] box."
+        )
+    if field_boundary.get("mode", "free") != "periodic2":
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires "
+            'field_boundary.mode="periodic2".'
+        )
+    if set(domain.get("periodic_axes", [])) != {"x", "y"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires x/y "
+            "periodic and z-open box topology."
+        )
+    if not isinstance(periodic2_config, Mapping):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires an "
+            "explicit split-zero-mode [periodic2] table."
+        )
+    if periodic2_config.get("nonzero_mode_backend") not in {
+        "cached_kneq0",
+        "panel_spectral_reference",
+    }:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires a split "
+            "periodic2 nonzero-mode backend."
+        )
+    if periodic2_config.get("zero_mode_policy") != "exclude_k0":
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires "
+            'periodic2.zero_mode_policy="exclude_k0".'
+        )
+    if periodic2_config.get("lower_boundary_model") not in {
+        "e_bottom_zero",
+        "symmetric_vacuum",
+    }:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires a "
+            "supported periodic2 lower boundary model."
+        )
+
+    if "e0" in sim:
+        e0 = _maybe_vec3(sim.get("e0"), name="sim.e0")
+        e0_is_zero = e0 is not None and all(value == 0.0 for value in e0)
+    else:
+        e0_abs = sim.get("e0_abs", 0.0)
+        e0_is_zero = (
+            isinstance(e0_abs, (int, float))
+            and not isinstance(e0_abs, bool)
+            and math.isfinite(float(e0_abs))
+            and float(e0_abs) == 0.0
+        )
+    b0 = _maybe_vec3(sim.get("b0", [0.0, 0.0, 0.0]), name="sim.b0")
+    if not e0_is_zero or b0 is None or any(value != 0.0 for value in b0):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires "
+            "sim.e0=sim.b0=[0,0,0]."
+        )
+    if (
+        reservoir is not None
+        and reservoir.get("inflow_model", "source_vdf") != "source_vdf"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic cannot use the "
+            "generic reservoir potential model."
+        )
+    if (particle_boundary or {}).get("ordinary_open_model", "escape") != "escape":
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires "
+            'particle_boundary.ordinary_open_model="escape".'
+        )
+    if sim.get("multiple_box_events_policy", "abort") != "abort":
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires "
+            'sim.multiple_box_events_policy="abort".'
+        )
+
+    by_key = {
+        str(item.get("species_key", f"species_{index}")): item
+        for index, item in enumerate(species, start=1)
+        if item.get("enabled", True) is True
+    }
+    role_keys = {
+        role: model_config.get(f"{role}_species")
+        for role in ("electron", "ion", "photoelectron")
+    }
+    if any(not isinstance(value, str) or not value for value in role_keys.values()):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires electron, "
+            "ion, and photoelectron species roles."
+        )
+    if len(set(role_keys.values())) != 3:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic species references "
+            "must be distinct."
+        )
+    if any(value not in by_key for value in role_keys.values()):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic references an "
+            "unknown or disabled species."
+        )
+    selected = {role: by_key[key] for role, key in role_keys.items()}
+    for role, item in selected.items():
+        if item.get("surface_charge_closure", "explicit") != "explicit":
+            raise ConfigValidationError(
+                f"BEACH constraint error: matching_plane_quasistatic {role} species "
+                'requires surface_charge_closure="explicit".'
+            )
+    if any(
+        item.get("surface_charge_closure", "explicit") == "fixed_current"
+        or "target_absorbed_current_a" in item
+        or "target_emission_current_a" in item
+        for item in species
+        if item.get("enabled", True) is True
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic cannot use manual "
+            "fixed_current targets on any enabled species."
+        )
+    if len(by_key) != 3:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires exactly "
+            "three enabled role species."
+        )
+
+    charges: dict[str, float] = {}
+    for role, item in selected.items():
+        raw_charge = item.get("q_particle", -1.602176634e-19)
+        if (
+            not isinstance(raw_charge, (int, float))
+            or isinstance(raw_charge, bool)
+            or not math.isfinite(float(raw_charge))
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: matching_plane_quasistatic {role} charge "
+                "must be finite and numeric."
+            )
+        charges[role] = float(raw_charge)
+    if (
+        charges["electron"] >= 0.0
+        or charges["ion"] <= 0.0
+        or charges["photoelectron"] >= 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires negative "
+            "electron/photoelectron and positive ion species."
+        )
+
+    for role in ("electron", "ion"):
+        ambient = selected[role]
+        boundary_inflow = ambient.get("boundary_inflow", {})
+        npcls_per_step = ambient.get("npcls_per_step", 0)
+        if (
+            ambient.get("source_mode", "volume_seed") != "volume_seed"
+            or not isinstance(npcls_per_step, int)
+            or isinstance(npcls_per_step, bool)
+            or npcls_per_step != 0
+            or not isinstance(boundary_inflow, Mapping)
+            or dict(boundary_inflow) != {"z_high": "reservoir"}
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: matching_plane_quasistatic {role} species "
+                "requires volume_seed, npcls_per_step=0, and only z-high "
+                'boundary_inflow="reservoir".'
+            )
+    photo = selected["photoelectron"]
+    if (
+        photo.get("source_mode", "volume_seed") != "photo_raycast"
+        or photo.get("deposit_opposite_charge_on_emit") is not True
+        or photo.get("inject_face") != "z_high"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic photoelectrons "
+            "require opposite-deposit photo_raycast from z_high."
+        )
+
+    expected_boundaries = {
+        "x_low": "periodic",
+        "x_high": "periodic",
+        "y_low": "periodic",
+        "y_high": "periodic",
+        "z_low": "open",
+        "z_high": "open",
+    }
+    species_indices = {
+        str(item.get("species_key", f"species_{index}")): index
+        for index, item in enumerate(species, start=1)
+    }
+    for role, item in selected.items():
+        effective_boundary = _validate_species_particle_boundary(
+            item,
+            index=species_indices[str(role_keys[role])],
+            periodic_axes={"x", "y"},
+            global_boundary=particle_boundary or {},
+        )
+        if effective_boundary != expected_boundaries:
+            raise ConfigValidationError(
+                f"BEACH constraint error: matching_plane_quasistatic {role} species "
+                "requires x/y periodic and z-low/z-high open particle boundaries."
+            )
 
 
 def dump_beach_toml(

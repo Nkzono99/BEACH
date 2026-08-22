@@ -1,0 +1,104 @@
+# Config-parser fixture for the Level 3 matching-plane public contract.
+# The response table path is intentionally not required to exist at config-validation time.
+
+[sim]
+dt = 2.0e-12
+batch_duration = 0.5
+batch_count = 1
+max_step = 100000
+rng_seed = 12345
+field_solver = "fmm"
+field_periodic_image_layers = 1
+field_periodic_far_correction = "cached_kneq0"
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0e-4, 1.0e-4, 1.0e-3]
+periodic_axes = ["x", "y"]
+
+[field_boundary]
+mode = "periodic2"
+
+[particle_boundary]
+z_low = "open"
+z_high = "open"
+
+[reservoir]
+inflow_model = "source_vdf"
+
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_table_path = "data/matching_response_table.csv"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "e_bottom_zero"
+
+[particles]
+
+[[particles.species]]
+species_key = "solar_wind_electron"
+source_mode = "volume_seed"
+npcls_per_step = 0
+number_density_cm3 = 8.7
+temperature_ev = 12.0
+q_particle = -1.602176634e-19
+m_particle = 9.1093837139e-31
+target_macro_particles_per_batch = 30
+drift_velocity = [0.0, 0.0, -4.0529988897e5]
+surface_charge_closure = "explicit"
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+
+[[particles.species]]
+species_key = "solar_wind_ion"
+source_mode = "volume_seed"
+npcls_per_step = 0
+number_density_cm3 = 8.7
+temperature_ev = 0.1
+q_particle = 1.602176634e-19
+m_particle = 1.67262192369e-27
+target_macro_particles_per_batch = 30
+drift_velocity = [0.0, 0.0, -4.0529988897e5]
+surface_charge_closure = "explicit"
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+
+[[particles.species]]
+species_key = "photoelectron"
+source_mode = "photo_raycast"
+emit_current_density_a_m2 = 1.0e-4
+rays_per_batch = 30
+deposit_opposite_charge_on_emit = true
+surface_charge_closure = "explicit"
+q_particle = -1.602176634e-19
+m_particle = 9.1093837139e-31
+temperature_ev = 2.2
+normal_drift_speed = 0.0
+inject_face = "z_high"
+pos_low = [0.0, 0.0, 1.0e-3]
+pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
+ray_direction = [0.0, 0.0, -1.0]
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+surface_model = "insulator"
+surface_side = "normal_plus"
+size_x = 1.0e-4
+size_y = 1.0e-4
+nx = 2
+ny = 2
+center = [5.0e-5, 5.0e-5, 2.0e-6]
+
+[output]
+write_files = false

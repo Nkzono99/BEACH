@@ -1,0 +1,10 @@
+# Synthetic interpolation fixture for examples and regression tests only.
+# It is not a production Zhao or 1-D PIC response table.
+# matching_plane_z_m=1.0e-3
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev,electron_outward_number_flux_m2_s,ion_outward_number_flux_m2_s,matching_potential_v,electron_inward_number_flux_m2_s,ion_inward_number_flux_m2_s,electron_access_potential_v,ion_access_potential_v,photoelectron_barrier_potential_v
+-1.0e-3,0.0,0.0,0.0,0.0,-10.0,2.0e12,2.0e12,-2.0,0.0,-2.0
+-1.0e-3,1.0e16,0.0,0.0,0.0,-9.0,2.2e12,2.0e12,-2.0,0.0,-2.0
+0.0,0.0,0.0,0.0,0.0,0.0,2.0e12,2.0e12,-2.0,0.0,-2.0
+0.0,1.0e16,0.0,0.0,0.0,1.0,2.2e12,2.0e12,-2.0,0.0,-2.0
+1.0e-3,0.0,0.0,0.0,0.0,10.0,2.0e12,2.0e12,-2.0,0.0,-2.0
+1.0e-3,1.0e16,0.0,0.0,0.0,11.0,2.2e12,2.0e12,-2.0,0.0,-2.0

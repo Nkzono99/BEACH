@@ -52,6 +52,12 @@
       "restart_role": "none"
     },
     {
+      "name": "matching_plane_history.csv",
+      "producer": "src/runtime/bem_output_writer.f90",
+      "condition": "output.write_files=true and output.history_stride>0 and surface_current_model.model=matching_plane_quasistatic",
+      "restart_role": "none"
+    },
+    {
       "name": "charge_ledger.csv",
       "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and charge ledger state is present",

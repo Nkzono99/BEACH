@@ -133,6 +133,12 @@ $$
 誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
 物理defaultではありません。
 
+`matching_plane_quasistatic`では、同じlower closureと全表面電荷から整合面直下の
+$D_H=\epsilon_0E_\mathrm{bottom}+Q/A$を外部応答へ渡します。応答が返した$(H,\Phi_H)$をzero-modeのgauge点に
+するため、場とGauss則を変えずにinner potentialを外部シースへ連続させます。外部のfield profileをBEACH領域へ
+追加する処理ではありません。構成と高さ依存性の検証は
+[matching-plane準定常連成](MatchingPlaneCoupling.html)にまとめています。
+
 ## 粒子衝突では軌道が届く周期画像を調べる
 
 field targetはprimary periodic cellへwrapして評価しますが、軌道上の衝突・境界位置は物理座標のまま保持します。

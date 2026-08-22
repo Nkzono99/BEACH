@@ -36,13 +36,34 @@ PE return / netのsigned電流密度を`surface_current_model_*`で出力しま�
 `surface_current_model_kinetic_contract`とinflow access / outflow barrierの電位・face receiptは、Zhao電流に対応する
 速度空間境界写像を記録します。face番号は`1..6 = x_low, x_high, y_low, y_high, z_low, z_high`です。
 
+`matching_plane_quasistatic`では、静的な`surface_current_model_*`電流targetではなく、accepted batchの
+`matching_plane_*`を読みます。`matching_plane_displacement_C_m2`と`matching_plane_phi_V`が電磁気的な整合値、
+electron / ion の inward flux、access potential、PE barrier potential が応答表の出力、4つのoutward flux / energyが
+固定点feedback、`matching_plane_iterations`と`matching_plane_residual`が数値的な収束receiptです。PEの
+`matching_plane_photoelectron_return_flux_m2_s`と
+`matching_plane_photoelectron_escape_flux_m2_s`は、同じbatchのoutward fluxとの収支確認に使います。
+`surface_current_model_response_content_fingerprint`は読込済み応答表のcanonical内容を識別します。run provenanceは、
+`surface_current_model_response_table_path`、`surface_current_model_matching_plane_z_m`、
+`surface_current_model_electron_species`、`surface_current_model_ion_species`、
+`surface_current_model_photoelectron_species`と合わせて確認します。
+反復条件は`surface_current_model_coupling_rtol`、`surface_current_model_coupling_max_iterations`、
+`surface_current_model_coupling_relaxation`、状態の生成元は
+`surface_current_model_dynamic_state_source=accepted_batch_fixed_point`に記録されます。
+`matching_plane_state_valid`がfalseなら、同じsummary内の`matching_plane_*`値をaccepted stateとして使ってはいけません。
+各行の$D_H$と$\Phi_H$は、そのbatchの粒子追跡に使ったcommit前の表面電荷stateに対応します。
+`simulated_time_s`はtrialを受理して進めた後の時刻なので、次batch開始時のpost-commit場と取り違えないでください。
+
 ## 履歴
 
 | ファイル | 条件 | 主な列 |
 | --- | --- | --- |
 | `charge_history.csv` | `history_stride > 0` | batch、要素、電荷 |
-| `potential_history.csv` | `write_potential_history=true` | batch、要素、電位 |
+| `potential_history.csv` | `write_potential_history=true` かつ `history_stride > 0` | batch、要素、電位 |
 | `top_reference_history.csv` | 上記かつ `[domain]` の box あり | batch、時間、z-high 面の電位統計 |
+| `matching_plane_history.csv` | `matching_plane_quasistatic` かつ `history_stride > 0` | batch、時間、$D_H$、$\Phi_H$、inward応答、outward / return / escape flux、反復receipt |
+
+Python では `load_fortran_result(...)` の `matching_plane_state` と `matching_plane_history` から、列番号を
+手作業で管理せず typed receipt として参照できます。
 
 `top_reference_history.csv` の基準は box の z-high 面平均です。無限遠電位やプラズマ電位ではありません。
 要素相対電位は、同じ batch の `potential_history.csv` と結合し、
@@ -140,15 +161,17 @@ summary、charges、全 rank の RNG、manifest で宣言した residual と led
 
 checkpoint schema v6の`macro_residuals.csv`は`species_idx,face,residual`です。`face=0`は従来source、
 `1..6`はboundary faceを表します。旧`species_idx,residual`の2列形式も読み込めます。
+schema v9はmatching-planeのaccepted feedbackと反復receiptを`summary.txt`へ保存します。response tableの
+canonical内容はmodel fingerprintに含まれるため、pathが同じでも内容を変えたcheckpointは再開できません。
 
 ## Python から読む
 
 ```python
-from beach import FortranResults
+from beach import load_fortran_result
 
-result = FortranResults("outputs/latest")
-print(result.summary)
+result = load_fortran_result("outputs/latest")
 print(result.charges)
+print(result.matching_plane_state)
 ```
 
 詳細は [Python 後処理 API](PythonPostprocessAPI.md) にまとめています。

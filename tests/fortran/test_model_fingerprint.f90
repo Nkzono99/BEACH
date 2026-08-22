@@ -7,6 +7,8 @@ program test_model_fingerprint
   use bem_physics_config_types, only: normalize_legacy_physics_config
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
   use bem_injection_velocity_grid, only: reset_velocity_grid_snapshot_cache
+  use bem_matching_plane_response, only: matching_plane_response_csv_header, &
+                                         reset_matching_plane_response_snapshot_cache
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           delete_file_if_exists
   implicit none
@@ -16,6 +18,8 @@ program test_model_fingerprint
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2)
   character(len=16) :: fp_a, fp_b
   character(len=*), parameter :: velocity_grid_path = 'test_model_fingerprint_velocity_grid.csv'
+  character(len=*), parameter :: matching_response_path = 'test_model_fingerprint_matching_response.csv'
+  character(len=*), parameter :: matching_response_alias_path = 'test_model_fingerprint_matching_response_alias.csv'
   integer :: u, ios
 
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
@@ -38,7 +42,7 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(18)
+  call test_init(19)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
@@ -120,6 +124,42 @@ program test_model_fingerprint
   cfg_changed%surface_current%model = 'zhao_stationary'
   cfg_changed%surface_current%solar_elevation_deg = 60.0_dp
   call assert_true(model_fingerprint(cfg_changed) /= model_fingerprint(cfg), 'surface current model must alter fingerprint')
+  call test_end()
+
+  call test_begin('matching_response_contents_change_detected')
+  call delete_file_if_exists(matching_response_path)
+  call delete_file_if_exists(matching_response_alias_path)
+  open (newunit=u, file=matching_response_path, status='replace', action='write', iostat=ios)
+  call assert_equal_i32(int(ios, i32), 0_i32, 'failed to create matching-response fingerprint fixture')
+  write (u, '(a)') '# matching_plane_z_m=1.0'
+  write (u, '(a)') matching_plane_response_csv_header
+  write (u, '(a)') '0,0,0,0,0,0,1,1,0,0,0'
+  close (u)
+  cfg_changed = cfg
+  cfg_changed%surface_current%model = 'matching_plane_quasistatic'
+  cfg_changed%surface_current%response_table_path = matching_response_path
+  fp_a = model_fingerprint(cfg_changed)
+  open (newunit=u, file=matching_response_alias_path, status='replace', action='write', iostat=ios)
+  call assert_equal_i32(int(ios, i32), 0_i32, 'failed to create matching-response alias fixture')
+  write (u, '(a)') '# matching_plane_z_m=1.0'
+  write (u, '(a)') matching_plane_response_csv_header
+  write (u, '(a)') '0,0,0,0,0,0,1,1,0,0,0'
+  close (u)
+  cfg_changed%surface_current%response_table_path = matching_response_alias_path
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a == fp_b, 'matching response path alone must not alter the model fingerprint')
+  call reset_matching_plane_response_snapshot_cache()
+  open (newunit=u, file=matching_response_alias_path, status='replace', action='write', iostat=ios)
+  call assert_equal_i32(int(ios, i32), 0_i32, 'failed to replace matching-response fingerprint fixture')
+  write (u, '(a)') '# matching_plane_z_m=1.0'
+  write (u, '(a)') matching_plane_response_csv_header
+  write (u, '(a)') '0,0,0,0,0,0,2,1,0,0,0'
+  close (u)
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'matching response contents must alter the model fingerprint')
+  call delete_file_if_exists(matching_response_path)
+  call delete_file_if_exists(matching_response_alias_path)
+  call reset_matching_plane_response_snapshot_cache()
   call test_end()
 
   call test_begin('species_order_change_detected')

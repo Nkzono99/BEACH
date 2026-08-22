@@ -58,5 +58,6 @@ calculation in the next batch.
 - **Run BEACH for the first time:** [Installation](Installation.en.html) → [Ten-Minute Tutorial](Tutorial.en.html)
 - **Create a research case:** [Design a Simulation Case](ConfigurationRecipes.en.html) → [Create and Validate `beach.toml`](Configuration.en.html) → [Run a Simulation](Execution.en.html) → [Validate Results](ValidationGuide.en.html)
 - **Configure open boundaries and local return:** [Particle escape and local return](ParticleEscapeReturn.en.html).
+- **Couple an outer one-dimensional sheath:** [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html).
 - **Understand the numerical model:** [Computational Model Overview](Algorithms.en.html) → [Surface Charge Update](SurfaceModels.en.html) → [Field Evaluation](FieldSolvers.en.html)
 - **Develop BEACH:** [Development and Operations Workflow](Workflow.en.html) → [Physics Release Verification](PhysicsReleaseVerification.en.html) → [Fortran Dependency Map](FortranDependencyMap.en.html)

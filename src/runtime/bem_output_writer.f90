@@ -13,6 +13,7 @@ module bem_output_writer
                                             external_open_escape, external_open_potential_barrier, &
                                             resolve_external_boundary_contract
   use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_matching_plane_response, only: get_matching_plane_response_content_fingerprint, matching_plane_response_ok
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
@@ -25,7 +26,9 @@ module bem_output_writer
   public :: open_history_writer
   public :: open_potential_history_writer
   public :: open_top_reference_history_writer
+  public :: open_matching_plane_history_writer
   public :: write_top_reference_history_snapshot
+  public :: write_matching_plane_history_snapshot
   public :: print_run_summary
   public :: write_result_files
   public :: write_checkpoint_state_files
@@ -161,6 +164,76 @@ contains
       ',', potential_mean_v, ',', potential_std_v, ',', potential_min_v, ',', potential_max_v
   end subroutine write_top_reference_history_snapshot
 
+  subroutine open_matching_plane_history_writer(app, resumed, history_opened, history_unit)
+    type(app_config), intent(in) :: app
+    logical, intent(in) :: resumed
+    logical, intent(out) :: history_opened
+    integer, intent(out) :: history_unit
+    character(len=1024) :: path
+    integer :: ios
+    logical :: file_exists
+
+    history_opened = .false.
+    history_unit = -1
+    if (.not. app%write_output) return
+    path = trim(app%output_dir)//'/matching_plane_history.csv'
+    if (app%history_stride <= 0_i32 .or. &
+        trim(lower_ascii(app%surface_current%model)) /= 'matching_plane_quasistatic') then
+      if (.not. resumed) call delete_matching_plane_history_if_exists(path)
+      return
+    end if
+    call ensure_output_dir(app%output_dir)
+    inquire (file=trim(path), exist=file_exists)
+    if (resumed) then
+      open (newunit=history_unit, file=trim(path), status='unknown', position='append', action='write', iostat=ios)
+    else
+      open (newunit=history_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    end if
+    if (ios /= 0) error stop 'Failed to open matching-plane history file.'
+    if (.not. resumed .or. .not. file_exists) then
+      write (history_unit, '(a)') &
+        'batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,ion_inward_flux_m2_s,'// &
+        'electron_access_potential_V,ion_access_potential_V,photoelectron_barrier_potential_V,'// &
+        'photoelectron_outward_flux_m2_s,'// &
+        'photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,ion_outward_flux_m2_s,'// &
+        'photoelectron_return_flux_m2_s,photoelectron_escape_flux_m2_s,iterations,residual'
+    end if
+    history_opened = .true.
+  end subroutine open_matching_plane_history_writer
+
+  !> fresh runで生成条件を満たさない旧matching historyを残さない。
+  subroutine delete_matching_plane_history_if_exists(path)
+    character(len=*), intent(in) :: path
+    integer :: unit_id, ios
+    logical :: file_exists
+
+    inquire (file=trim(path), exist=file_exists)
+    if (.not. file_exists) return
+    open (newunit=unit_id, file=trim(path), status='old', iostat=ios)
+    if (ios /= 0) error stop 'Failed to open stale matching-plane history file for deletion.'
+    close (unit_id, status='delete', iostat=ios)
+    if (ios /= 0) error stop 'Failed to delete stale matching-plane history file.'
+  end subroutine delete_matching_plane_history_if_exists
+
+  subroutine write_matching_plane_history_snapshot(unit_id, batch_idx, simulated_time_s, stats)
+    integer, intent(in) :: unit_id
+    integer(i32), intent(in) :: batch_idx
+    real(dp), intent(in) :: simulated_time_s
+    type(sim_stats), intent(in) :: stats
+
+    if (.not. stats%matching_plane_state_valid) return
+    write (unit_id, '(i0,14(a,es24.16),a,i0,a,es24.16)') &
+      batch_idx, ',', simulated_time_s, ',', stats%matching_plane_displacement_c_m2, &
+      ',', stats%matching_plane_phi_v, ',', stats%matching_plane_response(2), &
+      ',', stats%matching_plane_response(3), ',', stats%matching_plane_response(4), &
+      ',', stats%matching_plane_response(5), ',', stats%matching_plane_response(6), &
+      ',', stats%matching_plane_feedback(1), &
+      ',', stats%matching_plane_feedback(2), ',', stats%matching_plane_feedback(3), &
+      ',', stats%matching_plane_feedback(4), ',', stats%matching_plane_photoelectron_return_flux_m2_s, &
+      ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
+      ',', stats%matching_plane_residual
+  end subroutine write_matching_plane_history_snapshot
+
   !> 実行結果の主要統計を標準出力へ表示する。
   !! @param[in] mesh 実行後のメッシュ情報。
   !! @param[in] stats 実行後の統計値。
@@ -189,6 +262,19 @@ contains
       stats%adaptive_nonzero_mode_last_potential_step
     print '(a,i0)', 'adaptive_nonzero_mode_omp_threads=', &
       stats%adaptive_nonzero_mode_omp_threads
+    print '(a,l1)', 'matching_plane_state_valid=', stats%matching_plane_state_valid
+    if (stats%matching_plane_state_valid) then
+      print '(a,es12.4)', 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
+      print '(a,es12.4)', 'matching_plane_phi_V=', stats%matching_plane_phi_v
+      print '(a,6(1x,es12.4))', 'matching_plane_response=', stats%matching_plane_response
+      print '(a,4(1x,es12.4))', 'matching_plane_feedback=', stats%matching_plane_feedback
+      print '(a,es12.4)', 'matching_plane_photoelectron_return_flux_m2_s=', &
+        stats%matching_plane_photoelectron_return_flux_m2_s
+      print '(a,es12.4)', 'matching_plane_photoelectron_escape_flux_m2_s=', &
+        stats%matching_plane_photoelectron_escape_flux_m2_s
+      print '(a,i0)', 'matching_plane_iterations=', stats%matching_plane_iterations
+      print '(a,es12.4)', 'matching_plane_residual=', stats%matching_plane_residual
+    end if
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
     dielectric_count = count_dielectric_surfaces(mesh)
     if (dielectric_count > 0_i32) then
@@ -289,10 +375,11 @@ contains
     type(field_physics_config) :: field_config
     type(panel_kernel_config) :: panel_config
     character(len=1024) :: summary_path
+    character(len=512) :: matching_response_message
     character(len=256) :: boundary_message
-    character(len=16) :: resolved_field_solver
+    character(len=16) :: resolved_field_solver, matching_response_fingerprint
     integer :: u, ios
-    integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
+    integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max, matching_response_status
     real(dp) :: resolved_tree_theta
 
     call resolve_external_boundary_contract( &
@@ -345,6 +432,29 @@ contains
       stats%adaptive_nonzero_mode_last_potential_step
     write (u, '(a,i0)') 'adaptive_nonzero_mode_omp_threads=', &
       stats%adaptive_nonzero_mode_omp_threads
+    write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane_state_valid
+    write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
+    write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane_phi_v
+    write (u, '(a,es24.16)') 'matching_plane_electron_inward_flux_m2_s=', stats%matching_plane_response(2)
+    write (u, '(a,es24.16)') 'matching_plane_ion_inward_flux_m2_s=', stats%matching_plane_response(3)
+    write (u, '(a,es24.16)') 'matching_plane_electron_access_potential_V=', stats%matching_plane_response(4)
+    write (u, '(a,es24.16)') 'matching_plane_ion_access_potential_V=', stats%matching_plane_response(5)
+    write (u, '(a,es24.16)') 'matching_plane_photoelectron_barrier_potential_V=', &
+      stats%matching_plane_response(6)
+    write (u, '(a,es24.16)') 'matching_plane_photoelectron_outward_flux_m2_s=', &
+      stats%matching_plane_feedback(1)
+    write (u, '(a,es24.16)') 'matching_plane_photoelectron_mean_normal_energy_eV=', &
+      stats%matching_plane_feedback(2)
+    write (u, '(a,es24.16)') 'matching_plane_electron_outward_flux_m2_s=', &
+      stats%matching_plane_feedback(3)
+    write (u, '(a,es24.16)') 'matching_plane_ion_outward_flux_m2_s=', &
+      stats%matching_plane_feedback(4)
+    write (u, '(a,es24.16)') 'matching_plane_photoelectron_return_flux_m2_s=', &
+      stats%matching_plane_photoelectron_return_flux_m2_s
+    write (u, '(a,es24.16)') 'matching_plane_photoelectron_escape_flux_m2_s=', &
+      stats%matching_plane_photoelectron_escape_flux_m2_s
+    write (u, '(a,i0)') 'matching_plane_iterations=', stats%matching_plane_iterations
+    write (u, '(a,es24.16)') 'matching_plane_residual=', stats%matching_plane_residual
     write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
     write (u, '(a,a)') 'field_backend=', trim(field_config%backend)
     write (u, '(a,a)') 'field_normalization=', trim(field_config%normalization)
@@ -394,50 +504,77 @@ contains
     write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
     if (current_model%active) then
       write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
-      write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
-      write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
-      write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
-      write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
-      write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
-      write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
-        current_model%ambient_electron_density_m3
-      write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &
-        current_model%electron_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_ion_current_density_A_m2=', &
-        current_model%ion_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_emission_current_density_A_m2=', &
-        current_model%photoelectron_emission_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_current_density_A_m2=', &
-        current_model%photoelectron_escape_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_return_current_density_A_m2=', &
-        current_model%photoelectron_return_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
-        current_model%net_current_density_a_m2
-      write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
-      write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
-        current_model%photoelectron_budget_residual_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
-        current_model%surface_budget_residual_current_density_a_m2
-      if (current_model%photoelectron_active) then
-        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
-          current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+      if (trim(current_model%model) == 'matching_plane_quasistatic') then
+        call get_matching_plane_response_content_fingerprint( &
+          trim(cfg%surface_current%response_table_path), matching_response_fingerprint, &
+          matching_response_status, matching_response_message &
+          )
+        if (matching_response_status /= matching_plane_response_ok) then
+          error stop 'write_summary_file: matching-plane response fingerprint failed: '// &
+            trim(matching_response_message)
+        end if
+        write (u, '(a,a)') 'surface_current_model_response_table_path=', &
+          trim(cfg%surface_current%response_table_path)
+        write (u, '(a,a)') 'surface_current_model_response_content_fingerprint=', &
+          matching_response_fingerprint
+        write (u, '(a,es24.16)') 'surface_current_model_matching_plane_z_m=', cfg%sim%box_max(3)
+        write (u, '(a,a)') 'surface_current_model_electron_species=', &
+          trim(cfg%surface_current%electron_species)
+        write (u, '(a,a)') 'surface_current_model_ion_species=', trim(cfg%surface_current%ion_species)
+        write (u, '(a,a)') 'surface_current_model_photoelectron_species=', &
+          trim(cfg%surface_current%photoelectron_species)
+        write (u, '(a,es24.16)') 'surface_current_model_coupling_rtol=', cfg%surface_current%coupling_rtol
+        write (u, '(a,i0)') 'surface_current_model_coupling_max_iterations=', &
+          cfg%surface_current%coupling_max_iterations
+        write (u, '(a,es24.16)') 'surface_current_model_coupling_relaxation=', &
+          cfg%surface_current%coupling_relaxation
+        write (u, '(a)') 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
       else
-        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
-      end if
-      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
-        current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
-      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
-        current_model%inflow_access_potential_v(current_model%electron_species_idx)
-      write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
-        current_model%inflow_kinetic_face(current_model%electron_species_idx)
-      if (current_model%photoelectron_active) then
-        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
-          current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
-        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
-          current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
-      else
-        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
-        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
+        write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
+        write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
+        write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
+        write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
+        write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
+        write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
+          current_model%ambient_electron_density_m3
+        write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &
+          current_model%electron_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_ion_current_density_A_m2=', &
+          current_model%ion_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_pe_emission_current_density_A_m2=', &
+          current_model%photoelectron_emission_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_current_density_A_m2=', &
+          current_model%photoelectron_escape_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_pe_return_current_density_A_m2=', &
+          current_model%photoelectron_return_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
+          current_model%net_current_density_a_m2
+        write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
+        write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
+          current_model%photoelectron_budget_residual_current_density_a_m2
+        write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
+          current_model%surface_budget_residual_current_density_a_m2
+        if (current_model%photoelectron_active) then
+          write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
+            current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+        else
+          write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
+        end if
+        write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
+          current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
+        write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
+          current_model%inflow_access_potential_v(current_model%electron_species_idx)
+        write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
+          current_model%inflow_kinetic_face(current_model%electron_species_idx)
+        if (current_model%photoelectron_active) then
+          write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
+            current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+          write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
+            current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+        else
+          write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
+          write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
+        end if
       end if
     end if
     if (present(electrostatic_diagnostics)) then

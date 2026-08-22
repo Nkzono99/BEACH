@@ -28,6 +28,10 @@ module bem_particle_stepper
     integer(i32) :: status = particle_step_ok
     integer(i32) :: field_eval_count = 0_i32
     integer(i32) :: collision_query_count = 0_i32
+    integer(i32) :: z_high_outward_event_count = 0_i32
+    integer(i32) :: outer_barrier_return_count = 0_i32
+    integer(i32) :: outer_barrier_escape_count = 0_i32
+    real(dp) :: z_high_outward_normal_kinetic_energy_j_sum = 0.0_dp
   end type particle_step_result
 
   public :: build_particle_step_candidate
@@ -235,7 +239,7 @@ contains
     real(dp) :: dt_segment, dt_remaining
     real(dp) :: redistribution_uniform(3)
     integer(i32) :: query_status, boundary_status, event_count
-    logical :: alive, escaped
+    logical :: alive, escaped, z_high_outward_event, z_high_barrier_event
     logical :: first_segment
     type(external_boundary_contract_type) :: active_boundary_contract
 
@@ -329,6 +333,15 @@ contains
         return
       end if
       event_count = event_count + 1_i32
+      z_high_outward_event = btest(event%face_mask, 5_i32) .and. &
+                             event%face_bc(6_i32) == bc_open .and. v_event(3) > 0.0_dp
+      z_high_barrier_event = z_high_outward_event .and. &
+                             open_face_uses_potential_barrier(6_i32, active_boundary_contract)
+      if (z_high_outward_event) then
+        result%z_high_outward_event_count = result%z_high_outward_event_count + 1_i32
+        result%z_high_outward_normal_kinetic_energy_j_sum = &
+          result%z_high_outward_normal_kinetic_energy_j_sum + 0.5_dp*m*v_event(3)*v_event(3)
+      end if
       if (event_requires_redistribution_counter(event, active_boundary_contract) .and. &
           .not. has_boundary_rng_counter) then
         result%status = particle_step_invalid_boundary
@@ -357,6 +370,13 @@ contains
           result%status = boundary_status
         end if
         return
+      end if
+      if (z_high_barrier_event) then
+        if (alive) then
+          result%outer_barrier_return_count = result%outer_barrier_return_count + 1_i32
+        else if (escaped) then
+          result%outer_barrier_escape_count = result%outer_barrier_escape_count + 1_i32
+        end if
       end if
       if (.not. alive) then
         result%x = x_event
@@ -402,9 +422,15 @@ contains
 
     type(particle_step_result) :: first_half, second_half
     integer(i32) :: prior_field_evals, prior_collision_queries
+    integer(i32) :: prior_z_high_events, prior_outer_returns, prior_outer_escapes
+    real(dp) :: prior_z_high_energy
 
     prior_field_evals = result%field_eval_count
     prior_collision_queries = result%collision_query_count
+    prior_z_high_events = result%z_high_outward_event_count
+    prior_outer_returns = result%outer_barrier_return_count
+    prior_outer_escapes = result%outer_barrier_escape_count
+    prior_z_high_energy = result%z_high_outward_normal_kinetic_energy_j_sum
     if (has_boundary_rng_counter) then
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract, &
@@ -420,6 +446,11 @@ contains
       result = first_half
       result%field_eval_count = prior_field_evals + first_half%field_eval_count
       result%collision_query_count = prior_collision_queries + first_half%collision_query_count
+      result%z_high_outward_event_count = prior_z_high_events + first_half%z_high_outward_event_count
+      result%outer_barrier_return_count = prior_outer_returns + first_half%outer_barrier_return_count
+      result%outer_barrier_escape_count = prior_outer_escapes + first_half%outer_barrier_escape_count
+      result%z_high_outward_normal_kinetic_energy_j_sum = prior_z_high_energy + &
+                                                          first_half%z_high_outward_normal_kinetic_energy_j_sum
       return
     end if
 
@@ -438,6 +469,15 @@ contains
     result%field_eval_count = prior_field_evals + first_half%field_eval_count + second_half%field_eval_count
     result%collision_query_count = prior_collision_queries + first_half%collision_query_count + &
                                    second_half%collision_query_count
+    result%z_high_outward_event_count = prior_z_high_events + first_half%z_high_outward_event_count + &
+                                        second_half%z_high_outward_event_count
+    result%outer_barrier_return_count = prior_outer_returns + first_half%outer_barrier_return_count + &
+                                        second_half%outer_barrier_return_count
+    result%outer_barrier_escape_count = prior_outer_escapes + first_half%outer_barrier_escape_count + &
+                                        second_half%outer_barrier_escape_count
+    result%z_high_outward_normal_kinetic_energy_j_sum = prior_z_high_energy + &
+                                                        first_half%z_high_outward_normal_kinetic_energy_j_sum + &
+                                                        second_half%z_high_outward_normal_kinetic_energy_j_sum
   end subroutine advance_periodic_substeps
 
   !> eventの全faceがperiodicで、適応分割中に乱数境界へ入らない場合だけ再試行する。

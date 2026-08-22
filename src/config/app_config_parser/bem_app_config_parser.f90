@@ -165,8 +165,29 @@ contains
 
     call apply_toml_document(cfg, document, authoring)
     call document%destroy
+    call resolve_surface_current_model_path(path, cfg)
     call finalize_loaded_config(cfg, authoring)
   end subroutine load_toml_config
+
+  !> response table の相対パスを設定ファイルの配置ディレクトリ基準へ解決する。
+  subroutine resolve_surface_current_model_path(config_path, cfg)
+    character(len=*), intent(in) :: config_path
+    type(app_config), intent(inout) :: cfg
+    character(len=:), allocatable :: resolved_path
+    integer :: directory_end
+
+    if (.not. cfg%surface_current%has_response_table_path) return
+    if (len_trim(cfg%surface_current%response_table_path) == 0) return
+    if (cfg%surface_current%response_table_path(1:1) == '/') return
+
+    directory_end = scan(trim(config_path), '/', back=.true.)
+    if (directory_end == 0) return
+    resolved_path = config_path(:directory_end)//trim(cfg%surface_current%response_table_path)
+    if (len(resolved_path) > len(cfg%surface_current%response_table_path)) then
+      error stop 'Resolved surface_current_model.response_table_path is too long.'
+    end if
+    cfg%surface_current%response_table_path = resolved_path
+  end subroutine resolve_surface_current_model_path
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
   subroutine apply_toml_document(cfg, document, authoring)
@@ -221,7 +242,7 @@ contains
     end do
   end subroutine apply_toml_document
 
-  !> `[surface_current_model]` の外部固定電流モデルを読み込む。
+  !> `[surface_current_model]` の外部シースclosureを読み込む。
   subroutine apply_surface_current_model_toml_table(cfg, table)
     type(app_config), intent(inout) :: cfg
     type(toml_table), intent(inout) :: table
@@ -239,12 +260,15 @@ contains
       case ('zhao_branch')
         call get_toml_string(table, keys(ikey), cfg%surface_current%zhao_branch, 'surface_current_model.zhao_branch')
         cfg%surface_current%zhao_branch = lower_ascii(trim(cfg%surface_current%zhao_branch))
+        cfg%surface_current%has_zhao_branch = .true.
       case ('electron_species')
         call get_toml_string( &
           table, keys(ikey), cfg%surface_current%electron_species, 'surface_current_model.electron_species' &
           )
+        cfg%surface_current%has_electron_species = .true.
       case ('ion_species')
         call get_toml_string(table, keys(ikey), cfg%surface_current%ion_species, 'surface_current_model.ion_species')
+        cfg%surface_current%has_ion_species = .true.
       case ('photoelectron_species')
         call get_toml_string( &
           table, keys(ikey), cfg%surface_current%photoelectron_species, &
@@ -267,11 +291,35 @@ contains
           table, keys(ikey), cfg%surface_current%photoelectron_source_scale, &
           'surface_current_model.photoelectron_source_scale' &
           )
+        cfg%surface_current%has_photoelectron_source_scale = .true.
       case ('reference_area_m2')
         call get_toml_real( &
           table, keys(ikey), cfg%surface_current%reference_area_m2, 'surface_current_model.reference_area_m2' &
           )
         cfg%surface_current%has_reference_area_m2 = .true.
+      case ('response_table_path')
+        call get_toml_bounded_string( &
+          table, keys(ikey), cfg%surface_current%response_table_path, &
+          'surface_current_model.response_table_path' &
+          )
+        cfg%surface_current%has_response_table_path = .true.
+      case ('coupling_rtol')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%coupling_rtol, 'surface_current_model.coupling_rtol' &
+          )
+        cfg%surface_current%has_coupling_rtol = .true.
+      case ('coupling_max_iterations')
+        call get_toml_int( &
+          table, keys(ikey), cfg%surface_current%coupling_max_iterations, &
+          'surface_current_model.coupling_max_iterations' &
+          )
+        cfg%surface_current%has_coupling_max_iterations = .true.
+      case ('coupling_relaxation')
+        call get_toml_real( &
+          table, keys(ikey), cfg%surface_current%coupling_relaxation, &
+          'surface_current_model.coupling_relaxation' &
+          )
+        cfg%surface_current%has_coupling_relaxation = .true.
       case default
         error stop 'Unknown key in [surface_current_model]: '//trim(keys(ikey)%key)
       end select
@@ -295,14 +343,17 @@ contains
           table, keys(ikey), authoring%periodic2%nonzero_mode_backend, 'periodic2.nonzero_mode_backend' &
           )
         authoring%periodic2%nonzero_mode_backend = lower_ascii(trim(authoring%periodic2%nonzero_mode_backend))
+        authoring%periodic2%has_nonzero_mode_backend = .true.
       case ('zero_mode_policy')
         call get_toml_string(table, keys(ikey), authoring%periodic2%zero_mode_policy, 'periodic2.zero_mode_policy')
         authoring%periodic2%zero_mode_policy = lower_ascii(trim(authoring%periodic2%zero_mode_policy))
+        authoring%periodic2%has_zero_mode_policy = .true.
       case ('lower_boundary_model')
         call get_toml_string( &
           table, keys(ikey), authoring%periodic2%lower_boundary_model, 'periodic2.lower_boundary_model' &
           )
         authoring%periodic2%lower_boundary_model = lower_ascii(trim(authoring%periodic2%lower_boundary_model))
+        authoring%periodic2%has_lower_boundary_model = .true.
       case ('reference_mode_layers')
         call get_toml_int( &
           table, keys(ikey), authoring%periodic2%reference_mode_layers, 'periodic2.reference_mode_layers' &
@@ -542,6 +593,23 @@ contains
     value = ''
     value = trim(tmp)
   end subroutine get_toml_string
+
+  !> 固定長の格納先を切り詰めず、超過時は明示的に拒否して文字列を読む。
+  subroutine get_toml_bounded_string(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    character(len=*), intent(out) :: value
+    character(len=*), intent(in) :: context
+    character(len=:), allocatable :: tmp
+    integer :: stat
+
+    call get_value(table, key, tmp, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. allocated(tmp)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    if (len_trim(tmp) > len(value)) error stop trim(context)//' is too long.'
+    value = ''
+    value = trim(tmp)
+  end subroutine get_toml_bounded_string
 
   !> TOML の3成分数値配列キーを読み込む。
   subroutine get_toml_real3(table, key, value, context)

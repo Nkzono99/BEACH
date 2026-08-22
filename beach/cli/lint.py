@@ -10,7 +10,7 @@ from typing import Sequence
 from beach.config import (
     CONFIG_FILENAME,
     ConfigError,
-    normalize_config_document,
+    load_config_file,
     normalize_high_level_config,
 )
 from beach.config._toml import load_toml_file
@@ -110,7 +110,9 @@ def run_lint(args: argparse.Namespace) -> None:
         )
 
     try:
-        normalize_config_document(raw_config)
+        # Re-read through the runtime loader so relative response-table paths
+        # receive the same config-directory resolution and length checks.
+        load_config_file(args.config_path)
     except (ConfigError, TypeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 

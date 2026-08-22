@@ -5,7 +5,7 @@ module bem_checkpoint_contract
   implicit none
   private
 
-  integer(i32), parameter, public :: checkpoint_schema_version_current = 8_i32
+  integer(i32), parameter, public :: checkpoint_schema_version_current = 9_i32
   integer(i32), parameter :: checkpoint_manifest_schema_current = 1_i32
   integer(i32), parameter :: checkpoint_manifest_required_schema = 8_i32
   character(len=*), parameter :: checkpoint_manifest_name = 'checkpoint_complete.txt'
@@ -27,7 +27,7 @@ contains
                (schema_version >= 2_i32 .and. schema_version <= checkpoint_schema_version_current)
   end function checkpoint_schema_is_loadable
 
-  !> schema v8 transactionのcompletion evidenceをrestart-bearing fileの置換前に無効化する。
+  !> schema v9 transactionのcompletion evidenceをrestart-bearing fileの置換前に無効化する。
   subroutine begin_checkpoint_publish(out_dir)
     character(len=*), intent(in) :: out_dir
 

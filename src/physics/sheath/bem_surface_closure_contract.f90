@@ -11,6 +11,7 @@ module bem_surface_closure_contract
     logical, allocatable :: has_escape_target(:)
     logical, allocatable :: has_inflow_kinetic_map(:)
     logical, allocatable :: has_outflow_kinetic_barrier(:)
+    logical, allocatable :: has_inflow_number_flux(:)
     real(dp), allocatable :: absorbed_current_a(:)
     real(dp), allocatable :: emission_current_a(:)
     real(dp), allocatable :: escaped_particle_current_a(:)
@@ -19,6 +20,7 @@ module bem_surface_closure_contract
     integer(i32), allocatable :: inflow_kinetic_face(:)
     real(dp), allocatable :: outflow_barrier_potential_v(:)
     integer(i32), allocatable :: outflow_barrier_face(:)
+    real(dp), allocatable :: inflow_number_flux_m2_s(:)
   end type surface_closure_contract_type
 
 end module bem_surface_closure_contract

@@ -59,6 +59,12 @@ $k\ne0$電位を全panel重心で評価し、その最大絶対値が設定上�
 `boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`は
 `target_macro_particles_per_batch`方式だけを受理し、固定`w_particle`は拒否します。
 
+`surface_current_model.model="matching_plane_quasistatic"`では、1つのtrial内で整合面応答、手順1--5を
+固定点収束まで再生します。各反復は同じbatch開始RNGとmacro粒子数残差を使い、整合面電位、ambient流入束、
+外部barrierだけを更新します。収束前の電荷差分と粒子統計はcommitしません。適応trialも有効な場合は、
+固定点が収束してから$k\ne0$上限を判定し、棄却時には整合面stateも戻します。詳しい応答表と判定量は
+[matching-plane準定常連成](MatchingPlaneCoupling.html)を参照してください。
+
 ### 1. 電場・電位snapshotを更新
 
 前batchまでにcommitされた`q_elem`から、粒子追跡中に固定する電場と電位を作ります。direct、treecode、

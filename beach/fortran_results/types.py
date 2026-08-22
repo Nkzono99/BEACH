@@ -307,6 +307,36 @@ class FieldReconstructionReceipt:
 
 
 @dataclass(frozen=True)
+class MatchingPlaneState:
+    """One accepted quasistatic matching-plane coupling receipt."""
+
+    displacement_c_m2: float
+    phi_v: float
+    electron_inward_flux_m2_s: float
+    ion_inward_flux_m2_s: float
+    electron_access_potential_v: float
+    ion_access_potential_v: float
+    photoelectron_barrier_potential_v: float
+    photoelectron_outward_flux_m2_s: float
+    photoelectron_mean_normal_energy_ev: float
+    electron_outward_flux_m2_s: float
+    ion_outward_flux_m2_s: float
+    photoelectron_return_flux_m2_s: float
+    photoelectron_escape_flux_m2_s: float
+    iterations: int
+    residual: float
+
+
+@dataclass(frozen=True)
+class MatchingPlaneHistoryEntry:
+    """Matching-plane receipt selected by ``output.history_stride``."""
+
+    batch: int
+    simulated_time_s: float
+    state: MatchingPlaneState
+
+
+@dataclass(frozen=True)
 class FortranRunResult:
     """Container for one Fortran simulation output directory.
 
@@ -356,6 +386,10 @@ class FortranRunResult:
         Configured adaptive ``k != 0`` potential-change limit.
     field_reconstruction : FieldReconstructionReceipt or None, default None
         Resolved field-model receipt embedded in new ``summary.txt`` outputs.
+    matching_plane_state : MatchingPlaneState or None, default None
+        Last accepted matching-plane state when the summary marks it valid.
+    matching_plane_history : tuple[MatchingPlaneHistoryEntry, ...] or None, default None
+        Matching-plane history. A present header-only CSV produces an empty tuple.
     """
 
     directory: Path
@@ -395,6 +429,8 @@ class FortranRunResult:
     adaptive_nonzero_mode_omp_threads: int | None = None
     periodic2_max_nonzero_mode_potential_step_v: float | None = None
     field_reconstruction: FieldReconstructionReceipt | None = None
+    matching_plane_state: MatchingPlaneState | None = None
+    matching_plane_history: tuple[MatchingPlaneHistoryEntry, ...] | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

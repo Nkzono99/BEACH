@@ -27,11 +27,14 @@ contains
   integer(i32) :: photo_failure_ray, photo_failure_bounce
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
+  integer(i32) :: matching_iteration, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx
+  integer(i32) :: matching_response_status
   integer(i32) :: boundary_status
-  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit
+  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
+  logical :: matching_active, replay_active, matching_converged, matching_history_enabled
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -39,7 +42,17 @@ contains
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
   real(dp) :: projected_simulated_time
   real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
+  real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_residual
+  real(dp) :: matching_return_flux, matching_escape_flux, matching_budget_scale
+  real(dp) :: matching_guess(4), matching_observed(4), matching_axis_span(4)
+  real(dp) :: matching_axis_min(4), matching_axis_max(4)
+  real(dp) :: matching_response_input(5), matching_response_output(6)
+  real(dp), allocatable :: matching_moments(:, :), matching_reduce(:)
+  integer(i32), allocatable :: matching_axis_sizes(:)
+  real(dp), allocatable :: matching_axis_values(:)
   character(len=256) :: boundary_message
+  character(len=512) :: matching_response_message
+  character(len=16) :: matching_response_fingerprint
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
@@ -50,6 +63,7 @@ contains
   type(particle_source_plan_type) :: source_plan
   type(external_boundary_contract_type) :: boundary_contract
   type(surface_closure_contract_type) :: surface_closure
+  type(matching_plane_response_table_type) :: matching_response_table
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   type(app_config) :: trial_app
@@ -75,10 +89,20 @@ contains
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  matching_active = trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
+  call preflight_matching_plane_response_mpi( &
+    matching_active, trim(app%surface_current%response_table_path), mpi_ctx, &
+    matching_response_fingerprint, matching_response_status, matching_response_message, &
+    table=matching_response_table &
+    )
+  if (matching_response_status /= matching_plane_response_ok) then
+    error stop 'matching-plane response preflight failed: '//trim(matching_response_message)
+  end if
+  replay_active = adaptive_nonzero_mode .or. matching_active
   omp_dynamic_before = .false.
 !$ omp_dynamic_before = omp_get_dynamic()
   nth = 1_i32
-  if (adaptive_nonzero_mode) then
+  if (replay_active) then
 !$  call omp_set_dynamic(.false.)
     !$omp parallel default(none) shared(nth)
     !$omp single
@@ -93,18 +117,20 @@ contains
     if (team_size_min /= team_size_max) then
       if (mpi_is_root(mpi_ctx)) then
         write (error_unit, '(a,i0,a,i0)') &
-          'adaptive OpenMP team-size mismatch across MPI ranks: min=', team_size_min, ' max=', team_size_max
+          'replayed-trial OpenMP team-size mismatch across MPI ranks: min=', team_size_min, ' max=', team_size_max
         flush (error_unit)
       end if
-      error stop 'adaptive OpenMP team size must match across MPI ranks.'
+      error stop 'replayed-trial OpenMP team size must match across MPI ranks.'
     end if
 
     ! Rejected trials within this run still use one fixed team size.  A restart may
     ! use a different team size because checkpoint compatibility is numerical, not
     ! bitwise-replay compatibility with the previous process.
-    stats%adaptive_nonzero_mode_omp_threads = nth
+    if (adaptive_nonzero_mode) stats%adaptive_nonzero_mode_omp_threads = nth
   else
 !$  nth = max(1_i32, int(omp_get_max_threads(), i32))
+  end if
+  if (.not. adaptive_nonzero_mode) then
     stats%adaptive_nonzero_mode_rejected_trials = 0_i64
     stats%adaptive_nonzero_mode_last_batch_duration = 0.0_dp
     stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
@@ -114,11 +140,21 @@ contains
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
   call evaluate_surface_closure(app, surface_closure)
 
+  matching_history_enabled = present(matching_plane_history_unit)
+  matching_hist_unit = -1
+  if (matching_history_enabled) then
+    matching_hist_unit = matching_plane_history_unit
+    matching_history_enabled = matching_hist_unit /= -1
+  end if
+
   history_enabled = present(history_unit)
   hist_unit = 0
   if (history_enabled) hist_unit = history_unit
   hist_stride = 1_i32
-  if (present(history_stride)) hist_stride = max(1_i32, history_stride)
+  if (present(history_stride)) then
+    matching_history_enabled = matching_history_enabled .and. history_stride > 0_i32
+    hist_stride = max(1_i32, history_stride)
+  end if
   potential_history_enabled = present(potential_history_unit)
   pot_hist_unit = -1
   if (potential_history_enabled) then
@@ -143,12 +179,53 @@ contains
   batch_count_this_run = final_batch_idx - stats%batches
 
   call perf_region_begin(perf_region_simulation_total, sim_t0)
+  matching_electron_idx = 0_i32
+  matching_ion_idx = 0_i32
+  matching_photoelectron_idx = 0_i32
+  matching_axis_span = 0.0_dp
+  matching_axis_min = 0.0_dp
+  matching_axis_max = 0.0_dp
+  if (matching_active) then
+    call matching_response_table%get_matching_plane_z(matching_plane_z)
+    if (abs(matching_plane_z - app%sim%box_max(3)) > &
+        128.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(matching_plane_z), abs(app%sim%box_max(3)))) then
+      error stop 'matching-plane response height must equal domain.box_max[3].'
+    end if
+    call matching_response_table%get_fingerprint_data( &
+      matching_axis_sizes, matching_axis_values, matching_plane_z_m=matching_plane_z &
+      )
+    call derive_matching_feedback_axes( &
+      matching_axis_sizes, matching_axis_values, matching_axis_min, matching_axis_max, matching_axis_span &
+      )
+    matching_electron_idx = matching_species_index(app, app%surface_current%electron_species)
+    matching_ion_idx = matching_species_index(app, app%surface_current%ion_species)
+    matching_photoelectron_idx = matching_species_index(app, app%surface_current%photoelectron_species)
+    matching_area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
+    if (mesh%nelem > 0_i32) then
+      if (app%sim%box_max(3) <= max( &
+          maxval(mesh%v0(3, :)), maxval(mesh%v1(3, :)), maxval(mesh%v2(3, :)) &
+          )) then
+        error stop 'matching-plane gauge must lie strictly above every mesh vertex.'
+      end if
+    end if
+    allocate (matching_moments(4_i32, app%n_particle_species))
+    allocate (matching_reduce(4_i32*app%n_particle_species))
+    if (stats%batches > 0_i32 .and. .not. stats%matching_plane_state_valid) then
+      error stop 'matching-plane resume requires a schema-v9 committed coupling state.'
+    end if
+  else
+    stats%matching_plane_state_valid = .false.
+  end if
+
   call perf_region_begin(perf_region_field_solver_init, t0)
   call derive_field_panel_config(app%sim, field_config, panel_config)
   call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
   call perf_region_end(perf_region_field_solver_init, t0)
+  if (matching_active .and. stats%matching_plane_state_valid) then
+    call snapshot%set_matching_plane_gauge(mesh, matching_plane_z, stats%matching_plane_phi_v)
+  end if
 
-  if (adaptive_nonzero_mode) then
+  if (replay_active) then
     call random_seed(size=species_idx)
     allocate (rng_state_before(species_idx))
     if (present(inject_state)) then
@@ -174,7 +251,7 @@ contains
     trial_batch_duration = app%sim%batch_duration
     trial_halvings = 0_i32
     trial_accepted = .false.
-    if (adaptive_nonzero_mode) then
+    if (replay_active) then
       call random_seed(get=rng_state_before)
       if (allocated(injection_residual_before)) injection_residual_before = inject_state%macro_residual
       if (allocated(boundary_injection_residual_before)) then
@@ -185,7 +262,7 @@ contains
     end if
 
     do while (.not. trial_accepted)
-      if (adaptive_nonzero_mode) then
+      if (replay_active) then
         call random_seed(put=rng_state_before)
         if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
         if (allocated(boundary_injection_residual_before)) then
@@ -208,86 +285,154 @@ contains
           app%particle_species(species_idx)%w_particle*duration_ratio
       end do
 
-      call perf_region_begin(perf_region_prepare_batch, t0)
-      call build_particle_source_plan( &
-        trial_app, source_plan, mpi=mpi_ctx, &
-        kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
-        kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
-        kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
-        kinetic_inflow_face=surface_closure%inflow_kinetic_face &
-        )
-      call prepare_batch_state( &
-        mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
-        photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
-        )
-      call perf_region_end(perf_region_prepare_batch, t0)
-      fresh_particle_count = pcls_batch%n
-
-      photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
-      call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
-      if (photo_failure_count > 0_i32) then
-        photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
-        call mpi_select_lowest_rank_i32_values( &
-          mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
-          photo_failure_rank, photo_selected_failure_values &
-          )
-        call stop_for_photo_collision_failure( &
-          batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
-          photo_selected_failure_values(3), photo_selected_failure_values(4) &
-          )
+      matching_iteration = 0_i32
+      matching_converged = .not. matching_active
+      matching_residual = 0.0_dp
+      matching_return_flux = 0.0_dp
+      matching_escape_flux = 0.0_dp
+      if (matching_active) then
+        matching_displacement = snapshot%get_matching_plane_displacement()
+        if (stats%matching_plane_state_valid) then
+          matching_guess = stats%matching_plane_feedback
+        else
+          matching_guess = 0.0_dp
+        end if
       end if
 
-      call perf_region_begin(perf_region_particle_batch, t0)
-      call process_particle_batch( &
-        mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
-        workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
-        workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, &
-        particle_team_size, &
-        collision_failure_status, collision_failure_particle, collision_failure_step, &
-        collision_failure_x, collision_failure_v &
-        )
-      call perf_region_end(perf_region_particle_batch, t0)
-
-      if (adaptive_nonzero_mode) then
-        particle_team_size_min = particle_team_size
-        particle_team_size_max = particle_team_size
-        call mpi_allreduce_min_i32_scalar(mpi_ctx, particle_team_size_min)
-        call mpi_allreduce_max_i32_scalar(mpi_ctx, particle_team_size_max)
-        if (particle_team_size_min /= nth .or. particle_team_size_max /= nth) then
-          if (mpi_is_root(mpi_ctx)) then
-            write (error_unit, '(a,i0,a,i0,a,i0)') &
-              'adaptive OpenMP team size changed after replay probe: expected=', nth, &
-              ' min=', particle_team_size_min, ' max=', particle_team_size_max
-            flush (error_unit)
+      do
+        matching_iteration = matching_iteration + 1_i32
+        if (matching_active) then
+          call random_seed(put=rng_state_before)
+          if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
+          if (allocated(boundary_injection_residual_before)) then
+            inject_state%boundary_macro_residual = boundary_injection_residual_before
           end if
-          error stop 'adaptive OpenMP team size changed after the replay probe.'
+          matching_response_input = [matching_displacement, matching_guess]
+          call matching_response_table%evaluate( &
+            matching_response_input, matching_response_output, &
+            matching_response_status, matching_response_message &
+            )
+          if (matching_response_status /= matching_plane_response_ok) then
+            error stop 'matching-plane response evaluation failed: '//trim(matching_response_message)
+          end if
+          call configure_matching_surface_closure( &
+            surface_closure, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
+            matching_response_output &
+            )
+          call snapshot%set_matching_plane_gauge(mesh, matching_plane_z, matching_response_output(1))
         end if
-      end if
 
-      collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
-      call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
-      if (collision_failure_count > 0_i32) then
-        local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
-        call mpi_select_lowest_rank_i32_values( &
-          mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
-          collision_failure_rank, selected_failure_values &
+        call perf_region_begin(perf_region_prepare_batch, t0)
+        call build_particle_source_plan( &
+          trial_app, source_plan, mpi=mpi_ctx, &
+          kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
+          kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
+          kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
+          kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
+          number_flux_override_active=surface_closure%has_inflow_number_flux, &
+          number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s &
           )
-        selected_failure_state = 0.0_dp
-        if (mpi_ctx%rank == collision_failure_rank) then
-          selected_failure_state(1:3) = collision_failure_x
-          selected_failure_state(4:6) = collision_failure_v
+        call prepare_batch_state( &
+          mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
+          photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
+          )
+        call perf_region_end(perf_region_prepare_batch, t0)
+        fresh_particle_count = pcls_batch%n
+
+        photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+        call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
+        if (photo_failure_count > 0_i32) then
+          photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+          call mpi_select_lowest_rank_i32_values( &
+            mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
+            photo_failure_rank, photo_selected_failure_values &
+            )
+          call stop_for_photo_collision_failure( &
+            batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
+            photo_selected_failure_values(3), photo_selected_failure_values(4) &
+            )
         end if
-        call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
-        call stop_for_collision_failure( &
-          batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
-          selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
-          )
-      end if
 
-      call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
-      call apply_fixed_surface_current_closure( &
-        trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
-        )
+        call perf_region_begin(perf_region_particle_batch, t0)
+        call process_particle_batch( &
+          mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
+          workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
+          workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
+          collision_failure_status, collision_failure_particle, collision_failure_step, &
+          collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread &
+          )
+        call perf_region_end(perf_region_particle_batch, t0)
+
+        if (replay_active) then
+          particle_team_size_min = particle_team_size
+          particle_team_size_max = particle_team_size
+          call mpi_allreduce_min_i32_scalar(mpi_ctx, particle_team_size_min)
+          call mpi_allreduce_max_i32_scalar(mpi_ctx, particle_team_size_max)
+          if (particle_team_size_min /= nth .or. particle_team_size_max /= nth) then
+            if (mpi_is_root(mpi_ctx)) then
+              write (error_unit, '(a,i0,a,i0,a,i0)') &
+                'replayed-trial OpenMP team size changed after replay probe: expected=', nth, &
+                ' min=', particle_team_size_min, ' max=', particle_team_size_max
+              flush (error_unit)
+            end if
+            error stop 'replayed-trial OpenMP team size changed after the replay probe.'
+          end if
+        end if
+
+        collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+        call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
+        if (collision_failure_count > 0_i32) then
+          local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+          call mpi_select_lowest_rank_i32_values( &
+            mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
+            collision_failure_rank, selected_failure_values &
+            )
+          selected_failure_state = 0.0_dp
+          if (mpi_ctx%rank == collision_failure_rank) then
+            selected_failure_state(1:3) = collision_failure_x
+            selected_failure_state(4:6) = collision_failure_v
+          end if
+          call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
+          call stop_for_collision_failure( &
+            batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
+            selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
+            )
+        end if
+
+        call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
+        call apply_fixed_surface_current_closure( &
+          trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+          )
+        if (.not. matching_active) exit
+
+        matching_moments = sum(workspace%matching_plane_moments_thread, dim=3)
+        matching_reduce = reshape(matching_moments, [size(matching_reduce)])
+        call mpi_allreduce_sum_real_dp_array(mpi_ctx, matching_reduce)
+        matching_moments = reshape(matching_reduce, shape(matching_moments))
+        call resolve_matching_observed_feedback( &
+          matching_moments, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
+          matching_area, trial_batch_duration, matching_observed, matching_return_flux, matching_escape_flux &
+          )
+        call validate_matching_feedback_range( &
+          matching_observed, matching_axis_min, matching_axis_max, matching_axis_span &
+          )
+        matching_budget_scale = max(1.0_dp, matching_observed(1), matching_return_flux, matching_escape_flux)
+        if (abs(matching_observed(1) - matching_return_flux - matching_escape_flux) > &
+            sqrt(epsilon(1.0_dp))*matching_budget_scale) then
+          error stop 'matching-plane photoelectron outflow budget does not close.'
+        end if
+        matching_residual = matching_feedback_residual( &
+                            matching_guess, matching_observed, matching_axis_span &
+                            )
+        matching_converged = matching_residual <= app%surface_current%coupling_rtol
+        if (matching_converged) exit
+        if (matching_iteration >= app%surface_current%coupling_max_iterations) then
+          error stop 'matching-plane fixed point did not converge before coupling_max_iterations.'
+        end if
+        matching_guess = matching_guess + app%surface_current%coupling_relaxation* &
+                         (matching_observed - matching_guess)
+      end do
+
       if (adaptive_nonzero_mode) then
         call prepare_adaptive_charge_candidate(mesh, workspace, mpi_ctx)
         adaptive_metric_values = 0.0_dp
@@ -347,6 +492,17 @@ contains
                                                               trial_halvings &
                                                               )
     end if
+    if (matching_active) then
+      stats_candidate%matching_plane_state_valid = .true.
+      stats_candidate%matching_plane_displacement_c_m2 = matching_displacement
+      stats_candidate%matching_plane_phi_v = matching_response_output(1)
+      stats_candidate%matching_plane_response = matching_response_output
+      stats_candidate%matching_plane_feedback = matching_observed
+      stats_candidate%matching_plane_photoelectron_return_flux_m2_s = matching_return_flux
+      stats_candidate%matching_plane_photoelectron_escape_flux_m2_s = matching_escape_flux
+      stats_candidate%matching_plane_iterations = matching_iteration
+      stats_candidate%matching_plane_residual = matching_residual
+    end if
 
     if (ledger_enabled) then
       call batch_ledger%reset(batch_idx)
@@ -388,6 +544,9 @@ contains
     if (mpi_is_root(mpi_ctx)) then
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
+      if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
+        call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
+      end if
       if (potential_history_enabled) then
         call maybe_write_potential_history_snapshot( &
           potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, app%sim, potential_buf, &
@@ -410,7 +569,7 @@ contains
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)
-!$ if (adaptive_nonzero_mode) call omp_set_dynamic(omp_dynamic_before)
+!$ if (replay_active) call omp_set_dynamic(omp_dynamic_before)
 
   if (present(mesh_potential_v) .and. mpi_is_root(mpi_ctx)) then
     call snapshot%refresh(mesh)
@@ -478,7 +637,8 @@ contains
   collision_failure_step = 0_i32
   collision_failure_x = 0.0_dp
   collision_failure_v = 0.0_dp
-  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp .or. &
+                          trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
   ! Replayed adaptive trials require an identical particle-index partition.
   ! Keep the normal runtime schedule, but override its ICV with static only for this adaptive loop.
 !$ call omp_get_schedule(previous_schedule_kind, previous_schedule_chunk)
@@ -490,6 +650,7 @@ contains
   !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
+  !$omp shared(matching_plane_moments_thread) &
   !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result) &
   !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
   !$omp private(collision_status,candidate_inside,used_event_resolver)
@@ -568,6 +729,24 @@ contains
           call record_collision_failure(step_result%status, i, step, x0, v0)
           exit
         end if
+        if (size(matching_plane_moments_thread, 1) < 4 .or. &
+            species_idx > size(matching_plane_moments_thread, 2) .or. &
+            tid > size(matching_plane_moments_thread, 3)) then
+          call record_collision_failure(particle_step_invalid_boundary, i, step, x0, v0)
+          exit
+        end if
+        matching_plane_moments_thread(1, species_idx, tid) = &
+          matching_plane_moments_thread(1, species_idx, tid) + &
+          pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
+        matching_plane_moments_thread(2, species_idx, tid) = &
+          matching_plane_moments_thread(2, species_idx, tid) + &
+          pcls_batch%w(i)*step_result%z_high_outward_normal_kinetic_energy_j_sum
+        matching_plane_moments_thread(3, species_idx, tid) = &
+          matching_plane_moments_thread(3, species_idx, tid) + &
+          pcls_batch%w(i)*real(step_result%outer_barrier_return_count, dp)
+        matching_plane_moments_thread(4, species_idx, tid) = &
+          matching_plane_moments_thread(4, species_idx, tid) + &
+          pcls_batch%w(i)*real(step_result%outer_barrier_escape_count, dp)
         if (step_result%absorbed) then
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
           dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep
@@ -1256,6 +1435,149 @@ contains
     ledger%escaped_count = workspace%ledger_count_values(3*n + 1:4*n)
     ledger%discarded_unresolved_count = workspace%ledger_count_values(4*n + 1:5*n)
   end subroutine reduce_charge_ledger_fluxes
+
+  integer(i32) function matching_species_index(app, species_key) result(index)
+    type(app_config), intent(in) :: app
+    character(len=*), intent(in) :: species_key
+    integer(i32) :: species_idx
+
+    index = 0_i32
+    do species_idx = 1_i32, app%n_particle_species
+      if (trim(app%particle_species(species_idx)%species_key) /= trim(species_key)) cycle
+      index = species_idx
+      return
+    end do
+    error stop 'matching-plane species role was not found in particle species.'
+  end function matching_species_index
+
+  subroutine derive_matching_feedback_axes(axis_sizes, axis_values, axis_min, axis_max, axis_span)
+    integer(i32), intent(in) :: axis_sizes(:)
+    real(dp), intent(in) :: axis_values(:)
+    real(dp), intent(out) :: axis_min(4), axis_max(4), axis_span(4)
+    integer(i32) :: axis, first, last
+
+    if (size(axis_sizes) /= 5 .or. any(axis_sizes <= 0_i32) .or. &
+        sum(axis_sizes) /= size(axis_values)) then
+      error stop 'matching-plane response returned invalid axis metadata.'
+    end if
+    first = 1_i32 + axis_sizes(1)
+    do axis = 1_i32, 4_i32
+      last = first + axis_sizes(axis + 1_i32) - 1_i32
+      axis_min(axis) = minval(axis_values(first:last))
+      axis_max(axis) = maxval(axis_values(first:last))
+      if (axis_sizes(axis + 1_i32) > 1_i32) then
+        axis_span(axis) = axis_max(axis) - axis_min(axis)
+        if (.not. ieee_is_finite(axis_span(axis)) .or. axis_span(axis) <= 0.0_dp) then
+          error stop 'matching-plane active feedback axis must have positive finite span.'
+        end if
+      else
+        axis_span(axis) = 0.0_dp
+      end if
+      first = last + 1_i32
+    end do
+  end subroutine derive_matching_feedback_axes
+
+  subroutine configure_matching_surface_closure(contract, electron_idx, ion_idx, photoelectron_idx, response)
+    type(surface_closure_contract_type), intent(inout) :: contract
+    integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
+    real(dp), intent(in) :: response(6)
+
+    if (.not. all(ieee_is_finite(response))) then
+      error stop 'matching-plane response values must be finite.'
+    end if
+    if (any(response(2:3) < 0.0_dp)) then
+      error stop 'matching-plane inward number fluxes must be nonnegative.'
+    end if
+    if (.not. allocated(contract%has_inflow_number_flux) .or. &
+        .not. allocated(contract%inflow_number_flux_m2_s)) then
+      error stop 'matching-plane closure number-flux storage is not initialized.'
+    end if
+    contract%active = .true.
+    contract%has_absorbed_target = .false.
+    contract%has_emission_target = .false.
+    contract%has_escape_target = .false.
+    contract%has_inflow_kinetic_map = .false.
+    contract%has_outflow_kinetic_barrier = .false.
+    contract%has_inflow_number_flux = .false.
+    contract%absorbed_current_a = 0.0_dp
+    contract%emission_current_a = 0.0_dp
+    contract%escaped_particle_current_a = 0.0_dp
+    contract%inflow_reservoir_potential_v = 0.0_dp
+    contract%inflow_access_potential_v = 0.0_dp
+    contract%inflow_kinetic_face = 0_i32
+    contract%outflow_barrier_potential_v = 0.0_dp
+    contract%outflow_barrier_face = 0_i32
+    contract%inflow_number_flux_m2_s = 0.0_dp
+
+    contract%has_inflow_number_flux([electron_idx, ion_idx]) = .true.
+    contract%inflow_number_flux_m2_s(electron_idx) = response(2)
+    contract%inflow_number_flux_m2_s(ion_idx) = response(3)
+    contract%has_inflow_kinetic_map([electron_idx, ion_idx]) = .true.
+    contract%inflow_access_potential_v(electron_idx) = response(4)
+    contract%inflow_access_potential_v(ion_idx) = response(5)
+    contract%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32
+    ! The response inward fluxes already include all outer-sheath return of
+    ! ambient species. Reflecting ambient outflow locally would count it twice.
+    contract%has_outflow_kinetic_barrier(photoelectron_idx) = .true.
+    contract%outflow_barrier_potential_v(photoelectron_idx) = response(6)
+    contract%outflow_barrier_face(photoelectron_idx) = 6_i32
+  end subroutine configure_matching_surface_closure
+
+  subroutine resolve_matching_observed_feedback( &
+    moments, electron_idx, ion_idx, photoelectron_idx, area_m2, duration_s, feedback, return_flux, escape_flux &
+    )
+    real(dp), intent(in) :: moments(:, :)
+    integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
+    real(dp), intent(in) :: area_m2, duration_s
+    real(dp), intent(out) :: feedback(4), return_flux, escape_flux
+    real(dp) :: normalization, photoelectron_outward_number
+
+    if (size(moments, 1) < 4 .or. any(.not. ieee_is_finite(moments)) .or. any(moments < 0.0_dp)) then
+      error stop 'matching-plane particle moments are invalid.'
+    end if
+    normalization = area_m2*duration_s
+    if (.not. ieee_is_finite(normalization) .or. normalization <= 0.0_dp) then
+      error stop 'matching-plane flux normalization must be finite and positive.'
+    end if
+    photoelectron_outward_number = moments(1, photoelectron_idx)
+    feedback(1) = photoelectron_outward_number/normalization
+    feedback(2) = 0.0_dp
+    if (photoelectron_outward_number > 0.0_dp) then
+      feedback(2) = moments(2, photoelectron_idx)/(photoelectron_outward_number*qe)
+    end if
+    feedback(3) = moments(1, electron_idx)/normalization
+    feedback(4) = moments(1, ion_idx)/normalization
+    return_flux = moments(3, photoelectron_idx)/normalization
+    escape_flux = moments(4, photoelectron_idx)/normalization
+    if (.not. all(ieee_is_finite([feedback, return_flux, escape_flux]))) then
+      error stop 'matching-plane observed feedback is not finite.'
+    end if
+  end subroutine resolve_matching_observed_feedback
+
+  subroutine validate_matching_feedback_range(feedback, axis_min, axis_max, axis_span)
+    real(dp), intent(in) :: feedback(4), axis_min(4), axis_max(4), axis_span(4)
+    integer(i32) :: axis
+    real(dp) :: tolerance
+
+    do axis = 1_i32, 4_i32
+      if (axis_span(axis) <= 0.0_dp) cycle
+      tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(axis_min(axis)), abs(axis_max(axis)))
+      if (feedback(axis) < axis_min(axis) - tolerance .or. feedback(axis) > axis_max(axis) + tolerance) then
+        error stop 'matching-plane observed feedback is outside the response table domain.'
+      end if
+    end do
+  end subroutine validate_matching_feedback_range
+
+  real(dp) function matching_feedback_residual(previous, observed, axis_span) result(residual)
+    real(dp), intent(in) :: previous(4), observed(4), axis_span(4)
+    integer(i32) :: axis
+
+    residual = 0.0_dp
+    do axis = 1_i32, 4_i32
+      if (axis_span(axis) <= 0.0_dp) cycle
+      residual = max(residual, abs(observed(axis) - previous(axis))/axis_span(axis))
+    end do
+  end function matching_feedback_residual
 
   !> finiteな粒子電荷とweightから、overflow/zero-underflowを拒否してmacro chargeを返す。
   real(dp) function checked_macro_charge(particle_charge, particle_weight, context) result(macro_charge)

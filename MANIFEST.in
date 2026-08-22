@@ -18,7 +18,7 @@ recursive-include beach *.py *.toml *.json
 recursive-include beach/include *.h
 recursive-include docs *.md
 recursive-include env *.env *.md
-recursive-include examples *.toml *.py *.sh
+recursive-include examples *.toml *.csv *.py *.sh
 recursive-include schemas *.json
 recursive-include tests/fortran *.f90
 recursive-include tests/python *.py

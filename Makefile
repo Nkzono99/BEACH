@@ -51,6 +51,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_physics_config_types \
 	test_charge_ledger \
 	test_surface_current_model \
+	test_matching_plane_response \
+	test_matching_plane_simulator \
 	test_model_fingerprint \
 	test_panel_moments \
 	test_panel_kernel \

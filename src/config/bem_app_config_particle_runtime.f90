@@ -37,6 +37,7 @@ module bem_app_config_particle_runtime
     integer(i32) :: mpi_size = 1_i32
     real(dp), allocatable :: effective_density_m3(:)
     real(dp), allocatable :: effective_particle_flux_m2_s(:)
+    logical, allocatable :: number_flux_override_active(:)
     real(dp), allocatable :: effective_temperature_k(:)
     real(dp), allocatable :: effective_drift_velocity(:, :)
     real(dp), allocatable :: effective_weight(:)
@@ -70,7 +71,7 @@ contains
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
   subroutine build_particle_source_plan( &
     cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_reservoir_potential_v, &
-    kinetic_access_potential_v, kinetic_inflow_face &
+    kinetic_access_potential_v, kinetic_inflow_face, number_flux_override_active, number_flux_override_m2_s &
     )
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
@@ -79,6 +80,8 @@ contains
     logical, intent(in), optional :: kinetic_inflow_active(:)
     real(dp), intent(in), optional :: kinetic_reservoir_potential_v(:), kinetic_access_potential_v(:)
     integer(i32), intent(in), optional :: kinetic_inflow_face(:)
+    logical, intent(in), optional :: number_flux_override_active(:)
+    real(dp), intent(in), optional :: number_flux_override_m2_s(:)
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
@@ -100,6 +103,7 @@ contains
 
     allocate (plan%effective_density_m3(cfg%n_particle_species))
     allocate (plan%effective_particle_flux_m2_s(cfg%n_particle_species))
+    allocate (plan%number_flux_override_active(cfg%n_particle_species))
     allocate (plan%effective_temperature_k(cfg%n_particle_species))
     allocate (plan%effective_drift_velocity(3, cfg%n_particle_species))
     allocate (plan%effective_weight(cfg%n_particle_species))
@@ -111,6 +115,7 @@ contains
     allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
     plan%effective_density_m3 = 0.0_dp
     plan%effective_particle_flux_m2_s = 0.0_dp
+    plan%number_flux_override_active = .false.
     plan%effective_temperature_k = 0.0_dp
     plan%effective_drift_velocity = 0.0_dp
     plan%effective_weight = 0.0_dp
@@ -147,6 +152,21 @@ contains
       end if
     end if
 
+    if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then
+      if (.not. present(number_flux_override_active) .or. .not. present(number_flux_override_m2_s)) then
+        error stop 'particle source number-flux override requires active and flux arrays together.'
+      end if
+      if (size(number_flux_override_active) /= cfg%n_particle_species .or. &
+          size(number_flux_override_m2_s) /= cfg%n_particle_species) then
+        error stop 'particle source number-flux override species count mismatch.'
+      end if
+      if (any(number_flux_override_active .and. &
+              (.not. ieee_is_finite(number_flux_override_m2_s) .or. number_flux_override_m2_s < 0.0_dp))) then
+        error stop 'active particle source number-flux overrides must be finite and nonnegative.'
+      end if
+      plan%number_flux_override_active = number_flux_override_active
+    end if
+
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
@@ -174,6 +194,9 @@ contains
         plan%photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
         plan%photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
       end select
+      if (plan%number_flux_override_active(s)) then
+        plan%effective_particle_flux_m2_s(s) = number_flux_override_m2_s(s)
+      end if
     end do
 
     plan%ready = .true.
@@ -353,6 +376,7 @@ contains
           call compute_macro_particles_for_species( &
             cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
             number_density_override=batch_density_m3(s), particle_flux_override=effective_particle_flux_m2_s(s), &
+            use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
             temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
             w_particle_override=batch_weight(s) &
             )
@@ -395,6 +419,7 @@ contains
               cfg%sim, face_spec, state%boundary_macro_residual(face, s), boundary_global_counts(face, s), &
               vmin_normal=boundary_vmin(face, s), number_density_override=batch_density_m3(s), &
               particle_flux_override=effective_particle_flux_m2_s(s), &
+              use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
               temperature_k_override=effective_temperature_k(s), &
               drift_velocity_override=effective_drift_velocity(:, s), w_particle_override=batch_weight(s) &
               )
@@ -934,7 +959,7 @@ contains
   !! @param[in] drift_velocity_override ドリフト速度の上書き値 [m/s]。
   subroutine compute_macro_particles_for_species( &
     sim, spec, residual, count, vmin_normal, number_density_override, w_particle_override, &
-    temperature_k_override, drift_velocity_override, particle_flux_override &
+    temperature_k_override, drift_velocity_override, particle_flux_override, use_particle_flux_override &
     )
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: spec
@@ -946,9 +971,11 @@ contains
     real(dp), intent(in), optional :: temperature_k_override
     real(dp), intent(in), optional :: drift_velocity_override(3)
     real(dp), intent(in), optional :: particle_flux_override
+    logical, intent(in), optional :: use_particle_flux_override
 
     real(dp) :: number_density_m3, effective_batch_duration, particle_flux_m2_s, w_particle, temperature_k_local
     real(dp) :: drift_velocity_local(3)
+    logical :: direct_flux
 
     number_density_m3 = species_number_density_m3(spec)
     if (present(number_density_override)) number_density_m3 = number_density_override
@@ -959,7 +986,9 @@ contains
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
-    if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
+    direct_flux = trim(lower_ascii(spec%velocity_distribution)) == 'grid'
+    if (present(use_particle_flux_override)) direct_flux = direct_flux .or. use_particle_flux_override
+    if (direct_flux) then
       particle_flux_m2_s = spec%particle_flux_m2_s
       if (present(particle_flux_override)) particle_flux_m2_s = particle_flux_override
       call compute_macro_particles_from_flux( &

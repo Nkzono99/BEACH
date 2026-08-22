@@ -346,12 +346,14 @@ face_potential_grid_n = 3
 It does not apply to an internal `plane_source` or deprecated `reservoir_face`.
 A uniform field has no finite potential at infinity, so use an effective reservoir reference when combining it with this model.
 
-### `[surface_current_model]`: Automatic Fixed-Current Calculation
+### `[surface_current_model]`: External Sheath Closure
 
 When this top-level table is omitted, configure each species manually with `target_*_current_a`.
 `model="zhao_stationary"` solves the Zhao A/B/C zero-current stationary root for a planar, collisionless, unmagnetized
 external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents plus a z-high kinetic
 barrier once before batching.
+
+`model="matching_plane_quasistatic"` couples the box top to a quasistatic outer-sheath response table.
 
 With `photoelectron_source_scale=0.0`, it creates no PE channels and uses the ambient-electron/ion zero-current root.
 
@@ -381,7 +383,7 @@ photoelectron_source_scale = 0.0
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `model` | string | `"none"` | Currently `none` / `zhao_stationary` |
+| `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; `auto` searches for a valid stationary branch; no-PE accepts only `auto` / `c` |
 | `electron_species` | string | required | `species_key` for ambient electrons |
 | `ion_species` | string | required | `species_key` for cold ions |
@@ -389,7 +391,13 @@ photoelectron_source_scale = 0.0
 | `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
 | `photoelectron_ref_density_m3` | float | required with PE | Reference PE density $n_{pe,ref}$ [m^-3] |
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$; `0.0` disables PE |
-| `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2] |
+| `reference_area_m2` | float | domain x-y area | Area converting Zhao current densities to total currents [m^2]; forbidden for matching |
+| `response_table_path` | string | required for matching | Outer-sheath response CSV v1; relative paths use the `beach.toml` directory and absolute paths are retained |
+| `coupling_rtol` | float | `1.0e-4` | Relative matching fixed-point tolerance; finite $0<r\le1$ |
+| `coupling_max_iterations` | int | `20` | Maximum matching fixed-point iterations; `>=1` |
+| `coupling_relaxation` | float | `0.5` | Matching update relaxation; finite $0<\omega\le1$ |
+
+#### Zhao stationary closure
 
 The referenced species must be enabled, distinct, and set `surface_charge_closure="fixed_current"`.
 They cannot also specify manual `target_absorbed_current_a` or `target_emission_current_a`. Ambient electrons and ions must
@@ -438,6 +446,51 @@ This model does not solve the field, space charge, Debye shielding, return orbit
 not update currents from the surface potential during batches. A return at z-high omits the distance and time to the outer
 turning point. It is a fixed stationary external-current closure, not a self-consistent transient outer sheath. See
 `examples/periodic2_zhao_fixed_current.toml` for a complete case.
+
+#### Matching-plane quasistatic closure
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_table_path = "responses/outer_sheath.csv"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+coupling_rtol = 1.0e-4
+coupling_max_iterations = 20
+coupling_relaxation = 0.5
+```
+
+The matching plane $H$ is the z component of `domain.box_max`, and its coupling area is the domain x-y area. Every mesh
+vertex must lie strictly below $H$.
+`reference_area_m2` cannot replace that area.
+
+`response_table_path` must point to a nonlinear response CSV v1 produced by an external Zhao calculation or a 1D PIC model.
+A synthetic table is suitable only for wiring and interpolation tests; it is not
+a production-valid physics input. Resolve a relative path from the config-file directory and keep the resolved path at no
+more than 256 characters. `beachx lint` applies the same resolved-path check.
+
+This model requires all of the following configuration invariants:
+
+- `field_boundary.mode="periodic2"`, `domain.periodic_axes=["x","y"]`, and a z-nonperiodic open box;
+- an explicit split `[periodic2]` configuration, with `nonzero_mode_backend` set to `cached_kneq0` or
+  `panel_spectral_reference`, `zero_mode_policy="exclude_k0"`, and `lower_boundary_model` set to
+  `e_bottom_zero` or `symmetric_vacuum`;
+- `sim.e0=[0,0,0]`, `sim.b0=[0,0,0]`, no generic reservoir potential model, and
+  `particle_boundary.ordinary_open_model="escape"`, with `sim.multiple_box_events_policy="abort"`;
+- exactly three enabled species: distinct electron, ion, and photoelectron roles, each with
+  `surface_charge_closure="explicit"`;
+- negative electron and photoelectron charge and positive ion charge; electron and ion roles use
+  `source_mode="volume_seed"`, `npcls_per_step=0`, and only z-high `boundary_inflow="reservoir"`;
+- a photoelectron role using `source_mode="photo_raycast"`, `inject_face="z_high"`, and
+  `deposit_opposite_charge_on_emit=true`; and
+- effective `periodic` x/y and `open` z-low/z-high particle boundaries for all three roles.
+- no manual `fixed_current` target.
+
+With `model="none"`, do not specify any other key in the table. Zhao-specific and matching-specific keys cannot be mixed.
+The removed top-level `[outer_plasma]` and `[coupling]` tables
+remain invalid; all coupling controls belong in `[surface_current_model]`. See
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for the CSV columns, fixed-point iteration, and validation.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
@@ -1019,6 +1072,7 @@ Output files:
 | `charge_history.csv` | When `history_stride > 0` |
 | `potential_history.csv` | When `write_potential_history=true` and `history_stride > 0` |
 | `top_reference_history.csv` | Above plus `[domain]`; mean, standard deviation, minimum, and maximum potential across the full z-high face |
+| `matching_plane_history.csv` | With `surface_current_model.model="matching_plane_quasistatic"` and `history_stride > 0`; selected accepted-batch coupling state and residual |
 | `performance_profile.csv` | When `BEACH_PROFILE=1` |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | Serial or MPI rank-local random-number state |
 | `macro_residuals.csv` | One MPI-global macro-particle residual file, distinguished by species and face |
@@ -1049,6 +1103,14 @@ Evaluation rules for `mesh_potential.csv`:
 - Writes `batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V`.
 - Uses a cell-centered grid over the full box z-high face with `sample_n=reservoir.face_potential_grid_n`.
 - Records a relative-potential diagnostic, not infinity or plasma potential.
+
+`matching_plane_history.csv`:
+
+- Uses the same phase as `charge_history.csv`, writing accepted batch 1 and then every `history_stride` batches.
+- Columns are `batch,simulated_time_s,D_H_C_m2,phi_H_V`, electron/ion inward fluxes and access potentials, the PE
+  barrier potential, four outward feedback values, PE return/escape fluxes, and `iterations,residual`.
+- $D_H$ and $\Phi_H$ describe the pre-commit state used for that batch's trajectories; `simulated_time_s` is after
+  accepting the trial.
 
 Requirements for `resume=true`:
 

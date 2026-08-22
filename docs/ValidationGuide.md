@@ -116,9 +116,11 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`reservoir.phi_infty`、法線運動エネルギーによる反射・流出判定 |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
+| `matching_plane_quasistatic` | 固定点残差と反復回数、PEの`outward = return + escape`、response grid・緩和率・matching高度への依存性 |
 
 各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と
-[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。
+[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース連成の表構成と高度 sweep は
+[matching-plane準定常連成](MatchingPlaneCoupling.html)を参照してください。
 
 ## 6. 物理的な結論の範囲を確認する
 

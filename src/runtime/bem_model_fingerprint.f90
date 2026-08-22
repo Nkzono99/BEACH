@@ -4,6 +4,8 @@ module bem_model_fingerprint
   use bem_types, only: mesh_type, bc_redistributed_reflect
   use bem_app_config_types, only: app_config, particle_species_spec, particle_bc_inherit
   use bem_injection_velocity_grid, only: get_velocity_grid_snapshot
+  use bem_matching_plane_response, only: get_matching_plane_response_content_fingerprint, &
+                                         matching_plane_response_ok
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -25,6 +27,9 @@ contains
     type(app_config), intent(in) :: cfg
     character(len=16) :: fingerprint
     type(hash_state) :: hash
+    integer(i32) :: matching_status
+    character(len=16) :: matching_content_fingerprint
+    character(len=512) :: matching_message
 
     call feed_string(hash, 'same_time_midpoint_boris')
     ! These version tags intentionally invalidate older checkpoints whose
@@ -113,6 +118,21 @@ contains
       call feed_real(hash, cfg%surface_current%photoelectron_source_scale)
       call feed_real(hash, cfg%surface_current%reference_area_m2)
       call feed_logical(hash, cfg%surface_current%has_reference_area_m2)
+      if (trim(lower_ascii(cfg%surface_current%model)) == 'matching_plane_quasistatic') then
+        call feed_string(hash, 'matching_plane_quasistatic_v1')
+        call feed_real(hash, cfg%surface_current%coupling_rtol)
+        call feed_integer(hash, cfg%surface_current%coupling_max_iterations)
+        call feed_real(hash, cfg%surface_current%coupling_relaxation)
+        call get_matching_plane_response_content_fingerprint( &
+          trim(cfg%surface_current%response_table_path), matching_content_fingerprint, &
+          matching_status, matching_message &
+          )
+        if (matching_status /= matching_plane_response_ok) then
+          error stop 'model fingerprint could not load matching-plane response: '//trim(matching_message)
+        end if
+        call feed_string(hash, 'matching_plane_response_content_v1')
+        call feed_string(hash, matching_content_fingerprint)
+      end if
     end if
     fingerprint = finish_hash(hash)
   end function model_fingerprint

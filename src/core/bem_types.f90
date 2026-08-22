@@ -79,6 +79,15 @@ module bem_types
     real(dp) :: adaptive_nonzero_mode_last_batch_duration = 0.0_dp
     real(dp) :: adaptive_nonzero_mode_last_potential_step = 0.0_dp
     integer(i32) :: adaptive_nonzero_mode_omp_threads = 0_i32
+    logical :: matching_plane_state_valid = .false.
+    real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
+    real(dp) :: matching_plane_phi_v = 0.0_dp
+    real(dp) :: matching_plane_response(6) = 0.0_dp
+    real(dp) :: matching_plane_feedback(4) = 0.0_dp
+    real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp
+    real(dp) :: matching_plane_photoelectron_escape_flux_m2_s = 0.0_dp
+    integer(i32) :: matching_plane_iterations = 0_i32
+    real(dp) :: matching_plane_residual = 0.0_dp
   end type sim_stats
 
   !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。

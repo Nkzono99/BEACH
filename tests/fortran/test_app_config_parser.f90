@@ -19,6 +19,8 @@ program test_app_config_parser
   character(len=*), parameter :: zhao_generic_barrier_path = 'test_zhao_generic_barrier_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_stale_path = 'test_zhao_no_photo_stale_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
+  character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
+  character(len=*), parameter :: matching_absolute_response_path = '/tmp/beach_matching_response.csv'
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
   call get_command_argument(1, run_mode)
@@ -29,7 +31,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(11)
+  call test_init(21)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -98,6 +100,105 @@ program test_app_config_parser
   call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'a', .false.)
   call assert_config_rejected(zhao_no_photo_branch_path, 'zhao_branch="auto" or "c"')
   call delete_file_if_exists(zhao_no_photo_branch_path)
+  call test_end()
+
+  call test_begin('matching_plane_config_defaults_and_relative_path')
+  call default_app_config(cfg)
+  call load_app_config('tests/fortran/matching_plane_quasistatic.toml', cfg)
+  call assert_true( &
+    trim(cfg%surface_current%model) == 'matching_plane_quasistatic', 'matching-plane model mismatch' &
+    )
+  call assert_true( &
+    trim(cfg%surface_current%response_table_path) == &
+    'tests/fortran/data/matching_response_table.csv', 'matching-plane relative response path mismatch' &
+    )
+  call assert_close_dp(cfg%surface_current%coupling_rtol, 1.0e-4_dp, 0.0_dp, 'matching coupling rtol mismatch')
+  call assert_equal_i32(cfg%surface_current%coupling_max_iterations, 20_i32, 'matching iteration limit mismatch')
+  call assert_close_dp(cfg%surface_current%coupling_relaxation, 0.5_dp, 0.0_dp, 'matching relaxation mismatch')
+  call assert_true( &
+    all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'explicit', i=1, 3)]), &
+    'matching-plane species must retain explicit surface charge closure' &
+    )
+  call test_end()
+
+  call test_begin('matching_plane_retains_absolute_response_path')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', matching_absolute_response_path, &
+    'coupling_rtol = 0.25', '', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    trim(cfg%surface_current%response_table_path) == matching_absolute_response_path, &
+    'matching-plane absolute response path mismatch' &
+    )
+  call assert_close_dp(cfg%surface_current%coupling_rtol, 0.25_dp, 0.0_dp, 'explicit matching rtol mismatch')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_zhao_settings')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', 'zhao_branch = "auto"', '', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'cannot use Zhao-specific settings')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('none_rejects_model_specific_settings')
+  call write_matching_variant(matching_variant_path, 'none', '', '', '', '', '')
+  call assert_config_rejected(matching_variant_path, 'model="none" cannot use Zhao or matching-plane settings')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_external_field')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', 'e0 = [0.0, 0.0, 1.0]', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'requires sim.e0=sim.b0=[0,0,0]')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_nonopen_z_low')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', '', 'reflect', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'z-low/z-high open particle boundaries')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_ambient_volume_reseeding')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '1' &
+    )
+  call assert_config_rejected(matching_variant_path, 'npcls_per_step=0')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_soft_discard')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', &
+    'multiple_box_events_policy = "soft_discard"', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'multiple_box_events_policy="abort"')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_extra_fixed_current_species')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '' &
+    )
+  call append_matching_fixed_current_species(matching_variant_path)
+  call assert_config_rejected(matching_variant_path, 'any enabled species')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_extra_enabled_species')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '' &
+    )
+  call append_matching_explicit_species(matching_variant_path)
+  call assert_config_rejected(matching_variant_path, 'exactly three enabled')
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('fixed_current_config')
@@ -246,6 +347,98 @@ contains
     end if
   end subroutine write_no_photo_zhao_variant
 
+  subroutine write_matching_variant( &
+    path, model_name, response_path, surface_extra, sim_extra, z_low_action, electron_npcls &
+    )
+    character(len=*), intent(in) :: path, model_name, response_path, surface_extra, sim_extra, z_low_action
+    character(len=*), intent(in) :: electron_npcls
+    character(len=1024) :: line
+    integer :: source_unit, output_unit, ios
+    logical :: replaced_model, replaced_response, inserted_surface_extra, inserted_sim_extra, replaced_z_low
+    logical :: replaced_electron_npcls
+
+    replaced_model = trim(model_name) == 'matching_plane_quasistatic'
+    replaced_response = len_trim(response_path) == 0
+    inserted_surface_extra = len_trim(surface_extra) == 0
+    inserted_sim_extra = len_trim(sim_extra) == 0
+    replaced_z_low = len_trim(z_low_action) == 0
+    replaced_electron_npcls = len_trim(electron_npcls) == 0
+    open (newunit=source_unit, file='tests/fortran/matching_plane_quasistatic.toml', &
+          status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open matching-plane config fixture'
+    open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create matching-plane config variant'
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (.not. replaced_model .and. trim(line) == 'model = "matching_plane_quasistatic"') then
+        write (output_unit, '(a)') 'model = "'//trim(model_name)//'"'
+        replaced_model = .true.
+      else if (len_trim(response_path) > 0 .and. &
+               trim(line) == 'response_table_path = "data/matching_response_table.csv"') then
+        write (output_unit, '(a)') 'response_table_path = "'//trim(response_path)//'"'
+        replaced_response = .true.
+      else if (.not. replaced_z_low .and. trim(line) == 'z_low = "open"') then
+        write (output_unit, '(a)') 'z_low = "'//trim(z_low_action)//'"'
+        replaced_z_low = .true.
+      else if (.not. replaced_electron_npcls .and. trim(line) == 'npcls_per_step = 0') then
+        write (output_unit, '(a)') 'npcls_per_step = '//trim(electron_npcls)
+        replaced_electron_npcls = .true.
+      else
+        write (output_unit, '(a)') trim(line)
+      end if
+      if (.not. inserted_surface_extra .and. trim(line) == 'model = "matching_plane_quasistatic"') then
+        write (output_unit, '(a)') trim(surface_extra)
+        inserted_surface_extra = .true.
+      end if
+      if (.not. inserted_sim_extra .and. trim(line) == '[sim]') then
+        write (output_unit, '(a)') trim(sim_extra)
+        inserted_sim_extra = .true.
+      end if
+    end do
+    close (source_unit)
+    close (output_unit)
+    if (.not. replaced_model .or. .not. replaced_response .or. .not. inserted_surface_extra .or. &
+        .not. inserted_sim_extra .or. .not. replaced_z_low .or. .not. replaced_electron_npcls) then
+      error stop 'failed to specialize matching-plane config fixture'
+    end if
+  end subroutine write_matching_variant
+
+  subroutine append_matching_fixed_current_species(path)
+    character(len=*), intent(in) :: path
+    integer :: output_unit, ios
+
+    open (newunit=output_unit, file=trim(path), status='old', position='append', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to append matching-plane fixed-current species fixture'
+    write (output_unit, '(a)') ''
+    write (output_unit, '(a)') '[[particles.species]]'
+    write (output_unit, '(a)') 'species_key = "diagnostic_electron"'
+    write (output_unit, '(a)') 'source_mode = "volume_seed"'
+    write (output_unit, '(a)') 'npcls_per_step = 0'
+    write (output_unit, '(a)') 'q_particle = -1.602176634e-19'
+    write (output_unit, '(a)') 'm_particle = 9.1093837139e-31'
+    write (output_unit, '(a)') 'surface_charge_closure = "fixed_current"'
+    write (output_unit, '(a)') 'target_absorbed_current_a = -1.0e-9'
+    close (output_unit)
+  end subroutine append_matching_fixed_current_species
+
+  subroutine append_matching_explicit_species(path)
+    character(len=*), intent(in) :: path
+    integer :: output_unit, ios
+
+    open (newunit=output_unit, file=trim(path), status='old', position='append', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to append matching-plane explicit species fixture'
+    write (output_unit, '(a)') ''
+    write (output_unit, '(a)') '[[particles.species]]'
+    write (output_unit, '(a)') 'species_key = "diagnostic_electron"'
+    write (output_unit, '(a)') 'source_mode = "volume_seed"'
+    write (output_unit, '(a)') 'npcls_per_step = 0'
+    write (output_unit, '(a)') 'q_particle = -1.602176634e-19'
+    write (output_unit, '(a)') 'm_particle = 9.1093837139e-31'
+    write (output_unit, '(a)') 'surface_charge_closure = "explicit"'
+    close (output_unit)
+  end subroutine append_matching_explicit_species
+
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment
     character(len=1024) :: executable_path, command, child_line
@@ -257,12 +450,12 @@ contains
     command = '"'//trim(executable_path)//'" --config-failure-probe "'//trim(path)//'" > '// &
               config_failure_path//' 2>&1'
     call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'Zhao config failure probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'invalid Zhao config must be rejected')
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'config failure probe command status mismatch')
+    call assert_true(child_exit_status /= 0, 'invalid config must be rejected')
 
     saw_expected = .false.
     open (newunit=child_unit, file=config_failure_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read Zhao config failure probe output'
+    if (child_ios /= 0) error stop 'failed to read config failure probe output'
     do
       read (child_unit, '(A)', iostat=child_ios) child_line
       if (child_ios /= 0) exit
@@ -270,6 +463,6 @@ contains
     end do
     close (child_unit)
     call delete_file_if_exists(config_failure_path)
-    call assert_true(saw_expected, 'Zhao config failure message mismatch: '//trim(expected_fragment))
+    call assert_true(saw_expected, 'config failure message mismatch: '//trim(expected_fragment))
   end subroutine assert_config_rejected
 end program test_app_config_parser

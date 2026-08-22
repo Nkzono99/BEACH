@@ -3,7 +3,7 @@ program test_output_writer_io
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_null_char
   use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
-  use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, &
+  use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, open_matching_plane_history_writer, &
                                write_result_files, write_top_reference_history_snapshot
   use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_types, only: mesh_type, sim_stats
@@ -23,15 +23,17 @@ program test_output_writer_io
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model
   logical :: saw_photoelectron_active_receipt
+  logical :: saw_matching_receipts(9), matching_history_opened
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
-  integer :: literal_unit, ios, top_history_unit
+  integer :: literal_unit, ios, top_history_unit, matching_history_unit
   integer(i32) :: top_batch, top_sample_n
   real(dp) :: top_time, top_z, top_mean, top_std, top_min, top_max
   character(len=2048) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
   character(len=*), parameter :: out_dir_no_photo = 'test_output_writer_io_no_photo_tmp'
+  character(len=*), parameter :: out_dir_matching = 'test_output_writer_io_matching_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
   character(len=*), parameter :: marker_path = 'test_output_writer_io_shell_marker_tmp'
   character(len=*), parameter :: literal_dir = &
@@ -45,13 +47,14 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(6)
+  call test_init(7)
 
   stats = sim_stats()
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
+  call cleanup_output_dir(out_dir_matching)
 
   call delete_file_if_exists(marker_path)
   call remove_test_directory(literal_dir)
@@ -222,7 +225,7 @@ program test_output_writer_io
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=8') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=9') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
@@ -302,7 +305,7 @@ program test_output_writer_io
                       index(line, 'fixed_current_correction_C') > 0
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v8')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v9')
   call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
@@ -327,9 +330,32 @@ program test_output_writer_io
     )
   call test_end()
 
+  call test_begin('matching_plane_provenance_and_stale_history')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_matching_plane_quasistatic.toml', cfg)
+  cfg%output_dir = out_dir_matching
+  cfg%history_stride = 0_i32
+  cfg%write_mesh_potential = .false.
+  call ensure_output_dir(out_dir_matching)
+  open (newunit=literal_unit, file=out_dir_matching//'/matching_plane_history.csv', &
+        status='replace', action='write', iostat=ios)
+  if (ios /= 0) error stop 'failed to create stale matching-plane history fixture'
+  write (literal_unit, '(a)') 'stale'
+  close (literal_unit)
+  call open_matching_plane_history_writer(cfg, .false., matching_history_opened, matching_history_unit)
+  call assert_true(.not. matching_history_opened, 'history_stride=0 must disable matching-plane history')
+  inquire (file=out_dir_matching//'/matching_plane_history.csv', exist=exists)
+  call assert_true(.not. exists, 'fresh run must remove stale disabled matching-plane history')
+
+  call write_result_files(out_dir_matching, mesh, stats, cfg)
+  call scan_matching_plane_receipts(out_dir_matching//'/summary.txt', saw_matching_receipts)
+  call assert_true(all(saw_matching_receipts), 'summary should record matching-plane provenance and controls')
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
+  call cleanup_output_dir(out_dir_matching)
 
   call test_summary()
 
@@ -369,6 +395,33 @@ contains
     end do
     close (summary_unit)
   end subroutine scan_no_photo_surface_current_receipt
+
+  subroutine scan_matching_plane_receipts(summary_path, found)
+    character(len=*), intent(in) :: summary_path
+    logical, intent(out) :: found(9)
+    integer :: summary_unit, summary_ios
+    character(len=2048) :: summary_line
+
+    found = .false.
+    open (newunit=summary_unit, file=trim(summary_path), status='old', action='read', iostat=summary_ios)
+    if (summary_ios /= 0) error stop 'failed to open matching-plane receipt fixture'
+    do
+      read (summary_unit, '(A)', iostat=summary_ios) summary_line
+      if (summary_ios /= 0) exit
+      found(1) = found(1) .or. index(summary_line, 'surface_current_model_response_content_fingerprint=') == 1
+      found(2) = found(2) .or. index(summary_line, 'surface_current_model_matching_plane_z_m=') == 1
+      found(3) = found(3) .or. &
+                 trim(summary_line) == 'surface_current_model_electron_species=solar_wind_electron'
+      found(4) = found(4) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
+      found(5) = found(5) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
+      found(6) = found(6) .or. index(summary_line, 'surface_current_model_coupling_rtol=') == 1
+      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
+      found(8) = found(8) .or. index(summary_line, 'surface_current_model_coupling_relaxation=') == 1
+      found(9) = found(9) .or. &
+                 trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
+    end do
+    close (summary_unit)
+  end subroutine scan_matching_plane_receipts
 
   subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
     character(len=*), intent(in) :: path, inflow_map, open_model
@@ -442,6 +495,7 @@ contains
     call delete_file_if_exists(out_dir//'/checkpoint_complete.txt')
     call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/top_reference_history.csv')
+    call delete_file_if_exists(out_dir//'/matching_plane_history.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 

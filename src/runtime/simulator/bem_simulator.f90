@@ -23,6 +23,10 @@ module bem_simulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
+  use bem_output_writer, only: write_matching_plane_history_snapshot
+  use bem_matching_plane_response, only: matching_plane_response_table_type, &
+                                         preflight_matching_plane_response_mpi, matching_plane_response_ok
+  use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
@@ -34,7 +38,8 @@ module bem_simulator
   interface
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics &
+      potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics, &
+      matching_plane_history_unit &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -49,6 +54,7 @@ module bem_simulator
       integer, intent(in), optional :: top_reference_history_unit
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
+      integer, intent(in), optional :: matching_plane_history_unit
     end subroutine run_absorption_insulator
 
     module subroutine prepare_batch_state( &
@@ -74,7 +80,7 @@ module bem_simulator
       absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v &
+      collision_failure_x, collision_failure_v, matching_plane_moments_thread &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -91,6 +97,7 @@ module bem_simulator
       integer(i32), intent(out) :: actual_team_size
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+      real(dp), intent(inout) :: matching_plane_moments_thread(:, :, :)
     end subroutine process_particle_batch
 
     module subroutine commit_batch_charge(mesh, q_floor, external_e, field_bc_mode, workspace, rel, mpi)

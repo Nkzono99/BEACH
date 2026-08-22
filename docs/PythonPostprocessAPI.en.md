@@ -110,7 +110,8 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 ```
 
 Required files: `summary.txt`, `charges.csv`
-Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, `mesh_potential.csv`
+Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, `mesh_potential.csv`,
+`matching_plane_history.csv`
 
 ### 3.2 `FortranRunResult` Type
 
@@ -131,6 +132,14 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `mesh_sources` | `dict[int, MeshSource] \| None` | Mesh kind, surface model, and epsilon_r metadata |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Centroid potentials output by Fortran [V] |
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
+| `matching_plane_state` | `MatchingPlaneState \| None` | Last accepted matching-plane state; `None` when the summary marks it invalid |
+| `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | Matching-plane history; `None` when the state is invalid or the CSV is absent |
+
+`MatchingPlaneState` exposes named fields for $D_H$, $\Phi_H$, inward responses, outward feedback, PE return / escape,
+iteration count, and convergence residual. Each `MatchingPlaneHistoryEntry` contains `batch`, `simulated_time_s`, and the
+corresponding `state: MatchingPlaneState`. A header-only `matching_plane_history.csv` produces the empty tuple `()`.
+Thus `None` means that no history file or no valid matching-plane state exists, whereas an empty tuple means that the
+state is valid but the history contains no rows.
 
 ### 3.3 `FortranChargeHistory`
 

@@ -61,6 +61,13 @@ the same batch at a shorter width. This trial loop is specific to
 `cached_kneq0` and does not support an ordinary `volume_seed`. Time-scaled `boundary_inflow`, `plane_source`, and
 deprecated `reservoir_face` must use `target_macro_particles_per_batch`; fixed `w_particle` reservoirs are rejected.
 
+With `surface_current_model.model="matching_plane_quasistatic"`, one trial replays the interface response and steps 1--5
+until the fixed point converges. Every iteration starts from the same batch-start RNG state and macro-particle residuals;
+only the matching potential, ambient inward fluxes, and outer barriers change. Charge deltas and particle statistics are
+not committed before convergence. When adaptive progression is also active, BEACH tests the $k\ne0$ bound after the
+fixed point converges and restores the matching state if the trial is rejected. See
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for the table and residual definitions.
+
 ### 1. Refresh the field snapshot
 
 The field and potential held fixed during particle tracking are built from `q_elem` committed through the

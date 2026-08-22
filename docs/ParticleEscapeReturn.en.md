@@ -65,6 +65,17 @@ The crossing potential follows the batch-start fixed field used for particle mot
 `sim.e0`. Because a uniform field has no finite potential at infinity, a configuration that combines `sim.e0` with this
 model must use a consistent effective reservoir reference for `reservoir.phi_infty`.
 
+## Outer barrier at a matching plane
+
+`matching_plane_quasistatic` applies electron and ion access potentials plus the maximum outer PE barrier returned by
+the response table at z-high, independently of the ordinary-open model. The outward decision uses the same scalar-energy
+test, but its reference values update in every fixed-point iteration. A reflected PE contributes to return, a transmitted
+PE contributes to escape, and BEACH compares their sum with the measured outward crossings.
+
+Return reverses normal velocity immediately at the same z-high position. This quasistatic approximation retains no outer
+turning position, flight time, or lateral displacement. Do not stack a manual `potential_barrier` or closed-PE reflection
+on a matching-plane case. See [Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for response columns and scope.
+
 ## Return of closed photoelectrons
 
 For closed PE, set the face matching `inject_face` to `reflect` or `redistributed_reflect` in

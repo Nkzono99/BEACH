@@ -5,6 +5,10 @@ import pytest
 
 import beach.fortran_results.coulomb as coulomb_module
 import beach.fortran_results.potential as potential_module
+from beach import (
+    MatchingPlaneHistoryEntry as PublicMatchingPlaneHistoryEntry,
+    MatchingPlaneState as PublicMatchingPlaneState,
+)
 from beach.fortran_results import (
     analyze_coulomb_mobility,
     Beach,
@@ -13,6 +17,8 @@ from beach.fortran_results import (
     FortranChargeHistory,
     K_COULOMB,
     FortranRunResult,
+    MatchingPlaneHistoryEntry,
+    MatchingPlaneState,
     _select_frame_columns,
     animate_history_mesh,
     compute_potential_points,
@@ -519,6 +525,106 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8])
     )
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+
+
+def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path) -> None:
+    out = tmp_path / "matching"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "checkpoint_schema_version=9",
+            "matching_plane_state_valid=T",
+            "matching_plane_displacement_C_m2=-2.0e-8",
+            "matching_plane_phi_V=1.5",
+            "matching_plane_electron_inward_flux_m2_s=4.0",
+            "matching_plane_ion_inward_flux_m2_s=5.0",
+            "matching_plane_electron_access_potential_V=-1.0",
+            "matching_plane_ion_access_potential_V=2.0",
+            "matching_plane_photoelectron_barrier_potential_V=3.0",
+            "matching_plane_photoelectron_outward_flux_m2_s=2.0",
+            "matching_plane_photoelectron_mean_normal_energy_eV=6.0",
+            "matching_plane_electron_outward_flux_m2_s=7.0",
+            "matching_plane_ion_outward_flux_m2_s=8.0",
+            "matching_plane_photoelectron_return_flux_m2_s=0.5",
+            "matching_plane_photoelectron_escape_flux_m2_s=1.5",
+            "matching_plane_iterations=3",
+            "matching_plane_residual=1.0e-3",
+        ],
+    )
+    (out / "matching_plane_history.csv").write_text(
+        "batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,"
+        "ion_inward_flux_m2_s,electron_access_potential_V,ion_access_potential_V,"
+        "photoelectron_barrier_potential_V,photoelectron_outward_flux_m2_s,"
+        "photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,"
+        "ion_outward_flux_m2_s,photoelectron_return_flux_m2_s,"
+        "photoelectron_escape_flux_m2_s,iterations,residual\n"
+        "1,1.0e-6,-2.0e-8,1.5,4.0,5.0,-1.0,2.0,3.0,2.0,6.0,7.0,8.0,0.5,1.5,3,1.0e-3\n",
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.matching_plane_state is not None
+    assert PublicMatchingPlaneState is MatchingPlaneState
+    assert isinstance(result.matching_plane_state, PublicMatchingPlaneState)
+    assert result.matching_plane_state.phi_v == 1.5
+    assert result.matching_plane_state.photoelectron_escape_flux_m2_s == 1.5
+    assert result.matching_plane_history is not None
+    assert len(result.matching_plane_history) == 1
+    assert PublicMatchingPlaneHistoryEntry is MatchingPlaneHistoryEntry
+    assert isinstance(result.matching_plane_history[0], PublicMatchingPlaneHistoryEntry)
+    assert result.matching_plane_history[0].batch == 1
+    assert result.matching_plane_history[0].state.iterations == 3
+
+
+def test_load_fortran_result_ignores_stale_matching_history(tmp_path: Path) -> None:
+    out = tmp_path / "nonmatching_reused_output"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=["matching_plane_state_valid=F"],
+    )
+    (out / "matching_plane_history.csv").write_text(
+        "stale,history,from,a,previous,run\n",
+        encoding="utf-8",
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.matching_plane_state is None
+    assert result.matching_plane_history is None
+
+
+def test_load_fortran_result_rejects_inconsistent_matching_budget(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "matching_bad_budget"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "matching_plane_state_valid=T",
+            "matching_plane_displacement_C_m2=0.0",
+            "matching_plane_phi_V=0.0",
+            "matching_plane_electron_inward_flux_m2_s=0.0",
+            "matching_plane_ion_inward_flux_m2_s=0.0",
+            "matching_plane_electron_access_potential_V=0.0",
+            "matching_plane_ion_access_potential_V=0.0",
+            "matching_plane_photoelectron_barrier_potential_V=0.0",
+            "matching_plane_photoelectron_outward_flux_m2_s=2.0",
+            "matching_plane_photoelectron_mean_normal_energy_eV=0.0",
+            "matching_plane_electron_outward_flux_m2_s=0.0",
+            "matching_plane_ion_outward_flux_m2_s=0.0",
+            "matching_plane_photoelectron_return_flux_m2_s=0.5",
+            "matching_plane_photoelectron_escape_flux_m2_s=0.5",
+            "matching_plane_iterations=1",
+            "matching_plane_residual=0.0",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="photoelectron budget"):
+        load_fortran_result(out)
 
 
 def test_panel_estimators_reject_removed_point_output(tmp_path: Path) -> None:

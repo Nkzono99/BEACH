@@ -2,6 +2,7 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
@@ -51,6 +52,9 @@ module bem_electrostatic_snapshot
     type(periodic2_physics_config) :: periodic_options
     type(electrostatic_diagnostics_type) :: diagnostics
     real(dp) :: gauss_residual = 0.0_dp
+    logical :: matching_plane_gauge_active = .false.
+    real(dp) :: matching_plane_z = 0.0_dp
+    real(dp) :: matching_plane_phi = 0.0_dp
   contains
     procedure :: init => init_electrostatic_snapshot
     procedure :: refresh => refresh_electrostatic_snapshot
@@ -60,6 +64,9 @@ module bem_electrostatic_snapshot
     procedure :: compute_mesh_potential => compute_snapshot_mesh_potential
     procedure :: measure_kneq0_potential_step => measure_snapshot_kneq0_potential_step
     procedure :: get_diagnostics => get_snapshot_diagnostics
+    procedure :: set_matching_plane_gauge => set_snapshot_matching_plane_gauge
+    procedure :: clear_matching_plane_gauge => clear_snapshot_matching_plane_gauge
+    procedure :: get_matching_plane_displacement => get_snapshot_matching_plane_displacement
   end type electrostatic_snapshot_type
 
   interface
@@ -120,6 +127,9 @@ contains
     self%use_panel_spectral_reference = .false.
     self%use_cached_kneq0 = .false.
     self%gauss_residual = 0.0_dp
+    self%matching_plane_gauge_active = .false.
+    self%matching_plane_z = 0.0_dp
+    self%matching_plane_phi = 0.0_dp
     self%diagnostics = electrostatic_diagnostics_type()
 
     if (present(periodic_config)) then
@@ -149,12 +159,69 @@ contains
 
     if (.not. self%use_panel_spectral_reference) call self%nonzero_solver%refresh(mesh)
     if (self%use_zero_mode) then
-      call refresh_periodic_zero_mode_state( &
-        self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
-        self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
-        )
+      if (self%matching_plane_gauge_active) then
+        call refresh_periodic_zero_mode_state( &
+          self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+          self%matching_plane_z, self%matching_plane_phi, self%zero_state &
+          )
+      else
+        call refresh_periodic_zero_mode_state( &
+          self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+          self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
+          )
+      end if
     end if
   end subroutine refresh_electrostatic_snapshot
+
+  !> 周期k=0成分の電位ゲージをmatching planeへ移す。
+  !! 非ゼロモードのsolver/cacheは変更しない。次回refreshでもこのゲージを保持する。
+  subroutine set_snapshot_matching_plane_gauge(self, mesh, z_high, phi_high)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: z_high, phi_high
+
+    if (.not. self%use_zero_mode) then
+      error stop 'matching-plane gauge requires an active periodic zero mode.'
+    end if
+    if (.not. ieee_is_finite(z_high) .or. .not. ieee_is_finite(phi_high)) then
+      error stop 'matching-plane gauge values must be finite.'
+    end if
+    if (z_high <= self%zero_plan%break_z(self%zero_plan%nbreak)) then
+      error stop 'matching-plane gauge must lie strictly above the charged geometry.'
+    end if
+    self%matching_plane_gauge_active = .true.
+    self%matching_plane_z = z_high
+    self%matching_plane_phi = phi_high
+    call refresh_periodic_zero_mode_state( &
+      self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
+      z_high, phi_high, self%zero_state &
+      )
+  end subroutine set_snapshot_matching_plane_gauge
+
+  subroutine clear_snapshot_matching_plane_gauge(self, mesh)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+
+    self%matching_plane_gauge_active = .false.
+    self%matching_plane_z = 0.0_dp
+    self%matching_plane_phi = 0.0_dp
+    call self%refresh(mesh)
+  end subroutine clear_snapshot_matching_plane_gauge
+
+  !> matching plane直下の法線電束密度 D_H = eps0 E_bottom + Q/A を返す。
+  function get_snapshot_matching_plane_displacement(self) result(displacement_c_m2)
+    class(electrostatic_snapshot_type), intent(in) :: self
+    real(dp) :: displacement_c_m2
+
+    if (.not. self%use_zero_mode) then
+      error stop 'matching-plane displacement requires an active periodic zero mode.'
+    end if
+    if (self%zero_plan%area_xy <= 0.0_dp) then
+      error stop 'matching-plane displacement requires positive periodic area.'
+    end if
+    displacement_c_m2 = eps0*self%zero_state%e_bottom + &
+                        self%zero_state%total_charge/self%zero_plan%area_xy
+  end function get_snapshot_matching_plane_displacement
 
   subroutine get_snapshot_diagnostics(self, diagnostics)
     class(electrostatic_snapshot_type), intent(in) :: self

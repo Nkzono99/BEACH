@@ -35,6 +35,8 @@ module bem_simulator_workspace
     integer(i64), allocatable :: neutral_return_terminal_counts(:)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
+    ! (outward number, outward normal energy [J], barrier return number, barrier escape number)
+    real(dp), allocatable :: matching_plane_moments_thread(:, :, :)
   contains
     procedure :: init => init_simulator_batch_workspace
     procedure :: reset_before_injection
@@ -79,12 +81,14 @@ contains
       self%fixed_current_correction(nspecies) &
       )
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
+    allocate (self%matching_plane_moments_thread(4_i32, nspecies, nthreads))
 
     self%dq = 0.0_dp
     self%q_before = 0.0_dp
     self%candidate_charge = 0.0_dp
     self%ledger_charge_values = 0.0_dp
     self%ledger_count_values = 0_i64
+    self%matching_plane_moments_thread = 0.0_dp
     call self%reset_before_injection()
   end subroutine init_simulator_batch_workspace
 
@@ -112,6 +116,7 @@ contains
     self%fixed_escape_target_charge = 0.0_dp
     self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
+    self%matching_plane_moments_thread = 0.0_dp
   end subroutine reset_before_injection
 
   subroutine prepare_particle_flags(self, particle_count)

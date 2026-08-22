@@ -183,6 +183,11 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     files = manifest["files"]
     names = [entry["name"] for entry in files]
     assert len(names) == len(set(names))
+    matching_history = next(
+        entry for entry in files if entry["name"] == "matching_plane_history.csv"
+    )
+    assert "matching_plane_quasistatic" in matching_history["condition"]
+    assert matching_history["restart_role"] == "none"
 
     docs = (
         _read("docs/OutputGuide.md"),

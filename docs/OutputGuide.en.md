@@ -42,13 +42,36 @@ surface-current balance.
 velocity-space boundary map paired with the Zhao currents. Face indices are
 `1..6 = x_low, x_high, y_low, y_high, z_low, z_high`.
 
+For `matching_plane_quasistatic`, inspect accepted-batch `matching_plane_*` fields instead of static
+`surface_current_model_*` current targets. `matching_plane_displacement_C_m2` and `matching_plane_phi_V` are the
+electromagnetic interface values. The electron/ion inward fluxes, access potentials, and PE barrier potential are
+response-table outputs. The four outward flux or energy fields are fixed-point feedback, while
+`matching_plane_iterations` and `matching_plane_residual` are numerical convergence receipts. Compare
+`matching_plane_photoelectron_return_flux_m2_s` and `matching_plane_photoelectron_escape_flux_m2_s` with the outward PE
+flux from the same batch.
+`surface_current_model_response_content_fingerprint` identifies the canonical contents of the loaded table. Establish
+run provenance with `surface_current_model_response_table_path`, `surface_current_model_matching_plane_z_m`,
+`surface_current_model_electron_species`, `surface_current_model_ion_species`, and
+`surface_current_model_photoelectron_species`.
+The iteration contract is recorded in `surface_current_model_coupling_rtol`,
+`surface_current_model_coupling_max_iterations`, and `surface_current_model_coupling_relaxation`; the state source is
+`surface_current_model_dynamic_state_source=accepted_batch_fixed_point`. When `matching_plane_state_valid` is false,
+do not treat the other `matching_plane_*` values in that summary as an accepted state.
+The $D_H$ and $\Phi_H$ in each record correspond to the pre-commit surface-charge state used to track that batch.
+`simulated_time_s` is the time after accepting and advancing the trial; do not interpret these values as the post-commit
+field at the start of the next batch.
+
 ## History
 
 | File | Condition | Main columns |
 | --- | --- | --- |
 | `charge_history.csv` | `history_stride > 0` | batch, element, charge |
-| `potential_history.csv` | `write_potential_history=true` | batch, element, potential |
+| `potential_history.csv` | `write_potential_history=true` and `history_stride > 0` | batch, element, potential |
 | `top_reference_history.csv` | Above plus a `[domain]` box | batch, time, z-high potential statistics |
+| `matching_plane_history.csv` | `matching_plane_quasistatic` and `history_stride > 0` | batch, time, $D_H$, $\Phi_H$, inward responses, outward / return / escape fluxes, and iteration receipts |
+
+In Python, `load_fortran_result(...)` exposes these diagnostics as the typed
+`matching_plane_state` and `matching_plane_history` receipts, without manual column indexing.
 
 The reference in `top_reference_history.csv` is the mean over the box z-high
 face, not infinity or plasma potential. Join it to the same batch in
@@ -153,15 +176,17 @@ rejects that directory and falls back to the complete periodic slot.
 
 Checkpoint schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
 `1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.
+Schema v9 stores the accepted matching-plane feedback and iteration receipt in `summary.txt`. The model fingerprint
+includes the canonical response-table contents, so a checkpoint cannot resume after the file is changed in place.
 
 ## Reading from Python
 
 ```python
-from beach import FortranResults
+from beach import load_fortran_result
 
-result = FortranResults("outputs/latest")
-print(result.summary)
+result = load_fortran_result("outputs/latest")
 print(result.charges)
+print(result.matching_plane_state)
 ```
 
 See [Python Post-processing API](PythonPostprocessAPI.en.md) for details.

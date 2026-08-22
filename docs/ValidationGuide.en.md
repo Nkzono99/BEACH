@@ -116,9 +116,11 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | `infinity_barrier` | mean reservoir-face potential, image-layer dependence, and warnings for in-plane potential variation |
 | `potential_barrier` | open-face crossing potential, `reservoir.phi_infty`, and the normal-kinetic-energy reflection/escape decision |
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
+| `matching_plane_quasistatic` | fixed-point residual and iterations, PE `outward = return + escape`, and dependence on response grid, relaxation, and matching height |
 
 Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html),
-and [Particle Escape and Return](ParticleEscapeReturn.en.html).
+and [Particle Escape and Return](ParticleEscapeReturn.en.html). See
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for response-table construction and the height sweep.
 
 ## 6. Limit the physical conclusion to what was tested
 

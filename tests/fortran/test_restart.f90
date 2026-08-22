@@ -31,15 +31,28 @@ program test_restart
   character(len=1024) :: rng_rank_path, residual_global_path
   character(len=1024) :: resolved_checkpoint_dir
   character(len=*), parameter :: out_dir = 'test_restart_tmp'
+  character(len=*), parameter :: matching_probe_log = 'test_restart_matching_probe.log'
+  character(len=64) :: run_mode
+
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--matching-summary-probe') then
+    call build_test_mesh(mesh)
+    call load_restart_checkpoint(out_dir, mesh, stats, has_restart)
+    stop 0
+  end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
   call load_restart_checkpoint('test_restart_missing', mesh, stats, has_restart)
   call assert_true(.not. has_restart, 'missing checkpoint should not be reported as restart')
   call assert_equal_i32(stats%batches, 0_i32, 'missing checkpoint should keep stats at defaults')
+  call test_end()
+
+  call test_begin('schema_v9_matching_keys_are_required_and_unique')
+  call test_matching_summary_key_contract()
   call test_end()
 
   call test_begin('checkpoint_contract_and_ledger_restore')
@@ -343,6 +356,110 @@ program test_restart
 
 contains
 
+  subroutine test_matching_summary_key_contract()
+    character(len=1024) :: executable_path, command
+    integer :: exit_status, command_status
+
+    call cleanup_restart_fixture(out_dir)
+    call ensure_directory(out_dir)
+    call write_matching_summary_fixture(out_dir, omit_ion_access=.true.)
+    call write_charges_fixture(out_dir)
+    call write_rng_state_file(out_dir)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" --matching-summary-probe > '//matching_probe_log//' 2>&1'
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'missing-key probe command status mismatch')
+    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a missing required key')
+
+    call write_matching_summary_fixture(out_dir, duplicate_residual=.true.)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'duplicate-key probe command status mismatch')
+    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a duplicate key')
+
+    call write_matching_summary_fixture(out_dir, ion_access_token='/')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'real-token probe command status mismatch')
+    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a list-directed slash token')
+
+    call write_matching_summary_fixture(out_dir, iteration_token='2*0')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'integer-token probe command status mismatch')
+    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a repeated integer token')
+
+    call write_matching_summary_fixture(out_dir, inconsistent_budget=.true.)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'budget probe command status mismatch')
+    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted an inconsistent PE budget')
+
+    call write_matching_summary_fixture(out_dir)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'valid matching summary probe command status mismatch')
+    call assert_equal_i32(int(exit_status, i32), 0_i32, 'valid schema-v9 matching summary was rejected')
+    call delete_file_if_exists(matching_probe_log)
+    call cleanup_restart_fixture(out_dir)
+  end subroutine test_matching_summary_key_contract
+
+  subroutine write_matching_summary_fixture( &
+    dir_path, omit_ion_access, duplicate_residual, ion_access_token, iteration_token, inconsistent_budget &
+    )
+    character(len=*), intent(in) :: dir_path
+    logical, intent(in), optional :: omit_ion_access, duplicate_residual
+    character(len=*), intent(in), optional :: ion_access_token, iteration_token
+    logical, intent(in), optional :: inconsistent_budget
+    integer :: u, ios
+    logical :: omit_access, duplicate_key, break_budget
+    character(len=32) :: access_value, iterations_value
+
+    omit_access = .false.
+    duplicate_key = .false.
+    break_budget = .false.
+    access_value = '0.0'
+    iterations_value = '2'
+    if (present(omit_ion_access)) omit_access = omit_ion_access
+    if (present(duplicate_residual)) duplicate_key = duplicate_residual
+    if (present(ion_access_token)) access_value = ion_access_token
+    if (present(iteration_token)) iterations_value = iteration_token
+    if (present(inconsistent_budget)) break_budget = inconsistent_budget
+    open (newunit=u, file=trim(dir_path)//'/summary.txt', status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to open matching summary fixture'
+    write (u, '(a,i0)') 'checkpoint_schema_version=', checkpoint_schema_version_current
+    write (u, '(a)') 'mesh_nelem=2'
+    write (u, '(a)') 'mpi_world_size=1'
+    write (u, '(a)') 'processed_particles=3'
+    write (u, '(a)') 'absorbed=0'
+    write (u, '(a)') 'escaped=1'
+    write (u, '(a)') 'batches=2'
+    write (u, '(a)') 'last_rel_change=0.0'
+    write (u, '(a)') 'matching_plane_state_valid=T'
+    write (u, '(a)') 'matching_plane_displacement_C_m2=0.0'
+    write (u, '(a)') 'matching_plane_phi_V=1.0'
+    write (u, '(a)') 'matching_plane_electron_inward_flux_m2_s=1.25'
+    write (u, '(a)') 'matching_plane_ion_inward_flux_m2_s=1.25'
+    write (u, '(a)') 'matching_plane_electron_access_potential_V=0.0'
+    if (.not. omit_access) write (u, '(a)') 'matching_plane_ion_access_potential_V='//trim(access_value)
+    write (u, '(a)') 'matching_plane_photoelectron_barrier_potential_V=0.0'
+    write (u, '(a)') 'matching_plane_photoelectron_outward_flux_m2_s=1.0'
+    write (u, '(a)') 'matching_plane_photoelectron_mean_normal_energy_eV=1.0'
+    write (u, '(a)') 'matching_plane_electron_outward_flux_m2_s=0.0'
+    write (u, '(a)') 'matching_plane_ion_outward_flux_m2_s=0.0'
+    write (u, '(a)') 'matching_plane_photoelectron_return_flux_m2_s=0.0'
+    if (break_budget) then
+      write (u, '(a)') 'matching_plane_photoelectron_escape_flux_m2_s=0.5'
+    else
+      write (u, '(a)') 'matching_plane_photoelectron_escape_flux_m2_s=1.0'
+    end if
+    write (u, '(a)') 'matching_plane_iterations='//trim(iterations_value)
+    write (u, '(a)') 'matching_plane_residual=0.0'
+    if (duplicate_key) write (u, '(a)') 'matching_plane_residual=0.0'
+    close (u)
+  end subroutine write_matching_summary_fixture
+
   subroutine write_checkpoint_index_fixture(dir_path, slot, batches, malformed)
     character(len=*), intent(in) :: dir_path
     integer(i32), intent(in) :: slot, batches
@@ -386,6 +503,7 @@ contains
   subroutine cleanup_restart_fixture(dir_path)
     character(len=*), intent(in) :: dir_path
 
+    call delete_file_if_exists(matching_probe_log)
     call delete_file_if_exists(trim(dir_path)//'/summary.txt')
     call delete_file_if_exists(trim(dir_path)//'/charges.csv')
     call delete_file_if_exists(trim(dir_path)//'/rng_state.txt')

@@ -12,6 +12,7 @@ module bem_restart
   use bem_checkpoint_contract, only: checkpoint_schema_is_loadable, checkpoint_schema_version_current, &
                                      inspect_checkpoint_directory
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_bcast_i32_array, mpi_bcast_real_dp_array
+  use bem_string_utils, only: is_decimal_real_token, is_decimal_integer_token, is_logical_token
   implicit none
 
   private
@@ -322,16 +323,20 @@ contains
     integer(i32), intent(in), optional :: expected_world_size
 
     integer :: u, ios, pos
-    integer(i32) :: mesh_nelem, saved_world_size
+    integer(i32) :: mesh_nelem, saved_world_size, summary_schema_version
     character(len=512) :: line
     character(len=64) :: key
     character(len=256) :: value
     logical :: found_mesh, found_processed, found_absorbed, found_escaped
     logical :: found_batches, found_rel, found_world_size
+    logical :: found_matching_state, found_matching_displacement, found_matching_phi
+    logical :: found_matching_response(2:6), found_matching_feedback(4)
+    logical :: found_matching_return, found_matching_escape, found_matching_iterations, found_matching_residual
 
     stats = sim_stats()
     mesh_nelem = -1_i32
     saved_world_size = 1_i32
+    summary_schema_version = -1_i32
     found_mesh = .false.
     found_processed = .false.
     found_absorbed = .false.
@@ -339,6 +344,15 @@ contains
     found_batches = .false.
     found_rel = .false.
     found_world_size = .false.
+    found_matching_state = .false.
+    found_matching_displacement = .false.
+    found_matching_phi = .false.
+    found_matching_response = .false.
+    found_matching_feedback = .false.
+    found_matching_return = .false.
+    found_matching_escape = .false.
+    found_matching_iterations = .false.
+    found_matching_residual = .false.
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Failed to open summary.txt for resume.'
@@ -355,6 +369,8 @@ contains
       value = trim(adjustl(line(pos + 1:)))
 
       select case (trim(key))
+      case ('checkpoint_schema_version')
+        read (value, *) summary_schema_version
       case ('mesh_nelem')
         read (value, *) mesh_nelem
         found_mesh = .true.
@@ -394,6 +410,55 @@ contains
         read (value, *) stats%adaptive_nonzero_mode_last_potential_step
       case ('adaptive_nonzero_mode_omp_threads')
         read (value, *) stats%adaptive_nonzero_mode_omp_threads
+      case ('matching_plane_state_valid')
+        call require_unique_summary_key(found_matching_state, key)
+        call read_matching_summary_logical(value, key, stats%matching_plane_state_valid)
+      case ('matching_plane_displacement_C_m2')
+        call require_unique_summary_key(found_matching_displacement, key)
+        call read_matching_summary_real(value, key, stats%matching_plane_displacement_c_m2)
+      case ('matching_plane_phi_V')
+        call require_unique_summary_key(found_matching_phi, key)
+        call read_matching_summary_real(value, key, stats%matching_plane_phi_v)
+        stats%matching_plane_response(1) = stats%matching_plane_phi_v
+      case ('matching_plane_electron_inward_flux_m2_s')
+        call require_unique_summary_key(found_matching_response(2), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_response(2))
+      case ('matching_plane_ion_inward_flux_m2_s')
+        call require_unique_summary_key(found_matching_response(3), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_response(3))
+      case ('matching_plane_electron_access_potential_V')
+        call require_unique_summary_key(found_matching_response(4), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_response(4))
+      case ('matching_plane_ion_access_potential_V')
+        call require_unique_summary_key(found_matching_response(5), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_response(5))
+      case ('matching_plane_photoelectron_barrier_potential_V')
+        call require_unique_summary_key(found_matching_response(6), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_response(6))
+      case ('matching_plane_photoelectron_outward_flux_m2_s')
+        call require_unique_summary_key(found_matching_feedback(1), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_feedback(1))
+      case ('matching_plane_photoelectron_mean_normal_energy_eV')
+        call require_unique_summary_key(found_matching_feedback(2), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_feedback(2))
+      case ('matching_plane_electron_outward_flux_m2_s')
+        call require_unique_summary_key(found_matching_feedback(3), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_feedback(3))
+      case ('matching_plane_ion_outward_flux_m2_s')
+        call require_unique_summary_key(found_matching_feedback(4), key)
+        call read_matching_summary_real(value, key, stats%matching_plane_feedback(4))
+      case ('matching_plane_photoelectron_return_flux_m2_s')
+        call require_unique_summary_key(found_matching_return, key)
+        call read_matching_summary_real(value, key, stats%matching_plane_photoelectron_return_flux_m2_s)
+      case ('matching_plane_photoelectron_escape_flux_m2_s')
+        call require_unique_summary_key(found_matching_escape, key)
+        call read_matching_summary_real(value, key, stats%matching_plane_photoelectron_escape_flux_m2_s)
+      case ('matching_plane_iterations')
+        call require_unique_summary_key(found_matching_iterations, key)
+        call read_matching_summary_integer(value, key, stats%matching_plane_iterations)
+      case ('matching_plane_residual')
+        call require_unique_summary_key(found_matching_residual, key)
+        call read_matching_summary_real(value, key, stats%matching_plane_residual)
       end select
     end do
     close (u)
@@ -405,6 +470,14 @@ contains
     if (mesh_nelem /= expected_nelem) then
       error stop 'Resume checkpoint mesh element count does not match current mesh.'
     end if
+    if (summary_schema_version >= 9_i32) then
+      if (.not. (found_matching_state .and. found_matching_displacement .and. found_matching_phi .and. &
+                 all(found_matching_response) .and. all(found_matching_feedback) .and. &
+                 found_matching_return .and. found_matching_escape .and. found_matching_iterations .and. &
+                 found_matching_residual)) then
+        error stop 'Resume checkpoint schema-v9 summary is missing required matching-plane keys.'
+      end if
+    end if
     call validate_summary_stats(stats)
     if (present(expected_world_size)) then
       if (.not. found_world_size .and. expected_world_size > 1_i32) then
@@ -415,6 +488,50 @@ contains
       end if
     end if
   end subroutine load_summary_file
+
+  subroutine require_unique_summary_key(found, key)
+    logical, intent(inout) :: found
+    character(len=*), intent(in) :: key
+
+    if (found) error stop 'Resume checkpoint summary contains duplicate matching-plane key: '//trim(key)
+    found = .true.
+  end subroutine require_unique_summary_key
+
+  subroutine read_matching_summary_real(value, key, result_value)
+    character(len=*), intent(in) :: value, key
+    real(dp), intent(out) :: result_value
+    integer :: ios
+
+    if (.not. is_decimal_real_token(trim(value))) then
+      error stop 'Resume checkpoint matching-plane key has an invalid real token: '//trim(key)
+    end if
+    read (value, *, iostat=ios) result_value
+    if (ios /= 0) error stop 'Resume checkpoint matching-plane real value could not be parsed: '//trim(key)
+  end subroutine read_matching_summary_real
+
+  subroutine read_matching_summary_integer(value, key, result_value)
+    character(len=*), intent(in) :: value, key
+    integer(i32), intent(out) :: result_value
+    integer :: ios
+
+    if (.not. is_decimal_integer_token(trim(value))) then
+      error stop 'Resume checkpoint matching-plane key has an invalid integer token: '//trim(key)
+    end if
+    read (value, *, iostat=ios) result_value
+    if (ios /= 0) error stop 'Resume checkpoint matching-plane integer value could not be parsed: '//trim(key)
+  end subroutine read_matching_summary_integer
+
+  subroutine read_matching_summary_logical(value, key, result_value)
+    character(len=*), intent(in) :: value, key
+    logical, intent(out) :: result_value
+    integer :: ios
+
+    if (.not. is_logical_token(trim(value))) then
+      error stop 'Resume checkpoint matching-plane key has an invalid logical token: '//trim(key)
+    end if
+    read (value, *, iostat=ios) result_value
+    if (ios /= 0) error stop 'Resume checkpoint matching-plane logical value could not be parsed: '//trim(key)
+  end subroutine read_matching_summary_logical
 
   !> `charges.csv` を読み込み、各要素の電荷をメッシュへ復元する。
   !! 行重複や要素数不足を検出した場合は停止する。
@@ -789,6 +906,7 @@ contains
   !> summary.txt から復元した統計値が壊れていないことを検証する。
   subroutine validate_summary_stats(stats)
     type(sim_stats), intent(in) :: stats
+    real(dp) :: matching_budget_scale
 
     if (stats%processed_particles < 0_i64) error stop 'Resume checkpoint processed_particles must be >= 0.'
     if (stats%absorbed < 0_i64) error stop 'Resume checkpoint absorbed must be >= 0.'
@@ -822,6 +940,38 @@ contains
     end if
     if (stats%adaptive_nonzero_mode_omp_threads < 0_i32) then
       error stop 'Resume checkpoint adaptive OpenMP thread count must be >= 0.'
+    end if
+    if (stats%matching_plane_state_valid) then
+      if (.not. all(ieee_is_finite([ &
+                                   stats%matching_plane_displacement_c_m2, stats%matching_plane_phi_v, &
+                                   stats%matching_plane_response, stats%matching_plane_feedback, &
+                                   stats%matching_plane_photoelectron_return_flux_m2_s, &
+                                   stats%matching_plane_photoelectron_escape_flux_m2_s, stats%matching_plane_residual &
+                                   ]))) then
+        error stop 'Resume checkpoint matching-plane state must be finite.'
+      end if
+      if (any(stats%matching_plane_feedback < 0.0_dp) .or. &
+          any(stats%matching_plane_response(2:3) < 0.0_dp) .or. &
+          stats%matching_plane_photoelectron_return_flux_m2_s < 0.0_dp .or. &
+          stats%matching_plane_photoelectron_escape_flux_m2_s < 0.0_dp .or. &
+          stats%matching_plane_iterations <= 0_i32 .or. stats%matching_plane_residual < 0.0_dp) then
+        error stop 'Resume checkpoint matching-plane state is outside its physical range.'
+      end if
+      if (stats%matching_plane_response(1) /= stats%matching_plane_phi_v) then
+        error stop 'Resume checkpoint matching-plane potential state is inconsistent.'
+      end if
+      matching_budget_scale = max( &
+                              1.0_dp, stats%matching_plane_feedback(1), &
+                              stats%matching_plane_photoelectron_return_flux_m2_s, &
+                              stats%matching_plane_photoelectron_escape_flux_m2_s &
+                              )
+      if (abs( &
+          stats%matching_plane_feedback(1) - &
+          stats%matching_plane_photoelectron_return_flux_m2_s - &
+          stats%matching_plane_photoelectron_escape_flux_m2_s &
+          ) > sqrt(epsilon(1.0_dp))*matching_budget_scale) then
+        error stop 'Resume checkpoint matching-plane photoelectron budget is inconsistent.'
+      end if
     end if
   end subroutine validate_summary_stats
 

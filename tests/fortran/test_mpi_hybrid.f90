@@ -17,6 +17,9 @@ program test_mpi_hybrid
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
+  use bem_matching_plane_response, only: matching_plane_response_csv_header, matching_plane_response_ok, &
+                                         preflight_matching_plane_response_mpi, &
+                                         reset_matching_plane_response_snapshot_cache
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -36,10 +39,17 @@ program test_mpi_hybrid
   character(len=256) :: line
   integer(i32) :: n_lines, selected_rank, expected_rank, batch_idx, global_reservoir_count
   integer(i32) :: local_failure_values(4), selected_failure_values(4), reduced_min, reduced_max
+  integer(i32) :: matching_response_status
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
+  character(len=1024) :: matching_response_path
+  character(len=512) :: matching_response_message
+  character(len=16) :: matching_response_fingerprint
+  character(len=*), parameter :: matching_response_a_path = 'test_mpi_matching_response_a_tmp.csv'
+  character(len=*), parameter :: matching_response_b_path = 'test_mpi_matching_response_b_tmp.csv'
+  character(len=*), parameter :: matching_response_missing_path = 'test_mpi_matching_response_missing_tmp.csv'
 
   call mpi_initialize(mpi)
 
@@ -105,7 +115,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -130,6 +140,86 @@ program test_mpi_hybrid
   call mpi_allreduce_max_i32_scalar(mpi, reduced_max)
   call assert_equal_i32(reduced_min, 1_i32, 'MPI i32 minimum reduction mismatch')
   call assert_equal_i32(reduced_max, mpi%size, 'MPI i32 maximum reduction mismatch')
+  call test_end()
+
+  call test_begin('mpi_matching_plane_response_preflight')
+  if (mpi_is_root(mpi)) then
+    call write_matching_response_fixture(matching_response_a_path, 1.0_dp)
+    call write_matching_response_fixture(matching_response_b_path, 2.0_dp)
+    call delete_file_if_exists(matching_response_missing_path)
+  end if
+  call mpi_world_barrier(mpi)
+
+  call reset_matching_plane_response_snapshot_cache()
+  call preflight_matching_plane_response_mpi( &
+    .true., matching_response_a_path, mpi, matching_response_fingerprint, &
+    matching_response_status, matching_response_message &
+    )
+  call assert_equal_i32( &
+    matching_response_status, matching_plane_response_ok, &
+    'identical matching-plane response should pass on every rank' &
+    )
+
+  call reset_matching_plane_response_snapshot_cache()
+  if (mpi%size > 1_i32 .and. .not. mpi_is_root(mpi)) then
+    matching_response_path = matching_response_b_path
+  else
+    matching_response_path = matching_response_a_path
+  end if
+  call preflight_matching_plane_response_mpi( &
+    .true., trim(matching_response_path), mpi, matching_response_fingerprint, &
+    matching_response_status, matching_response_message &
+    )
+  if (mpi%size > 1_i32) then
+    call assert_true( &
+      matching_response_status /= matching_plane_response_ok, &
+      'rank-local matching-plane content mismatch must fail on every rank' &
+      )
+  else
+    call assert_equal_i32( &
+      matching_response_status, matching_plane_response_ok, &
+      'single-rank matching-plane response should remain valid' &
+      )
+  end if
+
+  call reset_matching_plane_response_snapshot_cache()
+  if (mpi%size > 1_i32 .and. mpi_is_root(mpi)) then
+    matching_response_path = matching_response_a_path
+  else
+    matching_response_path = matching_response_missing_path
+  end if
+  call preflight_matching_plane_response_mpi( &
+    .true., trim(matching_response_path), mpi, matching_response_fingerprint, &
+    matching_response_status, matching_response_message &
+    )
+  call assert_true( &
+    matching_response_status /= matching_plane_response_ok, &
+    'rank-local matching-plane load failure must fail on every rank' &
+    )
+
+  call reset_matching_plane_response_snapshot_cache()
+  call preflight_matching_plane_response_mpi( &
+    mpi_is_root(mpi), matching_response_a_path, mpi, matching_response_fingerprint, &
+    matching_response_status, matching_response_message &
+    )
+  if (mpi%size > 1_i32) then
+    call assert_true( &
+      matching_response_status /= matching_plane_response_ok, &
+      'rank-local matching-plane activation mismatch must fail on every rank' &
+      )
+  else
+    call assert_equal_i32( &
+      matching_response_status, matching_plane_response_ok, &
+      'single-rank matching-plane activation should remain valid' &
+      )
+  end if
+  call reset_matching_plane_response_snapshot_cache()
+  call mpi_world_barrier(mpi)
+  if (mpi_is_root(mpi)) then
+    call delete_file_if_exists(matching_response_a_path)
+    call delete_file_if_exists(matching_response_b_path)
+  end if
+  call mpi_world_barrier(mpi)
   call test_end()
 
   call test_begin('mpi_simulation')
@@ -303,6 +393,21 @@ program test_mpi_hybrid
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine write_matching_response_fixture(path, matching_potential_v)
+    character(len=*), intent(in) :: path
+    real(dp), intent(in) :: matching_potential_v
+    integer :: unit_id, write_status
+
+    open (newunit=unit_id, file=trim(path), status='replace', action='write', iostat=write_status)
+    if (write_status /= 0) error stop 'failed to create MPI matching-plane response fixture'
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    write (unit_id, '(es24.16,10(a,es24.16))') &
+      0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', &
+      matching_potential_v, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp
+    close (unit_id)
+  end subroutine write_matching_response_fixture
 
   subroutine run_mpi_soft_discard_aggregation_test(mpi)
     type(mpi_context), intent(in) :: mpi

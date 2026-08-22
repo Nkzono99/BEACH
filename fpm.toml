@@ -48,6 +48,16 @@ source-dir = "tests/fortran"
 main = "test_surface_current_model.f90"
 
 [[test]]
+name = "test_matching_plane_response"
+source-dir = "tests/fortran"
+main = "test_matching_plane_response.f90"
+
+[[test]]
+name = "test_matching_plane_simulator"
+source-dir = "tests/fortran"
+main = "test_matching_plane_simulator.f90"
+
+[[test]]
 name = "test_model_fingerprint"
 source-dir = "tests/fortran"
 main = "test_model_fingerprint.f90"

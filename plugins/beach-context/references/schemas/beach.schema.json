@@ -26,7 +26,7 @@
     },
     "surface_current_model": {
       "$ref": "#/$defs/surfaceCurrentModel",
-      "description": "Optional external model that supplies species-resolved fixed surface currents."
+      "description": "Optional external-sheath current or matching-plane response model."
     },
     "particles": {
       "$ref": "#/$defs/particles",
@@ -267,6 +267,80 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "surface_current_model": {
+            "properties": {
+              "model": {"const": "matching_plane_quasistatic"}
+            },
+            "required": ["model"]
+          }
+        },
+        "required": ["surface_current_model"]
+      },
+      "then": {
+        "required": ["sim", "domain", "field_boundary", "periodic2"],
+        "properties": {
+          "sim": {
+            "properties": {
+              "e0": {
+                "items": {"const": 0}
+              },
+              "e0_abs": {"const": 0},
+              "b0": {
+                "items": {"const": 0}
+              }
+            }
+          },
+          "domain": {
+            "properties": {
+              "periodic_axes": {
+                "minItems": 2,
+                "maxItems": 2,
+                "allOf": [
+                  {"contains": {"const": "x"}},
+                  {"contains": {"const": "y"}}
+                ]
+              }
+            },
+            "required": ["periodic_axes"]
+          },
+          "field_boundary": {
+            "properties": {
+              "mode": {"const": "periodic2"}
+            },
+            "required": ["mode"]
+          },
+          "particle_boundary": {
+            "properties": {
+              "ordinary_open_model": {"const": "escape"}
+            }
+          },
+          "periodic2": {
+            "properties": {
+              "nonzero_mode_backend": {
+                "enum": ["cached_kneq0", "panel_spectral_reference"]
+              },
+              "zero_mode_policy": {"const": "exclude_k0"},
+              "lower_boundary_model": {
+                "enum": ["e_bottom_zero", "symmetric_vacuum"]
+              }
+            },
+            "required": [
+              "nonzero_mode_backend",
+              "zero_mode_policy",
+              "lower_boundary_model"
+            ]
+          },
+          "reservoir": {
+            "properties": {
+              "inflow_model": {"const": "source_vdf"}
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -414,49 +488,95 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["model"],
-      "allOf": [
+      "oneOf": [
         {
-          "if": {
-            "properties": {"model": {"const": "zhao_stationary"}},
-            "required": ["model"]
+          "properties": {
+            "model": {"const": "none"}
           },
-          "then": {
-            "required": [
-              "electron_species",
-              "ion_species"
-            ],
-            "oneOf": [
-              {
-                "required": [
-                  "photoelectron_species",
-                  "solar_elevation_deg",
-                  "photoelectron_ref_density_m3"
-                ],
-                "properties": {
-                  "photoelectron_source_scale": {"exclusiveMinimum": 0}
-                }
-              },
-              {
-                "required": ["photoelectron_source_scale"],
-                "properties": {
-                  "photoelectron_source_scale": {"const": 0},
-                  "zhao_branch": {"enum": ["auto", "c"]}
-                },
-                "not": {
-                  "anyOf": [
-                    {"required": ["photoelectron_species"]},
-                    {"required": ["solar_elevation_deg"]},
-                    {"required": ["photoelectron_ref_density_m3"]}
-                  ]
-                }
+          "not": {
+            "anyOf": [
+              {"required": ["zhao_branch"]},
+              {"required": ["electron_species"]},
+              {"required": ["ion_species"]},
+              {"required": ["photoelectron_species"]},
+              {"required": ["solar_elevation_deg"]},
+              {"required": ["photoelectron_ref_density_m3"]},
+              {"required": ["photoelectron_source_scale"]},
+              {"required": ["reference_area_m2"]},
+              {"required": ["response_table_path"]},
+              {"required": ["coupling_rtol"]},
+              {"required": ["coupling_max_iterations"]},
+              {"required": ["coupling_relaxation"]}
+            ]
+          }
+        },
+        {
+          "properties": {
+            "model": {"const": "zhao_stationary"}
+          },
+          "required": [
+            "electron_species",
+            "ion_species"
+          ],
+          "not": {
+            "anyOf": [
+              {"required": ["response_table_path"]},
+              {"required": ["coupling_rtol"]},
+              {"required": ["coupling_max_iterations"]},
+              {"required": ["coupling_relaxation"]}
+            ]
+          },
+          "oneOf": [
+            {
+              "required": [
+                "photoelectron_species",
+                "solar_elevation_deg",
+                "photoelectron_ref_density_m3"
+              ],
+              "properties": {
+                "photoelectron_source_scale": {"exclusiveMinimum": 0}
               }
+            },
+            {
+              "required": ["photoelectron_source_scale"],
+              "properties": {
+                "photoelectron_source_scale": {"const": 0},
+                "zhao_branch": {"enum": ["auto", "c"]}
+              },
+              "not": {
+                "anyOf": [
+                  {"required": ["photoelectron_species"]},
+                  {"required": ["solar_elevation_deg"]},
+                  {"required": ["photoelectron_ref_density_m3"]}
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "model": {"const": "matching_plane_quasistatic"}
+          },
+          "required": [
+            "response_table_path",
+            "electron_species",
+            "ion_species",
+            "photoelectron_species"
+          ],
+          "not": {
+            "anyOf": [
+              {"required": ["zhao_branch"]},
+              {"required": ["solar_elevation_deg"]},
+              {"required": ["photoelectron_ref_density_m3"]},
+              {"required": ["photoelectron_source_scale"]},
+              {"required": ["reference_area_m2"]}
             ]
           }
         }
       ],
       "properties": {
         "model": {
-          "enum": ["none", "zhao_stationary"]
+          "enum": ["none", "zhao_stationary", "matching_plane_quasistatic"]
         },
         "zhao_branch": {
           "enum": ["auto", "a", "b", "c"],
@@ -465,12 +585,14 @@
         "electron_species": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 64,
+          "description": "Ambient-electron role. Matching requires volume_seed with npcls_per_step=0 and only z-high boundary_inflow=reservoir."
         },
         "ion_species": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 64
+          "maxLength": 64,
+          "description": "Ambient-ion role. Matching requires volume_seed with npcls_per_step=0 and only z-high boundary_inflow=reservoir."
         },
         "photoelectron_species": {
           "type": "string",
@@ -494,7 +616,31 @@
         "reference_area_m2": {
           "type": "number",
           "exclusiveMinimum": 0,
-          "description": "Effective z-normal collection area [m^2]. Defaults to the domain x-y area."
+          "description": "Zhao effective z-normal collection area [m^2]. Defaults to the domain x-y area."
+        },
+        "response_table_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S",
+          "description": "Outer-sheath response table. Relative paths are resolved from the beach.toml directory."
+        },
+        "coupling_rtol": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.0001
+        },
+        "coupling_max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 20
+        },
+        "coupling_relaxation": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.5
         }
       }
     },
