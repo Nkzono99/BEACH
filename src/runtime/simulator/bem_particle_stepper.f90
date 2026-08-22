@@ -75,7 +75,7 @@ contains
     end do
   end subroutine project_field_sample_to_box
 
-  !> 一つの粒子stepについてmesh/boxの最早eventを順序付け、最大八度だけremainderを再積分する。
+  !> 一つの粒子stepについてmesh/boxの最早eventを順序付ける。
   subroutine advance_particle_step( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter &
     )
@@ -86,6 +86,24 @@ contains
     type(particle_step_result), intent(out) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
+
+    call advance_particle_step_impl( &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32 &
+      )
+  end subroutine advance_particle_step
+
+  !> periodic event の適応分割深さを内部だけで引き回す1 step実装。
+  recursive subroutine advance_particle_step_impl( &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, adaptive_depth &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
+    type(particle_step_result), intent(out) :: result
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in), optional :: boundary_rng_counter(4)
+    integer(i32), intent(in) :: adaptive_depth
 
     type(hit_info) :: hit
     real(dp) :: x_candidate(3), v_candidate(3), candidate_electric_field(3)
@@ -120,7 +138,7 @@ contains
         call advance_particle_boundary_crossing( &
           mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, result=result, &
           boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-          has_boundary_rng_counter=has_boundary_rng_counter &
+          has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth &
           )
         return
       end if
@@ -140,9 +158,9 @@ contains
     call advance_particle_boundary_crossing( &
       mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
       boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-      has_boundary_rng_counter=has_boundary_rng_counter &
+      has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth &
       )
-  end subroutine advance_particle_step
+  end subroutine advance_particle_step_impl
 
   !> 構築済みcandidateとその場評価値からbox eventを解決する。
   subroutine resolve_particle_boundary_candidate( &
@@ -189,14 +207,14 @@ contains
     end if
     call advance_particle_boundary_crossing( &
       mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, active_electric_field, hit, result, &
-      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter &
+      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter, 0_i32 &
       )
   end subroutine resolve_particle_boundary_candidate
 
-  !> box crossing時だけevent用stateを確保し、最大八つのeventとremainderを処理する。
+  !> box crossing時だけevent用stateを確保し、periodic過多時はremainderを適応分割する。
   subroutine advance_particle_boundary_crossing( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
-    boundary_contract, boundary_rng_counter, has_boundary_rng_counter &
+    boundary_contract, boundary_rng_counter, has_boundary_rng_counter, adaptive_depth &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -208,6 +226,7 @@ contains
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in) :: boundary_rng_counter(4)
     logical, intent(in) :: has_boundary_rng_counter
+    integer(i32), intent(in) :: adaptive_depth
 
     integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
@@ -299,6 +318,13 @@ contains
       end if
 
       if (event_count >= max_boundary_events) then
+        if (periodic_event_can_subdivide(sim, event) .and. adaptive_depth < 12_i32) then
+          call advance_periodic_substeps( &
+            mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, result, active_boundary_contract, &
+            boundary_rng_counter, has_boundary_rng_counter, adaptive_depth &
+            )
+          return
+        end if
         result%status = particle_step_multiple_box_events
         return
       end if
@@ -358,6 +384,82 @@ contains
       first_segment = .false.
     end do
   end subroutine advance_particle_boundary_crossing
+
+  !> 一つのperiodic remainderを二分し、各半stepのbox/collision eventを順番に解く。
+  subroutine advance_periodic_substeps( &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, &
+    has_boundary_rng_counter, adaptive_depth &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
+    type(particle_step_result), intent(inout) :: result
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
+    integer(i64), intent(in) :: boundary_rng_counter(4)
+    logical, intent(in) :: has_boundary_rng_counter
+    integer(i32), intent(in) :: adaptive_depth
+
+    type(particle_step_result) :: first_half, second_half
+    integer(i32) :: prior_field_evals, prior_collision_queries
+
+    prior_field_evals = result%field_eval_count
+    prior_collision_queries = result%collision_query_count
+    if (has_boundary_rng_counter) then
+      call advance_particle_step_impl( &
+        mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract, &
+        boundary_rng_counter, adaptive_depth + 1_i32 &
+        )
+    else
+      call advance_particle_step_impl( &
+        mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract=boundary_contract, &
+        adaptive_depth=adaptive_depth + 1_i32 &
+        )
+    end if
+    if (first_half%status /= particle_step_ok .or. first_half%absorbed .or. first_half%escaped_boundary) then
+      result = first_half
+      result%field_eval_count = prior_field_evals + first_half%field_eval_count
+      result%collision_query_count = prior_collision_queries + first_half%collision_query_count
+      return
+    end if
+
+    if (has_boundary_rng_counter) then
+      call advance_particle_step_impl( &
+        mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, boundary_contract, &
+        boundary_rng_counter, adaptive_depth + 1_i32 &
+        )
+    else
+      call advance_particle_step_impl( &
+        mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, &
+        boundary_contract=boundary_contract, adaptive_depth=adaptive_depth + 1_i32 &
+        )
+    end if
+    result = second_half
+    result%field_eval_count = prior_field_evals + first_half%field_eval_count + second_half%field_eval_count
+    result%collision_query_count = prior_collision_queries + first_half%collision_query_count + &
+                                   second_half%collision_query_count
+  end subroutine advance_periodic_substeps
+
+  !> eventの全faceがperiodicで、適応分割中に乱数境界へ入らない場合だけ再試行する。
+  pure logical function periodic_event_can_subdivide(sim, event) result(can_subdivide)
+    type(sim_config), intent(in) :: sim
+    type(boundary_event_type), intent(in) :: event
+    integer(i32) :: axis
+
+    can_subdivide = event%has_event
+    if (any(sim%bc_low == bc_redistributed_reflect) .or. any(sim%bc_high == bc_redistributed_reflect)) then
+      can_subdivide = .false.
+      return
+    end if
+    do axis = 1_i32, 3_i32
+      if (btest(event%face_mask, 2_i32*axis - 2_i32)) then
+        if (sim%bc_low(axis) /= bc_periodic) can_subdivide = .false.
+      end if
+      if (btest(event%face_mask, 2_i32*axis - 1_i32)) then
+        if (sim%bc_high(axis) /= bc_periodic) can_subdivide = .false.
+      end if
+    end do
+  end function periodic_event_can_subdivide
 
   !> 既に選択済みのmesh hitをresultへ反映する。
   subroutine accept_particle_hit(va, xb, vb, hit, result)
