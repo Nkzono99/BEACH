@@ -505,18 +505,36 @@ contains
     if (current_model%active) then
       write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
       if (trim(current_model%model) == 'matching_plane_quasistatic') then
-        call get_matching_plane_response_content_fingerprint( &
-          trim(cfg%surface_current%response_table_path), matching_response_fingerprint, &
-          matching_response_status, matching_response_message &
-          )
-        if (matching_response_status /= matching_plane_response_ok) then
-          error stop 'write_summary_file: matching-plane response fingerprint failed: '// &
-            trim(matching_response_message)
-        end if
-        write (u, '(a,a)') 'surface_current_model_response_table_path=', &
-          trim(cfg%surface_current%response_table_path)
-        write (u, '(a,a)') 'surface_current_model_response_content_fingerprint=', &
-          matching_response_fingerprint
+        write (u, '(a,a)') 'surface_current_model_response_backend=', &
+          trim(lower_ascii(cfg%surface_current%response_backend))
+        select case (trim(lower_ascii(cfg%surface_current%response_backend)))
+        case ('table')
+          call get_matching_plane_response_content_fingerprint( &
+            trim(cfg%surface_current%response_table_path), matching_response_fingerprint, &
+            matching_response_status, matching_response_message &
+            )
+          if (matching_response_status /= matching_plane_response_ok) then
+            error stop 'write_summary_file: matching-plane response fingerprint failed: '// &
+              trim(matching_response_message)
+          end if
+          write (u, '(a,a)') 'surface_current_model_response_table_path=', &
+            trim(cfg%surface_current%response_table_path)
+          write (u, '(a,a)') 'surface_current_model_response_content_fingerprint=', &
+            matching_response_fingerprint
+        case ('zhao_online')
+          write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
+          write (u, '(a,a)') 'surface_current_model_zhao_branch=', &
+            trim(lower_ascii(cfg%surface_current%zhao_branch))
+          write (u, '(a)') &
+            'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
+          write (u, '(a)') &
+            'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
+          write (u, '(a)') &
+            'surface_current_model_ambient_outward_feedback=transparent'
+          write (u, '(a)') 'surface_current_model_outer_solver_state=stateless'
+        case default
+          error stop 'write_summary_file: unknown matching-plane response backend.'
+        end select
         write (u, '(a,es24.16)') 'surface_current_model_matching_plane_z_m=', cfg%sim%box_max(3)
         write (u, '(a,a)') 'surface_current_model_electron_species=', &
           trim(cfg%surface_current%electron_species)
@@ -524,6 +542,8 @@ contains
         write (u, '(a,a)') 'surface_current_model_photoelectron_species=', &
           trim(cfg%surface_current%photoelectron_species)
         write (u, '(a,es24.16)') 'surface_current_model_coupling_rtol=', cfg%surface_current%coupling_rtol
+        write (u, '(a,4(1x,es24.16))') 'surface_current_model_coupling_atol=', &
+          cfg%surface_current%coupling_atol
         write (u, '(a,i0)') 'surface_current_model_coupling_max_iterations=', &
           cfg%surface_current%coupling_max_iterations
         write (u, '(a,es24.16)') 'surface_current_model_coupling_relaxation=', &

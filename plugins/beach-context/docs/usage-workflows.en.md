@@ -18,7 +18,7 @@ beach beach.toml
 beach examples/beach.toml
 ```
 
-With no argument, `beach` reads `beach.toml` from the current directory. In a development checkout, after `make`, `fpm run --profile release --flag "-fopenmp" -- examples/beach.toml` is also available.
+With no argument, `beach` reads `beach.toml` from the current directory. In a development checkout, after `make`, `fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml` is also available.
 
 ## Output Inspection
 

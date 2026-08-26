@@ -257,6 +257,12 @@ contains
       case ('model')
         call get_toml_string(table, keys(ikey), cfg%surface_current%model, 'surface_current_model.model')
         cfg%surface_current%model = lower_ascii(trim(cfg%surface_current%model))
+      case ('response_backend')
+        call get_toml_string( &
+          table, keys(ikey), cfg%surface_current%response_backend, 'surface_current_model.response_backend' &
+          )
+        cfg%surface_current%response_backend = lower_ascii(trim(cfg%surface_current%response_backend))
+        cfg%surface_current%has_response_backend = .true.
       case ('zhao_branch')
         call get_toml_string(table, keys(ikey), cfg%surface_current%zhao_branch, 'surface_current_model.zhao_branch')
         cfg%surface_current%zhao_branch = lower_ascii(trim(cfg%surface_current%zhao_branch))
@@ -303,11 +309,22 @@ contains
           'surface_current_model.response_table_path' &
           )
         cfg%surface_current%has_response_table_path = .true.
+      case ('implicit_zero_mode')
+        call get_toml_logical( &
+          table, keys(ikey), cfg%surface_current%implicit_zero_mode, &
+          'surface_current_model.implicit_zero_mode' &
+          )
+        cfg%surface_current%has_implicit_zero_mode = .true.
       case ('coupling_rtol')
         call get_toml_real( &
           table, keys(ikey), cfg%surface_current%coupling_rtol, 'surface_current_model.coupling_rtol' &
           )
         cfg%surface_current%has_coupling_rtol = .true.
+      case ('coupling_atol')
+        call get_toml_real4( &
+          table, keys(ikey), cfg%surface_current%coupling_atol, 'surface_current_model.coupling_atol' &
+          )
+        cfg%surface_current%has_coupling_atol = .true.
       case ('coupling_max_iterations')
         call get_toml_int( &
           table, keys(ikey), cfg%surface_current%coupling_max_iterations, &
@@ -654,6 +671,28 @@ contains
       call require_toml_success(stat, context)
     end do
   end subroutine get_toml_real2
+
+  !> TOML の4成分数値配列キーを読み込む。
+  subroutine get_toml_real4(table, key, value, context)
+    type(toml_table), intent(inout) :: table
+    type(toml_key), intent(in) :: key
+    real(dp), intent(out) :: value(4)
+    character(len=*), intent(in) :: context
+    type(toml_array), pointer :: array
+    integer :: i, stat
+
+    nullify (array)
+    call get_value(table, key, array, stat=stat)
+    call require_toml_success(stat, context)
+    if (.not. associated(array)) error stop 'Invalid TOML value for '//trim(context)//'.'
+    if (toml_len(array) /= 4) then
+      error stop trim(context)//' must be an array of 4 numbers.'
+    end if
+    do i = 1, 4
+      call get_value(array, i, value(i), stat=stat)
+      call require_toml_success(stat, context)
+    end do
+  end subroutine get_toml_real4
 
   !> TOML の scalar または最大3成分数値配列キーを読み込む。
   subroutine get_toml_real_scalar_or_array3(table, key, value, value_len, context)

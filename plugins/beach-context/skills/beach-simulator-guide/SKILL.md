@@ -25,7 +25,7 @@ Prefer bundled references because ordinary users may only have a pip install plu
 - `../../references/fortran_fmm_core.md`: FMM core details.
 - `../../references/SPEC.md`: current simulator scope and runtime contracts.
 - `../../references/fortran_parameter_file.md`: periodic2, local reservoir,
-  scalar barrier, and closed-photoelectron settings.
+  scalar barrier, closed-photoelectron, and matching-plane settings.
 
 Use `../../docs/simulator-context.md`, `../../docs/usage-workflows.md`, and `../../docs/skills-guide.md` as compact guides. Use repo root docs only when the full checkout is available and may be newer.
 
@@ -48,9 +48,12 @@ Choose the mode that matches the user's goal:
 4. Tie concepts back to concrete files, commands, or TOML keys.
 5. Offer a small next exercise, such as running a case, running one batch, or plotting charge history.
 
-Explain that self-consistent outer-plasma models are outside the current
-runtime scope. Discuss removed models only as historical context when the user
-explicitly asks about an old configuration or output.
+Explain `matching_plane_quasistatic` with the `table` or built-in `zhao_online`
+backend as the implemented reduced outer-sheath closure. Distinguish it from
+full-VDF, 1D PIC, time-dependent outer-sheath solvers, and external particle
+transport, which remain outside the BEACH runtime scope. Discuss removed models
+only as historical context when the user explicitly asks about an old configuration
+or output.
 
 ## Output
 

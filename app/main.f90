@@ -19,8 +19,8 @@ program main
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
-  use bem_matching_plane_response, only: preflight_matching_plane_response_mpi, matching_plane_response_ok
-  use bem_string_utils, only: lower_ascii
+  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
+                                                  matching_plane_provider_ok
   implicit none
 
   type(mesh_type) :: mesh
@@ -228,9 +228,9 @@ contains
     character(len=256) :: cfg_path
     character(len=256) :: restart_dir
     character(len=512) :: matching_response_message
-    character(len=16) :: matching_response_fingerprint
     integer(i32) :: matching_response_status
     logical :: has_config
+    type(matching_plane_response_provider_type) :: matching_response_provider
 
     call default_app_config(app)
     call resolve_config_path(cfg_path, has_config)
@@ -238,12 +238,10 @@ contains
       call load_app_config(trim(cfg_path), app)
     end if
 
-    call preflight_matching_plane_response_mpi( &
-      trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic', &
-      trim(app%surface_current%response_table_path), mpi, matching_response_fingerprint, &
-      matching_response_status, matching_response_message &
+    call matching_response_provider%initialize( &
+      app, mpi, matching_response_status, matching_response_message &
       )
-    if (matching_response_status /= matching_plane_response_ok) then
+    if (matching_response_status /= matching_plane_provider_ok) then
       error stop 'matching-plane response preflight failed: '//trim(matching_response_message)
     end if
 

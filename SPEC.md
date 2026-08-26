@@ -29,11 +29,12 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - species 別の simulation boundary reservoir 流入
 - 境界 reservoir の流入補正
 - closed photoelectron の局所反射と neutral-return closure
+- 応答表または組み込み `zhao_online` による matching-plane 準定常外部シース連成
 - checkpoint 再開
 
 ### 2.2 未実装・予約
 
-- 外部プラズマ／外部シースの自己無撞着ソルバと粒子連成
+- BEACH 内で解く full-VDF / 1D PIC / time-dependent outer-sheath solver と外部領域の粒子 transport
 - 表面導電・拡散モデル
 - periodic2 と conductor の併用
 - 誘電体分極・誘電境界条件
@@ -111,7 +112,8 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 `cached_kneq0` の物理的 $k=0$ は `periodic2.zero_mode_policy="exclude_k0"` と
 `lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
-外部プラズマ応答は合成しません。
+このzero-mode構築自体は外部プラズマ応答を合成しません。matching-plane modelを選んだ場合、その応答は
+別の連成層で適用します。
 
 ### 5.3 領域・粒子境界・reservoir
 
@@ -331,19 +333,23 @@ targetを再計算しません。z-high反射は外部turning pointまでの距�
 ### 7.8 matching-plane 準定常連成
 
 `model="matching_plane_quasistatic"`は、`domain.box_max`のz成分をmatching plane $H$ とし、外部1Dシースを
-事前計算済み非線形境界演算子としてBEACHへ接続します。全mesh頂点は$H$より厳密に下へ置きます。BEACHは
+非線形境界演算子としてBEACHへ接続します。`response_backend="table"`（既定）は事前計算済み応答表、
+`response_backend="zhao_online"`は有限$H$のcharge-driven Zhao A/B/C準定常solveを使います。
+全mesh頂点は$H$より厳密に下へ置きます。BEACHは
 全triangleの実表面電荷を保持し、$H$より下の
 $k=0$と$k\neq0$を解きます。外部Zhao/PIC場をmicrodomainへ重ねず、Zhaoの定常壁電位または表面電荷も追加しません。
-speciesの表面電荷更新は`surface_charge_closure="explicit"`のraw trajectory depositであり、fixed-current倍率を使いません。
+speciesの設定は`surface_charge_closure="explicit"`のままです。既定の陽的更新はraw trajectory depositを使います。
+後述の`implicit_zero_mode=true`だけは、粒子追跡が与えた要素別分布を保ちながらchannel総量を陰的終点へ正規化します。
 
 このmodelはexplicitな`periodic2`構成だけに対応します。nonzero backendは`cached_kneq0`または
 `panel_spectral_reference`、zero-mode policyは`exclude_k0`、lower boundaryは`e_bottom_zero`または
 `symmetric_vacuum`とします。x/yはperiodic、z-low/z-highはopen、`sim.e0`と`sim.b0`はゼロです。
 enabled speciesはambient electron、ion、photoelectronの3 roleだけを別speciesとして明示し、前2者はz-high
 reservoir流入、PEは負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
-`reference_area_m2`、Zhao固有parameterは併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
+`reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
 1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`に固定します。
 
+`response_backend="table"`は`response_table_path`を必須とし、`zhao_branch`を含むZhao固有keyを拒否します。
 response CSV v1は、headerより前に一意な`# matching_plane_z_m=<finite>`を持ち、その値を$H$と照合します。
 入力5列は
 
@@ -360,12 +366,61 @@ $$
 $$
 
 です。列名と単位は`docs/MatchingPlaneCoupling.md`を正本とします。rowは5入力軸の完全Cartesian productで、
-重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2--5軸は初期評価のため
-ゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
-singleton軸はそのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
+重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2 node以上のfeedback軸2--5は
+初期評価のためゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
+singleton軸はnodeが0以外でもよく、そのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
 tableはprocess内でpathごとのimmutable snapshotとして読み、canonical axis/value列をmodel fingerprintへ含めます。
 potential 4列は同じgaugeを使い、外部modelの上流reservoirを0 Vとします。inward VDFはこの0 Vから
 access potentialと$\Phi_H$へ写像するため、potential列だけの定数shiftは同値ではありません。
+
+`implicit_zero_mode=true`は、硬い面平均帯電だけを後退Eulerで更新します。このmodeはtable backend、
+`lower_boundary_model="e_bottom_zero"`、2 node以上の$D_H$軸、singletonのfeedback軸2--5を要求します。
+singleton参照値は$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、
+$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。half-Maxwellian近似から
+
+$$
+\Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
+\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
+{\langle K_{pe,n}^{out}\rangle}\right]
+$$
+
+を求め、
+
+$$
+D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
++q_i\Gamma_i^{in}(D_H^{n+1})-q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
+$$
+
+をtableの$D_H$範囲で二分法により解きます。両端が根を挟まない場合は外挿せず停止します。
+局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
+ambient吸収の総量は陰的応答へ、PE放出は設定した表面放出電流へ、PE returnは
+「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。commit後の$Q/A$が求めた
+$D_H^{n+1}$と一致しなければ停止します。これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、
+応答表の物理範囲、粒子samplingに対する`batch_duration`の上限を除去しません。
+
+`response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を
+受理します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
+Sagdeev A/B/C rootを解きます。これは壁面の零電流根ではなく、零電流条件を課さないcharge-driven responseです。
+`auto`はcompatibleなbranchを探索し、複数の物理解を検出した場合、または数値失敗により一意なbranchを
+確認できない場合はfail closedとします。
+v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
+branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
+ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
+online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。
+外向きPE number fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ写像します。PE fluxが0なら
+PE populationは0のまま、参照PE speciesの`temperature_ev`または`temperature_k`から得た設定温度を
+数値scaleのfallbackに使います。
+
+online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
+反映しません。各queryはstatelessで、outer inventory、前rootのcontinuation、flight-time queueを保存しません。
+設定したbranch policyで解が存在しない、branch制約を満たさない、Sagdeev積分が実数にならない、または非線形solveが
+収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
+`photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。
+
+online Zhaoは平面・無衝突・非磁化、単価電荷、ambient electronとPEの同一質量、$T_e>0$、$T_{pe}>0$、
+$0\le T_i\le0.1T_e$、正の無限遠ion密度、ambient electron / ionの正の内向きdrift
+（`drift_velocity`のz成分は負）を要求します。設定検査は
+これらを満たさないcaseを拒否します。
 
 各batch trialでは、表面総電荷とlower boundaryから
 
@@ -373,7 +428,8 @@ $$
 D_H=D_b+Q_{cell}/A
 $$
 
-を得ます。accepted済みouter feedback $X^0$（新規runはゼロ）から、response補間、$\Phi_H$を指定したinner field、
+を得ます。accepted済みouter feedback $X^0$（新規runはゼロ）から、選択したresponse backendの評価、
+$\Phi_H$を指定したinner field、
 応答flux/barrierを使う粒子追跡、実際の$H$外向きmoment測定を反復します。同じbatch開始RNG stateと
 macro-particle端数を毎反復で再生し、Monte Carlo写像を反復間で変えません。raw response $X_{raw}^{m+1}$は
 
@@ -382,19 +438,36 @@ X^{m+1}=(1-\alpha)X^m+\alpha X_{raw}^{m+1},
 \qquad 0<\alpha\le1
 $$
 
-で緩和します。複数nodeを持つfeedback軸のspanで正規化した最大残差が`coupling_rtol`以下になるまで反復し、
-singleton軸は残差判定から除外します。`coupling_max_iterations`で未収束、またはactive軸の補間範囲外なら
-fail closedとします。収束したtrialだけが表面電荷、RNG、注入端数、ledger、history、outer stateをcommitします。
+で緩和します。feedback vectorと`coupling_atol`の成分順は、PE外向きnumber flux [m^-2 s^-1]、
+PE外向き平均法線energy [eV]、ambient electron外向きnumber flux [m^-2 s^-1]、
+ion外向きnumber flux [m^-2 s^-1]です。active軸$j$のbackend scaleを$s_j$、
+`coupling_rtol`を$r$、`coupling_atol`の成分を$a_j$とすると、収束条件は
+
+$$
+\left|X_{raw,j}^{m+1}-X_j^m\right|\le\max(r s_j,a_j)
+$$
+
+です。`coupling_atol`は有限な非負4-vectorで、既定値`[0, 0, 0, 0]`は従来の相対許容値だけの判定を保ちます。
+inactive軸の$a_j$は0でなければならず、非零値は設定検査またはprovider初期化で拒否します。
+出力する`matching_plane_residual`は、$a_j>r s_j$の成分を$r|\Delta_j|/a_j$、それ以外を
+$|\Delta_j|/s_j$として最大値を取るため、絶対許容値を使ってもaccepted trialでは
+`matching_plane_residual <= coupling_rtol`を保ちます。
+tableはactive feedback軸のspanを$s_j$とし、singleton軸を除外します。onlineはZhao modelの基準flux / energyから
+$s_j$を導出し、transparentなambient electron / ion outward軸を除外します。`coupling_max_iterations`で未収束、
+tableのactive軸が補間範囲外、またはonline solveが失敗した場合はfail closedとします。収束したtrialだけが
+表面電荷、RNG、注入端数、ledger、history、outer stateをcommitします。
 adaptive batch-durationで棄却したtrialはouter stateもbatch開始値へrollbackします。
 
 z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEについては外向き数、法線energy、外部barrierでの
 return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
-accepted outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは同じtable内容と
-matching構成のfingerprintを要求し、保存したfeedbackから反復を再開します。
+accepted outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは同じresponse backendと
+matching構成のfingerprintを要求し、保存したfeedbackから反復を再開します。tableでは応答内容、onlineではZhao設定を
+fingerprintへ含めます。
 
 このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
-外部過渡、BEACH領域内volume plasma chargeは解きません。production tableは独立に検証したZhao/1D PIC sweepから
-作成し、matching-plane高度$H$をoverlap region内で変えたときの主要量の不変性を連成検証とします。
+外部過渡、BEACH領域内volume plasma chargeは解きません。online Zhaoもfull VDF、1D PIC、time-dependent outer sheathの
+代替ではありません。production tableは独立に検証したZhao/1D PIC sweepから作成し、どちらのbackendでも
+matching-plane高度$H$をoverlap region内で変えたときの主要量の不変性を連成検証とします。
 
 ## 8. 実行制御
 

@@ -52,6 +52,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_charge_ledger \
 	test_surface_current_model \
 	test_matching_plane_response \
+	test_matching_plane_zhao \
+	test_matching_plane_response_generator \
 	test_matching_plane_simulator \
 	test_model_fingerprint \
 	test_panel_moments \
@@ -174,7 +176,7 @@ build-kernel:
 
 run:
 	BEACH_VERSION_MODE=$(RUN_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
-		FPM_PROFILE=$(PROFILE) FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) -- $(CONFIG)
+		FPM_PROFILE=$(PROFILE) FPM_FFLAGS="$(OPENMP_FLAG)" $(BUILD_SH) --target beach -- $(CONFIG)
 
 static-check: source-text-check
 	git diff --check
@@ -274,7 +276,7 @@ build-mpi:
 run-mpi:
 	BEACH_VERSION_MODE=$(RUN_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
 		FPM_PROFILE=$(PROFILE) FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_CPP_FLAG) $(MPI_OPENMP_FLAG)" \
-		$(BUILD_SH) --runner "$(MPI_RUNNER)" -- $(CONFIG)
+		$(BUILD_SH) --target beach --runner "$(MPI_RUNNER)" -- $(CONFIG)
 
 test-mpi:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \

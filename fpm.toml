@@ -6,7 +6,7 @@ maintainer = "beach contributors"
 copyright = "2026"
 
 [build]
-auto-executables = true
+auto-executables = false
 auto-tests = false
 auto-examples = false
 external-modules = ["mpi"]
@@ -26,6 +26,11 @@ source-form = "free"
 name = "beach"
 source-dir = "app"
 main = "main.f90"
+
+[[executable]]
+name = "beach-zhao-response"
+source-dir = "app"
+main = "zhao_response_main.f90"
 
 [[test]]
 name = "test_app_config_parser"
@@ -51,6 +56,16 @@ main = "test_surface_current_model.f90"
 name = "test_matching_plane_response"
 source-dir = "tests/fortran"
 main = "test_matching_plane_response.f90"
+
+[[test]]
+name = "test_matching_plane_zhao"
+source-dir = "tests/fortran"
+main = "test_matching_plane_zhao.f90"
+
+[[test]]
+name = "test_matching_plane_response_generator"
+source-dir = "tests/fortran"
+main = "test_matching_plane_response_generator.f90"
 
 [[test]]
 name = "test_matching_plane_simulator"

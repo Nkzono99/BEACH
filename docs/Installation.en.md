@@ -4,7 +4,7 @@ Lang: [English](Installation.en.md) | [日本語](Installation.md)
 
 # Installation
 
-Installing the BEACH Python package also builds the Fortran `beach` executable. A normal `pip install`
+Installing the BEACH Python package also builds the Fortran `beach` and `beach-zhao-response` executables. A normal `pip install`
 automatically installs the Fortran Package Manager (`fpm`) into the isolated build environment.
 
 ## Requirements
@@ -28,6 +28,7 @@ gfortran --version
 python -m pip install -U pip setuptools wheel
 python -m pip install beach-bem
 beach --version
+beach-zhao-response --help
 beachx --help
 ```
 

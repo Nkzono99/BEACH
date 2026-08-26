@@ -78,7 +78,7 @@ make install-generic
 Normally use `make run` and `make check` through `build.sh`. Reserve direct fpm execution for low-level checks:
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
+fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 ## Test a change

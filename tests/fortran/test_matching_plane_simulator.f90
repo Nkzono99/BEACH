@@ -9,6 +9,7 @@ program test_matching_plane_simulator
                             particle_inflow_reservoir
   use bem_matching_plane_response, only: &
     matching_plane_response_csv_header, reset_matching_plane_response_snapshot_cache
+  use bem_charge_ledger, only: charge_ledger_type
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_equal_i64, &
     assert_close_dp, delete_file_if_exists
@@ -22,6 +23,7 @@ program test_matching_plane_simulator
   type(app_config) :: cfg
   type(sim_stats) :: stats, resumed_stats
   type(injection_state) :: inject_state
+  type(charge_ledger_type) :: implicit_ledger
   integer :: history_unit
 
   call cleanup_files()
@@ -29,7 +31,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(4)
+  call test_init(7)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -103,6 +105,35 @@ program test_matching_plane_simulator
   call assert_history_rows(resume_history_path, 1_i32, 2_i32)
   call test_end()
 
+  call test_begin('component_absolute_tolerance_accepts_active_axis_without_changing_feedback')
+  call configure_fixture(mesh, cfg, inject_state)
+  cfg%surface_current%coupling_atol = [1.1_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_equal_i32( &
+    resumed_stats%matching_plane_iterations, 1_i32, &
+    'active-axis absolute tolerance did not accept the first replay' &
+    )
+  call assert_true( &
+    resumed_stats%matching_plane_residual <= cfg%surface_current%coupling_rtol, &
+    'mixed matching residual exceeded coupling_rtol' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_feedback(1), 1.0_dp, 1.0e-14_dp, &
+    'absolute-tolerance acceptance changed the measured feedback' &
+    )
+
+  call configure_fixture(mesh, cfg, inject_state)
+  cfg%surface_current%coupling_rtol = tiny(1.0_dp)
+  cfg%surface_current%coupling_atol = [0.5_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_equal_i32( &
+    resumed_stats%matching_plane_iterations, 2_i32, &
+    'tiny coupling_rtol caused false convergence through tolerance scaling' &
+    )
+  call test_end()
+
   call test_begin('underrelaxation_updates_only_unconverged_iterates')
   call configure_fixture(mesh, cfg, inject_state)
   cfg%surface_current%coupling_relaxation = 0.5_dp
@@ -126,6 +157,55 @@ program test_matching_plane_simulator
     )
   close (history_unit)
   call assert_history_rows(stride_history_path, 2_i32, 3_i32)
+  call test_end()
+
+  call test_begin('zhao_online_runs_without_response_table')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_true(resumed_stats%matching_plane_state_valid, 'online Zhao state was not committed')
+  call assert_equal_i32(resumed_stats%matching_plane_iterations, 1_i32, 'zero-field online Zhao must converge once')
+  call assert_close_dp(resumed_stats%matching_plane_phi_v, 0.0_dp, 0.0_dp, 'online Zhao zero-field gauge mismatch')
+  call assert_true( &
+    all(resumed_stats%matching_plane_response(2:3) > 0.0_dp), &
+    'online Zhao did not provide ambient inward fluxes' &
+    )
+  call test_end()
+
+  call test_begin('implicit_zero_mode_commits_six_second_backward_euler_endpoint')
+  call configure_fixture(mesh, cfg, inject_state)
+  call write_implicit_response_table(response_path)
+  call reset_matching_plane_response_snapshot_cache()
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%batch_duration = 6.0_dp
+  cfg%sim%max_step = 2_i32
+  cfg%particle_species(1)%drift_velocity(3) = -10.0_dp
+  cfg%particle_species(2)%drift_velocity(3) = -10.0_dp
+  cfg%particle_species(3)%emit_current_density_a_m2 = 2.0_dp*qe
+  cfg%particle_species(3)%m_particle = 9.1093837015e-31_dp
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator( &
+    mesh, cfg, resumed_stats, inject_state=inject_state, charge_ledger=implicit_ledger &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, 3.0_dp*qe, 1.0e-12_dp*qe, &
+    'six-second implicit displacement mismatch' &
+    )
+  call assert_close_dp(sum(mesh%q_elem), 3.0_dp*qe, 1.0e-12_dp*qe, 'implicit committed charge mismatch')
+  call assert_close_dp( &
+    implicit_ledger%fixed_emission_target_charge(3), 12.0_dp*qe, 1.0e-12_dp*qe, &
+    'implicit PE surface-emission target mismatch' &
+    )
+  call assert_close_dp( &
+    implicit_ledger%fixed_absorbed_target_charge(3), -9.0_dp*qe, 1.0e-12_dp*qe, &
+    'implicit PE total-return target mismatch' &
+    )
+  call assert_close_dp( &
+    sum(implicit_ledger%fixed_absorbed_target_charge) + &
+    sum(implicit_ledger%fixed_emission_target_charge), &
+    3.0_dp*qe, 1.0e-12_dp*qe, 'implicit applied surface-current budget mismatch' &
+    )
   call test_end()
 
   call cleanup_files()
@@ -222,6 +302,39 @@ contains
     fixture_cfg%particle_species(species_idx)%drift_velocity = [0.0_dp, 0.0_dp, -0.1_dp]
   end subroutine configure_boundary_inflow_species
 
+  subroutine configure_online_backend(fixture_cfg)
+    type(app_config), intent(inout) :: fixture_cfg
+
+    fixture_cfg%surface_current%response_backend = 'zhao_online'
+    fixture_cfg%surface_current%response_table_path = ''
+    fixture_cfg%surface_current%zhao_branch = 'auto'
+    fixture_cfg%sim%batch_duration = 1.0e-6_dp
+    fixture_cfg%sim%dt = 1.0e-9_dp
+
+    fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
+    fixture_cfg%particle_species(1)%w_particle = 1.0e6_dp
+    fixture_cfg%particle_species(1)%number_density_m3 = 8.7e6_dp
+    fixture_cfg%particle_species(1)%has_number_density_m3 = .true.
+    fixture_cfg%particle_species(1)%drift_velocity(3) = -4.0529988897111727e5_dp
+    fixture_cfg%particle_species(1)%temperature_ev = 12.0_dp
+    fixture_cfg%particle_species(1)%has_temperature_ev = .true.
+
+    fixture_cfg%particle_species(2)%m_particle = 1.67262192369e-27_dp
+    fixture_cfg%particle_species(2)%w_particle = 1.0e6_dp
+    fixture_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
+    fixture_cfg%particle_species(2)%has_number_density_m3 = .true.
+    fixture_cfg%particle_species(2)%drift_velocity(3) = -4.0529988897111727e5_dp
+    fixture_cfg%particle_species(2)%temperature_ev = 0.1_dp
+    fixture_cfg%particle_species(2)%has_temperature_ev = .true.
+
+    fixture_cfg%particle_species(3)%m_particle = fixture_cfg%particle_species(1)%m_particle
+    fixture_cfg%particle_species(3)%w_particle = 1.0e6_dp
+    fixture_cfg%particle_species(3)%temperature_ev = 3.0_dp
+    fixture_cfg%particle_species(3)%has_temperature_ev = .true.
+    fixture_cfg%particle_species(3)%rays_per_batch = 0_i32
+    fixture_cfg%particle_species(3)%emit_current_density_a_m2 = 0.0_dp
+  end subroutine configure_online_backend
+
   subroutine write_affine_response_table(path)
     character(len=*), intent(in) :: path
     integer :: unit_id
@@ -236,6 +349,27 @@ contains
     write (unit_id, '(11(es24.16,:,","))') high_row
     close (unit_id)
   end subroutine write_affine_response_table
+
+  subroutine write_implicit_response_table(path)
+    character(len=*), intent(in) :: path
+    integer :: unit_id
+    real(dp) :: low_row(11), high_row(11)
+
+    low_row = [ &
+              0.0_dp, 1.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, &
+              1.0_dp, 0.0_dp, 0.5_dp, 0.0_dp, 0.0_dp, 1.0_dp - log(2.0_dp) &
+              ]
+    high_row = [ &
+               12.0_dp*qe, 1.0_dp, 1.0_dp, 0.0_dp, 0.0_dp, &
+               1.0_dp, 2.0_dp, 0.5_dp, 0.0_dp, 0.0_dp, 1.0_dp - log(2.0_dp) &
+               ]
+    open (newunit=unit_id, file=path, status='replace', action='write')
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    write (unit_id, '(11(es24.16,:,","))') low_row
+    write (unit_id, '(11(es24.16,:,","))') high_row
+    close (unit_id)
+  end subroutine write_implicit_response_table
 
   subroutine assert_history_rows(path, expected_rows, expected_batch)
     character(len=*), intent(in) :: path

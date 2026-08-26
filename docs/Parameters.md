@@ -28,7 +28,7 @@ box基準の座標・配置を指定する補助パラメータも通常のinput
 |---|---|
 | 明示指定 | `beach path/to/beach.toml` |
 | 既定入力 | 引数なしではカレントディレクトリの `beach.toml` |
-| 開発実行 | `fpm run -- path/to/beach.toml` でも同じ |
+| 開発実行 | `fpm run --target beach -- path/to/beach.toml` でも同じ |
 | 形式 | TOML。複数行配列も利用可能 |
 | 未知キー | 未知のセクション名・キー名はエラー |
 | schema | `schemas/beach.schema.json` |
@@ -108,7 +108,7 @@ beach.toml
 | `[field_boundary]` | root | 任意 | 場の`free` / `periodic2` closure |
 | `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
 | `[reservoir]` | root | 任意 | 外部reservoirの流入障壁と基準電位 |
-| `[surface_current_model]` | root | 任意 | species別`fixed_current` targetを解く外部電流closure |
+| `[surface_current_model]` | root | 任意 | species別`fixed_current` targetまたはmatching-plane応答を解く外部シースclosure |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
@@ -340,9 +340,12 @@ face_potential_grid_n = 3
 `model="zhao_stationary"`は、平面・無衝突・非磁化の外部シースについてZhaoのA/B/C零電流定常根を解き、
 ambient electron、ion、PE emission、PE escape、PE returnの電流とz-high kinetic barrierを一度だけ決定します。
 
-`model="matching_plane_quasistatic"`は、box上端をmatching planeとして外部シース応答表と準定常に連結します。
+`model="matching_plane_quasistatic"`は、box上端をmatching planeとして、選択したresponse backendの外部シースと
+準定常に連結します。`response_backend="table"`が既定で、`"zhao_online"`は有限$H$のcharge-driven Zhao
+A/B/C responseをBEACH内で解きます。
 
-`photoelectron_source_scale=0.0`ではPE channelを作らず、ambient electronとionだけの零電流根を使えます。
+`zhao_stationary`で`photoelectron_source_scale=0.0`にすると、PE channelを作らず、ambient electronとionだけの
+零電流根を使えます。
 
 ```toml
 [surface_current_model]
@@ -371,16 +374,19 @@ photoelectron_source_scale = 0.0
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。`auto`は有効な定常枝を探索。PEなしは`auto` / `c`のみ |
+| `response_backend` | string | `"table"` | matchingの応答源。`table` / `zhao_online` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
 | `electron_species` | string | 必須 | ambient electronの`species_key` |
 | `ion_species` | string | 必須 | cold ionの`species_key` |
-| `photoelectron_species` | string | PE有効時に必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
-| `solar_elevation_deg` | float | PE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
-| `photoelectron_ref_density_m3` | float | PE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
-| `photoelectron_source_scale` | float | `1.0` | $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$ の $s_{UV}$。`0.0`はPEなし |
+| `photoelectron_species` | string | stationaryのPE有効時、matchingで必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
+| `solar_elevation_deg` | float | stationaryのPE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
+| `photoelectron_ref_density_m3` | float | stationaryのPE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | stationary Zhaoの$n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$に使う$s_{UV}$。`0.0`はPEなし |
 | `reference_area_m2` | float | domainのx-y面積 | Zhao電流密度を総電流へ変換する面積 [m^2]。matchingでは指定不可 |
-| `response_table_path` | string | matchingで必須 | 外部シース応答CSV v1。相対パスは`beach.toml`のディレクトリ基準、絶対パスはそのまま |
+| `response_table_path` | string | table matchingで必須 | 外部シース応答CSV v1。相対パスは`beach.toml`のディレクトリ基準、絶対パスはそのまま。onlineでは指定不可 |
+| `implicit_zero_mode` | bool | `false` | matching tableの面平均$D_H$だけを後退Eulerで更新。`e_bottom_zero`、2 node以上の$D_H$軸、singleton feedback軸が必須 |
 | `coupling_rtol` | float | `1.0e-4` | matching固定点反復の相対収束許容値。有限な$0<r\le1$ |
+| `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | feedback成分ごとの絶対許容値。順にPE外向きflux [m^-2 s^-1]、PE平均法線energy [eV]、electron外向きflux [m^-2 s^-1]、ion外向きflux [m^-2 s^-1]。各値は有限かつ非負、inactive成分は0 |
 | `coupling_max_iterations` | int | `20` | matching固定点反復の最大回数。`>=1` |
 | `coupling_relaxation` | float | `0.5` | matching更新の緩和係数。有限な$0<\omega\le1$ |
 
@@ -432,26 +438,74 @@ Zhao targetへ合わせます。このmodel固有写像は参照speciesのz-high
 
 #### Matching-plane quasistatic closure
 
+table backendは次のように指定します。`response_backend`を省略した場合も`"table"`です。
+
 ```toml
 [surface_current_model]
 model = "matching_plane_quasistatic"
+response_backend = "table"
 response_table_path = "responses/outer_sheath.csv"
+implicit_zero_mode = false
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_species = "photoelectron"
 coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.0, 0.0, 0.0] # 既定値: 相対許容値だけを使う
 coupling_max_iterations = 20
 coupling_relaxation = 0.5
 ```
+
+online Zhao backendではresponse pathを指定しません。
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.05, 0.0, 0.0] # 有限ray samplingに対するPE energy許容値 [eV]
+coupling_max_iterations = 20
+coupling_relaxation = 0.5
+```
+
+active feedback成分$j$は、backend scaleを$s_j$、`coupling_rtol`を$r$、`coupling_atol[j]`を$a_j$として
+$|X_{raw,j}-X_j|\le\max(r s_j,a_j)$で判定します。上の`0.05` eVは有限ray sampling向けの設定例であり、
+macro-particle数を変えた収束試験から決めます。online Zhaoではambient electron / ion外向きfluxに対応する
+第3・第4成分がinactiveです。tableのsingleton feedback軸もinactiveで、これらに非零の絶対許容値を指定すると
+設定を拒否します。絶対許容値が支配する成分は残差を換算するため、accepted trialの
+`matching_plane_residual`は引き続き`coupling_rtol`以下です。
 
 matching planeは`domain.box_max`のz成分$H$、連結面積はdomainのx-y面積です。全mesh頂点は$H$より厳密に
 下へ置きます。
 `reference_area_m2`で別の面積へ置き換えることはできません。
 
-`response_table_path`は外部Zhao計算または1D PICから作った非線形応答CSV v1を指します。
+tableの`response_table_path`は外部Zhao計算または1D PICから作った非線形応答CSV v1を指します。
 テスト用のsynthetic tableは配線・補間の検証専用であり、
 productionの物理入力として有効ではありません。相対pathは設定fileのdirectoryから解決し、解決後のpathを
 256文字以内にします。`beachx lint`もこの解決後pathを検査します。
+
+onlineは各queryで$E_H=D_H/\epsilon_0$を境界条件とし、$H$から上流0 V・零電場へ接続する有限$H$の
+Sagdeev A/B/C rootを解きます。これは`zhao_stationary`の壁面零電流rootではなく、帯電途中にも$J=0$を
+課しません。
+
+`zhao_branch="auto"`は適用可能なbranchを探索し、`"a"` / `"b"` / `"c"`はbranchを固定します。
+`auto`で複数の物理解を検出した場合、またはcompatibleなbranchの数値失敗で一意性を確認できない場合は停止します。
+v1の複数根検出は有限個のmultistart結果をcluster化するもので、数学的なroot isolationではありません。
+
+$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称なので
+$H$の絶対座標はSagdeev方程式の数値parameterには入らず、壁面から$H$までの距離拘束は解きません。
+
+外向きPEのnumber fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ縮約します。PE fluxが0なら
+PE populationは0のまま、設定したPE温度を数値scaleのfallbackに使います。
+
+ambient electron / ionの外向き軸はtransparentかつ固定点残差でinactiveです。online solverはstatelessで、
+outer inventory、前rootのcontinuation、外部flight time、遅延return queueを持ちません。
+
+設定したbranch policyで物理解がない場合やsolveが収束しない場合はfail closedとし、明示したbranchやbackendを
+暗黙に切り替えません。
 
 このmodelは次の設定契約をすべて要求します。
 
@@ -470,10 +524,23 @@ productionの物理入力として有効ではありません。相対pathは設
 - 3 roleすべてで有効なx/y particle boundaryが`periodic`、z-low/z-highが`open`
 - 手動`fixed_current` targetを指定しない
 
-`model="none"`では`model`以外のキーを指定しません。Zhao固有キーとmatching固有キーは混在できません。
+backend固有の制約は次のとおりです。
+
+- tableは`response_table_path`を必須とし、`zhao_branch`を指定しない
+- onlineは`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を受理する
+- onlineは3 roleの単価電荷、ambient electronとPEの同一質量、$T_e>0$、$T_{pe}>0$、
+  $0\le T_i\le0.1T_e$、正のion number density、ambient electron / ionの正の内向きdrift
+  （`drift_velocity`のz成分は負）を要求する
+- stationary Zhaoの`solar_elevation_deg`、`photoelectron_ref_density_m3`、
+  `photoelectron_source_scale`はmatchingでは指定しない
+
+online Zhaoは平面・無衝突・非磁化の低次元準定常closureです。full VDF、1D PIC、time-dependent outer sheath、
+またはambient outward populationの外部returnを解くmodelではありません。
+
+`model="none"`では`model`以外のキーを指定しません。
 廃止済みトップレベル`[outer_plasma]` / `[coupling]`
-は復活していません。連結設定はすべて`[surface_current_model]`に置きます。CSVの列契約、固定点反復、検証手順は
-詳細は[matching-plane準定常連成](MatchingPlaneCoupling.html)に示します。
+は復活していません。連結設定はすべて`[surface_current_model]`に置きます。table CSVの列契約、online Zhaoの縮約、
+固定点反復、検証手順の詳細は[matching-plane準定常連成](MatchingPlaneCoupling.html)に示します。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
 

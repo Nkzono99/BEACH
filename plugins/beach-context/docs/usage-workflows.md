@@ -18,7 +18,7 @@ beach beach.toml
 beach examples/beach.toml
 ```
 
-引数なしの場合、カレントディレクトリの `beach.toml` を読みます。開発 checkout では `make` 後に `fpm run --profile release --flag "-fopenmp" -- examples/beach.toml` も使えます。
+引数なしの場合、カレントディレクトリの `beach.toml` を読みます。開発 checkout では `make` 後に `fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml` も使えます。
 
 ## 出力確認
 

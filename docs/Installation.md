@@ -4,7 +4,7 @@ Lang: [日本語](Installation.md) | [English](Installation.en.md)
 
 # インストール
 
-BEACHのPython packageとFortran実行バイナリは、同時にインストールされます。通常の
+BEACHのPython packageとFortran実行バイナリ`beach` / `beach-zhao-response`は、同時にインストールされます。通常の
 `pip install`では、Fortran Package Manager (`fpm`)も隔離されたbuild環境に自動導入されます。
 
 初回は次の前提を確認してください。
@@ -35,10 +35,11 @@ python -m pip install beach-bem
 
 ```bash
 beach --version
+beach-zhao-response --help
 beachx --help
 ```
 
-`beach` または `beachx` が見つからない場合:
+`beach`、`beach-zhao-response`、または`beachx`が見つからない場合:
 
 ```bash
 python -m site --user-base

@@ -6,14 +6,15 @@ Lang: [English](MatchingPlaneCoupling.en.md) | [日本語](MatchingPlaneCoupling
 
 `surface_current_model.model="matching_plane_quasistatic"` treats the top of the BEACH box,
 the z component of `domain.box_max`, as the interface to an outer one-dimensional sheath. BEACH retains every surface charge and the
-`k=0` and `k!=0` fields below that interface. A precomputed outer-model response table supplies the matching potential,
+`k=0` and `k!=0` fields below that interface. The selected response backend supplies the matching potential,
 ambient inward fluxes, and access or return barriers. Particle trajectories return outward fluxes to a fixed-point
 iteration in every batch, and BEACH commits only a converged trial to the surface charge.
 
-This feature does not reevaluate the Zhao stationary wall potential during a run. Build the response table from an
-independent Zhao or one-dimensional PIC parameter sweep and validate that outer model over the intended range.
-`examples/matching_plane_response_synthetic.csv` is synthetic data for exercising the execution path; it is not valid
-input for a physical study.
+`response_backend="table"` (the default) interpolates a response table produced by an independent Zhao or one-dimensional
+PIC parameter sweep. `response_backend="zhao_online"` solves a finite-$H$, charge-driven Zhao A/B/C quasistatic response
+from the current $D_H$ and outward PE moments. The latter does not reevaluate a stationary Zhao wall potential and does
+not impose zero current. Validate the selected backend over the intended range. `examples/matching_plane_response_synthetic.csv`
+is synthetic data for exercising the table path; it is not valid input for a physical study.
 
 ## Minimal configuration
 
@@ -26,29 +27,53 @@ photoelectron species.
 ```toml
 [surface_current_model]
 model = "matching_plane_quasistatic"
+response_backend = "table"
 response_table_path = "matching_plane_response.csv"
 electron_species = "electron"
 ion_species = "ion"
 photoelectron_species = "photoelectron"
 coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.0, 0.0, 0.0] # default: relative tolerance only
 coupling_max_iterations = 20
 coupling_relaxation = 0.5
 ```
 
-See `examples/periodic2_matching_plane_quasistatic.toml` for a complete synthetic smoke case.
+Omitting `response_backend` also selects `"table"`. See `examples/periodic2_matching_plane_quasistatic.toml` for a
+complete synthetic smoke case.
 BEACH resolves `response_table_path` relative to the directory containing `beach.toml`.
 
-**Expected output:** Configuration validation accepts the model wiring, and startup validates the response-table syntax
-and matching-plane height. `summary.txt` records the latest accepted coupling state together with the response-table
-content fingerprint, three species roles, and iteration controls. When
+For online Zhao, select the backend and branch instead of supplying a response-table path.
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+zhao_branch = "auto"
+electron_species = "electron"
+ion_species = "ion"
+photoelectron_species = "photoelectron"
+coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.05, 0.0, 0.0] # PE-energy tolerance [eV] for finite-ray sampling
+coupling_max_iterations = 20
+coupling_relaxation = 0.5
+```
+
+See `examples/periodic2_matching_plane_zhao_online.toml` for a complete online configuration example.
+The second component's `0.05` eV is an example for finite-ray sampling. Select it from a convergence study that varies
+the macro-particle count while retaining relative tolerances on the flux components.
+
+**Expected output:** Configuration validation accepts the model and backend wiring. The table backend also validates the
+response-table syntax and matching-plane height at startup. `summary.txt` records the latest accepted coupling state,
+response backend, three species roles, and iteration controls; the table backend also records the response-table content
+fingerprint. When
 `output.history_stride > 0`, `matching_plane_history.csv` tracks each selected accepted batch's response values, four
 feedback moments, return and escape fluxes, iteration count, and normalized residual.
 
 `beachx lint` does not read response-file contents.
 
-**Interpretation:** Successful completion establishes valid table syntax, an in-range interpolation, and numerical
-fixed-point convergence. It does not establish physical validity of the outer sheath, invariance to matching-plane
-height, or Monte Carlo convergence.
+**Interpretation:** Successful completion establishes backend evaluation and numerical fixed-point convergence. The table
+backend also establishes valid syntax and an in-range interpolation. It does not establish physical validity of the
+outer sheath, invariance to matching-plane height, or Monte Carlo convergence.
 
 ## Configuration constraints
 
@@ -64,16 +89,26 @@ The model accepts only the following configuration so that no mean field or part
 - exactly three enabled species, one for each distinct role, each with `surface_charge_closure="explicit"`
 - ambient electron and ion species with `source_mode="volume_seed"`, `npcls_per_step=0`, and only z-high
   `boundary_inflow="reservoir"`
-- a negative-charge `photo_raycast` species
+- negative electron and photoelectron charges and positive ion charge; the photoelectron uses `photo_raycast`,
+  `inject_face="z_high"`, and `deposit_opposite_charge_on_emit=true`
 - an open outward z-high boundary for the photoelectrons
 - `particle_boundary.ordinary_open_model="escape"`
 - `sim.multiple_box_events_policy="abort"`
 
-Do not combine this model with `reference_area_m2`, Zhao-only keys, or manual `fixed_current` targets. The interface area
-is the x-y area of `domain`, its height is the z component of `domain.box_max`, and its update interval is one accepted batch. These are
-derived rather than configurable so that mutually inconsistent values cannot be entered.
+Do not combine this model with `reference_area_m2`, stationary-Zhao source keys, or manual `fixed_current` targets. The
+interface area is the x-y area of `domain`, its height is the z component of `domain.box_max`, and its update interval is
+one accepted batch. These are derived rather than configurable so that mutually inconsistent values cannot be entered.
 
-## Response CSV v1
+The backend-specific constraints are:
+
+- `response_backend="table"` requires `response_table_path` and forbids `zhao_branch`;
+- `response_backend="zhao_online"` forbids `response_table_path` and accepts
+  `zhao_branch="auto"`, `"a"`, `"b"`, or `"c"`; and
+- the online backend requires singly charged species for all three roles, equal ambient-electron and PE masses,
+  $T_e>0$, $T_{pe}>0$, $0\le T_i\le0.1T_e$, positive ion number density, and positive inward ambient-electron and ion
+  drift speeds at z-high (`drift_velocity` has a negative z component).
+
+## Table backend: Response CSV v1
 
 Declare the matching-plane height exactly once before the header. The value must be finite and agree with
 the z component of `domain.box_max`.
@@ -109,34 +144,117 @@ table; estimate the required memory before adding axis nodes. BEACH applies mult
 out-of-range query along any axis that has more than one node.
 Numeric tokens must be decimal reals; Fortran list-directed controls such as `/`, `2*0`, and null fields are rejected.
 
-Fluxes, mean energy, and response fluxes must be nonnegative. Feedback axes 2--5 must include zero so that the initial
-state can be evaluated. Use one node for an input axis that the outer sweep intentionally does not model. A singleton
-axis accepts any finite query and explicitly disables that feedback dimension; it is neither clamping nor implicit
+Fluxes, mean energy, and response fluxes must be nonnegative. Feedback axes 2--5 with two or more nodes must include zero
+so that the initial state can be evaluated. Use one node for an input axis that the outer sweep intentionally does not
+model. A singleton node may be nonzero; its axis accepts any finite query and explicitly disables that feedback dimension.
+This is neither clamping nor implicit
 extrapolation.
+
+### Update only the mean charge implicitly
+
+When the explicit mean-current update becomes stiff at a seconds-scale `batch_duration`, the table backend can set
+`implicit_zero_mode=true`.
+
+```toml
+[periodic2]
+lower_boundary_model = "e_bottom_zero"
+
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "table"
+response_table_path = "matching_plane_type_a_response.csv"
+implicit_zero_mode = true
+```
+
+The response table for this mode must have at least two `displacement_c_m2` nodes and singleton values on the other four
+input axes. Those singleton values must be a positive outward PE flux, a positive PE mean normal energy, and zero outward
+ambient-electron and ion fluxes. BEACH uses the half-Maxwellian PE escape fraction and solves
+$D_H^{n+1}=D_H^n+hJ(D_H^{n+1})$ by bisection within the table's $D_H$ range. It stops instead of extrapolating when the
+range does not bracket the root.
+
+Particle tracking and the elementwise `k!=0` distribution still use the batch-start state. BEACH normalizes total
+electron/ion absorption to the implicit response, PE emission to the configured surface-emission current, and PE return
+to the surface-emission flux minus the outer escape flux. It then checks the committed $Q/A$ against the endpoint.
+A large value such as 6 s therefore also requires a bracketed response, acceptable
+local `k!=0` potential change, adequate macro-particle sampling, and a physically valid response table. This option does
+not make an arbitrary `batch_duration` unconditionally stable.
+
+## Online Zhao backend
+
+`response_backend="zhao_online"` converts each query's $D_H$ to $E_H=D_H/\epsilon_0$ and solves a Sagdeev A/B/C root
+that connects the matching plane $H$, the z component of `domain.box_max`, to an upstream reservoir at 0 V with zero
+field. `zhao_branch="auto"` searches the applicable branches; `"a"`, `"b"`, and `"c"` select one branch explicitly.
+`auto` fails closed if it detects more than one physical root or if a numerical failure in a compatible branch prevents a
+unique selection. Select `a`, `b`, or `c` explicitly for branch-resolved studies.
+The v1 multiple-root check clusters roots found by a finite multistart set; it is not a mathematical root-isolation proof.
+For branch-resolved validation, scan the parameters separately with each explicit branch.
+This is a finite-$H$, charge-driven boundary response, unlike the wall zero-current root of `zhao_stationary`. It does
+not impose $J=0$ while the surface charge is evolving.
+
+$H$ fixes the origin of the outer half-space interface, the `periodic2` zero-mode gauge, and the plane where outward PE
+moments are measured. Because online Zhao is planar and translationally symmetric, the absolute coordinate of $H$ is not
+a numerical parameter of the Sagdeev equation. This model does not solve a wall-to-$H$ one-dimensional distance
+constraint.
+
+The outward PE number flux and mean normal kinetic energy are mapped to the amplitude and energy scale of a
+half-Maxwellian that reproduces those two moments. For a zero-PE-flux query, the PE population remains zero and the
+configured temperature derived from `temperature_ev` or `temperature_k` for the referenced PE species is used only as a
+numerical scale fallback. This reduction does not
+retain energy-tail information beyond the two moments.
+
+The online MVP treats the outward ambient-electron and ion axes as transparent. Their measured values do not alter the
+outer profile or return flux and are inactive in the fixed-point residual. The active scales are derived from the Zhao
+model's reference fluxes and energy. Do not use this MVP for a case that requires outer return of ambient populations.
+
+The solver is stateless between queries. It does not retain an outer-particle inventory, continuation from the previous
+root, an outer flight time, or a delayed-return queue. If the configured branch policy finds no physical root, the
+Sagdeev integral is not real, or the nonlinear solve does not converge, BEACH fails closed. It does not silently change
+an explicitly selected branch or switch backend.
+
+This backend assumes the planar, collisionless, unmagnetized Zhao VDF family. It is not a full-VDF solver, a 1D PIC
+solver, or a time-dependent outer-sheath model. `solar_elevation_deg`, `photoelectron_ref_density_m3`, and
+`photoelectron_source_scale` describe the wall source of `zhao_stationary` and must not be set for online matching.
 
 ## Fixed-point iteration
 
-Starting from the accepted feedback state $X^0$, each trial performs these steps:
+Let $X^0$ be the accepted feedback state. The feedback vector and `coupling_atol` use the order
 
-1. Compute $D_H$ from the current surface charge and interpolate the table at $(D_H, X^m)$.
+$$
+X=(\Gamma_{pe}^{out},\langle K_{z,pe}\rangle^{out},\Gamma_e^{out},\Gamma_i^{out}),
+$$
+
+with units [m^-2 s^-1], [eV], [m^-2 s^-1], and [m^-2 s^-1], respectively. `coupling_atol` is a finite,
+nonnegative four-vector. Its default `[0, 0, 0, 0]` retains relative-only convergence tests.
+
+Each trial performs these steps:
+
+1. Compute $D_H$ from the current surface charge and evaluate the selected response backend at $(D_H, X^m)$.
 2. Apply the response $\Phi_H$ as the `periodic2` zero-mode gauge, the total electron/ion inward fluxes and access maps,
    and the outward PE barrier. Ambient outflow is not reflected locally; it is passed to the next outer response.
 3. Replay the particle trial from the same batch-start RNG state and macro-particle residuals, measuring outward moments
    $X_{\mathrm{raw}}^{m+1}$.
-4. Accept this trial as converged when the maximum difference between $X^m$ and $X_{\mathrm{raw}}^{m+1}$, normalized
-   by each response-table feedback-axis span, is no greater than `coupling_rtol`.
+4. For every active component $j$, let $s_j$ be the backend scale, $r$ be `coupling_rtol`, and $a_j$ be its absolute
+   tolerance. Accept the trial when every component satisfies
+   $|X_{raw,j}^{m+1}-X_j^m|\le\max(r s_j,a_j)$.
 5. Otherwise, with `coupling_relaxation` $\alpha$, calculate
    $X^{m+1}=(1-\alpha)X^m+\alpha X_{\mathrm{raw}}^{m+1}$ and replay the trial.
 
+Inactive components do not participate in convergence, but their `coupling_atol` entries must be zero. This applies to
+singleton feedback axes in a table and to the outward ambient-electron and ion axes in online Zhao. BEACH rejects a
+nonzero absolute tolerance on an inactive component no later than provider initialization.
+
 History response columns contain values evaluated at the accepted trial's $X^m$; feedback columns contain the measured
-$X_{\mathrm{raw}}^{m+1}$ from that same trial. Their difference is bounded by the recorded residual, and no unexecuted
-relaxation step is applied after convergence.
+$X_{\mathrm{raw}}^{m+1}$ from that same trial. For each component, `matching_plane_residual` uses
+$r|X_{raw,j}^{m+1}-X_j^m|/a_j$ when $a_j>r s_j$, and $|X_{raw,j}^{m+1}-X_j^m|/s_j$ otherwise, then records the
+maximum. This conversion preserves `matching_plane_residual <= coupling_rtol` as the acceptance receipt under mixed
+tolerances. No unexecuted relaxation step is applied after convergence.
 
 The iteration does not commit surface charge, RNG state, injection residuals, ledger entries, or histories. A rejected
 adaptive batch-duration trial also restores the outer state to the batch start. If `coupling_max_iterations` is exhausted
-or a query leaves the interpolation grid, BEACH fails instead of continuing with an unconverged value.
+or a table query leaves the interpolation grid, or if the online solve fails, BEACH stops instead of continuing with an
+unconverged value.
 
-## Build a response table
+## Build a response table for the table backend
 
 Sweep all five input axes in the one-dimensional Zhao or PIC model using the same `z=H`, upstream distributions, and
 sign conventions. Feed the table the PE flux and normal energy that actually cross the matching plane, not the emission
@@ -148,20 +266,64 @@ outer model does not depend on as singletons instead of refining all five dimens
 does not extend the physical validity of the outer model. Store the table-generation code, upstream conditions, solver
 version, and unit conversions with production data.
 
+To evaluate the built-in online Zhao backend over the same five inputs and save a snapshot for the table backend, run:
+
+```console
+beach-zhao-response \
+  examples/periodic2_matching_plane_zhao_online.toml \
+  examples/matching_plane_zhao_query_grid.csv \
+  response.csv
+```
+
+This sample grid has PE-flux nodes `0` and `1.0e10` at a fixed PE energy of 3 eV, with only zero on both
+ambient-outward axes. It is a minimal wiring and snapshot-generation example, not a production input range.
+
+`beach.toml` must be a complete `model="matching_plane_quasistatic"` configuration with
+`response_backend="zhao_online"`. As with a direct online run, do not set `response_table_path` in this configuration.
+
+The query CSV permits blank lines and comments beginning with `#`. Its first noncomment line must be this exact header:
+
+```csv
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev,electron_outward_number_flux_m2_s,ion_outward_number_flux_m2_s
+```
+
+Every data row contains five finite values; fluxes and PE mean energy are nonnegative. The PE-flux axis must include zero,
+and the PE-energy axis must be a singleton. If the PE-flux axis has a positive node, that energy node must also be positive.
+The transparent outward ambient axes 4 and 5 must each be a singleton zero node. Enumerate one complete
+Cartesian product of the five axes without duplicate or missing points. Row order is arbitrary. The CLI evaluates every query with
+the built-in Zhao backend before writing. Only when all queries solve successfully does it write `response.csv` with
+`# matching_plane_z_m=...` and the existing 11-column contract. If any query fails, it does not generate the response
+table.
+This v1 generator produces a flux / $D_H$ response curve at one fixed PE energy. PE-energy dependence requires a future
+table format that supports a conditional grid.
+
+Use a separate configuration file for a run that consumes the generated table, and switch the backend as follows:
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "table"
+response_table_path = "response.csv"
+```
+
+A run that continues to use the built-in online Zhao backend directly does not need a response table.
+
 ## Validate the result
 
 **Numerical validation:** Vary these inputs independently and require the reported observables to remain within the
 study's error budget:
 
-- `coupling_rtol`, `coupling_relaxation`, and `coupling_max_iterations`
-- response-grid resolution and range
+- `coupling_rtol`, `coupling_atol`, `coupling_relaxation`, and `coupling_max_iterations`
+- response-grid resolution and range, or the online Zhao branch selection
 - `sim.batch_duration` and macro-particle count
 - mesh and periodic-cell resolution
 
-**Coupling validation:** Regenerate the outer model for the same physical conditions while moving `H` within an overlap
-region. Grain charge, gap potential, and PE escape fraction should be nearly invariant; this is the central validation
-of matching-plane coupling. Also verify `outward = return + escape` for PEs at the interface.
+**Coupling validation:** For the table backend, regenerate the outer model for the same physical conditions. For either
+backend, move `H` within an overlap region. Grain charge, gap potential, and PE escape fraction should be nearly
+invariant; this is the central validation of matching-plane coupling. Also verify `outward = return + escape` for PEs at
+the interface.
 
 **Scope:** This quasistatic model does not solve a six-dimensional VDF, an outer flight-time queue, collisions,
-magnetized return, outer-sheath transients, or volume plasma charge inside the BEACH region. Use one-dimensional--3D
-kinetic coupling or full PIC for validation or production when these effects control the result.
+magnetized return, outer-sheath transients, or volume plasma charge inside the BEACH region. The online MVP also does
+not solve outer return of ambient outward populations. Use one-dimensional--3D kinetic coupling or full PIC for
+validation or production when these effects control the result.

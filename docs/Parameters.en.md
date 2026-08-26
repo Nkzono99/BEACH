@@ -30,7 +30,7 @@ or replaces.
 |---|---|
 | Explicit input | `beach path/to/beach.toml` |
 | Default input | With no argument, `beach.toml` in the current directory |
-| Developer run | `fpm run -- path/to/beach.toml` behaves the same |
+| Developer run | `fpm run --target beach -- path/to/beach.toml` behaves the same |
 | Format | TOML. Multi-line arrays are supported |
 | Unknown keys | Unknown section names and key names are errors |
 | schema | `schemas/beach.schema.json` |
@@ -111,7 +111,7 @@ Paths such as `sim.dt` and `domain.periodic_axes` mean “table name.key” in t
 | `[field_boundary]` | root | optional | `free` / `periodic2` field closure |
 | `[particle_boundary]` | root | optional | Global particle actions on nonperiodic faces |
 | `[reservoir]` | root | optional | External-reservoir inflow barrier and reference potential |
-| `[surface_current_model]` | root | optional | External current closure resolving per-species `fixed_current` targets |
+| `[surface_current_model]` | root | optional | External sheath closure resolving per-species `fixed_current` targets or a matching-plane response |
 | `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
 | `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
 | `[particles.species.boundary]` | latest `[[particles.species]]` | optional | Nonperiodic-face overrides for that species |
@@ -353,9 +353,12 @@ When this top-level table is omitted, configure each species manually with `targ
 external sheath and resolves ambient-electron, ion, PE-emission, PE-escape, and PE-return currents plus a z-high kinetic
 barrier once before batching.
 
-`model="matching_plane_quasistatic"` couples the box top to a quasistatic outer-sheath response table.
+`model="matching_plane_quasistatic"` couples the box top quasistatically to an outer sheath supplied by the selected
+response backend. `response_backend="table"` is the default; `"zhao_online"` solves a finite-$H$, charge-driven Zhao
+A/B/C response inside BEACH.
 
-With `photoelectron_source_scale=0.0`, it creates no PE channels and uses the ambient-electron/ion zero-current root.
+For `zhao_stationary`, `photoelectron_source_scale=0.0` creates no PE channels and uses the ambient-electron/ion
+zero-current root.
 
 ```toml
 [surface_current_model]
@@ -384,16 +387,19 @@ photoelectron_source_scale = 0.0
 | Key | Type | Default | Description |
 |---|---|---:|---|
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; `auto` searches for a valid stationary branch; no-PE accepts only `auto` / `c` |
+| `response_backend` | string | `"table"` | Matching response source: `table` / `zhao_online` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; branch for stationary or online Zhao; no-PE stationary accepts only `auto` / `c` |
 | `electron_species` | string | required | `species_key` for ambient electrons |
 | `ion_species` | string | required | `species_key` for cold ions |
-| `photoelectron_species` | string | required with PE | `species_key` for the `photo_raycast` tracking PE emission and return |
-| `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
-| `photoelectron_ref_density_m3` | float | required with PE | Reference PE density $n_{pe,ref}$ [m^-3] |
-| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$; `0.0` disables PE |
+| `photoelectron_species` | string | required with stationary PE and matching | `species_key` for the `photo_raycast` tracking PE emission and return |
+| `solar_elevation_deg` | float | required with stationary PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
+| `photoelectron_ref_density_m3` | float | required with stationary PE | Reference PE density $n_{pe,ref}$ [m^-3] |
+| `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$; `0.0` disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting Zhao current densities to total currents [m^2]; forbidden for matching |
-| `response_table_path` | string | required for matching | Outer-sheath response CSV v1; relative paths use the `beach.toml` directory and absolute paths are retained |
+| `response_table_path` | string | required for table matching | Outer-sheath response CSV v1; relative paths use the `beach.toml` directory and absolute paths are retained; forbidden online |
+| `implicit_zero_mode` | bool | `false` | Apply backward Euler only to the matching-table mean $D_H$; requires `e_bottom_zero`, at least two $D_H$ nodes, and singleton feedback axes |
 | `coupling_rtol` | float | `1.0e-4` | Relative matching fixed-point tolerance; finite $0<r\le1$ |
+| `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | Per-feedback-component absolute tolerances, ordered as outward PE flux [m^-2 s^-1], PE mean normal energy [eV], outward electron flux [m^-2 s^-1], and outward ion flux [m^-2 s^-1]; values must be finite and nonnegative, with zero on inactive components |
 | `coupling_max_iterations` | int | `20` | Maximum matching fixed-point iterations; `>=1` |
 | `coupling_relaxation` | float | `0.5` | Matching update relaxation; finite $0<\omega\le1$ |
 
@@ -449,26 +455,81 @@ turning point. It is a fixed stationary external-current closure, not a self-con
 
 #### Matching-plane quasistatic closure
 
+Configure the table backend as follows. Omitting `response_backend` also selects `"table"`.
+
 ```toml
 [surface_current_model]
 model = "matching_plane_quasistatic"
+response_backend = "table"
 response_table_path = "responses/outer_sheath.csv"
+implicit_zero_mode = false
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_species = "photoelectron"
 coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.0, 0.0, 0.0] # default: relative tolerance only
 coupling_max_iterations = 20
 coupling_relaxation = 0.5
 ```
+
+Do not specify a response path for the online Zhao backend.
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+zhao_branch = "auto"
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+coupling_rtol = 1.0e-4
+coupling_atol = [0.0, 0.05, 0.0, 0.0] # PE-energy tolerance [eV] for finite-ray sampling
+coupling_max_iterations = 20
+coupling_relaxation = 0.5
+```
+
+For each active feedback component $j$, with backend scale $s_j$, `coupling_rtol` $r$, and
+`coupling_atol[j]` $a_j$, BEACH tests $|X_{raw,j}-X_j|\le\max(r s_j,a_j)$. The `0.05` eV above is an
+example for finite-ray sampling; select it from a convergence study that varies the macro-particle count.
+
+The third and fourth components are inactive for online Zhao because they represent outward ambient-electron and ion
+fluxes. A singleton table-feedback axis is also inactive. BEACH rejects a nonzero absolute tolerance on any inactive
+component.
+
+It rescales an absolute-tolerance-dominated residual component so that an accepted trial still reports
+`matching_plane_residual <= coupling_rtol`.
 
 The matching plane $H$ is the z component of `domain.box_max`, and its coupling area is the domain x-y area. Every mesh
 vertex must lie strictly below $H$.
 `reference_area_m2` cannot replace that area.
 
-`response_table_path` must point to a nonlinear response CSV v1 produced by an external Zhao calculation or a 1D PIC model.
+For the table backend, `response_table_path` must point to a nonlinear response CSV v1 produced by an external Zhao
+calculation or a 1D PIC model.
 A synthetic table is suitable only for wiring and interpolation tests; it is not
 a production-valid physics input. Resolve a relative path from the config-file directory and keep the resolved path at no
 more than 256 characters. `beachx lint` applies the same resolved-path check.
+
+For every query, the online backend uses $E_H=D_H/\epsilon_0$ as a boundary condition and solves a finite-$H$ Sagdeev
+A/B/C root that connects $H$ to an upstream reservoir at 0 V with zero field. This is not the wall zero-current root of
+`zhao_stationary`, and it does not impose $J=0$ while the surface charge is evolving.
+
+`zhao_branch="auto"` searches the applicable branches; `"a"`, `"b"`, and `"c"` select one branch explicitly.
+`auto` stops if it detects multiple physical roots or if a numerical failure in a compatible branch prevents a unique
+selection. Its v1 multiple-root check clusters results from a finite multistart set rather than proving root isolation.
+
+$H$ fixes the origin of the outer half-space interface, the zero-mode gauge, and the PE-moment measurement plane. Planar
+translational symmetry makes its absolute coordinate inactive in the Sagdeev equation; this backend does not solve a
+wall-to-$H$ distance constraint.
+
+The outward PE number flux and mean normal energy are reduced to a half-Maxwellian that reproduces those two moments.
+When the PE flux is zero, the PE population remains zero and the configured PE temperature is used only as a numerical
+scale fallback.
+
+The outward ambient-electron and ion axes are transparent and inactive in the fixed-point residual. The online solver is
+stateless: it retains no outer inventory, previous-root continuation, outer flight time, or delayed-return queue.
+
+If the configured branch policy finds no physical root or the solve does not converge, BEACH fails closed. It does not
+silently change an explicitly selected branch or switch backend.
 
 This model requires all of the following configuration invariants:
 
@@ -487,10 +548,25 @@ This model requires all of the following configuration invariants:
 - effective `periodic` x/y and `open` z-low/z-high particle boundaries for all three roles.
 - no manual `fixed_current` target.
 
-With `model="none"`, do not specify any other key in the table. Zhao-specific and matching-specific keys cannot be mixed.
+The backend-specific constraints are:
+
+- the table backend requires `response_table_path` and forbids `zhao_branch`;
+- the online backend forbids `response_table_path` and accepts
+  `zhao_branch="auto"`, `"a"`, `"b"`, or `"c"`;
+- the online backend requires singly charged species for all three roles, equal ambient-electron and PE masses,
+  $T_e>0$, $T_{pe}>0$, $0\le T_i\le0.1T_e$, positive ion number density, and positive inward ambient-electron and ion
+  drift speeds at z-high (`drift_velocity` has a negative z component); and
+- do not set the stationary-Zhao source keys `solar_elevation_deg`, `photoelectron_ref_density_m3`, or
+  `photoelectron_source_scale` for matching.
+
+Online Zhao is a reduced planar, collisionless, unmagnetized quasistatic closure. It does not solve a full VDF, 1D PIC,
+a time-dependent outer sheath, or outer return of ambient outward populations.
+
+With `model="none"`, do not specify any other key in the table.
 The removed top-level `[outer_plasma]` and `[coupling]` tables
 remain invalid; all coupling controls belong in `[surface_current_model]`. See
-[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for the CSV columns, fixed-point iteration, and validation.
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for the table CSV columns, online Zhao reduction,
+fixed-point iteration, and validation.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 

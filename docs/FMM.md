@@ -246,7 +246,7 @@ FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間�
 - triangle P0の解析near kernelと厳密P2M
 - free 場の tree 外 target は Direct fallback
 - physical periodic zero mode は FMM core の外で一度だけ加える
-- self-consistent outer-plasma/sheath model は非対応
+- FMM core 自体は外部plasma/sheathを解かず、matching-plane closureはcore外で合成する
 
 係数配列、interaction cache、translation前計算、parallel loopなどの内部仕様は
 [Coulomb FMMコア内部実装](FMMCore.html)に分けています。periodic operatorの内部仕様は

@@ -36,7 +36,8 @@ mode = "periodic2"
 | `cached_kneq0` | versioned operatorを生成・再利用 | 無限周期nonzero modeのproduction経路 |
 
 `cached_kneq0` は z 方向の平均場 `k=0` を決めません。[periodic2 静電場](PeriodicElectrostatics.html)の
-場の合成処理が physical `k=0` を一度だけ加えます。self-consistent outer-plasma/sheath model は非対応です。
+場の合成処理が physical `k=0` を一度だけ加えます。このoperator自体は外部plasma/sheathを解かず、選択した
+matching-plane応答はzero-mode構築とは別の連成層で合成します。
 `m2l_root_oracle`は削除済みで、設定すると`cached_kneq0`を案内して起動時にrejectされます。
 
 ## 有限画像shellを通常のFMMで評価する

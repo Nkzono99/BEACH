@@ -23,7 +23,8 @@ program test_output_writer_io
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model
   logical :: saw_photoelectron_active_receipt
-  logical :: saw_matching_receipts(9), matching_history_opened
+  logical :: saw_matching_receipts(10), matching_history_opened
+  logical :: saw_online_matching_receipts(7)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit, matching_history_unit
@@ -34,6 +35,7 @@ program test_output_writer_io
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
   character(len=*), parameter :: out_dir_no_photo = 'test_output_writer_io_no_photo_tmp'
   character(len=*), parameter :: out_dir_matching = 'test_output_writer_io_matching_tmp'
+  character(len=*), parameter :: out_dir_matching_online = 'test_output_writer_io_matching_online_tmp'
   character(len=*), parameter :: literal_parent = 'test_output_writer_io_literal_tmp'
   character(len=*), parameter :: marker_path = 'test_output_writer_io_shell_marker_tmp'
   character(len=*), parameter :: literal_dir = &
@@ -47,7 +49,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(7)
+  call test_init(8)
 
   stats = sim_stats()
 
@@ -55,6 +57,7 @@ program test_output_writer_io
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
   call cleanup_output_dir(out_dir_matching)
+  call cleanup_output_dir(out_dir_matching_online)
 
   call delete_file_if_exists(marker_path)
   call remove_test_directory(literal_dir)
@@ -352,10 +355,23 @@ program test_output_writer_io
   call assert_true(all(saw_matching_receipts), 'summary should record matching-plane provenance and controls')
   call test_end()
 
+  call test_begin('online_matching_plane_solver_receipt')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_matching_plane_zhao_online.toml', cfg)
+  cfg%output_dir = out_dir_matching_online
+  cfg%write_mesh_potential = .false.
+  call write_result_files(out_dir_matching_online, mesh, stats, cfg)
+  call scan_online_matching_plane_receipts( &
+    out_dir_matching_online//'/summary.txt', saw_online_matching_receipts &
+    )
+  call assert_true(all(saw_online_matching_receipts), 'summary should record online Zhao solver provenance')
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
   call cleanup_output_dir(out_dir_matching)
+  call cleanup_output_dir(out_dir_matching_online)
 
   call test_summary()
 
@@ -398,7 +414,7 @@ contains
 
   subroutine scan_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(9)
+    logical, intent(out) :: found(10)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -415,13 +431,42 @@ contains
       found(4) = found(4) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
       found(5) = found(5) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
       found(6) = found(6) .or. index(summary_line, 'surface_current_model_coupling_rtol=') == 1
-      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
-      found(8) = found(8) .or. index(summary_line, 'surface_current_model_coupling_relaxation=') == 1
-      found(9) = found(9) .or. &
-                 trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
+      found(7) = found(7) .or. index(summary_line, 'surface_current_model_coupling_atol=') == 1
+      found(8) = found(8) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
+      found(9) = found(9) .or. index(summary_line, 'surface_current_model_coupling_relaxation=') == 1
+      found(10) = found(10) .or. &
+                  trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
     end do
     close (summary_unit)
   end subroutine scan_matching_plane_receipts
+
+  subroutine scan_online_matching_plane_receipts(summary_path, found)
+    character(len=*), intent(in) :: summary_path
+    logical, intent(out) :: found(7)
+    integer :: summary_unit, summary_ios
+    character(len=2048) :: summary_line
+
+    found = .false.
+    open (newunit=summary_unit, file=trim(summary_path), status='old', action='read', iostat=summary_ios)
+    if (summary_ios /= 0) error stop 'failed to open online matching-plane receipt fixture'
+    do
+      read (summary_unit, '(A)', iostat=summary_ios) summary_line
+      if (summary_ios /= 0) exit
+      found(1) = found(1) .or. trim(summary_line) == 'surface_current_model_response_backend=zhao_online'
+      found(2) = found(2) .or. &
+                 trim(summary_line) == 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
+      found(3) = found(3) .or. trim(summary_line) == 'surface_current_model_zhao_branch=auto'
+      found(4) = found(4) .or. &
+                 trim(summary_line) == 'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
+      found(5) = found(5) .or. &
+                 trim(summary_line) == &
+                 'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
+      found(6) = found(6) .or. &
+                 trim(summary_line) == 'surface_current_model_ambient_outward_feedback=transparent'
+      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_outer_solver_state=stateless'
+    end do
+    close (summary_unit)
+  end subroutine scan_online_matching_plane_receipts
 
   subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
     character(len=*), intent(in) :: path, inflow_map, open_model

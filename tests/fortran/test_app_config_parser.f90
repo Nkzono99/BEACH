@@ -31,7 +31,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(21)
+  call test_init(29)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -51,6 +51,12 @@ program test_app_config_parser
   call test_begin('zhao_rejects_generic_reservoir_barrier')
   call write_zhao_variant(zhao_generic_barrier_path, '', .true.)
   call assert_config_rejected(zhao_generic_barrier_path, 'cannot be combined with the generic reservoir potential model')
+  call delete_file_if_exists(zhao_generic_barrier_path)
+  call test_end()
+
+  call test_begin('zhao_rejects_matching_response_backend')
+  call write_zhao_variant(zhao_generic_barrier_path, '', .false., 'response_backend = "zhao_online"')
+  call assert_config_rejected(zhao_generic_barrier_path, 'cannot use matching-plane-specific settings')
   call delete_file_if_exists(zhao_generic_barrier_path)
   call test_end()
 
@@ -108,6 +114,9 @@ program test_app_config_parser
   call assert_true( &
     trim(cfg%surface_current%model) == 'matching_plane_quasistatic', 'matching-plane model mismatch' &
     )
+  call assert_true(trim(cfg%surface_current%response_backend) == 'table', 'matching backend default mismatch')
+  call assert_true(.not. cfg%surface_current%has_response_backend, 'implicit table backend presence mismatch')
+  call assert_true(.not. cfg%surface_current%implicit_zero_mode, 'implicit zero mode must default to false')
   call assert_true( &
     trim(cfg%surface_current%response_table_path) == &
     'tests/fortran/data/matching_response_table.csv', 'matching-plane relative response path mismatch' &
@@ -115,10 +124,23 @@ program test_app_config_parser
   call assert_close_dp(cfg%surface_current%coupling_rtol, 1.0e-4_dp, 0.0_dp, 'matching coupling rtol mismatch')
   call assert_equal_i32(cfg%surface_current%coupling_max_iterations, 20_i32, 'matching iteration limit mismatch')
   call assert_close_dp(cfg%surface_current%coupling_relaxation, 0.5_dp, 0.0_dp, 'matching relaxation mismatch')
+  call assert_true(all(cfg%surface_current%coupling_atol == 0.0_dp), 'default matching coupling atol mismatch')
   call assert_true( &
     all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'explicit', i=1, 3)]), &
     'matching-plane species must retain explicit surface charge closure' &
     )
+  call test_end()
+
+  call test_begin('matching_plane_accepts_implicit_zero_mode')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', &
+    'implicit_zero_mode = true', '', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true(cfg%surface_current%implicit_zero_mode, 'implicit zero-mode setting mismatch')
+  call assert_true(cfg%surface_current%has_implicit_zero_mode, 'implicit zero-mode presence mismatch')
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('matching_plane_retains_absolute_response_path')
@@ -133,6 +155,65 @@ program test_app_config_parser
     'matching-plane absolute response path mismatch' &
     )
   call assert_close_dp(cfg%surface_current%coupling_rtol, 0.25_dp, 0.0_dp, 'explicit matching rtol mismatch')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_accepts_component_absolute_tolerance')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', &
+    'coupling_atol = [0.0, 0.05, 0.0, 0.0]', '', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    all(cfg%surface_current%coupling_atol == [0.0_dp, 0.05_dp, 0.0_dp, 0.0_dp]), &
+    'explicit matching coupling atol mismatch' &
+    )
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_rejects_negative_component_absolute_tolerance')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', &
+    'coupling_atol = [0.0, -0.05, 0.0, 0.0]', '', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'coupling_atol entries must be finite and >= 0')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_accepts_zhao_online_backend')
+  call write_matching_online_variant(matching_variant_path, 'b', .false., '', '')
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true(trim(cfg%surface_current%response_backend) == 'zhao_online', 'online backend mismatch')
+  call assert_true(cfg%surface_current%has_response_backend, 'online backend presence mismatch')
+  call assert_true(trim(cfg%surface_current%zhao_branch) == 'b', 'online Zhao branch mismatch')
+  call assert_true(.not. cfg%surface_current%has_response_table_path, 'online backend must omit response table')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_rejects_response_table')
+  call write_matching_online_variant(matching_variant_path, 'auto', .true., '', '')
+  call assert_config_rejected(matching_variant_path, 'zhao_online" cannot use response_table_path')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_rejects_atol_on_inactive_axis')
+  call write_matching_online_variant( &
+    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'coupling_atol = [0.0, 0.0, 1.0, 0.0]' &
+    )
+  call assert_config_rejected(matching_variant_path, 'coupling_atol must be zero on inactive ambient-outward axes')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_rejects_nonunit_charge')
+  call write_matching_online_variant( &
+    matching_variant_path, 'auto', .false., 'q_particle = -1.602176634e-19', &
+    'q_particle = -3.204353268e-19' &
+    )
+  call assert_config_rejected(matching_variant_path, 'requires singly charged role species')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -277,14 +358,17 @@ program test_app_config_parser
 
 contains
 
-  subroutine write_zhao_variant(path, sim_line, replace_reservoir)
+  subroutine write_zhao_variant(path, sim_line, replace_reservoir, surface_line)
     character(len=*), intent(in) :: path, sim_line
     logical, intent(in) :: replace_reservoir
+    character(len=*), intent(in), optional :: surface_line
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
-    logical :: inserted_sim, replaced_reservoir
+    logical :: inserted_sim, inserted_surface, replaced_reservoir
 
     inserted_sim = len_trim(sim_line) == 0
+    inserted_surface = .not. present(surface_line)
+    if (present(surface_line)) inserted_surface = len_trim(surface_line) == 0
     replaced_reservoir = .not. replace_reservoir
     open (newunit=source_unit, file='examples/periodic2_zhao_fixed_current.toml', &
           status='old', action='read', iostat=ios)
@@ -304,10 +388,16 @@ contains
         write (output_unit, '(a)') trim(sim_line)
         inserted_sim = .true.
       end if
+      if (present(surface_line)) then
+        if (.not. inserted_surface .and. trim(line) == 'model = "zhao_stationary"') then
+          write (output_unit, '(a)') trim(surface_line)
+          inserted_surface = .true.
+        end if
+      end if
     end do
     close (source_unit)
     close (output_unit)
-    if (.not. inserted_sim .or. .not. replaced_reservoir) then
+    if (.not. inserted_sim .or. .not. inserted_surface .or. .not. replaced_reservoir) then
       error stop 'failed to specialize Zhao invalid-config fixture'
     end if
   end subroutine write_zhao_variant
@@ -404,6 +494,51 @@ contains
     end if
   end subroutine write_matching_variant
 
+  subroutine write_matching_online_variant(path, zhao_branch, keep_response_path, replacement_from, replacement_to)
+    character(len=*), intent(in) :: path, zhao_branch, replacement_from, replacement_to
+    logical, intent(in) :: keep_response_path
+    character(len=1024) :: line
+    integer :: source_unit, output_unit, ios
+    logical :: inserted_backend, inserted_branch, handled_response, replaced_value
+
+    inserted_backend = .false.
+    inserted_branch = len_trim(zhao_branch) == 0
+    handled_response = .false.
+    replaced_value = len_trim(replacement_from) == 0
+    open (newunit=source_unit, file='tests/fortran/matching_plane_quasistatic.toml', &
+          status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open matching-plane config fixture'
+    open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create online matching-plane config variant'
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (trim(line) == 'model = "matching_plane_quasistatic"') then
+        write (output_unit, '(a)') trim(line)
+        write (output_unit, '(a)') 'response_backend = "zhao_online"'
+        inserted_backend = .true.
+        if (.not. inserted_branch) then
+          write (output_unit, '(a)') 'zhao_branch = "'//trim(zhao_branch)//'"'
+          inserted_branch = .true.
+        end if
+      else if (trim(line) == 'response_table_path = "data/matching_response_table.csv"') then
+        handled_response = .true.
+        if (keep_response_path) write (output_unit, '(a)') trim(line)
+      else if (.not. replaced_value .and. trim(line) == trim(replacement_from)) then
+        write (output_unit, '(a)') trim(replacement_to)
+        replaced_value = .true.
+      else
+        write (output_unit, '(a)') trim(line)
+      end if
+    end do
+    close (source_unit)
+    close (output_unit)
+    if (.not. inserted_backend .or. .not. inserted_branch .or. .not. handled_response .or. &
+        .not. replaced_value) then
+      error stop 'failed to specialize online matching-plane config fixture'
+    end if
+  end subroutine write_matching_online_variant
+
   subroutine append_matching_fixed_current_species(path)
     character(len=*), intent(in) :: path
     integer :: output_unit, ios
@@ -462,7 +597,7 @@ contains
       saw_expected = saw_expected .or. index(child_line, trim(expected_fragment)) > 0
     end do
     close (child_unit)
-    call delete_file_if_exists(config_failure_path)
     call assert_true(saw_expected, 'config failure message mismatch: '//trim(expected_fragment))
+    call delete_file_if_exists(config_failure_path)
   end subroutine assert_config_rejected
 end program test_app_config_parser

@@ -1,9 +1,10 @@
 #:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
 
-# Level 3 matching-plane two-way coupling wiring example.
-# The bundled response CSV is synthetic and suitable only for interpolation,
-# fixed-point, restart, and output checks. Generate production tables with an
-# independently validated Zhao/1-D PIC outer-sheath solver.
+# Minimal built-in online Zhao matching-plane case.
+# This reduced finite-H quasistatic closure is not a full-VDF, PIC, or
+# time-dependent outer-sheath model.
+# H fixes the interface plane; it is not a wall-to-H distance constraint.
+# The weak PE source keeps this smoke case near the zero-field Zhao-B state.
 
 [sim]
 dt = 2.0e-12
@@ -40,7 +41,8 @@ lower_boundary_model = "symmetric_vacuum"
 
 [surface_current_model]
 model = "matching_plane_quasistatic"
-response_table_path = "matching_plane_response_synthetic.csv"
+response_backend = "zhao_online"
+zhao_branch = "auto"
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_species = "photoelectron"
@@ -84,7 +86,7 @@ z_high = "reservoir"
 [[particles.species]]
 species_key = "photoelectron"
 source_mode = "photo_raycast"
-emit_current_density_a_m2 = 1.0e-4
+emit_current_density_a_m2 = 1.0e-8
 rays_per_batch = 300
 deposit_opposite_charge_on_emit = true
 surface_charge_closure = "explicit"
@@ -115,5 +117,5 @@ center = [5.0e-5, 5.0e-5, 2.0e-6]
 write_files = true
 write_mesh_potential = true
 write_potential_history = true
-dir = "outputs/periodic2_matching_plane_quasistatic"
+dir = "outputs/periodic2_matching_plane_zhao_online"
 history_stride = 1

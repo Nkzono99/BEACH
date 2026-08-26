@@ -5,6 +5,7 @@ program test_mpi_hybrid
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, &
                      mpi_allreduce_sum_i64_array, mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, &
+                     mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array, &
                      mpi_bcast_i32_array, mpi_bcast_real_dp_array, mpi_gatherv_real_dp_array, &
                      mpi_world_barrier
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
@@ -20,6 +21,9 @@ program test_mpi_hybrid
   use bem_matching_plane_response, only: matching_plane_response_csv_header, matching_plane_response_ok, &
                                          preflight_matching_plane_response_mpi, &
                                          reset_matching_plane_response_snapshot_cache
+  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
+                                                  matching_plane_provider_ok, &
+                                                  matching_plane_provider_invalid_argument
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -28,7 +32,8 @@ program test_mpi_hybrid
 
   type(mpi_context) :: mpi
   type(mesh_type) :: mesh, mesh_restart
-  type(app_config) :: cfg, reservoir_cfg
+  type(app_config) :: cfg, reservoir_cfg, matching_provider_cfg
+  type(matching_plane_response_provider_type) :: matching_provider
   type(sim_stats) :: stats, stats_restart
   type(injection_state) :: state, state_restart, reservoir_state
   type(particles_soa) :: reservoir_particles
@@ -40,6 +45,8 @@ program test_mpi_hybrid
   integer(i32) :: n_lines, selected_rank, expected_rank, batch_idx, global_reservoir_count
   integer(i32) :: local_failure_values(4), selected_failure_values(4), reduced_min, reduced_max
   integer(i32) :: matching_response_status
+  real(dp) :: matching_provider_input(5), matching_provider_output(6)
+  real(dp) :: matching_provider_output_min(6), matching_provider_output_max(6)
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
@@ -115,7 +122,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -219,6 +226,112 @@ program test_mpi_hybrid
     call delete_file_if_exists(matching_response_a_path)
     call delete_file_if_exists(matching_response_b_path)
   end if
+  call mpi_world_barrier(mpi)
+  call test_end()
+
+  call test_begin('mpi_matching_plane_response_provider')
+  if (mpi_is_root(mpi)) then
+    call write_matching_provider_table_fixture(matching_response_a_path)
+  end if
+  call mpi_world_barrier(mpi)
+
+  call configure_matching_provider_fixture(matching_provider_cfg)
+  matching_provider_cfg%surface_current%response_backend = 'table'
+  matching_provider_cfg%surface_current%response_table_path = matching_response_a_path
+  call reset_matching_plane_response_snapshot_cache()
+  call matching_provider%initialize( &
+    matching_provider_cfg, mpi, matching_response_status, matching_response_message &
+    )
+  call assert_equal_i32( &
+    matching_response_status, matching_plane_provider_ok, &
+    'MPI table provider initialization failed: '//trim(matching_response_message) &
+    )
+
+  matching_provider_input = 0.0_dp
+  if (mpi%size > 1_i32 .and. .not. mpi_is_root(mpi)) matching_provider_input(1) = 1.0e-14_dp
+  call matching_provider%evaluate( &
+    matching_provider_input, mpi, matching_provider_output, &
+    matching_response_status, matching_response_message &
+    )
+  call assert_equal_i32( &
+    matching_response_status, matching_plane_provider_ok, &
+    'MPI table provider evaluation failed: '//trim(matching_response_message) &
+    )
+  matching_provider_output_min = matching_provider_output
+  matching_provider_output_max = matching_provider_output
+  call mpi_allreduce_min_real_dp_array(mpi, matching_provider_output_min)
+  call mpi_allreduce_max_real_dp_array(mpi, matching_provider_output_max)
+  call assert_true( &
+    all(matching_provider_output_min == matching_provider_output_max), &
+    'MPI table provider output differs across ranks' &
+    )
+  call assert_true( &
+    all(matching_provider_output == [1.25_dp, 2.0_dp, 3.0_dp, -4.0_dp, 0.0_dp, -1.0_dp]), &
+    'MPI table provider did not broadcast the root query result' &
+    )
+
+  matching_provider_cfg%surface_current%response_backend = 'zhao_online'
+  matching_provider_cfg%surface_current%response_table_path = ''
+  call matching_provider%initialize( &
+    matching_provider_cfg, mpi, matching_response_status, matching_response_message &
+    )
+  call assert_equal_i32( &
+    matching_response_status, matching_plane_provider_ok, &
+    'MPI online Zhao provider initialization failed: '//trim(matching_response_message) &
+    )
+
+  matching_provider_input = 0.0_dp
+  call matching_provider%evaluate( &
+    matching_provider_input, mpi, matching_provider_output, &
+    matching_response_status, matching_response_message &
+    )
+  call assert_equal_i32( &
+    matching_response_status, matching_plane_provider_ok, &
+    'MPI online Zhao provider evaluation failed: '//trim(matching_response_message) &
+    )
+  matching_provider_output_min = matching_provider_output
+  matching_provider_output_max = matching_provider_output
+  call mpi_allreduce_min_real_dp_array(mpi, matching_provider_output_min)
+  call mpi_allreduce_max_real_dp_array(mpi, matching_provider_output_max)
+  call assert_true( &
+    all(matching_provider_output_min == matching_provider_output_max), &
+    'MPI online Zhao provider output differs across ranks' &
+    )
+  call assert_close_dp(matching_provider_output(1), 0.0_dp, 0.0_dp, 'MPI online Zhao gauge mismatch')
+  call assert_true( &
+    all(matching_provider_output(2:3) > 0.0_dp), &
+    'MPI online Zhao provider did not return ambient inward fluxes' &
+    )
+  call assert_true( &
+    all(matching_provider_output(4:6) == 0.0_dp), &
+    'MPI online Zhao zero-feedback output mismatch' &
+    )
+
+  matching_provider_input = 0.0_dp
+  if (mpi%size > 1_i32 .and. .not. mpi_is_root(mpi)) matching_provider_input(1) = 1.0e-6_dp
+  call matching_provider%evaluate( &
+    matching_provider_input, mpi, matching_provider_output, &
+    matching_response_status, matching_response_message &
+    )
+  if (mpi%size > 1_i32) then
+    call assert_equal_i32( &
+      matching_response_status, matching_plane_provider_invalid_argument, &
+      'rank-local matching-plane query mismatch must fail on every rank' &
+      )
+    call assert_true( &
+      all(matching_provider_output == 0.0_dp), &
+      'rejected rank-local matching-plane query left a response output' &
+      )
+  else
+    call assert_equal_i32( &
+      matching_response_status, matching_plane_provider_ok, &
+      'single-rank matching-plane query should remain valid' &
+      )
+  end if
+
+  call reset_matching_plane_response_snapshot_cache()
+  call mpi_world_barrier(mpi)
+  if (mpi_is_root(mpi)) call delete_file_if_exists(matching_response_a_path)
   call mpi_world_barrier(mpi)
   call test_end()
 
@@ -408,6 +521,64 @@ contains
       matching_potential_v, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp, ',', 0.0_dp
     close (unit_id)
   end subroutine write_matching_response_fixture
+
+  subroutine write_matching_provider_table_fixture(path)
+    character(len=*), intent(in) :: path
+    integer :: unit_id, write_status
+    real(dp) :: root_row(11), nonroot_row(11)
+
+    root_row = [ &
+               0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, &
+               1.25_dp, 2.0_dp, 3.0_dp, -4.0_dp, 0.0_dp, -1.0_dp &
+               ]
+    nonroot_row = root_row
+    nonroot_row(1) = 1.0e-14_dp
+    nonroot_row(6) = 2.5_dp
+
+    open (newunit=unit_id, file=trim(path), status='replace', action='write', iostat=write_status)
+    if (write_status /= 0) error stop 'failed to create MPI matching-plane provider fixture'
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    write (unit_id, '(11(es24.16,:,","))') root_row
+    write (unit_id, '(11(es24.16,:,","))') nonroot_row
+    close (unit_id)
+  end subroutine write_matching_provider_table_fixture
+
+  subroutine configure_matching_provider_fixture(fixture_cfg)
+    type(app_config), intent(out) :: fixture_cfg
+
+    call default_app_config(fixture_cfg)
+    fixture_cfg%sim%box_max(3) = 1.0_dp
+    fixture_cfg%surface_current%model = 'matching_plane_quasistatic'
+    fixture_cfg%surface_current%zhao_branch = 'auto'
+    fixture_cfg%surface_current%electron_species = 'electron'
+    fixture_cfg%surface_current%ion_species = 'ion'
+    fixture_cfg%surface_current%photoelectron_species = 'photoelectron'
+    fixture_cfg%n_particle_species = 3_i32
+
+    fixture_cfg%particle_species(1) = species_from_defaults()
+    fixture_cfg%particle_species(1)%species_key = 'electron'
+    fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
+    fixture_cfg%particle_species(1)%drift_velocity(3) = -4.0529988897111727e5_dp
+    fixture_cfg%particle_species(1)%temperature_ev = 12.0_dp
+    fixture_cfg%particle_species(1)%has_temperature_ev = .true.
+
+    fixture_cfg%particle_species(2) = species_from_defaults()
+    fixture_cfg%particle_species(2)%species_key = 'ion'
+    fixture_cfg%particle_species(2)%q_particle = qe
+    fixture_cfg%particle_species(2)%m_particle = 1.67262192369e-27_dp
+    fixture_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
+    fixture_cfg%particle_species(2)%has_number_density_m3 = .true.
+    fixture_cfg%particle_species(2)%drift_velocity(3) = -4.0529988897111727e5_dp
+    fixture_cfg%particle_species(2)%temperature_ev = 0.1_dp
+    fixture_cfg%particle_species(2)%has_temperature_ev = .true.
+
+    fixture_cfg%particle_species(3) = species_from_defaults()
+    fixture_cfg%particle_species(3)%species_key = 'photoelectron'
+    fixture_cfg%particle_species(3)%m_particle = fixture_cfg%particle_species(1)%m_particle
+    fixture_cfg%particle_species(3)%temperature_ev = 3.0_dp
+    fixture_cfg%particle_species(3)%has_temperature_ev = .true.
+  end subroutine configure_matching_provider_fixture
 
   subroutine run_mpi_soft_discard_aggregation_test(mpi)
     type(mpi_context), intent(in) :: mpi

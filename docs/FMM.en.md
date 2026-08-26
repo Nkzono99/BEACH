@@ -246,7 +246,7 @@ step.
 - analytic triangle-P0 near interactions and exact P2M
 - Direct fallback outside the target tree for a free field
 - the physical periodic zero mode is added exactly once outside the FMM core
-- self-consistent outer-plasma/sheath models are unsupported
+- the FMM core itself does not solve the outer plasma/sheath; matching-plane closure is composed outside the core
 
 Coefficient arrays, interaction caches, translation precomputation, and parallel loops are documented in
 [Coulomb FMM internals](FMMCore.en.html). Follow [periodic2 Far Correction](PeriodicFarCorrection.en.html) for periodic-operator

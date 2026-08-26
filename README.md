@@ -11,6 +11,7 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 **テスト粒子追跡**を組み合わせた表面帯電シミュレータです。
 
 - `beach`: Fortran 製のシミュレーション実行バイナリ
+- `beach-zhao-response`: 組み込みZhaoモデルからmatching-plane応答表を作るFortran CLI
 - `beachx`: 設定検査、可視化、ワークロード見積もりなどの Python CLI
 - `beach/`: Fortran 出力を読むための Python ライブラリ
 
@@ -25,7 +26,7 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
 
 ## 必要なもの
 
-Python パッケージのインストール時に、Fortran 実行バイナリもビルドします。通常の
+Python パッケージのインストール時に、Fortran実行バイナリ`beach` / `beach-zhao-response`もビルドします。通常の
 `pip install` では `fpm` も隔離ビルド環境へ自動導入されるため、事前に必要なのは `make` と
 Fortran コンパイラです。
 
@@ -46,7 +47,7 @@ python -m pip install -U pip setuptools wheel
 python -m pip install beach-bem
 ```
 
-ユーザーインストール時に `beach` / `beachx` が見つからない場合は PATH を確認してください。
+ユーザーインストール時に`beach` / `beach-zhao-response` / `beachx`が見つからない場合はPATHを確認してください。
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -90,6 +91,7 @@ python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 | コマンド | 用途 |
 | --- | --- |
 | `beach beach.toml` | Fortran シミュレーションを実行 |
+| `beach-zhao-response beach.toml query-grid.csv response.csv` | 組み込みZhao応答をCSV表へ書き出す |
 | `beachx config init [path]` | 小さな実行可能設定を作成 |
 | `beachx lint beach.toml` | TOML / JSON Schema / BEACH 制約を検査 |
 | `beachx inspect outputs/latest` | 出力ディレクトリの概要表示 |

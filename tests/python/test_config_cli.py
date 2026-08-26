@@ -675,6 +675,7 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
 
     model = normalized["surface_current_model"]
     assert model["model"] == "matching_plane_quasistatic"
+    assert model.get("response_backend", "table") == "table"
     assert model["response_table_path"] == str(
         fixture.parent / "data/matching_response_table.csv"
     )
@@ -682,6 +683,25 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
         item["surface_charge_closure"] == "explicit"
         for item in normalized["particles"]["species"]
     )
+
+    explicit_table = copy.deepcopy(normalized)
+    explicit_table["surface_current_model"]["response_backend"] = "table"
+    assert normalize_config_document(explicit_table)["surface_current_model"][
+        "response_backend"
+    ] == "table"
+
+    implicit_zero_mode = copy.deepcopy(normalized)
+    implicit_zero_mode["surface_current_model"]["implicit_zero_mode"] = True
+    assert normalize_config_document(implicit_zero_mode)["surface_current_model"][
+        "implicit_zero_mode"
+    ] is True
+
+    implicit_symmetric_vacuum = copy.deepcopy(implicit_zero_mode)
+    implicit_symmetric_vacuum["periodic2"]["lower_boundary_model"] = (
+        "symmetric_vacuum"
+    )
+    with pytest.raises(ConfigValidationError, match="implicit_zero_mode.*e_bottom_zero"):
+        normalize_config_document(implicit_symmetric_vacuum)
 
     absolute_response = tmp_path / "outer-response.csv"
     absolute_config = tmp_path / "beach.toml"
@@ -791,11 +811,118 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
         normalize_config_document(disabled_with_matching_key)
 
 
+def _matching_plane_zhao_online_config() -> dict[str, object]:
+    root = Path(__file__).resolve().parents[2]
+    config = load_config_file(root / "tests/fortran/matching_plane_quasistatic.toml")
+    model = config["surface_current_model"]
+    model.pop("response_table_path")
+    model["response_backend"] = "zhao_online"
+    return config
+
+
+def test_matching_plane_zhao_online_config_contract() -> None:
+    implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
+    assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
+
+    for branch in ("auto", "a", "b", "c"):
+        config = _matching_plane_zhao_online_config()
+        config["surface_current_model"]["zhao_branch"] = branch
+        normalized = normalize_config_document(config)
+        model = normalized["surface_current_model"]
+        assert model["response_backend"] == "zhao_online"
+        assert model["zhao_branch"] == branch
+        assert "response_table_path" not in model
+
+    table_with_branch = load_config_file(
+        Path(__file__).resolve().parents[2]
+        / "tests/fortran/matching_plane_quasistatic.toml"
+    )
+    table_with_branch["surface_current_model"]["zhao_branch"] = "auto"
+    with pytest.raises(ConfigValidationError, match="Zhao-specific"):
+        normalize_config_document(table_with_branch)
+
+    online_with_table = _matching_plane_zhao_online_config()
+    online_with_table["surface_current_model"]["response_table_path"] = (
+        "outer-response.csv"
+    )
+    with pytest.raises(ConfigValidationError, match="response_table_path"):
+        normalize_config_document(online_with_table)
+
+    invalid_backend = _matching_plane_zhao_online_config()
+    invalid_backend["surface_current_model"]["response_backend"] = "unknown"
+    with pytest.raises(ConfigValidationError, match="response_backend"):
+        normalize_config_document(invalid_backend)
+
+    inactive_axis_atol = _matching_plane_zhao_online_config()
+    inactive_axis_atol["surface_current_model"]["coupling_atol"] = [
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+    ]
+    with pytest.raises(ConfigValidationError, match="inactive ambient-outward"):
+        normalize_config_document(inactive_axis_atol)
+
+    zhao_stationary = load_config_file(
+        Path(__file__).resolve().parents[2]
+        / "examples/periodic2_zhao_fixed_current.toml"
+    )
+    zhao_stationary["surface_current_model"]["response_backend"] = "zhao_online"
+    with pytest.raises(ConfigValidationError, match="matching-plane-specific"):
+        normalize_config_document(zhao_stationary)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("solar_elevation_deg", 60.0),
+        ("photoelectron_ref_density_m3", 1.0e6),
+        ("photoelectron_source_scale", 1.0),
+        ("reference_area_m2", 1.0),
+    ],
+)
+def test_matching_plane_zhao_online_rejects_stationary_zhao_settings(
+    key: str, value: object
+) -> None:
+    config = _matching_plane_zhao_online_config()
+    config["surface_current_model"][key] = value
+
+    with pytest.raises(ConfigValidationError, match="stationary-Zhao"):
+        normalize_config_document(config)
+
+
+@pytest.mark.parametrize(
+    ("role_index", "key", "value", "message"),
+    [
+        (0, "q_particle", -2.0 * 1.602176634e-19, "singly charged"),
+        (2, "m_particle", 2.0 * 9.1093837139e-31, "matching ambient-electron"),
+        (1, "m_particle", -1.0, "positive role-species masses"),
+        (0, "temperature_ev", 0.0, "positive electron temperature"),
+        (2, "temperature_ev", 0.0, "positive photoelectron temperature"),
+        (1, "temperature_ev", 2.0, "cold ions"),
+        (0, "drift_velocity", [0.0, 0.0, 0.0], "inward drift"),
+        (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "finite drift"),
+        (1, "number_density_cm3", 0.0, "finite and > 0"),
+    ],
+)
+def test_matching_plane_zhao_online_rejects_unsupported_species_contract(
+    role_index: int, key: str, value: object, message: str
+) -> None:
+    config = _matching_plane_zhao_online_config()
+    config["particles"]["species"][role_index][key] = value
+
+    with pytest.raises(ConfigValidationError, match=message):
+        normalize_config_document(config)
+
+
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
         ("coupling_rtol", 0.0, "coupling_rtol"),
         ("coupling_rtol", float("nan"), "coupling_rtol"),
+        ("coupling_atol", [0.0, 0.0, 0.0], "coupling_atol"),
+        ("coupling_atol", [0.0, -1.0, 0.0, 0.0], "coupling_atol"),
+        ("coupling_atol", [0.0, float("nan"), 0.0, 0.0], "coupling_atol"),
         ("coupling_max_iterations", 0, "coupling_max_iterations"),
         ("coupling_max_iterations", 1.5, "coupling_max_iterations"),
         ("coupling_relaxation", 1.1, "coupling_relaxation"),

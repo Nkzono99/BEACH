@@ -17,6 +17,8 @@ module bem_app_config_types
   !> 外部シース電流またはmatching-plane応答を与えるモデルの共通設定。
   type :: surface_current_model_config
     character(len=32) :: model = 'none'
+    character(len=16) :: response_backend = 'table'
+    logical :: has_response_backend = .false.
     character(len=16) :: zhao_branch = 'auto'
     logical :: has_zhao_branch = .false.
     character(len=64) :: electron_species = ''
@@ -35,8 +37,12 @@ module bem_app_config_types
     logical :: has_reference_area_m2 = .false.
     character(len=256) :: response_table_path = ''
     logical :: has_response_table_path = .false.
+    logical :: implicit_zero_mode = .false.
+    logical :: has_implicit_zero_mode = .false.
     real(dp) :: coupling_rtol = 1.0e-4_dp
     logical :: has_coupling_rtol = .false.
+    real(dp) :: coupling_atol(4) = 0.0_dp
+    logical :: has_coupling_atol = .false.
     integer(i32) :: coupling_max_iterations = 20_i32
     logical :: has_coupling_max_iterations = .false.
     real(dp) :: coupling_relaxation = 0.5_dp

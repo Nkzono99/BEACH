@@ -65,13 +65,14 @@ reservoir 基準電位として整合させてください。
 
 ## matching planeの外部barrier
 
-`matching_plane_quasistatic`は通常の`ordinary_open_model`とは別に、応答表が返すelectron / ionのaccess電位と
+`matching_plane_quasistatic`は通常の`ordinary_open_model`とは別に、選択したresponse backendが返す
+electron / ionのaccess電位と
 PEの最大外部barrierをz-highへ適用します。外向き粒子の判定式は同じscalar energy testですが、基準値は各固定点反復で
 更新されます。PEが反射すればreturn、通過すればescapeとして別々に集約し、両者の和を実際のoutward crossingと照合します。
 
 returnは同じz-high位置で即時に法線速度を反転する準定常近似です。outer turning位置、flight time、横方向変位は
 保持しません。このmodelを使うcaseではmanualな`potential_barrier`やclosed PE reflectionを重ねません。
-[matching-plane準定常連成](MatchingPlaneCoupling.html)に応答列と適用限界をまとめています。
+[matching-plane準定常連成](MatchingPlaneCoupling.html)に応答値と適用限界をまとめています。
 
 ## 閉じた光電子の return
 

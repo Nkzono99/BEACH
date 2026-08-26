@@ -77,7 +77,7 @@ make install-generic
 通常は`build.sh`経由の`make run`と`make check`を使います。低レベル確認だけに次を使います。
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
+fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 ## 変更をテストする

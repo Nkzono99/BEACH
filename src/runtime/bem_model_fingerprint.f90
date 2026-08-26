@@ -123,15 +123,36 @@ contains
         call feed_real(hash, cfg%surface_current%coupling_rtol)
         call feed_integer(hash, cfg%surface_current%coupling_max_iterations)
         call feed_real(hash, cfg%surface_current%coupling_relaxation)
-        call get_matching_plane_response_content_fingerprint( &
-          trim(cfg%surface_current%response_table_path), matching_content_fingerprint, &
-          matching_status, matching_message &
-          )
-        if (matching_status /= matching_plane_response_ok) then
-          error stop 'model fingerprint could not load matching-plane response: '//trim(matching_message)
+        if (cfg%surface_current%implicit_zero_mode) then
+          call feed_string(hash, 'matching_plane_implicit_zero_mode_v1')
         end if
-        call feed_string(hash, 'matching_plane_response_content_v1')
-        call feed_string(hash, matching_content_fingerprint)
+        if (any(cfg%surface_current%coupling_atol /= 0.0_dp)) then
+          call feed_string(hash, 'matching_plane_coupling_atol_v1')
+          call feed_real_vector(hash, cfg%surface_current%coupling_atol)
+        end if
+        select case (trim(lower_ascii(cfg%surface_current%response_backend)))
+        case ('table')
+          ! Keep this feed sequence byte-for-byte compatible with the original
+          ! matching-plane table contract.  In particular, do not feed the new
+          ! default response_backend value here.
+          call get_matching_plane_response_content_fingerprint( &
+            trim(cfg%surface_current%response_table_path), matching_content_fingerprint, &
+            matching_status, matching_message &
+            )
+          if (matching_status /= matching_plane_response_ok) then
+            error stop 'model fingerprint could not load matching-plane response: '//trim(matching_message)
+          end if
+          call feed_string(hash, 'matching_plane_response_content_v1')
+          call feed_string(hash, matching_content_fingerprint)
+        case ('zhao_online')
+          call feed_string(hash, 'matching_plane_zhao_online_v1')
+          call feed_string(hash, 'charge_driven_finite_h_sagdeev')
+          call feed_string(hash, 'photoelectron_moment_matched_half_maxwellian')
+          call feed_string(hash, 'ambient_outward_feedback_transparent')
+          call feed_string(hash, 'stateless_branch_selection')
+        case default
+          error stop 'model fingerprint encountered an unknown matching-plane response backend.'
+        end select
       end if
     end if
     fingerprint = finish_hash(hash)

@@ -37,8 +37,8 @@ mode = "periodic2"
 | `cached_kneq0` | Build and reuse a versioned operator | Production infinite-periodic nonzero modes |
 
 `cached_kneq0` does not determine the z-directed plane-average `k=0` field. Field composition adds the physical `k=0` exactly
-once as described in [periodic2 electrostatics](PeriodicElectrostatics.en.html). Self-consistent outer-plasma/sheath models are
-unsupported.
+once as described in [periodic2 electrostatics](PeriodicElectrostatics.en.html). The operator itself does not solve the
+outer plasma/sheath; the selected matching-plane response is composed in a separate coupling layer from zero-mode construction.
 `m2l_root_oracle` has been removed and is rejected at startup with guidance to use `cached_kneq0`.
 
 ## Evaluate the finite image shell with ordinary FMM

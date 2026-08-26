@@ -112,4 +112,4 @@ BEACH_VERSION_MODE="${BEACH_VERSION_MODE:-git}" \
   PREFIX="${PREFIX}" \
   "${ROOT_DIR}/build.sh" --compiler "${FPM_FC}"
 
-echo "[install.sh] done: ${PREFIX}/bin/beach"
+echo "[install.sh] done: ${PREFIX}/bin/beach, ${PREFIX}/bin/beach-zhao-response"

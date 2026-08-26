@@ -6,7 +6,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 This page is the canonical `periodic2` setup for studying regolith charging and photoelectron surface redistribution with a
 boundary reservoir + closed PE. The solar-wind VDF is defined at z-high, only photoelectrons are closed, and potential is read
-relative to the z-high plane mean. BEACH does not solve a self-consistent outer-plasma/sheath model.
+relative to the z-high plane mean. This baseline does not enable a matching-plane outer-sheath closure.
 
 ## Distinguish the two configurations first
 

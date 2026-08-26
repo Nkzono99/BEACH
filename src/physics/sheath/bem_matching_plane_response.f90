@@ -33,12 +33,15 @@ module bem_matching_plane_response
   integer(i32), parameter, public :: matching_plane_output_ion_access_potential = 5_i32
   integer(i32), parameter, public :: matching_plane_output_photoelectron_barrier_potential = 6_i32
 
-  character(len=*), parameter, public :: matching_plane_response_csv_header = &
+  character(len=*), parameter, public :: matching_plane_response_query_csv_header = &
                                          'displacement_c_m2,'// &
                                          'photoelectron_outward_number_flux_m2_s,'// &
                                          'photoelectron_outward_mean_normal_energy_ev,'// &
                                          'electron_outward_number_flux_m2_s,'// &
-                                         'ion_outward_number_flux_m2_s,'// &
+                                         'ion_outward_number_flux_m2_s'
+
+  character(len=*), parameter, public :: matching_plane_response_csv_header = &
+                                         matching_plane_response_query_csv_header//','// &
                                          'matching_potential_v,'// &
                                          'electron_inward_number_flux_m2_s,'// &
                                          'ion_inward_number_flux_m2_s,'// &
@@ -53,12 +56,13 @@ module bem_matching_plane_response
   integer(i64), parameter :: content_hash_multiplier_a = 65599_i64
   integer(i64), parameter :: content_hash_multiplier_b = 131071_i64
   character(len=*), parameter :: matching_plane_z_prefix = '# matching_plane_z_m='
-  character(len=52), parameter :: input_names(matching_plane_response_input_count) = [character(len=52) :: &
-                                                                                      'displacement_c_m2', &
-                                                                                      'photoelectron_outward_number_flux_m2_s', &
-                                                                                    'photoelectron_outward_mean_normal_energy_ev', &
-                                                                                      'electron_outward_number_flux_m2_s', &
-                                                                                      'ion_outward_number_flux_m2_s']
+  character(len=52), parameter :: input_names(matching_plane_response_input_count) = &
+                                  [character(len=52) :: &
+                                   'displacement_c_m2', &
+                                   'photoelectron_outward_number_flux_m2_s', &
+                                   'photoelectron_outward_mean_normal_energy_ev', &
+                                   'electron_outward_number_flux_m2_s', &
+                                   'ion_outward_number_flux_m2_s']
 
   type :: matching_plane_axis_type
     real(dp), allocatable :: values(:)
@@ -612,6 +616,7 @@ contains
       call unique_sorted_values(rows(axis, :), axis_data(axis)%values)
       table%axis_sizes(axis) = int(size(axis_data(axis)%values), i32)
       if (axis >= matching_plane_input_photoelectron_outward_flux .and. &
+          table%axis_sizes(axis) > 1_i32 .and. &
           .not. any(axis_data(axis)%values == 0.0_dp)) then
         call reject( &
           matching_plane_response_invalid_grid, &

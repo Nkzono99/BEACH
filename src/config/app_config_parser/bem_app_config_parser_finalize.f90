@@ -1,5 +1,6 @@
 !> 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_constants, only: qe
   use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face, &
                                 species_number_density_m3, species_temperature_k
@@ -492,7 +493,7 @@ contains
   end if
   call derive_field_panel_config(cfg%sim, field_config, panel_config)
   call validate_active_physics_config(cfg%sim, field_config, cfg%periodic2, panel_config, physics_status, physics_message)
-  if (physics_status /= physics_config_ok) error stop trim(physics_message)
+  if (physics_status /= physics_config_ok) call stop_config_error(physics_message)
   end procedure finalize_loaded_config
 
   logical function is_automatic_current_species(cfg, species_idx) result(selected)
@@ -528,12 +529,18 @@ contains
     case default
       error stop 'surface_current_model.model must be "none", "zhao_stationary", or "matching_plane_quasistatic".'
     end select
-    if (cfg%surface_current%has_response_table_path .or. &
+    if (cfg%surface_current%has_response_backend .or. &
+        cfg%surface_current%has_response_table_path .or. &
+        cfg%surface_current%has_implicit_zero_mode .or. &
         cfg%surface_current%has_coupling_rtol .or. &
+        cfg%surface_current%has_coupling_atol .or. &
         cfg%surface_current%has_coupling_max_iterations .or. &
         cfg%surface_current%has_coupling_relaxation .or. &
+        trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table' .or. &
         len_trim(cfg%surface_current%response_table_path) > 0 .or. &
+        cfg%surface_current%implicit_zero_mode .or. &
         cfg%surface_current%coupling_rtol /= 1.0e-4_dp .or. &
+        any(cfg%surface_current%coupling_atol /= 0.0_dp) .or. &
         cfg%surface_current%coupling_max_iterations /= 20_i32 .or. &
         cfg%surface_current%coupling_relaxation /= 0.5_dp) then
       error stop 'surface_current_model="zhao_stationary" cannot use matching-plane-specific settings.'
@@ -684,7 +691,8 @@ contains
   logical function has_surface_current_model_settings(cfg) result(has_settings)
     type(app_config), intent(in) :: cfg
 
-    has_settings = cfg%surface_current%has_zhao_branch .or. &
+    has_settings = cfg%surface_current%has_response_backend .or. &
+                   cfg%surface_current%has_zhao_branch .or. &
                    cfg%surface_current%has_electron_species .or. &
                    cfg%surface_current%has_ion_species .or. &
                    cfg%surface_current%has_photoelectron_species .or. &
@@ -693,19 +701,24 @@ contains
                    cfg%surface_current%has_photoelectron_source_scale .or. &
                    cfg%surface_current%has_reference_area_m2 .or. &
                    cfg%surface_current%has_response_table_path .or. &
+                   cfg%surface_current%has_implicit_zero_mode .or. &
                    cfg%surface_current%has_coupling_rtol .or. &
+                   cfg%surface_current%has_coupling_atol .or. &
                    cfg%surface_current%has_coupling_max_iterations .or. &
                    cfg%surface_current%has_coupling_relaxation .or. &
                    len_trim(cfg%surface_current%electron_species) > 0 .or. &
                    len_trim(cfg%surface_current%ion_species) > 0 .or. &
                    len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
+                   trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table' .or. &
                    len_trim(cfg%surface_current%response_table_path) > 0 .or. &
+                   cfg%surface_current%implicit_zero_mode .or. &
                    trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
                    cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
                    cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp .or. &
                    cfg%surface_current%photoelectron_source_scale /= 1.0_dp .or. &
                    cfg%surface_current%reference_area_m2 /= 0.0_dp .or. &
                    cfg%surface_current%coupling_rtol /= 1.0e-4_dp .or. &
+                   any(cfg%surface_current%coupling_atol /= 0.0_dp) .or. &
                    cfg%surface_current%coupling_max_iterations /= 20_i32 .or. &
                    cfg%surface_current%coupling_relaxation /= 0.5_dp
   end function has_surface_current_model_settings
@@ -715,25 +728,55 @@ contains
     logical, intent(in) :: periodic2_split_explicit
     integer :: electron_idx, ion_idx, photo_idx, species_idx
 
-    if (cfg%surface_current%has_zhao_branch .or. &
-        cfg%surface_current%has_solar_elevation_deg .or. &
+    if (cfg%surface_current%has_solar_elevation_deg .or. &
         cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
         cfg%surface_current%has_photoelectron_source_scale .or. &
         cfg%surface_current%has_reference_area_m2 .or. &
-        trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
         cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
         cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp .or. &
         cfg%surface_current%photoelectron_source_scale /= 1.0_dp .or. &
         cfg%surface_current%reference_area_m2 /= 0.0_dp) then
-      error stop 'surface_current_model="matching_plane_quasistatic" cannot use Zhao-specific settings or reference_area_m2.'
+      error stop 'matching_plane_quasistatic cannot use stationary-Zhao source settings or reference_area_m2.'
     end if
-    if (.not. cfg%surface_current%has_response_table_path .or. &
-        len_trim(cfg%surface_current%response_table_path) == 0) then
-      error stop 'surface_current_model="matching_plane_quasistatic" requires response_table_path.'
+    select case (trim(lower_ascii(cfg%surface_current%response_backend)))
+    case ('table')
+      if (cfg%surface_current%has_zhao_branch .or. &
+          trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto') then
+        error stop 'matching_plane_quasistatic response_backend="table" cannot use Zhao-specific settings such as zhao_branch.'
+      end if
+      if (.not. cfg%surface_current%has_response_table_path .or. &
+          len_trim(cfg%surface_current%response_table_path) == 0) then
+        error stop 'matching_plane_quasistatic response_backend="table" requires response_table_path.'
+      end if
+    case ('zhao_online')
+      if (cfg%surface_current%has_response_table_path .or. &
+          len_trim(cfg%surface_current%response_table_path) > 0) then
+        error stop 'matching_plane_quasistatic response_backend="zhao_online" cannot use response_table_path.'
+      end if
+      select case (trim(lower_ascii(cfg%surface_current%zhao_branch)))
+      case ('auto', 'a', 'b', 'c')
+        continue
+      case default
+        error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
+      end select
+    case default
+      error stop 'surface_current_model.response_backend must be "table" or "zhao_online".'
+    end select
+    if (cfg%surface_current%implicit_zero_mode) then
+      if (trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table') then
+        error stop 'surface_current_model.implicit_zero_mode requires response_backend="table".'
+      end if
+      if (trim(lower_ascii(cfg%periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
+        error stop 'surface_current_model.implicit_zero_mode requires periodic2.lower_boundary_model="e_bottom_zero".'
+      end if
     end if
     if (.not. ieee_is_finite(cfg%surface_current%coupling_rtol) .or. &
         cfg%surface_current%coupling_rtol <= 0.0_dp .or. cfg%surface_current%coupling_rtol > 1.0_dp) then
       error stop 'surface_current_model.coupling_rtol must be finite and in (0, 1].'
+    end if
+    if (any(.not. ieee_is_finite(cfg%surface_current%coupling_atol)) .or. &
+        any(cfg%surface_current%coupling_atol < 0.0_dp)) then
+      error stop 'surface_current_model.coupling_atol entries must be finite and >= 0.'
     end if
     if (cfg%surface_current%coupling_max_iterations < 1_i32) then
       error stop 'surface_current_model.coupling_max_iterations must be >= 1.'
@@ -825,7 +868,65 @@ contains
     call validate_matching_species_boundaries(cfg, electron_idx, 'electron')
     call validate_matching_species_boundaries(cfg, ion_idx, 'ion')
     call validate_matching_species_boundaries(cfg, photo_idx, 'photoelectron')
+    if (trim(lower_ascii(cfg%surface_current%response_backend)) == 'zhao_online') then
+      call validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx)
+    end if
   end subroutine validate_matching_plane_config
+
+  subroutine validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx)
+    type(app_config), intent(in) :: cfg
+    integer, intent(in) :: electron_idx, ion_idx, photo_idx
+    real(dp) :: electron_mass, photoelectron_mass
+    real(dp) :: electron_temperature, ion_temperature, photoelectron_temperature
+    real(dp) :: ion_density
+
+    if (any(cfg%surface_current%coupling_atol(3:4) > 0.0_dp)) then
+      error stop 'matching_plane_quasistatic zhao_online coupling_atol must be zero on inactive ambient-outward axes.'
+    end if
+
+    if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%q_particle) .or. &
+        .not. ieee_is_finite(cfg%particle_species(ion_idx)%q_particle) .or. &
+        .not. ieee_is_finite(cfg%particle_species(photo_idx)%q_particle) .or. &
+        abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+        abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+      error stop 'matching_plane_quasistatic zhao_online requires singly charged role species.'
+    end if
+
+    electron_mass = cfg%particle_species(electron_idx)%m_particle
+    photoelectron_mass = cfg%particle_species(photo_idx)%m_particle
+    if (.not. ieee_is_finite(electron_mass) .or. electron_mass <= 0.0_dp .or. &
+        .not. ieee_is_finite(photoelectron_mass) .or. photoelectron_mass <= 0.0_dp .or. &
+        abs(photoelectron_mass - electron_mass) > 1.0e-6_dp*electron_mass) then
+      error stop 'matching_plane_quasistatic zhao_online requires matching ambient-electron and photoelectron masses.'
+    end if
+
+    electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
+    ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
+    photoelectron_temperature = species_temperature_k(cfg%particle_species(photo_idx))
+    if (.not. ieee_is_finite(electron_temperature) .or. electron_temperature <= 0.0_dp) then
+      error stop 'matching_plane_quasistatic zhao_online requires a positive electron temperature.'
+    end if
+    if (.not. ieee_is_finite(photoelectron_temperature) .or. photoelectron_temperature <= 0.0_dp) then
+      error stop 'matching_plane_quasistatic zhao_online requires a positive photoelectron temperature.'
+    end if
+    if (.not. ieee_is_finite(ion_temperature) .or. ion_temperature < 0.0_dp .or. &
+        ion_temperature > 0.1_dp*electron_temperature) then
+      error stop 'matching_plane_quasistatic zhao_online requires cold ions with T_i <= 0.1 T_e.'
+    end if
+
+    if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%drift_velocity(3)) .or. &
+        .not. ieee_is_finite(cfg%particle_species(ion_idx)%drift_velocity(3)) .or. &
+        cfg%particle_species(electron_idx)%drift_velocity(3) >= 0.0_dp .or. &
+        cfg%particle_species(ion_idx)%drift_velocity(3) >= 0.0_dp) then
+      error stop 'matching_plane_quasistatic zhao_online requires positive ambient inward drift at z-high.'
+    end if
+
+    ion_density = species_number_density_m3(cfg%particle_species(ion_idx))
+    if (.not. ieee_is_finite(ion_density) .or. ion_density <= 0.0_dp) then
+      error stop 'matching_plane_quasistatic zhao_online requires a positive ion number density.'
+    end if
+  end subroutine validate_matching_plane_zhao_online
 
   subroutine validate_matching_species(cfg, species_idx, role)
     type(app_config), intent(in) :: cfg
@@ -833,7 +934,9 @@ contains
     character(len=*), intent(in) :: role
 
     if (trim(lower_ascii(cfg%particle_species(species_idx)%surface_charge_closure)) /= 'explicit') then
-      error stop 'matching_plane_quasistatic '//trim(role)//' species requires surface_charge_closure="explicit".'
+      call stop_config_error( &
+        'matching_plane_quasistatic '//trim(role)//' species requires surface_charge_closure="explicit".' &
+        )
     end if
   end subroutine validate_matching_species
 
@@ -847,8 +950,10 @@ contains
         any(cfg%particle_species(species_idx)%boundary_inflow_low /= particle_inflow_none) .or. &
         any(cfg%particle_species(species_idx)%boundary_inflow_high(1:2) /= particle_inflow_none) .or. &
         cfg%particle_species(species_idx)%boundary_inflow_high(3) /= particle_inflow_reservoir) then
-      error stop 'matching_plane_quasistatic '//trim(role)// &
-        ' species requires volume_seed, npcls_per_step=0, and only z-high boundary_inflow="reservoir".'
+      call stop_config_error( &
+        'matching_plane_quasistatic '//trim(role)// &
+        ' species requires volume_seed, npcls_per_step=0, and only z-high boundary_inflow="reservoir".' &
+        )
     end if
   end subroutine validate_matching_ambient_source
 
@@ -864,8 +969,10 @@ contains
       )
     if (.not. all(effective_boundary_low == [bc_periodic, bc_periodic, bc_open]) .or. &
         .not. all(effective_boundary_high == [bc_periodic, bc_periodic, bc_open])) then
-      error stop 'matching_plane_quasistatic '//trim(role)// &
-        ' species requires x/y periodic and z-low/z-high open particle boundaries.'
+      call stop_config_error( &
+        'matching_plane_quasistatic '//trim(role)// &
+        ' species requires x/y periodic and z-low/z-high open particle boundaries.' &
+        )
     end if
   end subroutine validate_matching_species_boundaries
 
@@ -881,7 +988,7 @@ contains
       species_idx = idx
       return
     end do
-    error stop 'surface_current_model references an unknown or disabled species: '//trim(species_key)
+    call stop_config_error('surface_current_model references an unknown or disabled species: '//trim(species_key))
   end function find_species_index
 
   subroutine validate_automatic_current_species(cfg, species_idx, role)
@@ -890,7 +997,9 @@ contains
     character(len=*), intent(in) :: role
 
     if (trim(cfg%particle_species(species_idx)%surface_charge_closure) /= 'fixed_current') then
-      error stop 'surface_current_model '//trim(role)//' species requires surface_charge_closure="fixed_current".'
+      call stop_config_error( &
+        'surface_current_model '//trim(role)//' species requires surface_charge_closure="fixed_current".' &
+        )
     end if
     if (cfg%particle_species(species_idx)%has_target_absorbed_current_a .or. &
         cfg%particle_species(species_idx)%has_target_emission_current_a) then
@@ -913,10 +1022,10 @@ contains
     case (particle_bc_inherit, bc_open, bc_reflect, bc_redistributed_reflect)
       continue
     case default
-      error stop trim(context)//' must be inherit, open, reflect, or redistributed_reflect.'
+      call stop_config_error(trim(context)//' must be inherit, open, reflect, or redistributed_reflect.')
     end select
     if (topology_action == bc_periodic .and. action /= particle_bc_inherit) then
-      error stop trim(context)//' cannot override a periodic domain face.'
+      call stop_config_error(trim(context)//' cannot override a periodic domain face.')
     end if
   end subroutine validate_particle_boundary_override
 
@@ -930,14 +1039,23 @@ contains
     case (particle_inflow_reservoir)
       continue
     case default
-      error stop trim(context)//' must be none or reservoir.'
+      call stop_config_error(trim(context)//' must be none or reservoir.')
     end select
     if (effective_topology_action == bc_periodic) then
-      error stop trim(context)//' cannot inject through a periodic domain face.'
+      call stop_config_error(trim(context)//' cannot inject through a periodic domain face.')
     end if
     if (effective_particle_action /= bc_open) then
-      error stop trim(context)//' requires the effective particle action to be open.'
+      call stop_config_error(trim(context)//' requires the effective particle action to be open.')
     end if
   end subroutine validate_particle_boundary_inflow
+
+  !> Intel Fortran でも動的な設定エラー本文を確実に出力して停止する。
+  subroutine stop_config_error(message)
+    character(len=*), intent(in) :: message
+
+    write (error_unit, '(a)') trim(message)
+    flush (error_unit)
+    error stop 1
+  end subroutine stop_config_error
 
 end submodule bem_app_config_parser_finalize

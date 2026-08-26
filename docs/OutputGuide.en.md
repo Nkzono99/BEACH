@@ -45,17 +45,33 @@ velocity-space boundary map paired with the Zhao currents. Face indices are
 For `matching_plane_quasistatic`, inspect accepted-batch `matching_plane_*` fields instead of static
 `surface_current_model_*` current targets. `matching_plane_displacement_C_m2` and `matching_plane_phi_V` are the
 electromagnetic interface values. The electron/ion inward fluxes, access potentials, and PE barrier potential are
-response-table outputs. The four outward flux or energy fields are fixed-point feedback, while
+outputs of the selected response backend. The four outward flux or energy fields are fixed-point feedback, while
 `matching_plane_iterations` and `matching_plane_residual` are numerical convergence receipts. Compare
 `matching_plane_photoelectron_return_flux_m2_s` and `matching_plane_photoelectron_escape_flux_m2_s` with the outward PE
 flux from the same batch.
-`surface_current_model_response_content_fingerprint` identifies the canonical contents of the loaded table. Establish
-run provenance with `surface_current_model_response_table_path`, `surface_current_model_matching_plane_z_m`,
+Establish common run provenance with `surface_current_model_response_backend`,
+`surface_current_model_matching_plane_z_m`,
 `surface_current_model_electron_species`, `surface_current_model_ion_species`, and
 `surface_current_model_photoelectron_species`.
 The iteration contract is recorded in `surface_current_model_coupling_rtol`,
-`surface_current_model_coupling_max_iterations`, and `surface_current_model_coupling_relaxation`; the state source is
-`surface_current_model_dynamic_state_source=accepted_batch_fixed_point`. When `matching_plane_state_valid` is false,
+`surface_current_model_coupling_atol`, `surface_current_model_coupling_max_iterations`, and
+`surface_current_model_coupling_relaxation`; the state source is
+`surface_current_model_dynamic_state_source=accepted_batch_fixed_point`.
+The four `surface_current_model_coupling_atol` values are ordered as outward PE flux [m^-2 s^-1], PE mean normal
+energy [eV], outward electron flux [m^-2 s^-1], and outward ion flux [m^-2 s^-1]. They default to zero, and inactive
+components must remain zero. Each active component uses
+`max(coupling_rtol * backend_scale, coupling_atol)` as its threshold. An absolute-tolerance-dominated component is
+converted to an effective residual, so an accepted state's `matching_plane_residual` remains no greater than
+`surface_current_model_coupling_rtol`.
+Only the table backend records `surface_current_model_response_table_path` and
+`surface_current_model_response_content_fingerprint`; the latter identifies the canonical contents of the loaded table.
+The online backend records `surface_current_model_response_contract=matching_plane_zhao_online_v1`,
+`surface_current_model_zhao_branch`,
+`surface_current_model_outer_solver=charge_driven_finite_h_sagdeev`,
+`surface_current_model_photoelectron_closure=moment_matched_half_maxwellian`,
+`surface_current_model_ambient_outward_feedback=transparent`, and
+`surface_current_model_outer_solver_state=stateless`.
+When `matching_plane_state_valid` is false,
 do not treat the other `matching_plane_*` values in that summary as an accepted state.
 The $D_H$ and $\Phi_H$ in each record correspond to the pre-commit surface-charge state used to track that batch.
 `simulated_time_s` is the time after accepting and advancing the trial; do not interpret these values as the post-commit
@@ -177,7 +193,8 @@ rejects that directory and falls back to the complete periodic slot.
 Checkpoint schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
 `1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.
 Schema v9 stores the accepted matching-plane feedback and iteration receipt in `summary.txt`. The model fingerprint
-includes the canonical response-table contents, so a checkpoint cannot resume after the file is changed in place.
+includes canonical response-table contents for the table backend, or the Zhao contract and branch policy for the online
+backend. A checkpoint cannot resume after those inputs change.
 
 ## Reading from Python
 

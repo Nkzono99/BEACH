@@ -40,7 +40,7 @@ Fortran main (recommended):
 
 Fortran main (developer direct run):
 - `make`
-- `fpm run --profile release --flag "-fopenmp" -- examples/beach.toml`
+- `fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml`
 
 Python CLI examples:
 - `beach-inspect outputs/latest`

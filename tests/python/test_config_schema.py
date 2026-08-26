@@ -227,6 +227,18 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
 
     assert schema_errors(matching, schema) == []
 
+    with_atol = copy.deepcopy(matching)
+    with_atol["surface_current_model"]["coupling_atol"] = [0.0, 0.05, 0.0, 0.0]
+    assert schema_errors(with_atol, schema) == []
+
+    invalid_atol = copy.deepcopy(matching)
+    invalid_atol["surface_current_model"]["coupling_atol"] = [0.0, -0.05, 0.0, 0.0]
+    assert schema_errors(invalid_atol, schema)
+
+    explicit_table = copy.deepcopy(matching)
+    explicit_table["surface_current_model"]["response_backend"] = "table"
+    assert schema_errors(explicit_table, schema) == []
+
     missing_response = copy.deepcopy(matching)
     missing_response["surface_current_model"].pop("response_table_path")
     assert schema_errors(missing_response, schema)
@@ -234,6 +246,24 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     zhao_key = copy.deepcopy(matching)
     zhao_key["surface_current_model"]["zhao_branch"] = "auto"
     assert schema_errors(zhao_key, schema)
+
+    zhao_online = copy.deepcopy(matching)
+    zhao_online["surface_current_model"].pop("response_table_path")
+    zhao_online["surface_current_model"]["response_backend"] = "zhao_online"
+    assert schema_errors(zhao_online, schema) == []
+
+    zhao_online["surface_current_model"]["zhao_branch"] = "b"
+    assert schema_errors(zhao_online, schema) == []
+
+    online_with_table = copy.deepcopy(zhao_online)
+    online_with_table["surface_current_model"]["response_table_path"] = (
+        "outer-response.csv"
+    )
+    assert schema_errors(online_with_table, schema)
+
+    invalid_backend = copy.deepcopy(zhao_online)
+    invalid_backend["surface_current_model"]["response_backend"] = "unknown"
+    assert schema_errors(invalid_backend, schema)
 
     reference_area = copy.deepcopy(matching)
     reference_area["surface_current_model"]["reference_area_m2"] = 1.0
@@ -256,6 +286,12 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     zhao = load_toml_file(ROOT / "examples/periodic2_zhao_fixed_current.toml")
     zhao["surface_current_model"]["response_table_path"] = "outer-response.csv"
     assert schema_errors(zhao, schema)
+
+    zhao_backend = load_toml_file(
+        ROOT / "examples/periodic2_zhao_fixed_current.toml"
+    )
+    zhao_backend["surface_current_model"]["response_backend"] = "zhao_online"
+    assert schema_errors(zhao_backend, schema)
 
 
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:

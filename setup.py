@@ -20,23 +20,27 @@ except Exception:
 
 ROOT_DIR = Path(__file__).resolve().parent
 INSTALL_PREFIX = Path(os.environ.get("BEACH_PIP_PREFIX", ROOT_DIR / "build" / "pip-install"))
-BIN_BASE = INSTALL_PREFIX / "bin" / "beach"
-CANDIDATES = (BIN_BASE, BIN_BASE.with_suffix(".exe"))
-_BUILT_BINARY: Path | None = None
+BIN_NAMES = ("beach", "beach-zhao-response")
+BIN_BASES = tuple(INSTALL_PREFIX / "bin" / name for name in BIN_NAMES)
+_BUILT_BINARIES: tuple[Path, ...] | None = None
 
 
 def _which(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
-def _built_binary() -> Path | None:
-    for path in CANDIDATES:
-        if path.exists():
-            return path
-    return None
+def _built_binaries() -> tuple[Path, ...] | None:
+    resolved: list[Path] = []
+    for base in BIN_BASES:
+        candidates = (base, base.with_suffix(".exe"))
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            return None
+        resolved.append(path)
+    return tuple(resolved)
 
 
-def _build_with_make() -> Path:
+def _build_with_make() -> tuple[Path, ...]:
     if not _which("make"):
         print("\nERROR: 'make' is required to build BEACH.\n", file=sys.stderr)
         sys.exit(1)
@@ -73,46 +77,49 @@ def _build_with_make() -> Path:
             )
             raise SystemExit(exc.returncode) from exc
 
-    binpath = _built_binary()
-    if not binpath:
+    binpaths = _built_binaries()
+    if not binpaths:
         print(
-            f"\nERROR: expected binary not found: {BIN_BASE}(.exe)\n",
+            "\nERROR: expected binaries not found: "
+            + ", ".join(f"{base}(.exe)" for base in BIN_BASES)
+            + "\n",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    try:
-        mode = os.stat(binpath).st_mode
-        os.chmod(binpath, mode | stat.S_IEXEC)
-    except OSError:
-        pass
-    return binpath
+    for binpath in binpaths:
+        try:
+            mode = os.stat(binpath).st_mode
+            os.chmod(binpath, mode | stat.S_IEXEC)
+        except OSError:
+            pass
+    return binpaths
 
 
-def _ensure_built_binary() -> Path:
-    global _BUILT_BINARY
-    if _BUILT_BINARY and _BUILT_BINARY.exists():
-        return _BUILT_BINARY
+def _ensure_built_binaries() -> tuple[Path, ...]:
+    global _BUILT_BINARIES
+    if _BUILT_BINARIES and all(path.exists() for path in _BUILT_BINARIES):
+        return _BUILT_BINARIES
     # Always build once per invocation to avoid reusing stale binaries from prior profile builds.
-    _BUILT_BINARY = _build_with_make()
-    return _BUILT_BINARY
+    _BUILT_BINARIES = _build_with_make()
+    return _BUILT_BINARIES
 
 
 class build_py(_build_py):
     def run(self) -> None:
-        self.distribution.scripts = [str(_ensure_built_binary())]
+        self.distribution.scripts = [str(path) for path in _ensure_built_binaries()]
         super().run()
 
 
 class install(_install):
     def run(self) -> None:
-        self.distribution.scripts = [str(_ensure_built_binary())]
+        self.distribution.scripts = [str(path) for path in _ensure_built_binaries()]
         super().run()
 
 
 class develop(_develop):
     def run(self) -> None:
-        self.distribution.scripts = [str(_ensure_built_binary())]
+        self.distribution.scripts = [str(path) for path in _ensure_built_binaries()]
         super().run()
 
 

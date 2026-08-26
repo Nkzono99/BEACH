@@ -30,9 +30,12 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.
 - Keep v1 scope clear: absorption and insulator accumulation are standard; conductor/resistive/secondary-emission models are extension points unless the repo now documents them.
-- Do not propose a self-consistent outer sheath as an implemented BEACH
-  feature. Use local reservoir inflow, scalar barriers, or closed PE when they
-  fit the physical intent.
+- Treat `matching_plane_quasistatic` with `response_backend="table"` or
+  `response_backend="zhao_online"` as the implemented reduced outer-sheath closure.
+- Keep full-VDF, 1D PIC, time-dependent outer-sheath solvers, and external particle
+  transport outside the BEACH runtime scope.
+- Use local reservoir inflow, scalar barriers, or closed PE as alternative boundary
+  models when they fit the physical intent; do not stack them on matching-plane coupling.
 
 ## Output
 

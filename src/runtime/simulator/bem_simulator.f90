@@ -24,8 +24,8 @@ module bem_simulator
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
   use bem_output_writer, only: write_matching_plane_history_snapshot
-  use bem_matching_plane_response, only: matching_plane_response_table_type, &
-                                         preflight_matching_plane_response_mpi, matching_plane_response_ok
+  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
+                                                  matching_plane_provider_ok
   use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &

@@ -1463,8 +1463,11 @@ def _validate_surface_current_model(
             )
         return
     matching_keys = {
+        "response_backend",
         "response_table_path",
+        "implicit_zero_mode",
         "coupling_rtol",
+        "coupling_atol",
         "coupling_max_iterations",
         "coupling_relaxation",
     }
@@ -1726,28 +1729,65 @@ def _validate_matching_plane_model(
     reservoir: Mapping[str, Any] | None,
     periodic2_config: object,
 ) -> None:
-    zhao_keys = {
-        "zhao_branch",
+    stationary_zhao_keys = {
         "solar_elevation_deg",
         "photoelectron_ref_density_m3",
         "photoelectron_source_scale",
         "reference_area_m2",
     }
-    if zhao_keys.intersection(model_config):
+    if stationary_zhao_keys.intersection(model_config):
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic cannot use "
-            "Zhao-specific settings or reference_area_m2."
+            "stationary-Zhao source settings or reference_area_m2."
         )
 
-    response_path = model_config.get("response_table_path")
+    response_backend = model_config.get("response_backend", "table")
+    implicit_zero_mode = model_config.get("implicit_zero_mode", False)
     if (
-        not isinstance(response_path, str)
-        or not response_path.strip()
-        or len(response_path) > 256
+        not isinstance(response_backend, str)
+        or response_backend not in {"table", "zhao_online"}
     ):
         raise ConfigValidationError(
-            "BEACH constraint error: matching_plane_quasistatic requires a "
-            "non-empty response_table_path of at most 256 characters."
+            "BEACH constraint error: surface_current_model.response_backend must "
+            'be "table" or "zhao_online".'
+        )
+    if response_backend == "table":
+        if "zhao_branch" in model_config:
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic "
+                'response_backend="table" cannot use Zhao-specific settings such '
+                "as zhao_branch."
+            )
+        response_path = model_config.get("response_table_path")
+        if (
+            not isinstance(response_path, str)
+            or not response_path.strip()
+            or len(response_path) > 256
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic "
+                'response_backend="table" requires a non-empty '
+                "response_table_path of at most 256 characters."
+            )
+    else:
+        if "response_table_path" in model_config:
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic "
+                'response_backend="zhao_online" cannot use response_table_path.'
+            )
+        zhao_branch = model_config.get("zhao_branch", "auto")
+        if (
+            not isinstance(zhao_branch, str)
+            or zhao_branch not in {"auto", "a", "b", "c"}
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: surface_current_model.zhao_branch must be "
+                '"auto", "a", "b", or "c".'
+            )
+    if implicit_zero_mode and response_backend != "table":
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.implicit_zero_mode "
+            'requires response_backend="table".'
         )
     for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
         value = model_config.get(key, default)
@@ -1761,6 +1801,30 @@ def _validate_matching_plane_model(
                 f"BEACH constraint error: surface_current_model.{key} must be "
                 "finite and in (0, 1]."
             )
+    coupling_atol = model_config.get("coupling_atol", [0.0, 0.0, 0.0, 0.0])
+    if (
+        not isinstance(coupling_atol, Sequence)
+        or isinstance(coupling_atol, (str, bytes))
+        or len(coupling_atol) != 4
+        or any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(float(value))
+            or float(value) < 0.0
+            for value in coupling_atol
+        )
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.coupling_atol must "
+            "contain four finite values >= 0."
+        )
+    if response_backend == "zhao_online" and any(
+        float(value) > 0.0 for value in coupling_atol[2:4]
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: zhao_online coupling_atol must be zero on "
+            "inactive ambient-outward feedback axes."
+        )
     max_iterations = model_config.get("coupling_max_iterations", 20)
     if (
         not isinstance(max_iterations, int)
@@ -1812,6 +1876,14 @@ def _validate_matching_plane_model(
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic requires a "
             "supported periodic2 lower boundary model."
+        )
+    if (
+        implicit_zero_mode
+        and periodic2_config.get("lower_boundary_model") != "e_bottom_zero"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.implicit_zero_mode "
+            'requires periodic2.lower_boundary_model="e_bottom_zero".'
         )
 
     if "e0" in sim:
@@ -1973,6 +2045,119 @@ def _validate_matching_plane_model(
                 f"BEACH constraint error: matching_plane_quasistatic {role} species "
                 "requires x/y periodic and z-low/z-high open particle boundaries."
             )
+
+    if response_backend == "zhao_online":
+        _validate_matching_plane_zhao_online(selected, charges)
+
+
+def _validate_matching_plane_zhao_online(
+    selected: Mapping[str, Mapping[str, Any]],
+    charges: Mapping[str, float],
+) -> None:
+    elementary_charge = 1.602176634e-19
+    if any(
+        not math.isfinite(charge)
+        or abs(abs(charge) - elementary_charge) > 1.0e-6 * elementary_charge
+        for charge in charges.values()
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires singly charged role species."
+        )
+
+    def finite_float(value: object) -> float | None:
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        numeric = float(value)
+        return numeric if math.isfinite(numeric) else None
+
+    electron_mass = finite_float(
+        selected["electron"].get("m_particle", 9.10938356e-31)
+    )
+    photoelectron_mass = finite_float(
+        selected["photoelectron"].get("m_particle", 9.10938356e-31)
+    )
+    ion_mass = finite_float(selected["ion"].get("m_particle", 9.10938356e-31))
+    if (
+        electron_mass is None
+        or electron_mass <= 0.0
+        or photoelectron_mass is None
+        or photoelectron_mass <= 0.0
+        or ion_mass is None
+        or ion_mass <= 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires positive role-species masses."
+        )
+    if (
+        electron_mass is None
+        or photoelectron_mass is None
+        or abs(photoelectron_mass - electron_mass) > 1.0e-6 * electron_mass
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires matching ambient-electron and photoelectron masses."
+        )
+
+    def temperature_k(item: Mapping[str, Any]) -> float | None:
+        if "temperature_ev" in item:
+            value = finite_float(item["temperature_ev"])
+            return None if value is None else value * 1.160451812e4
+        return finite_float(item.get("temperature_k", 2.0e4))
+
+    electron_temperature = temperature_k(selected["electron"])
+    photoelectron_temperature = temperature_k(selected["photoelectron"])
+    ion_temperature = temperature_k(selected["ion"])
+    if electron_temperature is None or electron_temperature <= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires a positive electron temperature."
+        )
+    if photoelectron_temperature is None or photoelectron_temperature <= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires a positive photoelectron temperature."
+        )
+    if (
+        ion_temperature is None
+        or ion_temperature < 0.0
+        or ion_temperature > 0.1 * electron_temperature
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires cold ions with T_i <= 0.1 T_e."
+        )
+
+    for role in ("electron", "ion"):
+        drift = selected[role].get("drift_velocity", [0.0, 0.0, -8.0e5])
+        drift_components: list[float] | None = None
+        if (
+            isinstance(drift, Sequence)
+            and not isinstance(drift, (str, bytes))
+            and len(drift) == 3
+        ):
+            parsed = [finite_float(component) for component in drift]
+            if all(component is not None for component in parsed):
+                drift_components = [float(component) for component in parsed]
+        if drift_components is None or drift_components[2] >= 0.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic zhao_online "
+                "requires finite drift vectors and positive ambient inward drift at z-high."
+            )
+
+    ion = selected["ion"]
+    if "number_density_cm3" in ion:
+        ion_density = finite_float(ion["number_density_cm3"])
+        if ion_density is not None:
+            ion_density *= 1.0e6
+    else:
+        ion_density = finite_float(ion.get("number_density_m3", 0.0))
+    if ion_density is None or ion_density <= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic zhao_online "
+            "requires a positive ion number density."
+        )
 
 
 def dump_beach_toml(

@@ -139,6 +139,18 @@ program test_model_fingerprint
   cfg_changed%surface_current%model = 'matching_plane_quasistatic'
   cfg_changed%surface_current%response_table_path = matching_response_path
   fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%surface_current%has_response_backend = .true.
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a == fp_b, 'explicit default table backend must preserve the legacy fingerprint')
+  cfg_changed%surface_current%has_response_backend = .false.
+  cfg_changed%surface_current%coupling_atol(2) = 0.05_dp
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'nonzero matching coupling atol must alter the model fingerprint')
+  cfg_changed%surface_current%coupling_atol = 0.0_dp
+  cfg_changed%surface_current%implicit_zero_mode = .true.
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'implicit matching zero mode must alter the model fingerprint')
+  cfg_changed%surface_current%implicit_zero_mode = .false.
   open (newunit=u, file=matching_response_alias_path, status='replace', action='write', iostat=ios)
   call assert_equal_i32(int(ios, i32), 0_i32, 'failed to create matching-response alias fixture')
   write (u, '(a)') '# matching_plane_z_m=1.0'
@@ -157,6 +169,10 @@ program test_model_fingerprint
   close (u)
   fp_b = model_fingerprint(cfg_changed)
   call assert_true(fp_a /= fp_b, 'matching response contents must alter the model fingerprint')
+  cfg_changed%surface_current%response_backend = 'zhao_online'
+  cfg_changed%surface_current%response_table_path = ''
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'online Zhao and table backends must have different model fingerprints')
   call delete_file_if_exists(matching_response_path)
   call delete_file_if_exists(matching_response_alias_path)
   call reset_matching_plane_response_snapshot_cache()

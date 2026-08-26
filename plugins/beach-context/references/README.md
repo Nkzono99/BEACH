@@ -54,13 +54,20 @@ python -m pip install beach-bem
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
 ```
 
-このインストールでは、ビルド時に `make install` が実行され、Python 側と Fortran 実行バイナリ（`beach`）が同時に導入されます。
+このインストールでは、ビルド時に `make install` が実行され、Python 側と Fortran 実行バイナリ
+（`beach` / `beach-zhao-response`）が同時に導入されます。
 ユーザーインストール時は `~/.local/bin` に入るため、必要なら PATH を追加してください。
 pip 経由のビルドでは既定で `INSTALL_PROFILE=auto` を使います。必要なら `INSTALL_PROFILE=camphor` などを環境変数で上書きできます。
 `auto` 失敗時は既定で `generic` へフォールバックします。無効化したい場合は `BEACH_PIP_FALLBACK_GENERIC=0` を指定してください。
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
+```
+
+`beach-zhao-response`は、組み込みonline Zhaoをquery grid上で評価してmatching-plane応答表を生成するCLIです。
+
+```bash
+beach-zhao-response --help
 ```
 
 ## 2. 実行
@@ -290,7 +297,7 @@ make install-camphor
 ### 4.3 `fpm` 直接実行（低レベル確認向け）
 
 ```bash
-fpm run --profile release --flag "-fopenmp" -- examples/beach.toml
+fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml
 ```
 
 通常の開発では `build.sh` 経由の `make run` / `make check` を優先してください。
@@ -300,7 +307,7 @@ MPI + OpenMP（`USE_MPI` 有効化）:
 
 ```bash
 FPM_FC=mpiifx \
-fpm run --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
+fpm run --target beach --profile release --flag "-fpp -DUSE_MPI -qopenmp" \
   --runner "mpirun -n 4" -- examples/beach.toml
 ```
 

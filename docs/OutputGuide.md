@@ -38,17 +38,30 @@ PE return / netのsigned電流密度を`surface_current_model_*`で出力しま�
 
 `matching_plane_quasistatic`では、静的な`surface_current_model_*`電流targetではなく、accepted batchの
 `matching_plane_*`を読みます。`matching_plane_displacement_C_m2`と`matching_plane_phi_V`が電磁気的な整合値、
-electron / ion の inward flux、access potential、PE barrier potential が応答表の出力、4つのoutward flux / energyが
+electron / ion の inward flux、access potential、PE barrier potential が選択したresponse backendの出力、
+4つのoutward flux / energyが
 固定点feedback、`matching_plane_iterations`と`matching_plane_residual`が数値的な収束receiptです。PEの
 `matching_plane_photoelectron_return_flux_m2_s`と
 `matching_plane_photoelectron_escape_flux_m2_s`は、同じbatchのoutward fluxとの収支確認に使います。
-`surface_current_model_response_content_fingerprint`は読込済み応答表のcanonical内容を識別します。run provenanceは、
-`surface_current_model_response_table_path`、`surface_current_model_matching_plane_z_m`、
+共通のrun provenanceは、`surface_current_model_response_backend`、`surface_current_model_matching_plane_z_m`、
 `surface_current_model_electron_species`、`surface_current_model_ion_species`、
 `surface_current_model_photoelectron_species`と合わせて確認します。
-反復条件は`surface_current_model_coupling_rtol`、`surface_current_model_coupling_max_iterations`、
-`surface_current_model_coupling_relaxation`、状態の生成元は
+反復条件は`surface_current_model_coupling_rtol`、`surface_current_model_coupling_atol`、
+`surface_current_model_coupling_max_iterations`、`surface_current_model_coupling_relaxation`、状態の生成元は
 `surface_current_model_dynamic_state_source=accepted_batch_fixed_point`に記録されます。
+`surface_current_model_coupling_atol`の4値は、順にPE外向きflux [m^-2 s^-1]、PE平均法線energy [eV]、
+electron外向きflux [m^-2 s^-1]、ion外向きflux [m^-2 s^-1]です。既定値はすべて0で、inactive成分も
+0でなければなりません。active成分の判定閾値は`max(coupling_rtol * backend_scale, coupling_atol)`です。
+絶対許容値が支配する成分は有効残差へ換算されるため、accepted stateの`matching_plane_residual`は
+引き続き`surface_current_model_coupling_rtol`以下になります。
+table backendだけが`surface_current_model_response_table_path`と
+`surface_current_model_response_content_fingerprint`を持ち、後者は読込済み応答表のcanonical内容を識別します。
+online backendは`surface_current_model_response_contract=matching_plane_zhao_online_v1`、
+`surface_current_model_zhao_branch`、
+`surface_current_model_outer_solver=charge_driven_finite_h_sagdeev`、
+`surface_current_model_photoelectron_closure=moment_matched_half_maxwellian`、
+`surface_current_model_ambient_outward_feedback=transparent`、
+`surface_current_model_outer_solver_state=stateless`を記録します。
 `matching_plane_state_valid`がfalseなら、同じsummary内の`matching_plane_*`値をaccepted stateとして使ってはいけません。
 各行の$D_H$と$\Phi_H$は、そのbatchの粒子追跡に使ったcommit前の表面電荷stateに対応します。
 `simulated_time_s`はtrialを受理して進めた後の時刻なので、次batch開始時のpost-commit場と取り違えないでください。
@@ -161,8 +174,9 @@ summary、charges、全 rank の RNG、manifest で宣言した residual と led
 
 checkpoint schema v6の`macro_residuals.csv`は`species_idx,face,residual`です。`face=0`は従来source、
 `1..6`はboundary faceを表します。旧`species_idx,residual`の2列形式も読み込めます。
-schema v9はmatching-planeのaccepted feedbackと反復receiptを`summary.txt`へ保存します。response tableの
-canonical内容はmodel fingerprintに含まれるため、pathが同じでも内容を変えたcheckpointは再開できません。
+schema v9はmatching-planeのaccepted feedbackと反復receiptを`summary.txt`へ保存します。model fingerprintには、
+table backendではresponse tableのcanonical内容、online backendではZhao contractとbranch policyが含まれます。
+これらを変えたcheckpointは再開できません。
 
 ## Python から読む
 

@@ -307,8 +307,8 @@ contains
       saw_expected = saw_expected .or. index(child_line, trim(expected_fragment)) > 0
     end do
     close (child_unit)
-    call delete_file_if_exists(config_failure_path)
     call assert_true(saw_expected, 'config failure message mismatch: '//trim(expected_fragment))
+    call delete_file_if_exists(config_failure_path)
   end subroutine assert_config_rejected
 
   subroutine test_particle_source_plan_equivalence()

@@ -27,7 +27,7 @@ contains
   integer(i32) :: photo_failure_ray, photo_failure_bounce
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
-  integer(i32) :: matching_iteration, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx
+  integer(i32) :: matching_iteration, matching_axis, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx
   integer(i32) :: matching_response_status
   integer(i32) :: boundary_status
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit
@@ -35,6 +35,7 @@ contains
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: matching_active, replay_active, matching_converged, matching_history_enabled
+  logical :: implicit_zero_mode, implicit_zero_mode_supported
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -42,17 +43,17 @@ contains
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
   real(dp) :: projected_simulated_time
   real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
-  real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_residual
+  real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_displacement_before, matching_residual
+  real(dp) :: matching_committed_displacement, matching_displacement_tolerance, matching_roundoff_scale
   real(dp) :: matching_return_flux, matching_escape_flux, matching_budget_scale
-  real(dp) :: matching_guess(4), matching_observed(4), matching_axis_span(4)
-  real(dp) :: matching_axis_min(4), matching_axis_max(4)
+  real(dp) :: matching_guess(4), matching_observed(4)
+  real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference(4)
+  real(dp) :: matching_feedback_scales(4)
+  real(dp) :: matching_component_residuals(4), matching_absolute_defects(4)
   real(dp) :: matching_response_input(5), matching_response_output(6)
   real(dp), allocatable :: matching_moments(:, :), matching_reduce(:)
-  integer(i32), allocatable :: matching_axis_sizes(:)
-  real(dp), allocatable :: matching_axis_values(:)
   character(len=256) :: boundary_message
   character(len=512) :: matching_response_message
-  character(len=16) :: matching_response_fingerprint
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
@@ -63,7 +64,7 @@ contains
   type(particle_source_plan_type) :: source_plan
   type(external_boundary_contract_type) :: boundary_contract
   type(surface_closure_contract_type) :: surface_closure
-  type(matching_plane_response_table_type) :: matching_response_table
+  type(matching_plane_response_provider_type) :: matching_response_provider
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   type(app_config) :: trial_app
@@ -90,12 +91,15 @@ contains
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   matching_active = trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
-  call preflight_matching_plane_response_mpi( &
-    matching_active, trim(app%surface_current%response_table_path), mpi_ctx, &
-    matching_response_fingerprint, matching_response_status, matching_response_message, &
-    table=matching_response_table &
+  implicit_zero_mode = matching_active .and. app%surface_current%implicit_zero_mode
+  implicit_zero_mode_supported = .false.
+  implicit_displacement_min = 0.0_dp
+  implicit_displacement_max = 0.0_dp
+  implicit_feedback_reference = 0.0_dp
+  call matching_response_provider%initialize( &
+    app, mpi_ctx, matching_response_status, matching_response_message &
     )
-  if (matching_response_status /= matching_plane_response_ok) then
+  if (matching_response_status /= matching_plane_provider_ok) then
     error stop 'matching-plane response preflight failed: '//trim(matching_response_message)
   end if
   replay_active = adaptive_nonzero_mode .or. matching_active
@@ -182,25 +186,27 @@ contains
   matching_electron_idx = 0_i32
   matching_ion_idx = 0_i32
   matching_photoelectron_idx = 0_i32
-  matching_axis_span = 0.0_dp
-  matching_axis_min = 0.0_dp
-  matching_axis_max = 0.0_dp
   if (matching_active) then
-    call matching_response_table%get_matching_plane_z(matching_plane_z)
-    if (abs(matching_plane_z - app%sim%box_max(3)) > &
-        128.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(matching_plane_z), abs(app%sim%box_max(3)))) then
-      error stop 'matching-plane response height must equal domain.box_max[3].'
+    call matching_response_provider%get_matching_plane_z( &
+      matching_plane_z, matching_response_status, matching_response_message &
+      )
+    if (matching_response_status /= matching_plane_provider_ok) then
+      error stop 'matching-plane response metadata failed: '//trim(matching_response_message)
     end if
-    call matching_response_table%get_fingerprint_data( &
-      matching_axis_sizes, matching_axis_values, matching_plane_z_m=matching_plane_z &
-      )
-    call derive_matching_feedback_axes( &
-      matching_axis_sizes, matching_axis_values, matching_axis_min, matching_axis_max, matching_axis_span &
-      )
     matching_electron_idx = matching_species_index(app, app%surface_current%electron_species)
     matching_ion_idx = matching_species_index(app, app%surface_current%ion_species)
     matching_photoelectron_idx = matching_species_index(app, app%surface_current%photoelectron_species)
     matching_area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
+    if (implicit_zero_mode) then
+      call matching_response_provider%get_implicit_zero_mode_contract( &
+        implicit_zero_mode_supported, implicit_displacement_min, implicit_displacement_max, &
+        implicit_feedback_reference &
+        )
+      if (.not. implicit_zero_mode_supported) then
+        error stop 'implicit matching-plane zero mode requires a table with a non-singleton displacement axis and '// &
+          'singleton PE-flux, PE-energy, and ambient-outward axes.'
+      end if
+    end if
     if (mesh%nelem > 0_i32) then
       if (app%sim%box_max(3) <= max( &
           maxval(mesh%v0(3, :)), maxval(mesh%v1(3, :)), maxval(mesh%v2(3, :)) &
@@ -291,8 +297,19 @@ contains
       matching_return_flux = 0.0_dp
       matching_escape_flux = 0.0_dp
       if (matching_active) then
-        matching_displacement = snapshot%get_matching_plane_displacement()
-        if (stats%matching_plane_state_valid) then
+        matching_displacement_before = snapshot%get_matching_plane_displacement()
+        matching_displacement = matching_displacement_before
+        if (implicit_zero_mode) then
+          call solve_matching_implicit_zero_mode( &
+            matching_response_provider, mpi_ctx, matching_displacement_before, trial_batch_duration, &
+            implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference, &
+            app%particle_species(matching_electron_idx)%q_particle, &
+            app%particle_species(matching_ion_idx)%q_particle, &
+            app%particle_species(matching_photoelectron_idx)%q_particle, &
+            matching_displacement, matching_response_output &
+            )
+          matching_guess = implicit_feedback_reference
+        else if (stats%matching_plane_state_valid) then
           matching_guess = stats%matching_plane_feedback
         else
           matching_guess = 0.0_dp
@@ -308,16 +325,20 @@ contains
             inject_state%boundary_macro_residual = boundary_injection_residual_before
           end if
           matching_response_input = [matching_displacement, matching_guess]
-          call matching_response_table%evaluate( &
-            matching_response_input, matching_response_output, &
+          call matching_response_provider%evaluate( &
+            matching_response_input, mpi_ctx, matching_response_output, &
             matching_response_status, matching_response_message &
             )
-          if (matching_response_status /= matching_plane_response_ok) then
+          if (matching_response_status /= matching_plane_provider_ok) then
             error stop 'matching-plane response evaluation failed: '//trim(matching_response_message)
           end if
           call configure_matching_surface_closure( &
             surface_closure, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
-            matching_response_output &
+            matching_response_output, implicit_zero_mode, matching_area, implicit_feedback_reference, &
+            app%particle_species(matching_electron_idx)%q_particle, &
+            app%particle_species(matching_ion_idx)%q_particle, &
+            app%particle_species(matching_photoelectron_idx)%q_particle, &
+            app%particle_species(matching_photoelectron_idx)%emit_current_density_a_m2 &
             )
           call snapshot%set_matching_plane_gauge(mesh, matching_plane_z, matching_response_output(1))
         end if
@@ -413,20 +434,57 @@ contains
           matching_moments, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
           matching_area, trial_batch_duration, matching_observed, matching_return_flux, matching_escape_flux &
           )
-        call validate_matching_feedback_range( &
-          matching_observed, matching_axis_min, matching_axis_max, matching_axis_span &
+        call matching_response_provider%validate_feedback( &
+          matching_observed, matching_response_status, matching_response_message &
           )
+        if (matching_response_status /= matching_plane_provider_ok) then
+          error stop 'matching-plane feedback validation failed: '//trim(matching_response_message)
+        end if
         matching_budget_scale = max(1.0_dp, matching_observed(1), matching_return_flux, matching_escape_flux)
         if (abs(matching_observed(1) - matching_return_flux - matching_escape_flux) > &
             sqrt(epsilon(1.0_dp))*matching_budget_scale) then
           error stop 'matching-plane photoelectron outflow budget does not close.'
         end if
-        matching_residual = matching_feedback_residual( &
-                            matching_guess, matching_observed, matching_axis_span &
+        matching_residual = matching_response_provider%feedback_residual( &
+                            matching_guess, matching_observed, app%surface_current%coupling_rtol, &
+                            app%surface_current%coupling_atol &
                             )
-        matching_converged = matching_residual <= app%surface_current%coupling_rtol
+        matching_converged = matching_response_provider%feedback_converged( &
+                             matching_guess, matching_observed, app%surface_current%coupling_rtol, &
+                             app%surface_current%coupling_atol &
+                             )
         if (matching_converged) exit
         if (matching_iteration >= app%surface_current%coupling_max_iterations) then
+          if (mpi_is_root(mpi_ctx)) then
+            call matching_response_provider%get_feedback_scales(matching_feedback_scales)
+            matching_absolute_defects = abs(matching_observed - matching_guess)
+            matching_component_residuals = 0.0_dp
+            do matching_axis = 1_i32, 4_i32
+              if (matching_feedback_scales(matching_axis) <= 0.0_dp) cycle
+              if (app%surface_current%coupling_atol(matching_axis) > &
+                  app%surface_current%coupling_rtol*matching_feedback_scales(matching_axis)) then
+                matching_component_residuals(matching_axis) = app%surface_current%coupling_rtol* &
+                                                              (matching_absolute_defects(matching_axis)/ &
+                                                               app%surface_current%coupling_atol(matching_axis))
+              else
+                matching_component_residuals(matching_axis) = matching_absolute_defects(matching_axis)/ &
+                                                              matching_feedback_scales(matching_axis)
+              end if
+            end do
+            write (error_unit, '(a,i0,a,i0,a,es24.16,a,es24.16)') &
+              'matching-plane nonconvergence: batch=', batch_idx, ', iterations=', matching_iteration, &
+              ', residual=', matching_residual, ', rtol=', app%surface_current%coupling_rtol
+            write (error_unit, '(a,4(1x,es24.16))') 'matching-plane guess=', matching_guess
+            write (error_unit, '(a,4(1x,es24.16))') 'matching-plane observed=', matching_observed
+            write (error_unit, '(a,4(1x,es24.16))') 'matching-plane feedback scales=', matching_feedback_scales
+            write (error_unit, '(a,4(1x,es24.16))') &
+              'matching-plane coupling atols=', app%surface_current%coupling_atol
+            write (error_unit, '(a,4(1x,es24.16))') &
+              'matching-plane absolute defects=', matching_absolute_defects
+            write (error_unit, '(a,4(1x,es24.16))') &
+              'matching-plane effective component residuals=', matching_component_residuals
+            flush (error_unit)
+          end if
           error stop 'matching-plane fixed point did not converge before coupling_max_iterations.'
         end if
         matching_guess = matching_guess + app%surface_current%coupling_relaxation* &
@@ -530,6 +588,27 @@ contains
       mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, workspace, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
+    if (implicit_zero_mode) then
+      matching_committed_displacement = finite_charge_sum( &
+                                        mesh%q_elem, 'implicit matching-plane committed charge' &
+                                        )/matching_area
+      matching_roundoff_scale = finite_charge_sum( &
+                                [ &
+                                abs(workspace%fixed_absorbed_target_charge), &
+                                abs(workspace%fixed_emission_target_charge) &
+                                ], &
+                                'implicit matching-plane gross target charge' &
+                                )/matching_area
+      matching_displacement_tolerance = 4096.0_dp*epsilon(1.0_dp)*max( &
+                                        abs(matching_displacement), &
+                                        abs(matching_committed_displacement), &
+                                        matching_roundoff_scale, tiny(1.0_dp) &
+                                        )
+      if (abs(matching_committed_displacement - matching_displacement) > matching_displacement_tolerance) then
+        error stop 'implicit matching-plane committed displacement does not match the backward-Euler endpoint.'
+      end if
+      stats_candidate%matching_plane_displacement_c_m2 = matching_committed_displacement
+    end if
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
@@ -1201,7 +1280,7 @@ contains
     has_fixed_current = .false.
     do species_idx = 1_i32, n
       if (.not. app%particle_species(species_idx)%enabled) cycle
-      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current') then
+      if (fixed_current_species_active(app, current_model, species_idx)) then
         has_fixed_current = .true.
       end if
     end do
@@ -1210,7 +1289,7 @@ contains
     workspace%fixed_current_charge_values = 0.0_dp
     do i = 1_i32, fresh_particle_count
       species_idx = pcls_batch%species_id(i)
-      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
       macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
       if (workspace%absorbed_flag(i)) then
         workspace%fixed_current_charge_values(species_idx) = &
@@ -1221,13 +1300,13 @@ contains
       end if
     end do
     do species_idx = 1_i32, n
-      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
       workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
     end do
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
 
     do species_idx = 1_i32, n
-      if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'fixed_current') cycle
+      if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
       if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
           current_model%has_absorbed_target(species_idx)) then
         raw_charge = workspace%fixed_current_charge_values(species_idx)
@@ -1342,6 +1421,17 @@ contains
     end do
   end subroutine apply_fixed_surface_current_closure
 
+  logical function fixed_current_species_active(app, current_model, species_idx) result(active)
+    type(app_config), intent(in) :: app
+    type(surface_closure_contract_type), intent(in) :: current_model
+    integer(i32), intent(in) :: species_idx
+
+    active = trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current' .or. &
+             current_model%has_absorbed_target(species_idx) .or. &
+             current_model%has_emission_target(species_idx) .or. &
+             current_model%has_escape_target(species_idx)
+  end function fixed_current_species_active
+
   subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
     type(app_config), intent(in) :: app
     type(particles_soa), intent(in) :: pcls_batch
@@ -1450,37 +1540,124 @@ contains
     error stop 'matching-plane species role was not found in particle species.'
   end function matching_species_index
 
-  subroutine derive_matching_feedback_axes(axis_sizes, axis_values, axis_min, axis_max, axis_span)
-    integer(i32), intent(in) :: axis_sizes(:)
-    real(dp), intent(in) :: axis_values(:)
-    real(dp), intent(out) :: axis_min(4), axis_max(4), axis_span(4)
-    integer(i32) :: axis, first, last
+  subroutine solve_matching_implicit_zero_mode( &
+    provider, mpi, displacement_before, duration, displacement_min, displacement_max, feedback_reference, &
+    electron_charge, ion_charge, photoelectron_charge, displacement_after, response_after &
+    )
+    type(matching_plane_response_provider_type), intent(inout) :: provider
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(in) :: displacement_before, duration, displacement_min, displacement_max
+    real(dp), intent(in) :: feedback_reference(4)
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    real(dp), intent(out) :: displacement_after, response_after(6)
 
-    if (size(axis_sizes) /= 5 .or. any(axis_sizes <= 0_i32) .or. &
-        sum(axis_sizes) /= size(axis_values)) then
-      error stop 'matching-plane response returned invalid axis metadata.'
+    real(dp) :: lower, upper, midpoint, lower_residual, upper_residual, midpoint_residual
+    real(dp) :: response(6), current_density
+    integer(i32) :: iteration, status
+    character(len=512) :: message
+
+    if (.not. all(ieee_is_finite([ &
+                                 displacement_before, duration, displacement_min, displacement_max, &
+                                 feedback_reference, electron_charge, ion_charge, photoelectron_charge &
+                                 ])) .or. duration <= 0.0_dp .or. displacement_min >= displacement_max) then
+      error stop 'implicit matching-plane zero-mode inputs are invalid.'
     end if
-    first = 1_i32 + axis_sizes(1)
-    do axis = 1_i32, 4_i32
-      last = first + axis_sizes(axis + 1_i32) - 1_i32
-      axis_min(axis) = minval(axis_values(first:last))
-      axis_max(axis) = maxval(axis_values(first:last))
-      if (axis_sizes(axis + 1_i32) > 1_i32) then
-        axis_span(axis) = axis_max(axis) - axis_min(axis)
-        if (.not. ieee_is_finite(axis_span(axis)) .or. axis_span(axis) <= 0.0_dp) then
-          error stop 'matching-plane active feedback axis must have positive finite span.'
-        end if
-      else
-        axis_span(axis) = 0.0_dp
-      end if
-      first = last + 1_i32
-    end do
-  end subroutine derive_matching_feedback_axes
+    lower = displacement_min
+    upper = displacement_max
+    call evaluate_matching_implicit_residual( &
+      provider, mpi, lower, displacement_before, duration, feedback_reference, &
+      electron_charge, ion_charge, photoelectron_charge, lower_residual, response, current_density, status, message &
+      )
+    if (status /= matching_plane_provider_ok) then
+      error stop 'implicit matching-plane lower endpoint failed: '//trim(message)
+    end if
+    call evaluate_matching_implicit_residual( &
+      provider, mpi, upper, displacement_before, duration, feedback_reference, &
+      electron_charge, ion_charge, photoelectron_charge, upper_residual, response, current_density, status, message &
+      )
+    if (status /= matching_plane_provider_ok) then
+      error stop 'implicit matching-plane upper endpoint failed: '//trim(message)
+    end if
+    if (lower_residual > 0.0_dp .or. upper_residual < 0.0_dp) then
+      error stop 'implicit matching-plane zero-mode root is not bracketed by the response table.'
+    end if
 
-  subroutine configure_matching_surface_closure(contract, electron_idx, ion_idx, photoelectron_idx, response)
+    do iteration = 1_i32, 64_i32
+      midpoint = 0.5_dp*(lower + upper)
+      call evaluate_matching_implicit_residual( &
+        provider, mpi, midpoint, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_charge, midpoint_residual, response, current_density, status, message &
+        )
+      if (status /= matching_plane_provider_ok) then
+        error stop 'implicit matching-plane midpoint failed: '//trim(message)
+      end if
+      if (midpoint_residual <= 0.0_dp) then
+        lower = midpoint
+      else
+        upper = midpoint
+      end if
+    end do
+    displacement_after = 0.5_dp*(lower + upper)
+    call evaluate_matching_implicit_residual( &
+      provider, mpi, displacement_after, displacement_before, duration, feedback_reference, &
+      electron_charge, ion_charge, photoelectron_charge, midpoint_residual, response_after, &
+      current_density, status, message &
+      )
+    if (status /= matching_plane_provider_ok) then
+      error stop 'implicit matching-plane final evaluation failed: '//trim(message)
+    end if
+  end subroutine solve_matching_implicit_zero_mode
+
+  subroutine evaluate_matching_implicit_residual( &
+    provider, mpi, displacement, displacement_before, duration, feedback_reference, &
+    electron_charge, ion_charge, photoelectron_charge, residual, response, current_density, status, message &
+    )
+    type(matching_plane_response_provider_type), intent(inout) :: provider
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(in) :: displacement, displacement_before, duration, feedback_reference(4)
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    real(dp), intent(out) :: residual, response(6), current_density
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: input(5), escape_fraction, escape_flux, barrier_energy_ev
+
+    input = [displacement, feedback_reference]
+    call provider%evaluate(input, mpi, response, status, message)
+    residual = 0.0_dp
+    current_density = 0.0_dp
+    if (status /= matching_plane_provider_ok) return
+    barrier_energy_ev = response(1) - response(6)
+    if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp .or. &
+        feedback_reference(2) <= 0.0_dp) then
+      status = 1_i32
+      message = 'implicit matching-plane PE barrier or reference energy is invalid.'
+      return
+    end if
+    escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
+    escape_flux = feedback_reference(1)*escape_fraction
+    current_density = electron_charge*response(2) + ion_charge*response(3) - &
+                      photoelectron_charge*escape_flux
+    residual = displacement - displacement_before - duration*current_density
+    if (.not. all(ieee_is_finite([escape_fraction, escape_flux, current_density, residual]))) then
+      status = 1_i32
+      message = 'implicit matching-plane zero-mode residual is not finite.'
+    end if
+  end subroutine evaluate_matching_implicit_residual
+
+  subroutine configure_matching_surface_closure( &
+    contract, electron_idx, ion_idx, photoelectron_idx, response, implicit_zero_mode, area_m2, &
+    feedback_reference, electron_charge, ion_charge, photoelectron_charge, photoelectron_emission_current_density &
+    )
     type(surface_closure_contract_type), intent(inout) :: contract
     integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
     real(dp), intent(in) :: response(6)
+    logical, intent(in) :: implicit_zero_mode
+    real(dp), intent(in) :: area_m2, feedback_reference(4)
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    real(dp), intent(in) :: photoelectron_emission_current_density
+
+    real(dp) :: barrier_energy_ev, emission_flux, escape_flux, return_flux
 
     if (.not. all(ieee_is_finite(response))) then
       error stop 'matching-plane response values must be finite.'
@@ -1521,6 +1698,24 @@ contains
     contract%has_outflow_kinetic_barrier(photoelectron_idx) = .true.
     contract%outflow_barrier_potential_v(photoelectron_idx) = response(6)
     contract%outflow_barrier_face(photoelectron_idx) = 6_i32
+    if (implicit_zero_mode) then
+      barrier_energy_ev = response(1) - response(6)
+      escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
+      emission_flux = photoelectron_emission_current_density/(-photoelectron_charge)
+      return_flux = emission_flux - escape_flux
+      if (.not. all(ieee_is_finite([barrier_energy_ev, emission_flux, escape_flux, return_flux])) .or. &
+          barrier_energy_ev < 0.0_dp .or. escape_flux < 0.0_dp .or. return_flux < 0.0_dp .or. area_m2 <= 0.0_dp) then
+        error stop 'implicit matching-plane current targets are invalid.'
+      end if
+      contract%has_absorbed_target([electron_idx, ion_idx, photoelectron_idx]) = .true.
+      contract%absorbed_current_a(electron_idx) = electron_charge*response(2)*area_m2
+      contract%absorbed_current_a(ion_idx) = ion_charge*response(3)*area_m2
+      contract%absorbed_current_a(photoelectron_idx) = photoelectron_charge*return_flux*area_m2
+      contract%has_emission_target(photoelectron_idx) = .true.
+      contract%emission_current_a(photoelectron_idx) = photoelectron_emission_current_density*area_m2
+      contract%has_escape_target(photoelectron_idx) = .true.
+      contract%escaped_particle_current_a(photoelectron_idx) = photoelectron_charge*escape_flux*area_m2
+    end if
   end subroutine configure_matching_surface_closure
 
   subroutine resolve_matching_observed_feedback( &
@@ -1553,31 +1748,6 @@ contains
       error stop 'matching-plane observed feedback is not finite.'
     end if
   end subroutine resolve_matching_observed_feedback
-
-  subroutine validate_matching_feedback_range(feedback, axis_min, axis_max, axis_span)
-    real(dp), intent(in) :: feedback(4), axis_min(4), axis_max(4), axis_span(4)
-    integer(i32) :: axis
-    real(dp) :: tolerance
-
-    do axis = 1_i32, 4_i32
-      if (axis_span(axis) <= 0.0_dp) cycle
-      tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(axis_min(axis)), abs(axis_max(axis)))
-      if (feedback(axis) < axis_min(axis) - tolerance .or. feedback(axis) > axis_max(axis) + tolerance) then
-        error stop 'matching-plane observed feedback is outside the response table domain.'
-      end if
-    end do
-  end subroutine validate_matching_feedback_range
-
-  real(dp) function matching_feedback_residual(previous, observed, axis_span) result(residual)
-    real(dp), intent(in) :: previous(4), observed(4), axis_span(4)
-    integer(i32) :: axis
-
-    residual = 0.0_dp
-    do axis = 1_i32, 4_i32
-      if (axis_span(axis) <= 0.0_dp) cycle
-      residual = max(residual, abs(observed(axis) - previous(axis))/axis_span(axis))
-    end do
-  end function matching_feedback_residual
 
   !> finiteな粒子電荷とweightから、overflow/zero-underflowを拒否してmacro chargeを返す。
   real(dp) function checked_macro_charge(particle_charge, particle_weight, context) result(macro_charge)
