@@ -349,6 +349,11 @@ reservoir流入、PEを指定する場合は負電荷の`photo_raycast`かつope
 `reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
 1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`または
 件数・絶対電荷上限を持つ`soft_discard`とします。
+`multiple_box_events_retry_backend="upper_panel_fourier"`は、通常の`cached_kneq0`場を変更せず、
+`multiple_box_events`となった 1 step だけを元の状態から再試行します。再試行の$k\neq0$場は triangle P0 電荷の
+有限 Fourier 展開を全 mesh 頂点より上で因子化し、既存の$k=0$場と外部一様場を合成します。potential-barrier
+境界電位も同じ展開とgaugeで評価します。全評価点が成立域に
+入らない場合または再試行も失敗する場合は、元の status に対して設定済み policy を適用します。
 
 `response_backend="table"`は`response_table_path`を必須とし、`zhao_branch`を含むZhao固有keyを拒否します。
 response CSV v1は、headerより前に一意な`# matching_plane_z_m=<finite>`を持ち、その値を$H$と照合します。

@@ -144,6 +144,15 @@ contains
     message = ''
     nonzero_backend = lower_ascii(trim(periodic2%nonzero_mode_backend))
 
+    if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier' .and. &
+        trim(nonzero_backend) /= 'cached_kneq0') then
+      call reject( &
+        physics_config_invalid_combination, &
+        'upper_panel_fourier retry requires the cached_kneq0 periodic backend.', status, message &
+        )
+      return
+    end if
+
     if (trim(nonzero_backend) == 'not_applicable') then
       call validate_phase1_panel_config(sim, panel, status, message)
       return

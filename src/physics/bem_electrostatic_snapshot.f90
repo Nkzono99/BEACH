@@ -12,6 +12,8 @@ module bem_electrostatic_snapshot
                                          symmetric_vacuum_bottom_field, periodic_zero_mode_ok
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
+  use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: &
+    periodic_nonzero_upper_vacuum_plan_type
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
@@ -43,12 +45,14 @@ module bem_electrostatic_snapshot
     logical :: use_zero_mode = .false.
     logical :: use_panel_spectral_reference = .false.
     logical :: use_cached_kneq0 = .false.
+    logical :: use_upper_panel_fourier_retry = .false.
     real(dp) :: periodic_length(2) = [0.0_dp, 0.0_dp]
     real(dp) :: periodic_origin(2) = [0.0_dp, 0.0_dp]
     integer(i32) :: reference_mode_layers = 0_i32
     integer(i32) :: panel_quadrature_order = 0_i32
     type(periodic_zero_mode_plan_type) :: zero_plan
     type(periodic_zero_mode_state_type) :: zero_state
+    type(periodic_nonzero_upper_vacuum_plan_type) :: upper_fourier_plan
     type(periodic2_physics_config) :: periodic_options
     type(electrostatic_diagnostics_type) :: diagnostics
     real(dp) :: gauss_residual = 0.0_dp
@@ -59,6 +63,8 @@ module bem_electrostatic_snapshot
     procedure :: init => init_electrostatic_snapshot
     procedure :: refresh => refresh_electrostatic_snapshot
     procedure :: eval_local_e => eval_snapshot_local_e
+    procedure :: eval_upper_panel_fourier_e => eval_snapshot_upper_panel_fourier_e
+    procedure :: eval_upper_panel_fourier_phi => eval_snapshot_upper_panel_fourier_phi
     procedure :: eval_local_phi => eval_snapshot_local_phi
     procedure :: eval_local_phi_without_primary_self => eval_snapshot_local_phi_without_primary_self
     procedure :: compute_mesh_potential => compute_snapshot_mesh_potential
@@ -76,6 +82,22 @@ module bem_electrostatic_snapshot
       real(dp), intent(in) :: position(3)
       real(dp), intent(out) :: electric_field(3)
     end subroutine eval_snapshot_local_e
+
+    module subroutine eval_snapshot_upper_panel_fourier_e(self, mesh, position, electric_field, available)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: position(3)
+      real(dp), intent(out) :: electric_field(3)
+      logical, intent(out) :: available
+    end subroutine eval_snapshot_upper_panel_fourier_e
+
+    module subroutine eval_snapshot_upper_panel_fourier_phi(self, mesh, position, potential, available)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      real(dp), intent(in) :: position(3)
+      real(dp), intent(out) :: potential
+      logical, intent(out) :: available
+    end subroutine eval_snapshot_upper_panel_fourier_phi
 
     module subroutine eval_snapshot_local_phi(self, mesh, sim, position, potential)
       class(electrostatic_snapshot_type), intent(inout) :: self
@@ -126,6 +148,7 @@ contains
     self%use_zero_mode = .false.
     self%use_panel_spectral_reference = .false.
     self%use_cached_kneq0 = .false.
+    self%use_upper_panel_fourier_retry = .false.
     self%gauss_residual = 0.0_dp
     self%matching_plane_gauge_active = .false.
     self%matching_plane_z = 0.0_dp
@@ -317,6 +340,12 @@ contains
     self%diagnostics%periodic_cache_fingerprint = &
       self%nonzero_solver%fmm_core_plan%periodic_cache_fingerprint
     self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_cache_path
+    if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
+      call self%upper_fourier_plan%build( &
+        mesh, self%periodic_length(1), self%periodic_length(2), self%reference_mode_layers &
+        )
+      self%use_upper_panel_fourier_retry = .true.
+    end if
   end subroutine init_cached_periodic_snapshot
 
   pure real(dp) function zero_mode_bottom_field(self, charge) result(field)

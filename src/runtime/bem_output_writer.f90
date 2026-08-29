@@ -249,6 +249,8 @@ contains
     print '(a,i0)', 'batches=', stats%batches
     print '(a,i0)', 'escaped_boundary=', stats%escaped_boundary
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
+    print '(a,i0)', 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
+    print '(a,i0)', 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
     print '(a,i0)', 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
     print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge
@@ -419,6 +421,8 @@ contains
     write (u, '(a,i0)') 'checkpoint_stride=', cfg%checkpoint_stride
     write (u, '(a,i0)') 'escaped_boundary=', stats%escaped_boundary
     write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
+    write (u, '(a,i0)') 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
+    write (u, '(a,i0)') 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
     write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
     write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge

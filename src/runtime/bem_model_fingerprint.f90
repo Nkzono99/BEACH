@@ -85,6 +85,10 @@ contains
     if (trim(cfg%sim%reservoir_potential_model) /= 'none' .or. &
         trim(cfg%sim%open_boundary_model) == 'potential_barrier') call feed_real(hash, cfg%sim%phi_infty)
     call feed_string(hash, cfg%sim%open_boundary_model)
+    if (trim(cfg%sim%multiple_box_events_retry_backend) /= 'none') then
+      call feed_string(hash, 'multiple_box_events_retry_v1')
+      call feed_string(hash, cfg%sim%multiple_box_events_retry_backend)
+    end if
     if (trim(cfg%sim%multiple_box_events_policy) /= 'abort') then
       call feed_string(hash, cfg%sim%multiple_box_events_policy)
       call feed_integer(hash, cfg%sim%multiple_box_events_soft_discard_count_limit)

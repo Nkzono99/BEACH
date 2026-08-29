@@ -1271,11 +1271,18 @@ contains
     call configure_multiple_box_event_soft_discard_fixture( &
       soft_mesh, soft_cfg, 1_i32, 100000_i32, 1.0e9_dp &
       )
+    soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
 
     call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, charge_ledger=soft_ledger)
     call assert_equal_i64(soft_stats%processed_particles, 1_i64, 'soft discard processed count mismatch')
     call assert_equal_i64(soft_stats%absorbed, 0_i64, 'soft discard absorbed count mismatch')
     call assert_equal_i64(soft_stats%escaped, 1_i64, 'soft discard escaped umbrella count mismatch')
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_retry_attempted, 1_i64, 'upper Fourier retry attempt count mismatch' &
+      )
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_retry_resolved, 0_i64, 'ineligible upper Fourier retry must remain unresolved' &
+      )
     call assert_equal_i64( &
       soft_stats%multiple_box_events_soft_discarded, 1_i64, 'soft discard event count mismatch' &
       )

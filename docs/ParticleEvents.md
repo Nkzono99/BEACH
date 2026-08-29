@@ -194,11 +194,26 @@ $$
 `particle_step_multiple_box_events` を返し、未完成 state を commit しません。これは大きすぎる `dt`、
 狭い box、または高速粒子を検出する安全上限です。guard 幅を変えてもこの上限は変わりません。
 
+`multiple_box_events_retry_backend="upper_panel_fourier"` を指定した `cached_kneq0` 構成では、この status が
+出た 1 step だけを元の位置・速度から再試行します。再試行の非零モード場は triangle P0 電荷を
+`periodic2.reference_mode_layers` まで Fourier 展開し、全 mesh 頂点の最大 z より上で成立する指数減衰形へ
+因子化します。各評価では同じ periodic zero mode と `sim.e0` を 1 回だけ加えます。再試行中の場評価点が
+1 点でもこの上部真空域に入らない場合は失敗とします。potential-barrier event の境界電位も同じ展開と
+potential gauge で評価し、その評価点にも同じ成立域を要求します。成立域外の場合、または再試行後も
+event を完了できない場合は、元の
+`multiple_box_events` を保持して policy へ渡します。これは外部プラズマやシースを追加するモデルではなく、
+通常粒子の FMM backend も変更しません。
+幾何応答は snapshot 初期化時に 1 回だけ構築し、現在の面電荷との積は再試行の電場・電位評価時だけ計算します。
+モード数と幾何応答メモリは `reference_mode_layers` の 2 乗で増えるため、この値は seam 誤差と再試行結果の
+収束を確認して選びます。
+
 既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
 感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させます。標準エラーには
 batchごとの全rank合計件数と絶対macro chargeだけを記録します。同じ集計値は`summary.txt`、restart、
 charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
 これは局所的な数値回避策であり、物理境界条件そのものの代替ではありません。
+再試行の試行数と解決数は、policy にかかわらず `summary.txt` の
+`multiple_box_events_retry_attempted` と `multiple_box_events_retry_resolved` に残ります。
 
 ## 判定を完了できなければ停止する
 
@@ -231,8 +246,8 @@ batch/rank/particle/step/status を報告します。photo raycast も species/r
 2. 薄い面、edge/corner近傍、三角形とほぼ平行な軌道線分を含む小ケースを作る。
 3. reflect後とperiodic wrap後の残り時間内にmeshへ当たる軌道を確認する。
 4. periodic seamで`pos`と`pos_wrapped`が意図した要素へ対応するか確認する。
-5. `multiple_box_events`が出る場合、まず`dt`を小さくする。定性的な有限画像和比較でsoft discardを使う場合も、
-   discard率と絶対電荷が結論を左右しないことを確認する。
+5. `multiple_box_events`が出る場合、まず`dt`を小さくする。`upper_panel_fourier`を使う場合は解決率と成立域、
+   soft discardを使う場合はdiscard率と絶対電荷が結論を左右しないことを確認する。
 6. mesh refinementで最初のhitと最終的な表面電荷分布が収束するか確認する。
 
 ## Code reference

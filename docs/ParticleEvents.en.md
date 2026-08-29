@@ -197,11 +197,26 @@ One local continuation processes at most eight box events. If a ninth is require
 `particle_step_multiple_box_events` is returned and the incomplete state is not committed. The limit detects an excessively
 large `dt`, narrow box, or fast particle; changing the scale-aware guard does not change it.
 
+With `multiple_box_events_retry_backend="upper_panel_fourier"`, a `cached_kneq0` configuration replays only this failed
+step from its original position and velocity. The retry expands triangle-P0 charge through
+`periodic2.reference_mode_layers` and factorizes the nonzero Fourier field into its exponentially decaying form above the
+maximum z coordinate of every mesh vertex. Each evaluation adds the same periodic zero mode and `sim.e0` exactly once. If
+any retry field sample is outside this upper-vacuum domain, the replay fails. A potential-barrier event evaluates its
+boundary potential with the same expansion and potential gauge, and its sample must satisfy the same domain. If that
+sample is outside the domain, or if the replay still cannot complete the events, BEACH retains
+the original `multiple_box_events` status and applies the configured policy. This is not an outer-plasma or sheath model,
+and it does not replace the FMM backend for ordinary particles.
+The geometry response is built once when the snapshot is initialized; multiplication by the current panel charges occurs
+only during retry field and potential evaluations. Mode count and geometry-response memory scale quadratically with
+`reference_mode_layers`, so choose it by checking seam-error and replay-result convergence.
+
 The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
 `"soft_discard"` removes the affected macro-particle. Standard error records only the per-batch, all-rank count and
 absolute macro charge. The same aggregates are retained in `summary.txt`, restart, and the charge ledger. The run aborts
 when either configured cumulative limit is exceeded. This is a bounded numerical
 workaround for qualitative comparisons, not a replacement for a physical boundary model.
+Regardless of the fallback policy, `summary.txt` records replay counts as
+`multiple_box_events_retry_attempted` and `multiple_box_events_retry_resolved`.
 
 ## Stop when the query cannot be completed
 
@@ -233,8 +248,8 @@ cell indices, and values such as `t_cur`, `t_next`, and `t_delta` to standard er
 2. Build reduced cases with thin surfaces, edge and corner hits, and nearly parallel trajectory segments.
 3. Test a mesh hit during the remainder after reflection and after periodic wrapping.
 4. At a periodic seam, verify that `pos` and `pos_wrapped` identify the intended base element.
-5. If `multiple_box_events` occurs, reduce `dt` first. If a qualitative finite-image comparison uses soft discard,
-   verify that its rate and absolute charge cannot affect the conclusion.
+5. If `multiple_box_events` occurs, reduce `dt` first. With `upper_panel_fourier`, inspect its resolution rate and validity
+   domain. With soft discard, verify that its rate and absolute charge cannot affect the conclusion.
 6. Refine the mesh and check convergence of the first hit and final surface-charge distribution.
 
 ## Code reference

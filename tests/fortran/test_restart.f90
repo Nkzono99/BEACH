@@ -333,6 +333,8 @@ program test_restart
   call assert_equal_i32(stats%batches, 2_i32, 'batches mismatch')
   call assert_equal_i64(stats%escaped_boundary, 1_i64, 'escaped_boundary mismatch')
   call assert_equal_i64(stats%survived_max_step, 2_i64, 'survived_max_step mismatch')
+  call assert_equal_i64(stats%multiple_box_events_retry_attempted, 6_i64, 'retry attempted count mismatch')
+  call assert_equal_i64(stats%multiple_box_events_retry_resolved, 2_i64, 'retry resolved count mismatch')
   call assert_equal_i64( &
     stats%multiple_box_events_soft_discarded, 4_i64, 'soft discarded count mismatch' &
     )
@@ -564,6 +566,8 @@ contains
     write (u, '(a)') 'batches=2'
     write (u, '(a)') 'escaped_boundary=1'
     write (u, '(a)') 'survived_max_step=2'
+    write (u, '(a)') 'multiple_box_events_retry_attempted=6'
+    write (u, '(a)') 'multiple_box_events_retry_resolved=2'
     write (u, '(a)') 'multiple_box_events_soft_discarded=4'
     write (u, '(a)') 'multiple_box_events_soft_discarded_abs_charge_C=2.5e-15'
     write (u, '(a)') 'adaptive_nonzero_mode_omp_threads=6'

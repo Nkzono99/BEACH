@@ -1094,6 +1094,34 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     )
     global_particle_boundary = particle_boundary or {}
 
+    multiple_event_retry_backend = sim.get(
+        "multiple_box_events_retry_backend", "none"
+    )
+    if multiple_event_retry_backend not in {"none", "upper_panel_fourier"}:
+        raise ConfigValidationError(
+            "BEACH constraint error: sim.multiple_box_events_retry_backend "
+            'must be "none" or "upper_panel_fourier".'
+        )
+    retry_nonzero_backend = (
+        periodic2_config.get("nonzero_mode_backend")
+        if isinstance(periodic2_config, Mapping)
+        else None
+    )
+    if (
+        retry_nonzero_backend is None
+        and sim.get("field_periodic_far_correction") == "cached_kneq0"
+    ):
+        retry_nonzero_backend = "cached_kneq0"
+    if multiple_event_retry_backend == "upper_panel_fourier" and (
+        field_bc_mode != "periodic2"
+        or retry_nonzero_backend != "cached_kneq0"
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: upper_panel_fourier retry requires "
+            'field_boundary.mode="periodic2" and '
+            'periodic2.nonzero_mode_backend="cached_kneq0".'
+        )
+
     multiple_event_policy = sim.get("multiple_box_events_policy", "abort")
     if multiple_event_policy == "soft_discard":
         count_limit = sim.get("multiple_box_events_soft_discard_count_limit", 1000)

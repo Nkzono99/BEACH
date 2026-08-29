@@ -604,6 +604,7 @@ contains
     soft_cfg%sim%bc_low(1) = bc_reflect
     soft_cfg%sim%bc_high(1) = bc_reflect
     soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
+    soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
     soft_cfg%sim%multiple_box_events_soft_discard_count_limit = 100000_i32
     soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
     soft_cfg%n_particle_species = 1_i32
@@ -620,6 +621,14 @@ contains
     call seed_particles_from_config(soft_cfg, mpi=mpi)
 
     call run_absorption_insulator(soft_mesh, soft_cfg, soft_stats, mpi=mpi)
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_retry_attempted, int(mpi%size, i64), &
+      'MPI retry attempt count was not globally reduced' &
+      )
+    call assert_equal_i64( &
+      soft_stats%multiple_box_events_retry_resolved, 0_i64, &
+      'ineligible MPI retry unexpectedly resolved' &
+      )
     call assert_equal_i64( &
       soft_stats%multiple_box_events_soft_discarded, int(mpi%size, i64), &
       'MPI soft-discard count was not globally reduced' &

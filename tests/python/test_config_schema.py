@@ -294,6 +294,37 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     assert schema_errors(zhao_backend, schema)
 
 
+def test_schema_constrains_upper_panel_fourier_retry_backend() -> None:
+    schema, _ = load_schema()
+    config = load_toml_file(
+        ROOT / "tests/fortran/matching_plane_quasistatic.toml"
+    )
+    config["sim"]["multiple_box_events_retry_backend"] = (
+        "upper_panel_fourier"
+    )
+
+    assert schema_errors(config, schema) == []
+
+    wrong_nonzero_backend = copy.deepcopy(config)
+    wrong_nonzero_backend["periodic2"]["nonzero_mode_backend"] = (
+        "panel_spectral_reference"
+    )
+    assert schema_errors(wrong_nonzero_backend, schema)
+
+    wrong_solver = copy.deepcopy(config)
+    wrong_solver["sim"]["field_solver"] = "direct"
+    assert schema_errors(wrong_solver, schema)
+
+    wrong_field_boundary = copy.deepcopy(config)
+    wrong_field_boundary["field_boundary"]["mode"] = "free"
+    assert schema_errors(wrong_field_boundary, schema)
+
+    legacy_cached = copy.deepcopy(config)
+    legacy_cached.pop("surface_current_model")
+    legacy_cached.pop("periodic2")
+    assert schema_errors(legacy_cached, schema) == []
+
+
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
     schema, _ = load_schema()
     disabled = load_toml_file(ROOT / "examples/beach.toml")

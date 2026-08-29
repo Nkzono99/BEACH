@@ -17,7 +17,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('free_field_normalization')
   sim = sim_config()
@@ -30,6 +30,25 @@ program test_physics_config_types
   call assert_true(trim(periodic2%nonzero_mode_backend) == 'not_applicable', 'free periodic backend mismatch')
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
   call assert_equal_i32(status, physics_config_ok, 'free triangle config should be valid')
+  call test_end()
+
+  call test_begin('upper_panel_fourier_retry_contract')
+  sim = sim_config()
+  sim%field_solver = 'fmm'
+  sim%field_bc_mode = 'periodic2'
+  sim%field_periodic_far_correction = 'cached_kneq0'
+  sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
+  sim%use_box = .true.
+  sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+  sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+  sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  call validate_active_physics_config(sim, field, periodic2, panel, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'upper Fourier retry should accept cached kneq0')
+  periodic2%nonzero_mode_backend = 'panel_spectral_reference'
+  call validate_active_physics_config(sim, field, periodic2, panel, status, message)
+  call assert_equal_i32(status, physics_config_invalid_combination, 'upper Fourier retry must reject other backends')
   call test_end()
 
   call test_begin('finite_periodic_normalization')

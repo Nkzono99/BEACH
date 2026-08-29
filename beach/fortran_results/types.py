@@ -358,6 +358,10 @@ class FortranRunResult:
         Number of particles escaped by boundary condition.
     survived_max_step : int
         Number of particles that reached max-step limit.
+    multiple_box_events_retry_attempted : int, default 0
+        Number of failed boundary steps replayed by the configured retry backend.
+    multiple_box_events_retry_resolved : int, default 0
+        Number of replayed boundary steps completed successfully.
     last_rel_change : float
         Last relative charge-change metric.
     charges : numpy.ndarray
@@ -420,6 +424,8 @@ class FortranRunResult:
     periodic2_cache_fingerprint: str | None = None
     periodic2_cache_path: str | None = None
     periodic2_generation_tolerance: float | None = None
+    multiple_box_events_retry_attempted: int = 0
+    multiple_box_events_retry_resolved: int = 0
     multiple_box_events_soft_discarded: int = 0
     multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
     simulated_time_s: float | None = None

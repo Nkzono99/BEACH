@@ -42,13 +42,22 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(19)
+  call test_init(20)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
   fp_b = mesh_fingerprint(mesh)
   call assert_true(fp_a == fp_b, 'mesh fingerprint must be deterministic')
   call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
+  call test_end()
+
+  call test_begin('multiple_box_retry_backend_change_detected')
+  cfg_changed = cfg
+  cfg_changed%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
+  call assert_true( &
+    model_fingerprint(cfg_changed) /= model_fingerprint(cfg), &
+    'active multiple-box retry backend must alter the model fingerprint' &
+    )
   call test_end()
 
   call test_begin('mesh_vacuum_side_change_detected')

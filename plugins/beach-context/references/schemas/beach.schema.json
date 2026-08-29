@@ -271,6 +271,90 @@
     {
       "if": {
         "properties": {
+          "sim": {
+            "properties": {
+              "multiple_box_events_retry_backend": {
+                "const": "upper_panel_fourier"
+              }
+            },
+            "required": [
+              "multiple_box_events_retry_backend"
+            ]
+          }
+        },
+        "required": [
+          "sim"
+        ]
+      },
+      "then": {
+        "required": [
+          "field_boundary"
+        ],
+        "properties": {
+          "sim": {
+            "properties": {
+              "field_solver": {
+                "const": "fmm"
+              }
+            },
+            "required": [
+              "field_solver"
+            ]
+          },
+          "field_boundary": {
+            "properties": {
+              "mode": {
+                "const": "periodic2"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "periodic2"
+            ],
+            "properties": {
+              "periodic2": {
+                "properties": {
+                  "nonzero_mode_backend": {
+                    "const": "cached_kneq0"
+                  }
+                },
+                "required": [
+                  "nonzero_mode_backend"
+                ]
+              }
+            }
+          },
+          {
+            "not": {
+              "required": [
+                "periodic2"
+              ]
+            },
+            "properties": {
+              "sim": {
+                "properties": {
+                  "field_periodic_far_correction": {
+                    "const": "cached_kneq0"
+                  }
+                },
+                "required": [
+                  "field_periodic_far_correction"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
           "surface_current_model": {
             "properties": {
               "model": {"const": "matching_plane_quasistatic"}
@@ -1182,6 +1266,15 @@
           ],
           "default": "abort",
           "description": "Action when one particle step exceeds the internal box-boundary event limit. soft_discard records and removes only that particle."
+        },
+        "multiple_box_events_retry_backend": {
+          "type": "string",
+          "enum": [
+            "none",
+            "upper_panel_fourier"
+          ],
+          "default": "none",
+          "description": "Optional retry used only after multiple_box_events. upper_panel_fourier replays the step with a factorized P0-panel Fourier field and potential when every electrostatic sample lies above the geometry."
         },
         "multiple_box_events_soft_discard_count_limit": {
           "type": "integer",

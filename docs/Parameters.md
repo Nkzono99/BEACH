@@ -141,12 +141,17 @@ beach.toml
 | `tol_rel` | float | `1.0e-8` | 相対変化量の監視値。停止条件には未使用 |
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `multiple_box_events_policy` | string | `"abort"` | 1 step の境界event上限超過時に `abort` / `soft_discard` |
+| `multiple_box_events_retry_backend` | string | `"none"` | `multiple_box_events` 後の再試行。`none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積soft discard数の停止上限 |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積soft discard絶対電荷の停止上限 [C] |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大bounce数 |
 
 `batch_duration` と `batch_duration_step` の同時指定はエラーです。
 `boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
+
+`upper_panel_fourier` は `cached_kneq0` の `periodic2` 構成だけで使えます。通常の場計算は変更せず、
+境界event上限を超えた 1 step だけを元の状態から再計算します。詳細と成立域は
+[粒子イベント](ParticleEvents.md)にまとめています。
 
 #### 場ソルバ
 

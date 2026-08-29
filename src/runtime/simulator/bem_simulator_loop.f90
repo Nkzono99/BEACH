@@ -37,7 +37,7 @@ contains
   logical :: matching_active, replay_active, matching_converged, matching_history_enabled
   logical :: implicit_zero_mode, implicit_zero_mode_supported, matching_photoelectron_active
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
-  integer(i64) :: batch_counts(6)
+  integer(i64) :: batch_counts(6), batch_retry_counts(2)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
@@ -399,7 +399,8 @@ contains
           workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
           workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
           collision_failure_status, collision_failure_particle, collision_failure_step, &
-          collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread &
+          collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread, &
+          batch_retry_counts &
           )
         call perf_region_end(perf_region_particle_batch, t0)
 
@@ -548,6 +549,7 @@ contains
     call perf_region_end(perf_region_count_outcomes, t0)
     call perf_region_begin(perf_region_mpi_reduce, t0)
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_counts)
+    call mpi_allreduce_sum_i64_array(mpi_ctx, batch_retry_counts)
     call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
     call perf_region_end(perf_region_mpi_reduce, t0)
     call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
@@ -562,7 +564,9 @@ contains
     ! Build the complete statistics update before mutating mesh/ledger state.  The
     ! checked add routines are the single overflow guard; commit only after all pass.
     stats_candidate = stats
-    call accumulate_batch_stats(stats_candidate, batch_counts, batch_soft_discarded_abs_charge, 0.0_dp)
+    call accumulate_batch_stats( &
+      stats_candidate, batch_counts, batch_soft_discarded_abs_charge, batch_retry_counts, 0.0_dp &
+      )
     stats_candidate%simulated_time = projected_simulated_time
     if (adaptive_nonzero_mode) then
       stats_candidate%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
@@ -722,12 +726,13 @@ contains
 
   module procedure process_particle_batch
   integer(i32) :: i, step, tid, nth, collision_status, species_idx
+  integer(i64) :: retry_attempted, retry_resolved
   real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
   type(hit_info) :: hit
-  type(particle_step_result) :: step_result
+  type(particle_step_result) :: step_result, retry_result
   type(sim_config) :: particle_sim
   type(external_boundary_contract_type) :: particle_boundary_contract
-  logical :: candidate_inside, used_event_resolver, adaptive_nonzero_mode
+  logical :: candidate_inside, used_event_resolver, adaptive_nonzero_mode, retry_field_available
 !$ integer(kind=omp_sched_kind) :: previous_schedule_kind
 !$ integer :: previous_schedule_chunk
 
@@ -738,6 +743,8 @@ contains
   collision_failure_step = 0_i32
   collision_failure_x = 0.0_dp
   collision_failure_v = 0.0_dp
+  retry_attempted = 0_i64
+  retry_resolved = 0_i64
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp .or. &
                           trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
   ! Replayed adaptive trials require an identical particle-index partition.
@@ -752,9 +759,10 @@ contains
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
   !$omp shared(matching_plane_moments_thread) &
-  !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result) &
+  !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result,retry_result) &
   !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
-  !$omp private(collision_status,candidate_inside,used_event_resolver)
+  !$omp private(collision_status,candidate_inside,used_event_resolver,retry_field_available) &
+  !$omp reduction(+:retry_attempted,retry_resolved)
   tid = 1_i32
 !$ tid = omp_get_thread_num() + 1
   !$omp single
@@ -820,6 +828,19 @@ contains
         used_event_resolver = .true.
       end if
       if (used_event_resolver) then
+        if (step_result%status == particle_step_multiple_box_events .and. &
+            trim(lower_ascii(app%sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
+          retry_attempted = retry_attempted + 1_i64
+          call advance_particle_step_upper_panel_fourier( &
+            mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, &
+            retry_result, retry_field_available, boundary_contract=particle_boundary_contract, &
+            boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
+            )
+          if (retry_field_available .and. retry_result%status == collision_query_ok) then
+            step_result = retry_result
+            retry_resolved = retry_resolved + 1_i64
+          end if
+        end if
         if (step_result%status /= collision_query_ok) then
           if (step_result%status == particle_step_multiple_box_events .and. &
               trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard') then
@@ -869,6 +890,7 @@ contains
   !$omp end do
   !$omp end parallel
 !$ call omp_set_schedule(previous_schedule_kind, previous_schedule_chunk)
+  retry_counts = [retry_attempted, retry_resolved]
 
 contains
   subroutine apply_species_kinetic_barrier(current_model, species_idx, contract)

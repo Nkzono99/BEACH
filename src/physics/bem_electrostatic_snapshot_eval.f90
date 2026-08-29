@@ -1,5 +1,7 @@
 !> `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。
 submodule(bem_electrostatic_snapshot) bem_electrostatic_snapshot_eval
+  use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: &
+    upper_vacuum_eval_ok
   implicit none
 contains
 
@@ -24,6 +26,52 @@ contains
   end if
   electric_field = electric_field + self%prescribed_e
   end procedure eval_snapshot_local_e
+
+  !> 上部真空域のfactorized P0-panel k/=0場へ、通常snapshotと同じk=0・一様場を合成する。
+  module procedure eval_snapshot_upper_panel_fourier_e
+  real(dp) :: potential, zero_potential, zero_field
+  integer(i32) :: status
+
+  electric_field = 0.0_dp
+  available = self%use_upper_panel_fourier_retry
+  if (.not. available) return
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field, status)
+  available = status == upper_vacuum_eval_ok
+  if (.not. available) then
+    electric_field = 0.0_dp
+    return
+  end if
+  if (self%use_zero_mode) then
+    call eval_periodic_zero_mode( &
+      self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
+      )
+    electric_field(3) = electric_field(3) + zero_field
+  end if
+  electric_field = electric_field + self%prescribed_e
+  end procedure eval_snapshot_upper_panel_fourier_e
+
+  !> 上部真空域のfactorized P0-panel場から、barrier判定と整合する電位を返す。
+  module procedure eval_snapshot_upper_panel_fourier_phi
+  real(dp) :: electric_field_dummy(3), zero_potential, zero_field
+  integer(i32) :: status
+
+  potential = 0.0_dp
+  available = self%use_upper_panel_fourier_retry
+  if (.not. available) return
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status)
+  available = status == upper_vacuum_eval_ok
+  if (.not. available) then
+    potential = 0.0_dp
+    return
+  end if
+  if (self%use_zero_mode) then
+    call eval_periodic_zero_mode( &
+      self%zero_plan, self%zero_state, position(3), zero_mode_trace_plus, zero_potential, zero_field &
+      )
+    potential = potential + zero_potential
+  end if
+  potential = potential - dot_product(self%prescribed_e, position - self%prescribed_phi_origin)
+  end procedure eval_snapshot_upper_panel_fourier_phi
 
   module procedure eval_snapshot_local_phi
   real(dp) :: zero_potential, zero_field, electric_field_dummy(3)

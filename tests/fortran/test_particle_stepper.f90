@@ -9,13 +9,14 @@ program test_particle_stepper
   use bem_external_boundary_contract, only: external_boundary_contract_type
   use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
+                                  advance_particle_step_upper_panel_fourier, &
                                   resolve_particle_boundary_candidate, particle_step_result, &
                                   particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
                                   particle_step_ambiguous_open_corner
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(27)
+  call test_init(29)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -99,6 +100,14 @@ program test_particle_stepper
 
   call test_begin('advance_ninth_box_event_fails')
   call test_advance_ninth_box_event_fails()
+  call test_end()
+
+  call test_begin('upper_fourier_retry_completes_above_mesh')
+  call test_upper_fourier_retry_completes_above_mesh()
+  call test_end()
+
+  call test_begin('upper_fourier_retry_rejects_barrier_below_mesh_top')
+  call test_upper_fourier_retry_rejects_barrier_below_mesh_top()
   call test_end()
 
   call test_begin('potential_barrier_uses_crossing_potential')
@@ -298,6 +307,34 @@ contains
     call field_solver%init(mesh, sim)
     call field_solver%refresh(mesh)
   end subroutine init_box_stepper
+
+  subroutine init_upper_retry_stepper(mesh, sim, field_solver, source_z)
+    type(mesh_type), intent(out) :: mesh
+    type(sim_config), intent(out) :: sim
+    type(electrostatic_snapshot_type), intent(out) :: field_solver
+    real(dp), intent(in) :: source_z
+    real(dp) :: vertex0(3, 1), vertex1(3, 1), vertex2(3, 1), element_charge(1)
+    integer(i32) :: status
+    character(len=128) :: message
+
+    vertex0(:, 1) = [10.0_dp, 10.0_dp, source_z]
+    vertex1(:, 1) = [11.0_dp, 10.0_dp, source_z]
+    vertex2(:, 1) = [10.0_dp, 11.0_dp, source_z]
+    element_charge = 0.0_dp
+    call init_mesh(mesh, vertex0, vertex1, vertex2, q0=element_charge)
+    call resolve_panel_surface_sides(mesh, 'normal_plus', status, message)
+    if (status /= panel_surface_side_ok) error stop 'upper retry panel side setup failed: '//trim(message)
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'si'
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    call field_solver%init(mesh, sim)
+    call field_solver%refresh(mesh)
+    call field_solver%upper_fourier_plan%build(mesh, 1.0_dp, 1.0_dp, 2_i32)
+    field_solver%use_upper_panel_fourier_retry = .true.
+  end subroutine init_upper_retry_stepper
 
   subroutine test_advance_no_crossing_fast_path()
     type(mesh_type) :: mesh
@@ -741,6 +778,53 @@ contains
     call assert_true(result%field_eval_count == 9_i32, 'ninth event path should build eight remainders')
     call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
   end subroutine test_advance_ninth_box_event_fails
+
+  subroutine test_upper_fourier_retry_completes_above_mesh()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    logical :: field_available
+
+    call init_upper_retry_stepper(mesh, sim, field_solver, -1.0_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call advance_particle_step_upper_panel_fourier( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.25_dp, 0.5_dp, 0.5_dp], [2.0_dp, 0.0_dp, 0.0_dp], &
+      0.0_dp, 1.0_dp, 1.0_dp, result, field_available &
+      )
+
+    call assert_true(field_available, 'upper Fourier retry should remain available above the mesh')
+    call assert_true(result%status == particle_step_ok, 'upper Fourier retry should complete periodic events')
+    call assert_allclose_1d(result%x, [0.25_dp, 0.5_dp, 0.5_dp], 1.0e-12_dp, 'retry position mismatch')
+    call assert_allclose_1d(result%v, [2.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'retry velocity mismatch')
+  end subroutine test_upper_fourier_retry_completes_above_mesh
+
+  subroutine test_upper_fourier_retry_rejects_barrier_below_mesh_top()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3)
+    logical :: field_available
+
+    call init_upper_retry_stepper(mesh, sim, field_solver, 0.4_dp)
+    sim%bc_high(1) = bc_open
+    sim%open_boundary_model = 'potential_barrier'
+    sim%phi_infty = 10.0_dp
+    x0 = [0.9_dp, 0.5_dp, 0.3_dp]
+    v0 = [2.0_dp, 0.0_dp, 1.0_dp]
+    call advance_particle_step_upper_panel_fourier( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, result, field_available &
+      )
+
+    call assert_true(.not. field_available, 'barrier potential at z<=H must make the retry unavailable')
+    call assert_true(result%status == particle_step_invalid_boundary, 'unavailable barrier retry status mismatch')
+    call assert_allclose_1d(result%x, x0, 0.0_dp, 'unavailable retry must preserve initial position')
+    call assert_allclose_1d(result%v, v0, 0.0_dp, 'unavailable retry must preserve initial velocity')
+  end subroutine test_upper_fourier_retry_rejects_barrier_below_mesh_top
 
   subroutine test_potential_barrier_uses_crossing_potential()
     type(mesh_type) :: mesh

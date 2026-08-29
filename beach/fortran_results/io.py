@@ -100,6 +100,19 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         matching_plane_history = _load_matching_plane_history_if_exists(
             out_dir / "matching_plane_history.csv"
         )
+    retry_attempted = _parse_nonnegative_int(
+        summary.get("multiple_box_events_retry_attempted", "0"),
+        key="multiple_box_events_retry_attempted",
+    )
+    retry_resolved = _parse_nonnegative_int(
+        summary.get("multiple_box_events_retry_resolved", "0"),
+        key="multiple_box_events_retry_resolved",
+    )
+    if retry_resolved > retry_attempted:
+        raise ValueError(
+            "multiple_box_events_retry_resolved must not exceed "
+            "multiple_box_events_retry_attempted"
+        )
 
     return FortranRunResult(
         directory=out_dir,
@@ -119,6 +132,8 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
             summary.get("survived_max_step", "0"),
             key="survived_max_step",
         ),
+        multiple_box_events_retry_attempted=retry_attempted,
+        multiple_box_events_retry_resolved=retry_resolved,
         multiple_box_events_soft_discarded=_parse_nonnegative_int(
             summary.get("multiple_box_events_soft_discarded", "0"),
             key="multiple_box_events_soft_discarded",

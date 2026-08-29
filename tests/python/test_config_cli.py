@@ -793,6 +793,30 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
     normalized_soft_discard = normalize_config_document(soft_discard)
     assert normalized_soft_discard["sim"]["multiple_box_events_policy"] == "soft_discard"
 
+    upper_retry = copy.deepcopy(normalized)
+    upper_retry["sim"]["multiple_box_events_retry_backend"] = (
+        "upper_panel_fourier"
+    )
+    normalized_upper_retry = normalize_config_document(upper_retry)
+    assert (
+        normalized_upper_retry["sim"]["multiple_box_events_retry_backend"]
+        == "upper_panel_fourier"
+    )
+
+    invalid_retry = copy.deepcopy(normalized)
+    invalid_retry["sim"]["multiple_box_events_retry_backend"] = "unknown"
+    with pytest.raises(ConfigValidationError, match="multiple_box_events_retry_backend"):
+        normalize_config_document(invalid_retry)
+
+    wrong_retry_backend = copy.deepcopy(upper_retry)
+    wrong_retry_backend["sim"]["field_solver"] = "direct"
+    wrong_retry_backend["sim"]["field_periodic_far_correction"] = "none"
+    wrong_retry_backend["periodic2"]["nonzero_mode_backend"] = (
+        "panel_spectral_reference"
+    )
+    with pytest.raises(ConfigValidationError, match="upper_panel_fourier retry"):
+        normalize_config_document(wrong_retry_backend)
+
     deprecated_subset_source = copy.deepcopy(normalized)
     deprecated_subset_source["particles"]["species"][0]["source_mode"] = (
         "reservoir_face"

@@ -11,6 +11,7 @@ module bem_simulator
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
+                                  advance_particle_step_upper_panel_fourier, &
                                   particle_step_result, particle_step_invalid_boundary, &
                                   particle_step_multiple_box_events, particle_step_ambiguous_open_corner
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
@@ -80,7 +81,7 @@ module bem_simulator
       absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, matching_plane_moments_thread &
+      collision_failure_x, collision_failure_v, matching_plane_moments_thread, retry_counts &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -98,6 +99,7 @@ module bem_simulator
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
       real(dp), intent(inout) :: matching_plane_moments_thread(:, :, :)
+      integer(i64), intent(out) :: retry_counts(2)
     end subroutine process_particle_batch
 
     module subroutine commit_batch_charge(mesh, q_floor, external_e, field_bc_mode, workspace, rel, mpi)
@@ -120,9 +122,10 @@ module bem_simulator
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
-    module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, rel)
+    module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, retry_counts, rel)
       type(sim_stats), intent(inout) :: stats
       integer(i64), intent(in) :: batch_counts(6)
+      integer(i64), intent(in) :: retry_counts(2)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel
     end subroutine accumulate_batch_stats
 

@@ -95,7 +95,8 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_infinite_operator \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
-	test_periodic_nonzero_reference
+	test_periodic_nonzero_reference \
+	test_periodic_nonzero_upper_vacuum
 FORTRAN_BENCHMARK_TARGETS ?= \
 	benchmark_periodic2_runtime
 FIELD_KERNEL_BENCHMARK_TARGET_COUNT ?= 2048

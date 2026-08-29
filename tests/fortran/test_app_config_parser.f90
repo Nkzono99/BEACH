@@ -31,7 +31,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(32)
+  call test_init(34)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -39,7 +39,31 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field boundary mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
+  call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('matching_plane_accepts_upper_fourier_retry')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', &
+    'multiple_box_events_retry_backend = "upper_panel_fourier"', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    trim(cfg%sim%multiple_box_events_retry_backend) == 'upper_panel_fourier', &
+    'matching-plane must accept upper Fourier retry with abort fallback' &
+    )
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('rejects_unknown_multiple_box_retry_backend')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', &
+    'multiple_box_events_retry_backend = "unknown"', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'must be "none" or "upper_panel_fourier"')
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('matching_plane_no_photo_config')

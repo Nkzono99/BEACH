@@ -16,6 +16,7 @@ program test_periodic2_cached_snapshot
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
+  use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: upper_vacuum_eval_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
                           assert_allclose_1d, assert_equal_i32, assert_equal_i64, delete_file_if_exists, &
                           remove_empty_directory
@@ -72,8 +73,12 @@ program test_periodic2_cached_snapshot
   real(dp) :: total_field(3), expected_field(3), nonzero_field(3), zero_field, zero_potential
   real(dp) :: total_potential, expected_potential, nonzero_potential
   real(dp) :: reference_field(3), reference_potential, field_error, potential_error, charge_scale
+  real(dp) :: retry_nonzero_field(3), retry_total_field(3), retry_expected_field(3), retry_potential
+  real(dp) :: retry_total_potential, retry_expected_potential
   character(len=512) :: cache_path, cache_dir
   integer(i64) :: clock_count
+  integer(i32) :: retry_status
+  logical :: retry_available
 
   call system_clock(count=clock_count)
   write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
@@ -83,7 +88,7 @@ program test_periodic2_cached_snapshot
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
 
-  call test_init(5)
+  call test_init(6)
   call test_begin('cached_snapshot_composes_kneq0_and_k0_once')
   call assert_true(snapshot%use_cached_kneq0 .and. snapshot%use_zero_mode, 'cached split flags must be active')
   call assert_true( &
@@ -107,6 +112,39 @@ program test_periodic2_cached_snapshot
     nonzero_potential, reference_potential
   call assert_true(field_error < 1.0e-1_dp, 'panel cached kneq0 field exceeds the charge-scale error contract')
   call assert_true(potential_error < 1.0e-1_dp, 'panel cached kneq0 potential exceeds the charge-scale error contract')
+  call test_end()
+
+  call test_begin('upper_fourier_retry_composes_kneq0_k0_and_prescribed_once')
+  target = [0.37_dp, 0.61_dp, 0.82_dp]
+  call snapshot%upper_fourier_plan%eval(mesh%q_elem, target, retry_potential, retry_nonzero_field, retry_status)
+  call assert_equal_i32(retry_status, upper_vacuum_eval_ok, 'retry reference target must be above the mesh')
+  call eval_periodic_zero_mode( &
+    snapshot%zero_plan, snapshot%zero_state, target(3), zero_mode_trace_plus, zero_potential, zero_field &
+    )
+  retry_expected_field = retry_nonzero_field + sim%e0
+  retry_expected_field(3) = retry_expected_field(3) + zero_field
+  call snapshot%eval_upper_panel_fourier_e(mesh, target, retry_total_field, retry_available)
+  call assert_true(retry_available, 'upper Fourier retry field should be available above the mesh')
+  call assert_allclose_1d( &
+    retry_total_field, retry_expected_field, 1.0e-12_dp, &
+    'upper Fourier retry must compose kneq0, k0, and prescribed field exactly once' &
+    )
+  retry_expected_potential = retry_potential + zero_potential - &
+                             dot_product(sim%e0, target - snapshot%prescribed_phi_origin)
+  call snapshot%eval_upper_panel_fourier_phi(mesh, target, retry_total_potential, retry_available)
+  call assert_true(retry_available, 'upper Fourier retry potential should be available above the mesh')
+  call assert_close_dp( &
+    retry_total_potential, retry_expected_potential, 1.0e-12_dp, &
+    'upper Fourier retry must compose kneq0, k0, and prescribed potential exactly once' &
+    )
+  target(3) = snapshot%upper_fourier_plan%source_z_max
+  call snapshot%eval_upper_panel_fourier_e(mesh, target, retry_total_field, retry_available)
+  call assert_true(.not. retry_available, 'upper Fourier retry must reject z at the highest mesh vertex')
+  call assert_allclose_1d(retry_total_field, [0.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'rejected retry field must be zero')
+  call snapshot%eval_upper_panel_fourier_phi(mesh, target, retry_total_potential, retry_available)
+  call assert_true(.not. retry_available, 'upper Fourier retry potential must reject z at the highest mesh vertex')
+  call assert_close_dp(retry_total_potential, 0.0_dp, 0.0_dp, 'rejected retry potential must be zero')
+  target = [0.37_dp, 0.61_dp, 0.42_dp]
   call test_end()
 
   call test_kneq0_potential_step_measurement()
@@ -554,6 +592,7 @@ contains
     sim_out%field_periodic_ewald_layers = 3_i32
     sim_out%field_periodic_cache_dir = cache_dir
     sim_out%field_periodic_generation_tolerance = 1.0e-8_dp
+    sim_out%multiple_box_events_retry_backend = 'upper_panel_fourier'
     sim_out%field_normalization = 'si'
     sim_out%tree_theta = 0.5_dp
     sim_out%has_tree_theta = .true.

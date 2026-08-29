@@ -393,6 +393,10 @@ contains
         read (value, *) stats%escaped_boundary
       case ('survived_max_step')
         read (value, *) stats%survived_max_step
+      case ('multiple_box_events_retry_attempted')
+        read (value, *) stats%multiple_box_events_retry_attempted
+      case ('multiple_box_events_retry_resolved')
+        read (value, *) stats%multiple_box_events_retry_resolved
       case ('multiple_box_events_soft_discarded')
         read (value, *) stats%multiple_box_events_soft_discarded
       case ('multiple_box_events_soft_discarded_abs_charge_C')
@@ -913,6 +917,11 @@ contains
     if (stats%escaped < 0_i64) error stop 'Resume checkpoint escaped must be >= 0.'
     if (stats%escaped_boundary < 0_i64) error stop 'Resume checkpoint escaped_boundary must be >= 0.'
     if (stats%survived_max_step < 0_i64) error stop 'Resume checkpoint survived_max_step must be >= 0.'
+    if (stats%multiple_box_events_retry_attempted < 0_i64 .or. &
+        stats%multiple_box_events_retry_resolved < 0_i64 .or. &
+        stats%multiple_box_events_retry_resolved > stats%multiple_box_events_retry_attempted) then
+      error stop 'Resume checkpoint multiple_box_events retry counters are inconsistent.'
+    end if
     if (stats%multiple_box_events_soft_discarded < 0_i64) then
       error stop 'Resume checkpoint multiple_box_events_soft_discarded must be >= 0.'
     end if

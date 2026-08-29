@@ -443,6 +443,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "batches=1",
                 "escaped_boundary=2",
                 "survived_max_step=1",
+                "multiple_box_events_retry_attempted=6",
+                "multiple_box_events_retry_resolved=2",
                 "multiple_box_events_soft_discarded=4",
                 "multiple_box_events_soft_discarded_abs_charge_C=2.5e-15",
                 "last_rel_change=1.0e-8",
@@ -492,6 +494,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.absorbed == 7
     assert result.escaped_boundary == 2
     assert result.survived_max_step == 1
+    assert result.multiple_box_events_retry_attempted == 6
+    assert result.multiple_box_events_retry_resolved == 2
     assert result.multiple_box_events_soft_discarded == 4
     assert result.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
     assert result.simulated_time_s == 7.5e-6
@@ -769,6 +773,23 @@ def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> No
     _write_minimal_result_fixture(out, summary_extra=["escaped_boundary=-1"])
 
     with pytest.raises(ValueError, match="escaped_boundary"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_inconsistent_retry_counts(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_bad_retry_counts"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "multiple_box_events_retry_attempted=1",
+            "multiple_box_events_retry_resolved=2",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="retry_resolved must not exceed"):
         load_fortran_result(out)
 
 

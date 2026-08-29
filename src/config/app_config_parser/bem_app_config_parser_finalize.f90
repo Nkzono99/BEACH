@@ -235,6 +235,13 @@ contains
   case default
     error stop 'sim.multiple_box_events_policy must be "abort" or "soft_discard".'
   end select
+  cfg%sim%multiple_box_events_retry_backend = lower_ascii(trim(cfg%sim%multiple_box_events_retry_backend))
+  select case (trim(cfg%sim%multiple_box_events_retry_backend))
+  case ('none', 'upper_panel_fourier')
+    continue
+  case default
+    error stop 'sim.multiple_box_events_retry_backend must be "none" or "upper_panel_fourier".'
+  end select
   if (trim(cfg%sim%multiple_box_events_policy) == 'soft_discard') then
     if (cfg%sim%multiple_box_events_soft_discard_count_limit < 1_i32) then
       error stop 'sim.multiple_box_events_soft_discard_count_limit must be >= 1 for soft_discard.'

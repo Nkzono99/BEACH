@@ -29,6 +29,9 @@ contains
 
   !> バッチ単位の集計値を累積統計 `sim_stats` に加算する。
   module procedure accumulate_batch_stats
+  if (retry_counts(1) < 0_i64 .or. retry_counts(2) < 0_i64 .or. retry_counts(2) > retry_counts(1)) then
+    error stop 'multiple_box_events retry counters are inconsistent.'
+  end if
   stats%batches = stats%batches + 1_i32
   stats%last_rel_change = rel
   stats%processed_particles = checked_add_nonnegative_i64( &
@@ -42,6 +45,14 @@ contains
   stats%survived_max_step = checked_add_nonnegative_i64( &
                             stats%survived_max_step, batch_counts(5), 'survived_max_step' &
                             )
+  stats%multiple_box_events_retry_attempted = checked_add_nonnegative_i64( &
+                                              stats%multiple_box_events_retry_attempted, retry_counts(1), &
+                                              'multiple_box_events_retry_attempted' &
+                                              )
+  stats%multiple_box_events_retry_resolved = checked_add_nonnegative_i64( &
+                                             stats%multiple_box_events_retry_resolved, retry_counts(2), &
+                                             'multiple_box_events_retry_resolved' &
+                                             )
   stats%multiple_box_events_soft_discarded = checked_add_nonnegative_i64( &
                                              stats%multiple_box_events_soft_discarded, batch_counts(6), &
                                              'multiple_box_events_soft_discarded' &

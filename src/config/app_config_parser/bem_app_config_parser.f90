@@ -919,6 +919,12 @@ contains
           table, keys(ikey), cfg%sim%multiple_box_events_policy, 'sim.multiple_box_events_policy' &
           )
         cfg%sim%multiple_box_events_policy = lower_ascii(trim(cfg%sim%multiple_box_events_policy))
+      case ('multiple_box_events_retry_backend')
+        call get_toml_string( &
+          table, keys(ikey), cfg%sim%multiple_box_events_retry_backend, &
+          'sim.multiple_box_events_retry_backend' &
+          )
+        cfg%sim%multiple_box_events_retry_backend = lower_ascii(trim(cfg%sim%multiple_box_events_retry_backend))
       case ('multiple_box_events_soft_discard_count_limit')
         call get_toml_int( &
           table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_limit, &

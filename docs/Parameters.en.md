@@ -144,12 +144,17 @@ At least one `[[particles.species]]` entry is required.
 | `tol_rel` | float | `1.0e-8` | Monitored relative-change value. Not used as a stop condition |
 | `q_floor` | float | `1.0e-30` | Lower bound for the denominator in `rel_change` calculations |
 | `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard` after the per-step boundary-event limit |
+| `multiple_box_events_retry_backend` | string | `"none"` | Retry after `multiple_box_events`: `none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_limit` | int | `1000` | Stop limit for cumulative soft discards |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Stop limit for cumulative soft-discard absolute charge [C] |
 | `raycast_max_bounce` | int | `16` | Maximum bounce count for `photo_raycast` |
 
 Specifying both `batch_duration` and `batch_duration_step` is an error. For
 `boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
+
+`upper_panel_fourier` is available only with a `cached_kneq0` `periodic2` configuration. It leaves the normal field
+backend unchanged and replays only a step that exceeded the boundary-event limit from its original state. See
+[Particle Events](ParticleEvents.en.md) for its validity domain.
 
 #### Field Solver
 

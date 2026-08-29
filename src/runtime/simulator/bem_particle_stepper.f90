@@ -36,13 +36,15 @@ module bem_particle_stepper
 
   public :: build_particle_step_candidate
   public :: advance_particle_step
+  public :: advance_particle_step_upper_panel_fourier
   public :: resolve_particle_boundary_candidate
 
 contains
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。
   subroutine build_particle_step_candidate( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x1, v1, sampled_electric_field &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x1, v1, sampled_electric_field, &
+    use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -50,11 +52,28 @@ contains
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     real(dp), intent(out) :: x1(3), v1(3)
     real(dp), intent(out), optional :: sampled_electric_field(3)
+    logical, intent(in), optional :: use_upper_panel_fourier
+    logical, intent(out), optional :: field_available
     real(dp) :: x_mid(3), e_mid(3)
+    logical :: available, use_upper
 
     x_mid = x0 + 0.5d0*v0*dt
     call project_field_sample_to_box(sim, x_mid)
-    call snapshot%eval_local_e(mesh, x_mid, e_mid)
+    use_upper = .false.
+    if (present(use_upper_panel_fourier)) use_upper = use_upper_panel_fourier
+    available = .true.
+    if (use_upper) then
+      call snapshot%eval_upper_panel_fourier_e(mesh, x_mid, e_mid, available)
+    else
+      call snapshot%eval_local_e(mesh, x_mid, e_mid)
+    end if
+    if (present(field_available)) field_available = available
+    if (.not. available) then
+      x1 = x0
+      v1 = v0
+      if (present(sampled_electric_field)) sampled_electric_field = 0.0_dp
+      return
+    end if
     call boris_push(x0, v0, q, m, dt, e_mid, bfield, x1, v1)
     if (present(sampled_electric_field)) sampled_electric_field = e_mid
   end subroutine build_particle_step_candidate
@@ -90,15 +109,40 @@ contains
     type(particle_step_result), intent(out) :: result
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
+    logical :: field_available
 
+    field_available = .true.
     call advance_particle_step_impl( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32 &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32, &
+      .false., field_available &
       )
   end subroutine advance_particle_step
 
+  !> 上部真空域のfactorized P0-panel Fourier場だけで、失敗した1 stepを最初から再試行する。
+  subroutine advance_particle_step_upper_panel_fourier( &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, field_available, &
+    boundary_contract, boundary_rng_counter &
+    )
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
+    type(particle_step_result), intent(out) :: result
+    logical, intent(out) :: field_available
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in), optional :: boundary_rng_counter(4)
+
+    field_available = .true.
+    call advance_particle_step_impl( &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32, &
+      .true., field_available &
+      )
+  end subroutine advance_particle_step_upper_panel_fourier
+
   !> periodic event の適応分割深さを内部だけで引き回す1 step実装。
   recursive subroutine advance_particle_step_impl( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, adaptive_depth &
+    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, adaptive_depth, &
+    use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -108,6 +152,8 @@ contains
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
     integer(i32), intent(in) :: adaptive_depth
+    logical, intent(in) :: use_upper_panel_fourier
+    logical, intent(inout) :: field_available
 
     type(hit_info) :: hit
     real(dp) :: x_candidate(3), v_candidate(3), candidate_electric_field(3)
@@ -127,9 +173,14 @@ contains
     end if
 
     call build_particle_step_candidate( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field &
+      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, &
+      use_upper_panel_fourier, field_available &
       )
     result%field_eval_count = 1_i32
+    if (.not. field_available) then
+      result%status = particle_step_invalid_boundary
+      return
+    end if
     if (.not. all(ieee_is_finite(x_candidate)) .or. .not. all(ieee_is_finite(v_candidate))) then
       result%status = particle_step_invalid_boundary
       return
@@ -142,7 +193,8 @@ contains
         call advance_particle_boundary_crossing( &
           mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, result=result, &
           boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-          has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth &
+          has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth, &
+          use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available &
           )
         return
       end if
@@ -162,7 +214,8 @@ contains
     call advance_particle_boundary_crossing( &
       mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
       boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-      has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth &
+      has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth, &
+      use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available &
       )
   end subroutine advance_particle_step_impl
 
@@ -183,6 +236,7 @@ contains
     integer(i64) :: active_boundary_rng_counter(4)
     real(dp) :: active_electric_field(3), x_mid(3)
     logical :: has_boundary_rng_counter
+    logical :: field_available
 
     result = particle_step_result()
     result%x = x0
@@ -209,16 +263,18 @@ contains
       result%status = particle_step_invalid_boundary
       return
     end if
+    field_available = .true.
     call advance_particle_boundary_crossing( &
       mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, active_electric_field, hit, result, &
-      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter, 0_i32 &
+      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter, 0_i32, .false., field_available &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、periodic過多時はremainderを適応分割する。
   subroutine advance_particle_boundary_crossing( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
-    boundary_contract, boundary_rng_counter, has_boundary_rng_counter, adaptive_depth &
+    boundary_contract, boundary_rng_counter, has_boundary_rng_counter, adaptive_depth, &
+    use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -231,6 +287,8 @@ contains
     integer(i64), intent(in) :: boundary_rng_counter(4)
     logical, intent(in) :: has_boundary_rng_counter
     integer(i32), intent(in) :: adaptive_depth
+    logical, intent(in) :: use_upper_panel_fourier
+    logical, intent(inout) :: field_available
 
     integer(i32), parameter :: max_boundary_events = 8_i32
     type(boundary_event_type) :: event
@@ -325,7 +383,7 @@ contains
         if (periodic_event_can_subdivide(sim, event) .and. adaptive_depth < 12_i32) then
           call advance_periodic_substeps( &
             mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, result, active_boundary_contract, &
-            boundary_rng_counter, has_boundary_rng_counter, adaptive_depth &
+            boundary_rng_counter, has_boundary_rng_counter, adaptive_depth, use_upper_panel_fourier, field_available &
             )
           return
         end if
@@ -356,7 +414,7 @@ contains
       if (event_uses_potential_barrier(event, active_boundary_contract)) then
         call apply_potential_barrier_event( &
           mesh, sim, snapshot, event, active_boundary_contract, q, m, x_event, v_event, alive, escaped, boundary_status, &
-          redistribution_uniform &
+          redistribution_uniform, use_upper_panel_fourier, field_available &
           )
       else
         call apply_escape_reflect_periodic_event( &
@@ -394,9 +452,14 @@ contains
       v_start = v_event
       dt_segment = dt_remaining
       call build_particle_step_candidate( &
-        mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, x_trial, v_trial, segment_electric_field &
+        mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, x_trial, v_trial, segment_electric_field, &
+        use_upper_panel_fourier, field_available &
         )
       result%field_eval_count = result%field_eval_count + 1_i32
+      if (.not. field_available) then
+        result%status = particle_step_invalid_boundary
+        return
+      end if
       if (.not. all(ieee_is_finite(x_trial)) .or. .not. all(ieee_is_finite(v_trial))) then
         result%status = particle_step_invalid_boundary
         return
@@ -408,7 +471,7 @@ contains
   !> 一つのperiodic remainderを二分し、各半stepのbox/collision eventを順番に解く。
   subroutine advance_periodic_substeps( &
     mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, &
-    has_boundary_rng_counter, adaptive_depth &
+    has_boundary_rng_counter, adaptive_depth, use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -419,6 +482,8 @@ contains
     integer(i64), intent(in) :: boundary_rng_counter(4)
     logical, intent(in) :: has_boundary_rng_counter
     integer(i32), intent(in) :: adaptive_depth
+    logical, intent(in) :: use_upper_panel_fourier
+    logical, intent(inout) :: field_available
 
     type(particle_step_result) :: first_half, second_half
     integer(i32) :: prior_field_evals, prior_collision_queries
@@ -434,13 +499,18 @@ contains
     if (has_boundary_rng_counter) then
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract, &
-        boundary_rng_counter, adaptive_depth + 1_i32 &
+        boundary_rng_counter, adaptive_depth + 1_i32, use_upper_panel_fourier, field_available &
         )
     else
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract=boundary_contract, &
-        adaptive_depth=adaptive_depth + 1_i32 &
+        adaptive_depth=adaptive_depth + 1_i32, use_upper_panel_fourier=use_upper_panel_fourier, &
+        field_available=field_available &
         )
+    end if
+    if (.not. field_available) then
+      result = first_half
+      return
     end if
     if (first_half%status /= particle_step_ok .or. first_half%absorbed .or. first_half%escaped_boundary) then
       result = first_half
@@ -457,12 +527,13 @@ contains
     if (has_boundary_rng_counter) then
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, boundary_contract, &
-        boundary_rng_counter, adaptive_depth + 1_i32 &
+        boundary_rng_counter, adaptive_depth + 1_i32, use_upper_panel_fourier, field_available &
         )
     else
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, &
-        boundary_contract=boundary_contract, adaptive_depth=adaptive_depth + 1_i32 &
+        boundary_contract=boundary_contract, adaptive_depth=adaptive_depth + 1_i32, &
+        use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available &
         )
     end if
     result = second_half
@@ -580,7 +651,8 @@ contains
 
   !> 単一barrier-open面のpotential-barrier式をevent位置とevent時速度で評価する。
   subroutine apply_potential_barrier_event( &
-    mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform &
+    mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform, &
+    use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -593,6 +665,8 @@ contains
     logical, intent(out) :: escaped
     integer(i32), intent(out) :: status
     real(dp), intent(in) :: redistribution_uniform(3)
+    logical, intent(in) :: use_upper_panel_fourier
+    logical, intent(inout) :: field_available
 
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
@@ -661,7 +735,15 @@ contains
         barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
       end if
     end if
-    call snapshot%eval_local_phi(mesh, sim, x, phi_boundary)
+    if (use_upper_panel_fourier) then
+      call snapshot%eval_upper_panel_fourier_phi(mesh, x, phi_boundary, field_available)
+      if (.not. field_available) then
+        status = particle_step_invalid_boundary
+        return
+      end if
+    else
+      call snapshot%eval_local_phi(mesh, sim, x, phi_boundary)
+    end if
     if (.not. ieee_is_finite(phi_boundary)) then
       status = particle_step_invalid_boundary
       return
