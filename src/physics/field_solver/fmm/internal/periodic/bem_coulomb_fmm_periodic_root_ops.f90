@@ -27,6 +27,7 @@ module bem_coulomb_fmm_periodic_root_ops
   real(dp), parameter :: periodic_operator_tall_box_ratio = 4.0d0
   real(dp), parameter :: periodic_operator_lstsq_ridge = 1.0d-12
   real(dp), parameter :: periodic_operator_qr_tol = 1.0d-12
+  real(dp), parameter :: periodic_operator_seam_weight_multiplier = 1.0d0
 
   public :: precompute_periodic_root_operator
 
@@ -56,10 +57,11 @@ contains
   subroutine precompute_periodic_cached_operator_collective(plan, mpi)
     type(fmm_plan_type), intent(inout) :: plan
     type(mpi_context), intent(in) :: mpi
-    integer(i32) :: nproxy, ncheck, j, i, target_idx, node_idx, n_target_nodes, anchor_depth, target_count
+    integer(i32) :: nproxy, ncheck_bulk, ncheck_face, ncheck_max, ncheck, j, i
+    integer(i32) :: target_idx, node_idx, n_target_nodes, anchor_depth, target_count
     integer(i32) :: rank, rank_count
     real(dp) :: source_center(3), source_half(3), proxy_half(3), target_center(3), target_half(3)
-    real(dp), allocatable :: proxy_points(:, :), check_points(:, :)
+    real(dp), allocatable :: proxy_points(:, :), check_points(:, :), check_weights(:)
     real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :), proxy_pinv(:, :)
     real(dp), allocatable :: field_matrix(:, :), field_rhs(:), coeff(:), potential_rhs(:), flat_operator(:)
     real(dp) :: e_res(3), phi_res
@@ -76,7 +78,9 @@ contains
     if (n_target_nodes <= 0_i32) return
 
     nproxy = max(4_i32*plan%ncoef, int(periodic_operator_proxy_multiplier*real(plan%ncoef, dp), i32))
-    ncheck = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
+    ncheck_bulk = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
+    ncheck_face = max(8_i32, plan%ncoef)
+    ncheck_max = ncheck_bulk + 4_i32*ncheck_face
     source_center = plan%node_center(:, 1_i32)
     source_half = plan%node_half_size(:, 1_i32)
     proxy_half = source_half
@@ -117,12 +121,12 @@ contains
       return
     end if
 
-    allocate (proxy_points(3, nproxy), check_points(3, ncheck))
+    allocate (proxy_points(3, nproxy), check_points(3, ncheck_max), check_weights(ncheck_max))
     call build_root_surface_points( &
       source_center, proxy_half, nproxy, 0.13_dp, periodic_operator_proxy_shell_scale, proxy_points &
       )
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
-    allocate (field_matrix(3_i32*ncheck, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef))
+    allocate (field_matrix(3_i32*ncheck_max, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef))
     call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
     call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
 
@@ -138,11 +142,20 @@ contains
       target_center = active_tree_node_center(plan, use_target_tree, node_idx)
       target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
       call build_root_surface_points( &
-        target_center, target_half, ncheck, 0.37_dp, periodic_operator_check_shell_scale, check_points &
+        target_center, target_half, ncheck_bulk, 0.37_dp, periodic_operator_check_shell_scale, &
+        check_points(:, 1:ncheck_bulk) &
         )
-      call build_local_field_matrix(plan, target_center, check_points, field_matrix)
+      ! Exact Ewald residualを周期境界面でもfitし、finite shellとの和が対向面で連続になるよう拘束する。
+      call append_periodic_seam_check_points( &
+        plan, target_center, target_half, ncheck_bulk, ncheck_face, check_points, ncheck &
+        )
+      call set_periodic_check_weights(ncheck_bulk, ncheck, check_weights)
+      call build_local_field_matrix( &
+        plan, target_center, check_points(:, 1:ncheck), field_matrix(1:3_i32*ncheck, :) &
+        )
+      call apply_field_check_weights(field_matrix(1:3_i32*ncheck, :), check_weights(1:ncheck))
       call prepare_regularized_qr( &
-        field_factorization, field_matrix, periodic_operator_lstsq_ridge, periodic_operator_qr_tol &
+        field_factorization, field_matrix(1:3_i32*ncheck, :), periodic_operator_lstsq_ridge, periodic_operator_qr_tol &
         )
       plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
       plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
@@ -170,14 +183,15 @@ contains
             plan, 1.0_dp, proxy_points(:, j), check_points(:, i), phi_res &
             )
           potential_rhs(i) = phi_res
-          field_rhs(i) = e_res(1)
-          field_rhs(ncheck + i) = e_res(2)
-          field_rhs(2_i32*ncheck + i) = e_res(3)
+          field_rhs(i) = check_weights(i)*e_res(1)
+          field_rhs(ncheck + i) = check_weights(i)*e_res(2)
+          field_rhs(2_i32*ncheck + i) = check_weights(i)*e_res(3)
         end do
         call solve_regularized_qr(field_factorization, field_rhs, coeff)
         proxy_to_local(2:plan%ncoef, j) = coeff
         call fit_local_potential_constant( &
-          plan, target_center, check_points, potential_rhs, proxy_to_local(:, j) &
+          plan, target_center, check_points(:, 1:ncheck), check_weights(1:ncheck), &
+          potential_rhs, proxy_to_local(:, j) &
           )
       end do
 !$omp end do
@@ -272,17 +286,18 @@ contains
     integer(i32) :: target_idx, node_idx, real_pos
     character(len=256) :: tag
 
-    allocate (integer_values(8 + target_count), real_values(11 + 6*target_count))
+    allocate (integer_values(8 + target_count), real_values(12 + 6*target_count))
     integer_values(1:8) = [ &
       plan%options%order, plan%ncoef, plan%options%periodic_axes, plan%options%periodic_image_layers, &
       plan%options%periodic_ewald_layers, merge(1_i32, 0_i32, plan%panel_source), target_count &
       ]
     integer_values(9:) = target_nodes(1:target_count)
-    real_values(1:11) = [ &
+    real_values(1:12) = [ &
       plan%options%periodic_len, plan%options%softening, plan%options%periodic_ewald_alpha, &
-      plan%options%periodic_generation_tolerance, plan%node_center(:, 1_i32), plan%node_half_size(:, 1_i32) &
+      plan%options%periodic_generation_tolerance, periodic_operator_seam_weight_multiplier, &
+      plan%node_center(:, 1_i32), plan%node_half_size(:, 1_i32) &
       ]
-    real_pos = 12_i32
+    real_pos = 13_i32
     do target_idx = 1_i32, target_count
       node_idx = target_nodes(target_idx)
       real_values(real_pos:real_pos + 2) = active_tree_node_center(plan, use_target_tree, node_idx)
@@ -290,9 +305,11 @@ contains
       real_pos = real_pos + 6_i32
     end do
     if (plan%panel_source) then
-      tag = 'periodic-kneq0-generator-v7|real64|kernel=triangle_p0|zero=state_subtracted|normalization=core|'
+      tag = 'periodic-kneq0-generator-v8|paired-face-collocation-v1|real64|kernel=triangle_p0|'
+      tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     else
-      tag = 'periodic-kneq0-generator-v7|real64|kernel=point_softened|zero=state_subtracted|normalization=core|'
+      tag = 'periodic-kneq0-generator-v8|paired-face-collocation-v1|real64|kernel=point_softened|'
+      tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     end if
     tag = trim(tag)//trim(beach_version)
     plan%periodic_cache_fingerprint = periodic_cache_fingerprint(tag, integer_values, real_values)
@@ -390,6 +407,93 @@ contains
     end do
   end subroutine build_root_surface_points
 
+  subroutine append_periodic_seam_check_points( &
+    plan, target_center, target_half, initial_count, points_per_face, points, point_count &
+    )
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: target_center(3), target_half(3)
+    integer(i32), intent(in) :: initial_count, points_per_face
+    real(dp), intent(inout) :: points(:, :)
+    integer(i32), intent(out) :: point_count
+    integer(i32) :: periodic_idx, axis
+    real(dp) :: face_low, face_high, tolerance
+
+    point_count = initial_count
+    do periodic_idx = 1_i32, 2_i32
+      axis = plan%options%periodic_axes(periodic_idx)
+      face_low = plan%options%target_box_min(axis)
+      face_high = face_low + plan%options%periodic_len(periodic_idx)
+      tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(face_low), abs(face_high))
+      if (abs(target_center(axis) - target_half(axis) - face_low) <= tolerance) then
+        call append_face_check_points( &
+          target_center, target_half, axis, face_low, points_per_face, points, point_count &
+          )
+      end if
+      if (abs(target_center(axis) + target_half(axis) - face_high) <= tolerance) then
+        call append_face_check_points( &
+          target_center, target_half, axis, face_high, points_per_face, points, point_count &
+          )
+      end if
+    end do
+  end subroutine append_periodic_seam_check_points
+
+  subroutine append_face_check_points(center, half_size, normal_axis, face_position, npoint, points, point_count)
+    real(dp), intent(in) :: center(3), half_size(3), face_position
+    integer(i32), intent(in) :: normal_axis, npoint
+    real(dp), intent(inout) :: points(:, :)
+    integer(i32), intent(inout) :: point_count
+    integer(i32) :: idx, axis, tangent_axis(2), tangent_count
+    real(dp) :: f1, f2, u, v
+    real(dp), parameter :: g1 = 0.7548776662466927d0
+    real(dp), parameter :: g2 = 0.5698402909980532d0
+
+    tangent_count = 0_i32
+    do axis = 1_i32, 3_i32
+      if (axis == normal_axis) cycle
+      tangent_count = tangent_count + 1_i32
+      tangent_axis(tangent_count) = axis
+    end do
+    do idx = 1_i32, npoint
+      f1 = modulo(0.29_dp + real(idx, dp)*g1, 1.0_dp)
+      f2 = modulo(0.41_dp + real(idx, dp)*g2, 1.0_dp)
+      u = 2.0_dp*(0.025_dp + 0.95_dp*f1) - 1.0_dp
+      v = 2.0_dp*(0.025_dp + 0.95_dp*f2) - 1.0_dp
+      point_count = point_count + 1_i32
+      if (point_count > size(points, 2)) error stop 'periodic seam check-point buffer is too small.'
+      points(:, point_count) = center
+      points(normal_axis, point_count) = face_position
+      points(tangent_axis(1), point_count) = center(tangent_axis(1)) + u*half_size(tangent_axis(1))
+      points(tangent_axis(2), point_count) = center(tangent_axis(2)) + v*half_size(tangent_axis(2))
+    end do
+  end subroutine append_face_check_points
+
+  subroutine set_periodic_check_weights(bulk_count, point_count, weights)
+    integer(i32), intent(in) :: bulk_count, point_count
+    real(dp), intent(out) :: weights(:)
+    real(dp) :: seam_weight
+
+    weights(1:point_count) = 1.0_dp
+    if (point_count <= bulk_count) return
+    ! seam集合とbulk集合の総least-squares重みを揃え、境界だけで内部精度を支配しないようにする。
+    seam_weight = periodic_operator_seam_weight_multiplier* &
+                  sqrt(real(bulk_count, dp)/real(point_count - bulk_count, dp))
+    weights(bulk_count + 1_i32:point_count) = seam_weight
+  end subroutine set_periodic_check_weights
+
+  subroutine apply_field_check_weights(matrix, weights)
+    real(dp), intent(inout) :: matrix(:, :)
+    real(dp), intent(in) :: weights(:)
+    integer(i32) :: check_idx, ncheck
+
+    ncheck = int(size(weights), i32)
+    if (size(matrix, 1) /= 3_i32*ncheck) error stop 'field check-weight dimension mismatch.'
+    do check_idx = 1_i32, ncheck
+      matrix(check_idx, :) = weights(check_idx)*matrix(check_idx, :)
+      matrix(ncheck + check_idx, :) = weights(check_idx)*matrix(ncheck + check_idx, :)
+      matrix(2_i32*ncheck + check_idx, :) = weights(check_idx)*matrix(2_i32*ncheck + check_idx, :)
+    end do
+  end subroutine apply_field_check_weights
+
   subroutine build_proxy_multipole_matrix(plan, source_center, proxy_points, matrix)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: source_center(3), proxy_points(:, :)
@@ -440,18 +544,22 @@ contains
     end do
   end subroutine build_local_field_matrix
 
-  subroutine fit_local_potential_constant(plan, target_center, check_points, potential, local_coeff)
+  subroutine fit_local_potential_constant(plan, target_center, check_points, check_weights, potential, local_coeff)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: target_center(3), check_points(:, :)
-    real(dp), intent(in) :: potential(:)
+    real(dp), intent(in) :: check_weights(:), potential(:)
     real(dp), intent(inout) :: local_coeff(:)
     integer(i32) :: check_idx, alpha_idx, ncheck
-    real(dp) :: d(3), monomial, predicted
+    real(dp) :: d(3), monomial, predicted, weight_squared, weight_sum
     real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
     real(dp) :: zpow(0:max(0_i32, plan%options%order))
 
     ncheck = int(size(check_points, 2), i32)
+    if (size(check_weights) /= ncheck .or. size(potential) /= ncheck) then
+      error stop 'fit_local_potential_constant dimension mismatch.'
+    end if
     local_coeff(1) = 0.0_dp
+    weight_sum = 0.0_dp
     do check_idx = 1_i32, ncheck
       d = check_points(:, check_idx) - target_center
       call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
@@ -461,9 +569,11 @@ contains
                    zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
         predicted = predicted + local_coeff(alpha_idx)*monomial
       end do
-      local_coeff(1) = local_coeff(1) + potential(check_idx) - predicted
+      weight_squared = check_weights(check_idx)*check_weights(check_idx)
+      local_coeff(1) = local_coeff(1) + weight_squared*(potential(check_idx) - predicted)
+      weight_sum = weight_sum + weight_squared
     end do
-    local_coeff(1) = local_coeff(1)/real(ncheck, dp)
+    local_coeff(1) = local_coeff(1)/max(weight_sum, tiny(1.0_dp))
   end subroutine fit_local_potential_constant
 
   subroutine build_minimum_norm_pseudoinverse(matrix, pinv)

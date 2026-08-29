@@ -15,7 +15,9 @@ program test_periodic2_infinite_operator
   real(dp) :: spectral_field(3), spectral_phi, teacher_field_error, teacher_potential_error
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
   real(dp) :: layer_field_delta, layer_potential_delta, translation_field(3), translation_phi
-  integer(i32) :: target_idx
+  real(dp) :: seam_low(3, 2), seam_high(3, 2), seam_field_low(3), seam_field_high(3)
+  real(dp) :: seam_ref_low(3), seam_ref_high(3), seam_phi, seam_error, max_seam_error, seam_scale
+  integer(i32) :: target_idx, seam_idx
   integer :: clock_count
   character(len=512) :: cache_path0, cache_path1, cache_dir
 
@@ -101,6 +103,25 @@ program test_periodic2_infinite_operator
                    'cached kneq0 field is not periodic')
   call assert_true(abs(translation_phi - phi1) < 1.0e-12_dp*max(1.0_dp, abs(phi1)), &
                    'cached kneq0 potential is not periodic')
+  call test_end()
+
+  call test_begin('paired_face_continuity_matches_exact_ewald')
+  seam_low(:, 1) = [1.0e-10_dp, 0.48_dp, 0.18_dp]
+  seam_high(:, 1) = [1.0_dp - 1.0e-10_dp, 0.48_dp, 0.18_dp]
+  seam_low(:, 2) = [0.55_dp, 1.0e-10_dp, 0.18_dp]
+  seam_high(:, 2) = [0.55_dp, 1.0_dp - 1.0e-10_dp, 0.18_dp]
+  max_seam_error = 0.0_dp
+  do seam_idx = 1_i32, int(size(seam_low, 2), i32)
+    call eval_point(plan1, state1, seam_low(:, seam_idx), seam_field_low)
+    call eval_point(plan1, state1, seam_high(:, seam_idx), seam_field_high)
+    call exact_kneq0_reference(plan1, q, seam_low(:, seam_idx), seam_ref_low, seam_phi)
+    call exact_kneq0_reference(plan1, q, seam_high(:, seam_idx), seam_ref_high, seam_phi)
+    seam_scale = max(1.0e-10_dp, sqrt(sum(seam_ref_low**2)), sqrt(sum(seam_ref_high**2)))
+    seam_error = sqrt(sum(((seam_field_low - seam_field_high) - (seam_ref_low - seam_ref_high))**2))/seam_scale
+    max_seam_error = max(max_seam_error, seam_error)
+  end do
+  write (*, '(a,es12.5)') 'cached kneq0 paired-face continuity error=', max_seam_error
+  call assert_true(max_seam_error < 8.0e-2_dp, 'cached kneq0 paired-face continuity error exceeds 8e-2')
   call test_end()
 
   call destroy_state(state0)
