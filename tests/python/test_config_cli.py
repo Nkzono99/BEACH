@@ -684,6 +684,13 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
         for item in normalized["particles"]["species"]
     )
 
+    no_photo = copy.deepcopy(normalized)
+    no_photo["surface_current_model"].pop("photoelectron_species")
+    no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]
+    normalized_no_photo = normalize_config_document(no_photo)
+    assert "photoelectron_species" not in normalized_no_photo["surface_current_model"]
+    assert len(normalized_no_photo["particles"]["species"]) == 2
+
     explicit_table = copy.deepcopy(normalized)
     explicit_table["surface_current_model"]["response_backend"] = "table"
     assert normalize_config_document(explicit_table)["surface_current_model"][
@@ -757,7 +764,7 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
     diagnostic = copy.deepcopy(extra_explicit["particles"]["species"][0])
     diagnostic["species_key"] = "diagnostic_electron"
     extra_explicit["particles"]["species"].append(diagnostic)
-    with pytest.raises(ConfigValidationError, match="exactly three enabled"):
+    with pytest.raises(ConfigValidationError, match="exactly its enabled"):
         normalize_config_document(extra_explicit)
 
     reflected_photoelectron = copy.deepcopy(normalized)
@@ -781,8 +788,10 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
 
     soft_discard = copy.deepcopy(normalized)
     soft_discard["sim"]["multiple_box_events_policy"] = "soft_discard"
-    with pytest.raises(ConfigValidationError, match="multiple_box_events_policy"):
-        normalize_config_document(soft_discard)
+    soft_discard["sim"]["multiple_box_events_soft_discard_count_limit"] = 100
+    soft_discard["sim"]["multiple_box_events_soft_discard_abs_charge_limit"] = 1.0e-14
+    normalized_soft_discard = normalize_config_document(soft_discard)
+    assert normalized_soft_discard["sim"]["multiple_box_events_policy"] == "soft_discard"
 
     deprecated_subset_source = copy.deepcopy(normalized)
     deprecated_subset_source["particles"]["species"][0]["source_mode"] = (
@@ -823,6 +832,13 @@ def _matching_plane_zhao_online_config() -> dict[str, object]:
 def test_matching_plane_zhao_online_config_contract() -> None:
     implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
     assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
+
+    no_photo = _matching_plane_zhao_online_config()
+    no_photo["surface_current_model"].pop("photoelectron_species")
+    no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]
+    normalized_no_photo = normalize_config_document(no_photo)
+    assert "photoelectron_species" not in normalized_no_photo["surface_current_model"]
+    assert len(normalized_no_photo["particles"]["species"]) == 2
 
     for branch in ("auto", "a", "b", "c"):
         config = _matching_plane_zhao_online_config()

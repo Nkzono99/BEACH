@@ -23,7 +23,7 @@ program test_matching_plane_simulator
   type(app_config) :: cfg
   type(sim_stats) :: stats, resumed_stats
   type(injection_state) :: inject_state
-  type(charge_ledger_type) :: implicit_ledger
+  type(charge_ledger_type) :: implicit_ledger, no_photo_ledger
   integer :: history_unit
 
   call cleanup_files()
@@ -31,7 +31,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(7)
+  call test_init(9)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -208,6 +208,67 @@ program test_matching_plane_simulator
     )
   call test_end()
 
+  call test_begin('no_photo_zhao_online_runs_with_two_species')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  call configure_no_photo_fixture(cfg, inject_state)
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_true(resumed_stats%matching_plane_state_valid, 'no-PE online Zhao state was not committed')
+  call assert_close_dp( &
+    resumed_stats%matching_plane_feedback(1), 0.0_dp, 0.0_dp, 'no-PE online feedback has PE flux' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_feedback(2), 0.0_dp, 0.0_dp, 'no-PE online feedback has PE energy' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_photoelectron_return_flux_m2_s, 0.0_dp, 0.0_dp, &
+    'no-PE online state has PE return flux' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_photoelectron_escape_flux_m2_s, 0.0_dp, 0.0_dp, &
+    'no-PE online state has PE escape flux' &
+    )
+  call test_end()
+
+  call test_begin('no_photo_implicit_zero_mode_commits_six_second_endpoint')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_no_photo_fixture(cfg, inject_state)
+  call write_no_photo_implicit_response_table(response_path)
+  call reset_matching_plane_response_snapshot_cache()
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%batch_duration = 6.0_dp
+  cfg%sim%max_step = 2_i32
+  cfg%particle_species(1)%drift_velocity(3) = -10.0_dp
+  cfg%particle_species(2)%drift_velocity(3) = -10.0_dp
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator( &
+    mesh, cfg, resumed_stats, inject_state=inject_state, charge_ledger=no_photo_ledger &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, 3.0_dp*qe, 1.0e-12_dp*qe, &
+    'no-PE six-second implicit displacement mismatch' &
+    )
+  call assert_close_dp(sum(mesh%q_elem), 3.0_dp*qe, 1.0e-12_dp*qe, 'no-PE implicit committed charge mismatch')
+  call assert_close_dp( &
+    sum(no_photo_ledger%fixed_absorbed_target_charge), 3.0_dp*qe, 1.0e-12_dp*qe, &
+    'no-PE implicit absorbed-current target mismatch' &
+    )
+  call assert_close_dp( &
+    sum(no_photo_ledger%fixed_emission_target_charge), 0.0_dp, 0.0_dp, &
+    'no-PE implicit state created an emission target' &
+    )
+  call assert_true(all(resumed_stats%matching_plane_feedback(1:2) == 0.0_dp), 'no-PE implicit PE feedback mismatch')
+  call assert_close_dp( &
+    resumed_stats%matching_plane_photoelectron_return_flux_m2_s, 0.0_dp, 0.0_dp, &
+    'no-PE implicit return flux mismatch' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_photoelectron_escape_flux_m2_s, 0.0_dp, 0.0_dp, &
+    'no-PE implicit escape flux mismatch' &
+    )
+  call test_end()
+
   call cleanup_files()
   call reset_matching_plane_response_snapshot_cache()
   call test_summary()
@@ -335,6 +396,20 @@ contains
     fixture_cfg%particle_species(3)%emit_current_density_a_m2 = 0.0_dp
   end subroutine configure_online_backend
 
+  subroutine configure_no_photo_fixture(fixture_cfg, state)
+    type(app_config), intent(inout) :: fixture_cfg
+    type(injection_state), intent(inout) :: state
+
+    fixture_cfg%surface_current%has_photoelectron_species = .false.
+    fixture_cfg%surface_current%photoelectron_species = ''
+    fixture_cfg%n_particle_species = 2_i32
+    if (allocated(state%macro_residual)) deallocate (state%macro_residual)
+    if (allocated(state%boundary_macro_residual)) deallocate (state%boundary_macro_residual)
+    allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
+    state%macro_residual = 0.0_dp
+    state%boundary_macro_residual = 0.0_dp
+  end subroutine configure_no_photo_fixture
+
   subroutine write_affine_response_table(path)
     character(len=*), intent(in) :: path
     integer :: unit_id
@@ -370,6 +445,22 @@ contains
     write (unit_id, '(11(es24.16,:,","))') high_row
     close (unit_id)
   end subroutine write_implicit_response_table
+
+  subroutine write_no_photo_implicit_response_table(path)
+    character(len=*), intent(in) :: path
+    integer :: unit_id
+    real(dp) :: low_row(11), high_row(11)
+
+    low_row = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.5_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+    high_row = low_row
+    high_row(1) = 12.0_dp*qe
+    open (newunit=unit_id, file=path, status='replace', action='write')
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    write (unit_id, '(11(es24.16,:,","))') low_row
+    write (unit_id, '(11(es24.16,:,","))') high_row
+    close (unit_id)
+  end subroutine write_no_photo_implicit_response_table
 
   subroutine assert_history_rows(path, expected_rows, expected_batch)
     character(len=*), intent(in) :: path

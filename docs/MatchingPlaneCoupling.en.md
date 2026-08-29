@@ -19,8 +19,8 @@ is synthetic data for exercising the table path; it is not valid input for a phy
 ## Minimal configuration
 
 **Prerequisite:** Prepare a `periodic2` case that is periodic in x and y, open in z, and contains every mesh vertex
-strictly below the top face. Set the external uniform electric and magnetic fields to zero. Define distinct electron, ion, and
-photoelectron species.
+strictly below the top face. Set the external uniform electric and magnetic fields to zero. Define distinct electron and ion
+species, plus a photoelectron species only when PE is modeled.
 
 **Action:** Add `[surface_current_model]`.
 
@@ -62,9 +62,21 @@ See `examples/periodic2_matching_plane_zhao_online.toml` for a complete online c
 The second component's `0.05` eV is an example for finite-ray sampling. Select it from a convergence study that varies
 the macro-particle count while retaining relative tolerances on the flux components.
 
+Without PE, omit both `photoelectron_species` and the `photo_raycast` species. The response and upstream-reservoir
+potential gauge remain active, while PE feedback, return, and escape stay exactly zero.
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+zhao_branch = "auto"
+electron_species = "electron"
+ion_species = "ion"
+```
+
 **Expected output:** Configuration validation accepts the model and backend wiring. The table backend also validates the
 response-table syntax and matching-plane height at startup. `summary.txt` records the latest accepted coupling state,
-response backend, three species roles, and iteration controls; the table backend also records the response-table content
+response backend, two or three species roles, and iteration controls; the table backend also records the response-table content
 fingerprint. When
 `output.history_stride > 0`, `matching_plane_history.csv` tracks each selected accepted batch's response values, four
 feedback moments, return and escape fluxes, iteration count, and normalized residual.
@@ -86,14 +98,20 @@ The model accepts only the following configuration so that no mean field or part
 - periodic x/y particle faces and open z-low/z-high faces
 - `sim.e0 = [0, 0, 0]` and `sim.b0 = [0, 0, 0]`
 - `[reservoir].inflow_model="source_vdf"` (the generic `infinity_barrier` is disabled)
-- exactly three enabled species, one for each distinct role, each with `surface_charge_closure="explicit"`
+- only the distinct electron, ion, and optional photoelectron roles enabled, each with
+  `surface_charge_closure="explicit"`
 - ambient electron and ion species with `source_mode="volume_seed"`, `npcls_per_step=0`, and only z-high
   `boundary_inflow="reservoir"`
-- negative electron and photoelectron charges and positive ion charge; the photoelectron uses `photo_raycast`,
-  `inject_face="z_high"`, and `deposit_opposite_charge_on_emit=true`
-- an open outward z-high boundary for the photoelectrons
+- negative electron charge and positive ion charge; when specified, the photoelectron is negative, uses
+  `photo_raycast`, `inject_face="z_high"`, and `deposit_opposite_charge_on_emit=true`, with an open z-high boundary
 - `particle_boundary.ordinary_open_model="escape"`
-- `sim.multiple_box_events_policy="abort"`
+- `sim.multiple_box_events_policy="abort"` or bounded `"soft_discard"`
+
+`soft_discard` locally removes a rare macro particle whose periodic boundary events cannot be completed. BEACH does not
+add events or matching-plane moments from the unresolved step; moments committed by its earlier steps remain. Set
+`multiple_box_events_soft_discard_count_limit` and `multiple_box_events_soft_discard_abs_charge_limit` conservatively,
+then verify that the cumulative count and absolute charge in the summary/checkpoint cannot affect the conclusion. The run
+stops when either limit is exceeded.
 
 Do not combine this model with `reference_area_m2`, stationary-Zhao source keys, or manual `fixed_current` targets. The
 interface area is the x-y area of `domain`, its height is the z component of `domain.box_max`, and its update interval is
@@ -104,9 +122,9 @@ The backend-specific constraints are:
 - `response_backend="table"` requires `response_table_path` and forbids `zhao_branch`;
 - `response_backend="zhao_online"` forbids `response_table_path` and accepts
   `zhao_branch="auto"`, `"a"`, `"b"`, or `"c"`; and
-- the online backend requires singly charged species for all three roles, equal ambient-electron and PE masses,
-  $T_e>0$, $T_{pe}>0$, $0\le T_i\le0.1T_e$, positive ion number density, and positive inward ambient-electron and ion
-  drift speeds at z-high (`drift_velocity` has a negative z component).
+- the online backend requires singly charged species for every role, $T_e>0$, $0\le T_i\le0.1T_e$, positive ion
+  number density, and positive inward ambient-electron and ion drift speeds at z-high (`drift_velocity` has a negative
+  z component). When PE is specified, it additionally requires equal ambient-electron and PE masses and $T_{pe}>0$.
 
 ## Table backend: Response CSV v1
 
@@ -167,14 +185,16 @@ implicit_zero_mode = true
 ```
 
 The response table for this mode must have at least two `displacement_c_m2` nodes and singleton values on the other four
-input axes. Those singleton values must be a positive outward PE flux, a positive PE mean normal energy, and zero outward
-ambient-electron and ion fluxes. BEACH uses the half-Maxwellian PE escape fraction and solves
+input axes. With PE, the PE singleton pair must be a positive outward flux and positive mean normal energy; without PE,
+both must be zero. The outward ambient-electron and ion singleton values are zero in either case. BEACH solves
 $D_H^{n+1}=D_H^n+hJ(D_H^{n+1})$ by bisection within the table's $D_H$ range. It stops instead of extrapolating when the
 range does not bracket the root.
 
 Particle tracking and the elementwise `k!=0` distribution still use the batch-start state. BEACH normalizes total
-electron/ion absorption to the implicit response, PE emission to the configured surface-emission current, and PE return
-to the surface-emission flux minus the outer escape flux. It then checks the committed $Q/A$ against the endpoint.
+electron/ion absorption to the implicit response. With PE, it also normalizes PE emission to the configured
+surface-emission current and PE return to the surface-emission flux minus the outer escape flux. It then checks the
+committed $Q/A$ against the endpoint. Without PE, the backward-Euler current is only
+$q_e\Gamma_e^{in}+q_i\Gamma_i^{in}$ and no PE target is created.
 A large value such as 6 s therefore also requires a bracketed response, acceptable
 local `k!=0` potential change, adequate macro-particle sampling, and a physically valid response table. This option does
 not make an arbitrary `batch_duration` unconditionally stable.
@@ -197,10 +217,9 @@ a numerical parameter of the Sagdeev equation. This model does not solve a wall-
 constraint.
 
 The outward PE number flux and mean normal kinetic energy are mapped to the amplitude and energy scale of a
-half-Maxwellian that reproduces those two moments. For a zero-PE-flux query, the PE population remains zero and the
-configured temperature derived from `temperature_ev` or `temperature_k` for the referenced PE species is used only as a
-numerical scale fallback. This reduction does not
-retain energy-tail information beyond the two moments.
+half-Maxwellian that reproduces those two moments. For a zero-PE-flux query, the PE population remains zero. The
+configured PE temperature is used as a numerical scale when that role exists; otherwise the ambient-electron temperature
+is used. This reduction does not retain energy-tail information beyond the two moments.
 
 The online MVP treats the outward ambient-electron and ion axes as transparent. Their measured values do not alter the
 outer profile or return flux and are inactive in the fixed-point residual. The active scales are derived from the Zhao

@@ -565,8 +565,7 @@
           },
           "required": [
             "electron_species",
-            "ion_species",
-            "photoelectron_species"
+            "ion_species"
           ],
           "not": {
             "anyOf": [

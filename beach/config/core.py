@@ -1916,27 +1916,29 @@ def _validate_matching_plane_model(
             "BEACH constraint error: matching_plane_quasistatic requires "
             'particle_boundary.ordinary_open_model="escape".'
         )
-    if sim.get("multiple_box_events_policy", "abort") != "abort":
-        raise ConfigValidationError(
-            "BEACH constraint error: matching_plane_quasistatic requires "
-            'sim.multiple_box_events_policy="abort".'
-        )
-
     by_key = {
         str(item.get("species_key", f"species_{index}")): item
         for index, item in enumerate(species, start=1)
         if item.get("enabled", True) is True
     }
     role_keys = {
-        role: model_config.get(f"{role}_species")
-        for role in ("electron", "ion", "photoelectron")
+        role: model_config.get(f"{role}_species") for role in ("electron", "ion")
     }
     if any(not isinstance(value, str) or not value for value in role_keys.values()):
         raise ConfigValidationError(
-            "BEACH constraint error: matching_plane_quasistatic requires electron, "
-            "ion, and photoelectron species roles."
+            "BEACH constraint error: matching_plane_quasistatic requires electron "
+            "and ion species roles."
         )
-    if len(set(role_keys.values())) != 3:
+    photoelectron_key = model_config.get("photoelectron_species")
+    if photoelectron_key is not None:
+        if not isinstance(photoelectron_key, str) or not photoelectron_key:
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic "
+                "photoelectron_species must be a non-empty string when provided."
+            )
+        role_keys["photoelectron"] = photoelectron_key
+    photoelectron_active = "photoelectron" in role_keys
+    if len(set(role_keys.values())) != len(role_keys):
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic species references "
             "must be distinct."
@@ -1964,10 +1966,10 @@ def _validate_matching_plane_model(
             "BEACH constraint error: matching_plane_quasistatic cannot use manual "
             "fixed_current targets on any enabled species."
         )
-    if len(by_key) != 3:
+    if len(by_key) != len(role_keys):
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic requires exactly "
-            "three enabled role species."
+            "its enabled electron, ion, and optional photoelectron roles."
         )
 
     charges: dict[str, float] = {}
@@ -1983,14 +1985,15 @@ def _validate_matching_plane_model(
                 "must be finite and numeric."
             )
         charges[role] = float(raw_charge)
-    if (
-        charges["electron"] >= 0.0
-        or charges["ion"] <= 0.0
-        or charges["photoelectron"] >= 0.0
-    ):
+    if charges["electron"] >= 0.0 or charges["ion"] <= 0.0:
         raise ConfigValidationError(
-            "BEACH constraint error: matching_plane_quasistatic requires negative "
-            "electron/photoelectron and positive ion species."
+            "BEACH constraint error: matching_plane_quasistatic requires a negative "
+            "electron and positive ion species."
+        )
+    if photoelectron_active and charges["photoelectron"] >= 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: matching_plane_quasistatic requires a negative "
+            "photoelectron species."
         )
 
     for role in ("electron", "ion"):
@@ -2010,16 +2013,17 @@ def _validate_matching_plane_model(
                 "requires volume_seed, npcls_per_step=0, and only z-high "
                 'boundary_inflow="reservoir".'
             )
-    photo = selected["photoelectron"]
-    if (
-        photo.get("source_mode", "volume_seed") != "photo_raycast"
-        or photo.get("deposit_opposite_charge_on_emit") is not True
-        or photo.get("inject_face") != "z_high"
-    ):
-        raise ConfigValidationError(
-            "BEACH constraint error: matching_plane_quasistatic photoelectrons "
-            "require opposite-deposit photo_raycast from z_high."
-        )
+    if photoelectron_active:
+        photo = selected["photoelectron"]
+        if (
+            photo.get("source_mode", "volume_seed") != "photo_raycast"
+            or photo.get("deposit_opposite_charge_on_emit") is not True
+            or photo.get("inject_face") != "z_high"
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: matching_plane_quasistatic photoelectrons "
+                "require opposite-deposit photo_raycast from z_high."
+            )
 
     expected_boundaries = {
         "x_low": "periodic",
@@ -2074,25 +2078,29 @@ def _validate_matching_plane_zhao_online(
     electron_mass = finite_float(
         selected["electron"].get("m_particle", 9.10938356e-31)
     )
-    photoelectron_mass = finite_float(
-        selected["photoelectron"].get("m_particle", 9.10938356e-31)
+    photoelectron = selected.get("photoelectron")
+    photoelectron_mass = (
+        finite_float(photoelectron.get("m_particle", 9.10938356e-31))
+        if photoelectron is not None
+        else None
     )
     ion_mass = finite_float(selected["ion"].get("m_particle", 9.10938356e-31))
     if (
         electron_mass is None
         or electron_mass <= 0.0
-        or photoelectron_mass is None
-        or photoelectron_mass <= 0.0
         or ion_mass is None
         or ion_mass <= 0.0
+        or (
+            photoelectron is not None
+            and (photoelectron_mass is None or photoelectron_mass <= 0.0)
+        )
     ):
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic zhao_online "
             "requires positive role-species masses."
         )
-    if (
-        electron_mass is None
-        or photoelectron_mass is None
+    if photoelectron is not None and (
+        photoelectron_mass is None
         or abs(photoelectron_mass - electron_mass) > 1.0e-6 * electron_mass
     ):
         raise ConfigValidationError(
@@ -2107,14 +2115,18 @@ def _validate_matching_plane_zhao_online(
         return finite_float(item.get("temperature_k", 2.0e4))
 
     electron_temperature = temperature_k(selected["electron"])
-    photoelectron_temperature = temperature_k(selected["photoelectron"])
+    photoelectron_temperature = (
+        temperature_k(photoelectron) if photoelectron is not None else None
+    )
     ion_temperature = temperature_k(selected["ion"])
     if electron_temperature is None or electron_temperature <= 0.0:
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic zhao_online "
             "requires a positive electron temperature."
         )
-    if photoelectron_temperature is None or photoelectron_temperature <= 0.0:
+    if photoelectron is not None and (
+        photoelectron_temperature is None or photoelectron_temperature <= 0.0
+    ):
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic zhao_online "
             "requires a positive photoelectron temperature."

@@ -378,7 +378,7 @@ photoelectron_source_scale = 0.0
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
 | `electron_species` | string | 必須 | ambient electronの`species_key` |
 | `ion_species` | string | 必須 | cold ionの`species_key` |
-| `photoelectron_species` | string | stationaryのPE有効時、matchingで必須 | PE emission/returnを追跡する`photo_raycast`の`species_key` |
+| `photoelectron_species` | string | PE有効時に必須 | PE emission/returnを追跡する`photo_raycast`の`species_key`。matchingで省略するとPEなし |
 | `solar_elevation_deg` | float | stationaryのPE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | stationaryのPE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3] |
 | `photoelectron_source_scale` | float | `1.0` | stationary Zhaoの$n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$に使う$s_{UV}$。`0.0`はPEなし |
@@ -471,6 +471,9 @@ coupling_max_iterations = 20
 coupling_relaxation = 0.5
 ```
 
+matchingでPEを使わない場合は`photoelectron_species`とPE speciesを省略します。online ZhaoはPE populationを
+0として外部reservoirへ接続します。table backendではPE flux/energy入力軸を両方0にしてください。
+
 active feedback成分$j$は、backend scaleを$s_j$、`coupling_rtol`を$r$、`coupling_atol[j]`を$a_j$として
 $|X_{raw,j}-X_j|\le\max(r s_j,a_j)$で判定します。上の`0.05` eVは有限ray sampling向けの設定例であり、
 macro-particle数を変えた収束試験から決めます。online Zhaoではambient electron / ion外向きfluxに対応する
@@ -499,7 +502,7 @@ $H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測�
 $H$の絶対座標はSagdeev方程式の数値parameterには入らず、壁面から$H$までの距離拘束は解きません。
 
 外向きPEのnumber fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ縮約します。PE fluxが0なら
-PE populationは0のまま、設定したPE温度を数値scaleのfallbackに使います。
+PE populationは0のまま、PE roleがあればその設定温度、なければambient electron温度を数値scaleに使います。
 
 ambient electron / ionの外向き軸はtransparentかつ固定点残差でinactiveです。online solverはstatelessで、
 outer inventory、前rootのcontinuation、外部flight time、遅延return queueを持ちません。
@@ -514,23 +517,24 @@ outer inventory、前rootのcontinuation、外部flight time、遅延return queu
   `panel_spectral_reference`、`zero_mode_policy="exclude_k0"`、下側closureは
   `e_bottom_zero`または`symmetric_vacuum`
 - `sim.e0=[0,0,0]`と`sim.b0=[0,0,0]`、genericなreservoir potential modelを使わず、
-  `particle_boundary.ordinary_open_model="escape"`、`sim.multiple_box_events_policy="abort"`
-- electron、ion、photoelectronの3 roleはenabledかつ相異なり、それぞれ
+  `particle_boundary.ordinary_open_model="escape"`。`sim.multiple_box_events_policy`は`"abort"`または
+  件数・絶対電荷上限を指定した`"soft_discard"`
+- electron、ion、および任意のphotoelectron roleはenabledかつ相異なり、それぞれ
   `surface_charge_closure="explicit"`。これら以外のenabled speciesは置かない
-- electronとphotoelectronは負電荷、ionは正電荷。electron/ionは`source_mode="volume_seed"`、
+- electronは負電荷、ionは正電荷。electron/ionは`source_mode="volume_seed"`、
   `npcls_per_step=0`とし、`boundary_inflow`はz-highの`reservoir`だけを指定
-- photoelectronは`source_mode="photo_raycast"`、`inject_face="z_high"`、
+- 指定する場合、photoelectronは負電荷で`source_mode="photo_raycast"`、`inject_face="z_high"`、
   `deposit_opposite_charge_on_emit=true`
-- 3 roleすべてで有効なx/y particle boundaryが`periodic`、z-low/z-highが`open`
+- 全roleで有効なx/y particle boundaryが`periodic`、z-low/z-highが`open`
 - 手動`fixed_current` targetを指定しない
 
 backend固有の制約は次のとおりです。
 
 - tableは`response_table_path`を必須とし、`zhao_branch`を指定しない
 - onlineは`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を受理する
-- onlineは3 roleの単価電荷、ambient electronとPEの同一質量、$T_e>0$、$T_{pe}>0$、
-  $0\le T_i\le0.1T_e$、正のion number density、ambient electron / ionの正の内向きdrift
-  （`drift_velocity`のz成分は負）を要求する
+- onlineは全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、正のion number density、
+  ambient electron / ionの正の内向きdrift（`drift_velocity`のz成分は負）を要求する。
+  PE指定時はambient electronとPEの同一質量および$T_{pe}>0$も要求する
 - stationary Zhaoの`solar_elevation_deg`、`photoelectron_ref_density_m3`、
   `photoelectron_source_scale`はmatchingでは指定しない
 

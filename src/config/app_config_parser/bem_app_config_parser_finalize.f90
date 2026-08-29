@@ -727,6 +727,7 @@ contains
     type(app_config), intent(in) :: cfg
     logical, intent(in) :: periodic2_split_explicit
     integer :: electron_idx, ion_idx, photo_idx, species_idx
+    logical :: photoelectron_active
 
     if (cfg%surface_current%has_solar_elevation_deg .or. &
         cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
@@ -820,27 +821,29 @@ contains
     if (trim(lower_ascii(cfg%sim%open_boundary_model)) /= 'escape') then
       error stop 'matching_plane_quasistatic requires particle_boundary.ordinary_open_model="escape".'
     end if
-    if (trim(lower_ascii(cfg%sim%multiple_box_events_policy)) /= 'abort') then
-      error stop 'matching_plane_quasistatic requires sim.multiple_box_events_policy="abort".'
-    end if
     if (.not. cfg%surface_current%has_electron_species .or. &
         len_trim(cfg%surface_current%electron_species) == 0 .or. &
         .not. cfg%surface_current%has_ion_species .or. &
-        len_trim(cfg%surface_current%ion_species) == 0 .or. &
-        .not. cfg%surface_current%has_photoelectron_species .or. &
-        len_trim(cfg%surface_current%photoelectron_species) == 0) then
-      error stop 'matching_plane_quasistatic requires electron, ion, and photoelectron species roles.'
+        len_trim(cfg%surface_current%ion_species) == 0) then
+      error stop 'matching_plane_quasistatic requires electron and ion species roles.'
     end if
+    if (cfg%surface_current%has_photoelectron_species .and. &
+        len_trim(cfg%surface_current%photoelectron_species) == 0) then
+      error stop 'matching_plane_quasistatic photoelectron_species must be a non-empty string when provided.'
+    end if
+    photoelectron_active = cfg%surface_current%has_photoelectron_species
 
     electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
     ion_idx = find_species_index(cfg, cfg%surface_current%ion_species)
-    photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
-    if (electron_idx == ion_idx .or. electron_idx == photo_idx .or. ion_idx == photo_idx) then
+    photo_idx = 0
+    if (photoelectron_active) photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
+    if (electron_idx == ion_idx .or. &
+        (photoelectron_active .and. (electron_idx == photo_idx .or. ion_idx == photo_idx))) then
       error stop 'matching_plane_quasistatic species references must be distinct.'
     end if
     call validate_matching_species(cfg, electron_idx, 'electron')
     call validate_matching_species(cfg, ion_idx, 'ion')
-    call validate_matching_species(cfg, photo_idx, 'photoelectron')
+    if (photoelectron_active) call validate_matching_species(cfg, photo_idx, 'photoelectron')
     do species_idx = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(species_idx)%enabled) cycle
       if (trim(lower_ascii(cfg%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current' .or. &
@@ -849,33 +852,40 @@ contains
         error stop 'matching_plane_quasistatic cannot use manual fixed_current targets on any enabled species.'
       end if
     end do
-    if (count(cfg%particle_species(1:cfg%n_particle_species)%enabled) /= 3) then
-      error stop 'matching_plane_quasistatic requires exactly three enabled role species.'
+    if (count(cfg%particle_species(1:cfg%n_particle_species)%enabled) /= merge(3, 2, photoelectron_active)) then
+      error stop 'matching_plane_quasistatic requires exactly its enabled electron, ion, and optional photoelectron roles.'
     end if
     if (cfg%particle_species(electron_idx)%q_particle >= 0.0_dp .or. &
-        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp .or. &
-        cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
-      error stop 'matching_plane_quasistatic requires negative electron/photoelectron and positive ion species.'
+        cfg%particle_species(ion_idx)%q_particle <= 0.0_dp) then
+      error stop 'matching_plane_quasistatic requires negative electron and positive ion species.'
+    end if
+    if (photoelectron_active) then
+      if (cfg%particle_species(photo_idx)%q_particle >= 0.0_dp) then
+        error stop 'matching_plane_quasistatic requires a negative photoelectron species.'
+      end if
     end if
     call validate_matching_ambient_source(cfg, electron_idx, 'electron')
     call validate_matching_ambient_source(cfg, ion_idx, 'ion')
-    if (trim(lower_ascii(cfg%particle_species(photo_idx)%source_mode)) /= 'photo_raycast' .or. &
-        .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit .or. &
-        trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
-      error stop 'matching_plane_quasistatic photoelectrons require opposite-deposit photo_raycast from z_high.'
+    if (photoelectron_active) then
+      if (trim(lower_ascii(cfg%particle_species(photo_idx)%source_mode)) /= 'photo_raycast' .or. &
+          .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit .or. &
+          trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
+        error stop 'matching_plane_quasistatic photoelectrons require opposite-deposit photo_raycast from z_high.'
+      end if
     end if
 
     call validate_matching_species_boundaries(cfg, electron_idx, 'electron')
     call validate_matching_species_boundaries(cfg, ion_idx, 'ion')
-    call validate_matching_species_boundaries(cfg, photo_idx, 'photoelectron')
+    if (photoelectron_active) call validate_matching_species_boundaries(cfg, photo_idx, 'photoelectron')
     if (trim(lower_ascii(cfg%surface_current%response_backend)) == 'zhao_online') then
-      call validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx)
+      call validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx, photoelectron_active)
     end if
   end subroutine validate_matching_plane_config
 
-  subroutine validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx)
+  subroutine validate_matching_plane_zhao_online(cfg, electron_idx, ion_idx, photo_idx, photoelectron_active)
     type(app_config), intent(in) :: cfg
     integer, intent(in) :: electron_idx, ion_idx, photo_idx
+    logical, intent(in) :: photoelectron_active
     real(dp) :: electron_mass, photoelectron_mass
     real(dp) :: electron_temperature, ion_temperature, photoelectron_temperature
     real(dp) :: ion_density
@@ -886,29 +896,39 @@ contains
 
     if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%q_particle) .or. &
         .not. ieee_is_finite(cfg%particle_species(ion_idx)%q_particle) .or. &
-        .not. ieee_is_finite(cfg%particle_species(photo_idx)%q_particle) .or. &
         abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
-        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
-        abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+        abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
       error stop 'matching_plane_quasistatic zhao_online requires singly charged role species.'
+    end if
+    if (photoelectron_active) then
+      if (.not. ieee_is_finite(cfg%particle_species(photo_idx)%q_particle) .or. &
+          abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+        error stop 'matching_plane_quasistatic zhao_online requires singly charged role species.'
+      end if
     end if
 
     electron_mass = cfg%particle_species(electron_idx)%m_particle
-    photoelectron_mass = cfg%particle_species(photo_idx)%m_particle
-    if (.not. ieee_is_finite(electron_mass) .or. electron_mass <= 0.0_dp .or. &
-        .not. ieee_is_finite(photoelectron_mass) .or. photoelectron_mass <= 0.0_dp .or. &
-        abs(photoelectron_mass - electron_mass) > 1.0e-6_dp*electron_mass) then
-      error stop 'matching_plane_quasistatic zhao_online requires matching ambient-electron and photoelectron masses.'
+    if (.not. ieee_is_finite(electron_mass) .or. electron_mass <= 0.0_dp) then
+      error stop 'matching_plane_quasistatic zhao_online requires a positive electron mass.'
+    end if
+    if (photoelectron_active) then
+      photoelectron_mass = cfg%particle_species(photo_idx)%m_particle
+      if (.not. ieee_is_finite(photoelectron_mass) .or. photoelectron_mass <= 0.0_dp .or. &
+          abs(photoelectron_mass - electron_mass) > 1.0e-6_dp*electron_mass) then
+        error stop 'matching_plane_quasistatic zhao_online requires matching ambient-electron and photoelectron masses.'
+      end if
     end if
 
     electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
     ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
-    photoelectron_temperature = species_temperature_k(cfg%particle_species(photo_idx))
     if (.not. ieee_is_finite(electron_temperature) .or. electron_temperature <= 0.0_dp) then
       error stop 'matching_plane_quasistatic zhao_online requires a positive electron temperature.'
     end if
-    if (.not. ieee_is_finite(photoelectron_temperature) .or. photoelectron_temperature <= 0.0_dp) then
-      error stop 'matching_plane_quasistatic zhao_online requires a positive photoelectron temperature.'
+    if (photoelectron_active) then
+      photoelectron_temperature = species_temperature_k(cfg%particle_species(photo_idx))
+      if (.not. ieee_is_finite(photoelectron_temperature) .or. photoelectron_temperature <= 0.0_dp) then
+        error stop 'matching_plane_quasistatic zhao_online requires a positive photoelectron temperature.'
+      end if
     end if
     if (.not. ieee_is_finite(ion_temperature) .or. ion_temperature < 0.0_dp .or. &
         ion_temperature > 0.1_dp*electron_temperature) then

@@ -344,10 +344,11 @@ speciesの設定は`surface_charge_closure="explicit"`のままです。既定�
 このmodelはexplicitな`periodic2`構成だけに対応します。nonzero backendは`cached_kneq0`または
 `panel_spectral_reference`、zero-mode policyは`exclude_k0`、lower boundaryは`e_bottom_zero`または
 `symmetric_vacuum`とします。x/yはperiodic、z-low/z-highはopen、`sim.e0`と`sim.b0`はゼロです。
-enabled speciesはambient electron、ion、photoelectronの3 roleだけを別speciesとして明示し、前2者はz-high
-reservoir流入、PEは負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
+enabled speciesはambient electron、ion、および任意のphotoelectron roleだけを別speciesとして明示し、前2者はz-high
+reservoir流入、PEを指定する場合は負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
 `reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
-1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`に固定します。
+1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`または
+件数・絶対電荷上限を持つ`soft_discard`とします。
 
 `response_backend="table"`は`response_table_path`を必須とし、`zhao_branch`を含むZhao固有keyを拒否します。
 response CSV v1は、headerより前に一意な`# matching_plane_z_m=<finite>`を持ち、その値を$H$と照合します。
@@ -375,8 +376,9 @@ access potentialと$\Phi_H$へ写像するため、potential列だけの定数sh
 
 `implicit_zero_mode=true`は、硬い面平均帯電だけを後退Eulerで更新します。このmodeはtable backend、
 `lower_boundary_model="e_bottom_zero"`、2 node以上の$D_H$軸、singletonのfeedback軸2--5を要求します。
-singleton参照値は$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、
-$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。half-Maxwellian近似から
+singleton参照値はPEありでは$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、
+PEなしではこの2値を両方0とし、どちらも$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。
+PEありではhalf-Maxwellian近似から
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
@@ -391,11 +393,13 @@ D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
 +q_i\Gamma_i^{in}(D_H^{n+1})-q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
 $$
 
-をtableの$D_H$範囲で二分法により解きます。両端が根を挟まない場合は外挿せず停止します。
+をtableの$D_H$範囲で二分法により解きます。PEなしでは最後のPE項を除きます。
+両端が根を挟まない場合は外挿せず停止します。
 局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
-ambient吸収の総量は陰的応答へ、PE放出は設定した表面放出電流へ、PE returnは
+ambient吸収の総量は陰的応答へ、PEありではPE放出を設定した表面放出電流へ、PE returnを
 「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。commit後の$Q/A$が求めた
-$D_H^{n+1}$と一致しなければ停止します。これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、
+$D_H^{n+1}$と一致しなければ停止します。PEなしではPE targetを生成しません。
+これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、
 応答表の物理範囲、粒子samplingに対する`batch_duration`の上限を除去しません。
 
 `response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を
@@ -408,8 +412,7 @@ branch別の物理検証では`a` / `b` / `c`を明示してparameter scanしま
 ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
 online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。
 外向きPE number fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ写像します。PE fluxが0なら
-PE populationは0のまま、参照PE speciesの`temperature_ev`または`temperature_k`から得た設定温度を
-数値scaleのfallbackに使います。
+PE populationは0のまま、PE speciesがない場合はambient electron温度を数値scaleのfallbackに使います。
 
 online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
 反映しません。各queryはstatelessで、outer inventory、前rootのcontinuation、flight-time queueを保存しません。
@@ -417,10 +420,10 @@ online MVPはambient electron / ionの外向きfeedbackをtransparentとして�
 収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
 `photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。
 
-online Zhaoは平面・無衝突・非磁化、単価電荷、ambient electronとPEの同一質量、$T_e>0$、$T_{pe}>0$、
-$0\le T_i\le0.1T_e$、正の無限遠ion密度、ambient electron / ionの正の内向きdrift
+online Zhaoは平面・無衝突・非磁化、全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、
+正の無限遠ion密度、ambient electron / ionの正の内向きdrift
 （`drift_velocity`のz成分は負）を要求します。設定検査は
-これらを満たさないcaseを拒否します。
+これらを満たさないcaseを拒否します。PE指定時はambient electronとPEの同一質量および$T_{pe}>0$も要求します。
 
 各batch trialでは、表面総電荷とlower boundaryから
 

@@ -391,7 +391,7 @@ photoelectron_source_scale = 0.0
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; branch for stationary or online Zhao; no-PE stationary accepts only `auto` / `c` |
 | `electron_species` | string | required | `species_key` for ambient electrons |
 | `ion_species` | string | required | `species_key` for cold ions |
-| `photoelectron_species` | string | required with stationary PE and matching | `species_key` for the `photo_raycast` tracking PE emission and return |
+| `photoelectron_species` | string | required when PE is enabled | `species_key` for the `photo_raycast` tracking PE emission and return; omitting it disables PE in matching |
 | `solar_elevation_deg` | float | required with stationary PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
 | `photoelectron_ref_density_m3` | float | required with stationary PE | Reference PE density $n_{pe,ref}$ [m^-3] |
 | `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$ in $n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha$; `0.0` disables PE |
@@ -488,6 +488,9 @@ coupling_max_iterations = 20
 coupling_relaxation = 0.5
 ```
 
+For matching without PE, omit `photoelectron_species` and the PE species. Online Zhao connects to the outer reservoir
+with a zero PE population. For the table backend, set both PE flux and PE energy input axes to zero.
+
 For each active feedback component $j$, with backend scale $s_j$, `coupling_rtol` $r$, and
 `coupling_atol[j]` $a_j$, BEACH tests $|X_{raw,j}-X_j|\le\max(r s_j,a_j)$. The `0.05` eV above is an
 example for finite-ray sampling; select it from a convergence study that varies the macro-particle count.
@@ -522,8 +525,8 @@ translational symmetry makes its absolute coordinate inactive in the Sagdeev equ
 wall-to-$H$ distance constraint.
 
 The outward PE number flux and mean normal energy are reduced to a half-Maxwellian that reproduces those two moments.
-When the PE flux is zero, the PE population remains zero and the configured PE temperature is used only as a numerical
-scale fallback.
+When the PE flux is zero, the PE population remains zero. The configured PE temperature supplies the numerical scale
+when that role exists; otherwise the ambient-electron temperature is used.
 
 The outward ambient-electron and ion axes are transparent and inactive in the fixed-point residual. The online solver is
 stateless: it retains no outer inventory, previous-root continuation, outer flight time, or delayed-return queue.
@@ -538,14 +541,15 @@ This model requires all of the following configuration invariants:
   `panel_spectral_reference`, `zero_mode_policy="exclude_k0"`, and `lower_boundary_model` set to
   `e_bottom_zero` or `symmetric_vacuum`;
 - `sim.e0=[0,0,0]`, `sim.b0=[0,0,0]`, no generic reservoir potential model, and
-  `particle_boundary.ordinary_open_model="escape"`, with `sim.multiple_box_events_policy="abort"`;
-- exactly three enabled species: distinct electron, ion, and photoelectron roles, each with
+  `particle_boundary.ordinary_open_model="escape"`; `sim.multiple_box_events_policy` is `"abort"` or bounded
+  `"soft_discard"` with count and absolute-charge limits;
+- only distinct electron, ion, and optional photoelectron roles enabled, each with
   `surface_charge_closure="explicit"`;
-- negative electron and photoelectron charge and positive ion charge; electron and ion roles use
+- negative electron charge and positive ion charge; electron and ion roles use
   `source_mode="volume_seed"`, `npcls_per_step=0`, and only z-high `boundary_inflow="reservoir"`;
-- a photoelectron role using `source_mode="photo_raycast"`, `inject_face="z_high"`, and
+- when specified, a negative photoelectron role using `source_mode="photo_raycast"`, `inject_face="z_high"`, and
   `deposit_opposite_charge_on_emit=true`; and
-- effective `periodic` x/y and `open` z-low/z-high particle boundaries for all three roles.
+- effective `periodic` x/y and `open` z-low/z-high particle boundaries for every role.
 - no manual `fixed_current` target.
 
 The backend-specific constraints are:
@@ -553,9 +557,9 @@ The backend-specific constraints are:
 - the table backend requires `response_table_path` and forbids `zhao_branch`;
 - the online backend forbids `response_table_path` and accepts
   `zhao_branch="auto"`, `"a"`, `"b"`, or `"c"`;
-- the online backend requires singly charged species for all three roles, equal ambient-electron and PE masses,
-  $T_e>0$, $T_{pe}>0$, $0\le T_i\le0.1T_e$, positive ion number density, and positive inward ambient-electron and ion
-  drift speeds at z-high (`drift_velocity` has a negative z component); and
+- the online backend requires singly charged species for every role, $T_e>0$, $0\le T_i\le0.1T_e$, positive ion
+  number density, and positive inward ambient-electron and ion drift speeds at z-high (`drift_velocity` has a negative
+  z component). When PE is specified, equal ambient-electron and PE masses and $T_{pe}>0$ are also required; and
 - do not set the stationary-Zhao source keys `solar_elevation_deg`, `photoelectron_ref_density_m3`, or
   `photoelectron_source_scale` for matching.
 

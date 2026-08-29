@@ -76,6 +76,7 @@ contains
     integer(i32) :: height_valid, species_valid
     integer(i32) :: electron_idx, ion_idx, photoelectron_idx
     integer(i32) :: zhao_status, status_packet(1)
+    logical :: photoelectron_active
     real(dp) :: electron_temperature_ev, photoelectron_temperature_ev
     real(dp) :: feedback_scales(4)
     character(len=512) :: backend_message
@@ -191,9 +192,14 @@ contains
     case (provider_backend_zhao_online)
       electron_idx = provider_species_index(cfg, cfg%surface_current%electron_species)
       ion_idx = provider_species_index(cfg, cfg%surface_current%ion_species)
-      photoelectron_idx = provider_species_index(cfg, cfg%surface_current%photoelectron_species)
+      photoelectron_active = len_trim(cfg%surface_current%photoelectron_species) > 0
+      photoelectron_idx = 0_i32
+      if (photoelectron_active) then
+        photoelectron_idx = provider_species_index(cfg, cfg%surface_current%photoelectron_species)
+      end if
       species_valid = merge( &
-                      1_i32, 0_i32, min(electron_idx, ion_idx, photoelectron_idx) > 0_i32 &
+                      1_i32, 0_i32, min(electron_idx, ion_idx) > 0_i32 .and. &
+                      (.not. photoelectron_active .or. photoelectron_idx > 0_i32) &
                       )
       call mpi_allreduce_min_i32_scalar(mpi, species_valid)
       if (species_valid == 0_i32) then
@@ -206,8 +212,11 @@ contains
 
       electron_temperature_ev = &
         species_temperature_k(cfg%particle_species(electron_idx))*k_boltzmann/qe
-      photoelectron_temperature_ev = &
-        species_temperature_k(cfg%particle_species(photoelectron_idx))*k_boltzmann/qe
+      photoelectron_temperature_ev = electron_temperature_ev
+      if (photoelectron_active) then
+        photoelectron_temperature_ev = &
+          species_temperature_k(cfg%particle_species(photoelectron_idx))*k_boltzmann/qe
+      end if
       zhao_status = matching_plane_zhao_ok
       backend_message = ''
       if (mpi_is_root(mpi)) then
@@ -413,8 +422,11 @@ contains
     end do
     self%implicit_zero_mode_supported = axis_sizes(1) > 1_i32 .and. &
                                         all(axis_sizes(2:5) == 1_i32) .and. &
-                                        self%implicit_feedback_reference(1) > 0.0_dp .and. &
-                                        self%implicit_feedback_reference(2) > 0.0_dp .and. &
+                                        ( &
+                                        (self%implicit_feedback_reference(1) > 0.0_dp .and. &
+                                         self%implicit_feedback_reference(2) > 0.0_dp) .or. &
+                                        all(self%implicit_feedback_reference(1:2) == 0.0_dp) &
+                                        ) .and. &
                                         all(self%implicit_feedback_reference(3:4) == 0.0_dp)
   end subroutine initialize_table_feedback_contract
 

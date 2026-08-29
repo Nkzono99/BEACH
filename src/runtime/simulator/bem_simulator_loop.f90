@@ -35,7 +35,7 @@ contains
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: matching_active, replay_active, matching_converged, matching_history_enabled
-  logical :: implicit_zero_mode, implicit_zero_mode_supported
+  logical :: implicit_zero_mode, implicit_zero_mode_supported, matching_photoelectron_active
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -46,6 +46,7 @@ contains
   real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_displacement_before, matching_residual
   real(dp) :: matching_committed_displacement, matching_displacement_tolerance, matching_roundoff_scale
   real(dp) :: matching_return_flux, matching_escape_flux, matching_budget_scale
+  real(dp) :: matching_photoelectron_charge, matching_photoelectron_emission_current_density
   real(dp) :: matching_guess(4), matching_observed(4)
   real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference(4)
   real(dp) :: matching_feedback_scales(4)
@@ -186,6 +187,9 @@ contains
   matching_electron_idx = 0_i32
   matching_ion_idx = 0_i32
   matching_photoelectron_idx = 0_i32
+  matching_photoelectron_active = .false.
+  matching_photoelectron_charge = 0.0_dp
+  matching_photoelectron_emission_current_density = 0.0_dp
   if (matching_active) then
     call matching_response_provider%get_matching_plane_z( &
       matching_plane_z, matching_response_status, matching_response_message &
@@ -195,7 +199,13 @@ contains
     end if
     matching_electron_idx = matching_species_index(app, app%surface_current%electron_species)
     matching_ion_idx = matching_species_index(app, app%surface_current%ion_species)
-    matching_photoelectron_idx = matching_species_index(app, app%surface_current%photoelectron_species)
+    matching_photoelectron_active = len_trim(app%surface_current%photoelectron_species) > 0
+    if (matching_photoelectron_active) then
+      matching_photoelectron_idx = matching_species_index(app, app%surface_current%photoelectron_species)
+      matching_photoelectron_charge = app%particle_species(matching_photoelectron_idx)%q_particle
+      matching_photoelectron_emission_current_density = &
+        app%particle_species(matching_photoelectron_idx)%emit_current_density_a_m2
+    end if
     matching_area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
     if (implicit_zero_mode) then
       call matching_response_provider%get_implicit_zero_mode_contract( &
@@ -204,7 +214,16 @@ contains
         )
       if (.not. implicit_zero_mode_supported) then
         error stop 'implicit matching-plane zero mode requires a table with a non-singleton displacement axis and '// &
-          'singleton PE-flux, PE-energy, and ambient-outward axes.'
+          'singleton PE-flux/energy and ambient-outward axes; the PE pair may both be zero.'
+      end if
+      if (matching_photoelectron_active) then
+        if (any(implicit_feedback_reference(1:2) <= 0.0_dp)) then
+          error stop 'implicit matching-plane PE mode requires positive singleton PE flux and energy.'
+        end if
+      else
+        if (any(implicit_feedback_reference(1:2) /= 0.0_dp)) then
+          error stop 'implicit matching-plane no-PE mode requires zero singleton PE flux and energy.'
+        end if
       end if
     end if
     if (mesh%nelem > 0_i32) then
@@ -305,7 +324,7 @@ contains
             implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference, &
             app%particle_species(matching_electron_idx)%q_particle, &
             app%particle_species(matching_ion_idx)%q_particle, &
-            app%particle_species(matching_photoelectron_idx)%q_particle, &
+            matching_photoelectron_active, matching_photoelectron_charge, &
             matching_displacement, matching_response_output &
             )
           matching_guess = implicit_feedback_reference
@@ -334,11 +353,11 @@ contains
           end if
           call configure_matching_surface_closure( &
             surface_closure, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
-            matching_response_output, implicit_zero_mode, matching_area, implicit_feedback_reference, &
+            matching_photoelectron_active, matching_response_output, implicit_zero_mode, matching_area, &
+            implicit_feedback_reference, &
             app%particle_species(matching_electron_idx)%q_particle, &
             app%particle_species(matching_ion_idx)%q_particle, &
-            app%particle_species(matching_photoelectron_idx)%q_particle, &
-            app%particle_species(matching_photoelectron_idx)%emit_current_density_a_m2 &
+            matching_photoelectron_charge, matching_photoelectron_emission_current_density &
             )
           call snapshot%set_matching_plane_gauge(mesh, matching_plane_z, matching_response_output(1))
         end if
@@ -432,7 +451,8 @@ contains
         matching_moments = reshape(matching_reduce, shape(matching_moments))
         call resolve_matching_observed_feedback( &
           matching_moments, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
-          matching_area, trial_batch_duration, matching_observed, matching_return_flux, matching_escape_flux &
+          matching_photoelectron_active, matching_area, trial_batch_duration, matching_observed, &
+          matching_return_flux, matching_escape_flux &
           )
         call matching_response_provider%validate_feedback( &
           matching_observed, matching_response_status, matching_response_message &
@@ -440,10 +460,12 @@ contains
         if (matching_response_status /= matching_plane_provider_ok) then
           error stop 'matching-plane feedback validation failed: '//trim(matching_response_message)
         end if
-        matching_budget_scale = max(1.0_dp, matching_observed(1), matching_return_flux, matching_escape_flux)
-        if (abs(matching_observed(1) - matching_return_flux - matching_escape_flux) > &
-            sqrt(epsilon(1.0_dp))*matching_budget_scale) then
-          error stop 'matching-plane photoelectron outflow budget does not close.'
+        if (matching_photoelectron_active) then
+          matching_budget_scale = max(1.0_dp, matching_observed(1), matching_return_flux, matching_escape_flux)
+          if (abs(matching_observed(1) - matching_return_flux - matching_escape_flux) > &
+              sqrt(epsilon(1.0_dp))*matching_budget_scale) then
+            error stop 'matching-plane photoelectron outflow budget does not close.'
+          end if
         end if
         matching_residual = matching_response_provider%feedback_residual( &
                             matching_guess, matching_observed, app%surface_current%coupling_rtol, &
@@ -1542,13 +1564,14 @@ contains
 
   subroutine solve_matching_implicit_zero_mode( &
     provider, mpi, displacement_before, duration, displacement_min, displacement_max, feedback_reference, &
-    electron_charge, ion_charge, photoelectron_charge, displacement_after, response_after &
+    electron_charge, ion_charge, photoelectron_active, photoelectron_charge, displacement_after, response_after &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     type(mpi_context), intent(in) :: mpi
     real(dp), intent(in) :: displacement_before, duration, displacement_min, displacement_max
     real(dp), intent(in) :: feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    logical, intent(in) :: photoelectron_active
     real(dp), intent(out) :: displacement_after, response_after(6)
 
     real(dp) :: lower, upper, midpoint, lower_residual, upper_residual, midpoint_residual
@@ -1566,14 +1589,16 @@ contains
     upper = displacement_max
     call evaluate_matching_implicit_residual( &
       provider, mpi, lower, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_charge, lower_residual, response, current_density, status, message &
+      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+      lower_residual, response, current_density, status, message &
       )
     if (status /= matching_plane_provider_ok) then
       error stop 'implicit matching-plane lower endpoint failed: '//trim(message)
     end if
     call evaluate_matching_implicit_residual( &
       provider, mpi, upper, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_charge, upper_residual, response, current_density, status, message &
+      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+      upper_residual, response, current_density, status, message &
       )
     if (status /= matching_plane_provider_ok) then
       error stop 'implicit matching-plane upper endpoint failed: '//trim(message)
@@ -1586,7 +1611,8 @@ contains
       midpoint = 0.5_dp*(lower + upper)
       call evaluate_matching_implicit_residual( &
         provider, mpi, midpoint, displacement_before, duration, feedback_reference, &
-        electron_charge, ion_charge, photoelectron_charge, midpoint_residual, response, current_density, status, message &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        midpoint_residual, response, current_density, status, message &
         )
       if (status /= matching_plane_provider_ok) then
         error stop 'implicit matching-plane midpoint failed: '//trim(message)
@@ -1600,7 +1626,7 @@ contains
     displacement_after = 0.5_dp*(lower + upper)
     call evaluate_matching_implicit_residual( &
       provider, mpi, displacement_after, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_charge, midpoint_residual, response_after, &
+      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, midpoint_residual, response_after, &
       current_density, status, message &
       )
     if (status /= matching_plane_provider_ok) then
@@ -1610,12 +1636,14 @@ contains
 
   subroutine evaluate_matching_implicit_residual( &
     provider, mpi, displacement, displacement_before, duration, feedback_reference, &
-    electron_charge, ion_charge, photoelectron_charge, residual, response, current_density, status, message &
+    electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+    residual, response, current_density, status, message &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     type(mpi_context), intent(in) :: mpi
     real(dp), intent(in) :: displacement, displacement_before, duration, feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    logical, intent(in) :: photoelectron_active
     real(dp), intent(out) :: residual, response(6), current_density
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
@@ -1627,17 +1655,21 @@ contains
     residual = 0.0_dp
     current_density = 0.0_dp
     if (status /= matching_plane_provider_ok) return
-    barrier_energy_ev = response(1) - response(6)
-    if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp .or. &
-        feedback_reference(2) <= 0.0_dp) then
-      status = 1_i32
-      message = 'implicit matching-plane PE barrier or reference energy is invalid.'
-      return
+    escape_fraction = 0.0_dp
+    escape_flux = 0.0_dp
+    current_density = electron_charge*response(2) + ion_charge*response(3)
+    if (photoelectron_active) then
+      barrier_energy_ev = response(1) - response(6)
+      if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp .or. &
+          feedback_reference(2) <= 0.0_dp) then
+        status = 1_i32
+        message = 'implicit matching-plane PE barrier or reference energy is invalid.'
+        return
+      end if
+      escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
+      escape_flux = feedback_reference(1)*escape_fraction
+      current_density = current_density - photoelectron_charge*escape_flux
     end if
-    escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
-    escape_flux = feedback_reference(1)*escape_fraction
-    current_density = electron_charge*response(2) + ion_charge*response(3) - &
-                      photoelectron_charge*escape_flux
     residual = displacement - displacement_before - duration*current_density
     if (.not. all(ieee_is_finite([escape_fraction, escape_flux, current_density, residual]))) then
       status = 1_i32
@@ -1646,13 +1678,14 @@ contains
   end subroutine evaluate_matching_implicit_residual
 
   subroutine configure_matching_surface_closure( &
-    contract, electron_idx, ion_idx, photoelectron_idx, response, implicit_zero_mode, area_m2, &
-    feedback_reference, electron_charge, ion_charge, photoelectron_charge, photoelectron_emission_current_density &
+    contract, electron_idx, ion_idx, photoelectron_idx, photoelectron_active, response, implicit_zero_mode, area_m2, &
+    feedback_reference, electron_charge, ion_charge, photoelectron_charge, &
+    photoelectron_emission_current_density &
     )
     type(surface_closure_contract_type), intent(inout) :: contract
     integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
     real(dp), intent(in) :: response(6)
-    logical, intent(in) :: implicit_zero_mode
+    logical, intent(in) :: implicit_zero_mode, photoelectron_active
     real(dp), intent(in) :: area_m2, feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     real(dp), intent(in) :: photoelectron_emission_current_density
@@ -1695,34 +1728,44 @@ contains
     contract%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32
     ! The response inward fluxes already include all outer-sheath return of
     ! ambient species. Reflecting ambient outflow locally would count it twice.
-    contract%has_outflow_kinetic_barrier(photoelectron_idx) = .true.
-    contract%outflow_barrier_potential_v(photoelectron_idx) = response(6)
-    contract%outflow_barrier_face(photoelectron_idx) = 6_i32
+    if (photoelectron_active) then
+      contract%has_outflow_kinetic_barrier(photoelectron_idx) = .true.
+      contract%outflow_barrier_potential_v(photoelectron_idx) = response(6)
+      contract%outflow_barrier_face(photoelectron_idx) = 6_i32
+    end if
     if (implicit_zero_mode) then
-      barrier_energy_ev = response(1) - response(6)
-      escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
-      emission_flux = photoelectron_emission_current_density/(-photoelectron_charge)
-      return_flux = emission_flux - escape_flux
-      if (.not. all(ieee_is_finite([barrier_energy_ev, emission_flux, escape_flux, return_flux])) .or. &
-          barrier_energy_ev < 0.0_dp .or. escape_flux < 0.0_dp .or. return_flux < 0.0_dp .or. area_m2 <= 0.0_dp) then
+      if (.not. ieee_is_finite(area_m2) .or. area_m2 <= 0.0_dp) then
         error stop 'implicit matching-plane current targets are invalid.'
       end if
-      contract%has_absorbed_target([electron_idx, ion_idx, photoelectron_idx]) = .true.
+      contract%has_absorbed_target([electron_idx, ion_idx]) = .true.
       contract%absorbed_current_a(electron_idx) = electron_charge*response(2)*area_m2
       contract%absorbed_current_a(ion_idx) = ion_charge*response(3)*area_m2
-      contract%absorbed_current_a(photoelectron_idx) = photoelectron_charge*return_flux*area_m2
-      contract%has_emission_target(photoelectron_idx) = .true.
-      contract%emission_current_a(photoelectron_idx) = photoelectron_emission_current_density*area_m2
-      contract%has_escape_target(photoelectron_idx) = .true.
-      contract%escaped_particle_current_a(photoelectron_idx) = photoelectron_charge*escape_flux*area_m2
+      if (photoelectron_active) then
+        barrier_energy_ev = response(1) - response(6)
+        escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
+        emission_flux = photoelectron_emission_current_density/(-photoelectron_charge)
+        return_flux = emission_flux - escape_flux
+        if (.not. all(ieee_is_finite([barrier_energy_ev, emission_flux, escape_flux, return_flux])) .or. &
+            barrier_energy_ev < 0.0_dp .or. escape_flux < 0.0_dp .or. return_flux < 0.0_dp) then
+          error stop 'implicit matching-plane current targets are invalid.'
+        end if
+        contract%has_absorbed_target(photoelectron_idx) = .true.
+        contract%absorbed_current_a(photoelectron_idx) = photoelectron_charge*return_flux*area_m2
+        contract%has_emission_target(photoelectron_idx) = .true.
+        contract%emission_current_a(photoelectron_idx) = photoelectron_emission_current_density*area_m2
+        contract%has_escape_target(photoelectron_idx) = .true.
+        contract%escaped_particle_current_a(photoelectron_idx) = photoelectron_charge*escape_flux*area_m2
+      end if
     end if
   end subroutine configure_matching_surface_closure
 
   subroutine resolve_matching_observed_feedback( &
-    moments, electron_idx, ion_idx, photoelectron_idx, area_m2, duration_s, feedback, return_flux, escape_flux &
+    moments, electron_idx, ion_idx, photoelectron_idx, photoelectron_active, area_m2, duration_s, &
+    feedback, return_flux, escape_flux &
     )
     real(dp), intent(in) :: moments(:, :)
     integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
+    logical, intent(in) :: photoelectron_active
     real(dp), intent(in) :: area_m2, duration_s
     real(dp), intent(out) :: feedback(4), return_flux, escape_flux
     real(dp) :: normalization, photoelectron_outward_number
@@ -1734,16 +1777,20 @@ contains
     if (.not. ieee_is_finite(normalization) .or. normalization <= 0.0_dp) then
       error stop 'matching-plane flux normalization must be finite and positive.'
     end if
-    photoelectron_outward_number = moments(1, photoelectron_idx)
-    feedback(1) = photoelectron_outward_number/normalization
-    feedback(2) = 0.0_dp
-    if (photoelectron_outward_number > 0.0_dp) then
-      feedback(2) = moments(2, photoelectron_idx)/(photoelectron_outward_number*qe)
+    feedback(1:2) = 0.0_dp
+    return_flux = 0.0_dp
+    escape_flux = 0.0_dp
+    if (photoelectron_active) then
+      photoelectron_outward_number = moments(1, photoelectron_idx)
+      feedback(1) = photoelectron_outward_number/normalization
+      if (photoelectron_outward_number > 0.0_dp) then
+        feedback(2) = moments(2, photoelectron_idx)/(photoelectron_outward_number*qe)
+      end if
+      return_flux = moments(3, photoelectron_idx)/normalization
+      escape_flux = moments(4, photoelectron_idx)/normalization
     end if
     feedback(3) = moments(1, electron_idx)/normalization
     feedback(4) = moments(1, ion_idx)/normalization
-    return_flux = moments(3, photoelectron_idx)/normalization
-    escape_flux = moments(4, photoelectron_idx)/normalization
     if (.not. all(ieee_is_finite([feedback, return_flux, escape_flux]))) then
       error stop 'matching-plane observed feedback is not finite.'
     end if

@@ -19,7 +19,8 @@ A/B/C 準定常応答をその場で解きます。後者も Zhao の定常壁�
 ## 最小構成
 
 **前提:** x / y 周期、z open の `periodic2` case を用意し、全 mesh 頂点を上端より厳密に下へ置きます。
-外部一様場と一様磁場はゼロにし、electron、ion、photoelectron の 3 species を別々に指定します。
+外部一様場と一様磁場はゼロにし、electronとionを別speciesとして指定します。PEを扱う場合だけ、
+さらにphotoelectron speciesを指定します。
 
 **操作:** `[surface_current_model]` を追加します。
 
@@ -61,8 +62,20 @@ coupling_relaxation = 0.5
 上の第2成分`0.05` eVは有限ray sampling向けの例です。macro-particle数を変えた収束試験で決め、
 flux成分には相対許容値を維持します。
 
+PEなしでは`photoelectron_species`と`photo_raycast` speciesを両方省略します。応答と外部reservoirの
+電位gaugeはそのまま有効で、PE feedback、return、escapeは常に0になります。
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+zhao_branch = "auto"
+electron_species = "electron"
+ion_species = "ion"
+```
+
 **期待する出力:** 設定検査が model と backend の構成を受理します。table は実行開始時に応答表の構文と整合面高度も
-検証します。`summary.txt` には最後に accepted された連成 state、response backend、3 role、反復設定が記録され、
+検証します。`summary.txt` には最後に accepted された連成 state、response backend、2または3 role、反復設定が記録され、
 table では応答表の content fingerprint も加わります。`output.history_stride > 0` なら、
 該当する accepted batch ごとの応答値、4 つの feedback moment、return / escape flux、反復回数、
 正規化残差を `matching_plane_history.csv` で追跡できます。
@@ -83,14 +96,20 @@ table では応答表の content fingerprint も加わります。`output.histor
 - x / y の粒子境界は periodic、z-low / z-high は open
 - `sim.e0 = [0, 0, 0]`、`sim.b0 = [0, 0, 0]`
 - `[reservoir].inflow_model="source_vdf"`（generic な `infinity_barrier` は無効）
-- enabled species は 3 つの role だけとし、相異なる各 role の `surface_charge_closure="explicit"`
+- enabled species はelectron、ion、および任意のphotoelectron roleだけとし、相異なる各roleの
+  `surface_charge_closure="explicit"`
 - ambient electron / ion は `source_mode="volume_seed"`、`npcls_per_step=0` とし、
   `boundary_inflow` は z-high の `reservoir` だけ
-- electron / photoelectron は負電荷、ion は正電荷。photoelectron は `photo_raycast`、
-  `inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`
-- photoelectron の z-high 外向き境界は open
+- electronは負電荷、ionは正電荷。指定する場合、photoelectronは負電荷の`photo_raycast`、
+  `inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`で、z-high外向き境界はopen
 - `particle_boundary.ordinary_open_model="escape"`
-- `sim.multiple_box_events_policy="abort"`
+- `sim.multiple_box_events_policy="abort"` または上限付きの `"soft_discard"`
+
+`soft_discard` は、周期境界eventを完了できない稀なmacro particleを局所的に除外します。未解決となった
+stepのeventとmatching-plane momentは加算せず、それ以前のstepで確定したmomentは保持します。
+`multiple_box_events_soft_discard_count_limit`と
+`multiple_box_events_soft_discard_abs_charge_limit`を小さく設定し、summary/checkpointの累積件数・絶対電荷が
+結論に影響しないことを確認してください。どちらかの上限を超えるとrunは停止します。
 
 `reference_area_m2`、stationary Zhao の source key、手動 `fixed_current` target は併用できません。整合面積は
 `domain` の x-y 面積、整合面高度は `domain.box_max` の z 成分、更新間隔は 1 accepted batch に固定されています。
@@ -101,9 +120,9 @@ backend 固有の設定は次のとおりです。
 - `response_backend="table"` は `response_table_path` を必須とし、`zhao_branch`を禁止する
 - `response_backend="zhao_online"` は `response_table_path` を禁止し、
   `zhao_branch="auto" / "a" / "b" / "c"` を受理する
-- online は 3 role の単価電荷、ambient electron と PE の同一質量、$T_e>0$、$T_{pe}>0$、
-  $0\le T_i\le0.1T_e$、正の ion number density、ambient electron / ion の正の内向き drift
-  （`drift_velocity` の z 成分は負）を要求する
+- online は全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、正のion number density、
+  ambient electron / ionの正の内向きdrift（`drift_velocity`のz成分は負）を要求する。
+  PE指定時はさらにambient electronとPEの同一質量および$T_{pe}>0$を要求する
 
 ## Table backend: 応答 CSV v1
 
@@ -161,14 +180,16 @@ implicit_zero_mode = true
 ```
 
 この mode の応答表は、`displacement_c_m2` 軸に2 node以上を持ち、残り4入力軸をsingletonにします。
-singleton値は、正のPE外向きflux、正のPE平均法線energy、0のambient electron / ion外向きfluxです。
+singleton値は、PEありなら正のPE外向きfluxと正のPE平均法線energy、PEなしならこの2値を両方0にし、
+いずれもambient electron / ion外向きfluxを0にします。
 BEACHはhalf-MaxwellianのPE escape率を使い、
 $D_H^{n+1}=D_H^n+hJ(D_H^{n+1})$をtableの$D_H$範囲内で二分法により解きます。
 根を挟めないbatchは外挿せず停止します。
 
 粒子追跡と`k!=0`の要素別分布は従来どおりbatch開始状態から求めます。electron / ion吸収は陰的応答へ、
-PE放出は設定した表面放出電流へ、PE returnは「表面放出flux - 外部escape flux」へ総量を合わせ、
-commit後の$Q/A$を終点と照合します。
+PEありではPE放出を設定した表面放出電流へ、PE returnを「表面放出flux - 外部escape flux」へ総量を合わせ、
+commit後の$Q/A$を終点と照合します。PEなしでは後退Euler電流は
+$q_e\Gamma_e^{in}+q_i\Gamma_i^{in}$だけで、PE targetを生成しません。
 したがって、6 sのような大きな値を指定できるかは応答表が根を挟むことに加え、局所`k!=0`電位変化、
 macro-particle sampling、応答表の物理的妥当性を別途満たす必要があります。これは任意の
 `batch_duration`を無条件に安定化する設定ではありません。
@@ -190,9 +211,8 @@ $H$ は外部半無限領域の interface 原点、`periodic2` zero-mode の gau
 これは壁面から $H$ までの 1D 距離を拘束して解く model ではありません。
 
 外向き PE の number flux と平均法線運動 energy は、その 2 moment を再現する half-Maxwellian の振幅と
-energy scale へ写像します。PE flux が 0 の query では PE population を 0 とし、数値scaleには設定した
-参照PE speciesの`temperature_ev`または`temperature_k`から得た設定温度を使います。この縮約は2 momentより高次の
-energy tailを保持しません。
+energy scale へ写像します。PE flux が 0 の query では PE population を 0 とし、数値scaleにはPE roleがあれば
+その設定温度、なければambient electron温度を使います。この縮約は2 momentより高次のenergy tailを保持しません。
 
 online MVPではambient electron / ionの外向き軸をtransparentとして扱います。測定値は応答profileや戻りfluxを
 変えず、固定点残差でもinactiveです。onlineのactive scaleはZhao modelの基準flux / energyから導出します。

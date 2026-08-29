@@ -31,7 +31,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(29)
+  call test_init(32)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -40,6 +40,26 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('matching_plane_no_photo_config')
+  call default_app_config(cfg)
+  call load_app_config('tests/fortran/matching_plane_no_photo.toml', cfg)
+  call assert_true( &
+    trim(cfg%surface_current%model) == 'matching_plane_quasistatic', 'no-PE matching-plane model mismatch' &
+    )
+  call assert_true(len_trim(cfg%surface_current%photoelectron_species) == 0, 'no-PE matching plane must omit PE role')
+  call assert_equal_i32(cfg%n_particle_species, 2_i32, 'no-PE matching-plane species count mismatch')
+  call test_end()
+
+  call test_begin('matching_plane_no_photo_online_config')
+  call write_matching_no_photo_online(matching_variant_path)
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true(trim(cfg%surface_current%response_backend) == 'zhao_online', 'no-PE online backend mismatch')
+  call assert_true(len_trim(cfg%surface_current%photoelectron_species) == 0, 'no-PE online matching has PE role')
+  call assert_equal_i32(cfg%n_particle_species, 2_i32, 'no-PE online matching species count mismatch')
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('zhao_rejects_magnetized_closure')
@@ -192,6 +212,15 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
+  call test_begin('matching_plane_rejects_empty_photoelectron_role')
+  call write_matching_online_variant( &
+    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = ""' &
+    )
+  call assert_config_rejected(matching_variant_path, 'photoelectron_species must be a non-empty string')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
   call test_begin('matching_plane_online_rejects_response_table')
   call write_matching_online_variant(matching_variant_path, 'auto', .true., '', '')
   call assert_config_rejected(matching_variant_path, 'zhao_online" cannot use response_table_path')
@@ -255,12 +284,17 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
-  call test_begin('matching_plane_rejects_soft_discard')
+  call test_begin('matching_plane_accepts_bounded_soft_discard')
   call write_matching_variant( &
     matching_variant_path, 'matching_plane_quasistatic', '', '', &
     'multiple_box_events_policy = "soft_discard"', '', '' &
     )
-  call assert_config_rejected(matching_variant_path, 'multiple_box_events_policy="abort"')
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    trim(cfg%sim%multiple_box_events_policy) == 'soft_discard', &
+    'matching-plane must accept bounded soft discard' &
+    )
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -278,7 +312,7 @@ program test_app_config_parser
     matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '' &
     )
   call append_matching_explicit_species(matching_variant_path)
-  call assert_config_rejected(matching_variant_path, 'exactly three enabled')
+  call assert_config_rejected(matching_variant_path, 'exactly its enabled')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -538,6 +572,31 @@ contains
       error stop 'failed to specialize online matching-plane config fixture'
     end if
   end subroutine write_matching_online_variant
+
+  subroutine write_matching_no_photo_online(path)
+    character(len=*), intent(in) :: path
+    character(len=1024) :: line
+    integer :: source_unit, output_unit, ios
+
+    open (newunit=source_unit, file='tests/fortran/matching_plane_no_photo.toml', &
+          status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open no-PE matching-plane config fixture'
+    open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create no-PE online matching-plane config fixture'
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (trim(line) == 'model = "matching_plane_quasistatic"') then
+        write (output_unit, '(a)') trim(line)
+        write (output_unit, '(a)') 'response_backend = "zhao_online"'
+        write (output_unit, '(a)') 'zhao_branch = "auto"'
+      else if (trim(line) /= 'response_table_path = "data/matching_response_table.csv"') then
+        write (output_unit, '(a)') trim(line)
+      end if
+    end do
+    close (source_unit)
+    close (output_unit)
+  end subroutine write_matching_no_photo_online
 
   subroutine append_matching_fixed_current_species(path)
     character(len=*), intent(in) :: path
