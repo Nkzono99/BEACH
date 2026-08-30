@@ -87,15 +87,36 @@ def test_default_config_uses_no_periodic_far_correction() -> None:
     assert "field" not in config
 
 
-def test_config_rejects_removed_point_source_options() -> None:
+@pytest.mark.parametrize(
+    "key",
+    ["softening", "multiple_box_events_soft_discard_count_limit"],
+)
+def test_config_rejects_removed_sim_keys(key: str) -> None:
     config = default_config()
-    config["sim"]["softening"] = 1.0e-6
-    with pytest.raises(ConfigValidationError, match="removed sim key.*softening"):
+    config["sim"][key] = 1.0
+
+    with pytest.raises(ConfigValidationError, match=rf"removed sim key.*{key}"):
         normalize_config_document(config)
 
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("field", {"element_kernel": "point"}),
+        (
+            "external_boundary",
+            {"field": {"model": "none"}, "particles": {"mode": "local_source"}},
+        ),
+    ],
+)
+def test_runtime_validator_rejects_removed_top_level_contracts(
+    key: str,
+    value: object,
+) -> None:
     config = default_config()
-    config["field"] = {"element_kernel": "point"}
-    with pytest.raises(ConfigError, match="unsupported top-level key.*field"):
+    config[key] = value
+
+    with pytest.raises(ConfigError, match=rf"unsupported top-level key.*{key}"):
         normalize_config_document(config)
 
 
@@ -308,17 +329,6 @@ def test_plane_source_requires_internal_rectangle_and_axis_normal() -> None:
     ] == [0.0, 0.0, -2.0]
 
 
-def test_runtime_validator_rejects_removed_external_boundary_contract() -> None:
-    config = default_config()
-    config["external_boundary"] = {
-        "field": {"model": "none"},
-        "particles": {"mode": "local_source"},
-    }
-
-    with pytest.raises(ConfigError, match="unsupported top-level key"):
-        normalize_config_document(config)
-
-
 def test_load_config_file_resolves_high_level_notation(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     config_path.write_text(
@@ -524,14 +534,6 @@ def test_inactive_sim_controls_do_not_enforce_backend_specific_bounds() -> None:
     assert normalized["sim"]["field_solver"] == "direct"
 
 
-def test_config_rejects_removed_soft_discard_count_limit() -> None:
-    config = default_config()
-    config["sim"]["multiple_box_events_soft_discard_count_limit"] = 1000
-
-    with pytest.raises(ConfigValidationError, match="removed sim key.*count_limit"):
-        normalize_config_document(config)
-
-
 @pytest.mark.parametrize(
     ("key", "value", "match"),
     [
@@ -610,50 +612,12 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
 
 def test_load_config_file_rejects_removed_photo_escape_model(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
+    _write_base_config(config_path)
     config_path.write_text(
-        """
-[sim]
-batch_count = 1
-batch_duration = 1.0e-6
-
-[domain]
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 1.0]
-periodic_axes = []
-
-[particles]
-[[particles.species]]
-source_mode = "photo_raycast"
-emit_current_density_a_m2 = 1.0e-3
-rays_per_batch = 10
-deposit_opposite_charge_on_emit = true
-photo_escape_model = "boltzmann_cutoff"
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-temperature_ev = 1.5
-inject_face = "z_high"
-pos_low = [0.0, 0.0, 1.0]
-pos_high = [1.0, 1.0, 1.0]
-
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-surface_side = "normal_plus"
-size_x = 1.0
-size_y = 1.0
-nx = 1
-ny = 1
-center = [0.5, 0.5, 0.0]
-
-[output]
-write_files = true
-dir = "outputs/latest"
-history_stride = 1
-""".strip()
-        + "\n",
+        config_path.read_text(encoding="utf-8").replace(
+            "npcls_per_step = 10",
+            'npcls_per_step = 10\nphoto_escape_model = "boltzmann_cutoff"',
+        ),
         encoding="utf-8",
     )
 
@@ -680,6 +644,24 @@ def test_fixed_current_requires_signed_independent_channels() -> None:
     net_only["particles"]["species"][0].pop("target_absorbed_current_a")
     with pytest.raises(ConfigValidationError, match="at least one target current"):
         normalize_config_document(net_only)
+
+    photo_config = load_config_file(
+        Path("examples/periodic2_closed_photoelectron.toml")
+    )
+    photoelectron = photo_config["particles"]["species"][-1]
+    photoelectron["surface_charge_closure"] = "fixed_current"
+    photoelectron["target_emission_current_a"] = 3.0e-6
+    normalized_photo = normalize_config_document(photo_config)
+    assert normalized_photo["particles"]["species"][-1][
+        "target_emission_current_a"
+    ] == pytest.approx(3.0e-6)
+
+    wrong_emission_sign = copy.deepcopy(photo_config)
+    wrong_emission_sign["particles"]["species"][-1][
+        "target_emission_current_a"
+    ] = -3.0e-6
+    with pytest.raises(ConfigValidationError, match="opposite to q_particle"):
+        normalize_config_document(wrong_emission_sign)
 
 
 def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
@@ -1040,7 +1022,9 @@ def test_matching_plane_zhao_online_rejects_unsupported_species_contract(
         ("coupling_max_iterations", 0, "coupling_max_iterations"),
         ("coupling_max_iterations", 1.5, "coupling_max_iterations"),
         ("coupling_relaxation", 1.1, "coupling_relaxation"),
+        ("response_table_path", "", "response_table_path"),
         ("response_table_path", "x" * 257, "response_table_path"),
+        ("photoelectron_species", "", "non-empty string"),
     ],
 )
 def test_matching_plane_rejects_invalid_model_values(
@@ -1065,6 +1049,11 @@ def test_config_cli_init_validate_and_diff(
     init_streams = capsys.readouterr()
     assert "saved=beach.toml" in init_streams.out
     assert (tmp_path / "beach.toml").exists()
+    initialized_text = (tmp_path / "beach.toml").read_text(encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="config file already exists"):
+        beachx_main(["config", "init"])
+    assert (tmp_path / "beach.toml").read_text(encoding="utf-8") == initialized_text
 
     beachx_main(["config", "validate"])
     validate_streams = capsys.readouterr()
@@ -1159,6 +1148,14 @@ def test_lint_cli_accepts_high_level_authoring_config(
 
     assert "checks=toml,schema,semantic" in streams.out
     assert "status=ok" in streams.out
+
+
+def test_lint_cli_reports_toml_parse_error(tmp_path: Path) -> None:
+    config_path = tmp_path / "beach.toml"
+    config_path.write_text("[sim\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="TOML parse error"):
+        beachx_main(["lint", str(config_path)])
 
 
 def test_lint_cli_reports_authoring_schema_error(tmp_path: Path) -> None:

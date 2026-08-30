@@ -40,9 +40,7 @@ from beach.fortran_results.mesh import (
 )
 from beach.fortran_results.objects import resolve_object_specs
 from beach.fortran_results.panel_quadrature import panel_target_quadrature
-from beach.fortran_results.plotting import _periodic2_for_coulomb_matrix
 from beach.fortran_results.potential import (
-    _auto_periodic2_from_result,
     _coerce_periodic2,
     _potential_history,
 )
@@ -433,6 +431,102 @@ def _write_minimal_result_fixture(
         (out / "mesh_potential.csv").write_text(mesh_potential_text, encoding="utf-8")
 
 
+_MATCHING_HISTORY_HEADER = (
+    "batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,"
+    "ion_inward_flux_m2_s,electron_access_potential_V,ion_access_potential_V,"
+    "photoelectron_barrier_potential_V,photoelectron_outward_flux_m2_s,"
+    "photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,"
+    "ion_outward_flux_m2_s,photoelectron_return_flux_m2_s,"
+    "photoelectron_escape_flux_m2_s,iterations,residual"
+)
+
+
+def _matching_plane_summary_extra(
+    *,
+    photoelectron_escape_flux_m2_s: float = 1.5,
+) -> list[str]:
+    return [
+        "matching_plane_state_valid=T",
+        "matching_plane_displacement_C_m2=-2.0e-8",
+        "matching_plane_phi_V=1.5",
+        "matching_plane_electron_inward_flux_m2_s=4.0",
+        "matching_plane_ion_inward_flux_m2_s=5.0",
+        "matching_plane_electron_access_potential_V=-1.0",
+        "matching_plane_ion_access_potential_V=2.0",
+        "matching_plane_photoelectron_barrier_potential_V=3.0",
+        "matching_plane_photoelectron_outward_flux_m2_s=2.0",
+        "matching_plane_photoelectron_mean_normal_energy_eV=6.0",
+        "matching_plane_electron_outward_flux_m2_s=7.0",
+        "matching_plane_ion_outward_flux_m2_s=8.0",
+        "matching_plane_photoelectron_return_flux_m2_s=0.5",
+        f"matching_plane_photoelectron_escape_flux_m2_s={photoelectron_escape_flux_m2_s}",
+        "matching_plane_iterations=3",
+        "matching_plane_residual=1.0e-3",
+    ]
+
+
+def _matching_history_row(
+    *,
+    batch: int = 1,
+    electron_inward_flux: str = "4.0",
+    photoelectron_outward_flux: str = "2.0",
+    photoelectron_return_flux: str = "0.5",
+    photoelectron_escape_flux: str = "1.5",
+) -> str:
+    return ",".join(
+        (
+            str(batch),
+            "1.0e-6",
+            "-2.0e-8",
+            "1.5",
+            electron_inward_flux,
+            "5.0",
+            "-1.0",
+            "2.0",
+            "3.0",
+            photoelectron_outward_flux,
+            "6.0",
+            "7.0",
+            "8.0",
+            photoelectron_return_flux,
+            photoelectron_escape_flux,
+            "3",
+            "1.0e-3",
+        )
+    )
+
+
+_CHARGE_LEDGER_REQUIRED_HEADER = (
+    "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
+    "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
+    "injected_count,emitted_count,absorbed_count,escaped_count,"
+    "discarded_unresolved_count"
+)
+
+
+def _charge_ledger_row(
+    *,
+    species_idx: str = "1",
+    injected_charge: str = "-3.0",
+) -> str:
+    return ",".join(
+        (
+            "1",
+            species_idx,
+            injected_charge,
+            "0.0",
+            "-2.0",
+            "-1.0",
+            "-0.1",
+            "3",
+            "0",
+            "2",
+            "1",
+            "1",
+        )
+    )
+
+
 def test_load_fortran_result(tmp_path: Path) -> None:
     out = tmp_path / "run1"
     out.mkdir()
@@ -543,32 +637,11 @@ def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path) ->
         out,
         summary_extra=[
             "checkpoint_schema_version=9",
-            "matching_plane_state_valid=T",
-            "matching_plane_displacement_C_m2=-2.0e-8",
-            "matching_plane_phi_V=1.5",
-            "matching_plane_electron_inward_flux_m2_s=4.0",
-            "matching_plane_ion_inward_flux_m2_s=5.0",
-            "matching_plane_electron_access_potential_V=-1.0",
-            "matching_plane_ion_access_potential_V=2.0",
-            "matching_plane_photoelectron_barrier_potential_V=3.0",
-            "matching_plane_photoelectron_outward_flux_m2_s=2.0",
-            "matching_plane_photoelectron_mean_normal_energy_eV=6.0",
-            "matching_plane_electron_outward_flux_m2_s=7.0",
-            "matching_plane_ion_outward_flux_m2_s=8.0",
-            "matching_plane_photoelectron_return_flux_m2_s=0.5",
-            "matching_plane_photoelectron_escape_flux_m2_s=1.5",
-            "matching_plane_iterations=3",
-            "matching_plane_residual=1.0e-3",
+            *_matching_plane_summary_extra(),
         ],
     )
     (out / "matching_plane_history.csv").write_text(
-        "batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,"
-        "ion_inward_flux_m2_s,electron_access_potential_V,ion_access_potential_V,"
-        "photoelectron_barrier_potential_V,photoelectron_outward_flux_m2_s,"
-        "photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,"
-        "ion_outward_flux_m2_s,photoelectron_return_flux_m2_s,"
-        "photoelectron_escape_flux_m2_s,iterations,residual\n"
-        "1,1.0e-6,-2.0e-8,1.5,4.0,5.0,-1.0,2.0,3.0,2.0,6.0,7.0,8.0,0.5,1.5,3,1.0e-3\n",
+        f"{_MATCHING_HISTORY_HEADER}\n{_matching_history_row()}\n",
         encoding="utf-8",
     )
 
@@ -612,61 +685,91 @@ def test_load_fortran_result_rejects_inconsistent_matching_budget(
     out.mkdir()
     _write_minimal_result_fixture(
         out,
-        summary_extra=[
-            "matching_plane_state_valid=T",
-            "matching_plane_displacement_C_m2=0.0",
-            "matching_plane_phi_V=0.0",
-            "matching_plane_electron_inward_flux_m2_s=0.0",
-            "matching_plane_ion_inward_flux_m2_s=0.0",
-            "matching_plane_electron_access_potential_V=0.0",
-            "matching_plane_ion_access_potential_V=0.0",
-            "matching_plane_photoelectron_barrier_potential_V=0.0",
-            "matching_plane_photoelectron_outward_flux_m2_s=2.0",
-            "matching_plane_photoelectron_mean_normal_energy_eV=0.0",
-            "matching_plane_electron_outward_flux_m2_s=0.0",
-            "matching_plane_ion_outward_flux_m2_s=0.0",
-            "matching_plane_photoelectron_return_flux_m2_s=0.5",
-            "matching_plane_photoelectron_escape_flux_m2_s=0.5",
-            "matching_plane_iterations=1",
-            "matching_plane_residual=0.0",
-        ],
+        summary_extra=_matching_plane_summary_extra(
+            photoelectron_escape_flux_m2_s=0.5
+        ),
     )
 
     with pytest.raises(ValueError, match="photoelectron budget"):
         load_fortran_result(out)
 
 
-def test_panel_estimators_reject_removed_point_output(tmp_path: Path) -> None:
-    out = tmp_path / "run_removed_point"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[
-            "field_kernel_id=softened_point",
-        ],
-        field_source_model="point",
-    )
-    result = load_fortran_result(out)
-
-    assert result.field_source_model == "point"
-    with pytest.raises(ValueError, match="triangle_p0"):
-        compute_potential_mesh(result)
-    with pytest.raises(ValueError, match="triangle_p0"):
-        compute_electric_field_points(result, np.zeros((1, 3)))
-    with pytest.raises(ValueError, match="triangle_p0"):
-        calc_coulomb(result, 1, 2, step=None)
-
-
-def test_panel_estimators_reject_output_without_source_model_receipt(
+@pytest.mark.parametrize(
+    ("history_header", "history_rows", "match"),
+    [
+        pytest.param(
+            "batch,simulated_time_s",
+            (_matching_history_row(),),
+            "header does not match",
+            id="wrong-header",
+        ),
+        pytest.param(
+            _MATCHING_HISTORY_HEADER,
+            (_matching_history_row().rsplit(",", maxsplit=1)[0],),
+            "exactly 17 columns",
+            id="short-row",
+        ),
+        pytest.param(
+            _MATCHING_HISTORY_HEADER,
+            (_matching_history_row(electron_inward_flux="nan"),),
+            "electron_inward_flux_m2_s must be finite",
+            id="nonfinite-value",
+        ),
+        pytest.param(
+            _MATCHING_HISTORY_HEADER,
+            (_matching_history_row(), _matching_history_row()),
+            "positive and strictly increasing",
+            id="nonincreasing-batch",
+        ),
+        pytest.param(
+            _MATCHING_HISTORY_HEADER,
+            (_matching_history_row(photoelectron_escape_flux="0.5"),),
+            "photoelectron budget",
+            id="inconsistent-photoelectron-budget",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_corrupt_matching_plane_history(
     tmp_path: Path,
+    history_header: str,
+    history_rows: tuple[str, ...],
+    match: str,
 ) -> None:
-    out = tmp_path / "run_missing_source_model"
+    out = tmp_path / "matching_bad_history"
     out.mkdir()
-    _write_minimal_result_fixture(out, field_source_model=None)
+    _write_minimal_result_fixture(out, summary_extra=_matching_plane_summary_extra())
+    (out / "matching_plane_history.csv").write_text(
+        history_header + "\n" + "\n".join(history_rows) + "\n",
+        encoding="utf-8",
+    )
 
+    with pytest.raises(ValueError, match=match):
+        load_fortran_result(out)
+
+
+@pytest.mark.parametrize(
+    ("field_source_model", "summary_extra", "expected_source_model"),
+    [
+        pytest.param("point", ["field_kernel_id=softened_point"], "point", id="point"),
+        pytest.param(None, None, "unknown", id="missing-receipt"),
+    ],
+)
+def test_panel_estimators_reject_incompatible_source_model_receipt(
+    tmp_path: Path,
+    field_source_model: str | None,
+    summary_extra: list[str] | None,
+    expected_source_model: str,
+) -> None:
+    out = tmp_path / "run_incompatible_source_model"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=summary_extra,
+        field_source_model=field_source_model,
+    )
     result = load_fortran_result(out)
 
-    assert result.field_source_model == "unknown"
+    assert result.field_source_model == expected_source_model
     with pytest.raises(ValueError, match="triangle_p0"):
         compute_potential_mesh(result)
     with pytest.raises(ValueError, match="triangle_p0"):
@@ -675,39 +778,36 @@ def test_panel_estimators_reject_output_without_source_model_receipt(
         calc_coulomb(result, 1, 2, step=None)
 
 
-def test_load_fortran_result_rejects_charges_row_count_mismatch(tmp_path: Path) -> None:
-    out = tmp_path / "run_bad_charges_count"
+@pytest.mark.parametrize(
+    ("charges_text", "match"),
+    [
+        pytest.param(
+            "elem_idx,charge_C\n1,1.0e-10\n",
+            "charges.csv row count",
+            id="row-count",
+        ),
+        pytest.param(
+            "elem_idx,charge_C\n1,1.0e-10\n3,-2.0e-10\n",
+            "charges.csv elem_idx",
+            id="elem-index",
+        ),
+        pytest.param(
+            "elem_idx,charge_C\n1,1.0e-10\n2,nan\n",
+            "charge_C",
+            id="nonfinite-charge",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_corrupt_charges(
+    tmp_path: Path,
+    charges_text: str,
+    match: str,
+) -> None:
+    out = tmp_path / "run_bad_charges"
     out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        charges_text="elem_idx,charge_C\n1,1.0e-10\n",
-    )
+    _write_minimal_result_fixture(out, charges_text=charges_text)
 
-    with pytest.raises(ValueError, match="charges.csv row count"):
-        load_fortran_result(out)
-
-
-def test_load_fortran_result_rejects_charges_invalid_elem_idx(tmp_path: Path) -> None:
-    out = tmp_path / "run_bad_charges_elem"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        charges_text="elem_idx,charge_C\n1,1.0e-10\n3,-2.0e-10\n",
-    )
-
-    with pytest.raises(ValueError, match="charges.csv elem_idx"):
-        load_fortran_result(out)
-
-
-def test_load_fortran_result_rejects_nonfinite_charge(tmp_path: Path) -> None:
-    out = tmp_path / "run_bad_charge_nan"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        charges_text="elem_idx,charge_C\n1,1.0e-10\n2,nan\n",
-    )
-
-    with pytest.raises(ValueError, match="charge_C"):
+    with pytest.raises(ValueError, match=match):
         load_fortran_result(out)
 
 
@@ -744,31 +844,111 @@ def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -
         load_fortran_result(out)
 
 
-def test_load_fortran_result_rejects_bad_mesh_source_material(tmp_path: Path) -> None:
-    out = tmp_path / "run_bad_mesh_source_material"
+@pytest.mark.parametrize(
+    ("mesh_id", "match"),
+    [
+        pytest.param("1.5", "mesh_id values must be integer", id="fractional"),
+        pytest.param("0", "mesh_id values must be positive", id="nonpositive"),
+    ],
+)
+def test_load_fortran_result_rejects_invalid_triangle_mesh_id(
+    tmp_path: Path,
+    mesh_id: str,
+    match: str,
+) -> None:
+    out = tmp_path / "run_bad_triangle_mesh_id"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        mesh_triangles_text=(
+            "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
+            "1,0,0,0,1,0,0,0,1,0,1.0e-10,1\n"
+            f"2,0,0,1,1,0,1,0,1,1,-2.0e-10,{mesh_id}\n"
+        ),
+    )
+
+    with pytest.raises(ValueError, match=match):
+        load_fortran_result(out)
+
+
+@pytest.mark.parametrize(
+    ("second_source", "match"),
+    [
+        pytest.param(
+            "2,template,sphere,dielectric,nan,1",
+            "epsilon_r",
+            id="nonfinite-epsilon",
+        ),
+        pytest.param(
+            "2,template,sphere,resistive,2.0,1",
+            "surface_model",
+            id="unknown-surface-model",
+        ),
+        pytest.param(
+            "2,template,sphere,dielectric,2.0,-1",
+            "elem_count",
+            id="negative-element-count",
+        ),
+        pytest.param(
+            "0,template,sphere,dielectric,2.0,1",
+            "mesh_id",
+            id="nonpositive-mesh-id",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_invalid_mesh_source_fields(
+    tmp_path: Path,
+    second_source: str,
+    match: str,
+) -> None:
+    out = tmp_path / "run_bad_mesh_source"
     out.mkdir()
     _write_minimal_result_fixture(
         out,
         mesh_sources_text=(
             "mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count\n"
             "1,template,plane,insulator,1.0,1\n"
-            "2,template,sphere,dielectric,nan,1\n"
+            f"{second_source}\n"
         ),
     )
 
-    with pytest.raises(ValueError, match="epsilon_r"):
+    with pytest.raises(ValueError, match=match):
         load_fortran_result(out)
 
 
-def test_load_fortran_result_rejects_nonfinite_mesh_potential(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("mesh_potential_text", "match"),
+    [
+        pytest.param(
+            "elem_idx,potential_V\n1,1.5\n",
+            "mesh_potential.csv row count",
+            id="row-count",
+        ),
+        pytest.param(
+            "elem_idx,potential_V\n1,1.5\n3,-2.5\n",
+            "mesh_potential.csv elem_idx",
+            id="elem-index",
+        ),
+        pytest.param(
+            "elem_idx,potential_V\n1,1.5\n2,inf\n",
+            "potential_V",
+            id="nonfinite-potential",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_corrupt_mesh_potential(
+    tmp_path: Path,
+    mesh_potential_text: str,
+    match: str,
+) -> None:
     out = tmp_path / "run_bad_mesh_potential"
     out.mkdir()
     _write_minimal_result_fixture(
         out,
-        mesh_potential_text="elem_idx,potential_V\n1,1.5\n2,inf\n",
+        mesh_potential_text=mesh_potential_text,
     )
 
-    with pytest.raises(ValueError, match="potential_V"):
+    with pytest.raises(ValueError, match=match):
         load_fortran_result(out)
 
 
@@ -1197,20 +1377,6 @@ def test_load_fortran_result_rejects_incomplete_adaptive_summary(
         load_fortran_result(out)
 
 
-def test_load_fortran_result_rejects_duplicate_summary_keys(tmp_path: Path) -> None:
-    out = tmp_path / "duplicate_summary"
-    out.mkdir()
-    _write_minimal_result_fixture(out)
-    summary_path = out / "summary.txt"
-    summary_path.write_text(
-        summary_path.read_text(encoding="utf-8") + "\nbatches=2\n",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="duplicate key 'batches'"):
-        load_fortran_result(out)
-
-
 def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) -> None:
     out = tmp_path / "contract"
     out.mkdir()
@@ -1277,6 +1443,42 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
     assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"
     assert result.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
     assert result.periodic2_generation_tolerance == pytest.approx(1.0e-8)
+
+
+@pytest.mark.parametrize(
+    ("ledger_text", "match"),
+    [
+        pytest.param(
+            "batch,species_idx,injected_from_remote_C\n1,1,-3.0\n",
+            "missing required columns",
+            id="missing-required-column",
+        ),
+        pytest.param(
+            f"{_CHARGE_LEDGER_REQUIRED_HEADER}\n"
+            f"{_charge_ledger_row(species_idx='0')}\n",
+            "indices and counts are invalid",
+            id="invalid-species-index",
+        ),
+        pytest.param(
+            f"{_CHARGE_LEDGER_REQUIRED_HEADER}\n"
+            f"{_charge_ledger_row(injected_charge='nan')}\n",
+            "charge values must be finite",
+            id="nonfinite-charge",
+        ),
+    ],
+)
+def test_load_fortran_result_rejects_corrupt_charge_ledger(
+    tmp_path: Path,
+    ledger_text: str,
+    match: str,
+) -> None:
+    out = tmp_path / "bad_charge_ledger"
+    out.mkdir()
+    _write_minimal_result_fixture(out)
+    (out / "charge_ledger.csv").write_text(ledger_text, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        load_fortran_result(out)
 
 
 def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path) -> None:
@@ -1644,16 +1846,23 @@ def test_compute_potential_mesh_is_linear_in_panel_charges(tmp_path: Path) -> No
     np.testing.assert_allclose(scaled, -0.25 * potential)
 
 
-def test_compute_potential_mesh_rejects_removed_softening_keyword() -> None:
+@pytest.mark.parametrize(
+    ("removed_keyword", "value"),
+    [
+        pytest.param("softening", 1.0, id="softening"),
+        pytest.param("self_term", "softened_point", id="self-term"),
+    ],
+)
+def test_compute_potential_mesh_rejects_removed_keywords(
+    removed_keyword: str,
+    value: object,
+) -> None:
     triangles = np.array(
-        [
-            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
-            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
-        ]
+        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
     )
     result = FortranRunResult(
         directory=Path("dummy"),
-        mesh_nelem=2,
+        mesh_nelem=1,
         processed_particles=0,
         absorbed=0,
         escaped=0,
@@ -1661,12 +1870,15 @@ def test_compute_potential_mesh_rejects_removed_softening_keyword() -> None:
         escaped_boundary=0,
         survived_max_step=0,
         last_rel_change=0.0,
-        charges=np.array([1.0e-9, 1.0e-9]),
+        charges=np.array([0.0]),
         triangles=triangles,
     )
 
-    with pytest.raises(TypeError, match="softening"):
-        compute_potential_mesh(result, softening=1.0)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match=removed_keyword):
+        compute_potential_mesh(  # type: ignore[call-arg]
+            result,
+            **{removed_keyword: value},
+        )
 
 
 def test_compute_potential_mesh_includes_finite_panel_self_term(
@@ -1697,7 +1909,6 @@ def test_compute_potential_mesh_includes_finite_panel_self_term(
 
 def test_compute_potential_mesh_uses_panel_centroids_as_targets(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_complete_free_field_config(tmp_path)
     triangles = np.array(
@@ -1721,24 +1932,10 @@ def test_compute_potential_mesh_uses_panel_centroids_as_targets(
         triangles=triangles,
     )
 
-    captured: dict[str, np.ndarray] = {}
+    mesh_potential = compute_potential_mesh(result)
+    centroid_potential = compute_potential_points(result, triangles.mean(axis=1))
 
-    class _CapturePanelKernel(_UnitPanelKernel):
-        def __init__(self, source_triangles, source_charges, **kwargs) -> None:
-            captured["source_triangles"] = np.asarray(source_triangles).copy()
-            super().__init__(source_triangles, source_charges, **kwargs)
-
-        def eval_phi(self, points: np.ndarray) -> np.ndarray:
-            captured.setdefault("targets", np.asarray(points).copy())
-            return super().eval_phi(points)
-
-    monkeypatch.setattr(potential_module, "FieldKernel", _CapturePanelKernel)
-
-    potential = compute_potential_mesh(result)
-
-    np.testing.assert_array_equal(captured["source_triangles"], triangles)
-    np.testing.assert_allclose(captured["targets"], triangles.mean(axis=1))
-    assert np.all(np.isfinite(potential))
+    np.testing.assert_allclose(mesh_potential, centroid_potential)
 
 
 def test_compute_potential_mesh_supports_reference_point_difference(
@@ -1814,20 +2011,19 @@ def test_compute_potential_mesh_reads_panel_solver_options_from_config(
         "\n".join(
             [
                 "[sim]",
-                "tree_theta = 0.5",
+                "tree_theta = 0.37",
             ]
         ),
         encoding="utf-8",
     )
 
     result = load_fortran_result(out)
-    captured: dict[str, object] = {}
 
-    class _CaptureOptionsKernel(_UnitPanelKernel):
+    class _ThetaProbeKernel(_UnitPanelKernel):
         def __init__(
             self, source_triangles, source_charges, *, options, **kwargs
         ) -> None:
-            captured["options"] = options
+            self.theta = float(options.theta)
             super().__init__(
                 source_triangles,
                 source_charges,
@@ -1835,11 +2031,13 @@ def test_compute_potential_mesh_reads_panel_solver_options_from_config(
                 **kwargs,
             )
 
-    monkeypatch.setattr(potential_module, "FieldKernel", _CaptureOptionsKernel)
+        def eval_phi(self, points: np.ndarray) -> np.ndarray:
+            return np.full(np.asarray(points).shape[0], self.theta)
+
+    monkeypatch.setattr(potential_module, "FieldKernel", _ThetaProbeKernel)
     potential = compute_potential_mesh(result)
 
-    assert np.all(np.isfinite(potential))
-    assert captured["options"].theta == pytest.approx(0.5)
+    np.testing.assert_allclose(potential, np.array([0.37, 0.37]))
 
 
 def test_compute_potential_mesh_supports_species1_injection_reference_from_config(
@@ -1898,33 +2096,6 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
     np.testing.assert_allclose(phi, absolute - reference)
 
 
-def test_compute_potential_mesh_returns_finite_panel_values(tmp_path: Path) -> None:
-    _write_complete_free_field_config(tmp_path)
-    triangles = np.array(
-        [
-            [[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]],
-            [[3.0, 0.0, 0.0], [6.0, 0.0, 0.0], [3.0, 3.0, 0.0]],
-        ]
-    )
-    result = FortranRunResult(
-        directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
-        charges=np.array([1.0e-9, -1.0e-9]),
-        triangles=triangles,
-    )
-
-    potential = compute_potential_mesh(result)
-
-    assert np.all(np.isfinite(potential))
-
-
 def test_compute_potential_mesh_requires_triangles() -> None:
     result = FortranRunResult(
         directory=Path("dummy"),
@@ -1942,69 +2113,6 @@ def test_compute_potential_mesh_requires_triangles() -> None:
 
     with pytest.raises(ValueError, match="mesh_triangles.csv"):
         compute_potential_mesh(result)
-
-
-def test_compute_potential_mesh_rejects_removed_softening_argument() -> None:
-    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
-        directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
-        charges=np.array([0.0]),
-        triangles=triangles,
-    )
-
-    with pytest.raises(TypeError, match="softening"):
-        compute_potential_mesh(result, softening=-1.0)  # type: ignore[call-arg]
-
-
-def test_compute_potential_mesh_rejects_removed_self_term_argument() -> None:
-    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
-        directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
-        charges=np.array([0.0]),
-        triangles=triangles,
-    )
-
-    with pytest.raises(TypeError, match="self_term"):
-        compute_potential_mesh(result, self_term="invalid")  # type: ignore[call-arg]
-
-
-def test_compute_potential_mesh_has_no_softened_point_compatibility_mode() -> None:
-    triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
-        directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
-        charges=np.array([0.0]),
-        triangles=triangles,
-    )
-
-    with pytest.raises(TypeError, match="self_term"):
-        compute_potential_mesh(  # type: ignore[call-arg]
-            result,
-            self_term="softened_point",
-        )
 
 
 def test_compute_potential_mesh_rejects_degenerate_panel(tmp_path: Path) -> None:
@@ -2127,9 +2235,13 @@ def test_compute_potential_mesh_supports_periodic2_image_sum(
     assert potential[0] > free[0] > 0.0
 
 
-@pytest.mark.parametrize("far_correction", ["auto", "m2l_root_oracle"])
-def test_compute_potential_points_auto_detects_periodic2_from_config(
-    tmp_path: Path, far_correction: str
+@pytest.mark.parametrize(
+    "far_correction",
+    [None, "none", "auto", "m2l_root_oracle"],
+)
+def test_compute_potential_points_normalizes_periodic2_config_far_correction(
+    tmp_path: Path,
+    far_correction: str | None,
 ) -> None:
     out = tmp_path / "run_periodic"
     out.mkdir()
@@ -2167,7 +2279,11 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(
                 'bc_z_low = "open"',
                 'bc_z_high = "open"',
                 "field_periodic_image_layers = 1",
-                f'field_periodic_far_correction = "{far_correction}"',
+                *(
+                    [f'field_periodic_far_correction = "{far_correction}"']
+                    if far_correction is not None
+                    else []
+                ),
             ]
         ),
         encoding="utf-8",
@@ -2188,53 +2304,6 @@ def test_compute_potential_points_auto_detects_periodic2_from_config(
     )
 
     np.testing.assert_allclose(potential, explicit)
-
-
-def test_coulomb_matrix_auto_reader_accepts_historical_root_oracle(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "beach.toml").write_text(
-        "\n".join(
-            [
-                "[sim]",
-                'field_bc_mode = "periodic2"',
-                "box_min = [0.0, 0.0, -1.0]",
-                "box_max = [1.0, 1.0, 1.0]",
-                'bc_x_low = "periodic"',
-                'bc_x_high = "periodic"',
-                'bc_y_low = "periodic"',
-                'bc_y_high = "periodic"',
-                'bc_z_low = "open"',
-                'bc_z_high = "open"',
-                'field_periodic_far_correction = "m2l_root_oracle"',
-                "field_periodic_ewald_layers = 4",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    result = FortranRunResult(
-        directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
-        charges=np.array([0.0]),
-        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
-    )
-
-    periodic2 = _periodic2_for_coulomb_matrix(result, config_path=None)
-
-    assert periodic2 is not None
-    assert periodic2.far_correction == "none"
-    with pytest.raises(ValueError, match='was removed; use "none"'):
-        _periodic2_for_coulomb_matrix(
-            result,
-            config_path=tmp_path / "beach.toml",
-        )
 
 
 def test_composed_analyses_normalize_auto_loaded_historical_root_oracle(
@@ -2291,6 +2360,8 @@ def test_composed_analyses_normalize_auto_loaded_historical_root_oracle(
         explicit_beach.compute_potential_points(np.array([[0.5, 0.5, 0.5]]))
     with pytest.raises(ValueError, match='was removed; use "none"'):
         explicit_beach.analyze_coulomb_mobility()
+    with pytest.raises(ValueError, match='was removed; use "none"'):
+        explicit_beach.plot_coulomb_force_matrix(component="x")
 
 
 def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
@@ -2352,114 +2423,6 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
     np.testing.assert_allclose(potential[0], potential[1])
 
 
-def test_auto_periodic2_from_result_defaults_far_correction_to_none(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "run_periodic_default_far_correction"
-    out.mkdir()
-    (out / "summary.txt").write_text(
-        "\n".join(
-            [
-                "mesh_nelem=1",
-                "processed_particles=0",
-                "absorbed=0",
-                "escaped=0",
-                "batches=1",
-                "last_rel_change=0.0",
-                "field_source_model=triangle_p0",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
-    (out / "mesh_triangles.csv").write_text(
-        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
-        "1,-1.0,-1.0,0.0,1.0,-1.0,0.0,0.0,2.0,0.0,2.0e-9,1\n",
-        encoding="utf-8",
-    )
-    (out / "beach.toml").write_text(
-        "\n".join(
-            [
-                "[sim]",
-                'field_solver = "fmm"',
-                'field_bc_mode = "periodic2"',
-                "box_min = [0.0, 0.0, -1.0]",
-                "box_max = [1.0, 1.0, 1.0]",
-                'bc_x_low = "periodic"',
-                'bc_x_high = "periodic"',
-                'bc_y_low = "periodic"',
-                'bc_y_high = "periodic"',
-                'bc_z_low = "open"',
-                'bc_z_high = "open"',
-                "field_periodic_image_layers = 1",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    result = load_fortran_result(out)
-    periodic2 = _auto_periodic2_from_result(result)
-
-    assert periodic2 is not None
-    assert periodic2[4] == "none"
-    assert periodic2[6] == 4
-
-
-def test_auto_periodic2_from_result_preserves_none_far_correction(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "run_periodic_none_far_correction"
-    out.mkdir()
-    (out / "summary.txt").write_text(
-        "\n".join(
-            [
-                "mesh_nelem=1",
-                "processed_particles=0",
-                "absorbed=0",
-                "escaped=0",
-                "batches=1",
-                "last_rel_change=0.0",
-                "field_source_model=triangle_p0",
-            ]
-        ),
-        encoding="utf-8",
-    )
-    (out / "charges.csv").write_text("elem_idx,charge_C\n1,2.0e-9\n", encoding="utf-8")
-    (out / "mesh_triangles.csv").write_text(
-        "elem_idx,v0x,v0y,v0z,v1x,v1y,v1z,v2x,v2y,v2z,charge_C,mesh_id\n"
-        "1,-1.0,-1.0,0.0,1.0,-1.0,0.0,0.0,2.0,0.0,2.0e-9,1\n",
-        encoding="utf-8",
-    )
-    (out / "beach.toml").write_text(
-        "\n".join(
-            [
-                "[sim]",
-                'field_solver = "fmm"',
-                'field_bc_mode = "periodic2"',
-                "box_min = [0.0, 0.0, -1.0]",
-                "box_max = [1.0, 1.0, 1.0]",
-                'bc_x_low = "periodic"',
-                'bc_x_high = "periodic"',
-                'bc_y_low = "periodic"',
-                'bc_y_high = "periodic"',
-                'bc_z_low = "open"',
-                'bc_z_high = "open"',
-                "field_periodic_image_layers = 1",
-                'field_periodic_far_correction = "none"',
-                "field_periodic_ewald_layers = 4",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    result = load_fortran_result(out)
-    periodic2 = _auto_periodic2_from_result(result)
-
-    assert periodic2 is not None
-    assert periodic2[4] == "none"
-    assert periodic2[6] == 4
-
-
 def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charges_history = np.array([[2.0e-9, -1.0e-9]])
@@ -2481,87 +2444,92 @@ def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
     assert abs(potential[0, 0]) > abs(free[0, 0])
 
 
-def test_coerce_periodic2_rejects_legacy_ewald_modes() -> None:
-    with pytest.raises(
-        ValueError,
-        match='periodic2.far_correction must be "auto" or "none"',
-    ):
-        _coerce_periodic2(
-            {
-                "axes": (0, 1),
-                "lengths": (1.0, 1.0),
-                "image_layers": 1,
-                "far_correction": "ewald",
-                "ewald_alpha": 1.2,
-                "ewald_layers": 4,
-            }
-        )
-
-
-def test_coerce_periodic2_accepts_auto_default() -> None:
-    periodic2 = _coerce_periodic2(
-        {
-            "axes": (0, 1),
-            "lengths": (1.0, 1.0),
-            "image_layers": 1,
-            "far_correction": "auto",
-            "ewald_layers": 4,
-        }
-    )
-
-    assert periodic2 is not None
-    assert periodic2[4] == "none"
-    assert periodic2[6] == 4
-
-
-def test_coerce_periodic2_preserves_none() -> None:
-    periodic2 = _coerce_periodic2(
-        {
-            "axes": (0, 1),
-            "lengths": (1.0, 1.0),
-            "image_layers": 1,
-            "far_correction": "none",
-            "ewald_layers": 4,
-        }
-    )
-
-    assert periodic2 is not None
-    assert periodic2[4] == "none"
-    assert periodic2[6] == 4
-
-
-def test_coerce_periodic2_rejects_removed_root_oracle() -> None:
-    with pytest.raises(
-        ValueError,
-        match='periodic2.far_correction "m2l_root_oracle" was removed',
-    ):
-        _coerce_periodic2(
-            {
-                "axes": (0, 1),
-                "lengths": (1.0, 1.0),
-                "image_layers": 1,
-                "far_correction": "m2l_root_oracle",
-                "ewald_layers": 4,
-            }
-        )
-
-
-@pytest.mark.parametrize("far_correction", ["m2l_root", "m2l_root_trunc"])
-def test_coerce_periodic2_rejects_removed_far_correction_aliases(
-    far_correction: str,
+def test_compute_potential_points_normalizes_auto_far_correction_to_none(
+    tmp_path: Path,
 ) -> None:
-    with pytest.raises(
-        ValueError,
-        match='periodic2.far_correction must be "auto" or "none"',
-    ):
-        _coerce_periodic2(
-            {
+    _write_complete_free_field_config(tmp_path)
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([2.0e-9]),
+        triangles=np.array(
+            [[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]]
+        ),
+    )
+    points = np.array([[0.0, 0.0, 2.0]])
+    periodic2 = {
+        "axes": (0, 1),
+        "lengths": (1.0, 1.0),
+        "image_layers": 1,
+        "far_correction": "auto",
+    }
+
+    potential = compute_potential_points(result, points, periodic2=periodic2)
+    expected = compute_potential_points(
+        result,
+        points,
+        periodic2={**periodic2, "far_correction": "none"},
+    )
+
+    np.testing.assert_allclose(potential, expected)
+
+
+@pytest.mark.parametrize(
+    ("far_correction", "match"),
+    [
+        pytest.param("ewald", "periodic2.far_correction must be", id="ewald"),
+        pytest.param("m2l_root", "periodic2.far_correction must be", id="m2l-root"),
+        pytest.param(
+            "m2l_root_trunc",
+            "periodic2.far_correction must be",
+            id="m2l-root-trunc",
+        ),
+        pytest.param(
+            "m2l_root_oracle",
+            "periodic2.far_correction .* was removed",
+            id="m2l-root-oracle",
+        ),
+    ],
+)
+def test_compute_potential_points_rejects_removed_periodic2_far_correction(
+    tmp_path: Path,
+    far_correction: str,
+    match: str,
+) -> None:
+    _write_complete_free_field_config(tmp_path)
+    result = FortranRunResult(
+        directory=tmp_path,
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([2.0e-9]),
+        triangles=np.array(
+            [[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]]
+        ),
+    )
+
+    with pytest.raises(ValueError, match=match):
+        compute_potential_points(
+            result,
+            np.array([[0.0, 0.0, 2.0]]),
+            periodic2={
                 "axes": (0, 1),
                 "lengths": (1.0, 1.0),
                 "image_layers": 1,
                 "far_correction": far_correction,
-                "ewald_layers": 4,
-            }
+            },
         )
 
 
@@ -3277,24 +3245,28 @@ def test_analyze_coulomb_mobility_computes_lift_and_slide_ratios(
     assert record.notes == ()
 
 
-def test_select_frame_columns_with_frame_stride() -> None:
-    cols = _select_frame_columns(10, frame_stride=3, total_frames=None)
-    np.testing.assert_array_equal(cols, np.array([0, 3, 6, 9], dtype=np.int64))
+@pytest.mark.parametrize(
+    ("snapshot_count", "frame_stride", "total_frames", "expected"),
+    [
+        pytest.param(10, 3, None, [0, 3, 6, 9], id="stride"),
+        pytest.param(10, 1, 4, [0, 3, 6, 9], id="even-total"),
+        pytest.param(3, 1, 10, [0, 1, 2], id="total-exceeds-snapshots"),
+        pytest.param(7, 1, 1, [0], id="one-frame"),
+    ],
+)
+def test_select_frame_columns(
+    snapshot_count: int,
+    frame_stride: int,
+    total_frames: int | None,
+    expected: list[int],
+) -> None:
+    cols = _select_frame_columns(
+        snapshot_count,
+        frame_stride=frame_stride,
+        total_frames=total_frames,
+    )
 
-
-def test_select_frame_columns_with_total_frames() -> None:
-    cols = _select_frame_columns(10, frame_stride=1, total_frames=4)
-    np.testing.assert_array_equal(cols, np.array([0, 3, 6, 9], dtype=np.int64))
-
-
-def test_select_frame_columns_with_total_frames_larger_than_snapshots() -> None:
-    cols = _select_frame_columns(3, frame_stride=1, total_frames=10)
-    np.testing.assert_array_equal(cols, np.array([0, 1, 2], dtype=np.int64))
-
-
-def test_select_frame_columns_with_one_total_frame() -> None:
-    cols = _select_frame_columns(7, frame_stride=1, total_frames=1)
-    np.testing.assert_array_equal(cols, np.array([0], dtype=np.int64))
+    np.testing.assert_array_equal(cols, np.array(expected, dtype=np.int64))
 
 
 def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:

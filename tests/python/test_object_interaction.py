@@ -63,6 +63,15 @@ def _result(
     )
 
 
+def _two_object_result(directory: Path) -> FortranRunResult:
+    return _result(
+        directory,
+        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
+        np.array([1.0, 2.0]),
+        np.array([1, 2]),
+    )
+
+
 def _write_free_config(path: Path) -> None:
     path.write_text(
         """
@@ -222,7 +231,6 @@ class _FakeFieldKernel:
         self.options = options
         self.closed = False
         self.eval_calls = 0
-        self.update_history = [self.current.copy()]
         self.is_periodic = options.periodic2 is not None
         self.fail_update_sum: float | None = None
         self.fail_close_once = False
@@ -236,7 +244,6 @@ class _FakeFieldKernel:
             self.fail_update_sum = None
             raise RuntimeError("injected update failure")
         self.current = np.array(charges, copy=True)
-        self.update_history.append(self.current.copy())
 
     def eval_e(self, target_points: np.ndarray) -> np.ndarray:
         self.eval_calls += 1
@@ -288,9 +295,8 @@ class _FakeZeroMode:
         self.current = np.array(source_charges_C, copy=True)
         self.area_xy_m2 = area_xy_m2
         self.default_e_bottom_V_m = float(e_bottom_V_m)
+        self.current_e_bottom_V_m = self.default_e_bottom_V_m
         self.closed = False
-        self.update_history = [self.current.copy()]
-        self.e_bottom_history = [self.default_e_bottom_V_m]
         self.trace_history: list[str] = []
         type(self).instances.append(self)
 
@@ -301,8 +307,7 @@ class _FakeZeroMode:
         e_bottom_V_m: float | None = None,
     ) -> None:
         self.current = np.array(charges, copy=True)
-        self.update_history.append(self.current.copy())
-        self.e_bottom_history.append(
+        self.current_e_bottom_V_m = (
             self.default_e_bottom_V_m if e_bottom_V_m is None else float(e_bottom_V_m)
         )
 
@@ -313,7 +318,10 @@ class _FakeZeroMode:
         trace_delta = type(self).plus_delta * total if trace == "plus" else 0.0
         return (
             np.full(len(z_m), 5.0 * total),
-            np.full(len(z_m), 6.0 * total + trace_delta),
+            np.full(
+                len(z_m),
+                6.0 * total + self.current_e_bottom_V_m + trace_delta,
+            ),
         )
 
     def close(self) -> None:
@@ -338,12 +346,7 @@ def test_cached_configured_and_override_compose_p_plus_z_minus_primary(
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="cached_kneq0")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     wrenches = []
     for model in ("configured", "infinite_physical"):
@@ -429,12 +432,7 @@ def test_cached_mechanical_trace_restores_native_plus_subtraction(
     fake_zero.plus_delta = 2.0
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="cached_kneq0")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     with ObjectInteractionSnapshot.from_result(
         result,
@@ -480,12 +478,7 @@ def test_configured_finite_shell_does_not_construct_or_add_zero_mode(
     fake_zero.forbidden = True
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     with ObjectInteractionSnapshot.from_result(
         result,
@@ -563,13 +556,8 @@ def test_failed_component_evaluation_restores_full_source_state(
     fake_field, _ = fake_native
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="cached_kneq0")
-    charges = np.array([1.0, 2.0])
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        charges,
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
+    charges = result.charges.copy()
     snapshot = ObjectInteractionSnapshot.from_result(
         result,
         step=None,
@@ -597,14 +585,8 @@ def test_snapshot_defensively_copies_saved_source_arrays(
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
-    charges = np.array([1.0, 2.0])
-    expected_charges = charges.copy()
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        charges,
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
+    expected_charges = result.charges.copy()
     snapshot = ObjectInteractionSnapshot.from_result(
         result,
         step=None,
@@ -627,7 +609,7 @@ def test_snapshot_defensively_copies_saved_source_arrays(
         ("symmetric_vacuum", -1.0 / (2.0 * interaction_module._EPS0_F_M * 16.0)),
     ],
 )
-def test_cached_zero_mode_updates_bottom_field_for_each_charge_subset(
+def test_cached_zero_mode_applies_bottom_field_to_each_physical_component(
     tmp_path: Path,
     fake_native,
     lower_boundary_model: str,
@@ -639,32 +621,33 @@ def test_cached_zero_mode_updates_bottom_field_for_each_charge_subset(
         far_correction="cached_kneq0",
         lower_boundary_model=lower_boundary_model,
     )
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     with ObjectInteractionSnapshot.from_result(
         result,
         step=None,
         config_path=config,
     ) as snapshot:
-        snapshot.object_probe(1).wrench()
+        wrench = snapshot.object_probe(1).wrench()
 
-    zero = _FakeZeroMode.instances[0]
-    np.testing.assert_allclose(
-        zero.e_bottom_history,
-        factor * np.array([3.0, 2.0, 1.0, 3.0]),
+    assert wrench.components[
+        "other_objects_all_images"
+    ].force_N[2] == pytest.approx(18.0 + 2.0 * factor)
+    assert wrench.components[
+        "target_periodic_images"
+    ].force_N[2] == pytest.approx(9.0 + factor)
+    assert wrench.force_N[2] == pytest.approx(36.0 + 3.0 * factor)
+    assert _FakeZeroMode.instances[0].current_e_bottom_V_m == pytest.approx(
+        3.0 * factor
     )
 
 
+@pytest.mark.parametrize("config_mode", ["omitted", "stale"])
 def test_field_receipt_makes_cached_object_interaction_self_contained_and_authoritative(
     tmp_path: Path,
     fake_native,
+    config_mode: str,
 ) -> None:
-    _, fake_zero = fake_native
     result = replace(
         _result(
             tmp_path,
@@ -677,31 +660,32 @@ def test_field_receipt_makes_cached_object_interaction_self_contained_and_author
         ),
     )
     expected_bottom_field = -1.0 / (2.0 * interaction_module._EPS0_F_M * 16.0)
+    config_path = None
+    if config_mode == "stale":
+        stale_config = tmp_path / "stale.toml"
+        _write_periodic_config(
+            stale_config,
+            far_correction="cached_kneq0",
+            lower_boundary_model="e_bottom_zero",
+        )
+        config_path = stale_config
 
-    with ObjectInteractionSnapshot.from_result(result, step=None) as snapshot:
-        uniform = snapshot.object_probe(1).wrench().components["external_uniform"]
-
-    np.testing.assert_allclose(uniform.force_N, [1.0, 2.0, 3.0])
-    assert fake_zero.instances[-1].default_e_bottom_V_m == pytest.approx(
-        expected_bottom_field
-    )
-
-    stale_config = tmp_path / "stale.toml"
-    _write_periodic_config(
-        stale_config,
-        far_correction="cached_kneq0",
-        lower_boundary_model="e_bottom_zero",
-    )
     with ObjectInteractionSnapshot.from_result(
         result,
         step=None,
-        config_path=stale_config,
+        config_path=config_path,
     ) as snapshot:
-        uniform = snapshot.object_probe(1).wrench().components["external_uniform"]
+        wrench = snapshot.object_probe(1).wrench()
 
+    uniform = wrench.components["external_uniform"]
     np.testing.assert_allclose(uniform.force_N, [1.0, 2.0, 3.0])
-    assert fake_zero.instances[-1].default_e_bottom_V_m == pytest.approx(
-        expected_bottom_field
+    np.testing.assert_allclose(
+        wrench.components["target_periodic_images"].force_N,
+        [-3.0, 2.0, 9.0 + expected_bottom_field],
+    )
+    np.testing.assert_allclose(
+        wrench.force_N,
+        [-2.0, 4.0, 12.0 + expected_bottom_field],
     )
 
 
@@ -814,15 +798,41 @@ def test_missing_full_config_fails_closed_before_native_construction(
     assert fake_field.instances == []
 
 
-def test_incomplete_box_config_fails_before_native_construction(
+@pytest.mark.parametrize(
+    ("replacement", "message"),
+    [
+        pytest.param("", "box_min.*box_max", id="missing-box-max"),
+        pytest.param(
+            "box_max = [2.0, 2.0]\n",
+            "three values",
+            id="wrong-shape",
+        ),
+        pytest.param(
+            "box_max = [nan, 2.0, 2.0]\n",
+            "finite values",
+            id="nonfinite",
+        ),
+        pytest.param(
+            "box_max = [-2.0, 2.0, 2.0]\n",
+            "greater than",
+            id="nonpositive-extent",
+        ),
+    ],
+)
+def test_invalid_box_config_fails_before_native_construction(
     tmp_path: Path,
     fake_native,
+    replacement: str,
+    message: str,
 ) -> None:
     fake_field, _ = fake_native
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     config.write_text(
-        config.read_text(encoding="utf-8").replace("box_max = [2.0, 2.0, 2.0]\n", ""),
+        config.read_text(encoding="utf-8").replace(
+            "box_max = [2.0, 2.0, 2.0]\n",
+            replacement,
+        ),
         encoding="utf-8",
     )
     result = _result(
@@ -832,7 +842,7 @@ def test_incomplete_box_config_fails_before_native_construction(
         np.array([1]),
     )
 
-    with pytest.raises(ValueError, match="box_min.*box_max"):
+    with pytest.raises(ValueError, match=message):
         ObjectInteractionSnapshot.from_result(result, step=None, config_path=config)
 
     assert fake_field.instances == []
@@ -873,12 +883,7 @@ def test_restore_failure_poisons_snapshot_and_blocks_reuse(
     fake_field, _ = fake_native
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="cached_kneq0")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
     snapshot = ObjectInteractionSnapshot.from_result(
         result,
         step=None,
@@ -994,12 +999,7 @@ def test_legacy_object_force_helper_still_zeros_the_target_periodic_lattice(
     monkeypatch.setattr(kernel_module, "FieldKernel", _LegacyCaptureKernel)
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     calc_object_forces_kernel(
         result,
@@ -1019,12 +1019,7 @@ def test_repeated_snapshot_and_probe_contexts_close_every_native_handle(
     fake_field, fake_zero = fake_native
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="cached_kneq0")
-    result = _result(
-        tmp_path,
-        np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
+    result = _two_object_result(tmp_path)
 
     for _ in range(5):
         with ObjectInteractionSnapshot.from_result(
@@ -1238,7 +1233,20 @@ def test_wrench_checks_transformed_triangle_vertices_before_native_evaluation(
         assert sum(instance.eval_calls for instance in fake_field.instances) == before
 
 
-def test_unknown_periodic_model_and_self_policy_fail_closed(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("periodic_model", "message"),
+    [
+        ("finite", "periodic_model"),
+        ("infinite_physical", "requires.*periodic2"),
+    ],
+)
+def test_snapshot_rejects_invalid_or_incompatible_periodic_model_before_native(
+    tmp_path: Path,
+    fake_native,
+    periodic_model: str,
+    message: str,
+) -> None:
+    fake_field, _ = fake_native
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     result = _result(
@@ -1248,17 +1256,51 @@ def test_unknown_periodic_model_and_self_policy_fail_closed(tmp_path: Path) -> N
         np.array([1]),
     )
 
-    with pytest.raises(ValueError, match="periodic_model"):
+    with pytest.raises(ValueError, match=message):
         ObjectInteractionSnapshot.from_result(
             result,
             config_path=config,
-            periodic_model="finite",
+            periodic_model=periodic_model,
         )
+
+    assert fake_field.instances == []
+
+
+@pytest.mark.parametrize(
+    ("mesh_id", "probe_options", "message"),
+    [
+        (
+            1,
+            {"self_policy": "exclude_target_lattice"},
+            "self_policy",
+        ),
+        (9, {}, "unknown mesh id"),
+        (1, {"target_integration": "point"}, "target_integration"),
+    ],
+)
+def test_object_probe_rejects_invalid_selection_before_primary_construction(
+    tmp_path: Path,
+    fake_native,
+    mesh_id: int,
+    probe_options: dict[str, object],
+    message: str,
+) -> None:
+    fake_field, _ = fake_native
+    config = tmp_path / "beach.toml"
+    _write_free_config(config)
+    result = _result(
+        tmp_path,
+        np.array([[0.0, 0.0, 0.0]]),
+        np.array([1.0]),
+        np.array([1]),
+    )
+
     with ObjectInteractionSnapshot.from_result(
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
     ) as snapshot:
-        with pytest.raises(ValueError, match="self_policy"):
-            snapshot.object_probe(1, self_policy="exclude_target_lattice")
+        native_count = len(fake_field.instances)
+        with pytest.raises(ValueError, match=message):
+            snapshot.object_probe(mesh_id, **probe_options)
+        assert len(fake_field.instances) == native_count

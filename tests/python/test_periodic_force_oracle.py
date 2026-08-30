@@ -230,6 +230,45 @@ def _constant_path(force_z: float) -> ObjectForcePath:
     )
 
 
+def _valid_converged_shell_record_kwargs() -> dict[str, object]:
+    paths = tuple(_constant_path(1.0) for _ in range(3))
+    return {
+        "image_layers": np.array([0, 1, 2]),
+        "symmetric_paths": paths,
+        "corrected_paths": paths,
+        "force_increment_error_N": np.zeros(2),
+        "work_increment_error_J": np.zeros(2),
+        "increment_converged": np.ones(2, dtype=bool),
+        "status": "converged",
+        "selected_image_layers": 2,
+        "selected_path": paths[-1],
+        "reference_force_error_N": np.zeros(3),
+        "reference_work_error_J": np.zeros(3),
+        "reference_converged": np.ones(3, dtype=bool),
+        "reference_model": "infinite_physical",
+    }
+
+
+def _bottom_zero_closure_context(
+    total_charge: float,
+) -> tuple[SimpleNamespace, SimpleNamespace]:
+    snapshot = SimpleNamespace(
+        _options=SimpleNamespace(
+            periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
+        ),
+        _charges_C=np.array([1.0, total_charge - 1.0]),
+        _triangles_m=np.zeros((2, 3, 3)),
+        _centers_m=np.zeros((2, 3)),
+    )
+    probe = SimpleNamespace(
+        _target_mask=np.array([True, False]),
+        _target_points_m=np.zeros((1, 3)),
+        _target_charge_weights_C=np.array([1.0]),
+        _geometric_area_centroid_m=np.zeros(3),
+    )
+    return snapshot, probe
+
+
 class _PathProbe:
     def __init__(self, path: ObjectForcePath) -> None:
         self.path = path
@@ -453,6 +492,7 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
         shell = finite_shell_wrench(snapshot, probe, None, 1, "symmetric")
         target_points = np.array(probe._target_points_m, copy=True)
         target_weights = np.array(probe._target_charge_weights_C, copy=True)
+        torque_origin = np.array(probe.geometric_area_centroid_m, copy=True)
 
     base = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
     canonical = _canonical_periodic_sources(base.copy(), 2.0)
@@ -474,11 +514,22 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
         library_path=_kernel_lib(),
     ) as direct:
         expected_field = direct.eval_e_direct(target_points)
-    expected_force = np.sum(target_weights[:, None] * expected_field, axis=0)
+    expected_force_samples = target_weights[:, None] * expected_field
+    expected_force = np.sum(expected_force_samples, axis=0)
+    expected_torque = np.sum(
+        np.cross(target_points - torque_origin[None, :], expected_force_samples),
+        axis=0,
+    )
 
     np.testing.assert_allclose(
         shell.symmetric.force_N,
         expected_force,
+        rtol=2.0e-12,
+        atol=1.0e-20,
+    )
+    np.testing.assert_allclose(
+        shell.symmetric.torque_Nm,
+        expected_torque,
         rtol=2.0e-12,
         atol=1.0e-20,
     )
@@ -573,74 +624,54 @@ def test_finite_shell_convergence_record_freezes_path_sequences() -> None:
     assert result.corrected_paths == (path,)
 
 
-def test_converged_shell_record_requires_two_successive_combined_gates() -> None:
-    paths = tuple(_constant_path(1.0) for _ in range(3))
-
-    with pytest.raises(ValueError, match="successive"):
-        FiniteShellConvergenceResult(
-            image_layers=np.array([0, 1, 2]),
-            symmetric_paths=paths,
-            corrected_paths=paths,
-            force_increment_error_N=np.zeros(2),
-            work_increment_error_J=np.zeros(2),
-            increment_converged=np.array([False, True]),
-            status="converged",
-            selected_image_layers=2,
-            selected_path=paths[-1],
-        )
-
-
-def test_converged_shell_record_requires_two_successive_reference_gates() -> None:
-    paths = tuple(_constant_path(1.0) for _ in range(3))
-
-    with pytest.raises(ValueError, match="reference"):
-        FiniteShellConvergenceResult(
-            image_layers=np.array([0, 1, 2]),
-            symmetric_paths=paths,
-            corrected_paths=paths,
-            force_increment_error_N=np.zeros(2),
-            work_increment_error_J=np.zeros(2),
-            increment_converged=np.ones(2, dtype=bool),
-            status="converged",
-            selected_image_layers=2,
-            selected_path=paths[-1],
-            reference_force_error_N=np.zeros(3),
-            reference_work_error_J=np.zeros(3),
-            reference_converged=np.array([False, False, True]),
-            reference_model="infinite_physical",
-        )
-
-
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "message"),
     [
-        ("increment_converged", np.array([False, np.nan])),
-        ("reference_converged", np.array([False, np.inf, True])),
+        (
+            "increment_converged",
+            np.array([False, True]),
+            "successive combined",
+        ),
+        (
+            "increment_converged",
+            np.array([True, False]),
+            "successive combined",
+        ),
+        (
+            "reference_converged",
+            np.array([False, False, True]),
+            "physical reference",
+        ),
+        (
+            "reference_converged",
+            np.array([False, True, False]),
+            "physical reference",
+        ),
+        ("increment_converged", np.array([False, np.nan]), "boolean"),
+        (
+            "reference_converged",
+            np.array([False, np.inf, True]),
+            "boolean",
+        ),
+    ],
+    ids=[
+        "increment-penultimate-fails",
+        "increment-final-fails",
+        "reference-penultimate-fails",
+        "reference-final-fails",
+        "increment-nonboolean",
+        "reference-nonboolean",
     ],
 )
-def test_shell_record_rejects_nonboolean_gate_arrays(
+def test_converged_shell_record_rejects_invalid_gate_contract(
     field: str,
     value: np.ndarray,
+    message: str,
 ) -> None:
-    paths = tuple(_constant_path(1.0) for _ in range(3))
-    kwargs = {
-        "image_layers": np.array([0, 1, 2]),
-        "symmetric_paths": paths,
-        "corrected_paths": paths,
-        "force_increment_error_N": np.zeros(2),
-        "work_increment_error_J": np.zeros(2),
-        "increment_converged": np.array([False, True]),
-        "status": "not_converged",
-        "selected_image_layers": None,
-        "selected_path": None,
-        "reference_force_error_N": np.zeros(3),
-        "reference_work_error_J": np.zeros(3),
-        "reference_converged": np.array([False, False, True]),
-        "reference_model": "infinite_physical",
-    }
+    kwargs = _valid_converged_shell_record_kwargs()
     kwargs[field] = value
 
-    with pytest.raises(ValueError, match="boolean"):
+    with pytest.raises(ValueError, match=message):
         FiniteShellConvergenceResult(**kwargs)
 
 
@@ -720,20 +751,7 @@ def test_bottom_zero_closure_rechecks_work_potential_status_with_corrected_scale
         work_absolute_mismatch_J=1.0,
     )
     total_charge = -199.0 * EPS0
-    snapshot = SimpleNamespace(
-        _options=SimpleNamespace(
-            periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
-        ),
-        _charges_C=np.array([1.0, total_charge - 1.0]),
-        _triangles_m=np.zeros((2, 3, 3)),
-        _centers_m=np.zeros((2, 3)),
-    )
-    probe = SimpleNamespace(
-        _target_mask=np.array([True, False]),
-        _target_points_m=np.zeros((1, 3)),
-        _target_charge_weights_C=np.array([1.0]),
-        _geometric_area_centroid_m=np.zeros(3),
-    )
+    snapshot, probe = _bottom_zero_closure_context(total_charge)
 
     corrected, _ = oracle_module._correct_path(snapshot, probe, symmetric)
 
@@ -763,20 +781,7 @@ def test_bottom_zero_closure_does_not_hide_source_refinement_failure() -> None:
         work_relative_mismatch=0.0,
         work_absolute_mismatch_J=0.0,
     )
-    snapshot = SimpleNamespace(
-        _options=SimpleNamespace(
-            periodic2=((0, 1), (1.0, 1.0), (0.0, 0.0), 0, "none", 0.0, 4)
-        ),
-        _charges_C=np.array([1.0, -1.0]),
-        _triangles_m=np.zeros((2, 3, 3)),
-        _centers_m=np.zeros((2, 3)),
-    )
-    probe = SimpleNamespace(
-        _target_mask=np.array([True, False]),
-        _target_points_m=np.zeros((1, 3)),
-        _target_charge_weights_C=np.array([1.0]),
-        _geometric_area_centroid_m=np.zeros(3),
-    )
+    snapshot, probe = _bottom_zero_closure_context(0.0)
 
     corrected, _ = oracle_module._correct_path(snapshot, probe, symmetric)
 

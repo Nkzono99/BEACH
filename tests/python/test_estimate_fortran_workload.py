@@ -20,6 +20,96 @@ from beach.config.schema import schema_definition_property_names
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _box_sim(**overrides: object) -> dict[str, object]:
+    sim: dict[str, object] = {
+        "batch_count": 1,
+        "use_box": True,
+        "box_min": [0.0, 0.0, 0.0],
+        "box_max": [1.0, 1.0, 1.0],
+    }
+    sim.update(overrides)
+    return sim
+
+
+def _volume_seed_config(
+    *,
+    batch_count: int = 1,
+    npcls_per_step: int = 1,
+    **sim_overrides: object,
+) -> dict[str, object]:
+    sim: dict[str, object] = {"batch_count": batch_count}
+    sim.update(sim_overrides)
+    return {
+        "sim": sim,
+        "particles": {
+            "species": [
+                {
+                    "source_mode": "volume_seed",
+                    "npcls_per_step": npcls_per_step,
+                }
+            ]
+        },
+    }
+
+
+def _boundary_inflow_species(**overrides: object) -> dict[str, object]:
+    species: dict[str, object] = {
+        "source_mode": "volume_seed",
+        "npcls_per_step": 0,
+        "number_density_m3": 1.0,
+        "temperature_k": 0.0,
+        "m_particle": 1.0,
+    }
+    species.update(overrides)
+    return species
+
+
+def _reservoir_species(**overrides: object) -> dict[str, object]:
+    species: dict[str, object] = {
+        "source_mode": "reservoir_face",
+        "number_density_m3": 100.0,
+        "temperature_k": 0.0,
+        "m_particle": 1.0,
+        "inject_face": "z_high",
+        "pos_low": [0.0, 0.0, 1.0],
+        "pos_high": [1.0, 1.0, 1.0],
+        "drift_velocity": [0.0, 0.0, -1.0],
+    }
+    species.update(overrides)
+    return species
+
+
+def _photo_raycast_species(**overrides: object) -> dict[str, object]:
+    species: dict[str, object] = {
+        "source_mode": "photo_raycast",
+        "emit_current_density_a_m2": 1.0e-3,
+        "rays_per_batch": 10,
+        "q_particle": -1.0,
+        "m_particle": 1.0,
+        "temperature_k": 0.0,
+        "inject_face": "z_high",
+        "pos_low": [0.0, 0.0, 1.0],
+        "pos_high": [1.0, 1.0, 1.0],
+    }
+    species.update(overrides)
+    return species
+
+
+def _velocity_grid_species(**overrides: object) -> dict[str, object]:
+    species: dict[str, object] = {
+        "source_mode": "reservoir_face",
+        "velocity_distribution": "grid",
+        "velocity_grid_path": "vgrid.csv",
+        "q_particle": -1.0,
+        "m_particle": 1.0,
+        "inject_face": "z_high",
+        "pos_low": [0.0, 0.0, 1.0],
+        "pos_high": [1.0, 1.0, 1.0],
+    }
+    species.update(overrides)
+    return species
+
+
 def test_workload_allowed_keys_follow_packaged_schema() -> None:
     assert ALLOWED_SIM_KEYS == schema_definition_property_names("sim")
     assert ALLOWED_SPECIES_KEYS == schema_definition_property_names("species")
@@ -37,23 +127,18 @@ def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:
 
 
 def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "multiple_box_events_policy": "soft_discard",
-            "multiple_box_events_soft_discard_count_grace": 100,
-            "multiple_box_events_soft_discard_fraction_limit": 1.0e-6,
-            "multiple_box_events_soft_discard_abs_charge_limit": 1.0e-12,
-        },
-        "particles": {"species": [{"source_mode": "volume_seed", "npcls_per_step": 2}]},
-    }
+    config = _volume_seed_config(
+        npcls_per_step=2,
+        multiple_box_events_policy="soft_discard",
+        multiple_box_events_soft_discard_count_grace=100,
+        multiple_box_events_soft_discard_fraction_limit=1.0e-6,
+        multiple_box_events_soft_discard_abs_charge_limit=1.0e-12,
+    )
 
     assert estimate_workload(config, threads=1)["batch_totals"] == [2]
 
 
-def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() -> (
-    None
-):
+def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() -> None:
     config = {
         "sim": {"batch_count": 1, "batch_duration": 1.0},
         "domain": {
@@ -63,27 +148,27 @@ def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() 
         },
         "particles": {
             "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 2,
-                    "number_density_m3": 1.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 9,
-                    "drift_velocity": [1.0, 0.0, 1.0],
-                    "boundary_inflow": {
+                _boundary_inflow_species(
+                    npcls_per_step=2,
+                    target_macro_particles_per_batch=9,
+                    drift_velocity=[1.0, 0.0, 1.0],
+                    boundary_inflow={
                         "x_low": "reservoir",
                         "z_low": "reservoir",
                     },
-                }
+                )
             ]
         },
     }
 
     result = estimate_workload(config, threads=1)
+    rank0 = estimate_workload(config, threads=1, mpi_ranks=4, mpi_rank=0)
+    rank3 = estimate_workload(config, threads=1, mpi_ranks=4, mpi_rank=3)
 
     assert result["species_per_batch"] == [[11]]
     assert result["global_reservoir_particles"] == 9
+    assert rank0["species_per_batch"] == [[4]]
+    assert rank3["species_per_batch"] == [[1]]
 
 
 def test_estimate_workload_supports_internal_plane_source() -> None:
@@ -125,15 +210,10 @@ def test_estimate_workload_rejects_boundary_inflow_on_periodic_face() -> None:
         },
         "particles": {
             "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 0,
-                    "number_density_m3": 1.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 1.0,
-                    "boundary_inflow": {"x_low": "reservoir"},
-                }
+                _boundary_inflow_species(
+                    w_particle=1.0,
+                    boundary_inflow={"x_low": "reservoir"},
+                )
             ]
         },
     }
@@ -203,26 +283,17 @@ def test_estimate_workload_normalizes_high_level_face_region_without_mutation() 
 
 def _fractional_reservoir_config() -> dict[str, object]:
     return {
-        "sim": {
-            "batch_count": 4,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_count=4, batch_duration=1.0),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 1.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 4.0,
-                    "inject_face": "z_low",
-                    "pos_low": [0.0, 0.0, 0.0],
-                    "pos_high": [1.0, 1.0, 0.0],
-                    "drift_velocity": [0.0, 0.0, 1.0],
-                }
+                _reservoir_species(
+                    number_density_m3=1.0,
+                    w_particle=4.0,
+                    inject_face="z_low",
+                    pos_low=[0.0, 0.0, 0.0],
+                    pos_high=[1.0, 1.0, 0.0],
+                    drift_velocity=[0.0, 0.0, 1.0],
+                )
             ]
         },
     }
@@ -232,38 +303,17 @@ def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets
     None
 ):
     config = {
-        "sim": {
-            "batch_count": 3,
-            "dt": 1.0,
-            "batch_duration_step": 3.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_count=3, dt=1.0, batch_duration_step=3.0),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 1000.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 300,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                },
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 250.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 150,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                },
+                _reservoir_species(
+                    number_density_m3=1000.0,
+                    target_macro_particles_per_batch=300,
+                ),
+                _reservoir_species(
+                    number_density_m3=250.0,
+                    target_macro_particles_per_batch=150,
+                ),
             ]
         },
     }
@@ -275,21 +325,12 @@ def test_estimate_workload_resolves_batch_duration_from_step_and_species_targets
 
 
 def test_estimate_workload_resume_counts_only_remaining_batches() -> None:
-    config = {
-        "sim": {
-            "batch_count": 5,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "species_key": "electron",
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 10,
-                },
-            ]
-        },
-    }
+    config = _volume_seed_config(
+        batch_count=5,
+        npcls_per_step=10,
+        use_box=True,
+    )
+    config["particles"]["species"][0]["species_key"] = "electron"
 
     result = estimate_workload(config=config, threads=2, completed_batches=2)
 
@@ -301,20 +342,11 @@ def test_estimate_workload_resume_counts_only_remaining_batches() -> None:
 
 
 def test_estimate_workload_resume_all_batches_completed_is_zero_work() -> None:
-    config = {
-        "sim": {
-            "batch_count": 5,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 10,
-                },
-            ]
-        },
-    }
+    config = _volume_seed_config(
+        batch_count=5,
+        npcls_per_step=10,
+        use_box=True,
+    )
 
     result = estimate_workload(config=config, threads=2, completed_batches=5)
 
@@ -324,20 +356,7 @@ def test_estimate_workload_resume_all_batches_completed_is_zero_work() -> None:
 
 
 def test_estimate_workload_rejects_resume_target_before_checkpoint() -> None:
-    config = {
-        "sim": {
-            "batch_count": 2,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 1,
-                },
-            ]
-        },
-    }
+    config = _volume_seed_config(batch_count=2, use_box=True)
 
     with pytest.raises(SystemExit, match="completed checkpoint batches"):
         estimate_workload(config=config, threads=1, completed_batches=3)
@@ -398,38 +417,17 @@ def test_estimate_workload_supports_species_target_minus_one_following_species1_
     None
 ):
     config = {
-        "sim": {
-            "batch_count": 3,
-            "dt": 1.0,
-            "batch_duration_step": 3.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_count=3, dt=1.0, batch_duration_step=3.0),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 1000.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 300,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                },
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 250.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": -1,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                },
+                _reservoir_species(
+                    number_density_m3=1000.0,
+                    target_macro_particles_per_batch=300,
+                ),
+                _reservoir_species(
+                    number_density_m3=250.0,
+                    target_macro_particles_per_batch=-1,
+                ),
             ]
         },
     }
@@ -450,17 +448,10 @@ def test_estimate_workload_rejects_batch_duration_and_step_together() -> None:
         },
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 1.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 1.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
+                _reservoir_species(
+                    number_density_m3=1.0,
+                    w_particle=1.0,
+                )
             ]
         },
     }
@@ -469,102 +460,57 @@ def test_estimate_workload_rejects_batch_duration_and_step_together() -> None:
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_rejects_unknown_sim_key() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "target_npcls_species1": 10,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 1,
-                },
-            ]
-        },
-    }
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("target_npcls_species1", 10),
+        ("use_hybrid", True),
+    ],
+)
+def test_estimate_workload_rejects_unknown_sim_keys(
+    key: str,
+    value: object,
+) -> None:
+    config = _volume_seed_config(use_box=True, **{key: value})
 
-    with pytest.raises(SystemExit, match=r"Unknown key in \[sim\]"):
-        estimate_workload(config=config, threads=1)
-
-
-def test_estimate_workload_rejects_removed_reserved_sim_key() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "use_hybrid": True,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 1,
-                },
-            ]
-        },
-    }
-
-    with pytest.raises(SystemExit, match=r"Unknown key in \[sim\]: use_hybrid"):
+    with pytest.raises(SystemExit, match=rf"Unknown key in \[sim\]: {key}"):
         estimate_workload(config=config, threads=1)
 
 
 def test_estimate_workload_accepts_treecode_sim_keys() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "field_solver": "treecode",
-            "tree_theta": 0.5,
-            "tree_leaf_max": 16,
-            "tree_min_nelem": 256,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 3,
-                },
-            ]
-        },
-    }
+    config = _volume_seed_config(
+        npcls_per_step=3,
+        field_solver="treecode",
+        tree_theta=0.5,
+        tree_leaf_max=16,
+        tree_min_nelem=256,
+        use_box=True,
+    )
 
     result = estimate_workload(config=config, threads=1)
     assert result["batch_totals"] == [3]
 
 
 def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-            "field_solver": "fmm",
-            "field_bc_mode": "periodic2",
-            "field_periodic_image_layers": 2,
-            "field_periodic_far_correction": "cached_kneq0",
-            "field_periodic_ewald_layers": 6,
-            "field_periodic_cache_dir": ".cache-test",
-            "field_periodic_generation_tolerance": 1.0e-7,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-            "bc_x_low": "periodic",
-            "bc_x_high": "periodic",
-            "bc_y_low": "periodic",
-            "bc_y_high": "periodic",
-            "bc_z_low": "open",
-            "bc_z_high": "open",
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 3,
-                },
-            ]
-        },
-    }
+    config = _volume_seed_config(
+        npcls_per_step=3,
+        field_solver="fmm",
+        field_bc_mode="periodic2",
+        field_periodic_image_layers=2,
+        field_periodic_far_correction="cached_kneq0",
+        field_periodic_ewald_layers=6,
+        field_periodic_cache_dir=".cache-test",
+        field_periodic_generation_tolerance=1.0e-7,
+        use_box=True,
+        box_min=[0.0, 0.0, 0.0],
+        box_max=[1.0, 1.0, 1.0],
+        bc_x_low="periodic",
+        bc_x_high="periodic",
+        bc_y_low="periodic",
+        bc_y_high="periodic",
+        bc_z_low="open",
+        bc_z_high="open",
+    )
 
     result = estimate_workload(config=config, threads=1)
     assert result["batch_totals"] == [3]
@@ -572,25 +518,13 @@ def test_estimate_workload_accepts_periodic_field_sim_keys() -> None:
 
 def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-        },
+        "sim": {"batch_count": 1, "batch_duration": 1.0, "use_box": True},
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 10.0,
-                    "target_macro_particles_per_batch": 10,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
+                _reservoir_species(
+                    w_particle=10.0,
+                    target_macro_particles_per_batch=10,
+                )
             ]
         },
     }
@@ -601,25 +535,8 @@ def test_estimate_workload_rejects_w_and_target_together_for_reservoir() -> None
 
 def test_estimate_workload_requires_w_or_target_for_reservoir() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
-            ]
-        },
+        "sim": {"batch_count": 1, "batch_duration": 1.0, "use_box": True},
+        "particles": {"species": [_reservoir_species()]},
     }
 
     with pytest.raises(SystemExit, match="requires either w_particle or target"):
@@ -648,27 +565,9 @@ def test_estimate_workload_rejects_target_for_volume_seed() -> None:
 
 def test_estimate_workload_rejects_minus_one_for_species1() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0),
         "particles": {
-            "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": -1,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
-            ]
+            "species": [_reservoir_species(target_macro_particles_per_batch=-1)]
         },
     }
 
@@ -678,30 +577,14 @@ def test_estimate_workload_rejects_minus_one_for_species1() -> None:
 
 def test_estimate_workload_rejects_minus_one_if_species1_is_not_reservoir() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0),
         "particles": {
             "species": [
                 {
                     "source_mode": "volume_seed",
                     "npcls_per_step": 10,
                 },
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": -1,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                },
+                _reservoir_species(target_macro_particles_per_batch=-1),
             ]
         },
     }
@@ -712,28 +595,8 @@ def test_estimate_workload_rejects_minus_one_if_species1_is_not_reservoir() -> N
 
 def test_estimate_workload_keeps_batch_duration_behavior_with_manual_w() -> None:
     config = {
-        "sim": {
-            "batch_count": 3,
-            "batch_duration": 0.5,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 10.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
-            ]
-        },
+        "sim": _box_sim(batch_count=3, batch_duration=0.5),
+        "particles": {"species": [_reservoir_species(w_particle=10.0)]},
     }
 
     result = estimate_workload(config=config, threads=2)
@@ -744,28 +607,8 @@ def test_estimate_workload_keeps_batch_duration_behavior_with_manual_w() -> None
 
 def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
     config = {
-        "sim": {
-            "batch_count": 2,
-            "batch_duration": 1.0e-6,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "photo_raycast",
-                    "emit_current_density_a_m2": 1.0e-3,
-                    "rays_per_batch": 25,
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "temperature_k": 0.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
-            ]
-        },
+        "sim": _box_sim(batch_count=2, batch_duration=1.0e-6),
+        "particles": {"species": [_photo_raycast_species(rays_per_batch=25)]},
     }
 
     result = estimate_workload(config=config, threads=4)
@@ -776,27 +619,13 @@ def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
 
 def test_estimate_workload_rejects_removed_photo_escape_model() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0e-6,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0e-6),
         "particles": {
             "species": [
-                {
-                    "source_mode": "photo_raycast",
-                    "emit_current_density_a_m2": 1.0e-3,
-                    "rays_per_batch": 25,
-                    "photo_escape_model": "boltzmann_cutoff",
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "temperature_k": 0.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
+                _photo_raycast_species(
+                    rays_per_batch=25,
+                    photo_escape_model="boltzmann_cutoff",
+                )
             ]
         },
     }
@@ -807,28 +636,9 @@ def test_estimate_workload_rejects_removed_photo_escape_model() -> None:
 
 def test_estimate_workload_rejects_photo_raycast_with_outward_direction() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0e-6,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0e-6),
         "particles": {
-            "species": [
-                {
-                    "source_mode": "photo_raycast",
-                    "emit_current_density_a_m2": 1.0e-3,
-                    "rays_per_batch": 10,
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "temperature_k": 0.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "ray_direction": [0.0, 0.0, 1.0],
-                }
-            ]
+            "species": [_photo_raycast_species(ray_direction=[0.0, 0.0, 1.0])]
         },
     }
 
@@ -838,27 +648,8 @@ def test_estimate_workload_rejects_photo_raycast_with_outward_direction() -> Non
 
 def test_estimate_workload_requires_positive_batch_duration_for_photo_raycast() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "photo_raycast",
-                    "emit_current_density_a_m2": 1.0e-3,
-                    "rays_per_batch": 10,
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "temperature_k": 0.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
-            ]
-        },
+        "sim": _box_sim(),
+        "particles": {"species": [_photo_raycast_species()]},
     }
 
     with pytest.raises(SystemExit, match="batch_duration must be > 0"):
@@ -866,14 +657,7 @@ def test_estimate_workload_requires_positive_batch_duration_for_photo_raycast() 
 
 
 def test_estimate_workload_splits_volume_seed_by_mpi_rank() -> None:
-    config = {
-        "sim": {"batch_count": 2},
-        "particles": {
-            "species": [
-                {"source_mode": "volume_seed", "npcls_per_step": 10},
-            ]
-        },
-    }
+    config = _volume_seed_config(batch_count=2, npcls_per_step=10)
 
     rank0 = estimate_workload(config=config, threads=2, mpi_ranks=3, mpi_rank=0)
     rank2 = estimate_workload(config=config, threads=2, mpi_ranks=3, mpi_rank=2)
@@ -891,28 +675,8 @@ def test_estimate_workload_splits_volume_seed_by_mpi_rank() -> None:
 
 def test_estimate_workload_splits_photo_raycast_by_mpi_rank() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0e-6,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "photo_raycast",
-                    "emit_current_density_a_m2": 1.0e-3,
-                    "rays_per_batch": 10,
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "temperature_k": 0.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
-            ]
-        },
+        "sim": _box_sim(batch_duration=1.0e-6),
+        "particles": {"species": [_photo_raycast_species()]},
     }
 
     rank0 = estimate_workload(config=config, threads=1, mpi_ranks=4, mpi_rank=0)
@@ -924,28 +688,8 @@ def test_estimate_workload_splits_photo_raycast_by_mpi_rank() -> None:
 
 def test_estimate_workload_splits_global_reservoir_count_by_mpi_rank() -> None:
     config = {
-        "sim": {
-            "batch_count": 3,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "w_particle": 10.0,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                    "drift_velocity": [0.0, 0.0, -1.0],
-                }
-            ]
-        },
+        "sim": _box_sim(batch_count=3, batch_duration=1.0),
+        "particles": {"species": [_reservoir_species(w_particle=10.0)]},
     }
 
     result = estimate_workload(config=config, threads=2, mpi_ranks=4, mpi_rank=0)
@@ -1014,13 +758,12 @@ def test_read_macro_residuals_rejects_legacy_rank_path(tmp_path) -> None:
         read_macro_residuals(path, 1)
 
 
-def test_read_macro_residuals_preserves_boundary_face_rows(tmp_path) -> None:
+def test_read_macro_residuals_preserves_boundary_face_rows_for_estimate(
+    tmp_path: Path,
+) -> None:
     path = tmp_path / "macro_residuals.csv"
     path.write_text(
-        "species_idx,face,residual\n"
-        "1,0,0.25\n"
-        "1,1,0.75\n"
-        "1,6,0.50\n",
+        "species_idx,face,residual\n1,0,0.25\n1,1,0.75\n1,6,0.50\n",
         encoding="utf-8",
     )
 
@@ -1029,32 +772,42 @@ def test_read_macro_residuals_preserves_boundary_face_rows(tmp_path) -> None:
     assert residuals.boundary[0][0] == 0.75
     assert residuals.boundary[5][0] == 0.50
 
+    config = {
+        "sim": _box_sim(batch_count=2, batch_duration=1.0),
+        "particles": {
+            "species": [
+                _boundary_inflow_species(
+                    w_particle=2.5,
+                    drift_velocity=[1.0, 0.0, -1.0],
+                    boundary_inflow={
+                        "x_low": "reservoir",
+                        "z_high": "reservoir",
+                    },
+                )
+            ]
+        },
+    }
+
+    result = estimate_workload(config, threads=1, initial_residuals=residuals)
+
+    assert result["species_per_batch"] == [[1], [1]]
+    assert result["final_residuals"] == [0.25]
+
 
 def test_estimate_workload_supports_velocity_grid_particle_flux() -> None:
     config = {
-        "sim": {
-            "batch_count": 2,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-            "e0_abs": 5.0,
-            "e0_phi_z_deg": 90.0,
-        },
+        "sim": _box_sim(
+            batch_count=2,
+            batch_duration=1.0,
+            e0_abs=5.0,
+            e0_phi_z_deg=90.0,
+        ),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "velocity_distribution": "grid",
-                    "velocity_grid_path": "vgrid.csv",
-                    "particle_flux_m2_s": 10.0,
-                    "q_particle": -1.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 5,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
+                _velocity_grid_species(
+                    particle_flux_m2_s=10.0,
+                    target_macro_particles_per_batch=5,
+                )
             ]
         },
     }
@@ -1067,27 +820,14 @@ def test_estimate_workload_supports_velocity_grid_particle_flux() -> None:
 
 def test_estimate_workload_supports_velocity_grid_current_density() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "velocity_distribution": "grid",
-                    "velocity_grid_path": "vgrid.csv",
-                    "current_density_a_m2": 8.0,
-                    "q_particle": -2.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 4,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
+                _velocity_grid_species(
+                    current_density_a_m2=8.0,
+                    q_particle=-2.0,
+                    target_macro_particles_per_batch=4,
+                )
             ]
         },
     }
@@ -1099,28 +839,15 @@ def test_estimate_workload_supports_velocity_grid_current_density() -> None:
 
 def test_estimate_workload_rejects_velocity_grid_flux_and_current_together() -> None:
     config = {
-        "sim": {
-            "batch_count": 1,
-            "batch_duration": 1.0,
-            "use_box": True,
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
+        "sim": _box_sim(batch_duration=1.0),
         "particles": {
             "species": [
-                {
-                    "source_mode": "reservoir_face",
-                    "velocity_distribution": "grid",
-                    "velocity_grid_path": "vgrid.csv",
-                    "particle_flux_m2_s": 10.0,
-                    "current_density_a_m2": 8.0,
-                    "q_particle": -2.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 4,
-                    "inject_face": "z_high",
-                    "pos_low": [0.0, 0.0, 1.0],
-                    "pos_high": [1.0, 1.0, 1.0],
-                }
+                _velocity_grid_species(
+                    particle_flux_m2_s=10.0,
+                    current_density_a_m2=8.0,
+                    q_particle=-2.0,
+                    target_macro_particles_per_batch=4,
+                )
             ]
         },
     }
@@ -1132,30 +859,28 @@ def test_estimate_workload_rejects_velocity_grid_flux_and_current_together() -> 
 
 
 def test_estimate_workload_rejects_mixed_external_e_field_forms() -> None:
-    config = {
-        "sim": {"batch_count": 1, "e0": [1.0, 0.0, 0.0], "e0_abs": 1.0},
-        "particles": {
-            "species": [
-                {"source_mode": "volume_seed", "npcls_per_step": 1},
-            ]
-        },
-    }
+    config = _volume_seed_config(e0=[1.0, 0.0, 0.0], e0_abs=1.0)
 
     with pytest.raises(SystemExit, match="sim.e0 cannot be combined"):
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_rejects_invalid_mpi_rank_parameters() -> None:
-    config = {
-        "sim": {"batch_count": 1},
-        "particles": {
-            "species": [
-                {"source_mode": "volume_seed", "npcls_per_step": 1},
-            ]
-        },
-    }
-
-    with pytest.raises(SystemExit, match="mpi_ranks must be > 0"):
-        estimate_workload(config=config, threads=1, mpi_ranks=0, mpi_rank=0)
-    with pytest.raises(SystemExit, match="mpi_rank must satisfy"):
-        estimate_workload(config=config, threads=1, mpi_ranks=2, mpi_rank=2)
+@pytest.mark.parametrize(
+    ("mpi_ranks", "mpi_rank", "message"),
+    [
+        (0, 0, "mpi_ranks must be > 0"),
+        (2, 2, "mpi_rank must satisfy"),
+    ],
+)
+def test_estimate_workload_rejects_invalid_mpi_rank_parameters(
+    mpi_ranks: int,
+    mpi_rank: int,
+    message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=message):
+        estimate_workload(
+            config=_volume_seed_config(),
+            threads=1,
+            mpi_ranks=mpi_ranks,
+            mpi_rank=mpi_rank,
+        )

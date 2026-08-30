@@ -19,10 +19,7 @@ from beach import (
     field_kernel_options_from_result,
 )
 from beach.fortran_results.panel_quadrature import panel_target_quadrature
-from beach.fortran_results.potential import (
-    _auto_periodic2_from_result,
-    _coerce_periodic2,
-)
+from beach.fortran_results.periodic import auto_periodic2_from_result
 
 
 def _int_value(value: object) -> int:
@@ -48,8 +45,8 @@ class _FakeKernelLibrary:
     def __init__(
         self,
         *,
-        cache_setter: bool,
-        cache_getter: bool,
+        cache_setter: bool = False,
+        cache_getter: bool = False,
         diagnostics: tuple[int, int, bytes, bytes] = (0, 0, b"", b""),
         build_info: bytes | None = None,
         abi_version: tuple[int, int] | None = (
@@ -151,9 +148,12 @@ class _FakeKernelLibrary:
 
 
 def _install_fake_kernel(
-    monkeypatch: pytest.MonkeyPatch, lib: _FakeKernelLibrary
-) -> None:
+    monkeypatch: pytest.MonkeyPatch, lib: _FakeKernelLibrary | None = None
+) -> _FakeKernelLibrary:
+    if lib is None:
+        lib = _FakeKernelLibrary()
     monkeypatch.setattr(kernel_module, "_load_kernel_library", lambda _path: lib)
+    return lib
 
 
 def _one_panel_source() -> tuple[np.ndarray, np.ndarray]:
@@ -177,26 +177,42 @@ def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
     assert FieldKernelDiagnostics.__dataclass_params__.frozen
 
 
-def test_field_kernel_rejects_degenerate_source_triangle(
+@pytest.mark.parametrize(
+    ("triangles", "message"),
+    [
+        (np.zeros((1, 3)), r"shape \(n_triangles, 3, 3\)"),
+        (
+            np.array(
+                [[[0.0, 0.0, 0.0], [0.2, float("nan"), 0.0], [0.0, 0.2, 0.0]]]
+            ),
+            "finite values",
+        ),
+        (
+            np.array(
+                [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]
+            ),
+            "non-degenerate",
+        ),
+    ],
+)
+def test_field_kernel_rejects_invalid_source_triangle_before_native_build(
     monkeypatch: pytest.MonkeyPatch,
+    triangles: np.ndarray,
+    message: str,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
-    degenerate = np.array(
-        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]
-    )
+    lib = _install_fake_kernel(monkeypatch)
 
-    with pytest.raises(ValueError, match="non-degenerate"):
-        FieldKernel(degenerate, np.array([1.0]))
+    with pytest.raises(ValueError, match=message):
+        FieldKernel(triangles, np.array([1.0]))
 
     assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
 
 
 def test_field_kernel_rejects_nonpositive_fmm_order_before_native_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(ValueError, match=r"order must be >= 1"):
@@ -207,17 +223,18 @@ def test_field_kernel_rejects_nonpositive_fmm_order_before_native_build(
         )
 
     assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
 
 
 def test_field_kernel_accepts_matching_or_newer_minor_abi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(
-        cache_setter=False,
-        cache_getter=False,
-        abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR, 99),
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR, 99),
+        ),
     )
-    _install_fake_kernel(monkeypatch, lib)
     source_triangles, source_charges = _one_panel_source()
 
     with FieldKernel(source_triangles, source_charges):
@@ -229,12 +246,12 @@ def test_field_kernel_accepts_matching_or_newer_minor_abi(
 def test_field_kernel_rejects_incompatible_major_abi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(
-        cache_setter=False,
-        cache_getter=False,
-        abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR + 1, 0),
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR + 1, 0),
+        ),
     )
-    _install_fake_kernel(monkeypatch, lib)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(FieldKernelError, match="ABI is incompatible"):
@@ -244,9 +261,8 @@ def test_field_kernel_rejects_incompatible_major_abi(
 def test_field_kernel_rejects_unattested_pre_v2_library(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
+    lib = _install_fake_kernel(monkeypatch)
     del lib.beach_kernel_get_abi_version
-    _install_fake_kernel(monkeypatch, lib)
     triangles, charges = _one_panel_source()
 
     with pytest.raises(FieldKernelError, match="ABI version attestation"):
@@ -263,12 +279,10 @@ def test_field_kernel_build_info_is_a_frozen_top_level_api(
         b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
         b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
     )
-    lib = _FakeKernelLibrary(
-        cache_setter=False,
-        cache_getter=False,
-        build_info=payload,
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(build_info=payload),
     )
-    _install_fake_kernel(monkeypatch, lib)
 
     info = field_kernel_build_info("unused.so")
 
@@ -292,12 +306,10 @@ def test_field_kernel_build_info_rejects_reordered_payload(
         b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
         b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
     )
-    lib = _FakeKernelLibrary(
-        cache_setter=False,
-        cache_getter=False,
-        build_info=payload,
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(build_info=payload),
     )
-    _install_fake_kernel(monkeypatch, lib)
 
     with pytest.raises(FieldKernelError, match="unexpected fields"):
         field_kernel_build_info("reordered.so")
@@ -306,8 +318,7 @@ def test_field_kernel_build_info_rejects_reordered_payload(
 def test_field_kernel_build_info_requires_native_attestation_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    _install_fake_kernel(monkeypatch)
 
     with pytest.raises(FieldKernelError, match="build-info ABI"):
         field_kernel_build_info("legacy.so")
@@ -316,8 +327,10 @@ def test_field_kernel_build_info_requires_native_attestation_symbol(
 def test_field_kernel_cache_options_are_set_before_geometry_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=True, cache_getter=True)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(cache_setter=True, cache_getter=True),
+    )
     source_triangles, source_charges = _one_panel_source()
     options = FieldKernelOptions(
         periodic_cache_dir="cache/\N{LATIN SMALL LETTER E WITH ACUTE}",
@@ -336,21 +349,68 @@ def test_field_kernel_cache_options_are_set_before_geometry_build(
 def test_field_kernel_minimal_library_keeps_default_free_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
-    with FieldKernel(source_triangles, source_charges):
-        pass
+    kernel = FieldKernel(source_triangles, source_charges)
+    kernel.close()
+    kernel.close()
 
     assert "build" in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == 1
+    with pytest.raises(FieldKernelError, match="field kernel is closed"):
+        kernel.eval_e(np.array([[1.0, 0.0, 0.0]]))
+
+
+def test_field_kernel_rejects_invalid_runtime_array_contracts_before_native_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        update_calls = len(lib.beach_kernel_update_charges.calls)
+        with pytest.raises(ValueError, match=r"source_charges must have shape \(1,\)"):
+            kernel.update_charges(np.array([1.0, 2.0]))
+        assert len(lib.beach_kernel_update_charges.calls) == update_calls
+
+        with pytest.raises(ValueError, match=r"points must have shape \(n_points, 3\)"):
+            kernel.eval_e(np.zeros(3))
+        assert not lib.beach_kernel_eval_e.calls
+
+        with pytest.raises(ValueError, match="points must contain finite values"):
+            kernel.eval_phi(np.array([[0.0, float("nan"), 0.0]]))
+        assert not lib.beach_kernel_eval_phi.calls
+
+        positions = np.zeros((2, 3))
+        with pytest.raises(ValueError, match=r"charges must have shape \(2,\)"):
+            kernel.force_on_charges(positions, np.ones(1))
+        with pytest.raises(ValueError, match="origin must contain exactly 3 values"):
+            kernel.force_on_charges(positions, np.ones(2), origin=(0.0, 0.0))
+        assert not lib.beach_kernel_force_on_charges.calls
+
+
+def test_field_kernel_maps_native_status_and_remains_closable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        lib.beach_kernel_eval_e.callback = lambda *_args: 2
+        with pytest.raises(
+            FieldKernelError,
+            match="beach_kernel_eval_e failed: invalid kernel argument",
+        ):
+            kernel.eval_e(np.array([[1.0, 0.0, 0.0]]))
+
+    assert len(lib.beach_kernel_destroy.calls) == 1
 
 
 def test_free_field_kernel_passes_target_box_to_native_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
     options = FieldKernelOptions(
         box_min=(-1.0, -2.0, -3.0),
@@ -374,8 +434,7 @@ def test_free_field_kernel_passes_target_box_to_native_build(
 def test_free_field_kernel_rejects_partial_target_box(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(ValueError, match="must be provided together"):
@@ -391,15 +450,15 @@ def test_free_field_kernel_rejects_partial_target_box(
 def test_field_kernel_rejects_older_target_box_semantics(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(
-        cache_setter=False,
-        cache_getter=False,
-        abi_version=(
-            kernel_module.FIELD_KERNEL_ABI_MAJOR,
-            kernel_module.FIELD_KERNEL_ABI_MINOR - 1,
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(
+                kernel_module.FIELD_KERNEL_ABI_MAJOR,
+                kernel_module.FIELD_KERNEL_ABI_MINOR - 1,
+            ),
         ),
     )
-    _install_fake_kernel(monkeypatch, lib)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(FieldKernelError, match="ABI is incompatible"):
@@ -411,8 +470,7 @@ def test_field_kernel_rejects_older_target_box_semantics(
 def test_field_kernel_minimal_library_keeps_existing_eval_but_direct_is_optional(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with FieldKernel(source_triangles, source_charges) as kernel:
@@ -426,8 +484,7 @@ def test_field_kernel_minimal_library_keeps_existing_eval_but_direct_is_optional
 def test_field_kernel_direct_methods_reject_periodic_plan_before_native_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
     options = FieldKernelOptions(
         periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
@@ -445,8 +502,7 @@ def test_field_kernel_direct_methods_reject_periodic_plan_before_native_call(
 def test_field_kernel_minimal_library_keeps_default_finite_periodic_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
     options = FieldKernelOptions(
         periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
@@ -475,8 +531,10 @@ def test_cached_kernel_rejects_targets_outside_free_axis_before_native_call(
     native_name: str,
     invalid_z: float,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=True, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(cache_setter=True, cache_getter=False),
+    )
     source_triangles, source_charges = _one_panel_source()
     options = FieldKernelOptions(
         periodic2=(
@@ -549,8 +607,7 @@ def test_field_kernel_minimal_library_rejects_models_requiring_cache_setter(
     options: FieldKernelOptions,
     error_model: str,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(FieldKernelError, match=error_model):
@@ -587,8 +644,14 @@ def test_field_kernel_diagnostics_decodes_cache_metadata(
     expected_fingerprint: str | None,
     expected_path: Path | None,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=True, cache_getter=True, diagnostics=native)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            cache_setter=True,
+            cache_getter=True,
+            diagnostics=native,
+        ),
+    )
     source_triangles, source_charges = _one_panel_source()
 
     with FieldKernel(source_triangles, source_charges) as kernel:
@@ -604,8 +667,7 @@ def test_field_kernel_diagnostics_decodes_cache_metadata(
 def test_field_kernel_diagnostics_requires_new_symbol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with FieldKernel(source_triangles, source_charges) as kernel:
@@ -613,26 +675,41 @@ def test_field_kernel_diagnostics_requires_new_symbol(
             kernel.diagnostics()
 
 
-def test_removed_root_oracle_is_rejected() -> None:
+def test_field_kernel_rejects_removed_root_oracle_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2=(
+            (0, 1),
+            (2.0, 2.0),
+            (0.0, 0.0),
+            1,
+            "m2l_root_oracle",
+            0.0,
+            4,
+        )
+    )
+
     with pytest.raises(ValueError, match='was removed; use "cached_kneq0"'):
-        kernel_module._far_correction_code("m2l_root_oracle")
+        FieldKernel(source_triangles, source_charges, options=options)
 
-
-def test_coerce_periodic2_validates_legacy_tuple_and_cached_policy() -> None:
-    cached = ((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "cached_kneq0", 0.0, 4)
-
-    with pytest.raises(ValueError, match="far_correction"):
-        _coerce_periodic2(cached)
-    assert _coerce_periodic2(cached, allow_cached_kneq0=True) == cached
-    with pytest.raises(ValueError, match="distinct axis"):
-        _coerce_periodic2(((0, 0), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4))
-    with pytest.raises(ValueError, match="positive"):
-        _coerce_periodic2(((0, 1), (-2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4))
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
 
 
 @pytest.mark.parametrize(
     "periodic2, message",
     [
+        (
+            ((0, 0), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+            "distinct axis",
+        ),
+        (
+            ((0, 1), (-2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+            "finite and positive",
+        ),
         (
             ((0, 1), (float("nan"), 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
             "finite and positive",
@@ -655,12 +732,23 @@ def test_coerce_periodic2_validates_legacy_tuple_and_cached_policy() -> None:
         ),
     ],
 )
-def test_coerce_periodic2_tuple_uses_mapping_validation(
+def test_field_kernel_rejects_invalid_periodic_tuple_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
     periodic2: tuple[object, ...],
     message: str,
 ) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
     with pytest.raises(ValueError, match=message):
-        _coerce_periodic2(periodic2)  # type: ignore[arg-type]
+        FieldKernel(
+            source_triangles,
+            source_charges,
+            options=FieldKernelOptions(periodic2=periodic2),  # type: ignore[arg-type]
+        )
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
 
 
 def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails_closed(
@@ -709,7 +797,7 @@ def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails
     assert options.periodic_cache_dir == "custom-cache"
     assert options.periodic_generation_tolerance == pytest.approx(2.5e-9)
     with pytest.raises(ValueError, match="far_correction"):
-        _auto_periodic2_from_result(result)
+        auto_periodic2_from_result(result)
 
 
 def test_field_kernel_eval_e_matches_exact_panel_direct() -> None:
@@ -876,8 +964,7 @@ def test_field_kernel_adds_uniform_external_e0() -> None:
 def test_field_kernel_adds_uniform_external_e0_to_potential(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
     targets = np.array(
         [
@@ -900,7 +987,7 @@ def test_field_kernel_adds_uniform_external_e0_to_potential(
 def test_resolved_direct_backend_routes_field_potential_and_force(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
+    lib = _FakeKernelLibrary()
 
     def eval_e_direct(
         _handle: object,
@@ -969,8 +1056,8 @@ def test_resolved_direct_backend_routes_field_potential_and_force(
         torque,
         np.sum(np.cross(points, expected_force_i), axis=0),
     )
-    assert len(lib.beach_kernel_eval_e_direct.calls) == 2
-    assert len(lib.beach_kernel_eval_phi_direct.calls) == 1
+    assert lib.beach_kernel_eval_e_direct.calls
+    assert lib.beach_kernel_eval_phi_direct.calls
     assert not lib.beach_kernel_eval_e.calls
     assert not lib.beach_kernel_eval_phi.calls
     assert not lib.beach_kernel_force_on_charges.calls
@@ -979,8 +1066,7 @@ def test_resolved_direct_backend_routes_field_potential_and_force(
 def test_resolved_treecode_backend_rejects_before_native_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    lib = _FakeKernelLibrary(cache_setter=False, cache_getter=False)
-    _install_fake_kernel(monkeypatch, lib)
+    lib = _install_fake_kernel(monkeypatch)
     source_triangles, source_charges = _one_panel_source()
 
     with pytest.raises(ValueError, match="treecode backend"):

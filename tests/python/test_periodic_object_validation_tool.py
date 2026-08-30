@@ -3641,58 +3641,72 @@ def test_restart_child_revalidation_detects_parent_output_change(
         tool.verify_run(second, 280000)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    ["cache_expectation", "processed_particles", "outcome_counts"],
+)
 def test_verify_run_rejects_cache_and_particle_ledger_mismatch(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
+    mutation: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
     tool.stage_validation(archive_run, validation_root, binary)
-    prime = _write_run_output(
-        validation_root,
-        "cache_prime",
-        batches=1,
-        cache_hit=True,
-        build_count=0,
-    )
+    if mutation == "cache_expectation":
+        output = _write_run_output(
+            validation_root,
+            "cache_prime",
+            batches=1,
+            cache_hit=True,
+            build_count=0,
+        )
+        expected_batches = 1
+        message = "cache miss"
+    else:
+        output = _write_run_output(
+            validation_root,
+            "smoke_finite_configured",
+            batches=100,
+            cache_hit=None,
+            build_count=None,
+        )
+        expected_batches = 100
+        if mutation == "processed_particles":
+            summary_path = output / "summary.txt"
+            summary = summary_path.read_text(encoding="utf-8")
+            summary_path.write_text(
+                summary.replace("processed_particles=10", "processed_particles=11"),
+                encoding="utf-8",
+            )
+            message = "processed_particles"
+        else:
+            ledger_path = output / "charge_ledger.csv"
+            ledger = ledger_path.read_text(encoding="utf-8")
+            ledger_path.write_text(
+                ledger.replace(",6,3,1\n", ",6,4,0\n"),
+                encoding="utf-8",
+            )
+            message = "outcome counts"
 
-    with pytest.raises(tool.ValidationError, match="cache miss"):
-        tool.verify_run(prime, 1)
-
-    bad = _write_run_output(
-        validation_root,
-        "smoke_finite_configured",
-        batches=100,
-        cache_hit=None,
-        build_count=None,
-    )
-    summary = (bad / "summary.txt").read_text(encoding="utf-8")
-    (bad / "summary.txt").write_text(
-        summary.replace("processed_particles=10", "processed_particles=11"),
-        encoding="utf-8",
-    )
-    with pytest.raises(tool.ValidationError, match="processed_particles"):
-        tool.verify_run(bad, 100)
-
-    bad = _write_run_output(
-        validation_root,
-        "smoke_finite_configured",
-        batches=100,
-        cache_hit=None,
-        build_count=None,
-    )
-    ledger_path = bad / "charge_ledger.csv"
-    ledger = ledger_path.read_text(encoding="utf-8")
-    ledger_path.write_text(ledger.replace(",6,3,1\n", ",6,4,0\n"), encoding="utf-8")
-    with pytest.raises(tool.ValidationError, match="outcome counts"):
-        tool.verify_run(bad, 100)
+    with pytest.raises(tool.ValidationError, match=message):
+        tool.verify_run(output, expected_batches)
 
 
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("nonfinite_mesh", "mesh_triangles.csv"),
+        ("history_gap", "history batch sequence"),
+    ],
+)
 def test_verify_run_rejects_nonfinite_mesh_and_history_gap(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
+    mutation: str,
+    message: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -3704,26 +3718,29 @@ def test_verify_run_rejects_nonfinite_mesh_and_history_gap(
         cache_hit=None,
         build_count=None,
     )
-    triangles = (out / "mesh_triangles.csv").read_text(encoding="utf-8")
-    (out / "mesh_triangles.csv").write_text(
-        triangles.replace("1,0,0,0", "1,nan,0,0"), encoding="utf-8"
-    )
-    with pytest.raises(tool.ValidationError, match="mesh_triangles.csv"):
+    if mutation == "nonfinite_mesh":
+        triangles_path = out / "mesh_triangles.csv"
+        triangles = triangles_path.read_text(encoding="utf-8")
+        triangles_path.write_text(
+            triangles.replace("1,0,0,0", "1,nan,0,0"), encoding="utf-8"
+        )
+    else:
+        history_path = out / "charge_history.csv"
+        history = history_path.read_text(encoding="utf-8").splitlines()
+        history_path.write_text(
+            "\n".join([history[0], *history[2:]]) + "\n", encoding="utf-8"
+        )
+
+    with pytest.raises(tool.ValidationError, match=message):
         tool.verify_run(out, 100)
 
-    (out / "mesh_triangles.csv").write_text(triangles, encoding="utf-8")
-    history = (out / "charge_history.csv").read_text(encoding="utf-8").splitlines()
-    (out / "charge_history.csv").write_text(
-        "\n".join([history[0], *history[2:]]) + "\n", encoding="utf-8"
-    )
-    with pytest.raises(tool.ValidationError, match="history batch sequence"):
-        tool.verify_run(out, 100)
 
-
-def test_verify_run_requires_configured_mesh_potential_output(
+@pytest.mark.parametrize("missing_name", ["mesh_potential.csv", "mesh_sources.csv"])
+def test_verify_run_requires_configured_mesh_outputs(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
+    missing_name: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -3735,20 +3752,9 @@ def test_verify_run_requires_configured_mesh_potential_output(
         cache_hit=None,
         build_count=None,
     )
-    (out / "mesh_potential.csv").unlink()
+    (out / missing_name).unlink()
 
-    with pytest.raises(tool.ValidationError, match="mesh_potential.csv"):
-        tool.verify_run(out, 100)
-
-    out = _write_run_output(
-        validation_root,
-        "smoke_finite_configured",
-        batches=100,
-        cache_hit=None,
-        build_count=None,
-    )
-    (out / "mesh_sources.csv").unlink()
-    with pytest.raises(tool.ValidationError, match="mesh_sources.csv"):
+    with pytest.raises(tool.ValidationError, match=re.escape(missing_name)):
         tool.verify_run(out, 100)
 
 
@@ -4280,27 +4286,16 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
         library=binary,
     )
 
-    assert calls["models"] == [
-        "configured",
-        "infinite_physical",
-        "configured",
-        "infinite_physical",
-        "configured",
-        "infinite_physical",
-        "configured",
-        "infinite_physical",
-    ]
-    assert calls["steps"] == [
-        149001,
-        149001,
-        180001,
-        180001,
-        279001,
-        279001,
-        None,
-        None,
-    ]
-    assert calls["shell_meshes"] == [6, 7]
+    model_steps = list(zip(calls["models"], calls["steps"]))
+    expected_model_steps = {
+        (model, step)
+        for model in ("configured", "infinite_physical")
+        for step in (149001, 180001, 279001, None)
+    }
+    assert len(model_steps) == len(expected_model_steps)
+    assert set(model_steps) == expected_model_steps
+    assert len(calls["shell_meshes"]) == 2
+    assert set(calls["shell_meshes"]) == {6, 7}
     assert calls["path_grids"]
     assert all(grid[0] == 0.0 for grid in calls["path_grids"])
     assert all(grid[-1] == pytest.approx(7.0e-5) for grid in calls["path_grids"])
@@ -4648,17 +4643,29 @@ def test_release_parameters_geometry_fallback_is_nonstrict_and_missing_only(
         )
 
 
-@pytest.mark.parametrize("invalid_radius", [True, np.array([3.5e-5])])
-def test_probe_geometry_contract_rejects_non_scalar_radius(
+@pytest.mark.parametrize(
+    ("representation", "invalid_radius", "message"),
+    [
+        ("periodic2_mesh_connected", True, "bounding radius"),
+        ("periodic2_mesh_connected", np.array([3.5e-5]), "bounding radius"),
+        ("periodic2_mesh_connected", None, "bounding radius is unavailable"),
+        ("periodic2_mesh_connected", np.nan, "finite and positive"),
+        ("periodic2_mesh_connected", 0.0, "finite and positive"),
+        ("raw_saved", 3.5e-5, "representation mismatch"),
+    ],
+)
+def test_probe_geometry_contract_rejects_invalid_radius_or_representation(
+    representation: str,
     invalid_radius: object,
+    message: str,
 ) -> None:
     tool = _load_tool()
     probe = SimpleNamespace(
-        target_geometry_representation="periodic2_mesh_connected",
+        target_geometry_representation=representation,
         vertex_bounding_radius_m=invalid_radius,
     )
 
-    with pytest.raises(tool.ValidationError, match="bounding radius"):
+    with pytest.raises(tool.ValidationError, match=message):
         tool._probe_geometry_contract(probe)
 
 
@@ -4916,17 +4923,16 @@ def test_wrench_row_rejects_nonfinite_scalar_fields(
         )
 
 
-def test_strict_path_component_contract_requires_additive_components() -> None:
-    tool = _load_tool()
+def _strict_path_component_fixture() -> SimpleNamespace:
     first = np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]])
     second = np.array([[0.0, 2.0, 0.0], [0.0, 3.0, 0.0]])
     third = np.array([[0.0, 0.0, 3.0], [0.0, 0.0, 4.0]])
     total = first + second + third
     zeros = np.zeros_like(total)
-    path = SimpleNamespace(
+    return SimpleNamespace(
         displacement_m=np.array([0.0, 1.0]),
-        force_N=total,
-        torque_Nm=zeros,
+        force_N=total.copy(),
+        torque_Nm=zeros.copy(),
         component_force_N={
             "other_objects_all_images": first,
             "target_periodic_images": second,
@@ -4941,14 +4947,55 @@ def test_strict_path_component_contract_requires_additive_components() -> None:
         },
     )
 
+
+def test_strict_path_component_contract_accepts_complete_additive_components() -> None:
+    tool = _load_tool()
+    path = _strict_path_component_fixture()
+
     tool._validate_strict_path_component_contract(
         path,
         expected_start_m=0.0,
         expected_end_m=1.0,
     )
-    path.component_force_N = dict(path.component_force_N)
-    path.component_force_N.pop("external_uniform")
-    with pytest.raises(tool.ValidationError, match="path force component set"):
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("missing_force", "path force component set"),
+        ("missing_torque", "path torque component set"),
+        ("additive_force", "additive physical path force"),
+        ("additive_torque", "additive physical path torque"),
+        ("total_force", "path total arrays"),
+        ("total_torque", "path total arrays"),
+    ],
+)
+def test_strict_path_component_contract_rejects_invalid_components(
+    mutation: str,
+    message: str,
+) -> None:
+    tool = _load_tool()
+    path = _strict_path_component_fixture()
+    if mutation == "missing_force":
+        path.component_force_N.pop("external_uniform")
+    elif mutation == "missing_torque":
+        path.component_torque_Nm.pop("external_uniform")
+    elif mutation == "additive_force":
+        path.component_force_N["total_external"] = path.component_force_N[
+            "total_external"
+        ].copy()
+        path.component_force_N["total_external"][0, 0] += 1.0
+    elif mutation == "additive_torque":
+        path.component_torque_Nm["total_external"] = path.component_torque_Nm[
+            "total_external"
+        ].copy()
+        path.component_torque_Nm["total_external"][0, 0] += 1.0
+    elif mutation == "total_force":
+        path.force_N[0, 0] += 1.0
+    else:
+        path.torque_Nm[0, 0] += 1.0
+
+    with pytest.raises(tool.ValidationError, match=message):
         tool._validate_strict_path_component_contract(
             path,
             expected_start_m=0.0,
@@ -4985,9 +5032,8 @@ def test_strict_path_component_contract_rejects_invalid_final_grid(
         )
 
 
-def test_shell_reference_contract_requires_selected_physical_reference() -> None:
-    tool = _load_tool()
-    shell = SimpleNamespace(
+def _valid_shell_reference_contract() -> SimpleNamespace:
+    return SimpleNamespace(
         image_layers=np.array([0, 1, 2, 3]),
         increment_converged=np.array([False, True, True]),
         status="converged",
@@ -5002,94 +5048,107 @@ def test_shell_reference_contract_requires_selected_physical_reference() -> None
         work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
     )
 
+
+def test_shell_reference_contract_accepts_selected_physical_reference() -> None:
+    tool = _load_tool()
+    shell = _valid_shell_reference_contract()
+
     tool._validate_shell_reference_contract(shell)
-    shell.image_layers = np.array([1, 2, 3, 4])
-    with pytest.raises(tool.ValidationError, match="start at zero"):
-        tool._validate_shell_reference_contract(shell)
-    shell.image_layers = np.array([0, 1, 3, 3])
-    with pytest.raises(tool.ValidationError, match="consecutive"):
-        tool._validate_shell_reference_contract(shell)
-    shell.image_layers = np.array([0, 1, 2, 3])
-    shell.status = "invalid"
-    with pytest.raises(tool.ValidationError, match="status"):
-        tool._validate_shell_reference_contract(shell)
-    shell.status = "converged"
-    shell.increment_converged = np.array([False, False, True])
-    with pytest.raises(tool.ValidationError, match="successive"):
-        tool._validate_shell_reference_contract(shell)
-    shell.increment_converged = np.array([False, True, True])
-    shell.reference_converged = np.array([False, False, False, True])
-    with pytest.raises(tool.ValidationError, match="successive"):
-        tool._validate_shell_reference_contract(shell)
-    shell.reference_converged = np.array([False, False, True, False])
-    with pytest.raises(tool.ValidationError, match="physical reference"):
-        tool._validate_shell_reference_contract(shell)
-    shell.reference_converged = np.array([False, False, True, True])
-    shell.reference_force_error_N = np.array([3.0, 2.0, -1.0, 0.1])
-    with pytest.raises(tool.ValidationError, match="nonnegative"):
-        tool._validate_shell_reference_contract(shell)
-    shell.reference_force_error_N = np.array([3.0, 2.0, 1.0, 0.1])
-    shell.force_tail_proxy_N = np.array([10.0, -1.0, 0.1])
-    with pytest.raises(tool.ValidationError, match="increment/tail"):
-        tool._validate_shell_reference_contract(shell)
-    shell.force_tail_proxy_N = np.array([10.0, 1.0])
-    with pytest.raises(tool.ValidationError, match="increment/tail"):
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("layer_start", "start at zero"),
+        ("layer_gap", "consecutive"),
+        ("status", "status"),
+        ("increment_gate", "successive increment"),
+        ("reference_gate_penultimate", "successive physical reference"),
+        ("reference_gate_final", "successive physical reference"),
+        ("reference_negative", "reference errors.*nonnegative"),
+        ("tail_negative", "increment/tail"),
+        ("tail_shape", "increment/tail"),
+        ("increment_integer", "boolean"),
+        ("increment_nonfinite", "boolean"),
+        ("reference_integer", "boolean"),
+        ("reference_nonfinite", "boolean"),
+        ("reference_model", "reference_model"),
+        ("reference_shape", "physical reference arrays"),
+        ("selected_not_final", "selected_image_layers"),
+        ("nonconverged_selected", "cannot select"),
+    ],
+)
+def test_shell_reference_contract_rejects_invalid_reference_or_selection(
+    mutation: str,
+    message: str,
+) -> None:
+    tool = _load_tool()
+    shell = _valid_shell_reference_contract()
+    if mutation == "layer_start":
+        shell.image_layers = np.array([1, 2, 3, 4])
+    elif mutation == "layer_gap":
+        shell.image_layers = np.array([0, 1, 3, 3])
+    elif mutation == "status":
+        shell.status = "invalid"
+    elif mutation == "increment_gate":
+        shell.increment_converged = np.array([False, False, True])
+    elif mutation == "reference_gate_penultimate":
+        shell.reference_converged = np.array([False, False, False, True])
+    elif mutation == "reference_gate_final":
+        shell.reference_converged = np.array([False, False, True, False])
+    elif mutation == "reference_negative":
+        shell.reference_force_error_N = np.array([3.0, 2.0, -1.0, 0.1])
+    elif mutation == "tail_negative":
+        shell.force_tail_proxy_N = np.array([10.0, -1.0, 0.1])
+    elif mutation == "tail_shape":
+        shell.force_tail_proxy_N = np.array([10.0, 1.0])
+    elif mutation == "increment_integer":
+        shell.increment_converged = np.array([0, 1, 1])
+    elif mutation == "increment_nonfinite":
+        shell.increment_converged = np.array([False, np.nan, True])
+    elif mutation == "reference_integer":
+        shell.reference_converged = np.array([0, 0, 1, 1])
+    elif mutation == "reference_nonfinite":
+        shell.reference_converged = np.array([False, False, np.inf, True])
+    elif mutation == "reference_model":
+        shell.reference_model = "configured"
+    elif mutation == "reference_shape":
+        shell.reference_force_error_N = np.array([3.0, 2.0, 1.0])
+    elif mutation == "selected_not_final":
+        shell.selected_image_layers = 2
+    else:
+        shell.status = "not_converged"
+
+    with pytest.raises(tool.ValidationError, match=message):
         tool._validate_shell_reference_contract(shell)
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("malformed_source", "message"),
     [
-        ("increment_converged", np.array([0, 1, 1])),
-        ("increment_converged", np.array([False, np.nan, True])),
-        ("reference_converged", np.array([0, 0, 1, 1])),
-        ("reference_converged", np.array([False, False, np.inf, True])),
+        ("adhesion_toml", "failed to read TOML"),
+        ("release_summary_json", "release model summary"),
     ],
 )
-def test_shell_reference_contract_rejects_nonboolean_gate_arrays(
-    field: str,
-    value: np.ndarray,
-) -> None:
-    tool = _load_tool()
-    shell = SimpleNamespace(
-        image_layers=np.array([0, 1, 2, 3]),
-        increment_converged=np.array([False, True, True]),
-        status="converged",
-        selected_image_layers=3,
-        reference_model="infinite_physical",
-        reference_converged=np.array([False, False, True, True]),
-        reference_force_error_N=np.array([3.0, 2.0, 1.0, 0.1]),
-        reference_work_error_J=np.array([6.0, 4.0, 2.0, 0.2]),
-        force_increment_error_N=np.array([1.0, 0.1, 0.01]),
-        work_increment_error_J=np.array([2.0, 0.2, 0.02]),
-        force_tail_proxy_N=np.array([10.0, 1.0, 0.1]),
-        work_tail_proxy_J=np.array([20.0, 2.0, 0.2]),
-    )
-    setattr(shell, field, value)
-
-    with pytest.raises(tool.ValidationError, match="boolean"):
-        tool._validate_shell_reference_contract(shell)
-
-
 def test_release_parameters_rejects_malformed_assumption_files(
     tmp_path: Path,
+    malformed_source: str,
+    message: str,
 ) -> None:
     tool = _load_tool()
     archive = tmp_path / "archive"
     (archive / "input").mkdir(parents=True)
     (archive / "analysis/local_release").mkdir(parents=True)
-    (archive / "input/release_kernel_base.toml").write_text(
-        "[adhesion\nmodel = 'none'\n", encoding="utf-8"
-    )
+    if malformed_source == "adhesion_toml":
+        (archive / "input/release_kernel_base.toml").write_text(
+            "[adhesion\nmodel = 'none'\n", encoding="utf-8"
+        )
+    else:
+        (archive / "analysis/local_release/release_model_summary.json").write_text(
+            "{invalid", encoding="utf-8"
+        )
 
-    with pytest.raises(tool.ValidationError, match="failed to read TOML"):
-        tool._release_parameters(archive, 3.5e-5)
-
-    (archive / "input/release_kernel_base.toml").unlink()
-    (archive / "analysis/local_release/release_model_summary.json").write_text(
-        "{invalid", encoding="utf-8"
-    )
-    with pytest.raises(tool.ValidationError, match="release model summary"):
+    with pytest.raises(tool.ValidationError, match=message):
         tool._release_parameters(archive, 3.5e-5)
 
 
@@ -5282,11 +5341,11 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
         run=FakeRun(),
     )
 
-    assert calls == [
-        (None, "infinite_physical", -1),
-        (None, "shell", 6),
-        (None, "shell", 7),
-    ]
+    snapshot_calls = [call for call in calls if call[1] == "infinite_physical"]
+    shell_calls = [call for call in calls if call[1] == "shell"]
+    assert snapshot_calls == [(None, "infinite_physical", -1)]
+    assert len(shell_calls) == 2
+    assert {call[2] for call in shell_calls} == {6, 7}
     assert failures == []
     assert len(rows) == 8
     assert {(row["mesh_id"], row["resolved_batch"]) for row in rows} == {
@@ -5964,93 +6023,56 @@ def test_analyze_require_complete_verifies_all_cases_and_physics(
         )
 
 
-def test_analyze_cli_returns_nonzero_for_partial_physics(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tool = _load_tool()
-    monkeypatch.setattr(
-        tool,
-        "analyze_validation",
-        lambda *_args, **_kwargs: {"physics_evaluation": {"status": "partial"}},
-    )
-
-    status = tool.main(
-        [
-            "analyze",
-            "--archive-run",
-            str(tmp_path / "archive"),
-            "--validation-root",
-            str(tmp_path / "validation"),
-            "--library",
-            str(tmp_path / "kernel.so"),
-        ]
-    )
-
-    assert status == 2
-
-
-def test_analyze_cli_require_complete_returns_nonzero_for_not_evaluated(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tool = _load_tool()
-    monkeypatch.setattr(
-        tool,
-        "analyze_validation",
-        lambda *_args, **_kwargs: {
-            "cases": {
-                "archived_v1_3": {"status": "available"},
-                "new_finite_configured": {"status": "available"},
-                "new_infinite_physical": {"status": "available"},
+@pytest.mark.parametrize(
+    ("require_complete", "report"),
+    [
+        pytest.param(
+            False,
+            {"physics_evaluation": {"status": "partial"}},
+            id="partial-physics",
+        ),
+        pytest.param(
+            True,
+            {"physics_evaluation": {"status": "not_evaluated"}},
+            id="complete-physics-not-evaluated",
+        ),
+        pytest.param(
+            True,
+            {
+                "physics_evaluation": {"status": "available"},
+                "numerical_qualification_for_local_frozen_model": {
+                    "status": "not_qualified"
+                },
             },
-            "physics_evaluation": {"status": "not_evaluated"},
-        },
-    )
-
-    status = tool.main(
-        [
-            "analyze",
-            "--archive-run",
-            str(tmp_path / "archive"),
-            "--validation-root",
-            str(tmp_path / "validation"),
-            "--library",
-            str(tmp_path / "kernel.so"),
-            "--require-complete",
-        ]
-    )
-
-    assert status == 2
-
-
-def test_analyze_cli_require_complete_rejects_unqualified_local_model(
+            id="complete-local-model-not-qualified",
+        ),
+    ],
+)
+def test_analyze_cli_returns_nonzero_for_incomplete_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    require_complete: bool,
+    report: dict[str, object],
 ) -> None:
     tool = _load_tool()
     monkeypatch.setattr(
         tool,
         "analyze_validation",
-        lambda *_args, **_kwargs: {
-            "physics_evaluation": {"status": "available"},
-            "numerical_qualification_for_local_frozen_model": {
-                "status": "not_qualified"
-            },
-        },
+        lambda *_args, **_kwargs: report,
     )
 
-    status = tool.main(
-        [
-            "analyze",
-            "--archive-run",
-            str(tmp_path / "archive"),
-            "--validation-root",
-            str(tmp_path / "validation"),
-            "--library",
-            str(tmp_path / "kernel.so"),
-            "--require-complete",
-        ]
-    )
+    arguments = [
+        "analyze",
+        "--archive-run",
+        str(tmp_path / "archive"),
+        "--validation-root",
+        str(tmp_path / "validation"),
+        "--library",
+        str(tmp_path / "kernel.so"),
+    ]
+    if require_complete:
+        arguments.append("--require-complete")
+
+    status = tool.main(arguments)
 
     assert status == 2
