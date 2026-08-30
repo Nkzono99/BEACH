@@ -14,7 +14,7 @@ program test_boundary
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
-  call test_init(26)
+  call test_init(28)
 
   cfg = sim_config()
   cfg%use_box = .true.
@@ -165,6 +165,10 @@ program test_boundary
   call test_first_boundary_event_single_face()
   call test_end()
 
+  call test_begin('first_boundary_event_precedes_later_face')
+  call test_first_boundary_event_precedes_later_face()
+  call test_end()
+
   call test_begin('first_boundary_event_no_crossing')
   call test_first_boundary_event_no_crossing()
   call test_end()
@@ -221,6 +225,10 @@ program test_boundary
   call test_boundary_event_invalid_endpoint()
   call test_end()
 
+  call test_begin('boundary_event_outside_start_is_invalid')
+  call test_boundary_event_outside_start_is_invalid()
+  call test_end()
+
   call test_begin('boundary_event_invalid_span')
   call test_boundary_event_invalid_span()
   call test_end()
@@ -262,6 +270,22 @@ contains
       'captured face boundary conditions mismatch' &
       )
   end subroutine test_first_boundary_event_single_face
+
+  subroutine test_first_boundary_event_precedes_later_face()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+
+    call init_event_box(event_cfg)
+    call find_first_boundary_event( &
+      event_cfg, [0.25_dp, 0.25_dp, 0.5_dp], [1.25_dp, 1.75_dp, 0.5_dp], event, status &
+      )
+
+    call assert_equal_i32(status, boundary_event_ok, 'multiple-face event status mismatch')
+    call assert_true(event%has_event, 'multiple-face chord should produce an event')
+    call assert_close_dp(event%fraction, 0.5_dp, 0.0_dp, 'earliest face fraction mismatch')
+    call assert_equal_i32(event%face_mask, 8_i32, 'later x-high face must not enter the first-event mask')
+  end subroutine test_first_boundary_event_precedes_later_face
 
   subroutine test_first_boundary_event_no_crossing()
     type(sim_config) :: event_cfg
@@ -579,6 +603,19 @@ contains
     call assert_equal_i32(status, boundary_event_invalid_geometry, 'NaN endpoint should be invalid geometry')
     call assert_true(.not. event%has_event, 'invalid endpoint must not return an event')
   end subroutine test_boundary_event_invalid_endpoint
+
+  subroutine test_boundary_event_outside_start_is_invalid()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status
+
+    call init_event_box(event_cfg)
+    call find_first_boundary_event( &
+      event_cfg, [1.25_dp, 0.5_dp, 0.5_dp], [0.5_dp, 0.5_dp, 0.5_dp], event, status &
+      )
+    call assert_equal_i32(status, boundary_event_invalid_geometry, 'outside start should be invalid geometry')
+    call assert_true(.not. event%has_event, 'outside start must not synthesize a reentry event')
+  end subroutine test_boundary_event_outside_start_is_invalid
 
   subroutine test_boundary_event_invalid_span()
     type(sim_config) :: event_cfg

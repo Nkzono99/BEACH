@@ -19,6 +19,7 @@ program test_matching_plane_simulator
   character(len=*), parameter :: history_path = 'test_matching_plane_simulator_history.csv'
   character(len=*), parameter :: resume_history_path = 'test_matching_plane_simulator_resume_history.csv'
   character(len=*), parameter :: stride_history_path = 'test_matching_plane_simulator_stride_history.csv'
+  character(len=*), parameter :: unbracketed_log_path = 'test_matching_plane_simulator_unbracketed.log'
   type(mesh_type) :: mesh
   type(app_config) :: cfg
   type(sim_stats) :: stats, resumed_stats
@@ -26,13 +27,28 @@ program test_matching_plane_simulator
   type(charge_ledger_type) :: implicit_ledger, no_photo_ledger
   integer :: history_unit
   real(dp) :: cancellation_area
+  character(len=64) :: run_mode
+
+  call get_command_argument(1, run_mode)
+  if (trim(run_mode) == '--unbracketed-implicit-probe') then
+    call configure_fixture(mesh, cfg, inject_state)
+    call configure_no_photo_fixture(cfg, inject_state)
+    ! h*q_i*Gamma_i = 18 qe exceeds the table's 12 qe upper endpoint.
+    call write_no_photo_implicit_response_table(response_path, ion_inward_flux=3.0_dp)
+    call reset_matching_plane_response_snapshot_cache()
+    cfg%surface_current%implicit_zero_mode = .true.
+    cfg%sim%batch_duration = 6.0_dp
+    call seed_particles_from_config(cfg)
+    call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+    error stop 'unbracketed implicit endpoint probe unexpectedly completed'
+  end if
 
   call cleanup_files()
   call reset_matching_plane_response_snapshot_cache()
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(10)
+  call test_init(11)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -76,7 +92,7 @@ program test_matching_plane_simulator
     inject_state%boundary_macro_residual(6, 2), 0.25_dp, 1.0e-14_dp, &
     'ion injection residual advanced more than once during replay' &
     )
-  call assert_history_rows(history_path, 1_i32, 1_i32)
+  call assert_history_rows(history_path, 1_i32, 1_i32, 1_i32)
   call test_end()
 
   call test_begin('accepted_state_seeds_restart_continuation')
@@ -103,7 +119,7 @@ program test_matching_plane_simulator
   call assert_close_dp( &
     inject_state%boundary_macro_residual(6, 2), 0.5_dp, 1.0e-14_dp, 'resumed ion residual mismatch' &
     )
-  call assert_history_rows(resume_history_path, 1_i32, 2_i32)
+  call assert_history_rows(resume_history_path, 1_i32, 2_i32, 2_i32)
   call test_end()
 
   call test_begin('component_absolute_tolerance_accepts_active_axis_without_changing_feedback')
@@ -157,7 +173,7 @@ program test_matching_plane_simulator
     history_stride=2_i32 &
     )
   close (history_unit)
-  call assert_history_rows(stride_history_path, 2_i32, 3_i32)
+  call assert_history_rows(stride_history_path, 2_i32, 1_i32, 3_i32)
   call test_end()
 
   call test_begin('zhao_online_runs_without_response_table')
@@ -209,6 +225,10 @@ program test_matching_plane_simulator
     sum(implicit_ledger%fixed_absorbed_target_charge) + &
     sum(implicit_ledger%fixed_emission_target_charge), &
     9.0_dp*qe, 1.0e-12_dp*qe, 'implicit applied surface-current budget mismatch' &
+    )
+  call assert_close_dp( &
+    implicit_ledger%residual(), 0.0_dp, 1.0e-12_dp*qe, &
+    'implicit PE charge ledger did not close' &
     )
   call test_end()
 
@@ -262,6 +282,10 @@ program test_matching_plane_simulator
     sum(no_photo_ledger%fixed_emission_target_charge), 0.0_dp, 0.0_dp, &
     'no-PE implicit state created an emission target' &
     )
+  call assert_close_dp( &
+    no_photo_ledger%residual(), 0.0_dp, 1.0e-12_dp*qe, &
+    'no-PE implicit charge ledger did not close' &
+    )
   call assert_true(all(resumed_stats%matching_plane_feedback(1:2) == 0.0_dp), 'no-PE implicit PE feedback mismatch')
   call assert_close_dp( &
     resumed_stats%matching_plane_photoelectron_return_flux_m2_s, 0.0_dp, 0.0_dp, &
@@ -298,6 +322,10 @@ program test_matching_plane_simulator
     64.0_dp*epsilon(1.0_dp)*sum(abs(mesh%q_elem))/cancellation_area, &
     'cancelling implicit committed charge left the backward-Euler roundoff bound' &
     )
+  call test_end()
+
+  call test_begin('implicit_zero_mode_unbracketed_endpoint_fails_closed')
+  call assert_unbracketed_implicit_fails()
   call test_end()
 
   call cleanup_files()
@@ -477,12 +505,14 @@ contains
     close (unit_id)
   end subroutine write_implicit_response_table
 
-  subroutine write_no_photo_implicit_response_table(path)
+  subroutine write_no_photo_implicit_response_table(path, ion_inward_flux)
     character(len=*), intent(in) :: path
+    real(dp), intent(in), optional :: ion_inward_flux
     integer :: unit_id
     real(dp) :: low_row(11), high_row(11)
 
     low_row = [0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.5_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+    if (present(ion_inward_flux)) low_row(8) = ion_inward_flux
     high_row = low_row
     high_row(1) = 12.0_dp*qe
     open (newunit=unit_id, file=path, status='replace', action='write')
@@ -493,14 +523,43 @@ contains
     close (unit_id)
   end subroutine write_no_photo_implicit_response_table
 
-  subroutine assert_history_rows(path, expected_rows, expected_batch)
+  subroutine assert_unbracketed_implicit_fails()
+    character(len=1024) :: executable_path, command, line
+    integer :: exit_status, command_status, unit_id, ios
+    logical :: saw_expected_failure
+
+    call get_command_argument(0, executable_path)
+    call delete_file_if_exists(unbracketed_log_path)
+    command = '"'//trim(executable_path)//'" --unbracketed-implicit-probe > '//unbracketed_log_path//' 2>&1'
+    exit_status = -1
+    command_status = -1
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'unbracketed endpoint probe command status mismatch')
+    call assert_true(exit_status /= 0, 'unbracketed implicit endpoint was accepted')
+
+    saw_expected_failure = .false.
+    open (newunit=unit_id, file=unbracketed_log_path, status='old', action='read', iostat=ios)
+    if (ios == 0) then
+      do
+        read (unit_id, '(a)', iostat=ios) line
+        if (ios /= 0) exit
+        saw_expected_failure = saw_expected_failure .or. index(line, 'root is not bracketed') > 0
+      end do
+      close (unit_id)
+    end if
+    call assert_true(saw_expected_failure, 'unbracketed endpoint probe failed for an unrelated reason')
+    call delete_file_if_exists(unbracketed_log_path)
+  end subroutine assert_unbracketed_implicit_fails
+
+  subroutine assert_history_rows(path, expected_rows, expected_first_batch, expected_last_batch)
     character(len=*), intent(in) :: path
-    integer(i32), intent(in) :: expected_rows, expected_batch
+    integer(i32), intent(in) :: expected_rows, expected_first_batch, expected_last_batch
     integer :: unit_id, ios
-    integer(i32) :: row_count, batch_idx, last_batch, iterations
+    integer(i32) :: row_count, batch_idx, first_batch, last_batch, iterations
     real(dp) :: values(15), last_values(15)
 
     row_count = 0_i32
+    first_batch = -1_i32
     last_batch = -1_i32
     last_values = 0.0_dp
     open (newunit=unit_id, file=path, status='old', action='read')
@@ -508,12 +567,14 @@ contains
       read (unit_id, *, iostat=ios) batch_idx, values(1:14), iterations, values(15)
       if (ios /= 0) exit
       row_count = row_count + 1_i32
+      if (row_count == 1_i32) first_batch = batch_idx
       last_batch = batch_idx
       last_values = values
     end do
     close (unit_id)
     call assert_equal_i32(row_count, expected_rows, 'matching-plane accepted history row count mismatch')
-    call assert_equal_i32(last_batch, expected_batch, 'matching-plane accepted history batch mismatch')
+    call assert_equal_i32(first_batch, expected_first_batch, 'matching-plane accepted history first batch mismatch')
+    call assert_equal_i32(last_batch, expected_last_batch, 'matching-plane accepted history last batch mismatch')
     call assert_close_dp(last_values(3), 1.0_dp, 1.0e-14_dp, 'matching-plane history phi_H mismatch')
     call assert_close_dp(last_values(4), 1.25_dp, 1.0e-14_dp, 'matching-plane history electron inward flux mismatch')
     call assert_close_dp(last_values(5), 1.25_dp, 1.0e-14_dp, 'matching-plane history ion inward flux mismatch')
@@ -527,6 +588,7 @@ contains
     call delete_file_if_exists(history_path)
     call delete_file_if_exists(resume_history_path)
     call delete_file_if_exists(stride_history_path)
+    call delete_file_if_exists(unbracketed_log_path)
   end subroutine cleanup_files
 
 end program test_matching_plane_simulator

@@ -20,6 +20,7 @@ program test_app_config_parser
   character(len=*), parameter :: zhao_no_photo_stale_path = 'test_zhao_no_photo_stale_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
   character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
+  character(len=*), parameter :: fixed_current_emission_path = 'test_fixed_current_emission_tmp.toml'
   character(len=*), parameter :: matching_absolute_response_path = '/tmp/beach_matching_response.csv'
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
@@ -28,7 +29,7 @@ program test_app_config_parser
     call get_command_argument(2, probe_config_path)
     call default_app_config(cfg)
     call load_app_config(trim(probe_config_path), cfg)
-    error stop 'invalid Zhao config probe unexpectedly completed'
+    error stop 'invalid config probe unexpectedly completed'
   end if
 
   call test_init(36)
@@ -388,6 +389,21 @@ program test_app_config_parser
     cfg%particle_species(1)%target_absorbed_current_a, -2.0_dp, 1.0e-15_dp, &
     'fixed absorbed target mismatch' &
     )
+  call write_fixed_emission_variant('3.0e-6')
+  call default_app_config(cfg)
+  call load_app_config(fixed_current_emission_path, cfg)
+  call assert_true( &
+    cfg%particle_species(3)%has_target_emission_current_a, &
+    'fixed emission target presence mismatch' &
+    )
+  call assert_close_dp( &
+    cfg%particle_species(3)%target_emission_current_a, 3.0e-6_dp, 1.0e-18_dp, &
+    'fixed emission target mismatch' &
+    )
+  call delete_file_if_exists(fixed_current_emission_path)
+  call write_fixed_emission_variant('-3.0e-6')
+  call assert_config_rejected(fixed_current_emission_path, 'target_emission_current_a sign must oppose q_particle')
+  call delete_file_if_exists(fixed_current_emission_path)
   call test_end()
 
   call test_begin('tutorial_config')
@@ -692,6 +708,34 @@ contains
     write (output_unit, '(a)') 'surface_charge_closure = "explicit"'
     close (output_unit)
   end subroutine append_matching_explicit_species
+
+  subroutine write_fixed_emission_variant(target_current)
+    character(len=*), intent(in) :: target_current
+    character(len=1024) :: line
+    integer :: source_unit, output_unit, ios
+    logical :: replaced
+
+    replaced = .false.
+    open (newunit=source_unit, file='examples/periodic2_closed_photoelectron.toml', &
+          status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open closed-photoelectron config fixture'
+    open (newunit=output_unit, file=fixed_current_emission_path, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create fixed-emission config fixture'
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (.not. replaced .and. trim(line) == 'surface_charge_closure = "neutral_return"') then
+        write (output_unit, '(a)') 'surface_charge_closure = "fixed_current"'
+        write (output_unit, '(a)') 'target_emission_current_a = '//trim(target_current)
+        replaced = .true.
+      else
+        write (output_unit, '(a)') trim(line)
+      end if
+    end do
+    close (source_unit)
+    close (output_unit)
+    if (.not. replaced) error stop 'failed to specialize fixed-emission config fixture'
+  end subroutine write_fixed_emission_variant
 
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment

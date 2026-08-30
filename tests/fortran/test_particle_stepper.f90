@@ -16,7 +16,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(29)
+  call test_init(31)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -38,6 +38,10 @@ program test_particle_stepper
   call test_advance_mesh_before_box_absorbs()
   call test_end()
 
+  call test_begin('advance_mesh_box_tie_absorbs')
+  call test_advance_mesh_box_tie_absorbs()
+  call test_end()
+
   call test_begin('advance_box_before_mesh_escapes')
   call test_advance_box_before_mesh_escapes()
   call test_end()
@@ -56,6 +60,10 @@ program test_particle_stepper
 
   call test_begin('advance_periodic_remainder')
   call test_advance_periodic_remainder()
+  call test_end()
+
+  call test_begin('advance_periodic_remainder_absorbs')
+  call test_advance_periodic_remainder_absorbs()
   call test_end()
 
   call test_begin('pure_b_periodic_preserves_energy')
@@ -374,6 +382,25 @@ contains
     call assert_close_dp(result%x(1), 0.8_dp, 1.0e-12_dp, 'mesh-before-box hit position mismatch')
   end subroutine test_advance_mesh_before_box_absorbs
 
+  subroutine test_advance_mesh_box_tie_absorbs()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 1.0_dp)
+    sim%bc_high(1) = bc_open
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.8_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'mesh/box tie status mismatch')
+    call assert_true(result%absorbed .and. .not. result%escaped_boundary, 'mesh/box tie must prefer absorption')
+    call assert_true(result%elem_idx == 1_i32, 'mesh/box tie element mismatch')
+    call assert_allclose_1d(result%x, [1.0_dp, 0.2_dp, 0.2_dp], 1.0e-12_dp, 'mesh/box tie position mismatch')
+  end subroutine test_advance_mesh_box_tie_absorbs
+
   subroutine test_advance_box_before_mesh_escapes()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
@@ -539,6 +566,26 @@ contains
     call assert_close_dp(result%x(1), 0.8_dp, 1.0e-12_dp, 'periodic remainder position mismatch')
     call assert_close_dp(result%v(1), 1.0_dp, 0.0_dp, 'periodic remainder velocity mismatch')
   end subroutine test_advance_periodic_remainder
+
+  subroutine test_advance_periodic_remainder_absorbs()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+
+    call init_box_stepper(mesh, sim, field_solver, 0.5_dp)
+    sim%bc_low(1) = bc_periodic
+    sim%bc_high(1) = bc_periodic
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      )
+
+    call assert_true(result%status == particle_step_ok, 'periodic remainder collision status mismatch')
+    call assert_true(result%absorbed .and. .not. result%escaped_boundary, 'periodic remainder should hit the mesh')
+    call assert_true(result%elem_idx == 1_i32, 'periodic remainder collision element mismatch')
+    call assert_close_dp(result%x(1), 0.5_dp, 1.0e-12_dp, 'periodic remainder collision position mismatch')
+  end subroutine test_advance_periodic_remainder_absorbs
 
   subroutine test_pure_b_periodic_preserves_energy()
     type(mesh_type) :: mesh
@@ -994,14 +1041,14 @@ contains
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
-    sim%open_boundary_model = 'unknown'
+    sim%bc_high(1) = -1_i32
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
       )
     call assert_true( &
       result%status == particle_step_invalid_boundary, &
-      'boundary geometry status must map into the particle-step namespace' &
+      'invalid boundary-action status must map into the particle-step namespace' &
       )
   end subroutine test_advance_invalid_boundary_status_namespace
 

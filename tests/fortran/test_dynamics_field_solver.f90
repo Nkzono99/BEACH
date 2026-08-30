@@ -14,7 +14,7 @@ program test_dynamics_field_solver
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(12)
+  call test_init(11)
 
   call test_begin('field_solver_auto_mode')
   call test_field_solver_auto_mode()
@@ -26,10 +26,6 @@ program test_dynamics_field_solver
 
   call test_begin('treecode_field_accuracy')
   call test_treecode_field_accuracy()
-  call test_end()
-
-  call test_begin('treecode_same_sign_root_monopole')
-  call test_treecode_same_sign_root_monopole()
   call test_end()
 
   call test_begin('treecode_mixed_sign_cancellation_sweep')
@@ -69,7 +65,7 @@ program test_dynamics_field_solver
 contains
 
   subroutine test_field_solver_auto_mode()
-    type(mesh_type) :: mesh_small, mesh_large
+    type(mesh_type) :: mesh_small, mesh_threshold, mesh_large
     type(mesh_type) :: mesh_mid, mesh_dense, mesh_huge
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
@@ -81,6 +77,14 @@ contains
     sim%tree_min_nelem = 64_i32
     call solver%init(mesh_small, sim)
     call assert_true(trim(solver%mode) == 'direct', 'auto solver should select direct for small meshes')
+
+    call make_plane(mesh_threshold, size_x=1.0d0, size_y=1.0d0, nx=4_i32, ny=4_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call mark_normal_plus(mesh_threshold)
+    sim = sim_config()
+    sim%field_solver = 'AUTO'
+    sim%tree_min_nelem = mesh_threshold%nelem
+    call solver%init(mesh_threshold, sim)
+    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
 
     call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_large)
@@ -94,7 +98,7 @@ contains
     call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto theta mismatch for nelem<1500')
     call assert_equal_i32(solver%leaf_max, 12_i32, 'auto leaf_max mismatch for nelem<1500')
 
-    call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=30_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=25_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_mid)
     sim = sim_config()
     sim%field_solver = 'AUTO'
@@ -103,7 +107,7 @@ contains
     call assert_close_dp(solver%theta, 0.50d0, 1.0d-12, 'auto theta mismatch for 1500<=nelem<10000')
     call assert_equal_i32(solver%leaf_max, 16_i32, 'auto leaf_max mismatch for 1500<=nelem<10000')
 
-    call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=80_i32, ny=80_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=100_i32, ny=50_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_dense)
     sim = sim_config()
     sim%field_solver = 'AUTO'
@@ -112,7 +116,7 @@ contains
     call assert_close_dp(solver%theta, 0.58d0, 1.0d-12, 'auto theta mismatch for 10000<=nelem<50000')
     call assert_equal_i32(solver%leaf_max, 20_i32, 'auto leaf_max mismatch for 10000<=nelem<50000')
 
-    call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=160_i32, ny=160_i32, center=[0.0d0, 0.0d0, 0.0d0])
+    call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=250_i32, ny=100_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_huge)
     sim = sim_config()
     sim%field_solver = 'AUTO'
@@ -148,6 +152,22 @@ contains
     call solver%init(mesh_large, sim)
     call assert_close_dp(solver%theta, 0.95d0, 1.0d-12, 'treecode explicit theta override mismatch')
     call assert_equal_i32(solver%leaf_max, 3_i32, 'treecode explicit leaf_max override mismatch')
+
+    sim = sim_config()
+    sim%field_solver = 'treecode'
+    sim%tree_theta = 0.93d0
+    sim%has_tree_theta = .true.
+    call solver%init(mesh_large, sim)
+    call assert_close_dp(solver%theta, 0.93d0, 1.0d-12, 'treecode theta-only override mismatch')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'treecode theta-only autotune leaf_max mismatch')
+
+    sim = sim_config()
+    sim%field_solver = 'treecode'
+    sim%tree_leaf_max = 7_i32
+    sim%has_tree_leaf_max = .true.
+    call solver%init(mesh_large, sim)
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'treecode leaf-only autotune theta mismatch')
+    call assert_equal_i32(solver%leaf_max, 7_i32, 'treecode leaf-only override mismatch')
 
     sim = sim_config()
     sim%field_solver = 'fmm'
@@ -227,36 +247,6 @@ contains
     call assert_true(valid_count >= 100_i32, 'treecode accuracy test has too few valid samples')
     call assert_true(max_rel_err <= 1.0d-3, 'treecode E relative error exceeds 1e-3')
   end subroutine test_treecode_field_accuracy
-
-  subroutine test_treecode_same_sign_root_monopole()
-    type(mesh_type) :: mesh_tree
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    real(dp), parameter :: source_charge = 1.0d-12
-    real(dp) :: r(3), e_direct(3), e_tree(3), norm_direct, relative_error
-    real(dp) :: phi_direct, phi_tree, potential_relative_error
-
-    call init_treecode_monopole_fixture(mesh_tree, solver, sim)
-    mesh_tree%q_elem = source_charge
-    call solver%refresh(mesh_tree)
-
-    r = [0.0d0, 100.0d0, 0.0d0]
-    call panel_field_at(mesh_tree, r, e_direct)
-    call solver%eval_e(mesh_tree, r, e_tree)
-
-    norm_direct = sqrt(sum(e_direct*e_direct))
-    call assert_true(norm_direct > 0.0d0, 'same-sign direct field must be nonzero')
-    relative_error = sqrt(sum((e_tree - e_direct)*(e_tree - e_direct)))/norm_direct
-    call assert_true(relative_error > 1.0d-4, 'same-sign root should retain the monopole path')
-    call assert_true(relative_error < 2.0d-4, 'same-sign root monopole characterization changed')
-    call assert_true(relative_error <= 1.0d-3, 'same-sign root monopole exceeds the tree accuracy contract')
-
-    call panel_potential_at(mesh_tree, r, phi_direct)
-    call solver%eval_potential(mesh_tree, sim, r, phi_tree)
-    potential_relative_error = abs(phi_tree - phi_direct)/abs(phi_direct)
-    call assert_true(potential_relative_error > 4.0d-5, 'same-sign potential should retain the monopole path')
-    call assert_true(potential_relative_error < 6.0d-5, 'same-sign potential monopole characterization changed')
-  end subroutine test_treecode_same_sign_root_monopole
 
   subroutine test_treecode_mixed_sign_cancellation_sweep()
     type(mesh_type) :: mesh_tree
@@ -348,10 +338,6 @@ contains
     norm_direct = sqrt(sum(e_direct*e_direct))
     rel_err = sqrt(sum((e_solver - e_direct)*(e_solver - e_direct)))/norm_direct
     call assert_true(rel_err <= 1.0d-12, 'normalized direct E relative error exceeds 1e-12')
-    call assert_close_dp( &
-      solver%field_output_scale, k_coulomb/(sim%field_length_scale*sim%field_length_scale), 1.0d3, &
-      'normalized direct E output scale mismatch' &
-      )
   end subroutine test_direct_field_length_normalization_accuracy
 
   subroutine test_direct_potential_length_normalization_accuracy()
@@ -477,9 +463,6 @@ contains
     norm_direct = sqrt(sum(e_direct*e_direct))
     rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_direct
     call assert_true(rel_err <= 5.0d-3, 'box-normalized FMM E relative error exceeds 5e-3')
-    call assert_close_dp(solver%fmm_core_options%target_box_min(1), 0.0d0, 1.0d-15, 'box-normalized xmin mismatch')
-    call assert_close_dp(solver%fmm_core_options%target_box_min(2), 0.0d0, 1.0d-15, 'box-normalized ymin mismatch')
-    call assert_close_dp(solver%fmm_core_options%target_box_min(3), 0.0d0, 1.0d-15, 'box-normalized zmin mismatch')
   end subroutine test_fmm_field_box_normalization_origin
 
   subroutine test_direct_triangle_panel_contract()

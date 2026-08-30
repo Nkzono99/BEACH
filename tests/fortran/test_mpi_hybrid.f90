@@ -1,23 +1,21 @@
 !> MPI+OpenMPハイブリッド実行時の集約・rank別resumeファイルを検証する。
 program test_mpi_hybrid
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0, pi, qe
+  use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_select_lowest_rank_i32_values, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_real_dp_array, &
                      mpi_allreduce_sum_i64_array, mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, &
                      mpi_allreduce_min_real_dp_array, mpi_allreduce_max_real_dp_array, &
-                     mpi_bcast_i32_array, mpi_bcast_real_dp_array, mpi_gatherv_real_dp_array, &
                      mpi_world_barrier
-  use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
+  use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             init_particle_batch_from_config, particle_inflow_reservoir
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
-  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect, bc_periodic
+  use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_matching_plane_response, only: matching_plane_response_csv_header, matching_plane_response_ok, &
                                          preflight_matching_plane_response_mpi, &
                                          reset_matching_plane_response_snapshot_cache
@@ -42,9 +40,12 @@ program test_mpi_hybrid
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
   integer :: u, ios
   character(len=256) :: line
-  integer(i32) :: n_lines, selected_rank, expected_rank, batch_idx, global_reservoir_count
+  integer(i32) :: n_lines, history_batch, history_elem_idx
+  integer(i32) :: selected_rank, expected_rank, batch_idx, global_reservoir_count
+  integer(i64) :: history_processed_particles
   integer(i32) :: local_failure_values(4), selected_failure_values(4), reduced_min, reduced_max
   integer(i32) :: matching_response_status
+  real(dp) :: history_rel_change, history_charge
   real(dp) :: matching_provider_input(5), matching_provider_output(6)
   real(dp) :: matching_provider_output_min(6), matching_provider_output_max(6)
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
@@ -236,6 +237,17 @@ program test_mpi_hybrid
   call mpi_world_barrier(mpi)
 
   call configure_matching_provider_fixture(matching_provider_cfg)
+  if (mpi%size > 1_i32) then
+    matching_provider_cfg%surface_current%response_backend = 'table'
+    if (.not. mpi_is_root(mpi)) matching_provider_cfg%surface_current%response_backend = 'zhao_online'
+    call matching_provider%initialize( &
+      matching_provider_cfg, mpi, matching_response_status, matching_response_message &
+      )
+    call assert_equal_i32( &
+      matching_response_status, matching_plane_provider_invalid_argument, &
+      'rank-local matching-plane backend mismatch must fail on every rank' &
+      )
+  end if
   matching_provider_cfg%surface_current%response_backend = 'table'
   matching_provider_cfg%surface_current%response_table_path = matching_response_a_path
   call reset_matching_plane_response_snapshot_cache()
@@ -389,9 +401,17 @@ program test_mpi_hybrid
       read (u, '(A)', iostat=ios) line
       if (ios /= 0) exit
       n_lines = n_lines + 1_i32
+      read (line, *, iostat=ios) &
+        history_batch, history_processed_particles, history_rel_change, history_elem_idx, history_charge
+      if (ios /= 0) error stop 'failed to parse MPI hybrid history fixture'
     end do
     close (u)
     call assert_equal_i32(n_lines, 1_i32, 'mpi history snapshot line count mismatch')
+    call assert_equal_i32(history_batch, 1_i32, 'MPI history batch mismatch')
+    call assert_equal_i64(history_processed_particles, 4_i64, 'MPI history must contain the global processed count')
+    call assert_true(history_rel_change >= 0.0_dp, 'MPI history relative change must be nonnegative')
+    call assert_equal_i32(history_elem_idx, 1_i32, 'MPI history element index mismatch')
+    call assert_close_dp(history_charge, 4.0_dp, 1.0e-12_dp, 'MPI history must contain globally reduced charge')
     call delete_file_if_exists(history_path)
   end if
   call mpi_world_barrier(mpi)

@@ -1,4 +1,4 @@
-!> CSV 出力テスト: write_mesh_potential disabled 時の挙動検証。
+!> output writer の公開 I/O contract と resume 時の履歴追記を検証する。
 program test_output_writer_io
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_null_char
   use bem_kinds, only: dp, i32
@@ -23,7 +23,7 @@ program test_output_writer_io
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
-  logical :: saw_matching_receipts(10), matching_history_opened
+  logical :: saw_matching_receipts(12), matching_history_opened
   logical :: saw_online_matching_receipts(7)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
@@ -41,6 +41,17 @@ program test_output_writer_io
   character(len=*), parameter :: literal_dir = &
                                  literal_parent//'/space $(touch '//marker_path//'); "double" ''single'''
   character(len=*), parameter :: expanded_dir = literal_parent//'/space ; double ''single'''
+  character(len=*), parameter :: charge_ledger_csv_header = &
+                                 'batch,species_idx,injected_from_remote_C,emitted_from_surface_C,'// &
+                                 'absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,'// &
+                                 'neutral_return_correction_C,neutral_return_weight_scale,'// &
+                                 'neutral_return_unresolved_fraction,fixed_absorbed_target_charge_C,'// &
+                                 'fixed_absorbed_weight_scale,fixed_emission_target_charge_C,'// &
+                                 'fixed_emission_weight_scale,fixed_current_correction_C,'// &
+                                 'fixed_absorbed_applied_charge_C,fixed_emission_applied_charge_C,'// &
+                                 'fixed_escape_target_charge_C,fixed_escape_applied_charge_C,'// &
+                                 'fixed_escape_correction_C,injected_count,emitted_count,absorbed_count,'// &
+                                 'escaped_count,discarded_unresolved_count'
 
   interface
     integer(c_int) function c_rmdir(path) bind(C, name='rmdir')
@@ -51,7 +62,8 @@ program test_output_writer_io
 
   call test_init(8)
 
-  stats = sim_stats()
+  call build_two_element_mesh(mesh)
+  mesh%q_elem = [2.0d-12, -1.0d-12]
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
@@ -80,11 +92,9 @@ program test_output_writer_io
   call assert_true(literal_created, 'output directory path with shell metacharacters should be created literally')
   call test_end()
 
-  call test_begin('write_mesh_potential_disabled')
-  call build_two_element_mesh(mesh)
-  mesh%q_elem = [2.0d-12, -1.0d-12]
-
+  call test_begin('resolved_auto_solver_and_disabled_mesh_potential')
   call default_app_config(cfg)
+  stats = sim_stats()
   cfg%sim%batch_duration = 1.0_dp
   cfg%output_dir = out_dir_disabled
   cfg%write_mesh_potential = .false.
@@ -105,6 +115,7 @@ program test_output_writer_io
 
   call test_begin('resolved_local_boundary_receipt')
   call default_app_config(cfg)
+  stats = sim_stats()
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
   cfg%sim%open_boundary_model = 'potential_barrier'
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
@@ -112,14 +123,11 @@ program test_output_writer_io
     out_dir_disabled//'/summary.txt', 'infinity_barrier', 'potential_barrier' &
     )
 
-  call default_app_config(cfg)
-  cfg%sim%batch_duration = 1.0_dp
-  cfg%output_dir = out_dir_disabled
-  cfg%write_mesh_potential = .false.
   call test_end()
 
   call test_begin('top_reference_history_and_summary')
   call default_app_config(cfg)
+  stats = sim_stats()
   cfg%sim%batch_duration = 1.0_dp
   cfg%sim%use_box = .true.
   cfg%output_dir = out_dir_disabled
@@ -160,7 +168,15 @@ program test_output_writer_io
     )
   read (literal_unit, *, iostat=ios) &
     top_batch, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max
+  call assert_true(ios == 0, 'failed to parse resumed top-reference history row')
   call assert_equal_i32(top_batch, 4_i32, 'resumed top-reference history batch mismatch')
+  call assert_equal_i32(top_sample_n, 5_i32, 'resumed top-reference history sample count mismatch')
+  call assert_true( &
+    abs(top_time - 2.0_dp) < 1.0e-14_dp .and. abs(top_z - 2.0_dp) < 1.0e-14_dp .and. &
+    abs(top_mean - 4.25_dp) < 1.0e-14_dp .and. abs(top_std - 0.20_dp) < 1.0e-14_dp .and. &
+    abs(top_min - 3.8_dp) < 1.0e-14_dp .and. abs(top_max - 4.7_dp) < 1.0e-14_dp, &
+    'resumed top-reference history values mismatch' &
+    )
   read (literal_unit, '(A)', iostat=ios) line
   call assert_true(ios < 0, 'resumed top-reference history must not duplicate the header')
   close (literal_unit)
@@ -188,6 +204,9 @@ program test_output_writer_io
   call test_end()
 
   call test_begin('charge_ledger_and_model_metadata')
+  call default_app_config(cfg)
+  cfg%sim%use_box = .true.
+  stats = sim_stats()
   call ledger%init(2_i32)
   call ledger%reset(1_i32)
   ledger%surface_charge_after = -3.0_dp
@@ -202,8 +221,6 @@ program test_output_writer_io
   ledger%absorbed_count(1) = 1
   cfg%output_dir = out_dir_ledger
   cfg%sim%field_solver = 'fmm'
-  cfg%field%backend = 'fmm'
-  cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
   stats%processed_particles = 8
   stats%multiple_box_events_soft_discarded = 2
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
@@ -230,14 +247,20 @@ program test_output_writer_io
     read (literal_unit, '(A)', iostat=ios) line
     if (ios /= 0) exit
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
-    saw_residual = saw_residual .or. index(line, 'charge_ledger_residual_C=') > 0
+    saw_residual = saw_residual .or. &
+                   summary_real_equals(line, 'charge_ledger_residual_C', -0.75_dp, 1.0e-14_dp)
     saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=9') > 0
     saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
-    saw_ledger_stock = saw_ledger_stock .or. index(line, 'charge_ledger_local_flight_charge_before_C=') > 0
+    saw_ledger_stock = saw_ledger_stock .or. &
+                       summary_real_equals( &
+                       line, 'charge_ledger_local_flight_charge_before_C', -1.0_dp, 1.0e-14_dp &
+                       )
     saw_ledger_closure = saw_ledger_closure .or. &
-                         index(line, 'charge_ledger_neutral_return_correction_C=') > 0
+                         summary_real_equals( &
+                         line, 'charge_ledger_neutral_return_correction_C', -0.25_dp, 1.0e-14_dp &
+                         )
     saw_build_schema = saw_build_schema .or. index(line, 'build_info_schema_version=1') == 1
     saw_build_version = saw_build_version .or. index(line, 'build_version=') == 1
     saw_build_mode = saw_build_mode .or. index(line, 'build_version_mode=') == 1
@@ -245,7 +268,9 @@ program test_output_writer_io
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
     saw_surface_current_model = saw_surface_current_model .or. index(line, 'surface_current_model=none') == 1
     saw_soft_discard_fraction = saw_soft_discard_fraction .or. &
-                                trim(line) == 'multiple_box_events_soft_discard_fraction=  2.5000000000000000E-01'
+                                summary_real_equals( &
+                                line, 'multiple_box_events_soft_discard_fraction', 0.25_dp, 1.0e-14_dp &
+                                )
     saw_field_reconstruction(1) = saw_field_reconstruction(1) .or. &
                                   trim(line) == 'field_reconstruction_schema_version=2'
     saw_field_reconstruction(2) = saw_field_reconstruction(2) .or. &
@@ -298,19 +323,7 @@ program test_output_writer_io
   if (ios /= 0) error stop 'failed to open charge ledger fixture'
   read (literal_unit, '(A)', iostat=ios) line
   close (literal_unit)
-  saw_ledger_header = ios == 0 .and. index(line, 'species_idx') > 0 .and. &
-                      index(line, 'discarded_unresolved_C') > 0 .and. &
-                      index(line, 'neutral_return_correction_C') > 0 .and. &
-                      index(line, 'neutral_return_weight_scale') > 0 .and. &
-                      index(line, 'neutral_return_unresolved_fraction') > 0 .and. &
-                      index(line, 'fixed_absorbed_target_charge_C') > 0 .and. &
-                      index(line, 'fixed_emission_target_charge_C') > 0 .and. &
-                      index(line, 'fixed_absorbed_applied_charge_C') > 0 .and. &
-                      index(line, 'fixed_emission_applied_charge_C') > 0 .and. &
-                      index(line, 'fixed_escape_target_charge_C') > 0 .and. &
-                      index(line, 'fixed_escape_applied_charge_C') > 0 .and. &
-                      index(line, 'fixed_escape_correction_C') > 0 .and. &
-                      index(line, 'fixed_current_correction_C') > 0
+  saw_ledger_header = ios == 0 .and. trim(line) == charge_ledger_csv_header
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
   call assert_true(saw_schema, 'summary should record checkpoint schema v9')
@@ -325,10 +338,9 @@ program test_output_writer_io
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()
 
-  stats = sim_stats()
-
   call test_begin('no_photo_surface_current_receipt')
   call default_app_config(cfg)
+  stats = sim_stats()
   call load_app_config('examples/periodic2_zhao_no_photo_fixed_current.toml', cfg)
   cfg%output_dir = out_dir_no_photo
   call write_result_files(out_dir_no_photo, mesh, stats, cfg)
@@ -343,6 +355,7 @@ program test_output_writer_io
 
   call test_begin('matching_plane_provenance_and_stale_history')
   call default_app_config(cfg)
+  stats = sim_stats()
   call load_app_config('examples/periodic2_matching_plane_quasistatic.toml', cfg)
   cfg%output_dir = out_dir_matching
   cfg%history_stride = 0_i32
@@ -365,6 +378,7 @@ program test_output_writer_io
 
   call test_begin('online_matching_plane_solver_receipt')
   call default_app_config(cfg)
+  stats = sim_stats()
   call load_app_config('examples/periodic2_matching_plane_zhao_online.toml', cfg)
   cfg%output_dir = out_dir_matching_online
   cfg%write_mesh_potential = .false.
@@ -422,7 +436,7 @@ contains
 
   subroutine scan_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(10)
+    logical, intent(out) :: found(12)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -432,17 +446,33 @@ contains
     do
       read (summary_unit, '(A)', iostat=summary_ios) summary_line
       if (summary_ios /= 0) exit
-      found(1) = found(1) .or. index(summary_line, 'surface_current_model_response_content_fingerprint=') == 1
-      found(2) = found(2) .or. index(summary_line, 'surface_current_model_matching_plane_z_m=') == 1
+      found(1) = found(1) .or. trim(summary_line) == 'surface_current_model_response_backend=table'
+      found(2) = found(2) .or. &
+                 trim(summary_line) == &
+                 'surface_current_model_response_table_path=examples/matching_plane_response_synthetic.csv'
       found(3) = found(3) .or. &
+                 (index(summary_line, 'surface_current_model_response_content_fingerprint=') == 1 .and. &
+                  len_trim(summary_line) == &
+                  len('surface_current_model_response_content_fingerprint=') + 16)
+      found(4) = found(4) .or. &
+                 summary_real_equals( &
+                 summary_line, 'surface_current_model_matching_plane_z_m', 1.0e-3_dp, 1.0e-16_dp &
+                 )
+      found(5) = found(5) .or. &
                  trim(summary_line) == 'surface_current_model_electron_species=solar_wind_electron'
-      found(4) = found(4) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
-      found(5) = found(5) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
-      found(6) = found(6) .or. index(summary_line, 'surface_current_model_coupling_rtol=') == 1
-      found(7) = found(7) .or. index(summary_line, 'surface_current_model_coupling_atol=') == 1
-      found(8) = found(8) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
-      found(9) = found(9) .or. index(summary_line, 'surface_current_model_coupling_relaxation=') == 1
-      found(10) = found(10) .or. &
+      found(6) = found(6) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
+      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
+      found(8) = found(8) .or. &
+                 summary_real_equals( &
+                 summary_line, 'surface_current_model_coupling_rtol', 1.0e-4_dp, 1.0e-16_dp &
+                 )
+      found(9) = found(9) .or. index(summary_line, 'surface_current_model_coupling_atol=') == 1
+      found(10) = found(10) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
+      found(11) = found(11) .or. &
+                  summary_real_equals( &
+                  summary_line, 'surface_current_model_coupling_relaxation', 0.5_dp, 1.0e-14_dp &
+                  )
+      found(12) = found(12) .or. &
                   trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
     end do
     close (summary_unit)
@@ -516,10 +546,29 @@ contains
       saw_definition = saw_definition .or. &
                        trim(summary_line) == 'top_reference_definition=box_z_high_plane_mean'
       saw_last_batch = saw_last_batch .or. trim(summary_line) == 'top_reference_last_batch=4'
-      saw_mean = saw_mean .or. index(summary_line, 'top_reference_potential_mean_V=') == 1
+      saw_mean = saw_mean .or. &
+                 summary_real_equals( &
+                 summary_line, 'top_reference_potential_mean_V', 4.25_dp, 1.0e-14_dp &
+                 )
     end do
     close (unit)
   end subroutine scan_top_reference_summary_fields
+
+  !> summary の対象 key を数値として読み、公開値と比較する。
+  logical function summary_real_equals(summary_line, key, expected, tolerance) result(matches)
+    character(len=*), intent(in) :: summary_line, key
+    real(dp), intent(in) :: expected, tolerance
+    real(dp) :: actual
+    integer :: parse_status, value_start
+
+    matches = .false.
+    if (index(summary_line, trim(key)//'=') /= 1) return
+    value_start = len_trim(key) + 2
+    if (value_start > len_trim(summary_line)) return
+    read (summary_line(value_start:), *, iostat=parse_status) actual
+    if (parse_status /= 0) return
+    matches = abs(actual - expected) <= tolerance
+  end function summary_real_equals
 
   !> 2 要素メッシュを初期化する。
   subroutine build_two_element_mesh(mesh)

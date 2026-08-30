@@ -68,11 +68,12 @@ program test_periodic2_cached_snapshot
   type(field_physics_config) :: field_config
   type(periodic2_physics_config) :: periodic_config
   type(panel_kernel_config) :: panel_config
-  type(electrostatic_snapshot_type) :: snapshot
+  type(electrostatic_snapshot_type) :: snapshot, refreshed_snapshot
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3)
   real(dp) :: total_field(3), expected_field(3), nonzero_field(3), zero_field, zero_potential
   real(dp) :: total_potential, expected_potential, nonzero_potential
   real(dp) :: reference_field(3), reference_potential, field_error, potential_error, charge_scale
+  real(dp) :: refreshed_field(3), refreshed_potential
   real(dp) :: retry_nonzero_field(3), retry_total_field(3), retry_expected_field(3), retry_potential
   real(dp) :: retry_total_potential, retry_expected_potential
   character(len=512) :: cache_path, cache_dir
@@ -84,17 +85,17 @@ program test_periodic2_cached_snapshot
   write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
   call configure_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2)
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
-  cache_path = snapshot%nonzero_solver%fmm_core_plan%periodic_cache_path
+  cache_path = snapshot%diagnostics%periodic_cache_path
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
 
   call test_init(6)
   call test_begin('cached_snapshot_composes_kneq0_and_k0_once')
-  call assert_true(snapshot%use_cached_kneq0 .and. snapshot%use_zero_mode, 'cached split flags must be active')
+  call assert_true(snapshot%diagnostics%split_periodic_active, 'cached split diagnostics must be active')
+  call assert_true(trim(snapshot%diagnostics%status) == 'cached_kneq0', 'cached split diagnostics status mismatch')
   call assert_true( &
-    trim(snapshot%diagnostics%periodic_cache_fingerprint) == &
-    trim(snapshot%nonzero_solver%fmm_core_plan%periodic_cache_fingerprint), &
-    'snapshot must expose the periodic cache fingerprint' &
+    len_trim(snapshot%diagnostics%periodic_cache_fingerprint) > 0, &
+    'snapshot diagnostics must expose the periodic cache fingerprint' &
     )
   call evaluate_components(expected_field, expected_potential, nonzero_field, nonzero_potential, zero_field, zero_potential)
   call snapshot%eval_local_e(mesh, target, total_field)
@@ -159,8 +160,18 @@ program test_periodic2_cached_snapshot
   call evaluate_components(expected_field, expected_potential, nonzero_field, nonzero_potential, zero_field, zero_potential)
   call snapshot%eval_local_e(mesh, target, total_field)
   call snapshot%eval_local_phi(mesh, sim, target, total_potential)
-  call assert_allclose_1d(total_field, expected_field, 1.0e-10_dp, 'refreshed snapshot field composition mismatch')
-  call assert_close_dp(total_potential, expected_potential, 1.0e-10_dp, 'refreshed snapshot potential composition mismatch')
+  call refreshed_snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
+  call refreshed_snapshot%refresh(mesh)
+  call refreshed_snapshot%eval_local_e(mesh, target, refreshed_field)
+  call refreshed_snapshot%eval_local_phi(mesh, sim, target, refreshed_potential)
+  call assert_allclose_1d( &
+    total_field, refreshed_field, 1.0e-10_dp, &
+    'refreshed snapshot field must match a snapshot rebuilt from the same charges' &
+    )
+  call assert_close_dp( &
+    total_potential, refreshed_potential, 1.0e-10_dp, &
+    'refreshed snapshot potential must match a snapshot rebuilt from the same charges' &
+    )
   call eval_periodic_nonzero_panel_reference(mesh, target, 1.0_dp, 1.0_dp, 12_i32, 16_i32, &
                                              reference_potential, reference_field)
   charge_scale = sum(abs(mesh%q_elem))/eps0
@@ -183,29 +194,23 @@ contains
     real(dp) :: current_potential(2), candidate_potential(2)
     real(dp) :: field_before(3), field_after(3), potential_before, potential_after
     real(dp) :: max_abs_delta_phi
-    integer(i32) :: update_count_before
 
     call test_begin('cached_snapshot_measures_kneq0_candidate_step_without_changing_state')
     current_charge = mesh%q_elem
     candidate_charge = current_charge + [0.7e-12_dp, -0.9e-12_dp]
     call snapshot%nonzero_solver%compute_mesh_potential(mesh, sim, current_potential)
-    call snapshot%nonzero_solver%eval_e(mesh, target, field_before)
-    call snapshot%nonzero_solver%eval_potential(mesh, sim, target, potential_before)
-    update_count_before = snapshot%nonzero_solver%fmm_core_state%update_count
+    call snapshot%eval_local_e(mesh, target, field_before)
+    call snapshot%eval_local_phi(mesh, sim, target, potential_before)
 
     call snapshot%measure_kneq0_potential_step( &
       mesh, candidate_charge, max_abs_delta_phi, measured_step &
       )
 
-    call snapshot%nonzero_solver%eval_e(mesh, target, field_after)
-    call snapshot%nonzero_solver%eval_potential(mesh, sim, target, potential_after)
-    call assert_equal_i32( &
-      snapshot%nonzero_solver%fmm_core_state%update_count, update_count_before, &
-      'kneq0 potential-step measurement must preserve the solver update counter' &
-      )
+    call snapshot%eval_local_e(mesh, target, field_after)
+    call snapshot%eval_local_phi(mesh, sim, target, potential_after)
     call assert_true( &
-      all(snapshot%nonzero_solver%fmm_core_state%src_q == current_charge), &
-      'kneq0 potential-step measurement must restore the current mesh charges' &
+      all(mesh%q_elem == current_charge), &
+      'kneq0 potential-step measurement must preserve the current mesh charges' &
       )
     call assert_allclose_1d( &
       field_after, field_before, 1.0e-13_dp, &

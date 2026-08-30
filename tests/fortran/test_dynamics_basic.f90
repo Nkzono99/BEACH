@@ -428,14 +428,8 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     call find_first_hit(mesh_periodic, [1.2d0, 0.25d0, 1.0d0], [1.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
     call assert_true(hit_periodic%has_hit, 'periodic2 collision should hit opposite-side image')
@@ -452,14 +446,8 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     call find_first_hit(mesh_periodic, [3.2d0, -0.75d0, 1.0d0], [3.2d0, -0.75d0, -1.0d0], hit_periodic, sim=sim)
     call assert_true(hit_periodic%has_hit, 'periodic2 collision should support multi-cell image search')
@@ -474,14 +462,8 @@ contains
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
     integer(i32) :: query_status
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     call find_first_hit( &
       mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, &
@@ -570,14 +552,9 @@ contains
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
     integer(i32) :: query_status
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), boundary_x
+    real(dp) :: boundary_x
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     boundary_x = real(huge(0_i32), dp) + 0.2d0
     call find_first_hit( &
@@ -596,14 +573,9 @@ contains
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
     integer(i32) :: query_status
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), boundary_x
+    real(dp) :: boundary_x
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     boundary_x = -real(huge(0_i32), dp) - 1.0d0 + 0.2d0
     call find_first_hit( &
@@ -620,12 +592,8 @@ contains
   subroutine test_periodic_shift_bounds_legacy_signature()
     type(mesh_type) :: mesh_periodic
     integer(i32) :: nmin, nmax
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
+    call init_standard_collision_mesh(mesh_periodic)
 
     call compute_periodic_shift_bounds( &
       mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [0.2d0, 0.25d0, -1.0d0], 1_i32, 1.0d0, nmin, nmax &
@@ -639,14 +607,9 @@ contains
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
     integer(i32) :: query_status
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), out_of_range_x
+    real(dp) :: out_of_range_x
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     out_of_range_x = real(huge(0_i32), dp) + 1024.0d0
     call find_first_hit( &
@@ -693,14 +656,8 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
-    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
 
-    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
-    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
-    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
-    call init_mesh(mesh_periodic, tri_v0, tri_v1, tri_v2)
-    call init_periodic2_test_sim(sim)
-    call prepare_periodic2_collision_mesh(mesh_periodic, sim)
+    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
     call find_first_hit( &
       mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim &
@@ -766,6 +723,25 @@ contains
     call assert_equal_i32(hit_fast%image_shift(1), hit_ref%image_shift(1), trim(label)//': shift(1) mismatch')
     call assert_equal_i32(hit_fast%image_shift(2), hit_ref%image_shift(2), trim(label)//': shift(2) mismatch')
   end subroutine assert_periodic_hit_equivalent
+
+  subroutine init_standard_collision_mesh(mesh)
+    type(mesh_type), intent(out) :: mesh
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+
+    tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
+    tri_v1(:, 1) = [0.3d0, 0.2d0, 0.0d0]
+    tri_v2(:, 1) = [0.1d0, 0.4d0, 0.0d0]
+    call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
+  end subroutine init_standard_collision_mesh
+
+  subroutine init_standard_periodic2_collision_fixture(mesh, sim)
+    type(mesh_type), intent(out) :: mesh
+    type(sim_config), intent(out) :: sim
+
+    call init_standard_collision_mesh(mesh)
+    call init_periodic2_test_sim(sim)
+    call prepare_periodic2_collision_mesh(mesh, sim)
+  end subroutine init_standard_periodic2_collision_fixture
 
   subroutine init_periodic2_test_sim(sim)
     type(sim_config), intent(out) :: sim

@@ -101,6 +101,7 @@ program test_reservoir_injection
   call test_end()
 
   call test_begin('vmin_cutoff')
+  residual = 0.0d0
   call compute_macro_particles_for_batch( &
     1.05d3, 0.0d0, 1.0d0, [0.0d0, 0.0d0, 1.0d0], [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 1.0d0], &
     'z_low', [0.0d0, 0.0d0, 0.0d0], [1.0d0, 1.0d0, 0.0d0], 1.0d0, 1.0d2, residual, n_macro, vmin_normal=1.2d0 &
@@ -130,6 +131,8 @@ program test_reservoir_injection
   call test_end()
 
   call test_begin('species_ratio')
+  call default_app_config(cfg_auto)
+  call load_app_config(cfg_auto_path, cfg_auto)
   residual1 = 0.0d0
   residual2 = 0.0d0
   sum1 = 0_i32
@@ -223,6 +226,7 @@ contains
     call assert_equal_i32(n_volume, 2_i32, 'volume_seed contribution mismatch')
     call assert_equal_i32(n_x_low, 12_i32, 'x-low full-face area count mismatch')
     call assert_equal_i32(n_z_high, 6_i32, 'z-high full-face area count mismatch')
+    call assert_close_dp(sum(particles%q*particles%w), 20.0_dp, 1.0e-14_dp, 'boundary inflow charge budget mismatch')
     call assert_true(all(abs(state%macro_residual) < 1.0e-14_dp), 'source residual should stay zero')
     call assert_true(all(abs(state%boundary_macro_residual) < 1.0e-14_dp), 'boundary residuals should stay zero')
   end subroutine test_boundary_inflow_full_faces_and_volume_source
@@ -247,6 +251,7 @@ contains
     call init_particle_batch_from_config(plane_cfg, 1_i32, particles, state=state)
 
     call assert_equal_i32(particles%n, 8_i32, 'plane source flux count mismatch')
+    call assert_close_dp(sum(particles%q*particles%w), 24.0_dp, 1.0e-14_dp, 'plane source charge budget mismatch')
     call assert_true( &
       all(particles%x(1, :) == nearest(0.5_dp, 1.0_dp)), &
       'plane source positions must start one representable step inward without teleportation' &

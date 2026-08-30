@@ -40,9 +40,14 @@ program test_restart
     call load_restart_checkpoint(out_dir, mesh, stats, has_restart)
     stop 0
   end if
+  if (trim(run_mode) == '--world-size-probe') then
+    call build_test_mesh(mesh)
+    call load_restart_checkpoint(out_dir, mesh, stats, has_restart, mpi_rank=0_i32, mpi_size=1_i32)
+    stop 0
+  end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -53,6 +58,10 @@ program test_restart
 
   call test_begin('manifest_required_scalar_keys')
   call test_manifest_required_scalar_keys()
+  call test_end()
+
+  call test_begin('mpi_checkpoint_completeness_layers')
+  call test_mpi_checkpoint_completeness_layers()
   call test_end()
 
   call test_begin('schema_v9_matching_keys_are_required_and_unique')
@@ -363,8 +372,9 @@ program test_restart
 contains
 
   subroutine test_manifest_required_scalar_keys()
-    character(len=16), parameter :: required_keys(4) = [ &
-                                    character(len=16) :: 'schema_version', 'state', 'batches', 'mpi_world_size' &
+    character(len=32), parameter :: required_keys(6) = [ &
+                                    character(len=32) :: 'schema_version', 'state', 'batches', 'mpi_world_size', &
+                                                         'macro_residuals_present', 'charge_ledger_present' &
                                                          ]
     integer :: key_idx
 
@@ -405,10 +415,48 @@ contains
     if (trim(omitted_key) /= 'state') write (u, '(a)') 'state=complete'
     if (trim(omitted_key) /= 'batches') write (u, '(a)') 'batches=2'
     if (trim(omitted_key) /= 'mpi_world_size') write (u, '(a)') 'mpi_world_size=1'
-    write (u, '(a)') 'macro_residuals_present=F'
-    write (u, '(a)') 'charge_ledger_present=F'
+    if (trim(omitted_key) /= 'macro_residuals_present') write (u, '(a)') 'macro_residuals_present=F'
+    if (trim(omitted_key) /= 'charge_ledger_present') write (u, '(a)') 'charge_ledger_present=F'
     close (u)
   end subroutine write_manifest_fixture_omitting
+
+  subroutine test_mpi_checkpoint_completeness_layers()
+    character(len=1024) :: executable_path, command
+
+    call cleanup_restart_fixture(out_dir)
+    call ensure_directory(out_dir)
+    call write_matching_summary_fixture(out_dir, mpi_world_size=2_i32)
+    call write_charges_fixture(out_dir)
+    call write_rng_state_file(out_dir, mpi_rank=0_i32, mpi_size=2_i32)
+    call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=2_i32)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 2_i32, .false., .false.)
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(exists, 'complete two-rank checkpoint fixture was rejected')
+
+    call delete_file_if_exists(out_dir//'/charges.csv')
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(.not. exists, 'checkpoint inspection accepted missing charges.csv')
+    call write_charges_fixture(out_dir)
+
+    call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(.not. exists, 'checkpoint inspection accepted a missing rank RNG state')
+    call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=2_i32)
+
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(.not. exists, 'checkpoint inspection accepted mismatched summary/manifest world sizes')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 2_i32, .false., .false.)
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(exists, 'repaired two-rank checkpoint fixture was rejected')
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" --world-size-probe > '//matching_probe_log//' 2>&1'
+    call assert_restart_probe_fails( &
+      command, 'mpi_world_size does not match current MPI world size', 'runtime world-size mismatch probe' &
+      )
+    call cleanup_restart_fixture(out_dir)
+  end subroutine test_mpi_checkpoint_completeness_layers
 
   subroutine test_matching_summary_key_contract()
     character(len=1024) :: executable_path, command
@@ -422,33 +470,39 @@ contains
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call get_command_argument(0, executable_path)
     command = '"'//trim(executable_path)//'" --matching-summary-probe > '//matching_probe_log//' 2>&1'
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'missing-key probe command status mismatch')
-    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a missing required key')
+    call assert_restart_probe_fails( &
+      command, 'schema-v9 summary is missing required matching-plane keys', 'missing matching key probe' &
+      )
 
     call write_matching_summary_fixture(out_dir, duplicate_residual=.true.)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'duplicate-key probe command status mismatch')
-    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a duplicate key')
+    call assert_restart_probe_fails( &
+      command, 'duplicate matching-plane key: matching_plane_residual', 'duplicate matching key probe' &
+      )
 
     call write_matching_summary_fixture(out_dir, ion_access_token='/')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'real-token probe command status mismatch')
-    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a list-directed slash token')
+    call assert_restart_probe_fails( &
+      command, 'invalid real token: matching_plane_ion_access_potential_V', 'matching real-token probe' &
+      )
 
     call write_matching_summary_fixture(out_dir, iteration_token='2*0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'integer-token probe command status mismatch')
-    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted a repeated integer token')
+    call assert_restart_probe_fails( &
+      command, 'invalid integer token: matching_plane_iterations', 'matching integer-token probe' &
+      )
+
+    call write_matching_summary_fixture(out_dir, state_token='1')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call assert_restart_probe_fails( &
+      command, 'invalid logical token: matching_plane_state_valid', 'matching logical-token probe' &
+      )
 
     call write_matching_summary_fixture(out_dir, inconsistent_budget=.true.)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'budget probe command status mismatch')
-    call assert_true(exit_status /= 0, 'schema-v9 matching summary accepted an inconsistent PE budget')
+    call assert_restart_probe_fails( &
+      command, 'matching-plane photoelectron budget is inconsistent', 'matching PE-budget probe' &
+      )
 
     call write_matching_summary_fixture(out_dir)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
@@ -459,38 +513,79 @@ contains
     call cleanup_restart_fixture(out_dir)
   end subroutine test_matching_summary_key_contract
 
+  subroutine assert_restart_probe_fails(command, expected_fragment, label)
+    character(len=*), intent(in) :: command, expected_fragment, label
+    integer :: exit_status, command_status
+    logical :: saw_expected_failure
+
+    exit_status = -1
+    command_status = -1
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, trim(label)//' command status mismatch')
+    call assert_true(exit_status /= 0, trim(label)//' unexpectedly succeeded')
+    call text_file_contains(matching_probe_log, expected_fragment, saw_expected_failure)
+    call assert_true(saw_expected_failure, trim(label)//' did not reach its intended restart guard')
+  end subroutine assert_restart_probe_fails
+
+  subroutine text_file_contains(path, expected_fragment, found)
+    character(len=*), intent(in) :: path, expected_fragment
+    logical, intent(out) :: found
+    character(len=1024) :: line
+    integer :: u, ios
+
+    found = .false.
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) return
+    do
+      read (u, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      if (index(line, trim(expected_fragment)) > 0) then
+        found = .true.
+        exit
+      end if
+    end do
+    close (u)
+  end subroutine text_file_contains
+
   subroutine write_matching_summary_fixture( &
-    dir_path, omit_ion_access, duplicate_residual, ion_access_token, iteration_token, inconsistent_budget &
+    dir_path, omit_ion_access, duplicate_residual, ion_access_token, iteration_token, state_token, inconsistent_budget, &
+    mpi_world_size &
     )
     character(len=*), intent(in) :: dir_path
     logical, intent(in), optional :: omit_ion_access, duplicate_residual
-    character(len=*), intent(in), optional :: ion_access_token, iteration_token
+    character(len=*), intent(in), optional :: ion_access_token, iteration_token, state_token
     logical, intent(in), optional :: inconsistent_budget
+    integer(i32), intent(in), optional :: mpi_world_size
     integer :: u, ios
+    integer(i32) :: world_size
     logical :: omit_access, duplicate_key, break_budget
-    character(len=32) :: access_value, iterations_value
+    character(len=32) :: access_value, iterations_value, state_value
 
     omit_access = .false.
     duplicate_key = .false.
     break_budget = .false.
     access_value = '0.0'
     iterations_value = '2'
+    state_value = 'T'
+    world_size = 1_i32
     if (present(omit_ion_access)) omit_access = omit_ion_access
     if (present(duplicate_residual)) duplicate_key = duplicate_residual
     if (present(ion_access_token)) access_value = ion_access_token
     if (present(iteration_token)) iterations_value = iteration_token
+    if (present(state_token)) state_value = state_token
     if (present(inconsistent_budget)) break_budget = inconsistent_budget
+    if (present(mpi_world_size)) world_size = mpi_world_size
     open (newunit=u, file=trim(dir_path)//'/summary.txt', status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open matching summary fixture'
     write (u, '(a,i0)') 'checkpoint_schema_version=', checkpoint_schema_version_current
     write (u, '(a)') 'mesh_nelem=2'
-    write (u, '(a)') 'mpi_world_size=1'
+    write (u, '(a,i0)') 'mpi_world_size=', world_size
     write (u, '(a)') 'processed_particles=3'
     write (u, '(a)') 'absorbed=0'
     write (u, '(a)') 'escaped=1'
     write (u, '(a)') 'batches=2'
     write (u, '(a)') 'last_rel_change=0.0'
-    write (u, '(a)') 'matching_plane_state_valid=T'
+    write (u, '(a)') 'matching_plane_state_valid='//trim(state_value)
     write (u, '(a)') 'matching_plane_displacement_C_m2=0.0'
     write (u, '(a)') 'matching_plane_phi_V=1.0'
     write (u, '(a)') 'matching_plane_electron_inward_flux_m2_s=1.25'
@@ -567,6 +662,7 @@ contains
     call delete_file_if_exists(trim(dir_path)//'/charges.csv')
     call delete_file_if_exists(trim(dir_path)//'/rng_state.txt')
     call delete_file_if_exists(trim(dir_path)//'/macro_residuals.csv')
+    call delete_file_if_exists(trim(dir_path)//'/rng_state_rank00000.txt')
     call delete_file_if_exists(trim(dir_path)//'/rng_state_rank00001.txt')
     call delete_file_if_exists(trim(dir_path)//'/macro_residuals_rank00001.csv')
     call delete_file_if_exists(trim(dir_path)//'/mesh_triangles.csv')

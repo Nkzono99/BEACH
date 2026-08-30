@@ -40,6 +40,8 @@ program test_simulator
   character(len=*), parameter :: statistics_overflow_path = 'test_simulator_statistics_overflow_tmp.log'
   character(len=*), parameter :: invalid_candidate_failure_path = 'test_simulator_invalid_candidate_failure_tmp.log'
   character(len=*), parameter :: fixed_current_nonfinite_path = 'test_simulator_fixed_current_nonfinite_tmp.log'
+  character(len=*), parameter :: fixed_current_empty_absorbed_path = &
+                                 'test_simulator_fixed_current_empty_absorbed_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -71,8 +73,11 @@ program test_simulator
     call run_invalid_candidate_failure_probe()
     error stop 'invalid candidate failure probe unexpectedly completed'
   else if (trim(run_mode) == '--fixed-current-nonfinite-probe') then
-    call run_fixed_current_nonfinite_target_probe()
+    call run_fixed_current_target_failure_probe(.false.)
     error stop 'fixed-current nonfinite target probe unexpectedly completed'
+  else if (trim(run_mode) == '--fixed-current-empty-absorbed-probe') then
+    call run_fixed_current_target_failure_probe(.true.)
+    error stop 'fixed-current empty absorbed channel probe unexpectedly completed'
   end if
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -140,7 +145,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(21)
+  call test_init(22)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -352,6 +357,10 @@ program test_simulator
 
   call test_begin('fixed_current_nonfinite_target_fails_closed')
   call test_fixed_current_nonfinite_target_fails_closed()
+  call test_end()
+
+  call test_begin('fixed_current_empty_absorbed_channel_fails_closed')
+  call test_fixed_current_empty_absorbed_channel_fails_closed()
   call test_end()
 
   call test_begin('fixed_photo_currents_scale_emission_and_return_separately')
@@ -948,33 +957,48 @@ contains
   end subroutine test_fixed_absorbed_current_closure
 
   subroutine test_fixed_current_nonfinite_target_fails_closed()
+    call assert_fixed_current_failure_probe( &
+      '--fixed-current-nonfinite-probe', fixed_current_nonfinite_path, &
+      'fixed_current absorbed target charge overflowed', 'fixed-current nonfinite target' &
+      )
+  end subroutine test_fixed_current_nonfinite_target_fails_closed
+
+  subroutine test_fixed_current_empty_absorbed_channel_fails_closed()
+    call assert_fixed_current_failure_probe( &
+      '--fixed-current-empty-absorbed-probe', fixed_current_empty_absorbed_path, &
+      'fixed_current cannot map a nonzero absorbed target onto an empty raw channel', &
+      'fixed-current empty absorbed channel' &
+      )
+  end subroutine test_fixed_current_empty_absorbed_channel_fails_closed
+
+  subroutine assert_fixed_current_failure_probe(run_mode, output_path, expected_diagnostic, context)
+    character(len=*), intent(in) :: run_mode, output_path, expected_diagnostic, context
     character(len=1024) :: executable_path, command, child_line
     integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_nonfinite_error
+    logical :: saw_expected_error
 
     call get_command_argument(0, executable_path)
-    call delete_file_if_exists(fixed_current_nonfinite_path)
-    command = '"'//trim(executable_path)//'" --fixed-current-nonfinite-probe > '// &
-              fixed_current_nonfinite_path//' 2>&1'
+    call delete_file_if_exists(output_path)
+    command = '"'//trim(executable_path)//'" '//trim(run_mode)//' > '//trim(output_path)//' 2>&1'
     call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'fixed-current nonfinite command status mismatch')
-    call assert_true(child_exit_status /= 0, 'fixed-current nonfinite target probe should terminate with nonzero status')
+    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, trim(context)//' command status mismatch')
+    call assert_true(child_exit_status /= 0, trim(context)//' probe should terminate with nonzero status')
 
-    saw_nonfinite_error = .false.
-    open (newunit=child_unit, file=fixed_current_nonfinite_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read fixed-current nonfinite target probe output'
+    saw_expected_error = .false.
+    open (newunit=child_unit, file=output_path, status='old', action='read', iostat=child_ios)
+    if (child_ios /= 0) error stop 'failed to read fixed-current failure probe output'
     do
       read (child_unit, '(A)', iostat=child_ios) child_line
       if (child_ios /= 0) exit
-      saw_nonfinite_error = saw_nonfinite_error .or. &
-                            index(child_line, 'fixed_current absorbed target charge overflowed') > 0
+      saw_expected_error = saw_expected_error .or. index(child_line, expected_diagnostic) > 0
     end do
     close (child_unit)
-    call delete_file_if_exists(fixed_current_nonfinite_path)
-    call assert_true(saw_nonfinite_error, 'fixed-current nonfinite target probe should report the rejected conversion')
-  end subroutine test_fixed_current_nonfinite_target_fails_closed
+    call delete_file_if_exists(output_path)
+    call assert_true(saw_expected_error, trim(context)//' probe should report the rejected contract')
+  end subroutine assert_fixed_current_failure_probe
 
-  subroutine run_fixed_current_nonfinite_target_probe()
+  subroutine run_fixed_current_target_failure_probe(empty_absorbed_channel)
+    logical, intent(in) :: empty_absorbed_channel
     type(mesh_type) :: fixed_mesh
     type(app_config) :: fixed_cfg
     type(sim_stats) :: fixed_stats
@@ -1001,16 +1025,24 @@ contains
     fixed_cfg%particle_species(1)%w_particle = 1.0_dp
     fixed_cfg%particle_species(1)%pos_low = [0.2_dp, 0.2_dp, 0.5_dp]
     fixed_cfg%particle_species(1)%pos_high = fixed_cfg%particle_species(1)%pos_low
-    fixed_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    if (empty_absorbed_channel) then
+      fixed_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
+    else
+      fixed_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -1.0_dp]
+    end if
     fixed_cfg%particle_species(1)%temperature_k = 0.0_dp
     fixed_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'
-    ! Division rounds this value up to the precheck boundary, while the product still overflows.
-    fixed_cfg%particle_species(1)%target_absorbed_current_a = huge(1.0_dp)/fixed_cfg%sim%batch_duration
+    if (empty_absorbed_channel) then
+      fixed_cfg%particle_species(1)%target_absorbed_current_a = 1.0_dp
+    else
+      ! Division rounds this value up to the precheck boundary, while the product still overflows.
+      fixed_cfg%particle_species(1)%target_absorbed_current_a = huge(1.0_dp)/fixed_cfg%sim%batch_duration
+    end if
     fixed_cfg%particle_species(1)%has_target_absorbed_current_a = .true.
 
     call seed_particles_from_config(fixed_cfg)
     call run_absorption_insulator(fixed_mesh, fixed_cfg, fixed_stats)
-  end subroutine run_fixed_current_nonfinite_target_probe
+  end subroutine run_fixed_current_target_failure_probe
 
   subroutine test_fixed_photo_current_closure()
     type(mesh_type) :: fixed_mesh
@@ -1071,16 +1103,18 @@ contains
       'fixed PE return target mismatch' &
       )
     call assert_close_dp( &
-      fixed_ledger%fixed_absorbed_target_charge(1), -0.25_dp, 1.0e-12_dp, &
-      'fixed PE return applied mismatch' &
+      fixed_ledger%absorbed_on_surface(1)*fixed_ledger%fixed_absorbed_weight_scale(1), &
+      fixed_ledger%fixed_absorbed_target_charge(1), 1.0e-12_dp, &
+      'fixed PE return raw charge and scale must reproduce the applied target' &
       )
     call assert_close_dp( &
       fixed_ledger%fixed_emission_target_charge(1), 2.0_dp, 1.0e-12_dp, &
       'fixed PE emission target mismatch' &
       )
     call assert_close_dp( &
-      fixed_ledger%fixed_emission_target_charge(1), 2.0_dp, 1.0e-12_dp, &
-      'fixed PE emission applied mismatch' &
+      -fixed_ledger%emitted_from_surface(1)*fixed_ledger%fixed_emission_weight_scale(1), &
+      fixed_ledger%fixed_emission_target_charge(1), 1.0e-12_dp, &
+      'fixed PE emission raw charge and scale must reproduce the applied target' &
       )
     call assert_true( &
       abs(fixed_ledger%fixed_absorbed_weight_scale(1) - fixed_ledger%fixed_emission_weight_scale(1)) > 1.0e-6_dp, &
@@ -1195,11 +1229,6 @@ contains
     call assert_true( &
       zhao_ledger%fixed_escape_target_charge(photo_idx) < 0.0_dp, &
       'Zhao PE escape target must carry negative particle charge outward' &
-      )
-    call assert_close_dp( &
-      zhao_ledger%fixed_escape_target_charge(photo_idx), &
-      zhao_ledger%fixed_escape_target_charge(photo_idx), 1.0e-18_dp, &
-      'Zhao PE escape applied charge must equal its target' &
       )
     call assert_close_dp( &
       zhao_ledger%fixed_escape_correction(photo_idx), &
