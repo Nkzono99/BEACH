@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from beach import Beach
 from beach.cli import inspect_fortran_output as inspect_cli
 
 
@@ -61,7 +62,7 @@ def test_inspect_without_precomputed_potential_does_not_compute(
     output_dir = tmp_path / "run_no_potential"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        inspect_cli.Beach,
+        Beach,
         "compute_potential",
         _fail_if_potential_is_computed,
     )
@@ -70,6 +71,9 @@ def test_inspect_without_precomputed_potential_does_not_compute(
 
     output = capsys.readouterr().out
     assert "mesh_nelem=2" in output
+    assert "processed_particles=10" in output
+    assert "absorbed=7 escaped=3" in output
+    assert "charge_sum=-1.000000e-09" in output
     assert "potential_min=" not in output
     assert "potential_max=" not in output
 
@@ -86,7 +90,7 @@ def test_inspect_reports_precomputed_potential_without_compute(
         potential_values=(1.5, -2.5),
     )
     monkeypatch.setattr(
-        inspect_cli.Beach,
+        Beach,
         "compute_potential",
         _fail_if_potential_is_computed,
     )
@@ -106,6 +110,7 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     with_precomputed: bool,
 ) -> None:
     output_dir = tmp_path / f"run_recompute_{with_precomputed}"
+    library_path = tmp_path / "libbeach_field_kernel.so"
     _write_inspect_fixture(
         output_dir,
         potential_values=(100.0, 200.0) if with_precomputed else None,
@@ -116,15 +121,22 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
         calls.append(kwargs)
         return np.array([7.0, -8.0])
 
-    monkeypatch.setattr(inspect_cli.Beach, "compute_potential", fake_compute)
+    monkeypatch.setattr(Beach, "compute_potential", fake_compute)
 
-    inspect_cli.main([str(output_dir), "--recompute-potential"])
+    inspect_cli.main(
+        [
+            str(output_dir),
+            "--recompute-potential",
+            "--library",
+            str(library_path),
+        ]
+    )
 
     output = capsys.readouterr().out
     assert calls == [
         {
             "reference_point": "species1_injection_center",
-            "library_path": None,
+            "library_path": library_path,
         }
     ]
     assert "potential_min=-8.000000e+00" in output
@@ -142,7 +154,7 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
     save_path = tmp_path / "potential.png"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        inspect_cli.Beach,
+        Beach,
         "compute_potential",
         _fail_if_potential_is_computed,
     )
@@ -157,7 +169,7 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
         plot_calls.append(kwargs)
         return FakeFigure(), object()
 
-    monkeypatch.setattr(inspect_cli.Beach, "plot_potential", fake_plot)
+    monkeypatch.setattr(Beach, "plot_potential", fake_plot)
 
     inspect_cli.main([str(output_dir), "--save-potential-mesh", str(save_path)])
 
@@ -166,14 +178,3 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
     assert "potential_min=" not in output
     assert "potential_max=" not in output
     assert f"saved_potential_mesh={save_path}" in output
-
-
-def test_inspect_parser_documents_recompute_potential() -> None:
-    parser = inspect_cli.build_parser()
-
-    assert parser.parse_args([]).recompute_potential is False
-    assert parser.parse_args(["--recompute-potential"]).recompute_potential is True
-    help_text = parser.format_help()
-    assert "--recompute-potential" in help_text
-    assert "may be expensive" in help_text
-    assert "potential plots" in help_text

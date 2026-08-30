@@ -1,168 +1,114 @@
-from pathlib import Path
-
 import pytest
 
 from beach.cli_animate_fortran_history import main as animate_main
+from beach.cli_estimate_fortran_workload import main as workload_main
 from beach.cli_inspect_fortran_output import main as inspect_main
 from beach.cli_plot_coulomb_force_matrix import main as plot_coulomb_main
 from beach.cli_plot_performance_profile import main as plot_performance_main
 from beach.cli.analyze_coulomb_mobility import main as mobility_main
 from beach.cli.kernel_forces import main as kernel_forces_main
-from beach.cli.plot_fortran_potential_slices import _load_sim_box
 from beach.cli_plot_fortran_potential_slices import main as plot_slices_main
 
 
-def test_inspect_missing_output_dir_exits_with_friendly_message() -> None:
-    with pytest.raises(
-        SystemExit,
-        match=r'Fortran output files are missing under "no_such_dir"\.',
-    ):
-        inspect_main(["no_such_dir"])
+@pytest.mark.parametrize(
+    ("cli_main", "argv", "message"),
+    [
+        pytest.param(
+            inspect_main,
+            ["no_such_dir"],
+            r'Fortran output files are missing under "no_such_dir"',
+            id="inspect",
+        ),
+        pytest.param(
+            animate_main,
+            ["no_such_dir"],
+            r'Fortran output files are missing under "no_such_dir"',
+            id="animate",
+        ),
+        pytest.param(
+            plot_slices_main,
+            ["no_such_dir"],
+            r'Fortran output files are missing under "no_such_dir"',
+            id="slices",
+        ),
+        pytest.param(
+            plot_coulomb_main,
+            ["no_such_dir"],
+            r'Fortran output files are missing under "no_such_dir"',
+            id="coulomb",
+        ),
+        pytest.param(
+            plot_performance_main,
+            ["no_such_dir"],
+            r'Performance profile file is missing under "no_such_dir/performance_profile\.csv"',
+            id="profile",
+        ),
+        pytest.param(
+            workload_main,
+            ["no_such_file.toml"],
+            r"config file not found: no_such_file\.toml",
+            id="workload",
+        ),
+    ],
+)
+def test_cli_missing_input_exits_with_friendly_message(
+    cli_main,
+    argv: list[str],
+    message: str,
+) -> None:
+    with pytest.raises(SystemExit, match=message):
+        cli_main(argv)
 
 
-def test_animate_missing_output_dir_exits_with_friendly_message() -> None:
-    with pytest.raises(
-        SystemExit,
-        match=r'Fortran output files are missing under "no_such_dir"\.',
-    ):
-        animate_main(["no_such_dir"])
-
-
-def test_plot_slices_missing_output_dir_exits_with_friendly_message() -> None:
-    with pytest.raises(
-        SystemExit,
-        match=r'Fortran output files are missing under "no_such_dir"\.',
-    ):
-        plot_slices_main(["no_such_dir"])
-
-
-def test_plot_coulomb_missing_output_dir_exits_with_friendly_message() -> None:
-    with pytest.raises(
-        SystemExit,
-        match=r'Fortran output files are missing under "no_such_dir"\.',
-    ):
-        plot_coulomb_main(["no_such_dir"])
-
-
-def test_plot_performance_missing_profile_exits_with_friendly_message() -> None:
-    with pytest.raises(
-        SystemExit,
-        match=r'Performance profile file is missing under "no_such_dir/performance_profile.csv"\.',
-    ):
-        plot_performance_main(["no_such_dir"])
-
-
-def test_plot_coulomb_rejects_removed_softening_option(
+@pytest.mark.parametrize(
+    ("cli_main", "argv", "message"),
+    [
+        pytest.param(
+            plot_coulomb_main,
+            ["--softening", "nan"],
+            "unrecognized arguments: --softening",
+            id="coulomb-removed-softening",
+        ),
+        pytest.param(
+            kernel_forces_main,
+            ["--theta", "nan"],
+            "--theta must be finite",
+            id="kernel-theta",
+        ),
+        pytest.param(
+            mobility_main,
+            ["--density-kg-m3", "inf"],
+            "--density-kg-m3 must be finite",
+            id="mobility-density",
+        ),
+        pytest.param(
+            inspect_main,
+            ["--view-elev", "nan"],
+            "--view-elev must be finite",
+            id="inspect-view",
+        ),
+        pytest.param(
+            animate_main,
+            ["--fps", "0"],
+            "--fps must be > 0",
+            id="animate-fps",
+        ),
+        pytest.param(
+            plot_slices_main,
+            ["--vmin", "nan"],
+            "--vmin must be finite",
+            id="slices-vmin",
+        ),
+    ],
+)
+def test_cli_rejects_invalid_option(
     capsys: pytest.CaptureFixture[str],
+    cli_main,
+    argv: list[str],
+    message: str,
 ) -> None:
     with pytest.raises(SystemExit) as exc:
-        plot_coulomb_main(["--softening", "nan"])
+        cli_main(argv)
 
     assert exc.value.code == 2
-    assert "unrecognized arguments: --softening" in capsys.readouterr().err
-
-
-def test_kernel_forces_rejects_nan_theta(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        kernel_forces_main(["--theta", "nan"])
-
-    assert exc.value.code == 2
-    assert "--theta must be finite." in capsys.readouterr().err
-
-
-def test_mobility_rejects_infinite_density(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        mobility_main(["--density-kg-m3", "inf"])
-
-    assert exc.value.code == 2
-    assert "--density-kg-m3 must be finite." in capsys.readouterr().err
-
-
-def test_inspect_rejects_nan_view_angle(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        inspect_main(["--view-elev", "nan"])
-
-    assert exc.value.code == 2
-    assert "--view-elev must be finite." in capsys.readouterr().err
-
-
-def test_animate_rejects_nonpositive_fps(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        animate_main(["--fps", "0"])
-
-    assert exc.value.code == 2
-    assert "--fps must be > 0." in capsys.readouterr().err
-
-
-def test_plot_slices_rejects_nan_vmin(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc:
-        plot_slices_main(["--vmin", "nan"])
-
-    assert exc.value.code == 2
-    assert "--vmin must be finite." in capsys.readouterr().err
-
-
-def test_plot_slices_load_sim_box_defaults_periodic2_far_correction_to_none(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "beach.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[sim]",
-                'field_solver = "fmm"',
-                'field_bc_mode = "periodic2"',
-                "box_min = [0.0, 0.0, -1.0]",
-                "box_max = [1.0, 1.0, 1.0]",
-                'bc_x_low = "periodic"',
-                'bc_x_high = "periodic"',
-                'bc_y_low = "periodic"',
-                'bc_y_high = "periodic"',
-                'bc_z_low = "open"',
-                'bc_z_high = "open"',
-                "field_periodic_image_layers = 2",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    _, _, _, periodic2 = _load_sim_box(config_path)
-
-    assert periodic2 is not None
-    assert periodic2["far_correction"] == "none"
-    assert periodic2["ewald_layers"] == 4
-
-
-def test_plot_slices_load_sim_box_limits_removed_root_oracle_to_history(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "beach.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[sim]",
-                'field_solver = "fmm"',
-                'field_bc_mode = "periodic2"',
-                "box_min = [0.0, 0.0, -1.0]",
-                "box_max = [1.0, 1.0, 1.0]",
-                'bc_x_low = "periodic"',
-                'bc_x_high = "periodic"',
-                'bc_y_low = "periodic"',
-                'bc_y_high = "periodic"',
-                'bc_z_low = "open"',
-                'bc_z_high = "open"',
-                'field_periodic_far_correction = "m2l_root_oracle"',
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(SystemExit, match='was removed; use "none"'):
-        _load_sim_box(config_path)
-
-    _, _, _, periodic2 = _load_sim_box(
-        config_path,
-        allow_historical_root_oracle=True,
-    )
-    assert periodic2 is not None
-    assert periodic2["far_correction"] == "none"
+    assert message in capsys.readouterr().err

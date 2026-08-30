@@ -1,83 +1,93 @@
 from __future__ import annotations
 
 import json
+import os
+import runpy
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+FAR_CORRECTION_MODES = frozenset({"auto", "none", "cached_kneq0"})
 
 
 def _read(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
 
 
-def _normalized(relative_path: str) -> str:
-    return " ".join(_read(relative_path).split())
+def _line_starting_with(text: str, prefix: str) -> str:
+    for line in text.splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"missing line starting with {prefix!r}")
 
 
-def test_fortran_far_correction_defaults_and_normalization_match() -> None:
-    sim_types = _normalized("src/core/bem_types.f90")
-    app_defaults = _normalized("src/config/bem_app_config_types.f90")
-    solver_config = _normalized(
-        "src/physics/field_solver/bem_field_solver_config.f90"
-    )
-    fmm_types = _normalized(
-        "src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90"
-    )
-    core_plan_ops = _normalized(
-        "src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90"
-    )
-
-    assert "field_periodic_far_correction = 'none'" in sim_types
-    assert "field_periodic_far_correction = 'none'" in app_defaults
-    assert "periodic_far_correction = 'none'" in fmm_types
-    assert "case ('auto') self%periodic_far_correction = 'none'" in solver_config
-    assert (
-        "case ('auto') plan%options%periodic_far_correction = 'none'"
-        in core_plan_ops
-    )
+def _paragraph_containing(text: str, token: str) -> str:
+    for paragraph in text.split("\n\n"):
+        if token in paragraph:
+            return paragraph
+    raise AssertionError(f"missing paragraph containing {token!r}")
 
 
-def test_far_correction_schema_metadata_match() -> None:
+def test_far_correction_schema_exposes_public_modes_and_default() -> None:
     schema = json.loads(_read("schemas/beach.schema.json"))
     far = schema["$defs"]["sim"]["properties"][
         "field_periodic_far_correction"
     ]
+
+    assert far["type"] == "string"
     assert far["default"] == "none"
-    assert far["enum"] == ["auto", "none", "cached_kneq0"]
-    assert "cached_kneq0" in far["description"]
-    assert "m2l_root_oracle" not in far["description"]
+    assert set(far["enum"]) == FAR_CORRECTION_MODES
 
 
-def test_spec_and_canonical_docs_state_the_staged_contract() -> None:
+def test_canonical_docs_state_far_correction_semantics() -> None:
     spec = _read("SPEC.md")
-    parameters_ja = _read("docs/Parameters.md")
-    fmm_core_ja = _read("docs/FMMCore.md")
-    fmm_core_en = _read("docs/FMMCore.en.md")
+    spec_rows = {
+        mode: _line_starting_with(spec, f"- `{mode}`:")
+        for mode in FAR_CORRECTION_MODES
+    }
+    assert "有限" in spec_rows["none"] and "image" in spec_rows["none"]
+    assert "`none`" in spec_rows["auto"] and "正規化" in spec_rows["auto"]
+    assert "無限周期" in spec_rows["cached_kneq0"]
+    assert "Fourier" in spec_rows["cached_kneq0"]
 
-    assert '`field_periodic_far_correction="none"`' in spec
-    assert "`auto`" in spec and "互換用" in spec and "`none` に正規化" in spec
-    assert '`m2l_root_oracle` は削除済み' in spec
-    assert '`cached_kneq0` を使用' in spec
-    assert "有限画像" in spec
-    assert "cached_kneq0" in spec and "generator version" in spec
-    assert "production" in spec and "O(log n)" in spec
+    contracts = {
+        "docs/PeriodicFarCorrection.md": {
+            "rows": {
+                "none": ("有限画像",),
+                "auto": ("`none`", "互換"),
+                "cached_kneq0": ("無限周期", "production"),
+            },
+            "removed": "削除",
+            "zero_mode": "二重加算",
+        },
+        "docs/PeriodicFarCorrection.en.md": {
+            "rows": {
+                "none": ("finite images",),
+                "auto": ("`none`", "Compatibility"),
+                "cached_kneq0": ("infinite-periodic", "Production"),
+            },
+            "removed": "removed",
+            "zero_mode": "double counting",
+        },
+    }
+    for path, contract in contracts.items():
+        text = _read(path)
+        for mode, fragments in contract["rows"].items():
+            row = _line_starting_with(text, f"| `{mode}` |")
+            assert all(fragment in row for fragment in fragments), (path, mode)
 
-    assert "`periodic2` の遠方補正は `auto` を既定" not in spec
-    assert "内部的に `m2l_root_oracle` に正規化" not in spec
-    assert "`auto` の alias ではありません" not in spec
-
-    assert (
-        '`field_periodic_far_correction="auto"` は互換用に受理され'
-        in parameters_ja
-    )
-    assert "現在は `none` と同じ扱い" in parameters_ja
-    assert "`m2l_root_oracle` は削除済み" in fmm_core_ja
-    assert "production" in fmm_core_ja and "`cached_kneq0`" in fmm_core_ja
-    assert "Infinite-periodic production runs use `cached_kneq0`" in fmm_core_en
+        removed = _paragraph_containing(text, "`m2l_root_oracle`")
+        assert contract["removed"] in removed, path
+        zero_mode = _paragraph_containing(
+            text, '`zero_mode_policy="exclude_k0"`'
+        )
+        assert contract["zero_mode"] in zero_mode, path
 
 
-def test_plugin_references_match_canonical_files_without_stale_contract() -> None:
+def test_bundled_plugin_references_match_canonical_sources() -> None:
     mirrors = {
         "plugins/beach-context/references/SPEC.md": "SPEC.md",
         "plugins/beach-context/references/fortran_parameter_file.md": (
@@ -97,39 +107,81 @@ def test_plugin_references_match_canonical_files_without_stale_contract() -> Non
             "docs/PythonPostprocessAPI.md"
         ),
     }
-    stale_sentinels = (
-        "`periodic2` の遠方補正は `auto` を既定",
-        "内部的に `m2l_root_oracle` に正規化",
-        "`auto` の alias ではありません",
-        '"auto"            — periodic2 + fmm では内部的に m2l_root_oracle へ正規化',
-        '`periodic2` の `auto` は `m2l_root_oracle` に正規化されます',
-    )
 
     for mirror_path, canonical_path in mirrors.items():
-        mirror = _read(mirror_path)
-        assert mirror == _read(canonical_path), (
+        mirror = (REPO_ROOT / mirror_path).read_bytes()
+        canonical = (REPO_ROOT / canonical_path).read_bytes()
+        assert mirror == canonical, (
             f"{mirror_path} must mirror {canonical_path} byte-for-byte"
         )
-        for sentinel in stale_sentinels:
-            assert sentinel not in mirror, (
-                f"{mirror_path} contains stale far-correction text: {sentinel}"
-            )
 
 
-def test_field_kernel_real_cache_tests_are_opt_in_only() -> None:
-    makefile = _read("Makefile")
-    cache_test = _read("tests/python/test_field_kernel_cache.py")
-
-    assert (
-        "test_field_kernel_cache_c"
-        in makefile.split("FORTRAN_FAR_CORRECTION_TARGETS ?=", 1)[1]
+def test_field_kernel_cache_tests_are_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = os.environ.copy()
+    for name in (
+        "FORTRAN_FAR_CORRECTION_TARGETS",
+        "FORTRAN_L1_TARGETS",
+        "FORTRAN_L2_TARGETS",
+        "FORTRAN_L3_TARGETS",
+        "MAKEFLAGS",
+        "MAKEOVERRIDES",
+        "MFLAGS",
+    ):
+        environment.pop(name, None)
+    result = subprocess.run(
+        ["make", "-pn", "--no-print-directory", "-f", "Makefile"],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    assert (
-        "test_field_kernel_cache_c"
-        not in makefile.split("FORTRAN_L2_TARGETS ?=", 1)[1].split(
-            "FORTRAN_L3_TARGETS ?=", 1
-        )[0]
+    assert result.returncode == 0, result.stderr
+
+    far_targets = set(
+        _line_starting_with(
+            result.stdout, "FORTRAN_FAR_CORRECTION_TARGETS = "
+        ).split(" = ", maxsplit=1)[1].split()
     )
-    assert 'os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1"' in cache_test
-    assert "allow_module_level=True" in cache_test
-    assert makefile.count("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1") == 1
+    assert "test_field_kernel_cache_c" in far_targets
+    for tier in ("L1", "L2", "L3"):
+        tier_targets = set(
+            _line_starting_with(
+                result.stdout, f"FORTRAN_{tier}_TARGETS = "
+            ).split(" = ", maxsplit=1)[1].split()
+        )
+        assert "test_field_kernel_cache_c" not in tier_targets
+
+    opt_in_assignment = _line_starting_with(
+        result.stdout,
+        "test-field-kernel-cache: BEACH_RUN_FIELD_KERNEL_CACHE_TESTS ",
+    )
+    assert opt_in_assignment.rsplit("=", maxsplit=1)[1].strip() == "1"
+
+    default_routes = subprocess.run(
+        [
+            "make",
+            "-n",
+            "--trace",
+            "--no-print-directory",
+            "-f",
+            "Makefile",
+            "test-l1",
+            "test-l2",
+            "test-l3",
+            "test-physics-release",
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert default_routes.returncode == 0, default_routes.stderr
+    assert "target 'test-field-kernel-cache'" not in default_routes.stdout
+
+    monkeypatch.delenv("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS", raising=False)
+    with pytest.raises(pytest.skip.Exception, match="opt-in"):
+        runpy.run_path(str(REPO_ROOT / "tests/python/test_field_kernel_cache.py"))

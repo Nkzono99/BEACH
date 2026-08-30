@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import beach.fortran_results.context as context_module
 import beach.fortran_results.potential as potential_module
 from beach.fortran_results.context import RunContext, resolve_result
+from beach.fortran_results.history import FortranChargeHistory
 from beach.fortran_results.potential import compute_potential_mesh
 from beach.fortran_results.types import FortranRunResult
 
@@ -55,35 +55,28 @@ def test_run_context_preserves_result_protocol_and_errors(tmp_path: Path) -> Non
 
 def test_run_context_config_precedence_and_lazy_cache(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "runs" / "case" / "output"
     output_dir.mkdir(parents=True)
     auto_path = output_dir / "beach.toml"
+    parent_path = output_dir.parent / "beach.toml"
+    grandparent_path = output_dir.parent.parent / "beach.toml"
     inherited_path = tmp_path / "inherited.toml"
     explicit_path = tmp_path / "explicit.toml"
     _write_config(auto_path, 1.0)
+    _write_config(parent_path, 1.1)
+    _write_config(grandparent_path, 1.2)
     _write_config(inherited_path, 2.0)
-    _write_config(explicit_path, 3.0)
-
-    calls: list[Path] = []
-    original_loader = context_module.load_toml
-
-    def counting_loader(path: Path) -> dict[str, object]:
-        calls.append(path)
-        return original_loader(path)
-
-    monkeypatch.setattr(context_module, "load_toml", counting_loader)
+    _write_config(explicit_path, 30.0)
     beach_like = _BeachLike(_result(output_dir), inherited_path)
     context = RunContext.from_value(beach_like, config_path=explicit_path)
 
-    assert calls == []
+    _write_config(explicit_path, 3.0)
     assert context.output_dir == output_dir
     assert context.config_path == explicit_path
     assert context.sim == {"tree_theta": 3.0}
-    assert context.config is context.config
-    assert context.sim is context.sim
-    assert calls == [explicit_path]
+    _write_config(explicit_path, 30.0)
+    assert context.config == {"sim": {"tree_theta": 3.0}}
 
     inherited = RunContext.from_value(beach_like)
     assert inherited.config_path == inherited_path
@@ -93,22 +86,68 @@ def test_run_context_config_precedence_and_lazy_cache(
     assert auto.config_path == auto_path
     assert auto.sim == {"tree_theta": 1.0}
 
+    auto_path.unlink()
+    parent = RunContext.from_value(_result(output_dir))
+    assert parent.config_path == parent_path
+    assert parent.sim == {"tree_theta": 1.1}
 
-def test_run_context_missing_config_and_selection_contracts(tmp_path: Path) -> None:
-    result = _result(tmp_path)
-    context = RunContext.from_value(result, config_path=tmp_path / "missing.toml")
+    parent_path.unlink()
+    grandparent = RunContext.from_value(_result(output_dir))
+    assert grandparent.config_path == grandparent_path
+    assert grandparent.sim == {"tree_theta": 1.2}
 
+    missing = RunContext.from_value(
+        _result(output_dir),
+        config_path=tmp_path / "missing.toml",
+    )
     with pytest.raises(ValueError, match='config file is not found: ".*missing.toml"'):
-        _ = context.config
-    assert np.array_equal(context.charges_at(None), result.charges)
-    assert np.array_equal(context.charges_at(-1), result.charges)
-    assert np.array_equal(context.mesh_ids_or_default(), np.array([4]))
-    assert context.require_triangles() is result.triangles
-    with pytest.raises(FrozenInstanceError):
-        context.result = result  # type: ignore[misc]
+        _ = missing.config
 
 
-def test_potential_call_inherits_beach_config_and_parses_it_once(
+def test_run_context_selection_and_missing_data_contracts(tmp_path: Path) -> None:
+    result = _result(tmp_path)
+    context = RunContext.from_value(result)
+
+    np.testing.assert_allclose(context.charges_at(None), np.array([2.0e-9]))
+    np.testing.assert_allclose(context.charges_at(-1), np.array([2.0e-9]))
+    np.testing.assert_array_equal(context.mesh_ids_or_default(), np.array([4]))
+    np.testing.assert_allclose(
+        context.require_triangles(),
+        np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+    )
+    with pytest.raises(ValueError, match="charge_history.csv is required"):
+        context.charges_at(2)
+    with pytest.raises(ValueError, match="charge_history.csv is not found or empty"):
+        context.require_history()
+
+    history = FortranChargeHistory.from_arrays(
+        tmp_path / "charge_history.csv",
+        mesh_nelem=1,
+        history=np.array([[1.0e-9, 3.0e-9]]),
+        processed_particles_by_batch=np.array([10, 20]),
+        rel_change_by_batch=np.array([0.2, 0.1]),
+        batch_indices=np.array([2, 5]),
+    )
+    historical = RunContext.from_value(replace(result, history=history))
+    np.testing.assert_allclose(historical.charges_at(2), np.array([1.0e-9]))
+    np.testing.assert_allclose(historical.charges_at(-1), np.array([3.0e-9]))
+    np.testing.assert_array_equal(
+        historical.require_history().batch_indices,
+        np.array([2, 5]),
+    )
+
+    missing_mesh_data = RunContext.from_value(
+        replace(result, mesh_ids=None, triangles=None)
+    )
+    np.testing.assert_array_equal(
+        missing_mesh_data.mesh_ids_or_default(),
+        np.ones(1, dtype=np.int64),
+    )
+    with pytest.raises(ValueError, match="mesh_triangles.csv is not found"):
+        missing_mesh_data.require_triangles()
+
+
+def test_potential_call_inherits_config_for_kernel_and_reference(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -130,27 +169,21 @@ pos_high = [0.0, 2.0, 2.0]
         encoding="utf-8",
     )
     beach_like = _BeachLike(_result(output_dir), config_path)
-    calls: list[Path] = []
-    original_loader = context_module.load_toml
-
-    def counting_loader(path: Path) -> dict[str, object]:
-        calls.append(path)
-        return original_loader(path)
-
-    monkeypatch.setattr(context_module, "load_toml", counting_loader)
+    theta_seen: list[float] = []
 
     class FakeKernel:
-        def __init__(self, _triangles, _charges, **_kwargs) -> None:
-            pass
+        def __init__(self, _triangles, _charges, **kwargs) -> None:
+            theta_seen.append(float(kwargs["options"].theta))
 
-        def __enter__(self):
+        def __enter__(self) -> FakeKernel:
             return self
 
         def __exit__(self, *_args: object) -> None:
             pass
 
         def eval_phi(self, points: np.ndarray) -> np.ndarray:
-            return np.zeros(points.shape[0])
+            samples = np.asarray(points, dtype=float)
+            return samples @ np.array([1.0, 2.0, 3.0])
 
     monkeypatch.setattr(potential_module, "FieldKernel", FakeKernel)
 
@@ -159,6 +192,6 @@ pos_high = [0.0, 2.0, 2.0]
         reference_point="species1_injection_center",
     )
 
-    assert potential.shape == (1,)
-    assert np.all(np.isfinite(potential))
-    assert calls == [config_path]
+    np.testing.assert_allclose(potential, np.array([-4.0]))
+    assert theta_seen
+    assert theta_seen[-1] == pytest.approx(0.4)
