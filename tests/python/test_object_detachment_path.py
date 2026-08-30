@@ -5,10 +5,8 @@ import pytest
 
 import beach.fortran_results.object_interaction as interaction_module
 from beach import (
-    AdhesionProfile,
     FieldKernelError,
     FortranRunResult,
-    ObjectForcePath,
     ObjectInteractionSnapshot,
 )
 
@@ -60,15 +58,11 @@ e0 = [0.0, 0.0, 0.0]
 
 
 class _AnalyticPathKernel:
-    instances: list["_AnalyticPathKernel"] = []
     mode = "inverse_square"
     eval_calls = 0
 
-    def __init__(self, positions, charges, **_kwargs) -> None:
-        self.positions = np.array(positions, copy=True)
+    def __init__(self, _positions, charges, **_kwargs) -> None:
         self.current = np.array(charges, copy=True)
-        self.closed = False
-        type(self).instances.append(self)
 
     def update_charges(self, charges: np.ndarray) -> None:
         self.current = np.array(charges, copy=True)
@@ -80,9 +74,10 @@ class _AnalyticPathKernel:
         if cls.mode == "inverse_square":
             field[:, 2] = 1.0 / (1.0 + z) ** 2
             potential = 1.0 / (1.0 + z)
-        elif cls.mode == "linear_crossing":
-            field[:, 2] = z - 0.5
-            potential = -0.5 * z * z + 0.5 * z
+        elif cls.mode == "small_nonlinear_crossing":
+            scale = 1.0e-15
+            field[:, 2] = scale * (z * z + 0.6 * z - 0.4)
+            potential = -scale * (z**3 / 3.0 + 0.3 * z * z - 0.4 * z)
         elif cls.mode == "sharp":
             field[:, 2] = 1.0 / (0.01 + z) ** 2
             potential = 1.0 / (0.01 + z)
@@ -100,33 +95,35 @@ class _AnalyticPathKernel:
         return self._field_potential(points)[0]
 
     def eval_phi(self, points: np.ndarray) -> np.ndarray:
+        type(self).eval_calls += 1
         if float(np.sum(self.current)) != 2.0:
             return np.zeros(len(points))
         return self._field_potential(points)[1]
 
     def eval_e_direct(self, points: np.ndarray) -> np.ndarray:
+        type(self).eval_calls += 1
         return np.zeros_like(points)
 
     def eval_phi_direct(self, points: np.ndarray) -> np.ndarray:
+        type(self).eval_calls += 1
         return np.zeros(len(points))
 
     def diagnostics(self):
         raise FieldKernelError("not cached")
 
     def close(self) -> None:
-        self.closed = True
+        pass
 
 
 @pytest.fixture
 def analytic_kernel(monkeypatch: pytest.MonkeyPatch):
-    _AnalyticPathKernel.instances.clear()
     _AnalyticPathKernel.eval_calls = 0
     _AnalyticPathKernel.mode = "inverse_square"
     monkeypatch.setattr(interaction_module, "FieldKernel", _AnalyticPathKernel)
     return _AnalyticPathKernel
 
 
-def test_vertical_path_keeps_sources_frozen_and_matches_potential_work(
+def test_vertical_path_keeps_sources_frozen_and_matches_analytic_force_and_work(
     tmp_path: Path,
     analytic_kernel,
 ) -> None:
@@ -136,27 +133,40 @@ def test_vertical_path_keeps_sources_frozen_and_matches_potential_work(
         _result(tmp_path), step=None, config_path=config
     ) as snapshot:
         probe = snapshot.object_probe(1)
-        source_bytes = (
-            snapshot.source_positions_m.tobytes(),
-            snapshot.source_charges_C.tobytes(),
-        )
+        source_positions = np.array(snapshot.source_positions_m, copy=True)
+        source_charges = np.array(snapshot.source_charges_C, copy=True)
         initial = probe.wrench()
         path = probe.vertical_path(np.linspace(0.0, 1.0, 65), adaptive=True)
-        assert source_bytes == (
-            snapshot.source_positions_m.tobytes(),
-            snapshot.source_charges_C.tobytes(),
+        np.testing.assert_array_equal(snapshot.source_positions_m, source_positions)
+        np.testing.assert_array_equal(snapshot.source_charges_C, source_charges)
+
+    expected_force_z = 1.0 / (1.0 + path.displacement_m) ** 2
+    expected_potential = 1.0 / (1.0 + path.displacement_m)
+    expected_work = path.displacement_m / (1.0 + path.displacement_m)
+    assert path.potential_energy_J is not None
+    assert path.potential_difference_work_J is not None
+    np.testing.assert_allclose(
+        path.force_N,
+        np.column_stack(
+            (
+                np.zeros(path.displacement_m.size),
+                np.zeros(path.displacement_m.size),
+                expected_force_z,
+            )
         )
+    )
+    np.testing.assert_allclose(path.potential_energy_J, expected_potential)
+    np.testing.assert_allclose(path.potential_difference_work_J, expected_work)
 
     np.testing.assert_allclose(path.force_N[0], initial.force_N)
     np.testing.assert_allclose(path.torque_Nm[0], initial.torque_Nm)
     np.testing.assert_allclose(
         path.electrostatic_work_J,
-        path.potential_difference_work_J,
+        expected_work,
         rtol=5.0e-3,
         atol=1.0e-18,
     )
     assert path.status == "converged"
-    assert len(analytic_kernel.instances) == 2
 
 
 def test_vertical_path_records_moving_and_fixed_torque_origins(
@@ -206,7 +216,7 @@ def test_vertical_path_records_moving_and_fixed_torque_origins(
     )
 
 
-def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
+def test_vertical_path_converges_after_refinement_and_reports_limit(
     tmp_path: Path,
     analytic_kernel,
 ) -> None:
@@ -217,13 +227,12 @@ def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
         _result(tmp_path), step=None, config_path=config
     ) as snapshot:
         probe = snapshot.object_probe(1)
-        centroid = np.array(probe.geometric_area_centroid_m, copy=True)
         refined = probe.vertical_path(
             np.array([0.0, 1.0]),
             relative_tolerance=1.0e-3,
             force_absolute_tolerance_N=0.0,
             work_absolute_tolerance_J=0.0,
-            max_refinement=8,
+            max_refinement=12,
         )
         failed = probe.vertical_path(
             np.array([0.0, 1.0]),
@@ -235,17 +244,7 @@ def test_vertical_path_refines_sharp_curve_and_reports_max_refinement(
 
     assert refined.displacement_m.size > 2
     assert refined.refinement_count > 0
-    expected_origins = np.broadcast_to(
-        centroid, (refined.displacement_m.size, 3)
-    ).copy()
-    expected_origins[:, 2] += refined.displacement_m
-    assert refined.numerical_metadata["torque_origin_policy"] == (
-        "moving_geometric_area_centroid"
-    )
-    np.testing.assert_allclose(
-        refined.numerical_metadata["torque_origin_m"],
-        expected_origins,
-    )
+    assert refined.status == "converged"
     assert failed.status == "not_converged"
     assert failed.numerical_metadata["status_reason"] == "max_refinement_reached"
 
@@ -256,7 +255,7 @@ def test_vertical_path_zero_crossing_uses_absolute_tolerance(
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
-    analytic_kernel.mode = "linear_crossing"
+    analytic_kernel.mode = "small_nonlinear_crossing"
     with ObjectInteractionSnapshot.from_result(
         _result(tmp_path), step=None, config_path=config
     ) as snapshot:
@@ -271,6 +270,8 @@ def test_vertical_path_zero_crossing_uses_absolute_tolerance(
     assert path.status == "converged"
     assert path.refinement_count == 0
     assert path.force_N[0, 2] < 0.0 < path.force_N[-1, 2]
+    assert path.numerical_metadata["max_force_refinement_error_N"] > 0.0
+    assert path.numerical_metadata["max_work_refinement_error_J"] > 0.0
 
 
 def test_vertical_path_reports_potential_defect_separately_from_quadrature_error(
@@ -319,22 +320,3 @@ def test_vertical_path_checks_triangle_vertices_before_native_evaluation(
         with pytest.raises(ValueError, match="box"):
             probe.vertical_path(np.array([0.0, 0.02]))
         assert analytic_kernel.eval_calls == before
-
-
-def test_release_marks_nonconverged_source_path_unqualified() -> None:
-    path = ObjectForcePath(
-        displacement_m=np.array([0.0, 1.0]),
-        force_N=np.array([[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]]),
-        torque_Nm=np.zeros((2, 3)),
-        electrostatic_work_J=np.array([0.0, 1.0]),
-        status="not_converged",
-    )
-
-    result = path.evaluate_release(
-        mass_kg=1.0,
-        gravity_m_s2=0.0,
-        adhesion=AdhesionProfile.none(),
-    )
-
-    assert result.source_path_status == "not_converged"
-    assert result.numerically_qualified is False

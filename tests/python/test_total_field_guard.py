@@ -7,11 +7,10 @@ import pytest
 from beach.fortran_results.context import RunContext
 from beach.fortran_results.kernel import (
     FieldKernelOptions,
-    _options_from_result,
     _require_total_field_reconstruction,
+    field_kernel_options_from_result,
 )
 from beach.fortran_results.periodic import Periodic2Config
-from beach.fortran_results.potential import _potential_history
 from beach.fortran_results.types import (
     FieldReconstructionReceipt,
     FortranRunResult,
@@ -67,10 +66,29 @@ def _field_receipt() -> FieldReconstructionReceipt:
     )
 
 
+def _periodic2(*, far_correction: str = "none") -> Periodic2Config:
+    return Periodic2Config(
+        axes=(0, 1),
+        lengths=(1.0, 1.0),
+        origins=(0.0, 0.0),
+        image_layers=1,
+        far_correction=far_correction,
+        ewald_alpha=0.0,
+        ewald_layers=4,
+    )
+
+
+def _write_free_field_config(path: Path) -> None:
+    path.write_text(
+        '[sim]\nfield_solver = "fmm"\n[field_boundary]\nmode = "free"\n',
+        encoding="utf-8",
+    )
+
+
 def test_total_field_guard_requires_config(tmp_path: Path) -> None:
     context = RunContext.from_value(_result(tmp_path))
 
-    with pytest.raises(ValueError, match="requires the run's beach.toml"):
+    with pytest.raises(ValueError, match=r"requires .*beach\.toml"):
         _require_total_field_reconstruction(
             context,
             FieldKernelOptions(),
@@ -78,35 +96,42 @@ def test_total_field_guard_requires_config(tmp_path: Path) -> None:
         )
 
 
-def test_total_field_guard_rejects_cached_kneq0_component(tmp_path: Path) -> None:
-    (tmp_path / "beach.toml").write_text(
-        '[field_boundary]\nmode = "free"\n',
-        encoding="utf-8",
-    )
+@pytest.mark.parametrize(
+    ("options", "match"),
+    [
+        pytest.param(
+            FieldKernelOptions(periodic2=_periodic2(far_correction="cached_kneq0")),
+            "only the k!=0 component",
+            id="cached-component",
+        ),
+        pytest.param(
+            FieldKernelOptions(
+                resolved_field_solver="direct",
+                periodic2=_periodic2(),
+            ),
+            "exact-direct reconstruction.*periodic field plan",
+            id="direct-periodic",
+        ),
+    ],
+)
+def test_total_field_guard_rejects_incomplete_kernel(
+    tmp_path: Path,
+    options: FieldKernelOptions,
+    match: str,
+) -> None:
+    _write_free_field_config(tmp_path / "beach.toml")
     context = RunContext.from_value(_result(tmp_path))
-    periodic2 = Periodic2Config(
-        axes=(0, 1),
-        lengths=(1.0, 1.0),
-        origins=(0.0, 0.0),
-        image_layers=1,
-        far_correction="cached_kneq0",
-        ewald_alpha=0.0,
-        ewald_layers=4,
-    )
 
-    with pytest.raises(ValueError, match="only the k!=0 component"):
+    with pytest.raises(ValueError, match=match):
         _require_total_field_reconstruction(
             context,
-            FieldKernelOptions(periodic2=periodic2),
+            options,
             operation="test operation",
         )
 
 
 def test_total_field_guard_accepts_configured_complete_kernel(tmp_path: Path) -> None:
-    (tmp_path / "beach.toml").write_text(
-        '[field_boundary]\nmode = "free"\n',
-        encoding="utf-8",
-    )
+    _write_free_field_config(tmp_path / "beach.toml")
     context = RunContext.from_value(_result(tmp_path))
 
     _require_total_field_reconstruction(
@@ -152,16 +177,8 @@ def test_total_field_guard_rejects_panel_spectral_receipt(
             FieldKernelOptions(),
             operation="test operation",
         )
-    with pytest.raises(ValueError, match="cannot automatically translate"):
-        _options_from_result(
-            context.result,
-            periodic2=None,
-            theta=None,
-            leaf_max=None,
-            order=4,
-            config_path=None,
-            context=context,
-        )
+    with pytest.raises(ValueError, match="panel_spectral_reference"):
+        field_kernel_options_from_result(context)
 
 
 @pytest.mark.parametrize("explicit", [False, True])
@@ -182,12 +199,8 @@ def test_resolved_receipt_ignores_mismatched_external_config(
     )
     result = _result(tmp_path, field_reconstruction=_field_receipt())
     config_path = config if explicit else None
-    options = _options_from_result(
+    options = field_kernel_options_from_result(
         result,
-        periodic2=None,
-        theta=None,
-        leaf_max=None,
-        order=None,
         config_path=config_path,
     )
 
@@ -208,22 +221,8 @@ def test_resolved_receipt_order_is_default_and_explicit_order_overrides(
     receipt = replace(_field_receipt(), fmm_expansion_order=7)
     result = _result(tmp_path, field_reconstruction=receipt)
 
-    automatic = _options_from_result(
-        result,
-        periodic2=None,
-        theta=None,
-        leaf_max=None,
-        order=None,
-        config_path=None,
-    )
-    explicit = _options_from_result(
-        result,
-        periodic2=None,
-        theta=None,
-        leaf_max=None,
-        order=5,
-        config_path=None,
-    )
+    automatic = field_kernel_options_from_result(result)
+    explicit = field_kernel_options_from_result(result, order=5)
 
     assert automatic.order == 7
     assert explicit.order == 5
@@ -235,14 +234,7 @@ def test_resolved_direct_receipt_routes_to_exact_direct_options(
     receipt = replace(_field_receipt(), resolved_field_solver="direct")
     result = _result(tmp_path, field_reconstruction=receipt)
 
-    options = _options_from_result(
-        result,
-        periodic2=None,
-        theta=None,
-        leaf_max=None,
-        order=4,
-        config_path=None,
-    )
+    options = field_kernel_options_from_result(result)
 
     assert options.resolved_field_solver == "direct"
     assert options.periodic2 is None
@@ -254,27 +246,14 @@ def test_resolved_treecode_receipt_fails_closed(tmp_path: Path) -> None:
         _result(tmp_path, field_reconstruction=receipt)
     )
 
-    with pytest.raises(ValueError, match="resolved treecode backend"):
-        _options_from_result(
-            context.result,
-            periodic2=None,
-            theta=None,
-            leaf_max=None,
-            order=4,
-            config_path=None,
-            context=context,
-        )
-    with pytest.raises(ValueError, match="resolved treecode backend"):
-        _options_from_result(
-            context.result,
+    with pytest.raises(ValueError, match="treecode"):
+        field_kernel_options_from_result(context)
+    with pytest.raises(ValueError, match="treecode"):
+        field_kernel_options_from_result(
+            context,
             periodic2={"axes": (0, 1), "lengths": (1.0, 1.0)},
-            theta=None,
-            leaf_max=None,
-            order=None,
-            config_path=None,
-            context=context,
         )
-    with pytest.raises(ValueError, match="resolved treecode backend"):
+    with pytest.raises(ValueError, match="treecode"):
         _require_total_field_reconstruction(
             context,
             FieldKernelOptions(resolved_field_solver="treecode"),
@@ -300,34 +279,9 @@ def test_legacy_auto_solver_resolves_from_mesh_threshold(
     )
     result = replace(_result(tmp_path), mesh_nelem=mesh_nelem)
 
-    options = _options_from_result(
-        result,
-        periodic2=None,
-        theta=None,
-        leaf_max=None,
-        order=4,
-        config_path=None,
-    )
+    options = field_kernel_options_from_result(result)
 
     assert options.resolved_field_solver == expected
-
-
-def test_total_field_guard_recommends_none_for_explicit_historical_oracle(
-    tmp_path: Path,
-) -> None:
-    config = tmp_path / "historical.toml"
-    config.write_text(
-        '[sim]\nfield_periodic_far_correction = "m2l_root_oracle"\n',
-        encoding="utf-8",
-    )
-    context = RunContext.from_value(_result(tmp_path), config_path=config)
-
-    with pytest.raises(ValueError, match='removed; use "none"'):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(),
-            operation="test operation",
-        )
 
 
 def test_total_field_guard_rejects_legacy_panel_spectral_config(
@@ -349,32 +303,5 @@ def test_total_field_guard_rejects_legacy_panel_spectral_config(
             FieldKernelOptions(),
             operation="test operation",
         )
-    with pytest.raises(ValueError, match="cannot automatically translate"):
-        _options_from_result(
-            context.result,
-            periodic2=None,
-            theta=None,
-            leaf_max=None,
-            order=4,
-            config_path=None,
-            context=context,
-        )
-
-
-def test_potential_history_rejects_cached_component_without_loading_kernel() -> None:
-    periodic2 = Periodic2Config(
-        axes=(0, 1),
-        lengths=(1.0, 1.0),
-        origins=(0.0, 0.0),
-        image_layers=1,
-        far_correction="cached_kneq0",
-        ewald_alpha=0.0,
-        ewald_layers=4,
-    )
-
-    with pytest.raises(ValueError, match="only the k!=0 component"):
-        _potential_history(
-            np.array([[1.0]]),
-            np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
-            field_options=FieldKernelOptions(periodic2=periodic2),
-        )
+    with pytest.raises(ValueError, match="panel_spectral_reference"):
+        field_kernel_options_from_result(context)

@@ -678,6 +678,7 @@ used depend on `source_mode`.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
+| `species_key` | string | `"species_<1-based index>"` | Stable ID used by restart fingerprints and surface-current role references. Omission derives it from definition order; explicit values must be unique across species |
 | `enabled` | bool | `true` | Enable the species |
 | `source_mode` | string | `"volume_seed"` | `volume_seed` / `plane_source` / `photo_raycast` / deprecated `reservoir_face` |
 | `q_particle` | float | `-1.602176634e-19` | Particle charge [C] |

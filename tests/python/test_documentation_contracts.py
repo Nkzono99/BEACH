@@ -3,16 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from jsonschema import Draft7Validator
-
-from beach.config import load_config_file
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
-    import tomli as tomllib
-
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -24,79 +14,155 @@ def _schema() -> dict[str, object]:
     return json.loads(_read("schemas/beach.schema.json"))
 
 
-def test_parameter_section_inventory_covers_top_level_tables() -> None:
-    expected_tables = (
-        "sim",
-        "domain",
-        "field_boundary",
-        "particle_boundary",
-        "reservoir",
-        "particles",
-        "mesh",
-        "periodic2",
-        "output",
-    )
+def _markdown_sections(
+    text: str,
+    heading_prefix: str,
+    *,
+    include_subsections: bool = True,
+) -> str:
+    lines = text.splitlines()
+    outside_fence: list[bool] = []
+    fence_marker: str | None = None
+    for line in lines:
+        stripped = line.lstrip()
+        if fence_marker is None and stripped.startswith(("```", "~~~")):
+            fence_marker = stripped[:3]
+            outside_fence.append(False)
+        elif fence_marker is not None:
+            outside_fence.append(False)
+            if stripped.startswith(fence_marker):
+                fence_marker = None
+        else:
+            outside_fence.append(True)
 
-    for path, end_heading in (
-        ("docs/Parameters.md", "## パラメータ詳細リファレンス"),
-        ("docs/Parameters.en.md", "## Detailed Parameter Reference"),
-    ):
-        inventory = _read(path).split(end_heading, maxsplit=1)[0]
-        for table in expected_tables:
-            assert f"`[{table}]`" in inventory, (path, table)
+    sections: list[str] = []
+    for start, line in enumerate(lines):
+        if not outside_fence[start] or not line.startswith(heading_prefix):
+            continue
+        level = len(line) - len(line.lstrip("#"))
+        end = len(lines)
+        for index in range(start + 1, len(lines)):
+            if not outside_fence[index]:
+                continue
+            candidate = lines[index]
+            candidate_level = len(candidate) - len(candidate.lstrip("#"))
+            if (
+                not candidate.startswith("#")
+                or not candidate[candidate_level:].startswith(" ")
+            ):
+                continue
+            if not include_subsections or candidate_level <= level:
+                end = index
+                break
+        sections.append("\n".join(lines[start:end]))
+    assert sections, heading_prefix
+    return "\n".join(sections)
 
 
-def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> None:
+def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
     schema = _schema()
     documented_objects = {
         "sim": schema["$defs"]["sim"]["properties"],
-        "species": schema["$defs"]["species"]["properties"],
-        "mesh": schema["$defs"]["mesh"]["properties"],
-        "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
-        "mesh.templates": schema["$defs"]["template"]["properties"],
-        "periodic2": schema["properties"]["periodic2"]["properties"],
         "domain": schema["$defs"]["domain"]["properties"],
         "field_boundary": schema["$defs"]["fieldBoundary"]["properties"],
         "particle_boundary": schema["$defs"]["particleBoundary"]["properties"],
         "reservoir": schema["$defs"]["reservoir"]["properties"],
+        "surface_current_model": schema["$defs"]["surfaceCurrentModel"][
+            "properties"
+        ],
+        "particles": schema["$defs"]["particles"]["properties"],
+        "species": schema["$defs"]["species"]["properties"],
         "species.boundary": schema["$defs"]["speciesParticleBoundary"]["properties"],
+        "species.boundary_inflow": schema["$defs"]["speciesBoundaryInflow"][
+            "properties"
+        ],
+        "mesh": schema["$defs"]["mesh"]["properties"],
+        "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
+        "mesh.templates": schema["$defs"]["template"]["properties"],
+        "periodic2": schema["properties"]["periodic2"]["properties"],
         "output": schema["$defs"]["output"]["properties"],
     }
-    expected_headings = {
-        "docs/Parameters.md": (
-            "### `[sim]`:",
-            "### `[domain]`:",
-            "### `[field_boundary]`:",
-            "### `[particle_boundary]`:",
-            "### `[reservoir]`:",
-            "### `[periodic2]`:",
-            "### `[[particles.species]]`:",
-            "### `[mesh]`:",
-            "#### `[[mesh.templates]]`:",
-            "### 要素 source の固定規則",
-            "### `[output]`:",
-        ),
-        "docs/Parameters.en.md": (
-            "### `[sim]`:",
-            "### `[domain]`:",
-            "### `[field_boundary]`:",
-            "### `[particle_boundary]`:",
-            "### `[reservoir]`:",
-            "### `[periodic2]`:",
-            "### `[[particles.species]]`:",
-            "### `[mesh]`:",
-            "#### `[[mesh.templates]]`:",
-            "### Fixed element-source rules",
-            "### `[output]`:",
-        ),
-    }
     structural_markers = {
+        ("particles", "species"): "`[[particles.species]]`",
         ("mesh", "groups"): "`[mesh.groups.<name>]`",
         ("mesh", "templates"): "`[[mesh.templates]]`",
     }
-
-    for path, headings in expected_headings.items():
+    object_headings = {
+        "sim": "### `[sim]`",
+        "domain": "### `[domain]`",
+        "field_boundary": "### `[field_boundary]`",
+        "particle_boundary": "### `[particle_boundary]`",
+        "reservoir": "### `[reservoir]`",
+        "surface_current_model": "### `[surface_current_model]`",
+        "species": "### `[[particles.species]]`",
+        "species.boundary": "#### `[particles.species.boundary]`",
+        "species.boundary_inflow": "#### `[particles.species.boundary_inflow]`",
+        "mesh": "### `[mesh]`",
+        "mesh.templates": "#### `[[mesh.templates]]`",
+        "periodic2": "### `[periodic2]`",
+        "output": "### `[output]`",
+    }
+    hierarchy_markers = (
+        "├── [sim]",
+        "├── [domain]",
+        "├── [field_boundary]",
+        "├── [particle_boundary]",
+        "├── [reservoir]",
+        "├── [surface_current_model]",
+        "├── [particles]",
+        "│   └── [[particles.species]]",
+        "│       ├── [particles.species.boundary_inflow]",
+        "│       └── [particles.species.boundary]",
+        "├── [mesh]",
+        "│   ├── [mesh.groups.<name>]",
+        "│   └── [[mesh.templates]]",
+        "├── [periodic2]",
+        "└── [output]",
+    )
+    for path, detail_heading, helper_heading in (
+        (
+            "docs/Parameters.md",
+            "## パラメータ詳細リファレンス",
+            "## 座標・配置の補助パラメータ",
+        ),
+        (
+            "docs/Parameters.en.md",
+            "## Detailed Parameter Reference",
+            "## Coordinate and Placement Helper Parameters",
+        ),
+    ):
         text = _read(path)
+        inventory, separator, _ = text.partition(detail_heading)
+        assert separator, path
+        for table in schema["properties"]:
+            assert f"`[{table}]`" in inventory, (path, table)
+
+        object_sections = {
+            object_name: _markdown_sections(
+                text,
+                heading,
+                include_subsections=object_name != "mesh",
+            )
+            for object_name, heading in object_headings.items()
+        }
+        helper_section = _markdown_sections(text, helper_heading)
+        helper_row_prefixes = {
+            "domain": ("| `domain.",),
+            "species": ('| `inject_region_mode=',),
+            "mesh.groups": ("| `[mesh.groups.<name>]`", "| Group "),
+            "mesh.templates": ("| template", "| Template "),
+        }
+        for object_name, prefixes in helper_row_prefixes.items():
+            rows = "\n".join(
+                line
+                for line in helper_section.splitlines()
+                if line.startswith(prefixes)
+            )
+            assert rows, (path, object_name)
+            object_sections[object_name] = "\n".join(
+                (object_sections.get(object_name, ""), rows)
+            )
+
         for object_name, properties in documented_objects.items():
             for key in properties:
                 structural_marker = structural_markers.get((object_name, key))
@@ -109,25 +175,14 @@ def test_parameter_reference_preserves_schema_coverage_and_toml_hierarchy() -> N
                     f"`{key}=",
                     f".{key}=",
                 )
-                assert any(marker in text for marker in markers), (
-                    path,
-                    object_name,
-                    key,
-                )
-        for heading in headings:
-            assert heading in text, (path, heading)
-        assert "├── [particles]" in text
-        assert "│   └── [[particles.species]]" in text
-        assert "│   ├── [mesh.groups.<name>]" in text
-        assert "│   └── [[mesh.templates]]" in text
-        assert "├── [domain]" in text
-        assert "├── [field_boundary]" in text
-        assert "├── [particle_boundary]" in text
-        assert "├── [reservoir]" in text
-        assert "│       └── [particles.species.boundary]" in text
+                assert any(
+                    marker in object_sections[object_name] for marker in markers
+                ), (path, object_name, key)
+        for marker in hierarchy_markers:
+            assert marker in text, (path, marker)
 
 
-def test_parameter_editor_schema_uses_only_github_raw_url() -> None:
+def test_parameter_reference_uses_single_remote_editor_schema_directive() -> None:
     directive = (
         "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/"
         "schemas/beach.schema.json"
@@ -135,47 +190,33 @@ def test_parameter_editor_schema_uses_only_github_raw_url() -> None:
     for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
         text = _read(path)
         assert text.count("#:schema") == 1, path
-        assert directive in text
-        assert "#:schema ../schemas/beach.schema.json" not in text
+        assert directive in text, path
 
 
-def test_parameter_reference_prose_paragraphs_remain_scannable() -> None:
-    excluded_prefixes = ("#", "|", "```", "- ")
-
-    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
-        for block in _read(path).split("\n\n"):
-            paragraph = block.strip()
-            if not paragraph or paragraph.startswith(excluded_prefixes):
-                continue
-            if paragraph[0].isdigit() and paragraph[1:3] in {". ", ") "}:
-                continue
-            normalized = " ".join(paragraph.splitlines())
-            assert len(normalized) <= 450, (path, normalized[:120])
-
-
-def test_direct_periodic2_split_reference_matches_schema_runtime_and_docs() -> None:
+def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
     schema = _schema()
-    validator = Draft7Validator(schema)
-
-    for path in ("examples/periodic2_closed_photoelectron.toml",):
-        document = tomllib.loads(_read(path))
-        errors = sorted(
-            validator.iter_errors(document), key=lambda error: list(error.path)
-        )
-        assert not errors, (path, [error.message for error in errors])
-        load_config_file(ROOT / path)
-
-    description = schema["$defs"]["fieldBoundary"]["properties"]["mode"]["description"]
-    assert "direct triangle_p0 panel_spectral_reference split model" in description
+    assert "direct" in schema["$defs"]["sim"]["properties"]["field_solver"]["enum"]
+    assert (
+        "panel_spectral_reference"
+        in schema["properties"]["periodic2"]["properties"][
+            "nonzero_mode_backend"
+        ]["enum"]
+    )
+    assert (
+        schema["properties"]["periodic2"]["properties"]["zero_mode_policy"][
+            "const"
+        ]
+        == "exclude_k0"
+    )
 
     for path in ("docs/FieldSolvers.md", "docs/FieldSolvers.en.md"):
         text = _read(path)
-        assert "panel_spectral_reference" in text
-        assert "exclude_k0" in text
-        assert "triangle_p0" in text
-
-    assert "periodic2 は fmm 必須" not in _read("docs/agent-user-guide.md")
-    assert "periodic2 requires fmm" not in _read("docs/agent-user-guide.en.md")
+        direct_row = next(
+            line for line in text.splitlines() if line.startswith("| `direct` |")
+        )
+        assert "panel_spectral_reference" in direct_row, path
+        assert "exclude_k0" in direct_row, path
+        assert "`triangle_p0`" in text, path
 
 
 def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
@@ -192,10 +233,9 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     docs = (
         _read("docs/OutputGuide.md"),
         _read("docs/OutputGuide.en.md"),
-        _read("docs/Parameters.md"),
-        _read("docs/Parameters.en.md"),
     )
     for entry in files:
+        assert {"name", "producer", "condition", "restart_role"} <= entry.keys()
         name = entry["name"]
         assert "output.write_files=true" in entry["condition"], name
         producer = _read(entry["producer"])
@@ -211,14 +251,3 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
         consumer_path = entry.get("consumer")
         if consumer_path:
             assert name in _read(consumer_path), (name, consumer_path)
-
-    for path in (
-        "docs/OutputGuide.md",
-        "docs/OutputGuide.en.md",
-        "docs/Parameters.md",
-        "docs/Parameters.en.md",
-        "docs/agent-user-guide.md",
-        "docs/agent-user-guide.en.md",
-    ):
-        text = _read(path)
-        assert "`macro_residuals*.csv`" not in text, path

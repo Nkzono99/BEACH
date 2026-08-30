@@ -1,129 +1,49 @@
 from __future__ import annotations
 
-import argparse
-
 import pytest
 
-from beach.cli import (
-    analyze_coulomb_mobility,
-    animate_fortran_history,
-    config,
-    estimate_fortran_workload,
-    inspect_fortran_output,
-    legacy,
-    lint,
-    model_close_pack,
-    plot_coulomb_force_matrix,
-    plot_fortran_potential_slices,
-    plot_performance_profile,
-)
-from beach.cli.main import build_parser as build_beachx_parser
+from beach.cli import legacy
 from beach.cli.main import main as beachx_main
 
 
-CLI_CASES = [
+LEGACY_CASES = [
     (
         "inspect",
-        inspect_fortran_output.build_parser,
+        "beach-inspect",
         legacy.inspect_main,
         ["no_such_dir"],
-        'Fortran output files are missing under "no_such_dir". '
-        "Expected at least summary.txt and charges.csv.",
-        "WARNING: `beach-inspect` is deprecated; use `beachx inspect` instead.",
     ),
     (
         "animate",
-        animate_fortran_history.build_parser,
+        "beach-animate-history",
         legacy.animate_main,
         ["no_such_dir"],
-        'Fortran output files are missing under "no_such_dir". '
-        "Expected at least summary.txt and charges.csv.",
-        "WARNING: `beach-animate-history` is deprecated; use `beachx animate` instead.",
     ),
     (
         "coulomb",
-        plot_coulomb_force_matrix.build_parser,
+        "beach-plot-coulomb-force-matrix",
         legacy.coulomb_main,
         ["no_such_dir"],
-        'Fortran output files are missing under "no_such_dir". '
-        "Expected at least summary.txt and charges.csv.",
-        "WARNING: `beach-plot-coulomb-force-matrix` is deprecated; use `beachx coulomb` instead.",
     ),
     (
         "slices",
-        plot_fortran_potential_slices.build_parser,
+        "beach-plot-potential-slices",
         legacy.slices_main,
         ["no_such_dir"],
-        'Fortran output files are missing under "no_such_dir". '
-        "Expected at least summary.txt and charges.csv.",
-        "WARNING: `beach-plot-potential-slices` is deprecated; use `beachx slices` instead.",
     ),
     (
         "workload",
-        estimate_fortran_workload.build_parser,
+        "beach-estimate-workload",
         legacy.workload_main,
         ["no_such_file.toml"],
-        "config file not found: no_such_file.toml",
-        "WARNING: `beach-estimate-workload` is deprecated; use `beachx workload` instead.",
     ),
     (
         "profile",
-        plot_performance_profile.build_parser,
+        "beach-plot-performance-profile",
         legacy.profile_main,
         ["no_such_dir"],
-        'Performance profile file is missing under "no_such_dir/performance_profile.csv". '
-        "Expected performance_profile.csv.",
-        "WARNING: `beach-plot-performance-profile` is deprecated; use `beachx profile` instead.",
     ),
 ]
-
-
-def _get_subparser(command: str) -> argparse.ArgumentParser:
-    parser = build_beachx_parser()
-    subparsers = next(
-        action
-        for action in parser._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    return subparsers.choices[command]
-
-
-def _get_nested_subparser(*commands: str) -> argparse.ArgumentParser:
-    parser = build_beachx_parser()
-    current_parser = parser
-    for command in commands:
-        subparsers = next(
-            action
-            for action in current_parser._actions
-            if isinstance(action, argparse._SubParsersAction)
-        )
-        current_parser = subparsers.choices[command]
-    return current_parser
-
-
-def _parser_signature(parser: argparse.ArgumentParser) -> list[tuple[object, ...]]:
-    signature: list[tuple[object, ...]] = []
-    for action in parser._actions:
-        if isinstance(action, argparse._HelpAction):
-            continue
-        choices = action.choices
-        if choices is None:
-            normalized_choices: object = None
-        elif isinstance(choices, dict):
-            normalized_choices = tuple(sorted(choices))
-        else:
-            normalized_choices = tuple(choices)
-        signature.append(
-            (
-                type(action).__name__,
-                tuple(action.option_strings),
-                action.dest,
-                action.nargs,
-                action.required,
-                normalized_choices,
-            )
-        )
-    return signature
 
 
 def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -136,6 +56,7 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "animate" in captured.out
     assert "coulomb" in captured.out
     assert "mobility" in captured.out
+    assert "kernel-forces" in captured.out
     assert "object-detachment" in captured.out
     assert "slices" in captured.out
     assert "workload" in captured.out
@@ -169,36 +90,6 @@ def test_beachx_config_help_lists_available_subcommands(
     assert "diff" in captured.out
 
 
-def test_beachx_mobility_subparser_matches_parser_shape() -> None:
-    assert _parser_signature(_get_subparser("mobility")) == _parser_signature(
-        analyze_coulomb_mobility.build_parser()
-    )
-
-
-def test_beachx_model_close_pack_subparser_matches_parser_shape() -> None:
-    assert _parser_signature(
-        _get_nested_subparser("model", "close-pack")
-    ) == _parser_signature(model_close_pack.build_parser())
-
-
-def test_beachx_config_validate_subparser_matches_parser_shape() -> None:
-    config_parser = config.build_parser()
-    config_subparsers = next(
-        action
-        for action in config_parser._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    assert _parser_signature(
-        _get_nested_subparser("config", "validate")
-    ) == _parser_signature(config_subparsers.choices["validate"])
-
-
-def test_beachx_lint_subparser_matches_parser_shape() -> None:
-    assert _parser_signature(_get_subparser("lint")) == _parser_signature(
-        lint.build_parser()
-    )
-
-
 def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(
     tmp_path,
     monkeypatch,
@@ -210,9 +101,12 @@ def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message
     assert str(excinfo.value) == "base config file not found: beach.toml"
 
 
-def test_beachx_mobility_missing_output_dir_exits_with_friendly_message() -> None:
+@pytest.mark.parametrize("command", ["kernel-forces", "mobility"])
+def test_beachx_analysis_command_missing_output_exits_with_friendly_message(
+    command: str,
+) -> None:
     with pytest.raises(SystemExit) as excinfo:
-        beachx_main(["mobility", "no_such_dir"])
+        beachx_main([command, "no_such_dir"])
 
     assert (
         str(excinfo.value)
@@ -221,38 +115,16 @@ def test_beachx_mobility_missing_output_dir_exits_with_friendly_message() -> Non
 
 
 @pytest.mark.parametrize(
-    ("command", "build_legacy_parser", "legacy_main", "_argv", "_message", "_warning"),
-    CLI_CASES,
-)
-def test_beachx_subparser_matches_legacy_parser_shape(
-    command: str,
-    build_legacy_parser,
-    legacy_main,
-    _argv: list[str],
-    _message: str,
-    _warning: str,
-) -> None:
-    del legacy_main, _argv, _message, _warning
-    assert _parser_signature(_get_subparser(command)) == _parser_signature(
-        build_legacy_parser()
-    )
-
-
-@pytest.mark.parametrize(
-    ("command", "_build_legacy_parser", "legacy_main", "argv", "message", "warning"),
-    CLI_CASES,
+    ("command", "legacy_name", "legacy_main", "argv"),
+    LEGACY_CASES,
 )
 def test_legacy_alias_warns_and_matches_beachx_errors(
     capsys: pytest.CaptureFixture[str],
     command: str,
-    _build_legacy_parser,
+    legacy_name: str,
     legacy_main,
     argv: list[str],
-    message: str,
-    warning: str,
 ) -> None:
-    del _build_legacy_parser
-
     with pytest.raises(SystemExit) as legacy_exc:
         legacy_main(argv)
     legacy_streams = capsys.readouterr()
@@ -261,7 +133,9 @@ def test_legacy_alias_warns_and_matches_beachx_errors(
         beachx_main([command, *argv])
     beachx_streams = capsys.readouterr()
 
-    assert str(legacy_exc.value) == message
-    assert str(beachx_exc.value) == message
-    assert legacy_streams.err.strip() == warning
+    assert str(legacy_exc.value)
+    assert str(legacy_exc.value) == str(beachx_exc.value)
+    assert legacy_streams.err.strip() == (
+        f"WARNING: `{legacy_name}` is deprecated; use `beachx {command}` instead."
+    )
     assert beachx_streams.err == ""

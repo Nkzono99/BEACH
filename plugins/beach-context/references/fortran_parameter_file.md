@@ -158,7 +158,10 @@ beach.toml
 `multiple_box_events_soft_discard_count_grace` を $G$、
 `multiple_box_events_soft_discard_fraction_limit` を $f_{\mathrm{limit}}$ とすると、
 $D>G$ かつ $D/P>f_{\mathrm{limit}}$ で停止します。いずれの閾値も等値なら許容します。
-累積絶対 macro charge の上限はこの率判定とは独立で、超過すれば停止します。`summary.txt` と checkpoint では
+
+累積絶対 macro charge の上限はこの率判定とは独立で、超過すれば停止します。
+
+`summary.txt` と checkpoint では
 `multiple_box_events_soft_discarded`、`multiple_box_events_soft_discard_fraction`、
 `multiple_box_events_soft_discarded_abs_charge_C` を監査してください。絶対電荷上限は物理的な誤差 budget です。
 累積率は後半の burst を希釈しうるため、batch ごとの集約 log も併せて確認します。
@@ -644,6 +647,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
+| `species_key` | string | `"species_<1-based index>"` | 再開fingerprintとsurface-current role参照に使う安定ID。省略時は定義順から生成し、明示値は粒子種間で一意 |
 | `enabled` | bool | `true` | 種を有効化 |
 | `source_mode` | string | `"volume_seed"` | `volume_seed` / `plane_source` / `photo_raycast` / deprecated `reservoir_face` |
 | `q_particle` | float | `-1.602176634e-19` | 粒子電荷 [C] |

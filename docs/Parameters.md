@@ -647,6 +647,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
+| `species_key` | string | `"species_<1-based index>"` | 再開fingerprintとsurface-current role参照に使う安定ID。省略時は定義順から生成し、明示値は粒子種間で一意 |
 | `enabled` | bool | `true` | 種を有効化 |
 | `source_mode` | string | `"volume_seed"` | `volume_seed` / `plane_source` / `photo_raycast` / deprecated `reservoir_face` |
 | `q_particle` | float | `-1.602176634e-19` | 粒子電荷 [C] |

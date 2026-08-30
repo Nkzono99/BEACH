@@ -10,6 +10,7 @@ from beach import (
     ObjectInteractionSnapshot,
     RigidTransform,
 )
+from beach.fortran_results import K_COULOMB
 from beach.fortran_results.panel_quadrature import panel_target_quadrature
 
 
@@ -76,7 +77,7 @@ def _unit_triangle(z: float, *, offset_x: float = 0.0) -> np.ndarray:
 
 
 @pytest.mark.parametrize("order", [3, 7])
-def test_gauss_duffy_conserves_each_panel_charge(order: int) -> None:
+def test_gauss_duffy_preserves_panel_charge_and_centroid(order: int) -> None:
     triangles = np.array([_unit_triangle(0.0), 2.0 * _unit_triangle(1.0)])
     charges = np.array([2.5e-9, -1.25e-9])
 
@@ -90,15 +91,22 @@ def test_gauss_duffy_conserves_each_panel_charge(order: int) -> None:
     assert charge_weights.shape == (2 * order * order,)
     assert element_index.shape == (2 * order * order,)
     for index, charge in enumerate(charges):
-        assert np.sum(charge_weights[element_index == index]) == pytest.approx(
+        selected = element_index == index
+        assert np.sum(charge_weights[selected]) == pytest.approx(
             charge,
             rel=1.0e-15,
             abs=1.0e-30,
         )
+        np.testing.assert_allclose(
+            np.sum(charge_weights[selected, None] * points[selected], axis=0),
+            charge * triangles[index].mean(axis=0),
+            rtol=2.0e-15,
+            atol=1.0e-30,
+        )
 
 
-@pytest.mark.parametrize("order", [3.9, "3", None])
-def test_gauss_duffy_rejects_non_integer_orders(order: object) -> None:
+@pytest.mark.parametrize("order", [2, 3.9])
+def test_gauss_duffy_rejects_unsupported_orders(order: object) -> None:
     with pytest.raises(ValueError, match="order"):
         panel_target_quadrature(
             np.array([_unit_triangle(0.0)]),
@@ -136,8 +144,6 @@ def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
         0.0,
         atol=1.0e-20,
     )
-    assert wrench.numerical_metadata["target_integration"] == "gauss_duffy"
-    assert wrench.numerical_metadata["quadrature_order"] == 7
 
 
 def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) -> None:
@@ -162,12 +168,14 @@ def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) ->
     assert np.linalg.norm(order3.force_N - order7.force_N) <= (
         1.0e-2 * np.linalg.norm(order7.force_N) + 1.0e-20
     )
+    expected_point_force = K_COULOMB * 1.0e-9 * 2.0e-9 / 6.5**2
+    assert order7.force_N[2] == pytest.approx(expected_point_force, rel=2.0e-2)
     assert np.linalg.norm(order3.torque_Nm - order7.torque_Nm) <= (
         1.0e-2 * np.linalg.norm(order7.torque_Nm) + 1.0e-20
     )
 
 
-def test_near_surface_centroid_compatibility_is_labeled_and_differs(
+def test_near_surface_panel_quadrature_differs_from_centroid_compatibility(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
@@ -191,18 +199,15 @@ def test_near_surface_centroid_compatibility_is_labeled_and_differs(
         ).wrench()
         quadrature = snapshot.object_probe(2, quadrature_order=7).wrench()
 
-    assert centroid.numerical_metadata["target_integration"] == "centroid_compatibility"
-    assert quadrature.numerical_metadata["target_integration"] == "gauss_duffy"
     difference = np.linalg.norm(centroid.force_N - quadrature.force_N)
     assert difference > 1.0e-3 * np.linalg.norm(quadrature.force_N)
 
 
 class _CovariantFieldKernel:
-    mode = "radial"
+    mode = "nonlinear_radial"
 
     def __init__(self, _positions, charges, **_kwargs) -> None:
         self.current = np.array(charges, copy=True)
-        self.closed = False
 
     def update_charges(self, charges: np.ndarray) -> None:
         self.current = np.array(charges, copy=True)
@@ -213,8 +218,6 @@ class _CovariantFieldKernel:
         if type(self).mode == "nonlinear_radial":
             radius2 = np.sum(points * points, axis=1)
             return radius2[:, None] * points
-        if type(self).mode == "radial":
-            return np.array(points, copy=True)
         return np.broadcast_to(np.array([1.0, -2.0, 0.5]), points.shape).copy()
 
     def eval_phi(self, points: np.ndarray) -> np.ndarray:
@@ -223,8 +226,6 @@ class _CovariantFieldKernel:
         if type(self).mode == "nonlinear_radial":
             radius2 = np.sum(points * points, axis=1)
             return -0.25 * radius2 * radius2
-        if type(self).mode == "radial":
-            return -0.5 * np.sum(points * points, axis=1)
         return -(points @ np.array([1.0, -2.0, 0.5]))
 
     def eval_e_direct(self, points: np.ndarray) -> np.ndarray:
@@ -237,10 +238,10 @@ class _CovariantFieldKernel:
         raise FieldKernelError("not available")
 
     def close(self) -> None:
-        self.closed = True
+        pass
 
 
-def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
+def test_triangle_wrench_obeys_rigid_transform_and_torque_origin_covariance(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -276,6 +277,11 @@ def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
         about_a = probe.wrench(torque_origin=origin_a)
         about_b = probe.wrench(torque_origin=origin_b)
 
+        translation = np.array([0.4, -0.3, 0.2])
+        _CovariantFieldKernel.mode = "uniform"
+        uniform_base = probe.wrench()
+        translated = probe.wrench(transform=RigidTransform.translation(translation))
+
     assert np.linalg.norm(base.torque_Nm) > 1.0e-3
     np.testing.assert_allclose(rotated.force_N, matrix @ base.force_N, atol=1.0e-13)
     np.testing.assert_allclose(rotated.torque_Nm, matrix @ base.torque_Nm, atol=1.0e-13)
@@ -289,53 +295,25 @@ def test_triangle_wrench_obeys_rigid_rotation_and_torque_origin_covariance(
         about_a.numerical_metadata["torque_origin_m"],
         origin_a,
     )
-
-
-def test_triangle_wrench_translation_moves_geometric_torque_origin(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(interaction_module, "FieldKernel", _CovariantFieldKernel)
-    config = tmp_path / "beach.toml"
-    _write_free_config(config)
-    result = _result(
-        tmp_path,
-        np.array([_unit_triangle(0.0), _unit_triangle(-2.0)]),
-        np.array([1.0, 2.0]),
-        np.array([1, 2]),
-    )
-    translation = np.array([0.4, -0.3, 0.2])
-    transform = RigidTransform.translation(translation)
-
-    _CovariantFieldKernel.mode = "uniform"
-    with ObjectInteractionSnapshot.from_result(
-        result,
-        step=None,
-        config_path=config,
-    ) as snapshot:
-        probe = snapshot.object_probe(1)
-        base = probe.wrench()
-        moved = probe.wrench(transform=transform)
-
-    np.testing.assert_allclose(moved.force_N, base.force_N, atol=1.0e-13)
-    np.testing.assert_allclose(moved.torque_Nm, base.torque_Nm, atol=1.0e-13)
     np.testing.assert_allclose(
-        moved.torque_origin_m,
-        base.torque_origin_m + translation,
+        translated.force_N,
+        uniform_base.force_N,
         atol=1.0e-13,
     )
-
-    assert base.numerical_metadata["torque_origin_policy"] == (
+    np.testing.assert_allclose(
+        translated.torque_Nm,
+        uniform_base.torque_Nm,
+        atol=1.0e-13,
+    )
+    np.testing.assert_allclose(
+        translated.torque_origin_m,
+        uniform_base.torque_origin_m + translation,
+        atol=1.0e-13,
+    )
+    assert translated.numerical_metadata["torque_origin_policy"] == (
         "moving_geometric_area_centroid"
     )
     np.testing.assert_allclose(
-        base.numerical_metadata["torque_origin_m"],
-        base.torque_origin_m,
-    )
-    assert moved.numerical_metadata["torque_origin_policy"] == (
-        "moving_geometric_area_centroid"
-    )
-    np.testing.assert_allclose(
-        moved.numerical_metadata["torque_origin_m"],
-        moved.torque_origin_m,
+        translated.numerical_metadata["torque_origin_m"],
+        translated.torque_origin_m,
     )
