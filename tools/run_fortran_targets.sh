@@ -54,7 +54,8 @@ elapsed_seconds() {
 for target in "$@"; do
   echo "==> fpm $action ${target_options[*]} $target (profile=$profile)"
   start_ns="$(date +%s%N)"
-  if "$build_sh" "${target_options[@]}" "$target"; then
+  if FPM_ACTION="$action" FPM_PROFILE="$profile" \
+    "$build_sh" "${target_options[@]}" "$target"; then
     end_ns="$(date +%s%N)"
     record_timing "$target" passed "$(elapsed_seconds "$start_ns" "$end_ns")"
   else
