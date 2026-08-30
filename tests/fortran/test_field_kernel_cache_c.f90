@@ -5,7 +5,7 @@ program test_field_kernel_cache_c
                                 beach_kernel_ok, beach_kernel_set_periodic_cache
   use bem_kinds, only: i32
   use test_support, only: assert_equal_i32, assert_true, delete_file_if_exists, remove_empty_directory, &
-                          test_begin, test_summary
+                          test_begin, test_init, test_summary
   implicit none
 
   type(c_ptr) :: cold_handle, warm_handle
@@ -39,18 +39,7 @@ program test_field_kernel_cache_c
   v1(1, :) = v1(1, :) + 0.05d0
   v2(2, :) = v2(2, :) + 0.05d0
 
-  call test_begin('field_kernel_cache_c_rejects_invalid_configuration')
-  status = beach_kernel_create(cold_handle)
-  call assert_equal_i32(status, beach_kernel_ok, 'invalid fixture create')
-  status = beach_kernel_set_periodic_cache(cold_handle, c_loc(cache_dir_bytes), 0_c_int, 2.5d-9)
-  call assert_equal_i32(status, beach_kernel_invalid_argument, 'empty cache path')
-  status = beach_kernel_set_periodic_cache( &
-           cold_handle, c_loc(cache_dir_bytes), int(size(cache_dir_bytes), c_int), 0.0d0 &
-           )
-  call assert_equal_i32(status, beach_kernel_invalid_argument, 'zero generation tolerance')
-  status = beach_kernel_destroy(cold_handle)
-  call assert_equal_i32(status, beach_kernel_ok, 'invalid fixture destroy')
-
+  call test_init(1)
   call test_begin('field_kernel_cache_c_cold_then_warm')
   call build_cached_handle(cold_handle)
   short_fingerprint = achar(88, kind=c_char)

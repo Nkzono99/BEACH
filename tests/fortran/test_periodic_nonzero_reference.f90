@@ -5,14 +5,13 @@ program test_periodic_nonzero_reference
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_close_dp, assert_allclose_1d, &
                           assert_true
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
-  type(mesh_type) :: mesh, shifted
-  real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3), phi, field(3), shifted_phi, shifted_field(3)
+  type(mesh_type) :: mesh
+  real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), target(3), phi, field(3), periodic_phi, periodic_field(3)
   real(dp), parameter :: total_charge = 2.0e-12_dp
 
-  call test_init(3)
+  call test_init(2)
 
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.0_dp]
   v1(:, 1) = [1.0_dp, 0.0_dp, 0.0_dp]
@@ -29,22 +28,17 @@ program test_periodic_nonzero_reference
   call assert_allclose_1d(field, [0.0_dp, 0.0_dp, 0.0_dp], 2.0e-9_dp, 'uniform sheet nonzero field mismatch')
   call test_end()
 
-  call test_begin('periodic_translation_invariance')
-  call init_mesh(shifted, v0 + spread([1.0_dp, -1.0_dp, 0.0_dp], 2, 2), &
-                 v1 + spread([1.0_dp, -1.0_dp, 0.0_dp], 2, 2), &
-                 v2 + spread([1.0_dp, -1.0_dp, 0.0_dp], 2, 2), q0=mesh%q_elem)
-  call eval_periodic_nonzero_panel_reference( &
-    shifted, target + [1.0_dp, -1.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 5_i32, 20_i32, &
-    shifted_phi, shifted_field &
-    )
-  call assert_close_dp(shifted_phi, phi, 2.0e-12_dp, 'translated potential mismatch')
-  call assert_allclose_1d(shifted_field, field, 2.0e-11_dp, 'translated field mismatch')
-  call test_end()
-
-  call test_begin('nonneutral_panel_reference_is_finite')
+  call test_begin('nonneutral_reference_is_nonzero_and_periodic')
   mesh%q_elem = [total_charge, 0.0_dp]
-  call eval_periodic_nonzero_panel_reference(mesh, target, 1.0_dp, 1.0_dp, 4_i32, 16_i32, phi, field)
-  call assert_true(ieee_is_finite(phi) .and. all(ieee_is_finite(field)), 'nonneutral reference must be finite')
+  call eval_periodic_nonzero_panel_reference(mesh, target, 1.0_dp, 1.0_dp, 5_i32, 20_i32, phi, field)
+  call assert_true(abs(phi) > 1.0e-8_dp, 'fixture must exercise a nonzero-mode potential')
+  call assert_true(maxval(abs(field)) > 1.0e-8_dp, 'fixture must exercise a nonzero-mode field')
+  call eval_periodic_nonzero_panel_reference( &
+    mesh, target + [1.0_dp, -1.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 5_i32, 20_i32, &
+    periodic_phi, periodic_field &
+    )
+  call assert_close_dp(periodic_phi, phi, 2.0e-12_dp, 'periodic potential mismatch')
+  call assert_allclose_1d(periodic_field, field, 2.0e-11_dp, 'periodic field mismatch')
   call test_end()
 
   call test_summary()
