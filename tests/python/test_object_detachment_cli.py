@@ -3,8 +3,9 @@ from __future__ import annotations
 import csv
 import json
 import os
+import sys
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -33,6 +34,24 @@ _PATH_COMPONENTS = (
     "external_uniform",
     "total_external",
 )
+_PATH_BASE_FIELDS = (
+    "displacement_m",
+    "force_x_N",
+    "force_y_N",
+    "force_z_N",
+    "torque_x_Nm",
+    "torque_y_Nm",
+    "torque_z_Nm",
+    "electrostatic_work_J",
+    "potential_energy_J",
+    "potential_difference_work_J",
+    "gravity_work_J",
+    "adhesion_work_J",
+    "available_energy_J",
+    "electrostatic_only_speed_m_s",
+    "gravity_corrected_speed_m_s",
+    "speed_m_s",
+)
 
 
 def _required_args(tmp_path: Path) -> list[str]:
@@ -57,11 +76,42 @@ def _required_args(tmp_path: Path) -> list[str]:
 @pytest.mark.parametrize(
     ("extra", "message"),
     [
-        (["--mass-kg", "0"], "--mass-kg must be > 0"),
-        (["--z-points", "1"], "--z-points must be >= 2"),
-        (["--z-max-m", "0"], "--z-max-m must be > 0"),
-        (["--gravity-m-s2", "-1"], "--gravity-m-s2 must be >= 0"),
-        (["--eta-translation", "1.1"], "--eta-translation must be between 0 and 1"),
+        pytest.param(["--mass-kg", "0"], "--mass-kg must be > 0", id="zero-mass"),
+        pytest.param(
+            ["--mass-kg", "nan"], "--mass-kg must be finite", id="nonfinite-mass"
+        ),
+        pytest.param(["--z-points", "1"], "--z-points must be >= 2", id="one-z-point"),
+        pytest.param(["--z-max-m", "0"], "--z-max-m must be > 0", id="zero-z-extent"),
+        pytest.param(
+            ["--gravity-m-s2", "-1"],
+            "--gravity-m-s2 must be >= 0",
+            id="negative-gravity",
+        ),
+        pytest.param(
+            ["--eta-translation", "1.1"],
+            "--eta-translation must be between 0 and 1",
+            id="eta-above-one",
+        ),
+        pytest.param(
+            ["--max-refinement", "-1"],
+            "--max-refinement must be >= 0",
+            id="negative-refinement",
+        ),
+        pytest.param(
+            ["--relative-tolerance", "-1"],
+            "--relative-tolerance must be >= 0",
+            id="negative-relative-tolerance",
+        ),
+        pytest.param(
+            ["--generation-tolerance", "0"],
+            "--generation-tolerance must be > 0",
+            id="zero-generation-tolerance",
+        ),
+        pytest.param(
+            ["--adhesion-force-n", "0", "--adhesion-range-m", "1"],
+            "--adhesion-force-n must be > 0",
+            id="zero-adhesion-force",
+        ),
     ],
 )
 def test_object_detachment_cli_validates_numeric_contracts(
@@ -258,35 +308,11 @@ def test_object_detachment_cli_writes_deterministic_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    config = tmp_path / "beach.toml"
-    config.write_text("[sim]\n", encoding="utf-8")
-    monkeypatch.setattr(
-        cli_module,
-        "load_fortran_result",
-        lambda _path: _FakeResult(),
-    )
     captured: dict[str, object] = {}
-
-    def fake_snapshot(*_args, **kwargs):
-        captured.update(kwargs)
-        return _FakeSnapshot(step=kwargs["step"])
-
-    monkeypatch.setattr(
-        cli_module.ObjectInteractionSnapshot,
-        "from_result",
-        fake_snapshot,
-    )
-    artifact_dir = tmp_path / "analysis"
+    _install_fake_evaluator(tmp_path, monkeypatch, captured=captured)
+    artifact_dir = run_dir / "object_detachment_mesh_6"
     args = _required_args(tmp_path)
-    args.extend(
-        [
-            "--gravity-m-s2",
-            "0",
-            "--output-dir",
-            str(artifact_dir),
-        ]
-    )
+    args.extend(["--gravity-m-s2", "0"])
 
     beachx_main(args)
 
@@ -301,20 +327,13 @@ def test_object_detachment_cli_writes_deterministic_artifacts(
     path_header = (artifact_dir / "path.csv").read_text(
         encoding="utf-8"
     ).splitlines()[0]
-    assert "potential_difference_work_J" in path_header
-    assert "speed_m_s" in path_header
-    for component in _PATH_COMPONENTS:
-        assert f"{component}_force_z_N" in path_header
-        assert f"{component}_torque_z_Nm" in path_header
     expected_component_fields = [
         f"{component}_{kind}_{axis}_{unit}"
         for component in _PATH_COMPONENTS
         for kind, unit in (("force", "N"), ("torque", "Nm"))
         for axis in ("x", "y", "z")
     ]
-    assert path_header.split(",")[-len(expected_component_fields) :] == (
-        expected_component_fields
-    )
+    assert path_header.split(",") == [*_PATH_BASE_FIELDS, *expected_component_fields]
     with (artifact_dir / "instantaneous_wrench.csv").open(
         encoding="utf-8",
         newline="",
@@ -353,41 +372,34 @@ def test_object_detachment_cli_writes_deterministic_artifacts(
     assert summary["inputs"]["resolved_snapshot_step"] is None
     assert summary["inputs"]["charge_source"] == "charges.csv"
     assert summary["inputs"]["resolved_charge_batch"] == 123
+    assert summary["inputs"]["artifact_dir"] == str(artifact_dir.resolve())
     assert captured["step"] is None
     assert "Numerically qualified: `False`" in (
         artifact_dir / "report.md"
     ).read_text(encoding="utf-8")
 
 
-def test_object_detachment_cli_forwards_model_step_and_path_options(
+def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    (tmp_path / "run").mkdir()
-    (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
     captured: dict[str, object] = {}
-
-    def fake_snapshot(*_args, **kwargs):
-        captured.update(kwargs)
-        return _FakeSnapshot(step=kwargs["step"])
-
-    monkeypatch.setattr(
-        cli_module,
-        "load_fortran_result",
-        lambda _path: _FakeResult(),
-    )
-    monkeypatch.setattr(
-        cli_module.ObjectInteractionSnapshot,
-        "from_result",
-        fake_snapshot,
-    )
+    _install_fake_evaluator(tmp_path, monkeypatch, captured=captured)
     artifact_dir = tmp_path / "analysis"
+    cache_dir = tmp_path / "periodic-cache"
+    library = tmp_path / "libbeach_field_kernel.so"
     args = _required_args(tmp_path)
     args[args.index("configured")] = "infinite-physical"
     args.extend(
         [
             "--step",
             "17",
+            "--cache-dir",
+            str(cache_dir),
+            "--library",
+            str(library),
+            "--generation-tolerance",
+            "1e-7",
             "--fixed-grid",
             "--relative-tolerance",
             "0.02",
@@ -399,6 +411,10 @@ def test_object_detachment_cli_forwards_model_step_and_path_options(
             "5",
             "--torque-origin",
             "1,2,3",
+            "--adhesion-force-n",
+            "0.25",
+            "--adhesion-range-m",
+            "0.1",
             "--output-dir",
             str(artifact_dir),
         ]
@@ -408,6 +424,10 @@ def test_object_detachment_cli_forwards_model_step_and_path_options(
 
     assert captured["periodic_model"] == "infinite_physical"
     assert captured["step"] == 17
+    assert captured["config_path"] == tmp_path / "beach.toml"
+    assert captured["cache_dir"] == cache_dir
+    assert captured["generation_tolerance"] == pytest.approx(1.0e-7)
+    assert captured["library_path"] == library
     np.testing.assert_allclose(
         _FakeProbe.last_wrench_kwargs["torque_origin"],
         [1.0, 2.0, 3.0],
@@ -427,6 +447,17 @@ def test_object_detachment_cli_forwards_model_step_and_path_options(
     assert summary["inputs"]["resolved_snapshot_step"] == 17
     assert summary["inputs"]["charge_source"] == "charge_history.csv"
     assert summary["inputs"]["resolved_charge_batch"] == 17
+    assert summary["adhesion"] == {
+        "kind": "finite_range_constant",
+        "force_N": 0.25,
+        "range_m": 0.1,
+    }
+    assert summary["configuration"]["cache_dir_override"] == str(
+        cache_dir.resolve()
+    )
+    assert summary["configuration"]["generation_tolerance_override"] == pytest.approx(
+        1.0e-7
+    )
 
 
 def test_object_detachment_cli_rejects_ambiguous_step_word(
@@ -456,17 +487,10 @@ def test_object_detachment_cli_resolves_minus_one_charge_provenance(
     expected_source: str,
     expected_batch: int,
 ) -> None:
-    (tmp_path / "run").mkdir()
-    (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
-    monkeypatch.setattr(
-        cli_module,
-        "load_fortran_result",
-        lambda _path: _FakeResult(history=history),
-    )
-    monkeypatch.setattr(
-        cli_module.ObjectInteractionSnapshot,
-        "from_result",
-        lambda *_args, **kwargs: _FakeSnapshot(step=kwargs["step"]),
+    _install_fake_evaluator(
+        tmp_path,
+        monkeypatch,
+        result=_FakeResult(history=history),
     )
     artifact_dir = tmp_path / "analysis"
     args = _required_args(tmp_path) + [
@@ -488,18 +512,28 @@ def test_object_detachment_cli_resolves_minus_one_charge_provenance(
 def _install_fake_evaluator(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    result: _FakeResult | None = None,
+    captured: dict[str, object] | None = None,
 ) -> None:
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
+    resolved_result = _FakeResult() if result is None else result
     monkeypatch.setattr(
         cli_module,
         "load_fortran_result",
-        lambda _path: _FakeResult(),
+        lambda _path: resolved_result,
     )
+
+    def fake_snapshot(*_args, **kwargs):
+        if captured is not None:
+            captured.update(kwargs)
+        return _FakeSnapshot(step=kwargs["step"])
+
     monkeypatch.setattr(
         cli_module.ObjectInteractionSnapshot,
         "from_result",
-        lambda *_args, **kwargs: _FakeSnapshot(step=kwargs["step"]),
+        fake_snapshot,
     )
 
 
@@ -512,11 +546,15 @@ def test_object_detachment_strict_json_failure_preserves_existing_artifacts(
     artifact_dir.mkdir()
     for name in _ARTIFACT_NAMES:
         (artifact_dir / name).write_text(f"old:{name}\n", encoding="utf-8")
-    monkeypatch.setattr(
-        cli_module,
-        "_build_summary",
-        lambda **_kwargs: {"nonfinite": float("nan")},
-    )
+    real_wrench = _FakeProbe.wrench
+
+    def nonfinite_wrench(probe: _FakeProbe, **kwargs) -> ObjectWrench:
+        wrench = real_wrench(probe, **kwargs)
+        metadata = dict(wrench.numerical_metadata)
+        metadata["nonfinite"] = float("nan")
+        return replace(wrench, numerical_metadata=metadata)
+
+    monkeypatch.setattr(_FakeProbe, "wrench", nonfinite_wrench)
     args = _required_args(tmp_path) + ["--output-dir", str(artifact_dir)]
 
     with pytest.raises(ValueError, match="non-finite"):
@@ -527,15 +565,26 @@ def test_object_detachment_strict_json_failure_preserves_existing_artifacts(
     assert {path.name for path in artifact_dir.iterdir()} == set(_ARTIFACT_NAMES)
 
 
+@pytest.mark.parametrize(
+    "preexisting",
+    [
+        pytest.param(True, id="existing-set"),
+        pytest.param(False, id="new-set"),
+    ],
+)
 def test_object_detachment_replace_failure_rolls_back_artifact_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    preexisting: bool,
 ) -> None:
     _install_fake_evaluator(tmp_path, monkeypatch)
     artifact_dir = tmp_path / "analysis"
     artifact_dir.mkdir()
-    for name in _ARTIFACT_NAMES:
-        (artifact_dir / name).write_text(f"old:{name}\n", encoding="utf-8")
+    expected = (
+        {name: f"old:{name}\n" for name in _ARTIFACT_NAMES} if preexisting else {}
+    )
+    for name, content in expected.items():
+        (artifact_dir / name).write_text(content, encoding="utf-8")
     real_replace = os.replace
     replace_count = 0
 
@@ -552,9 +601,10 @@ def test_object_detachment_replace_failure_rolls_back_artifact_set(
     with pytest.raises(OSError, match="injected replace failure"):
         beachx_main(args)
 
-    for name in _ARTIFACT_NAMES:
-        assert (artifact_dir / name).read_text(encoding="utf-8") == f"old:{name}\n"
-    assert {path.name for path in artifact_dir.iterdir()} == set(_ARTIFACT_NAMES)
+    actual = {
+        path.name: path.read_text(encoding="utf-8") for path in artifact_dir.iterdir()
+    }
+    assert actual == expected
 
 
 def _simple_path(force_z: float) -> ObjectForcePath:
@@ -598,37 +648,57 @@ def test_example_shell_summary_names_closure_raw_corrected_and_errors() -> None:
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    ("extra", "message"),
     [
-        {"eta_translation": 1.1},
-        {"gravity_m_s2": -1.0},
-        {"shell_max_layers": -1},
+        pytest.param(
+            ["--eta-translation", "1.1"],
+            "eta_translation must be finite and between 0 and 1",
+            id="eta-above-one",
+        ),
+        pytest.param(
+            ["--gravity-m-s2", "-1"],
+            "gravity_m_s2 must be finite and non-negative",
+            id="negative-gravity",
+        ),
+        pytest.param(
+            ["--shell-max-layers", "-1"],
+            "shell_max_layers must be non-negative",
+            id="negative-shell-count",
+        ),
     ],
 )
 def test_example_validates_inputs_before_constructing_beach(
     monkeypatch: pytest.MonkeyPatch,
-    overrides: dict[str, object],
+    extra: list[str],
+    message: str,
 ) -> None:
-    values = {
-        "z_max_m": 1.0,
-        "z_points": 3,
-        "mass_kg": 1.0,
-        "gravity_m_s2": 0.0,
-        "eta_translation": 1.0,
-        "adhesion_force_n": 0.0,
-        "adhesion_range_m": 0.0,
-        "shell_max_layers": None,
-        "periodic_model": "infinite-physical",
-    }
-    values.update(overrides)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "analyze-periodic-object-detachment",
+            "unused-output",
+            "--config",
+            "unused.toml",
+            "--target-mesh-id",
+            "1",
+            "--z-max-m",
+            "1",
+            "--z-points",
+            "3",
+            "--mass-kg",
+            "1",
+            *extra,
+        ],
+    )
     monkeypatch.setattr(
         example_module,
         "Beach",
         lambda *_args, **_kwargs: pytest.fail("Beach constructed before validation"),
     )
 
-    with pytest.raises(ValueError):
-        example_module._validate_args(SimpleNamespace(**values))
+    with pytest.raises(ValueError, match=message):
+        example_module.main()
 
 
 def _kernel_lib() -> Path:

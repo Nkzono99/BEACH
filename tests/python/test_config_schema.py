@@ -3,9 +3,10 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+import pytest
+
 from beach.config._toml import load_toml_file
-from beach.config.schema import load_schema, schema_definition_property_names
-from beach.config.schema import schema_errors
+from beach.config.schema import load_schema, schema_errors
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +15,16 @@ SCHEMA_COPIES = (
     ROOT / "beach/config/schemas/beach.schema.json",
     ROOT / "plugins/beach-context/references/schemas/beach.schema.json",
 )
+
+
+def _minimal_valid_config() -> dict[str, object]:
+    return {"particles": {"species": [{}]}}
+
+
+def _config_with_sim(**sim: object) -> dict[str, object]:
+    config = _minimal_valid_config()
+    config["sim"] = sim
+    return config
 
 
 def test_schema_distribution_copies_match_canonical() -> None:
@@ -25,108 +36,94 @@ def test_schema_distribution_copies_match_canonical() -> None:
         )
 
 
-def test_packaged_schema_exposes_workload_property_contracts() -> None:
-    schema, label = load_schema()
-
-    assert label == "package:beach.config/schemas/beach.schema.json"
-    assert schema_definition_property_names("sim") == frozenset(
-        schema["$defs"]["sim"]["properties"]
-    )
-    assert schema_definition_property_names("species") == frozenset(
-        schema["$defs"]["species"]["properties"]
-    )
-
-
-def test_schema_rejects_removed_point_kernel_configuration() -> None:
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("field", {"element_kernel": "point"}),
+        ("outer_plasma", {"model": "kinetic_1d"}),
+        ("coupling", {"update_mode": "explicit"}),
+        ("external_boundary", {}),
+    ],
+    ids=("field", "outer-plasma", "coupling", "external-boundary"),
+)
+def test_schema_rejects_removed_top_level_contracts(key: str, value: object) -> None:
     schema, _ = load_schema()
+    config = _minimal_valid_config()
 
-    assert "field" not in schema["properties"]
-    assert "softening" not in schema["$defs"]["sim"]["properties"]
-    assert schema_errors({"field": {"element_kernel": "point"}}, schema)
-    assert schema_errors({"sim": {"softening": 1.0e-6}}, schema)
+    assert schema_errors(config, schema) == []
+    config[key] = value
+    assert schema_errors(config, schema)
 
 
-def test_schema_exposes_soft_discard_fraction_contract() -> None:
+def test_schema_rejects_removed_sim_softening() -> None:
     schema, _ = load_schema()
-    sim_schema = schema["$defs"]["sim"]
-    properties = sim_schema["properties"]
+    config = _config_with_sim(softening=1.0e-6)
 
-    assert "multiple_box_events_soft_discard_count_limit" not in properties
-    count_grace = properties["multiple_box_events_soft_discard_count_grace"]
-    assert count_grace["type"] == "integer"
-    assert "minimum" not in count_grace
-    assert count_grace["default"] == 1000
-    fraction_limit = properties[
-        "multiple_box_events_soft_discard_fraction_limit"
-    ]
-    assert fraction_limit["type"] == "number"
-    assert "exclusiveMinimum" not in fraction_limit
-    assert "maximum" not in fraction_limit
-    assert fraction_limit["default"] == 1.0e-6
-    charge_limit = properties[
-        "multiple_box_events_soft_discard_abs_charge_limit"
-    ]
-    assert charge_limit["type"] == "number"
-    assert "exclusiveMinimum" not in charge_limit
-    assert charge_limit["default"] == 1.0e-12
-
-    soft_discard_condition = next(
-        item
-        for item in sim_schema["allOf"]
-        if item.get("if", {}).get("properties", {}).get(
-            "multiple_box_events_policy"
-        )
-        == {"const": "soft_discard"}
-    )
-    assert soft_discard_condition["if"]["required"] == [
-        "multiple_box_events_policy"
-    ]
-    active_bounds = soft_discard_condition["then"]["properties"]
-    assert active_bounds["multiple_box_events_soft_discard_count_grace"] == {
-        "minimum": 0
-    }
-    assert active_bounds["multiple_box_events_soft_discard_fraction_limit"] == {
-        "exclusiveMinimum": 0,
-        "maximum": 1,
-    }
-    assert active_bounds["multiple_box_events_soft_discard_abs_charge_limit"] == {
-        "exclusiveMinimum": 0
-    }
+    assert schema_errors(_config_with_sim(), schema) == []
+    assert schema_errors(config, schema)
 
 
 def test_schema_enforces_soft_discard_bounds_only_when_active() -> None:
     schema, _ = load_schema()
-    sim_schema = schema["$defs"]["sim"]
     inactive_values = {
         "multiple_box_events_soft_discard_count_grace": -1,
         "multiple_box_events_soft_discard_fraction_limit": -1.0,
         "multiple_box_events_soft_discard_abs_charge_limit": -1.0,
     }
 
-    assert schema_errors(inactive_values, sim_schema) == []
-    assert schema_errors(
-        {"multiple_box_events_policy": "abort", **inactive_values}, sim_schema
-    ) == []
+    assert schema_errors(_config_with_sim(**inactive_values), schema) == []
+    assert (
+        schema_errors(
+            _config_with_sim(
+                multiple_box_events_policy="abort",
+                **inactive_values,
+            ),
+            schema,
+        )
+        == []
+    )
 
-    for key, value in inactive_values.items():
+    active_values = {
+        "multiple_box_events_policy": "soft_discard",
+        "multiple_box_events_soft_discard_count_grace": 0,
+        "multiple_box_events_soft_discard_fraction_limit": 1.0,
+        "multiple_box_events_soft_discard_abs_charge_limit": 1.0e-30,
+    }
+    assert schema_errors(_config_with_sim(**active_values), schema) == []
+    assert schema_errors(
+        _config_with_sim(multiple_box_events_soft_discard_count_limit=1000),
+        schema,
+    )
+
+    invalid_active_values = (
+        ("multiple_box_events_soft_discard_count_grace", -1),
+        ("multiple_box_events_soft_discard_count_grace", 0.5),
+        ("multiple_box_events_soft_discard_fraction_limit", 0.0),
+        ("multiple_box_events_soft_discard_fraction_limit", 1.000001),
+        ("multiple_box_events_soft_discard_fraction_limit", "1e-6"),
+        ("multiple_box_events_soft_discard_abs_charge_limit", 0.0),
+        ("multiple_box_events_soft_discard_abs_charge_limit", "1e-12"),
+    )
+    for key, value in invalid_active_values:
         assert schema_errors(
-            {"multiple_box_events_policy": "soft_discard", key: value},
-            sim_schema,
+            _config_with_sim(
+                multiple_box_events_policy="soft_discard",
+                **{key: value},
+            ),
+            schema,
         )
 
 
-def test_schema_rejects_outer_coupling_and_keeps_panel_reference() -> None:
+def test_schema_accepts_panel_spectral_reference() -> None:
     schema, _ = load_schema()
+    config = _minimal_valid_config()
+    config["periodic2"] = {
+        "nonzero_mode_backend": "panel_spectral_reference",
+        "zero_mode_policy": "exclude_k0",
+        "lower_boundary_model": "e_bottom_zero",
+    }
 
-    assert "outer_plasma" not in schema["properties"]
-    assert "coupling" not in schema["properties"]
-    assert schema_errors({"outer_plasma": {"model": "kinetic_1d"}}, schema)
-    assert schema_errors({"coupling": {"update_mode": "explicit"}}, schema)
-    assert "panel_spectral_reference" in (
-        schema["properties"]["periodic2"]["properties"]["nonzero_mode_backend"][
-            "enum"
-        ]
-    )
+    assert schema_errors(config, schema) == []
 
 
 def test_schema_accepts_species_reflection_actions_and_rejects_unknown_value() -> None:
@@ -145,8 +142,6 @@ def test_schema_accepts_species_reflection_actions_and_rejects_unknown_value() -
     invalid = copy.deepcopy(config)
     invalid["particles"]["species"][0]["boundary"]["z_high"] = "unknown"
     assert schema_errors(invalid, schema)
-
-    assert schema_errors({"external_boundary": {}}, schema)
 
 
 def test_schema_accepts_boundary_inflow_and_plane_source_contracts() -> None:
@@ -416,10 +411,12 @@ def test_schema_requires_obj_surface_side_for_explicit_auto_or_obj_mode() -> Non
     auto["mesh"].pop("surface_side", None)
     obj = copy.deepcopy(auto)
     obj["mesh"]["mode"] = "obj"
+    implicit_template = copy.deepcopy(base)
+    implicit_template["mesh"].pop("mode")
 
-    assert schema["$defs"]["mesh"]["properties"]["mode"]["default"] == "template"
     assert schema_errors(auto, schema)
     assert schema_errors(obj, schema)
     auto["mesh"]["surface_side"] = "normal_plus"
     assert schema_errors(auto, schema) == []
+    assert schema_errors(implicit_template, schema) == []
     assert schema_errors(base, schema) == []
