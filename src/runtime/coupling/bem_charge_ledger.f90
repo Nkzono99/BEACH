@@ -289,7 +289,7 @@ contains
   pure real(dp) function finite_charge_sum(values, context) result(total)
     real(dp), intent(in) :: values(:)
     character(len=*), intent(in) :: context
-    real(dp) :: compensation, scaled_sum, scaled_value, scale_value, updated_sum
+    real(dp) :: compensation, correction, scaled_sum, scaled_value, scale_value, updated_sum
     integer :: i
 
     if (.not. all(ieee_is_finite(values))) error stop trim(context)//' contains a non-finite charge.'
@@ -307,16 +307,18 @@ contains
     do i = 1, size(values)
       scaled_value = values(i)/scale_value
       updated_sum = scaled_sum + scaled_value
+      ! 局所補正を先に確定し、既存の compensation が式中間で丸め落ちるのを防ぐ。
       if (abs(scaled_sum) >= abs(scaled_value)) then
-        compensation = compensation + (scaled_sum - updated_sum) + scaled_value
+        correction = (scaled_sum - updated_sum) + scaled_value
       else
-        compensation = compensation + (scaled_value - updated_sum) + scaled_sum
+        correction = (scaled_value - updated_sum) + scaled_sum
       end if
+      compensation = compensation + correction
       scaled_sum = updated_sum
     end do
     scaled_sum = scaled_sum + compensation
-    if (scale_value >= 1.0_dp .and. abs(scaled_sum) > huge(total)/scale_value) then
-      error stop trim(context)//' charge sum overflowed.'
+    if (scale_value >= 1.0_dp) then
+      if (abs(scaled_sum) > huge(total)/scale_value) error stop trim(context)//' charge sum overflowed.'
     end if
     total = scale_value*scaled_sum
     if (.not. ieee_is_finite(total)) error stop trim(context)//' charge sum is not finite.'
