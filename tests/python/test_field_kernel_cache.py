@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -15,7 +16,9 @@ if os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1":
 from beach import FieldKernel, FieldKernelOptions  # noqa: E402
 
 
-def test_field_kernel_periodic_cache_cold_then_warm(tmp_path: Path) -> None:
+def test_field_kernel_periodic_cache_reuses_only_matching_identity(
+    tmp_path: Path,
+) -> None:
     lib = Path("build/libbeach_field_kernel.so")
     assert lib.exists(), "run `make build-kernel` before the opt-in cache test"
     source_centers = np.array(
@@ -55,13 +58,26 @@ def test_field_kernel_periodic_cache_cold_then_warm(tmp_path: Path) -> None:
         source_triangles, source_q, options=options, library_path=lib
     ) as warm_kernel:
         warm = warm_kernel.diagnostics()
+    changed_options = replace(options, periodic_generation_tolerance=5.0e-9)
+    with FieldKernel(
+        source_triangles, source_q, options=changed_options, library_path=lib
+    ) as changed_kernel:
+        changed = changed_kernel.diagnostics()
 
     assert cold.periodic_cache_hit is False
     assert cold.periodic_operator_build_count == 1
     assert cold.periodic_cache_path is not None
     assert cold.periodic_cache_path.parent == tmp_path / "cache-\N{LATIN SMALL LETTER E WITH ACUTE}"
+    assert cold.periodic_cache_path.is_file()
     assert cold.periodic_cache_fingerprint
     assert warm.periodic_cache_hit is True
     assert warm.periodic_operator_build_count == 0
     assert warm.periodic_cache_fingerprint == cold.periodic_cache_fingerprint
     assert warm.periodic_cache_path == cold.periodic_cache_path
+    assert changed.periodic_cache_hit is False
+    assert changed.periodic_operator_build_count == 1
+    assert changed.periodic_cache_fingerprint
+    assert changed.periodic_cache_fingerprint != cold.periodic_cache_fingerprint
+    assert changed.periodic_cache_path is not None
+    assert changed.periodic_cache_path != cold.periodic_cache_path
+    assert changed.periodic_cache_path.is_file()
