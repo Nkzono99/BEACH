@@ -348,7 +348,22 @@ enabled speciesはambient electron、ion、および任意のphotoelectron role�
 reservoir流入、PEを指定する場合は負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
 `reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
 1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`または
-件数・絶対電荷上限を持つ`soft_discard`とします。
+累積率・絶対電荷で制限した `soft_discard` とします。soft discard の累積件数を $D$、accepted batch で
+処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
+
+$$
+Q>Q_{\mathrm{limit}}\quad\text{or}\quad
+\left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
+$$
+
+です。`multiple_box_events_soft_discard_count_grace` の既定値 $G=1000$ は累積件数の単独上限ではなく、
+率判定を開始する件数猶予です。`multiple_box_events_soft_discard_fraction_limit` の既定値は $10^{-6}$、
+制約は $0<f_{\mathrm{limit}}\le1$ で、$G\ge0$ とします。いずれの閾値も等値では停止しません。
+`multiple_box_events_soft_discard_abs_charge_limit` は物理的な誤差 budget を独立に制限します。
+`summary.txt` と checkpoint には `multiple_box_events_soft_discarded`、
+`multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から導出した
+`multiple_box_events_soft_discard_fraction` を残します。累積率は長い正常履歴によって後半の burst を
+希釈しうるため、監査では batch ごとの集約 log も確認します。
 `multiple_box_events_retry_backend="upper_panel_fourier"`は、通常の`cached_kneq0`場を変更せず、
 `multiple_box_events`となった 1 step だけを元の状態から再試行します。再試行の$k\neq0$場は triangle P0 電荷の
 有限 Fourier 展開を全 mesh 頂点より上で因子化し、既存の$k=0$場と外部一様場を合成します。potential-barrier
@@ -402,8 +417,10 @@ $$
 両端が根を挟まない場合は外挿せず停止します。
 局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
 ambient吸収の総量は陰的応答へ、PEありではPE放出を設定した表面放出電流へ、PE returnを
-「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。commit後の$Q/A$が求めた
-$D_H^{n+1}$と一致しなければ停止します。PEなしではPE targetを生成しません。
+「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。陰的終点との整合性は PE あり・なしと
+強い正負相殺を含む回帰 test で検証します。runtime は mesh 電荷の補償和から得た有限な commit 済み $Q/A$ を
+次 batch の canonical な$D_H$とします。PE なしでは
+PE target を生成しません。
 これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、
 応答表の物理範囲、粒子samplingに対する`batch_duration`の上限を除去しません。
 

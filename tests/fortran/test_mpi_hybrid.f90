@@ -605,7 +605,8 @@ contains
     soft_cfg%sim%bc_high(1) = bc_reflect
     soft_cfg%sim%multiple_box_events_policy = 'soft_discard'
     soft_cfg%sim%multiple_box_events_retry_backend = 'upper_panel_fourier'
-    soft_cfg%sim%multiple_box_events_soft_discard_count_limit = 100000_i32
+    soft_cfg%sim%multiple_box_events_soft_discard_count_grace = 100000_i32
+    soft_cfg%sim%multiple_box_events_soft_discard_fraction_limit = 1.0_dp
     soft_cfg%sim%multiple_box_events_soft_discard_abs_charge_limit = 1.0e9_dp
     soft_cfg%n_particle_species = 1_i32
     soft_cfg%particle_species(1) = species_from_defaults()
@@ -632,6 +633,10 @@ contains
     call assert_equal_i64( &
       soft_stats%multiple_box_events_soft_discarded, int(mpi%size, i64), &
       'MPI soft-discard count was not globally reduced' &
+      )
+    call assert_equal_i64( &
+      soft_stats%processed_particles, int(mpi%size, i64), &
+      'MPI soft-discard fraction denominator was not globally reduced' &
       )
     call assert_close_dp( &
       soft_stats%multiple_box_events_soft_discarded_abs_charge, 6.0_dp*real(mpi%size, dp), 1.0e-12_dp, &

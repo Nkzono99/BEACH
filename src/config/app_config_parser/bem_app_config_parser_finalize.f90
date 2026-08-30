@@ -118,9 +118,6 @@ contains
   if (.not. ieee_is_finite(cfg%sim%field_length_scale) .or. cfg%sim%field_length_scale <= 0.0d0) then
     error stop 'sim.field_length_scale must be finite and > 0.'
   end if
-  if (trim(cfg%sim%field_normalization) == 'length' .and. cfg%sim%field_length_scale <= 0.0d0) then
-    error stop 'sim.field_normalization="length" requires sim.field_length_scale > 0.'
-  end if
   cfg%sim%field_bc_mode = lower_ascii(trim(cfg%sim%field_bc_mode))
   select case (trim(cfg%sim%field_bc_mode))
   case ('free', 'periodic2')
@@ -189,9 +186,6 @@ contains
         end if
         if (cfg%sim%bc_low(axis) == bc_periodic) then
           n_periodic_axes = n_periodic_axes + 1_i32
-          if (cfg%sim%box_max(axis) <= cfg%sim%box_min(axis)) then
-            error stop 'periodic2 requires positive box length on periodic axes.'
-          end if
         end if
       end do
       if (n_periodic_axes /= 2_i32) then
@@ -243,8 +237,13 @@ contains
     error stop 'sim.multiple_box_events_retry_backend must be "none" or "upper_panel_fourier".'
   end select
   if (trim(cfg%sim%multiple_box_events_policy) == 'soft_discard') then
-    if (cfg%sim%multiple_box_events_soft_discard_count_limit < 1_i32) then
-      error stop 'sim.multiple_box_events_soft_discard_count_limit must be >= 1 for soft_discard.'
+    if (cfg%sim%multiple_box_events_soft_discard_count_grace < 0_i32) then
+      error stop 'sim.multiple_box_events_soft_discard_count_grace must be >= 0 for soft_discard.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%multiple_box_events_soft_discard_fraction_limit) .or. &
+        cfg%sim%multiple_box_events_soft_discard_fraction_limit <= 0.0_dp .or. &
+        cfg%sim%multiple_box_events_soft_discard_fraction_limit > 1.0_dp) then
+      error stop 'sim.multiple_box_events_soft_discard_fraction_limit must be finite and in (0, 1] for soft_discard.'
     end if
     if (.not. ieee_is_finite(cfg%sim%multiple_box_events_soft_discard_abs_charge_limit) .or. &
         cfg%sim%multiple_box_events_soft_discard_abs_charge_limit <= 0.0_dp) then

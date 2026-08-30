@@ -145,7 +145,8 @@ At least one `[[particles.species]]` entry is required.
 | `q_floor` | float | `1.0e-30` | Lower bound for the denominator in `rel_change` calculations |
 | `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard` after the per-step boundary-event limit |
 | `multiple_box_events_retry_backend` | string | `"none"` | Retry after `multiple_box_events`: `none` / `upper_panel_fourier` |
-| `multiple_box_events_soft_discard_count_limit` | int | `1000` | Stop limit for cumulative soft discards |
+| `multiple_box_events_soft_discard_count_grace` | int | `1000` | Count grace before enforcing the cumulative soft-discard fraction. Must be `>= 0` |
+| `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | Stop limit for the cumulative soft-discard fraction. Must satisfy `0 < value <= 1` |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Stop limit for cumulative soft-discard absolute charge [C] |
 | `raycast_max_bounce` | int | `16` | Maximum bounce count for `photo_raycast` |
 
@@ -155,6 +156,19 @@ Specifying both `batch_duration` and `batch_duration_step` is an error. For
 `upper_panel_fourier` is available only with a `cached_kneq0` `periodic2` configuration. It leaves the normal field
 backend unchanged and replays only a step that exceeded the boundary-event limit from its original state. See
 [Particle Events](ParticleEvents.en.md) for its validity domain.
+
+For `soft_discard`, let $D$ be the cumulative discard count, $P$ the cumulative number of macro-particles processed in
+accepted batches, $G$ be `multiple_box_events_soft_discard_count_grace`, and $f_{\mathrm{limit}}$ be
+`multiple_box_events_soft_discard_fraction_limit`. BEACH stops when both $D>G$ and $D/P>f_{\mathrm{limit}}$; equality
+at any threshold is allowed.
+
+The cumulative absolute-macro-charge limit is independent and stops the run when exceeded.
+
+Audit
+`multiple_box_events_soft_discarded`, `multiple_box_events_soft_discard_fraction`, and
+`multiple_box_events_soft_discarded_abs_charge_C` in `summary.txt` and checkpoints. The absolute-charge limit is the
+physical error budget. Because a lifetime cumulative fraction can dilute a late burst, also inspect the per-batch
+aggregate log.
 
 #### Field Solver
 
@@ -547,7 +561,7 @@ This model requires all of the following configuration invariants:
   `e_bottom_zero` or `symmetric_vacuum`;
 - `sim.e0=[0,0,0]`, `sim.b0=[0,0,0]`, no generic reservoir potential model, and
   `particle_boundary.ordinary_open_model="escape"`; `sim.multiple_box_events_policy` is `"abort"` or bounded
-  `"soft_discard"` with count and absolute-charge limits;
+  `"soft_discard"` with count grace, cumulative-fraction, and absolute-charge limits;
 - only distinct electron, ion, and optional photoelectron roles enabled, each with
   `surface_charge_closure="explicit"`;
 - negative electron charge and positive ion charge; electron and ion roles use

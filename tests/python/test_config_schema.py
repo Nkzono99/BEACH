@@ -46,6 +46,75 @@ def test_schema_rejects_removed_point_kernel_configuration() -> None:
     assert schema_errors({"sim": {"softening": 1.0e-6}}, schema)
 
 
+def test_schema_exposes_soft_discard_fraction_contract() -> None:
+    schema, _ = load_schema()
+    sim_schema = schema["$defs"]["sim"]
+    properties = sim_schema["properties"]
+
+    assert "multiple_box_events_soft_discard_count_limit" not in properties
+    count_grace = properties["multiple_box_events_soft_discard_count_grace"]
+    assert count_grace["type"] == "integer"
+    assert "minimum" not in count_grace
+    assert count_grace["default"] == 1000
+    fraction_limit = properties[
+        "multiple_box_events_soft_discard_fraction_limit"
+    ]
+    assert fraction_limit["type"] == "number"
+    assert "exclusiveMinimum" not in fraction_limit
+    assert "maximum" not in fraction_limit
+    assert fraction_limit["default"] == 1.0e-6
+    charge_limit = properties[
+        "multiple_box_events_soft_discard_abs_charge_limit"
+    ]
+    assert charge_limit["type"] == "number"
+    assert "exclusiveMinimum" not in charge_limit
+    assert charge_limit["default"] == 1.0e-12
+
+    soft_discard_condition = next(
+        item
+        for item in sim_schema["allOf"]
+        if item.get("if", {}).get("properties", {}).get(
+            "multiple_box_events_policy"
+        )
+        == {"const": "soft_discard"}
+    )
+    assert soft_discard_condition["if"]["required"] == [
+        "multiple_box_events_policy"
+    ]
+    active_bounds = soft_discard_condition["then"]["properties"]
+    assert active_bounds["multiple_box_events_soft_discard_count_grace"] == {
+        "minimum": 0
+    }
+    assert active_bounds["multiple_box_events_soft_discard_fraction_limit"] == {
+        "exclusiveMinimum": 0,
+        "maximum": 1,
+    }
+    assert active_bounds["multiple_box_events_soft_discard_abs_charge_limit"] == {
+        "exclusiveMinimum": 0
+    }
+
+
+def test_schema_enforces_soft_discard_bounds_only_when_active() -> None:
+    schema, _ = load_schema()
+    sim_schema = schema["$defs"]["sim"]
+    inactive_values = {
+        "multiple_box_events_soft_discard_count_grace": -1,
+        "multiple_box_events_soft_discard_fraction_limit": -1.0,
+        "multiple_box_events_soft_discard_abs_charge_limit": -1.0,
+    }
+
+    assert schema_errors(inactive_values, sim_schema) == []
+    assert schema_errors(
+        {"multiple_box_events_policy": "abort", **inactive_values}, sim_schema
+    ) == []
+
+    for key, value in inactive_values.items():
+        assert schema_errors(
+            {"multiple_box_events_policy": "soft_discard", key: value},
+            sim_schema,
+        )
+
+
 def test_schema_rejects_outer_coupling_and_keeps_panel_reference() -> None:
     schema, _ = load_schema()
 

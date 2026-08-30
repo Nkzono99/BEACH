@@ -9,7 +9,7 @@ program test_matching_plane_simulator
                             particle_inflow_reservoir
   use bem_matching_plane_response, only: &
     matching_plane_response_csv_header, reset_matching_plane_response_snapshot_cache
-  use bem_charge_ledger, only: charge_ledger_type
+  use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_equal_i64, &
     assert_close_dp, delete_file_if_exists
@@ -25,13 +25,14 @@ program test_matching_plane_simulator
   type(injection_state) :: inject_state
   type(charge_ledger_type) :: implicit_ledger, no_photo_ledger
   integer :: history_unit
+  real(dp) :: cancellation_area
 
   call cleanup_files()
   call reset_matching_plane_response_snapshot_cache()
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -173,38 +174,41 @@ program test_matching_plane_simulator
     )
   call test_end()
 
-  call test_begin('implicit_zero_mode_commits_six_second_backward_euler_endpoint')
+  call test_begin('implicit_zero_mode_reuses_committed_nonunit_area_endpoint')
   call configure_fixture(mesh, cfg, inject_state)
   call write_implicit_response_table(response_path)
   call reset_matching_plane_response_snapshot_cache()
   cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%box_max(1) = 2.0_dp
+  cfg%sim%batch_count = 2_i32
   cfg%sim%batch_duration = 6.0_dp
   cfg%sim%max_step = 2_i32
   cfg%particle_species(1)%drift_velocity(3) = -10.0_dp
   cfg%particle_species(2)%drift_velocity(3) = -10.0_dp
   cfg%particle_species(3)%emit_current_density_a_m2 = 2.0_dp*qe
   cfg%particle_species(3)%m_particle = 9.1093837015e-31_dp
+  call prepare_periodic2_collision_mesh(mesh, cfg%sim)
   call seed_particles_from_config(cfg)
   call run_absorption_insulator( &
     mesh, cfg, resumed_stats, inject_state=inject_state, charge_ledger=implicit_ledger &
     )
   call assert_close_dp( &
-    resumed_stats%matching_plane_displacement_c_m2, 3.0_dp*qe, 1.0e-12_dp*qe, &
-    'six-second implicit displacement mismatch' &
+    resumed_stats%matching_plane_displacement_c_m2, 4.5_dp*qe, 1.0e-12_dp*qe, &
+    'second six-second implicit displacement did not start from committed Q/A' &
     )
-  call assert_close_dp(sum(mesh%q_elem), 3.0_dp*qe, 1.0e-12_dp*qe, 'implicit committed charge mismatch')
+  call assert_close_dp(sum(mesh%q_elem), 9.0_dp*qe, 1.0e-12_dp*qe, 'non-unit-area committed charge mismatch')
   call assert_close_dp( &
-    implicit_ledger%fixed_emission_target_charge(3), 12.0_dp*qe, 1.0e-12_dp*qe, &
+    implicit_ledger%fixed_emission_target_charge(3), 48.0_dp*qe, 1.0e-12_dp*qe, &
     'implicit PE surface-emission target mismatch' &
     )
   call assert_close_dp( &
-    implicit_ledger%fixed_absorbed_target_charge(3), -9.0_dp*qe, 1.0e-12_dp*qe, &
+    implicit_ledger%fixed_absorbed_target_charge(3), -36.0_dp*qe, 1.0e-12_dp*qe, &
     'implicit PE total-return target mismatch' &
     )
   call assert_close_dp( &
     sum(implicit_ledger%fixed_absorbed_target_charge) + &
     sum(implicit_ledger%fixed_emission_target_charge), &
-    3.0_dp*qe, 1.0e-12_dp*qe, 'implicit applied surface-current budget mismatch' &
+    9.0_dp*qe, 1.0e-12_dp*qe, 'implicit applied surface-current budget mismatch' &
     )
   call test_end()
 
@@ -266,6 +270,33 @@ program test_matching_plane_simulator
   call assert_close_dp( &
     resumed_stats%matching_plane_photoelectron_escape_flux_m2_s, 0.0_dp, 0.0_dp, &
     'no-PE implicit escape flux mismatch' &
+    )
+  call test_end()
+
+  call test_begin('implicit_zero_mode_accepts_cancelling_mesh_charge')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_no_photo_fixture(cfg, inject_state)
+  call write_no_photo_implicit_response_table(response_path)
+  call reset_matching_plane_response_snapshot_cache()
+  cancellation_area = product(cfg%sim%box_max(1:2) - cfg%sim%box_min(1:2))
+  mesh%q_elem = [1.0e-11_dp, -1.0e-11_dp]
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%batch_duration = 6.0_dp
+  cfg%sim%max_step = 2_i32
+  cfg%particle_species(1)%drift_velocity(3) = -10.0_dp
+  cfg%particle_species(2)%drift_velocity(3) = -10.0_dp
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, &
+    finite_charge_sum(mesh%q_elem, 'cancelling implicit committed charge')/cancellation_area, 0.0_dp, &
+    'cancelling implicit state did not report the committed mesh charge' &
+    )
+  call assert_close_dp( &
+    finite_charge_sum(mesh%q_elem, 'cancelling implicit endpoint charge')/cancellation_area, &
+    3.0_dp*qe/cancellation_area, &
+    64.0_dp*epsilon(1.0_dp)*sum(abs(mesh%q_elem))/cancellation_area, &
+    'cancelling implicit committed charge left the backward-Euler roundoff bound' &
     )
   call test_end()
 

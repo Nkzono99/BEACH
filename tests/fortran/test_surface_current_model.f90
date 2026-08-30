@@ -22,6 +22,20 @@ program test_surface_current_model
   call assert_true(.not. result%active, 'none current model must stay inactive')
   call evaluate_surface_closure(cfg, closure)
   call assert_true(.not. closure%active, 'none surface closure must stay inactive')
+  call assert_true(allocated(closure%has_inflow_number_flux), 'surface closure flux flags must be allocated')
+  call assert_true(allocated(closure%inflow_number_flux_m2_s), 'surface closure flux storage must be allocated')
+  if (allocated(closure%has_inflow_number_flux)) then
+    call assert_true( &
+      size(closure%has_inflow_number_flux) == cfg%n_particle_species, &
+      'surface closure flux flag capacity mismatch' &
+      )
+  end if
+  if (allocated(closure%inflow_number_flux_m2_s)) then
+    call assert_true( &
+      size(closure%inflow_number_flux_m2_s) == cfg%n_particle_species, &
+      'surface closure flux storage capacity mismatch' &
+      )
+  end if
   call test_end()
 
   call test_begin('zhao_stationary_type_b_channels')

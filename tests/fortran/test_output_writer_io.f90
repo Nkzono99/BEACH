@@ -21,7 +21,7 @@ program test_output_writer_io
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
   logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
-  logical :: saw_surface_current_model
+  logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
   logical :: saw_matching_receipts(10), matching_history_opened
   logical :: saw_online_matching_receipts(7)
@@ -204,6 +204,8 @@ program test_output_writer_io
   cfg%sim%field_solver = 'fmm'
   cfg%field%backend = 'fmm'
   cfg%panel%kernel_id = 'triangle_p0_exact_p2m_near'
+  stats%processed_particles = 8
+  stats%multiple_box_events_soft_discarded = 2
   call write_result_files(out_dir_ledger, mesh, stats, cfg, charge_ledger=ledger)
 
   saw_integrator = .false.
@@ -220,6 +222,7 @@ program test_output_writer_io
   saw_source_commit = .false.
   saw_build_id = .false.
   saw_surface_current_model = .false.
+  saw_soft_discard_fraction = .false.
   saw_field_reconstruction = .false.
   open (newunit=literal_unit, file=out_dir_ledger//'/summary.txt', status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'failed to open summary metadata fixture'
@@ -241,6 +244,8 @@ program test_output_writer_io
     saw_source_commit = saw_source_commit .or. index(line, 'build_source_commit=') == 1
     saw_build_id = saw_build_id .or. index(line, 'build_id=') == 1
     saw_surface_current_model = saw_surface_current_model .or. index(line, 'surface_current_model=none') == 1
+    saw_soft_discard_fraction = saw_soft_discard_fraction .or. &
+                                trim(line) == 'multiple_box_events_soft_discard_fraction=  2.5000000000000000E-01'
     saw_field_reconstruction(1) = saw_field_reconstruction(1) .or. &
                                   trim(line) == 'field_reconstruction_schema_version=2'
     saw_field_reconstruction(2) = saw_field_reconstruction(2) .or. &
@@ -315,9 +320,12 @@ program test_output_writer_io
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
   call assert_true(saw_ledger_closure, 'summary should record the neutral-return correction')
   call assert_true(saw_surface_current_model, 'summary should record the surface-current model receipt')
+  call assert_true(saw_soft_discard_fraction, 'summary should record the cumulative soft-discard fraction')
   call assert_true(all(saw_field_reconstruction), 'summary should record the field-reconstruction receipt')
   call assert_true(saw_ledger_header, 'charge ledger CSV header mismatch')
   call test_end()
+
+  stats = sim_stats()
 
   call test_begin('no_photo_surface_current_receipt')
   call default_app_config(cfg)

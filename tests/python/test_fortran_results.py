@@ -391,6 +391,9 @@ def _write_mobility_fixture(out: Path) -> None:
 def _write_minimal_result_fixture(
     out: Path,
     *,
+    processed_particles: int = 10,
+    absorbed: int = 7,
+    escaped: int = 3,
     charges_text: str | None = None,
     mesh_triangles_text: str | None = None,
     mesh_sources_text: str | None = None,
@@ -400,9 +403,9 @@ def _write_minimal_result_fixture(
 ) -> None:
     summary_lines = [
         "mesh_nelem=2",
-        "processed_particles=10",
-        "absorbed=7",
-        "escaped=3",
+        f"processed_particles={processed_particles}",
+        f"absorbed={absorbed}",
+        f"escaped={escaped}",
         "batches=1",
         "last_rel_change=1.0e-8",
     ]
@@ -447,6 +450,7 @@ def test_load_fortran_result(tmp_path: Path) -> None:
                 "multiple_box_events_retry_resolved=2",
                 "multiple_box_events_soft_discarded=4",
                 "multiple_box_events_soft_discarded_abs_charge_C=2.5e-15",
+                "multiple_box_events_soft_discard_fraction=4.0e-1",
                 "last_rel_change=1.0e-8",
                 "simulated_time_s=7.5e-6",
                 "adaptive_nonzero_mode_rejected_trials=3",
@@ -498,6 +502,7 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     assert result.multiple_box_events_retry_resolved == 2
     assert result.multiple_box_events_soft_discarded == 4
     assert result.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
+    assert result.multiple_box_events_soft_discard_fraction == 0.4
     assert result.simulated_time_s == 7.5e-6
     assert result.adaptive_nonzero_mode_rejected_trials == 3
     assert result.adaptive_nonzero_mode_last_batch_duration_s == 2.5e-6
@@ -793,6 +798,107 @@ def test_load_fortran_result_rejects_inconsistent_retry_counts(
         load_fortran_result(out)
 
 
+def test_load_fortran_result_derives_missing_soft_discard_fraction(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_legacy_soft_discard_fraction"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=["multiple_box_events_soft_discarded=4"],
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.multiple_box_events_soft_discard_fraction == 0.4
+
+
+def test_load_fortran_result_accepts_zero_soft_discard_fraction(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_zero_soft_discard_fraction"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        summary_extra=[
+            "multiple_box_events_soft_discarded=0",
+            "multiple_box_events_soft_discard_fraction=0.0",
+        ],
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.multiple_box_events_soft_discard_fraction == 0.0
+
+
+def test_load_fortran_result_accepts_soft_discard_fraction_roundoff(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_rounded_soft_discard_fraction"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "multiple_box_events_soft_discarded=1",
+            "multiple_box_events_soft_discard_fraction=1.000000000000001e-1",
+        ],
+    )
+
+    result = load_fortran_result(out)
+
+    assert result.multiple_box_events_soft_discard_fraction == 0.1
+
+
+def test_load_fortran_result_rejects_soft_discard_count_above_processed(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_bad_soft_discard_count"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=["multiple_box_events_soft_discarded=11"],
+    )
+
+    with pytest.raises(ValueError, match="must not exceed processed_particles"):
+        load_fortran_result(out)
+
+
+def test_load_fortran_result_rejects_inconsistent_soft_discard_fraction(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_inconsistent_soft_discard_fraction"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "multiple_box_events_soft_discarded=4",
+            "multiple_box_events_soft_discard_fraction=0.3",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="must match"):
+        load_fortran_result(out)
+
+
+@pytest.mark.parametrize("value", ["-1.0e-6", "1.000001", "nan", "inf"])
+def test_load_fortran_result_rejects_invalid_soft_discard_fraction(
+    tmp_path: Path,
+    value: str,
+) -> None:
+    out = tmp_path / "run_bad_soft_discard_fraction"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[f"multiple_box_events_soft_discard_fraction={value}"],
+    )
+
+    with pytest.raises(ValueError, match="multiple_box_events_soft_discard_fraction"):
+        load_fortran_result(out)
+
+
 def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> None:
     out = tmp_path / "run_materials"
     out.mkdir()
@@ -1047,6 +1153,7 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
     assert result.adaptive_nonzero_mode_last_potential_step_v is None
     assert result.adaptive_nonzero_mode_omp_threads is None
     assert result.periodic2_max_nonzero_mode_potential_step_v is None
+    assert result.multiple_box_events_soft_discard_fraction == 0.0
 
 
 @pytest.mark.parametrize(

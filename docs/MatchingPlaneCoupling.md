@@ -103,13 +103,16 @@ table では応答表の content fingerprint も加わります。`output.histor
 - electronは負電荷、ionは正電荷。指定する場合、photoelectronは負電荷の`photo_raycast`、
   `inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`で、z-high外向き境界はopen
 - `particle_boundary.ordinary_open_model="escape"`
-- `sim.multiple_box_events_policy="abort"` または上限付きの `"soft_discard"`
+- `sim.multiple_box_events_policy="abort"` または件数猶予・累積率・絶対電荷で制限した `"soft_discard"`
 
 `soft_discard` は、周期境界eventを完了できない稀なmacro particleを局所的に除外します。未解決となった
 stepのeventとmatching-plane momentは加算せず、それ以前のstepで確定したmomentは保持します。
-`multiple_box_events_soft_discard_count_limit`と
-`multiple_box_events_soft_discard_abs_charge_limit`を小さく設定し、summary/checkpointの累積件数・絶対電荷が
-結論に影響しないことを確認してください。どちらかの上限を超えるとrunは停止します。
+累積 discard 件数 $D$ が `multiple_box_events_soft_discard_count_grace` を超え、かつ accepted batch で処理した
+累積 macro particle 数 $P$ に対する $D/P$ が `multiple_box_events_soft_discard_fraction_limit` を超えると停止します。
+`multiple_box_events_soft_discard_abs_charge_limit` の超過でも独立に停止し、いずれの閾値も等値は許容します。
+この絶対電荷上限は物理的な誤差 budget です。summary/checkpoint の `multiple_box_events_soft_discarded`、
+`multiple_box_events_soft_discard_fraction`、`multiple_box_events_soft_discarded_abs_charge_C` が結論に
+影響しないことを確認してください。累積率は後半の burst を希釈しうるため、batch ごとの集約 log も監査します。
 
 `reference_area_m2`、stationary Zhao の source key、手動 `fixed_current` target は併用できません。整合面積は
 `domain` の x-y 面積、整合面高度は `domain.box_max` の z 成分、更新間隔は 1 accepted batch に固定されています。
@@ -188,7 +191,8 @@ $D_H^{n+1}=D_H^n+hJ(D_H^{n+1})$をtableの$D_H$範囲内で二分法により解
 
 粒子追跡と`k!=0`の要素別分布は従来どおりbatch開始状態から求めます。electron / ion吸収は陰的応答へ、
 PEありではPE放出を設定した表面放出電流へ、PE returnを「表面放出flux - 外部escape flux」へ総量を合わせ、
-commit後の$Q/A$を終点と照合します。PEなしでは後退Euler電流は
+陰的終点との整合性は PE あり・なしと強い正負相殺を含む回帰 test で検証します。runtime は mesh 電荷の補償和から
+得た有限な commit 済み $Q/A$ を次 batch の状態として採用します。PE なしでは後退 Euler 電流は
 $q_e\Gamma_e^{in}+q_i\Gamma_i^{in}$だけで、PE targetを生成しません。
 したがって、6 sのような大きな値を指定できるかは応答表が根を挟むことに加え、局所`k!=0`電位変化、
 macro-particle sampling、応答表の物理的妥当性を別途満たす必要があります。これは任意の

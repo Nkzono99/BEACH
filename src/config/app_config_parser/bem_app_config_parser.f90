@@ -925,10 +925,15 @@ contains
           'sim.multiple_box_events_retry_backend' &
           )
         cfg%sim%multiple_box_events_retry_backend = lower_ascii(trim(cfg%sim%multiple_box_events_retry_backend))
-      case ('multiple_box_events_soft_discard_count_limit')
+      case ('multiple_box_events_soft_discard_count_grace')
         call get_toml_int( &
-          table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_limit, &
-          'sim.multiple_box_events_soft_discard_count_limit' &
+          table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_grace, &
+          'sim.multiple_box_events_soft_discard_count_grace' &
+          )
+      case ('multiple_box_events_soft_discard_fraction_limit')
+        call get_toml_real( &
+          table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_fraction_limit, &
+          'sim.multiple_box_events_soft_discard_fraction_limit' &
           )
       case ('multiple_box_events_soft_discard_abs_charge_limit')
         call get_toml_real( &

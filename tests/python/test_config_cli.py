@@ -511,7 +511,8 @@ def test_inactive_sim_controls_do_not_enforce_backend_specific_bounds() -> None:
             "tree_leaf_max": 0,
             "tree_min_nelem": 0,
             "multiple_box_events_policy": "abort",
-            "multiple_box_events_soft_discard_count_limit": 0,
+            "multiple_box_events_soft_discard_count_grace": -1,
+            "multiple_box_events_soft_discard_fraction_limit": -1.0,
             "multiple_box_events_soft_discard_abs_charge_limit": -1.0,
             "raycast_max_bounce": 0,
         }
@@ -521,6 +522,78 @@ def test_inactive_sim_controls_do_not_enforce_backend_specific_bounds() -> None:
     normalized = normalize_config_document(config)
 
     assert normalized["sim"]["field_solver"] == "direct"
+
+
+def test_config_rejects_removed_soft_discard_count_limit() -> None:
+    config = default_config()
+    config["sim"]["multiple_box_events_soft_discard_count_limit"] = 1000
+
+    with pytest.raises(ConfigValidationError, match="removed sim key.*count_limit"):
+        normalize_config_document(config)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "match"),
+    [
+        ("multiple_box_events_soft_discard_count_grace", True, "count grace"),
+        ("multiple_box_events_soft_discard_count_grace", -1, "count grace"),
+        ("multiple_box_events_soft_discard_count_grace", 1.5, "count grace"),
+        ("multiple_box_events_soft_discard_fraction_limit", True, "fraction limit"),
+        ("multiple_box_events_soft_discard_fraction_limit", 0.0, "fraction limit"),
+        (
+            "multiple_box_events_soft_discard_fraction_limit",
+            1.000001,
+            "fraction limit",
+        ),
+        (
+            "multiple_box_events_soft_discard_fraction_limit",
+            float("inf"),
+            "fraction limit",
+        ),
+        (
+            "multiple_box_events_soft_discard_fraction_limit",
+            float("nan"),
+            "fraction limit",
+        ),
+        (
+            "multiple_box_events_soft_discard_abs_charge_limit",
+            True,
+            "absolute charge limit",
+        ),
+        (
+            "multiple_box_events_soft_discard_abs_charge_limit",
+            float("nan"),
+            "absolute charge limit",
+        ),
+    ],
+)
+def test_active_soft_discard_controls_reject_invalid_values(
+    key: str,
+    value: object,
+    match: str,
+) -> None:
+    config = default_config()
+    config["sim"]["multiple_box_events_policy"] = "soft_discard"
+    config["sim"][key] = value
+
+    with pytest.raises(ConfigValidationError, match=match):
+        normalize_config_document(config)
+
+
+def test_active_soft_discard_controls_accept_range_boundaries() -> None:
+    config = default_config()
+    config["sim"].update(
+        {
+            "multiple_box_events_policy": "soft_discard",
+            "multiple_box_events_soft_discard_count_grace": 0,
+            "multiple_box_events_soft_discard_fraction_limit": 1.0,
+        }
+    )
+
+    normalized = normalize_config_document(config)
+
+    assert normalized["sim"]["multiple_box_events_soft_discard_count_grace"] == 0
+    assert normalized["sim"]["multiple_box_events_soft_discard_fraction_limit"] == 1.0
 
 
 def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> None:
@@ -788,7 +861,8 @@ def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
 
     soft_discard = copy.deepcopy(normalized)
     soft_discard["sim"]["multiple_box_events_policy"] = "soft_discard"
-    soft_discard["sim"]["multiple_box_events_soft_discard_count_limit"] = 100
+    soft_discard["sim"]["multiple_box_events_soft_discard_count_grace"] = 100
+    soft_discard["sim"]["multiple_box_events_soft_discard_fraction_limit"] = 1.0e-6
     soft_discard["sim"]["multiple_box_events_soft_discard_abs_charge_limit"] = 1.0e-14
     normalized_soft_discard = normalize_config_document(soft_discard)
     assert normalized_soft_discard["sim"]["multiple_box_events_policy"] == "soft_discard"

@@ -362,6 +362,8 @@ class FortranRunResult:
         Number of failed boundary steps replayed by the configured retry backend.
     multiple_box_events_retry_resolved : int, default 0
         Number of replayed boundary steps completed successfully.
+    multiple_box_events_soft_discard_fraction : float, default 0.0
+        Derived fraction of processed particles removed by the soft-discard fallback.
     last_rel_change : float
         Last relative charge-change metric.
     charges : numpy.ndarray
@@ -437,6 +439,7 @@ class FortranRunResult:
     field_reconstruction: FieldReconstructionReceipt | None = None
     matching_plane_state: MatchingPlaneState | None = None
     matching_plane_history: tuple[MatchingPlaneHistoryEntry, ...] | None = None
+    multiple_box_events_soft_discard_fraction: float = 0.0
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

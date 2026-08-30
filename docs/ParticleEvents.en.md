@@ -212,9 +212,22 @@ only during retry field and potential evaluations. Mode count and geometry-respo
 
 The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
 `"soft_discard"` removes the affected macro-particle. Standard error records only the per-batch, all-rank count and
-absolute macro charge. The same aggregates are retained in `summary.txt`, restart, and the charge ledger. The run aborts
-when either configured cumulative limit is exceeded. This is a bounded numerical
-workaround for qualitative comparisons, not a replacement for a physical boundary model.
+absolute macro charge. Let $D$ be the cumulative discard count, $P$ the cumulative number of macro-particles processed
+in accepted batches, and $Q$ the cumulative absolute macro charge. Before commit, BEACH stops when
+
+$$
+Q>Q_{\mathrm{limit}}\quad\text{or}\quad
+\left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right).
+$$
+
+$G$ is `multiple_box_events_soft_discard_count_grace`, not a standalone count limit, and $f_{\mathrm{limit}}$ is
+`multiple_box_events_soft_discard_fraction_limit`. Equality is allowed in each comparison. The independent
+absolute-charge limit is the physical error budget. `summary.txt` and checkpoints retain
+`multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C`, and
+`multiple_box_events_soft_discard_fraction` derived from $D/P$; the charge ledger also records discarded charge.
+Because a long normal history can dilute a late burst in the cumulative fraction, also audit the per-batch
+aggregate log. This is a bounded numerical workaround for qualitative comparisons, not a replacement for a physical
+boundary model.
 Regardless of the fallback policy, `summary.txt` records replay counts as
 `multiple_box_events_retry_attempted` and `multiple_box_events_retry_resolved`.
 

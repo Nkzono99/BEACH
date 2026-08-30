@@ -252,6 +252,7 @@ contains
     print '(a,i0)', 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
     print '(a,i0)', 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
     print '(a,i0)', 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
+    print '(a,es12.4)', 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
     print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
@@ -424,6 +425,7 @@ contains
     write (u, '(a,i0)') 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
     write (u, '(a,i0)') 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
     write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
+    write (u, '(a,es24.16)') 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
     write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
       stats%multiple_box_events_soft_discarded_abs_charge
     write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
@@ -925,6 +927,15 @@ contains
       return
     end do
   end function mesh_epsilon_r
+
+  !> 処理済みmacro particleに対する累積soft-discard率を返す。
+  pure real(dp) function soft_discard_fraction(stats) result(fraction)
+    type(sim_stats), intent(in) :: stats
+
+    fraction = 0.0_dp
+    if (stats%processed_particles <= 0) return
+    fraction = real(stats%multiple_box_events_soft_discarded, dp)/real(stats%processed_particles, dp)
+  end function soft_discard_fraction
 
   !> 現行物理モデルで未分岐の dielectric 要素数を数える。
   integer(i32) function count_dielectric_surfaces(mesh) result(n)

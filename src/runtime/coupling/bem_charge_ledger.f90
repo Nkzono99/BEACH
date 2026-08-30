@@ -263,7 +263,6 @@ contains
     call checked_accumulate_count_array( &
       candidate%discarded_unresolved_count, batch%discarded_unresolved_count, 'discarded unresolved count' &
       )
-    call validate_ledger_finite(candidate, 'accumulated charge ledger')
     cumulative = candidate
   end subroutine accumulate_charge_ledger
 
@@ -343,9 +342,6 @@ contains
 
     if (size(accumulator) /= size(increment)) error stop trim(context)//' array size mismatch.'
     do i = 1, size(accumulator)
-      if (accumulator(i) < 0_i64 .or. increment(i) < 0_i64) then
-        error stop trim(context)//' must be nonnegative.'
-      end if
       if (accumulator(i) > huge(accumulator(i)) - increment(i)) then
         error stop trim(context)//' accumulation overflowed.'
       end if

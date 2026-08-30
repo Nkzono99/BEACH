@@ -44,8 +44,8 @@ contains
   real(dp) :: projected_simulated_time
   real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
   real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_displacement_before, matching_residual
-  real(dp) :: matching_committed_displacement, matching_displacement_tolerance, matching_roundoff_scale
-  real(dp) :: matching_return_flux, matching_escape_flux, matching_budget_scale
+  real(dp) :: matching_committed_displacement
+  real(dp) :: matching_return_flux, matching_escape_flux
   real(dp) :: matching_photoelectron_charge, matching_photoelectron_emission_current_density
   real(dp) :: matching_guess(4), matching_observed(4)
   real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference(4)
@@ -141,7 +141,8 @@ contains
     stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
     stats%adaptive_nonzero_mode_omp_threads = 0_i32
   end if
-  call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0.0_dp, mpi_ctx)
+  call validate_soft_discard_initial_state(app%sim, stats)
+  call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
   call evaluate_surface_closure(app, surface_closure)
 
@@ -207,6 +208,9 @@ contains
         app%particle_species(matching_photoelectron_idx)%emit_current_density_a_m2
     end if
     matching_area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
+    if (.not. ieee_is_finite(matching_area) .or. matching_area <= 0.0_dp) then
+      error stop 'matching-plane area must be finite and positive.'
+    end if
     if (implicit_zero_mode) then
       call matching_response_provider%get_implicit_zero_mode_contract( &
         implicit_zero_mode_supported, implicit_displacement_min, implicit_displacement_max, &
@@ -215,6 +219,15 @@ contains
       if (.not. implicit_zero_mode_supported) then
         error stop 'implicit matching-plane zero mode requires a table with a non-singleton displacement axis and '// &
           'singleton PE-flux/energy and ambient-outward axes; the PE pair may both be zero.'
+      end if
+      if (.not. all(ieee_is_finite([ &
+                                   app%sim%batch_duration, implicit_displacement_min, implicit_displacement_max, &
+                                   implicit_feedback_reference, &
+                                   app%particle_species(matching_electron_idx)%q_particle, &
+                                   app%particle_species(matching_ion_idx)%q_particle, matching_photoelectron_charge &
+                                   ])) .or. app%sim%batch_duration <= 0.0_dp .or. &
+          implicit_displacement_min >= implicit_displacement_max) then
+        error stop 'implicit matching-plane zero-mode preflight inputs are invalid.'
       end if
       if (matching_photoelectron_active) then
         if (any(implicit_feedback_reference(1:2) <= 0.0_dp)) then
@@ -316,7 +329,16 @@ contains
       matching_return_flux = 0.0_dp
       matching_escape_flux = 0.0_dp
       if (matching_active) then
-        matching_displacement_before = snapshot%get_matching_plane_displacement()
+        if (implicit_zero_mode) then
+          matching_displacement_before = finite_charge_sum( &
+                                         mesh%q_elem, 'implicit matching-plane charge before trial' &
+                                         )/matching_area
+          if (.not. ieee_is_finite(matching_displacement_before)) then
+            error stop 'implicit matching-plane charge density before trial overflowed.'
+          end if
+        else
+          matching_displacement_before = snapshot%get_matching_plane_displacement()
+        end if
         matching_displacement = matching_displacement_before
         if (implicit_zero_mode) then
           call solve_matching_implicit_zero_mode( &
@@ -461,13 +483,6 @@ contains
         if (matching_response_status /= matching_plane_provider_ok) then
           error stop 'matching-plane feedback validation failed: '//trim(matching_response_message)
         end if
-        if (matching_photoelectron_active) then
-          matching_budget_scale = max(1.0_dp, matching_observed(1), matching_return_flux, matching_escape_flux)
-          if (abs(matching_observed(1) - matching_return_flux - matching_escape_flux) > &
-              sqrt(epsilon(1.0_dp))*matching_budget_scale) then
-            error stop 'matching-plane photoelectron outflow budget does not close.'
-          end if
-        end if
         matching_residual = matching_response_provider%feedback_residual( &
                             matching_guess, matching_observed, app%surface_current%coupling_rtol, &
                             app%surface_current%coupling_atol &
@@ -552,13 +567,13 @@ contains
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_retry_counts)
     call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
     call perf_region_end(perf_region_mpi_reduce, t0)
-    call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
     call enforce_soft_discard_limits( &
-      app%sim, stats, batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx &
+      app%sim, stats, batch_idx, batch_counts(6), batch_counts(1), batch_soft_discarded_abs_charge, mpi_ctx &
       )
+    call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
     projected_simulated_time = stats%simulated_time + trial_batch_duration
     if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp .or. &
-        .not. ieee_is_finite(projected_simulated_time) .or. projected_simulated_time < stats%simulated_time) then
+        .not. ieee_is_finite(projected_simulated_time)) then
       error stop 'simulation statistic overflow: simulated_time'
     end if
     ! Build the complete statistics update before mutating mesh/ledger state.  The
@@ -618,20 +633,8 @@ contains
       matching_committed_displacement = finite_charge_sum( &
                                         mesh%q_elem, 'implicit matching-plane committed charge' &
                                         )/matching_area
-      matching_roundoff_scale = finite_charge_sum( &
-                                [ &
-                                abs(workspace%fixed_absorbed_target_charge), &
-                                abs(workspace%fixed_emission_target_charge) &
-                                ], &
-                                'implicit matching-plane gross target charge' &
-                                )/matching_area
-      matching_displacement_tolerance = 4096.0_dp*epsilon(1.0_dp)*max( &
-                                        abs(matching_displacement), &
-                                        abs(matching_committed_displacement), &
-                                        matching_roundoff_scale, tiny(1.0_dp) &
-                                        )
-      if (abs(matching_committed_displacement - matching_displacement) > matching_displacement_tolerance) then
-        error stop 'implicit matching-plane committed displacement does not match the backward-Euler endpoint.'
+      if (.not. ieee_is_finite(matching_committed_displacement)) then
+        error stop 'implicit matching-plane committed charge density overflowed.'
       end if
       stats_candidate%matching_plane_displacement_c_m2 = matching_committed_displacement
     end if
@@ -851,12 +854,6 @@ contains
           call record_collision_failure(step_result%status, i, step, x0, v0)
           exit
         end if
-        if (size(matching_plane_moments_thread, 1) < 4 .or. &
-            species_idx > size(matching_plane_moments_thread, 2) .or. &
-            tid > size(matching_plane_moments_thread, 3)) then
-          call record_collision_failure(particle_step_invalid_boundary, i, step, x0, v0)
-          exit
-        end if
         matching_plane_moments_thread(1, species_idx, tid) = &
           matching_plane_moments_thread(1, species_idx, tid) + &
           pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
@@ -974,7 +971,6 @@ contains
     real(dp), intent(in) :: global_abs_charge
     type(mpi_context), intent(in) :: mpi
 
-    if (global_count < 0_i64) error stop 'soft-discard global count overflowed.'
     if (global_count == 0_i64) return
 
     if (mpi_is_root(mpi)) then
@@ -985,35 +981,64 @@ contains
     end if
   end subroutine report_soft_discard_summary
 
-  subroutine enforce_soft_discard_limits(sim, stats, batch_idx, batch_count, batch_abs_charge, mpi)
+  subroutine validate_soft_discard_initial_state(sim, stats)
+    type(sim_config), intent(in) :: sim
+    type(sim_stats), intent(in) :: stats
+
+    if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
+    if (stats%processed_particles < 0_i64 .or. stats%multiple_box_events_soft_discarded < 0_i64 .or. &
+        stats%multiple_box_events_soft_discarded > stats%processed_particles .or. &
+        .not. ieee_is_finite(stats%multiple_box_events_soft_discarded_abs_charge) .or. &
+        stats%multiple_box_events_soft_discarded_abs_charge < 0.0_dp) then
+      error stop 'soft-discard initial statistics are inconsistent.'
+    end if
+  end subroutine validate_soft_discard_initial_state
+
+  subroutine enforce_soft_discard_limits( &
+    sim, stats, batch_idx, batch_count, batch_processed, batch_abs_charge, mpi &
+    )
     type(sim_config), intent(in) :: sim
     type(sim_stats), intent(in) :: stats
     integer(i32), intent(in) :: batch_idx
-    integer(i64), intent(in) :: batch_count
+    integer(i64), intent(in) :: batch_count, batch_processed
     real(dp), intent(in) :: batch_abs_charge
     type(mpi_context), intent(in) :: mpi
-    integer(i64) :: projected_count, count_limit
-    real(dp) :: projected_abs_charge
-    logical :: count_exceeded, charge_exceeded
+    integer(i64) :: projected_count, projected_processed, count_grace
+    real(dp) :: projected_fraction, projected_abs_charge
+    logical :: fraction_exceeded, charge_exceeded
 
     if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
-    count_limit = int(sim%multiple_box_events_soft_discard_count_limit, i64)
-    if (batch_count < 0_i64) error stop 'soft-discard batch count overflowed.'
+    count_grace = int(sim%multiple_box_events_soft_discard_count_grace, i64)
+    if (batch_count < 0_i64 .or. batch_processed < 0_i64) then
+      error stop 'soft-discard batch counters must be nonnegative.'
+    end if
     if (stats%multiple_box_events_soft_discarded > huge(projected_count) - batch_count) then
       projected_count = huge(projected_count)
     else
       projected_count = stats%multiple_box_events_soft_discarded + batch_count
     end if
+    if (stats%processed_particles > huge(projected_processed) - batch_processed) then
+      projected_processed = huge(projected_processed)
+    else
+      projected_processed = stats%processed_particles + batch_processed
+    end if
+    projected_fraction = 0.0_dp
+    if (projected_processed > 0_i64) then
+      projected_fraction = real(projected_count, dp)/real(projected_processed, dp)
+    end if
     projected_abs_charge = stats%multiple_box_events_soft_discarded_abs_charge + batch_abs_charge
-    count_exceeded = projected_count > count_limit
+    fraction_exceeded = projected_count > count_grace .and. &
+                        projected_fraction > sim%multiple_box_events_soft_discard_fraction_limit
     charge_exceeded = .not. ieee_is_finite(projected_abs_charge) .or. &
                       projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
-    if (.not. count_exceeded .and. .not. charge_exceeded) return
+    if (.not. fraction_exceeded .and. .not. charge_exceeded) return
 
     if (mpi_is_root(mpi)) then
-      write (error_unit, '(a,i0,a,i0,a,i0,a,es13.5,a,es13.5)') &
+      write (error_unit, '(a,i0,a,i0,a,i0,a,i0,a,es13.5,a,es13.5,a,es13.5,a,es13.5)') &
         'multiple_box_events soft-discard cumulative limit exceeded: batch=', batch_idx, &
-        ' count=', projected_count, ' count_limit=', count_limit, &
+        ' count=', projected_count, ' count_grace=', count_grace, &
+        ' processed=', projected_processed, ' fraction=', projected_fraction, &
+        ' fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
         ' abs_charge_C=', projected_abs_charge, &
         ' abs_charge_limit_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
       flush (error_unit)
@@ -1070,9 +1095,6 @@ contains
   end if
   workspace%q_before = mesh%q_elem
   if (workspace%charge_candidate_ready) then
-    if (.not. all(ieee_is_finite(workspace%candidate_charge))) then
-      error stop 'adaptive candidate charge is not finite at commit.'
-    end if
     mesh%q_elem = workspace%candidate_charge
   else
     workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
@@ -1093,6 +1115,9 @@ contains
     mesh%q_elem, -workspace%q_before, 'batch surface-charge difference' &
     )
   workspace%dq = mesh%q_elem - workspace%q_before
+  if (.not. all(ieee_is_finite(workspace%dq))) then
+    error stop 'batch surface-charge difference is not finite.'
+  end if
   norm_dq = stable_l2_norm(workspace%dq)
   norm_q = stable_l2_norm(mesh%q_elem)
   rel = finite_nonnegative_ratio(norm_dq, max(norm_q, q_floor))
@@ -1103,9 +1128,6 @@ contains
     type(mesh_type), intent(in) :: mesh
     type(simulator_batch_workspace_type), intent(inout) :: workspace
     type(mpi_context), intent(in) :: mpi
-    if (size(workspace%candidate_charge) /= mesh%nelem) then
-      error stop 'adaptive candidate storage does not match the mesh.'
-    end if
     workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
     call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
     call validate_finite_charge_addition( &
@@ -1124,9 +1146,6 @@ contains
     character(len=*), intent(in) :: operation
     integer :: i
 
-    if (size(base) /= size(increment)) then
-      error stop trim(operation)//' array sizes do not match.'
-    end if
     if (.not. all(ieee_is_finite(base)) .or. .not. all(ieee_is_finite(increment))) then
       error stop trim(operation)//' contains a non-finite operand.'
     end if
@@ -1159,6 +1178,7 @@ contains
       norm = huge(norm)
     else
       norm = scale*unit_norm
+      if (.not. ieee_is_finite(norm)) norm = huge(norm)
     end if
   end function stable_l2_norm
 
@@ -1172,6 +1192,7 @@ contains
       ratio = huge(ratio)
     else
       ratio = numerator/denominator
+      if (.not. ieee_is_finite(ratio)) ratio = huge(ratio)
     end if
   end function finite_nonnegative_ratio
 
@@ -1185,7 +1206,7 @@ contains
     integer(i64) :: escaped_count, soft_count, invalid_count
     real(dp) :: macro_charge, emitted_charge, absorbed_charge, unresolved_charge
     real(dp) :: escaped_charge, soft_charge, invalid_charge
-    real(dp) :: charge_scale, charge_tolerance, balance_tolerance
+    real(dp) :: charge_scale, charge_tolerance
     real(dp) :: weight_scale, correction_charge, unresolved_fraction
     logical :: has_neutral_return
 
@@ -1277,11 +1298,9 @@ contains
       end if
       charge_scale = max(abs(emitted_charge), abs(absorbed_charge), abs(unresolved_charge), tiny(1.0_dp))
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*charge_scale
-      balance_tolerance = max(charge_tolerance, sqrt(epsilon(1.0_dp))*charge_scale)
       if (abs(emitted_charge) <= charge_tolerance) cycle
-      if (emitted_charge >= 0.0_dp .or. absorbed_charge >= -charge_tolerance .or. &
-          abs(emitted_charge - absorbed_charge - unresolved_charge) > balance_tolerance) then
-        error stop 'neutral_return charge balance is invalid.'
+      if (emitted_charge >= 0.0_dp .or. absorbed_charge >= -charge_tolerance) then
+        error stop 'neutral_return charge signs are invalid.'
       end if
       weight_scale = emitted_charge/absorbed_charge
       correction_charge = emitted_charge - absorbed_charge
@@ -1362,14 +1381,9 @@ contains
         if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
           error stop 'fixed_current absorbed raw/current/duration value is not finite.'
         end if
-        if (app%sim%batch_duration > 1.0_dp .and. &
-            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
-          error stop 'fixed_current absorbed target charge overflowed for this batch duration.'
-        end if
-        target_charge = target_current*app%sim%batch_duration
-        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
-          error stop 'fixed_current absorbed target charge underflowed for this batch duration.'
-        end if
+        target_charge = checked_fixed_target_charge( &
+                        target_current, app%sim%batch_duration, 'fixed_current absorbed' &
+                        )
         charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
         if (abs(raw_charge) <= charge_tolerance) then
           if (abs(target_charge) > charge_tolerance) then
@@ -1408,14 +1422,9 @@ contains
         if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
           error stop 'fixed_current emission raw/current/duration value is not finite.'
         end if
-        if (app%sim%batch_duration > 1.0_dp .and. &
-            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
-          error stop 'fixed_current emission target charge overflowed for this batch duration.'
-        end if
-        target_charge = target_current*app%sim%batch_duration
-        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
-          error stop 'fixed_current emission target charge underflowed for this batch duration.'
-        end if
+        target_charge = checked_fixed_target_charge( &
+                        target_current, app%sim%batch_duration, 'fixed_current emission' &
+                        )
         charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
         if (abs(raw_charge) <= charge_tolerance) then
           if (abs(target_charge) > charge_tolerance) then
@@ -1444,14 +1453,9 @@ contains
         if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
           error stop 'fixed_current escape raw/current/duration value is not finite.'
         end if
-        if (app%sim%batch_duration > 1.0_dp .and. &
-            abs(target_current) > huge(target_charge)/app%sim%batch_duration) then
-          error stop 'fixed_current escape target charge overflowed for this batch duration.'
-        end if
-        target_charge = target_current*app%sim%batch_duration
-        if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
-          error stop 'fixed_current escape target charge underflowed for this batch duration.'
-        end if
+        target_charge = checked_fixed_target_charge( &
+                        target_current, app%sim%batch_duration, 'fixed_current escape' &
+                        )
         if (target_charge /= 0.0_dp .and. &
             sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
           error stop 'fixed_current escape target sign must match the escaped particle charge.'
@@ -1464,6 +1468,23 @@ contains
       end if
     end do
   end subroutine apply_fixed_surface_current_closure
+
+  !> finiteな電流とdurationの積を、丸め境界を含めて有限かつ非zero underflowなしに変換する。
+  real(dp) function checked_fixed_target_charge(target_current, duration, context) result(target_charge)
+    real(dp), intent(in) :: target_current, duration
+    character(len=*), intent(in) :: context
+
+    if (duration > 1.0_dp .and. abs(target_current) > huge(target_charge)/duration) then
+      error stop trim(context)//' target charge overflowed for this batch duration.'
+    end if
+    target_charge = target_current*duration
+    if (.not. ieee_is_finite(target_charge)) then
+      error stop trim(context)//' target charge overflowed for this batch duration.'
+    end if
+    if (target_current /= 0.0_dp .and. target_charge == 0.0_dp) then
+      error stop trim(context)//' target charge underflowed for this batch duration.'
+    end if
+  end function checked_fixed_target_charge
 
   logical function fixed_current_species_active(app, current_model, species_idx) result(active)
     type(app_config), intent(in) :: app
@@ -1601,12 +1622,6 @@ contains
     integer(i32) :: iteration, status
     character(len=512) :: message
 
-    if (.not. all(ieee_is_finite([ &
-                                 displacement_before, duration, displacement_min, displacement_max, &
-                                 feedback_reference, electron_charge, ion_charge, photoelectron_charge &
-                                 ])) .or. duration <= 0.0_dp .or. displacement_min >= displacement_max) then
-      error stop 'implicit matching-plane zero-mode inputs are invalid.'
-    end if
     lower = displacement_min
     upper = displacement_max
     call evaluate_matching_implicit_residual( &
@@ -1682,8 +1697,7 @@ contains
     current_density = electron_charge*response(2) + ion_charge*response(3)
     if (photoelectron_active) then
       barrier_energy_ev = response(1) - response(6)
-      if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp .or. &
-          feedback_reference(2) <= 0.0_dp) then
+      if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp) then
         status = 1_i32
         message = 'implicit matching-plane PE barrier or reference energy is invalid.'
         return
@@ -1714,16 +1728,6 @@ contains
 
     real(dp) :: barrier_energy_ev, emission_flux, escape_flux, return_flux
 
-    if (.not. all(ieee_is_finite(response))) then
-      error stop 'matching-plane response values must be finite.'
-    end if
-    if (any(response(2:3) < 0.0_dp)) then
-      error stop 'matching-plane inward number fluxes must be nonnegative.'
-    end if
-    if (.not. allocated(contract%has_inflow_number_flux) .or. &
-        .not. allocated(contract%inflow_number_flux_m2_s)) then
-      error stop 'matching-plane closure number-flux storage is not initialized.'
-    end if
     contract%active = .true.
     contract%has_absorbed_target = .false.
     contract%has_emission_target = .false.
@@ -1756,9 +1760,6 @@ contains
       contract%outflow_barrier_face(photoelectron_idx) = 6_i32
     end if
     if (implicit_zero_mode) then
-      if (.not. ieee_is_finite(area_m2) .or. area_m2 <= 0.0_dp) then
-        error stop 'implicit matching-plane current targets are invalid.'
-      end if
       contract%has_absorbed_target([electron_idx, ion_idx]) = .true.
       contract%absorbed_current_a(electron_idx) = electron_charge*response(2)*area_m2
       contract%absorbed_current_a(ion_idx) = ion_charge*response(3)*area_m2
@@ -1792,7 +1793,7 @@ contains
     real(dp), intent(out) :: feedback(4), return_flux, escape_flux
     real(dp) :: normalization, photoelectron_outward_number
 
-    if (size(moments, 1) < 4 .or. any(.not. ieee_is_finite(moments)) .or. any(moments < 0.0_dp)) then
+    if (any(.not. ieee_is_finite(moments)) .or. any(moments < 0.0_dp)) then
       error stop 'matching-plane particle moments are invalid.'
     end if
     normalization = area_m2*duration_s

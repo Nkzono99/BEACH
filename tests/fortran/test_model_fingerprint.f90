@@ -42,13 +42,29 @@ program test_model_fingerprint
   cfg%particle_species(2)%m_particle = 4.0_dp
   cfg%particle_species(2)%w_particle = 5.0_dp
 
-  call test_init(20)
+  call test_init(21)
 
   call test_begin('deterministic_fingerprint')
   fp_a = mesh_fingerprint(mesh)
   fp_b = mesh_fingerprint(mesh)
   call assert_true(fp_a == fp_b, 'mesh fingerprint must be deterministic')
   call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
+  call test_end()
+
+  call test_begin('soft_discard_fraction_guard_change_detected')
+  cfg_changed = cfg
+  cfg_changed%sim%multiple_box_events_policy = 'soft_discard'
+  fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%sim%multiple_box_events_soft_discard_count_grace = &
+    cfg_changed%sim%multiple_box_events_soft_discard_count_grace + 1_i32
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_b /= fp_a, 'soft-discard count grace must alter the model fingerprint')
+  cfg_changed = cfg
+  cfg_changed%sim%multiple_box_events_policy = 'soft_discard'
+  cfg_changed%sim%multiple_box_events_soft_discard_fraction_limit = &
+    2.0_dp*cfg_changed%sim%multiple_box_events_soft_discard_fraction_limit
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_b /= fp_a, 'soft-discard fraction limit must alter the model fingerprint')
   call test_end()
 
   call test_begin('multiple_box_retry_backend_change_detected')

@@ -100,6 +100,40 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         matching_plane_history = _load_matching_plane_history_if_exists(
             out_dir / "matching_plane_history.csv"
         )
+    processed_particles = _parse_nonnegative_int(
+        summary["processed_particles"],
+        key="processed_particles",
+    )
+    soft_discarded = _parse_nonnegative_int(
+        summary.get("multiple_box_events_soft_discarded", "0"),
+        key="multiple_box_events_soft_discarded",
+    )
+    if soft_discarded > processed_particles:
+        raise ValueError(
+            "multiple_box_events_soft_discarded must not exceed processed_particles"
+        )
+    soft_discard_fraction = (
+        soft_discarded / processed_particles if processed_particles > 0 else 0.0
+    )
+    if "multiple_box_events_soft_discard_fraction" in summary:
+        reported_soft_discard_fraction = _parse_nonnegative_finite_float(
+            summary["multiple_box_events_soft_discard_fraction"],
+            key="multiple_box_events_soft_discard_fraction",
+        )
+        if reported_soft_discard_fraction > 1.0:
+            raise ValueError(
+                "summary.txt multiple_box_events_soft_discard_fraction must be <= 1."
+            )
+        if not np.isclose(
+            reported_soft_discard_fraction,
+            soft_discard_fraction,
+            rtol=16.0 * np.finfo(float).eps,
+            atol=np.finfo(float).tiny,
+        ):
+            raise ValueError(
+                "summary.txt multiple_box_events_soft_discard_fraction must match "
+                "multiple_box_events_soft_discarded / processed_particles."
+            )
     retry_attempted = _parse_nonnegative_int(
         summary.get("multiple_box_events_retry_attempted", "0"),
         key="multiple_box_events_retry_attempted",
@@ -113,14 +147,10 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
             "multiple_box_events_retry_resolved must not exceed "
             "multiple_box_events_retry_attempted"
         )
-
     return FortranRunResult(
         directory=out_dir,
         mesh_nelem=mesh_nelem,
-        processed_particles=_parse_nonnegative_int(
-            summary["processed_particles"],
-            key="processed_particles",
-        ),
+        processed_particles=processed_particles,
         absorbed=_parse_nonnegative_int(summary["absorbed"], key="absorbed"),
         escaped=_parse_nonnegative_int(summary["escaped"], key="escaped"),
         batches=_parse_nonnegative_int(summary["batches"], key="batches"),
@@ -134,14 +164,12 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         ),
         multiple_box_events_retry_attempted=retry_attempted,
         multiple_box_events_retry_resolved=retry_resolved,
-        multiple_box_events_soft_discarded=_parse_nonnegative_int(
-            summary.get("multiple_box_events_soft_discarded", "0"),
-            key="multiple_box_events_soft_discarded",
-        ),
+        multiple_box_events_soft_discarded=soft_discarded,
         multiple_box_events_soft_discarded_abs_charge_c=_parse_nonnegative_finite_float(
             summary.get("multiple_box_events_soft_discarded_abs_charge_C", "0"),
             key="multiple_box_events_soft_discarded_abs_charge_C",
         ),
+        multiple_box_events_soft_discard_fraction=soft_discard_fraction,
         last_rel_change=_parse_nonnegative_finite_float(
             summary["last_rel_change"],
             key="last_rel_change",

@@ -53,7 +53,8 @@ module bem_types
     character(len=32) :: open_boundary_model = 'escape'
     character(len=32) :: multiple_box_events_policy = 'abort'
     character(len=32) :: multiple_box_events_retry_backend = 'none'
-    integer(i32) :: multiple_box_events_soft_discard_count_limit = 1000_i32
+    integer(i32) :: multiple_box_events_soft_discard_count_grace = 1000_i32
+    real(dp) :: multiple_box_events_soft_discard_fraction_limit = 1.0d-6
     real(dp) :: multiple_box_events_soft_discard_abs_charge_limit = 1.0d-12
     integer(i32) :: injection_face_phi_grid_n = 3_i32
     integer(i32) :: raycast_max_bounce = 16_i32

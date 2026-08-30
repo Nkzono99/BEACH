@@ -31,7 +31,7 @@ program test_app_config_parser
     error stop 'invalid Zhao config probe unexpectedly completed'
   end if
 
-  call test_init(34)
+  call test_init(36)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -40,7 +40,43 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
+  call assert_equal_i32( &
+    cfg%sim%multiple_box_events_soft_discard_count_grace, 1000_i32, &
+    'default soft-discard count grace mismatch' &
+    )
+  call assert_close_dp( &
+    cfg%sim%multiple_box_events_soft_discard_fraction_limit, 1.0e-6_dp, 1.0e-18_dp, &
+    'default soft-discard fraction limit mismatch' &
+    )
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('parses_soft_discard_count_grace')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', &
+    'multiple_box_events_soft_discard_count_grace = 7', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_equal_i32( &
+    cfg%sim%multiple_box_events_soft_discard_count_grace, 7_i32, &
+    'soft-discard count grace parse mismatch' &
+    )
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('parses_soft_discard_fraction_limit')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', &
+    'multiple_box_events_soft_discard_fraction_limit = 2.5e-5', '', '' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_close_dp( &
+    cfg%sim%multiple_box_events_soft_discard_fraction_limit, 2.5e-5_dp, 1.0e-17_dp, &
+    'soft-discard fraction limit parse mismatch' &
+    )
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('matching_plane_accepts_upper_fourier_retry')

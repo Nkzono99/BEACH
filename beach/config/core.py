@@ -58,6 +58,7 @@ _REMOVED_SIM_KEYS = frozenset(
         "sheath_ion_drift_mode",
         "sheath_injection_model",
         "sheath_reference_coordinate",
+        "multiple_box_events_soft_discard_count_limit",
         "softening",
     }
 )
@@ -1124,17 +1125,30 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
 
     multiple_event_policy = sim.get("multiple_box_events_policy", "abort")
     if multiple_event_policy == "soft_discard":
-        count_limit = sim.get("multiple_box_events_soft_discard_count_limit", 1000)
+        count_grace = sim.get("multiple_box_events_soft_discard_count_grace", 1000)
+        fraction_limit = sim.get(
+            "multiple_box_events_soft_discard_fraction_limit", 1.0e-6
+        )
         charge_limit = sim.get(
             "multiple_box_events_soft_discard_abs_charge_limit", 1.0e-12
         )
         if (
-            not isinstance(count_limit, int)
-            or isinstance(count_limit, bool)
-            or count_limit < 1
+            not isinstance(count_grace, int)
+            or isinstance(count_grace, bool)
+            or count_grace < 0
         ):
             raise ConfigValidationError(
-                "BEACH constraint error: soft_discard count limit must be an integer >= 1."
+                "BEACH constraint error: soft_discard count grace must be an integer >= 0."
+            )
+        if (
+            not isinstance(fraction_limit, (int, float))
+            or isinstance(fraction_limit, bool)
+            or not math.isfinite(float(fraction_limit))
+            or float(fraction_limit) <= 0.0
+            or float(fraction_limit) > 1.0
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: soft_discard fraction limit must be finite and in (0, 1]."
             )
         if (
             not isinstance(charge_limit, (int, float))

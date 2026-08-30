@@ -91,7 +91,8 @@ contains
     end if
     if (trim(cfg%sim%multiple_box_events_policy) /= 'abort') then
       call feed_string(hash, cfg%sim%multiple_box_events_policy)
-      call feed_integer(hash, cfg%sim%multiple_box_events_soft_discard_count_limit)
+      call feed_integer(hash, cfg%sim%multiple_box_events_soft_discard_count_grace)
+      call feed_real(hash, cfg%sim%multiple_box_events_soft_discard_fraction_limit)
       call feed_real(hash, cfg%sim%multiple_box_events_soft_discard_abs_charge_limit)
     end if
     if (uses_photo_raycast(cfg)) call feed_integer(hash, cfg%sim%raycast_max_bounce)

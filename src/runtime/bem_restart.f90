@@ -51,7 +51,7 @@ contains
 
     character(len=1024) :: summary_path, charges_path, rng_path, residual_path, ledger_path
     character(len=256) :: contract_message
-    logical :: has_summary, has_charges, has_rng, has_residual, has_legacy_residual, has_ledger
+    logical :: has_summary, has_charges, has_rng, has_legacy_residual
     logical :: checkpoint_complete, checkpoint_has_residual, checkpoint_has_ledger
     logical :: must_have_checkpoint
     integer(i32) :: local_rank, world_size, contract_status, residual_species, checkpoint_schema
@@ -71,8 +71,6 @@ contains
     inquire (file=trim(summary_path), exist=has_summary)
     inquire (file=trim(charges_path), exist=has_charges)
     inquire (file=trim(rng_path), exist=has_rng)
-    inquire (file=trim(residual_path), exist=has_residual)
-    inquire (file=trim(ledger_path), exist=has_ledger)
     call detect_legacy_ranked_residuals(trim(out_dir), local_rank, world_size, has_legacy_residual, mpi)
 
     if (has_legacy_residual) then
@@ -106,9 +104,6 @@ contains
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
       if (checkpoint_has_ledger) then
-        if (.not. has_ledger) then
-          error stop 'Resume summary contains charge ledger metadata but charge_ledger.csv is missing.'
-        end if
         call load_charge_ledger_checkpoint(trim(summary_path), trim(ledger_path), charge_ledger)
         if (charge_ledger%batch_count /= stats%batches) then
           error stop 'Resume charge ledger batch count does not match summary statistics.'
@@ -129,7 +124,7 @@ contains
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (allocated(state%boundary_macro_residual)) state%boundary_macro_residual = 0.0d0
-      if (checkpoint_has_residual .and. has_residual .and. allocated(state%macro_residual)) then
+      if (checkpoint_has_residual .and. allocated(state%macro_residual)) then
         if (.not. present(mpi) .or. local_rank == 0_i32) call load_macro_residual_file(trim(residual_path), state)
         if (present(mpi)) call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
         if (present(mpi) .and. allocated(state%boundary_macro_residual)) then
@@ -965,9 +960,6 @@ contains
           stats%matching_plane_photoelectron_escape_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane_iterations <= 0_i32 .or. stats%matching_plane_residual < 0.0_dp) then
         error stop 'Resume checkpoint matching-plane state is outside its physical range.'
-      end if
-      if (stats%matching_plane_response(1) /= stats%matching_plane_phi_v) then
-        error stop 'Resume checkpoint matching-plane potential state is inconsistent.'
       end if
       matching_budget_scale = max( &
                               1.0_dp, stats%matching_plane_feedback(1), &

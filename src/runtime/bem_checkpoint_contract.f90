@@ -192,7 +192,7 @@ contains
 
     character(len=512) :: line
     integer :: u, ios, pos
-    logical :: found_schema, found_batches, found_world_size
+    logical :: found_schema, found_world_size
 
     schema_version = 0_i32
     batches = -1_i32
@@ -200,7 +200,6 @@ contains
     has_ledger = .false.
     valid = .false.
     found_schema = .false.
-    found_batches = .false.
     found_world_size = .false.
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
@@ -224,7 +223,6 @@ contains
           close (u)
           return
         end if
-        found_batches = .true.
       case ('mpi_world_size')
         read (line(pos + 1:), *, iostat=ios) mpi_world_size
         if (ios /= 0) then
@@ -240,7 +238,7 @@ contains
 
     ! 0はschema key自体がないlegacy summaryの内部sentinelとして予約する。
     if (found_schema .and. schema_version == 0_i32) schema_version = -1_i32
-    if (.not. found_batches .or. batches < 0_i32) return
+    if (batches < 0_i32) return
     if (schema_version >= 2_i32 .and. .not. found_world_size) return
     if (mpi_world_size <= 0_i32) return
     valid = .true.
@@ -258,7 +256,7 @@ contains
     character(len=64) :: state
     integer :: u, ios, pos
     integer(i32) :: schema_version
-    logical :: has_schema, has_state, has_batches, has_world_size, has_residual_flag, has_ledger_flag
+    logical :: has_residual_flag, has_ledger_flag
 
     inquire (file=trim(checkpoint_dir)//'/'//checkpoint_manifest_name, exist=found)
     complete = .false.
@@ -270,10 +268,6 @@ contains
 
     schema_version = -1_i32
     state = ''
-    has_schema = .false.
-    has_state = .false.
-    has_batches = .false.
-    has_world_size = .false.
     has_residual_flag = .false.
     has_ledger_flag = .false.
     open (newunit=u, file=trim(checkpoint_dir)//'/'//checkpoint_manifest_name, status='old', action='read', iostat=ios)
@@ -291,24 +285,20 @@ contains
           close (u)
           return
         end if
-        has_schema = .true.
       case ('state')
         state = trim(adjustl(line(pos + 1:)))
-        has_state = .true.
       case ('batches')
         read (line(pos + 1:), *, iostat=ios) batches
         if (ios /= 0) then
           close (u)
           return
         end if
-        has_batches = .true.
       case ('mpi_world_size')
         read (line(pos + 1:), *, iostat=ios) mpi_world_size
         if (ios /= 0) then
           close (u)
           return
         end if
-        has_world_size = .true.
       case ('macro_residuals_present')
         read (line(pos + 1:), *, iostat=ios) has_macro_residuals
         if (ios /= 0) then
@@ -327,10 +317,10 @@ contains
     end do
     close (u)
 
-    if (.not. has_schema .or. schema_version /= checkpoint_manifest_schema_current) return
-    if (.not. has_state .or. trim(state) /= 'complete') return
-    if (.not. has_batches .or. batches < 0_i32) return
-    if (.not. has_world_size .or. mpi_world_size <= 0_i32) return
+    if (schema_version /= checkpoint_manifest_schema_current) return
+    if (trim(state) /= 'complete') return
+    if (batches < 0_i32) return
+    if (mpi_world_size <= 0_i32) return
     if (.not. has_residual_flag .or. .not. has_ledger_flag) return
     complete = .true.
   end subroutine read_checkpoint_manifest

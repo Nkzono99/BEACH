@@ -42,13 +42,17 @@ program test_restart
   end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
   call load_restart_checkpoint('test_restart_missing', mesh, stats, has_restart)
   call assert_true(.not. has_restart, 'missing checkpoint should not be reported as restart')
   call assert_equal_i32(stats%batches, 0_i32, 'missing checkpoint should keep stats at defaults')
+  call test_end()
+
+  call test_begin('manifest_required_scalar_keys')
+  call test_manifest_required_scalar_keys()
   call test_end()
 
   call test_begin('schema_v9_matching_keys_are_required_and_unique')
@@ -358,6 +362,54 @@ program test_restart
 
 contains
 
+  subroutine test_manifest_required_scalar_keys()
+    character(len=16), parameter :: required_keys(4) = [ &
+                                    character(len=16) :: 'schema_version', 'state', 'batches', 'mpi_world_size' &
+                                                         ]
+    integer :: key_idx
+
+    call cleanup_restart_fixture(out_dir)
+    call ensure_directory(out_dir)
+    call write_structural_summary_fixture(out_dir, checkpoint_schema_version_current, 2_i32, 1_i32)
+    call write_charges_fixture(out_dir)
+    call write_rng_state_file(out_dir)
+    call write_manifest_fixture_omitting(out_dir, '')
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(exists, 'handwritten complete manifest fixture was rejected')
+    do key_idx = 1, size(required_keys)
+      call write_manifest_fixture_omitting(out_dir, trim(required_keys(key_idx)))
+      call inspect_checkpoint_directory(out_dir, exists)
+      call assert_true(.not. exists, 'manifest accepted missing '//trim(required_keys(key_idx)))
+    end do
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(exists, 'complete manifest fixture was rejected')
+    call write_structural_summary_fixture( &
+      out_dir, checkpoint_schema_version_current, 2_i32, 1_i32, omit_batches=.true. &
+      )
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(.not. exists, 'summary metadata accepted a missing batches key')
+    call cleanup_restart_fixture(out_dir)
+  end subroutine test_manifest_required_scalar_keys
+
+  subroutine write_manifest_fixture_omitting(dir_path, omitted_key)
+    character(len=*), intent(in) :: dir_path, omitted_key
+    integer :: u, ios
+
+    open ( &
+      newunit=u, file=trim(dir_path)//'/checkpoint_complete.txt', &
+      status='replace', action='write', iostat=ios &
+      )
+    if (ios /= 0) error stop 'failed to open checkpoint manifest fixture'
+    if (trim(omitted_key) /= 'schema_version') write (u, '(a)') 'schema_version=1'
+    if (trim(omitted_key) /= 'state') write (u, '(a)') 'state=complete'
+    if (trim(omitted_key) /= 'batches') write (u, '(a)') 'batches=2'
+    if (trim(omitted_key) /= 'mpi_world_size') write (u, '(a)') 'mpi_world_size=1'
+    write (u, '(a)') 'macro_residuals_present=F'
+    write (u, '(a)') 'charge_ledger_present=F'
+    close (u)
+  end subroutine write_manifest_fixture_omitting
+
   subroutine test_matching_summary_key_contract()
     character(len=1024) :: executable_path, command
     integer :: exit_status, command_status
@@ -486,10 +538,15 @@ contains
     close (u)
   end subroutine write_checkpoint_index_fixture
 
-  subroutine write_structural_summary_fixture(dir_path, schema_version, batches, mpi_world_size)
+  subroutine write_structural_summary_fixture(dir_path, schema_version, batches, mpi_world_size, omit_batches)
     character(len=*), intent(in) :: dir_path
     integer(i32), intent(in) :: schema_version, batches, mpi_world_size
+    logical, intent(in), optional :: omit_batches
     integer :: u, ios
+    logical :: skip_batches
+
+    skip_batches = .false.
+    if (present(omit_batches)) skip_batches = omit_batches
 
     open ( &
       newunit=u, file=trim(dir_path)//'/summary.txt', &
@@ -497,7 +554,7 @@ contains
       )
     if (ios /= 0) error stop 'failed to open structural summary fixture'
     write (u, '(a,i0)') 'checkpoint_schema_version=', schema_version
-    write (u, '(a,i0)') 'batches=', batches
+    if (.not. skip_batches) write (u, '(a,i0)') 'batches=', batches
     write (u, '(a,i0)') 'mpi_world_size=', mpi_world_size
     close (u)
   end subroutine write_structural_summary_fixture

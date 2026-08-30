@@ -20,9 +20,12 @@ program test_charge_ledger
   case ('--ratio-overflow-probe')
     call run_ratio_overflow_probe()
     error stop 'ratio overflow probe unexpectedly completed'
+  case ('--negative-count-probe')
+    call run_negative_count_probe()
+    error stop 'negative count probe unexpectedly completed'
   end select
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('initialization')
   call ledger%init(2_i32)
@@ -207,6 +210,10 @@ program test_charge_ledger
   call assert_probe_fails('--ratio-overflow-probe', 'derived ledger ratio overflow probe must fail')
   call test_end()
 
+  call test_begin('negative_count_fails_at_accumulation_preflight')
+  call assert_probe_fails('--negative-count-probe', 'negative ledger count probe must fail')
+  call test_end()
+
   call test_summary()
 
 contains
@@ -228,10 +235,11 @@ contains
 
     call accumulated%init(1_i32)
     call accumulated%reset(1_i32)
-    accumulated%injected_from_remote(1) = huge(1.0_dp)
     call increment%init(1_i32)
     call increment%reset(2_i32)
-    increment%injected_from_remote(1) = huge(1.0_dp)
+    increment%injected_from_remote(1) = 0.0096_dp*huge(1.0_dp)
+    ! The subtraction rounds to the precheck boundary, while adding the same increment still overflows.
+    accumulated%injected_from_remote(1) = huge(1.0_dp) - increment%injected_from_remote(1)
     call accumulate_charge_ledger(accumulated, increment)
   end subroutine run_real_overflow_probe
 
@@ -258,4 +266,13 @@ contains
     increment%fixed_absorbed_weight_scale(1) = 2.0_dp
     call accumulate_charge_ledger(accumulated, increment)
   end subroutine run_ratio_overflow_probe
+
+  subroutine run_negative_count_probe()
+    type(charge_ledger_type) :: invalid_batch, destination
+
+    call invalid_batch%init(1_i32)
+    call invalid_batch%reset(1_i32)
+    invalid_batch%injected_count(1) = -1_i64
+    call accumulate_charge_ledger(destination, invalid_batch)
+  end subroutine run_negative_count_probe
 end program test_charge_ledger

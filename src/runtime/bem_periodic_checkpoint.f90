@@ -4,8 +4,7 @@ module bem_periodic_checkpoint
   use bem_types, only: injection_state, mesh_type, sim_stats
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_checkpoint_contract, only: checkpoint_schema_is_loadable, inspect_checkpoint_directory, &
-                                     publish_checkpoint_manifest
+  use bem_checkpoint_contract, only: inspect_checkpoint_directory, publish_checkpoint_manifest
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_mpi, only: mpi_bcast_i32_array, mpi_context, mpi_is_root, mpi_world_barrier, mpi_world_size
   use bem_output_writer, only: ensure_output_dir, write_checkpoint_state_files
@@ -88,15 +87,13 @@ contains
     character(len=*), intent(in) :: base_dir
     character(len=*), intent(out) :: checkpoint_dir
 
-    integer(i32) :: root_batch, root_schema, slot_batch, recovered_slot
+    integer(i32) :: root_batch, slot_batch, recovered_slot
     logical :: root_complete, slot_found
     character(len=1024) :: slot_dir
 
     checkpoint_dir = trim(base_dir)
-    call inspect_checkpoint_directory( &
-      trim(base_dir), root_complete, schema_version=root_schema, batches=root_batch &
-      )
-    if (.not. root_complete .or. .not. checkpoint_schema_is_loadable(root_schema)) root_batch = -1_i32
+    call inspect_checkpoint_directory(trim(base_dir), root_complete, batches=root_batch)
+    if (.not. root_complete) root_batch = -1_i32
 
     call find_latest_periodic_slot(trim(base_dir), recovered_slot, slot_batch, slot_found)
     if (.not. slot_found) return
@@ -121,7 +118,7 @@ contains
     integer(i32), intent(out) :: slot, batch
     logical, intent(out) :: found
 
-    integer(i32) :: candidate_slot, candidate_batch, candidate_schema
+    integer(i32) :: candidate_slot, candidate_batch
     integer(i32) :: indexed_slot, indexed_batch
     logical :: candidate_complete, has_index, prefer_candidate
     character(len=1024) :: candidate_dir
@@ -132,12 +129,8 @@ contains
     found = .false.
     do candidate_slot = 0_i32, 1_i32
       candidate_dir = checkpoint_slot_dir(trim(base_dir), candidate_slot)
-      call inspect_checkpoint_directory( &
-        trim(candidate_dir), candidate_complete, schema_version=candidate_schema, batches=candidate_batch &
-        )
+      call inspect_checkpoint_directory(trim(candidate_dir), candidate_complete, batches=candidate_batch)
       if (.not. candidate_complete) cycle
-      if (.not. checkpoint_schema_is_loadable(candidate_schema)) cycle
-
       prefer_candidate = .not. found .or. candidate_batch > batch
       if (found .and. candidate_batch == batch .and. has_index) then
         prefer_candidate = candidate_slot == indexed_slot .and. candidate_batch == indexed_batch

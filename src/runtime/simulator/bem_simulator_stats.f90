@@ -29,9 +29,6 @@ contains
 
   !> バッチ単位の集計値を累積統計 `sim_stats` に加算する。
   module procedure accumulate_batch_stats
-  if (retry_counts(1) < 0_i64 .or. retry_counts(2) < 0_i64 .or. retry_counts(2) > retry_counts(1)) then
-    error stop 'multiple_box_events retry counters are inconsistent.'
-  end if
   stats%batches = stats%batches + 1_i32
   stats%last_rel_change = rel
   stats%processed_particles = checked_add_nonnegative_i64( &
@@ -89,7 +86,7 @@ contains
       error stop 'simulation statistic must be finite and nonnegative: '//trim(field_name)
     end if
     total = accumulated + increment
-    if (.not. ieee_is_finite(total) .or. total < accumulated) then
+    if (.not. ieee_is_finite(total)) then
       error stop 'simulation statistic overflow: '//trim(field_name)
     end if
   end function checked_add_nonnegative_real

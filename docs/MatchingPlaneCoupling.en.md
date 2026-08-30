@@ -105,13 +105,19 @@ The model accepts only the following configuration so that no mean field or part
 - negative electron charge and positive ion charge; when specified, the photoelectron is negative, uses
   `photo_raycast`, `inject_face="z_high"`, and `deposit_opposite_charge_on_emit=true`, with an open z-high boundary
 - `particle_boundary.ordinary_open_model="escape"`
-- `sim.multiple_box_events_policy="abort"` or bounded `"soft_discard"`
+- `sim.multiple_box_events_policy="abort"` or `"soft_discard"` bounded by count grace, cumulative fraction, and
+  absolute charge
 
 `soft_discard` locally removes a rare macro particle whose periodic boundary events cannot be completed. BEACH does not
-add events or matching-plane moments from the unresolved step; moments committed by its earlier steps remain. Set
-`multiple_box_events_soft_discard_count_limit` and `multiple_box_events_soft_discard_abs_charge_limit` conservatively,
-then verify that the cumulative count and absolute charge in the summary/checkpoint cannot affect the conclusion. The run
-stops when either limit is exceeded.
+add events or matching-plane moments from the unresolved step; moments committed by its earlier steps remain. Let $D$ be
+the cumulative discard count and $P$ the cumulative number of macro-particles processed in accepted batches. The run
+stops when $D$ exceeds `multiple_box_events_soft_discard_count_grace` and $D/P$ exceeds
+`multiple_box_events_soft_discard_fraction_limit`. Exceeding the independent
+`multiple_box_events_soft_discard_abs_charge_limit` also stops the run; equality at any threshold is allowed. This
+absolute-charge limit is the physical error budget. Verify `multiple_box_events_soft_discarded`,
+`multiple_box_events_soft_discard_fraction`, and `multiple_box_events_soft_discarded_abs_charge_C` in the
+summary/checkpoint. Because a lifetime cumulative fraction can dilute a late burst, also audit the per-batch aggregate
+log.
 
 Do not combine this model with `reference_area_m2`, stationary-Zhao source keys, or manual `fixed_current` targets. The
 interface area is the x-y area of `domain`, its height is the z component of `domain.box_max`, and its update interval is
@@ -192,8 +198,10 @@ range does not bracket the root.
 
 Particle tracking and the elementwise `k!=0` distribution still use the batch-start state. BEACH normalizes total
 electron/ion absorption to the implicit response. With PE, it also normalizes PE emission to the configured
-surface-emission current and PE return to the surface-emission flux minus the outer escape flux. It then checks the
-committed $Q/A$ against the endpoint. Without PE, the backward-Euler current is only
+surface-emission current and PE return to the surface-emission flux minus the outer escape flux. Regression tests cover
+endpoint consistency for PE, no PE, and strongly cancelling positive and negative charge. At runtime, BEACH adopts the
+finite committed $Q/A$ from the compensated sum of mesh charge as the state for the next batch. Without PE, the
+backward-Euler current is only
 $q_e\Gamma_e^{in}+q_i\Gamma_i^{in}$ and no PE target is created.
 A large value such as 6 s therefore also requires a bracketed response, acceptable
 local `k!=0` potential change, adequate macro-particle sampling, and a physically valid response table. This option does

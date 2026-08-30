@@ -142,8 +142,9 @@ beach.toml
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限 |
 | `multiple_box_events_policy` | string | `"abort"` | 1 step の境界event上限超過時に `abort` / `soft_discard` |
 | `multiple_box_events_retry_backend` | string | `"none"` | `multiple_box_events` 後の再試行。`none` / `upper_panel_fourier` |
-| `multiple_box_events_soft_discard_count_limit` | int | `1000` | 累積soft discard数の停止上限 |
-| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積soft discard絶対電荷の停止上限 [C] |
+| `multiple_box_events_soft_discard_count_grace` | int | `1000` | 累積 soft discard 率の判定を開始する件数猶予。`>= 0` |
+| `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | 累積 soft discard 率の停止上限。`0 < value <= 1` |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積 soft discard 絶対電荷の停止上限 [C] |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大bounce数 |
 
 `batch_duration` と `batch_duration_step` の同時指定はエラーです。
@@ -152,6 +153,18 @@ beach.toml
 `upper_panel_fourier` は `cached_kneq0` の `periodic2` 構成だけで使えます。通常の場計算は変更せず、
 境界event上限を超えた 1 step だけを元の状態から再計算します。詳細と成立域は
 [粒子イベント](ParticleEvents.md)にまとめています。
+
+`soft_discard` では、累積件数を $D$、accepted batch で処理した累積 macro particle 数を $P$、
+`multiple_box_events_soft_discard_count_grace` を $G$、
+`multiple_box_events_soft_discard_fraction_limit` を $f_{\mathrm{limit}}$ とすると、
+$D>G$ かつ $D/P>f_{\mathrm{limit}}$ で停止します。いずれの閾値も等値なら許容します。
+
+累積絶対 macro charge の上限はこの率判定とは独立で、超過すれば停止します。
+
+`summary.txt` と checkpoint では
+`multiple_box_events_soft_discarded`、`multiple_box_events_soft_discard_fraction`、
+`multiple_box_events_soft_discarded_abs_charge_C` を監査してください。絶対電荷上限は物理的な誤差 budget です。
+累積率は後半の burst を希釈しうるため、batch ごとの集約 log も併せて確認します。
 
 #### 場ソルバ
 
@@ -523,7 +536,7 @@ outer inventory、前rootのcontinuation、外部flight time、遅延return queu
   `e_bottom_zero`または`symmetric_vacuum`
 - `sim.e0=[0,0,0]`と`sim.b0=[0,0,0]`、genericなreservoir potential modelを使わず、
   `particle_boundary.ordinary_open_model="escape"`。`sim.multiple_box_events_policy`は`"abort"`または
-  件数・絶対電荷上限を指定した`"soft_discard"`
+  件数猶予・累積率・絶対電荷上限を指定した`"soft_discard"`
 - electron、ion、および任意のphotoelectron roleはenabledかつ相異なり、それぞれ
   `surface_charge_closure="explicit"`。これら以外のenabled speciesは置かない
 - electronは負電荷、ionは正電荷。electron/ionは`source_mode="volume_seed"`、

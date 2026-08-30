@@ -209,8 +209,20 @@ event を完了できない場合は、元の
 
 既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
 感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させます。標準エラーには
-batchごとの全rank合計件数と絶対macro chargeだけを記録します。同じ集計値は`summary.txt`、restart、
-charge ledgerにも残り、設定した累積上限のどちらかを超えるとRUNを停止します。
+batch ごとの全 rank 合計件数と絶対 macro charge だけを記録します。累積 discard 件数を $D$、accepted batch で
+処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
+
+$$
+Q>Q_{\mathrm{limit}}\quad\text{or}\quad
+\left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
+$$
+
+です。$G$ は `multiple_box_events_soft_discard_count_grace` で、累積件数の単独上限ではありません。
+$f_{\mathrm{limit}}$ は `multiple_box_events_soft_discard_fraction_limit` です。各比較で等値は許容します。
+絶対電荷上限は率判定とは独立した物理的な誤差 budget です。`summary.txt` と checkpoint には
+`multiple_box_events_soft_discarded`、`multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から
+導出した `multiple_box_events_soft_discard_fraction` を残し、charge ledger にも discard 電荷を記録します。
+累積率は長い正常履歴によって後半の burst を希釈しうるため、batch ごとの集約 log も監査します。
 これは局所的な数値回避策であり、物理境界条件そのものの代替ではありません。
 再試行の試行数と解決数は、policy にかかわらず `summary.txt` の
 `multiple_box_events_retry_attempted` と `multiple_box_events_retry_resolved` に残ります。

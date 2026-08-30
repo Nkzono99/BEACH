@@ -41,7 +41,8 @@ def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:
         "sim": {
             "batch_count": 1,
             "multiple_box_events_policy": "soft_discard",
-            "multiple_box_events_soft_discard_count_limit": 100,
+            "multiple_box_events_soft_discard_count_grace": 100,
+            "multiple_box_events_soft_discard_fraction_limit": 1.0e-6,
             "multiple_box_events_soft_discard_abs_charge_limit": 1.0e-12,
         },
         "particles": {"species": [{"source_mode": "volume_seed", "npcls_per_step": 2}]},
