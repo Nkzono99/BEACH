@@ -6,7 +6,6 @@ program test_panel_kernel
   use bem_panel_quadrature, only: panel_oracle_potential_field, panel_singular_potential_oracle
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value, panel_side_normal_plus, &
                               panel_side_normal_minus
-  use bem_panel_self_terms, only: panel_on_surface_integrals
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_equal_i32, assert_close_dp, &
                           assert_allclose_1d
   implicit none
@@ -14,7 +13,6 @@ program test_panel_kernel
   type(panel_geometry_type) :: geom, moved, small_geom, neighbor_geom
   real(dp) :: v0(3), v1(3), v2(3), target(3), phi, field(3), phi_ref, field_ref(3)
   real(dp) :: phi_plus, phi_minus, field_plus(3), field_minus(3), phi_self, self_ref
-  real(dp) :: self_integral, self_field_integral(3)
   real(dp) :: rotation(3, 3), shift(3), moved_target(3), moved_phi, moved_field(3)
   real(dp) :: scale_value, offset_value, neighbor_field_plus(3), neighbor_field_minus(3)
   real(dp), parameter :: charge = 2.5e-12_dp
@@ -27,7 +25,7 @@ program test_panel_kernel
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
   call init_panel_geometry(v0, v1, v2, geom, status)
 
-  call test_init(7)
+  call test_init(6)
 
   call test_begin('off_surface_analytic_matches_oracle')
   call assert_equal_i32(status, panel_geometry_ok, 'valid geometry status mismatch')
@@ -78,7 +76,7 @@ program test_panel_kernel
     )
   call test_end()
 
-  call test_begin('potential_is_continuous')
+  call test_begin('off_surface_potential_is_two_sided_symmetric')
   target = geom%centroid + 1.0e-8_dp*geom%normal
   call panel_potential_field(geom, charge, target, panel_side_principal_value, phi_plus, field_plus)
   target = geom%centroid - 1.0e-8_dp*geom%normal
@@ -86,25 +84,22 @@ program test_panel_kernel
   call assert_close_dp(phi_plus, phi_minus, 1.0e-12_dp*max(1.0_dp, abs(phi_plus)), 'two-sided potential mismatch')
   call test_end()
 
-  call test_begin('normal_field_jump')
+  call test_begin('on_surface_principal_value_and_jump')
+  call panel_potential_field(geom, charge, geom%centroid, panel_side_principal_value, phi_self, field)
   call panel_potential_field(geom, charge, geom%centroid, panel_side_normal_plus, phi_plus, field_plus)
   call panel_potential_field(geom, charge, geom%centroid, panel_side_normal_minus, phi_minus, field_minus)
+  call panel_singular_potential_oracle(geom, charge, geom%centroid, 32_i32, self_ref)
+  call assert_close_dp(phi_self, self_ref, 2.0e-11_dp*max(1.0_dp, abs(self_ref)), 'self potential mismatch')
+  call assert_close_dp(phi_plus, phi_self, 1.0e-14_dp, 'plus-side potential mismatch')
+  call assert_close_dp(phi_minus, phi_self, 1.0e-14_dp, 'minus-side potential mismatch')
   call assert_allclose_1d( &
     field_plus - field_minus, charge/(geom%area*eps0)*geom%normal, &
     1.0e-12_dp*max(1.0_dp, abs(charge/(geom%area*eps0))), 'normal field jump mismatch' &
     )
-  call assert_close_dp(phi_plus, phi_minus, 1.0e-14_dp, 'one-sided potential mismatch')
-  call test_end()
-
-  call test_begin('centroid_self_potential')
-  call panel_potential_field(geom, charge, geom%centroid, panel_side_principal_value, phi_self, field)
-  call panel_on_surface_integrals(geom, geom%centroid, self_integral, self_field_integral)
-  call panel_singular_potential_oracle(geom, charge, geom%centroid, 32_i32, self_ref)
-  call assert_close_dp(phi_self, self_ref, 2.0e-11_dp*max(1.0_dp, abs(self_ref)), 'self potential mismatch')
-  call assert_close_dp(phi_self, 8.9875517923e9_dp*charge/geom%area*self_integral, 1.0e-13_dp, &
-                       'self-term owner potential mismatch')
-  call assert_allclose_1d(field, 8.9875517923e9_dp*charge/geom%area*self_field_integral, 1.0e-13_dp, &
-                          'self-term owner field mismatch')
+  call assert_allclose_1d( &
+    field, 0.5_dp*(field_plus + field_minus), &
+    1.0e-12_dp*max(1.0_dp, maxval(abs(field))), 'principal-value field is not the side-trace average' &
+    )
   call test_end()
 
   call test_begin('rigid_transform_and_charge_scaling')

@@ -10,14 +10,10 @@ program test_surface_models
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
-  call test_init(5)
+  call test_init(4)
 
-  call test_begin('all_insulator_mesh_is_unchanged')
-  call test_all_insulator_mesh_is_unchanged()
-  call test_end()
-
-  call test_begin('isolated_conductor_equalizes_potential')
-  call test_isolated_conductor_equalizes_potential()
+  call test_begin('all_insulator_periodic2_is_unchanged')
+  call test_all_insulator_periodic2_is_unchanged()
   call test_end()
 
   call test_begin('fixed_charge_induces_conductor_dipole')
@@ -28,15 +24,15 @@ program test_surface_models
   call test_uniform_field_induces_conductor_dipole()
   call test_end()
 
-  call test_begin('multiple_mesh_id_conductors_conserve_charge_independently')
-  call test_multiple_mesh_id_conductors_conserve_charge_independently()
+  call test_begin('interleaved_conductor_groups_conserve_charge_and_equalize')
+  call test_interleaved_conductor_groups_conserve_charge_and_equalize()
   call test_end()
 
   call test_summary()
 
 contains
 
-  subroutine test_all_insulator_mesh_is_unchanged()
+  subroutine test_all_insulator_periodic2_is_unchanged()
     type(mesh_type) :: mesh
     real(dp) :: centers(3, 2), q0(2)
     integer(i32) :: mesh_ids(2), surface_models(2)
@@ -53,28 +49,7 @@ contains
 
     call assert_close_dp(mesh%q_elem(1), q0(1), 0.0d0, 'first insulator charge must remain unchanged')
     call assert_close_dp(mesh%q_elem(2), q0(2), 0.0d0, 'second insulator charge must remain unchanged')
-  end subroutine test_all_insulator_mesh_is_unchanged
-
-  subroutine test_isolated_conductor_equalizes_potential()
-    type(mesh_type) :: mesh
-    real(dp) :: centers(3, 2), q0(2), phi1, phi2
-    integer(i32) :: mesh_ids(2), surface_models(2)
-
-    centers(:, 1) = [0.0d0, 0.0d0, 0.0d0]
-    centers(:, 2) = [1.0d0, 0.0d0, 0.0d0]
-    q0 = [2.0d-12, 0.0d0]
-    mesh_ids = [1_i32, 1_i32]
-    surface_models = [surface_model_conductor, surface_model_conductor]
-    call init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
-
-    call apply_surface_model_charge_relaxation(mesh, [0.0d0, 0.0d0, 0.0d0])
-
-    phi1 = scaled_potential_at_elem(mesh, 1_i32, [0.0d0, 0.0d0, 0.0d0])
-    phi2 = scaled_potential_at_elem(mesh, 2_i32, [0.0d0, 0.0d0, 0.0d0])
-    call assert_close_dp(sum(mesh%q_elem), 2.0d-12, 1.0d-24, 'conductor total charge must be conserved')
-    call assert_close_dp(phi1, phi2, 1.0d-20, 'isolated conductor elements should be equipotential')
-    call assert_true(all(mesh%q_elem > 0.0d0), 'positive isolated conductor charge should remain positive here')
-  end subroutine test_isolated_conductor_equalizes_potential
+  end subroutine test_all_insulator_periodic2_is_unchanged
 
   subroutine test_fixed_charge_induces_conductor_dipole()
     type(mesh_type) :: mesh
@@ -97,6 +72,7 @@ contains
     call assert_close_dp(phi1, phi2, 1.0d-20, 'conductor elements should be equipotential')
     call assert_true(mesh%q_elem(1) < 0.0d0, 'near fixed positive charge should induce negative conductor charge')
     call assert_true(mesh%q_elem(2) > 0.0d0, 'far conductor side should induce positive charge')
+    call assert_close_dp(mesh%q_elem(3), q0(3), 0.0d0, 'fixed insulator charge must remain unchanged')
   end subroutine test_fixed_charge_induces_conductor_dipole
 
   subroutine test_uniform_field_induces_conductor_dipole()
@@ -122,28 +98,34 @@ contains
     call assert_true(mesh%q_elem(2) > 0.0d0, 'right side should become positive for +x external field')
   end subroutine test_uniform_field_induces_conductor_dipole
 
-  subroutine test_multiple_mesh_id_conductors_conserve_charge_independently()
+  subroutine test_interleaved_conductor_groups_conserve_charge_and_equalize()
     type(mesh_type) :: mesh
-    real(dp) :: centers(3, 4), q0(4)
+    real(dp) :: centers(3, 4), q0(4), phi1, phi2, phi3, phi4
     integer(i32) :: mesh_ids(4), surface_models(4)
 
     centers(:, 1) = [0.0d0, 0.0d0, 0.0d0]
-    centers(:, 2) = [1.0d0, 0.0d0, 0.0d0]
-    centers(:, 3) = [4.0d0, 0.0d0, 0.0d0]
+    centers(:, 2) = [4.0d0, 0.0d0, 0.0d0]
+    centers(:, 3) = [1.0d0, 0.0d0, 0.0d0]
     centers(:, 4) = [5.0d0, 0.0d0, 0.0d0]
-    q0 = [2.0d-12, 0.0d0, 4.0d-12, 0.0d0]
-    mesh_ids = [1_i32, 1_i32, 2_i32, 2_i32]
+    q0 = [2.0d-12, 4.0d-12, 0.0d0, 0.0d0]
+    mesh_ids = [1_i32, 2_i32, 1_i32, 2_i32]
     surface_models = [surface_model_conductor, surface_model_conductor, &
                       surface_model_conductor, surface_model_conductor]
     call init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
 
     call apply_surface_model_charge_relaxation(mesh, [0.0d0, 0.0d0, 0.0d0])
 
-    call assert_close_dp(sum(mesh%q_elem(1:2)), 2.0d-12, 1.0d-23, &
+    phi1 = scaled_potential_at_elem(mesh, 1_i32, [0.0d0, 0.0d0, 0.0d0])
+    phi2 = scaled_potential_at_elem(mesh, 2_i32, [0.0d0, 0.0d0, 0.0d0])
+    phi3 = scaled_potential_at_elem(mesh, 3_i32, [0.0d0, 0.0d0, 0.0d0])
+    phi4 = scaled_potential_at_elem(mesh, 4_i32, [0.0d0, 0.0d0, 0.0d0])
+    call assert_close_dp(mesh%q_elem(1) + mesh%q_elem(3), 2.0d-12, 1.0d-23, &
                          'first conductor mesh_id total charge mismatch')
-    call assert_close_dp(sum(mesh%q_elem(3:4)), 4.0d-12, 1.0d-23, &
+    call assert_close_dp(mesh%q_elem(2) + mesh%q_elem(4), 4.0d-12, 1.0d-23, &
                          'second conductor mesh_id total charge mismatch')
-  end subroutine test_multiple_mesh_id_conductors_conserve_charge_independently
+    call assert_close_dp(phi1, phi3, 1.0d-20, 'first conductor mesh_id should be equipotential')
+    call assert_close_dp(phi2, phi4, 1.0d-20, 'second conductor mesh_id should be equipotential')
+  end subroutine test_interleaved_conductor_groups_conserve_charge_and_equalize
 
   subroutine init_test_mesh(mesh, centers, q0, mesh_ids, surface_models)
     type(mesh_type), intent(out) :: mesh

@@ -1,19 +1,22 @@
-!> 計測プロファイル CSV の生成と基本ヘッダを検証する。
+!> 計測プロファイル CSV の生成・スキーマ・単一rank集約値を検証する。
 program test_performance_profile
-  use bem_kinds, only: i32
+  use bem_kinds, only: dp, i32
   use bem_mpi, only: mpi_context
   use bem_performance_profile, only: perf_reset, perf_configure, perf_set_output_context, perf_add_elapsed, &
                                      perf_write_outputs, perf_region_program_total, perf_region_simulation_total
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, delete_file_if_exists, ensure_directory, remove_empty_directory
+                          assert_true, assert_allclose_1d, delete_file_if_exists, &
+                          ensure_directory, remove_empty_directory
   implicit none
 
   type(mpi_context) :: mpi
   character(len=*), parameter :: out_dir = 'test_performance_profile_tmp'
   character(len=*), parameter :: profile_path = 'test_performance_profile_tmp/performance_profile.csv'
   character(len=512) :: line
+  real(dp) :: csv_values(5)
   logical :: exists, saw_header, saw_program_total, saw_simulation_total
-  integer :: u, ios
+  integer(i32) :: calls_sum
+  integer :: u, ios, comma
 
   call test_init(1)
 
@@ -23,7 +26,8 @@ program test_performance_profile
   call test_begin('performance_profile_csv')
   call perf_configure(.true.)
   call perf_set_output_context(out_dir, .true.)
-  call perf_add_elapsed(perf_region_program_total, 1.5d0, 1_i32)
+  call perf_add_elapsed(perf_region_program_total, 1.0d0, 1_i32)
+  call perf_add_elapsed(perf_region_program_total, 0.5d0, 2_i32)
   call perf_add_elapsed(perf_region_simulation_total, 1.0d0, 2_i32)
   call perf_write_outputs(mpi)
 
@@ -42,7 +46,16 @@ program test_performance_profile
     if (index(line, 'region,calls_sum,calls_mean,rank_min_s,rank_mean_s,rank_max_s,imbalance_ratio') == 1) then
       saw_header = .true.
     end if
-    if (index(line, 'program_total,') == 1) saw_program_total = .true.
+    if (index(line, 'program_total,') == 1) then
+      saw_program_total = .true.
+      comma = index(line, ',')
+      read (line(comma + 1:), *, iostat=ios) calls_sum, csv_values
+      call assert_true(ios == 0, 'program_total row could not be parsed')
+      if (ios == 0) call assert_allclose_1d( &
+        [real(calls_sum, dp), csv_values], [3.0_dp, 3.0_dp, 1.5_dp, 1.5_dp, 1.5_dp, 1.0_dp], &
+        1.0e-14_dp, 'program_total aggregate mismatch' &
+        )
+    end if
     if (index(line, 'simulation_total,') == 1) saw_simulation_total = .true.
   end do
   close (u)
