@@ -103,6 +103,8 @@ def run(args: argparse.Namespace) -> None:
                 "Install dependencies with `python -m pip install -e . --no-build-isolation`."
             ) from exc
         raise
+    except ValueError as exc:
+        raise SystemExit(f'Failed to plot "{profile_path}": {exc}') from exc
 
     save_path = args.save
     if save_path is None and not args.show:
