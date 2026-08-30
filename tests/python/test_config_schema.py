@@ -288,8 +288,12 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     matching = load_toml_file(
         ROOT / "tests/fortran/matching_plane_quasistatic.toml"
     )
+    no_photo = load_toml_file(
+        ROOT / "tests/fortran/matching_plane_no_photo.toml"
+    )
 
     assert schema_errors(matching, schema) == []
+    assert schema_errors(no_photo, schema) == []
 
     with_atol = copy.deepcopy(matching)
     with_atol["surface_current_model"]["coupling_atol"] = [0.0, 0.05, 0.0, 0.0]

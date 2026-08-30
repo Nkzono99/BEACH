@@ -1235,6 +1235,17 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 'surface currents require surface_charge_closure="fixed_current".'
             )
         if surface_charge_closure == "fixed_current":
+            if (
+                species_table.get("enabled", True) is not False
+                and (
+                    not math.isfinite(resolved_batch_duration)
+                    or resolved_batch_duration <= 0.0
+                )
+            ):
+                raise ConfigValidationError(
+                    "BEACH constraint error: sim.batch_duration must be > 0 "
+                    "for fixed_current."
+                )
             species_key = str(species_table.get("species_key", f"species_{index}"))
             if not (
                 fixed_absorbed_present

@@ -1,4 +1,4 @@
-# Config-parser fixture for the Level 3 matching-plane public contract.
+# Config-parser fixture for the matching-plane public contract.
 # The response table path is intentionally not required to exist at config-validation time.
 
 [sim]

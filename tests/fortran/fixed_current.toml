@@ -1,32 +1,9 @@
 [sim]
-dt = 1.0e-3
 batch_duration = 1.0e-2
-batch_count = 1
-max_step = 1
 
 [particles]
 [[particles.species]]
-source_mode = "volume_seed"
 npcls_per_step = 1
 q_particle = -1.0
-m_particle = 1.0
 surface_charge_closure = "fixed_current"
 target_absorbed_current_a = -2.0
-
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-surface_side = "normal_plus"
-size_x = 1.0
-size_y = 1.0
-nx = 1
-ny = 1
-center = [0.0, 0.0, 0.0]
-
-[output]
-write_files = false
-dir = "outputs/fixed_current_test"
-history_stride = 1

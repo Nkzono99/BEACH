@@ -316,6 +316,9 @@ contains
         error stop 'target surface currents require surface_charge_closure="fixed_current".'
       end if
     case ('fixed_current')
+      if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
+        error stop 'sim.batch_duration must be > 0 for fixed_current.'
+      end if
       if (.not. cfg%particle_species(i)%has_target_absorbed_current_a .and. &
           .not. cfg%particle_species(i)%has_target_emission_current_a .and. &
           .not. is_automatic_current_species(cfg, i)) then

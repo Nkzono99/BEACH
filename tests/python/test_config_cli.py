@@ -627,6 +627,7 @@ def test_load_config_file_rejects_removed_photo_escape_model(tmp_path: Path) -> 
 
 def test_fixed_current_requires_signed_independent_channels() -> None:
     config = default_config()
+    config["sim"]["batch_duration"] = 1.0e-2
     species = config["particles"]["species"][0]
     species["surface_charge_closure"] = "fixed_current"
     species["target_absorbed_current_a"] = -2.0e-6
@@ -634,6 +635,11 @@ def test_fixed_current_requires_signed_independent_channels() -> None:
     assert normalized["particles"]["species"][0][
         "target_absorbed_current_a"
     ] == pytest.approx(-2.0e-6)
+
+    stepped_duration = copy.deepcopy(config)
+    stepped_duration["sim"].pop("batch_duration")
+    stepped_duration["sim"]["batch_duration_step"] = 10.0
+    normalize_config_document(stepped_duration)
 
     wrong_sign = copy.deepcopy(config)
     wrong_sign["particles"]["species"][0]["target_absorbed_current_a"] = 2.0e-6
@@ -644,6 +650,21 @@ def test_fixed_current_requires_signed_independent_channels() -> None:
     net_only["particles"]["species"][0].pop("target_absorbed_current_a")
     with pytest.raises(ConfigValidationError, match="at least one target current"):
         normalize_config_document(net_only)
+
+    zero_duration = copy.deepcopy(config)
+    zero_duration["sim"]["batch_duration"] = 0.0
+    with pytest.raises(ConfigValidationError, match="batch_duration must be > 0"):
+        normalize_config_document(zero_duration)
+
+    disabled = default_config()
+    disabled["particles"]["species"].append(
+        {
+            "enabled": False,
+            "surface_charge_closure": "fixed_current",
+            "target_absorbed_current_a": -2.0e-6,
+        }
+    )
+    normalize_config_document(disabled)
 
     photo_config = load_config_file(
         Path("examples/periodic2_closed_photoelectron.toml")

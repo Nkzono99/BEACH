@@ -736,7 +736,8 @@ surface_charge_closure = "fixed_current"
 target_absorbed_current_a = -2.0e-6
 ```
 
-BEACH multiplies raw absorbed charge $R_s$ by
+An enabled species using `fixed_current` requires `sim.batch_duration` or
+`sim.batch_duration_step` to resolve to a positive duration. BEACH multiplies raw absorbed charge $R_s$ by
 $I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$. For `photo_raycast` with
 `deposit_opposite_charge_on_emit=true`, `target_emission_current_a` independently scales the source reaction channel. BEACH
 does not scale the net PE current formed by subtracting these two channels. A nonzero target with an empty raw channel fails

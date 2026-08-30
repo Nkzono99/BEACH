@@ -20,7 +20,7 @@ program test_app_config_parser
   character(len=*), parameter :: zhao_no_photo_stale_path = 'test_zhao_no_photo_stale_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
   character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
-  character(len=*), parameter :: fixed_current_emission_path = 'test_fixed_current_emission_tmp.toml'
+  character(len=*), parameter :: fixed_current_variant_path = 'test_fixed_current_variant_tmp.toml'
   character(len=*), parameter :: matching_absolute_response_path = '/tmp/beach_matching_response.csv'
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(36)
+  call test_init(37)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -341,6 +341,15 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
+  call test_begin('periodic_face_rejects_particle_override')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '', &
+    particle_boundary_extra='x_low = "reflect"' &
+    )
+  call assert_config_rejected(matching_variant_path, 'cannot override a periodic domain face')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
   call test_begin('matching_plane_rejects_ambient_volume_reseeding')
   call write_matching_variant( &
     matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '1' &
@@ -393,9 +402,23 @@ program test_app_config_parser
     cfg%particle_species(1)%target_absorbed_current_a, -2.0_dp, 1.0e-15_dp, &
     'fixed absorbed target mismatch' &
     )
+  call write_fixed_absorbed_variant('batch_duration = 1.0e-2', '')
+  call assert_config_rejected(fixed_current_variant_path, 'fixed_current" requires at least one target current')
+  call delete_file_if_exists(fixed_current_variant_path)
+  call write_fixed_absorbed_variant('batch_duration = 1.0e-2', '2.0')
+  call assert_config_rejected(fixed_current_variant_path, 'target_absorbed_current_a sign must match q_particle')
+  call delete_file_if_exists(fixed_current_variant_path)
+  call write_fixed_absorbed_variant('batch_duration = 0.0', '-2.0')
+  call assert_config_rejected(fixed_current_variant_path, 'sim.batch_duration must be > 0 for fixed_current')
+  call delete_file_if_exists(fixed_current_variant_path)
+  call write_fixed_absorbed_variant('batch_duration_step = 2.0', '-2.0')
+  call default_app_config(cfg)
+  call load_app_config(fixed_current_variant_path, cfg)
+  call assert_true(cfg%sim%batch_duration > 0.0_dp, 'fixed-current step duration was not resolved')
+  call delete_file_if_exists(fixed_current_variant_path)
   call write_fixed_emission_variant('3.0e-6')
   call default_app_config(cfg)
-  call load_app_config(fixed_current_emission_path, cfg)
+  call load_app_config(fixed_current_variant_path, cfg)
   call assert_true( &
     cfg%particle_species(3)%has_target_emission_current_a, &
     'fixed emission target presence mismatch' &
@@ -404,10 +427,10 @@ program test_app_config_parser
     cfg%particle_species(3)%target_emission_current_a, 3.0e-6_dp, 1.0e-18_dp, &
     'fixed emission target mismatch' &
     )
-  call delete_file_if_exists(fixed_current_emission_path)
+  call delete_file_if_exists(fixed_current_variant_path)
   call write_fixed_emission_variant('-3.0e-6')
-  call assert_config_rejected(fixed_current_emission_path, 'target_emission_current_a sign must oppose q_particle')
-  call delete_file_if_exists(fixed_current_emission_path)
+  call assert_config_rejected(fixed_current_variant_path, 'target_emission_current_a sign must oppose q_particle')
+  call delete_file_if_exists(fixed_current_variant_path)
   call test_end()
 
   call test_begin('tutorial_config')
@@ -552,14 +575,15 @@ contains
   end subroutine write_no_photo_zhao_variant
 
   subroutine write_matching_variant( &
-    path, model_name, response_path, surface_extra, sim_extra, z_low_action, electron_npcls &
+    path, model_name, response_path, surface_extra, sim_extra, z_low_action, electron_npcls, particle_boundary_extra &
     )
     character(len=*), intent(in) :: path, model_name, response_path, surface_extra, sim_extra, z_low_action
     character(len=*), intent(in) :: electron_npcls
+    character(len=*), intent(in), optional :: particle_boundary_extra
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
     logical :: replaced_model, replaced_response, inserted_surface_extra, inserted_sim_extra, replaced_z_low
-    logical :: replaced_electron_npcls
+    logical :: replaced_electron_npcls, inserted_particle_boundary_extra
 
     replaced_model = trim(model_name) == 'matching_plane_quasistatic'
     replaced_response = len_trim(response_path) == 0
@@ -567,6 +591,10 @@ contains
     inserted_sim_extra = len_trim(sim_extra) == 0
     replaced_z_low = len_trim(z_low_action) == 0
     replaced_electron_npcls = len_trim(electron_npcls) == 0
+    inserted_particle_boundary_extra = .true.
+    if (present(particle_boundary_extra)) then
+      inserted_particle_boundary_extra = len_trim(particle_boundary_extra) == 0
+    end if
     open (newunit=source_unit, file='tests/fortran/matching_plane_quasistatic.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open matching-plane config fixture'
@@ -599,11 +627,16 @@ contains
         write (output_unit, '(a)') trim(sim_extra)
         inserted_sim_extra = .true.
       end if
+      if (.not. inserted_particle_boundary_extra .and. trim(line) == '[particle_boundary]') then
+        write (output_unit, '(a)') trim(particle_boundary_extra)
+        inserted_particle_boundary_extra = .true.
+      end if
     end do
     close (source_unit)
     close (output_unit)
     if (.not. replaced_model .or. .not. replaced_response .or. .not. inserted_surface_extra .or. &
-        .not. inserted_sim_extra .or. .not. replaced_z_low .or. .not. replaced_electron_npcls) then
+        .not. inserted_sim_extra .or. .not. replaced_z_low .or. .not. replaced_electron_npcls .or. &
+        .not. inserted_particle_boundary_extra) then
       error stop 'failed to specialize matching-plane config fixture'
     end if
   end subroutine write_matching_variant
@@ -713,6 +746,26 @@ contains
     close (output_unit)
   end subroutine append_matching_explicit_species
 
+  subroutine write_fixed_absorbed_variant(duration_entry, target_current)
+    character(len=*), intent(in) :: duration_entry, target_current
+    integer :: output_unit, ios
+
+    open (newunit=output_unit, file=fixed_current_variant_path, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'failed to create fixed-current config fixture'
+    write (output_unit, '(a)') '[sim]'
+    write (output_unit, '(a)') trim(duration_entry)
+    write (output_unit, '(a)') ''
+    write (output_unit, '(a)') '[particles]'
+    write (output_unit, '(a)') '[[particles.species]]'
+    write (output_unit, '(a)') 'npcls_per_step = 1'
+    write (output_unit, '(a)') 'q_particle = -1.0'
+    write (output_unit, '(a)') 'surface_charge_closure = "fixed_current"'
+    if (len_trim(target_current) > 0) then
+      write (output_unit, '(a)') 'target_absorbed_current_a = '//trim(target_current)
+    end if
+    close (output_unit)
+  end subroutine write_fixed_absorbed_variant
+
   subroutine write_fixed_emission_variant(target_current)
     character(len=*), intent(in) :: target_current
     character(len=1024) :: line
@@ -723,7 +776,7 @@ contains
     open (newunit=source_unit, file='examples/periodic2_closed_photoelectron.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open closed-photoelectron config fixture'
-    open (newunit=output_unit, file=fixed_current_emission_path, status='replace', action='write', iostat=ios)
+    open (newunit=output_unit, file=fixed_current_variant_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to create fixed-emission config fixture'
     do
       read (source_unit, '(A)', iostat=ios) line

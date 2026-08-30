@@ -702,7 +702,9 @@ surface_charge_closure = "fixed_current"
 target_absorbed_current_a = -2.0e-6
 ```
 
-と指定し、raw 吸収電荷 $R_s$ を $I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$ 倍します。
+と指定します。`fixed_current`を使うenabled speciesには、正に解決される`sim.batch_duration`または
+`sim.batch_duration_step`が必要です。raw 吸収電荷 $R_s$ を
+$I_{s,\mathrm{abs}}^{\mathrm{target}}\Delta t/R_s$ 倍します。
 `photo_raycast` では `deposit_opposite_charge_on_emit=true` として
 `target_emission_current_a` も指定でき、放出反作用と帰還吸収を独立に補正します。二つの差である net PE 電流を
 直接倍率化しません。target が非ゼロなのに対応する raw channel が空なら fail closed します。
