@@ -22,11 +22,23 @@ program test_external_boundary_contract
   call test_end()
 
   call test_begin('scalar_inflow_and_open_barrier_are_independent')
-  call resolve_external_boundary_contract('infinity_barrier', 'potential_barrier', contract, status, message)
+  call resolve_external_boundary_contract('infinity_barrier', 'escape', contract, status, message)
   call assert_equal_i32(status, external_boundary_ok, 'scalar contract resolution failed')
   call assert_equal_i32(contract%inflow_map, external_inflow_scalar_barrier, 'scalar inflow mismatch')
+  call assert_equal_i32(contract%ordinary_open_model, external_open_escape, 'scalar inflow changed open escape')
+
+  call resolve_external_boundary_contract('none', 'potential_barrier', contract, status, message)
+  call assert_equal_i32(status, external_boundary_ok, 'open barrier contract resolution failed')
+  call assert_equal_i32(contract%inflow_map, external_inflow_none, 'open barrier changed inflow mapping')
   call assert_equal_i32( &
     contract%ordinary_open_model, external_open_potential_barrier, 'open barrier mismatch' &
+    )
+
+  call resolve_external_boundary_contract('infinity_barrier', 'potential_barrier', contract, status, message)
+  call assert_equal_i32(status, external_boundary_ok, 'combined barrier contract resolution failed')
+  call assert_equal_i32(contract%inflow_map, external_inflow_scalar_barrier, 'combined scalar inflow mismatch')
+  call assert_equal_i32( &
+    contract%ordinary_open_model, external_open_potential_barrier, 'combined open barrier mismatch' &
     )
   call test_end()
 
