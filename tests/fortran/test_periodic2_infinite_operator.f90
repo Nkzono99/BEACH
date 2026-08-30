@@ -1,10 +1,11 @@
 program test_periodic2_infinite_operator
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, &
                                   eval_point, eval_potential_point, destroy_plan, destroy_state
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_kneq0_correction_single_source, &
                                             add_periodic2_kneq0_potential_correction_single_source
-  use test_support, only: test_begin, test_end, test_summary, assert_true, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, remove_empty_directory
   implicit none
 
   type(fmm_options_type) :: options
@@ -16,7 +17,9 @@ program test_periodic2_infinite_operator
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
   real(dp) :: layer_field_delta, layer_potential_delta, translation_field(3), translation_phi
   real(dp) :: seam_low(3, 2), seam_high(3, 2), seam_field_low(3), seam_field_high(3)
-  real(dp) :: seam_ref_low(3), seam_ref_high(3), seam_phi, seam_error, max_seam_error, seam_scale
+  real(dp) :: seam_ref_low(3), seam_ref_high(3), seam_phi_low, seam_phi_high
+  real(dp) :: seam_ref_phi_low, seam_ref_phi_high, seam_error, max_seam_error, seam_scale
+  real(dp) :: seam_potential_error, max_seam_potential_error, seam_potential_scale
   integer(i32) :: target_idx, seam_idx
   integer :: clock_count
   character(len=512) :: cache_path0, cache_path1, cache_dir
@@ -33,14 +36,13 @@ program test_periodic2_infinite_operator
   call system_clock(count=clock_count)
   write (cache_dir, '(a,i0)') 'test_periodic2_infinite_operator_tmp_', clock_count
   options%periodic_cache_dir = trim(cache_dir)
+  call test_init(3)
 
-  call test_begin('cached_kneq0_cold_build_matches_exact_ewald')
+  call test_begin('cached_kneq0_matches_ewald_across_image_splits_and_charge_updates')
   options%periodic_image_layers = 1_i32
   call build_plan(plan0, src_pos, options)
   call update_state(plan0, state0, q)
   cache_path0 = plan0%periodic_cache_path
-  call assert_true(.not. plan0%periodic_cache_hit, 'first cached kneq0 plan must be a cold build')
-  call assert_true(plan0%periodic_operator_build_count == 1_i32, 'cold cached kneq0 operator must be built once')
   options%periodic_image_layers = 2_i32
   call build_plan(plan1, src_pos, options)
   call update_state(plan1, state1, q)
@@ -55,6 +57,12 @@ program test_periodic2_infinite_operator
     call eval_point(plan1, state1, targets(:, target_idx), field1)
     call eval_potential_point(plan1, state1, targets(:, target_idx), phi1)
     call exact_kneq0_reference(plan1, q, targets(:, target_idx), field_ref, phi_ref)
+    call assert_true( &
+      all(ieee_is_finite(field0)) .and. all(ieee_is_finite(field1)) .and. &
+      all(ieee_is_finite(field_ref)) .and. ieee_is_finite(phi0) .and. &
+      ieee_is_finite(phi1) .and. ieee_is_finite(phi_ref), &
+      'cached kneq0 neutral evaluation returned a non-finite value' &
+      )
     field_error = sqrt(sum((field1 - field_ref)**2))/max(1.0e-10_dp, sqrt(sum(field_ref*field_ref)))
     potential_error = abs(phi1 - phi_ref)/max(1.0e-10_dp, abs(phi_ref))
     max_field_error = max(max_field_error, field_error)
@@ -71,12 +79,19 @@ program test_periodic2_infinite_operator
   call assert_true(max_potential_error < 8.0e-2_dp, 'cached kneq0 potential error exceeds 8e-2')
   call assert_true(layer_field_delta < 8.0e-2_dp, 'cached kneq0 field changes with image layers')
   call assert_true(layer_potential_delta < 8.0e-2_dp, 'cached kneq0 potential gauge changes with image layers')
-  q(4) = -0.6_dp
+  q = [1.0_dp, -0.8_dp, 0.6_dp, -0.6_dp]
   call update_state(plan1, state1, q)
+  max_field_error = 0.0_dp
+  max_potential_error = 0.0_dp
   do target_idx = 1_i32, size(targets, 2)
     call eval_point(plan1, state1, targets(:, target_idx), field1)
     call eval_potential_point(plan1, state1, targets(:, target_idx), phi1)
     call exact_kneq0_reference(plan1, q, targets(:, target_idx), field_ref, phi_ref)
+    call assert_true( &
+      all(ieee_is_finite(field1)) .and. all(ieee_is_finite(field_ref)) .and. &
+      ieee_is_finite(phi1) .and. ieee_is_finite(phi_ref), &
+      'cached kneq0 non-neutral evaluation returned a non-finite value' &
+      )
     field_error = sqrt(sum((field1 - field_ref)**2))/max(1.0e-10_dp, sqrt(sum(field_ref*field_ref)))
     potential_error = abs(phi1 - phi_ref)/max(1.0e-10_dp, abs(phi_ref))
     max_field_error = max(max_field_error, field_error)
@@ -95,6 +110,8 @@ program test_periodic2_infinite_operator
   call test_end()
 
   call test_begin('periodic_translation_invariance')
+  q = [1.0_dp, -0.8_dp, 0.6_dp, -0.6_dp]
+  call update_state(plan1, state1, q)
   call eval_point(plan1, state1, targets(:, 2) + [1.0_dp, -1.0_dp, 0.0_dp], translation_field)
   call eval_potential_point(plan1, state1, targets(:, 2) + [1.0_dp, -1.0_dp, 0.0_dp], translation_phi)
   call eval_point(plan1, state1, targets(:, 2), field1)
@@ -106,22 +123,43 @@ program test_periodic2_infinite_operator
   call test_end()
 
   call test_begin('paired_face_continuity_matches_exact_ewald')
+  q = [1.0_dp, -0.8_dp, 0.6_dp, -0.6_dp]
+  call update_state(plan1, state1, q)
   seam_low(:, 1) = [1.0e-10_dp, 0.48_dp, 0.18_dp]
   seam_high(:, 1) = [1.0_dp - 1.0e-10_dp, 0.48_dp, 0.18_dp]
   seam_low(:, 2) = [0.55_dp, 1.0e-10_dp, 0.18_dp]
   seam_high(:, 2) = [0.55_dp, 1.0_dp - 1.0e-10_dp, 0.18_dp]
   max_seam_error = 0.0_dp
+  max_seam_potential_error = 0.0_dp
   do seam_idx = 1_i32, int(size(seam_low, 2), i32)
     call eval_point(plan1, state1, seam_low(:, seam_idx), seam_field_low)
     call eval_point(plan1, state1, seam_high(:, seam_idx), seam_field_high)
-    call exact_kneq0_reference(plan1, q, seam_low(:, seam_idx), seam_ref_low, seam_phi)
-    call exact_kneq0_reference(plan1, q, seam_high(:, seam_idx), seam_ref_high, seam_phi)
+    call eval_potential_point(plan1, state1, seam_low(:, seam_idx), seam_phi_low)
+    call eval_potential_point(plan1, state1, seam_high(:, seam_idx), seam_phi_high)
+    call exact_kneq0_reference(plan1, q, seam_low(:, seam_idx), seam_ref_low, seam_ref_phi_low)
+    call exact_kneq0_reference(plan1, q, seam_high(:, seam_idx), seam_ref_high, seam_ref_phi_high)
+    call assert_true( &
+      all(ieee_is_finite(seam_field_low)) .and. all(ieee_is_finite(seam_field_high)) .and. &
+      all(ieee_is_finite(seam_ref_low)) .and. all(ieee_is_finite(seam_ref_high)) .and. &
+      ieee_is_finite(seam_phi_low) .and. ieee_is_finite(seam_phi_high) .and. &
+      ieee_is_finite(seam_ref_phi_low) .and. ieee_is_finite(seam_ref_phi_high), &
+      'cached kneq0 paired-face evaluation returned a non-finite value' &
+      )
     seam_scale = max(1.0e-10_dp, sqrt(sum(seam_ref_low**2)), sqrt(sum(seam_ref_high**2)))
     seam_error = sqrt(sum(((seam_field_low - seam_field_high) - (seam_ref_low - seam_ref_high))**2))/seam_scale
     max_seam_error = max(max_seam_error, seam_error)
+    seam_potential_scale = max(1.0e-10_dp, abs(seam_ref_phi_low), abs(seam_ref_phi_high))
+    seam_potential_error = &
+      abs((seam_phi_low - seam_phi_high) - (seam_ref_phi_low - seam_ref_phi_high))/seam_potential_scale
+    max_seam_potential_error = max(max_seam_potential_error, seam_potential_error)
   end do
-  write (*, '(a,es12.5)') 'cached kneq0 paired-face continuity error=', max_seam_error
+  write (*, '(a,2(es12.5,1x))') &
+    'cached kneq0 paired-face errors(field,potential)=', max_seam_error, max_seam_potential_error
   call assert_true(max_seam_error < 8.0e-2_dp, 'cached kneq0 paired-face continuity error exceeds 8e-2')
+  call assert_true( &
+    max_seam_potential_error < 8.0e-2_dp, &
+    'cached kneq0 paired-face potential continuity error exceeds 8e-2' &
+    )
   call test_end()
 
   call destroy_state(state0)

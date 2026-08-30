@@ -12,9 +12,8 @@ program test_surface_current_model
   type(app_config) :: cfg
   type(surface_current_model_result_type) :: result
   type(surface_closure_contract_type) :: closure
-  real(dp) :: inward_speed
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -38,6 +37,29 @@ program test_surface_current_model
   end if
   call test_end()
 
+  call test_begin('matching_plane_dispatch_is_batch_local')
+  call default_app_config(cfg)
+  cfg%n_particle_species = 2_i32
+  cfg%surface_current%model = 'matching_plane_quasistatic'
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%active, 'matching-plane current model must be active')
+  call assert_true( &
+    trim(result%kinetic_contract) == 'matching_plane_v1', &
+    'matching-plane kinetic contract mismatch' &
+    )
+  call evaluate_surface_closure(cfg, closure)
+  call assert_true(closure%active, 'matching-plane surface closure must be active')
+  call assert_true( &
+    .not. any(closure%has_absorbed_target) .and. &
+    .not. any(closure%has_emission_target) .and. &
+    .not. any(closure%has_escape_target) .and. &
+    .not. any(closure%has_inflow_kinetic_map) .and. &
+    .not. any(closure%has_outflow_kinetic_barrier) .and. &
+    .not. any(closure%has_inflow_number_flux), &
+    'matching-plane static dispatch must not publish batch-local channels' &
+    )
+  call test_end()
+
   call test_begin('zhao_stationary_type_b_channels')
   call configure_zhao_fixture(cfg)
   cfg%surface_current%zhao_branch = 'b'
@@ -56,10 +78,9 @@ program test_surface_current_model
   call assert_kinetic_contract(result, 0.0_dp, 'Type C')
   call test_end()
 
-  call test_begin('zhao_stationary_type_a_channels')
+  call test_begin('zhao_stationary_type_a_known_root_and_channels')
   call configure_zhao_fixture(cfg)
   call evaluate_surface_current_model(cfg, result)
-  call assert_true(result%active, 'Zhao current model must be active')
   call assert_true(result%zhao_branch == 'A', 'alpha=60 Zhao model must select Type A')
   call assert_close_dp(result%phi0_v, 2.9712182827319435_dp, 5.0e-6_dp, 'Zhao phi0 mismatch')
   call assert_close_dp(result%phi_m_v, -0.8169121871620854_dp, 5.0e-6_dp, 'Zhao phi_m mismatch')
@@ -71,26 +92,12 @@ program test_surface_current_model
     result%photoelectron_escape_current_density_a_m2, 3.9386846806723257e-7_dp, 5.0e-13_dp, &
     'Zhao PE escape current mismatch' &
     )
-  call assert_close_dp( &
-    result%photoelectron_emission_current_density_a_m2 + &
-    result%photoelectron_return_current_density_a_m2, &
-    result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
-    'PE emission/return/escape identity mismatch' &
-    )
-  call assert_true(result%has_escape_target(3), 'Zhao PE escape target must be active')
+  call assert_current_decomposition(result, 'Type A')
+  call assert_close_dp(result%reference_area_m2, 2.0_dp, 0.0_dp, 'configured reference area mismatch')
   call assert_close_dp( &
     result%escaped_particle_current_a(3), &
-    -result%reference_area_m2*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
-    'Zhao escaped particle current sign mismatch' &
-    )
-  call assert_close_dp( &
-    result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, &
-    'stationary Zhao current must close to zero' &
-    )
-  call assert_close_dp( &
-    result%absorbed_current_a(3) + result%emission_current_a(3), &
-    2.0_dp*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
-    'PE total target current must use the configured reference area' &
+    -2.0_dp*result%photoelectron_escape_current_density_a_m2, 1.0e-18_dp, &
+    'Zhao PE escape target did not use the configured reference area' &
     )
   call assert_kinetic_contract(result, result%phi_m_v, 'Type A')
   call test_end()
@@ -107,14 +114,18 @@ program test_surface_current_model
   call assert_true(.not. result%photoelectron_active, 'no-PE Zhao result must disable photoelectron channels')
   call assert_true(result%photoelectron_species_idx == 0_i32, 'no-PE Zhao result must not resolve a PE species')
   call assert_true(result%zhao_branch == 'C', 'no-PE Zhao model must select Type C')
-  call assert_true(all(result%has_absorbed_target(1:2)), 'no-PE Zhao must target electron and ion absorption')
+  call assert_true(all(result%has_absorbed_target), 'no-PE Zhao must target electron and ion absorption')
+  call assert_true( &
+    result%absorbed_current_a(1) < 0.0_dp .and. result%absorbed_current_a(2) > 0.0_dp, &
+    'no-PE Zhao ambient target signs mismatch' &
+    )
   call assert_true(.not. any(result%has_emission_target), 'no-PE Zhao must not create emission targets')
   call assert_true(.not. any(result%has_escape_target), 'no-PE Zhao must not create PE escape targets')
-  call assert_true(all(result%has_outflow_kinetic_barrier(1:2)), 'no-PE Zhao ambient barriers must be active')
   call assert_close_dp(result%photoelectron_emission_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE emission')
   call assert_close_dp(result%photoelectron_escape_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE escape')
   call assert_close_dp(result%photoelectron_return_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE return')
   call assert_close_dp(result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, 'no-PE stationary net current')
+  call assert_kinetic_contract(result, 0.0_dp, 'no-PE Zhao')
   call test_end()
 
   call test_summary()
@@ -122,14 +133,14 @@ program test_surface_current_model
 contains
 
   subroutine configure_zhao_fixture(app, alpha_deg)
-    type(app_config), intent(inout) :: app
+    type(app_config), intent(out) :: app
     real(dp), intent(in), optional :: alpha_deg
-    real(dp) :: resolved_alpha
+    real(dp) :: resolved_alpha, inward_speed
 
+    call default_app_config(app)
     resolved_alpha = 60.0_dp
     if (present(alpha_deg)) resolved_alpha = alpha_deg
     inward_speed = 4.68e5_dp*sin(resolved_alpha*acos(-1.0_dp)/180.0_dp)
-    if (.not. allocated(app%particle_species)) allocate (app%particle_species(3))
     app%n_particle_species = 3_i32
     app%particle_species(1:3) = particle_species_spec()
     app%particle_species(1:3)%enabled = .true.
@@ -165,6 +176,7 @@ contains
     type(surface_current_model_result_type), intent(in) :: current
     character(len=*), intent(in) :: label
 
+    call assert_true(current%active .and. current%photoelectron_active, trim(label)//' model activity mismatch')
     call assert_true(current%electron_current_density_a_m2 < 0.0_dp, trim(label)//' electron current sign mismatch')
     call assert_true(current%ion_current_density_a_m2 > 0.0_dp, trim(label)//' ion current sign mismatch')
     call assert_true( &
@@ -172,6 +184,12 @@ contains
       current%photoelectron_escape_current_density_a_m2 >= 0.0_dp .and. &
       current%photoelectron_return_current_density_a_m2 <= 0.0_dp, &
       trim(label)//' PE current signs mismatch' &
+      )
+    call assert_true( &
+      all(current%has_absorbed_target) .and. &
+      count(current%has_emission_target) == 1 .and. current%has_emission_target(3) .and. &
+      count(current%has_escape_target) == 1 .and. current%has_escape_target(3), &
+      trim(label)//' current target routing mismatch' &
       )
     call assert_close_dp( &
       current%photoelectron_emission_current_density_a_m2 + &
@@ -205,8 +223,18 @@ contains
     character(len=*), intent(in) :: label
 
     call assert_true(trim(current%kinetic_contract) == 'zhao_barrier_v1', trim(label)//' kinetic contract mismatch')
-    call assert_true(all(current%has_inflow_kinetic_map(1:2)), trim(label)//' ambient inflow map must be active')
-    call assert_true(all(current%inflow_kinetic_face(1:2) == 6_i32), trim(label)//' inflow map face must be z-high')
+    call assert_true( &
+      count(current%has_inflow_kinetic_map) == 2 .and. all(current%has_inflow_kinetic_map(1:2)), &
+      trim(label)//' ambient inflow map routing mismatch' &
+      )
+    call assert_true( &
+      all(current%inflow_reservoir_potential_v(1:2) == 0.0_dp), &
+      trim(label)//' ambient reservoir gauge mismatch' &
+      )
+    call assert_true( &
+      all(current%inflow_kinetic_face(1:2) == 6_i32), &
+      trim(label)//' inflow map face must be z-high' &
+      )
     call assert_close_dp( &
       current%inflow_access_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
       trim(label)//' electron access bottleneck mismatch' &
@@ -215,12 +243,22 @@ contains
       current%inflow_access_potential_v(2), 0.0_dp, 1.0e-12_dp, &
       trim(label)//' ion access bottleneck mismatch' &
       )
-    call assert_true(all(current%has_outflow_kinetic_barrier(1:3)), trim(label)//' outflow barriers must be active')
+    call assert_true(all(current%has_outflow_kinetic_barrier), trim(label)//' outflow barrier routing mismatch')
     call assert_close_dp( &
-      current%outflow_barrier_potential_v(3), electron_bottleneck_v, 1.0e-12_dp, &
-      trim(label)//' PE barrier potential mismatch' &
+      current%outflow_barrier_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
+      trim(label)//' electron barrier potential mismatch' &
       )
-    call assert_true(all(current%outflow_barrier_face(1:3) == 6_i32), trim(label)//' barrier face must be z-high')
+    call assert_close_dp( &
+      current%outflow_barrier_potential_v(2), 0.0_dp, 1.0e-12_dp, &
+      trim(label)//' ion barrier potential mismatch' &
+      )
+    if (current%photoelectron_active) then
+      call assert_close_dp( &
+        current%outflow_barrier_potential_v(3), electron_bottleneck_v, 1.0e-12_dp, &
+        trim(label)//' PE barrier potential mismatch' &
+        )
+    end if
+    call assert_true(all(current%outflow_barrier_face == 6_i32), trim(label)//' barrier face must be z-high')
   end subroutine assert_kinetic_contract
 
 end program test_surface_current_model

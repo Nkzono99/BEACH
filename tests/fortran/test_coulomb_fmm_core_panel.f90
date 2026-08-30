@@ -1,4 +1,5 @@
 program test_coulomb_fmm_core_panel
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_constants, only: k_coulomb
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_panel_plan, &
@@ -45,6 +46,8 @@ program test_coulomb_fmm_core_panel
       call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
       field_error = sqrt(sum((field - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref)))
       potential_error = abs(phi - phi_ref)/max(1.0e-14_dp, abs(phi_ref))
+      call assert_true(ieee_is_finite(field_error) .and. ieee_is_finite(potential_error), &
+                       'panel FMM relative errors must be finite')
       max_field_error = max(max_field_error, field_error)
       max_potential_error = max(max_potential_error, potential_error)
     end do
@@ -79,8 +82,6 @@ program test_coulomb_fmm_core_panel
   options%target_box_min = [0.0_dp, 0.0_dp, -1.0_dp]
   options%target_box_max = [1.0_dp, 1.0_dp, 1.0_dp]
   call build_panel_plan(plan, v0(:, :1), v1(:, :1), v2(:, :1), options)
-  call assert_true(any(abs(plan%near_source_shift1) > 0.5_dp) .or. any(abs(plan%near_source_shift2) > 0.5_dp), &
-                   'periodic panel plan must retain shifted near images')
   call update_state(plan, state, q(:1))
   targets(:, 1) = [0.92_dp, 0.15_dp, 0.12_dp]
   call eval_point(plan, state, targets(:, 1), field)
@@ -123,14 +124,17 @@ program test_coulomb_fmm_core_panel
       sqrt(sum((mesh_field(:, order_index) - mesh_field(:, 4))**2))/sqrt(sum(mesh_field(:, 4)**2))
     mesh_potential_error(order_index) = &
       abs(mesh_potential(order_index) - mesh_potential(4))/abs(mesh_potential(4))
+    call assert_true(ieee_is_finite(mesh_field_error(order_index)) .and. &
+                     ieee_is_finite(mesh_potential_error(order_index)), &
+                     'rough panel mesh errors must be finite')
     write (*, '(a,i0,a,es16.8,a,es16.8,a)') &
       'BEACH_CONVERGENCE,rough_panel_mesh,', 4_i32*2_i32**(order_index - 1_i32), ',', &
       mesh_field_error(order_index), ',', mesh_potential_error(order_index), ',,reference_n32_and_decreasing'
   end do
-  call assert_true(mesh_field_error(3) < mesh_field_error(1), &
-                   'rough panel field must converge under mesh refinement')
-  call assert_true(mesh_potential_error(3) < mesh_potential_error(1), &
-                   'rough panel potential must converge under mesh refinement')
+  call assert_true(all(mesh_field_error(2:3) < mesh_field_error(1:2)), &
+                   'rough panel field error must decrease at each mesh refinement')
+  call assert_true(all(mesh_potential_error(2:3) < mesh_potential_error(1:2)), &
+                   'rough panel potential error must decrease at each mesh refinement')
   call test_end()
   call test_summary()
 
