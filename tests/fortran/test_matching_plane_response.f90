@@ -73,7 +73,7 @@ program test_matching_plane_response
     )
   call test_end()
 
-  call test_begin('list_directed_control_tokens_are_rejected')
+  call test_begin('response_csv_numeric_grammar_is_strict')
   call write_lexical_token_table(lexical_path, '/', metadata_token=.true.)
   call get_matching_plane_response_snapshot(lexical_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_invalid_metadata, 'metadata slash token was accepted')
@@ -86,6 +86,9 @@ program test_matching_plane_response
   call write_lexical_token_table(lexical_path, '')
   call get_matching_plane_response_snapshot(lexical_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_invalid_row, 'data null token was accepted')
+  call write_lexical_token_table(lexical_path, '0,0')
+  call get_matching_plane_response_snapshot(lexical_path, table, status, message)
+  call assert_equal_i32(status, matching_plane_response_invalid_row, 'extra response column was accepted')
   call test_end()
 
   call test_begin('singleton_axes_are_inactive')
@@ -101,6 +104,7 @@ program test_matching_plane_response
   call test_end()
 
   call test_begin('active_axis_range_and_finite_query_fail_closed')
+  call build_full_grid(full_input, full_output)
   call write_response_csv(range_path, full_input, full_output, 1.25_dp)
   call get_matching_plane_response_snapshot(range_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_ok, 'range response table load failed')
@@ -119,6 +123,8 @@ program test_matching_plane_response
   call test_end()
 
   call test_begin('exact_header_and_required_metadata')
+  singleton_input = 0.0_dp
+  singleton_output = 0.0_dp
   call write_response_csv( &
     header_path, singleton_input, singleton_output, 0.0_dp, &
     header='invalid_'//matching_plane_response_csv_header &
@@ -128,18 +134,28 @@ program test_matching_plane_response
   call write_response_csv(metadata_path, singleton_input, singleton_output, 0.0_dp, include_metadata=.false.)
   call get_matching_plane_response_snapshot(metadata_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_invalid_metadata, 'missing matching-plane z was accepted')
+  call write_response_csv( &
+    metadata_path, singleton_input, singleton_output, 0.0_dp, duplicate_metadata=.true. &
+    )
+  call get_matching_plane_response_snapshot(metadata_path, table, status, message)
+  call assert_equal_i32(status, matching_plane_response_invalid_metadata, 'duplicate matching-plane z was accepted')
   call test_end()
 
   call test_begin('feedback_zero_and_nonnegative_contract')
   call write_missing_zero_table(feedback_path)
   call get_matching_plane_response_snapshot(feedback_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_invalid_grid, 'feedback axis without zero was accepted')
-  singleton_input(:, 1) = 0.0_dp
+  singleton_input = 0.0_dp
+  singleton_output = 1.0_dp
   singleton_input(4, 1) = -1.0_dp
   call write_response_csv(negative_path, singleton_input, singleton_output, 0.0_dp)
   call get_matching_plane_response_snapshot(negative_path, table, status, message)
   call assert_equal_i32(status, matching_plane_response_invalid_row, 'negative outward flux was accepted')
-  singleton_input(:, 1) = 0.0_dp
+  singleton_input = 0.0_dp
+  singleton_output(2, 1) = -1.0_dp
+  call write_response_csv(negative_path, singleton_input, singleton_output, 0.0_dp)
+  call get_matching_plane_response_snapshot(negative_path, table, status, message)
+  call assert_equal_i32(status, matching_plane_response_invalid_row, 'negative inward response flux was accepted')
   call test_end()
 
   call test_begin('complete_cartesian_and_unique_coordinate_contract')
@@ -152,6 +168,7 @@ program test_matching_plane_response
   call test_end()
 
   call test_begin('path_snapshot_is_immutable_until_reset')
+  singleton_input = 0.0_dp
   singleton_output(:, 1) = [1.0_dp, 2.0_dp, 3.0_dp, 4.0_dp, 5.0_dp, 6.0_dp]
   call write_response_csv(cache_path, singleton_input, singleton_output, 0.5_dp)
   call get_matching_plane_response_snapshot(cache_path, table, status, message)
@@ -219,21 +236,27 @@ contains
     end do
   end subroutine affine_response
 
-  subroutine write_response_csv(path, input, output, matching_z, include_metadata, header)
+  subroutine write_response_csv(path, input, output, matching_z, include_metadata, header, duplicate_metadata)
     character(len=*), intent(in) :: path
     real(dp), intent(in) :: input(:, :), output(:, :), matching_z
     logical, intent(in), optional :: include_metadata
     character(len=*), intent(in), optional :: header
+    logical, intent(in), optional :: duplicate_metadata
 
     real(dp) :: row_values(11)
     integer :: unit_id, row
-    logical :: write_metadata
+    logical :: write_metadata, write_duplicate_metadata
 
     write_metadata = .true.
     if (present(include_metadata)) write_metadata = include_metadata
+    write_duplicate_metadata = .false.
+    if (present(duplicate_metadata)) write_duplicate_metadata = duplicate_metadata
     open (newunit=unit_id, file=path, status='replace', action='write')
     write (unit_id, '(a)') '# provenance=test_matching_plane_response'
     if (write_metadata) write (unit_id, '(a,es24.16)') '# matching_plane_z_m=', matching_z
+    if (write_metadata .and. write_duplicate_metadata) then
+      write (unit_id, '(a,es24.16)') '# matching_plane_z_m=', matching_z
+    end if
     write (unit_id, '(a)') ''
     if (present(header)) then
       write (unit_id, '(a)') header
@@ -274,11 +297,12 @@ contains
   subroutine write_duplicate_table(path)
     character(len=*), intent(in) :: path
 
-    real(dp) :: input(5, 2), output(6, 2)
+    real(dp) :: input(5, 4), output(6, 4)
 
     input = 0.0_dp
-    output(:, 1) = 1.0_dp
-    output(:, 2) = 2.0_dp
+    input(1, :) = [0.0_dp, 1.0_dp, 0.0_dp, 0.0_dp]
+    input(4, :) = [0.0_dp, 0.0_dp, 1.0_dp, 1.0_dp]
+    output = 1.0_dp
     call write_response_csv(path, input, output, 0.0_dp)
   end subroutine write_duplicate_table
 

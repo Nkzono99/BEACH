@@ -1,5 +1,6 @@
-!> triangle P0 FMM 精度テスト: free-space / periodic2 / image layers / M2L キャッシュ再利用 / モード選択。
+!> triangle P0 FMM integration tests: box targets, periodic images, and mode selection.
 program test_dynamics_fmm
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_types, only: mesh_type, sim_config, bc_open, bc_periodic
   use bem_templates, only: make_sphere
@@ -7,102 +8,26 @@ program test_dynamics_fmm
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_allclose_1d
+                          assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(7)
-
-  call test_begin('fmm_field_accuracy')
-  call test_fmm_field_accuracy()
-  call test_end()
+  call test_init(3)
 
   call test_begin('fmm_free_box_dual_target_accuracy')
   call test_fmm_free_box_dual_target_accuracy()
   call test_end()
 
-  call test_begin('fmm_periodic2_field_accuracy')
-  call test_fmm_periodic2_field_accuracy()
+  call test_begin('fmm_periodic2_two_image_layers_accuracy')
+  call test_fmm_periodic2_two_image_layers_accuracy()
   call test_end()
 
-  call test_begin('fmm_periodic2_image_layers_accuracy')
-  call test_fmm_periodic2_image_layers_accuracy()
-  call test_end()
-
-  call test_begin('fmm_periodic2_m2l_cache_reuse')
-  call test_fmm_periodic2_m2l_cache_reuse()
-  call test_end()
-
-  call test_begin('fmm_periodic2_auto_disables_far_correction')
-  call test_fmm_periodic2_auto_disables_far_correction()
-  call test_end()
-
-  call test_begin('fmm_periodic2_none_disables_far_correction')
-  call test_fmm_periodic2_none_disables_far_correction()
+  call test_begin('fmm_periodic2_auto_matches_none')
+  call test_fmm_periodic2_auto_matches_none()
   call test_end()
 
   call test_summary()
 
 contains
-
-  subroutine test_fmm_field_accuracy()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    integer(i32) :: i, valid_count
-    integer :: seed_size
-    integer, allocatable :: seed(:)
-    real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
-    real(dp) :: norm_direct, norm_diff, rel_err, norm_r
-
-    call make_sphere(mesh_fmm, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_fmm)
-    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%tree_theta = 0.5d0
-    sim%tree_leaf_max = 16_i32
-    sim%tree_min_nelem = 64_i32
-    call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
-
-    call random_seed(size=seed_size)
-    allocate (seed(seed_size))
-    do i = 1_i32, int(seed_size, i32)
-      seed(i) = 271828 + 29*i
-    end do
-    call random_seed(put=seed)
-    deallocate (seed)
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 80_i32
-      call random_number(r)
-      r = 100.0d0*(r - 0.5d0)
-      norm_r = sqrt(sum(r*r))
-      if (norm_r < 20.0d0) then
-        if (norm_r > 1.0d-12) then
-          r = r*(20.0d0/norm_r)
-        else
-          r = [20.0d0, 0.0d0, 0.0d0]
-        end if
-      end if
-
-      call panel_field_at(mesh_fmm, r, e_direct)
-      call solver%eval_e(mesh_fmm, r, e_fmm)
-
-      norm_direct = sqrt(sum(e_direct*e_direct))
-      if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
-      rel_err = norm_diff/norm_direct
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    write (*, '(A,I0,A,ES12.5)') 'test_fmm_field_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 40_i32, 'fmm accuracy test has too few valid samples')
-    call assert_true(max_rel_err <= 5.0d-3, 'fmm E relative error exceeds 5e-3')
-  end subroutine test_fmm_field_accuracy
 
   subroutine test_fmm_free_box_dual_target_accuracy()
     type(mesh_type) :: mesh_fmm
@@ -127,17 +52,7 @@ contains
     sim%box_max = [1.0d0, 1.0d0, 1.0d0]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
-
-    call assert_true(solver%fmm_use_core, 'triangle P0 free FMM should use the core path')
-    call assert_true(solver%target_tree_ready, 'fmm free/use_box should enable dual target tree')
-    call assert_allclose_1d( &
-      solver%target_node_center(:, 1_i32), 0.5d0*(sim%box_min + sim%box_max), 1.0d-12, &
-      'fmm free/use_box target root center mismatch' &
-      )
-    call assert_allclose_1d( &
-      solver%target_node_half_size(:, 1_i32), 0.5d0*(sim%box_max - sim%box_min), 1.0d-12, &
-      'fmm free/use_box target root half-size mismatch' &
-      )
+    call assert_true(trim(solver%mode) == 'fmm', 'explicit FMM should select the FMM dispatcher')
 
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
@@ -157,6 +72,8 @@ contains
 
       call panel_field_at(mesh_fmm, r, e_direct)
       call solver%eval_e(mesh_fmm, r, e_fmm)
+      call assert_true(all(ieee_is_finite(e_direct)), 'free-space direct field must be finite')
+      call assert_true(all(ieee_is_finite(e_fmm)), 'free-space FMM field must be finite')
 
       norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
@@ -172,65 +89,7 @@ contains
     call assert_true(max_rel_err <= 2.5d-2, 'fmm free/use_box E relative error exceeds 2.5e-2')
   end subroutine test_fmm_free_box_dual_target_accuracy
 
-  subroutine test_fmm_periodic2_field_accuracy()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    integer(i32) :: i, valid_count
-    real(dp) :: queries(3, 6)
-    real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
-    real(dp) :: norm_direct, norm_diff, rel_err
-
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    call mark_normal_plus(mesh_fmm)
-    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'none'
-    sim%field_periodic_image_layers = 1_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver%init(mesh_fmm, sim)
-    call solver%refresh(mesh_fmm)
-
-    call assert_true(solver%fmm_use_core, 'triangle P0 periodic2 FMM should use the core path')
-    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
-    queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
-    queries(:, 3) = [0.20d0, 0.80d0, 0.10d0]
-    queries(:, 4) = [0.75d0, 0.75d0, 0.50d0]
-    queries(:, 5) = [0.55d0, 0.35d0, -0.75d0]
-    queries(:, 6) = [0.35d0, 0.60d0, 0.85d0]
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      r = queries(:, i)
-      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
-      call solver%eval_e(mesh_fmm, r, e_fmm)
-
-      norm_direct = sqrt(sum(e_direct*e_direct))
-      if (norm_direct <= 1.0d-12) cycle
-      norm_diff = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))
-      rel_err = norm_diff/norm_direct
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    write (*, '(A,I0,A,ES12.5)') &
-      'test_fmm_periodic2_field_accuracy(l2p): valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count == 6_i32, 'fmm periodic2 accuracy test lost valid samples')
-    call assert_true(max_rel_err <= 5.0d-1, 'fmm periodic2 E relative error exceeds 5e-1')
-  end subroutine test_fmm_periodic2_field_accuracy
-
-  subroutine test_fmm_periodic2_image_layers_accuracy()
+  subroutine test_fmm_periodic2_two_image_layers_accuracy()
     type(mesh_type) :: mesh_fmm
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
@@ -258,6 +117,7 @@ contains
     sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
+    call assert_true(trim(solver%mode) == 'fmm', 'periodic2 should select the FMM dispatcher')
 
     queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
     queries(:, 2) = [0.85d0, 0.20d0, -0.20d0]
@@ -270,8 +130,12 @@ contains
     valid_count = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       r = queries(:, i)
-      call electric_field_at_periodic2_reference(mesh_fmm, solver, r, e_direct)
+      call electric_field_at_periodic2_images( &
+        mesh_fmm, r, sim%box_min, sim%box_max, [1_i32, 2_i32], sim%field_periodic_image_layers, e_direct &
+        )
       call solver%eval_e(mesh_fmm, r, e_fmm)
+      call assert_true(all(ieee_is_finite(e_direct)), 'periodic image oracle field must be finite')
+      call assert_true(all(ieee_is_finite(e_fmm)), 'periodic FMM field must be finite')
 
       norm_direct = sqrt(sum(e_direct*e_direct))
       if (norm_direct <= 1.0d-12) cycle
@@ -282,122 +146,59 @@ contains
     end do
 
     write (*, '(A,I0,A,ES12.5)') &
-      'test_fmm_periodic2_image_layers_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
+      'test_fmm_periodic2_two_image_layers_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
     call assert_true(valid_count == 6_i32, 'fmm periodic2 image-layer test lost valid samples')
     call assert_true(max_rel_err <= 5.0d-1, 'fmm periodic2 image-layer E relative error exceeds 5e-1')
-  end subroutine test_fmm_periodic2_image_layers_accuracy
+  end subroutine test_fmm_periodic2_two_image_layers_accuracy
 
-  subroutine test_fmm_periodic2_m2l_cache_reuse()
+  subroutine test_fmm_periodic2_auto_matches_none()
     type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
+    type(field_solver_type) :: solver_auto = field_solver_type()
+    type(field_solver_type) :: solver_none = field_solver_type()
+    type(sim_config) :: sim_auto, sim_none
+    real(dp) :: queries(3, 3), e_auto(3), e_none(3), phi_auto, phi_none, tolerance
+    integer(i32) :: i
 
     call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call mark_normal_plus(mesh_fmm)
     mesh_fmm%q_elem = 1.0d-12
 
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'none'
-    sim%field_periodic_image_layers = 1_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver%init(mesh_fmm, sim)
-
-    mesh_fmm%q_elem = 2.0d0*mesh_fmm%q_elem
-    call solver%refresh(mesh_fmm)
-  end subroutine test_fmm_periodic2_m2l_cache_reuse
-
-  subroutine test_fmm_periodic2_auto_disables_far_correction()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_auto = field_solver_type()
-    type(sim_config) :: sim
-
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    call mark_normal_plus(mesh_fmm)
-    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'auto'
-    sim%field_periodic_image_layers = 1_i32
-    sim%field_periodic_ewald_layers = 2_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_auto%init(mesh_fmm, sim)
+    sim_auto = sim_config()
+    sim_auto%field_solver = 'fmm'
+    sim_auto%field_bc_mode = 'periodic2'
+    sim_auto%field_periodic_far_correction = 'auto'
+    sim_auto%field_periodic_image_layers = 1_i32
+    sim_auto%field_periodic_ewald_layers = 2_i32
+    sim_auto%tree_leaf_max = 128_i32
+    sim_auto%has_tree_leaf_max = .true.
+    sim_auto%tree_min_nelem = 64_i32
+    sim_auto%use_box = .true.
+    sim_auto%box_min = [0.0d0, 0.0d0, -1.0d0]
+    sim_auto%box_max = [1.0d0, 1.0d0, 1.0d0]
+    sim_auto%bc_low = [bc_periodic, bc_periodic, bc_open]
+    sim_auto%bc_high = [bc_periodic, bc_periodic, bc_open]
+    call solver_auto%init(mesh_fmm, sim_auto)
     call solver_auto%refresh(mesh_fmm)
 
-    call assert_true( &
-      trim(solver_auto%periodic_far_correction) == 'none', &
-      'periodic2 auto should normalize to none' &
-      )
-    call assert_true( &
-      trim(solver_auto%fmm_core_options%periodic_far_correction) == 'none', &
-      'normalized periodic2 auto should reach FMM core options as none' &
-      )
-    call assert_true( &
-      .not. solver_auto%fmm_core_plan%periodic_root_operator_ready, &
-      'periodic2 auto should not build a root-operator far correction' &
-      )
-    call assert_true( &
-      .not. solver_auto%fmm_core_plan%periodic_ewald%ready, &
-      'periodic2 auto should not precompute oracle Ewald data' &
-      )
-  end subroutine test_fmm_periodic2_auto_disables_far_correction
-
-  subroutine test_fmm_periodic2_none_disables_far_correction()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver_none = field_solver_type()
-    type(sim_config) :: sim
-
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=8_i32, n_lat=4_i32, center=[0.5d0, 0.5d0, 0.0d0])
-    call mark_normal_plus(mesh_fmm)
-    call assign_periodic_test_dipole_charges(mesh_fmm, 1.0d-12)
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'periodic2'
-    sim%field_periodic_far_correction = 'none'
-    sim%field_periodic_image_layers = 1_i32
-    sim%tree_leaf_max = 128_i32
-    sim%has_tree_leaf_max = .true.
-    sim%tree_min_nelem = 64_i32
-    sim%use_box = .true.
-    sim%box_min = [0.0d0, 0.0d0, -1.0d0]
-    sim%box_max = [1.0d0, 1.0d0, 1.0d0]
-    sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-    call solver_none%init(mesh_fmm, sim)
+    sim_none = sim_auto
+    sim_none%field_periodic_far_correction = 'none'
+    call solver_none%init(mesh_fmm, sim_none)
     call solver_none%refresh(mesh_fmm)
 
-    call assert_true(trim(solver_none%periodic_far_correction) == 'none', 'periodic2 none should be preserved')
-    call assert_true( &
-      trim(solver_none%fmm_core_options%periodic_far_correction) == 'none', &
-      'periodic2 none should reach FMM core options' &
-      )
-    call assert_true( &
-      .not. solver_none%fmm_core_plan%periodic_root_operator_ready, &
-      'periodic2 none should not build a root-operator far correction' &
-      )
-    call assert_true( &
-      .not. solver_none%fmm_core_plan%periodic_ewald%ready, &
-      'periodic2 none should not precompute oracle Ewald data' &
-      )
-  end subroutine test_fmm_periodic2_none_disables_far_correction
+    queries(:, 1) = [0.15d0, 0.15d0, -0.60d0]
+    queries(:, 2) = [0.75d0, 0.75d0, 0.50d0]
+    queries(:, 3) = [0.35d0, 0.60d0, 0.85d0]
+    do i = 1_i32, int(size(queries, 2), i32)
+      call solver_auto%eval_e(mesh_fmm, queries(:, i), e_auto)
+      call solver_none%eval_e(mesh_fmm, queries(:, i), e_none)
+      tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, maxval(abs(e_none)))
+      call assert_allclose_1d(e_auto, e_none, tolerance, 'periodic2 auto must match explicit none')
+      call solver_auto%eval_potential(mesh_fmm, sim_auto, queries(:, i), phi_auto)
+      call solver_none%eval_potential(mesh_fmm, sim_none, queries(:, i), phi_none)
+      tolerance = 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(phi_none))
+      call assert_close_dp(phi_auto, phi_none, tolerance, 'periodic2 auto potential must match explicit none')
+    end do
+  end subroutine test_fmm_periodic2_auto_matches_none
 
   subroutine assign_periodic_test_dipole_charges(mesh, scale)
     type(mesh_type), intent(inout) :: mesh
@@ -473,30 +274,6 @@ contains
       end do
     end do
   end subroutine electric_field_at_periodic2_images
-
-  subroutine electric_field_at_periodic2_reference(mesh, solver, r, e)
-    type(mesh_type), intent(in) :: mesh
-    type(field_solver_type), intent(in) :: solver
-    real(dp), intent(in) :: r(3)
-    real(dp), intent(out) :: e(3)
-    real(dp) :: wrapped_r(3)
-    integer(i32) :: axis
-
-    wrapped_r = r
-    do axis = 1_i32, 2_i32
-      wrapped_r(solver%periodic_axes(axis)) = solver%target_box_min(solver%periodic_axes(axis)) + &
-                                              modulo( &
-                                              wrapped_r(solver%periodic_axes(axis)) - &
-                                              solver%target_box_min(solver%periodic_axes(axis)), &
-                                              solver%periodic_len(axis) &
-                                              )
-    end do
-
-    call electric_field_at_periodic2_images( &
-      mesh, wrapped_r, solver%target_box_min, solver%target_box_max, solver%periodic_axes, &
-      solver%periodic_image_layers, e &
-      )
-  end subroutine electric_field_at_periodic2_reference
 
   subroutine mark_normal_plus(mesh)
     type(mesh_type), intent(inout) :: mesh

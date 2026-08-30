@@ -1,5 +1,6 @@
 program test_periodic_zero_mode_c
-  use, intrinsic :: ieee_arithmetic, only: ieee_negative_inf, ieee_positive_inf, ieee_quiet_nan, ieee_value
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_negative_inf, ieee_positive_inf, ieee_quiet_nan, &
+                                                                              ieee_value
   use, intrinsic :: iso_c_binding, only: c_double, c_int, c_intptr_t, c_loc, c_null_ptr, c_ptr
   use bem_kinds, only: dp, i32, i64
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_minus, zero_mode_trace_plus, &
@@ -7,7 +8,7 @@ program test_periodic_zero_mode_c
   use bem_periodic_zero_mode_plan, only: build_periodic_zero_mode_height_plan, periodic_zero_mode_ok, &
                                          periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          refresh_periodic_zero_mode_state
-  use test_support, only: assert_allclose_1d, assert_equal_i32, test_begin, test_end, test_init, test_summary
+  use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_begin, test_end, test_init, test_summary
   implicit none
 
   integer(c_int), parameter :: zero_ok = 0_c_int
@@ -125,6 +126,7 @@ contains
     call assert_status(status, zero_ok, 'two-sheet update status')
     status = beach_zero_mode_eval(handle, 5_c_int, c_loc(z), 0_c_int, c_loc(phi), c_loc(ez))
     call assert_status(status, zero_ok, 'two-sheet eval status')
+    call assert_true(all(ieee_is_finite(phi)) .and. all(ieee_is_finite(ez)), 'two-sheet outputs are finite')
 
     call build_periodic_zero_mode_height_plan(real(source_heights, dp), 4.0_dp, plan, plan_status, message)
     call assert_equal_i32(plan_status, periodic_zero_mode_ok, 'two-sheet native plan status')
@@ -136,6 +138,9 @@ contains
         plan, state, real(z(i), dp), zero_mode_trace_principal_value, expected_phi(i), expected_ez(i) &
         )
     end do
+    call assert_true( &
+      all(ieee_is_finite(expected_phi)) .and. all(ieee_is_finite(expected_ez)), 'two-sheet native outputs are finite' &
+      )
     call assert_allclose_1d( &
       real(phi, dp), expected_phi, scaled_tolerance(expected_phi), 'two-sheet potential values' &
       )
@@ -145,11 +150,16 @@ contains
 
     status = beach_zero_mode_eval(handle, 5_c_int, c_loc(z), -1_c_int, c_loc(phi), c_loc(ez))
     call assert_status(status, zero_ok, 'two-sheet minus-trace eval status')
+    call assert_true(all(ieee_is_finite(phi)) .and. all(ieee_is_finite(ez)), 'two-sheet minus-trace outputs are finite')
     do i = 1_i32, 5_i32
       call eval_periodic_zero_mode( &
         plan, state, real(z(i), dp), zero_mode_trace_minus, expected_phi(i), expected_ez(i) &
         )
     end do
+    call assert_true( &
+      all(ieee_is_finite(expected_phi)) .and. all(ieee_is_finite(expected_ez)), &
+      'two-sheet minus-trace native outputs are finite' &
+      )
     call assert_allclose_1d( &
       real(phi, dp), expected_phi, scaled_tolerance(expected_phi), 'two-sheet minus-trace potential values' &
       )
@@ -172,7 +182,7 @@ contains
     integer(i32) :: plan_status, i
     character(len=128) :: message
 
-    call test_begin('inclined_source_matches_exact_height_projection')
+    call test_begin('inclined_source_c_abi_matches_native')
     source_heights(:, 1) = [0.0d0, 1.0d0, 2.0d0]
     charge = [3.0d-9]
     z = [-0.5d0, 0.0d0, 0.5d0, 1.0d0, 1.5d0, 2.0d0, 2.5d0]
@@ -185,6 +195,7 @@ contains
     call assert_status(status, zero_ok, 'inclined update status')
     status = beach_zero_mode_eval(handle, 7_c_int, c_loc(z), 1_c_int, c_loc(phi), c_loc(ez))
     call assert_status(status, zero_ok, 'inclined eval status')
+    call assert_true(all(ieee_is_finite(phi)) .and. all(ieee_is_finite(ez)), 'inclined outputs are finite')
 
     call build_periodic_zero_mode_height_plan(real(source_heights, dp), 2.5_dp, plan, plan_status, message)
     call assert_equal_i32(plan_status, periodic_zero_mode_ok, 'inclined native plan status')
@@ -196,6 +207,9 @@ contains
         plan, state, real(z(i), dp), zero_mode_trace_plus, expected_phi(i), expected_ez(i) &
         )
     end do
+    call assert_true( &
+      all(ieee_is_finite(expected_phi)) .and. all(ieee_is_finite(expected_ez)), 'inclined native outputs are finite' &
+      )
     call assert_allclose_1d( &
       real(phi, dp), expected_phi, scaled_tolerance(expected_phi), 'inclined potential values' &
       )
@@ -306,6 +320,9 @@ contains
 
     status = beach_zero_mode_update(handle, 2_c_int, c_loc(charge), 0.0d0, 0.0d0, 0.0d0)
     call assert_status(status, zero_ok, 'valid update after rejected inputs')
+    status = beach_zero_mode_eval(handle, 1_c_int, c_loc(z), 0_c_int, c_loc(phi), c_loc(ez))
+    call assert_status(status, zero_ok, 'valid eval after rejected updates')
+    call assert_true(all(ieee_is_finite(phi)) .and. all(ieee_is_finite(ez)), 'valid outputs after rejected updates')
     status = beach_zero_mode_build(handle, 2_c_int, c_loc(source_heights), 4.0d0)
     call assert_status(status, zero_ok, 'rebuild status')
     status = beach_zero_mode_eval(handle, 1_c_int, c_loc(z), 0_c_int, c_loc(phi), c_loc(ez))

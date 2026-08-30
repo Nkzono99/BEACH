@@ -45,10 +45,16 @@ program test_injection_sampling
   call sample_shifted_maxwell_velocities( &
     [10.0d0, -5.0d0, 2.0d0], 2.0d0, v(:, 1:8), thermal_speed=3.0d0, sigma_cutoff=0.5d0 &
     )
-  call assert_true(all(abs(v(:, 1:8)) < 1.0d3), 'thermal_speed branch produced invalid velocities')
   call assert_true( &
     all(abs(v(:, 1:8) - spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=8)) <= 1.5d0), &
     'thermal_speed branch should honor sigma_cutoff' &
+    )
+  call sample_shifted_maxwell_velocities( &
+    [10.0d0, -5.0d0, 2.0d0], 2.0d0, v(:, 9:16), temperature_k=500.0d0, thermal_speed=0.0d0 &
+    )
+  call assert_true( &
+    all(v(:, 9:16) == spread([10.0d0, -5.0d0, 2.0d0], dim=2, ncopies=8)), &
+    'explicit zero thermal_speed should override temperature_k' &
     )
   call test_end()
 
@@ -72,6 +78,10 @@ program test_injection_sampling
     )
   call assert_equal_i32(pcls%n, 4_i32, 'init_random_beam_particles count mismatch')
   call assert_true(all(pcls%alive), 'init_random_beam_particles should initialize alive flags')
+  call assert_true(all(pcls%x >= -0.5d0 .and. pcls%x <= 0.5d0), 'beam positions should stay within the source box')
+  call assert_true(all(pcls%q == -1.0d0), 'beam particle charge mismatch')
+  call assert_true(all(pcls%m == 2.0d0), 'beam particle mass mismatch')
+  call assert_true(all(pcls%w == 100.0d0), 'beam particle weight mismatch')
   call test_end()
 
   call test_begin('rare_tail_reservoir_sampling')
@@ -109,26 +119,43 @@ program test_injection_sampling
     1.0d0, 700.0d0, 0.2d0, x, v &
     )
 
-  do i = 1, size(x, 2)
-    call assert_true(x(1, i) > -1.0d0, 'reservoir sampled x should move inward from boundary')
-    call assert_true(x(1, i) < -9.99999d-1, 'reservoir sampled x should not advect by batch_duration')
-    call assert_true(v(1, i) >= 0.0d0, 'reservoir normal velocity should be inward')
-  end do
+  call assert_true(all(x(1, :) > -1.0d0 .and. x(1, :) < 1.0d0), 'reservoir launch should be strictly inside the box')
+  call assert_true( &
+    all(x(1, :) + 1.0_dp <= 8.0_dp*epsilon(1.0_dp)), &
+    'reservoir launch should remain within a few ulps of the source face' &
+    )
+  call assert_true(all(x(2, :) >= -0.5d0 .and. x(2, :) <= 0.5d0), 'reservoir y positions should stay in the opening')
+  call assert_true(all(x(3, :) >= -0.25d0 .and. x(3, :) <= 0.25d0), 'reservoir z positions should stay in the opening')
+  call assert_true(all(v(1, :) >= 0.0d0), 'reservoir normal velocities should be inward')
   call test_end()
 
   call test_begin('reservoir_face_launch_has_no_untracked_jitter')
   jitter_dt = 1.0d-3
+  call seed_rng([2718_i32])
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [2.0d0, 0.0d0, 0.0d0], &
     1.0d0, 0.0d0, 50.0d0, x(:, 1:4), v(:, 1:4), position_jitter_dt=jitter_dt &
     )
-  do i = 1, 4
-    call assert_true( &
-      x(1, i) == nearest(-1.0_dp, 1.0_dp), &
-      'reservoir launch must be one representable step inward, without an untracked flight segment' &
-      )
-  end do
+  call seed_rng([2718_i32])
+  call sample_reservoir_face_particles( &
+    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
+    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [2.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 0.0d0, 50.0d0, x(:, 5:8), v(:, 5:8), position_jitter_dt=2.0_dp*jitter_dt &
+    )
+  call assert_true(all(x(:, 1:4) == x(:, 5:8)), 'jitter compatibility argument should not change launch positions')
+  call assert_true(all(v(:, 1:4) == v(:, 5:8)), 'jitter compatibility argument should not change launch velocities')
+  call assert_true(all(x(1, 1:4) > -1.0_dp .and. x(1, 1:4) < 1.0_dp), 'jitter-compatible launch should stay inside')
+  call assert_true( &
+    all(x(1, 1:4) + 1.0_dp <= 8.0_dp*epsilon(1.0_dp)), &
+    'jitter-compatible launch should remain within a few ulps of the source face' &
+    )
+  call assert_true(all(x(1, 1:4) == x(1, 1)), 'jitter-compatible launch should remain on one normal plane')
+  call assert_true( &
+    all(x(2:3, 1:4) >= -0.1_dp .and. x(2:3, 1:4) <= 0.1_dp), &
+    'jitter-compatible launch should stay inside the tangential opening' &
+    )
+  call assert_true(all(v(1, 1:4) > 0.0_dp), 'jitter-compatible launch velocities should point inward')
   call test_end()
 
   call test_begin('reservoir_face_barrier_shift')
@@ -193,7 +220,10 @@ program test_injection_sampling
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast reflect boundary should emit all rays')
   expected_w = 2.0d0*(0.02d0*0.02d0*abs(ray_dir(3)))*sim%batch_duration/(1.0d0*10.0d0)
-  call assert_close_dp(w_photo(1), expected_w, 1.0d-14, 'photo_raycast w_hit mismatch')
+  call assert_true( &
+    all(abs(w_photo(1:n_emit) - expected_w) <= 1.0d-14), &
+    'photo_raycast weights should match the projected-current budget for every emitted ray' &
+    )
   call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
   call assert_true(all(emit_elem(1:n_emit) >= 1_i32), 'photo_raycast emit_elem should be positive')
   call assert_true(all(emit_elem(1:n_emit) <= mesh%nelem), 'photo_raycast emit_elem should be in range')

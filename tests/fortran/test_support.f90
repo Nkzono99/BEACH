@@ -1,5 +1,6 @@
 !> Fortranテスト用の簡易アサート・進捗表示・一時ファイル補助。
 module test_support
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use iso_fortran_env, only: error_unit, output_unit
   use bem_kinds, only: dp, i32, i64
   implicit none
@@ -176,7 +177,8 @@ contains
     character(len=*), intent(in) :: message
 
     ts_assertions = ts_assertions + 1
-    if (abs(actual - expected) > tol) then
+    if (.not. (ieee_is_finite(actual) .and. ieee_is_finite(expected) .and. ieee_is_finite(tol) .and. &
+               tol >= 0.0_dp .and. abs(actual - expected) <= tol)) then
       call report_dp_mismatch(actual, expected, abs(actual - expected), tol, message)
       call fail_test(message)
     end if
@@ -200,7 +202,8 @@ contains
       call fail_test(message)
     end if
     do i = 1, size(actual)
-      if (abs(actual(i) - expected(i)) > tol) then
+      if (.not. (ieee_is_finite(actual(i)) .and. ieee_is_finite(expected(i)) .and. ieee_is_finite(tol) .and. &
+                 tol >= 0.0_dp .and. abs(actual(i) - expected(i)) <= tol)) then
         write (error_unit, '(a,i0,a)') '  element ', i, ':'
         call report_dp_mismatch(actual(i), expected(i), abs(actual(i) - expected(i)), tol, message)
         call fail_test(message)

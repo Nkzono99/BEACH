@@ -48,10 +48,9 @@ program test_model_fingerprint
   fp_a = mesh_fingerprint(mesh)
   fp_b = mesh_fingerprint(mesh)
   call assert_true(fp_a == fp_b, 'mesh fingerprint must be deterministic')
-  call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'fingerprint length mismatch')
   call test_end()
 
-  call test_begin('soft_discard_fraction_guard_change_detected')
+  call test_begin('soft_discard_guard_change_detected')
   cfg_changed = cfg
   cfg_changed%sim%multiple_box_events_policy = 'soft_discard'
   fp_a = model_fingerprint(cfg_changed)
@@ -65,6 +64,12 @@ program test_model_fingerprint
     2.0_dp*cfg_changed%sim%multiple_box_events_soft_discard_fraction_limit
   fp_b = model_fingerprint(cfg_changed)
   call assert_true(fp_b /= fp_a, 'soft-discard fraction limit must alter the model fingerprint')
+  cfg_changed = cfg
+  cfg_changed%sim%multiple_box_events_policy = 'soft_discard'
+  cfg_changed%sim%multiple_box_events_soft_discard_abs_charge_limit = &
+    2.0_dp*cfg_changed%sim%multiple_box_events_soft_discard_abs_charge_limit
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_b /= fp_a, 'soft-discard absolute charge limit must alter the model fingerprint')
   call test_end()
 
   call test_begin('multiple_box_retry_backend_change_detected')
@@ -248,7 +253,9 @@ program test_model_fingerprint
   cfg_changed%particle_species(1)%velocity_distribution = 'grid'
   cfg_changed%particle_species(1)%velocity_grid_path = 'missing-disabled-velocity-grid.csv'
   fp_a = species_fingerprint(cfg_changed)
-  call assert_equal_i32(int(len_trim(fp_a), i32), 16_i32, 'disabled species fingerprint length mismatch')
+  cfg_changed%particle_species(1)%velocity_grid_path = 'other-missing-disabled-velocity-grid.csv'
+  fp_b = species_fingerprint(cfg_changed)
+  call assert_true(fp_a == fp_b, 'disabled velocity-grid path must not alter the species fingerprint')
   call test_end()
 
   call test_begin('model_backend_change_detected')
@@ -277,13 +284,25 @@ program test_model_fingerprint
     )
   call test_end()
 
-  call test_begin('inactive_periodic_generation_tolerance_ignored')
+  call test_begin('periodic_generation_tolerance_activation')
   cfg_changed = cfg
   cfg_changed%sim%field_periodic_generation_tolerance = 2.0_dp*cfg%sim%field_periodic_generation_tolerance
   call assert_true( &
     model_fingerprint(cfg_changed) == model_fingerprint(cfg), &
     'inactive cached-kneq0 tolerance must not alter the model fingerprint' &
     )
+  cfg_changed = cfg
+  cfg_changed%sim%field_solver = 'fmm'
+  cfg_changed%sim%field_bc_mode = 'periodic2'
+  cfg_changed%sim%field_periodic_far_correction = 'cached_kneq0'
+  call normalize_legacy_physics_config( &
+    cfg_changed%sim, cfg_changed%field, cfg_changed%periodic2, cfg_changed%panel &
+    )
+  fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%sim%field_periodic_generation_tolerance = &
+    2.0_dp*cfg_changed%sim%field_periodic_generation_tolerance
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_b /= fp_a, 'active cached-kneq0 tolerance must alter the model fingerprint')
   call test_end()
 
   call test_summary()

@@ -14,7 +14,7 @@ program test_field_kernel_c
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_version, only: beach_build_info
-  use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_begin, test_summary
+  use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_init, test_begin, test_summary
   implicit none
 
   type(c_ptr) :: handle
@@ -37,6 +37,8 @@ program test_field_kernel_c
   integer(i32) :: panel_target_idx
   integer :: i
 
+  call test_init(6)
+
   call test_begin('field_kernel_c_abi_version')
   abi_major = -1_c_int
   abi_minor = -1_c_int
@@ -54,11 +56,18 @@ program test_field_kernel_c
   call test_begin('field_kernel_c_build_info')
   build_info_buffer = achar(88, kind=c_char)
   build_info_length = -1_c_int
+  status = beach_kernel_get_build_info(c_loc(build_info_buffer), 512_c_int, c_null_ptr)
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info NULL length output')
   status = beach_kernel_get_build_info(c_null_ptr, 512_c_int, c_loc(build_info_length))
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info NULL buffer')
   status = beach_kernel_get_build_info(c_loc(build_info_buffer), 1_c_int, c_loc(build_info_length))
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info undersized buffer')
   call assert_equal_i32(build_info_length, int(len(beach_build_info), i32), 'build-info required length')
+  status = beach_kernel_get_build_info( &
+           c_loc(build_info_buffer), int(len(beach_build_info), c_int), c_loc(build_info_length) &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'build-info requires NUL capacity')
+  call assert_true(build_info_buffer(1) == achar(88, kind=c_char), 'build-info must not truncate exact-size buffer')
   status = beach_kernel_get_build_info(c_loc(build_info_buffer), 512_c_int, c_loc(build_info_length))
   call assert_equal_i32(status, beach_kernel_ok, 'build-info getter status')
   do i = 1, len(beach_build_info)
@@ -66,7 +75,49 @@ program test_field_kernel_c
   end do
   call assert_true(build_info_buffer(len(beach_build_info) + 1) == c_null_char, 'build-info must be NUL terminated')
 
-  call test_begin('field_kernel_c_cache_abi_validation')
+  call test_begin('field_kernel_c_handle_lifecycle')
+  v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+  v1(:, 1) = [0.2d0, 0.0d0, 0.0d0]
+  v2(:, 1) = [0.0d0, 0.2d0, 0.0d0]
+  src_q(1) = 1.0d-9
+  target_pos(:, 1) = [0.0d0, 1.0d0, 0.0d0]
+  target_q(1) = 3.0d-9
+  origin = 0.0d0
+
+  status = beach_kernel_destroy(c_null_ptr)
+  call assert_equal_i32(status, beach_kernel_invalid_handle, 'destroy NULL handle')
+  status = beach_kernel_create(handle)
+  call assert_equal_i32(status, beach_kernel_ok, 'lifecycle create status')
+  status = beach_kernel_update_charges(handle, 1_c_int, c_loc(src_q))
+  call assert_equal_i32(status, beach_kernel_not_ready, 'update before build')
+  status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
+  call assert_equal_i32(status, beach_kernel_not_ready, 'eval before build')
+  status = beach_kernel_build( &
+           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_ok, 'lifecycle build status')
+  status = beach_kernel_eval_phi(handle, 1_c_int, c_loc(target_pos), c_loc(phi))
+  call assert_equal_i32(status, beach_kernel_not_ready, 'eval after build before charge update')
+  status = beach_kernel_eval_e_direct(handle, 1_c_int, c_loc(target_pos), c_loc(e_direct))
+  call assert_equal_i32(status, beach_kernel_not_ready, 'direct eval after build before charge update')
+  status = beach_kernel_force_on_charges( &
+           handle, 1_c_int, c_loc(target_pos), c_loc(target_q), c_loc(origin), c_loc(force), c_loc(torque) &
+           )
+  call assert_equal_i32(status, beach_kernel_not_ready, 'force after build before charge update')
+  status = beach_kernel_update_charges(handle, 1_c_int, c_loc(src_q))
+  call assert_equal_i32(status, beach_kernel_ok, 'lifecycle update status')
+  status = beach_kernel_build( &
+           handle, 1_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 0_c_int, c_null_ptr, &
+           c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_null_ptr, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_ok, 'lifecycle rebuild status')
+  status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
+  call assert_equal_i32(status, beach_kernel_not_ready, 'rebuild must invalidate charge state')
+  status = beach_kernel_destroy(handle)
+  call assert_equal_i32(status, beach_kernel_ok, 'lifecycle destroy status')
+
+  call test_begin('field_kernel_c_cache_and_build_argument_validation')
   call set_c_bytes(cache_path, [99, 97, 99, 104, 101, 45, 195, 169])
   call set_c_bytes(embedded_nul_path, [97, 0, 98])
   call set_c_bytes(invalid_utf8_path, [195, 40])
@@ -209,11 +260,31 @@ program test_field_kernel_c
            c_null_ptr, c_loc(path_buffer), 513_c_int, c_loc(path_length) &
            )
   call assert_equal_i32(status, beach_kernel_invalid_argument, 'cache getter NULL fingerprint length output')
+  status = beach_kernel_get_periodic_cache_info( &
+           handle, c_loc(cache_hit), c_loc(cache_build_count), c_loc(fingerprint_buffer), 17_c_int, &
+           c_loc(fingerprint_length), c_loc(path_buffer), 513_c_int, c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'cache getter NULL path length output')
+  status = beach_kernel_get_periodic_cache_info( &
+           handle, c_loc(cache_hit), c_loc(cache_build_count), c_null_ptr, 17_c_int, &
+           c_loc(fingerprint_length), c_loc(path_buffer), 513_c_int, c_loc(path_length) &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'cache getter NULL fingerprint buffer')
+  status = beach_kernel_get_periodic_cache_info( &
+           handle, c_loc(cache_hit), c_loc(cache_build_count), c_loc(fingerprint_buffer), 17_c_int, &
+           c_loc(fingerprint_length), c_null_ptr, 513_c_int, c_loc(path_length) &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'cache getter NULL path buffer')
 
   cache_periodic_axes = [1_c_int, 2_c_int]
   cache_periodic_len = [2.0d0, 2.0d0]
   cache_box_min = [0.0d0, 0.0d0, -1.0d0]
   cache_box_max = [2.0d0, 2.0d0, 1.0d0]
+  status = beach_kernel_build( &
+           handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 2_c_int, 0_c_int, &
+           c_null_ptr, c_null_ptr, 1_c_int, 0_c_int, 0.0d0, 4_c_int, c_loc(cache_box_min), c_null_ptr &
+           )
+  call assert_equal_i32(status, beach_kernel_invalid_argument, 'panel build rejects a partial target box')
   status = beach_kernel_build( &
            handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 2_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 2_c_int, 0.0d0, 4_c_int, &
@@ -300,6 +371,10 @@ program test_field_kernel_c
     phi_direct(:1), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'eval_phi_direct value' &
     )
 
+  cache_periodic_axes = [1_c_int, 2_c_int]
+  cache_periodic_len = [2.0d0, 2.0d0]
+  cache_box_min = [0.0d0, 0.0d0, -1.0d0]
+  cache_box_max = [2.0d0, 2.0d0, 1.0d0]
   status = beach_kernel_build( &
            handle, 2_c_int, c_loc(v0), c_loc(v1), c_loc(v2), 0.5d0, 8_c_int, 4_c_int, 1_c_int, &
            c_loc(cache_periodic_axes), c_loc(cache_periodic_len), 1_c_int, 1_c_int, 0.0d0, 4_c_int, &
@@ -333,13 +408,17 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'force status')
   expected_force = target_q(1)*expected_e
   expected_torque = cross(target_pos(:, 1) - origin, expected_force)
-  call assert_allclose_1d(force, expected_force, 1.0d-20, 'force value')
-  call assert_allclose_1d(torque, expected_torque, 1.0d-20, 'torque value')
+  call assert_allclose_1d( &
+    force, expected_force, max(1.0d-20, 1.0d-12*maxval(abs(expected_force))), 'force value' &
+    )
+  call assert_allclose_1d( &
+    torque, expected_torque, max(1.0d-20, 1.0d-12*maxval(abs(expected_torque))), 'torque value' &
+    )
 
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'destroy status')
 
-  call test_begin('field_kernel_c_panel_eval')
+  call test_begin('field_kernel_c_panel_batched_principal_value_eval')
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
   v1(:, 1) = [2.0d0, 0.0d0, 0.0d0]
   v2(:, 1) = [0.0d0, 1.0d0, 0.0d0]
@@ -355,17 +434,17 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'panel build status')
   status = beach_kernel_update_charges(handle, 1_c_int, c_loc(panel_q))
   call assert_equal_i32(status, beach_kernel_ok, 'panel update status')
-  status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
+  status = beach_kernel_eval_e(handle, 2_c_int, c_loc(target_pos), c_loc(e))
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_e status')
-  status = beach_kernel_eval_phi(handle, 1_c_int, c_loc(target_pos), c_loc(phi))
+  status = beach_kernel_eval_phi(handle, 2_c_int, c_loc(target_pos), c_loc(phi))
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_phi status')
   status = beach_kernel_eval_e_direct(handle, 2_c_int, c_loc(target_pos), c_loc(e_direct))
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_e_direct status')
   status = beach_kernel_eval_phi_direct(handle, 2_c_int, c_loc(target_pos), c_loc(phi_direct))
   call assert_equal_i32(status, beach_kernel_ok, 'panel eval_phi_direct status')
+  call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, geometry_status)
+  call assert_equal_i32(geometry_status, panel_geometry_ok, 'panel fixture geometry status')
   do panel_target_idx = 1_i32, 2_i32
-    call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, geometry_status)
-    call assert_equal_i32(geometry_status, panel_geometry_ok, 'panel fixture geometry status')
     call panel_potential_field( &
       geometry, panel_q(1), target_pos(:, panel_target_idx), panel_side_principal_value, expected_phi, expected_e &
       )
@@ -377,10 +456,13 @@ program test_field_kernel_c
       phi_direct(panel_target_idx:panel_target_idx), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), &
       'panel eval_phi_direct value' &
       )
-    if (panel_target_idx == 1_i32) then
-      call assert_allclose_1d(e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'panel eval_e value')
-      call assert_allclose_1d(phi(:1), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), 'panel eval_phi value')
-    end if
+    call assert_allclose_1d( &
+      e(:, panel_target_idx), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'panel eval_e value' &
+      )
+    call assert_allclose_1d( &
+      phi(panel_target_idx:panel_target_idx), [expected_phi], 1.0d-12*max(1.0d0, abs(expected_phi)), &
+      'panel eval_phi value' &
+      )
   end do
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'panel destroy status')

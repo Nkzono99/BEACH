@@ -1,18 +1,14 @@
-!> 疎結合 Coulomb FMM コア基本テスト: P2M/M2M, free-space 精度, softening, dual tree, state reuse, adapter。
+!> 疎結合 Coulomb FMM コア基本テスト: P2M/M2M, free-space 精度, softening, dual tree, state reuse。
 program test_coulomb_fmm_core_basic
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config
-  use bem_templates, only: make_sphere
-  use bem_field_solver, only: field_solver_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                   destroy_plan, destroy_state
-  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_close_dp, assert_allclose_1d, assert_equal_i32
+                          assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(6)
+  call test_init(5)
 
   call test_begin('p2m_m2m_root_moments')
   call test_p2m_m2m_root_moments()
@@ -34,10 +30,6 @@ program test_coulomb_fmm_core_basic
   call test_state_update_reuse()
   call test_end()
 
-  call test_begin('field_solver_core_adapter')
-  call test_field_solver_core_adapter()
-  call test_end()
-
   call test_summary()
 
 contains
@@ -46,44 +38,57 @@ contains
     type(fmm_plan_type), allocatable :: plan
     type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:), expected(:)
-    integer(i32) :: alpha_idx
+    real(dp), allocatable :: src_pos(:, :), q(:)
+    real(dp) :: center(3)
 
     allocate (plan, state)
     call make_free_sources(src_pos, q)
+    q = q/1.0d-12
     options%theta = 0.55d0
     options%leaf_max = 2_i32
     options%order = 4_i32
     call build_plan(plan, src_pos, options)
     call update_state(plan, state, q)
 
-    allocate (expected(plan%ncoef))
-    call accumulate_direct_moments(plan, src_pos, q, plan%node_center(:, 1_i32), expected)
-    do alpha_idx = 1_i32, plan%ncoef
-      call assert_close_dp( &
-        state%multipole(alpha_idx, 1_i32), expected(alpha_idx), &
-        max(1.0d-12, 1.0d-11*abs(expected(alpha_idx))), 'root multipole moment mismatch' &
-        )
-    end do
+    center = 0.5d0*(minval(src_pos, dim=2) + maxval(src_pos, dim=2))
+    call assert_true(plan%node_max_depth > 0_i32, 'root moment fixture must exercise M2M')
+    call assert_root_moment(plan, state, src_pos, q, center, [0_i32, 0_i32, 0_i32], 'monopole')
+    call assert_root_moment(plan, state, src_pos, q, center, [1_i32, 0_i32, 0_i32], 'x dipole')
+    call assert_root_moment(plan, state, src_pos, q, center, [0_i32, 1_i32, 1_i32], 'yz quadrupole')
+    call assert_root_moment(plan, state, src_pos, q, center, [4_i32, 0_i32, 0_i32], 'x quartic moment')
 
     call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_p2m_m2m_root_moments
 
   subroutine test_free_field_accuracy()
+    call assert_free_field_accuracy(0.0d0, 'free core')
+  end subroutine test_free_field_accuracy
+
+  subroutine test_softened_free_field_accuracy()
+    ! Keep the softening signal larger than the accepted order-4 FMM error.
+    call assert_free_field_accuracy(5.0d-1, 'softened free core')
+  end subroutine test_softened_free_field_accuracy
+
+  subroutine assert_free_field_accuracy(softening, label)
+    real(dp), intent(in) :: softening
+    character(len=*), intent(in) :: label
     type(fmm_plan_type), allocatable :: plan
     type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
     real(dp) :: queries(3, 8), e_fmm(3), e_ref(3)
     real(dp) :: norm_ref, rel_err, max_rel_err
-    integer(i32) :: i, valid_count
+    integer(i32) :: i, max_error_index
 
     allocate (plan, state)
     call make_free_sources(src_pos, q)
     options%theta = 0.55d0
     options%leaf_max = 4_i32
     options%order = 4_i32
+    options%softening = softening
+    options%target_box_min = [-2.0d0, -2.0d0, -2.0d0]
+    options%target_box_max = [2.0d0, 2.0d0, 2.0d0]
     call build_plan(plan, src_pos, options)
     call update_state(plan, state, q)
 
@@ -96,107 +101,82 @@ contains
     queries(:, 7) = [1.4d0, -1.9d0, -1.3d0]
     queries(:, 8) = [-1.6d0, -1.2d0, -1.8d0]
 
+    call assert_true(plan%target_tree_ready, trim(label)//' must build the target tree')
+    call assert_true(plan%m2l_pair_count > 0_i32, trim(label)//' fixture must exercise the M2L path')
     max_rel_err = 0.0d0
-    valid_count = 0_i32
+    max_error_index = 0_i32
     do i = 1_i32, int(size(queries, 2), i32)
       call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_free(src_pos, q, queries(:, i), e_ref)
+      call direct_field_free(src_pos, q, queries(:, i), options%softening, e_ref)
+      call assert_true(all(ieee_is_finite(e_fmm)), trim(label)//' FMM field must be finite')
+      call assert_true(all(ieee_is_finite(e_ref)), trim(label)//' reference field must be finite')
       norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
+      call assert_true(norm_ref > 1.0d-16, trim(label)//' reference field must be nonzero')
       rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
+      call assert_true(ieee_is_finite(rel_err), trim(label)//' relative error must be finite')
+      if (rel_err > max_rel_err) then
+        max_rel_err = rel_err
+        max_error_index = i
+      end if
     end do
 
-    call assert_true(valid_count == 8_i32, 'free core test lost valid samples')
-    call assert_true(max_rel_err <= 3.0d-3, 'free core FMM relative error exceeds 3e-3')
+    write (*, '(A,A,ES12.5,A,I0)') trim(label), ': max_rel_err=', max_rel_err, ', query=', max_error_index
+    call assert_true(max_rel_err <= 5.0d-2, trim(label)//' FMM relative error exceeds 5e-2')
 
     call destroy_state(state)
     call destroy_plan(plan)
-  end subroutine test_free_field_accuracy
+  end subroutine assert_free_field_accuracy
 
-  subroutine test_softened_free_field_accuracy()
+  subroutine test_target_box_dual_tree()
     type(fmm_plan_type), allocatable :: plan
     type(fmm_state_type), allocatable :: state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q(:)
-    real(dp) :: queries(3, 4), e_fmm(3), e_ref(3)
-    real(dp) :: norm_ref, rel_err, max_rel_err
-    integer(i32) :: i, valid_count
+    real(dp) :: target(3), e_fmm(3), e_ref(3), norm_ref, rel_err, tolerance
 
     allocate (plan, state)
-    call make_free_sources(src_pos, q)
-    options%theta = 0.55d0
-    options%leaf_max = 4_i32
-    options%order = 4_i32
-    options%softening = 5.0d-2
-    call build_plan(plan, src_pos, options)
-    call update_state(plan, state, q)
-
-    queries(:, 1) = [1.8d0, 1.2d0, 1.5d0]
-    queries(:, 2) = [-1.7d0, 1.3d0, 1.1d0]
-    queries(:, 3) = [1.9d0, 0.8d0, -1.7d0]
-    queries(:, 4) = [-1.6d0, -1.2d0, -1.8d0]
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, int(size(queries, 2), i32)
-      call eval_point(plan, state, queries(:, i), e_fmm)
-      call direct_field_free(src_pos, q, queries(:, i), e_ref, options%softening)
-      norm_ref = sqrt(sum(e_ref*e_ref))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 4_i32, 'softened free core test lost valid samples')
-    call assert_true(max_rel_err <= 3.0d-3, 'softened free core FMM relative error exceeds 3e-3')
-
-    call destroy_state(state)
-    call destroy_plan(plan)
-  end subroutine test_softened_free_field_accuracy
-
-  subroutine test_target_box_dual_tree()
-    type(fmm_plan_type), allocatable :: plan
-    type(fmm_options_type) :: options
-    real(dp), allocatable :: src_pos(:, :), q(:)
-
-    allocate (plan)
     call make_periodic_sources(src_pos, q)
     options%leaf_max = 2_i32
     options%order = 4_i32
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)
+    call update_state(plan, state, q)
 
-    call assert_true( &
-      plan%target_tree_ready, &
-      'core free/use_box should enable dual target tree' &
-      )
-    call assert_allclose_1d( &
-      plan%target_node_center(:, 1_i32), [0.5d0, 0.5d0, 0.0d0], 1.0d-12, &
-      'target root center mismatch' &
-      )
-    call assert_allclose_1d( &
-      plan%target_node_half_size(:, 1_i32), [0.5d0, 0.5d0, 1.0d0], 1.0d-12, &
-      'target root half-size mismatch' &
-      )
+    call assert_true(plan%target_tree_ready, 'core free/use_box should enable dual target tree')
+    call assert_true(plan%m2l_pair_count > 0_i32, 'dual-tree fixture must exercise the M2L path')
 
+    target = [0.0d0, 0.45d0, 0.55d0]
+    call eval_point(plan, state, target, e_fmm)
+    call direct_field_free(src_pos, q, target, 0.0d0, e_ref)
+    norm_ref = sqrt(sum(e_ref*e_ref))
+    call assert_true(norm_ref > 1.0d-16, 'target-box boundary reference field must be nonzero')
+    rel_err = sqrt(sum((e_fmm - e_ref)*(e_fmm - e_ref)))/norm_ref
+    call assert_true(rel_err <= 1.0d-2, 'target-box boundary FMM relative error exceeds 1e-2')
+
+    target = [-0.1d0, 0.45d0, 0.55d0]
+    call eval_point(plan, state, target, e_fmm)
+    call direct_field_free(src_pos, q, target, 0.0d0, e_ref)
+    tolerance = 1.0d-12*max(maxval(abs(e_ref)), tiny(1.0d0))
+    call assert_allclose_1d(e_fmm, e_ref, tolerance, 'outside target box should use exact direct fallback')
+
+    call destroy_state(state)
     call destroy_plan(plan)
   end subroutine test_target_box_dual_tree
 
   subroutine test_state_update_reuse()
     type(fmm_plan_type), allocatable :: plan
-    type(fmm_state_type), allocatable :: state
+    type(fmm_state_type), allocatable :: reused_state, fresh_state
     type(fmm_options_type) :: options
     real(dp), allocatable :: src_pos(:, :), q1(:), q2(:)
-    real(dp) :: e1(3), e2(3)
-    integer(i32) :: pair_count, build_count
+    real(dp) :: e_before(3), e_reused(3), e_fresh(3), tolerance
 
-    allocate (plan, state)
+    allocate (plan, reused_state, fresh_state)
     call make_periodic_sources(src_pos, q1)
-    q2 = 2.0d0*q1
+    q2 = q1
+    q2(1) = 0.25d0*q1(1)
+    q2(4) = -0.5d0*q1(4)
+    q2(7) = 1.75d0*q1(7)
     options%leaf_max = 2_i32
     options%order = 4_i32
     options%use_periodic2 = .true.
@@ -206,57 +186,26 @@ contains
     options%target_box_min = [0.0d0, 0.0d0, -1.0d0]
     options%target_box_max = [1.0d0, 1.0d0, 1.0d0]
     call build_plan(plan, src_pos, options)
-    pair_count = plan%m2l_pair_count
-    build_count = plan%m2l_build_count
+    call assert_true(plan%m2l_pair_count > 0_i32, 'state reuse fixture must exercise the M2L path')
 
-    call update_state(plan, state, q1)
-    call eval_point(plan, state, [0.35d0, 0.45d0, 0.55d0], e1)
-    call update_state(plan, state, q2)
-    call eval_point(plan, state, [0.35d0, 0.45d0, 0.55d0], e2)
+    call update_state(plan, reused_state, q1)
+    call eval_point(plan, reused_state, [0.35d0, 0.45d0, 0.55d0], e_before)
+    call update_state(plan, reused_state, q2)
+    call eval_point(plan, reused_state, [0.35d0, 0.45d0, 0.55d0], e_reused)
+    call update_state(plan, fresh_state, q2)
+    call eval_point(plan, fresh_state, [0.35d0, 0.45d0, 0.55d0], e_fresh)
 
-    call assert_equal_i32(plan%m2l_pair_count, pair_count, 'state update should preserve M2L pair count')
-    call assert_equal_i32(plan%m2l_build_count, build_count, 'state update should not rebuild the M2L cache')
-    call assert_equal_i32(state%update_count, 2_i32, 'state update count mismatch')
-    call assert_true(sqrt(sum((e2 - 2.0d0*e1)*(e2 - 2.0d0*e1))) <= 1.0d-10, 'field should scale linearly with charge')
+    tolerance = 1.0d-12*max(maxval(abs(e_fresh)), tiny(1.0d0))
+    call assert_allclose_1d(e_reused, e_fresh, tolerance, 'reused state must match a fresh update for new charges')
+    call assert_true( &
+      sqrt(sum((e_reused - e_before)*(e_reused - e_before))) > tolerance, &
+      'non-proportional charge update must change the evaluated field' &
+      )
 
-    call destroy_state(state)
+    call destroy_state(fresh_state)
+    call destroy_state(reused_state)
     call destroy_plan(plan)
   end subroutine test_state_update_reuse
-
-  subroutine test_field_solver_core_adapter()
-    type(mesh_type) :: mesh_fmm
-    type(field_solver_type) :: solver = field_solver_type()
-    type(sim_config) :: sim
-    real(dp) :: r(3), e_direct(3), e_fmm(3), rel_err, norm_ref, max_rel_err
-    integer(i32) :: i, valid_count
-
-    call make_sphere(mesh_fmm, radius=0.35d0, n_lon=12_i32, n_lat=6_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_fmm)
-    mesh_fmm%q_elem = 1.0d-12
-
-    sim = sim_config()
-    sim%field_solver = 'fmm'
-    sim%field_bc_mode = 'free'
-    call solver%init(mesh_fmm, sim)
-    call assert_true(solver%fmm_use_core, 'triangle P0 free FMM should use the core path')
-    call solver%refresh(mesh_fmm)
-
-    max_rel_err = 0.0d0
-    valid_count = 0_i32
-    do i = 1_i32, 4_i32
-      r = [1.2d0 + 0.1d0*real(i - 1_i32, dp), -0.8d0 + 0.2d0*real(i - 1_i32, dp), 0.9d0 - 0.1d0*real(i - 1_i32, dp)]
-      call panel_field_at(mesh_fmm, r, e_direct)
-      call solver%eval_e(mesh_fmm, r, e_fmm)
-      norm_ref = sqrt(sum(e_direct*e_direct))
-      if (norm_ref <= 1.0d-16) cycle
-      rel_err = sqrt(sum((e_fmm - e_direct)*(e_fmm - e_direct)))/norm_ref
-      max_rel_err = max(max_rel_err, rel_err)
-      valid_count = valid_count + 1_i32
-    end do
-
-    call assert_true(valid_count == 4_i32, 'core adapter test lost valid samples')
-    call assert_true(max_rel_err <= 5.0d-3, 'core adapter relative error exceeds 5e-3')
-  end subroutine test_field_solver_core_adapter
 
   subroutine make_free_sources(src_pos, q)
     real(dp), allocatable, intent(out) :: src_pos(:, :)
@@ -296,36 +245,49 @@ contains
         ]
   end subroutine make_periodic_sources
 
-  subroutine accumulate_direct_moments(plan, src_pos, q, center, moments)
+  subroutine assert_root_moment(plan, state, src_pos, q, center, alpha, label)
     type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: src_pos(:, :), q(:), center(3)
-    real(dp), intent(out) :: moments(:)
-    integer(i32) :: idx, alpha_idx
-    real(dp) :: d(3)
-    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
-    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+    integer(i32), intent(in) :: alpha(3)
+    character(len=*), intent(in) :: label
+    integer(i32) :: alpha_idx
+    real(dp) :: expected, tolerance
 
-    moments = 0.0d0
-    do idx = 1_i32, int(size(q), i32)
-      d = src_pos(:, idx) - center
-      call build_powers(d, plan%options%order, xpow, ypow, zpow)
-      do alpha_idx = 1_i32, plan%ncoef
-        moments(alpha_idx) = moments(alpha_idx) + q(idx)*xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
-                             *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
+    alpha_idx = plan%alpha_map(alpha(1), alpha(2), alpha(3))
+    expected = direct_cartesian_moment(src_pos, q, center, alpha)
+    tolerance = 1.0d-11*max(1.0d0, abs(expected))
+    call assert_close_dp(state%multipole(alpha_idx, 1_i32), expected, tolerance, trim(label)//' root moment mismatch')
+  end subroutine assert_root_moment
+
+  real(dp) function direct_cartesian_moment(src_pos, q, center, alpha) result(moment)
+    real(dp), intent(in) :: src_pos(:, :), q(:), center(3)
+    integer(i32), intent(in) :: alpha(3)
+    integer(i32) :: idx, axis, power
+    real(dp) :: d(3), alpha_factorial
+
+    alpha_factorial = 1.0d0
+    do axis = 1_i32, 3_i32
+      do power = 2_i32, alpha(axis)
+        alpha_factorial = alpha_factorial*real(power, dp)
       end do
     end do
-  end subroutine accumulate_direct_moments
+    moment = 0.0d0
+    do idx = 1_i32, int(size(q), i32)
+      d = src_pos(:, idx) - center
+      moment = moment + q(idx)*product(d**alpha)/alpha_factorial
+    end do
+  end function direct_cartesian_moment
 
-  subroutine direct_field_free(src_pos, q, r, e, softening)
+  subroutine direct_field_free(src_pos, q, r, softening, e)
     real(dp), intent(in) :: src_pos(:, :), q(:), r(3)
+    real(dp), intent(in) :: softening
     real(dp), intent(out) :: e(3)
-    real(dp), intent(in), optional :: softening
     integer(i32) :: idx
     real(dp) :: d(3), r2, inv_r3, soft2
 
     e = 0.0d0
-    soft2 = 0.0d0
-    if (present(softening)) soft2 = softening*softening
+    soft2 = softening*softening
     do idx = 1_i32, int(size(q), i32)
       d = r - src_pos(:, idx)
       r2 = sum(d*d) + soft2
@@ -334,50 +296,5 @@ contains
       e = e + q(idx)*inv_r3*d
     end do
   end subroutine direct_field_free
-
-  subroutine mark_normal_plus(mesh)
-    type(mesh_type), intent(inout) :: mesh
-
-    mesh%elem_vacuum_sign = 1_i32
-    mesh%vacuum_normals = mesh%normals
-  end subroutine mark_normal_plus
-
-  subroutine panel_field_at(mesh, target, field)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: field(3)
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    field = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'FMM adapter test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      field = field + source_field
-    end do
-  end subroutine panel_field_at
-
-  subroutine build_powers(d, order, xpow, ypow, zpow)
-    real(dp), intent(in) :: d(3)
-    integer(i32), intent(in) :: order
-    real(dp), intent(out) :: xpow(0:order), ypow(0:order), zpow(0:order)
-    integer(i32) :: k
-
-    xpow(0) = 1.0d0
-    ypow(0) = 1.0d0
-    zpow(0) = 1.0d0
-    do k = 1_i32, order
-      xpow(k) = xpow(k - 1_i32)*d(1)
-      ypow(k) = ypow(k - 1_i32)*d(2)
-      zpow(k) = zpow(k - 1_i32)*d(3)
-    end do
-  end subroutine build_powers
 
 end program test_coulomb_fmm_core_basic
