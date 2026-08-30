@@ -38,6 +38,10 @@ program test_app_config_parser
   call default_app_config(cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'auto', 'default field solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'default field boundary mismatch')
+  call assert_true( &
+    trim(cfg%sim%field_periodic_far_correction) == 'none', &
+    'default periodic far correction mismatch' &
+    )
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
