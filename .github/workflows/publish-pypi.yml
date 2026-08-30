@@ -31,6 +31,16 @@ jobs:
           python -m pip wheel --no-deps dist/*.tar.gz --wheel-dir build/wheelhouse
           ls -lh dist
 
+      - name: Smoke-test installed wheel
+        run: |
+          smoke_dir="$RUNNER_TEMP/beach-wheel-smoke"
+          python -m venv "$smoke_dir"
+          "$smoke_dir/bin/python" -m pip install "$GITHUB_WORKSPACE"/build/wheelhouse/*.whl
+          cd "$RUNNER_TEMP"
+          "$smoke_dir/bin/beach" --version
+          "$smoke_dir/bin/beach-zhao-response" --help
+          "$smoke_dir/bin/beachx" --help
+
       - name: Upload sdist artifact
         uses: actions/upload-artifact@v7
         with:
