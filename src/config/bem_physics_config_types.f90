@@ -158,6 +158,16 @@ contains
       return
     end if
 
+    if (trim(lower_ascii(sim%field_bc_mode)) /= 'periodic2' .or. .not. sim%use_box) then
+      call reject(physics_config_invalid_combination, 'Periodic physics requires periodic2 box geometry.', status, message)
+      return
+    end if
+    if (any(sim%bc_low(1:2) /= bc_periodic) .or. any(sim%bc_high(1:2) /= bc_periodic) .or. &
+        sim%bc_low(3) == bc_periodic .or. sim%bc_high(3) == bc_periodic) then
+      call reject(physics_config_unavailable, 'Periodic2 requires x/y periodic and z nonperiodic.', status, message)
+      return
+    end if
+
     if (trim(nonzero_backend) == 'legacy_finite_images') then
       if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'legacy_not_decomposed') then
         call reject( &
@@ -175,21 +185,6 @@ contains
         call reject( &
           physics_config_invalid_combination, &
           'panel_spectral_reference requires field backend direct.', status, message &
-          )
-        return
-      end if
-      if (trim(lower_ascii(sim%field_bc_mode)) /= 'periodic2' .or. .not. sim%use_box) then
-        call reject( &
-          physics_config_invalid_combination, &
-          'panel_spectral_reference requires periodic2 box geometry.', status, message &
-          )
-        return
-      end if
-      if (any(sim%bc_low(1:2) /= bc_periodic) .or. any(sim%bc_high(1:2) /= bc_periodic) .or. &
-          sim%bc_low(3) == bc_periodic .or. sim%bc_high(3) == bc_periodic) then
-        call reject( &
-          physics_config_unavailable, &
-          'panel_spectral_reference requires x/y periodic and z nonperiodic.', status, message &
           )
         return
       end if
@@ -232,15 +227,6 @@ contains
     end if
     if (trim(lower_ascii(field%backend)) /= 'fmm' .or. trim(lower_ascii(sim%field_solver)) /= 'fmm') then
       call reject(physics_config_invalid_combination, 'cached_kneq0 requires the periodic2 FMM backend.', status, message)
-      return
-    end if
-    if (trim(lower_ascii(sim%field_bc_mode)) /= 'periodic2' .or. .not. sim%use_box) then
-      call reject(physics_config_invalid_combination, 'cached_kneq0 requires periodic2 box geometry.', status, message)
-      return
-    end if
-    if (any(sim%bc_low(1:2) /= bc_periodic) .or. any(sim%bc_high(1:2) /= bc_periodic) .or. &
-        sim%bc_low(3) == bc_periodic .or. sim%bc_high(3) == bc_periodic) then
-      call reject(physics_config_unavailable, 'cached_kneq0 requires x/y periodic and z nonperiodic.', status, message)
       return
     end if
     if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'exclude_k0' .or. &
