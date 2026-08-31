@@ -100,7 +100,7 @@ def test_release_metadata_matches_fortran_and_isolated_build_contract() -> None:
     assert "LICENSE" in project["license-files"]
     assert build_system["build-backend"] == "setuptools.build_meta"
     assert {"setuptools>=77", "wheel", "fpm"} <= set(build_system["requires"])
-    assert {"beach", "beach-zhao-response"} <= {
+    assert {"beach", "beach-zhao-response", "beach-zhao-atlas"} <= {
         target["name"] for target in fpm["executable"]
     }
 

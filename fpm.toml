@@ -32,6 +32,11 @@ name = "beach-zhao-response"
 source-dir = "app"
 main = "zhao_response_main.f90"
 
+[[executable]]
+name = "beach-zhao-atlas"
+source-dir = "app"
+main = "zhao_atlas_main.f90"
+
 [[test]]
 name = "test_app_config_parser"
 source-dir = "tests/fortran"
@@ -66,6 +71,11 @@ main = "test_matching_plane_zhao.f90"
 name = "test_matching_plane_response_generator"
 source-dir = "tests/fortran"
 main = "test_matching_plane_response_generator.f90"
+
+[[test]]
+name = "test_matching_plane_zhao_atlas"
+source-dir = "tests/fortran"
+main = "test_matching_plane_zhao_atlas.f90"
 
 [[test]]
 name = "test_matching_plane_simulator"

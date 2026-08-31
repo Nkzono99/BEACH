@@ -188,6 +188,43 @@ energy も正にします。transparent な ambient outward 2 軸は 0 の singl
 をインストールしてください。生成表を使う run は別の設定ファイルで `response_backend="table"` と
 `response_table_path="response.csv"` を指定します。online backend を直接使う run には応答表は不要です。
 
+### Zhao の解領域を調べる
+
+`beach-zhao-atlas` は、指定した matching-plane moment に対して Zhao A/B/C を独立に評価します。
+simulation 用の branch を選ぶ前に、多重解、物理解なし、solver の数値失敗を分けて調べるための offline 診断です。
+応答表は作らず、BEACH runtime の設定も変更しません。
+
+```console
+beach-zhao-atlas \
+  examples/periodic2_matching_plane_zhao_online.toml \
+  query_grid.csv \
+  atlas.csv
+```
+
+設定ファイルは `response_backend="zhao_online"` の完全な matching case とします。`zhao_branch` と
+`zhao_root_selection` の設定値にかかわらず、atlas は A/B/C をそれぞれ `require_unique` で評価します。
+query CSV は空行と `#` comment を許し、最初の非 comment 行を次の exact header にします。完全な直積は不要で、
+調べたい点だけを並べられます。
+
+```csv
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev
+```
+
+`atlas.csv` は query ごとに A/B/C の 3 行を持ちます。`status` は次の意味です。
+
+| `status` | 判定 |
+|---|---|
+| `ok` | その branch の一意な物理解を solver が認証した |
+| `no_physical_solution` | 現行 solver がその branch を物理的に不適格と判定した |
+| `numerical_failure` | 存在・不存在を数値的に判定できなかった |
+| `ambiguous_within_branch` | 同じ branch 内で複数根が残った |
+| `invalid_input` | flux や PE energy の入力契約に違反した |
+
+複数の branch が `ok` なら `multiple` です。1 branch だけが `ok` でも、ほかに
+`numerical_failure` または `ambiguous_within_branch` があれば一意性は未認証です。全 branch が
+`no_physical_solution` の場合だけ `no_root` とし、数値失敗を `no_root` に含めないでください。
+この判定は現行の有限個の初期値と profile 検査による solver certificate であり、数学的な不存在証明ではありません。
+
 ## 固定点の数値契約
 
 feedback vector の成分順は

@@ -20,7 +20,7 @@ except Exception:
 
 ROOT_DIR = Path(__file__).resolve().parent
 INSTALL_PREFIX = Path(os.environ.get("BEACH_PIP_PREFIX", ROOT_DIR / "build" / "pip-install"))
-BIN_NAMES = ("beach", "beach-zhao-response")
+BIN_NAMES = ("beach", "beach-zhao-response", "beach-zhao-atlas")
 BIN_BASES = tuple(INSTALL_PREFIX / "bin" / name for name in BIN_NAMES)
 _BUILT_BINARIES: tuple[Path, ...] | None = None
 

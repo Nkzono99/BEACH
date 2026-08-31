@@ -193,6 +193,44 @@ If `beach-zhao-response` is unavailable, install the
 the generated table, create another configuration with `response_backend="table"` and `response_table_path="response.csv"`.
 A run that continues to use the online backend needs no response table.
 
+### Map Zhao solvability
+
+`beach-zhao-atlas` evaluates Zhao A, B, and C independently at each supplied matching-plane moment. Use this offline
+diagnostic before selecting a simulation branch when you need to distinguish multiple roots, absence of a physical
+root, and numerical solver failure. It does not build a response table or change the BEACH runtime configuration.
+
+```console
+beach-zhao-atlas \
+  examples/periodic2_matching_plane_zhao_online.toml \
+  query_grid.csv \
+  atlas.csv
+```
+
+Supply a complete matching case with `response_backend="zhao_online"`. Regardless of its configured `zhao_branch`
+and `zhao_root_selection`, the atlas evaluates A, B, and C separately with `require_unique`. The query CSV permits blank
+lines and `#` comments. Its first noncomment line is the exact header below. A full Cartesian product is not required;
+you may list only the points to diagnose.
+
+```csv
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev
+```
+
+`atlas.csv` contains three rows per query, one for each branch. Interpret `status` as follows.
+
+| `status` | Meaning |
+|---|---|
+| `ok` | The solver certified one physical root in that branch |
+| `no_physical_solution` | The current solver certified that branch as physically inadmissible |
+| `numerical_failure` | The solver could not certify either existence or absence |
+| `ambiguous_within_branch` | More than one root remains within the same branch |
+| `invalid_input` | A flux or PE-energy value violates the input contract |
+
+Two or more `ok` branches make the query `multiple`. If exactly one branch is `ok` but another is
+`numerical_failure` or `ambiguous_within_branch`, uniqueness remains uncertified. Classify a query as `no_root` only
+when all three branches are `no_physical_solution`; never merge numerical failures into `no_root`.
+This is a solver certificate from the current finite set of initial guesses and profile checks, not a mathematical
+proof that no root exists.
+
 ## Fixed-point numerical contract
 
 The feedback vector is ordered as

@@ -78,9 +78,9 @@ python -m pip install fpm
 fpm --version
 ```
 
-matching-plane の応答表を作る補助コマンド `beach-zhao-response` は、現在の source build には含まれますが、
-PyPI 配布には含まれない場合があります。必要な場合は GitHub 版をインストールし、
-[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html#table-backend用の応答表を作る)へ進んでください。
+matching-plane の応答表を作る `beach-zhao-response` と Zhao の解領域を調べる `beach-zhao-atlas` は、
+現在の source build には含まれますが、PyPI 配布には含まれない場合があります。必要な場合は GitHub 版を
+インストールし、[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)へ進んでください。
 
 ## 更新と削除
 

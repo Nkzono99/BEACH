@@ -11,6 +11,7 @@ module bem_matching_plane_response_provider
                                          matching_plane_response_ok, &
                                          preflight_matching_plane_response_mpi
   use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_ok, &
+                                     matching_plane_zhao_diagnostics_type, &
                                      matching_plane_zhao_invalid_argument, &
                                      matching_plane_zhao_no_physical_solution, &
                                      matching_plane_zhao_ambiguous_solution
@@ -54,6 +55,7 @@ module bem_matching_plane_response_provider
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
     procedure, public :: evaluate_local => evaluate_matching_plane_response_provider_local
+    procedure, public :: evaluate_zhao_local => evaluate_matching_plane_zhao_provider_local
     procedure, public :: validate_feedback => validate_matching_plane_provider_feedback
     procedure, public :: feedback_converged => matching_plane_provider_feedback_converged
     procedure, public :: feedback_residual => matching_plane_provider_feedback_residual
@@ -422,6 +424,29 @@ contains
         )
     end if
   end subroutine evaluate_matching_plane_response_provider_local
+
+  !> Online Zhao backendをMPI collectiveなしで評価し、Zhao固有statusを保持する。
+  !! Solvability atlas専用の入口であり、通常runtimeは共通evaluate APIを使う。
+  subroutine evaluate_matching_plane_zhao_provider_local( &
+    self, input, output, status, message, diagnostics &
+    )
+    class(matching_plane_response_provider_type), intent(in) :: self
+    real(dp), intent(in) :: input(matching_plane_response_input_count)
+    real(dp), intent(out) :: output(matching_plane_response_output_count)
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    type(matching_plane_zhao_diagnostics_type), intent(out) :: diagnostics
+
+    output = 0.0_dp
+    diagnostics = matching_plane_zhao_diagnostics_type()
+    status = matching_plane_zhao_invalid_argument
+    message = ''
+    if (.not. self%active .or. self%backend /= provider_backend_zhao_online) then
+      message = 'matching-plane provider is not an initialized online Zhao backend.'
+      return
+    end if
+    call self%zhao%evaluate(input, output, status, message, diagnostics)
+  end subroutine evaluate_matching_plane_zhao_provider_local
 
   subroutine initialize_table_feedback_contract(self, status, message)
     class(matching_plane_response_provider_type), intent(inout) :: self
