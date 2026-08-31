@@ -1684,8 +1684,11 @@ contains
     call mpi_bcast_i32_array(mpi, status_packet, 0_i32)
     status = status_packet(1)
     if (status /= matching_plane_provider_ok) then
-      if (.not. mpi_is_root(mpi)) message = 'implicit matching-plane solve failed on MPI root.'
-      error stop trim(message)
+      if (mpi_is_root(mpi)) then
+        write (error_unit, '(a)') trim(message)
+        flush (error_unit)
+      end if
+      error stop 128
     end if
     call mpi_bcast_real_dp_array(mpi, result_packet, 0_i32)
     displacement_after = result_packet(1)
