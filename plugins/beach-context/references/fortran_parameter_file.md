@@ -359,7 +359,7 @@ PE emission / return / escape targetは生成しません。
 
 `response_backend="table"` は外部応答 CSV、`"zhao_online"` は BEACH 内の有限 $H$ Zhao 応答を使います。
 PE なしでは `photoelectron_species` を省略します。table の PE flux / energy 入力軸も 0 にします。
-matching plane は `domain.box_max[3]` の $H$ で、面積は domain の x-y 面積です。すべての mesh 頂点を $H$ より下に置きます。
+matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain の x-y 面積です。すべての mesh 頂点を $H$ より下に置きます。
 
 次の入力契約をすべて満たす必要があります。
 
@@ -379,11 +379,12 @@ matching plane は `domain.box_max[3]` の $H$ で、面積は domain の x-y �
 |---|---|
 | `table` | `response_table_path` が必須、`zhao_branch` は指定不可 |
 | `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c` |
-| `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity[3]<0`。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
+| `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity` の z 成分は負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
 | matching 共通 | stationary 専用の `solar_elevation_deg`、`photoelectron_ref_density_m3`、`photoelectron_source_scale` は指定不可 |
 
 `model="none"` では `model` 以外を指定しません。廃止済みの `[outer_plasma]` / `[coupling]` は未対応です。
-CSV 契約、Zhao 縮約、固定点反復、物理的制限、検証は[matching-plane 準定常連成を使う](MatchingPlaneCoupling.html)に集約しています。
+model の選択、物理的意味、適用限界は[matching-plane 準定常連成を使う](MatchingPlaneCoupling.html)、
+CSV 契約、陰的更新、固定点反復は[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)を参照してください。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
 

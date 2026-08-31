@@ -80,7 +80,7 @@ fpm --version
 
 matching-plane の応答表を作る補助コマンド `beach-zhao-response` は、現在の source build には含まれますが、
 PyPI 配布には含まれない場合があります。必要な場合は GitHub 版をインストールし、
-[matching-plane 準定常連成](MatchingPlaneCoupling.html#table-backend用の応答表を作る)へ進んでください。
+[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html#table-backend用の応答表を作る)へ進んでください。
 
 ## 更新と削除
 

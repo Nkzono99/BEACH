@@ -69,7 +69,8 @@ fpm --version
 
 Current source builds also provide the `beach-zhao-response` helper used to create matching-plane response tables.
 PyPI distributions may not include that auxiliary executable. Install the GitHub version above when you
-need it, then continue with [Matching-plane quasistatic coupling](MatchingPlaneCoupling.en.html#build-a-response-table-for-the-table-backend).
+need it, then continue with the
+[matching-plane numerical and response-table reference](MatchingPlaneReference.en.html#build-a-response-table-for-the-table-backend).
 
 ## Upgrade or remove
 

@@ -26,7 +26,8 @@
     { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 170, "description": { "root": "BEACH入力パラメータの完全なリファレンス。", "en": "Complete BEACH input parameter reference." } },
     { "source": { "root": "SurfaceChargeNumerics.md", "en": "SurfaceChargeNumerics.en.md" }, "slug": "surface-charge-numerics", "order": 171, "description": { "root": "表面電荷commit、浮遊導体方程式、並列集約の数値仕様。", "en": "Numerical specification of surface-charge commit, floating conductors, and reductions." } },
     { "source": { "root": "BatchDurationTheory.md", "en": "BatchDurationTheory.en.md" }, "slug": "batch-duration-theory", "order": 172, "description": { "root": "batch_duration依存性とadaptive制御の理論的背景。", "en": "Theory behind batch-duration dependence and adaptive control." } },
-    { "source": { "root": "OutputReference.md", "en": "OutputReference.en.md" }, "slug": "output-reference", "order": 173, "description": { "root": "出力ファイル、receipt、CSV列、checkpoint契約の完全なリファレンス。", "en": "Complete reference for output files, receipts, CSV columns, and checkpoint contracts." } },
+    { "source": { "root": "OutputReference.md", "en": "OutputReference.en.md" }, "slug": "output-reference", "order": 173, "description": { "root": "出力ファイル、主要receipt、CSV列、checkpoint契約の検索用リファレンス。", "en": "Lookup reference for output files, major receipts, CSV columns, and checkpoint contracts." } },
+    { "source": { "root": "MatchingPlaneReference.md", "en": "MatchingPlaneReference.en.md" }, "slug": "matching-plane-reference", "order": 174, "description": { "root": "matching-plane応答表、陰的平均電荷更新、固定点反復の数値契約。", "en": "Numerical contracts for matching-plane response tables, implicit mean-charge updates, and fixed-point iteration." } },
     { "source": { "root": "DirectSolver.md", "en": "DirectSolver.en.md" }, "slug": "direct-solver", "order": 175, "description": { "root": "P0 triangle panelのDirect場・電位評価。", "en": "Direct field and potential evaluation for P0 triangle panels." } },
     { "source": { "root": "Treecode.md", "en": "Treecode.en.md" }, "slug": "treecode", "order": 176, "description": { "root": "octree、monopole近似、mixed-sign電荷のTreecode。", "en": "Treecode octree, monopole approximation, and mixed-sign charge handling." } },
     { "source": { "root": "FMM.md", "en": "FMM.en.md" }, "slug": "fmm", "order": 177, "description": { "root": "FMMの選択、設定、精度比較、性能測定。", "en": "FMM selection, configuration, accuracy comparisons, and performance measurement." } },
@@ -98,6 +99,7 @@
           "items": [
             { "type": "page", "slug": "surface-charge-numerics", "label": { "root": "表面電荷更新", "en": "Surface-charge update" } },
             { "type": "page", "slug": "batch-duration-theory", "label": { "root": "batch_durationの理論", "en": "batch_duration theory" } },
+            { "type": "page", "slug": "matching-plane-reference", "label": { "root": "matching-plane数値契約", "en": "Matching-plane numerics" } },
             { "type": "page", "slug": "direct-solver", "label": { "root": "Direct solver", "en": "Direct solver" } },
             { "type": "page", "slug": "treecode" },
             { "type": "page", "slug": "fmm", "label": { "root": "FMMを使う", "en": "Use FMM" } },

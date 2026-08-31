@@ -370,7 +370,7 @@ The complete case is `examples/periodic2_zhao_fixed_current.toml`.
 
 `response_backend="table"` uses an external response CSV; `"zhao_online"` uses the finite-$H$ Zhao response implemented
 in BEACH. Without PE, omit `photoelectron_species`; table PE-flux and PE-energy input axes must also be zero. The matching
-plane is $H=\texttt{domain.box_max[3]}$, its area is the domain x-y area, and every mesh vertex must lie below $H$.
+plane coordinate $H$ is the z component of `domain.box_max`, its area is the domain x-y area, and every mesh vertex must lie below $H$.
 
 All rows below are required:
 
@@ -390,12 +390,13 @@ All rows below are required:
 |---|---|
 | `table` | Requires `response_table_path`; forbids `zhao_branch` |
 | `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` |
-| `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; electron / ion `drift_velocity[3]<0`; with PE, equal electron/PE masses and $T_{pe}>0$ |
+| `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; negative z component of electron / ion `drift_velocity`; with PE, equal electron/PE masses and $T_{pe}>0$ |
 | All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, and `photoelectron_source_scale` |
 
 With `model="none"`, do not specify another key. Removed `[outer_plasma]` and `[coupling]` tables remain invalid.
-See [Use Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for CSV contracts, Zhao reduction,
-fixed-point iteration, physical limitations, and validation.
+See [Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for model selection, physical meaning, and
+applicability limits. The [matching-plane numerical and response-table reference](MatchingPlaneReference.en.html)
+defines the CSV, implicit update, and fixed-point contracts.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 

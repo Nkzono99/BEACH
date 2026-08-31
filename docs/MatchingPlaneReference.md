@@ -1,0 +1,211 @@
+title: matching-plane 数値・応答表リファレンス
+
+Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.en.md)
+
+# matching-plane 数値・応答表リファレンス
+
+`surface_current_model.model="matching_plane_quasistatic"` の応答 CSV、面平均電荷の陰的更新、固定点収束条件を
+調べるためのリファレンスです。model の選択、最初の 4 batch 実行、出力診断は先に
+[matching-plane で外部シースを接続する](MatchingPlaneCoupling.html)を参照してください。
+
+## 目的別索引
+
+| 調べるもの | 節 |
+|---|---|
+| 秒スケールの batch 幅で面平均電荷だけを陰的に更新する | [`implicit_zero_mode`](#implicit_zero_mode) |
+| 応答表の exact header、11 列、単位、直積格子 | [Table backend の応答 CSV v1](#table-backend-の応答-csv-v1) |
+| `beach-zhao-response` で応答表を作る | [Table backend用の応答表を作る](#table-backend用の応答表を作る) |
+| 固定点の受理式と緩和式 | [固定点の数値契約](#固定点の数値契約) |
+| grid、batch 幅、matching-plane 高度を収束させる | [収束と適用性を検証する](#収束と適用性を検証する) |
+
+## `implicit_zero_mode`
+
+秒スケールの `batch_duration` で面平均電流の陽的更新が硬い場合、`response_backend="table"` に限り
+`implicit_zero_mode=true` を使えます。
+
+### 設定契約
+
+| 項目 | 必要条件 |
+|---|---|
+| backend | `response_backend="table"` |
+| 下側境界 | `periodic2.lower_boundary_model="e_bottom_zero"` |
+| $D_H$ 軸 | 2 node 以上。必要な後退 Euler 終点を bracket する範囲 |
+| PE あり | PE flux と PE energy は正の singleton |
+| PE なし | PE flux と PE energy は 0 の singleton |
+| ambient outward | electron / ion とも 0 の singleton |
+
+```toml
+[periodic2]
+lower_boundary_model = "e_bottom_zero"
+
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "table"
+response_table_path = "matching_plane_response.csv"
+implicit_zero_mode = true
+```
+
+### 後退 Euler の終点
+
+BEACH は応答表の範囲内で
+
+$$
+D_H^{n+1}=D_H^n+hJ(D_H^{n+1})
+$$
+
+を二分法で解きます。PE ありでは half-Maxwellian 近似から
+
+$$
+\Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
+\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
+{\langle K_{pe,n}^{out}\rangle}\right]
+$$
+
+を求め、$q_{pe}<0$ として
+
+$$
+D_H^{n+1}=D_H^n+h\left[
+q_e\Gamma_e^{in}(D_H^{n+1})+q_i\Gamma_i^{in}(D_H^{n+1})
+-q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
+$$
+
+の終点を二分法で解きます。PE なしでは最後の PE 項を除き、
+
+$$
+J=q_e\Gamma_e^{in}+q_i\Gamma_i^{in}
+$$
+
+だけを使い、PE target は作りません。
+
+陰的になるのは $k=0$ の面平均だけです。要素別 $k\ne0$ 分布は batch 開始場から追跡します。したがって、
+6 s のような幅を使えるかは、局所電位変化、粒子 sampling、応答表の root bracket、物理範囲を別々に検証します。
+実務上の比較手順は [`batch_duration` の選択](BatchDurationStability.html)を参照してください。
+
+## Table backend の応答 CSV v1
+
+header より前に整合面高度を 1 回だけ書きます。この値は `domain.box_max` の z 成分と一致させます。
+
+```csv
+# matching_plane_z_m=1.0e-3
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev,electron_outward_number_flux_m2_s,ion_outward_number_flux_m2_s,matching_potential_v,electron_inward_number_flux_m2_s,ion_inward_number_flux_m2_s,electron_access_potential_v,ion_access_potential_v,photoelectron_barrier_potential_v
+```
+
+最初の 5 列が入力軸、後ろの 6 列が response です。
+
+| 列 | 単位 | 意味 |
+|---|---|---|
+| `displacement_c_m2` | C/m2 | 整合面直下の平均 $D_z$。+z が正 |
+| `photoelectron_outward_number_flux_m2_s` | 1/(m2 s) | 整合面へ到達した外向き PE 束 |
+| `photoelectron_outward_mean_normal_energy_ev` | eV | 外向き PE の平均法線運動 energy |
+| `electron_outward_number_flux_m2_s` | 1/(m2 s) | ambient electron の外向き束 |
+| `ion_outward_number_flux_m2_s` | 1/(m2 s) | ion の外向き束 |
+| `matching_potential_v` | V | 外部シースが返す $\Phi_H$ |
+| `electron_inward_number_flux_m2_s` | 1/(m2 s) | BEACH へ入る electron の総束。外部 return を含められる |
+| `ion_inward_number_flux_m2_s` | 1/(m2 s) | BEACH へ入る ion の総束。外部 return を含められる |
+| `electron_access_potential_v` | V | electron reservoir から整合面への access bottleneck |
+| `ion_access_potential_v` | V | ion reservoir から整合面への access bottleneck |
+| `photoelectron_barrier_potential_v` | V | PE が外向きに越える最大外部 barrier |
+
+### 表の格子と値の契約
+
+- 5 入力軸の完全な Cartesian product を持ち、重複点と欠損点がない。行順は任意。
+- flux、PE 平均 energy、出力 flux は非負で、すべての値が有限。
+- 2 node 以上の feedback 軸は初期評価のため 0 を含む。BEACH は範囲外へ外挿しない。
+- 外部 model が依存しない feedback 軸は singleton にする。singleton は任意の有限 query を受理し、その依存性を無効化する。
+- 4 potential 列は上流 0 V の同じ gauge を使う。
+- 数値 token は十進実数だけとし、`/`、`2*0`、空欄などの Fortran list-directed 制御記法を使わない。
+
+補間は最大 32 corner の多重線形補間です。読込メモリは行数に比例し、MPI では各 rank が表を保持します。
+
+### Table backend用の応答表を作る
+
+production 表は、同じ $H$、上流分布、符号規約を使う独立した Zhao / 1D PIC sweep から作ります。入力する PE moment は
+壁面放出量ではなく、整合面を実際に通過した束と法線 energy です。非単調電位では、外部 profile 全体の最大 barrier を使います。
+表生成 code、上流条件、solver version、単位変換も production data と一緒に保存してください。
+
+組み込み online Zhao を事前評価して table 形式の snapshot を作る場合は、次を実行します。
+
+```console
+beach-zhao-response \
+  examples/periodic2_matching_plane_zhao_online.toml \
+  examples/matching_plane_zhao_query_grid.csv \
+  response.csv
+```
+
+設定ファイルは完全な `response_backend="zhao_online"` matching case とし、`response_table_path` は指定しません。
+query CSV は空行と `#` comment を許し、最初の非 comment 行を次の exact header にします。全値は有限、flux と
+PE energy は非負です。
+
+```csv
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev,electron_outward_number_flux_m2_s,ion_outward_number_flux_m2_s
+```
+
+v1 generator では PE flux 軸に 0 を含め、PE energy は singleton にします。正の PE flux node がある場合は
+energy も正にします。transparent な ambient outward 2 軸は 0 の singleton です。
+
+5 軸の完全な直積を与え、全 query が解けた場合だけ 11 列の `response.csv` を書きます。sample grid は固定 3 eV の
+配線確認用で、production 範囲ではありません。PE energy 依存を持つ production 表は、独立した外部 solver から
+直接生成してください。
+
+`beach-zhao-response` が見つからない場合は、[この文書に対応する現行版](Installation.html#このドキュメントと一致する版をインストール)
+をインストールしてください。生成表を使う run は別の設定ファイルで `response_backend="table"` と
+`response_table_path="response.csv"` を指定します。online backend を直接使う run には応答表は不要です。
+
+## 固定点の数値契約
+
+feedback vector の成分順は
+
+$$
+X=(\Gamma_{pe}^{out},\langle K_{z,pe}\rangle^{out},\Gamma_e^{out},\Gamma_i^{out})
+$$
+
+です。active 成分 $j$ の backend scale を $s_j$、相対許容値を $r$、絶対許容値を $a_j$ とすると、
+
+$$
+|X_{raw,j}^{m+1}-X_j^m|\le\max(r s_j,a_j)
+$$
+
+を全成分で満たした trial を受理します。未収束時は `coupling_relaxation` を $\alpha$ として
+
+$$
+X^{m+1}=(1-\alpha)X^m+\alpha X_{raw}^{m+1}
+$$
+
+と更新します。inactive 成分は判定から除外し、その `coupling_atol` は 0 にします。
+
+backend scale と inactive 成分は次のように決まります。
+
+| backend | $s_j$ | inactive 成分 |
+|---|---|---|
+| `table` | 対応する active feedback 軸の最大値と最小値の差 | singleton feedback 軸 |
+| `zhao_online` | Zhao model が定める基準 flux または基準 energy | transparent な ambient electron / ion outward 軸 |
+
+$\Delta_j=X_{raw,j}^{m+1}-X_j^m$ とすると、出力 `matching_plane_residual` は
+
+$$
+\max_j \rho_j,\qquad
+\rho_j=
+\begin{cases}
+r|\Delta_j|/a_j, & a_j>r s_j,\\
+|\Delta_j|/s_j, & a_j\le r s_j.
+\end{cases}
+$$
+
+です。この正規化により、絶対許容値が支配する成分があっても、accepted trial では
+`matching_plane_residual <= coupling_rtol` になります。
+
+history の応答列は accepted trial の $X^m$ で評価した値、feedback 列は同じ trial で観測した
+$X_{raw}^{m+1}$ です。収束後に、実行していない緩和更新 $X^{m+1}$ を加えて記録することはありません。
+
+`coupling_max_iterations` までに収束しない場合、table の active 軸が範囲外の場合、online solve が失敗した場合は、
+未収束値で継続せず停止します。accepted state と残差の出力契約は
+[出力形式リファレンス](OutputReference.html#matching_plane_quasistatic)を参照してください。
+
+## 収束と適用性を検証する
+
+1. `coupling_rtol`、`coupling_atol`、緩和係数、粒子数を変えて accepted observables を比較する。
+2. table の grid 解像度と範囲、または online Zhao の明示 branch を独立に変える。
+3. `batch_duration`、mesh、periodic cell を収束させる。
+4. $H$ を外部 model との overlap region 内で動かし、grain charge、gap potential、PE escape fraction の不変性を調べる。
+
+$H$ 依存性が小さいことは、この連成に固有の中心的な検証です。実行完了、数値収束、物理的妥当性は別々に判定してください。

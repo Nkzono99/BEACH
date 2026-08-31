@@ -119,8 +119,9 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `matching_plane_quasistatic` | 共通: 固定点残差と反復回数、PEの`outward = return + escape`、緩和率・matching高度依存性。table: response-grid依存性。online: branch policy、root solve、moment reduction |
 
 各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と
-[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース連成のtable生成、online検証、高度sweepは
-[matching-plane準定常連成](MatchingPlaneCoupling.html)を参照してください。
+[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース連成の model 選択と適用限界は
+[matching-plane 準定常連成](MatchingPlaneCoupling.html)、table 生成、固定点、高度 sweep は
+[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)を参照してください。
 
 ## 6. 物理的な結論の範囲を確認する
 

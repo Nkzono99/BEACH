@@ -118,9 +118,11 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
 | `matching_plane_quasistatic` | common: fixed-point residual and iterations, PE `outward = return + escape`, relaxation, and matching-height dependence; table: response-grid dependence; online: branch policy, root solve, and moment reduction |
 
-Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html),
+Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html)
 and [Particle Escape and Return](ParticleEscapeReturn.en.html). See
-[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for table generation, online validation, and the height sweep.
+[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for model selection and scope, and the
+[matching-plane numerical and response-table reference](MatchingPlaneReference.en.html) for table generation,
+fixed-point checks, and the height sweep.
 
 ## 6. Limit the physical conclusion to what was tested
 

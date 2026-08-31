@@ -386,7 +386,7 @@ $$
  \Phi_{e,access},\ \Phi_{i,access},\ \Phi_{pe,barrier})
 $$
 
-です。列名と単位は`docs/MatchingPlaneCoupling.md`を正本とします。rowは5入力軸の完全Cartesian productで、
+です。列名と単位は`docs/MatchingPlaneReference.md`を正本とします。rowは5入力軸の完全Cartesian productで、
 重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2 node以上のfeedback軸2--5は
 初期評価のためゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
 singleton軸はnodeが0以外でもよく、そのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
