@@ -26,11 +26,15 @@ module bem_simulator
   use bem_surface_current_model, only: evaluate_surface_closure
   use bem_output_writer, only: write_matching_plane_history_snapshot
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
-                                                  matching_plane_provider_ok
+                                                  matching_plane_provider_ok, &
+                                                  matching_plane_provider_invalid_argument, &
+                                                  matching_plane_provider_no_physical_solution, &
+                                                  matching_plane_provider_numerical_failure
   use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
-                     mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
+                     mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values, &
+                     mpi_bcast_i32_array, mpi_bcast_real_dp_array
   implicit none
   private
 

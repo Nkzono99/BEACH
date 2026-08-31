@@ -955,6 +955,12 @@ def test_matching_plane_zhao_online_config_contract() -> None:
     implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
     assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
 
+    implicit_online = _matching_plane_zhao_online_config()
+    implicit_online["surface_current_model"]["implicit_zero_mode"] = True
+    normalized_implicit = normalize_config_document(implicit_online)
+    assert normalized_implicit["surface_current_model"]["implicit_zero_mode"] is True
+    assert "response_table_path" not in normalized_implicit["surface_current_model"]
+
     no_photo = _matching_plane_zhao_online_config()
     no_photo["surface_current_model"].pop("photoelectron_species")
     no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]

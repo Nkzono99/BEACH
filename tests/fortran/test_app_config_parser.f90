@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(37)
+  call test_init(38)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -274,6 +274,19 @@ program test_app_config_parser
   call assert_true(cfg%surface_current%has_response_backend, 'online backend presence mismatch')
   call assert_true(trim(cfg%surface_current%zhao_branch) == 'b', 'online Zhao branch mismatch')
   call assert_true(.not. cfg%surface_current%has_response_table_path, 'online backend must omit response table')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_accepts_implicit_zhao_online_backend')
+  call write_matching_online_variant( &
+    matching_variant_path, 'b', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')//'implicit_zero_mode = true' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true(cfg%surface_current%implicit_zero_mode, 'online implicit zero-mode setting mismatch')
+  call assert_true(trim(cfg%surface_current%response_backend) == 'zhao_online', 'online implicit backend mismatch')
+  call assert_true(.not. cfg%surface_current%has_response_table_path, 'online implicit backend must omit response table')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 

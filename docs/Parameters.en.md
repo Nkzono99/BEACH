@@ -337,7 +337,7 @@ closure.
 | `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$. `>=0`; `0` disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting Zhao current densities to total currents [m^2]. `>0`; forbidden for matching |
 | `response_table_path` | string | required for table matching | Outer-sheath response CSV v1. Resolved length 1–256 characters; forbidden online |
-| `implicit_zero_mode` | bool | `false` | Apply backward Euler only to the matching-table mean $D_H$; requires `e_bottom_zero`, at least two $D_H$ nodes, and singleton feedback axes |
+| `implicit_zero_mode` | bool | `false` | Apply backward Euler to the matching-plane mean $D_H$; requires `e_bottom_zero`. A table uses a finite $D_H$ axis and singleton feedback; online Zhao searches the selected branch without a CSV |
 | `coupling_rtol` | float | `1.0e-4` | Relative matching fixed-point tolerance; finite $0<r\le1$ |
 | `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | Per-feedback-component absolute tolerances, ordered as outward PE flux [m^-2 s^-1], PE mean normal energy [eV], outward electron flux [m^-2 s^-1], and outward ion flux [m^-2 s^-1]; values must be finite and nonnegative, with zero on inactive components |
 | `coupling_max_iterations` | int | `20` | Maximum matching fixed-point iterations; `>=1` |
@@ -389,7 +389,7 @@ All rows below are required:
 | Backend | Required, forbidden, and species constraints |
 |---|---|
 | `table` | Requires `response_table_path`; forbids `zhao_branch` |
-| `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` |
+| `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c`. With `implicit_zero_mode=true`, searches the selected branch without a response/query CSV; it does not resolve `auto` multiplicity |
 | `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; negative z component of electron / ion `drift_velocity`; with PE, equal electron/PE masses and $T_{pe}>0$ |
 | All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, and `photoelectron_source_scale` |
 

@@ -333,6 +333,9 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     zhao_online["surface_current_model"]["zhao_branch"] = "b"
     assert schema_errors(zhao_online, schema) == []
 
+    zhao_online["surface_current_model"]["implicit_zero_mode"] = True
+    assert schema_errors(zhao_online, schema) == []
+
     online_with_table = copy.deepcopy(zhao_online)
     online_with_table["surface_current_model"]["response_table_path"] = (
         "outer-response.csv"

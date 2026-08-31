@@ -23,8 +23,8 @@ program test_output_writer_io
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
-  logical :: saw_matching_receipts(12), matching_history_opened
-  logical :: saw_online_matching_receipts(7)
+  logical :: saw_matching_receipts(13), matching_history_opened
+  logical :: saw_online_matching_receipts(8)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit, matching_history_unit
@@ -379,7 +379,7 @@ program test_output_writer_io
   call test_begin('online_matching_plane_solver_receipt')
   call default_app_config(cfg)
   stats = sim_stats()
-  call load_app_config('examples/periodic2_matching_plane_zhao_online.toml', cfg)
+  call load_app_config('examples/periodic2_matching_plane_zhao_implicit.toml', cfg)
   cfg%output_dir = out_dir_matching_online
   cfg%write_mesh_potential = .false.
   call write_result_files(out_dir_matching_online, mesh, stats, cfg)
@@ -436,7 +436,7 @@ contains
 
   subroutine scan_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(12)
+    logical, intent(out) :: found(13)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -474,13 +474,14 @@ contains
                   )
       found(12) = found(12) .or. &
                   trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
+      found(13) = found(13) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=F'
     end do
     close (summary_unit)
   end subroutine scan_matching_plane_receipts
 
   subroutine scan_online_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(7)
+    logical, intent(out) :: found(8)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -502,6 +503,7 @@ contains
       found(6) = found(6) .or. &
                  trim(summary_line) == 'surface_current_model_ambient_outward_feedback=transparent'
       found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_outer_solver_state=stateless'
+      found(8) = found(8) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=T'
     end do
     close (summary_unit)
   end subroutine scan_online_matching_plane_receipts

@@ -2,7 +2,7 @@
 module bem_matching_plane_response_provider
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_constants, only: k_boltzmann, qe
+  use bem_constants, only: eps0, k_boltzmann, qe
   use bem_app_config_types, only: app_config
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use bem_matching_plane_response, only: matching_plane_response_table_type, &
@@ -43,7 +43,9 @@ module bem_matching_plane_response_provider
     logical :: feedback_bounded(4) = .false.
     real(dp) :: implicit_displacement_min = 0.0_dp
     real(dp) :: implicit_displacement_max = 0.0_dp
+    real(dp) :: implicit_displacement_scale = 0.0_dp
     real(dp) :: implicit_feedback_reference(4) = 0.0_dp
+    logical :: implicit_displacement_bounded = .false.
     logical :: implicit_zero_mode_supported = .false.
     character(len=16) :: content_fingerprint = ''
     type(matching_plane_response_table_type) :: table
@@ -51,6 +53,7 @@ module bem_matching_plane_response_provider
   contains
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
+    procedure, public :: evaluate_local => evaluate_matching_plane_response_provider_local
     procedure, public :: validate_feedback => validate_matching_plane_provider_feedback
     procedure, public :: feedback_converged => matching_plane_provider_feedback_converged
     procedure, public :: feedback_residual => matching_plane_provider_feedback_residual
@@ -92,7 +95,9 @@ contains
     self%feedback_bounded = .false.
     self%implicit_displacement_min = 0.0_dp
     self%implicit_displacement_max = 0.0_dp
+    self%implicit_displacement_scale = 0.0_dp
     self%implicit_feedback_reference = 0.0_dp
+    self%implicit_displacement_bounded = .false.
     self%implicit_zero_mode_supported = .false.
     self%content_fingerprint = ''
     call accept_provider(status, message)
@@ -264,6 +269,28 @@ contains
       end if
       self%feedback_scale = feedback_scales
       self%feedback_bounded = .false.
+      self%implicit_displacement_scale = sqrt( &
+                                         eps0*species_number_density_m3(cfg%particle_species(ion_idx))* &
+                                         qe*electron_temperature_ev &
+                                         )
+      if (.not. ieee_is_finite(self%implicit_displacement_scale) .or. &
+          self%implicit_displacement_scale <= 0.0_dp) then
+        call reject_provider( &
+          matching_plane_provider_numerical_failure, &
+          'matching-plane Zhao returned an invalid displacement scale.', status, message &
+          )
+        return
+      end if
+      self%implicit_feedback_reference = 0.0_dp
+      if (photoelectron_active) then
+        self%implicit_feedback_reference(1) = max( &
+                                              0.0_dp, cfg%particle_species(photoelectron_idx)%emit_current_density_a_m2/ &
+                                              abs(cfg%particle_species(photoelectron_idx)%q_particle) &
+                                              )
+        self%implicit_feedback_reference(2) = photoelectron_temperature_ev
+      end if
+      self%implicit_displacement_bounded = .false.
+      self%implicit_zero_mode_supported = .true.
       self%content_fingerprint = 'zhao-online-v1'
     end select
     if (any(cfg%surface_current%coupling_atol > 0.0_dp .and. self%feedback_scale <= 0.0_dp)) then
@@ -288,7 +315,7 @@ contains
     real(dp) :: query_max(matching_plane_response_input_count)
     real(dp) :: tolerance
     integer :: component
-    integer(i32) :: backend_status, query_valid, status_packet(1)
+    integer(i32) :: local_status, query_valid, status_packet(1)
     character(len=512) :: backend_message
 
     output = 0.0_dp
@@ -323,41 +350,61 @@ contains
       end if
     end do
 
+    local_status = matching_plane_provider_ok
+    backend_message = ''
+    if (mpi_is_root(mpi)) then
+      call self%evaluate_local(input, output, local_status, backend_message)
+    end if
+    status_packet = [local_status]
+    call mpi_bcast_i32_array(mpi, status_packet, 0_i32)
+    local_status = status_packet(1)
+    if (local_status /= matching_plane_provider_ok) then
+      if (.not. mpi_is_root(mpi)) backend_message = 'matching-plane response evaluation failed on MPI root.'
+      call reject_provider(local_status, trim(backend_message), status, message)
+      return
+    end if
+    call mpi_bcast_real_dp_array(mpi, output, 0_i32)
+  end subroutine evaluate_matching_plane_response_provider
+
+  !> MPI collectiveを伴わず、呼出rankだけで応答を評価する。
+  !! implicit zero-mode root はMPI root上でこの入口を反復し、最終結果だけをbroadcastする。
+  subroutine evaluate_matching_plane_response_provider_local(self, input, output, status, message)
+    class(matching_plane_response_provider_type), intent(inout) :: self
+    real(dp), intent(in) :: input(matching_plane_response_input_count)
+    real(dp), intent(out) :: output(matching_plane_response_output_count)
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    integer(i32) :: backend_status
+    character(len=512) :: backend_message
+
+    output = 0.0_dp
+    call accept_provider(status, message)
+    backend_message = ''
+    if (.not. self%active .or. self%backend == provider_backend_none .or. &
+        any(.not. ieee_is_finite(input)) .or. any(input(2:5) < 0.0_dp)) then
+      call reject_provider( &
+        matching_plane_provider_invalid_argument, &
+        'matching-plane response provider or query is invalid.', status, message &
+        )
+      return
+    end if
+
     select case (self%backend)
     case (provider_backend_table)
-      backend_status = matching_plane_response_ok
-      backend_message = ''
-      if (mpi_is_root(mpi)) then
-        call self%table%evaluate(input, output, backend_status, backend_message)
-      end if
-      status_packet = [backend_status]
-      call mpi_bcast_i32_array(mpi, status_packet, 0_i32)
-      backend_status = status_packet(1)
+      call self%table%evaluate(input, output, backend_status, backend_message)
       if (backend_status /= matching_plane_response_ok) then
-        if (.not. mpi_is_root(mpi)) backend_message = 'matching-plane table evaluation failed on MPI root.'
         call reject_provider( &
           matching_plane_provider_load_failure, trim(backend_message), status, message &
           )
         return
       end if
-      call mpi_bcast_real_dp_array(mpi, output, 0_i32)
-
     case (provider_backend_zhao_online)
-      backend_status = matching_plane_zhao_ok
-      backend_message = ''
-      if (mpi_is_root(mpi)) then
-        call self%zhao%evaluate(input, output, backend_status, backend_message)
-      end if
-      status_packet = [backend_status]
-      call mpi_bcast_i32_array(mpi, status_packet, 0_i32)
-      backend_status = status_packet(1)
+      call self%zhao%evaluate(input, output, backend_status, backend_message)
       if (backend_status /= matching_plane_zhao_ok) then
-        if (.not. mpi_is_root(mpi)) backend_message = 'matching-plane Zhao evaluation failed on MPI root.'
         call map_zhao_failure(backend_status, backend_message, status, message)
         return
       end if
-      call mpi_bcast_real_dp_array(mpi, output, 0_i32)
-
     case default
       call reject_provider( &
         matching_plane_provider_invalid_argument, &
@@ -373,7 +420,7 @@ contains
         'matching-plane response output is invalid.', status, message &
         )
     end if
-  end subroutine evaluate_matching_plane_response_provider
+  end subroutine evaluate_matching_plane_response_provider_local
 
   subroutine initialize_table_feedback_contract(self, status, message)
     class(matching_plane_response_provider_type), intent(inout) :: self
@@ -399,6 +446,12 @@ contains
 
     self%implicit_displacement_min = minval(axis_values(:axis_sizes(1)))
     self%implicit_displacement_max = maxval(axis_values(:axis_sizes(1)))
+    self%implicit_displacement_scale = max( &
+                                       self%implicit_displacement_max - self%implicit_displacement_min, &
+                                       abs(self%implicit_displacement_min), &
+                                       abs(self%implicit_displacement_max) &
+                                       )
+    self%implicit_displacement_bounded = .true.
 
     first = 1_i32 + axis_sizes(1)
     do axis = 1_i32, 4_i32
@@ -542,16 +595,18 @@ contains
   end subroutine get_provider_feedback_scales
 
   subroutine get_provider_implicit_zero_mode_contract( &
-    self, supported, displacement_min, displacement_max, feedback_reference &
+    self, supported, displacement_bounded, displacement_min, displacement_max, displacement_scale, &
+    feedback_reference &
     )
     class(matching_plane_response_provider_type), intent(in) :: self
-    logical, intent(out) :: supported
-    real(dp), intent(out) :: displacement_min, displacement_max, feedback_reference(4)
+    logical, intent(out) :: supported, displacement_bounded
+    real(dp), intent(out) :: displacement_min, displacement_max, displacement_scale, feedback_reference(4)
 
-    supported = self%active .and. self%backend == provider_backend_table .and. &
-                self%implicit_zero_mode_supported
+    supported = self%active .and. self%implicit_zero_mode_supported
+    displacement_bounded = self%implicit_displacement_bounded
     displacement_min = self%implicit_displacement_min
     displacement_max = self%implicit_displacement_max
+    displacement_scale = self%implicit_displacement_scale
     feedback_reference = self%implicit_feedback_reference
   end subroutine get_provider_implicit_zero_mode_contract
 

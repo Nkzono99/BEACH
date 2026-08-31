@@ -513,6 +513,8 @@ contains
       if (trim(current_model%model) == 'matching_plane_quasistatic') then
         write (u, '(a,a)') 'surface_current_model_response_backend=', &
           trim(lower_ascii(cfg%surface_current%response_backend))
+        write (u, '(a,l1)') 'surface_current_model_implicit_zero_mode=', &
+          cfg%surface_current%implicit_zero_mode
         select case (trim(lower_ascii(cfg%surface_current%response_backend)))
         case ('table')
           call get_matching_plane_response_content_fingerprint( &

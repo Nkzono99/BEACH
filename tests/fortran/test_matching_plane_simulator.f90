@@ -1,7 +1,7 @@
 !> Tiny matching-plane caseで固定点replay、accepted history、resumeを検証する。
 program test_matching_plane_simulator
   use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: qe
+  use bem_constants, only: eps0, qe
   use bem_types, only: mesh_type, sim_stats, injection_state, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
@@ -26,7 +26,7 @@ program test_matching_plane_simulator
   type(injection_state) :: inject_state
   type(charge_ledger_type) :: implicit_ledger, no_photo_ledger
   integer :: history_unit
-  real(dp) :: cancellation_area
+  real(dp) :: cancellation_area, displacement_reference
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -48,7 +48,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(11)
+  call test_init(14)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -252,6 +252,117 @@ program test_matching_plane_simulator
   call assert_close_dp( &
     resumed_stats%matching_plane_photoelectron_escape_flux_m2_s, 0.0_dp, 0.0_dp, &
     'no-PE online state has PE escape flux' &
+    )
+  call test_end()
+
+  call test_begin('no_photo_zhao_online_implicit_brackets_without_csv')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  call configure_no_photo_fixture(cfg, inject_state)
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%dt = 2.0e-6_dp
+  cfg%sim%max_step = 2_i32
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_true(resumed_stats%matching_plane_state_valid, 'online implicit state was not committed')
+  call assert_equal_i32(resumed_stats%batches, 1_i32, 'online implicit accepted batch mismatch')
+  call assert_true( &
+    all(resumed_stats%matching_plane_response(2:3) > 0.0_dp), &
+    'online implicit Zhao did not provide ambient inward fluxes' &
+    )
+  call assert_true( &
+    all(resumed_stats%matching_plane_feedback(1:2) == 0.0_dp), &
+    'no-PE online implicit state acquired PE feedback' &
+    )
+  call test_end()
+
+  call test_begin('strong_photo_type_a_implicit_brackets_from_neutral')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%implicit_zero_mode = .true.
+  ! A small ray ensemble preserves the exact outward number flux and gives the
+  ! fixed-current closure a nonempty return channel.  Its sampled mean energy
+  ! is deliberately covered by the component tolerance;
+  ! this test targets the initially invalid D_H=0 -> Type-A endpoint search.
+  cfg%surface_current%coupling_atol(2) = 10.0_dp
+  cfg%sim%batch_duration = 0.5_dp
+  cfg%sim%dt = 1.0e-7_dp
+  cfg%sim%max_step = 128_i32
+  cfg%particle_species(1)%number_density_m3 = 5.0e6_dp
+  cfg%particle_species(1)%temperature_ev = 10.0_dp
+  cfg%particle_species(1)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(1)%w_particle = 1.0e10_dp
+  cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
+  cfg%particle_species(2)%temperature_ev = 0.1_dp
+  cfg%particle_species(2)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(2)%w_particle = 1.0e10_dp
+  cfg%particle_species(3)%temperature_ev = 2.2_dp
+  cfg%particle_species(3)%rays_per_batch = 32_i32
+  cfg%particle_species(3)%emit_current_density_a_m2 = 4.5e-6_dp
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  displacement_reference = sqrt(eps0*5.0e6_dp*qe*10.0_dp)
+  call assert_true(resumed_stats%matching_plane_state_valid, 'strong-PE Type-A state was not committed')
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2/displacement_reference, &
+    2.8920700723_dp, 5.0e-5_dp, &
+    'strong-PE Type-A backward-Euler endpoint mismatch' &
+    )
+  call assert_true(resumed_stats%matching_plane_phi_v > 0.0_dp, 'strong-PE Type-A matching potential is not positive')
+  call assert_true( &
+    resumed_stats%matching_plane_response(6) < 0.0_dp, &
+    'strong-PE Type-A profile did not retain a negative potential minimum' &
+    )
+  call assert_close_dp( &
+    qe*resumed_stats%matching_plane_feedback(1), 4.5e-6_dp, 1.0e-18_dp, &
+    'strong-PE matching-plane outward current mismatch' &
+    )
+  call test_end()
+
+  call test_begin('type_a_implicit_rebrackets_after_feedback_update')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%implicit_zero_mode = .true.
+  ! Start the outer iteration from the legacy H-plane moment.  The ray sample
+  ! then reports the H-plane moment produced by the 4.5-microampere surface
+  ! source, so the next endpoint solve must leave the old Type-A interval.
+  cfg%surface_current%coupling_atol(2) = 10.0_dp
+  cfg%surface_current%coupling_relaxation = 1.0_dp
+  cfg%sim%batch_duration = 0.5_dp
+  cfg%sim%dt = 1.0e-7_dp
+  cfg%sim%max_step = 128_i32
+  cfg%particle_species(1)%number_density_m3 = 5.0e6_dp
+  cfg%particle_species(1)%temperature_ev = 10.0_dp
+  cfg%particle_species(1)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(1)%w_particle = 1.0e10_dp
+  cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
+  cfg%particle_species(2)%temperature_ev = 0.1_dp
+  cfg%particle_species(2)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(2)%w_particle = 1.0e10_dp
+  cfg%particle_species(3)%temperature_ev = 2.2_dp
+  cfg%particle_species(3)%rays_per_batch = 32_i32
+  cfg%particle_species(3)%emit_current_density_a_m2 = 4.5e-6_dp
+  displacement_reference = sqrt(eps0*5.0e6_dp*qe*10.0_dp)
+  stats = sim_stats()
+  stats%matching_plane_state_valid = .true.
+  stats%matching_plane_phi_v = 0.0_dp
+  stats%matching_plane_feedback = [2.749335103944e-6_dp/qe, 2.2_dp, 0.0_dp, 0.0_dp]
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator( &
+    mesh, cfg, resumed_stats, initial_stats=stats, inject_state=inject_state &
+    )
+  call assert_true( &
+    resumed_stats%matching_plane_displacement_c_m2/displacement_reference > 2.5_dp .and. &
+    resumed_stats%matching_plane_displacement_c_m2/displacement_reference < 3.1_dp, &
+    'Type-A endpoint did not move into the updated strong-PE interval' &
+    )
+  call assert_true(resumed_stats%matching_plane_iterations >= 2_i32, 'online implicit feedback was not replayed')
+  call assert_true( &
+    qe*resumed_stats%matching_plane_feedback(1) > 2.749335103944e-6_dp .and. &
+    qe*resumed_stats%matching_plane_feedback(1) <= 4.5e-6_dp, &
+    'online implicit PE feedback did not move from the legacy H-plane moment toward the surface source' &
     )
   call test_end()
 

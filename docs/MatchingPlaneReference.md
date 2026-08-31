@@ -20,19 +20,18 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 
 ## `implicit_zero_mode`
 
-秒スケールの `batch_duration` で面平均電流の陽的更新が硬い場合、`response_backend="table"` に限り
-`implicit_zero_mode=true` を使えます。
+秒スケールの `batch_duration` で面平均電流の陽的更新が硬い場合、`implicit_zero_mode=true` で
+面平均 $D_H$ だけを後退 Euler 更新できます。table と online Zhao の両方を選べます。
 
 ### 設定契約
 
-| 項目 | 必要条件 |
-|---|---|
-| backend | `response_backend="table"` |
-| 下側境界 | `periodic2.lower_boundary_model="e_bottom_zero"` |
-| $D_H$ 軸 | 2 node 以上。必要な後退 Euler 終点を bracket する範囲 |
-| PE あり | PE flux と PE energy は正の singleton |
-| PE なし | PE flux と PE energy は 0 の singleton |
-| ambient outward | electron / ion とも 0 の singleton |
+| backend | $D_H$ の探索範囲 | feedback |
+|---|---|---|
+| `table` | CSV の $D_H$ 軸内。2 node 以上必要 | PE ありは正の PE flux / energy singleton、PE なしは両方 0。ambient outward は 0 の singleton |
+| `zhao_online` | 選択 branch 内で現在値から探索 | PE moment は粒子固定点の各反復で更新。ambient outward は transparent |
+
+どちらも `periodic2.lower_boundary_model="e_bottom_zero"` が必要です。table は監査済みの有限範囲、online は
+CSV を用意せず組み込み Zhao を直接解く経路です。
 
 ```toml
 [periodic2]
@@ -40,20 +39,41 @@ lower_boundary_model = "e_bottom_zero"
 
 [surface_current_model]
 model = "matching_plane_quasistatic"
-response_backend = "table"
-response_table_path = "matching_plane_response.csv"
+response_backend = "zhao_online"
 implicit_zero_mode = true
 ```
 
+この online 実行には `response_table_path` も `matching_query.csv` も要りません。query CSV は
+`beach-zhao-response` で固定 table snapshot を別途作る場合だけ使います。
+
 ### 後退 Euler の終点
 
-BEACH は応答表の範囲内で
+BEACH は
 
 $$
 D_H^{n+1}=D_H^n+hJ(D_H^{n+1})
 $$
 
-を二分法で解きます。PE ありでは half-Maxwellian 近似から
+の符号変化を bracket して終点を解きます。table は CSV の両端を固定 bracket として二分法を使い、
+符号変化がなければ外挿せず停止します。online は guard 付き secant と中点 fallback を使います。
+
+online は前の outer 反復の終点（最初は $D_H^n$）を seed とし、valid な seed では明示更新の変位を自然なシース尺度
+
+$$
+D_{ref}=\sqrt{\epsilon_0 n_i e T_e}
+$$
+
+以下に抑えた初期幅から、幅を 2 倍ずつ最大 64 回拡張します。seed が明示 Type A / B / C の解領域外なら、
+branch と整合する符号を $D_{ref}/32$ 刻み、最大 $8D_{ref}$ まで走査します。数値未保証の gap をまたいだ2点は
+bracket とみなしません。これは table を永続的に拡張する処理ではなく、その batch の終点を探す処理です。
+Zhao branch が終点より前に終わる、走査範囲または数値範囲を超える、または符号変化を見つけられない場合は
+停止します。
+
+signed scan は明示した `a` / `b` / `c` にだけ使います。`auto` が seed で一意な物理解を保証できない場合、
+implicit solver は branch を代わりに選ばず停止します。したがって強い PE の A/B 共存は implicit 化だけでは
+解消せず、branch 別の可解性評価が必要です。
+
+PE ありでは half-Maxwellian 近似から
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
@@ -69,7 +89,7 @@ q_e\Gamma_e^{in}(D_H^{n+1})+q_i\Gamma_i^{in}(D_H^{n+1})
 -q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
 $$
 
-の終点を二分法で解きます。PE なしでは最後の PE 項を除き、
+の終点を解きます。PE なしでは最後の PE 項を除き、
 
 $$
 J=q_e\Gamma_e^{in}+q_i\Gamma_i^{in}
@@ -77,8 +97,12 @@ $$
 
 だけを使い、PE target は作りません。
 
+table implicit の PE moment は CSV の singleton 値に固定されます。online implicit は、現在の PE feedback
+$X^m$ でこの終点を解き、同じ trial の粒子追跡で得た PE moment を緩和し、次の反復で終点を解き直します。
+したがって PE return を含む outer feedback と $D_H^{n+1}$ は入れ子に整合されます。
+
 陰的になるのは $k=0$ の面平均だけです。要素別 $k\ne0$ 分布は batch 開始場から追跡します。したがって、
-6 s のような幅を使えるかは、局所電位変化、粒子 sampling、応答表の root bracket、物理範囲を別々に検証します。
+6 s のような幅を使えるかは、局所電位変化、粒子 sampling、root bracket、物理範囲を別々に検証します。
 実務上の比較手順は [`batch_duration` の選択](BatchDurationStability.html)を参照してください。
 
 ## Table backend の応答 CSV v1

@@ -30,10 +30,13 @@ program test_matching_plane_response_generator
   type(matching_plane_response_provider_type) :: provider
   type(mpi_context) :: serial_mpi
   real(dp) :: query(5), response(6), online_response(6), matching_plane_z_m
+  real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_displacement_scale
+  real(dp) :: implicit_feedback_reference(4)
   integer(i32) :: status
   integer :: unit_id, ios, query_index
   character(len=512) :: message
   character(len=64) :: preserved_line
+  logical :: implicit_supported, implicit_displacement_bounded
 
   call cleanup_files()
   call configure_online_fixture(cfg)
@@ -52,6 +55,18 @@ program test_matching_plane_response_generator
   serial_mpi = mpi_context()
   call provider%initialize(cfg, serial_mpi, status, message)
   call assert_equal_i32(status, matching_plane_provider_ok, 'online provider initialization failed: '//trim(message))
+  call provider%get_implicit_zero_mode_contract( &
+    implicit_supported, implicit_displacement_bounded, implicit_displacement_min, implicit_displacement_max, &
+    implicit_displacement_scale, implicit_feedback_reference &
+    )
+  call assert_true(implicit_supported, 'online provider did not enable implicit zero mode')
+  call assert_true(.not. implicit_displacement_bounded, 'online provider exposed a fixed displacement domain')
+  call assert_true(implicit_displacement_scale > 0.0_dp, 'online provider displacement scale is not positive')
+  call assert_true(implicit_feedback_reference(1) == 0.0_dp, 'online provider PE bootstrap flux mismatch')
+  call assert_close_dp( &
+    implicit_feedback_reference(2), 3.0_dp, 1.0e-9_dp, &
+    'online provider PE bootstrap energy mismatch' &
+    )
   do query_index = 1, 2
     query = [0.0_dp, real(query_index - 1, dp)*1.0e10_dp, 3.0_dp, 0.0_dp, 0.0_dp]
     call table%evaluate(query, response, status, message)

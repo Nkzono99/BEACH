@@ -673,10 +673,7 @@
               },
               "required": ["response_backend"],
               "not": {
-                "anyOf": [
-                  {"required": ["response_table_path"]},
-                  {"required": ["implicit_zero_mode"]}
-                ]
+                "required": ["response_table_path"]
               }
             }
           ]
@@ -741,7 +738,7 @@
         "implicit_zero_mode": {
           "type": "boolean",
           "default": false,
-          "description": "Use a backward-Euler update for the matching-plane mean displacement. Requires a table with a non-singleton displacement axis and singleton feedback axes."
+          "description": "Use a backward-Euler update for the matching-plane mean displacement. A table supplies fixed bounds and singleton feedback axes; Zhao online searches the selected branch without a CSV."
         },
         "coupling_rtol": {
           "type": "number",

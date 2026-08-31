@@ -327,7 +327,7 @@ face_potential_grid_n = 3
 | `photoelectron_source_scale` | float | `1.0` | stationary Zhao の $s_{UV}$。`>=0`、0 は PE なし |
 | `reference_area_m2` | float | domainのx-y面積 | Zhao電流密度を総電流へ変換する面積 [m^2]。`>0`、matching では指定不可 |
 | `response_table_path` | string | table matchingで必須 | 外部シース応答 CSV v1。解決後 1–256 文字、online では指定不可 |
-| `implicit_zero_mode` | bool | `false` | matching tableの面平均$D_H$だけを後退Eulerで更新。`e_bottom_zero`、2 node以上の$D_H$軸、singleton feedback軸が必須 |
+| `implicit_zero_mode` | bool | `false` | matching の面平均 $D_H$ を後退 Euler 更新。`e_bottom_zero` が必須。table は有限 $D_H$ 軸と singleton feedback、online は CSV なしで選択 branch の終点を探索 |
 | `coupling_rtol` | float | `1.0e-4` | matching固定点反復の相対収束許容値。有限な$0<r\le1$ |
 | `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | feedback成分ごとの絶対許容値。順にPE外向きflux [m^-2 s^-1]、PE平均法線energy [eV]、electron外向きflux [m^-2 s^-1]、ion外向きflux [m^-2 s^-1]。各値は有限かつ非負、inactive成分は0 |
 | `coupling_max_iterations` | int | `20` | matching固定点反復の最大回数。`>=1` |
@@ -378,7 +378,7 @@ matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain �
 | backend | 必須・禁止・物性制約 |
 |---|---|
 | `table` | `response_table_path` が必須、`zhao_branch` は指定不可 |
-| `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c` |
+| `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c`。`implicit_zero_mode=true` では response/query CSV なしで選択 branch の終点を探索。`auto` の多重性は解消しない |
 | `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity` の z 成分は負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
 | matching 共通 | stationary 専用の `solar_elevation_deg`、`photoelectron_ref_density_m3`、`photoelectron_source_scale` は指定不可 |
 

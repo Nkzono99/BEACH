@@ -209,6 +209,7 @@ the post-commit field at the start of the next batch.
 | Receipt | Meaning |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` or `zhao_online` |
+| `surface_current_model_implicit_zero_mode` | `T` advances the plane-mean $D_H$ with backward Euler; `F` holds its batch-start value fixed |
 | `surface_current_model_matching_plane_z_m` | Matching-plane z coordinate |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | Species assigned to each channel |
 | `surface_current_model_coupling_rtol` | Relative tolerance for active components |
@@ -233,7 +234,7 @@ converted to an effective residual, so an accepted state's `matching_plane_resid
 
 | Backend | Receipt |
 | --- | --- |
-| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`. The fingerprint identifies the canonical contents of the loaded table |
+| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`. The fingerprint identifies the loaded response operator—$H$, canonical axes, and response values—not its path |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
@@ -415,8 +416,14 @@ completion of the requested run with `batches == sim.batch_count` using `summary
 For schema v8 and later, `checkpoint_complete.txt` itself is required. If the final-output directory contains files
 from different generations, BEACH rejects it and falls back to a complete periodic slot.
 
-The model fingerprint includes canonical response-table contents for the table backend, or the Zhao contract and branch
-policy for the online backend. A checkpoint cannot resume after those inputs change.
+The model fingerprint includes canonical response-table contents for the table backend, or the Zhao contract, branch
+policy, and implicit mode for the online backend. BEACH `resume` means continuation of the same numerical and physical
+model, so it rejects a checkpoint after table contents change. It may be physically meaningful to use saved charge as
+the initial condition of a different model, but that is a model-switch continuation, not a same-run restart.
+
+Online implicit bracket nodes are neither a persistent table nor checkpoint state. After restart, BEACH evaluates the
+needed response directly from the same Zhao contract, so no `matching_query.csv` or fingerprint of automatic search
+points is required.
 
 See [Execution and Resume](Execution.en.html) for the actual procedure.
 

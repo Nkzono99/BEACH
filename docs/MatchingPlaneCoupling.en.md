@@ -31,8 +31,8 @@ For matching-plane coupling, also choose how to obtain the outer response.
 
 | Backend | Appropriate use | Main constraint |
 |---|---|---|
-| `response_backend="table"` (default) | Production use of an independently validated Zhao or 1-D PIC sweep | Requires a response CSV; supports [`implicit_zero_mode`](MatchingPlaneReference.en.html#implicit_zero_mode) |
-| `response_backend="zhao_online"` | Examine the wiring and scope with the built-in Zhao response | Planar, collisionless, unmagnetized; ignores ambient-outward feedback |
+| `response_backend="table"` (default) | Use an independently validated Zhao or 1-D PIC sweep as an auditable fixed snapshot | Queries are cheap; requires a response CSV and finite axis ranges |
+| `response_backend="zhao_online"` | Use the built-in Zhao response without preparing a CSV | `implicit_zero_mode` searches within the selected branch; planar, collisionless, unmagnetized, and pays for nonlinear solves |
 
 `examples/matching_plane_response_synthetic.csv` is only a table-path smoke-test fixture. Do not use it for a physical run.
 
@@ -103,13 +103,24 @@ coupling_atol = [0.0, 0.0, 0.0, 0.0]
 An online case without PEs does not declare a PE role.
 
 ```toml
+[periodic2]
+lower_boundary_model = "e_bottom_zero"
+
 [surface_current_model]
 model = "matching_plane_quasistatic"
 response_backend = "zhao_online"
 zhao_branch = "auto"
 electron_species = "electron"
 ion_species = "ion"
+implicit_zero_mode = true
 ```
+
+This path needs neither `response_table_path` nor a prebuilt `matching_query.csv`. See
+`examples/periodic2_matching_plane_zhao_implicit.toml` for the complete CSV-free case. A query grid and
+`beach-zhao-response` are needed only when creating a separate table snapshot.
+
+Implicit integration does not choose a Zhao branch. If `auto` cannot certify a unique physical solution at the current
+seed, it stops. With strong PE, scan `a`, `b`, and `c` separately and then select the validated branch explicitly.
 
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
@@ -138,7 +149,8 @@ fixed point, not physical validity of the outer sheath or particle-count converg
 1. **Measure the interface state.** Compute the mean displacement $D_H$ immediately below the matching plane from the
    current surface charge and lower boundary.
 2. **Obtain the outer response.** From $D_H$ and the outward feedback, the backend returns the matching potential
-   $\Phi_H$, electron and ion inward fluxes and access potentials, and the PE barrier.
+   $\Phi_H$, electron and ion inward fluxes and access potentials, and the PE barrier. Online implicit mode re-solves
+   the backward-Euler endpoint inside each feedback iteration.
 3. **Track the same batch.** Use $\Phi_H$ as the `periodic2` zero-mode gauge, track particles, and measure outward moments
    and PE return and escape.
 4. **Check the fixed point.** If the measurements disagree with the assumed feedback, relax the feedback and replay.
@@ -201,7 +213,8 @@ summary receipts, and the exact time convention.
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
 | Fixed point reaches the iteration limit | Particle noise, strong feedback, or overly tight tolerances | Increase ray or macro counts; if residual decreases, adjust relaxation or the limit |
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately and validate the physical branch |
-| Implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
+| Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
+| Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard limit is reached | Unresolved periodic events exceed the error budget | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
 
 A completed run establishes backend evaluation and numerical fixed-point convergence. It does not establish physical
@@ -239,7 +252,7 @@ not retain the high-energy tail.
 The `auto` multiple-root check compares roots found by a finite multistart set; it is not mathematical root isolation.
 Validate branches by scanning explicit `a`, `b`, and `c` selections.
 
-Every query is stateless and does not continue from the previous root. If it cannot solve a query, it does not silently
+Every query is physically stateless and does not continue from the previous root. If it cannot solve a query, it does not silently
 switch an explicit branch or backend.
 
 When these effects control the result, validate against an independent one-dimensional--three-dimensional kinetic

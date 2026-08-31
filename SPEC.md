@@ -394,10 +394,11 @@ tableはprocess内でpathごとのimmutable snapshotとして読み、canonical 
 potential 4列は同じgaugeを使い、外部modelの上流reservoirを0 Vとします。inward VDFはこの0 Vから
 access potentialと$\Phi_H$へ写像するため、potential列だけの定数shiftは同値ではありません。
 
-`implicit_zero_mode=true`は、硬い面平均帯電だけを後退Eulerで更新します。このmodeはtable backend、
-`lower_boundary_model="e_bottom_zero"`、2 node以上の$D_H$軸、singletonのfeedback軸2--5を要求します。
-singleton参照値はPEありでは$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、
-PEなしではこの2値を両方0とし、どちらも$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。
+`implicit_zero_mode=true`は、硬い面平均帯電だけを後退Eulerで更新します。table / `zhao_online`の両backendで
+使用でき、共通して`lower_boundary_model="e_bottom_zero"`を要求します。tableは2 node以上の$D_H$軸と
+singletonのfeedback軸2--5を要求します。singleton参照値はPEありでは
+$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、PEなしではこの2値を両方0とし、どちらも
+$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。onlineはresponse/query CSVを要求せず、現在のfeedbackを使います。
 PEありではhalf-Maxwellian近似から
 
 $$
@@ -413,16 +414,23 @@ D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
 +q_i\Gamma_i^{in}(D_H^{n+1})-q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
 $$
 
-をtableの$D_H$範囲で二分法により解きます。PEなしでは最後のPE項を除きます。
-両端が根を挟まない場合は外挿せず停止します。
+を解きます。PEなしでは最後のPE項を除きます。tableは$D_H$範囲の両端でbracketし、二分法で解きます。
+両端が根を挟まない場合は外挿せず停止します。onlineは前のouter反復の終点（最初は$D_H^n$）をseedとし、
+validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
+seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
+未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
+縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解き、最終残差が
+許容値に達しなければ停止します。
+signed scanは明示A/B/C branchだけに適用します。`auto`がseedで一意な物理解を返さない場合は、探索中にbranchを
+選ばずfail closedとします。したがってimplicit化はbranch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
 局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
 ambient吸収の総量は陰的応答へ、PEありではPE放出を設定した表面放出電流へ、PE returnを
 「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。陰的終点との整合性は PE あり・なしと
 強い正負相殺を含む回帰 test で検証します。runtime は mesh 電荷の補償和から得た有限な commit 済み $Q/A$ を
 次 batch の canonical な$D_H$とします。PE なしでは
 PE target を生成しません。
-これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、
-応答表の物理範囲、粒子samplingに対する`batch_duration`の上限を除去しません。
+これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、backendの物理範囲、粒子samplingに対する
+`batch_duration`の上限を除去しません。
 
 `response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を
 受理します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
@@ -442,6 +450,10 @@ online MVPはambient electron / ionの外向きfeedbackをtransparentとして�
 収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
 `photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。
 
+online implicitのPEありでは、各outer feedback反復の現在値$X^m$で後退Euler終点を解き、同じtrialの粒子追跡で
+得たPE momentを緩和してから次の終点を解き直します。PE fluxが0のtrialでは平均energyは未定義なので、現在の
+canonical energyを保ち、escape fluxを0とします。このnested反復によりPE returnと$D_H^{n+1}$を整合させます。
+
 online Zhaoは平面・無衝突・非磁化、全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、
 正の無限遠ion密度、ambient electron / ionの正の内向きdrift
 （`drift_velocity`のz成分は負）を要求します。設定検査は
@@ -453,10 +465,12 @@ $$
 D_H=D_b+Q_{cell}/A
 $$
 
-を得ます。accepted済みouter feedback $X^0$（新規runはゼロ）から、選択したresponse backendの評価、
+を得ます。accepted済みouter feedback $X^0$から、選択したresponse backendの評価、
 $\Phi_H$を指定したinner field、
 応答flux/barrierを使う粒子追跡、実際の$H$外向きmoment測定を反復します。同じbatch開始RNG stateと
-macro-particle端数を毎反復で再生し、Monte Carlo写像を反復間で変えません。raw response $X_{raw}^{m+1}$は
+macro-particle端数を毎反復で再生し、Monte Carlo写像を反復間で変えません。新規runの通常modeはゼロから
+開始します。implicit tableはsingleton参照値、implicit onlineのPEありは設定した放出number fluxと$T_{pe}$、
+PEなしはゼロを初期値とします。raw response $X_{raw}^{m+1}$は
 
 $$
 X^{m+1}=(1-\alpha)X^m+\alpha X_{raw}^{m+1},
@@ -487,7 +501,8 @@ z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEに
 return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
 accepted outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは同じresponse backendと
 matching構成のfingerprintを要求し、保存したfeedbackから反復を再開します。tableでは応答内容、onlineではZhao設定を
-fingerprintへ含めます。
+fingerprintへ含めます。table内容の変更は別modelへのcontinuationであり、同一runのrestartとしては拒否します。
+onlineの自動bracket点は永続tableやmodel stateではなく、restart後に同じZhao contractから再評価します。
 
 このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
 外部過渡、BEACH領域内volume plasma chargeは解きません。online Zhaoもfull VDF、1D PIC、time-dependent outer sheathの

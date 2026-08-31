@@ -20,19 +20,18 @@ diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlane
 
 ## `implicit_zero_mode`
 
-When the explicit mean-current update becomes stiff at a seconds-scale `batch_duration`, only
-`response_backend="table"` can set `implicit_zero_mode=true`.
+When the explicit mean-current update becomes stiff at a seconds-scale `batch_duration`, set
+`implicit_zero_mode=true` to update only the mean $D_H$ with backward Euler. Both table and online Zhao backends support it.
 
 ### Configuration contract
 
-| Item | Requirement |
-|---|---|
-| Backend | `response_backend="table"` |
-| Lower boundary | `periodic2.lower_boundary_model="e_bottom_zero"` |
-| $D_H$ axis | At least two nodes over a range that brackets the required backward-Euler endpoint |
-| With PEs | Positive singleton PE-flux and PE-energy axes |
-| Without PEs | Zero singleton PE-flux and PE-energy axes |
-| Ambient outward | Zero singleton electron and ion axes |
+| Backend | $D_H$ search domain | Feedback |
+|---|---|---|
+| `table` | Within the CSV $D_H$ axis, which needs at least two nodes | Positive PE-flux and PE-energy singletons with PEs; both zero without PEs. Ambient-outward axes are zero singletons |
+| `zhao_online` | Searched from the current state within the selected branch | PE moments update during each particle fixed-point iteration. Ambient-outward feedback is transparent |
+
+Both require `periodic2.lower_boundary_model="e_bottom_zero"`. A table provides an audited finite domain; online Zhao
+solves the built-in model directly without a CSV.
 
 ```toml
 [periodic2]
@@ -40,20 +39,41 @@ lower_boundary_model = "e_bottom_zero"
 
 [surface_current_model]
 model = "matching_plane_quasistatic"
-response_backend = "table"
-response_table_path = "matching_plane_response.csv"
+response_backend = "zhao_online"
 implicit_zero_mode = true
 ```
 
+This online run needs neither `response_table_path` nor `matching_query.csv`. A query CSV is used only when
+`beach-zhao-response` creates a separate fixed table snapshot.
+
 ### Backward-Euler endpoint
 
-Within the response-table range, BEACH solves
+BEACH solves
 
 $$
 D_H^{n+1}=D_H^n+hJ(D_H^{n+1})
 $$
 
-by bisection. With PEs, the half-Maxwellian reduction gives
+by first bracketing a sign change. A table uses bisection between its CSV endpoints and stops rather than extrapolating
+when they do not bracket a root. Online Zhao uses a guarded secant step with a midpoint fallback.
+
+Online Zhao seeds the solve with the previous outer iteration's endpoint (initially $D_H^n$). For a valid seed it starts
+from the explicit endpoint correction, capped by the natural sheath scale
+
+$$
+D_{ref}=\sqrt{\epsilon_0 n_i e T_e},
+$$
+
+and doubles the width at most 64 times. If the seed lies outside an explicit A, B, or C solution interval, BEACH scans
+the branch-compatible sign in $D_{ref}/32$ increments out to $8D_{ref}$. It never forms a bracket across an uncertified
+gap. This searches only the current batch endpoint; it does not persistently extend a table. The run stops if the branch
+ends before the endpoint, the scan or numeric range is exceeded, or no sign change is found.
+
+The signed scan applies only to an explicit `a`, `b`, or `c` selection. If `auto` cannot certify a unique physical
+solution at the seed, the implicit solver stops instead of choosing a branch. Implicit integration therefore does not
+remove strong-PE A/B coexistence; branchwise solvability still has to be validated.
+
+With PEs, the half-Maxwellian reduction gives
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
@@ -77,9 +97,13 @@ $$
 
 and creates no PE target.
 
+Table implicit mode fixes the PE moments at the CSV singleton values. Online implicit mode solves this endpoint with the
+current PE feedback $X^m$, tracks the same trial batch, relaxes the measured PE moments, and re-solves the endpoint on the
+next iteration. The PE-return feedback and $D_H^{n+1}$ are therefore reconciled as a nested fixed point.
+
 Only the mean $k=0$ charge is implicit. The elementwise $k\ne0$ distribution still comes from the batch-start field.
 Therefore, using a width such as 6 s requires separate checks of local potential change, particle sampling,
-response-table root bracketing, and the physical range. See [How to choose `batch_duration`](BatchDurationStability.en.html)
+root bracketing, and the physical range. See [How to choose `batch_duration`](BatchDurationStability.en.html)
 for the comparison workflow.
 
 ## Table-backend response CSV v1

@@ -28,14 +28,15 @@ contains
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
   integer(i32) :: matching_iteration, matching_axis, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx
-  integer(i32) :: matching_response_status
+  integer(i32) :: matching_response_status, implicit_search_direction
   integer(i32) :: boundary_status
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: matching_active, replay_active, matching_converged, matching_history_enabled
-  logical :: implicit_zero_mode, implicit_zero_mode_supported, matching_photoelectron_active
+  logical :: implicit_zero_mode, implicit_zero_mode_supported, implicit_displacement_bounded
+  logical :: matching_photoelectron_active
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -44,11 +45,13 @@ contains
   real(dp) :: projected_simulated_time
   real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
   real(dp) :: matching_plane_z, matching_area, matching_displacement, matching_displacement_before, matching_residual
+  real(dp) :: matching_displacement_seed
   real(dp) :: matching_committed_displacement
   real(dp) :: matching_return_flux, matching_escape_flux
   real(dp) :: matching_photoelectron_charge, matching_photoelectron_emission_current_density
   real(dp) :: matching_guess(4), matching_observed(4)
-  real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference(4)
+  real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_displacement_scale
+  real(dp) :: implicit_feedback_reference(4)
   real(dp) :: matching_feedback_scales(4)
   real(dp) :: matching_component_residuals(4), matching_absolute_defects(4)
   real(dp) :: matching_response_input(5), matching_response_output(6)
@@ -94,8 +97,11 @@ contains
   matching_active = trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
   implicit_zero_mode = matching_active .and. app%surface_current%implicit_zero_mode
   implicit_zero_mode_supported = .false.
+  implicit_displacement_bounded = .false.
   implicit_displacement_min = 0.0_dp
   implicit_displacement_max = 0.0_dp
+  implicit_displacement_scale = 0.0_dp
+  implicit_search_direction = 0_i32
   implicit_feedback_reference = 0.0_dp
   call matching_response_provider%initialize( &
     app, mpi_ctx, matching_response_status, matching_response_message &
@@ -213,25 +219,38 @@ contains
     end if
     if (implicit_zero_mode) then
       call matching_response_provider%get_implicit_zero_mode_contract( &
-        implicit_zero_mode_supported, implicit_displacement_min, implicit_displacement_max, &
-        implicit_feedback_reference &
+        implicit_zero_mode_supported, implicit_displacement_bounded, implicit_displacement_min, &
+        implicit_displacement_max, implicit_displacement_scale, implicit_feedback_reference &
         )
       if (.not. implicit_zero_mode_supported) then
-        error stop 'implicit matching-plane zero mode requires a table with a non-singleton displacement axis and '// &
-          'singleton PE-flux/energy and ambient-outward axes; the PE pair may both be zero.'
+        error stop 'implicit matching-plane zero mode requires a compatible table or Zhao online response.'
       end if
       if (.not. all(ieee_is_finite([ &
-                                   app%sim%batch_duration, implicit_displacement_min, implicit_displacement_max, &
-                                   implicit_feedback_reference, &
+                                   app%sim%batch_duration, implicit_displacement_scale, implicit_feedback_reference, &
                                    app%particle_species(matching_electron_idx)%q_particle, &
                                    app%particle_species(matching_ion_idx)%q_particle, matching_photoelectron_charge &
                                    ])) .or. app%sim%batch_duration <= 0.0_dp .or. &
-          implicit_displacement_min >= implicit_displacement_max) then
+          implicit_displacement_scale <= 0.0_dp) then
         error stop 'implicit matching-plane zero-mode preflight inputs are invalid.'
       end if
+      if (implicit_displacement_bounded) then
+        if (.not. all(ieee_is_finite([implicit_displacement_min, implicit_displacement_max])) .or. &
+            implicit_displacement_min >= implicit_displacement_max) then
+          error stop 'implicit matching-plane bounded displacement domain is invalid.'
+        end if
+      else
+        select case (trim(lower_ascii(app%surface_current%zhao_branch)))
+        case ('a', 'b')
+          implicit_search_direction = 1_i32
+        case ('c')
+          implicit_search_direction = -1_i32
+        case default
+          implicit_search_direction = 0_i32
+        end select
+      end if
       if (matching_photoelectron_active) then
-        if (any(implicit_feedback_reference(1:2) <= 0.0_dp)) then
-          error stop 'implicit matching-plane PE mode requires positive singleton PE flux and energy.'
+        if (implicit_feedback_reference(1) < 0.0_dp .or. implicit_feedback_reference(2) <= 0.0_dp) then
+          error stop 'implicit matching-plane PE mode requires nonnegative PE flux and positive PE energy.'
         end if
       else
         if (any(implicit_feedback_reference(1:2) /= 0.0_dp)) then
@@ -341,15 +360,15 @@ contains
         end if
         matching_displacement = matching_displacement_before
         if (implicit_zero_mode) then
-          call solve_matching_implicit_zero_mode( &
-            matching_response_provider, mpi_ctx, matching_displacement_before, trial_batch_duration, &
-            implicit_displacement_min, implicit_displacement_max, implicit_feedback_reference, &
-            app%particle_species(matching_electron_idx)%q_particle, &
-            app%particle_species(matching_ion_idx)%q_particle, &
-            matching_photoelectron_active, matching_photoelectron_charge, &
-            matching_displacement, matching_response_output &
-            )
-          matching_guess = implicit_feedback_reference
+          if (.not. implicit_displacement_bounded .and. stats%matching_plane_state_valid) then
+            matching_guess = stats%matching_plane_feedback
+            matching_guess(3:4) = 0.0_dp
+            if (matching_photoelectron_active .and. matching_guess(2) <= 0.0_dp) then
+              matching_guess(2) = implicit_feedback_reference(2)
+            end if
+          else
+            matching_guess = implicit_feedback_reference
+          end if
         else if (stats%matching_plane_state_valid) then
           matching_guess = stats%matching_plane_feedback
         else
@@ -360,23 +379,38 @@ contains
       do
         matching_iteration = matching_iteration + 1_i32
         if (matching_active) then
+          if (implicit_zero_mode) then
+            matching_displacement_seed = matching_displacement
+            call solve_matching_implicit_zero_mode( &
+              matching_response_provider, mpi_ctx, matching_displacement_before, matching_displacement_seed, &
+              trial_batch_duration, &
+              implicit_displacement_bounded, implicit_displacement_min, implicit_displacement_max, &
+              implicit_displacement_scale, implicit_search_direction, matching_guess, &
+              app%particle_species(matching_electron_idx)%q_particle, &
+              app%particle_species(matching_ion_idx)%q_particle, &
+              matching_photoelectron_active, matching_photoelectron_charge, &
+              matching_displacement, matching_response_output &
+              )
+          end if
           call random_seed(put=rng_state_before)
           if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
           if (allocated(boundary_injection_residual_before)) then
             inject_state%boundary_macro_residual = boundary_injection_residual_before
           end if
-          matching_response_input = [matching_displacement, matching_guess]
-          call matching_response_provider%evaluate( &
-            matching_response_input, mpi_ctx, matching_response_output, &
-            matching_response_status, matching_response_message &
-            )
-          if (matching_response_status /= matching_plane_provider_ok) then
-            error stop 'matching-plane response evaluation failed: '//trim(matching_response_message)
+          if (.not. implicit_zero_mode) then
+            matching_response_input = [matching_displacement, matching_guess]
+            call matching_response_provider%evaluate( &
+              matching_response_input, mpi_ctx, matching_response_output, &
+              matching_response_status, matching_response_message &
+              )
+            if (matching_response_status /= matching_plane_provider_ok) then
+              error stop 'matching-plane response evaluation failed: '//trim(matching_response_message)
+            end if
           end if
           call configure_matching_surface_closure( &
             surface_closure, matching_electron_idx, matching_ion_idx, matching_photoelectron_idx, &
             matching_photoelectron_active, matching_response_output, implicit_zero_mode, matching_area, &
-            implicit_feedback_reference, &
+            matching_guess, &
             app%particle_species(matching_electron_idx)%q_particle, &
             app%particle_species(matching_ion_idx)%q_particle, &
             matching_photoelectron_charge, matching_photoelectron_emission_current_density &
@@ -477,6 +511,11 @@ contains
           matching_photoelectron_active, matching_area, trial_batch_duration, matching_observed, &
           matching_return_flux, matching_escape_flux &
           )
+        if (matching_photoelectron_active .and. matching_observed(1) == 0.0_dp) then
+          ! Mean energy is undefined for an empty PE sample.  Preserve the
+          ! current canonical energy instead of introducing a spurious zero.
+          matching_observed(2) = matching_guess(2)
+        end if
         call matching_response_provider%validate_feedback( &
           matching_observed, matching_response_status, matching_response_message &
           )
@@ -527,6 +566,7 @@ contains
         end if
         matching_guess = matching_guess + app%surface_current%coupling_relaxation* &
                          (matching_observed - matching_guess)
+        if (implicit_zero_mode .and. .not. implicit_displacement_bounded) matching_guess(3:4) = 0.0_dp
       end do
 
       if (adaptive_nonzero_mode) then
@@ -1606,78 +1646,417 @@ contains
   end function matching_species_index
 
   subroutine solve_matching_implicit_zero_mode( &
-    provider, mpi, displacement_before, duration, displacement_min, displacement_max, feedback_reference, &
-    electron_charge, ion_charge, photoelectron_active, photoelectron_charge, displacement_after, response_after &
+    provider, mpi, displacement_before, displacement_seed, duration, displacement_bounded, &
+    displacement_min, displacement_max, &
+    displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
+    photoelectron_charge, displacement_after, response_after &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     type(mpi_context), intent(in) :: mpi
-    real(dp), intent(in) :: displacement_before, duration, displacement_min, displacement_max
+    logical, intent(in) :: displacement_bounded
+    real(dp), intent(in) :: displacement_before, displacement_seed, duration
+    real(dp), intent(in) :: displacement_min, displacement_max, displacement_scale
+    integer(i32), intent(in) :: search_direction
     real(dp), intent(in) :: feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
     real(dp), intent(out) :: displacement_after, response_after(6)
 
-    real(dp) :: lower, upper, midpoint, lower_residual, upper_residual, midpoint_residual
-    real(dp) :: response(6), current_density
-    integer(i32) :: iteration, status
+    real(dp) :: result_packet(7)
+    integer(i32) :: status, status_packet(1)
     character(len=512) :: message
 
-    lower = displacement_min
-    upper = displacement_max
-    call evaluate_matching_implicit_residual( &
-      provider, mpi, lower, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-      lower_residual, response, current_density, status, message &
-      )
-    if (status /= matching_plane_provider_ok) then
-      error stop 'implicit matching-plane lower endpoint failed: '//trim(message)
-    end if
-    call evaluate_matching_implicit_residual( &
-      provider, mpi, upper, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-      upper_residual, response, current_density, status, message &
-      )
-    if (status /= matching_plane_provider_ok) then
-      error stop 'implicit matching-plane upper endpoint failed: '//trim(message)
-    end if
-    if (lower_residual > 0.0_dp .or. upper_residual < 0.0_dp) then
-      error stop 'implicit matching-plane zero-mode root is not bracketed by the response table.'
-    end if
-
-    do iteration = 1_i32, 64_i32
-      midpoint = 0.5_dp*(lower + upper)
-      call evaluate_matching_implicit_residual( &
-        provider, mpi, midpoint, displacement_before, duration, feedback_reference, &
-        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-        midpoint_residual, response, current_density, status, message &
+    displacement_after = 0.0_dp
+    response_after = 0.0_dp
+    result_packet = 0.0_dp
+    status = matching_plane_provider_ok
+    message = ''
+    if (mpi_is_root(mpi)) then
+      call solve_matching_implicit_zero_mode_local( &
+        provider, displacement_before, displacement_seed, duration, displacement_bounded, &
+        displacement_min, displacement_max, &
+        displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
+        photoelectron_charge, displacement_after, response_after, status, message &
         )
-      if (status /= matching_plane_provider_ok) then
-        error stop 'implicit matching-plane midpoint failed: '//trim(message)
-      end if
-      if (midpoint_residual <= 0.0_dp) then
-        lower = midpoint
-      else
-        upper = midpoint
-      end if
-    end do
-    displacement_after = 0.5_dp*(lower + upper)
-    call evaluate_matching_implicit_residual( &
-      provider, mpi, displacement_after, displacement_before, duration, feedback_reference, &
-      electron_charge, ion_charge, photoelectron_active, photoelectron_charge, midpoint_residual, response_after, &
-      current_density, status, message &
-      )
-    if (status /= matching_plane_provider_ok) then
-      error stop 'implicit matching-plane final evaluation failed: '//trim(message)
+      if (status == matching_plane_provider_ok) result_packet = [displacement_after, response_after]
     end if
+    status_packet = [status]
+    call mpi_bcast_i32_array(mpi, status_packet, 0_i32)
+    status = status_packet(1)
+    if (status /= matching_plane_provider_ok) then
+      if (.not. mpi_is_root(mpi)) message = 'implicit matching-plane solve failed on MPI root.'
+      error stop trim(message)
+    end if
+    call mpi_bcast_real_dp_array(mpi, result_packet, 0_i32)
+    displacement_after = result_packet(1)
+    response_after = result_packet(2:7)
   end subroutine solve_matching_implicit_zero_mode
 
-  subroutine evaluate_matching_implicit_residual( &
-    provider, mpi, displacement, displacement_before, duration, feedback_reference, &
+  subroutine solve_matching_implicit_zero_mode_local( &
+    provider, displacement_before, displacement_seed, duration, displacement_bounded, &
+    displacement_min, displacement_max, &
+    displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
+    photoelectron_charge, displacement_after, response_after, status, message &
+    )
+    type(matching_plane_response_provider_type), intent(inout) :: provider
+    logical, intent(in) :: displacement_bounded
+    real(dp), intent(in) :: displacement_before, displacement_seed, duration
+    real(dp), intent(in) :: displacement_min, displacement_max, displacement_scale
+    integer(i32), intent(in) :: search_direction
+    real(dp), intent(in) :: feedback_reference(4)
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    logical, intent(in) :: photoelectron_active
+    real(dp), intent(out) :: displacement_after, response_after(6)
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: lower, upper, candidate, step, invalid_candidate, denominator, guard
+    real(dp) :: lower_residual, upper_residual, candidate_residual
+    real(dp) :: displacement_tolerance, residual_tolerance
+    real(dp) :: lower_response(6), upper_response(6), candidate_response(6)
+    real(dp) :: current_density
+    integer(i32), parameter :: online_expansion_count = 64_i32
+    integer(i32), parameter :: online_initial_scan_count = 256_i32
+    real(dp), parameter :: online_initial_scan_spacing = 1.0_dp/32.0_dp
+    integer(i32) :: iteration, boundary_iteration
+    character(len=512) :: evaluation_message
+    logical :: bracketed, lower_candidate_brackets, have_valid_point
+    logical :: saw_numerical_candidate, boundary_failure_numerical
+
+    displacement_after = 0.0_dp
+    response_after = 0.0_dp
+    status = matching_plane_provider_ok
+    message = ''
+    displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*max( &
+                             displacement_scale, abs(displacement_before), tiny(1.0_dp) &
+                             )
+    residual_tolerance = displacement_tolerance
+    if (.not. displacement_bounded) then
+      residual_tolerance = max( &
+                           residual_tolerance, &
+                           sqrt(epsilon(1.0_dp))*max(displacement_scale, abs(displacement_before)) &
+                           )
+    end if
+
+    if (displacement_bounded) then
+      lower = displacement_min
+      upper = displacement_max
+      call evaluate_matching_implicit_residual_local( &
+        provider, lower, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        lower_residual, lower_response, current_density, status, evaluation_message &
+        )
+      if (status /= matching_plane_provider_ok) then
+        message = 'implicit matching-plane lower endpoint failed: '//trim(evaluation_message)
+        return
+      end if
+      call evaluate_matching_implicit_residual_local( &
+        provider, upper, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        upper_residual, upper_response, current_density, status, evaluation_message &
+        )
+      if (status /= matching_plane_provider_ok) then
+        message = 'implicit matching-plane upper endpoint failed: '//trim(evaluation_message)
+        return
+      end if
+      bracketed = residuals_bracket_zero(lower_residual, upper_residual)
+      if (.not. bracketed) then
+        status = matching_plane_provider_no_physical_solution
+        message = 'implicit matching-plane zero-mode root is not bracketed by the response table.'
+        return
+      end if
+    else
+      lower = displacement_seed
+      call evaluate_matching_implicit_residual_local( &
+        provider, lower, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        lower_residual, lower_response, current_density, status, evaluation_message &
+        )
+      bracketed = .false.
+      have_valid_point = status == matching_plane_provider_ok
+      if (have_valid_point) then
+        if (abs(lower_residual) <= residual_tolerance) then
+          displacement_after = lower
+          response_after = lower_response
+          return
+        end if
+        ! At the seed, the residual gives a local endpoint correction scale.
+        ! Probe that local scale first and only then expand geometrically.
+        step = min(displacement_scale, max(abs(lower_residual), displacement_tolerance))
+      else
+        if ((status /= matching_plane_provider_no_physical_solution .and. &
+             status /= matching_plane_provider_numerical_failure) .or. search_direction == 0_i32) then
+          message = 'implicit matching-plane Zhao starting point failed: '//trim(evaluation_message)
+          return
+        end if
+        ! Explicit A/B/C can have a narrow certified interval separated from
+        ! zero by points where the finite-start Zhao solve is inconclusive.
+        ! Scan the natural displacement scale without bracketing across such a
+        ! gap; geometric powers can skip the whole Type-A interval.
+        saw_numerical_candidate = status == matching_plane_provider_numerical_failure
+        status = matching_plane_provider_ok
+        step = online_initial_scan_spacing*displacement_scale
+        have_valid_point = .false.
+        do iteration = 1_i32, online_initial_scan_count
+          candidate = real(search_direction*iteration, dp)*step
+          call evaluate_matching_implicit_residual_local( &
+            provider, candidate, displacement_before, duration, feedback_reference, &
+            electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+            candidate_residual, candidate_response, current_density, status, evaluation_message &
+            )
+          if (status == matching_plane_provider_ok) then
+            if (abs(candidate_residual) <= residual_tolerance) then
+              displacement_after = candidate
+              response_after = candidate_response
+              return
+            end if
+            if (have_valid_point .and. residuals_bracket_zero(lower_residual, candidate_residual)) then
+              if (candidate < lower) then
+                upper = lower
+                upper_residual = lower_residual
+                upper_response = lower_response
+                lower = candidate
+                lower_residual = candidate_residual
+                lower_response = candidate_response
+              else
+                upper = candidate
+                upper_residual = candidate_residual
+                upper_response = candidate_response
+              end if
+              bracketed = .true.
+              exit
+            end if
+            lower = candidate
+            lower_residual = candidate_residual
+            lower_response = candidate_response
+            have_valid_point = .true.
+          else if (status == matching_plane_provider_no_physical_solution .or. &
+                   status == matching_plane_provider_numerical_failure) then
+            saw_numerical_candidate = saw_numerical_candidate .or. &
+                                      status == matching_plane_provider_numerical_failure
+            have_valid_point = .false.
+            status = matching_plane_provider_ok
+          else
+            message = 'implicit matching-plane Zhao initial signed scan failed: '//trim(evaluation_message)
+            return
+          end if
+        end do
+        if (.not. bracketed) then
+          if (saw_numerical_candidate) then
+            status = matching_plane_provider_numerical_failure
+          else
+            status = matching_plane_provider_no_physical_solution
+          end if
+          message = 'implicit matching-plane Zhao root was not bracketed by the signed natural-scale scan.'
+          return
+        end if
+      end if
+
+      do iteration = 1_i32, online_expansion_count
+        if (bracketed) exit
+        if (have_valid_point) then
+          if (lower_residual < 0.0_dp) then
+            candidate = lower + step
+          else
+            candidate = lower - step
+          end if
+        else
+          candidate = real(search_direction, dp)*step
+        end if
+        if (.not. ieee_is_finite(candidate)) then
+          status = matching_plane_provider_numerical_failure
+          message = 'implicit matching-plane Zhao bracket expansion overflowed.'
+          return
+        end if
+        call evaluate_matching_implicit_residual_local( &
+          provider, candidate, displacement_before, duration, feedback_reference, &
+          electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+          candidate_residual, candidate_response, current_density, status, evaluation_message &
+          )
+        if (status == matching_plane_provider_ok) then
+          if (abs(candidate_residual) <= residual_tolerance) then
+            displacement_after = candidate
+            response_after = candidate_response
+            return
+          end if
+          if (.not. have_valid_point) then
+            lower = candidate
+            lower_residual = candidate_residual
+            lower_response = candidate_response
+            have_valid_point = .true.
+          else if (residuals_bracket_zero(lower_residual, candidate_residual)) then
+            if (candidate < lower) then
+              upper = lower
+              upper_residual = lower_residual
+              upper_response = lower_response
+              lower = candidate
+              lower_residual = candidate_residual
+              lower_response = candidate_response
+            else
+              upper = candidate
+              upper_residual = candidate_residual
+              upper_response = candidate_response
+            end if
+            bracketed = .true.
+            exit
+          else
+            lower = candidate
+            lower_residual = candidate_residual
+            lower_response = candidate_response
+          end if
+        else if ((status == matching_plane_provider_no_physical_solution .or. &
+                  status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
+          ! Do not skip a root merely because the geometric probe crossed the
+          ! branch boundary.  Approach the invalid endpoint from the last valid
+          ! point and look for a sign change without extrapolating the response.
+          invalid_candidate = candidate
+          boundary_failure_numerical = status == matching_plane_provider_numerical_failure
+          status = matching_plane_provider_ok
+          do boundary_iteration = 1_i32, online_expansion_count
+            candidate = 0.5_dp*(lower + invalid_candidate)
+            if (abs(candidate - lower) <= displacement_tolerance) exit
+            call evaluate_matching_implicit_residual_local( &
+              provider, candidate, displacement_before, duration, feedback_reference, &
+              electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+              candidate_residual, candidate_response, current_density, status, evaluation_message &
+              )
+            if (status == matching_plane_provider_ok) then
+              if (abs(candidate_residual) <= residual_tolerance) then
+                displacement_after = candidate
+                response_after = candidate_response
+                return
+              end if
+              if (residuals_bracket_zero(lower_residual, candidate_residual)) then
+                if (candidate < lower) then
+                  upper = lower
+                  upper_residual = lower_residual
+                  upper_response = lower_response
+                  lower = candidate
+                  lower_residual = candidate_residual
+                  lower_response = candidate_response
+                else
+                  upper = candidate
+                  upper_residual = candidate_residual
+                  upper_response = candidate_response
+                end if
+                bracketed = .true.
+                exit
+              end if
+              lower = candidate
+              lower_residual = candidate_residual
+              lower_response = candidate_response
+            else if (status == matching_plane_provider_no_physical_solution .or. &
+                     status == matching_plane_provider_numerical_failure) then
+              boundary_failure_numerical = boundary_failure_numerical .or. &
+                                           status == matching_plane_provider_numerical_failure
+              invalid_candidate = candidate
+              status = matching_plane_provider_ok
+            else
+              message = 'implicit matching-plane Zhao branch-boundary search failed: '//trim(evaluation_message)
+              return
+            end if
+          end do
+          if (bracketed) exit
+          if (boundary_failure_numerical) then
+            status = matching_plane_provider_numerical_failure
+          else
+            status = matching_plane_provider_no_physical_solution
+          end if
+          message = 'implicit matching-plane Zhao branch ended before the backward-Euler root.'
+          return
+        else if (status /= matching_plane_provider_no_physical_solution) then
+          message = 'implicit matching-plane Zhao bracket expansion failed: '//trim(evaluation_message)
+          return
+        else
+          status = matching_plane_provider_ok
+        end if
+
+        if (step > huge(step)/2.0_dp) then
+          status = matching_plane_provider_numerical_failure
+          message = 'implicit matching-plane Zhao bracket expansion exceeded the numeric range.'
+          return
+        end if
+        step = 2.0_dp*step
+      end do
+      if (.not. bracketed) then
+        status = matching_plane_provider_no_physical_solution
+        message = 'implicit matching-plane Zhao root was not bracketed after automatic expansion.'
+        return
+      end if
+    end if
+
+    if (abs(lower_residual) <= residual_tolerance) then
+      displacement_after = lower
+      response_after = lower_response
+      return
+    end if
+    if (abs(upper_residual) <= residual_tolerance) then
+      displacement_after = upper
+      response_after = upper_response
+      return
+    end if
+
+    do iteration = 1_i32, online_expansion_count
+      candidate = 0.5_dp*(lower + upper)
+      if (.not. displacement_bounded) then
+        denominator = upper_residual - lower_residual
+        if (ieee_is_finite(denominator) .and. denominator /= 0.0_dp) then
+          candidate = (lower*upper_residual - upper*lower_residual)/denominator
+        end if
+        guard = 0.25_dp*(upper - lower)
+        if (.not. ieee_is_finite(candidate) .or. candidate <= lower + guard .or. candidate >= upper - guard) then
+          candidate = 0.5_dp*(lower + upper)
+        end if
+      end if
+      call evaluate_matching_implicit_residual_local( &
+        provider, candidate, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        candidate_residual, candidate_response, current_density, status, evaluation_message &
+        )
+      if (status /= matching_plane_provider_ok) then
+        message = 'implicit matching-plane bracket refinement failed: '//trim(evaluation_message)
+        return
+      end if
+      if (abs(candidate_residual) <= residual_tolerance) then
+        displacement_after = candidate
+        response_after = candidate_response
+        return
+      end if
+      lower_candidate_brackets = residuals_bracket_zero(lower_residual, candidate_residual)
+      if (lower_candidate_brackets) then
+        upper = candidate
+        upper_residual = candidate_residual
+        upper_response = candidate_response
+      else
+        lower = candidate
+        lower_residual = candidate_residual
+        lower_response = candidate_response
+      end if
+      if (upper - lower <= displacement_tolerance) exit
+    end do
+    if (min(abs(lower_residual), abs(upper_residual)) > 8.0_dp*residual_tolerance) then
+      status = matching_plane_provider_numerical_failure
+      write (message, '(a,es12.4,a,es12.4,a,es12.4)') &
+        'implicit matching-plane bracket refinement did not reach the residual tolerance: residual=', &
+        min(abs(lower_residual), abs(upper_residual)), ', tolerance=', 8.0_dp*residual_tolerance, &
+        ', bracket_width=', upper - lower
+      return
+    end if
+    if (abs(lower_residual) <= abs(upper_residual)) then
+      displacement_after = lower
+      response_after = lower_response
+    else
+      displacement_after = upper
+      response_after = upper_response
+    end if
+  end subroutine solve_matching_implicit_zero_mode_local
+
+  subroutine evaluate_matching_implicit_residual_local( &
+    provider, displacement, displacement_before, duration, feedback_reference, &
     electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
     residual, response, current_density, status, message &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
-    type(mpi_context), intent(in) :: mpi
     real(dp), intent(in) :: displacement, displacement_before, duration, feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
@@ -1688,7 +2067,7 @@ contains
     real(dp) :: input(5), escape_fraction, escape_flux, barrier_energy_ev
 
     input = [displacement, feedback_reference]
-    call provider%evaluate(input, mpi, response, status, message)
+    call provider%evaluate_local(input, response, status, message)
     residual = 0.0_dp
     current_density = 0.0_dp
     if (status /= matching_plane_provider_ok) return
@@ -1698,20 +2077,34 @@ contains
     if (photoelectron_active) then
       barrier_energy_ev = response(1) - response(6)
       if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp) then
-        status = 1_i32
+        status = matching_plane_provider_invalid_argument
         message = 'implicit matching-plane PE barrier or reference energy is invalid.'
         return
       end if
-      escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
-      escape_flux = feedback_reference(1)*escape_fraction
+      if (feedback_reference(1) > 0.0_dp) then
+        if (.not. ieee_is_finite(feedback_reference(2)) .or. feedback_reference(2) <= 0.0_dp) then
+          status = matching_plane_provider_invalid_argument
+          message = 'positive implicit matching-plane PE flux requires positive mean energy.'
+          return
+        end if
+        escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
+        escape_flux = feedback_reference(1)*escape_fraction
+      end if
       current_density = current_density - photoelectron_charge*escape_flux
     end if
     residual = displacement - displacement_before - duration*current_density
     if (.not. all(ieee_is_finite([escape_fraction, escape_flux, current_density, residual]))) then
-      status = 1_i32
+      status = matching_plane_provider_numerical_failure
       message = 'implicit matching-plane zero-mode residual is not finite.'
     end if
-  end subroutine evaluate_matching_implicit_residual
+  end subroutine evaluate_matching_implicit_residual_local
+
+  pure logical function residuals_bracket_zero(first, second) result(bracketed)
+    real(dp), intent(in) :: first, second
+
+    bracketed = (first <= 0.0_dp .and. second >= 0.0_dp) .or. &
+                (first >= 0.0_dp .and. second <= 0.0_dp)
+  end function residuals_bracket_zero
 
   subroutine configure_matching_surface_closure( &
     contract, electron_idx, ion_idx, photoelectron_idx, photoelectron_active, response, implicit_zero_mode, area_m2, &
@@ -1765,7 +2158,13 @@ contains
       contract%absorbed_current_a(ion_idx) = ion_charge*response(3)*area_m2
       if (photoelectron_active) then
         barrier_energy_ev = response(1) - response(6)
-        escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
+        escape_flux = 0.0_dp
+        if (feedback_reference(1) > 0.0_dp) then
+          if (.not. ieee_is_finite(feedback_reference(2)) .or. feedback_reference(2) <= 0.0_dp) then
+            error stop 'positive implicit matching-plane PE flux requires positive mean energy.'
+          end if
+          escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
+        end if
         emission_flux = photoelectron_emission_current_density/(-photoelectron_charge)
         return_flux = emission_flux - escape_flux
         if (.not. all(ieee_is_finite([barrier_energy_ev, emission_flux, escape_flux, return_flux])) .or. &

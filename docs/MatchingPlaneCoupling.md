@@ -29,8 +29,8 @@ matching-plane では、外部応答の取得方法をさらに選びます。
 
 | backend | 適する用途 | 主な制約 |
 |---|---|---|
-| `response_backend="table"`（既定） | 独立に検証した Zhao / 1D PIC sweep を production で使う | 応答 CSV が必要。[`implicit_zero_mode`](MatchingPlaneReference.html#implicit_zero_mode) を使用可能 |
-| `response_backend="zhao_online"` | 組み込み Zhao 応答で配線や適用範囲を調べる | 平面・無衝突・非磁化。ambient 外向き feedback は未使用 |
+| `response_backend="table"`（既定） | 独立に検証した Zhao / 1D PIC sweep を監査可能な固定 snapshot として使う | query は安価。応答 CSV と有限な軸範囲が必要 |
+| `response_backend="zhao_online"` | CSV を作らず組み込み Zhao を直接使う | `implicit_zero_mode` は選択 branch 内で終点を探索。平面・無衝突・非磁化で、nonlinear solve の費用がある |
 
 `examples/matching_plane_response_synthetic.csv` は table 経路の smoke test 専用です。物理計算には使えません。
 
@@ -102,13 +102,24 @@ coupling_atol = [0.0, 0.0, 0.0, 0.0]
 PE なしの online case は PE role を指定しません。
 
 ```toml
+[periodic2]
+lower_boundary_model = "e_bottom_zero"
+
 [surface_current_model]
 model = "matching_plane_quasistatic"
 response_backend = "zhao_online"
 zhao_branch = "auto"
 electron_species = "electron"
 ion_species = "ion"
+implicit_zero_mode = true
 ```
+
+この経路には `response_table_path` も事前の `matching_query.csv` も不要です。完全な CSV 不要例は
+`examples/periodic2_matching_plane_zhao_implicit.toml` です。table snapshot を使う場合だけ query grid と
+`beach-zhao-response` を別途使います。
+
+implicit 化は Zhao branch を選びません。`auto` が現在の seed で一意な物理解を保証できない場合は停止します。
+強い PE では `a` / `b` / `c` を別々に走査してから、検証した branch を明示してください。
 
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
@@ -135,7 +146,8 @@ table の header、直積格子、整合面高度を `beach` の起動時に検�
 
 1. **整合面の状態を測る。** 現在の表面電荷と下側境界から、整合面直下の平均変位 $D_H$ を求めます。
 2. **外部応答を得る。** backend は $D_H$ と外向き feedback から、整合面電位 $\Phi_H$、electron / ion の
-   inward flux と access potential、PE barrier を返します。
+   inward flux と access potential、PE barrier を返します。online implicit では、各 feedback 反復の内側で
+   後退 Euler 終点を解き直します。
 3. **同じ batch を追跡する。** $\Phi_H$ を `periodic2` の zero-mode gauge に使い、粒子を追跡して外向き moment と
    PE の return / escape を測ります。
 4. **固定点を確認する。** 測定値が仮定した feedback と一致しなければ緩和して再実行します。各 trial は同じ
@@ -195,7 +207,8 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
 | 固定点が反復上限に到達 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | ray / macro 粒子数を増やし、残差が減るなら緩和係数や上限を調整する |
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan し、物理 branch を検証する |
-| implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
+| table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
+| online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard 上限に到達 | 周期境界 event の未解決粒子が誤差 budget を超えた | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
 
 run の正常終了が示すのは、backend 評価と数値的な固定点収束です。外部シースの物理妥当性、matching-plane 高度への
@@ -232,8 +245,8 @@ online Zhao は PE の束と平均法線 energy を、その 2 moment を再現�
 `auto` の複数根判定は有限個の multistart で見つけた根の比較であり、数学的な root isolation ではありません。
 branch 別の検証では `a` / `b` / `c` を明示して scan します。
 
-各 query は stateless で、前の root からの continuation は行いません。解けない場合も明示 branch や backend を
-暗黙に切り替えません。
+各 query は物理的に stateless で、前の root からの continuation は行いません。解けない場合も明示 branch や
+backend を暗黙に切り替えません。
 
 これらが主要効果なら、独立した 1D--3D kinetic coupling または full PIC で検証します。応答表の grid、固定点許容値、
 matching-plane 高度を変える検証項目は[数値・応答表リファレンス](MatchingPlaneReference.html#収束と適用性を検証する)にまとめています。

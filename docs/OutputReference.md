@@ -207,6 +207,7 @@ $$
 | receipt | 内容 |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` または `zhao_online` |
+| `surface_current_model_implicit_zero_mode` | `T` なら面平均 $D_H$ を backward Euler で更新し、`F` なら batch 開始値を固定 |
 | `surface_current_model_matching_plane_z_m` | matching plane の z 座標 |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | 各 channel に割り当てた species |
 | `surface_current_model_coupling_rtol` | active 成分の相対許容値 |
@@ -230,7 +231,7 @@ accepted state の `matching_plane_residual` は `surface_current_model_coupling
 
 | backend | receipt |
 | --- | --- |
-| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`。fingerprint は読込済み応答表の canonical 内容を識別する |
+| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`。fingerprint は path ではなく、$H$、canonical axes、response values を含む読込済み応答演算子を識別する |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
@@ -412,8 +413,13 @@ matching-plane では `result.matching_plane_state` と `result.matching_plane_h
 schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下の最終出力に新旧世代のファイルが混在した
 場合、そのディレクトリを選ばず、完全な periodic slot へ戻ります。
 
-model fingerprint は table backend なら response table の canonical 内容、online backend なら Zhao contract と
-branch policy を含みます。これらを変更した checkpoint は再開できません。
+model fingerprint は table backend なら response table の canonical 内容、online backend なら Zhao contract、
+branch policy、implicit mode を含みます。BEACH の `resume` は「同じ数値・物理 model の継続」なので、table 内容を
+変えた checkpoint は不一致として拒否します。保存電荷を別 model の初期状態にする物理的 continuation 自体が
+不可能という意味ではありませんが、それは同一 run の restart ではありません。
+
+online implicit の bracket node は永続 table や checkpoint state ではありません。restart 後も同じ Zhao contract
+から必要な response を直接再評価するため、`matching_query.csv` や自動探索点の fingerprint はありません。
 
 実際の操作は[実行・再開する](Execution.html)を参照してください。
 

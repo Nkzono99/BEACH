@@ -773,9 +773,6 @@ contains
       error stop 'surface_current_model.response_backend must be "table" or "zhao_online".'
     end select
     if (cfg%surface_current%implicit_zero_mode) then
-      if (trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table') then
-        error stop 'surface_current_model.implicit_zero_mode requires response_backend="table".'
-      end if
       if (trim(lower_ascii(cfg%periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
         error stop 'surface_current_model.implicit_zero_mode requires periodic2.lower_boundary_model="e_bottom_zero".'
       end if

@@ -1837,11 +1837,6 @@ def _validate_matching_plane_model(
                 "BEACH constraint error: surface_current_model.zhao_branch must be "
                 '"auto", "a", "b", or "c".'
             )
-    if implicit_zero_mode and response_backend != "table":
-        raise ConfigValidationError(
-            "BEACH constraint error: surface_current_model.implicit_zero_mode "
-            'requires response_backend="table".'
-        )
     for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
         value = model_config.get(key, default)
         if (
