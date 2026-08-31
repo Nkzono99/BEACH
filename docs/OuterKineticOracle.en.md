@@ -45,6 +45,8 @@ production fixture whose every point is expected to certify. The command writes:
 
 The solver imposes $E(H)=D_H/\epsilon_0$ and $\Phi(L)=0$. It uses `E(L)=0` as a convergence diagnostic rather than a
 third boundary constraint. Version 1 accepts only zero outward ambient-population inputs.
+In the raw CSV, `far_field_v_m` and `far_charge_imbalance` are maximum absolute values over the final averaging window.
+Use the corresponding NPZ for signed values and profiles.
 
 `ambient_electron.number_density_m3` and `ambient_ion.number_density_m3` are amplitudes of the complete drifting
 Maxwellians feeding the far boundary. Only their $v<0$ half spaces are imposed there, so these values need not equal the

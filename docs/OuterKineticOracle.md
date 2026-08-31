@@ -44,6 +44,8 @@ production fixture ではありません。完了すると次を生成します�
 
 solver は $E(H)=D_H/\epsilon_0$ と $\Phi(L)=0$ を境界条件にします。`E(L)=0` は追加拘束ではなく、
 外部長が十分かを判定する診断です。ambient の外向き入力は v1 では 0 のみ受理します。
+raw CSV の `far_field_v_m` と `far_charge_imbalance` は、最後の averaging window における絶対値の最大です。
+符号と profile は対応する NPZ を確認します。
 
 `ambient_electron.number_density_m3` と `ambient_ion.number_density_m3` は、遠方境界から入る drifting
 Maxwellian 全体の振幅です。境界で実際に与えるのは $v<0$ の半空間だけなので、この値は計算された遠方密度と
