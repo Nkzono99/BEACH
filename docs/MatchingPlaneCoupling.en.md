@@ -294,6 +294,8 @@ does not extend the physical validity of the outer model. Store the table-genera
 version, and unit conversions with production data.
 
 To evaluate the built-in online Zhao backend over the same five inputs and save a snapshot for the table backend, run:
+If `beach-zhao-response` is unavailable in a PyPI distribution, first
+[install the current GitHub version](Installation.en.html#install-the-version-described-by-this-site).
 
 ```console
 beach-zhao-response \

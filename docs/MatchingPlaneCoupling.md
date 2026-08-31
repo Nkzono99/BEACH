@@ -276,6 +276,8 @@ singleton にし、5 軸を一律に細分化して表を膨張させないで�
 外部モデルの適用範囲を広げません。表生成 code、上流条件、solver version、単位変換を production data と一緒に保存してください。
 
 組み込みonline Zhaoを同じ5入力で事前評価し、table backend用のsnapshotを作るには次を実行します。
+`beach-zhao-response` が見つからない PyPI 配布では、先に
+[GitHub の現行版をインストール](Installation.html#このドキュメントと一致する版をインストール)してください。
 
 ```console
 beach-zhao-response \

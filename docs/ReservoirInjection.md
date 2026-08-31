@@ -1,133 +1,142 @@
-title: シミュレーション境界からの reservoir 流入
+title: 境界から粒子を流入させる
 
 Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
 
-# シミュレーション境界からの reservoir 流入
+# 境界から粒子を流入させる
 
-`[particles.species.boundary_inflow]` は、ボックス外側に与えた plasma reservoir からシミュレーション境界を
-横切る粒子流入を定義します。上流 VDF、ボックス面積、`batch_duration`、マクロ粒子重みから、面ごとの注入数、
-初期位置、面到達速度、次のバッチへ持ち越す端数を求めます。
+> **質問:** simulation box の外にある plasma から、密度・温度または速度分布に対応する粒子を
+> box 境界へ流入させるには、何を設定すればよいですか。
+>
+> **一文での回答:** 非周期の box 面を `open` にし、species の
+> `[particles.species.boundary_inflow]` に `"reservoir"` を指定します。
 
-この流入は `source_mode` と責務を分離しています。初版で同じ species に併用できるのは
-`source_mode="volume_seed"` だけです。内部の明示的な放出面には `source_mode="plane_source"` を使いますが、
-同じ species の境界流入との併用は fail closed です。
-粒子源の選択は[粒子源と境界流入](ParticleSourcesBoundaries.html)、注入後の open 面処理は
-[粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
+読了後には、最小設定を作り、Maxwell 分布と速度 grid、境界上の分布と無限遠からの電位補正を
+選び、出力から実際の注入量を確認できます。粒子を box 内部の面から供給したい場合は、先に
+[粒子をどこから入れるか](ParticleSourcesBoundaries.html)で `plane_source` との違いを確認してください。
 
-## 流入面を選ぶ
+## 1. 最小設定を作る
 
-各面の値に `"reservoir"` を指定すると、そのボックス面全体から流入します。
+次は、既存の有効なケースへ z-high 面から電子を流入させる最小差分です。値は設定方法を示す例であり、
+特定の plasma 環境を表す参照値ではありません。
 
 ```toml
+[sim]
+batch_duration = 1.0e-6
+
+[domain]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0, 1.0, 1.0]
+periodic_axes = []
+
+[particle_boundary]
+z_high = "open"
+ordinary_open_model = "escape"
+
 [[particles.species]]
 species_key = "electron"
 source_mode = "volume_seed"
-npcls_per_step = 100
-number_density_cm3 = 5.0
+npcls_per_step = 0
+velocity_distribution = "maxwellian"
+number_density_m3 = 5.0e6
 temperature_ev = 10.0
+drift_velocity = [0.0, 0.0, -4.0e5]
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 w_particle = 1.0e5
-drift_velocity = [0.0, 0.0, -4.0e5]
 
 [particles.species.boundary_inflow]
 z_high = "reservoir"
 ```
 
-`x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` を指定でき、複数面を同時に有効化できます。
-`domain.periodic_axes` に属する面には reservoir 流入を設定できません。流入位置は選択したボックス面内で一様に
-生成されるため、`pos_low`、`pos_high`、`inject_face` で開口を切り出しません。
+z-high 面の内向き法線は $-z$ 方向なので、この例の負の z ドリフトは box 内向きです。
+`x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` の複数面を同時に選べます。
 
-外向き粒子の処理は別の設定です。global 作用は `[particle_boundary]`、species override は
-`[particles.species.boundary]` で指定します。reservoir 流入面の有効な外向き作用は `open` でなければ
-ならず、`boundary_inflow` 自体は外向き作用を上書きしません。
+設定時には次の条件を守ります。
 
-## Maxwell 分布を流入流束で重み付けする
+- 解決後の `sim.batch_duration` を正にする。
+- 流入面を `domain.periodic_axes` に含めず、species override を含む有効な外向き作用を `open` にする。
+- `boundary_inflow` は box 面全体を使う。`pos_low`、`pos_high`、`inject_face` では開口を切り出さない。
+- 現行 schema では `source_mode="volume_seed"` が必要である。境界流入だけなら
+  `npcls_per_step=0` とし、これは体積中に粒子を生成する指定ではない。
 
-選択面の内向き単位法線を $\mathbf n$、面積を $A$ とします。上流のドリフト付き Maxwell 分布について、
-法線ドリフトを $u_n=\mathbf u\cdot\mathbf n$、熱速度の標準偏差を
-$\sigma=\sqrt{k_\mathrm{B}T/m}$ とします。上流法線速度の下限が $v_{\min}$ なら、片側流入流束は
+設定を保存したら、通常の実行前に構造と組合せを検査します。
 
-$$
-\Gamma_\mathrm{in}
-=n\int_{v_n\ge v_{\min}}v_n f_n(v_n)\,dv_n
-=n\left[u_n\{1-\Phi(a)\}+\sigma\varphi(a)\right],
-\qquad
-a=\frac{v_{\min}-u_n}{\sigma}
-$$
+```bash
+beachx lint beach.toml
+beach beach.toml
+```
 
-です。$\Phi$ と $\varphi$ は標準正規分布の累積分布関数と確率密度です。温度 0 では、
-$u_n\ge v_{\min}$ のとき $\Gamma_\mathrm{in}=nu_n$、それ以外は 0 です。
+`lint` が成功しても、流束、マクロ粒子重み、電位基準が物理的に適切であることまでは保証しません。
 
-接線速度は Gaussian 分布、法線速度は $v_n f_n(v_n)$ に比例する片側分布から生成します。これは面通過確率が
-法線速度に比例するためで、体積中の Maxwell 分布をそのまま境界へ置く方法とは異なります。
+## 2. Maxwell 分布または速度 grid を選ぶ
 
-## 速度グリッドの値を流束へ変換する
+| 手元にある外部 plasma 情報 | 選ぶ設定 |
+| --- | --- |
+| 密度、温度、ドリフト速度 | `velocity_distribution="maxwellian"` |
+| 計測・別計算による速度点と分布値 | `velocity_distribution="grid"` |
 
-`velocity_distribution="grid"` では、CSV の速度点と非負の値 $f$ から速度を生成します。
+### Maxwell 分布
 
-| `velocity_grid_pdf_kind` | CSV の $f$ の意味 | 生成時の重み |
-| --- | --- | --- |
-| `phase_space` | 位相空間分布 | $\max(v_n,0)f$ |
-| `flux_weighted` | 流入粒子に対して重み付け済み | $f$ |
+Maxwell 分布では、`number_density_m3` または `number_density_cm3`、温度、`drift_velocity` から
+各面の片側流束 $\Gamma_\mathrm{in}$ を求めます。境界を通過する確率は内向き法線速度に比例するため、
+法線速度は体積中の Maxwell 分布をそのまま置くのではなく、流束で重み付けした分布から標本化します。
 
-どちらも $v_n\ge v_{\min}$ かつ $v_n>0$ の点だけを使います。`velocity_grid_sampling="rectilinear"` は
-完全な直交グリッドを補間し、`discrete` は入力点から離散的に選びます。`auto` は可能な場合に
-`rectilinear` を使います。
-
-速度グリッドでは、粒子数を `particle_flux_m2_s` または `current_density_a_m2` から決めます。
-密度と温度は粒子数の計算に使いません。
-
-## 面ごとの端数を持ち越して長時間の流束を保つ
-
-Maxwell 分布から求めた流束、または速度グリッドに指定した流束を $\Gamma_\mathrm{in}$ とすると、
-実粒子の期待流入数とマクロ粒子の期待数は
+1 batch の期待マクロ粒子数は、利用時の判断に必要な次の関係で決まります。
 
 $$
-N_\mathrm{phys}=\Gamma_\mathrm{in}A\,\Delta t_\mathrm{batch},
-\qquad
-N_\mathrm{macro,expected}=\frac{N_\mathrm{phys}}{w}
+N_\mathrm{macro,expected}
+=\frac{\Gamma_\mathrm{in} A\,\Delta t_\mathrm{batch}}{w},
 $$
 
-です。整数化で残った端数 $r$ は species と face の組ごとに次のバッチへ持ち越します。
+ここで $A$ は選択面の面積、$\Delta t_\mathrm{batch}$ は `batch_duration`、$w$ は
+`w_particle` です。整数化の端数は次の batch へ持ち越されるため、各 batch の注入数は同じとは限りません。
+完全な流束式と制約は[入力パラメータ](Parameters.html#particlesspeciesboundary_inflow)と
+[`SPEC.md`](../SPEC.md)を参照してください。
 
-$$
-N_\mathrm{macro}=\left\lfloor r+N_\mathrm{macro,expected}\right\rfloor,
-\qquad
-r\leftarrow r+N_\mathrm{macro,expected}-N_\mathrm{macro}
-$$
+物理的なマクロ粒子重みが決まっている場合は `w_particle` を指定します。計算量から 1 batch の標本数を
+決めたい場合は、代わりに `target_macro_particles_per_batch` を指定します。後者は重みを解決するための
+target であり、物理流束を変更しません。二つは同時に指定できません。
 
-各バッチの個数は変動しても、長時間の総流入量は期待流束へ収束します。正の `w_particle` を直接与えるか、
-`target_macro_particles_per_batch` から逆算します。後者は有効な全流入面の合計 sample 数を調整し、
-物理流束は変えません。
+### 速度 grid
 
-## 境界条件として流入補正を選ぶ
-
-`[reservoir]` は境界流入と、open 面から出る粒子の scalar barrier に共通する外部 plasma 条件です。
-任意の内部平面では、面のどちら側を外部 plasma とみなし、どの電位を上流基準へ対応させるかが一意に決まりません。
-simulation boundary なら box 外側を reservoir と定義できるため、`phi_infty` と面電位による
-`infinity_barrier` を外部から境界までの補正として自然に適用できます。この理由から、
-新しい設定の流入側 potential/barrier 補正は `boundary_inflow` に適用し、`plane_source` には適用しません。
-非推奨の `reservoir_face` は既存 case の数値挙動を保つため、従来の補正を互換動作として維持します。
+速度 grid では、Maxwell 用の密度・温度を削除し、CSV と物理流束を指定します。
 
 ```toml
-[particle_boundary]
-z_high = "open"
-ordinary_open_model = "potential_barrier"
+velocity_distribution = "grid"
+velocity_grid_path = "inflow_vdf.csv"
+velocity_grid_pdf_kind = "phase_space"
+velocity_grid_sampling = "auto"
+particle_flux_m2_s = 1.0e12
+```
 
+CSV の必要列は `vx_m_s,vy_m_s,vz_m_s,f` です。`f` は非負とし、次のどちらを表すかを明示します。
+
+| `velocity_grid_pdf_kind` | CSV の `f` | BEACH の重み |
+| --- | --- | --- |
+| `phase_space` | 位相空間分布 | 内向き法線速度を掛けた $\max(v_n,0)f$ |
+| `flux_weighted` | 境界を通過する粒子について既に重み付けした分布 | $f$ |
+
+流入量には `particle_flux_m2_s` または `current_density_a_m2` の片方だけを指定します。電流密度は
+$|J/q|$ で粒子流束へ変換されるため、その符号で速度方向を指定することはできません。方向は CSV の速度と
+選択面の内向き法線で決まります。相対 CSV path は実行時の working directory を基準にします。
+
+## 3. `source_vdf` または `infinity_barrier` を選ぶ
+
+| 外部 VDF をどこで定義したか | `reservoir.inflow_model` | 挙動 |
+| --- | --- | --- |
+| simulation 境界上 | `"source_vdf"` | 設定した VDF をそのまま境界上の分布として使う。既定値 |
+| 無限遠または上流 | `"infinity_barrier"` | 上流基準電位から境界面までの scalar な電位差で到達流束と法線速度を補正する |
+
+`infinity_barrier` を使う場合は、外部基準電位を明示します。
+
+```toml
 [reservoir]
 inflow_model = "infinity_barrier"
 phi_infty = 0.0
 face_potential_grid_n = 5
 ```
 
-| 設定 | 境界流入での作用 |
-| --- | --- |
-| `reservoir.inflow_model="source_vdf"` | 設定した VDF を境界上の分布として使い、電位補正を加えない |
-| `reservoir.inflow_model="infinity_barrier"` | 面平均電位と `reservoir.phi_infty` の電位差で、到達流束と法線速度を補正する |
-
-無限遠または上流の電位を $\phi_\infty$、境界面の電位を $\phi_f$ とすると、1 次元の静電写像は
-接線速度を保ち、法線エネルギーを保存します。
+上流電位を $\phi_\infty$、batch 開始時の流入面平均電位を $\phi_f$ とすると、境界での法線速度は
 
 $$
 v_{n,f}^2=v_{n,\infty}^2-B,
@@ -135,62 +144,72 @@ v_{n,f}^2=v_{n,\infty}^2-B,
 B=\frac{2q(\phi_f-\phi_\infty)}{m}
 $$
 
-| $B$ | 上流粒子の到達条件と境界面速度 |
+で決まります。$q$ は符号を含む粒子電荷なので、electron と正 ion では同じ電位差に対する $B$ の符号が
+逆になります。
+
+| $B$ | 到達条件と境界での変化 |
 | ---: | --- |
 | $B>0$ | $v_{n,\infty}\ge\sqrt B$ の粒子だけが到達し、境界までに減速する |
 | $B=0$ | 法線速度を変更しない |
-| $B<0$ | すべての流入粒子が到達でき、境界までに加速する |
+| $B<0$ | すべての内向き粒子が到達でき、境界までに加速する |
 
-`infinity_barrier` は、各流入面を `reservoir.face_potential_grid_n` による $N\times N$ cell-center で評価し、
-batch 開始時の平均値 $\bar\phi_f$ を使います。固定 P0 三角形 kernel、周期場、zero mode、`sim.e0` を含む
-同じ電位規約を使います。
+接線速度は変更しません。$\phi_f$ は `face_potential_grid_n` による面内標本の平均であり、粒子ごとの
+局所電位ではありません。
 
-`particle_boundary.ordinary_open_model="potential_barrier"` は、同じ `phi_infty` と粒子が実際に通過した位置の
-局所電位を使い、外向き粒子の return または escape を判定します。流入側の `infinity_barrier` は面平均、
-流出側の `potential_barrier` は event 位置という違いがあります。
+流入と流出は別の判断です。外向き粒子にも電位障壁を適用する場合は、`[particle_boundary]` の
+`ordinary_open_model="potential_barrier"` を選びます。こちらは粒子が実際に境界を通過した位置の
+局所電位を使って return または escape を決めます。
 
-`[surface_current_model] model="zhao_stationary"`は、参照したambient electron/ionのz-highにmodel固有の写像を
-追加します。無限遠0 Vから現在の面平均電位まで速度を写像し、Type A electronでは$\phi_m$もaccess bottleneckに
-含めます。この写像は選択speciesのz-highだけに作用し、`reservoir.inflow_model`の一般設定を他面について変更しません。
+## 4. 出力で注入を確認する
 
-## このモデルが表す範囲
+`output.dir` を `outputs/latest` とした場合は、実行後に次を確認します。
 
-境界流入として定義することで、密度、温度、VDF、`phi_infty` を「ボックス外側の条件」として一貫して解釈できます。
-ただし、BEACH が解くのは境界までの scalar な速度写像と、境界通過後の粒子運動です。ボックス外側の軌道、
-途中の $E(z)$、折り返し位置、飛行時間、空間電荷、自己無撞着な外部 sheath は解きません。
-`[outer_plasma]` や `[coupling]` を復活させる設定でもありません。
+```bash
+beachx inspect outputs/latest
+grep -E '^(reservoir_inflow_map|particle_ordinary_open_model|charge_ledger_residual_C)=' \
+  outputs/latest/summary.txt
+head -n 2 outputs/latest/charge_ledger.csv
+```
 
-一様外部電場には有限な無限遠電位がないため、`infinity_barrier` と併用する場合は `phi_infty` を有効な
-reservoir 基準として定義し、物理的な妥当性を別途確認します。
+`summary.txt` の `reservoir_inflow_map` は、選択に応じて `source_vdf` または `infinity_barrier` になります。
+`particle_ordinary_open_model` は独立に `escape` または `potential_barrier` を示します。
 
-## 初期位置、MPI、再開
+`charge_ledger.csv` では、species ごとに少なくとも次を確認します。
 
-各粒子の法線位置は、注入面の境界座標から内向きに1 representable stepだけ離して初期化します。
-接線位置は設定した開口内で標本化します。追跡前に$\mathbf v\tau$を加える仮想飛行は行わないため、
-mesh衝突やbox eventを照会していない軌道区間を飛び越しません。`sim.dt`に対応する従来のlaunch位相乱数は、
-checkpoint／同じMPI layoutでの実行を含む後続乱数列との互換のため消費しますが、位置や物理時刻には作用しません。
-境界から内側への運動は、生成後の通常の粒子stepで初めて進みます。
+- `injected_count`: この例のように境界流入だけを使う species では、box 外から生成されたマクロ粒子数
+- `injected_from_remote_C`: その符号付き注入電荷。符号は `q_particle` と一致する
+- `absorbed_count`、`escaped_count`、`discarded_unresolved_count`: 注入後の主な行き先
 
-MPI では全 rank 合計の粒子数と端数を root rank で決めてから分配します。端数は checkpoint に保存し、
-再開時に復元します。結果を確認するときは、species・face 別の注入個数と注入電荷、解決後のマクロ粒子重み、
-端数、適用した $v_{\min}$ と電位差、吸収電流と escape 電流を区別します。
+期待数が 1 より十分小さい場合、端数が蓄積するまで初期 batch の `injected_count` は 0 になり得ます。
+必要な標本数が得られないときは、物理流束を変える前に `w_particle` または
+`target_macro_particles_per_batch` を見直します。`batch_duration` の変更は粒子数だけでなく場の更新間隔も
+変えるため、[batch 幅と安定性](BatchDurationStability.html)に従って比較してください。
 
-checkpoint schema v6 の `macro_residuals.csv` は `species_idx,face,residual` で、`face=0` は従来 source、
-`1..6` は boundary face です。旧 2 列形式は読み込み互換です。
+出力が生成されたことは実行完了を示します。流束、電荷収支、統計誤差、結果の数値・物理的妥当性は
+[出力ファイルを調べる](OutputGuide.html)と[計算結果の妥当性確認](ValidationGuide.html)で別に評価します。
 
-`batch_duration` を変えると、1 バッチの期待粒子数と場の更新間隔が同時に変わります。
-[バッチ幅と安定性](BatchDurationStability.html)に、定常値の確認方法を示しています。
+## 5. 適用範囲を確認する
 
-## 旧 `reservoir_face` から移行する
+- `boundary_inflow` が表すのは、box 外の条件を境界上の粒子へ写す局所モデルです。box 外の軌道、
+  途中の $E(z)$、折り返し位置、飛行時間、空間電荷、自己無撞着な外部 sheath は解きません。
+- 一様外部電場には有限な無限遠電位がありません。`infinity_barrier` と併用する場合は、`phi_infty` を
+  有効な reservoir 基準として定義し、その物理的意味を別途検証します。
+- 流入位置は選択した box 面全体です。box 内側に置いた矩形面から供給する場合は
+  `source_mode="plane_source"` を使います。
+- `boundary_inflow` は外向き境界作用を上書きせず、`[outer_plasma]` や `[coupling]` を有効にする設定でも
+  ありません。これらの削除済み table は入力として拒否されます。
 
-`source_mode="reservoir_face"` は互換入力として残りますが、新しい設定では
-`[particles.species.boundary_inflow]` を使ってください。旧設定は `inject_face` と
-`pos_low` / `pos_high` による開口を持つため、境界全面を使う新形式への移行時は粒子流入量が変わらないか確認します。
-内部に矩形放出面を置く用途は `source_mode="plane_source"` へ移します。BEACH は旧設定をどちらにも暗黙変換しません。
+全 key、既定値、排他条件、端数と checkpoint の形式は[入力パラメータ](Parameters.html)と
+[`SPEC.md`](../SPEC.md)が正本です。MPI 分配、乱数状態、端数状態、実装の責務は
+[開発者向けアーキテクチャ](Architecture.html)へ分離しています。
 
-## Code reference
+## 6. 旧 `reservoir_face` から移行する
 
-- 流束積分、マクロ粒子数、Maxwell／速度グリッドからの生成: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- 境界流入と電位障壁による速度補正: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- 入力組合せの検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- MPI 全体のマクロ粒子端数: [`bem_restart.f90`](../src/runtime/bem_restart.f90)
+`source_mode="reservoir_face"` は既存 case のための deprecated 入力です。新しい外部 plasma 条件は
+`[particles.species.boundary_inflow]`、box 内部の矩形放出面は `source_mode="plane_source"` へ移します。
+
+旧形式は `inject_face` と `pos_low` / `pos_high` で開口を持てますが、`boundary_inflow` は box 面全体を
+使います。移行前後で面積が変わる場合は、設定密度または流束だけでなく、`injected_count` と
+`injected_from_remote_C` を比較して総流入量が意図どおりか確認してください。BEACH は旧設定を
+どちらの新形式にも暗黙変換しません。互換動作と完全な移行制約は
+[入力パラメータ](Parameters.html#source_mode--reservoir_facedeprecated)と [`SPEC.md`](../SPEC.md)を参照してください。

@@ -1,151 +1,213 @@
-title: `batch_duration` Stability and Steady Value
+title: How to choose `batch_duration`
 
 Lang: [English](BatchDurationStability.en.md) | [日本語](BatchDurationStability.md)
 
-# `batch_duration` Stability and Steady Value
+# How to choose `batch_duration`
 
-This task guide explains how to select `sim.batch_duration` and check the time-width sensitivity of charging results.
-In a fixed-width run, it is the physical time and surface-charge update width of one batch.
-When `sim.batch_duration_step` is set, `sim.batch_duration = sim.dt * sim.batch_duration_step`.
+This page answers how large the physical time represented by one batch may be.
+A single run cannot establish a safe value. The basic method is to compare fixed widths at 1/2, 1, and 2 times a
+reference value and find a range that does not change the result at the same physical time.
+
+After reading this page, you can run a fixed-width comparison and decide whether to retain that width or use adaptive
+`cached_kneq0` progression.
 
 > `sim.tol_rel` is a monitoring and output value. The current implementation does not use it for early stopping;
 > the run continues to the accepted batch count set by `sim.batch_count`.
 
-## Select a fixed width
+## Choose the path first
 
-### Prerequisites
+| Goal | Path |
+| --- | --- |
+| Check time-width sensitivity for a general case | Compare fixed widths at 1/2, 1, and 2 times |
+| Bound the local-potential change of one `cached_kneq0` batch | Use `max_nonzero_mode_potential_step` |
+| Check overall stability or global accuracy including $k=0$ | Run a fixed-width comparison; adaptive progression alone is insufficient |
 
-- `boundary_inflow`, `plane_source`, `reservoir_face`, and `photo_raycast` require a positive `sim.batch_duration`.
-- Set `history_stride > 0` to save `charge_history.csv` for comparison.
-- Use the same mesh, particle distributions, RNG seed, and OpenMP/MPI layout.
+`sim.batch_duration` is the physical time of one batch and the time width over which surface charge is updated.
+When `sim.batch_duration_step` is used, the resolved width is
 
-### Action
+$$
+\texttt{batch\_duration}=\texttt{dt}\times\texttt{batch\_duration\_step}.
+$$
 
-1. Start with a conservative, small `batch_duration` or `batch_duration_step`.
-2. Run three cases at 1/2, 1, and 2 times the reference value.
-3. Compare the runs near the same physical time.
-4. Check `last_rel_change`, total charge, and absorbed/escaped counts in `summary.txt`,
-   together with element charge in `charge_history.csv`.
+The two keys are mutually exclusive. `sim.dt` is the particle-push time step, while `batch_duration` controls how long
+surface-charge changes are accumulated before they are applied.
 
-### Expected output
+`boundary_inflow`, `plane_source`, `reservoir_face`, `photo_raycast`, and
+`surface_charge_closure="fixed_current"` require a positive resolved `batch_duration`.
+See the [Input parameter reference](Parameters.en.html) for the complete input contract.
 
-Each run creates `summary.txt` and `charge_history.csv`, allowing comparison of:
+## Compare fixed widths
 
-- final surface-charge distribution
-- total charge and local-potential range
-- oscillation, divergence, and Monte Carlo jitter in charge history
-- `simulated_time_s` and accepted batch count
+### Hold the comparison conditions fixed
 
-### Interpretation
+- Set `write_files=true` and `history_stride > 0` to save `summary.txt` and `charge_history.csv`.
+- Keep the mesh, particle distributions, RNG seed, OpenMP thread count, and MPI rank count fixed.
+- Give each run a separate `output.dir`.
+- Change `batch_count` together with the width so that the runs are compared near the same `simulated_time_s`.
+
+For a reference width $h$ and reference batch count $N$, use:
+
+| Run | `batch_duration` | `batch_count` | `output.dir` |
+| --- | ---: | ---: | --- |
+| half | $h/2$ | $2N$ | `outputs/batch-half` |
+| reference | $h$ | $N$ | `outputs/batch-reference` |
+| double | $2h$ | $N/2$ | `outputs/batch-double` |
+
+Choose an even $N$. For example, with $h=1.0\times10^{-7}$ s and $N=100$, the half, reference, and double settings are
+`(5.0e-8, 200)`, `(1.0e-7, 100)`, and `(2.0e-7, 50)`, respectively.
+These numbers demonstrate the edit and are not recommended physical defaults.
+When using `batch_duration_step`, keep `dt` fixed and scale the step value by the same factors of 1/2, 1, and 2.
+
+### Create and run the configurations
+
+Copy the original configuration three times, then change only the corresponding `[sim]` and `[output]` values from the
+table above.
+
+```bash
+cp beach.toml batch-half.toml
+cp beach.toml batch-reference.toml
+cp beach.toml batch-double.toml
+```
+
+Validate the inputs, then run them locally or on a compute node.
+
+```bash
+beachx lint batch-half.toml
+beachx lint batch-reference.toml
+beachx lint batch-double.toml
+
+beach batch-half.toml
+beach batch-reference.toml
+beach batch-double.toml
+```
+
+See [Run a simulation](Execution.en.html) for choosing an execution environment.
+
+### Check the expected outputs
+
+Each run needs `summary.txt`, `charges.csv`, and `charge_history.csv`.
+Check the completed batch count and physical end time with:
+
+```bash
+for output_dir in outputs/batch-half outputs/batch-reference outputs/batch-double; do
+  beachx inspect "$output_dir"
+  grep -E '^(batches|last_rel_change|simulated_time_s)=' "$output_dir/summary.txt"
+done
+```
+
+The expected state is:
+
+- All three runs complete with exit code `0`.
+- `batches` equals `sim.batch_count` in each configuration.
+- `simulated_time_s` reaches the same physical end time in all three runs.
+- The `batch` column in `charge_history.csv` can be converted with each run's width to compare element charge at
+  corresponding physical times.
+
+Successful completion does not establish numerical stability or a steady state. `last_rel_change` is also a diagnostic
+for comparing history and final state, not a stopping condition.
+
+### Choose the width
+
+Compare the final surface-charge distribution, total charge, local-potential range, absorbed/escaped counts, and history
+oscillation. Define “agreement” from the accuracy required for the study's quantities of interest before comparing runs.
 
 | Observation | Decision |
 | --- | --- |
-| Final charge and history nearly match at 1/2 and 1 times | The reference width is a practical candidate |
-| Increasing the width causes oscillation or divergence | Lower `batch_duration` |
-| Final charge changes strongly with width | Recompute with a smaller width |
-| Noise obscures the history | Adjust `w_particle` or `target_macro_particles_per_batch` |
-| Change continues at the end of the run | Increase `batch_count` |
+| Half and reference agree within the chosen tolerance | The reference is a practical candidate; retain half as the validation baseline |
+| The reference or double run oscillates or diverges | Lower `batch_duration` |
+| Final charge changes systematically with width | Repeat the comparison at smaller widths |
+| Monte Carlo noise obscures the history | Adjust `w_particle` or `target_macro_particles_per_batch` first |
+| Change continues at the end | Increase `batch_count` while keeping the physical end time aligned |
 
-Successful completion alone does not establish stability or a steady state. This comparison is a step-size sensitivity check,
-not Richardson extrapolation, because it does not assume a power law for the error.
-
-### Next choices
-
-- The reference and half-width runs agree: retain the smaller width as the validation baseline, or use the reference width when cost matters.
-- Deterministic oscillation remains: lower `batch_duration`.
-- Noise dominates: adjust macro-particle count or weight before changing the time width.
-- A `cached_kneq0` run must bound the local-potential change of one batch: use adaptive progression below.
+This is a step-size sensitivity check, not Richardson extrapolation. It assumes neither a power law for the error nor a
+particular convergence order. [`batch_duration` theory](BatchDurationTheory.en.html) explains why.
 
 ## Use adaptive $k\ne0$ progression
 
-### Prerequisites
+### Cases where it applies
 
-This path requires:
+This path is an advanced option for an existing periodic2 case and requires all of the following:
 
 - `[periodic2].nonzero_mode_backend = "cached_kneq0"`
+- a positive `sim.batch_duration`, or a `sim.batch_duration_step` that resolves to a positive value
 - time-scaled `boundary_inflow`, `plane_source`, `reservoir_face`, or `photo_raycast`
-- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow and surface sources
-- a positive `sim.batch_duration`
+- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow and `plane_source`
 
-This path does not support `volume_seed`.
+A `volume_seed` with positive `npcls_per_step` cannot be used on this path.
 
-### Action
+### Set the limit and run
+
+Copy the original periodic2 configuration, then change the corresponding existing values under `[periodic2]` and
+`[output]` in `adaptive.toml`.
+
+```bash
+cp beach.toml adaptive.toml
+```
 
 ```toml
 [periodic2]
 nonzero_mode_backend = "cached_kneq0"
 max_nonzero_mode_potential_step = 1.0e-2 # V
+
+[output]
+dir = "outputs/adaptive"
 ```
 
-Let $h_0$ be the resolved `sim.batch_duration`. Each accepted batch tests
-$h_0,h_0/2,h_0/4,\ldots$ in order. BEACH evaluates the $k\ne0$ potential produced by the difference
-between candidate and batch-start charge at every panel centroid, and accepts the first trial whose maximum absolute value
-does not exceed the limit.
+`1.0e-2` V is an input example. Set it from the acceptable local-potential change, then compare it with a run at half the
+limit.
 
-### Expected output
+```bash
+beachx lint adaptive.toml
+beach adaptive.toml
+beachx inspect outputs/adaptive
+```
 
-- A rejected trial rolls back the RNG and macro-particle residuals and does not appear in statistics, history, or the charge ledger.
-- `simulated_time_s` in `summary.txt` is the actual physical end time.
-- `batch_count` counts accepted batches, so physical time is not generally
+Let $h_0$ be the resolved `sim.batch_duration`. For every accepted batch, BEACH tests
+$h_0,h_0/2,h_0/4,\ldots$. It evaluates the $k\ne0$ potential change produced by the candidate charge at every panel
+centroid and accepts the first width whose maximum absolute value does not exceed the limit.
+
+### Check the expected outputs
+
+```bash
+grep -E '^(batches|simulated_time_s|periodic2_max_nonzero_mode_potential_step_V|adaptive_nonzero_mode_rejected_trials|adaptive_nonzero_mode_last_batch_duration_s|adaptive_nonzero_mode_last_potential_step_V|adaptive_nonzero_mode_omp_threads)=' \
+  outputs/adaptive/summary.txt
+```
+
+- `adaptive_nonzero_mode_last_batch_duration_s` is the last accepted width.
+- `adaptive_nonzero_mode_last_potential_step_V` is the last accepted $k\ne0$ potential change and does not exceed the
+  configured limit.
+- `adaptive_nonzero_mode_rejected_trials=0` is valid. The field is the cumulative number of halvings needed to satisfy
+  the limit.
+- `simulated_time_s` accumulates accepted widths and is not generally equal to
   `batch_count * batch_duration`.
 
-Rejected trials within one run use a fixed OpenMP team size. A restart may use a different team size, so compare charge
-distributions and accepted widths numerically instead of requiring bitwise identity across the restart.
+A rejected retry restores the RNG and macro-particle residuals and does not update statistics, history, or the charge
+ledger. The run stops if one batch still exceeds the limit after 24 halvings. In that case, examine the field model,
+particle statistics, and charge change as well as reducing the maximum width.
 
-### Interpretation
+### Decide whether to retain the limit
+
+1. Create a run with half the `max_nonzero_mode_potential_step`.
+2. Compare surface charge, local-potential range, total charge, and particle statistics near the same `simulated_time_s`.
+3. If they agree within the chosen tolerance, retain the larger limit as a practical candidate.
+4. For a fixed-width control, omit the key or set it to `0`.
 
 `max_nonzero_mode_potential_step` is a local-potential trust bound for freezing the $k\ne0$ field within a batch.
-It does not guarantee local truncation error or an order of global accuracy, and it does not control stability of the $k=0$ update.
+It does not guarantee local truncation error, an order of global accuracy, or stability of the $k=0$ update. Adaptive
+progression therefore still requires a fixed-width or limit-halving sensitivity check.
 
-For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving the trial width also halves macro-particle charge.
-A limit-halving comparison therefore mixes time-discretization changes with Monte Carlo variance changes. Use the same RNG seed
-and report both charge-distribution norms and particle statistics.
+For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving the trial width also halves macro-particle
+charge. A limit-halving comparison therefore includes both time-discretization and Monte Carlo variance changes. Use the
+same RNG seed and report charge-distribution norms together with particle statistics.
 
-### Next choices
-
-1. Halve `max_nonzero_mode_potential_step`.
-2. Compare surface charge, local-potential range, total charge, and particle statistics near the same `simulated_time_s`.
-3. For a fixed-width control, omit the key or set it to `0`.
-
-## Theory needed for interpretation
-
-Let $q_j$ be the accumulated charge of insulator element $j$, $A_j$ its area, and
-$J_j(\mathbf q)$ its incident charge flux. The mean model is
-
-$$
-\frac{dq_j}{dt}=J_j(\mathbf q)A_j.
-$$
-
-One batch can be viewed as an explicit update that freezes the field at batch start:
-
-$$
-\mathbf q^{n+1}
-=\mathbf q^n+\Delta t_b\,\mathbf J(\mathbf q^n)\mathbf A+\boldsymbol\eta^n,
-$$
-
-where $\boldsymbol\eta^n$ is Monte Carlo error.
-
-The fixed point of the mean update satisfies $\mathbf J(\mathbf q^\ast)=0$, so the fixed point itself does not depend on
-$\Delta t_b$ when the mean model converges stably. Actual runs still contain finite-sample and finite-time stopping errors,
-and their observed results can retain time-width dependence.
-
-The general linear stability condition near a fixed point is
-
-$$
-\rho(I+\Delta t_b M)<1.
-$$
-
-Only when the dominant eigenvalues are real negative and the fastest response can be represented by $\tau_{\min}$,
-$\Delta t_b<2\tau_{\min}$ is a non-divergence guide and $\Delta t_b<\tau_{\min}$ is a monotone-convergence guide.
-These are not general BEACH CFL conditions.
-
-The inverse plasma frequency $\omega_{pe}^{-1}$ and charging time
-$\tau_\text{charge}\sim C_\text{eff}/G_\text{eff}$ provide separate physical scales, but the actual limit also depends on
-geometry, potential, and the inflow distribution. Select the final value with the step-size sensitivity check.
+Rejected retries within one run use a fixed OpenMP team size. A restart may use a different team size, so check numerical
+agreement of charge distributions and accepted widths rather than bitwise identity across the restart.
 
 ## Related documents
 
-- [Input parameter reference](Parameters.en.html) — `sim.batch_duration` and `sim.batch_duration_step`
-- [boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
+- [`batch_duration` theory](BatchDurationTheory.en.html) — fixed points, linear stability, and applicability limits
+- [Input parameter reference](Parameters.en.html) — key types and complete constraints
+- [Boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
+- [Output Format Reference](OutputReference.en.html#adaptive-batch-diagnostics) — adaptive receipts
 - [Validate Results](ValidationGuide.en.html) — numerical convergence and physical validity
-- [Computational model overview](Algorithms.en.html) — batch loop
+- [BEACH computational cycle](Algorithms.en.html) — update order with a frozen field within each batch

@@ -36,6 +36,16 @@ def test_schema_distribution_copies_match_canonical() -> None:
         )
 
 
+def test_tree_parameter_schema_uses_runtime_omission_semantics() -> None:
+    schema, _ = load_schema()
+    sim = schema["$defs"]["sim"]["properties"]
+
+    for key in ("tree_theta", "tree_leaf_max"):
+        assert "default" not in sim[key]
+        assert "element-count heuristic" in sim[key]["description"]
+    assert "direct evaluation to FMM" in sim["tree_min_nelem"]["description"]
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [

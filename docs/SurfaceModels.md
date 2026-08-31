@@ -1,142 +1,87 @@
-title: 表面電荷更新
+title: 表面はどう帯電するか
 
 Lang: [日本語](SurfaceModels.md) | [English](SurfaceModels.en.md)
 
-# 表面電荷更新
+# 表面はどう帯電するか
 
-表面に吸収された粒子の電荷は、batch中は差分として保持します。表面から粒子を放出するsourceを使う場合は、
-放出に伴う表面側の反作用電荷も同じ差分へ加えます。batch末尾にこれらを`q_elem`へまとめてcommitし、
-commit後のsurface model処理を反映した電荷を次のbatchのfield sourceにします。
+このページは、粒子が三角形表面へ到達した後、その電荷をどこに保持するかを説明します。
+BEACH は batch 中に生じた電荷差分を一度だけ確定反映し、選択した `surface_model` で次の batch の
+表面電荷を決めます。
 
-## batch内の更新順
+> **通常の選択:** 絶縁体の局所的な帯電を調べる場合は `surface_model="insulator"` を使います。
+> 自由空間中の浮遊導体を等電位化する場合にだけ `conductor` を選びます。
 
-1. batch開始時の`q_elem`から、batch中に固定する電場・電位を構成する。
-2. 各粒子の最初のmesh hitへ$q_pw_p$をthread-localに加える。
-3. 表面放出sourceの反作用電荷を`photo_emission_dq`へ加える。
-4. `surface_charge_closure="neutral_return"`なら、解決済み光電子の帰還先depositをglobal係数で補正する。
-5. OpenMP threadの差分を足し、MPI all-reduceでglobal `dq`を作る。
-6. `q_elem <- q_elem + dq`を実行する。
-7. conductorがあれば、object総電荷を保って等電位化する。
-8. commit前後の正味差分と`tol_rel` metricを計算する。
+読了後には、二つの実装済みモデルの違いと、結果に含まれない材料効果を判断できます。
 
-同じbatch内の後続粒子は、手順2や3で生じた電荷を場として見ません。電荷更新がfieldへ現れるのは次batch開始時の
-場の更新です。このlagが`batch_duration`依存性を作るため、[batch幅と安定性](BatchDurationStability.html)で
-収束確認します。
+## batch 間の feedback
 
-## 保存量と符号
+```mermaid
+flowchart LR
+    field["現在の表面電荷から場を計算"]
+    particles["固定した場で粒子を追跡"]
+    delta["吸収・放出の電荷差分を集める"]
+    surface["表面モデルを適用"]
+    next["次の batch の表面電荷"]
 
-`q_elem(i)`は要素$i$の総電荷[C]です。暗黙のP0 panel離散化でも保存量は面密度ではなく、場評価時だけ
+    field --> particles --> delta --> surface --> next --> field
+```
 
-$$
-\sigma_i=\frac{q_i}{A_i}
-$$
+同じ batch の後続粒子は、その batch で先に吸収された粒子の電荷を見ません。電荷差分は batch 末尾に
+確定し、新しい場へ現れるのは次の batch です。この遅れへの感度は
+[`batch_duration` をどう決めるか](BatchDurationStability.html)で確認します。
 
-へ変換します。macro粒子$p$が要素$i$へ吸収されたときの差分は
+## モデルを選ぶ
 
-$$
-\Delta q_i\mathrel{+}=q_pw_p
-$$
+| `surface_model` | batch 末尾の処理 | 適した対象 | 主な制約 |
+| --- | --- | --- | --- |
+| `insulator` | 命中した要素に電荷を保持する | 局所的な絶縁体帯電 | 表面伝導・bulk 漏洩を解かない |
+| `conductor` | `mesh_id` ごとに総電荷を保ち、要素電荷を等電位になるよう再配分する | 自由空間中の浮遊導体 | `field_boundary.mode="free"` のみ |
 
-です。electronなら負、正ionなら正の電荷を堆積します。粒子は吸収後に追跡から除かれます。
+`dielectric` は実装されていません。`surface_model="dielectric"` と `epsilon_r` は入力エラーになり、
+`insulator` の別名としても扱いません。
 
-collisionに使うordered triangleと、fieldのone-sided traceに使う`elem_vacuum_sign`は同じmesh geometryから作ります。
-表面modelのためにtriangle winding自体を書き換えません。
+## 絶縁体: 命中位置に電荷を残す
 
-## surface model
+`insulator` は、吸収されたマクロ粒子の電荷を命中した三角形要素へ加え、他の要素へ再配分しません。
+電子は負、正イオンは正の電荷を残します。表面から粒子を放出する source は、放出粒子と逆符号の
+反作用電荷を放出元へ残します。
 
-| `surface_model` | commit後の処理 | 現行の位置付け |
-| --- | --- | --- |
-| `insulator` | hit要素に電荷を保持 | v1.0の中心model |
-| `conductor` | `mesh_id`ごとに総電荷を保存して等電位化 | `field_bc_mode="free"`のみ |
+このモデルが表すのは、離散化した表面上の電荷蓄積です。次の効果は含みません。
 
-## insulator accumulation
+- 表面内の横方向伝導、有限抵抗による relaxation、bulk への漏洩
+- 誘電率境界条件、分極電荷、物体内部の電場
+- 一般の二次電子放出、specular / diffuse な粒子反射
 
-`insulator`はcommit後の再配分を行いません。吸収または放出で変化した各要素の電荷をその要素に保持します。
+これらが時間発展を支配する対象では、`insulator` の結果を実在材料の長時間応答と読み替えないでください。
 
-`neutral_return`はsurface modelによるcommit後の伝導ではなく、負電荷`photo_raycast` speciesの未帰還分を
-同じbatchの解決済み帰還先分布へ繰り込むsource closureです。光電子による表面総電荷増分だけを0にし、
-解決済み帰還先の相対的な分布形状を保持して一様に再重み付けします。式と制約は
-[periodic2有限画像構成](FinitePeriodicConfiguration.html#neutral_returnが閉じる量)を参照してください。
+## 浮遊導体: 総電荷を保って等電位化する
 
-現行modelは、表面内の横方向伝導、bulkへの漏洩、有限抵抗によるrelaxation、二次電子放出、specular/diffuse反射を扱いません。
-v1.0のinteractionはabsorptionが基本であり、これらの効果は結果に含まれません。
+`conductor` は、同じ `mesh_id` の要素を一つの浮遊導体として扱います。粒子の電荷を反映した後、物体の
+総電荷を保ちながら、要素重心の電位が等しくなるよう電荷を再配分します。grounded な固定電位境界ではありません。
 
-## floating conductor
+現行実装は自由空間場だけを受理し、周期場や外部 matching-plane 応答とは併用できません。研究利用では、
+メッシュ細分化に対する物体電位と表面電荷分布の収束を確認してください。
 
-`surface_model="conductor"`要素は`mesh_id`ごとに一つのfloating conductor objectを作ります。grounded potentialを
-与える境界ではありません。粒子差分をいったんcommitした後、objectごとの総電荷$Q_g^\mathrm{before}$を保存しながら、
-同じobject内の要素重心potentialを等しくします。
+連立方程式、P0 panel influence、並列集約、保存量は
+[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)に分離しています。
 
-未知量は、全conductor要素の電荷$q_j$と各groupのscaled equipotential $V_g$です。要素$i$がgroup $g(i)$なら
+## 光電子 closure との違い
 
-$$
-\sum_jA_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed}
-$$
+`surface_charge_closure="neutral_return"` は、表面内を伝導させる material model ではありません。
+closed photoelectron の未帰還分を、同じ batch で観測した帰還先分布へ再配分する source closure です。
+適用条件と閉じる電荷収支は[periodic2 有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
 
-を課します。source要素$j$を単位総電荷のP0 triangleとしたpotential coefficientは
+## 出力を読む
 
-$$
-A_{ij}=\frac{1}{A_j}\int_{T_j}
-\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}
-$$
+`charges.csv` の `charge_C` は各三角形の総電荷 [C] です。表面電荷密度が必要なら要素面積で割ります。
+`tol_rel` は batch 前後の変化を監視する出力であり、現行実装の自動停止条件ではありません。
 
-です。$\mathbf c_i$はtarget要素重心、$A_j$と$T_j$はsource要素の面積と三角形です。
-自己項を含め、解析的P0 panel potentialをprincipal-value側規約で評価します。
-$\phi_i^\mathrm{fixed}$はnon-conductor電荷と一様外部fieldが作るpotentialを`k_coulomb`で割った量です。
+species ごとの吸収・放出・escape を含む保存則は[出力ファイルを調べる](OutputGuide.html)、式と実装上の
+更新順は[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)で確認できます。
 
-さらに、各groupに総電荷保存
+## 次に読むページ
 
-$$
-\sum_{i\in g}q_i=Q_g^\mathrm{before}
-$$
-
-を加え、$N_\mathrm{cond}+N_\mathrm{group}$次のdense square systemを部分pivot付きGauss消去で解きます。
-解いた$q_i$でconductor要素だけを置換します。したがってconductor relaxationはobject間の電荷を移さず、
-non-conductor要素も変更しません。
-
-このmodelは、要素重心collocationとP0 triangle influence matrixを使うfloating conductorです。
-periodic/outer fieldとは併用できず、現行実装は`field_bc_mode="free"`だけを受理します。
-要素細分化に対するobject potential・電荷分布の収束を確認してください。
-
-## dielectricは未実装
-
-`surface_model="dielectric"`と`epsilon_r`は入力として受理しません。以前はinsulatorと同じ計算を行う
-metadata aliasでしたが、分極を解くmodelと誤認されるため削除しました。誘電率interface条件、法線
-$\mathbf D$のjump、polarization charge、内部fieldを実装してから独立したmodelとして追加します。
-
-## OpenMPとMPI commit
-
-particle loopは`dq_thread(nelem,nthreads)`へ吸収電荷を集計します。要素ごとのatomic updateを避け、loop終了後にthread軸を
-sumします。`neutral_return`はspecies別の放出・帰還電荷をMPI全体で集計し、各rankが持つ実測帰還先へ同じscaleを
-適用します。光電子の`photo_emission_dq`を加えたlocal差分をMPI all-reduceし、全rankが同じglobal `q_elem`を持ちます。
-
-conductor relaxationはall-reduce後の同じmesh stateへ各rankで決定論的に適用します。collision queryやphoto raycastが
-不完全statusを返したbatchはcommitへ進まず、部分的な粒子配列や放出差分を使いません。
-
-## `tol_rel`
-
-conductor relaxationまで含むcommit前後の正味差分を
-
-$$
-\Delta\mathbf q=\mathbf q^\mathrm{after}-\mathbf q^\mathrm{before}
-$$
-
-として
-
-$$
-\mathrm{tol\_rel\ metric}
-=\frac{\|\Delta\mathbf q\|_2}{\max(\|\mathbf q^\mathrm{after}\|_2,q_\mathrm{floor})}
-$$
-
-を計算します。現行仕様では、`tol_rel`はmonitor/output metricであり、early-stop条件ではありません。
-
-光電子放出に伴う反作用電荷の符号と放出粒子の追跡は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)、粒子種別の電荷収支、履歴、最終出力、再開用fileは
-[出力ファイルを調べる](OutputGuide.html)で説明します。
-
-## Code reference
-
-- particle absorptionとbatch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- conductor relaxation facade: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
-- floating-conductor solver: [`bem_surface_models_conductor.f90`](../src/physics/bem_surface_models_conductor.f90)
-- batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)
+- 粒子源を選ぶ: [粒子をどこから入れるか](ParticleSourcesBoundaries.html)
+- batch 幅への依存性を調べる: [`batch_duration` をどう決めるか](BatchDurationStability.html)
+- 光電子の反作用電荷と return を調べる: [光電子の放出とライフサイクル](PhotoelectronEmission.html)
+- 全 key と制約を検索する: [入力パラメータ](Parameters.html)

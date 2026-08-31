@@ -122,8 +122,8 @@ def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:
         threads=1,
     )
 
-    assert generated["batch_totals"] == [1]
-    assert tutorial["batch_totals"] == [1]
+    assert generated["batch_totals"] == [200] * 20
+    assert tutorial["batch_totals"] == [200] * 20
 
 
 def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:

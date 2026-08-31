@@ -1,39 +1,46 @@
 {
   "pages": [
-    { "source": { "root": "index.md", "en": "index.en.md" }, "slug": "index", "order": 10, "description": { "root": "BEACHの概要、最短実行例、入力から出力までの流れ。", "en": "BEACH overview, shortest runnable example, and input-to-output flow." } },
+    { "source": { "root": "index.md", "en": "index.en.md" }, "slug": "index", "order": 10, "description": { "root": "BEACHの適用範囲と目的別の読み始め方。", "en": "BEACH scope and goal-oriented reading paths." } },
     { "source": { "root": "Installation.md", "en": "Installation.en.md" }, "slug": "installation", "order": 20, "description": { "root": "BEACHの動作要件とインストール手順。", "en": "BEACH requirements and installation." } },
-    { "source": { "root": "Tutorial.md", "en": "Tutorial.en.md" }, "slug": "tutorial", "order": 30, "description": { "root": "公式入門ケースを実行する手順。", "en": "Run the official beginner case." } },
-    { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "メッシュ、粒子源、境界条件からシミュレーションケースを設計する手順。", "en": "Design a simulation case from meshes, particle sources, and boundary conditions." } },
-    { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beach.tomlの生成、編集、検証とbeachx configのガイド。", "en": "Create, edit, and validate beach.toml with beachx config." } },
-    { "source": { "root": "Execution.md", "en": "Execution.en.md" }, "slug": "execution", "order": 60, "description": { "root": "BEACHの実行、負荷見積もり、再開方法。", "en": "Run BEACH, estimate workloads, and resume simulations." } },
-    { "source": { "root": "OutputGuide.md", "en": "OutputGuide.en.md" }, "slug": "output-guide", "order": 70, "description": { "root": "目的の値をBEACH出力ファイルから見つけるためのガイド。", "en": "Locate values in BEACH output files." } },
-    { "source": { "root": "PostprocessTutorial.md", "en": "PostprocessTutorial.en.md" }, "slug": "postprocess-tutorial", "order": 80, "description": { "root": "BEACH出力を可視化する最初の手順。", "en": "First post-processing steps for BEACH outputs." } },
-    { "source": { "root": "ValidationGuide.md", "en": "ValidationGuide.en.md" }, "slug": "validation-guide", "order": 90, "description": { "root": "計算結果の物理・数値妥当性を確認する手順。", "en": "Validate physical and numerical simulation results." } },
-    { "source": { "root": "Troubleshooting.md", "en": "Troubleshooting.en.md" }, "slug": "troubleshooting", "order": 100, "description": { "root": "インストールと実行時の問題解決。", "en": "Resolve installation and runtime problems." } },
-    { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 110, "description": { "root": "BEACH入力パラメータのリファレンス。", "en": "BEACH input parameter reference." } },
-    { "source": { "root": "PythonPostprocessAPI.md", "en": "PythonPostprocessAPI.en.md" }, "slug": "python-postprocess-api", "order": 120, "description": { "root": "Python後処理APIのリファレンス。", "en": "Python post-processing API reference." } },
-    { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 130, "description": { "root": "BEACHの状態、物理モデル、数値手法の全体像。", "en": "Overview of BEACH state, physical models, and numerical methods." } },
-    { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 140, "description": { "root": "batch末尾の電荷commit、絶縁体帯電、浮遊導体、電荷収支。", "en": "Batch charge commit, insulator charging, floating conductors, and charge accounting." } },
-    { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 145, "description": { "root": "source_mode の選択と、生成後に共通する粒子処理。", "en": "Choose source_mode and understand the particle processing shared after creation." } },
-    { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 146, "description": { "root": "reservoir_face が上流 VDF からバッチ流入量と注入面速度を作る方法。", "en": "How reservoir_face converts an upstream VDF into batch inflow and face-arrival velocity." } },
-    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 147, "description": { "root": "光線追跡による放出、表面電荷、閉じた光電子のneutral return。", "en": "Ray-cast emission, surface charge, and neutral return for closed photoelectrons." } },
-    { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 150, "description": { "root": "同じ時刻の位置・速度から候補軌道を作り、最初の衝突・境界まで確定する流れ。", "en": "Overview of same-time particle updates and earliest-event processing." } },
-    { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 151, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
-    { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 152, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較し、最初に起きる処理を選ぶ方法。", "en": "Mesh collision, box boundaries, periodic images, and earliest-event selection." } },
-    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 156, "description": { "root": "open境界、scalar障壁、閉じた光電子のreturn。", "en": "Open boundaries, scalar barriers, and closed-photoelectron return." } },
-    { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 160, "description": { "root": "periodic2の近傍画像、nonzero operator、zero mode。", "en": "periodic2 near images, nonzero operator, and zero mode." } },
-    { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 161, "description": { "root": "有限画像和で、局所reservoirと閉じた光電子再分配、またはscalar barrierを使う構成。", "en": "Finite image sums with a local reservoir and closed photoelectron redistribution, or scalar barriers." } },
-    { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 170, "description": { "root": "source kernel、Direct、Treecode、FMMの選び方と共通設定。", "en": "Choosing a source kernel, Direct, Treecode, or FMM, with common settings." } },
-    { "source": { "root": "DirectSolver.md", "en": "DirectSolver.en.md" }, "slug": "direct-solver", "order": 171, "description": { "root": "P0 triangle panelのDirect場・電位評価。", "en": "Direct field and potential evaluation for P0 triangle panels." } },
-    { "source": { "root": "Treecode.md", "en": "Treecode.en.md" }, "slug": "treecode", "order": 172, "description": { "root": "octree、monopole近似、mixed-sign電荷のTreecode。", "en": "Treecode octree, monopole approximation, and mixed-sign charge handling." } },
-    { "source": { "root": "FMM.md", "en": "FMM.en.md" }, "slug": "fmm", "order": 175, "description": { "root": "FMMの展開式、計算構成、精度確認。", "en": "FMM expansions, computation structure, and accuracy checks." } },
-    { "source": { "root": "PeriodicFarCorrection.md", "en": "PeriodicFarCorrection.en.md" }, "slug": "periodic-far-correction", "order": 176, "description": { "root": "periodic2のEwald teacher、遠方operator、cache。", "en": "periodic2 Ewald teacher, far operator, and cache." } },
-    { "source": { "root": "FMMCore.md", "en": "FMMCore.en.md" }, "slug": "fmm-core", "order": 180, "description": { "root": "Coulomb FMM coreの内部APIと実装。", "en": "Internal APIs and implementation of the Coulomb FMM core." } },
-    { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 190, "description": { "root": "batch_durationの安定性と定常値。", "en": "batch_duration stability and steady value." } },
-    { "source": { "root": "Workflow.md", "en": "Workflow.en.md" }, "slug": "workflow", "order": 200, "description": { "root": "BEACHの開発、テスト、HPC運用workflow。", "en": "BEACH development, testing, and HPC workflow." } },
-    { "source": { "root": "PhysicsReleaseVerification.md", "en": "PhysicsReleaseVerification.en.md" }, "slug": "physics-release-verification", "order": 210, "description": { "root": "物理リリースの判定項目と収束基準。", "en": "Physics release gate and convergence criteria." } },
-    { "source": { "root": "FortranDependencyMap.md", "en": "FortranDependencyMap.en.md" }, "slug": "fortran-dependency-map", "order": 220, "description": { "root": "自動生成したFortran moduleの依存関係マップ。", "en": "Generated Fortran dependency map." } },
-    { "source": { "root": "agent-user-guide.md", "en": "agent-user-guide.en.md" }, "slug": "agent-user-guide", "order": 230, "description": { "root": "AIエージェントがBEACHを操作するためのガイド。", "en": "Guide for AI agents operating BEACH simulations." } }
+    { "source": { "root": "Tutorial.md", "en": "Tutorial.en.md" }, "slug": "tutorial", "order": 30, "description": { "root": "多数粒子と複数batchによる公式帯電チュートリアル。", "en": "Official multi-particle, multi-batch charging tutorial." } },
+    { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "物理的な目的から形状、粒子源、境界、solverを選ぶ。", "en": "Choose geometry, sources, boundaries, and a solver from the physical goal." } },
+    { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 45, "description": { "root": "生成位置と供給方法から粒子源を選ぶ。", "en": "Choose a particle source from its creation location and supply mechanism." } },
+    { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beach.tomlを生成、編集、検証する。", "en": "Create, edit, and validate beach.toml." } },
+    { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 55, "description": { "root": "外部reservoirからbox境界へ粒子を流入させる。", "en": "Inject particles through a box boundary from an external reservoir." } },
+    { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 60, "description": { "root": "Direct、Treecode、FMMをケース規模と精度から選ぶ。", "en": "Choose Direct, Treecode, or FMM from case size and accuracy needs." } },
+    { "source": { "root": "Execution.md", "en": "Execution.en.md" }, "slug": "execution", "order": 70, "description": { "root": "BEACHの実行、HPC、負荷見積もり、再開方法。", "en": "Run BEACH locally or on HPC, estimate workloads, and resume simulations." } },
+    { "source": { "root": "OutputGuide.md", "en": "OutputGuide.en.md" }, "slug": "output-guide", "order": 80, "description": { "root": "最初の合否確認とBEACH出力ファイルの読み方。", "en": "First-result checks and how to read BEACH output files." } },
+    { "source": { "root": "PostprocessTutorial.md", "en": "PostprocessTutorial.en.md" }, "slug": "postprocess-tutorial", "order": 90, "description": { "root": "BEACH出力をCLIからPythonへ段階的に可視化する。", "en": "Visualize BEACH outputs from the CLI through the Python API." } },
+    { "source": { "root": "ObjectForcesDetachment.md", "en": "ObjectForcesDetachment.en.md" }, "slug": "object-forces-detachment", "order": 95, "description": { "root": "複数物体runの力、移動指標、固定電荷での離脱経路を調べる。", "en": "Analyze forces, mobility indicators, and frozen-charge detachment paths for multi-object runs." } },
+    { "source": { "root": "ValidationGuide.md", "en": "ValidationGuide.en.md" }, "slug": "validation-guide", "order": 100, "description": { "root": "計算結果の数値・物理妥当性を確認する。", "en": "Validate numerical and physical simulation results." } },
+    { "source": { "root": "Troubleshooting.md", "en": "Troubleshooting.en.md" }, "slug": "troubleshooting", "order": 110, "description": { "root": "インストール、実行、出力、再開の問題を症状から診断する。", "en": "Diagnose installation, execution, output, and restart failures from symptoms." } },
+    { "source": { "root": "Algorithms.md", "en": "Algorithms.en.md" }, "slug": "algorithms", "order": 120, "description": { "root": "表面電荷、場、粒子をbatchごとに更新する基本サイクル。", "en": "The ordinary batch cycle that updates surface charge, fields, and particles." } },
+    { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 130, "description": { "root": "絶縁体と浮遊導体で表面電荷を保持・再配分する方法。", "en": "How insulators and floating conductors retain or redistribute surface charge." } },
+    { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 135, "description": { "root": "光線追跡による放出、反作用電荷、閉じた光電子のreturn。", "en": "Ray-cast emission, reaction charge, and return of closed photoelectrons." } },
+    { "source": { "root": "ZhaoStationaryClosure.md", "en": "ZhaoStationaryClosure.en.md" }, "slug": "zhao-stationary-closure", "order": 137, "description": { "root": "Zhao 零電流根、固定電流、0 V reservoir との kinetic 接続。", "en": "Zhao zero-current root, fixed currents, and the kinetic connection to a 0 V reservoir." } },
+    { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 140, "description": { "root": "open境界、scalar障壁、閉じた光電子のreturn。", "en": "Open boundaries, scalar barriers, and closed-photoelectron return." } },
+    { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 145, "description": { "root": "periodic2の近傍画像、非一様場、平均場の役割。", "en": "Roles of near images, the nonuniform field, and the mean field in periodic2." } },
+    { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 150, "description": { "root": "有限画像和、局所reservoir、閉じた光電子、scalar barrierの構成。", "en": "Finite image sums with local reservoirs, closed photoelectrons, and scalar barriers." } },
+    { "source": { "root": "MatchingPlaneCoupling.md", "en": "MatchingPlaneCoupling.en.md" }, "slug": "matching-plane-coupling", "order": 155, "description": { "root": "BEACH領域と外部1D sheath応答を準定常に接続する。", "en": "Couple the BEACH region to a quasistatic outer one-dimensional sheath response." } },
+    { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 160, "description": { "root": "比較計算からbatch_durationを選び、adaptive進行を確認する。", "en": "Choose batch_duration from comparison runs and inspect adaptive progression." } },
+    { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 170, "description": { "root": "BEACH入力パラメータの完全なリファレンス。", "en": "Complete BEACH input parameter reference." } },
+    { "source": { "root": "SurfaceChargeNumerics.md", "en": "SurfaceChargeNumerics.en.md" }, "slug": "surface-charge-numerics", "order": 171, "description": { "root": "表面電荷commit、浮遊導体方程式、並列集約の数値仕様。", "en": "Numerical specification of surface-charge commit, floating conductors, and reductions." } },
+    { "source": { "root": "BatchDurationTheory.md", "en": "BatchDurationTheory.en.md" }, "slug": "batch-duration-theory", "order": 172, "description": { "root": "batch_duration依存性とadaptive制御の理論的背景。", "en": "Theory behind batch-duration dependence and adaptive control." } },
+    { "source": { "root": "OutputReference.md", "en": "OutputReference.en.md" }, "slug": "output-reference", "order": 173, "description": { "root": "出力ファイル、receipt、CSV列、checkpoint契約の完全なリファレンス。", "en": "Complete reference for output files, receipts, CSV columns, and checkpoint contracts." } },
+    { "source": { "root": "DirectSolver.md", "en": "DirectSolver.en.md" }, "slug": "direct-solver", "order": 175, "description": { "root": "P0 triangle panelのDirect場・電位評価。", "en": "Direct field and potential evaluation for P0 triangle panels." } },
+    { "source": { "root": "Treecode.md", "en": "Treecode.en.md" }, "slug": "treecode", "order": 176, "description": { "root": "octree、monopole近似、mixed-sign電荷のTreecode。", "en": "Treecode octree, monopole approximation, and mixed-sign charge handling." } },
+    { "source": { "root": "FMM.md", "en": "FMM.en.md" }, "slug": "fmm", "order": 177, "description": { "root": "FMMの選択、設定、精度比較、性能測定。", "en": "FMM selection, configuration, accuracy comparisons, and performance measurement." } },
+    { "source": { "root": "ParticleTrackingCollision.md", "en": "ParticleTrackingCollision.en.md" }, "slug": "particle-tracking-collision", "order": 180, "description": { "root": "同じ時刻の位置・速度から候補軌道を作る数値手順。", "en": "Numerical procedure for a same-time candidate trajectory." } },
+    { "source": { "root": "BorisPusher.md", "en": "BorisPusher.en.md" }, "slug": "boris-pusher", "order": 181, "description": { "root": "予測中点場、Boris速度回転、台形位置更新。", "en": "Predicted-midpoint field, Boris velocity rotation, and trapezoidal position update." } },
+    { "source": { "root": "ParticleEvents.md", "en": "ParticleEvents.en.md" }, "slug": "particle-events", "order": 182, "description": { "root": "mesh衝突とbox境界をperiodic imageまで含めて比較する。", "en": "Compare mesh collisions and box boundaries including periodic images." } },
+    { "source": { "root": "PeriodicFarCorrection.md", "en": "PeriodicFarCorrection.en.md" }, "slug": "periodic-far-correction", "order": 185, "description": { "root": "periodic2のEwald teacher、遠方operator、cache。", "en": "periodic2 Ewald teacher, far operator, and cache." } },
+    { "source": { "root": "PythonPostprocessAPI.md", "en": "PythonPostprocessAPI.en.md" }, "slug": "python-postprocess-api", "order": 190, "description": { "root": "Python後処理APIのリファレンス。", "en": "Python post-processing API reference." } },
+    { "source": { "root": "Architecture.md", "en": "Architecture.en.md" }, "slug": "architecture", "order": 200, "description": { "root": "runtime実行フロー、state所有者、source・test・docs対応。", "en": "Runtime flow, state ownership, and source-test-doc mappings." } },
+    { "source": { "root": "Workflow.md", "en": "Workflow.en.md" }, "slug": "workflow", "order": 210, "description": { "root": "開発環境、変更別テスト、KUDPC開発workflow。", "en": "Development setup, change-specific tests, and the KUDPC workflow." } },
+    { "source": { "root": "PhysicsReleaseVerification.md", "en": "PhysicsReleaseVerification.en.md" }, "slug": "physics-release-verification", "order": 220, "description": { "root": "物理リリースの判定項目と収束基準。", "en": "Physics release gates and convergence criteria." } },
+    { "source": { "root": "FMMCore.md", "en": "FMMCore.en.md" }, "slug": "fmm-core", "order": 230, "description": { "root": "Coulomb FMM coreの数式、内部API、実装。", "en": "Equations, internal APIs, and implementation of the Coulomb FMM core." } },
+    { "source": { "root": "FortranDependencyMap.md", "en": "FortranDependencyMap.en.md" }, "slug": "fortran-dependency-map", "order": 240, "description": { "root": "自動生成したFortran moduleの依存関係マップ。", "en": "Generated Fortran dependency map." } },
+    { "source": { "root": "agent-user-guide.md", "en": "agent-user-guide.en.md" }, "slug": "agent-user-guide", "order": 250, "sidebar": false, "description": { "root": "AIエージェントがBEACHを操作するための正本ルータ。", "en": "Canonical routing guide for AI agents operating BEACH." } }
   ],
   "sections": [
     {
@@ -41,115 +48,77 @@
       "items": [
         { "type": "page", "slug": "index", "label": { "root": "BEACHとは", "en": "What is BEACH?" } },
         { "type": "page", "slug": "installation" },
-        { "type": "page", "slug": "tutorial" }
+        { "type": "page", "slug": "tutorial", "label": { "root": "20 batch帯電チュートリアル", "en": "20-batch charging tutorial" } }
       ]
     },
     {
-      "label": { "root": "シミュレーションする", "en": "Run simulations" },
+      "label": { "root": "ケースを作る", "en": "Build a case" },
       "items": [
-        { "type": "page", "slug": "configuration-recipes", "label": { "root": "ケースを設計する", "en": "Design a case" } },
-        { "type": "page", "slug": "configuration", "label": { "root": "設定ファイルを作成・検証する", "en": "Create and validate configuration" } },
-        { "type": "page", "slug": "execution" },
-        { "type": "page", "slug": "output-guide", "label": { "root": "出力ファイルを調べる", "en": "Inspect output files" } },
-        { "type": "page", "slug": "postprocess-tutorial" },
-        { "type": "page", "slug": "validation-guide" },
-        { "type": "page", "slug": "troubleshooting" }
+        { "type": "page", "slug": "configuration-recipes", "label": { "root": "ケース設計の流れ", "en": "Case-design workflow" } },
+        { "type": "page", "slug": "particle-sources-boundaries", "label": { "root": "粒子をどこから入れるか", "en": "Choose where particles enter" } },
+        { "type": "page", "slug": "reservoir-injection", "label": { "root": "境界から粒子を流入させる", "en": "Inject through a boundary" } },
+        { "type": "page", "slug": "field-solvers", "label": { "root": "場solverを選ぶ", "en": "Choose a field solver" } },
+        { "type": "page", "slug": "configuration", "label": { "root": "設定を作成・検証する", "en": "Create and validate configuration" } },
+        { "type": "page", "slug": "execution", "label": { "root": "実行・HPC・再開", "en": "Run, HPC, and resume" } }
+      ]
+    },
+    {
+      "label": { "root": "結果を調べる", "en": "Inspect results" },
+      "items": [
+        { "type": "page", "slug": "output-guide", "label": { "root": "出力の合否と形式", "en": "Output checks and formats" } },
+        { "type": "page", "slug": "postprocess-tutorial", "label": { "root": "可視化する", "en": "Visualize results" } },
+        { "type": "page", "slug": "object-forces-detachment", "label": { "root": "物体の力と離脱を調べる", "en": "Analyze object forces and detachment" } },
+        { "type": "page", "slug": "validation-guide", "label": { "root": "数値・物理妥当性を確認する", "en": "Validate numerical and physical results" } },
+        { "type": "page", "slug": "troubleshooting", "label": { "root": "問題を診断する", "en": "Diagnose a problem" } }
+      ]
+    },
+    {
+      "label": { "root": "モデルを理解する", "en": "Understand the models" },
+      "items": [
+        { "type": "page", "slug": "algorithms", "label": { "root": "BEACHの計算サイクル", "en": "The BEACH computation cycle" } },
+        { "type": "page", "slug": "surface-models", "label": { "root": "表面はどう帯電するか", "en": "How surfaces charge" } },
+        { "type": "page", "slug": "photoelectron-emission", "label": { "root": "光電子の放出とreturn", "en": "Photoelectron emission and return" } },
+        { "type": "page", "slug": "zhao-stationary-closure", "label": { "root": "Zhao 定常シース closure", "en": "Zhao stationary sheath closure" } },
+        { "type": "page", "slug": "particle-escape-return", "label": { "root": "粒子のescapeとreturn", "en": "Particle escape and return" } },
+        { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2静電場", "en": "periodic2 electrostatics" } },
+        { "type": "page", "slug": "finite-periodic-configuration", "label": { "root": "有限画像の周期構成", "en": "Finite-image periodic setup" } },
+        { "type": "page", "slug": "matching-plane-coupling", "label": { "root": "matching-plane外部sheath連成", "en": "Matching-plane outer-sheath coupling" } },
+        { "type": "page", "slug": "batch-duration-stability", "label": { "root": "batch_durationをどう決めるか", "en": "How to choose batch_duration" } }
       ]
     },
     {
       "label": { "root": "リファレンス", "en": "Reference" },
       "items": [
-        { "type": "page", "slug": "parameters", "label": { "root": "設定パラメータ", "en": "Configuration parameters" } },
-        { "type": "page", "slug": "python-postprocess-api" }
-      ]
-    },
-    {
-      "label": { "root": "モデルと数値手法", "en": "Models and numerics" },
-      "items": [
-        { "type": "page", "slug": "algorithms", "label": { "root": "計算モデルの全体像", "en": "Model overview" } },
+        { "type": "page", "slug": "parameters", "label": { "root": "入力パラメータ", "en": "Input parameters" } },
+        { "type": "page", "slug": "output-reference", "label": { "root": "出力形式", "en": "Output formats" } },
         {
           "type": "group",
-          "label": { "root": "物理モデル", "en": "Physical models" },
+          "label": { "root": "数値手法の詳細", "en": "Numerical details" },
           "collapsed": true,
           "items": [
-            {
-              "type": "group",
-              "label": { "root": "表面", "en": "Surfaces" },
-              "collapsed": true,
-              "items": [
-                { "type": "page", "slug": "surface-models" }
-              ]
-            },
-            {
-              "type": "group",
-              "label": { "root": "粒子源", "en": "Particle sources" },
-              "collapsed": true,
-              "items": [
-                { "type": "page", "slug": "particle-sources-boundaries", "label": { "root": "粒子源の全体像", "en": "Particle-source overview" } },
-                { "type": "page", "slug": "reservoir-injection", "label": { "root": "reservoir_face の流入量・速度", "en": "reservoir_face inflow and velocity" } },
-                { "type": "page", "slug": "photoelectron-emission" }
-              ]
-            },
-            {
-              "type": "group",
-              "label": { "root": "境界", "en": "Boundaries" },
-              "collapsed": true,
-              "items": [
-                { "type": "page", "slug": "particle-escape-return", "label": { "root": "open境界・escape・return", "en": "Open boundaries, escape, and return" } }
-              ]
-            }
-          ]
-        },
-        {
-          "type": "group",
-          "label": { "root": "場の評価", "en": "Field evaluation" },
-          "collapsed": true,
-          "items": [
-            { "type": "page", "slug": "field-solvers", "label": { "root": "選び方と共通設定", "en": "Selection and common settings" } },
-            { "type": "page", "slug": "direct-solver" },
+            { "type": "page", "slug": "surface-charge-numerics", "label": { "root": "表面電荷更新", "en": "Surface-charge update" } },
+            { "type": "page", "slug": "batch-duration-theory", "label": { "root": "batch_durationの理論", "en": "batch_duration theory" } },
+            { "type": "page", "slug": "direct-solver", "label": { "root": "Direct solver", "en": "Direct solver" } },
             { "type": "page", "slug": "treecode" },
-            { "type": "page", "slug": "fmm" },
+            { "type": "page", "slug": "fmm", "label": { "root": "FMMを使う", "en": "Use FMM" } },
+            { "type": "page", "slug": "particle-tracking-collision", "label": { "root": "粒子1 stepの流れ", "en": "One particle step" } },
+            { "type": "page", "slug": "boris-pusher" },
+            { "type": "page", "slug": "particle-events", "label": { "root": "衝突・境界event", "en": "Collision and boundary events" } },
             { "type": "page", "slug": "periodic-far-correction", "label": { "root": "periodic2遠方補正", "en": "periodic2 far correction" } }
           ]
         },
-        {
-          "type": "group",
-          "label": { "root": "粒子更新", "en": "Particle update" },
-          "collapsed": true,
-          "items": [
-            { "type": "page", "slug": "particle-tracking-collision", "label": { "root": "1 stepの流れ", "en": "One-step flow" } },
-            { "type": "page", "slug": "boris-pusher" },
-            { "type": "page", "slug": "particle-events" }
-          ]
-        },
-        {
-          "type": "group",
-          "label": { "root": "結合された計算構成", "en": "Coupled configurations" },
-          "collapsed": true,
-          "items": [
-            { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2静電場", "en": "periodic2 electrostatics" } },
-            { "type": "page", "slug": "finite-periodic-configuration" }
-          ]
-        },
-        {
-          "type": "group",
-          "label": { "root": "数値特性", "en": "Numerical behavior" },
-          "collapsed": true,
-          "items": [
-            { "type": "page", "slug": "batch-duration-stability" }
-          ]
-        }
+        { "type": "page", "slug": "python-postprocess-api", "label": { "root": "Python API", "en": "Python API" } },
+        { "type": "external", "label": { "root": "Fortran API", "en": "Fortran API" }, "link": "https://nkzono99.github.io/BEACH/fortran/" }
       ]
     },
     {
-      "label": { "root": "開発・検証", "en": "Development and verification" },
+      "label": { "root": "開発者向け", "en": "For developers" },
       "items": [
-        { "type": "page", "slug": "workflow", "label": { "root": "開発環境とテスト", "en": "Development and testing" } },
+        { "type": "page", "slug": "architecture", "label": { "root": "ランタイムのアーキテクチャ", "en": "Runtime architecture" } },
+        { "type": "page", "slug": "workflow", "label": { "root": "開発とテスト", "en": "Development and testing" } },
         { "type": "page", "slug": "physics-release-verification", "label": { "root": "物理リリース検証", "en": "Physics release verification" } },
-        { "type": "page", "slug": "fmm-core", "label": { "root": "FMM内部実装", "en": "FMM internals" } },
-        { "type": "page", "slug": "fortran-dependency-map" },
-        { "type": "external", "label": { "root": "Fortran API", "en": "Fortran API" }, "link": "https://nkzono99.github.io/BEACH/fortran/" },
-        { "type": "page", "slug": "agent-user-guide", "label": { "root": "AIエージェント向けガイド", "en": "AI agent guide" } },
+        { "type": "page", "slug": "fmm-core", "label": { "root": "FMM core内部実装", "en": "FMM core internals" } },
+        { "type": "page", "slug": "fortran-dependency-map", "label": { "root": "Fortran依存関係", "en": "Fortran dependencies" } },
         { "type": "external", "label": { "root": "GitHub Repository", "en": "GitHub Repository" }, "link": "https://github.com/Nkzono99/BEACH", "newTab": true }
       ]
     }

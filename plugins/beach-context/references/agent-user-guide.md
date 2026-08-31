@@ -48,9 +48,10 @@ make run CONFIG=examples/beach.toml
 
 | 目的 | 出発点 | 次に読むページ |
 |---|---|---|
-| 最小の動作確認 | `examples/beach.toml` | [設定レシピ](ConfigurationRecipes.html) |
+| 入門の帯電更新 | `examples/tutorial_insulator.toml` | [10 分チュートリアル](Tutorial.html) |
+| 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](ConfigurationRecipes.html) |
 | 外部 plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir 注入](ReservoirInjection.html) |
-| 内部の矩形面source | `source_mode="plane_source"` | [粒子源と境界流入](ParticleSourcesBoundaries.html) |
+| 内部の矩形面source | `source_mode="plane_source"` | [粒子をどこから入れるか](ParticleSourcesBoundaries.html) |
 | 閉じた光電子再分配 | `examples/periodic2_closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
 | free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
 | 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |

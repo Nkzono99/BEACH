@@ -1,17 +1,33 @@
-title: FMM
+title: FMMを使う
 
 Lang: [日本語](FMM.md) | [English](FMM.en.md)
 
-# FMM
+# FMMを使う
 
-Fast Multipole Method（FMM）は、固定 geometry の計算 plan を再利用し、遠方 source の寄与を展開係数へ
-まとめます。各 batch では電荷に依存する係数だけを更新し、粒子位置では遠方展開と近傍 Direct 和を合成します。
+このページは、BEACH の利用者が FMM を選び、計算領域を設定し、Direct との誤差と実行時間を確認するための
+利用手順です。FMM は、多数の三角形要素が作る遠方場を近似して、同じ mesh 上で多数の粒子位置を評価する計算を
+高速化します。小規模計算では固定費が上回るため、Direct との精度比較と実測時間の両方で採用を決めてください。
 
-| 向いている計算 | 先に確認すること |
+読了後は、free-space FMM の最小設定、精度調整、Direct 比較、性能測定を一つのケースで実行できます。
+展開式、内部データ構造、更新アルゴリズム、並列実装は
+[Coulomb FMMコア内部実装](FMMCore.html)を正本とします。
+
+## FMMを選ぶか判断する
+
+| 条件 | 選択 |
 | --- | --- |
-| 要素数が多く、1 batchで多数の粒子stepを評価する | Directとの差、release buildでの実測時間 |
-| triangle P0を大規模meshで使う | panel Directとの差とmesh細分化 |
-| `periodic2` 場を使う | image 和、nonzero/zero mode、zero-mode 境界条件 |
+| 要素数が多く、1 batch で多数の粒子 step を評価する | FMM を候補にし、release build で Direct と実測比較する |
+| 無限 2 軸周期場を本番計算で使う | FMM と `cached_kneq0` を使う |
+| 小規模ケース、基準解、近似誤差の確認 | Direct を使う |
+| free-space で要素数による自動選択を使いたい | `field_solver="auto"` を使い、解決された solver を出力で確認する |
+
+FMM の有利・不利は要素数だけでなく、粒子数、追跡 step 数、評価点の分布にも依存します。
+Treecode を含む solver 全体の選択は[場の評価](FieldSolvers.html)を参照してください。
+
+## 最小設定で自由空間FMMを使う
+
+既に lint が通るケースの `[sim]`、`[domain]`、`[field_boundary]`、`[output]` を次のように設定します。
+box の値は例なので、実際の計算領域を使ってください。
 
 ```toml
 [sim]
@@ -20,244 +36,143 @@ field_solver = "fmm"
 [domain]
 box_min = [-0.5, -0.5, -0.1]
 box_max = [ 0.5,  0.5,  1.0]
+periodic_axes = []
 
 [field_boundary]
 mode = "free"
+
+[output]
+write_files = true
+dir = "outputs/fmm"
 ```
 
-`[domain]` の box は粒子領域を覆う target tree にも使われます。free 場で tree 外にある評価点は、全 source の
-Direct 和へ fallback します。
+完全なケースは [`examples/panel_fmm.toml`](../examples/panel_fmm.toml) にあります。この example は
+短い確認用に `write_files=false` なので、結果を調べる場合は上の `[output]` 設定へ変更してください。
+入力検査、実行、solver の確認を順に行います。
 
-## 遠方展開と近傍Direct和を合成する
-
-FMMはsourceとtargetをoctreeへ分け、近傍と遠方を分離します。
-
-```text
-source charge
-   │ P2M: leafのmultipoleを作る
-   ▼
-source multipoles
-   │ M2M: childからparentへ集約
-   ▼
-far interactions
-   │ M2L: target nodeのlocal expansionへ変換
-   ▼
-target locals
-   │ L2L: parentからchildへ伝播
-   ▼
-L2P at target + near Direct interactions
+```bash
+beachx lint beach.toml
+beach beach.toml
+beachx inspect outputs/fmm
+grep '^field_reconstruction_resolved_field_solver=' outputs/fmm/summary.txt
 ```
 
-遠方相互作用はCartesian多重極・局所展開で近似し、near listのsourceは解析panel kernelで
-直接評価します。現行simulator adapterの展開次数は`order = 4`固定で、入力からは変更できません。
+lint の末尾が `status=ok`、実行の終了コードが `0` になり、最後のコマンドが
+`field_reconstruction_resolved_field_solver=fmm` を表示すれば FMM 経路で完了しています。
+これは実行完了の確認であり、近似誤差や物理的妥当性の合格判定ではありません。
 
-### Cartesian展開の記法
+## domainで評価範囲を覆う
 
-多重指数を$\alpha=(\alpha_x,\alpha_y,\alpha_z)$とし、次を使います。
+`[domain]` は粒子領域だけでなく、FMM が高速評価する target tree の範囲も定めます。
+粒子が到達し得る位置をすべて box 内に入れてください。要素中心の電位や履歴を評価する場合は、mesh も
+box 内に収めると範囲外評価を避けられます。
 
-$$
-|\alpha|=\alpha_x+\alpha_y+\alpha_z,qquad
-\alpha!=\alpha_x!\alpha_y!\alpha_z!,qquad
-\mathbf r^\alpha=r_x^{\alpha_x}r_y^{\alpha_y}r_z^{\alpha_z}.
-$$
+box は `box_min` と `box_max`、または `box_origin` と正の `box_size` のどちらか一組で指定します。
+free 場で範囲外の点を評価すると、BEACH は全要素の Direct 和へ fallback します。結果は得られますが、頻発すると
+FMM の速度上の利点が失われます。`cached_kneq0` を使う periodic2 計算では範囲外 target を受理しません。
 
-展開に使うLaplace kernelは
+## 精度を調整する
 
-$$
-G(\mathbf r)=\frac{1}{\lVert\mathbf r\rVert},\qquad
-\mathbf E=-\nabla\phi
-$$
+最初は `tree_theta` と `tree_leaf_max` を省略し、要素数から解決される値を基準にします。
+この自動調整は、明示的に `field_solver="fmm"` を選んだ場合にも適用されます。解決値は次で確認できます。
 
-です。以下の係数にはCoulomb定数を含めず、BEACH adapterが評価後に単位系とともに掛けます。
+```bash
+grep -E '^field_reconstruction_(tree_theta|tree_leaf_max|fmm_expansion_order)=' \
+  outputs/fmm/summary.txt
+```
 
-### P2MとM2Mでsourceを集約する
+| 設定 | 調整時の見方 |
+| --- | --- |
+| `tree_theta` | 小さくすると遠方近似の採用条件が厳しくなり、一般に高精度・低速になる。`0 < theta <= 1` |
+| `tree_leaf_max` | 木の深さと近傍 Direct 計算量のバランスを変える。`1` 以上で複数値を比較する |
+| `field_normalization` | 内部座標の数値スケールだけを変える。物理単位や FMM 近似の合格条件には使わない |
 
-leaf中心を$\mathbf c$とすると、各triangle P0 sourceのmultipole係数には三角形上の厳密な面積平均を使います。
+現行 simulator の展開次数は 4 固定で、入力から変更できません。次の順で調整します。
 
-$$
-M_{i,\alpha}=\frac{q_i}{A_i}\int_{T_i}
-\frac{(\mathbf y-\mathbf c)^\alpha}{\alpha!}\,dA_{\mathbf y}
-$$
+1. 自動解決値で基準実行する。
+2. `tree_theta` を小さくした実行を追加する。
+3. `tree_leaf_max` も変え、目的の観測量が安定する範囲を探す。
+4. Direct との差が許容範囲内で、かつ実測時間が短い組合せを採用する。
 
-子中心$\mathbf c_c$から親中心$\mathbf c_p$へは、$\mathbf d=\mathbf c_c-\mathbf c_p$として
-
-$$
-M_\beta(\mathbf c_p)=
-\sum_{\alpha\le\beta}M_\alpha(\mathbf c_c)
-\frac{\mathbf d^{\beta-\alpha}}{(\beta-\alpha)!}
-$$
-
-を全childについて足します。P2M basisとM2Mのshift monomialはgeometryだけで決まるため、plan構築時に
-前計算します。
-
-### M2Lでmultipoleをtarget localへ変換する
-
-source node中心$\mathbf c_s$、target node中心$\mathbf c_t$、$\mathbf R=\mathbf c_t-\mathbf c_s$に対して、
-well-separatedなnode pairの寄与は
-
-$$
-L_\alpha(\mathbf c_t)\mathrel{+}=
-\sum_\beta(-1)^{|\beta|}M_\beta(\mathbf c_s)
-D^{\alpha+\beta}G(\mathbf R)
-$$
-
-です。$D^\gamma$はmulti-index微分です。どのsource/target nodeを組み合わせるかはplanのM2L pair cacheに、
-kernel微分$D^{\alpha+\beta}G(\mathbf R)$は`m2l_deriv`に保存されます。したがってbatchごとの
-`update_state`では、現在のmultipole係数との積和が主な処理になります。
-
-### L2LとL2Pで評価点まで伝える
-
-親localを子中心へ移すときは、$\mathbf d=\mathbf c_c-\mathbf c_p$として
-
-$$
-L_\alpha(\mathbf c_c)\mathrel{+}=
-\sum_{\gamma\ge\alpha}L_\gamma(\mathbf c_p)
-\frac{\mathbf d^{\gamma-\alpha}}{(\gamma-\alpha)!}
-$$
-
-を使います。評価点$\mathbf x$が属するleaf中心を$\mathbf c_l$、$\mathbf r=\mathbf x-\mathbf c_l$とすると、
-
-$$
-\phi_\mathrm{far}(\mathbf x)=
-\sum_\alpha L_\alpha(\mathbf c_l)\frac{\mathbf r^\alpha}{\alpha!},
-$$
-
-$$
-E_{\mathrm{far},k}(\mathbf x)=
--\sum_\alpha L_{\alpha+\mathbf e_k}(\mathbf c_l)
-\frac{\mathbf r^\alpha}{\alpha!}.
-$$
-
-最後に同じleafのnear listを固定 P0 triangle kernelでDirect評価して加えます。M2Lだけで全相互作用を
-評価しているわけではなく、FMMの結果は常に「far local展開 + near Direct和」です。
-
-## geometryと電荷更新を分けて再利用する
-
-固定 mesh を複数の batch で使うため、FMM は幾何に依存する `plan` と電荷に依存する `state` を分けます。
-
-| データ | 主な内容 | 更新時期 |
-| --- | --- | --- |
-| plan | source tree、target tree、near/far list、P2M basis、translation operator | 初期化時。geometry、要素数、主要optionsが変われば再構築 |
-| state | 現在の`q_elem`、multipole係数、local係数 | batch開始時に場を更新するとき |
-
-`build_plan` は geometry だけで決まる量を前計算し、`update_state` は現在の要素電荷から P2M、M2M、M2L、
-L2L を実行します。表面への堆積電荷は batch 末尾で commit され、次の場 snapshot で `state` へ反映されます。
-
-## `[domain]` で target tree を覆う
-
-公開設定では、`[domain]` の `box_min` / `box_max` または `box_origin` / `box_size` が計算領域と target tree の
-範囲を定めます。粒子が到達し得る全領域を box で覆ってください。`domain.periodic_axes` は topology を定め、
-`field_boundary.mode` は `free` / `periodic2` の場 closure を選びます。
-
-free 場で target leaf が見つからない点では、全 source の寄与を直接加算します。この fallback が頻発すると、
-計算量は Direct 相当になります。`cached_kneq0` は固定 target topology を要求するため、box 外 target を
-受理しません。
+要素数別の自動解決値と全キーの型・既定値は[入力パラメータ](Parameters.html#場ソルバ)を参照してください。
 
 <a id="source-kernel"></a>
 
-## triangle P0をnearとfarで一貫して扱う
+## Directと比較して精度を確認する
 
-triangle P0は三角形全体をsource geometryとして保持します。source treeのboxには、重心だけでなく
-三頂点も含まれます。P2Mには三角形上のmonomialの厳密な面平均を使い、near interactionとtree外fallbackには
-[Direct solver](DirectSolver.html#triangle-p0)と同じ解析panel積分を使います。
+Direct と FMM は、どちらも要素電荷を同じ triangle P0 source として扱います。そのため、同じ mesh での差は
+主に FMM の近似誤差を表します。mesh 離散化誤差は、別に mesh を細分化して確認してください。
 
-非退化三角形と解決済みvacuum sideが必要です。現行FMM coreのpanel電場は、評価点が厳密にpanel面上にある場合に
-principal-value traceを使います。面上の場を直接比較する検証では、Directのvacuum-side traceとの違いを
-考慮してください。粒子追跡では、panel面に達する前の軌道線分との交差として衝突を処理します。
+自由空間の縮小ケースを複製し、solver と出力先だけを分けます。最初の solver 誤差比較では
+`sim.batch_count=1` とし、初期表面電荷が同じ状態から得た要素電荷を使います。
 
-設定例は[`examples/panel_fmm.toml`](../examples/panel_fmm.toml)にあります。
+| 設定ファイル | `sim.field_solver` | `output.dir` |
+| --- | --- | --- |
+| `direct.toml` | `"direct"` | `"outputs/direct"` |
+| `fmm.toml` | `"fmm"` | `"outputs/fmm"` |
 
-## 近傍と遠方の分け方で精度を調整する
+mesh、粒子、乱数 seed、thread 数、`dt`、`field_normalization`、出力条件は一致させます。
 
-source node半径$r_s$、target node半径$r_t$、中心間距離$d$に対して、概念的には
+```bash
+beachx lint direct.toml
+beachx lint fmm.toml
+OMP_NUM_THREADS=1 beach direct.toml
+OMP_NUM_THREADS=1 beach fmm.toml
+beachx inspect outputs/direct
+beachx inspect outputs/fmm
+```
 
-$$
-(r_s+r_t)^2 < \theta^2 d^2
-$$
+同じ評価点での電場と電位は、[電場計算](PythonPostprocessAPI.html#6-電場計算)と
+[電位再構成](PythonPostprocessAPI.html#4-電位再構成)を使って比較できます。
+基準場がほぼ 0 の点では相対誤差が不安定になるため、絶対誤差または代表場で正規化した誤差も使ってください。
+solver 誤差が合格した後に代表的な複数 batch へ延長し、吸収・escape 数、要素別の最終電荷、
+`charge_ledger.csv` も比較します。許容値は研究目的に応じて先に決め、
+[計算結果の妥当性確認](ValidationGuide.html)に従って判定します。
 
-を満たすnode対をwell-separatedと判定し、遠方展開で評価します。それ以外は木を細分化し、最終的に
-near Directで評価します。
+panel 面上ちょうどの電場は FMM と Direct で trace の規約が異なるため、通常の点ごとの一致判定に使いません。
+periodic2 の Direct 基準は solver 名だけを変更して作れません。
+[periodic2 静電場](PeriodicElectrostatics.html)の split reference を使用してください。
 
-| key | 影響 |
-| --- | --- |
-| `tree_theta` | 小さいほどfar判定が厳しく、一般に高精度・低速 |
-| `tree_leaf_max` | leafのsource数。near Direct量、木の深さ、memoryのバランスを変える |
-| `field_normalization` | 座標の数値スケール。物理単位やモデルは変えない |
+## 性能を測る
 
-`tree_theta`と`tree_leaf_max`を入力に書かなければ、明示`fmm`でも要素数に応じて
-`(0.40, 12)`、`(0.50, 16)`、`(0.58, 20)`、`(0.65, 24)`の順に自動設定します。区切りは
-`1500`、`10000`、`50000`要素です。これらは誤差保証ではなく初期値です。
+精度条件を満たした後、release build と実運用に近い粒子数で測定します。Direct と FMM で MPI rank、OpenMP thread、
+mesh、粒子、出力条件を揃え、ローカル環境または計算ノードの割当内で実行してください。
 
-展開次数は現在4固定です。FMM近似の感度は`tree_theta`、`tree_leaf_max`、Directとの比較で確認します。
-source離散化の収束は、これとは別にmesh細分化で確認します。
+```bash
+BEACH_PROFILE=1 OMP_NUM_THREADS=8 beach direct.toml
+BEACH_PROFILE=1 OMP_NUM_THREADS=8 beach fmm.toml
+beachx profile outputs/direct/performance_profile.csv \
+  --save outputs/direct/performance_profile.png
+beachx profile outputs/fmm/performance_profile.csv \
+  --save outputs/fmm/performance_profile.png
+```
 
-## 電場・電位と履歴出力を評価する
+全体比較には `simulation_total` 行の `rank_max_s` を使います。FMM の固定費は `field_solver_init`、
+batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `particle_batch` で確認できます。
+小ケースでは初期化の固定費が Direct を上回る場合があります。
 
-通常のtargetでは、電場も電位もlocal expansionとnear Direct和から評価します。要素中心の
-`potential_history.csv`では、triangle P0の解析panel自己積分をnear kernelに含めます。
-[<sup>1</sup>](DirectSolver.html#要素中心の電位出力)
+`write_potential_history` などの出力条件も計算量を変えるため、比較間で一致させます。periodic2 の
+`cached_kneq0` は cold cache と warm cache を分けて測定してください。計測項目の定義は
+[実行時の性能計測](Execution.html#性能計測)を参照してください。
 
-`potential_history`を書き出す時点では、最新の要素電荷でstateをrefreshします。そのため履歴を有効にすると、
-通常のbatch field更新に加えて、stateのrefreshと全要素targetの評価が発生する場合があります。
+## periodic2でFMMを使う
 
-## periodic2の遠方補正はlocal展開へ接続する
+`periodic2` の通常の本番経路は FMM です。無限周期の非零 mode には `cached_kneq0` を使い、
+物理的 zero mode を `[periodic2]` で明示します。`field_periodic_far_correction="none"` は有限画像近似であり、
+無限周期解ではありません。
 
-`periodic2` では、有限画像の外側にある滑らかな周期遠方場を root multipole から target local への追加
-operator として M2L 後・L2L 前に注入します。`none` と production 用 `cached_kneq0`、Ewald2P teacher、
-cache は [periodic2 遠方補正](PeriodicFarCorrection.html)、zero mode を含む場全体の所有関係は
-[periodic2 静電場](PeriodicElectrostatics.html)を参照してください。小規模 reference には、
-`field_solver="direct"` と `panel_spectral_reference` を組み合わせる別経路があります。
+完全な構成は [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml)を参照してください。
+成分の選択と検証は[periodic2 静電場](PeriodicElectrostatics.html)、cache の生成と再利用は
+[periodic2 遠方補正](PeriodicFarCorrection.html)を正本とします。
 
-## 固定費と粒子評価時間を分けて測る
+## 現行制約を確認する
 
-固定次数でinteraction listが過度に増えない場合、目安は次のとおりです。
+- FMM が扱う source は Coulomb の triangle P0 要素で、別の kernel は選べない。
+- simulator の展開次数は 4 固定で、次数収束は入力から実行できない。
+- 対応する場境界は `free` と `periodic2`。完全な互換表は[場の評価](FieldSolvers.html#solverと場境界の互換表)に従う。
+- mesh geometry は実行中に固定される。電荷だけが batch ごとに更新される。
+- `field_normalization` を変更しても、出力される電場と電位は SI 単位へ戻される。
+- FMM 自体は外部 plasma / sheath を解かない。matching-plane response は FMM の外側で合成される。
 
-| 処理 | 目安 |
-| --- | --- |
-| plan構築 | $O(N\log N)$に近い。一度だけだがtranslationやperiodic operatorの前計算を含む |
-| state更新 | $O(N)$に近い |
-| 1点評価 | $O(\log N+N_{\mathrm{near}})$に近い |
-| 多点評価 | targetごとの評価をOpenMPで並列化 |
-
-実際の定数係数とmemory使用量は、展開係数数、source/target node数、M2L pair数、near list、periodic画像数に依存します。
-小ケースではplan構築とstate更新の固定費がDirectを上回ることがあります。速度比較はdebug buildではなく
-release profileで行い、初期化時間、batch更新時間、粒子評価時間を分けて見ます。
-
-## Direct比較から帯電結果まで収束させる
-
-推奨する確認順は次のとおりです。
-
-1. 同じmeshと正規化の小ケースをDirectとFMMで実行する。
-2. 表面近傍、遠方、強い電荷勾配、正負電荷が相殺する領域で電場と電位を比較する。
-3. `tree_theta`を小さくし、`tree_leaf_max`も変えて観測量の安定性を確認する。
-4. source meshを細かくし、FMM近似とは独立にkernel離散化の収束を確認する。
-5. 粒子の命中要素、escape数、batch後の`q_elem`、電荷収支を比較する。
-6. periodic2では有限画像層、far correction、zero mode、cache cold/warmの一致を個別に確認する。
-
-相対誤差は基準場がほぼ0の点で不安定になるため、絶対誤差または代表場で正規化した誤差も併記します。
-FMMの一点誤差が小さくても、粗いpanel meshや大きい粒子時間刻みの誤差は小さくなりません。
-
-## 現行実装で選べる範囲
-
-- kernelはCoulomb固定
-- simulator adapterの展開次数は4固定
-- source geometryはplan構築後に固定
-- 対応する場境界はfreeとperiodic2
-- triangle P0の解析near kernelと厳密P2M
-- free 場の tree 外 target は Direct fallback
-- physical periodic zero mode は FMM core の外で一度だけ加える
-- FMM core 自体は外部plasma/sheathを解かず、matching-plane closureはcore外で合成する
-
-係数配列、interaction cache、translation前計算、parallel loopなどの内部仕様は
-[Coulomb FMMコア内部実装](FMMCore.html)に分けています。periodic operatorの内部仕様は
-[periodic2遠方補正](PeriodicFarCorrection.html)から辿れます。
-
-## Code reference
-
-- BEACH adapterと固定order: [`bem_field_solver_config.f90`](../src/physics/field_solver/bem_field_solver_config.f90)
-- plan/stateの更新: [`bem_field_solver_tree.f90`](../src/physics/field_solver/bem_field_solver_tree.f90)
-- FMM public API: [`bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
-- planとinteraction構築: [`bem_coulomb_fmm_plan_ops.f90`](../src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90)
-- stateのupward/downward pass: [`bem_coulomb_fmm_state_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90)
-- target評価とfallback: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
-- 主なsolver回帰テスト: [`test_dynamics_fmm.f90`](../tests/fortran/test_dynamics_fmm.f90)、[`test_dynamics_panel_fmm.f90`](../tests/fortran/test_dynamics_panel_fmm.f90)
+FMM の数式、内部 API、geometry と電荷状態の分離、範囲外 fallback、OpenMP 実装を調べる開発者は
+[Coulomb FMMコア内部実装](FMMCore.html)へ進んでください。

@@ -155,6 +155,7 @@ def doc_href(locale: str, slug: str) -> str:
 
 
 def replace_repo_links(text: str, locale: str) -> str:
+    text = text.replace("(../SPEC.md", f"({GITHUB_BLOB_ROOT}/SPEC.md")
     text = text.replace("(../src/", f"({GITHUB_BLOB_ROOT}/src/")
     text = text.replace("(../app/", f"({GITHUB_BLOB_ROOT}/app/")
     text = text.replace("(../tests/", f"({GITHUB_BLOB_ROOT}/tests/")

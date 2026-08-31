@@ -1236,18 +1236,16 @@
         },
         "tree_theta": {
           "type": "number",
-          "default": 0.5,
-          "description": "MAC parameter for treecode/FMM (0 < theta <= 1)."
+          "description": "Optional explicit MAC parameter for treecode/FMM (0 < theta <= 1). When omitted, BEACH selects it from the element-count heuristic."
         },
         "tree_leaf_max": {
           "type": "integer",
-          "default": 16,
-          "description": "Maximum elements per leaf node in treecode/FMM."
+          "description": "Optional explicit maximum elements per leaf node in treecode/FMM. When omitted, BEACH selects it from the element-count heuristic."
         },
         "tree_min_nelem": {
           "type": "integer",
           "default": 256,
-          "description": "Element count threshold for field_solver=auto to switch to treecode."
+          "description": "Element count threshold for field_solver=auto to switch from direct evaluation to FMM."
         },
         "b0": {
           "$ref": "#/$defs/vec3",

@@ -173,6 +173,9 @@ an external-boundary target that is not deposited onto the surface. The closure 
 scaling denominator, so it remains stable when large currents nearly cancel. Raw escape statistics are preserved for
 comparison with target / applied / correction values.
 
+See [Zhao stationary closure](ZhaoStationaryClosure.en.html) for the zero-current root, Type A/B/C barriers, and the
+distinction between fixed and batch-dependent quantities.
+
 This stability concerns total-current normalization, not the statistical accuracy of the raw spatial map. If there is one
 return hit, that element receives the entire return target. BEACH imposes no fixed minimum hit count, so inspect the raw
 ledger counts and `fixed_*_weight_scale`, then test the elementwise distribution across `rays_per_batch`, batch widths, and

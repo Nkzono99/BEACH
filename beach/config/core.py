@@ -73,24 +73,22 @@ class ConfigValidationError(ConfigError):
 
 
 def default_config() -> dict[str, Any]:
-    """Return a small runnable ``beach.toml`` document."""
+    """Return the small multi-batch surface-charging tutorial config."""
 
     return {
         "sim": {
-            "dt": 1.0e-7,
-            "batch_count": 1,
-            "max_step": 10,
+            "dt": 5.0e-8,
+            "batch_count": 20,
+            "max_step": 80,
             "rng_seed": 12345,
-            "field_solver": "fmm",
-            "field_periodic_image_layers": 1,
-            "field_periodic_far_correction": "none",
+            "field_solver": "direct",
         },
         "domain": {
             "box_min": [0.0, 0.0, 0.0],
             "box_max": [1.0, 1.0, 1.0],
-            "periodic_axes": ["x", "y"],
+            "periodic_axes": [],
         },
-        "field_boundary": {"mode": "periodic2"},
+        "field_boundary": {"mode": "free"},
         "particle_boundary": {"z_low": "open", "z_high": "open"},
         "particles": {
             "species": [
@@ -98,10 +96,10 @@ def default_config() -> dict[str, Any]:
                     "source_mode": "volume_seed",
                     "q_particle": -1.602176634e-19,
                     "m_particle": 9.10938356e-31,
-                    "w_particle": 1.0,
-                    "npcls_per_step": 1,
-                    "pos_low": [0.5, 0.5, 0.8],
-                    "pos_high": [0.5, 0.5, 0.8],
+                    "w_particle": 2.0e5,
+                    "npcls_per_step": 200,
+                    "pos_low": [0.15, 0.15, 0.8],
+                    "pos_high": [0.85, 0.85, 0.8],
                     "drift_velocity": [0.0, 0.0, -1.0e6],
                     "temperature_k": 0.0,
                 },
@@ -115,18 +113,20 @@ def default_config() -> dict[str, Any]:
                     "enabled": True,
                     "surface_model": "insulator",
                     "surface_side": "normal_plus",
-                    "size_x": 1.0,
-                    "size_y": 1.0,
-                    "nx": 4,
-                    "ny": 4,
+                    "size_x": 0.8,
+                    "size_y": 0.8,
+                    "nx": 12,
+                    "ny": 12,
                     "center": [0.5, 0.5, 0.2],
                 }
             ],
         },
         "output": {
             "write_files": True,
-            "dir": "outputs/latest",
+            "dir": "outputs/tutorial",
             "history_stride": 1,
+            "write_mesh_potential": True,
+            "write_potential_history": True,
         },
     }
 

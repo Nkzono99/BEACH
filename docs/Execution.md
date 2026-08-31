@@ -1,20 +1,31 @@
-title: 実行する
+title: 実行・再開する
 
 Lang: [日本語](Execution.md) | [English](Execution.en.md)
 
-# 実行する
+# 実行・再開する
 
-設定済みの`beach.toml`は、入力検査、実行、出力確認の順に扱います。計算規模に応じて、
-実行前に負荷も見積もってください。既存のcheckpointからは、同じ設定を使って計算を再開できます。
+このページは、設定済みの `beach.toml` を安全に実行し、必要なら checkpoint から続きを計算する手順です。
+入力検査、負荷見積もり、実行、出力確認の順に進めます。再開時は元の出力を残し、累積 `batch_count` を
+増やした別設定へ引き継ぎます。
+
 未インストールの場合は[インストール](Installation.html)、最初のケースを作る場合は
 [10 分チュートリアル](Tutorial.html)から始めてください。
 
+KUDPC の login node では `beach` や `mpirun` を直接実行しません。
+他の HPC 環境でもサイトの login-node 運用規則に従ってください。
+ローカル環境、または計算ノードの割当内で以下のコマンドを実行してください。
+KUDPC では短い確認を `tssrun`、長い計算を `sbatch` 内の `srun` で実行します。job script の例は
+[`examples/job_scripts/`](https://github.com/Nkzono99/BEACH/tree/main/examples/job_scripts)を参照してください。
+
 ## 基本フロー
+
+次は公式入門ケースの `output.dir="outputs/tutorial"` を使う例です。
+別のケースでは、最後の引数をその `output.dir` に置き換えてください。
 
 ```bash
 beachx lint beach.toml
 beach beach.toml
-beachx inspect outputs/latest
+beachx inspect outputs/tutorial
 ```
 
 1. `beachx lint`でTOML、JSON Schema、座標・配置パラメータの組合せ、既知の制約を検査します。
@@ -37,15 +48,8 @@ MPIビルドを利用する場合はランチャーから起動します。
 mpirun -n 4 beach beach.toml
 ```
 
-MPIとOpenMPの組み合わせ、コンパイラ設定、KUDPCでの実行方法は
-[開発環境とテスト](Workflow.html)にまとめています。
-
-OpenMPでは、粒子indexを`dynamic, 1`で分配します。これにより、粒子ごとの追跡step数の違いから生じる
-負荷の偏りを抑えます。衝突による電荷変化は`dq_thread(nelem, nth)`にthread-localで集計し、最後に結合します。
-
-MPIでは粒子の生成と追跡をrank間で分担し、各rankが同じmeshと`q_elem`を保持します。batch末尾に
-`dq(nelem)`と終了状態別の粒子数をallreduceするため、commit後の表面電荷と統計は全rankで一致します。
-通常の結果、履歴、全rankで共有するmacro residualはroot rankが書き出し、RNG stateはrankごとに保存します。
+MPI build、launcher、compiler module は利用する環境に合わせてください。MPI / OpenMP 内部の state 所有と
+集約方法を変更する開発者は[ランタイムのアーキテクチャ](Architecture.html)を参照してください。
 
 ## 実行前に負荷を見積もる
 
@@ -71,51 +75,104 @@ beachx workload beach.toml \
 
 ```bash
 BEACH_PROFILE=1 OMP_NUM_THREADS=8 beach beach.toml
-beachx profile outputs/latest/performance_profile.csv \
-  --save outputs/latest/performance_profile.png
+beachx profile outputs/tutorial/performance_profile.csv \
+  --save outputs/tutorial/performance_profile.png
 ```
 
-スケーリング比較には`performance_profile.csv`の`simulation_total`行にある`rank_max_s`を使います。
-初期化、batch準備、場のrefresh、粒子追跡、電荷commit、MPI集約、統計・履歴更新、
-結果・checkpoint出力を計測します。CSV上では`load_or_init`、`field_solver_init`、`prepare_batch`、
-`field_refresh`、`particle_batch`、`commit_charge`、`mpi_reduce`、`stats_update`、`history_write`、
-`write_results`、`write_checkpoint`として区別されます。
+スケーリング比較には `performance_profile.csv` の `simulation_total` 行にある `rank_max_s` を使います。
+初期化、場の更新、粒子追跡、電荷更新、MPI、出力を別の phase として比較できます。
 
-## 再開実行
+## checkpointから一度再開する
 
-同じ出力ディレクトリから再開する場合:
+正常終了時の最終出力は、`checkpoint_stride=0` でも checkpoint として再開できます。
+最初の再開確認では、元の `outputs/tutorial` を残し、続きを別のディレクトリへ書く方法を推奨します。
+
+### 公式入門ケースを 1 バッチ延長する
+
+**前提:** [10 分チュートリアル](Tutorial.html)が完了し、作業ディレクトリに `beach.toml` と
+`outputs/tutorial` があることを確認します。完了済みバッチ数を読みます。
+
+```bash
+grep '^batches=' outputs/tutorial/summary.txt
+```
+
+公式入門ケースでは `batches=20` と表示されます。一般には、この完了済みバッチ数を `B` とします。
+
+元の設定を残して再開用の設定を作ります。
+
+```bash
+cp beach.toml resume.toml
+```
+
+`resume.toml` の既存の `[sim]` と `[output]` にある該当値を変更します。
+次は公式入門ケースを 20 batch から 21 batch へ延長する完全な例です。
 
 ```toml
+[sim]
+batch_count = 21
+
 [output]
-dir = "outputs/latest"
+write_files = true
+dir = "outputs/resumed"
 resume = true
+restart_from = "outputs/tutorial"
 ```
 
-長時間実行では、accepted batch 数で定期 checkpoint を有効にできます。
+`resume.toml` の他の設定は変更しません。`restart_from` は checkpoint の読み込み元、`dir` は新しい出力先です。
+チュートリアルと同じ作業ディレクトリで、入力検査、実行、出力確認を順に行います。
+
+```bash
+beachx lint resume.toml
+beach resume.toml
+beachx inspect outputs/resumed
+```
+
+合格時は、`beach` と `beachx inspect` の出力に次が含まれます。
+
+```text
+resuming_from_batches=20
+...
+batches=21 ...
+```
+
+別のケースでも、完了済みバッチ数が `B` なら `batch_count` を整数 `B+1` に変更し、
+`resuming_from_batches=B` と `batches=B+1` を確認します。
+`sim.batch_count` は追加バッチ数ではなく、累積の到達バッチ数です。
+
+### 長時間実行の定期 checkpoint
+
+accepted batch 数で定期 checkpoint を有効にできます。
 
 ```toml
 [output]
-dir = "outputs/latest"
+dir = "outputs/tutorial"
 checkpoint_stride = 1000
 ```
 
 この例は 1000 accepted batch ごとに再開状態を二重 slot へ保存します。`0` は定期保存を無効にしますが、
 正常終了時の最終 checkpoint は引き続き出力します。
 
-checkpointと新しい出力先を分ける場合は`restart_from`を指定します。
+### 同じ出力先へ続ける場合と MPI 再開
+
+元の出力ディレクトリへ続けて書く場合は、`restart_from` を省略し、`dir` を checkpoint のディレクトリにします。
+元の最終出力をそのまま比較に残したい場合は、上の別ディレクトリ手順を使ってください。
 
 ```toml
 [output]
-dir = "outputs/continuation"
+write_files = true
+dir = "outputs/tutorial"
 resume = true
-restart_from = "../parent_run/outputs/latest"
 ```
 
-`sim.batch_count`は追加バッチ数ではなく、累積の到達バッチ数です。既存checkpointが
-`batches=100`で`batch_count=150`なら、追加で50バッチ実行します。MPI再開では保存時と現在の
-rank数が一致する必要があります。
-適応的な$k\ne0$進行では、同じ実行内の再試行で全MPI rankの実OpenMP team sizeを揃えます。
-restart前後で同じteam sizeを使う必要はなく、再開後の実team sizeを新しい診断値として記録します。
+一般に、checkpoint が `batches=100` で新しい `batch_count=150` なら 50 バッチを追加します。
+MPI 再開では、checkpoint の `mpi_world_size` と現在の rank 数を一致させます。
+適応的な $k\ne0$ 進行では、同じ実行内の再試行で全 MPI rank の実 OpenMP team size を揃えます。
+restart 前後で同じ team size を使う必要はなく、再開後の実 team size を新しい診断値として記録します。
+
+必須ファイルと checkpoint 選択の契約は
+[再開に使うファイル](OutputReference.html#再開に使うファイル)が正本です。
+再開が拒否された場合は[トラブルシューティング](Troubleshooting.html#checkpointから再開できない)で
+必須ファイル、fingerprint、MPI world size、累積 `batch_count` を確認してください。
 
 ## 実行後に確認すること
 

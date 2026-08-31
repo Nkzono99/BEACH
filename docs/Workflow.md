@@ -1,49 +1,18 @@
-title: 開発・運用ワークフロー
+title: 開発ワークフロー
 
 Lang: [日本語](Workflow.md) | [English](Workflow.en.md)
 
-# 開発・運用ワークフロー
+# 開発ワークフロー
 
-BEACHのソースを編集し、局所実行からHPC検証まで進めるためのタスクガイドです。
-Fortranがシミュレーションを実行し、Pythonが設定支援、後処理、可視化を担当します。
-通常の利用だけが目的なら、[インストール](Installation.html)と[実行する](Execution.html)を参照してください。
-
-## インストール済み環境でcaseを実行する
-
-**前提:** `beach-bem`をインストールし、`beach`と`beachx`がPATHにあります。
-
-```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install beach-bem
-```
-
-開発版を直接試す場合:
-
-```bash
-python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
-```
-
-**操作:**
-
-```bash
-mkdir beach-tutorial
-cd beach-tutorial
-beachx config init beach.toml
-beachx lint beach.toml
-beach beach.toml
-beachx inspect outputs/latest
-```
-
-**期待する出力:** 実行後に`outputs/latest/summary.txt`、`charges.csv`、mesh情報が作成されます。
-
-**解釈:** 正常終了は設定、build、実行経路の動作を示します。定常到達や物理妥当性は保証しません。
-
-**次の選択:** caseの構成変更は[シミュレーションケースを設計する](ConfigurationRecipes.html)、
-出力の意味は[出力ファイルを調べる](OutputGuide.html)、妥当性確認は[結果を検証する](ValidationGuide.html)へ進みます。
+BEACH のソースを変更し、変更範囲に応じたテストを選ぶための contributor guide です。
+通常利用のインストール、case 実行、OpenMP / MPI 実行、負荷見積もり、再開は
+[インストール](Installation.html)と[実行する](Execution.html)を参照してください。
+コードを初めて読む場合は、先に[開発者向けアーキテクチャ](Architecture.html)で実行フローと
+state の所有者を確認してください。
 
 ## 開発環境を作る
 
-**前提:** Python、`make`、Fortran compiler、`fpm`を用意します。
+**前提:** Python、`make`、Fortran compiler、`fpm` を用意します。
 
 ```bash
 make --version
@@ -52,7 +21,7 @@ fpm --version
 python --version
 ```
 
-**操作:**
+**操作:** checkout の root で editable install と軽量 build check を実行します。
 
 ```bash
 python -m pip install -U pip setuptools wheel
@@ -60,186 +29,108 @@ python -m pip install -e . --no-build-isolation
 make check
 ```
 
-**期待する出力:** Python packageが編集可能状態で入り、Fortran sourceがcompileされます。
+**期待する結果:** Python package が checkout を参照し、Fortran source が compile されます。
+`make check` は `BEACH_VERSION_MODE=dev` を使うため、Git hash だけが変わった場合も fpm の
+差分 compile を再利用できます。
 
-**解釈:** `make check`は開発用の軽量build確認です。`BEACH_VERSION_MODE=dev`を使うため、
-git hashだけが変わってもfpmの差分compileを再利用できます。
-
-**次の選択:**
-
-```bash
-make run CONFIG=examples/beach.toml
-make build VERSION_MODE=plain
-make build VERSION_MODE=git
-make install-generic
-```
-
-通常は`build.sh`経由の`make run`と`make check`を使います。低レベル確認だけに次を使います。
+通常は `build.sh` 経由の Make target を使います。個別の Fortran test target は次の形で実行します。
 
 ```bash
-fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml
+FPM_ACTION=test ./build.sh --target test_particle_stepper
 ```
 
-## 変更をテストする
+複数の `fpm test` または `build.sh` test target を並行実行しないでください。同じ `build/` directory を
+共有するため、compile artifact が競合します。
 
-**前提:** 変更した範囲と、必要なテストtierを決めます。複数の`fpm test`を並行実行しないでください。
+## 変更からテストを選ぶ
 
-**操作:**
+最初に直接関係する test を実行し、その後で少なくとも表の gate まで確認します。複数 subsystem にまたがる変更では、
+該当する行を組み合わせます。公開契約や数値結果へ影響する変更では、直接 test だけで完了としません。
+
+| 変更範囲 | 直接確認する test | 最低 gate / 追加確認 |
+| --- | --- | --- |
+| documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
+| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py` | `make test-l1` と `make schema-check` |
+| mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
+| 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection`、`test_external_field_velocity_grid` | `make test-l1` |
+| Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
+| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。matching-plane は `test_matching_plane_simulator` も確認 |
+| field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
+| FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l3`。遠方補正は `make test-fortran-far-correction` |
+| C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c` | `make test-l2`。cache receipt は `make test-field-kernel-cache` |
+| output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart`、`test_model_fingerprint` | `make test-l1` と関連する Python reader test |
+| Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
+
+Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正本です。subsystem、source、直接 test、
+関連 document の対応は[開発者向けアーキテクチャ](Architecture.html)にあります。
+
+## Test tier を使い分ける
 
 ```bash
-make test-l0      # static/schema/build
-make test         # L1: 通常の開発ループ
-make test-l2      # L2: contract/integration
-make test-l3      # L3: heavy FMMを含む累積検証
+make test-l0      # static / schema / build
+make test         # L1: Python + 軽量 Fortran（test-l1 の alias）
+make test-l2      # L1 + C / kernel contract
+make test-l3      # L2 + heavy FMM / panel
 ```
 
-個別のFortran target:
+- L0 は `git diff --check`、source text、JSON schema、`make check` を確認します。
+- L1 は L0 に全 Python test と通常の Fortran test target を加えます。
+- L2 は C ABI と periodic zero-mode C contract を加えます。
+- L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
 
-```bash
-FPM_ACTION=test ./build.sh --target test_version
-```
-
-**期待する出力:** 各commandが非zero statusなしで完了し、対象testがpassします。
-
-**解釈:**
-
-- L0: `git diff --check`、JSON schema、`make check`
-- L1: L0 + Python tests + 軽量Fortran targets
-- L2: L1 + C/kernel contractなどのintegration targets
-- L3: L2 + heavy FMM targets
-
-重い`test_dynamics_fmm`と`test_coulomb_fmm_core_basic`はL1に含まれません。
-
-**次の選択:**
+次の gate は tier へ常時含めず、変更内容または release 判断に応じて明示的に実行します。
 
 ```bash
 make test-heavy
 make test-fortran-far-correction
-make test-fortran-benchmark
 make test-field-kernel-cache
+make test-mpi
+make test-fortran-benchmark
+make test-physics-release
 make test-full
 ```
 
-`test-field-kernel-cache`はnative cache/plane-oracle receipt用のopt-in gateで、L1/L2/L3には含まれません。
-release判断は[物理リリースの検証](PhysicsReleaseVerification.html)に従います。
+`test-field-kernel-cache` は native cache / plane-oracle receipt 用です。性能比較は correctness test と分け、
+release profile の `make test-fortran-benchmark` を使います。物理 release の判定と収束 fixture は
+[物理リリースの検証](PhysicsReleaseVerification.html)に従います。
 
-## OpenMPまたはMPIで実行する
+handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
+最後に `git diff --check` で whitespace error を確認します。これらの format / lint check が必要な変更では、
+test tier の通過だけで代用しません。
 
-**前提:** OpenMP build、またはMPI compilerで作成したMPI buildを用意します。
+## KUDPC で開発テストを実行する
 
-**操作:**
+KUDPC では test payload を実行する前に `hostname`、`module list`、利用可能なら `spartition` と `qgroup` を確認し、
+host role、active `Sys*` module、割当を確定します。
 
-```bash
-OMP_NUM_THREADS=8 beach beach.toml
-mpirun -n 4 beach examples/beach.toml
-```
+login node（`camphor*`、`laurel*`、`cinnamon*`、`gardenia*`）では、編集、差分確認、短い log 読み取り、
+`make check`、job 投入・監視までに留めます。`make test*`、`pytest`、`fpm test`、MPI / OpenMP test、
+benchmark は直接実行しません。
 
-粗いフェーズ計測を加える場合:
+- 短い開発 test は `tssrun` で計算 node の割当を取得して実行する。
+- tier test、MPI test、heavy / release gate は `sbatch` job 内の `srun` で実行する。
+- job 内でも複数の `fpm test` を並行実行しない。
+- checkout、入力、cache、log は計算 node から見える `/home`、`/LARGE0`、`/LARGE1`、または合意した
+  `/FAST` path に置く。login node の `/TMP` を前提にしない。
 
-```bash
-BEACH_PROFILE=1 OMP_NUM_THREADS=8 beach examples/beach.toml
-beachx profile outputs/latest/performance_profile.csv \
-  --save outputs/latest/performance_profile.png
-```
+production simulation の job 設計、thread / rank 構成、負荷見積もりは[実行する](Execution.html)の責務です。
 
-**期待する出力:** 通常のsimulation出力に加え、profile有効時は`performance_profile.csv`が作成されます。
+## 公開契約を変更するとき
 
-**解釈:** scaling比較には`simulation_total`行の`rank_max_s`を使います。MPI再開ではcheckpointの
-`mpi_world_size`と現在のrank数を一致させます。
+公開契約を変えた場合は、実装だけでなく対応する正本と consumer を同じ変更で更新します。
 
-**次の選択:** hybrid経路だけを確認する場合:
+| 変更した契約 | 同時に確認・更新するもの |
+| --- | --- |
+| Fortran の simulation behavior | `SPEC.md`、対応する model / numerical-method page、回帰 test、必要なら収束 test |
+| TOML table、key、型、既定値、制約 | `schemas/beach.schema.json` と配布 copy、Fortran parser、Python validator、`Parameters.md` / `.en.md`、examples |
+| CLI または Python / Fortran API | help、公開 signature、examples、日英 API document、consumer test |
+| output file、column、生成条件 | `schemas/beach.output-manifest.json`、Fortran writer、Python reader、`OutputGuide.md` / `.en.md`、restart compatibility |
+| checkpoint state または fingerprint | schema version / compatibility rule、writer、loader、restart test、`SPEC.md` の再開契約 |
+| 数値手法または物理 model | 適用範囲、fail-closed 条件、Direct / oracle 比較、数値収束、`ValidationGuide.md` / `.en.md` |
 
-```bash
-FPM_FC=mpiifx \
-fpm test --target test_mpi_hybrid \
-  --flag "-fpp -DUSE_MPI -qopenmp" \
-  --runner "mpirun -n 2"
-```
+すべての文書変更で、日本語版と英語版の command、identifier、制約、警告、期待する結果を対応させます。
+`sim.tol_rel` は現行実装では監視・出力値であり、早期停止条件として説明しません。実行成功、test 通過、
+数値収束、物理妥当性は別々に報告してください。
 
-Intel `ifx`でOpenMP buildを行う場合は`OPENMP_FLAG=-qopenmp`を使います。
-
-## KUDPCで実行・テストする
-
-**前提:** `hostname`、`module list`、利用可能なら`spartition`と`qgroup`でhostと割当を確認します。
-
-**操作:** login nodeでは編集、軽いログ確認、`make check`、job投入・監視までに留めます。
-`make test*`、`fpm test`、長時間実行、benchmarkは計算node上で実行します。
-
-- 短い対話確認: `tssrun`
-- batch実行: `sbatch` job内の`srun`
-
-SysAで1 rankあたり112 OpenMP threadsを使う例:
-
-```bash
-export OMP_NUM_THREADS=112
-export OMP_PROC_BIND=spread
-export OMP_PLACES=cores
-srun beach beach.toml
-```
-
-**期待する出力:** Slurm allocation内でsimulationまたはtestが完了し、job logと通常の出力が残ります。
-
-**解釈:** thread配置は性能比較と再現性のため固定します。login nodeでの正常動作を計算nodeの性能とみなしません。
-
-**次の選択:** KUDPCの環境選択とjob構成は、repositoryのKUDPC pluginと
-`examples/job_scripts/camphor_mpi_hybrid_job.sh`を参照します。
-
-## 負荷を見積もってから実行する
-
-**前提:** `boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`、`photo_raycast`を使うcaseでは、
-batchあたり粒子数が設定から決まります。
-
-**操作:**
-
-```bash
-beachx workload examples/beach.toml --threads 8
-```
-
-MPI rankとcheckpoint残差を含める場合:
-
-```bash
-beachx workload examples/beach.toml \
-  --threads 8 \
-  --mpi-ranks 4 \
-  --mpi-rank 0 \
-  --macro-residuals outputs/latest/macro_residuals.csv
-```
-
-**期待する出力:** rank局所の`total_particles`と全rankの`global_total_particles`が表示されます。
-
-**解釈:** これはworkloadの事前見積もりであり、walltime予測や物理妥当性の判定ではありません。
-
-**次の選択:** 見積もりが大きい場合はmesh、macro粒子数、`batch_count`を小さくしたsmoke caseから始めます。
-
-## checkpointから再開する
-
-**前提:** 読み込み元に`summary.txt`、`charges.csv`、RNG状態などのcheckpoint一式があります。
-
-**操作:**
-
-```toml
-[output]
-dir = "outputs/continuation"
-resume = true
-restart_from = "../parent_run/outputs/latest"
-```
-
-**期待する出力:** checkpointを読み込み、新しい出力を`outputs/continuation`へ保存します。
-
-**解釈:** `sim.batch_count`は累積到達batch数です。checkpointが`batches=100`で
-`batch_count=150`なら50 batchを追加します。既存の処理済みbatch数より小さい値は受理されません。
-
-**次の選択:** 同じdirectoryへ続けて書く場合は`restart_from`を省略し、`dir`をcheckpoint directoryにします。
-
-## 変更後に確認する実装契約
-
-- 通常実行は`sim.batch_count`で指定したbatch数まで進みます。
-- `sim.tol_rel`は監視・出力値であり、早期停止条件ではありません。
-- box geometryと周期軸は`[domain]`、場closureは`[field_boundary]`で指定します。
-- global粒子面は`[particle_boundary]`、species overrideは`[particles.species.boundary]`で指定します。
-- 外部reservoirの流入modelと`phi_infty`は`[reservoir]`に置き、流入面は`[particles.species.boundary_inflow]`で選びます。
-- v1.0の標準surface modelはinsulator accumulationです。
-- 境界reservoir + closed PEは有限box内のreduced closureであり、外部領域を自己無撞着に解くmodelではありません。
-- 実行成功、数値収束、物理妥当性は別々に確認します。
-
-公開API、設定、出力を変更した場合は、日英ドキュメント、examples、schema、対応testも同じ変更で更新してください。
+正本の責務分担は[開発者向けアーキテクチャ](Architecture.html#正本の責務を区別する)、user case の妥当性確認は
+[計算結果の妥当性確認](ValidationGuide.html)を参照してください。

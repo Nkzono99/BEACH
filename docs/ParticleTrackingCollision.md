@@ -25,7 +25,7 @@ Boris速度更新 + 台形位置更新
 | --- | --- |
 | 電場標本、Boris回転、位置更新 | [Boris粒子更新](BorisPusher.html) |
 | 三角形衝突、box面、periodic image、発生順序 | [粒子の衝突・境界イベント](ParticleEvents.html) |
-| 衝突・境界処理後の吸収と要素電荷差分 | [表面電荷更新](SurfaceModels.html) |
+| 衝突・境界処理後の吸収と要素電荷差分 | [表面はどう帯電するか](SurfaceModels.html) |
 | open面のescape、scalar-barrier反射 | [粒子源](ParticleSourcesBoundaries.html)、[粒子のescapeとreturn](ParticleEscapeReturn.html) |
 
 ## 1 stepで確定する状態

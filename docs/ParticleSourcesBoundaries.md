@@ -1,137 +1,107 @@
-title: 粒子源と境界流入
+title: 粒子をどこから入れるか
 
 Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBoundaries.en.md)
 
-# 粒子源と境界流入
+# 粒子をどこから入れるか
 
-`source_mode` はシミュレーション領域内で粒子を生成する方法を選び、
-`[particles.species.boundary_inflow]` は領域外から境界を横切る流入を加えます。2 つは異なる責務です。
+このページは、粒子を生成する位置と物理的な供給方法から、使う粒子源を選ぶための案内です。
+領域内に粒子を置く方法は `source_mode`、領域外から box 境界を横切らせる方法は
+`[particles.species.boundary_inflow]` が担当します。
 
-## 生成位置に応じて設定を選ぶ
+> **選び方の要点:** 指定個数を置くなら `volume_seed`、内部の矩形面から連続供給するなら
+> `plane_source`、外部 plasma reservoir から入れるなら `boundary_inflow`、照射面から光電子を
+> 放出するなら `photo_raycast` を使います。
 
-| 設定 | 粒子数を決める量 | 生成位置 | 適した用途 |
+読了後には、粒子源を一つ選び、詳細設定を読むべき専用ページまたはリファレンスへ進めます。
+
+## 生成位置から選ぶ
+
+| 目的 | 選ぶ設定 | 粒子数を決める量 | 生成位置 |
 | --- | --- | --- | --- |
-| `source_mode="volume_seed"` | `npcls_per_step` | `pos_low` から `pos_high` の体積 | 初期粒子、軌道試験、指定個数の生成 |
-| `source_mode="plane_source"` | 流入流束、矩形面積、`batch_duration` | ボックス内部の axis-aligned 矩形面 | 内部に明示した一方向の面 source |
-| `source_mode="photo_raycast"` | 電流密度、投影面積、`batch_duration`、光線数 | 光線が最初に命中した表面 | 光照射による表面放出 |
-| `[particles.species.boundary_inflow]` | reservoir 流束、ボックス面積、`batch_duration` | 非周期のシミュレーション境界 | 外部 plasma reservoir からの連続流入 |
+| 初期粒子や軌道試験を指定個数で作る | `source_mode="volume_seed"` | `npcls_per_step` | `pos_low` と `pos_high` の間 |
+| box 内部の面から一方向に供給する | `source_mode="plane_source"` | 流束 × 面積 × `batch_duration` | axis-aligned な矩形面 |
+| box 外の plasma から流入させる | `boundary_inflow` | reservoir 流束 × box 面積 × `batch_duration` | 非周期の box 面 |
+| 光が当たった表面から放出する | `source_mode="photo_raycast"` | 電流密度、投影面積、`batch_duration` | ray が最初に命中した表面 |
 
-`boundary_inflow` は `source_mode` ではありません。純粋な境界流入 species は
-`source_mode="volume_seed"` と `npcls_per_step=0` を使い、同じ species に初期粒子も必要なら
-Maxwell 分布に限り `npcls_per_step>0` にします。速度 grid の境界流入では正の `npcls_per_step` を指定できません。
-初版では、流束駆動の `plane_source` または旧 `reservoir_face` と
-`boundary_inflow` を同じ species で併用できません。
+`source_mode` と `boundary_inflow` は別の設定です。現行 schema で境界流入だけを使う species は、
+形式上 `source_mode="volume_seed"` と `npcls_per_step=0` も指定します。これは volume から粒子を
+生成するという意味ではありません。
 
-## `volume_seed` で指定個数の粒子を作る
+## 指定個数を置く: `volume_seed`
 
-`volume_seed` は、各バッチに `npcls_per_step` 個の粒子を生成します。位置は直方体
-`[pos_low, pos_high]` 内の一様分布、速度はドリフト付き Maxwell 分布です。
-`thermal_speed` を指定した場合は、温度から求めた熱速度より優先します。
+`volume_seed` は、各 batch に `npcls_per_step` 個の粒子を作ります。位置は `pos_low` と `pos_high` が
+囲む直方体から、速度は設定したドリフト付き Maxwell 分布から標本化します。
 
-この source は物理的な面流束から粒子数を計算しません。`npcls_per_step=0` は、同じ species の
-`boundary_inflow` だけを使う場合に有効です。正の値は Maxwell 境界流入と併用できますが、速度 grid とは併用できません。
+物理的な面流束から個数を求める source ではありません。そのため `batch_duration=0` でも実行できますが、
+その batch に物理秒を割り当てることはできません。公式の
+[10 分チュートリアル](Tutorial.html)は、この方法で batch 間の表面帯電 feedback を見せます。
 
-## `plane_source` で内部矩形面から放出する
+## 内部の面から供給する: `plane_source`
 
-`plane_source` は、`pos_low` と `pos_high` が定めるボックス内部の axis-aligned 矩形面から
-`source_normal` 方向へ粒子を生成します。
+`plane_source` は、box 内部の矩形面から `source_normal` 方向へ粒子を供給します。
+`pos_low` と `pos_high` は一つの座標だけが同じ値となり、残る二方向が面積を持つようにします。
 
 ```toml
-[[particles.species]]
 source_mode = "plane_source"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.1093837139e-31
-target_macro_particles_per_batch = 300
-pos_low = [0.2, 0.2, 2.0]
-pos_high = [0.8, 0.8, 2.0]
+pos_low = [0.2, 0.2, 0.7]
+pos_high = [0.8, 0.8, 0.7]
 source_normal = [0.0, 0.0, -1.0]
 ```
 
-`pos_low` と `pos_high` はちょうど 1 軸で同じ値を持ち、残る 2 軸は正の長さを持つ必要があります。
-法線座標はボックス境界より厳密に内側、接線範囲はボックス内に置きます。`source_normal` は
-zero-thickness 軸に沿う非ゼロベクトルです。
-設定例では正負の単位ベクトルを推奨し、実装は `[2,0,0]` のような大きさを内部で正規化します。
+粒子数は流束、矩形面積、`batch_duration` から決まります。この面は外部 plasma との境界ではないため、
+`reservoir.phi_infty` を使う無限遠からの電位補正は適用しません。
 
-粒子数は Maxwell reservoir の density・temperature、または速度グリッドの指定流束に、矩形面積と
-`batch_duration` を掛けて決めます。法線速度は `source_normal` 方向の片側流束分布から生成します。
-`[reservoir]` の `infinity_barrier`、`phi_infty`、`face_potential_grid_n` は内部平面には適用しません。
+## 外部 reservoir から入れる: `boundary_inflow`
 
-## `boundary_inflow` で外部 reservoir から流入させる
-
-`[particles.species.boundary_inflow]` の 6 面キーへ `"reservoir"` を指定します。
+`boundary_inflow` は、非周期の box 面全体を横切る外部 plasma 流入です。選択した面は、粒子が外向きに
+到達したときの作用を別途 `open` にします。
 
 ```toml
 [[particles.species]]
-species_key = "solar_wind_electron"
 source_mode = "volume_seed"
 npcls_per_step = 0
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.1093837139e-31
-target_macro_particles_per_batch = 300
-drift_velocity = [0.0, 0.0, -4.0e5]
+# density, temperature, charge, mass, and macro-particle weight
 
 [particles.species.boundary_inflow]
 z_high = "reservoir"
 ```
 
-選択したボックス面全体から内向きに生成します。複数の非周期面を同時に指定できますが、
-周期面は指定できません。外向き粒子の作用は `[particle_boundary]` または
-`[particles.species.boundary]` で独立に指定し、流入面の有効作用は `open` にします。
+Maxwell 分布または速度 grid、面ごとの流束と端数、無限遠の plasma 電位から境界までの補正は
+[境界から粒子を流入させる](ReservoirInjection.html)で説明します。このモデルは box 外の軌道や
+自己無撞着な外部 sheath を解きません。外部 sheath 応答そのものが必要なら
+[matching-plane 準定常連成](MatchingPlaneCoupling.html)を検討してください。
 
-流束、マクロ粒子数、面ごとの端数、`infinity_barrier` は
-[シミュレーション境界からの reservoir 流入](ReservoirInjection.html)にまとめています。
-このモデルはボックス外の軌道や自己無撞着 sheath を解きません。
+## 照射面から放出する: `photo_raycast`
 
-## `photo_raycast` で照射面から粒子を放出する
+`photo_raycast` は box 面上の照射開口から ray を飛ばし、最初に命中した三角形から粒子を放出します。
+放出元へ残す逆符号電荷、再吸収、closed photoelectron の return は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)で扱います。
 
-`photo_raycast` は、ボックス面上の照射開口から光線を発射し、ボックス境界条件に従って進めます。
-ボックス内で最初に命中した要素から粒子を放出し、要素法線に対する流束重み付き Maxwell 分布から速度を生成します。
+## 生成後の追跡は共通
 
-放出元へ置く逆符号電荷、再吸収、closed PE は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)で説明します。
+どの方法で生成した粒子も、同じ粒子追跡へ入ります。
 
-## 旧 `reservoir_face` は互換入力
-
-`source_mode="reservoir_face"` は既存ケースの挙動を維持する deprecated 入力です。`inject_face` と
-`pos_low` / `pos_high` でボックス面上の開口を定め、旧方式の流入を生成します。BEACH はこれを
-`boundary_inflow` や `plane_source` へ暗黙変換しません。
-
-新しい外部 plasma ケースには `boundary_inflow`、内部の明示的な矩形面には `plane_source` を使ってください。
-旧開口を境界全面の流入へ移す場合は、面積の変化により物理流入量が変わる点を確認します。
-
-## 生成後は同じ粒子追跡へ入る
-
-生成方法が異なっても、粒子は同じ追跡処理へ入ります。
-
-| バッチ内の結果 | 処理 |
+| 結果 | BEACH の処理 |
 | --- | --- |
-| メッシュへ吸収 | 命中要素へマクロ粒子電荷を堆積 |
-| open 面で escape | 粒子を除去し、species 別の escape 量へ計上 |
-| `reflect` / `redistributed_reflect` / periodic 面 | 同じ粒子で残り step を再積分 |
-| `max_step` まで生存 | 未解決粒子としてバッチ末尾で破棄・計上 |
+| 三角形へ吸収 | 命中要素の電荷差分へ加える |
+| open 面から脱出 | 粒子を除去し、species 別 escape として数える |
+| 反射または周期境界を通過 | 同じ粒子の残り時間を追跡する |
+| `sim.max_step` まで生存 | 未解決 survivor として数え、batch 末尾で破棄する |
 
-非周期面の global 作用は `[particle_boundary]`、species override は `[particles.species.boundary]`、
-周期軸は `domain.periodic_axes` で指定します。粒子前進は [Boris 粒子更新](BorisPusher.html)、
-mesh と box の event 順序は[粒子の衝突・境界イベント](ParticleEvents.html)、
-open 面処理は[粒子の escape と局所 return](ParticleEscapeReturn.html)で説明します。
+box 境界を出る粒子の扱いは[粒子の escape と return](ParticleEscapeReturn.html)、粒子 event の
+判定順は[粒子の衝突・境界 event](ParticleEvents.html)を参照してください。
 
-## MPI と再開で流入量を保つ
+## 旧 `reservoir_face` を読む場合
 
-reservoir 流入と `plane_source` の全 rank 合計粒子数と端数は root rank で決め、各 rank へ分配します。
-`photo_raycast` の `rays_per_batch` も全 rank の合計です。期待される流入量や放出量は MPI rank 数に
-依存しませんが、乱数列と個々の粒子軌道は rank 数によって変わる場合があります。
+`source_mode="reservoir_face"` は既存ケースのための deprecated 入力です。新しい外部 plasma ケースには
+`boundary_inflow`、内部の矩形面には `plane_source` を使います。旧開口を box 面全体の流入へ変更すると
+面積と総流入量が変わるため、BEACH は暗黙変換しません。
 
-境界流入の端数は species と face の組ごとに checkpoint へ保存し、再開時に復元します。端数処理と
-確認項目は [reservoir 流入](ReservoirInjection.html)を参照してください。
+全 key、併用制約、MPI と checkpoint の仕様は[入力パラメータ](Parameters.html)に集約しています。
 
-## Code reference
+## 次に読むページ
 
-- 粒子分布と光線追跡: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- source と境界流入のバッチ生成: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- 入力の検証: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- 電荷収支とバッチ追跡: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- マクロ粒子端数の checkpoint: [`bem_restart.f90`](../src/runtime/bem_restart.f90)
+- 形状、粒子源、境界、solver を一つのケースにまとめる: [ケースを設計する](ConfigurationRecipes.html)
+- 境界流束と `phi_infty` を設定する: [境界から粒子を流入させる](ReservoirInjection.html)
+- 表面衝突後の電荷を扱う: [表面はどう帯電するか](SurfaceModels.html)
+- 完全な key と制約を検索する: [入力パラメータ](Parameters.html)

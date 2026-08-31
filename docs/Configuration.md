@@ -9,7 +9,7 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 [シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。
 
 - Fortran 実行系 `beach` は `beach.toml` を直接読みます。
-- `beachx config init` は、最小限の実行可能な `beach.toml` を作ります。
+- `beachx config init` は、多数粒子・20 batch の公式チュートリアル設定を作ります。
 - 全キーと、読み込み時に値を計算する座標・配置パラメータは[入力パラメータリファレンス](Parameters.html)にまとめています。
 
 ## 1. 基本フロー
@@ -40,10 +40,10 @@ beachx config init --force
 ```
 
 生成内容は[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)と
-同一です。`volume_seed` から 1 個の電子を絶縁体平面へ向けて追跡する、`field_solver="fmm"`、
-`[field_boundary] mode="periodic2"` の公式入門ケースです。`domain.periodic_axes=["x", "y"]` とし、
-`field_periodic_image_layers=1`、`field_periodic_far_correction="none"` による $3\times3$ cell の有限画像和を使います。
-無限周期補正、ion species、`photo_raycast` は含みません。
+同一です。`volume_seed` から毎 batch 200 個のマクロ電子を絶縁体平面へ入射し、20 batch にわたる
+電荷分布と後続粒子への feedback を確認する公式入門ケースです。理解しやすい
+`field_solver="direct"` と `[field_boundary] mode="free"` を使い、周期境界、ion species、
+`photo_raycast` は含みません。
 
 ### 2.2 `lint`
 

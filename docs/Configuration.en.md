@@ -9,7 +9,7 @@ See [Design a Simulation Case](ConfigurationRecipes.en.html) for choosing meshes
 and the rest of the physical setup.
 
 - The Fortran runtime `beach` reads `beach.toml` directly.
-- `beachx config init` creates a small runnable `beach.toml`.
+- `beachx config init` creates the official multi-particle, 20-batch tutorial `beach.toml`.
 - See [Input Parameters Reference](Parameters.en.html) for every key, including coordinate and placement helpers evaluated while loading.
 
 ## 1. Basic Flow
@@ -42,11 +42,10 @@ beachx config init --force
 
 The generated file is identical to
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
-It is the official beginner case that launches one `volume_seed` electron toward an insulating plane with
-`field_solver="fmm"` and `[field_boundary] mode="periodic2"`.
-`domain.periodic_axes=["x", "y"]`, and
-`field_periodic_image_layers=1` with `field_periodic_far_correction="none"` gives a finite $3\times3$-cell image sum.
-It does not include an infinite-periodic correction, an ion species, or `photo_raycast`.
+It is the official beginner case that launches 200 `volume_seed` macro-electrons per batch toward an insulating plane
+and follows the charge distribution and its feedback for 20 batches. It uses the easier-to-interpret
+`field_solver="direct"` and `[field_boundary] mode="free"`. It does not include periodic boundaries, an ion species,
+or `photo_raycast`.
 
 ### 2.2 `lint`
 

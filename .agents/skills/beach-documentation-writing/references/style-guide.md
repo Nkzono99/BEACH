@@ -16,6 +16,8 @@ This guide adapts Japanese technical-writing and cognitive-rhythm principles to 
 - Use the order: prerequisite, action, expected output, interpretation, next choices.
 - Keep the main path uninterrupted. Move complete configurations and optional variants to links, tables, or collapsible details.
 - Explain what a successful command proves and what it does not prove.
+- Show only the smallest configuration difference needed for the task. Link to a complete file under `examples/`
+  instead of duplicating it in prose.
 
 ### Reference pages
 
@@ -29,6 +31,18 @@ This guide adapts Japanese technical-writing and cognitive-rhythm principles to 
 - Alternate concrete evidence with interpretation when that makes the reasoning easier to follow.
 - Close questions that the page opens. Do not create tension by narrating the document itself.
 - Put practical selection or validation criteria before long derivations when readers need them to act.
+- If a page must teach both model meaning and implementation internals, split it. A reader should not fall from an
+  overview into data structures, parallel reductions, rollback state, or private APIs without choosing an internals page.
+
+## Keep human-facing pages at one abstraction level
+
+- Introduce no more than three major new concepts in one H2 section.
+- Keep overview diagrams to seven nodes or fewer.
+- Use H3 as the usual maximum depth for entry, tutorial, task-guide, and explanation pages.
+- If one prose paragraph contains five or more code identifiers, move the identifiers to a table, a minimal example,
+  or the canonical reference.
+- Keep important limits visible, but put the complete limit matrix in reference documentation.
+- In Japanese prose, explain an implementation term in Japanese before giving its searchable identifier.
 
 ## Write Japanese technical prose
 

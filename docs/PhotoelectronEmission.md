@@ -159,6 +159,9 @@ BEACH は raycast の放出元分布と軌道の帰還先分布をそれぞれ�
 記録します。PE net電流を倍率分母に使わないため、大電流同士の相殺が強い場合にも安定です。raw escape統計は
 保持され、target / applied / correctionと比較できます。
 
+零電流根、Type A/B/C の障壁、固定量と batch 依存量の区別は
+[Zhao stationary closure](ZhaoStationaryClosure.html)を参照してください。
+
 この安定性は総電流の倍率計算についての性質であり、raw空間mapの統計精度ではありません。return hitが1件なら
 return target全量がその要素へ割り当てられます。固定の最小hit数は設けていないため、ledgerのraw countと
 `fixed_*_weight_scale`に加え、`rays_per_batch`、batch幅、乱数seedを変えた要素別分布の収束を確認してください。

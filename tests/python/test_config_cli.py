@@ -68,6 +68,20 @@ history_stride = 1
     )
 
 
+def _default_periodic2_config() -> dict[str, object]:
+    config = default_config()
+    config["domain"]["periodic_axes"] = ["x", "y"]
+    config["field_boundary"]["mode"] = "periodic2"
+    config["sim"].update(
+        {
+            "field_solver": "fmm",
+            "field_periodic_image_layers": 1,
+            "field_periodic_far_correction": "none",
+        }
+    )
+    return config
+
+
 def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
     config_path = tmp_path / "beach.toml"
     _write_base_config(config_path)
@@ -79,10 +93,12 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
     assert result["mesh"]["templates"][0]["kind"] == "plane"
 
 
-def test_default_config_uses_no_periodic_far_correction() -> None:
+def test_default_config_uses_free_space_without_periodic_options() -> None:
     config = default_config()
 
-    assert config["sim"]["field_periodic_far_correction"] == "none"
+    assert config["domain"]["periodic_axes"] == []
+    assert config["field_boundary"]["mode"] == "free"
+    assert "field_periodic_far_correction" not in config["sim"]
     assert "softening" not in config["sim"]
     assert "field" not in config
 
@@ -227,12 +243,12 @@ def test_particle_boundary_overrides_resolve_after_global_defaults() -> None:
 
 
 def test_particle_boundary_cannot_override_periodic_topology() -> None:
-    config = default_config()
+    config = _default_periodic2_config()
     config["particle_boundary"]["x_low"] = "reflect"
     with pytest.raises(ConfigValidationError, match="periodic domain face"):
         normalize_config_document(config)
 
-    config = default_config()
+    config = _default_periodic2_config()
     config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
     with pytest.raises(ConfigValidationError, match="periodic domain face"):
         normalize_config_document(config)
@@ -260,7 +276,12 @@ def test_boundary_inflow_accepts_nonperiodic_faces_and_rejects_periodic_faces() 
     with pytest.raises(ConfigValidationError, match="requires an open"):
         normalize_config_document(reflecting)
 
-    config["particles"]["species"][0]["boundary_inflow"]["x_low"] = "reservoir"
+    config = _default_periodic2_config()
+    config["sim"]["batch_duration"] = 1.0e-6
+    periodic_species = config["particles"]["species"][0]
+    periodic_species["number_density_m3"] = 1.0e6
+    periodic_species["temperature_k"] = 2.0e4
+    periodic_species["boundary_inflow"] = {"x_low": "reservoir"}
     with pytest.raises(ConfigValidationError, match="periodic domain face"):
         normalize_config_document(config)
 
@@ -1081,29 +1102,29 @@ def test_config_cli_init_validate_and_diff(
     assert "status=ok" in validate_streams.out
 
     initialized = load_config_file(tmp_path / "beach.toml")
-    assert initialized["domain"]["periodic_axes"] == ["x", "y"]
-    assert initialized["sim"]["field_solver"] == "fmm"
-    assert initialized["field_boundary"]["mode"] == "periodic2"
-    assert initialized["sim"]["field_periodic_image_layers"] == 1
-    assert initialized["sim"]["field_periodic_far_correction"] == "none"
+    assert initialized["domain"]["periodic_axes"] == []
+    assert initialized["sim"]["field_solver"] == "direct"
+    assert initialized["field_boundary"]["mode"] == "free"
+    assert initialized["sim"]["batch_count"] == 20
     assert len(initialized["particles"]["species"]) == 1
     species = initialized["particles"]["species"][0]
     assert species["source_mode"] == "volume_seed"
-    assert species["npcls_per_step"] == 1
-    assert species["pos_low"] == [0.5, 0.5, 0.8]
-    assert species["pos_high"] == [0.5, 0.5, 0.8]
+    assert species["npcls_per_step"] == 200
+    assert species["w_particle"] == 2.0e5
+    assert species["pos_low"] == [0.15, 0.15, 0.8]
+    assert species["pos_high"] == [0.85, 0.85, 0.8]
     assert species["drift_velocity"] == [0.0, 0.0, -1.0e6]
 
     modified = tmp_path / "modified.toml"
     modified.write_text(
         (tmp_path / "beach.toml")
         .read_text(encoding="utf-8")
-        .replace("batch_count = 1", "batch_count = 2"),
+        .replace("batch_count = 20", "batch_count = 21"),
         encoding="utf-8",
     )
     beachx_main(["config", "diff", "beach.toml", str(modified)])
     diff_streams = capsys.readouterr()
-    assert "sim.batch_count: 1 -> 2" in diff_streams.out
+    assert "sim.batch_count: 20 -> 21" in diff_streams.out
 
 
 def test_lint_cli_accepts_valid_config(

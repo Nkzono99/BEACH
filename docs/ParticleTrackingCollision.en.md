@@ -25,8 +25,8 @@ candidate (xⁿ⁺¹, vⁿ⁺¹)
 | --- | --- |
 | Field sample, Boris rotation, and position update | [Boris particle update](BorisPusher.en.html) |
 | Triangle collision, box faces, periodic images, and event ordering | [Particle collision and boundary events](ParticleEvents.en.html) |
-| Absorption and element charge delta after an event | [Surface charge update](SurfaceModels.en.html) |
-| Escape or potential-barrier reflection at an open face | [Particle sources and boundaries](ParticleSourcesBoundaries.en.html), [Particle escape and return](ParticleEscapeReturn.en.html) |
+| Absorption and element charge delta after an event | [How surfaces charge](SurfaceModels.en.html) |
+| Escape or potential-barrier reflection at an open face | [Choose where particles enter](ParticleSourcesBoundaries.en.html), [Particle escape and return](ParticleEscapeReturn.en.html) |
 
 ## State committed by one step
 

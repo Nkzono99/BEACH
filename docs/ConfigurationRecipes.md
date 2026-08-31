@@ -1,312 +1,190 @@
-title: シミュレーションケースを設計する
+title: ケース設計の流れ
 
 Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.md)
 
-# シミュレーションケースを設計する
+# ケース設計の流れ
 
-公式入門ケースを基に、メッシュ、粒子源、境界条件を1項目ずつ置き換えるためのタスクガイドです。
-全キーの定義は[入力パラメータリファレンス](Parameters.html)、設定ファイルの生成と検査は
-[`beach.toml`を作成・検証する](Configuration.html)を参照してください。
+このページは、動作確認済みの公式チュートリアルを研究用ケースへ変更するときの判断順を示します。
+設定全体をここへ複製せず、各段階で必要な最小差分だけを示します。全キーと組合せ制約は
+[入力パラメータリファレンス](Parameters.html)を正本とします。
 
-## 共通手順
-
-**前提:** BEACHをインストールし、作業ディレクトリを用意します。
-
-**操作:**
+**出発点:** [10 分チュートリアル](Tutorial.html)を完了し、`beach.toml` と
+`outputs/tutorial` がある作業ディレクトリで、基準設定を複製します。
 
 ```bash
-beachx config init beach.toml
-beachx lint beach.toml
-beach beach.toml
-beachx inspect outputs/latest
+cp beach.toml case.toml
+beachx lint case.toml
 ```
 
-**期待する出力:** `lint`が設定を受理し、実行後に`outputs/latest/summary.txt`と`charges.csv`が作成されます。
+以降は一つの判断だけを変更し、そのたびに `beachx lint case.toml` を実行します。チュートリアルの
+出力は基準結果として残し、新しい出力先は手順 7 で指定します。
 
-**解釈:** 正常終了は設定と実行経路が動作したことを示します。数値収束や物理的妥当性は
-[結果を検証する](ValidationGuide.html)に従って別途確認します。
+## 1. 目的と合格条件を決める
 
-**次の選択:**
+設定を編集する前に、次を一文ずつ書き出します。
 
-| 目的 | 変更する場所 |
-| --- | --- |
-| 組み込み形状を使う | `[mesh]`, `[[mesh.templates]]` |
-| OBJ形状を使う | `[mesh]` |
-| 初期粒子、reservoir流入、光電子を選ぶ | `[[particles.species]]` |
-| box、場境界、粒子境界を選ぶ | `[domain]`, `[field_boundary]`, `[particle_boundary]`, `[reservoir]` |
-| 時系列を保存する | `[output]` |
-| checkpointから続ける | `[output]` |
+- どの表面へ、どの環境から粒子が到達するか
+- 観測したい量は電荷、電位、吸収率、escape、または計算時間のどれか
+- どの保存則、基準解、収束幅を満たせば結果を採用するか
 
-変更は1種類ずつ行い、そのたびに`beachx lint beach.toml`を実行してください。
+公式チュートリアルは batch 間の帯電 feedback を学ぶ教材です。そこで使う粒子重みや
+`batch_duration=0` を、そのまま特定の実環境の時間発展とは解釈できません。先に合格条件を決めると、
+後の mesh 分割、粒子数、solver 精度を必要な範囲へ絞れます。
 
-## 組み込みメッシュを追加する
+## 2. 形状を選ぶ
 
-**前提:** `[mesh].mode="template"`を使います。各`[[mesh.templates]]`には別の`mesh_id`が割り当てられます。
+簡単な形状は `mode="template"` の組み込み形状を使います。実測形状や CAD 由来形状は三角形面を持つ
+OBJ を使います。複数の独立した物体、特に独立した導体を区別したい場合は、別々の template として
+`mesh_id` を分けます。
 
-**操作:** 既存のtemplateの後ろに形状を追加します。
-
-| `kind` | 形状 | 寸法 | 解像度 |
+| `kind` | 形状 | 主な寸法 | 主な分割数 |
 | --- | --- | --- | --- |
-| `plane` | XY長方形平面 | `size_x`, `size_y` | `nx`, `ny` |
-| `plate_hole`, `plane_hole` | 円形穴付き平面 | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
+| `plane` | XY 長方形平面 | `size_x`, `size_y` | `nx`, `ny` |
+| `plate_hole`, `plane_hole` | 円形穴付き長方形平面（後者は別名） | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
 | `disk` | 円板 | `radius` | `n_theta`, `n_r` |
 | `annulus` | 同心リング | `radius`, `inner_radius` | `n_theta`, `n_r` |
 | `box` | 閉じた直方体表面 | `size` | `nx`, `ny`, `nz` |
-| `cylinder` | z軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
+| `cylinder` | z 軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
 | `sphere` | 球面 | `radius` | `n_lon`, `n_lat` |
 
+たとえば、チュートリアルの平面を球へ置き換える場合は、既存の `[[mesh.templates]]` block だけを
+次のように置き換えます。
+
 ```toml
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-surface_model = "insulator"
-size_x = 1.0
-size_y = 1.0
-nx = 20
-ny = 20
-center = [0.5, 0.5, 0.02]
-
 [[mesh.templates]]
 kind = "sphere"
 enabled = true
-surface_model = "insulator"
-center = [0.5, 0.5, 0.55]
-radius = 0.12
+surface_side = "outward_closed"
+center = [0.5, 0.5, 0.5]
+radius = 0.2
 n_lon = 24
 n_lat = 12
 ```
 
-**期待する出力:** `mesh_triangles.csv`に両方の`mesh_id`が現れ、`mesh_sources.csv`で元のtemplateを確認できます。
-
-**解釈:** 分割数を増やすと場計算と衝突判定のコストも増えます。まず粗いメッシュで配置と衝突を確認します。
-通常の帯電計算は`surface_model="insulator"`を使います。`conductor`は`field_boundary.mode="free"`だけに対応し、
-`dielectric`と`epsilon_r`は分極未実装のため入力として受理しません。
-
-**次の選択:** 形状と要素数の制約は
-[組み込み形状リファレンス](Parameters.html#meshtemplates-組み込み形状)にまとめています。
-
-## OBJメッシュへ置き換える
-
-**前提:** OBJファイルは三角形面を含み、実行時に読み取れる場所へ置きます。
-
-**操作:**
+OBJ へ切り替える場合は既存の `[[mesh.templates]]` block を削除し、`[mesh]` を次へ置き換えます。
 
 ```toml
 [mesh]
 mode = "obj"
-obj_path = "mesh/object.obj"
-surface_model = "insulator"
-obj_scale = 1.0
-obj_rotation = [0.0, 0.0, 0.0]
-obj_offset = [0.0, 0.0, 0.0]
+obj_path = "mesh/object.obj" # 実際の OBJ path に置き換える
+surface_side = "outward_closed"
 ```
 
-**期待する出力:** OBJ全体が1つの`mesh_id`として`mesh_triangles.csv`へ出力されます。
+`outward_closed` は、面の向きが整合した閉じた two-manifold にだけ使えます。開いた面では、OBJ の面法線と
+真空側に応じて `normal_plus` または `normal_minus` を選びます。配置変換、要素数、各形状の制約は
+[組み込み形状と OBJ のリファレンス](Parameters.html#mesh-メッシュ入力)、複数形状の実例は
+[`examples/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/beach.toml)を参照してください。
 
-**解釈:** 変換順はscale → rotation → offsetです。
+## 3. 表面 model を選ぶ
 
-**次の選択:** 独立したobjectを別の`mesh_id`で解析する場合は、複数の組み込みtemplateを優先します。
-
-## 粒子源を選ぶ
-
-**前提:** `[[particles.species]]`の`source_mode`を1つ選びます。modeを変更するときは、別mode専用のキーを
-残さずentry全体を置き換えます。
-
-| `source_mode` | 用途 | 必須となる主なキー |
+| 目的 | `surface_model` | 現行モデルの範囲 |
 | --- | --- | --- |
-| `volume_seed` | 箱内に初期粒子を置く小テスト | `npcls_per_step`, `pos_low`, `pos_high` |
-| `plane_source` | 内部矩形面から一方向fluxを与える | `pos_low`, `pos_high`, `source_normal`, densityまたはgrid flux |
-| `reservoir_face`（非推奨） | 旧形式の局所reservoir面 | `inject_face`, `pos_low`, `pos_high` |
-| `photo_raycast` | 表面から光電子を放出する | `rays_per_batch`, `emit_current_density_a_m2`, `ray_direction` |
+| 命中位置へ電荷を蓄積する | `insulator` | 表面内伝導、bulk 漏洩、誘電分極を解かない |
+| 物体の総電荷を保って等電位化する | `conductor` | 自由空間中の浮遊導体。`field_boundary.mode="free"` のみ |
 
-外部reservoirからの流入は`source_mode`ではなく`[particles.species.boundary_inflow]`で追加します。
-
-### `volume_seed`
+チュートリアルは `insulator` です。導体へ変える場合は対象の template、または OBJ 用の `[mesh]` で
+次の 1 行を変更します。
 
 ```toml
-[[particles.species]]
-source_mode = "volume_seed"
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-npcls_per_step = 100
-w_particle = 1.0
-pos_low = [0.1, 0.1, 0.6]
-pos_high = [0.9, 0.9, 0.9]
+surface_model = "conductor"
+```
+
+`dielectric`、`epsilon_r`、抵抗性表面は現行入力では利用できません。導体へ変えたケースは、チュートリアルの
+結果を基準にせず、物体電位と総電荷を別に検証します。モデルの意味と制約は
+[表面はどう帯電するか](SurfaceModels.html)を参照してください。
+
+## 4. 粒子源を選ぶ
+
+粒子をどこから供給するかで経路を選びます。`source_mode` を変更するときは、旧 mode 専用キーを残さず、
+その species entry を専用ページの最小設定へ置き換えます。
+
+| `source_mode` | 新しいケースでの用途 | 物理的な供給量 | macro sampling の調整 |
+| --- | --- | --- | --- |
+| `volume_seed` | box 内へ指定個数を置く軌道試験や初期粒子 | 面流束には対応しない | `npcls_per_step` |
+| `plane_source` | box 内部の矩形面から一方向に供給 | 流束 × 面積 × `batch_duration` | `w_particle` または `target_macro_particles_per_batch` |
+| `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `batch_duration` | `rays_per_batch` と ray の命中率 |
+| `reservoir_face` | deprecated な既存設定を読むための互換入力のみ | 新規ケースでは使用しない | 新規ケースでは使用しない |
+
+チュートリアルの `volume_seed` を維持して供給量や領域だけ変えるなら、既存 species entry の次の値だけを
+調整します。
+
+```toml
+npcls_per_step = 500
+pos_low = [0.2, 0.2, 0.8]
+pos_high = [0.8, 0.8, 0.8]
 drift_velocity = [0.0, 0.0, -1.0e6]
-temperature_k = 0.0
 ```
 
-**期待する出力:** 各batchに`npcls_per_step`個のmacro粒子を生成します。
+外部 plasma から非周期の box 面全体を通す流入は `source_mode` ではなく
+`[particles.species.boundary_inflow]` です。現行 schema では、境界流入だけの species にも
+`source_mode="volume_seed"` と `npcls_per_step=0` を指定します。選択の詳細は
+[粒子をどこから入れるか](ParticleSourcesBoundaries.html)、境界流入は
+[境界から粒子を流入させる](ReservoirInjection.html)、光電子は
+[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
 
-**解釈:** 物理的な面流束から個数を決めるsourceではありません。
+## 5. box・場境界・粒子境界を決める
 
-### 境界reservoir流入
+まず `[domain]` の box が mesh と到達しうる全粒子軌道を含むようにします。次に場の closure を
+`field_boundary.mode`、非周期面を出る粒子の作用を `[particle_boundary]` で選びます。
 
-**前提:** `[domain]`と正の`sim.batch_duration`が必要です。流入障壁は`[reservoir]`で選びます。
+| 判断 | 選択 |
+| --- | --- |
+| 有限物体の自由空間場 | `periodic_axes=[]`, `field_boundary.mode="free"` |
+| x/y に無限反復する場 | `periodic_axes=["x", "y"]`, `field_boundary.mode="periodic2"` |
+| 非周期面を出た粒子 | `open`, `reflect`, `redistributed_reflect` |
+
+周期 topology を指定する公開キーは `domain.periodic_axes` だけです。`particle_boundary` や species 別境界で
+周期軸を追加、削除、上書きはできません。`periodic2` は x/y 周期・z 非周期に限定されるため、新しく使う場合は
+完全例 [`examples/periodic2_basic/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic/beach.toml)
+と [periodic2 静電場](PeriodicElectrostatics.html)から始めてください。粒子の escape と return は
+[粒子の escape と return](ParticleEscapeReturn.html)にまとめています。
+
+## 6. solver を選ぶ
+
+| `sim.field_solver` | 選ぶ場面 | 確認方法 |
+| --- | --- | --- |
+| `direct` | 小規模計算と基準解 | 近似 solver の比較基準にする |
+| `treecode` | 中規模の自由空間計算 | opening 条件を変えて観測量を比較する |
+| `fmm` | 大規模計算、多数の評価点、通常の `periodic2` | `tree_theta` と `tree_leaf_max` を変えて Direct と比較する |
+| `auto` | 自由空間で要素数に応じ自動選択 | 出力で実際に選ばれた solver を確認する |
+
+チュートリアルの基準計算は `field_solver="direct"` のまま残します。高速 solver を採用する前に、同じ mesh と
+粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
+[場の評価方法](FieldSolvers.html)、FMM の設定と精度調整は [FMM を使う](FMM.html)を参照してください。
+
+## 7. 出力先を分けて実行する
+
+最後に、既存の `[output]` で `dir` だけを変更し、基準結果を上書きしない出力先へ分けます。
 
 ```toml
-[reservoir]
-inflow_model = "source_vdf"
-phi_infty = 0.0
-face_potential_grid_n = 3
+dir = "outputs/case"
 ```
 
-```toml
-[[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 0
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-target_macro_particles_per_batch = 300
-drift_velocity = [0.0, 0.0, -4.0e5]
+HPC では login node で simulation を直接実行せず、計算 node の割当内で `beach case.toml` を実行します。
 
-[particles.species.boundary_inflow]
-z_high = "reservoir"
+```bash
+beachx lint case.toml
+beach case.toml
+beachx inspect outputs/case
 ```
 
-**期待する出力:** 外部reservoirの流束から粒子重みが決まり、z-high面全体から流入します。
+ローカル実行、MPI、checkpoint と再開は[実行・再開する](Execution.html)を参照してください。
 
-**解釈:** `target_macro_particles_per_batch`は1 batchあたりの計算粒子数を固定します。重みを直接指定する場合は
-代わりに`w_particle`を使います。`temperature_k`と`temperature_ev`は同時指定できません。
+最小の合格条件は、`lint` が `status=ok`、実行が終了 code 0、`inspect` の `batches` が
+`sim.batch_count` と一致し、`summary.txt` と `charges.csv` が存在することです。これは完走した証拠であり、
+物理的に正しい証拠ではありません。各出力の読み方は[出力ファイルを調べる](OutputGuide.html)を参照してください。
 
-**次の選択:** 流束、重み、速度分布、`infinity_barrier`は
-[シミュレーション境界からのreservoir流入](ReservoirInjection.html)で確認します。
+## 8. 妥当性を確認する
 
-### `plane_source`
+目的に対応する観測量について、少なくとも次を確認します。
 
-**前提:** `[domain]`、正の`sim.batch_duration`、box内部のaxis-aligned矩形面が必要です。
+- `processed_particles = absorbed + escaped` が成り立ち、`escaped` の内訳である `escaped_boundary`、
+  `survived_max_step`、`multiple_box_events_soft_discarded` を説明でき、表面・放出を含む電荷 ledger が閉じる
+- mesh を細分化しても結論が変わらない
+- `dt`、`max_step`、`batch_duration`、batch 数、粒子数を変えても結論が許容幅内にある
+- Treecode や FMM の小規模結果が Direct の基準結果と一致する
+- 乱数 seed または反復実行を変えた統計変動が許容幅内にある
+- 採用する結論が、選んだ表面 model、境界、粒子源の適用範囲を超えない
 
-```toml
-[[particles.species]]
-source_mode = "plane_source"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-target_macro_particles_per_batch = 300
-pos_low = [0.2, 0.2, 2.0]
-pos_high = [0.8, 0.8, 2.0]
-source_normal = [0.0, 0.0, -1.0]
-```
-
-**期待する出力:** z=2.0の矩形面から-z方向へ一方向fluxを生成します。
-
-**解釈:** 外部境界ではないため、`reservoir.inflow_model="infinity_barrier"`と`phi_infty`は適用しません。
-旧`source_mode = "reservoir_face"`は互換入力として残りますが、新しいcaseでは用途に応じて
-`boundary_inflow`または`plane_source`を選びます。
-
-### `photo_raycast`
-
-**前提:** 正の`sim.batch_duration`が必要です。
-
-```toml
-[[particles.species]]
-source_mode = "photo_raycast"
-q_particle = -1.602176634e-19
-m_particle = 9.10938356e-31
-temperature_ev = 2.2
-emit_current_density_a_m2 = 4.5e-6
-rays_per_batch = 1000
-deposit_opposite_charge_on_emit = true
-inject_face = "z_high"
-inject_region_mode = "face_fraction"
-uv_low = [0.0, 0.0]
-uv_high = [1.0, 1.0]
-ray_direction = [0.0, 0.0, -1.0]
-```
-
-**期待する出力:** 最初にメッシュへ命中したrayから光電子を生成します。
-
-**解釈:** `rays_per_batch`は照射ray数であり、生成粒子数は命中率で変わります。
-`deposit_opposite_charge_on_emit=true`は放出元へ逆符号の電荷を残します。
-
-**次の選択:** 放出、再吸収、closed PEの`neutral_return`は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)にまとめています。
-
-closed PEとして注入面をspecies単位で反射する場合:
-
-```toml
-[particles.species.boundary]
-z_high = "reflect"
-```
-
-このtableは直前の`[[particles.species]]`に属します。`surface_charge_closure="neutral_return"`を使う場合は、
-effectiveな`inject_face`境界が`reflect`または`redistributed_reflect`である必要があります。
-例は接線位置を維持する`reflect`です。return位置を面内で一様再配置する選択肢は
-詳しくは[光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
-
-## 2軸周期境界を使う
-
-**前提:** `[domain]`でbox geometryとx/y周期を指定し、`field_solver="fmm"`を使います。
-周期性は`domain.periodic_axes`だけで指定します。
-
-**操作:**
-
-```toml
-[sim]
-field_solver = "fmm"
-
-[domain]
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 4.0]
-periodic_axes = ["x", "y"]
-
-[field_boundary]
-mode = "periodic2"
-
-[particle_boundary]
-z_low = "open"
-z_high = "open"
-ordinary_open_model = "escape"
-```
-
-**期待する出力:** x/yはfield、collision、raycastで同じ周期topologyを使い、z面は指定した粒子作用を使います。
-
-**解釈:** `[particle_boundary]`に`periodic`は指定できず、周期面の作用は`[domain]`から決まります。
-
-**次の選択:** operatorの選択は`[periodic2]`で行います。境界reservoir + closed PEの基準構成は
-[periodic2有限画像構成](FinitePeriodicConfiguration.html)と
-[`examples/periodic2_closed_photoelectron.toml`](../examples/periodic2_closed_photoelectron.toml)を使います。
-
-## 履歴を保存する
-
-**操作:**
-
-```toml
-[output]
-dir = "outputs/latest"
-history_stride = 1
-write_mesh_potential = true
-write_potential_history = true
-```
-
-**期待する出力:** `charge_history.csv`と`potential_history.csv`が作成されます。
-
-**解釈:** 電位履歴は各保存点で再評価するため、要素数が多い場合は高コストです。
-
-**次の選択:** まず電荷履歴だけを使い、相対電位が必要な場合に`write_potential_history`を有効にします。
-
-## checkpointから再開する
-
-**前提:** 読み込み元に有効なcheckpoint一式が必要です。
-
-**操作:**
-
-```toml
-[output]
-dir = "outputs/continuation"
-resume = true
-restart_from = "../previous/outputs/latest"
-```
-
-**期待する出力:** checkpointを読み込み、新しい出力を`outputs/continuation`へ保存します。
-
-**解釈:** `sim.batch_count`は累積到達batch数です。checkpointが`batches=100`で
-`batch_count=150`なら、追加実行は50 batchです。
-
-**次の選択:** 同じdirectoryへ続けて書く場合は`restart_from`を省略し、`dir`をcheckpointのdirectoryにします。
+変更前後を同じ物理量・同じ時刻で比較し、一度に複数の数値条件を変えません。具体的な確認コマンドと
+採用基準は[計算結果の妥当性確認](ValidationGuide.html)に従ってください。

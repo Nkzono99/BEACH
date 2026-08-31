@@ -148,9 +148,9 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         helper_section = _markdown_sections(text, helper_heading)
         helper_row_prefixes = {
             "domain": ("| `domain.",),
-            "species": ('| `inject_region_mode=',),
-            "mesh.groups": ("| `[mesh.groups.<name>]`", "| Group "),
-            "mesh.templates": ("| template", "| Template "),
+            "species": ("| `inject_region_mode`", "| `uv_low`"),
+            "mesh.groups": ("| group ", "| Group "),
+            "mesh.templates": ("| template ", "| Template "),
         }
         for object_name, prefixes in helper_row_prefixes.items():
             rows = "\n".join(
@@ -164,6 +164,11 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
             )
 
         for object_name, properties in documented_objects.items():
+            parameter_rows = [
+                line
+                for line in object_sections.get(object_name, "").splitlines()
+                if line.startswith("|") and line.count("|") >= 5
+            ]
             for key in properties:
                 structural_marker = structural_markers.get((object_name, key))
                 if structural_marker is not None:
@@ -176,7 +181,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
                     f".{key}=",
                 )
                 assert any(
-                    marker in object_sections[object_name] for marker in markers
+                    marker in row for marker in markers for row in parameter_rows
                 ), (path, object_name, key)
         for marker in hierarchy_markers:
             assert marker in text, (path, marker)
@@ -230,9 +235,9 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     assert "matching_plane_quasistatic" in matching_history["condition"]
     assert matching_history["restart_role"] == "none"
 
-    docs = (
-        _read("docs/OutputGuide.md"),
-        _read("docs/OutputGuide.en.md"),
+    reference_docs = (
+        _read("docs/OutputReference.md"),
+        _read("docs/OutputReference.en.md"),
     )
     for entry in files:
         assert {"name", "producer", "condition", "restart_role"} <= entry.keys()
@@ -240,12 +245,12 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
         assert "output.write_files=true" in entry["condition"], name
         producer = _read(entry["producer"])
         assert name in producer, (name, entry["producer"])
-        for text in docs:
+        for text in reference_docs:
             assert name in text, name
 
         mpi_name = entry.get("mpi_name")
         if mpi_name:
-            for text in docs:
+            for text in reference_docs:
                 assert mpi_name in text, mpi_name
 
         consumer_path = entry.get("consumer")

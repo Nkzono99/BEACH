@@ -49,9 +49,10 @@ validity. Inspect outputs and convergence of the quantity of interest after the 
 
 | Goal | Starting point | Read next |
 |---|---|---|
-| Minimal smoke run | `examples/beach.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
+| Beginner charging update | `examples/tutorial_insulator.toml` | [Ten-minute tutorial](Tutorial.en.html) |
+| One-particle developer smoke | `examples/smoke_single_electron.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
 | External plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir injection](ReservoirInjection.en.html) |
-| Internal rectangular source | `source_mode="plane_source"` | [Particle sources and boundary inflow](ParticleSourcesBoundaries.en.html) |
+| Internal rectangular source | `source_mode="plane_source"` | [Choose where particles enter](ParticleSourcesBoundaries.en.html) |
 | Closed photoelectron redistribution | `examples/periodic2_closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
 | Free-space field evaluation | `field_boundary.mode="free"` | [Field evaluation](FieldSolvers.en.html) |
 | Two-axis-periodic field evaluation | `field_boundary.mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
@@ -165,7 +166,7 @@ Use `beachx <command> --help` for complete CLI options and
 | How should a case be assembled? | [Configuration recipes](ConfigurationRecipes.en.html) |
 | What are the keys, types, units, and constraints? | [Input parameters](Parameters.en.html) |
 | How do execution, workload estimation, and resume work? | [Execution and resume](Execution.en.html) |
-| How should sources and boundaries be selected? | [Particle sources and boundaries](ParticleSourcesBoundaries.en.html) |
+| How should sources and boundaries be selected? | [Choose where particles enter](ParticleSourcesBoundaries.en.html) |
 | How are collisions and box events handled? | [Particle events](ParticleEvents.en.html) |
 | How should field solvers and periodic settings be selected? | [Field evaluation](FieldSolvers.en.html), [FMM](FMM.en.html) |
 | How are outputs read and visualized? | [Output guide](OutputGuide.en.html), [Post-processing tutorial](PostprocessTutorial.en.html) |

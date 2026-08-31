@@ -1,146 +1,91 @@
-title: Surface charge update
+title: How surfaces charge
 
 Lang: [日本語](SurfaceModels.md) | [English](SurfaceModels.en.md)
 
-# Surface charge update
+# How surfaces charge
 
-Charge absorbed by the surface is held as a difference during a batch. When a surface particle source is active, its reaction
-charge joins the same difference. The differences are committed to `q_elem` at batch end, and surface-model processing after
-commit produces the source charge for the next batch field.
+This page explains where BEACH keeps charge after a particle reaches a triangulated surface. BEACH applies the charge
+change produced within a batch exactly once, then uses the selected `surface_model` to determine surface charge for the
+next batch.
 
-## Update order within a batch
+> **Ordinary choice:** use `surface_model="insulator"` for local charging of an insulating surface. Choose
+> `conductor` only when a floating conductor in free space should become equipotential.
 
-1. Build an immutable field snapshot from batch-start `q_elem`.
-2. Add $q_pw_p$ from each particle's first mesh hit to thread-local differences.
-3. Add surface-source reaction charge to `photo_emission_dq`.
-4. For `surface_charge_closure="neutral_return"`, scale resolved photoelectron return deposits by a global factor.
-5. Sum OpenMP-thread differences and MPI all-reduce global `dq`.
-6. Apply `q_elem <- q_elem + dq`.
-7. If conductors are present, equalize potential while conserving object charge.
-8. Compute net pre/post-commit difference and the `tol_rel` metric.
+After reading this page, you should be able to distinguish the two implemented models and identify material effects that
+are absent from the result.
 
-Later particles in the same batch do not see charge from steps 2 or 3. The change enters the field at the next snapshot refresh.
-This lag produces dependence on `batch_duration`; see [Batch duration and stability](BatchDurationStability.en.html).
+## Feedback between batches
 
-## Conserved quantity and sign
+```mermaid
+flowchart LR
+    field["Calculate field from current surface charge"]
+    particles["Track particles in the fixed field"]
+    delta["Collect charge from absorption and emission"]
+    surface["Apply the surface model"]
+    next["Surface charge for the next batch"]
 
-`q_elem(i)` is total charge [C] on element $i$. Even with the implicit P0 panel discretization, stored state is not surface density; field
-evaluation alone converts it to
+    field --> particles --> delta --> surface --> next --> field
+```
 
-$$
-\sigma_i=\frac{q_i}{A_i}.
-$$
+Later particles in the same batch do not see the charge of particles absorbed earlier in that batch. The change becomes
+final at batch end and first appears in the next batch's field. Test sensitivity to this lag by following
+[how to choose `batch_duration`](BatchDurationStability.en.html).
 
-When macro particle $p$ is absorbed on element $i$,
+## Choose a model
 
-$$
-\Delta q_i\mathrel{+}=q_pw_p.
-$$
+| `surface_model` | Treatment at batch end | Suitable target | Main limit |
+| --- | --- | --- | --- |
+| `insulator` | Retain charge on the hit element | Local charging of an insulator | Does not solve surface conduction or bulk leakage |
+| `conductor` | Conserve total charge per `mesh_id` and redistribute element charge to become equipotential | Floating conductor in free space | `field_boundary.mode="free"` only |
 
-An electron deposits negative and a positive ion deposits positive charge. The particle is removed after absorption.
+`dielectric` is not implemented. Inputs `surface_model="dielectric"` and `epsilon_r` are rejected and are not aliases
+for the insulator calculation.
 
-Ordered triangles for collision and `elem_vacuum_sign` for one-sided field traces are derived from the same mesh geometry. Surface
-models do not rewrite triangle winding.
+## Insulator: retain charge at the hit location
 
-## Surface models
+`insulator` adds an absorbed macro-particle's charge to the triangle it hit and performs no redistribution to other
+elements. Electrons leave negative charge and positive ions leave positive charge. A particle emitted from a surface
+leaves reaction charge of the opposite sign at its source.
 
-| `surface_model` | Post-commit treatment | Current role |
-| --- | --- | --- |
-| `insulator` | Retain charge on the hit element | Main v1.0 model |
-| `conductor` | Equalize each `mesh_id` object while conserving total charge | `field_bc_mode="free"` only |
+This model represents charge accumulation on a discretized surface. It does not include:
 
-## Insulator accumulation
+- lateral surface conduction, finite-resistance relaxation, or leakage into the bulk;
+- permittivity interface conditions, polarization charge, or the electric field inside the object;
+- general secondary-electron emission or specular / diffuse particle reflection.
 
-`insulator` performs no post-commit redistribution. Charge changed by absorption or emission remains on that element.
+If those effects control the time evolution, do not interpret an `insulator` result as the long-time response of the
+real material.
 
-`neutral_return` is not post-commit conduction by a surface model. It is a source closure that assigns unresolved charge from
-a negative `photo_raycast` species to its measured resolved-return destinations in the same batch. It makes only the
-photoelectron contribution to total surface charge zero while uniformly reweighting and preserving the relative shape of the
-resolved return-destination distribution. See
-[Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html#quantity-closed-by-neutral_return)
-for equations and constraints.
+## Floating conductor: conserve charge and equalize potential
 
-The model does not include lateral surface conduction, bulk leakage, finite-resistivity relaxation, secondary-electron emission,
-or specular/diffuse reflection. v1.0 interaction is primarily absorption and must not be interpreted as containing these effects.
+`conductor` treats elements with one `mesh_id` as a single floating object. After applying particle charge, it
+redistributes charge so element-centroid potentials are equal while preserving the object's total charge. It is not a
+grounded, fixed-potential boundary.
 
-## Floating conductor
+The current implementation accepts only a free-space field and cannot be combined with periodic fields or an outer
+matching-plane response. For research use, verify convergence of object potential and surface-charge distribution under
+mesh refinement.
 
-Elements with `surface_model="conductor"` form one floating-conductor object per `mesh_id`. This is not a grounded fixed-potential
-boundary. After particle differences are committed, potentials at element centroids are equalized while preserving each object's
-total charge $Q_g^\mathrm{before}$.
+The linear system, P0-panel influence, parallel reduction, and conserved quantities are separated into
+[surface-charge update numerics](SurfaceChargeNumerics.en.html).
 
-Unknowns are all conductor charges $q_j$ and one scaled equipotential $V_g$ per group. For element $i$ in group $g(i)$,
+## Difference from a photoelectron closure
 
-$$
-\sum_jA_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed},
-$$
+`surface_charge_closure="neutral_return"` is not a material model that conducts charge across a surface. It is a source
+closure that assigns unresolved closed-photoelectron return to the destination distribution observed in the same batch.
+See the [finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for its conditions and closed ledger.
 
-The potential coefficient for source element $j$ carrying unit total charge as
-a P0 triangle is
+## Read the output
 
-$$
-A_{ij}=\frac{1}{A_j}\int_{T_j}
-\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}.
-$$
+`charge_C` in `charges.csv` is total charge [C] on each triangle. Divide it by element area to obtain surface-charge
+density. `tol_rel` monitors the pre/post-batch change; it is not an automatic stopping condition in the current implementation.
 
-$\mathbf c_i$ is the target-element centroid, while $A_j$ and $T_j$ are the
-source-element area and triangle. The analytic P0 panel potential is used,
-including its self term, under the principal-value side convention.
-$\phi_i^\mathrm{fixed}$ is potential from nonconductor charge and uniform external field divided by `k_coulomb`.
+See [inspect output files](OutputGuide.en.html) for the species-resolved ledger including absorption, emission, and escape.
+See [surface-charge update numerics](SurfaceChargeNumerics.en.html) for equations and implementation ordering.
 
-Every group adds charge conservation
+## Where to go next
 
-$$
-\sum_{i\in g}q_i=Q_g^\mathrm{before}.
-$$
-
-The dense square system of size $N_\mathrm{cond}+N_\mathrm{group}$ is solved by Gaussian elimination with partial pivoting. Only
-conductor $q_i$ values are replaced, so no charge moves between objects and nonconductor elements are unchanged.
-
-This floating-conductor model uses centroid collocation with a P0 triangle
-influence matrix. It cannot be combined with periodic or outer fields; current
-validation accepts only `field_bc_mode="free"`. Check convergence of object
-potential and charge distribution with mesh refinement.
-
-## Dielectric is not implemented
-
-Input no longer accepts `surface_model="dielectric"` or `epsilon_r`. They previously acted as metadata aliases while running
-the insulator calculation, which could be mistaken for a polarization model. A distinct dielectric model requires implemented
-permittivity interface conditions, normal-$\mathbf D$ jumps, polarization charge, and internal fields.
-
-## OpenMP and MPI commit
-
-The particle loop accumulates absorbed charge in `dq_thread(nelem,nthreads)`, avoiding an atomic update on every hit. After the
-loop, thread columns are summed. `neutral_return` reduces emitted and returned charge by species across MPI and applies the
-same scale to measured return destinations on each rank. Local differences plus `photo_emission_dq` are then MPI all-reduced
-so all ranks hold identical global `q_elem`.
-
-Conductor relaxation runs deterministically on that same post-allreduce mesh state on every rank. A batch with an incomplete
-collision or photo-ray query never reaches commit and does not use partial particle arrays or emission differences.
-
-## `tol_rel`
-
-With net difference after conductor relaxation
-
-$$
-\Delta\mathbf q=\mathbf q^\mathrm{after}-\mathbf q^\mathrm{before},
-$$
-
-the monitor is
-
-$$
-\mathrm{tol\_rel\ metric}
-=\frac{\|\Delta\mathbf q\|_2}{\max(\|\mathbf q^\mathrm{after}\|_2,q_\mathrm{floor})}.
-$$
-
-Under the current contract, `tol_rel` is a monitoring and output metric, not an early-stop condition.
-
-See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs and emitted-particle tracking.
-See [Inspect Output Files](OutputGuide.en.html) for species-resolved charge balance, history, final output, and restart files.
-
-## Code reference
-
-- Particle absorption and batch commit: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- Conductor relaxation facade: [`bem_surface_models.f90`](../src/physics/bem_surface_models.f90)
-- Floating-conductor solver: [`bem_surface_models_conductor.f90`](../src/physics/bem_surface_models_conductor.f90)
-- Batch statistics: [`bem_simulator_stats.f90`](../src/runtime/simulator/bem_simulator_stats.f90)
+- Choose a particle source: [Choose where particles enter](ParticleSourcesBoundaries.en.html)
+- Test sensitivity to batch width: [How to choose `batch_duration`](BatchDurationStability.en.html)
+- Inspect photoelectron reaction charge and return: [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html)
+- Search every key and constraint: [Input parameters](Parameters.en.html)

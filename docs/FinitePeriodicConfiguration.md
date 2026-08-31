@@ -193,5 +193,5 @@ top-relative potentialにしても無限周期解にはなりません。画像�
 scalar barrier 比較では closed PE 設定を外し、`reservoir.inflow_model="infinity_barrier"`、
 `reservoir.phi_infty`、`particle_boundary.ordinary_open_model="potential_barrier"` を組み合わせます。これは face 平均
 scalar で上流 VDF を補正し、各 open 通過点の energy で reflect/escape を決める比較モデルです。設定、式、制約は
-[reservoir 流入](ReservoirInjection.html)と
+[境界から粒子を流入させる](ReservoirInjection.html)と
 [粒子の escape と return](ParticleEscapeReturn.html)にまとめています。

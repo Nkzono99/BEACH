@@ -195,5 +195,5 @@ surface redistribution with zero net photoelectron current under the specified b
 For a scalar-barrier comparison, remove the closed-PE settings and combine `reservoir.inflow_model="infinity_barrier"`,
 `reservoir.phi_infty`, and `particle_boundary.ordinary_open_model="potential_barrier"`. This comparison filters an upstream VDF
 with a face-average scalar and classifies reflection or escape from energy at each open crossing. See
-[reservoir inflow](ReservoirInjection.en.html) and [particle escape and return](ParticleEscapeReturn.en.html) for configuration,
+[boundary inflow](ReservoirInjection.en.html) and [particle escape and return](ParticleEscapeReturn.en.html) for configuration,
 equations, and constraints.

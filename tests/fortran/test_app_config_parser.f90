@@ -436,10 +436,10 @@ program test_app_config_parser
   call test_begin('tutorial_config')
   call default_app_config(cfg)
   call load_app_config('examples/tutorial_insulator.toml', cfg)
-  call assert_true(trim(cfg%sim%field_solver) == 'fmm', 'tutorial field solver mismatch')
-  call assert_true(trim(cfg%sim%field_bc_mode) == 'periodic2', 'tutorial field boundary mismatch')
+  call assert_true(trim(cfg%sim%field_solver) == 'direct', 'tutorial field solver mismatch')
+  call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'tutorial field boundary mismatch')
   call assert_equal_i32(cfg%n_particle_species, 1_i32, 'tutorial species count mismatch')
-  call assert_equal_i32(particles_per_batch_from_config(cfg), 1_i32, 'tutorial batch particle count mismatch')
+  call assert_equal_i32(particles_per_batch_from_config(cfg), 200_i32, 'tutorial batch particle count mismatch')
   call test_end()
 
   call test_begin('closed_photoelectron_config')

@@ -1,151 +1,114 @@
-title: Computational model overview
+title: The BEACH computation cycle
 
 Lang: [English](Algorithms.en.md) | [日本語](Algorithms.md)
 
-# Computational model overview
+# The BEACH computation cycle
 
-BEACH couples the electric field produced by charge on triangular surfaces with charged-particle motion in
-batches. Boundary-element charge acts as the source for electric-field and potential evaluation, and particle collision charge
-accumulates on the same elements.
+This page answers one question: in what order does BEACH update surface charge, fields, and particle trajectories?
+BEACH repeatedly builds a field from the current surface charge, tracks particles in that field, and applies the charge
+of particles that reach a surface. The repetition unit is a batch.
 
-## The n-batch computation flow
+> **The essential rule**
+>
+> The field does not change while one batch is being computed. Charge changes produced in that batch are applied to
+> the surface at the end of the batch and first affect the field of the next batch.
 
-Here, `n = sim.batch_count`. A resumed run starts after the accepted batches completed in the checkpoint and
-repeats the same flow until the cumulative accepted count reaches `n`.
+After reading this page, you should be able to distinguish the roles of `sim.dt`, `sim.batch_duration`, and
+`sim.batch_count`, and identify which update stage an output history represents.
+
+## What BEACH computes directly
+
+The main state held by BEACH is surface charge on each triangle element. BEACH calculates electric field and potential
+from that charge and configured external fields, then tracks charged particles until they hit a surface or leave the
+computational region. Surface-charge changes from absorption and emission affect a later field.
+
+BEACH does not directly calculate charge distributed through space or the time evolution of plasma outside the
+computational region. When an outer-sheath response is needed, a separate
+[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) can be connected.
+[`SPEC.md`](../SPEC.md) is the source of truth for the complete implemented and unsupported feature set.
+
+## The six-stage cycle
 
 ```mermaid
 flowchart TD
-    start(["Initialize / load checkpoint"])
-    more{"batch i < n?"}
+    q["Current surface charge"]
+    field["1. Calculate field and potential"]
+    source["2. Generate particles"]
+    track["3. Track particles in the fixed field"]
+    event["4. Handle collision, escape, and emission"]
+    delta["5. Collect surface-charge changes"]
+    update["6. Apply the changes to the surface"]
 
-    subgraph batch["accepted batch i"]
-        direction TB
-        subgraph prepare["snapshot / source"]
-            direction LR
-            p1["1. Refresh snapshot"] --> p2["2. Generate particles"]
-        end
-
-        subgraph particle_loop["particle step loop"]
-            direction LR
-            p3["3. Advance one step"] --> p4["4. Process event"] --> tracking{"Continue?"}
-            tracking -- "Next step" --> p3
-        end
-
-        subgraph batch_end["batch-end update"]
-            direction LR
-            p5["5. Aggregate"] --> trust{"k≠0 bound?"}
-            trust -- "Accept / disabled" --> p6["6. Commit charge"] --> p7["7. Statistics / history"]
-        end
-
-        prepare --> particle_loop --> batch_end
-        trust -- "Reject: rollback, h/2" --> p2
-    end
-
-    finish(["Final output / checkpoint"])
-    start --> prepare
-    more -- "Yes" --> prepare
-    batch_end --> more
-    more -- "No" --> finish
+    q --> field --> source --> track --> event --> delta --> update --> q
 ```
 
-Particles in one trial share the field snapshot fixed in step 1. Surface charge committed in step 6 first
-contributes to the field when step 1 runs for the next accepted batch.
+In an ordinary configuration, one pass through this cycle is one batch. After `sim.batch_count` batches, BEACH writes
+the final mesh, statistics, histories, and checkpoint and then exits.
 
-With `[periodic2].max_nonzero_mode_potential_step > 0`, BEACH repeats steps 2
-through 5 with widths `h0 = sim.batch_duration`, `h0/2`, `h0/4`, and so on.
-At every panel centroid it evaluates the $k\ne0$ potential produced by the
-difference between candidate and batch-start charge, and accepts the first
-trial whose maximum absolute value is within the configured limit. A rejection
-fully restores the pre-trial RNG and macro-particle residuals before rebuilding
-the same batch at a shorter width. This trial loop is specific to
-`cached_kneq0` and does not support an ordinary `volume_seed`. Time-scaled `boundary_inflow`, `plane_source`, and
-deprecated `reservoir_face` must use `target_macro_particles_per_batch`; fixed `w_particle` reservoirs are rejected.
+## What happens in one batch
 
-With `surface_current_model.model="matching_plane_quasistatic"`, one trial replays the interface response and steps 1--5
-until the fixed point converges. Every iteration starts from the same batch-start RNG state and macro-particle residuals;
-only the matching potential, ambient inward fluxes, and outer barriers change. Charge deltas and particle statistics are
-not committed before convergence. When adaptive progression is also active, BEACH tests the $k\ne0$ bound after the
-fixed point converges and restores the matching state if the trial is rejected. See
-[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for the table and residual definitions.
+1. **Calculate electric field and potential.** The field is built from the surface charge at batch start. Whether the
+   run uses Direct, Treecode, or FMM, the field used by the subsequent particle tracking is fixed at this point.
+2. **Generate particles.** BEACH follows the configured supply method to create initial particles, particles entering
+   from inside or outside the region, and particles emitted from a surface.
+3. **Track particles.** Each particle advances in increments of `sim.dt`. BEACH searches the candidate trajectory for
+   the first intersection with a triangle or box boundary.
+4. **Handle each particle's destination.** BEACH resolves surface absorption, passage or reflection at a boundary,
+   escape from the computational region, and configured surface emission, then classifies the outcome.
+5. **Collect charge changes.** Absorption and emission contributions are accumulated per triangle. They have not yet
+   changed the surface charge from which this batch's field was calculated.
+6. **Apply the surface-charge update.** BEACH adds the collected change once and updates statistics and histories. The
+   new charge first enters the field calculation in stage 1 of the next batch.
 
-### 1. Refresh the field snapshot
+See [particle collision and boundary events](ParticleEvents.en.html) for event ordering and
+[how surfaces charge](SurfaceModels.en.html) for the treatment after a surface hit.
 
-The field and potential held fixed during particle tracking are built from `q_elem` committed through the
-previous batch. See [Field evaluation](FieldSolvers.en.html) for direct,
-treecode, and FMM selection and
-[periodic2 electrostatics](PeriodicElectrostatics.en.html) for periodic sums.
+## Why the field stays fixed within a batch
 
-### 2. Generate the batch particles
+Using one field for every particle in a batch separates particle tracking from the surface-charge update. The tradeoff
+is that a batch that changes charge too much makes the frozen-field approximation coarse.
 
-BEACH creates the particles to track in this trial from `volume_seed`, `plane_source`, boundary-reservoir inflow,
-deprecated `reservoir_face`, and `photo_raycast`. Reservoir counts follow inflow flux and the trial width; photoelectrons originate at the first surface
-hit by a ray. On an adaptive retry, particle counts and weights are recomputed
-from the restored RNG state and the shorter trial width. See [Particle sources and boundary inflow](ParticleSourcesBoundaries.en.html),
-[boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html), and
-[Photoelectron emission and lifecycle](PhotoelectronEmission.en.html).
+A research case must therefore test the charge change per batch separately from the particle trajectory time step.
+Vary `sim.batch_duration` or the macro-particle count and check whether potential, charge, and current remain unchanged
+at the required accuracy. See [how to choose `batch_duration`](BatchDurationStability.en.html) for the comparison procedure.
 
-### 3. Advance a particle by one step
+## Distinguish three time and count controls
 
-In the fixed snapshot and optional uniform magnetic field, BEACH updates velocity with the Boris method and
-position with a same-time trapezoidal rule. This produces a candidate trajectory; event processing determines
-the final state within the step. See [Boris particle update](BorisPusher.en.html).
+| Setting | What it changes | Outputs to examine first |
+| --- | --- | --- |
+| `sim.dt` | Resolution of one particle advance and event time | Collision position, trajectory, escape / survivor counts |
+| `sim.batch_duration` | Time-proportional inflow and the physical interval between surface-charge updates | Injection per batch, charge, potential, and current |
+| `sim.batch_count` | Number of computation cycles | Reached physical time, history length, and stationarity |
 
-### 4. Select and process the first event
-
-BEACH selects the earliest triangle hit or box-face crossing along the candidate trajectory, then applies
-absorption, reflection, periodic wrapping, escape, or potential-barrier reflection. A surviving particle with steps remaining
-returns to step 3. See [Particle collision and boundary events](ParticleEvents.en.html) and
-[Particle escape and return](ParticleEscapeReturn.en.html).
-
-### 5. Aggregate results and test the adaptive trial
-
-Surface-hit charge deltas, photoemission reaction charge, and particle outcomes are
-aggregated. OpenMP keeps collision charge thread-local, and quantities that must be global are reduced across MPI
-ranks. See [Run a simulation](Execution.en.html) for the parallel execution structure.
-
-Under adaptive progression, this aggregate forms the candidate charge. The
-cached $k\ne0$ potential operator then applies the
-configured bound. A failed trial is rejected without a commit. This test is a
-frozen-field local-voltage trust bound, not an estimate of local truncation
-error.
-
-For adaptive runs, the OpenMP particle loop uses a static partition so that a
-retry is reproducible at the same thread count, together with a conservative
-roundoff guard at the acceptance boundary. Bitwise identity across different
-thread counts is not guaranteed.
-
-### 6. Commit surface charge
-
-Only the accepted trial's global charge delta is added to `q_elem`, and it is added once. Floating conductors are then relaxed toward equipotential while
-preserving object charge when requested. See [Surface charge update](SurfaceModels.en.html) for insulator charging and conductor
-processing, [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction-charge signs, and
-[Inspect Output Files](OutputGuide.en.html) for species-resolved charge balance.
-
-### 7. Update statistics and history state
-
-For the accepted trial only, BEACH updates absorption, escape, `max_step`
-survivor counts, and `tol_rel`, adds the accepted width to
-`simulated_time_s`, then writes charge and potential history at the configured
-stride. `tol_rel` is a monitoring metric, not an early-stop condition. Rejected
-trials do not enter statistics, history, or the charge ledger. See
-[Inspect Output Files](OutputGuide.en.html) and [Run a simulation](Execution.en.html).
-Final results and the checkpoint are written after all `n` accepted batches complete.
+A case such as a `volume_seed` with `sim.batch_duration=0`, which specifies a direct particle count per batch, has no
+assigned physical duration in seconds. Time-proportional sources such as boundary inflow instead derive their particle
+count from flux and `sim.batch_duration`. `tol_rel` monitors surface-charge change; it is not an automatic stopping
+condition in the current implementation.
 
 ## State carried between batches
 
-| State | Role in the next batch |
+The next batch inherits updated surface charge, accumulated statistics, physical time, and the state required to continue
+the same particle supply. A restart restores the required state and continues the same cycle.
+
+Developers changing internal state, retry restoration, or MPI / OpenMP reduction should see
+[runtime architecture](Architecture.en.html) and
+[development and testing](Workflow.en.html).
+
+## Nonstandard execution paths
+
+After understanding the ordinary path, open only the specialized page needed by your case.
+
+| Needed feature | Dedicated page |
 | --- | --- |
-| Element charge `q_elem` | Becomes the field source in step 1 |
-| Reservoir residuals, RNG, and outer state | Continue particle generation and outer refresh |
-| Statistics, history, and `simulated_time_s` | Preserve accepted-batch results and the restart position |
-| Model, mesh, and species fingerprints | Validate checkpoint compatibility |
+| Limit the field change per batch and retry with a shorter interval | [How to choose `batch_duration`](BatchDurationStability.en.html) |
+| Couple a quasistatic outer 1-D sheath response | [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) |
+| Treat the mean and nonuniform fields of a periodic surface | [`periodic2` electrostatics](PeriodicElectrostatics.en.html) |
+| Choose Direct, Treecode, or FMM | [Choose a field solver](FieldSolvers.en.html) |
 
-`sim.dt` is the particle step size in step 3. `batch_duration` instead connects particle supply in step 2 with
-the charge update in step 6. Under adaptive progression it is the maximum
-trial width; the accepted trial width is the physical time actually advanced. Check its sensitivity using
-[`batch_duration` stability and steady value](BatchDurationStability.en.html).
+## Where to go next
 
-See the [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html)
-and [periodic2 electrostatics](PeriodicElectrostatics.en.html) for complete
-periodic setups. Input keys are listed in [Configuration parameters](Parameters.en.html), and discretization and result
-convergence are covered in [Validate simulation results](ValidationGuide.en.html).
+- Observe inter-batch feedback in a runnable case: [10-minute tutorial](Tutorial.en.html)
+- Decide where particles enter: [Choose where particles enter](ParticleSourcesBoundaries.en.html)
+- Choose a surface model: [How surfaces charge](SurfaceModels.en.html)
+- Check the charge ledger in outputs: [Inspect output files](OutputGuide.en.html)
+- Validate discretization and physical interpretation: [Validation guide](ValidationGuide.en.html)

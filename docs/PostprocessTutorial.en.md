@@ -4,175 +4,155 @@ Lang: [English](PostprocessTutorial.en.md) | [日本語](PostprocessTutorial.md)
 
 # Post-processing Tutorial
 
-BEACH post-processing can use the `beach` Python package directly or the `beachx` commands that package common workflows.
-This page introduces the Python API first and then the ready-made visualization and analysis commands. See
-[Python Post-processing API Reference](PythonPostprocessAPI.en.html) for every class and function and
-[Inspect Output Files](OutputGuide.en.html) for file meanings.
+The ordinary BEACH post-processing path is to check the run with the CLI, animate charge history, and use Python only
+for custom analysis. The standard BEACH Python package is sufficient to inspect an existing official tutorial, visualize
+charge, display its saved final absolute potential, and select a stored batch. Reconstructing potential history or
+potential slices is an additional path that requires the native field kernel.
 
-## Post-process with the Python API
+**Prerequisite:** Complete the [10-Minute Tutorial](Tutorial.en.html). The current directory must contain the
+`beach.toml` used for that run and `outputs/tutorial`. You do not need a repository clone, the repository root, or
+`examples/tutorial_insulator.toml`.
 
-### Read a result and make basic plots
+`outputs/tutorial` must contain at least `summary.txt`, `charges.csv`, `mesh_triangles.csv`, `mesh_sources.csv`,
+`charge_history.csv`, `mesh_potential.csv`, and `potential_history.csv`. If these files are missing, return to the
+[10-Minute Tutorial](Tutorial.en.html) and rerun it. See [Inspect Output Files](OutputGuide.en.html) for file meanings and
+the [Python Post-processing API Reference](PythonPostprocessAPI.en.html) for every class and function.
 
-```python
-from beach import Beach
+## 1. Check completion and distributions with `beachx inspect`
 
-b = Beach("outputs/latest")
-print("absorbed:", b.result.absorbed)
-print("escaped:", b.result.escaped)
-print("batches:", b.result.batches)
-
-b.plot_bar()
-b.plot_mesh()
-b.plot_potential()
-```
-
-If the config file is not near the output directory, pass it explicitly.
-
-```python
-b = Beach("outputs/latest", config_path="beach.toml")
-```
-
-### Select a mesh
-
-Use `mesh_sources.csv` to find `mesh_id`, then select the target mesh.
-
-```python
-from beach import Beach
-
-b = Beach("outputs/latest")
-mesh1 = b.get_mesh(1)
-charge1 = b.get_mesh_charge(1)
-print(mesh1.centers.shape, charge1.shape)
-```
-
-When history exists, pass a batch index.
-
-```python
-mesh1_step10 = b.get_mesh(1, step=10)
-charge1_step10 = b.get_mesh_charge(1, step=10)
-```
-
-### Evaluate detachment force while retaining periodic images
-
-This minimal example freezes the saved charge snapshot and moves only mesh 6 upward.
-
-```python
-import numpy as np
-from beach import AdhesionProfile, Beach
-
-run = Beach("outputs/latest", config_path="beach.toml")
-with run.object_interaction_snapshot(
-    periodic_model="infinite_physical",
-) as snapshot:
-    probe = snapshot.object_probe(6)
-    wrench = probe.wrench()
-    path = probe.vertical_path(np.linspace(0.0, 2.0e-4, 65))
-
-release = path.evaluate_release(
-    mass_kg=2.0e-12,
-    gravity_m_s2=9.80665,
-    adhesion=AdhesionProfile.none(),
-)
-```
-
-See
-[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
-for a complete example.
-
-## Use ready-made visualization and analysis with `beachx`
-
-`beachx` exposes common Python API workflows as commands. Use it to create standard plots and CSV files without writing a script.
-
-### Inspect a run and make basic plots
+Read the run summary before making any plots.
 
 ```bash
-beachx inspect outputs/latest
+beachx inspect outputs/tutorial
 ```
 
-Save figures:
+For the official tutorial, check at least the following:
+
+- `directory=outputs/tutorial`
+- `processed_particles=4000` and `batches=20`
+- `absorbed`, `escaped`, and `charge_sum` are reported
+- `potential_min` and `potential_max` are read from the saved `mesh_potential.csv`
+- `charge_history_shape` and the stored batch indices are reported
+- `mesh_ids` and `mesh_source` are reported
+
+Reference values for `rng_seed=12345` and one OpenMP thread are listed in
+[Inspect Output Files](OutputGuide.en.html#check-the-official-tutorial-result). Absorption and escape counts can change
+with a different thread count because they depend on the random sequence.
+
+Next, save the standard plots from the same output.
 
 ```bash
-beachx inspect outputs/latest \
-  --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png
+beachx inspect outputs/tutorial \
+  --save-bar outputs/tutorial/charges_bar.png \
+  --save-mesh outputs/tutorial/charge.png
 ```
 
-For `field_boundary.mode="periodic2"`, draw the mesh wrapped into the cell defined by `domain.periodic_axes`:
+A successful command writes a per-element charge bar chart and a mesh colored by surface charge density. Generated
+images establish post-processing success; they do not establish numerical convergence or physical validity.
+
+## 2. View changes between batches with `beachx animate`
+
+The official tutorial uses `history_stride=1`, so it has 20 charge snapshots. Render the surface-charge-density GIF,
+which works with the standard distribution alone.
 
 ```bash
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_periodic.png \
-  --apply-periodic2-mesh
-```
-
-### Make a history animation
-
-When `charge_history.csv` exists:
-
-```bash
-beachx animate outputs/latest \
+beachx animate outputs/tutorial \
   --quantity charge \
-  --save-gif outputs/latest/charge_history.gif \
-  --total-frames 200
+  --save-gif outputs/tutorial/charge_history.gif \
+  --total-frames 20
 ```
 
-If `potential_history.csv` is enabled, use `--quantity potential` as well.
+On success, the command reports `saved_gif=outputs/tutorial/charge_history.gif`, `snapshots=20`, and
+`rendered_frames=20`.
 
-### Slices, forces, and mobility
+`animate` uses the snapshots stored in `charge_history.csv`. Potential mode also requires the native field kernel to
+reconstruct potential from those charges and the field-reconstruction information. For another run without history,
+set `output.history_stride` to a positive value and rerun the simulation.
 
-For more advanced analysis, start with these commands.
+## 3. Select plots and stored batches with the Python API
 
-```bash
-beachx slices outputs/latest \
-  --grid-n 200 \
-  --save outputs/latest/potential_slices.png
+After the CLI checks pass, use Python for custom plots and calculations. Set `config_path` to the `beach.toml` used for
+the run in the current directory.
 
-beachx coulomb outputs/latest \
-  --component z \
-  --save outputs/latest/coulomb_force_z.png
+```python
+from beach import Beach
 
-beachx mobility outputs/latest \
-  --density-kg-m3 2500 \
-  --mu-static 0.4 \
-  --save-csv outputs/latest/mobility_summary.csv
+run = Beach(
+    "outputs/tutorial",
+    config_path="beach.toml",
+)
+
+print("absorbed:", run.result.absorbed)
+print("escaped:", run.result.escaped)
+print("batches:", run.result.batches)
+print("mesh ids:", run.mesh_ids)
+
+bar_fig, _ = run.plot_bar()
+bar_fig.savefig("outputs/tutorial/python_charges_bar.png", dpi=150)
+
+charge_fig, _ = run.plot_mesh()
+charge_fig.savefig("outputs/tutorial/python_charge.png", dpi=150)
+
+potential_fig, _ = run.plot_potential(reference_point=None)
+potential_fig.savefig("outputs/tutorial/python_potential.png", dpi=150)
 ```
 
-These commands read geometry, `field_boundary.mode`, `domain.periodic_axes`, and the domain box from nearby `beach.toml` to
-resolve periodic2 settings.
-If no config is found, pass the corresponding `--config` option.
+`reference_point=None` explicitly selects the final absolute potential saved in `mesh_potential.csv`, so this case does
+not need the native field kernel. Re-evaluating the field with a different reference requires the kernel in the next section.
 
-### Evaluate detachment force while retaining periodic images
+### Select a mesh and batch
 
-This command runs the same flow as the Python example above and writes its CSV, JSON, and report outputs.
+Find `mesh_id` with `beachx inspect` or `mesh_sources.csv` before selecting it. `step=None` uses final charges from
+`charges.csv`; an integer `step` is a batch index stored in `charge_history.csv`.
+
+```python
+mesh_id = run.mesh_ids[0]
+
+final_mesh = run.get_mesh(mesh_id, step=None)
+final_charge = run.get_mesh_charge(mesh_id, step=None)
+print(final_mesh.triangles.shape, final_charge.shape)
+
+# The official case stores batch 10 because history_stride=1.
+mesh_at_10 = run.get_mesh(mesh_id, step=10)
+charge_at_10 = run.get_mesh_charge(mesh_id, step=10)
+print(mesh_at_10.triangles.shape, charge_at_10.shape)
+```
+
+## 4. Reconstruct potential history and slices with the native field kernel
+
+The standard Python package installation does not contain `libbeach_field_kernel.so`. Only when you need
+`animate --quantity potential` or `slices`, build the library in a BEACH source checkout with a Fortran compiler and
+`fpm`. Replace `/path/to/BEACH` with the actual checkout.
 
 ```bash
-beachx object-detachment outputs/latest \
+make -C /path/to/BEACH build-kernel
+export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
+```
+
+In the shell where that environment variable is set, first render potential history.
+
+```bash
+beachx animate outputs/tutorial \
+  --quantity potential \
+  --save-gif outputs/tutorial/potential_history.gif \
+  --total-frames 20
+```
+
+On success, the command reports `saved_gif=outputs/tutorial/potential_history.gif`, `snapshots=20`, and
+`rendered_frames=20`. Then reconstruct the centered XY, YZ, and XZ slices of the simulation box.
+
+```bash
+beachx slices outputs/tutorial \
   --config beach.toml \
-  --target-mesh-id 6 \
-  --periodic-model infinite-physical \
-  --z-max-m 2.0e-4 \
-  --z-points 65 \
-  --mass-kg 2.0e-12 \
-  --gravity-m-s2 9.80665 \
-  --adhesion-force-n 1.0e-10 \
-  --adhesion-range-m 2.0e-6 \
-  --output-dir outputs/latest/object_detachment
+  --grid-n 200 \
+  --save outputs/tutorial/potential_slices.png
 ```
 
-The `object-detachment` CLI defaults to lunar gravity, `1.62 m/s^2`. This
-example explicitly assumes Earth gravity, `9.80665 m/s^2`; change it for the
-target environment.
+On success, the command reports `saved_potential_slices=outputs/tutorial/potential_slices.png`. These analyses
+reconstruct a field from saved charges. They do not replace mesh- or solver-convergence checks. Follow
+[Validating Simulation Results](ValidationGuide.en.html) before accepting the result for research.
 
-`configured` preserves the run's finite or cached field configuration.
-`infinite-physical` combines cached `k != 0` with the physical `k = 0` mode for
-an x/y-periodic run. Only the target's central-cell primary self field is
-excluded, so force from the target's own periodic images remains. The command
-writes `instantaneous_wrench.csv`, `path.csv`, `summary.json`, and `report.md`.
+## 5. Continue to multi-object analysis
 
-A zero exit status and generated CSV/JSON files establish execution success,
-not physical qualification. Check `path.status`, work versus potential
-difference, mesh/quadrature, finite shells or periodic cache, path endpoint,
-charge snapshot, and stochastic-seed sensitivity using
-[Validating Simulation Results](ValidationGuide.en.html). Do not interpret a
-finite-height speed in a non-neutral periodic cell as escape speed at infinity.
+The official tutorial contains one fixed plane, so it cannot be used for object-to-object forces or detachment. If you
+have a separate multi-object run, continue with [Analyze Object Forces and Detachment](ObjectForcesDetachment.en.html).

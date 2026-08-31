@@ -7,16 +7,13 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/beach-bem)](https://pypi.org/project/beach-bem/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 
-BEACH は、**境界要素法（BEM）による表面電場計算**と
-**テスト粒子追跡**を組み合わせた表面帯電シミュレータです。
+BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM）で評価し、その場の中を動く
+荷電粒子を追跡する表面帯電シミュレータです。粒子が表面へ吸収されるたびに電荷を蓄積し、
+次のバッチの電場へ反映します。
 
-- `beach`: Fortran 製のシミュレーション実行バイナリ
-- `beach-zhao-response`: 組み込みZhaoモデルからmatching-plane応答表を作るFortran CLI
-- `beachx`: 設定検査、可視化、ワークロード見積もりなどの Python CLI
-- `beach/`: Fortran 出力を読むための Python ライブラリ
-
-現行の主対象は **絶縁体表面への電荷蓄積（insulator accumulation）** です。
-各バッチで電場計算、Boris pusher による粒子前進、メッシュ衝突判定、表面への電荷堆積を行い、表面電位の時間発展を出力します。
+現行版の中心は絶縁体表面の帯電です。体積プラズマを PIC として解くコードではありません。
+外部シースは、必要な場合だけ計算領域上端の matching plane を介した準定常の境界応答として接続します。
+詳しい適用範囲と更新順は [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) を参照してください。
 
 <div align="center">
   <img src="https://nkzono99.github.io/BEACH/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
@@ -24,114 +21,54 @@ BEACH は、**境界要素法（BEM）による表面電場計算**と
   <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
 </div>
 
-## 必要なもの
+## 最初の実行
 
-Python パッケージのインストール時に、Fortran実行バイナリ`beach` / `beach-zhao-response`もビルドします。通常の
-`pip install` では `fpm` も隔離ビルド環境へ自動導入されるため、事前に必要なのは `make` と
-Fortran コンパイラです。
-
-```bash
-make --version
-gfortran --version
-python --version
-```
-
-`gfortran` 以外の Fortran コンパイラを使う場合は、環境に合わせて `FC` / `FPM_FC` などを設定してください。
-
-## クイックスタート
-
-通常利用では PyPI から導入します。
-
-```bash
-python -m pip install -U pip setuptools wheel
-python -m pip install beach-bem
-```
-
-ユーザーインストール時に`beach` / `beach-zhao-response` / `beachx`が見つからない場合はPATHを確認してください。
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-小さな設定を作って実行します。
-
-```bash
-mkdir beach-tutorial
-cd beach-tutorial
-
-beachx config init
-beachx lint beach.toml
-beach beach.toml
-```
-
-この入門ケースでは、1 個の電子が平面へ吸収され、衝突した要素へ負電荷が堆積します。
-結果は既定で `outputs/latest/` に出力されます。
-
-```bash
-beachx inspect outputs/latest
-beachx animate outputs/latest --quantity potential --save-gif potential_history.gif
-```
-
-開発版を直接試す場合:
+Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラが必要です。
+HPC のログインノードではシミュレーションを直接実行せず、各サイトのジョブスケジューラから
+計算ノードへ投入してください。以下の `beach` は、ローカル環境または計算ノードの割当内で実行します。
 
 ```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
+
+mkdir beach-tutorial
+cd beach-tutorial
+beachx config init beach.toml
+beachx lint beach.toml
+OMP_NUM_THREADS=1 beach beach.toml
+beachx inspect outputs/tutorial
 ```
 
-## 設定ファイル
+この公式入門ケースは、毎 batch 200 個のマクロ電子を 20 batch 入射し、蓄積した負電荷が
+後続電子を反射し始めるところまでを確認します。設定の意味、期待出力、図の読み方は
+[10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) にまとめています。
+このサイトは `main` branch の挙動を説明します。PyPI の安定版は同じ入門設定をまだ含まない場合があるため、
+上の最初の実行では GitHub 版を使用します。
 
-`beach` は実行時に `beach.toml` を読みます。まずは `beachx config init` で生成した設定を編集し、
-実行前に `beachx lint beach.toml` で検査してください。個別の設定項目と制約は、次のガイドにまとめています。
+## 目的別の入口
 
-- 設定の作成と検証: [設定を編集する](https://nkzono99.github.io/BEACH/configuration.html)
-- 全設定項目の仕様: [`beach.toml` パラメータ仕様](https://nkzono99.github.io/BEACH/parameters.html)
-
-## よく使うコマンド
-
-| コマンド | 用途 |
+| 目的 | 読む順序 |
 | --- | --- |
-| `beach beach.toml` | Fortran シミュレーションを実行 |
-| `beach-zhao-response beach.toml query-grid.csv response.csv` | 組み込みZhao応答をCSV表へ書き出す |
-| `beachx config init [path]` | 小さな実行可能設定を作成 |
-| `beachx lint beach.toml` | TOML / JSON Schema / BEACH 制約を検査 |
-| `beachx inspect outputs/latest` | 出力ディレクトリの概要表示 |
-| `beachx animate outputs/latest` | 電荷・電位履歴のアニメーション生成 |
-| `beachx workload beach.toml --threads 8` | 実行前のワークロード見積もり |
-| `beachx model close-pack` | 密充填球モデルの設定生成 |
+| 初めて使う | [インストール](https://nkzono99.github.io/BEACH/installation.html) → [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [最初の出力を読む](https://nkzono99.github.io/BEACH/output-guide.html) |
+| 研究ケースを作る | [ケース設計](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [設定](https://nkzono99.github.io/BEACH/configuration.html) → [実行・再開](https://nkzono99.github.io/BEACH/execution.html) → [妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html) |
+| 物理・数値モデルを理解する | [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) → [表面はどう帯電するか](https://nkzono99.github.io/BEACH/surface-models.html) → [場 solver の選び方](https://nkzono99.github.io/BEACH/field-solvers.html) |
+| ソースを変更する | [アーキテクチャ](https://nkzono99.github.io/BEACH/architecture.html) → [開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) |
+| キーや API を調べる | [入力パラメータ](https://nkzono99.github.io/BEACH/parameters.html) / [Python API](https://nkzono99.github.io/BEACH/python-postprocess-api.html) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) |
 
-旧 CLI 名（`beach-inspect`、`beach-animate-history`、`beach-estimate-workload` など）は互換用の別名です。新しい利用者には `beachx ...` を推奨します。
+ドキュメント全体の案内は [BEACH Documentation](https://nkzono99.github.io/BEACH/) にあります。
 
-## ドキュメント
+## 提供するコマンドとライブラリ
 
-利用者向け・開発者向けドキュメントは [BEACH ドキュメント](https://nkzono99.github.io/BEACH/) に集約しています。
+| 名前 | 役割 |
+| --- | --- |
+| `beach` | Fortran シミュレーション本体 |
+| `beach-zhao-response` | matching-plane 用 Zhao 応答表の生成（現在の source build） |
+| `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
+| `beach` Python package | 出力の読込と独自解析 |
 
-- 初めて実行する: [インストール](https://nkzono99.github.io/BEACH/installation.html) → [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [出力の読み方](https://nkzono99.github.io/BEACH/output-guide.html)
-- 研究ケースを作る: [設定レシピ](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [計算結果の妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html)
-- open境界と局所returnを設定する: [粒子のescapeと局所return](https://nkzono99.github.io/BEACH/particle-escape-return.html)。
-- 数値モデルを確認する: [アルゴリズム概要](https://nkzono99.github.io/BEACH/algorithms.html) / [場ソルバー](https://nkzono99.github.io/BEACH/field-solvers.html) / [粒子更新](https://nkzono99.github.io/BEACH/particle-tracking-collision.html) / [FMM](https://nkzono99.github.io/BEACH/fmm-core.html)
-- 開発する: [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) / [Python 後処理 API](https://nkzono99.github.io/BEACH/python-postprocess-api.html)
-- 問題を調べる: [トラブルシューティング](https://nkzono99.github.io/BEACH/troubleshooting.html) / [`batch_duration` の安定性](https://nkzono99.github.io/BEACH/batch-duration-stability.html)
-- 英語版を読む: [BEACH Documentation](https://nkzono99.github.io/BEACH/en.html)
+コマンドの全オプションは `beach --help`、`beachx --help` および `beachx <command> --help` で確認できます。
+`beach-zhao-response` が必要で公開 package に含まれない場合は、開発版をインストールしてください。
 
-Pages ビルド:
-
-- `make docs-deps`: Starlight 依存を `npm ci` でインストール
-- `make docs-starlight`: Starlight 本体のみを生成
-- `make docs-pages`: Starlight 本体と FORD サブサイトを `build/starlight-site/` に生成
-
-## リポジトリ構成
-
-- [`src/`](src/), [`app/`](app/): Fortran 本体
-- [`beach/`](beach/): Python 後処理ライブラリと `beachx`
-- [`docs-site/`](docs-site/): GitHub Pages 用 Starlight サイト
-- [`examples/`](examples/): 設定例・補助スクリプト
-- [`tests/fortran/`](tests/fortran/), [`tests/python/`](tests/python/): テスト
-- [`docs/`](docs/): 利用者・開発者向けドキュメント
-- [`schemas/`](schemas/), [`beach/config/schemas/`](beach/config/schemas/): `beach.toml` JSON Schema
-
-## 開発者向け
-
-ローカルチェックアウトを編集する場合は、次の最小構成で準備できます。
+## 開発
 
 ```bash
 python -m pip install fpm
@@ -139,22 +76,5 @@ python -m pip install -e . --no-build-isolation
 make check
 ```
 
-`--no-build-isolation` や `make` を直接使う開発では、`fpm` を PATH 上へ用意してください。
-
-Python 側の確認:
-
-```bash
-pytest -q
-ruff check .
-```
-
-Fortran を含むテストは時間がかかるため、目的に応じて階層別のターゲットを選んでください。
-
-```bash
-make test-l0
-make test-l1
-make test-l2
-make test-l3
-```
-
-KUDPC のログインノードでは `make test*` / `fpm test` / 長時間の Fortran 実行を直接走らせず、計算ノードへ投入してください。詳細は [Fortran 中心ワークフロー](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。
+変更範囲に応じたテスト tier、MPI/OpenMP、KUDPC での実行方法は
+[開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。

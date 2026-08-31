@@ -1,136 +1,107 @@
-title: Particle sources and boundary inflow
+title: Choose where particles enter
 
 Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBoundaries.en.md)
 
-# Particle sources and boundary inflow
+# Choose where particles enter
 
-`source_mode` selects how particles are created inside the simulation domain.
-`[particles.species.boundary_inflow]` adds particles crossing the boundary from outside. These settings have separate roles.
+This page helps you choose a particle source from its creation location and physical supply mechanism. `source_mode`
+creates particles inside the domain. `[particles.species.boundary_inflow]` brings particles across a box boundary from
+outside; it has a separate role.
 
-## Choose a setting from the creation location
+> **Decision rule:** use `volume_seed` for a specified count, `plane_source` for continuous supply from an internal
+> rectangle, `boundary_inflow` for an external plasma reservoir, and `photo_raycast` for emission from illuminated
+> surfaces.
 
-| Setting | What determines particle count | Creation location | Suitable use |
+After reading this page, you should be able to choose one path and continue to the relevant detailed guide or reference.
+
+## Choose from the creation location
+
+| Goal | Setting | What determines particle count | Creation location |
 | --- | --- | --- | --- |
-| `source_mode="volume_seed"` | `npcls_per_step` | Volume from `pos_low` to `pos_high` | Initial populations, orbit tests, and specified counts |
-| `source_mode="plane_source"` | Inflow flux, rectangle area, and `batch_duration` | Axis-aligned rectangle inside the box | Explicit one-way internal surface source |
-| `source_mode="photo_raycast"` | Current density, projected area, `batch_duration`, and ray count | First surface hit by a ray | Illumination-driven surface emission |
-| `[particles.species.boundary_inflow]` | Reservoir flux, box-face area, and `batch_duration` | Nonperiodic simulation boundary | Continuous inflow from an external plasma reservoir |
+| Create a specified initial population or orbit test | `source_mode="volume_seed"` | `npcls_per_step` | Between `pos_low` and `pos_high` |
+| Supply particles one way from an internal surface | `source_mode="plane_source"` | Flux × area × `batch_duration` | Axis-aligned rectangle |
+| Bring particles in from plasma outside the box | `boundary_inflow` | Reservoir flux × box area × `batch_duration` | Nonperiodic box face |
+| Emit from a surface reached by light | `source_mode="photo_raycast"` | Current density, projected area, `batch_duration` | First surface hit by a ray |
 
-`boundary_inflow` is not a `source_mode`. For a boundary-only species, use `source_mode="volume_seed"` with
-`npcls_per_step=0`; for a Maxwell distribution, set `npcls_per_step>0` if the same species also needs an initial population.
-Velocity-grid boundary inflow cannot use a positive `npcls_per_step`. In the initial
-implementation, a flux-driven `plane_source` or legacy `reservoir_face` cannot be combined with `boundary_inflow` for the
-same species.
+`source_mode` and `boundary_inflow` are separate settings. In the current schema, a species that uses boundary inflow
+alone must also specify `source_mode="volume_seed"` and `npcls_per_step=0`. This does not create particles in a volume.
 
-## Create a specified population with `volume_seed`
+## Place a specified count: `volume_seed`
 
-`volume_seed` creates `npcls_per_step` particles in every batch. Position is uniform in the rectangular volume
-`[pos_low, pos_high]`, and velocity follows a drifting Maxwell distribution. If `thermal_speed` is supplied, it overrides
-the value derived from temperature.
+`volume_seed` creates `npcls_per_step` particles in every batch. Positions are sampled from the box enclosed by
+`pos_low` and `pos_high`; velocities follow the configured drifting Maxwell distribution.
 
-This source does not derive count from physical surface flux. `npcls_per_step=0` is valid when the same species uses only
-`boundary_inflow`. A positive value can accompany Maxwell boundary inflow, but not velocity-grid inflow.
+It does not derive count from a physical surface flux. A run can therefore use this source with `batch_duration=0`,
+but no physical duration in seconds is assigned to that batch. The official
+[10-minute tutorial](Tutorial.en.html) uses this path to demonstrate inter-batch surface-charging feedback.
 
-## Emit from an internal rectangle with `plane_source`
+## Supply particles from an internal surface: `plane_source`
 
-`plane_source` creates particles from the axis-aligned rectangle selected by `pos_low` and `pos_high`, directed along
-`source_normal`.
+`plane_source` supplies particles along `source_normal` from a rectangle inside the box. `pos_low` and `pos_high`
+must share one coordinate and span a positive area in the other two directions.
 
 ```toml
-[[particles.species]]
 source_mode = "plane_source"
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.1093837139e-31
-target_macro_particles_per_batch = 300
-pos_low = [0.2, 0.2, 2.0]
-pos_high = [0.8, 0.8, 2.0]
+pos_low = [0.2, 0.2, 0.7]
+pos_high = [0.8, 0.8, 0.7]
 source_normal = [0.0, 0.0, -1.0]
 ```
 
-`pos_low` and `pos_high` must be equal on exactly one axis and have positive extent on the other two. The normal coordinate
-must be strictly between the box faces, while tangential ranges may reach the box bounds. `source_normal` is a nonzero vector
-along the zero-thickness axis. Positive or negative
-unit vectors are recommended in configurations; the implementation normalizes magnitudes such as `[2,0,0]`.
+Flux, rectangle area, and `batch_duration` determine the particle count. Because the rectangle is not an outer plasma
+boundary, it does not use the potential correction from infinity defined by `reservoir.phi_infty`.
 
-Particle count comes from Maxwell reservoir density and temperature, or the specified velocity-grid flux, multiplied by
-rectangle area and `batch_duration`. Normal velocity follows the one-way flux distribution along `source_normal`.
-`[reservoir]` settings `infinity_barrier`, `phi_infty`, and `face_potential_grid_n` do not apply to an internal plane.
+## Enter from an external reservoir: `boundary_inflow`
 
-## Inflow from an external reservoir with `boundary_inflow`
-
-Set one or more of the six faces in `[particles.species.boundary_inflow]` to `"reservoir"`.
+`boundary_inflow` represents plasma entering through an entire nonperiodic box face. Separately configure the outward
+action on every selected face as `open`.
 
 ```toml
 [[particles.species]]
-species_key = "solar_wind_electron"
 source_mode = "volume_seed"
 npcls_per_step = 0
-number_density_cm3 = 5.0
-temperature_ev = 10.0
-q_particle = -1.602176634e-19
-m_particle = 9.1093837139e-31
-target_macro_particles_per_batch = 300
-drift_velocity = [0.0, 0.0, -4.0e5]
+# density, temperature, charge, mass, and macro-particle weight
 
 [particles.species.boundary_inflow]
 z_high = "reservoir"
 ```
 
-Particles enter across the complete selected box face. Multiple nonperiodic faces can be enabled; periodic faces cannot.
-Configure outward actions independently in `[particle_boundary]` or `[particles.species.boundary]`; each inflow face must
-have an effective `open` action.
+See [inflow through a simulation boundary](ReservoirInjection.en.html) for Maxwell or velocity-grid distributions,
+per-face flux and remainder, and correction from an upstream plasma potential to the boundary. This model does not solve
+trajectories or a self-consistent sheath outside the box. If the case needs an outer sheath response itself, consider
+[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html).
 
-See [Reservoir inflow through simulation boundaries](ReservoirInjection.en.html) for flux, macro-particle count,
-per-face remainders, and `infinity_barrier`. This model does not solve outside-box trajectories or a self-consistent sheath.
+## Emit from illuminated surfaces: `photo_raycast`
 
-## Emit from illuminated surfaces with `photo_raycast`
+`photo_raycast` launches rays through an illumination aperture on a box face and emits particles from the first triangle
+hit. See [photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for reaction charge left at the source,
+reabsorption, and closed-photoelectron return.
 
-`photo_raycast` launches rays from an illumination aperture on a box face and propagates them under the box boundary
-conditions. It emits particles from the first in-box element hit and samples velocity from a flux-weighted Maxwell
-distribution relative to the element normal.
+## Tracking is common after creation
 
-See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for source reaction charge, reabsorption, and closed PE.
+Every creation path enters the same particle tracker.
 
-## Treat legacy `reservoir_face` as compatibility input
-
-`source_mode="reservoir_face"` is a deprecated input whose behavior is retained for existing cases. `inject_face` and
-`pos_low` / `pos_high` select an aperture on a box face. BEACH does not silently convert it to `boundary_inflow` or
-`plane_source`.
-
-Use `boundary_inflow` for new external-plasma cases and `plane_source` for explicit internal rectangles. When moving a
-legacy aperture to complete-face boundary inflow, account for the change in physical inflow caused by the area change.
-
-## Enter the same particle tracker after creation
-
-All creation paths enter the same particle tracker.
-
-| Outcome within a batch | Treatment |
+| Outcome | BEACH treatment |
 | --- | --- |
-| Absorbed by the mesh | Deposit macro-particle charge on the hit element |
-| Escapes through an open face | Remove and include in species-resolved escape |
-| `reflect`, `redistributed_reflect`, or periodic box action | Reintegrate the remaining step for the same particle |
-| Alive after `max_step` | Discard and report as unresolved at batch end |
+| Absorbed by a triangle | Add charge to the hit element's pending change |
+| Escapes through an open face | Remove it and count a species-resolved escape |
+| Reflected or crosses a periodic boundary | Continue tracking the same particle for the remaining time |
+| Still alive at `sim.max_step` | Count an unresolved survivor and discard it at batch end |
 
-Configure global nonperiodic actions in `[particle_boundary]`, species overrides in `[particles.species.boundary]`, and
-periodic axes in `domain.periodic_axes`. See [Boris particle update](BorisPusher.en.html) for advancement,
-[particle collision and boundary events](ParticleEvents.en.html) for mesh-versus-box ordering, and
-[particle escape and local return](ParticleEscapeReturn.en.html) for open-face treatment.
+See [particle escape and return](ParticleEscapeReturn.en.html) for outward box boundaries and
+[particle collision and boundary events](ParticleEvents.en.html) for event ordering.
 
-## Preserve inflow across MPI and restart
+## When reading legacy `reservoir_face`
 
-The root rank determines global reservoir-inflow and `plane_source` counts and remainders before splitting particles across
-ranks. `photo_raycast` `rays_per_batch` is also a global total. Expected inflow and emission therefore do not depend on MPI
-world size, although random sequences and individual trajectories may change with world size.
+`source_mode="reservoir_face"` is a deprecated compatibility input. Use `boundary_inflow` for a new external-plasma
+case and `plane_source` for an internal rectangle. Moving a legacy aperture to a complete box face changes area and total
+inflow, so BEACH does not convert it silently.
 
-Boundary-inflow remainders are stored per species-face pair in checkpoints and restored on resume. See
-[reservoir inflow](ReservoirInjection.en.html) for residual calculation and diagnostics.
+The [input parameter reference](Parameters.en.html) is the canonical list of keys, combinations, MPI behavior, and
+checkpoint behavior.
 
-## Code reference
+## Where to go next
 
-- Particle distributions and ray casting: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- Per-source and boundary-inflow batch creation: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
-- Input validation: [`bem_app_config_parser_validate.f90`](../src/config/app_config_parser/bem_app_config_parser_validate.f90)
-- Charge-balance accounting and batch tracking: [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)
-- Macro-particle remainder checkpoints: [`bem_restart.f90`](../src/runtime/bem_restart.f90)
+- Combine geometry, source, boundaries, and solver into a case: [Design a case](ConfigurationRecipes.en.html)
+- Configure boundary flux and `phi_infty`: [Inflow through a simulation boundary](ReservoirInjection.en.html)
+- Treat charge after a surface collision: [How surfaces charge](SurfaceModels.en.html)
+- Search the complete key and constraint set: [Input parameters](Parameters.en.html)

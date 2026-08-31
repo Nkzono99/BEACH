@@ -4,171 +4,155 @@ Lang: [日本語](PostprocessTutorial.md) | [English](PostprocessTutorial.en.md)
 
 # 後処理チュートリアル
 
-BEACHの後処理は、Python package `beach`を直接使う方法と、そのpackageで定型処理を行う`beachx`があります。
-このページではPython APIを先に示し、その後に用意済みの可視化・解析commandを紹介します。全class・関数は
-[Python後処理APIリファレンス](PythonPostprocessAPI.html)、出力 file の意味は[出力ファイルを調べる](OutputGuide.html)から確認できます。
+BEACH の後処理は、実行概要を CLI で確認し、電荷履歴を動画にし、必要なときだけ Python で独自解析へ進むのが
+基本です。通常の BEACH Python package だけで、作成済みの公式入門ケースの完走確認、電荷分布、保存済みの最終絶対電位、
+保存 batch の選択まで実行できます。電位履歴の再構成と電位断面は、native field kernel を用意した追加経路です。
 
-## Python APIで後処理する
+**前提:** [10 分チュートリアル](Tutorial.html)を完了し、現在のディレクトリに、その実行で使った
+`beach.toml` と `outputs/tutorial` があります。repository の clone、repository root、
+`examples/tutorial_insulator.toml` は必要ありません。
 
-### 結果を読み、基本図を作る
+`outputs/tutorial` には少なくとも `summary.txt`、`charges.csv`、`mesh_triangles.csv`、
+`mesh_sources.csv`、`charge_history.csv`、`mesh_potential.csv`、`potential_history.csv` が必要です。
+不足する場合は[10 分チュートリアル](Tutorial.html)へ戻って実行し直してください。file の意味は
+[出力ファイルを調べる](OutputGuide.html)、全 class・関数は
+[Python 後処理 API リファレンス](PythonPostprocessAPI.html)を参照してください。
 
-```python
-from beach import Beach
+## 1. `beachx inspect` で完走と分布を確認する
 
-b = Beach("outputs/latest")
-print("absorbed:", b.result.absorbed)
-print("escaped:", b.result.escaped)
-print("batches:", b.result.batches)
-
-b.plot_bar()
-b.plot_mesh()
-b.plot_potential()
-```
-
-設定ファイルが出力directoryの近傍にない場合は、`config_path`で指定します。
-
-```python
-b = Beach("outputs/latest", config_path="beach.toml")
-```
-
-### 特定meshだけを見る
-
-`mesh_sources.csv` で `mesh_id` を確認してから、対象 mesh を選べます。
-
-```python
-from beach import Beach
-
-b = Beach("outputs/latest")
-mesh1 = b.get_mesh(1)
-charge1 = b.get_mesh_charge(1)
-print(mesh1.centers.shape, charge1.shape)
-```
-
-履歴がある場合は、batch index を指定できます。
-
-```python
-mesh1_step10 = b.get_mesh(1, step=10)
-charge1_step10 = b.get_mesh_charge(1, step=10)
-```
-
-### 周期画像を含むobjectの離脱力を調べる
-
-保存されたcharge snapshotを固定し、mesh 6だけを上向きに動かす最小例です。
-
-```python
-import numpy as np
-from beach import AdhesionProfile, Beach
-
-run = Beach("outputs/latest", config_path="beach.toml")
-with run.object_interaction_snapshot(
-    periodic_model="infinite_physical",
-) as snapshot:
-    probe = snapshot.object_probe(6)
-    wrench = probe.wrench()
-    path = probe.vertical_path(np.linspace(0.0, 2.0e-4, 65))
-
-release = path.evaluate_release(
-    mass_kg=2.0e-12,
-    gravity_m_s2=9.80665,
-    adhesion=AdhesionProfile.none(),
-)
-```
-
-完全な例は
-[`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
-にあります。
-
-## `beachx`で用意済みの可視化・解析を使う
-
-`beachx`は、Python APIの代表的な後処理をcommandとしてまとめた入口です。定型図やCSVをすぐ作る場合はこちらを使います。
-
-### 実行結果の概要と基本図
+最初に、図を作らず実行概要を読みます。
 
 ```bash
-beachx inspect outputs/latest
+beachx inspect outputs/tutorial
 ```
 
-画像を保存する場合:
+公式入門ケースでは、少なくとも次を確認します。
+
+- `directory=outputs/tutorial`
+- `processed_particles=4000` と `batches=20`
+- `absorbed`、`escaped`、`charge_sum` が表示される
+- 保存済み `mesh_potential.csv` の `potential_min` と `potential_max` が表示される
+- `charge_history_shape` と保存された batch index が表示される
+- `mesh_ids` と `mesh_source` が表示される
+
+`rng_seed=12345`、1 OpenMP thread での参照値は
+[出力ファイルを調べる](OutputGuide.html#公式入門ケースの結果を確認する)にあります。thread 数が異なると、
+乱数列に依存する吸収・escape 件数が変わる場合があります。
+
+次に、同じ出力から基本図を保存します。
 
 ```bash
-beachx inspect outputs/latest \
-  --save-bar outputs/latest/charges_bar.png \
-  --save-mesh outputs/latest/charges_mesh.png \
-  --save-potential-mesh outputs/latest/potential_mesh.png
+beachx inspect outputs/tutorial \
+  --save-bar outputs/tutorial/charges_bar.png \
+  --save-mesh outputs/tutorial/charge.png
 ```
 
-`field_boundary.mode="periodic2"` の mesh を `domain.periodic_axes` の周期 cell に寄せて描く場合:
+正常終了すると、要素電荷の bar chart と、表面電荷密度で着色した mesh が指定先に保存されます。
+画像の生成は後処理の成功を示しますが、数値収束や物理的妥当性の証明ではありません。
+
+## 2. `beachx animate` で batch 間の変化を見る
+
+公式入門ケースは `history_stride=1` なので、20 個の電荷 snapshot があります。標準配布だけで使える
+表面電荷密度の GIF を作ります。
 
 ```bash
-beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_periodic.png \
-  --apply-periodic2-mesh
-```
-
-### 履歴アニメーション
-
-`charge_history.csv`がある場合:
-
-```bash
-beachx animate outputs/latest \
+beachx animate outputs/tutorial \
   --quantity charge \
-  --save-gif outputs/latest/charge_history.gif \
-  --total-frames 200
+  --save-gif outputs/tutorial/charge_history.gif \
+  --total-frames 20
 ```
 
-`potential_history.csv`を出している場合は`--quantity potential`も使えます。
+正常終了すると、`saved_gif=outputs/tutorial/charge_history.gif`、`snapshots=20`、
+`rendered_frames=20` が表示されます。
 
-### 断面・力・移動しやすさ
+`animate` は `charge_history.csv` の保存済み snapshot を使います。`potential` mode では、その電荷と
+場の再構成情報に加えて native field kernel が必要です。履歴がない別の run は、`output.history_stride` を
+正にして simulation を再実行する必要があります。
 
-少し進んだ解析では次のcommandを使います。
+## 3. Python API で図と保存 batch を選ぶ
 
-```bash
-beachx slices outputs/latest \
-  --grid-n 200 \
-  --save outputs/latest/potential_slices.png
+CLI の確認が通ったら、独自の図や集計へ進みます。`config_path` には、現在のディレクトリで実行に使った
+`beach.toml` を指定します。
 
-beachx coulomb outputs/latest \
-  --component z \
-  --save outputs/latest/coulomb_force_z.png
+```python
+from beach import Beach
 
-beachx mobility outputs/latest \
-  --density-kg-m3 2500 \
-  --mu-static 0.4 \
-  --save-csv outputs/latest/mobility_summary.csv
+run = Beach(
+    "outputs/tutorial",
+    config_path="beach.toml",
+)
+
+print("absorbed:", run.result.absorbed)
+print("escaped:", run.result.escaped)
+print("batches:", run.result.batches)
+print("mesh ids:", run.mesh_ids)
+
+bar_fig, _ = run.plot_bar()
+bar_fig.savefig("outputs/tutorial/python_charges_bar.png", dpi=150)
+
+charge_fig, _ = run.plot_mesh()
+charge_fig.savefig("outputs/tutorial/python_charge.png", dpi=150)
+
+potential_fig, _ = run.plot_potential(reference_point=None)
+potential_fig.savefig("outputs/tutorial/python_potential.png", dpi=150)
 ```
 
-これらは近傍の `beach.toml` から geometry、`field_boundary.mode`、`domain.periodic_axes` と box を読み、
-periodic2 設定を自動解決します。
-見つからない場合は、対応するcommandの`--config`を指定してください。
+`reference_point=None` は `mesh_potential.csv` に保存された最終絶対電位を明示的に選ぶため、このケースでは
+native field kernel は不要です。保存値と異なる基準で再評価する場合は、次節の kernel が必要です。
 
-### 周期画像を含むobjectの離脱力
+### 特定の mesh と batch を選ぶ
 
-上のPython API例と同じ流れを、CSV/JSON/report出力までまとめて実行します。
+`beachx inspect` または `mesh_sources.csv` で `mesh_id` を確認してから選択します。`step=None` は
+`charges.csv` の最終電荷、整数の `step` は `charge_history.csv` に保存された batch index を表します。
+
+```python
+mesh_id = run.mesh_ids[0]
+
+final_mesh = run.get_mesh(mesh_id, step=None)
+final_charge = run.get_mesh_charge(mesh_id, step=None)
+print(final_mesh.triangles.shape, final_charge.shape)
+
+# 公式ケースは history_stride=1 なので batch 10 が保存されています。
+mesh_at_10 = run.get_mesh(mesh_id, step=10)
+charge_at_10 = run.get_mesh_charge(mesh_id, step=10)
+print(mesh_at_10.triangles.shape, charge_at_10.shape)
+```
+
+## 4. native field kernel で電位履歴と断面を再構成する
+
+通常の Python package install には `libbeach_field_kernel.so` が含まれません。電位履歴を再構成する
+`animate --quantity potential` と、任意点を評価する `slices` を使う場合だけ、Fortran compiler と `fpm` が
+使える BEACH source checkout で library を build します。`/path/to/BEACH` は実際の checkout へ置き換えます。
 
 ```bash
-beachx object-detachment outputs/latest \
+make -C /path/to/BEACH build-kernel
+export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
+```
+
+環境変数を設定した shell で、まず電位履歴を作ります。
+
+```bash
+beachx animate outputs/tutorial \
+  --quantity potential \
+  --save-gif outputs/tutorial/potential_history.gif \
+  --total-frames 20
+```
+
+正常終了すると、`saved_gif=outputs/tutorial/potential_history.gif`、`snapshots=20`、
+`rendered_frames=20` が表示されます。次に、simulation box 中央の XY / YZ / XZ 断面を作ります。
+
+```bash
+beachx slices outputs/tutorial \
   --config beach.toml \
-  --target-mesh-id 6 \
-  --periodic-model infinite-physical \
-  --z-max-m 2.0e-4 \
-  --z-points 65 \
-  --mass-kg 2.0e-12 \
-  --gravity-m-s2 9.80665 \
-  --adhesion-force-n 1.0e-10 \
-  --adhesion-range-m 2.0e-6 \
-  --output-dir outputs/latest/object_detachment
+  --grid-n 200 \
+  --save outputs/tutorial/potential_slices.png
 ```
 
-`object-detachment`の既定重力は月面の`1.62 m/s^2`です。この例は地上重力を仮定して
-`9.80665 m/s^2`を明示しています。対象環境に合わせて変更してください。
+正常終了すると `saved_potential_slices=outputs/tutorial/potential_slices.png` が表示されます。これらは保存電荷から
+場を再構成する解析であり、mesh や solver に対する収束確認の代わりにはなりません。研究結果として採用する前に
+[計算結果の妥当性確認](ValidationGuide.html)に従ってください。
 
-`configured`はrunのfinite/cached設定をそのまま使います。`infinite-physical`は、
-x/y periodic runのcached `k != 0`と物理的な`k = 0` modeを使います。
+## 5. 複数物体の解析へ進む
 
-targetのcentral-cell primary自己場だけを除外し、target自身の周期画像が作る力は残します。
-`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md`が生成されます。
-
-正常終了し、CSV/JSONが生成されれば、解析処理自体は完了しています。離脱の物理的な妥当性は、
-`path.status`、仕事と電位差の不一致、mesh/quadrature、finite shellまたはperiodic cache、経路上端、
-charge snapshot、stochastic seedへの依存性から評価します。[<sup>1</sup>](ValidationGuide.html)
-非中性周期cellで得た有限高さのspeedは、無限遠へのescape speedではありません。
+公式入門ケースは単一の固定平面なので、物体間の力や離脱には使えません。別の複数物体 run がある場合は、
+[物体の力と離脱を調べる](ObjectForcesDetachment.html)へ進んでください。

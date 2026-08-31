@@ -4,208 +4,213 @@ title: Inspect Output Files
 
 Lang: [English](OutputGuide.en.md) | [日本語](OutputGuide.md)
 
-BEACH outputs are grouped into final state, history, and restart state. The
-machine-readable source of truth for file-generation conditions is
-`schemas/beach.output-manifest.json`.
+> **Question:** Did the official tutorial finish successfully, and is its surface charge consistent with
+> charge conservation?
+>
+> **One-sentence answer:** Start with `beachx inspect` for run counts, then compare `charges.csv` with
+> `charge_ledger.csv` for final surface charge and particle outcomes.
+
+After reading this page, you should be able to establish completion of the official case and then inspect final charge,
+meshes, per-species charge accounting, history, and potential. Model-specific receipts, complete column definitions,
+and checkpoint schemas are separated into the [Output Format Reference](OutputReference.en.html).
+
+## Check the official tutorial result
+
+From the directory where you completed the [10-minute tutorial](Tutorial.en.html), inspect the path configured as
+`output.dir` in `beach.toml`. The official tutorial uses `outputs/tutorial`.
+
+```bash
+beachx inspect outputs/tutorial
+```
+
+When the tutorial is run with one OpenMP thread as instructed, the output includes at least these lines:
+
+```text
+directory=outputs/tutorial
+processed_particles=4000
+absorbed=3720 escaped=280
+batches=20 last_rel_change=...
+charge_sum=-1.192019e-10
+```
+
+The minimum pass conditions are:
+
+- Both `beach` and `beachx inspect` exit with code `0`.
+- `batches=20` agrees with `sim.batch_count=20` in `beach.toml`.
+- `processed_particles=4000` agrees with 200 particles per batch × 20 batches.
+- `outputs/tutorial/summary.txt` and `outputs/tutorial/charges.csv` exist.
+
+`absorbed=3720`, `escaped=280`, and `charge_sum=-1.192019e-10` are reference values for the current version with
+`rng_seed=12345` and one OpenMP thread. If the thread count or RNG implementation differs, do not assume that
+random-sequence-dependent values must equal the reference.
+
+This check establishes run completion only. `last_rel_change` and `tol_rel` are not automatic stop conditions.
+Assess numerical convergence and physical validity separately with
+[Validating Simulation Results](ValidationGuide.en.html). If the command fails or a minimum condition is not met,
+continue with [Troubleshooting](Troubleshooting.en.html).
 
 ## Files to inspect first
 
-| Goal | File |
+| Question | First place to inspect |
 | --- | --- |
-| Check completion and processed batches | `summary.txt` |
-| Read final element charges | `charges.csv` |
-| Read triangle geometry and mesh IDs | `mesh_triangles.csv` |
-| Map mesh IDs to input meshes | `mesh_sources.csv` |
-| Inspect per-species charge accounting | `charge_ledger.csv` |
-| Inspect performance breakdown | `performance_profile.csv` |
+| How many particles and batches completed, and what was the final change? | `summary.txt` and `beachx inspect` |
+| What is the final charge on each element? | `charges.csv` |
+| What are the triangle geometry and mesh IDs? | `mesh_triangles.csv` |
+| Which input mesh produced each mesh ID? | `mesh_sources.csv` |
 
-`summary.txt` records statistics, resolved configuration, build information,
-checkpoint schema, and model / mesh / species fingerprints. The resolved
-boundary reservoir and ordinary-open state is reported as
-`reservoir_inflow_map` and `particle_ordinary_open_model`.
-The `field_reconstruction_*` receipt records the resolved `E0`, box, boundary,
-periodic nonzero/zero-mode model, tree settings, actual field solver, and FMM
-expansion order. Schema v2 requires
-`field_reconstruction_resolved_field_solver` and
-`field_reconstruction_fmm_expansion_order`. Python field reconstruction uses
-this receipt for new outputs rather than guessing from a nearby `beach.toml`.
+### `summary.txt`
 
-The `[surface_current_model]` receipt is recorded as `surface_current_model`. For `zhao_stationary`,
-`surface_current_model_*` fields report the selected branch, reference area, $\phi_0$, $\phi_m$, resolved ambient-electron
-density, and signed electron / ion / PE-emission / PE-escape / PE-return / net current densities. In particular,
-`surface_current_model_photoelectron_active` reports whether PE channels exist; PE receipts are zero when it is false.
-`surface_current_model_pe_return_current_density_A_m2` is negative, while emission and escape are positive.
-`surface_current_model_pe_escape_particle_current_A` is negative because it is the signed current carried outward by
-PE particles. The two budget residuals independently check PE emission-return-escape continuity and the stationary
-surface-current balance.
-`surface_current_model_kinetic_contract` and the inflow-access / outflow-barrier potential and face receipts record the
-velocity-space boundary map paired with the Zhao currents. Face indices are
-`1..6 = x_low, x_high, y_low, y_high, z_low, z_high`.
+`summary.txt` records run statistics and resolved settings as `key=value` lines. Start with `processed_particles`,
+`absorbed`, `escaped`, `batches`, and `last_rel_change`. When reading model-specific keys, use them as the runtime
+receipt rather than guessing from a nearby `beach.toml`; see
+[Configuration-specific output](OutputReference.en.html#locate-configuration-specific-values).
 
-For `matching_plane_quasistatic`, inspect accepted-batch `matching_plane_*` fields instead of static
-`surface_current_model_*` current targets. `matching_plane_displacement_C_m2` and `matching_plane_phi_V` are the
-electromagnetic interface values. The electron/ion inward fluxes, access potentials, and PE barrier potential are
-outputs of the selected response backend. The four outward flux or energy fields are fixed-point feedback, while
-`matching_plane_iterations` and `matching_plane_residual` are numerical convergence receipts. Compare
-`matching_plane_photoelectron_return_flux_m2_s` and `matching_plane_photoelectron_escape_flux_m2_s` with the outward PE
-flux from the same batch.
-Establish common run provenance with `surface_current_model_response_backend`,
-`surface_current_model_matching_plane_z_m`,
-`surface_current_model_electron_species`, `surface_current_model_ion_species`, and
-`surface_current_model_photoelectron_species`.
-The iteration contract is recorded in `surface_current_model_coupling_rtol`,
-`surface_current_model_coupling_atol`, `surface_current_model_coupling_max_iterations`, and
-`surface_current_model_coupling_relaxation`; the state source is
-`surface_current_model_dynamic_state_source=accepted_batch_fixed_point`.
-The four `surface_current_model_coupling_atol` values are ordered as outward PE flux [m^-2 s^-1], PE mean normal
-energy [eV], outward electron flux [m^-2 s^-1], and outward ion flux [m^-2 s^-1]. They default to zero, and inactive
-components must remain zero. Each active component uses
-`max(coupling_rtol * backend_scale, coupling_atol)` as its threshold. An absolute-tolerance-dominated component is
-converted to an effective residual, so an accepted state's `matching_plane_residual` remains no greater than
-`surface_current_model_coupling_rtol`.
-Only the table backend records `surface_current_model_response_table_path` and
-`surface_current_model_response_content_fingerprint`; the latter identifies the canonical contents of the loaded table.
-The online backend records `surface_current_model_response_contract=matching_plane_zhao_online_v1`,
-`surface_current_model_zhao_branch`,
-`surface_current_model_outer_solver=charge_driven_finite_h_sagdeev`,
-`surface_current_model_photoelectron_closure=moment_matched_half_maxwellian`,
-`surface_current_model_ambient_outward_feedback=transparent`, and
-`surface_current_model_outer_solver_state=stateless`.
-When `matching_plane_state_valid` is false,
-do not treat the other `matching_plane_*` values in that summary as an accepted state.
-The $D_H$ and $\Phi_H$ in each record correspond to the pre-commit surface-charge state used to track that batch.
-`simulated_time_s` is the time after accepting and advancing the trial; do not interpret these values as the post-commit
-field at the start of the next batch.
+### `charges.csv`
 
-## History
+`charges.csv` contains final-state `elem_idx,charge_C`. `charge_C` is the total charge [C] on each triangle element,
+not surface charge density. The official case has 288 rows, and their sum agrees with
+`charge_sum=-1.192019e-10` from `beachx inspect`.
 
-| File | Condition | Main columns |
-| --- | --- | --- |
-| `charge_history.csv` | `history_stride > 0` | batch, element, charge |
-| `potential_history.csv` | `write_potential_history=true` and `history_stride > 0` | batch, element, potential |
-| `top_reference_history.csv` | Above plus a `[domain]` box | batch, time, z-high potential statistics |
-| `matching_plane_history.csv` | `matching_plane_quasistatic` and `history_stride > 0` | batch, time, $D_H$, $\Phi_H$, inward responses, outward / return / escape fluxes, and iteration receipts |
+```bash
+head -n 3 outputs/tutorial/charges.csv
+```
 
-In Python, `load_fortran_result(...)` exposes these diagnostics as the typed
-`matching_plane_state` and `matching_plane_history` receipts, without manual column indexing.
+### Mesh files
 
-The reference in `top_reference_history.csv` is the mean over the box z-high
-face, not infinity or plasma potential. Join it to the same batch in
-`potential_history.csv` and compute `potential_V - potential_mean_V` for
-element-relative potential.
+`mesh_triangles.csv` contains triangle vertices, element charge, and `mesh_id`. `mesh_sources.csv` maps each `mesh_id`
+to its input mesh, template, and surface model. The official case has one plane mesh with 288 triangles.
 
-## Mesh potential
-
-With `write_mesh_potential=true`, BEACH writes `mesh_potential.csv`.
-
-- Potential [V] at each element centroid
-- Analytic P0 triangle-panel self term
-- Configured image shell for finite periodic2
-- Cached nonzero mode plus the configured physical zero mode for `cached_kneq0`
+```bash
+head -n 3 outputs/tutorial/mesh_triangles.csv
+head -n 2 outputs/tutorial/mesh_sources.csv
+```
 
 ## Charge ledger
 
-`charge_ledger.csv` records the following for each species:
+`charge_ledger.csv` accumulates injection, surface absorption, escape, and unresolved discard for each species as signed
+charge and counts. The official case has one electron species, so this short check compares particle counts, charge,
+and final surface charge together.
 
-- Signed charge for injection, surface emission, surface absorption, escape,
-  and unresolved discard
-- Counts for each terminal outcome
-- Closed-PE `neutral_return_correction_C`
-- `neutral_return_weight_scale`
-- `neutral_return_unresolved_fraction`
-- `fixed_absorbed_target_charge_C` and `fixed_absorbed_weight_scale`
-- `fixed_emission_target_charge_C` and `fixed_emission_weight_scale`
-- `fixed_current_correction_C` added to surface charge by the external closure
-- compatibility columns `fixed_absorbed_applied_charge_C` / `fixed_emission_applied_charge_C`, equal to their target columns
-- external escape in `fixed_escape_target_charge_C` plus the equal compatibility column `fixed_escape_applied_charge_C`
-- the difference from raw escape in `fixed_escape_correction_C`
+```bash
+python - <<'PY'
+import csv
+from math import fsum
+from pathlib import Path
 
-`escaped_to_infinity_C` remains the raw trajectory result. Zhao fixed-current operation preserves it and stores the
-external escape target alongside it. Because the escape correction is not deposited onto surface elements, analysis
-can keep the surface update separate from the external-boundary budget.
-The `*_applied_charge_C` fields remain as output aliases for existing readers; the in-memory ledger stores only targets.
+out = Path("outputs/tutorial")
+with (out / "charge_ledger.csv").open(newline="", encoding="utf-8") as f:
+    row = next(csv.DictReader(f))
+with (out / "charges.csv").open(newline="", encoding="utf-8") as f:
+    surface = fsum(float(item["charge_C"]) for item in csv.DictReader(f))
 
-`charge_ledger_residual_C` in `summary.txt` combines changes in surface,
-local-flight, and unresolved stocks with external fluxes, the neutral-return
-correction, and the fixed-current correction.
+terminal_count = sum(int(row[name]) for name in (
+    "absorbed_count", "escaped_count", "discarded_unresolved_count"
+))
+terminal_charge = fsum(float(row[name]) for name in (
+    "absorbed_on_surface_C", "escaped_to_infinity_C", "discarded_unresolved_C"
+))
+print(f"counts: injected={row['injected_count']} terminal={terminal_count}")
+print(f"charge_C: injected={float(row['injected_from_remote_C']):.12e} "
+      f"terminal={terminal_charge:.12e}")
+print(f"surface_C: charges={surface:.12e} "
+      f"absorbed={float(row['absorbed_on_surface_C']):.12e}")
+PY
 
-For `fixed_current` statistical diagnostics, read the channel's `absorbed_count` or `emitted_count` together with its raw
-charge and `fixed_*_weight_scale`. A count of one localizes the entire target onto the element represented by that one
-sample. A small conservation residual cannot detect this sampling variance; separately test convergence of the elementwise
-charge distribution across particle or ray counts, batch widths, and RNG seeds.
+grep -E '^(charge_ledger_surface_charge_after_C|charge_ledger_residual_C)=' \
+  outputs/tutorial/summary.txt
+```
 
-For closed PE, BEACH preserves raw absorption and unresolved values. The
-correction and scale are separate, so the unresolved fraction remains
-independently inspectable even when total surface charge closes.
+The current reference result satisfies these relationships:
 
-## Adaptive-batch diagnostics
+```text
+counts: injected=4000 terminal=4000
+charge_C: injected=-1.281741307200e-10 terminal=-1.281741307200e-10
+surface_C: charges=-1.192019415696e-10 absorbed=-1.192019415696e-10
+charge_ledger_surface_charge_after_C= -1.1920194156960000E-10
+charge_ledger_residual_C= 5.5497729723797089E-25
+```
 
-With `periodic2.max_nonzero_mode_potential_step > 0`, `summary.txt` records:
+In this case, every injected particle ends as absorbed, escaped, or unresolved discard. There is no surface emission or
+external correction, so absorbed charge equals the sum of `charges.csv`. Confirm that `charge_ledger_residual_C` is
+near zero at roundoff scale, but do not treat a small conservation residual as evidence of statistical convergence or
+physical validity. See the [charge-ledger reference](OutputReference.en.html#charge-ledger) for the general balance with
+corrections and every column.
 
-- `simulated_time_s`
-- `periodic2_max_nonzero_mode_potential_step_V`
-- `adaptive_nonzero_mode_rejected_trials`
-- `adaptive_nonzero_mode_last_batch_duration_s`
-- `adaptive_nonzero_mode_last_potential_step_V`
-- `adaptive_nonzero_mode_omp_threads`
+## History
 
-Rejected trials do not appear in history files or the charge ledger.
+The official case saves charge and potential at every batch.
+
+| File | What it contains |
+| --- | --- |
+| `charge_history.csv` | Per-element charge and `rel_change` by batch |
+| `potential_history.csv` | Per-element potential by batch |
+| `top_reference_history.csv` | Potential statistics on the box z-high face |
+
+```bash
+head -n 3 outputs/tutorial/charge_history.csv
+head -n 3 outputs/tutorial/potential_history.csv
+
+beachx animate outputs/tutorial \
+  --quantity charge \
+  --save-gif outputs/tutorial/charge_history.gif \
+  --total-frames 20
+```
+
+The official case has 20 snapshots from batch 1 through 20, showing negative charge accumulating over the run.
+Potential-history reconstruction requires the native field kernel; use the optional steps in the
+[Post-processing Tutorial](PostprocessTutorial.en.html) when needed.
+See the [history reference](OutputReference.en.html#history) for generation conditions and the complete
+`matching_plane_history.csv` contract.
+
+## Mesh potential
+
+`mesh_potential.csv` contains the final potential [V] at each element centroid. The official case has 288 rows; its
+one-thread reference range is `potential_min=-4.671330e+00` to `potential_max=-2.579807e+00`.
+`potential_history.csv` is the per-batch history, whereas `mesh_potential.csv` is the final state.
+
+See the [mesh-potential reference](OutputReference.en.html#mesh-potential) for potential reference, periodic2, and field
+reconstruction conditions.
 
 ## Files used for resume
 
-With `output.checkpoint_stride > 0`, BEACH updates this structure after an accepted-batch commit:
+Do not manually combine checkpoint files. Set the read source with `output.restart_from`. To advance the official
+20-batch result to batch 21, follow
+[Resume once from a checkpoint](Execution.en.html#resume-once-from-a-checkpoint).
 
-```text
-outputs/latest/
-├── checkpoint_complete.txt
-├── checkpoint_latest.txt
-└── checkpoints/
-    ├── slot0/
-    └── slot1/
-```
+Consult the [checkpoint output reference](OutputReference.en.html#files-used-for-resume) only when you need required
+files, periodic-slot selection, or schema compatibility.
 
-Each slot contains the restart files in the table below. BEACH finishes the inactive slot before atomically switching
-`checkpoint_latest.txt`, so at most two generations are retained.
+## Locate configuration-specific values
 
-| File | Role |
+The ordinary official case does not require the following details. Select only the row for the model or diagnostic used.
+
+| Need | Reference |
 | --- | --- |
-| `summary.txt` | Statistics, schema, fingerprints, and ledger stocks |
-| `charges.csv` | Element charges |
-| `rng_state.txt` | Serial RNG state |
-| `rng_state_rankNNNNN.txt` | Per-rank MPI RNG state |
-| `macro_residuals.csv` | Global macro-particle residuals by species and face; required when declared by a schema v8+ manifest |
-| `charge_ledger.csv` | Restored when summary contains ledger metadata |
-| `checkpoint_complete.txt` | Completion manifest published last for schema v8 and later checkpoints |
+| File conditions | [Generation](OutputReference.en.html#file-generation-conditions) |
+| Field, periodic2, and boundary | [Receipts](OutputReference.en.html#locate-configuration-specific-values) |
+| Zhao currents and corrections | [`zhao_stationary`](OutputReference.en.html#zhao_stationary) |
+| Accepted matching-plane state | [`matching_plane_quasistatic`](OutputReference.en.html#matching_plane_quasistatic) |
+| Every `charge_ledger.csv` column | [Charge ledger](OutputReference.en.html#charge-ledger) |
+| Adaptive periodic2 trials | [Adaptive-batch diagnostics](OutputReference.en.html#adaptive-batch-diagnostics) |
+| Checkpoint schemas and required files | [Files used for resume](OutputReference.en.html#files-used-for-resume) |
+| Python-reader attributes | [Reading from Python](OutputReference.en.html#reading-from-python) |
 
-`output.restart_from` changes only the checkpoint read source. New output is
-written to `output.dir`. BEACH compares the final output and both periodic slots, then selects the loadable complete
-checkpoint with the largest `batches` value. A slot with a complete manifest remains recoverable when
-`checkpoint_latest.txt` is missing, malformed, or stale. BEACH stops instead of falling back to a new run when a
-required file is missing or when fingerprints, mesh size, species count, or MPI
-world size differ.
+### Adaptive-batch diagnostics
 
-For schema v8 and later, BEACH changes `checkpoint_complete.txt` to `in_progress` before replacing restart state. It
-atomically publishes `complete` only after closing summary, charges, every rank's RNG state, and the residual and ledger
-declared by the manifest. `checkpoint_complete.txt` itself is a required restart file for these schemas. If final-output
-writing is interrupted and leaves files from different generations, BEACH
-rejects that directory and falls back to the complete periodic slot.
+For `periodic2.max_nonzero_mode_potential_step > 0`, inspect its receipt and trials excluded from histories in the
+[adaptive-batch reference](OutputReference.en.html#adaptive-batch-diagnostics).
 
-Checkpoint schema v6 writes `macro_residuals.csv` as `species_idx,face,residual`. `face=0` denotes the legacy source and
-`1..6` denote boundary faces. The older two-column `species_idx,residual` form remains readable.
-Schema v9 stores the accepted matching-plane feedback and iteration receipt in `summary.txt`. The model fingerprint
-includes canonical response-table contents for the table backend, or the Zhao contract and branch policy for the online
-backend. A checkpoint cannot resume after those inputs change.
+## Continue
 
-## Reading from Python
+| Goal | Next page |
+| --- | --- |
+| Visualize charge and potential | [Post-processing Tutorial](PostprocessTutorial.en.html) |
+| Resume from a checkpoint | [Execution and Resume](Execution.en.html#resume-once-from-a-checkpoint) |
+| Decide whether a research result is acceptable | [Validating Simulation Results](ValidationGuide.en.html) |
+| Diagnose missing or inconsistent values | [Troubleshooting](Troubleshooting.en.html) |
+| Search the output contract | [Output Format Reference](OutputReference.en.html) |
 
-```python
-from beach import load_fortran_result
+### Reading from Python
 
-result = load_fortran_result("outputs/latest")
-print(result.charges)
-print(result.matching_plane_state)
-```
-
-See [Python Post-processing API](PythonPostprocessAPI.en.md) for details.
-For physical and numerical acceptance, see
-[Validating Simulation Results](ValidationGuide.en.html).
+For a first Python load and visualization, follow the [Post-processing Tutorial](PostprocessTutorial.en.html).
+For the complete class and function contract, see the [Python Post-processing API](PythonPostprocessAPI.en.html).

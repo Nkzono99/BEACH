@@ -15,6 +15,7 @@ FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 INLINE_MATH_RE = re.compile(r"(?<!\\)\$(?!\$)(?:\\.|[^$\n])*?(?<!\\)\$")
 UNESCAPED_DOLLAR_RE = re.compile(r"(?<!\\)\$")
 TEX_COMMAND_RE = re.compile(r"\\[A-Za-z]+")
+MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 
 
 def _load_sync_module():
@@ -138,6 +139,55 @@ def test_navigation_keeps_core_workflow_pages_and_readable_sources() -> None:
         assert locales_by_slug.get(slug) == {"root", "en"}, slug
 
 
+def test_navigation_publishes_every_top_level_bilingual_doc() -> None:
+    """Do not leave a canonical docs page outside the generated site."""
+
+    module = _load_sync_module()
+    published = {page.source for page in module.PAGES}
+    canonical = {path.name for path in module.DOCS_ROOT.glob("*.md")}
+
+    assert published == canonical
+
+    root_sources = {
+        source for source in published if not source.endswith(".en.md")
+    }
+    english_sources = {
+        source.removesuffix(".en.md") + ".md"
+        for source in published
+        if source.endswith(".en.md")
+    }
+    assert root_sources == english_sources
+
+
+def test_canonical_document_links_resolve_to_repository_files() -> None:
+    """Keep task paths intact when pages move between sidebar sections."""
+
+    for source in (ROOT / "docs").glob("*.md"):
+        text = source.read_text(encoding="utf-8")
+        for raw_target in MARKDOWN_LINK_RE.findall(text):
+            target = raw_target.strip("<>").split("#", maxsplit=1)[0]
+            if not target or "://" in target or target.startswith(("/", "mailto:")):
+                continue
+
+            if target.endswith(".html") and not target.startswith("../"):
+                candidate = source.parent / (target.removesuffix(".html") + ".md")
+            elif Path(target).suffix in {
+                ".md",
+                ".toml",
+                ".json",
+                ".f90",
+                ".py",
+                ".png",
+                ".gif",
+                ".svg",
+            }:
+                candidate = source.parent / target
+            else:
+                continue
+
+            assert candidate.is_file(), (source.name, raw_target)
+
+
 def test_render_page_rewrites_supported_links_and_fences(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -153,7 +203,7 @@ Lang: [日本語](Fixture.md) | [English](Fixture.en.md)
 # Fixture title
 
 [local](Parameters.md#sim) and [English](Parameters.en.md)
-[source](../src/example.f90), [ADR](adr/0001-example.md),
+[SPEC](../SPEC.md#fixture), [source](../src/example.f90), [ADR](adr/0001-example.md),
 ![image](images/example.png), and [module](../module/example.html).
 The repository path `docs/OutputGuide.md` stays plain text.
 
@@ -182,6 +232,7 @@ end program example
     assert "\n# Fixture title\n" not in content
     assert "[local](/BEACH/parameters.html#sim)" in content
     assert "[English](/BEACH/en/parameters.html)" in content
+    assert f"[SPEC]({module.GITHUB_BLOB_ROOT}/SPEC.md#fixture)" in content
     assert f"[source]({module.GITHUB_BLOB_ROOT}/src/example.f90)" in content
     assert f"[ADR]({module.GITHUB_BLOB_ROOT}/docs/adr/0001-example.md)" in content
     assert "![image](/BEACH/images/example.png)" in content
