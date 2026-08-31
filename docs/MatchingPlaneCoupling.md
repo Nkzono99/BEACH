@@ -139,6 +139,11 @@ $$
 この判定は [Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684) の
 sheath potential-energy 比較に基づきますが、有限 multistart が全数学根を列挙する保証や時間依存安定性の証明ではありません。
 
+$D_H$ や PE moment の変化に伴って最小エネルギー根が切り替わると、online 応答は不連続になり得ます。その点で
+backward-Euler 方程式に通常の根がなければ、BEACH は2根を補間せず停止します。これはシース解が両側で存在していても
+起こり得ます。Newton の検出順を根番号として固定する方式は物理的な識別子にならないため採用していません。履歴依存の
+continuation / hysteresis を使うには、前の accepted root を checkpoint state として明示的に保持する必要があります。
+
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
 

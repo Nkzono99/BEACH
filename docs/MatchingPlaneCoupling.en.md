@@ -143,6 +143,12 @@ relative $10^{-6}$. This criterion follows the sheath potential-energy compariso
 [Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684), but finite multistart search is not
 proof that every mathematical root was found, and the energy comparison is not a time-dependent stability proof.
 
+The online response can become discontinuous when changing $D_H$ or PE moments switches the minimum-energy root. If
+the backward-Euler equation then has no ordinary root, BEACH stops instead of interpolating between the two sheath
+states. This can happen even though a sheath solution exists on both sides. BEACH does not expose Newton discovery
+order as a root number because it is not a physical identifier. A continuation or hysteresis policy would have to keep
+the previous accepted-root signature explicitly in checkpoint state.
+
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
 [Input parameters](Parameters.en.html#matching-plane-quasistatic-closure).

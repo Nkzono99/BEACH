@@ -448,6 +448,8 @@ $$
 数値失敗により集合を確定できない場合、または最小値が相対$10^{-6}$以内で縮退する場合はfail closedとします。
 v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
 電位エネルギー比較も時間依存安定性の証明ではありません。
+最小エネルギー根の切替でresponseが不連続になり、backward-Euler残差が零点を持たず不連続だけをまたぐ場合は、
+根を補間または混合せずnumerical failureとします。Newton multistartの検出順は物理的なroot IDとして公開しません。
 branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
 ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
 online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。
