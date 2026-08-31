@@ -421,8 +421,9 @@ seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$
 未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
 縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解き、最終残差が
 許容値に達しなければ停止します。
-signed scanは明示A/B/C branchだけに適用します。`auto`がseedで一意な物理解を返さない場合は、探索中にbranchを
-選ばずfail closedとします。したがってimplicit化はbranch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
+signed scanは明示A/B/C branchだけに適用します。既定の`zhao_root_selection="require_unique"`では、`auto`が
+seedで一意な物理解を返さない場合は、探索中にbranchを選ばずfail closedとします。したがってimplicit化だけでは
+branch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
 局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
 ambient吸収の総量は陰的応答へ、PEありではPE放出を設定した表面放出電流へ、PE returnを
 「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。陰的終点との整合性は PE あり・なしと
@@ -432,12 +433,21 @@ PE target を生成しません。
 これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、backendの物理範囲、粒子samplingに対する
 `batch_duration`の上限を除去しません。
 
-`response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`を
-受理します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
+`response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`と
+`zhao_root_selection="require_unique" / "minimum_energy"`を受理します。table backendとstationary Zhaoは
+`zhao_root_selection`を拒否します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
 Sagdeev A/B/C rootを解きます。これは壁面の零電流根ではなく、零電流条件を課さないcharge-driven responseです。
-`auto`はcompatibleなbranchを探索し、複数の物理解を検出した場合、または数値失敗により一意なbranchを
-確認できない場合はfail closedとします。
+既定の`require_unique`では、`auto`が複数の物理解を検出した場合、または数値失敗により一意なbranchを
+確認できない場合はfail closedとします。`minimum_energy`では検出候補の表面から無限遠までについて
+
+$$
+U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx
+$$
+
+を評価し、明示branchではbranch内、`auto`では検証済みA/B/C候補間で最小の$U$を選びます。候補branchの
+数値失敗により集合を確定できない場合、または最小値が相対$10^{-6}$以内で縮退する場合はfail closedとします。
 v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
+電位エネルギー比較も時間依存安定性の証明ではありません。
 branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
 ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
 online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。

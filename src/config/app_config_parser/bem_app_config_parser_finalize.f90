@@ -540,6 +540,7 @@ contains
     end select
     if (cfg%surface_current%has_response_backend .or. &
         cfg%surface_current%has_response_table_path .or. &
+        cfg%surface_current%has_zhao_root_selection .or. &
         cfg%surface_current%has_implicit_zero_mode .or. &
         cfg%surface_current%has_coupling_rtol .or. &
         cfg%surface_current%has_coupling_atol .or. &
@@ -702,6 +703,7 @@ contains
 
     has_settings = cfg%surface_current%has_response_backend .or. &
                    cfg%surface_current%has_zhao_branch .or. &
+                   cfg%surface_current%has_zhao_root_selection .or. &
                    cfg%surface_current%has_electron_species .or. &
                    cfg%surface_current%has_ion_species .or. &
                    cfg%surface_current%has_photoelectron_species .or. &
@@ -722,6 +724,7 @@ contains
                    len_trim(cfg%surface_current%response_table_path) > 0 .or. &
                    cfg%surface_current%implicit_zero_mode .or. &
                    trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
+                   trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique' .or. &
                    cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
                    cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp .or. &
                    cfg%surface_current%photoelectron_source_scale /= 1.0_dp .or. &
@@ -750,9 +753,10 @@ contains
     end if
     select case (trim(lower_ascii(cfg%surface_current%response_backend)))
     case ('table')
-      if (cfg%surface_current%has_zhao_branch .or. &
-          trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto') then
-        error stop 'matching_plane_quasistatic response_backend="table" cannot use Zhao-specific settings such as zhao_branch.'
+      if (cfg%surface_current%has_zhao_branch .or. cfg%surface_current%has_zhao_root_selection .or. &
+          trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
+          trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique') then
+        error stop 'matching_plane_quasistatic response_backend="table" cannot use Zhao-specific settings.'
       end if
       if (.not. cfg%surface_current%has_response_table_path .or. &
           len_trim(cfg%surface_current%response_table_path) == 0) then
@@ -768,6 +772,12 @@ contains
         continue
       case default
         error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
+      end select
+      select case (trim(lower_ascii(cfg%surface_current%zhao_root_selection)))
+      case ('require_unique', 'minimum_energy')
+        continue
+      case default
+        error stop 'surface_current_model.zhao_root_selection must be "require_unique" or "minimum_energy".'
       end select
     case default
       error stop 'surface_current_model.response_backend must be "table" or "zhao_online".'

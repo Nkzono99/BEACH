@@ -267,6 +267,13 @@ contains
         call get_toml_string(table, keys(ikey), cfg%surface_current%zhao_branch, 'surface_current_model.zhao_branch')
         cfg%surface_current%zhao_branch = lower_ascii(trim(cfg%surface_current%zhao_branch))
         cfg%surface_current%has_zhao_branch = .true.
+      case ('zhao_root_selection')
+        call get_toml_string( &
+          table, keys(ikey), cfg%surface_current%zhao_root_selection, &
+          'surface_current_model.zhao_root_selection' &
+          )
+        cfg%surface_current%zhao_root_selection = lower_ascii(trim(cfg%surface_current%zhao_root_selection))
+        cfg%surface_current%has_zhao_root_selection = .true.
       case ('electron_species')
         call get_toml_string( &
           table, keys(ikey), cfg%surface_current%electron_species, 'surface_current_model.electron_species' &

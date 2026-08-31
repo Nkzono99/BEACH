@@ -155,6 +155,10 @@ contains
           call feed_string(hash, 'photoelectron_moment_matched_half_maxwellian')
           call feed_string(hash, 'ambient_outward_feedback_transparent')
           call feed_string(hash, 'stateless_branch_selection')
+          if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique') then
+            call feed_string(hash, 'matching_plane_zhao_root_selection_v1')
+            call feed_string(hash, cfg%surface_current%zhao_root_selection)
+          end if
         case default
           error stop 'model fingerprint encountered an unknown matching-plane response backend.'
         end select

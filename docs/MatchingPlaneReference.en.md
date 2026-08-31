@@ -69,9 +69,22 @@ the branch-compatible sign in $D_{ref}/32$ increments out to $8D_{ref}$. It neve
 gap. This searches only the current batch endpoint; it does not persistently extend a table. The run stops if the branch
 ends before the endpoint, the scan or numeric range is exceeded, or no sign change is found.
 
-The signed scan applies only to an explicit `a`, `b`, or `c` selection. If `auto` cannot certify a unique physical
-solution at the seed, the implicit solver stops instead of choosing a branch. Implicit integration therefore does not
-remove strong-PE A/B coexistence; branchwise solvability still has to be validated.
+The signed scan applies only to an explicit `a`, `b`, or `c` selection. With the default
+`zhao_root_selection="require_unique"`, the implicit solver stops instead of choosing a branch when `auto` cannot
+certify a unique physical solution at the seed. Implicit integration therefore does not remove strong-PE A/B
+coexistence; branchwise solvability still has to be validated.
+
+With `zhao_root_selection="minimum_energy"`, BEACH evaluates every candidate detected by the multistart search over
+the full profile from the surface to infinity:
+
+$$
+U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx.
+$$
+
+It selects the lowest $U$ within an explicit branch, or among numerically certified A, B, and C candidates for `auto`.
+The solve stops when a numerical failure prevents certification of the candidate set or when the lowest values are
+tied within a relative $10^{-6}$. This energy comparison is a candidate-selection rule; finite multistart search does
+not guarantee enumeration of every root or prove time-dependent stability.
 
 With PEs, the half-Maxwellian reduction gives
 

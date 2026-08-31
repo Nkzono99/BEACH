@@ -24,7 +24,7 @@ program test_output_writer_io
   logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
   logical :: saw_matching_receipts(13), matching_history_opened
-  logical :: saw_online_matching_receipts(8)
+  logical :: saw_online_matching_receipts(9)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit, matching_history_unit
@@ -481,7 +481,7 @@ contains
 
   subroutine scan_online_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(8)
+    logical, intent(out) :: found(9)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -496,14 +496,16 @@ contains
                  trim(summary_line) == 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
       found(3) = found(3) .or. trim(summary_line) == 'surface_current_model_zhao_branch=auto'
       found(4) = found(4) .or. &
-                 trim(summary_line) == 'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
+                 trim(summary_line) == 'surface_current_model_zhao_root_selection=require_unique'
       found(5) = found(5) .or. &
+                 trim(summary_line) == 'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
+      found(6) = found(6) .or. &
                  trim(summary_line) == &
                  'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
-      found(6) = found(6) .or. &
+      found(7) = found(7) .or. &
                  trim(summary_line) == 'surface_current_model_ambient_outward_feedback=transparent'
-      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_outer_solver_state=stateless'
-      found(8) = found(8) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=T'
+      found(8) = found(8) .or. trim(summary_line) == 'surface_current_model_outer_solver_state=stateless'
+      found(9) = found(9) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=T'
     end do
     close (summary_unit)
   end subroutine scan_online_matching_plane_receipts

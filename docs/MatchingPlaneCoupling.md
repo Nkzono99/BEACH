@@ -56,7 +56,8 @@ PE なしでも外部シースとの接続は有効です。`photoelectron_speci
 | 電流 | species 別の固定 target | 応答束と粒子追跡で得た実測堆積 |
 
 したがって、PE を省略したことだけを理由に online Zhao の結果を Type C と解釈してはいけません。
-`zhao_branch="auto"` は現在の $D_H$ に適合する一意な物理解を探し、一意性を確認できなければ停止します。
+既定の `zhao_root_selection="require_unique"` では、`zhao_branch="auto"` は現在の $D_H$ に適合する
+一意な物理解を探し、一意性を確認できなければ停止します。
 
 ## 2. 最小構成を作る
 
@@ -118,8 +119,25 @@ implicit_zero_mode = true
 `examples/periodic2_matching_plane_zhao_implicit.toml` です。table snapshot を使う場合だけ query grid と
 `beach-zhao-response` を別途使います。
 
-implicit 化は Zhao branch を選びません。`auto` が現在の seed で一意な物理解を保証できない場合は停止します。
+implicit 化だけでは Zhao branch を選びません。既定では `auto` が現在の seed で一意な物理解を保証できない場合に停止します。
 強い PE では `a` / `b` / `c` を別々に走査してから、検証した branch を明示してください。
+
+複数根を物理量で選ぶ場合は、online Zhao に限り次を指定できます。
+
+```toml
+zhao_root_selection = "minimum_energy"
+```
+
+BEACH は multistart 探索で検出した候補について、表面から無限遠までの profile から
+
+$$
+U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx
+$$
+
+を計算し、最も低い $U$ を選びます。明示 branch ではその branch 内、`auto` では検証できた A / B / C 間の比較です。
+別 branch の数値失敗で候補集合を確定できない場合や、最小値が相対 $10^{-6}$ 以内で縮退する場合は停止します。
+この判定は [Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684) の
+sheath potential-energy 比較に基づきますが、有限 multistart が全数学根を列挙する保証や時間依存安定性の証明ではありません。
 
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
@@ -206,7 +224,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | response preflight 失敗 | path、header、$H$、直積格子の不一致 | [CSV 契約](MatchingPlaneReference.html#table-backend-の応答-csv-v1)と `domain.box_max` の z 成分を照合する |
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
 | 固定点が反復上限に到達 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | ray / macro 粒子数を増やし、残差が減るなら緩和係数や上限を調整する |
-| online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan し、物理 branch を検証する |
+| online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard 上限に到達 | 周期境界 event の未解決粒子が誤差 budget を超えた | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |

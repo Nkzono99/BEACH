@@ -30,12 +30,13 @@ program test_matching_plane_zhao
                          ]
   type(matching_plane_zhao_model_type) :: model
   type(matching_plane_zhao_diagnostics_type) :: diagnostics, inactive_diagnostics
-  real(dp) :: input(5), output(6), inactive_output(6), feedback_scales(4)
+  type(matching_plane_zhao_diagnostics_type) :: energy_a_diagnostics, energy_b_diagnostics
+  real(dp) :: input(5), output(6), inactive_output(6), feedback_scales(4), energy_a_output(6)
   real(dp) :: electron_thermal_speed_mps, expected_electron_density_m3
   integer(i32) :: status
   character(len=512) :: message
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('zero_field_without_photoelectrons_is_degenerate_zhao_b')
   call initialize_model('auto', configured_photoelectron_temperature_ev)
@@ -64,6 +65,38 @@ program test_matching_plane_zhao
   call assert_true( &
     all(feedback_scales(1:2) > 0.0_dp) .and. all(feedback_scales(3:4) == 0.0_dp), &
     'Zhao feedback scales must disable ambient outward dependencies' &
+    )
+  call test_end()
+
+  call test_begin('minimum_energy_selects_the_lower_energy_positive_branch')
+  input = type_a_input
+  call initialize_model('a', type_a_photoelectron_temperature_ev, 'minimum_energy')
+  call model%evaluate(input, energy_a_output, status, message, energy_a_diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao-A solve failed: '//trim(message))
+  call initialize_model('b', type_a_photoelectron_temperature_ev, 'minimum_energy')
+  call model%evaluate(input, output, status, message, energy_b_diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao-B solve failed: '//trim(message))
+  call assert_true( &
+    energy_a_diagnostics%potential_energy_j_m2 < 0.0_dp .and. &
+    energy_b_diagnostics%potential_energy_j_m2 < 0.0_dp, &
+    'explicit Zhao roots did not report finite negative potential energies' &
+    )
+  call initialize_model('auto', type_a_photoelectron_temperature_ev, 'minimum_energy')
+  call model%evaluate(input, output, status, message, diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao auto selection failed: '//trim(message))
+  if (energy_a_diagnostics%potential_energy_j_m2 < energy_b_diagnostics%potential_energy_j_m2) then
+    call assert_true(diagnostics%branch == 'A', 'minimum-energy auto selection did not choose Zhao-A')
+  else
+    call assert_true(diagnostics%branch == 'B', 'minimum-energy auto selection did not choose Zhao-B')
+  end if
+  call assert_close_dp( &
+    diagnostics%potential_energy_j_m2, &
+    min(energy_a_diagnostics%potential_energy_j_m2, energy_b_diagnostics%potential_energy_j_m2), &
+    1.0e-6_dp*max( &
+    abs(energy_a_diagnostics%potential_energy_j_m2), &
+    abs(energy_b_diagnostics%potential_energy_j_m2) &
+    ), &
+    'minimum-energy auto selection returned the wrong energy' &
     )
   call test_end()
 
@@ -176,12 +209,17 @@ program test_matching_plane_zhao
 
 contains
 
-  subroutine initialize_model(branch, photoelectron_temperature_ev)
+  subroutine initialize_model(branch, photoelectron_temperature_ev, root_selection)
     character(len=*), intent(in) :: branch
     real(dp), intent(in) :: photoelectron_temperature_ev
+    character(len=*), intent(in), optional :: root_selection
+    character(len=16) :: selected_root_policy
+
+    selected_root_policy = 'require_unique'
+    if (present(root_selection)) selected_root_policy = root_selection
 
     call model%initialize( &
-      branch, ion_density_m3, electron_temperature_ev, drift_mps, drift_mps, &
+      branch, selected_root_policy, ion_density_m3, electron_temperature_ev, drift_mps, drift_mps, &
       proton_mass_kg, electron_mass_kg, photoelectron_temperature_ev, status, message &
       )
     call assert_equal_i32( &

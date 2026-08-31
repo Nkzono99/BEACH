@@ -227,6 +227,7 @@ contains
       if (mpi_is_root(mpi)) then
         call self%zhao%initialize( &
           trim(cfg%surface_current%zhao_branch), &
+          trim(cfg%surface_current%zhao_root_selection), &
           species_number_density_m3(cfg%particle_species(ion_idx)), &
           electron_temperature_ev, &
           -cfg%particle_species(electron_idx)%drift_velocity(3), &

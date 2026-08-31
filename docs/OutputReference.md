@@ -207,6 +207,7 @@ $$
 | receipt | 内容 |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` または `zhao_online` |
+| `surface_current_model_zhao_root_selection` | online Zhao の複数根規則。`require_unique` または `minimum_energy` |
 | `surface_current_model_implicit_zero_mode` | `T` なら面平均 $D_H$ を backward Euler で更新し、`F` なら batch 開始値を固定 |
 | `surface_current_model_matching_plane_z_m` | matching plane の z 座標 |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | 各 channel に割り当てた species |
@@ -234,6 +235,7 @@ accepted state の `matching_plane_residual` は `surface_current_model_coupling
 | `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`。fingerprint は path ではなく、$H$、canonical axes、response values を含む読込済み応答演算子を識別する |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
+| `zhao_online` | `surface_current_model_zhao_root_selection` |
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |

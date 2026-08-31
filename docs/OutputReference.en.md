@@ -209,6 +209,7 @@ the post-commit field at the start of the next batch.
 | Receipt | Meaning |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` or `zhao_online` |
+| `surface_current_model_zhao_root_selection` | Online-Zhao multiple-root policy: `require_unique` or `minimum_energy` |
 | `surface_current_model_implicit_zero_mode` | `T` advances the plane-mean $D_H$ with backward Euler; `F` holds its batch-start value fixed |
 | `surface_current_model_matching_plane_z_m` | Matching-plane z coordinate |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | Species assigned to each channel |
@@ -237,6 +238,7 @@ converted to an effective residual, so an accepted state's `matching_plane_resid
 | `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`. The fingerprint identifies the loaded response operator—$H$, canonical axes, and response values—not its path |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
+| `zhao_online` | `surface_current_model_zhao_root_selection` |
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |

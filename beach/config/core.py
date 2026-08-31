@@ -1518,6 +1518,7 @@ def _validate_surface_current_model(
     matching_keys = {
         "response_backend",
         "response_table_path",
+        "zhao_root_selection",
         "implicit_zero_mode",
         "coupling_rtol",
         "coupling_atol",
@@ -1805,11 +1806,11 @@ def _validate_matching_plane_model(
             'be "table" or "zhao_online".'
         )
     if response_backend == "table":
-        if "zhao_branch" in model_config:
+        if {"zhao_branch", "zhao_root_selection"}.intersection(model_config):
             raise ConfigValidationError(
                 "BEACH constraint error: matching_plane_quasistatic "
                 'response_backend="table" cannot use Zhao-specific settings such '
-                "as zhao_branch."
+                "as zhao_branch or zhao_root_selection."
             )
         response_path = model_config.get("response_table_path")
         if (
@@ -1836,6 +1837,15 @@ def _validate_matching_plane_model(
             raise ConfigValidationError(
                 "BEACH constraint error: surface_current_model.zhao_branch must be "
                 '"auto", "a", "b", or "c".'
+            )
+        root_selection = model_config.get("zhao_root_selection", "require_unique")
+        if (
+            not isinstance(root_selection, str)
+            or root_selection not in {"require_unique", "minimum_energy"}
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: surface_current_model.zhao_root_selection "
+                'must be "require_unique" or "minimum_energy".'
             )
     for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
         value = model_config.get(key, default)

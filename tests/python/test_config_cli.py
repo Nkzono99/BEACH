@@ -954,6 +954,12 @@ def _matching_plane_zhao_online_config() -> dict[str, object]:
 def test_matching_plane_zhao_online_config_contract() -> None:
     implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
     assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
+    assert (
+        implicit_branch["surface_current_model"].get(
+            "zhao_root_selection", "require_unique"
+        )
+        == "require_unique"
+    )
 
     implicit_online = _matching_plane_zhao_online_config()
     implicit_online["surface_current_model"]["implicit_zero_mode"] = True
@@ -977,6 +983,21 @@ def test_matching_plane_zhao_online_config_contract() -> None:
         assert model["zhao_branch"] == branch
         assert "response_table_path" not in model
 
+    minimum_energy = _matching_plane_zhao_online_config()
+    minimum_energy["surface_current_model"]["zhao_root_selection"] = (
+        "minimum_energy"
+    )
+    normalized_minimum_energy = normalize_config_document(minimum_energy)
+    assert (
+        normalized_minimum_energy["surface_current_model"]["zhao_root_selection"]
+        == "minimum_energy"
+    )
+
+    invalid_root_selection = _matching_plane_zhao_online_config()
+    invalid_root_selection["surface_current_model"]["zhao_root_selection"] = "first"
+    with pytest.raises(ConfigValidationError, match="zhao_root_selection"):
+        normalize_config_document(invalid_root_selection)
+
     table_with_branch = load_config_file(
         Path(__file__).resolve().parents[2]
         / "tests/fortran/matching_plane_quasistatic.toml"
@@ -984,6 +1005,16 @@ def test_matching_plane_zhao_online_config_contract() -> None:
     table_with_branch["surface_current_model"]["zhao_branch"] = "auto"
     with pytest.raises(ConfigValidationError, match="Zhao-specific"):
         normalize_config_document(table_with_branch)
+
+    table_with_root_selection = load_config_file(
+        Path(__file__).resolve().parents[2]
+        / "tests/fortran/matching_plane_quasistatic.toml"
+    )
+    table_with_root_selection["surface_current_model"]["zhao_root_selection"] = (
+        "minimum_energy"
+    )
+    with pytest.raises(ConfigValidationError, match="Zhao-specific"):
+        normalize_config_document(table_with_root_selection)
 
     online_with_table = _matching_plane_zhao_online_config()
     online_with_table["surface_current_model"]["response_table_path"] = (

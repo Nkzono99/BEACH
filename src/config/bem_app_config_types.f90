@@ -21,6 +21,8 @@ module bem_app_config_types
     logical :: has_response_backend = .false.
     character(len=16) :: zhao_branch = 'auto'
     logical :: has_zhao_branch = .false.
+    character(len=16) :: zhao_root_selection = 'require_unique'
+    logical :: has_zhao_root_selection = .false.
     character(len=64) :: electron_species = ''
     logical :: has_electron_species = .false.
     character(len=64) :: ion_species = ''

@@ -580,6 +580,7 @@
           "not": {
             "anyOf": [
               {"required": ["zhao_branch"]},
+              {"required": ["zhao_root_selection"]},
               {"required": ["electron_species"]},
               {"required": ["ion_species"]},
               {"required": ["photoelectron_species"]},
@@ -609,6 +610,7 @@
             "anyOf": [
               {"required": ["response_backend"]},
               {"required": ["response_table_path"]},
+              {"required": ["zhao_root_selection"]},
               {"required": ["implicit_zero_mode"]},
               {"required": ["coupling_rtol"]},
               {"required": ["coupling_atol"]},
@@ -665,7 +667,12 @@
                 "response_backend": {"const": "table"}
               },
               "required": ["response_table_path"],
-              "not": {"required": ["zhao_branch"]}
+              "not": {
+                "anyOf": [
+                  {"required": ["zhao_branch"]},
+                  {"required": ["zhao_root_selection"]}
+                ]
+              }
             },
             {
               "properties": {
@@ -691,6 +698,11 @@
         "zhao_branch": {
           "enum": ["auto", "a", "b", "c"],
           "default": "auto"
+        },
+        "zhao_root_selection": {
+          "enum": ["require_unique", "minimum_energy"],
+          "default": "require_unique",
+          "description": "Online Zhao root policy: reject multiplicity or select the candidate with the lowest full-sheath potential energy."
         },
         "electron_species": {
           "type": "string",

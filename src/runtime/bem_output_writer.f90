@@ -533,6 +533,8 @@ contains
           write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
           write (u, '(a,a)') 'surface_current_model_zhao_branch=', &
             trim(lower_ascii(cfg%surface_current%zhao_branch))
+          write (u, '(a,a)') 'surface_current_model_zhao_root_selection=', &
+            trim(lower_ascii(cfg%surface_current%zhao_root_selection))
           write (u, '(a)') &
             'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
           write (u, '(a)') &

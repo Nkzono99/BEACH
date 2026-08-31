@@ -28,12 +28,14 @@ module bem_matching_plane_zhao
   integer, parameter :: root_max_iterations = 60
   integer, parameter :: root_max_backtracks = 24
   integer, parameter :: rho_quadrature_panels = 256
+  integer, parameter :: energy_quadrature_panels = 128
   integer, parameter :: profile_validation_samples = 32
   real(dp), parameter :: root_tolerance = 1.0e-9_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
   real(dp), parameter :: root_cluster_tolerance = 1.0e-6_dp
   real(dp), parameter :: profile_negative_tolerance = 1.0e-7_dp
   real(dp), parameter :: profile_endpoint_tolerance = 1.0e-5_dp
+  real(dp), parameter :: energy_tie_tolerance = 1.0e-6_dp
 
   integer(i32), parameter, public :: matching_plane_zhao_ok = 0_i32
   integer(i32), parameter, public :: matching_plane_zhao_invalid_argument = 1_i32
@@ -49,6 +51,7 @@ module bem_matching_plane_zhao
     real(dp) :: ambient_electron_density_m3 = 0.0_dp
     real(dp) :: residual_norm = huge(1.0_dp)
     real(dp) :: minimum_field_squared_hat = huge(1.0_dp)
+    real(dp) :: potential_energy_j_m2 = huge(1.0_dp)
     integer(i32) :: nonlinear_iterations = 0_i32
   end type matching_plane_zhao_diagnostics_type
 
@@ -59,6 +62,7 @@ module bem_matching_plane_zhao
     real(dp) :: ambient_electron_density_m3 = 0.0_dp
     real(dp) :: residual_norm = huge(1.0_dp)
     real(dp) :: minimum_field_squared_hat = huge(1.0_dp)
+    real(dp) :: potential_energy_j_m2 = huge(1.0_dp)
     integer(i32) :: nonlinear_iterations = 0_i32
   end type zhao_matching_root_type
 
@@ -66,6 +70,7 @@ module bem_matching_plane_zhao
     private
     logical :: initialized = .false.
     character(len=9) :: branch_model = 'auto'
+    character(len=16) :: root_selection = 'require_unique'
     real(dp) :: ion_density_m3 = 0.0_dp
     real(dp) :: electron_temperature_ev = 0.0_dp
     real(dp) :: electron_drift_mps = 0.0_dp
@@ -83,22 +88,24 @@ module bem_matching_plane_zhao
 contains
 
   subroutine initialize_matching_plane_zhao( &
-    self, branch_model, ion_density_m3, electron_temperature_ev, electron_drift_mps, &
+    self, branch_model, root_selection, ion_density_m3, electron_temperature_ev, electron_drift_mps, &
     ion_drift_mps, ion_mass_kg, electron_mass_kg, configured_photoelectron_temperature_ev, &
     status, message &
     )
     class(matching_plane_zhao_model_type), intent(inout) :: self
     character(len=*), intent(in) :: branch_model
+    character(len=*), intent(in) :: root_selection
     real(dp), intent(in) :: ion_density_m3, electron_temperature_ev, electron_drift_mps
     real(dp), intent(in) :: ion_drift_mps, ion_mass_kg, electron_mass_kg
     real(dp), intent(in) :: configured_photoelectron_temperature_ev
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    character(len=:), allocatable :: normalized_branch
+    character(len=:), allocatable :: normalized_branch, normalized_root_selection
 
     self%initialized = .false.
     self%branch_model = 'auto'
+    self%root_selection = 'require_unique'
     self%ion_density_m3 = 0.0_dp
     self%electron_temperature_ev = 0.0_dp
     self%electron_drift_mps = 0.0_dp
@@ -120,6 +127,14 @@ contains
       self%branch_model = 'c'
     case default
       message = 'matching-plane Zhao branch must be auto, a, b, or c.'
+      return
+    end select
+    normalized_root_selection = trim(lower_ascii(root_selection))
+    select case (normalized_root_selection)
+    case ('require_unique', 'minimum_energy')
+      self%root_selection = normalized_root_selection
+    case default
+      message = 'matching-plane Zhao root selection must be require_unique or minimum_energy.'
       return
     end select
     if (.not. all(ieee_is_finite([ &
@@ -229,7 +244,7 @@ contains
     local_diagnostics%effective_photoelectron_temperature_ev = photoelectron_temperature_ev
     local_diagnostics%photoelectron_source_density_m3 = photoelectron_source_density_m3
     call solve_matching_root( &
-      trim(self%branch_model), params, interface_field_v_m, root, status, message &
+      trim(self%branch_model), trim(self%root_selection), params, interface_field_v_m, root, status, message &
       )
     if (status /= matching_plane_zhao_ok) then
       call assign_diagnostics(diagnostics, local_diagnostics)
@@ -240,6 +255,7 @@ contains
     local_diagnostics%ambient_electron_density_m3 = root%ambient_electron_density_m3
     local_diagnostics%residual_norm = root%residual_norm
     local_diagnostics%minimum_field_squared_hat = root%minimum_field_squared_hat
+    local_diagnostics%potential_energy_j_m2 = root%potential_energy_j_m2
     local_diagnostics%nonlinear_iterations = root%nonlinear_iterations
     call compose_matching_response(params, root, output, status, message)
     if (status /= matching_plane_zhao_ok) then
@@ -338,8 +354,8 @@ contains
     initialized = self%initialized
   end function matching_plane_zhao_is_initialized
 
-  subroutine solve_matching_root(model, params, interface_field_v_m, root, status, message)
-    character(len=*), intent(in) :: model
+  subroutine solve_matching_root(model, root_selection, params, interface_field_v_m, root, status, message)
+    character(len=*), intent(in) :: model, root_selection
     type(zhao_params_type), intent(in) :: params
     real(dp), intent(in) :: interface_field_v_m
     type(zhao_matching_root_type), intent(out) :: root
@@ -347,7 +363,7 @@ contains
     character(len=*), intent(out) :: message
 
     character(len=1) :: order(3), candidate
-    type(zhao_matching_root_type) :: trial_root, successful_root
+    type(zhao_matching_root_type) :: trial_root, successful_root, successful_roots(3)
     real(dp) :: field_scale, target_field_hat, degenerate_density_m3
     integer :: candidate_count, candidate_index, successful_count
     logical :: saw_numerical_failure, saw_ambiguous_solution
@@ -383,6 +399,7 @@ contains
       root%ambient_electron_density_m3 = degenerate_density_m3
       root%residual_norm = 0.0_dp
       root%minimum_field_squared_hat = 0.0_dp
+      root%potential_energy_j_m2 = 0.0_dp
       root%nonlinear_iterations = 0_i32
       status = matching_plane_zhao_ok
       message = 'zero-field degenerate Zhao-B state'
@@ -396,10 +413,11 @@ contains
     do candidate_index = 1, candidate_count
       candidate = order(candidate_index)
       call solve_one_matching_branch( &
-        params, candidate, target_field_hat, trial_root, status, message &
+        params, candidate, target_field_hat, root_selection, trial_root, status, message &
         )
       if (status == matching_plane_zhao_ok) then
         successful_count = successful_count + 1
+        successful_roots(successful_count) = trial_root
         if (successful_count == 1) successful_root = trial_root
       end if
       if (status == matching_plane_zhao_numerical_failure) saw_numerical_failure = .true.
@@ -420,8 +438,18 @@ contains
       message = ''
       return
     else if (successful_count > 1) then
-      status = matching_plane_zhao_ambiguous_solution
-      message = 'matching-plane Zhao auto selection is ambiguous across multiple physical branches.'
+      if (saw_numerical_failure .and. trim(model) == 'auto' .and. &
+          trim(root_selection) == 'minimum_energy') then
+        status = matching_plane_zhao_numerical_failure
+        message = 'matching-plane Zhao minimum-energy selection could not certify every candidate branch.'
+      else if (trim(root_selection) == 'minimum_energy') then
+        call select_minimum_energy_root( &
+          params, successful_roots, successful_count, root, status, message &
+          )
+      else
+        status = matching_plane_zhao_ambiguous_solution
+        message = 'matching-plane Zhao auto selection is ambiguous across multiple physical branches.'
+      end if
       return
     end if
     if (saw_numerical_failure) then
@@ -468,9 +496,10 @@ contains
     end select
   end subroutine matching_branch_order
 
-  subroutine solve_one_matching_branch(params, branch, target_field_hat, root, status, message)
+  subroutine solve_one_matching_branch(params, branch, target_field_hat, root_selection, root, status, message)
     type(zhao_params_type), intent(in) :: params
     character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: root_selection
     real(dp), intent(in) :: target_field_hat
     type(zhao_matching_root_type), intent(out) :: root
     integer(i32), intent(out) :: status
@@ -538,15 +567,23 @@ contains
       end if
     end do
     if (unique_count > 1) then
-      status = matching_plane_zhao_ambiguous_solution
-      message = 'charge-driven Zhao solve found multiple roots in the requested branch.'
+      if (trim(root_selection) == 'minimum_energy') then
+        call select_minimum_energy_root(params, unique_roots, unique_count, root, status, message)
+      else
+        status = matching_plane_zhao_ambiguous_solution
+        message = 'charge-driven Zhao solve found multiple roots in the requested branch.'
+      end if
     else if (saw_numerical_profile_failure) then
       status = matching_plane_zhao_numerical_failure
       message = 'charge-driven Zhao root profile could not be certified numerically.'
     else if (unique_count == 1) then
       root = unique_roots(1)
-      status = matching_plane_zhao_ok
-      message = ''
+      if (trim(root_selection) == 'minimum_energy') then
+        call evaluate_root_potential_energy(params, root, status, message)
+      else
+        status = matching_plane_zhao_ok
+        message = ''
+      end if
     else if (saw_nonphysical_profile) then
       status = matching_plane_zhao_no_physical_solution
       message = 'charge-driven Zhao endpoint root has no real connecting field profile.'
@@ -555,6 +592,176 @@ contains
       message = 'charge-driven Zhao Newton solve did not converge.'
     end if
   end subroutine solve_one_matching_branch
+
+  subroutine select_minimum_energy_root(params, roots, root_count, root, status, message)
+    type(zhao_params_type), intent(in) :: params
+    type(zhao_matching_root_type), intent(in) :: roots(:)
+    integer, intent(in) :: root_count
+    type(zhao_matching_root_type), intent(out) :: root
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_matching_root_type) :: candidates(size(roots))
+    real(dp) :: energy_scale
+    integer :: candidate_index, best_index
+
+    root = zhao_matching_root_type()
+    candidates = roots
+    status = matching_plane_zhao_numerical_failure
+    message = ''
+    if (root_count < 1 .or. root_count > size(roots)) then
+      message = 'matching-plane Zhao minimum-energy selection received an invalid candidate count.'
+      return
+    end if
+    do candidate_index = 1, root_count
+      call evaluate_root_potential_energy(params, candidates(candidate_index), status, message)
+      if (status /= matching_plane_zhao_ok) return
+    end do
+    best_index = 1
+    do candidate_index = 2, root_count
+      if (candidates(candidate_index)%potential_energy_j_m2 < &
+          candidates(best_index)%potential_energy_j_m2) best_index = candidate_index
+    end do
+    do candidate_index = 1, root_count
+      if (candidate_index == best_index) cycle
+      energy_scale = max( &
+                     abs(candidates(best_index)%potential_energy_j_m2), &
+                     abs(candidates(candidate_index)%potential_energy_j_m2), tiny(1.0_dp) &
+                     )
+      if (abs( &
+          candidates(candidate_index)%potential_energy_j_m2 - &
+          candidates(best_index)%potential_energy_j_m2 &
+          ) <= energy_tie_tolerance*energy_scale) then
+        status = matching_plane_zhao_ambiguous_solution
+        message = 'matching-plane Zhao minimum-energy candidates are numerically tied.'
+        return
+      end if
+    end do
+    root = candidates(best_index)
+    status = matching_plane_zhao_ok
+    message = ''
+  end subroutine select_minimum_energy_root
+
+  subroutine evaluate_root_potential_energy(params, root, status, message)
+    type(zhao_params_type), intent(in) :: params
+    type(zhao_matching_root_type), intent(inout) :: root
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: phi0_hat, phi_m_hat, density_hat, energy_hat, segment_energy_hat
+    logical :: success
+
+    status = matching_plane_zhao_numerical_failure
+    message = ''
+    root%potential_energy_j_m2 = huge(1.0_dp)
+    phi0_hat = root%phi0_v/params%t_phe_ev
+    phi_m_hat = root%phi_m_v/params%t_phe_ev
+    density_hat = root%ambient_electron_density_m3/params%n_phe_ref_m3
+    if (.not. all(ieee_is_finite([phi0_hat, phi_m_hat, density_hat])) .or. &
+        density_hat <= 0.0_dp .or. params%lambda_d_phe_ref_m <= 0.0_dp) then
+      message = 'matching-plane Zhao potential-energy normalization is invalid.'
+      return
+    end if
+
+    energy_hat = 0.0_dp
+    select case (root%branch)
+    case ('A')
+      call integrate_matching_field_energy_hat( &
+        params, root%branch, 'lower', phi_m_hat, phi0_hat, phi0_hat, phi_m_hat, &
+        density_hat, segment_energy_hat, success &
+        )
+      if (.not. success) then
+        message = 'matching-plane Zhao-A lower potential-energy integral failed.'
+        return
+      end if
+      energy_hat = energy_hat + segment_energy_hat
+      call integrate_matching_field_energy_hat( &
+        params, root%branch, 'upper', phi_m_hat, 0.0_dp, phi0_hat, phi_m_hat, &
+        density_hat, segment_energy_hat, success &
+        )
+      if (.not. success) then
+        message = 'matching-plane Zhao-A upper potential-energy integral failed.'
+        return
+      end if
+      energy_hat = energy_hat + segment_energy_hat
+    case ('B', 'C')
+      call integrate_matching_field_energy_hat( &
+        params, root%branch, 'monotonic', phi0_hat, 0.0_dp, phi0_hat, phi_m_hat, &
+        density_hat, energy_hat, success &
+        )
+      if (.not. success) then
+        message = 'matching-plane Zhao monotonic potential-energy integral failed.'
+        return
+      end if
+    case default
+      message = 'matching-plane Zhao potential-energy root has an unknown branch.'
+      return
+    end select
+    root%potential_energy_j_m2 = -0.5_dp*eps0*params%t_phe_ev*params%t_phe_ev* &
+                                 energy_hat/params%lambda_d_phe_ref_m
+    if (.not. ieee_is_finite(root%potential_energy_j_m2) .or. root%potential_energy_j_m2 > 0.0_dp) then
+      root%potential_energy_j_m2 = huge(1.0_dp)
+      message = 'matching-plane Zhao potential energy is invalid.'
+      return
+    end if
+    status = matching_plane_zhao_ok
+  end subroutine evaluate_root_potential_energy
+
+  subroutine integrate_matching_field_energy_hat( &
+    params, branch, side, start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, &
+    density_hat, energy_hat, success &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: side
+    real(dp), intent(in) :: start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, density_hat
+    real(dp), intent(out) :: energy_hat
+    logical, intent(out) :: success
+
+    real(dp) :: t, phi_hat, jacobian, rho_integral, field_squared, summand, weight, h
+    real(dp) :: field_squared_scale
+    integer :: point
+    logical :: integral_ok
+
+    energy_hat = 0.0_dp
+    success = .false.
+    if (.not. all(ieee_is_finite([ &
+                                 start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, density_hat &
+                                 ])) .or. density_hat <= 0.0_dp) return
+    h = 1.0_dp/real(energy_quadrature_panels, dp)
+    field_squared_scale = max(1.0_dp, phi0_hat*phi0_hat, phi_m_hat*phi_m_hat)
+    do point = 0, energy_quadrature_panels
+      t = real(point, dp)*h
+      phi_hat = start_phi_hat + (end_phi_hat - start_phi_hat)*sin(0.5_dp*pi*t)**2
+      jacobian = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
+      if (branch == 'A') then
+        call integrate_matching_rho_hat( &
+          params, branch, side, phi_m_hat, phi_hat, phi0_hat, phi_m_hat, &
+          density_hat, rho_integral, integral_ok &
+          )
+        field_squared = -2.0_dp*rho_integral
+      else
+        call integrate_matching_rho_hat( &
+          params, branch, side, phi_hat, 0.0_dp, phi0_hat, phi_m_hat, &
+          density_hat, rho_integral, integral_ok &
+          )
+        field_squared = 2.0_dp*rho_integral
+      end if
+      if (.not. integral_ok .or. &
+          field_squared < -profile_negative_tolerance*field_squared_scale) return
+      summand = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
+      if (point == 0 .or. point == energy_quadrature_panels) then
+        weight = 1.0_dp
+      else if (mod(point, 2) == 0) then
+        weight = 2.0_dp
+      else
+        weight = 4.0_dp
+      end if
+      energy_hat = energy_hat + weight*summand
+    end do
+    energy_hat = energy_hat*h/3.0_dp
+    success = ieee_is_finite(energy_hat) .and. energy_hat >= 0.0_dp
+  end subroutine integrate_matching_field_energy_hat
 
   subroutine validate_matching_root_profile(params, root, target_field_hat, status, message)
     type(zhao_params_type), intent(in) :: params

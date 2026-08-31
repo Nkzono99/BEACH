@@ -325,6 +325,12 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     zhao_key["surface_current_model"]["zhao_branch"] = "auto"
     assert schema_errors(zhao_key, schema)
 
+    zhao_root_key = copy.deepcopy(matching)
+    zhao_root_key["surface_current_model"]["zhao_root_selection"] = (
+        "minimum_energy"
+    )
+    assert schema_errors(zhao_root_key, schema)
+
     zhao_online = copy.deepcopy(matching)
     zhao_online["surface_current_model"].pop("response_table_path")
     zhao_online["surface_current_model"]["response_backend"] = "zhao_online"
@@ -332,6 +338,13 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
 
     zhao_online["surface_current_model"]["zhao_branch"] = "b"
     assert schema_errors(zhao_online, schema) == []
+
+    zhao_online["surface_current_model"]["zhao_root_selection"] = "minimum_energy"
+    assert schema_errors(zhao_online, schema) == []
+
+    invalid_root_selection = copy.deepcopy(zhao_online)
+    invalid_root_selection["surface_current_model"]["zhao_root_selection"] = "first"
+    assert schema_errors(invalid_root_selection, schema)
 
     zhao_online["surface_current_model"]["implicit_zero_mode"] = True
     assert schema_errors(zhao_online, schema) == []

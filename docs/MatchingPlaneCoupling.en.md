@@ -57,8 +57,9 @@ The similarly named models solve different constraints.
 | Without PEs | Type C | Not fixed to Type C; $D_H=0$ is the degenerate Type-B state |
 | Current treatment | Fixed target for each species | Response fluxes and raw trajectory deposits |
 
-Therefore, omitting PEs does not by itself make an online Zhao result Type C. With `zhao_branch="auto"`, the solver
-looks for one physical root compatible with the current $D_H$ and stops when it cannot establish uniqueness.
+Therefore, omitting PEs does not by itself make an online Zhao result Type C. With the default
+`zhao_root_selection="require_unique"`, `zhao_branch="auto"` looks for one physical root compatible with the current
+$D_H$ and stops when it cannot establish uniqueness.
 
 ## 2. Build a minimal configuration
 
@@ -119,8 +120,28 @@ This path needs neither `response_table_path` nor a prebuilt `matching_query.csv
 `examples/periodic2_matching_plane_zhao_implicit.toml` for the complete CSV-free case. A query grid and
 `beach-zhao-response` are needed only when creating a separate table snapshot.
 
-Implicit integration does not choose a Zhao branch. If `auto` cannot certify a unique physical solution at the current
-seed, it stops. With strong PE, scan `a`, `b`, and `c` separately and then select the validated branch explicitly.
+Implicit integration alone does not choose a Zhao branch. By default, it stops if `auto` cannot certify a unique
+physical solution at the current seed. With strong PE, scan `a`, `b`, and `c` separately and then select the validated
+branch explicitly.
+
+Online Zhao can select multiple roots by a physical quantity when configured as follows:
+
+```toml
+zhao_root_selection = "minimum_energy"
+```
+
+For each candidate detected by the multistart search, BEACH evaluates the full profile from the surface to infinity and
+computes
+
+$$
+U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx.
+$$
+
+It selects the lowest $U$ within an explicit branch, or across certified A, B, and C candidates for `auto`. It still
+stops if a numerical failure prevents certification of the candidate set or if the lowest energies are tied within a
+relative $10^{-6}$. This criterion follows the sheath potential-energy comparison of
+[Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684), but finite multistart search is not
+proof that every mathematical root was found, and the energy comparison is not a time-dependent stability proof.
 
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
@@ -212,7 +233,7 @@ summary receipts, and the exact time convention.
 | Response preflight failure | Path, header, $H$, or Cartesian-grid mismatch | Compare the [CSV contract](MatchingPlaneReference.en.html#table-backend-response-csv-v1) with the z component of `domain.box_max` |
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
 | Fixed point reaches the iteration limit | Particle noise, strong feedback, or overly tight tolerances | Increase ray or macro counts; if residual decreases, adjust relaxation or the limit |
-| Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately and validate the physical branch |
+| Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard limit is reached | Unresolved periodic events exceed the error budget | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |

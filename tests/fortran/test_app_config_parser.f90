@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(38)
+  call test_init(42)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -45,6 +45,10 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
   call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
+  call assert_true( &
+    trim(cfg%surface_current%zhao_root_selection) == 'require_unique', &
+    'default Zhao root selection mismatch' &
+    )
   call assert_equal_i32( &
     cfg%sim%multiple_box_events_soft_discard_count_grace, 1000_i32, &
     'default soft-discard count grace mismatch' &
@@ -54,6 +58,31 @@ program test_app_config_parser
     'default soft-discard fraction limit mismatch' &
     )
   call assert_equal_i32(cfg%checkpoint_stride, 0_i32, 'default checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('matching_plane_online_accepts_minimum_energy_root_selection')
+  call write_matching_online_variant( &
+    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'zhao_root_selection = "minimum_energy"' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    trim(cfg%surface_current%zhao_root_selection) == 'minimum_energy', &
+    'online Zhao minimum-energy root selection mismatch' &
+    )
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_rejects_unknown_root_selection')
+  call write_matching_online_variant( &
+    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'zhao_root_selection = "first"' &
+    )
+  call assert_config_rejected(matching_variant_path, 'zhao_root_selection must be')
+  call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('parses_soft_discard_count_grace')
@@ -141,6 +170,12 @@ program test_app_config_parser
 
   call test_begin('zhao_rejects_matching_response_backend')
   call write_zhao_variant(zhao_generic_barrier_path, '', .false., 'response_backend = "zhao_online"')
+  call assert_config_rejected(zhao_generic_barrier_path, 'cannot use matching-plane-specific settings')
+  call delete_file_if_exists(zhao_generic_barrier_path)
+  call test_end()
+
+  call test_begin('stationary_zhao_rejects_root_selection')
+  call write_zhao_variant(zhao_generic_barrier_path, '', .false., 'zhao_root_selection = "minimum_energy"')
   call assert_config_rejected(zhao_generic_barrier_path, 'cannot use matching-plane-specific settings')
   call delete_file_if_exists(zhao_generic_barrier_path)
   call test_end()
@@ -327,6 +362,15 @@ program test_app_config_parser
   call test_begin('matching_plane_rejects_zhao_settings')
   call write_matching_variant( &
     matching_variant_path, 'matching_plane_quasistatic', '', 'zhao_branch = "auto"', '', '', '' &
+    )
+  call assert_config_rejected(matching_variant_path, 'cannot use Zhao-specific settings')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_table_rejects_zhao_root_selection')
+  call write_matching_variant( &
+    matching_variant_path, 'matching_plane_quasistatic', '', &
+    'zhao_root_selection = "minimum_energy"', '', '', '' &
     )
   call assert_config_rejected(matching_variant_path, 'cannot use Zhao-specific settings')
   call delete_file_if_exists(matching_variant_path)

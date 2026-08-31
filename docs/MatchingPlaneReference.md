@@ -69,9 +69,20 @@ bracket とみなしません。これは table を永続的に拡張する処�
 Zhao branch が終点より前に終わる、走査範囲または数値範囲を超える、または符号変化を見つけられない場合は
 停止します。
 
-signed scan は明示した `a` / `b` / `c` にだけ使います。`auto` が seed で一意な物理解を保証できない場合、
-implicit solver は branch を代わりに選ばず停止します。したがって強い PE の A/B 共存は implicit 化だけでは
-解消せず、branch 別の可解性評価が必要です。
+signed scan は明示した `a` / `b` / `c` にだけ使います。既定の
+`zhao_root_selection="require_unique"` では、`auto` が seed で一意な物理解を保証できない場合、implicit solver は
+branch を代わりに選ばず停止します。したがって強い PE の A/B 共存は implicit 化だけでは解消せず、branch 別の
+可解性評価が必要です。
+
+`zhao_root_selection="minimum_energy"` では、multistart で検出した各候補について表面から無限遠までの profile から
+
+$$
+U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx
+$$
+
+を評価し、最小の $U$ を選びます。明示 branch ではその branch 内の根、`auto` では数値的に検証できた A / B / C
+候補を比較します。候補 branch の数値失敗で集合を確定できない場合と、最小値が相対 $10^{-6}$ 以内で縮退する場合は
+停止します。このエネルギー比較は候補選択規則であり、有限 multistart による全根の列挙や時間依存安定性を保証しません。
 
 PE ありでは half-Maxwellian 近似から
 
