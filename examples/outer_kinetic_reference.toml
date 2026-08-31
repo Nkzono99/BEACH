@@ -1,0 +1,48 @@
+# Research configuration for the offline matching-plane 1D1V oracle.
+# These coarse grid values are for reproducible K1-K6 studies, not production defaults.
+
+[outer_kinetic]
+matching_plane_z_m = 3.194672724026139e-4
+z_length_m = 100.0
+nz = 32
+cfl = 0.4
+max_time_s = 1.2e-3
+initial_condition = "reservoir"
+
+[ambient_electron]
+# Full source-Maxwellian amplitude, not a certified far-field density.
+number_density_m3 = 5.0e6
+temperature_ev = 10.0
+drift_velocity_mps = -4.0e5
+nv = 96
+vmin_mps = -7.0e6
+vmax_mps = 7.0e6
+
+[ambient_ion]
+# Full source-Maxwellian amplitude, not a certified far-field density.
+number_density_m3 = 5.0e6
+temperature_ev = 0.1
+drift_velocity_mps = -4.0e5
+nv = 128
+vmin_mps = -6.0e5
+vmax_mps = 2.0e5
+
+[photoelectron]
+nv = 96
+vmin_mps = -7.0e6
+vmax_mps = 7.0e6
+
+[certification]
+warmup_time_s = 4.0e-4
+averaging_window_s = 4.0e-4
+sample_interval_s = 1.0e-5
+stationarity_rtol = 5.0e-2
+drift_rtol = 5.0e-2
+sem_rtol = 5.0e-2
+steady_fluctuation_rtol = 1.0e-2
+autocorrelation_windows = 2.0
+far_field_abs_v_m = 1.0e-1
+far_charge_rel = 5.0e-2
+gauss_abs_c_m2 = 1.0e-18
+charge_budget_rtol = 1.0e-8
+velocity_loss_rtol = 1.0e-3

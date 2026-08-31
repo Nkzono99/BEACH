@@ -33,6 +33,8 @@ matching-plane では、外部応答の取得方法をさらに選びます。
 | `response_backend="zhao_online"` | CSV を作らず組み込み Zhao を直接使う | `implicit_zero_mode` は選択 branch 内で終点を探索。平面・無衝突・非磁化で、nonlinear solve の費用がある |
 
 `examples/matching_plane_response_synthetic.csv` は table 経路の smoke test 専用です。物理計算には使えません。
+独立した 1D1V Vlasov 応答を調べる研究手順は
+[offline kinetic oracle](OuterKineticOracle.html)に分離しています。
 
 ### PE の有無
 

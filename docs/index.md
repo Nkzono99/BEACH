@@ -45,7 +45,7 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | open 境界と return を構成する | [境界から粒子を流入させる](ReservoirInjection.html) → [粒子の escape と return](ParticleEscapeReturn.html) |
 | 光電子を扱う | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
 | 定常外部シースから固定電流を与える | [Zhao stationary closure](ZhaoStationaryClosure.html) |
-| 外部 1D sheath と連成する | [matching-plane 準定常連成](MatchingPlaneCoupling.html) |
+| 外部 1D sheath と連成する | [matching-plane 準定常連成](MatchingPlaneCoupling.html) → [offline kinetic oracle で検証する](OuterKineticOracle.html) |
 | 場ソルバや周期境界を選ぶ | [場の評価](FieldSolvers.html) → [periodic2 静電場](PeriodicElectrostatics.html) |
 | 出力を可視化する | [後処理チュートリアル](PostprocessTutorial.html) → [Python API](PythonPostprocessAPI.html) |
 | ソースを変更する | [アーキテクチャ](Architecture.html) → [開発とテスト](Workflow.html) |

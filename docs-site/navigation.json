@@ -22,6 +22,7 @@
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 145, "description": { "root": "periodic2の近傍画像、非一様場、平均場の役割。", "en": "Roles of near images, the nonuniform field, and the mean field in periodic2." } },
     { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 150, "description": { "root": "有限画像和、局所reservoir、閉じた光電子、scalar barrierの構成。", "en": "Finite image sums with local reservoirs, closed photoelectrons, and scalar barriers." } },
     { "source": { "root": "MatchingPlaneCoupling.md", "en": "MatchingPlaneCoupling.en.md" }, "slug": "matching-plane-coupling", "order": 155, "description": { "root": "BEACH領域と外部1D sheath応答を準定常に接続する。", "en": "Couple the BEACH region to a quasistatic outer one-dimensional sheath response." } },
+    { "source": { "root": "OuterKineticOracle.md", "en": "OuterKineticOracle.en.md" }, "slug": "outer-kinetic-oracle", "order": 157, "description": { "root": "外部1D1V kinetic応答を独立計算し、matching-plane表への採用可否を判定する。", "en": "Compute an independent outer 1D1V kinetic response and decide whether it qualifies for a matching-plane table." } },
     { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 160, "description": { "root": "比較計算からbatch_durationを選び、adaptive進行を確認する。", "en": "Choose batch_duration from comparison runs and inspect adaptive progression." } },
     { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 170, "description": { "root": "BEACH入力パラメータの完全なリファレンス。", "en": "Complete BEACH input parameter reference." } },
     { "source": { "root": "SurfaceChargeNumerics.md", "en": "SurfaceChargeNumerics.en.md" }, "slug": "surface-charge-numerics", "order": 171, "description": { "root": "表面電荷commit、浮遊導体方程式、並列集約の数値仕様。", "en": "Numerical specification of surface-charge commit, floating conductors, and reductions." } },
@@ -84,6 +85,7 @@
         { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2静電場", "en": "periodic2 electrostatics" } },
         { "type": "page", "slug": "finite-periodic-configuration", "label": { "root": "有限画像の周期構成", "en": "Finite-image periodic setup" } },
         { "type": "page", "slug": "matching-plane-coupling", "label": { "root": "matching-plane外部sheath連成", "en": "Matching-plane outer-sheath coupling" } },
+        { "type": "page", "slug": "outer-kinetic-oracle", "label": { "root": "外部kinetic応答を検証する", "en": "Validate an outer kinetic response" } },
         { "type": "page", "slug": "batch-duration-stability", "label": { "root": "batch_durationをどう決めるか", "en": "How to choose batch_duration" } }
       ]
     },

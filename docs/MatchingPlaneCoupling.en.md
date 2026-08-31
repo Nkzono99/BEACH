@@ -35,6 +35,8 @@ For matching-plane coupling, also choose how to obtain the outer response.
 | `response_backend="zhao_online"` | Use the built-in Zhao response without preparing a CSV | `implicit_zero_mode` searches within the selected branch; planar, collisionless, unmagnetized, and pays for nonlinear solves |
 
 `examples/matching_plane_response_synthetic.csv` is only a table-path smoke-test fixture. Do not use it for a physical run.
+See the [offline kinetic oracle](OuterKineticOracle.en.html) for the separate research workflow that evaluates a 1D1V
+Vlasov response.
 
 ### With and without PEs
 

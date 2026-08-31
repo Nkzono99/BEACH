@@ -64,6 +64,8 @@ def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -
     assert "lint" in captured.out
     assert "config" in captured.out
     assert "model" in captured.out
+    assert "kinetic-response" in captured.out
+    assert "kinetic-table" in captured.out
 
 
 def test_beachx_model_help_lists_available_models(

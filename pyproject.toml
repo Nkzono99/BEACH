@@ -37,6 +37,8 @@ beach-plot-coulomb-force-matrix = "beach.cli.legacy:coulomb_main"
 beach-plot-potential-slices = "beach.cli.legacy:slices_main"
 beach-estimate-workload = "beach.cli.legacy:workload_main"
 beach-plot-performance-profile = "beach.cli.legacy:profile_main"
+beach-kinetic-response = "beach.cli.kinetic:response_main"
+beach-kinetic-table = "beach.cli.kinetic:table_main"
 
 [tool.setuptools]
 packages = ["beach", "beach.fortran_results", "beach.cli", "beach.config"]

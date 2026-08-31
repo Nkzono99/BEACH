@@ -1,0 +1,13 @@
+displacement_c_m2,photoelectron_outward_number_flux_m2_s,photoelectron_outward_mean_normal_energy_ev,electron_outward_number_flux_m2_s,ion_outward_number_flux_m2_s
+# K1: Zhao-B zero-field/no-PE overlap
+0.0,0.0,2.2,0.0,0.0
+# K2: negative displacement, Zhao-C overlap
+-3.3687947787558357e-11,0.0,1.1,0.0,0.0
+# K3: positive displacement on the completed Type-B trajectory
+1.9164781368974609e-11,1.7389673231871641e13,2.1823572468808869,0.0,0.0
+# K4: known coexisting Zhao-A/Zhao-B roots
+1.8702429324184154e-11,1.7705101058632719e13,2.2029918645760183,0.0,0.0
+# K5: ambiguous-within-Type-A atlas point
+1.9840095750135149e-11,2.0105095392684406e13,2.2247408606950563,0.0,0.0
+# K6: Zhao A/B/C no-root point
+0.0,1.8724527223382288e12,1.1,0.0,0.0

@@ -12,6 +12,7 @@ from . import (
     estimate_fortran_workload,
     inspect_fortran_output,
     kernel_forces,
+    kinetic,
     lint,
     model,
     object_detachment,
@@ -45,6 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
     lint.add_subparser(subparsers)
     config.add_subparser(subparsers)
     model.add_subparser(subparsers)
+    kinetic.add_response_subparser(subparsers)
+    kinetic.add_table_subparser(subparsers)
     return parser
 
 

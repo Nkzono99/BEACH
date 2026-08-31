@@ -45,7 +45,7 @@ See [The BEACH computation cycle](Algorithms.en.html) for the ordinary surface-c
 | Configure open boundaries and return | [Inject particles through a boundary](ReservoirInjection.en.html) → [Particle escape and return](ParticleEscapeReturn.en.html) |
 | Include photoelectrons | [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) |
 | Apply fixed currents from a stationary outer sheath | [Zhao stationary closure](ZhaoStationaryClosure.en.html) |
-| Couple an outer one-dimensional sheath | [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) |
+| Couple an outer one-dimensional sheath | [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) → [Validate with the offline kinetic oracle](OuterKineticOracle.en.html) |
 | Select field solvers or periodic boundaries | [Field evaluation](FieldSolvers.en.html) → [periodic2 electrostatics](PeriodicElectrostatics.en.html) |
 | Visualize output | [Post-processing tutorial](PostprocessTutorial.en.html) → [Python API](PythonPostprocessAPI.en.html) |
 | Change the source code | [Architecture](Architecture.en.html) → [Development and testing](Workflow.en.html) |
