@@ -59,7 +59,7 @@ program test_simulator
     error stop 'soft-discard fraction-limit probe unexpectedly completed'
   else if (trim(run_mode) == '--soft-discard-charge-limit-probe') then
     call run_multiple_box_event_soft_discard_limit_probe(.true.)
-    error stop 'soft-discard charge-limit probe unexpectedly completed'
+    stop 0
   else if (trim(run_mode) == '--soft-discard-resume-limit-probe') then
     call run_multiple_box_event_soft_discard_resume_limit_probe()
     error stop 'soft-discard resume-limit probe unexpectedly completed'
@@ -1411,7 +1411,11 @@ contains
               ' > '//trim(output_path)//' 2>&1'
     call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
     call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'soft-discard limit command status mismatch')
-    call assert_true(child_exit_status /= 0, 'soft-discard limit probe should terminate with nonzero status')
+    if (charge_limit_probe) then
+      call assert_equal_i32(int(child_exit_status, i32), 0_i32, 'soft-discard charge warning stopped the run')
+    else
+      call assert_true(child_exit_status /= 0, 'soft-discard fraction-limit probe should stop the run')
+    end if
 
     saw_batch = .false.
     saw_limit_summary = .false.
@@ -1429,13 +1433,20 @@ contains
       read (child_unit, '(A)', iostat=child_ios) child_line
       if (child_ios /= 0) exit
       saw_batch = saw_batch .or. index(child_line, 'batch=1') > 0
-      saw_limit_summary = saw_limit_summary .or. &
-                          index(child_line, 'soft-discard cumulative limit exceeded') > 0
+      if (charge_limit_probe) then
+        saw_limit_summary = saw_limit_summary .or. &
+                            index(child_line, 'cumulative absolute-charge threshold crossed') > 0
+      else
+        saw_limit_summary = saw_limit_summary .or. &
+                            index(child_line, 'soft-discard cumulative fraction limit exceeded') > 0
+      end if
       saw_processed = saw_processed .or. index(child_line, ' processed=') > 0
       saw_fraction = saw_fraction .or. index(child_line, ' fraction=') > 0
       saw_fraction_limit = saw_fraction_limit .or. index(child_line, ' fraction_limit=') > 0
       saw_abs_charge = saw_abs_charge .or. index(child_line, 'abs_charge_C=') > 0
-      saw_abs_charge_limit = saw_abs_charge_limit .or. index(child_line, 'abs_charge_limit_C=') > 0
+      saw_abs_charge_limit = saw_abs_charge_limit .or. &
+                             (index(child_line, 'abs_charge_limit_C=') > 0 .or. &
+                              index(child_line, 'warning_threshold_C=') > 0)
       if (index(child_line, 'multiple_box_events soft discard accepted:') > 0) then
         accepted_summary_count = accepted_summary_count + 1_i32
       end if
@@ -1451,13 +1462,24 @@ contains
     call delete_file_if_exists(output_path)
 
     call assert_true(saw_batch, 'soft-discard limit summary is missing its batch index')
-    call assert_equal_i32(accepted_summary_count, 0_i32, 'over-limit batch must not emit an accepted summary')
+    if (charge_limit_probe) then
+      call assert_equal_i32(accepted_summary_count, 1_i32, 'charge-warning batch was not committed')
+    else
+      call assert_equal_i32(accepted_summary_count, 0_i32, 'over-fraction batch emitted an accepted summary')
+    end if
     call assert_true(saw_limit_summary, 'soft-discard cumulative-limit summary is missing')
-    call assert_true( &
-      saw_expected_count .and. saw_expected_grace .and. saw_processed .and. saw_fraction .and. &
-      saw_fraction_limit .and. saw_abs_charge .and. saw_abs_charge_limit, &
-      'soft-discard cumulative-limit summary is incomplete' &
-      )
+    if (charge_limit_probe) then
+      call assert_true( &
+        saw_abs_charge .and. saw_abs_charge_limit, &
+        'soft-discard absolute-charge warning is incomplete' &
+        )
+    else
+      call assert_true( &
+        saw_expected_count .and. saw_expected_grace .and. saw_processed .and. saw_fraction .and. &
+        saw_fraction_limit .and. saw_abs_charge .and. saw_abs_charge_limit, &
+        'soft-discard cumulative-fraction summary is incomplete' &
+        )
+    end if
   end subroutine assert_soft_discard_limit_probe
 
   subroutine assert_soft_discard_resume_limit_probe()
@@ -1481,7 +1503,7 @@ contains
       read (child_unit, '(A)', iostat=child_ios) child_line
       if (child_ios /= 0) exit
       saw_context = saw_context .or. &
-                    (index(child_line, 'soft-discard cumulative limit exceeded: batch=5') > 0 .and. &
+                    (index(child_line, 'soft-discard cumulative fraction limit exceeded: batch=5') > 0 .and. &
                      index(child_line, ' count=2 ') > 0 .and. index(child_line, ' count_grace=1 ') > 0 .and. &
                      index(child_line, ' processed=100 ') > 0 .and. index(child_line, ' fraction=') > 0 .and. &
                      index(child_line, ' fraction_limit=') > 0)

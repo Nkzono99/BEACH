@@ -213,13 +213,13 @@ batch ごとの全 rank 合計件数と絶対 macro charge だけを記録しま
 処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
 
 $$
-Q>Q_{\mathrm{limit}}\quad\text{or}\quad
 \left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
 $$
 
 です。$G$ は `multiple_box_events_soft_discard_count_grace` で、累積件数の単独上限ではありません。
 $f_{\mathrm{limit}}$ は `multiple_box_events_soft_discard_fraction_limit` です。各比較で等値は許容します。
-絶対電荷上限は率判定とは独立した物理的な誤差 budget です。`summary.txt` と checkpoint には
+`multiple_box_events_soft_discard_abs_charge_limit` は停止条件ではなく、累積絶対電荷が初めて超えたときの
+警告閾値です。`summary.txt` と checkpoint には
 `multiple_box_events_soft_discarded`、`multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から
 導出した `multiple_box_events_soft_discard_fraction` を残し、charge ledger にも discard 電荷を記録します。
 累積率は長い正常履歴によって後半の burst を希釈しうるため、batch ごとの集約 log も監査します。

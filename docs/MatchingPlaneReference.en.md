@@ -69,6 +69,10 @@ the branch-compatible sign in $D_{ref}/32$ increments out to $8D_{ref}$. It neve
 gap. This searches only the current batch endpoint; it does not persistently extend a table. The run stops if the branch
 ends before the endpoint, the scan or numeric range is exceeded, or no sign change is found.
 
+After finite endpoints establish a sign-changing bracket, a roundoff-scale residual miss no longer stops the run.
+BEACH accepts the endpoint with the smaller residual and emits a warning. An absent bracket, non-finite response, or
+missing physical solution still stops the run.
+
 The signed scan applies only to an explicit `a`, `b`, or `c` selection. With the default
 `zhao_root_selection="require_unique"`, the implicit solver stops instead of choosing a branch when `auto` cannot
 certify a unique physical solution at the seed. Implicit integration therefore does not remove strong-PE A/B

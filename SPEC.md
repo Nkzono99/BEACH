@@ -348,18 +348,18 @@ enabled speciesはambient electron、ion、および任意のphotoelectron role�
 reservoir流入、PEを指定する場合は負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
 `reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
 1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`または
-累積率・絶対電荷で制限した `soft_discard` とします。soft discard の累積件数を $D$、accepted batch で
+累積率で制限した `soft_discard` とします。soft discard の累積件数を $D$、accepted batch で
 処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
 
 $$
-Q>Q_{\mathrm{limit}}\quad\text{or}\quad
 \left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
 $$
 
 です。`multiple_box_events_soft_discard_count_grace` の既定値 $G=1000$ は累積件数の単独上限ではなく、
 率判定を開始する件数猶予です。`multiple_box_events_soft_discard_fraction_limit` の既定値は $10^{-6}$、
 制約は $0<f_{\mathrm{limit}}\le1$ で、$G\ge0$ とします。いずれの閾値も等値では停止しません。
-`multiple_box_events_soft_discard_abs_charge_limit` は物理的な誤差 budget を独立に制限します。
+`multiple_box_events_soft_discard_abs_charge_limit` は停止条件ではなく、累積絶対電荷の初回超過を知らせる
+警告閾値です。
 `summary.txt` と checkpoint には `multiple_box_events_soft_discarded`、
 `multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から導出した
 `multiple_box_events_soft_discard_fraction` を残します。累積率は長い正常履歴によって後半の burst を

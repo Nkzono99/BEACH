@@ -244,7 +244,7 @@ summary receipts, and the exact time convention.
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
-| Soft-discard limit is reached | Unresolved periodic events exceed the error budget | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
+| Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
 
 A completed run establishes backend evaluation and numerical fixed-point convergence. It does not establish physical
 validity of the outer sheath, invariance to matching-plane height, or Monte Carlo convergence.
@@ -261,7 +261,7 @@ Matching-plane coupling is restricted to the following configuration to prevent 
 | Ambient species | Only electron and ion roles; `volume_seed`, `npcls_per_step=0`, and z-high reservoir inflow |
 | PE species | Optional; negative `photo_raycast` from z-high with opposite charge deposited at emission |
 | Surface closure | `explicit` for every role; no manual `fixed_current` target or `neutral_return` |
-| Event policy | `abort`, or [`soft_discard` bounded by fraction, count grace, and absolute charge](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) |
+| Event policy | `abort`, or [`soft_discard` with a fraction limit, count grace, and absolute-charge warning threshold](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) |
 
 Do not specify `reference_area_m2` or stationary-Zhao source keys. The area comes from the domain x-y area, $H$ from
 the z component of `domain.box_max`, and the update interval from one accepted batch. See

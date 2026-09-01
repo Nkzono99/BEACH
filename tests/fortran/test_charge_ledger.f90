@@ -32,7 +32,7 @@ program test_charge_ledger
     stop 0
   end select
 
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('initialization_and_reset_defaults')
   call ledger%init(2_i32)
@@ -250,6 +250,28 @@ program test_charge_ledger
     'cumulative neutral-return diagnostics mismatch' &
     )
   call assert_close_dp(cumulative%residual(), 0.0_dp, 1.0d-14, 'cumulative neutral-return residual mismatch')
+  call test_end()
+
+  call test_begin('cumulative_neutral_return_diagnostics_degrade_without_stopping')
+  cumulative = charge_ledger_type()
+  call ledger%init(1_i32)
+  call ledger%reset(1_i32)
+  ledger%emitted_from_surface(1) = 1.0_dp
+  ledger%absorbed_on_surface(1) = -1.0_dp
+  ledger%neutral_return_correction(1) = 0.5_dp
+  call accumulate_charge_ledger(cumulative, ledger)
+  call assert_close_dp( &
+    cumulative%neutral_return_correction(1), 0.5_dp, 0.0_dp, &
+    'neutral-return correction was lost when derived diagnostics were unavailable' &
+    )
+  call assert_close_dp( &
+    cumulative%neutral_return_weight_scale(1), 1.0_dp, 0.0_dp, &
+    'unavailable neutral-return weight scale did not retain its neutral default' &
+    )
+  call assert_close_dp( &
+    cumulative%neutral_return_unresolved_fraction(1), 0.0_dp, 0.0_dp, &
+    'unavailable neutral-return unresolved fraction did not retain its neutral default' &
+    )
   call test_end()
 
   call test_begin('finite_charge_sum_handles_overflow_scale_and_cancellation')

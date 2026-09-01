@@ -216,13 +216,13 @@ absolute macro charge. Let $D$ be the cumulative discard count, $P$ the cumulati
 in accepted batches, and $Q$ the cumulative absolute macro charge. Before commit, BEACH stops when
 
 $$
-Q>Q_{\mathrm{limit}}\quad\text{or}\quad
 \left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right).
 $$
 
 $G$ is `multiple_box_events_soft_discard_count_grace`, not a standalone count limit, and $f_{\mathrm{limit}}$ is
-`multiple_box_events_soft_discard_fraction_limit`. Equality is allowed in each comparison. The independent
-absolute-charge limit is the physical error budget. `summary.txt` and checkpoints retain
+`multiple_box_events_soft_discard_fraction_limit`. Equality is allowed in each comparison.
+`multiple_box_events_soft_discard_abs_charge_limit` is a warning threshold, not a stop condition; BEACH reports the
+first crossing of the cumulative absolute charge. `summary.txt` and checkpoints retain
 `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C`, and
 `multiple_box_events_soft_discard_fraction` derived from $D/P$; the charge ledger also records discarded charge.
 Because a long normal history can dilute a late burst in the cumulative fraction, also audit the per-batch

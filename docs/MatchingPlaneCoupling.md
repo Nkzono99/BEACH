@@ -234,7 +234,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
-| soft discard 上限に到達 | 周期境界 event の未解決粒子が誤差 budget を超えた | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
+| soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
 
 run の正常終了が示すのは、backend 評価と数値的な固定点収束です。外部シースの物理妥当性、matching-plane 高度への
 不変性、Monte Carlo 収束までは証明しません。
@@ -251,7 +251,7 @@ matching-plane は平均場や粒子 channel の二重計上を防ぐため、�
 | ambient species | electron と ion だけを role に指定。`volume_seed`、`npcls_per_step=0`、z-high reservoir 流入 |
 | PE species | 任意。負電荷の `photo_raycast`、z-high 注入、放出反作用あり |
 | surface closure | 全 role が `explicit`。手動 `fixed_current` target と `neutral_return` は使わない |
-| event policy | `abort`、または[率・件数猶予・絶対電荷で制限した `soft_discard`](ParticleEvents.html#境界通過後の残り時間を進める) |
+| event policy | `abort`、または[率・件数猶予・絶対電荷警告閾値を持つ `soft_discard`](ParticleEvents.html#境界通過後の残り時間を進める) |
 
 `reference_area_m2` と stationary Zhao 専用の source key は指定しません。面積は domain の x-y 面積、$H$ は
 `domain.box_max` の z 成分、更新間隔は 1 accepted batch から決まります。online Zhao 固有の単価電荷、温度、密度、drift の

@@ -152,16 +152,17 @@ At least one `[[particles.species]]` entry is required.
 | `multiple_box_events_retry_backend` | string | `"none"` | Retry after `multiple_box_events`: `none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_grace` | int | `1000` | Count grace before enforcing the cumulative soft-discard fraction. Must be `>= 0` |
 | `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | Stop limit for the cumulative soft-discard fraction. Must satisfy `0 < value <= 1` |
-| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Cumulative soft-discard absolute-charge limit [C]. Finite and `>0` |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Warning threshold for cumulative soft-discard absolute charge [C]. Finite and `>0` |
 | `raycast_max_bounce` | int | `16` | Maximum `photo_raycast` bounce count. `>=1` when enabled |
 
 Specifying both `batch_duration` and `batch_duration_step` is an error. For
 `boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
 
-`upper_panel_fourier` is valid only for a `cached_kneq0` `periodic2` configuration. `soft_discard` stops after the count
-grace when its cumulative fraction exceeds the fraction limit, or whenever cumulative absolute charge exceeds its
-independent limit. See [Particle Events](ParticleEvents.en.html#stop-when-the-query-cannot-be-completed) for the retry
-validity domain and diagnostics.
+`upper_panel_fourier` is valid only for a `cached_kneq0` `periodic2` configuration. `soft_discard` stops only after the
+count grace when its cumulative fraction exceeds the fraction limit. Because cumulative absolute charge grows with
+run duration, crossing its threshold emits a warning instead. See
+[Particle Events](ParticleEvents.en.html#stop-when-the-query-cannot-be-completed) for the retry validity domain and
+diagnostics.
 
 #### External Fields
 
@@ -380,7 +381,7 @@ All rows below are required:
 | Box / field | x/y periodic, z nonperiodic and open; `field_boundary.mode="periodic2"`; explicit `[periodic2]` split |
 | Split | `nonzero_mode_backend` is `cached_kneq0` or `panel_spectral_reference`; `zero_mode_policy="exclude_k0"`; lower boundary is `e_bottom_zero` or `symmetric_vacuum` |
 | External field / open face | `sim.e0=sim.b0=[0,0,0]`; `ordinary_open_model="escape"`; no generic reservoir-potential model |
-| Event policy | `abort`, or `soft_discard` with fraction, count-grace, and absolute-charge limits |
+| Event policy | `abort`, or `soft_discard` with a fraction limit, count grace, and absolute-charge warning threshold |
 | Roles | Only distinct, enabled electron / ion / optional PE roles; each uses `surface_charge_closure="explicit"` |
 | Electron / ion source | Negative / positive charge; `source_mode="volume_seed"`; `npcls_per_step=0`; only z-high `boundary_inflow="reservoir"` |
 | PE source | Negative `photo_raycast`; `inject_face="z_high"`; `deposit_opposite_charge_on_emit=true` |

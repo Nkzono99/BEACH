@@ -48,7 +48,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(15)
+  call test_init(16)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -453,6 +453,25 @@ program test_matching_plane_simulator
     )
   call test_end()
 
+  call test_begin('finite_implicit_refinement_miss_commits_best_endpoint')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_no_photo_fixture(cfg, inject_state)
+  call write_steep_implicit_response_table(response_path)
+  call reset_matching_plane_response_snapshot_cache()
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%sim%batch_duration = 6.0_dp
+  cfg%sim%max_step = 2_i32
+  cfg%particle_species(1)%drift_velocity(3) = -10.0_dp
+  cfg%particle_species(2)%drift_velocity(3) = -10.0_dp
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_equal_i32(resumed_stats%batches, 1_i32, 'finite implicit best endpoint was not committed')
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, qe/3.0_dp, 1.0e-10_dp*qe, &
+    'finite implicit best endpoint missed the bracketed root' &
+    )
+  call test_end()
+
   call test_begin('implicit_zero_mode_unbracketed_endpoint_fails_closed')
   call assert_unbracketed_implicit_fails()
   call test_end()
@@ -651,6 +670,29 @@ contains
     write (unit_id, '(11(es24.16,:,","))') high_row
     close (unit_id)
   end subroutine write_no_photo_implicit_response_table
+
+  subroutine write_steep_implicit_response_table(path)
+    character(len=*), intent(in) :: path
+    integer :: unit_id
+    real(dp) :: low_row(11), high_row(11)
+
+    ! This gives residual/qe = 100*(D/qe - 1/3).  The finite root is
+    ! bracketed, but its steep slope cannot meet the displacement-scaled
+    ! residual tolerance before the bisection width reaches roundoff.
+    low_row = [ &
+              0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, &
+              0.0_dp, 40.0_dp/9.0_dp, 10.0_dp, 0.0_dp, 0.0_dp, 0.0_dp &
+              ]
+    high_row = low_row
+    high_row(1) = 12.0_dp*qe
+    high_row(7) = 1822.0_dp/9.0_dp
+    open (newunit=unit_id, file=path, status='replace', action='write')
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    write (unit_id, '(11(es24.16,:,","))') low_row
+    write (unit_id, '(11(es24.16,:,","))') high_row
+    close (unit_id)
+  end subroutine write_steep_implicit_response_table
 
   subroutine assert_unbracketed_implicit_fails()
     character(len=1024) :: executable_path, command, line

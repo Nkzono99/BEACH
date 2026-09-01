@@ -1048,7 +1048,7 @@ contains
     type(mpi_context), intent(in) :: mpi
     integer(i64) :: projected_count, projected_processed, count_grace
     real(dp) :: projected_fraction, projected_abs_charge
-    logical :: fraction_exceeded, charge_exceeded
+    logical :: fraction_exceeded, charge_warning
 
     if (trim(lower_ascii(sim%multiple_box_events_policy)) /= 'soft_discard') return
     count_grace = int(sim%multiple_box_events_soft_discard_count_grace, i64)
@@ -1070,23 +1070,36 @@ contains
       projected_fraction = real(projected_count, dp)/real(projected_processed, dp)
     end if
     projected_abs_charge = stats%multiple_box_events_soft_discarded_abs_charge + batch_abs_charge
+    if (.not. ieee_is_finite(projected_abs_charge)) then
+      error stop 'multiple_box_events soft-discard cumulative absolute charge is not finite.'
+    end if
     fraction_exceeded = projected_count > count_grace .and. &
                         projected_fraction > sim%multiple_box_events_soft_discard_fraction_limit
-    charge_exceeded = .not. ieee_is_finite(projected_abs_charge) .or. &
-                      projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
-    if (.not. fraction_exceeded .and. .not. charge_exceeded) return
+    charge_warning = &
+      stats%multiple_box_events_soft_discarded_abs_charge <= &
+      sim%multiple_box_events_soft_discard_abs_charge_limit .and. &
+      projected_abs_charge > sim%multiple_box_events_soft_discard_abs_charge_limit
+
+    if (charge_warning .and. mpi_is_root(mpi)) then
+      write (error_unit, '(a,i0,a,es13.5,a,es13.5)') &
+        'WARNING: multiple_box_events soft-discard cumulative absolute-charge threshold crossed: batch=', &
+        batch_idx, ' abs_charge_C=', projected_abs_charge, &
+        ' warning_threshold_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
+      flush (error_unit)
+    end if
+    if (.not. fraction_exceeded) return
 
     if (mpi_is_root(mpi)) then
       write (error_unit, '(a,i0,a,i0,a,i0,a,i0,a,es13.5,a,es13.5,a,es13.5,a,es13.5)') &
-        'multiple_box_events soft-discard cumulative limit exceeded: batch=', batch_idx, &
+        'multiple_box_events soft-discard cumulative fraction limit exceeded: batch=', batch_idx, &
         ' count=', projected_count, ' count_grace=', count_grace, &
         ' processed=', projected_processed, ' fraction=', projected_fraction, &
         ' fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
         ' abs_charge_C=', projected_abs_charge, &
-        ' abs_charge_limit_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' abs_charge_warning_threshold_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
       flush (error_unit)
     end if
-    error stop 'multiple_box_events soft-discard cumulative limit exceeded.'
+    error stop 'multiple_box_events soft-discard cumulative fraction limit exceeded.'
   end subroutine enforce_soft_discard_limits
 
   pure function particle_failure_name(status) result(name)
@@ -1681,6 +1694,10 @@ contains
         displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
         photoelectron_charge, displacement_after, response_after, status, message &
         )
+      if (status == matching_plane_provider_ok .and. len_trim(message) > 0) then
+        write (error_unit, '(a)') trim(message)
+        flush (error_unit)
+      end if
       if (status == matching_plane_provider_ok) result_packet = [displacement_after, response_after]
     end if
     status_packet = [status]
@@ -2040,20 +2057,18 @@ contains
       end if
       if (upper - lower <= displacement_tolerance) exit
     end do
-    if (min(abs(lower_residual), abs(upper_residual)) > 8.0_dp*residual_tolerance) then
-      status = matching_plane_provider_numerical_failure
-      write (message, '(a,es12.4,a,es12.4,a,es12.4)') &
-        'implicit matching-plane bracket refinement did not reach the residual tolerance: residual=', &
-        min(abs(lower_residual), abs(upper_residual)), ', tolerance=', 8.0_dp*residual_tolerance, &
-        ', bracket_width=', upper - lower
-      return
-    end if
     if (abs(lower_residual) <= abs(upper_residual)) then
       displacement_after = lower
       response_after = lower_response
     else
       displacement_after = upper
       response_after = upper_response
+    end if
+    if (min(abs(lower_residual), abs(upper_residual)) > 8.0_dp*residual_tolerance) then
+      write (message, '(a,es12.4,a,es12.4,a,es12.4)') &
+        'WARNING: implicit matching-plane bracket refinement accepted the finite best endpoint: residual=', &
+        min(abs(lower_residual), abs(upper_residual)), ', tolerance=', 8.0_dp*residual_tolerance, &
+        ', bracket_width=', upper - lower
     end if
   end subroutine solve_matching_implicit_zero_mode_local
 

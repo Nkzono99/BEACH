@@ -1296,7 +1296,7 @@
         "multiple_box_events_soft_discard_abs_charge_limit": {
           "type": "number",
           "default": 1E-12,
-          "description": "Cumulative absolute macro-particle charge [C] above which the run aborts."
+          "description": "Cumulative absolute macro-particle charge [C] whose first threshold crossing emits a warning."
         },
         "raycast_max_bounce": {
           "type": "integer",

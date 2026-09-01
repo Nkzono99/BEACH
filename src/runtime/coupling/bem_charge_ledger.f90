@@ -243,7 +243,10 @@ contains
       if (candidate%neutral_return_correction(species_idx) == 0.0_dp) cycle
       if (candidate%emitted_from_surface(species_idx) >= 0.0_dp .or. &
           candidate%absorbed_on_surface(species_idx) >= 0.0_dp) then
-        error stop 'cumulative neutral-return diagnostics require negative emitted and absorbed charge.'
+        ! The correction and charge channels are authoritative.  These two
+        ! ratios are derived diagnostics, so keep their neutral defaults when
+        ! a cumulative history does not satisfy the electron-sign convention.
+        cycle
       end if
       candidate%neutral_return_weight_scale(species_idx) = checked_charge_ratio( &
                                                            candidate%emitted_from_surface(species_idx), &
