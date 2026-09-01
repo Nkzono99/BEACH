@@ -150,7 +150,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - For schema v8 and later, `checkpoint_complete.txt` has `state=complete`, and its `batches` and `mpi_world_size`
   match `summary.txt`.
 - `macro_residuals.csv` and `charge_ledger.csv` exist when declared by the manifest.
-- The current configuration matches the model, ordered-mesh, and ordered-species fingerprints.
+- The ordered-mesh fingerprint matches. Model or species fingerprint changes may continue with a warning.
 - For an MPI resume, the saved `mpi_world_size` matches the current rank count.
 - In `resume.toml`, `output.write_files=true` and `output.resume=true`. When set, `output.restart_from` names the
   checkpoint being inspected and `output.dir` is the intended new destination; when omitted, `output.dir` itself is
@@ -160,7 +160,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 **Safe action:**
 
 - Use `restart_from` only as the checkpoint input and write new results to a separate `output.dir` to preserve the source.
-- If the physical or numerical configuration must change, do not bypass a fingerprint mismatch; write a separate new run.
+- When resuming with changed physical or numerical settings, retain the warning, use a separate output directory, and check continuity across the change.
 - Do not manually combine files from different generations or rewrite `checkpoint_complete.txt`.
 - Do not use `resume=false` with the same `output.dir` as a workaround for a restart error.
 - When periodic slots exist, BEACH automatically selects the newest complete candidate among the final output,

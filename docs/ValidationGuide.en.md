@@ -39,7 +39,7 @@ At minimum, check the following:
 | `summary.txt` | `batches == sim.batch_count` |
 | `charges.csv` | final element charges are present |
 | required histories | records are complete at the configured stride |
-| restarted run | model, mesh, and species fingerprints match |
+| restarted run | mesh fingerprint matches; any model or species fingerprint warning is recorded |
 
 These checks establish only that the requested computation completed. They do not establish convergence of a physical quantity.
 

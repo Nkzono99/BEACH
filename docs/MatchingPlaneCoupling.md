@@ -224,13 +224,13 @@ $H$ の絶対座標を Sagdeev 方程式の距離 parameter には使わず、�
 accepted state の全 17 列、summary receipt、時刻の意味は
 [出力形式リファレンス](OutputReference.html#matching_plane_quasistatic)にまとめています。
 
-### 停止したときの見方
+### warning または停止の見方
 
 | 症状 | 主な原因 | 次に試すこと |
 |---|---|---|
 | response preflight 失敗 | path、header、$H$、直積格子の不一致 | [CSV 契約](MatchingPlaneReference.html#table-backend-の応答-csv-v1)と `domain.box_max` の z 成分を照合する |
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
-| 固定点が反復上限に到達 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | ray / macro 粒子数を増やし、残差が減るなら緩和係数や上限を調整する |
+| 固定点が反復上限に到達して warning 付きで継続 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | 履歴で頻度と残差を確認する。必要なら ray / macro 粒子数、緩和係数、許容値を調整する |
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |

@@ -215,7 +215,7 @@ $$
 | `surface_current_model_coupling_atol` | 4 成分の絶対許容値 |
 | `surface_current_model_coupling_max_iterations` | 最大反復回数 |
 | `surface_current_model_coupling_relaxation` | 固定点緩和係数 |
-| `surface_current_model_dynamic_state_source` | accepted state では `surface_current_model_dynamic_state_source=accepted_batch_fixed_point` |
+| `surface_current_model_dynamic_state_source` | commit した matching trial では `surface_current_model_dynamic_state_source=accepted_batch_fixed_point`。この互換文字列だけでは収束を意味しない |
 
 `surface_current_model_coupling_atol` の 4 値の順序は次のとおりです。
 
@@ -226,7 +226,8 @@ $$
 
 既定値はすべて 0 で、inactive 成分も 0 でなければなりません。active 成分の判定閾値は
 `max(coupling_rtol * backend_scale, coupling_atol)` です。絶対許容値が支配する成分は有効残差へ換算されるため、
-accepted state の `matching_plane_residual` は `surface_current_model_coupling_rtol` 以下になります。
+収束した state の `matching_plane_residual` は `surface_current_model_coupling_rtol` 以下になります。反復上限で
+warning 付き commit した state はこれを超え、`matching_plane_iterations` が上限値になります。
 
 #### Backend 固有の receipt
 
@@ -400,7 +401,7 @@ matching-plane では `result.matching_plane_state` と `result.matching_plane_h
 | 探索 | `output.restart_from` 直下の最終出力と `slot0` / `slot1` を検査する |
 | 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
 | index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
-| 不整合 | 必須ファイル、fingerprint、mesh 要素数、species 数、MPI world size が不一致なら、新規実行へ fallback せず停止する |
+| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。model / species fingerprint の不一致は warning を出して継続する |
 
 `output.restart_from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 
@@ -416,9 +417,10 @@ schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下�
 場合、そのディレクトリを選ばず、完全な periodic slot へ戻ります。
 
 model fingerprint は table backend なら response table の canonical 内容、online backend なら Zhao contract、
-branch policy、implicit mode を含みます。BEACH の `resume` は「同じ数値・物理 model の継続」なので、table 内容を
-変えた checkpoint は不一致として拒否します。保存電荷を別 model の初期状態にする物理的 continuation 自体が
-不可能という意味ではありませんが、それは同一 run の restart ではありません。
+branch policy、implicit mode を含みます。model / species fingerprint は再開条件の provenance として照合しますが、
+不一致だけでは停止しません。warning を出し、保存電荷と統計を現在の条件へ引き継ぎます。変更点を含む
+continuation なので、出力先を分けて結果の連続性を利用者が評価してください。mesh fingerprint の不一致は、
+`charges.csv` の要素対応を保証できないため停止します。
 
 online implicit の bracket node は永続 table や checkpoint state ではありません。restart 後も同じ Zhao contract
 から必要な response を直接再評価するため、`matching_query.csv` や自動探索点の fingerprint はありません。

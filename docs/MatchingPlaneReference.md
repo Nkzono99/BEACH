@@ -265,14 +265,16 @@ r|\Delta_j|/a_j, & a_j>r s_j,\\
 \end{cases}
 $$
 
-です。この正規化により、絶対許容値が支配する成分があっても、accepted trial では
+です。この正規化により、絶対許容値が支配する成分があっても、収束した trial では
 `matching_plane_residual <= coupling_rtol` になります。
 
 history の応答列は accepted trial の $X^m$ で評価した値、feedback 列は同じ trial で観測した
 $X_{raw}^{m+1}$ です。収束後に、実行していない緩和更新 $X^{m+1}$ を加えて記録することはありません。
 
-`coupling_max_iterations` までに収束しない場合、table の active 軸が範囲外の場合、online solve が失敗した場合は、
-未収束値で継続せず停止します。accepted state と残差の出力契約は
+`coupling_max_iterations` までに収束しなくても、feedback と応答が有限なら最終 trial を warning 付きで commit します。
+`matching_plane_residual > coupling_rtol` と最大反復回数が、その batch の未収束 receipt になります。次 batch は観測した
+feedback から再開します。table の active 軸が範囲外の場合、online solve が失敗した場合、または非有限値が出た場合は、
+有効な trial がないため停止します。state と残差の出力契約は
 [出力形式リファレンス](OutputReference.html#matching_plane_quasistatic)を参照してください。
 
 ## 収束と適用性を検証する

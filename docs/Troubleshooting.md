@@ -145,7 +145,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - `summary.txt`、`charges.csv`、serial の `rng_state.txt` または MPI の全 `rng_state_rankNNNNN.txt` がある
 - schema v8 以降の `checkpoint_complete.txt` が `state=complete` で、その `batches` と `mpi_world_size` が `summary.txt` と一致する
 - manifest が宣言する `macro_residuals.csv` と `charge_ledger.csv` がある
-- 現在の設定と model / ordered mesh / ordered species fingerprint が一致する
+- ordered mesh fingerprint が一致する。model / species fingerprint の不一致は warning 付きで継続できる
 - MPI 再開では保存時の `mpi_world_size` と現在の rank 数が一致する
 - `resume.toml` で `output.write_files=true`、`output.resume=true` である。`output.restart_from` を指定した場合は
   確認中の checkpoint を指し、`output.dir` は意図した新しい出力先である。省略した場合は `output.dir` 自体が再開元である
@@ -154,7 +154,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 **安全な対処:**
 
 - `restart_from` は checkpoint の読み込み元だけを指定し、新しい結果は別の `output.dir` へ書いて元出力を保存します。
-- 元の物理・数値設定を変えたい場合は、fingerprint 不一致を回避せず、別の新規計算として出力先を分けます。
+- 元の物理・数値設定を変えて再開する場合は warning を記録し、出力先を分けて変更前後の連続性を確認します。
 - 異なる世代のファイルを手作業で混ぜたり、`checkpoint_complete.txt` を書き換えたりしません。
 - `resume=false` にして同じ `output.dir` へ新規実行することを、再開エラーの回避策にしません。
 - 定期 slot がある場合、BEACH は直下の最終出力と `checkpoints/slot0`、`slot1` から完全で最新の候補を自動選択します。

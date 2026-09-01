@@ -501,19 +501,20 @@ $$
 です。`coupling_atol`は有限な非負4-vectorで、既定値`[0, 0, 0, 0]`は従来の相対許容値だけの判定を保ちます。
 inactive軸の$a_j$は0でなければならず、非零値は設定検査またはprovider初期化で拒否します。
 出力する`matching_plane_residual`は、$a_j>r s_j$の成分を$r|\Delta_j|/a_j$、それ以外を
-$|\Delta_j|/s_j$として最大値を取るため、絶対許容値を使ってもaccepted trialでは
+$|\Delta_j|/s_j$として最大値を取るため、絶対許容値を使っても収束したtrialでは
 `matching_plane_residual <= coupling_rtol`を保ちます。
 tableはactive feedback軸のspanを$s_j$とし、singleton軸を除外します。onlineはZhao modelの基準flux / energyから
-$s_j$を導出し、transparentなambient electron / ion outward軸を除外します。`coupling_max_iterations`で未収束、
-tableのactive軸が補間範囲外、またはonline solveが失敗した場合はfail closedとします。収束したtrialだけが
-表面電荷、RNG、注入端数、ledger、history、outer stateをcommitします。
+$s_j$を導出し、transparentなambient electron / ion outward軸を除外します。tableのactive軸が補間範囲外、
+online solveが失敗した場合、または非有限値を含む場合はfail closedとします。
+有限なtrialが`coupling_max_iterations`までに収束しない場合はwarningを出し、残差と最大反復回数をreceiptとして
+最終trialをcommitします。次batchのouter stateは観測feedbackから開始します。
 adaptive batch-durationで棄却したtrialはouter stateもbatch開始値へrollbackします。
 
 z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEについては外向き数、法線energy、外部barrierでの
 return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
-accepted outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは同じresponse backendと
-matching構成のfingerprintを要求し、保存したfeedbackから反復を再開します。tableでは応答内容、onlineではZhao設定を
-fingerprintへ含めます。table内容の変更は別modelへのcontinuationであり、同一runのrestartとしては拒否します。
+outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは保存したfeedbackから反復を
+再開します。tableでは応答内容、onlineではZhao設定をfingerprintへ含めますが、不一致はwarning付きの
+changed-condition continuationとして許可します。
 onlineの自動bracket点は永続tableやmodel stateではなく、restart後に同じZhao contractから再評価します。
 
 このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
@@ -560,6 +561,8 @@ summary に ledger metadata があれば、schema の世代によらず `charge_
 `checkpoint_stride=0` でも正常終了時の最終 checkpoint は出力します。
 
 `summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
+ordered mesh fingerprintの不一致は要素電荷を安全に対応付けられないため停止します。model / species fingerprintの
+不一致はprovenance warningとして報告し、保存状態の配列形状が読込可能なら現在の条件で継続します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
 schema v9はmatching-planeのaccepted feedback、potential、return/escape flux、反復receiptを`summary.txt`へ保存します。
@@ -568,10 +571,9 @@ globalまたはspecies境界のいずれかで`redistributed_reflect`を使う�
 `sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。また、境界event速度をchord方向かつ
 予測中点電場の離散workと整合させる契約と、表面注入を未照会飛行なしで1 ULP内側から開始する契約にも
 version tagを持たせます。
-tree solverの`tree_theta`と`tree_leaf_max`は値だけでなく明示指定の有無もfingerprintへ含め、
-自動推定と明示overrideを再開途中で切り替えません。
-旧trajectory契約のcheckpointはfingerprint不一致として意図的に拒否し、再開途中で運動則を切り替えません。
-必須ファイルの欠落、world size の不一致、非有限値、species 数や mesh 要素数の不一致は
+tree solverの`tree_theta`と`tree_leaf_max`は値だけでなく明示指定の有無もfingerprintへ含め、条件変更をsummaryと
+warningから追跡可能にします。fingerprintは同一条件の証明とprovenanceに使い、mesh以外は再開禁止には使いません。
+必須ファイルの欠落、world size の不一致、非有限値、保存ファイルが要求する配列形状や mesh 要素数の不一致は
 新規実行へ fallback せず停止します。
 
 ## 10. 設計方針

@@ -549,7 +549,7 @@ contains
               end if
             end do
             write (error_unit, '(a,i0,a,i0,a,es24.16,a,es24.16)') &
-              'matching-plane nonconvergence: batch=', batch_idx, ', iterations=', matching_iteration, &
+              'WARNING: accepting matching-plane nonconvergence: batch=', batch_idx, ', iterations=', matching_iteration, &
               ', residual=', matching_residual, ', rtol=', app%surface_current%coupling_rtol
             write (error_unit, '(a,4(1x,es24.16))') 'matching-plane guess=', matching_guess
             write (error_unit, '(a,4(1x,es24.16))') 'matching-plane observed=', matching_observed
@@ -562,7 +562,10 @@ contains
               'matching-plane effective component residuals=', matching_component_residuals
             flush (error_unit)
           end if
-          error stop 'matching-plane fixed point did not converge before coupling_max_iterations.'
+          ! A finite replay is still a valid batch sample.  Preserve its residual
+          ! as a convergence receipt and use the observed feedback to seed the
+          ! next batch instead of discarding all committed progress.
+          exit
         end if
         matching_guess = matching_guess + app%surface_current%coupling_relaxation* &
                          (matching_observed - matching_guess)

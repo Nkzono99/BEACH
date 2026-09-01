@@ -39,7 +39,7 @@ beachx inspect outputs/latest
 | `summary.txt` | `batches == sim.batch_count` |
 | `charges.csv` | 最終的な要素電荷が保存されている |
 | 必要な履歴 | 設定したstrideで欠落なく保存されている |
-| restartした計算 | model・mesh・species fingerprintが一致している |
+| restartした計算 | mesh fingerprintが一致し、model・species fingerprint warningの有無を記録している |
 
 ここで確認できるのは、指定した計算が完了したことだけです。物理量の収束は以降で確認します。
 

@@ -272,15 +272,17 @@ r|\Delta_j|/a_j, & a_j>r s_j,\\
 \end{cases}
 $$
 
-This normalization keeps `matching_plane_residual <= coupling_rtol` for an accepted trial even when an absolute
+This normalization keeps `matching_plane_residual <= coupling_rtol` for a converged trial even when an absolute
 tolerance dominates a component.
 
 History response columns contain values evaluated at the accepted trial's $X^m$; feedback columns contain the observed
 $X_{raw}^{m+1}$ from that same trial. BEACH does not record an unexecuted relaxation update $X^{m+1}$ after convergence.
 
-BEACH stops rather than using an unconverged value when `coupling_max_iterations` is exhausted, a table query leaves an active range,
-or an online solve fails. See the [Output format reference](OutputReference.en.html#matching_plane_quasistatic) for the
-accepted-state and residual output contract.
+When `coupling_max_iterations` is exhausted, BEACH commits the final trial with a warning if its feedback and response
+remain finite. `matching_plane_residual > coupling_rtol` together with the maximum iteration count is the
+nonconvergence receipt for that batch, and the next batch starts from the observed feedback. BEACH still stops when a
+table query leaves an active range, an online solve fails, or a non-finite value leaves no valid trial. See the
+[Output format reference](OutputReference.en.html#matching_plane_quasistatic) for the state and residual output contract.
 
 ## Validate convergence and applicability
 

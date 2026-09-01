@@ -48,7 +48,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -120,6 +120,24 @@ program test_matching_plane_simulator
     inject_state%boundary_macro_residual(6, 2), 0.5_dp, 1.0e-14_dp, 'resumed ion residual mismatch' &
     )
   call assert_history_rows(resume_history_path, 1_i32, 2_i32, 2_i32)
+  call test_end()
+
+  call test_begin('finite_fixed_point_nonconvergence_is_recorded_and_committed')
+  call configure_fixture(mesh, cfg, inject_state)
+  cfg%surface_current%coupling_max_iterations = 1_i32
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_equal_i32(resumed_stats%batches, 1_i32, 'finite nonconverged batch was not committed')
+  call assert_equal_i32(resumed_stats%matching_plane_iterations, 1_i32, 'nonconverged iteration receipt mismatch')
+  call assert_true( &
+    resumed_stats%matching_plane_residual > cfg%surface_current%coupling_rtol, &
+    'nonconverged batch did not retain a residual above tolerance' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_feedback(1), 1.0_dp, 1.0e-14_dp, &
+    'nonconverged batch did not retain observed feedback' &
+    )
+  call assert_equal_i64(resumed_stats%processed_particles, 3_i64, 'nonconverged replay leaked particle statistics')
   call test_end()
 
   call test_begin('component_absolute_tolerance_accepts_active_axis_without_changing_feedback')

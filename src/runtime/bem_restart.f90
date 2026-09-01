@@ -1,5 +1,6 @@
 !> チェックポイントファイルの保存/復元を扱う補助モジュール。
 module bem_restart
+  use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: sim_stats, mesh_type, injection_state
@@ -20,6 +21,7 @@ module bem_restart
   integer(i32), parameter, public :: restart_contract_mismatch = 1_i32
   integer(i32), parameter, public :: restart_contract_unsupported_schema = 2_i32
   integer(i32), parameter, public :: restart_contract_malformed = 3_i32
+  integer(i32), parameter, public :: restart_contract_configuration_changed = 4_i32
   public :: load_restart_checkpoint
   public :: validate_restart_contract
   public :: write_rng_state_file
@@ -95,7 +97,14 @@ contains
 
     if (present(app)) then
       call validate_restart_contract(trim(summary_path), mesh, app, contract_status, contract_message)
-      if (contract_status /= restart_contract_ok) then
+      if (contract_status == restart_contract_configuration_changed) then
+        if (local_rank == 0_i32) then
+          write (error_unit, '(a)') 'WARNING: resume fingerprint differs: '//trim(contract_message)
+          write (error_unit, '(a)') &
+            'WARNING: continuing from the saved physical state with the current model/species configuration.'
+          flush (error_unit)
+        end if
+      else if (contract_status /= restart_contract_ok) then
         error stop 'Resume checkpoint contract mismatch: '//trim(contract_message)
       end if
     end if
@@ -137,7 +146,7 @@ contains
     has_restart = .true.
   end subroutine load_restart_checkpoint
 
-  !> schema v2 fingerprint を現在の ordered model/mesh/species contract と照合する。
+  !> schema v2 fingerprint を照合し、state mappingを壊す不一致と条件変更を区別する。
   subroutine validate_restart_contract(path, mesh, app, status, message)
     character(len=*), intent(in) :: path
     type(mesh_type), intent(in) :: mesh
@@ -150,6 +159,7 @@ contains
     character(len=64) :: key
     character(len=256) :: value
     character(len=16) :: saved_model, saved_mesh, saved_species
+    character(len=16) :: current_model, current_mesh, current_species
     logical :: found_schema, found_model, found_mesh, found_species
     integer(i32) :: physics_status
     character(len=256) :: physics_message
@@ -225,14 +235,20 @@ contains
       message = 'schema v2 summary is missing fingerprints'
       return
     end if
-    if (saved_model /= model_fingerprint(app)) then
+    current_model = model_fingerprint(app)
+    current_mesh = mesh_fingerprint(mesh)
+    current_species = species_fingerprint(app)
+    if (saved_mesh /= current_mesh) then
       status = restart_contract_mismatch
+      message = 'mesh fingerprint differs; saved element charges cannot be mapped safely'
+    else if (saved_model /= current_model .and. saved_species /= current_species) then
+      status = restart_contract_configuration_changed
+      message = 'model and species fingerprints differ'
+    else if (saved_model /= current_model) then
+      status = restart_contract_configuration_changed
       message = 'model fingerprint differs'
-    else if (saved_mesh /= mesh_fingerprint(mesh)) then
-      status = restart_contract_mismatch
-      message = 'mesh fingerprint differs'
-    else if (saved_species /= species_fingerprint(app)) then
-      status = restart_contract_mismatch
+    else if (saved_species /= current_species) then
+      status = restart_contract_configuration_changed
       message = 'species fingerprint differs'
     end if
   end subroutine validate_restart_contract

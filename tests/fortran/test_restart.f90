@@ -4,7 +4,7 @@ program test_restart
   use bem_mesh, only: init_mesh
   use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path, validate_restart_contract, &
-                         restart_contract_ok, restart_contract_mismatch
+                         restart_contract_ok, restart_contract_mismatch, restart_contract_configuration_changed
   use bem_output_writer, only: write_result_files
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, resolve_latest_checkpoint_dir
   use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current, &
@@ -166,7 +166,26 @@ program test_restart
   call validate_restart_contract( &
     out_dir//'/summary.txt', mesh, cfg_changed, contract_status, contract_message &
     )
-  call assert_equal_i32(contract_status, restart_contract_mismatch, 'model mismatch should be rejected')
+  call assert_equal_i32( &
+    contract_status, restart_contract_configuration_changed, 'model change should be accepted with a warning' &
+    )
+  call build_test_mesh(mesh)
+  call load_restart_checkpoint( &
+    out_dir, mesh, stats, has_restart, state, app=cfg_changed, charge_ledger=restored_ledger &
+    )
+  call assert_true(has_restart, 'model-change continuation should load the checkpoint')
+  cfg_changed = cfg
+  cfg_changed%particle_species(1)%m_particle = 2.0_dp*cfg%particle_species(1)%m_particle
+  call validate_restart_contract( &
+    out_dir//'/summary.txt', mesh, cfg_changed, contract_status, contract_message &
+    )
+  call assert_equal_i32( &
+    contract_status, restart_contract_configuration_changed, 'species change should be accepted with a warning' &
+    )
+  mesh%v0(1, 1) = mesh%v0(1, 1) + 1.0e-6_dp
+  call validate_restart_contract(out_dir//'/summary.txt', mesh, cfg, contract_status, contract_message)
+  call assert_equal_i32(contract_status, restart_contract_mismatch, 'mesh mismatch must remain fatal')
+  call build_test_mesh(mesh)
   call validate_restart_contract(out_dir//'/summary.txt', mesh, cfg, contract_status, contract_message)
   call assert_equal_i32(contract_status, restart_contract_ok, 'matching contract should be accepted')
   call test_end()

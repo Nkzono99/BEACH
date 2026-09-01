@@ -234,13 +234,13 @@ With `output.history_stride>0`, BEACH writes `matching_plane_history.csv`. Check
 See [Output format reference](OutputReference.en.html#matching_plane_quasistatic) for all 17 accepted-state columns,
 summary receipts, and the exact time convention.
 
-### Diagnose a stopped run
+### Diagnose warnings and stopped runs
 
 | Symptom | Likely cause | Next action |
 |---|---|---|
 | Response preflight failure | Path, header, $H$, or Cartesian-grid mismatch | Compare the [CSV contract](MatchingPlaneReference.en.html#table-backend-response-csv-v1) with the z component of `domain.box_max` |
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
-| Fixed point reaches the iteration limit | Particle noise, strong feedback, or overly tight tolerances | Increase ray or macro counts; if residual decreases, adjust relaxation or the limit |
+| Fixed point reaches the iteration limit and continues with a warning | Particle noise, strong feedback, or overly tight tolerances | Check frequency and residuals in history; adjust ray or macro count, relaxation, or tolerance if needed |
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |

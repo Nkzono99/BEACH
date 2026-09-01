@@ -217,7 +217,7 @@ the post-commit field at the start of the next batch.
 | `surface_current_model_coupling_atol` | Four componentwise absolute tolerances |
 | `surface_current_model_coupling_max_iterations` | Maximum iteration count |
 | `surface_current_model_coupling_relaxation` | Fixed-point relaxation factor |
-| `surface_current_model_dynamic_state_source` | `surface_current_model_dynamic_state_source=accepted_batch_fixed_point` for accepted states |
+| `surface_current_model_dynamic_state_source` | `surface_current_model_dynamic_state_source=accepted_batch_fixed_point` for committed matching trials. This compatibility string alone does not imply convergence |
 
 The four values of `surface_current_model_coupling_atol` are ordered as follows:
 
@@ -228,8 +228,9 @@ The four values of `surface_current_model_coupling_atol` are ordered as follows:
 
 All default to zero, and inactive components must also remain zero. Each active component uses
 `max(coupling_rtol * backend_scale, coupling_atol)` as its threshold. An absolute-tolerance-dominated component is
-converted to an effective residual, so an accepted state's `matching_plane_residual` remains no greater than
-`surface_current_model_coupling_rtol`.
+converted to an effective residual, so a converged state's `matching_plane_residual` remains no greater than
+`surface_current_model_coupling_rtol`. A state committed with an iteration-limit warning exceeds that value and has
+`matching_plane_iterations` equal to the configured limit.
 
 #### Backend-specific receipts
 
@@ -403,7 +404,7 @@ completion of the requested run with `batches == sim.batch_count` using `summary
 | Search | Inspect the final output under `output.restart_from` and both `slot0` / `slot1` directories |
 | Selection | Choose the loadable candidate with all required files and the largest `batches` value |
 | Index failure | Recover a slot with a complete manifest even if `checkpoint_latest.txt` is missing, malformed, or stale |
-| Mismatch | Stop instead of falling back to a new run when required files, fingerprints, mesh size, species count, or MPI world size differ |
+| Mismatch | Stop when required files, the mesh fingerprint, saved-state array shapes, or MPI world size differ. Warn and continue on model or species fingerprint changes |
 
 `output.restart_from` changes only the read source; new output is written to `output.dir`.
 
@@ -419,9 +420,11 @@ For schema v8 and later, `checkpoint_complete.txt` itself is required. If the fi
 from different generations, BEACH rejects it and falls back to a complete periodic slot.
 
 The model fingerprint includes canonical response-table contents for the table backend, or the Zhao contract, branch
-policy, and implicit mode for the online backend. BEACH `resume` means continuation of the same numerical and physical
-model, so it rejects a checkpoint after table contents change. It may be physically meaningful to use saved charge as
-the initial condition of a different model, but that is a model-switch continuation, not a same-run restart.
+policy, and implicit mode for the online backend. Model and species fingerprints remain provenance checks, but a
+mismatch alone does not stop resume. BEACH warns and carries the saved charge and statistics into the current
+configuration. This is a changed-condition continuation, so use a separate output directory and assess continuity of
+the observables. A mesh fingerprint mismatch remains fatal because BEACH cannot safely map `charges.csv` rows to
+different elements.
 
 Online implicit bracket nodes are neither a persistent table nor checkpoint state. After restart, BEACH evaluates the
 needed response directly from the same Zhao contract, so no `matching_query.csv` or fingerprint of automatic search
