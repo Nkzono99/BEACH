@@ -15,7 +15,8 @@ Core batch loop (current Fortran implementation):
 4) deposit charge to hit element (insulator accumulation)
 5) commit charge deltas per batch and update stats/history
 
-v1.0 focuses on insulator accumulation. Keep extension points for conductor/resistive models.
+v1.0 focuses on insulator accumulation. Do not add abstractions for conductor/resistive
+models until a current change actually implements them; preserve only minimal existing seams.
 
 ## Repo layout
 - `src/`, `app/`: Fortran runtime and physics core
@@ -71,9 +72,44 @@ Python CLI examples:
 - When bumping versions or preparing a release, update both `pyproject.toml` and `fpm.toml` together to keep Python and Fortran package versions in sync.
 - For core simulation behavior, treat Fortran implementation and docs (`SPEC.md`) as source of truth.
 - Keep algorithms correctness-first; gate performance features behind flags.
-- Add/extend tests when modifying field, collision, boundary, injection, or resume logic.
+- Add or update the smallest contract-level test needed when modifying field, collision,
+  boundary, injection, or resume logic. Do not mirror implementation details in tests.
 - Keep Python side lightweight; avoid heavy dependencies unless justified.
 - Ignore `*.i90` files, as they are automatically generated backup files.
+
+## Simplicity and compatibility
+- Solve the present requirement with the smallest coherent change. Inspect existing code and
+  dependencies before adding a helper, abstraction, configuration key, mode, fallback, or guard.
+- Do not implement hypothetical future requirements. A new extension point must have a current
+  caller or use case in the same change.
+- Preserve backward compatibility for released public APIs and documented persistent formats.
+  Do not add compatibility paths for unreleased features or internal implementation details;
+  update all callers and tests instead.
+- A compatibility alias, reader, or migration must name the public contract it protects and have
+  a documented removal condition or support window. Do not silently keep two implementations.
+- Before finishing, review the diff line by line and remove unused branches, duplicate checks,
+  stale tests, and incidental refactors. Report every new user-facing parameter, hard runtime
+  stop, compatibility path, and dependency with its present justification.
+
+## Runtime validation
+- Reserve hard runtime stops for invalid input detected at preflight, corrupt or unmappable
+  persisted state, non-finite/overflowed state that cannot be committed meaningfully, and states
+  for which the selected physical model is undefined.
+- Finite nonconvergence, tolerance misses, rare-event rates, diagnostic inconsistencies, and
+  provenance/fingerprint differences are warnings and output receipts unless continuing would
+  make the physical state undefined. Preserve the finite state when it remains interpretable.
+- Implementation invariants belong in focused tests. Do not add a production guard solely to
+  catch a developer bug, and do not validate the same invariant at multiple runtime layers.
+- Put input-combination checks in one preflight owner. Runtime code may rely on validated input
+  instead of repeating configuration guards inside the batch loop.
+
+## Test design
+- Test public contracts, physical invariants, conservation laws, and reproduced bugs using an
+  oracle independent of the implementation under test.
+- Prefer real in-process collaborators over mocks when they are cheap. Do not assert private call
+  sequences or preserve obsolete behavior only because an old test encodes it.
+- Add one focused regression test at the lowest meaningful layer. Add an integration test only
+  when the failure crosses component boundaries, and remove tests together with removed behavior.
 
 ## Simulator invariants (v1.0)
 - Interaction: absorption only (default).
