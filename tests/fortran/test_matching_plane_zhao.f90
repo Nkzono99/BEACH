@@ -1,6 +1,7 @@
 !> Matching-plane charge-driven Zhao 応答の物理分岐と入力契約を検証する。
 program test_matching_plane_zhao
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+!$ use omp_lib, only: omp_get_max_threads, omp_set_num_threads
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, qe
   use bem_matching_plane_zhao, only: &
@@ -23,6 +24,9 @@ program test_matching_plane_zhao
   real(dp), parameter :: type_a_phi0_v = 2.9712182827319435_dp
   real(dp), parameter :: type_a_phi_m_v = -0.8169121871620854_dp
   real(dp), parameter :: type_a_source_density_m3 = 5.5425625842204072e7_dp
+  ! Legacy nested quadrature values are independent references for the current formula.
+  real(dp), parameter :: type_a_energy_reference_j_m2 = -1.2875334387049235e-11_dp
+  real(dp), parameter :: type_b_energy_reference_j_m2 = -1.2171504622341230e-11_dp
   ! Type-A既知解を固定値化し、productionのrho積分でtest入力を再生成しない。
   real(dp), parameter :: type_a_input(5) = [ &
                          1.4187346568707933e-11_dp, 1.3754433596232731e13_dp, &
@@ -31,8 +35,11 @@ program test_matching_plane_zhao
   type(matching_plane_zhao_model_type) :: model
   type(matching_plane_zhao_diagnostics_type) :: diagnostics, inactive_diagnostics
   type(matching_plane_zhao_diagnostics_type) :: energy_a_diagnostics, energy_b_diagnostics
+  type(matching_plane_zhao_diagnostics_type) :: threaded_energy_a_diagnostics
   real(dp) :: input(5), output(6), inactive_output(6), feedback_scales(4), energy_a_output(6)
+  real(dp) :: threaded_energy_a_output(6)
   real(dp) :: electron_thermal_speed_mps, expected_electron_density_m3
+  integer :: omp_threads_before
   integer(i32) :: status
   character(len=512) :: message
 
@@ -70,12 +77,47 @@ program test_matching_plane_zhao
 
   call test_begin('minimum_energy_selects_the_lower_energy_positive_branch')
   input = type_a_input
+  omp_threads_before = 1
+!$ omp_threads_before = omp_get_max_threads()
+!$ call omp_set_num_threads(1)
   call initialize_model('a', type_a_photoelectron_temperature_ev, 'minimum_energy')
   call model%evaluate(input, energy_a_output, status, message, energy_a_diagnostics)
   call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao-A solve failed: '//trim(message))
+!$ call omp_set_num_threads(min(4, omp_threads_before))
+  call model%evaluate(input, threaded_energy_a_output, status, message, threaded_energy_a_diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'threaded minimum-energy Zhao-A solve failed: '//trim(message))
+!$ call omp_set_num_threads(omp_threads_before)
+  call assert_allclose_1d( &
+    threaded_energy_a_output, energy_a_output, 0.0_dp, &
+    'OpenMP Zhao-A response changed from the serial response' &
+    )
+  call assert_true( &
+    threaded_energy_a_diagnostics%branch == energy_a_diagnostics%branch, &
+    'OpenMP Zhao-A branch changed from the serial branch' &
+    )
+  call assert_close_dp( &
+    threaded_energy_a_diagnostics%potential_energy_j_m2, &
+    energy_a_diagnostics%potential_energy_j_m2, 0.0_dp, &
+    'OpenMP Zhao-A energy changed from the serial energy' &
+    )
+  call assert_close_dp( &
+    threaded_energy_a_diagnostics%minimum_field_squared_hat, &
+    energy_a_diagnostics%minimum_field_squared_hat, 0.0_dp, &
+    'OpenMP Zhao-A profile changed from the serial profile' &
+    )
   call initialize_model('b', type_a_photoelectron_temperature_ev, 'minimum_energy')
   call model%evaluate(input, output, status, message, energy_b_diagnostics)
   call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao-B solve failed: '//trim(message))
+  call assert_close_dp( &
+    energy_a_diagnostics%potential_energy_j_m2, type_a_energy_reference_j_m2, &
+    1.0e-7_dp*abs(type_a_energy_reference_j_m2), &
+    'Zhao-A energy quadrature changed the independent reference energy' &
+    )
+  call assert_close_dp( &
+    energy_b_diagnostics%potential_energy_j_m2, type_b_energy_reference_j_m2, &
+    1.0e-7_dp*abs(type_b_energy_reference_j_m2), &
+    'Zhao-B energy quadrature changed the independent reference energy' &
+    )
   call assert_true( &
     energy_a_diagnostics%potential_energy_j_m2 < 0.0_dp .and. &
     energy_b_diagnostics%potential_energy_j_m2 < 0.0_dp, &

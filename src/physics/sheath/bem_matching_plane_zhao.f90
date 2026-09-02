@@ -506,10 +506,11 @@ contains
     character(len=*), intent(out) :: message
 
     real(dp) :: guesses(3, 8), y(3), norm
-    type(zhao_matching_root_type) :: candidate_root, unique_roots(8)
+    type(zhao_matching_root_type) :: candidate_root, candidate_roots(8), unique_roots(8)
     integer :: guess_count, guess_index, iterations, unique_count, root_index
     integer(i32) :: profile_status
-    logical :: success, compatible, duplicate_root
+    logical :: success, compatible, duplicate_root, candidate_valid(8)
+    logical :: guess_nonphysical_profile(8), guess_numerical_profile_failure(8)
     logical :: saw_nonphysical_profile, saw_numerical_profile_failure
     character(len=512) :: profile_message
 
@@ -527,6 +528,14 @@ contains
     unique_count = 0
     saw_nonphysical_profile = .false.
     saw_numerical_profile_failure = .false.
+    candidate_roots = zhao_matching_root_type()
+    candidate_valid = .false.
+    guess_nonphysical_profile = .false.
+    guess_numerical_profile_failure = .false.
+    !$omp parallel do default(none) schedule(dynamic) &
+    !$omp shared(params,branch,target_field_hat,guesses,guess_count,candidate_roots,candidate_valid) &
+    !$omp shared(guess_nonphysical_profile,guess_numerical_profile_failure) &
+    !$omp private(guess_index,y,norm,iterations,success,candidate_root,profile_status,profile_message)
     do guess_index = 1, guess_count
       call newton_matching_branch( &
         params, branch, target_field_hat, guesses(:, guess_index), y, norm, iterations, success &
@@ -545,13 +554,25 @@ contains
         params, candidate_root, target_field_hat, profile_status, profile_message &
         )
       if (profile_status == matching_plane_zhao_no_physical_solution) then
-        saw_nonphysical_profile = .true.
+        guess_nonphysical_profile(guess_index) = .true.
         cycle
       else if (profile_status /= matching_plane_zhao_ok) then
-        saw_numerical_profile_failure = .true.
+        guess_numerical_profile_failure(guess_index) = .true.
         cycle
       end if
 
+      candidate_roots(guess_index) = candidate_root
+      candidate_valid(guess_index) = .true.
+    end do
+    !$omp end parallel do
+
+    ! Candidate completion order must not affect root clustering or tie breaking.
+    do guess_index = 1, guess_count
+      saw_nonphysical_profile = saw_nonphysical_profile .or. guess_nonphysical_profile(guess_index)
+      saw_numerical_profile_failure = &
+        saw_numerical_profile_failure .or. guess_numerical_profile_failure(guess_index)
+      if (.not. candidate_valid(guess_index)) cycle
+      candidate_root = candidate_roots(guess_index)
       duplicate_root = .false.
       do root_index = 1, unique_count
         if (.not. matching_roots_equivalent(params, candidate_root, unique_roots(root_index))) cycle
@@ -720,8 +741,9 @@ contains
 
     real(dp) :: t, phi_hat, jacobian, rho_integral, field_squared, summand, weight, h
     real(dp) :: field_squared_scale
+    real(dp) :: energy_integrand(0:energy_quadrature_panels)
     integer :: point
-    logical :: integral_ok
+    logical :: integral_ok, point_ok(0:energy_quadrature_panels)
 
     energy_hat = 0.0_dp
     success = .false.
@@ -730,6 +752,12 @@ contains
                                  ])) .or. density_hat <= 0.0_dp) return
     h = 1.0_dp/real(energy_quadrature_panels, dp)
     field_squared_scale = max(1.0_dp, phi0_hat*phi0_hat, phi_m_hat*phi_m_hat)
+    energy_integrand = 0.0_dp
+    point_ok = .false.
+    !$omp parallel do default(none) schedule(static) &
+    !$omp shared(params,branch,side,start_phi_hat,end_phi_hat,phi0_hat,phi_m_hat,density_hat,h) &
+    !$omp shared(field_squared_scale,energy_integrand,point_ok) &
+    !$omp private(point,t,phi_hat,jacobian,rho_integral,field_squared,integral_ok)
     do point = 0, energy_quadrature_panels
       t = real(point, dp)*h
       phi_hat = start_phi_hat + (end_phi_hat - start_phi_hat)*sin(0.5_dp*pi*t)**2
@@ -747,9 +775,17 @@ contains
           )
         field_squared = 2.0_dp*rho_integral
       end if
-      if (.not. integral_ok .or. &
-          field_squared < -profile_negative_tolerance*field_squared_scale) return
-      summand = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
+      if (.not. integral_ok) cycle
+      if (field_squared < -profile_negative_tolerance*field_squared_scale) cycle
+      energy_integrand(point) = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
+      point_ok(point) = .true.
+    end do
+    !$omp end parallel do
+    if (.not. all(point_ok)) return
+
+    ! Preserve the original Simpson accumulation order for reproducible root ranking.
+    do point = 0, energy_quadrature_panels
+      summand = energy_integrand(point)
       if (point == 0 .or. point == energy_quadrature_panels) then
         weight = 1.0_dp
       else if (mod(point, 2) == 0) then
