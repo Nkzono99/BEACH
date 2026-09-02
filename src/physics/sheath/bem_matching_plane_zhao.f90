@@ -28,7 +28,8 @@ module bem_matching_plane_zhao
   integer, parameter :: root_max_iterations = 60
   integer, parameter :: root_max_backtracks = 24
   integer, parameter :: rho_quadrature_panels = 256
-  integer, parameter :: field_quadrature_panels = 1024
+  integer, parameter :: energy_quadrature_panels = 1024
+  integer, parameter :: profile_validation_samples = 32
   real(dp), parameter :: root_tolerance = 1.0e-9_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
   real(dp), parameter :: root_cluster_tolerance = 1.0e-6_dp
@@ -717,11 +718,11 @@ contains
     real(dp), intent(out) :: energy_hat
     logical, intent(out) :: success
 
-    real(dp) :: field_squared, summand, weight, h
+    real(dp) :: t, phi_hat, jacobian, field_squared, summand, weight, h
     real(dp) :: field_squared_scale, total_rho_integral
-    real(dp) :: cumulative_rho(0:field_quadrature_panels)
-    real(dp) :: jacobian(0:field_quadrature_panels)
-    real(dp) :: energy_integrand(0:field_quadrature_panels)
+    real(dp) :: rho_integrand(0:energy_quadrature_panels)
+    real(dp) :: cumulative_rho(0:energy_quadrature_panels)
+    real(dp) :: energy_integrand(0:energy_quadrature_panels)
     integer :: point
 
     energy_hat = 0.0_dp
@@ -729,16 +730,40 @@ contains
     if (.not. all(ieee_is_finite([ &
                                  start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, density_hat &
                                  ])) .or. density_hat <= 0.0_dp) return
-    h = 1.0_dp/real(field_quadrature_panels, dp)
+    h = 1.0_dp/real(energy_quadrature_panels, dp)
     field_squared_scale = max(1.0_dp, phi0_hat*phi0_hat, phi_m_hat*phi_m_hat)
-    call sample_matching_rho_path_hat( &
-      params, branch, side, start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, &
-      density_hat, cumulative_rho, jacobian, success &
-      )
-    if (.not. success) return
-    total_rho_integral = cumulative_rho(field_quadrature_panels)
+    do point = 0, energy_quadrature_panels
+      t = real(point, dp)*h
+      phi_hat = start_phi_hat + (end_phi_hat - start_phi_hat)*sin(0.5_dp*pi*t)**2
+      jacobian = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
+      call evaluate_zhao_rho_hat( &
+        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_integrand(point) &
+        )
+      if (.not. ieee_is_finite(rho_integrand(point))) return
+      rho_integrand(point) = rho_integrand(point)*jacobian
+    end do
 
-    do point = 0, field_quadrature_panels
+    ! rhoを一度だけ標本化し、累積Simpson積分から各点のE^2を得る。
+    ! 各点ごとにrhoを再積分する二重求積は、根の順位を変えずに避ける。
+    cumulative_rho(0) = 0.0_dp
+    do point = 0, energy_quadrature_panels - 2, 2
+      cumulative_rho(point + 1) = cumulative_rho(point) + h*( &
+                                  5.0_dp*rho_integrand(point) + &
+                                  8.0_dp*rho_integrand(point + 1) - &
+                                  rho_integrand(point + 2) &
+                                  )/12.0_dp
+      cumulative_rho(point + 2) = cumulative_rho(point) + h*( &
+                                  rho_integrand(point) + &
+                                  4.0_dp*rho_integrand(point + 1) + &
+                                  rho_integrand(point + 2) &
+                                  )/3.0_dp
+    end do
+    total_rho_integral = cumulative_rho(energy_quadrature_panels)
+    if (.not. ieee_is_finite(total_rho_integral)) return
+
+    do point = 0, energy_quadrature_panels
+      t = real(point, dp)*h
+      jacobian = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
       if (branch == 'A') then
         field_squared = -2.0_dp*cumulative_rho(point)
       else
@@ -746,12 +771,12 @@ contains
       end if
       if (.not. ieee_is_finite(field_squared) .or. &
           field_squared < -profile_negative_tolerance*field_squared_scale) return
-      energy_integrand(point) = sqrt(max(0.0_dp, field_squared))*abs(jacobian(point))
+      energy_integrand(point) = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
     end do
 
-    do point = 0, field_quadrature_panels
+    do point = 0, energy_quadrature_panels
       summand = energy_integrand(point)
-      if (point == 0 .or. point == field_quadrature_panels) then
+      if (point == 0 .or. point == energy_quadrature_panels) then
         weight = 1.0_dp
       else if (mod(point, 2) == 0) then
         weight = 2.0_dp
@@ -764,56 +789,6 @@ contains
     success = ieee_is_finite(energy_hat) .and. energy_hat >= 0.0_dp
   end subroutine integrate_matching_field_energy_hat
 
-  subroutine sample_matching_rho_path_hat( &
-    params, branch, side, start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, &
-    density_hat, cumulative_rho, jacobian, success &
-    )
-    type(zhao_params_type), intent(in) :: params
-    character(len=1), intent(in) :: branch
-    character(len=*), intent(in) :: side
-    real(dp), intent(in) :: start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, density_hat
-    real(dp), intent(out) :: cumulative_rho(0:field_quadrature_panels)
-    real(dp), intent(out) :: jacobian(0:field_quadrature_panels)
-    logical, intent(out) :: success
-
-    real(dp) :: rho_integrand(0:field_quadrature_panels)
-    real(dp) :: t, phi_hat, h
-    integer :: point
-
-    cumulative_rho = 0.0_dp
-    jacobian = 0.0_dp
-    success = .false.
-    if (.not. all(ieee_is_finite([ &
-                                 start_phi_hat, end_phi_hat, phi0_hat, phi_m_hat, density_hat &
-                                 ])) .or. density_hat <= 0.0_dp) return
-    h = 1.0_dp/real(field_quadrature_panels, dp)
-    do point = 0, field_quadrature_panels
-      t = real(point, dp)*h
-      phi_hat = start_phi_hat + (end_phi_hat - start_phi_hat)*sin(0.5_dp*pi*t)**2
-      jacobian(point) = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
-      call evaluate_zhao_rho_hat( &
-        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_integrand(point) &
-        )
-      if (.not. ieee_is_finite(rho_integrand(point))) return
-      rho_integrand(point) = rho_integrand(point)*jacobian(point)
-    end do
-
-    ! 各点ごとの再積分を避け、同じrho標本から全区間のE^2を得る。
-    do point = 0, field_quadrature_panels - 2, 2
-      cumulative_rho(point + 1) = cumulative_rho(point) + h*( &
-                                  5.0_dp*rho_integrand(point) + &
-                                  8.0_dp*rho_integrand(point + 1) - &
-                                  rho_integrand(point + 2) &
-                                  )/12.0_dp
-      cumulative_rho(point + 2) = cumulative_rho(point) + h*( &
-                                  rho_integrand(point) + &
-                                  4.0_dp*rho_integrand(point + 1) + &
-                                  rho_integrand(point + 2) &
-                                  )/3.0_dp
-    end do
-    success = all(ieee_is_finite(cumulative_rho))
-  end subroutine sample_matching_rho_path_hat
-
   subroutine validate_matching_root_profile(params, root, target_field_hat, status, message)
     type(zhao_params_type), intent(in) :: params
     type(zhao_matching_root_type), intent(inout) :: root
@@ -821,13 +796,11 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    real(dp) :: phi0_hat, phi_m_hat, density_hat
-    real(dp) :: field_squared, interface_field_squared, upper_endpoint_field_squared
+    real(dp) :: phi0_hat, phi_m_hat, density_hat, phi_hat, fraction
+    real(dp) :: integral, field_squared, interface_field_squared, upper_endpoint_field_squared
     real(dp) :: minimum_field_squared, field_squared_scale
-    real(dp) :: cumulative_rho(0:field_quadrature_panels)
-    real(dp) :: jacobian(0:field_quadrature_panels)
     integer :: point
-    logical :: sample_ok
+    logical :: integral_ok
 
     status = matching_plane_zhao_numerical_failure
     message = ''
@@ -848,43 +821,49 @@ contains
     upper_endpoint_field_squared = 0.0_dp
     select case (root%branch)
     case ('A')
-      call sample_matching_rho_path_hat( &
-        params, 'A', 'lower', phi_m_hat, phi0_hat, phi0_hat, phi_m_hat, &
-        density_hat, cumulative_rho, jacobian, sample_ok &
-        )
-      if (.not. sample_ok) then
-        message = 'matching-plane Zhao lower profile integration failed.'
-        return
-      end if
-      do point = 0, field_quadrature_panels
-        field_squared = -2.0_dp*cumulative_rho(point)
+      do point = 0, profile_validation_samples
+        fraction = real(point, dp)/real(profile_validation_samples, dp)
+        phi_hat = phi_m_hat + fraction*(phi0_hat - phi_m_hat)
+        call integrate_matching_rho_hat( &
+          params, 'A', 'lower', phi_m_hat, phi_hat, phi0_hat, phi_m_hat, &
+          density_hat, integral, integral_ok &
+          )
+        if (.not. integral_ok) then
+          message = 'matching-plane Zhao lower profile integration failed.'
+          return
+        end if
+        field_squared = -2.0_dp*integral
         minimum_field_squared = min(minimum_field_squared, field_squared)
-        if (point == field_quadrature_panels) interface_field_squared = field_squared
+        if (point == profile_validation_samples) interface_field_squared = field_squared
       end do
-      call sample_matching_rho_path_hat( &
-        params, 'A', 'upper', phi_m_hat, 0.0_dp, phi0_hat, phi_m_hat, &
-        density_hat, cumulative_rho, jacobian, sample_ok &
-        )
-      if (.not. sample_ok) then
-        message = 'matching-plane Zhao upper profile integration failed.'
-        return
-      end if
-      do point = 0, field_quadrature_panels
-        field_squared = -2.0_dp*cumulative_rho(point)
+      do point = 0, profile_validation_samples
+        fraction = real(point, dp)/real(profile_validation_samples, dp)
+        phi_hat = phi_m_hat + fraction*(0.0_dp - phi_m_hat)
+        call integrate_matching_rho_hat( &
+          params, 'A', 'upper', phi_m_hat, phi_hat, phi0_hat, phi_m_hat, &
+          density_hat, integral, integral_ok &
+          )
+        if (.not. integral_ok) then
+          message = 'matching-plane Zhao upper profile integration failed.'
+          return
+        end if
+        field_squared = -2.0_dp*integral
         minimum_field_squared = min(minimum_field_squared, field_squared)
-        if (point == field_quadrature_panels) upper_endpoint_field_squared = field_squared
+        if (point == profile_validation_samples) upper_endpoint_field_squared = field_squared
       end do
     case ('B', 'C')
-      call sample_matching_rho_path_hat( &
-        params, root%branch, 'monotonic', phi0_hat, 0.0_dp, phi0_hat, phi_m_hat, &
-        density_hat, cumulative_rho, jacobian, sample_ok &
-        )
-      if (.not. sample_ok) then
-        message = 'matching-plane Zhao monotonic profile integration failed.'
-        return
-      end if
-      do point = 0, field_quadrature_panels
-        field_squared = 2.0_dp*(cumulative_rho(field_quadrature_panels) - cumulative_rho(point))
+      do point = 0, profile_validation_samples
+        fraction = real(point, dp)/real(profile_validation_samples, dp)
+        phi_hat = phi0_hat + fraction*(0.0_dp - phi0_hat)
+        call integrate_matching_rho_hat( &
+          params, root%branch, 'monotonic', phi_hat, 0.0_dp, phi0_hat, phi_m_hat, &
+          density_hat, integral, integral_ok &
+          )
+        if (.not. integral_ok) then
+          message = 'matching-plane Zhao monotonic profile integration failed.'
+          return
+        end if
+        field_squared = 2.0_dp*integral
         minimum_field_squared = min(minimum_field_squared, field_squared)
         if (point == 0) interface_field_squared = field_squared
       end do
