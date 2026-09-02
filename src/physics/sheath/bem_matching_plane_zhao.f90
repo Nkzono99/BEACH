@@ -28,7 +28,7 @@ module bem_matching_plane_zhao
   integer, parameter :: root_max_iterations = 60
   integer, parameter :: root_max_backtracks = 24
   integer, parameter :: rho_quadrature_panels = 256
-  integer, parameter :: energy_quadrature_panels = 128
+  integer, parameter :: energy_quadrature_panels = 1024
   integer, parameter :: profile_validation_samples = 32
   real(dp), parameter :: root_tolerance = 1.0e-9_dp
   real(dp), parameter :: zero_field_tolerance_hat = 1.0e-12_dp
@@ -718,10 +718,12 @@ contains
     real(dp), intent(out) :: energy_hat
     logical, intent(out) :: success
 
-    real(dp) :: t, phi_hat, jacobian, rho_integral, field_squared, summand, weight, h
-    real(dp) :: field_squared_scale
+    real(dp) :: t, phi_hat, jacobian, field_squared, summand, weight, h
+    real(dp) :: field_squared_scale, total_rho_integral
+    real(dp) :: rho_integrand(0:energy_quadrature_panels)
+    real(dp) :: cumulative_rho(0:energy_quadrature_panels)
+    real(dp) :: energy_integrand(0:energy_quadrature_panels)
     integer :: point
-    logical :: integral_ok
 
     energy_hat = 0.0_dp
     success = .false.
@@ -734,22 +736,46 @@ contains
       t = real(point, dp)*h
       phi_hat = start_phi_hat + (end_phi_hat - start_phi_hat)*sin(0.5_dp*pi*t)**2
       jacobian = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
+      call evaluate_zhao_rho_hat( &
+        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_integrand(point) &
+        )
+      if (.not. ieee_is_finite(rho_integrand(point))) return
+      rho_integrand(point) = rho_integrand(point)*jacobian
+    end do
+
+    ! rhoを一度だけ標本化し、累積Simpson積分から各点のE^2を得る。
+    ! 各点ごとにrhoを再積分する二重求積は、根の順位を変えずに避ける。
+    cumulative_rho(0) = 0.0_dp
+    do point = 0, energy_quadrature_panels - 2, 2
+      cumulative_rho(point + 1) = cumulative_rho(point) + h*( &
+                                  5.0_dp*rho_integrand(point) + &
+                                  8.0_dp*rho_integrand(point + 1) - &
+                                  rho_integrand(point + 2) &
+                                  )/12.0_dp
+      cumulative_rho(point + 2) = cumulative_rho(point) + h*( &
+                                  rho_integrand(point) + &
+                                  4.0_dp*rho_integrand(point + 1) + &
+                                  rho_integrand(point + 2) &
+                                  )/3.0_dp
+    end do
+    total_rho_integral = cumulative_rho(energy_quadrature_panels)
+    if (.not. ieee_is_finite(total_rho_integral)) return
+
+    do point = 0, energy_quadrature_panels
+      t = real(point, dp)*h
+      jacobian = (end_phi_hat - start_phi_hat)*0.5_dp*pi*sin(pi*t)
       if (branch == 'A') then
-        call integrate_matching_rho_hat( &
-          params, branch, side, phi_m_hat, phi_hat, phi0_hat, phi_m_hat, &
-          density_hat, rho_integral, integral_ok &
-          )
-        field_squared = -2.0_dp*rho_integral
+        field_squared = -2.0_dp*cumulative_rho(point)
       else
-        call integrate_matching_rho_hat( &
-          params, branch, side, phi_hat, 0.0_dp, phi0_hat, phi_m_hat, &
-          density_hat, rho_integral, integral_ok &
-          )
-        field_squared = 2.0_dp*rho_integral
+        field_squared = 2.0_dp*(total_rho_integral - cumulative_rho(point))
       end if
-      if (.not. integral_ok .or. &
+      if (.not. ieee_is_finite(field_squared) .or. &
           field_squared < -profile_negative_tolerance*field_squared_scale) return
-      summand = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
+      energy_integrand(point) = sqrt(max(0.0_dp, field_squared))*abs(jacobian)
+    end do
+
+    do point = 0, energy_quadrature_panels
+      summand = energy_integrand(point)
       if (point == 0 .or. point == energy_quadrature_panels) then
         weight = 1.0_dp
       else if (mod(point, 2) == 0) then
