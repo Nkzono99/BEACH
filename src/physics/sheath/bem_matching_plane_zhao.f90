@@ -1,10 +1,12 @@
-!> Matching-plane 用の stateless charge-driven Zhao 外部シース応答。
+!> Matching-plane 用の charge-driven Zhao 外部シース応答。
 !!
 !! 応答は整合面直下の D_z/eps0 を外部側 interface field とみなし、
 !! 上流の準中性条件と Sagdeev 積分を満たす A/B/C branch を解く。
 !! 定常表面電流の零電流条件は課さないため、BEACH 側の帯電過程を消去しない。
 !! 平面・半無限の外部問題は z 方向に並進対称なので、絶対高度 H は数値式に
 !! 入らず、runtime がこの応答を domain の z-high gauge へ結び付ける。
+!! 既定policyはqueryごとにstatelessで、opt-inのType A continuationだけが
+!! 呼出側から渡されたaccepted endpoint rootをseedとして使う。
 module bem_matching_plane_zhao
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
@@ -36,12 +38,15 @@ module bem_matching_plane_zhao
   real(dp), parameter :: profile_negative_tolerance = 1.0e-7_dp
   real(dp), parameter :: profile_endpoint_tolerance = 1.0e-5_dp
   real(dp), parameter :: energy_tie_tolerance = 1.0e-6_dp
+  real(dp), parameter :: continuation_root_jump_limit = 0.25_dp
+  real(dp), parameter :: continuation_distance_tie_tolerance = 1.0e-6_dp
 
   integer(i32), parameter, public :: matching_plane_zhao_ok = 0_i32
   integer(i32), parameter, public :: matching_plane_zhao_invalid_argument = 1_i32
   integer(i32), parameter, public :: matching_plane_zhao_no_physical_solution = 2_i32
   integer(i32), parameter, public :: matching_plane_zhao_numerical_failure = 3_i32
   integer(i32), parameter, public :: matching_plane_zhao_ambiguous_solution = 4_i32
+  integer(i32), parameter, public :: matching_plane_zhao_continuation_step_too_large = 5_i32
 
   type, public :: matching_plane_zhao_diagnostics_type
     character(len=1) :: branch = ' '
@@ -53,7 +58,17 @@ module bem_matching_plane_zhao
     real(dp) :: minimum_field_squared_hat = huge(1.0_dp)
     real(dp) :: potential_energy_j_m2 = huge(1.0_dp)
     integer(i32) :: nonlinear_iterations = 0_i32
+    logical :: continuation_used = .false.
+    logical :: continuation_fallback_used = .false.
+    real(dp) :: continuation_root_jump = 0.0_dp
   end type matching_plane_zhao_diagnostics_type
+
+  type, public :: matching_plane_zhao_root_seed_type
+    logical :: valid = .false.
+    real(dp) :: phi0_v = 0.0_dp
+    real(dp) :: phi_m_v = 0.0_dp
+    real(dp) :: ambient_electron_density_m3 = 0.0_dp
+  end type matching_plane_zhao_root_seed_type
 
   type :: zhao_matching_root_type
     character(len=1) :: branch = ' '
@@ -81,6 +96,7 @@ module bem_matching_plane_zhao
   contains
     procedure, public :: initialize => initialize_matching_plane_zhao
     procedure, public :: evaluate => evaluate_matching_plane_zhao
+    procedure, public :: reconstruct_seed => reconstruct_matching_plane_zhao_type_a_seed
     procedure, public :: get_feedback_scales => get_matching_plane_zhao_feedback_scales
     procedure, public :: is_initialized => matching_plane_zhao_is_initialized
   end type matching_plane_zhao_model_type
@@ -131,12 +147,16 @@ contains
     end select
     normalized_root_selection = trim(lower_ascii(root_selection))
     select case (normalized_root_selection)
-    case ('require_unique', 'minimum_energy')
+    case ('require_unique', 'minimum_energy', 'continuation')
       self%root_selection = normalized_root_selection
     case default
-      message = 'matching-plane Zhao root selection must be require_unique or minimum_energy.'
+      message = 'matching-plane Zhao root selection must be require_unique, minimum_energy, or continuation.'
       return
     end select
+    if (self%root_selection == 'continuation' .and. self%branch_model /= 'a') then
+      message = 'matching-plane Zhao continuation requires an explicit Type-A branch.'
+      return
+    end if
     if (.not. all(ieee_is_finite([ &
                                  ion_density_m3, electron_temperature_ev, electron_drift_mps, ion_drift_mps, &
                                  ion_mass_kg, electron_mass_kg, configured_photoelectron_temperature_ev &
@@ -162,77 +182,33 @@ contains
     status = matching_plane_zhao_ok
   end subroutine initialize_matching_plane_zhao
 
-  subroutine evaluate_matching_plane_zhao(self, input, output, status, message, diagnostics)
+  subroutine evaluate_matching_plane_zhao( &
+    self, input, output, status, message, diagnostics, continuation_seed, continuation_candidate &
+    )
     class(matching_plane_zhao_model_type), intent(in) :: self
     real(dp), intent(in) :: input(matching_plane_response_input_count)
     real(dp), intent(out) :: output(matching_plane_response_output_count)
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     type(matching_plane_zhao_diagnostics_type), intent(out), optional :: diagnostics
+    type(matching_plane_zhao_root_seed_type), intent(in), optional :: continuation_seed
+    type(matching_plane_zhao_root_seed_type), intent(out), optional :: continuation_candidate
 
     type(zhao_params_type) :: params
     type(zhao_matching_root_type) :: root
     type(matching_plane_zhao_diagnostics_type) :: local_diagnostics
-    real(dp) :: interface_field_v_m, photoelectron_flux_m2_s
+    real(dp) :: interface_field_v_m
     real(dp) :: photoelectron_temperature_ev, photoelectron_source_density_m3
-    real(dp) :: photoelectron_thermal_speed_mps
+    real(dp) :: continuation_root_jump
+    logical :: continuation_fallback_used, have_continuation_seed
 
     output = 0.0_dp
+    if (present(continuation_candidate)) continuation_candidate = matching_plane_zhao_root_seed_type()
     status = matching_plane_zhao_invalid_argument
     message = ''
     local_diagnostics = matching_plane_zhao_diagnostics_type()
-    if (.not. self%initialized) then
-      message = 'matching-plane Zhao model is not initialized.'
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
-    if (.not. all(ieee_is_finite(input))) then
-      message = 'matching-plane Zhao query must be finite.'
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
-    if (input(matching_plane_input_photoelectron_outward_flux) < 0.0_dp .or. &
-        input(matching_plane_input_photoelectron_mean_normal_energy) < 0.0_dp .or. &
-        input(matching_plane_input_electron_outward_flux) < 0.0_dp .or. &
-        input(matching_plane_input_ion_outward_flux) < 0.0_dp) then
-      message = 'matching-plane Zhao fluxes and photoelectron energy must be nonnegative.'
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
-
-    photoelectron_flux_m2_s = input(matching_plane_input_photoelectron_outward_flux)
-    if (photoelectron_flux_m2_s > 0.0_dp) then
-      photoelectron_temperature_ev = input(matching_plane_input_photoelectron_mean_normal_energy)
-      if (photoelectron_temperature_ev <= 0.0_dp) then
-        message = 'positive matching-plane photoelectron flux requires positive mean normal energy.'
-        call assign_diagnostics(diagnostics, local_diagnostics)
-        return
-      end if
-    else
-      photoelectron_temperature_ev = self%configured_photoelectron_temperature_ev
-    end if
-
-    photoelectron_thermal_speed_mps = sqrt( &
-                                      2.0_dp*qe*photoelectron_temperature_ev/self%electron_mass_kg &
-                                      )
-    if (.not. ieee_is_finite(photoelectron_thermal_speed_mps) .or. &
-        photoelectron_thermal_speed_mps <= 0.0_dp) then
-      message = 'matching-plane Zhao photoelectron thermal speed is invalid.'
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
-    photoelectron_source_density_m3 = &
-      2.0_dp*sqrt(pi)*photoelectron_flux_m2_s/photoelectron_thermal_speed_mps
-    if (.not. ieee_is_finite(photoelectron_source_density_m3) .or. &
-        photoelectron_source_density_m3 < 0.0_dp) then
-      message = 'matching-plane Zhao photoelectron moment map is invalid.'
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
-
-    call prepare_matching_zhao_params( &
-      self, photoelectron_temperature_ev, photoelectron_source_density_m3, &
-      params, status, message &
+    call prepare_matching_zhao_query( &
+      self, input, params, photoelectron_temperature_ev, photoelectron_source_density_m3, status, message &
       )
     if (status /= matching_plane_zhao_ok) then
       call assign_diagnostics(diagnostics, local_diagnostics)
@@ -243,9 +219,25 @@ contains
     local_diagnostics%interface_field_v_m = interface_field_v_m
     local_diagnostics%effective_photoelectron_temperature_ev = photoelectron_temperature_ev
     local_diagnostics%photoelectron_source_density_m3 = photoelectron_source_density_m3
-    call solve_matching_root( &
-      trim(self%branch_model), trim(self%root_selection), params, interface_field_v_m, root, status, message &
-      )
+    have_continuation_seed = .false.
+    if (present(continuation_seed)) have_continuation_seed = continuation_seed%valid
+    if (self%root_selection == 'continuation' .and. have_continuation_seed) then
+      local_diagnostics%continuation_used = .true.
+      call solve_matching_type_a_continuation( &
+        params, interface_field_v_m, continuation_seed, root, continuation_fallback_used, &
+        continuation_root_jump, status, message &
+        )
+      local_diagnostics%continuation_fallback_used = continuation_fallback_used
+      local_diagnostics%continuation_root_jump = continuation_root_jump
+    else if (self%root_selection == 'continuation') then
+      call solve_matching_root( &
+        'a', 'minimum_energy', params, interface_field_v_m, root, status, message &
+        )
+    else
+      call solve_matching_root( &
+        trim(self%branch_model), trim(self%root_selection), params, interface_field_v_m, root, status, message &
+        )
+    end if
     if (status /= matching_plane_zhao_ok) then
       call assign_diagnostics(diagnostics, local_diagnostics)
       return
@@ -263,8 +255,140 @@ contains
       call assign_diagnostics(diagnostics, local_diagnostics)
       return
     end if
+    if (present(continuation_candidate) .and. root%branch == 'A') then
+      continuation_candidate%valid = .true.
+      continuation_candidate%phi0_v = root%phi0_v
+      continuation_candidate%phi_m_v = root%phi_m_v
+      continuation_candidate%ambient_electron_density_m3 = root%ambient_electron_density_m3
+    end if
     call assign_diagnostics(diagnostics, local_diagnostics)
   end subroutine evaluate_matching_plane_zhao
+
+  subroutine reconstruct_matching_plane_zhao_type_a_seed( &
+    self, input, response, seed, status, message &
+    )
+    class(matching_plane_zhao_model_type), intent(in) :: self
+    real(dp), intent(in) :: input(matching_plane_response_input_count)
+    real(dp), intent(in) :: response(matching_plane_response_output_count)
+    type(matching_plane_zhao_root_seed_type), intent(out) :: seed
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_params_type) :: params
+    real(dp) :: photoelectron_temperature_ev, photoelectron_source_density_m3
+    real(dp) :: electron_cutoff, unit_density_electron_term, number_flux_scale, flux_coefficient
+
+    seed = matching_plane_zhao_root_seed_type()
+    status = matching_plane_zhao_invalid_argument
+    message = ''
+    if (.not. self%initialized) then
+      message = 'matching-plane Zhao model is not initialized.'
+      return
+    end if
+    if (self%branch_model /= 'a') then
+      message = 'matching-plane Zhao Type-A seed reconstruction requires an explicit Type-A model.'
+      return
+    end if
+    if (.not. all(ieee_is_finite(response))) then
+      message = 'matching-plane Zhao restart response must be finite.'
+      return
+    end if
+
+    call prepare_matching_zhao_query( &
+      self, input, params, photoelectron_temperature_ev, photoelectron_source_density_m3, status, message &
+      )
+    if (status /= matching_plane_zhao_ok) return
+
+    seed%phi0_v = response(matching_plane_output_matching_potential)
+    seed%phi_m_v = response(matching_plane_output_electron_access_potential)
+    electron_cutoff = sqrt(max(0.0_dp, -seed%phi_m_v/params%t_swe_ev)) - params%u
+    unit_density_electron_term = swe_free_current_term(params, 1.0_dp, electron_cutoff)
+    number_flux_scale = params%v_phe_th_mps/(2.0_dp*sqrt(pi))
+    flux_coefficient = number_flux_scale*unit_density_electron_term
+    if (.not. all(ieee_is_finite([electron_cutoff, flux_coefficient])) .or. &
+        flux_coefficient <= 0.0_dp .or. &
+        response(matching_plane_output_electron_inward_flux) <= 0.0_dp) then
+      seed = matching_plane_zhao_root_seed_type()
+      message = 'matching-plane Zhao restart response cannot reconstruct a positive electron density.'
+      return
+    end if
+    seed%ambient_electron_density_m3 = &
+      response(matching_plane_output_electron_inward_flux)/flux_coefficient
+    seed%valid = seed%phi0_v > 0.0_dp .and. seed%phi_m_v < 0.0_dp .and. &
+                 ieee_is_finite(seed%ambient_electron_density_m3) .and. &
+                 seed%ambient_electron_density_m3 > 0.0_dp
+    if (.not. seed%valid) then
+      seed = matching_plane_zhao_root_seed_type()
+      message = 'matching-plane Zhao restart response is not a valid Type-A root seed.'
+      return
+    end if
+    status = matching_plane_zhao_ok
+  end subroutine reconstruct_matching_plane_zhao_type_a_seed
+
+  subroutine prepare_matching_zhao_query( &
+    self, input, params, photoelectron_temperature_ev, photoelectron_source_density_m3, status, message &
+    )
+    class(matching_plane_zhao_model_type), intent(in) :: self
+    real(dp), intent(in) :: input(matching_plane_response_input_count)
+    type(zhao_params_type), intent(out) :: params
+    real(dp), intent(out) :: photoelectron_temperature_ev, photoelectron_source_density_m3
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: photoelectron_flux_m2_s, photoelectron_thermal_speed_mps
+
+    params = zhao_params_type()
+    photoelectron_temperature_ev = 0.0_dp
+    photoelectron_source_density_m3 = 0.0_dp
+    status = matching_plane_zhao_invalid_argument
+    message = ''
+    if (.not. self%initialized) then
+      message = 'matching-plane Zhao model is not initialized.'
+      return
+    end if
+    if (.not. all(ieee_is_finite(input))) then
+      message = 'matching-plane Zhao query must be finite.'
+      return
+    end if
+    if (input(matching_plane_input_photoelectron_outward_flux) < 0.0_dp .or. &
+        input(matching_plane_input_photoelectron_mean_normal_energy) < 0.0_dp .or. &
+        input(matching_plane_input_electron_outward_flux) < 0.0_dp .or. &
+        input(matching_plane_input_ion_outward_flux) < 0.0_dp) then
+      message = 'matching-plane Zhao fluxes and photoelectron energy must be nonnegative.'
+      return
+    end if
+
+    photoelectron_flux_m2_s = input(matching_plane_input_photoelectron_outward_flux)
+    if (photoelectron_flux_m2_s > 0.0_dp) then
+      photoelectron_temperature_ev = input(matching_plane_input_photoelectron_mean_normal_energy)
+      if (photoelectron_temperature_ev <= 0.0_dp) then
+        message = 'positive matching-plane photoelectron flux requires positive mean normal energy.'
+        return
+      end if
+    else
+      photoelectron_temperature_ev = self%configured_photoelectron_temperature_ev
+    end if
+
+    photoelectron_thermal_speed_mps = sqrt( &
+                                      2.0_dp*qe*photoelectron_temperature_ev/self%electron_mass_kg &
+                                      )
+    if (.not. ieee_is_finite(photoelectron_thermal_speed_mps) .or. &
+        photoelectron_thermal_speed_mps <= 0.0_dp) then
+      message = 'matching-plane Zhao photoelectron thermal speed is invalid.'
+      return
+    end if
+    photoelectron_source_density_m3 = &
+      2.0_dp*sqrt(pi)*photoelectron_flux_m2_s/photoelectron_thermal_speed_mps
+    if (.not. ieee_is_finite(photoelectron_source_density_m3) .or. &
+        photoelectron_source_density_m3 < 0.0_dp) then
+      message = 'matching-plane Zhao photoelectron moment map is invalid.'
+      return
+    end if
+
+    call prepare_matching_zhao_params( &
+      self, photoelectron_temperature_ev, photoelectron_source_density_m3, params, status, message &
+      )
+  end subroutine prepare_matching_zhao_query
 
   !> `build_zhao_params` の error-stop APIを通さず、online queryをfail-closedに正規化する。
   subroutine prepare_matching_zhao_params( &
@@ -505,17 +629,69 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    real(dp) :: guesses(3, 8), y(3), norm
-    type(zhao_matching_root_type) :: candidate_root, candidate_roots(8), unique_roots(8)
-    integer :: guess_count, guess_index, iterations, unique_count, root_index
-    integer(i32) :: profile_status
-    logical :: success, compatible, duplicate_root, candidate_valid(8)
-    logical :: guess_nonphysical_profile(8), guess_numerical_profile_failure(8)
+    type(zhao_matching_root_type) :: unique_roots(8)
+    integer :: unique_count
     logical :: saw_nonphysical_profile, saw_numerical_profile_failure
-    character(len=512) :: profile_message
 
     root = zhao_matching_root_type()
     root%branch = branch
+    call collect_matching_branch_roots( &
+      params, branch, target_field_hat, unique_roots, unique_count, &
+      saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
+      )
+    if (status /= matching_plane_zhao_ok) return
+    if (unique_count > 1) then
+      if (trim(root_selection) == 'minimum_energy') then
+        call select_minimum_energy_root(params, unique_roots, unique_count, root, status, message)
+      else
+        status = matching_plane_zhao_ambiguous_solution
+        message = 'charge-driven Zhao solve found multiple roots in the requested branch.'
+      end if
+    else if (saw_numerical_profile_failure) then
+      status = matching_plane_zhao_numerical_failure
+      message = 'charge-driven Zhao root profile could not be certified numerically.'
+    else if (unique_count == 1) then
+      root = unique_roots(1)
+      if (trim(root_selection) == 'minimum_energy') then
+        call evaluate_root_potential_energy(params, root, status, message)
+      else
+        status = matching_plane_zhao_ok
+        message = ''
+      end if
+    else if (saw_nonphysical_profile) then
+      status = matching_plane_zhao_no_physical_solution
+      message = 'charge-driven Zhao endpoint root has no real connecting field profile.'
+    else
+      status = matching_plane_zhao_numerical_failure
+      message = 'charge-driven Zhao Newton solve did not converge.'
+    end if
+  end subroutine solve_one_matching_branch
+
+  subroutine collect_matching_branch_roots( &
+    params, branch, target_field_hat, unique_roots, unique_count, &
+    saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
+    )
+    type(zhao_params_type), intent(in) :: params
+    character(len=1), intent(in) :: branch
+    real(dp), intent(in) :: target_field_hat
+    type(zhao_matching_root_type), intent(out) :: unique_roots(8)
+    integer, intent(out) :: unique_count
+    logical, intent(out) :: saw_nonphysical_profile, saw_numerical_profile_failure
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    real(dp) :: guesses(3, 8), y(3), norm
+    type(zhao_matching_root_type) :: candidate_root, candidate_roots(8)
+    integer :: guess_count, guess_index, iterations, root_index
+    integer(i32) :: profile_status
+    logical :: success, compatible, duplicate_root, candidate_valid(8)
+    logical :: guess_nonphysical_profile(8), guess_numerical_profile_failure(8)
+    character(len=512) :: profile_message
+
+    unique_roots = zhao_matching_root_type()
+    unique_count = 0
+    saw_nonphysical_profile = .false.
+    saw_numerical_profile_failure = .false.
     status = matching_plane_zhao_no_physical_solution
     message = ''
     compatible = (branch == 'C' .and. target_field_hat < 0.0_dp) .or. &
@@ -524,10 +700,8 @@ contains
       message = 'Zhao branch and matching-plane field signs are incompatible.'
       return
     end if
+
     call make_matching_branch_guesses(params, branch, guesses, guess_count)
-    unique_count = 0
-    saw_nonphysical_profile = .false.
-    saw_numerical_profile_failure = .false.
     candidate_roots = zhao_matching_root_type()
     candidate_valid = .false.
     guess_nonphysical_profile = .false.
@@ -587,32 +761,136 @@ contains
         unique_roots(unique_count) = candidate_root
       end if
     end do
-    if (unique_count > 1) then
-      if (trim(root_selection) == 'minimum_energy') then
-        call select_minimum_energy_root(params, unique_roots, unique_count, root, status, message)
-      else
-        status = matching_plane_zhao_ambiguous_solution
-        message = 'charge-driven Zhao solve found multiple roots in the requested branch.'
+    status = matching_plane_zhao_ok
+  end subroutine collect_matching_branch_roots
+
+  subroutine solve_matching_type_a_continuation( &
+    params, interface_field_v_m, seed, root, fallback_used, root_jump, status, message &
+    )
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: interface_field_v_m
+    type(matching_plane_zhao_root_seed_type), intent(in) :: seed
+    type(zhao_matching_root_type), intent(out) :: root
+    logical, intent(out) :: fallback_used
+    real(dp), intent(out) :: root_jump
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    type(zhao_matching_root_type) :: candidate_root, roots(8)
+    real(dp) :: field_scale, target_field_hat, seed_y(3), candidate_y(3), norm
+    real(dp) :: candidate_jump, nearest_jump, second_nearest_jump
+    integer :: iterations, root_count, root_index, nearest_index
+    integer(i32) :: profile_status
+    logical :: seed_valid, success, candidate_valid
+    logical :: saw_nonphysical_profile, saw_numerical_profile_failure
+    character(len=512) :: profile_message
+
+    root = zhao_matching_root_type()
+    fallback_used = .false.
+    root_jump = huge(1.0_dp)
+    status = matching_plane_zhao_invalid_argument
+    message = ''
+    call encode_matching_unknowns( &
+      params, 'A', seed%phi0_v, seed%phi_m_v, seed%ambient_electron_density_m3, seed_y, seed_valid &
+      )
+    if (.not. seed_valid) then
+      message = 'matching-plane Zhao continuation seed is not a valid Type-A state.'
+      return
+    end if
+
+    field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
+    target_field_hat = interface_field_v_m/field_scale
+    if (.not. all(ieee_is_finite([field_scale, target_field_hat])) .or. field_scale <= 0.0_dp) then
+      status = matching_plane_zhao_numerical_failure
+      message = 'matching-plane Zhao field normalization is invalid.'
+      return
+    end if
+    if (target_field_hat <= zero_field_tolerance_hat) then
+      status = matching_plane_zhao_no_physical_solution
+      message = 'requested Zhao-A continuation requires a positive matching-plane field.'
+      return
+    end if
+
+    call newton_matching_branch( &
+      params, 'A', target_field_hat, seed_y, candidate_y, norm, iterations, success &
+      )
+    if (success) then
+      candidate_root = zhao_matching_root_type()
+      candidate_root%branch = 'A'
+      call decode_matching_unknowns( &
+        params, 'A', candidate_y, candidate_root%phi0_v, candidate_root%phi_m_v, &
+        candidate_root%ambient_electron_density_m3, candidate_valid &
+        )
+      if (candidate_valid) then
+        candidate_root%residual_norm = norm
+        candidate_root%nonlinear_iterations = int(iterations, i32)
+        call validate_matching_root_profile( &
+          params, candidate_root, target_field_hat, profile_status, profile_message &
+          )
+        if (profile_status == matching_plane_zhao_ok) then
+          candidate_jump = maxval(abs(candidate_y - seed_y))
+          root_jump = candidate_jump
+          if (candidate_jump <= continuation_root_jump_limit) then
+            root = candidate_root
+            status = matching_plane_zhao_ok
+            return
+          end if
+        end if
       end if
+    end if
+
+    fallback_used = .true.
+    call collect_matching_branch_roots( &
+      params, 'A', target_field_hat, roots, root_count, &
+      saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
+      )
+    if (status /= matching_plane_zhao_ok) return
+
+    nearest_jump = huge(1.0_dp)
+    second_nearest_jump = huge(1.0_dp)
+    nearest_index = 0
+    do root_index = 1, root_count
+      call encode_matching_unknowns( &
+        params, 'A', roots(root_index)%phi0_v, roots(root_index)%phi_m_v, &
+        roots(root_index)%ambient_electron_density_m3, candidate_y, candidate_valid &
+        )
+      if (.not. candidate_valid) cycle
+      candidate_jump = maxval(abs(candidate_y - seed_y))
+      if (candidate_jump < nearest_jump) then
+        second_nearest_jump = nearest_jump
+        nearest_jump = candidate_jump
+        nearest_index = root_index
+      else if (candidate_jump < second_nearest_jump) then
+        second_nearest_jump = candidate_jump
+      end if
+    end do
+    root_jump = nearest_jump
+    if (nearest_index > 0 .and. nearest_jump > continuation_root_jump_limit) then
+      status = matching_plane_zhao_continuation_step_too_large
+      message = 'matching-plane Zhao continuation probe is too far from the accepted Type-A root.'
+    else if (nearest_index > 0 .and. &
+             abs(second_nearest_jump - nearest_jump) <= &
+             continuation_distance_tie_tolerance*max(1.0_dp, nearest_jump)) then
+      status = matching_plane_zhao_ambiguous_solution
+      message = 'matching-plane Zhao continuation fallback found indistinguishable nearest Type-A roots.'
+    else if (nearest_index > 0) then
+      root = roots(nearest_index)
+      status = matching_plane_zhao_ok
+      message = ''
+    else if (root_count > 0) then
+      status = matching_plane_zhao_numerical_failure
+      message = 'matching-plane Zhao continuation fallback returned no valid encoded Type-A root.'
     else if (saw_numerical_profile_failure) then
       status = matching_plane_zhao_numerical_failure
-      message = 'charge-driven Zhao root profile could not be certified numerically.'
-    else if (unique_count == 1) then
-      root = unique_roots(1)
-      if (trim(root_selection) == 'minimum_energy') then
-        call evaluate_root_potential_energy(params, root, status, message)
-      else
-        status = matching_plane_zhao_ok
-        message = ''
-      end if
+      message = 'matching-plane Zhao continuation fallback could not certify a root profile numerically.'
     else if (saw_nonphysical_profile) then
       status = matching_plane_zhao_no_physical_solution
-      message = 'charge-driven Zhao endpoint root has no real connecting field profile.'
+      message = 'matching-plane Zhao continuation fallback found no real connecting field profile.'
     else
       status = matching_plane_zhao_numerical_failure
-      message = 'charge-driven Zhao Newton solve did not converge.'
+      message = 'matching-plane Zhao continuation fallback did not converge.'
     end if
-  end subroutine solve_one_matching_branch
+  end subroutine solve_matching_type_a_continuation
 
   subroutine select_minimum_energy_root(params, roots, root_count, root, status, message)
     type(zhao_params_type), intent(in) :: params

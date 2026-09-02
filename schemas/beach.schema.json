@@ -686,6 +686,30 @@
           ]
         }
       ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "zhao_root_selection": {"const": "continuation"}
+            },
+            "required": ["zhao_root_selection"]
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "matching_plane_quasistatic"},
+              "response_backend": {"const": "zhao_online"},
+              "zhao_branch": {"const": "a"},
+              "implicit_zero_mode": {"const": true}
+            },
+            "required": [
+              "model",
+              "response_backend",
+              "zhao_branch",
+              "implicit_zero_mode"
+            ]
+          }
+        }
+      ],
       "properties": {
         "model": {
           "enum": ["none", "zhao_stationary", "matching_plane_quasistatic"]
@@ -700,9 +724,9 @@
           "default": "auto"
         },
         "zhao_root_selection": {
-          "enum": ["require_unique", "minimum_energy"],
+          "enum": ["require_unique", "minimum_energy", "continuation"],
           "default": "require_unique",
-          "description": "Online Zhao root policy: reject multiplicity or select the candidate with the lowest full-sheath potential energy."
+          "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted Type-A endpoint in implicit mode."
         },
         "electron_species": {
           "type": "string",

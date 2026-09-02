@@ -993,6 +993,30 @@ def test_matching_plane_zhao_online_config_contract() -> None:
         == "minimum_energy"
     )
 
+    continuation = _matching_plane_zhao_online_config()
+    continuation["surface_current_model"].update(
+        {
+            "zhao_branch": "a",
+            "zhao_root_selection": "continuation",
+            "implicit_zero_mode": True,
+        }
+    )
+    normalized_continuation = normalize_config_document(continuation)
+    assert (
+        normalized_continuation["surface_current_model"]["zhao_root_selection"]
+        == "continuation"
+    )
+
+    continuation_wrong_branch = copy.deepcopy(continuation)
+    continuation_wrong_branch["surface_current_model"]["zhao_branch"] = "b"
+    with pytest.raises(ConfigValidationError, match="continuation.*zhao_branch"):
+        normalize_config_document(continuation_wrong_branch)
+
+    continuation_without_implicit = copy.deepcopy(continuation)
+    continuation_without_implicit["surface_current_model"].pop("implicit_zero_mode")
+    with pytest.raises(ConfigValidationError, match="continuation.*implicit_zero_mode"):
+        normalize_config_document(continuation_without_implicit)
+
     invalid_root_selection = _matching_plane_zhao_online_config()
     invalid_root_selection["surface_current_model"]["zhao_root_selection"] = "first"
     with pytest.raises(ConfigValidationError, match="zhao_root_selection"):

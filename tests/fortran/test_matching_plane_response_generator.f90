@@ -10,10 +10,13 @@ program test_matching_plane_response_generator
                                          reset_matching_plane_response_snapshot_cache
   use bem_matching_plane_response_generator, only: generate_matching_plane_zhao_response_table, &
                                                    matching_plane_generator_ok, &
+                                                   matching_plane_generator_invalid_argument, &
                                                    matching_plane_generator_invalid_grid, &
                                                    matching_plane_generator_evaluation_failure
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
-                                                  matching_plane_provider_ok
+                                                  matching_plane_provider_ok, &
+                                                  matching_plane_provider_continuation_step_too_large
+  use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
   use bem_mpi, only: mpi_context
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
                           assert_equal_i32, assert_close_dp, delete_file_if_exists
@@ -27,7 +30,8 @@ program test_matching_plane_response_generator
   character(len=*), parameter :: output_path = 'test_matching_plane_zhao_generated.csv'
   type(app_config) :: cfg, failure_cfg
   type(matching_plane_response_table_type) :: table
-  type(matching_plane_response_provider_type) :: provider
+  type(matching_plane_response_provider_type) :: provider, continuation_provider
+  type(matching_plane_zhao_root_seed_type) :: bootstrap_seed, distant_seed, rejected_seed
   type(mpi_context) :: serial_mpi
   real(dp) :: query(5), response(6), online_response(6), matching_plane_z_m
   real(dp) :: implicit_displacement_min, implicit_displacement_max, implicit_displacement_scale
@@ -40,7 +44,7 @@ program test_matching_plane_response_generator
 
   call cleanup_files()
   call configure_online_fixture(cfg)
-  call test_init(4)
+  call test_init(6)
 
   call test_begin('generated_curve_roundtrips_through_table_backend')
   call write_nonzero_photoelectron_curve(query_path)
@@ -78,6 +82,49 @@ program test_matching_plane_response_generator
       'generated table node changed the online response' &
       )
   end do
+  call test_end()
+
+  call test_begin('response_table_rejects_history_dependent_continuation')
+  failure_cfg = cfg
+  failure_cfg%surface_current%zhao_branch = 'a'
+  failure_cfg%surface_current%zhao_root_selection = 'continuation'
+  failure_cfg%surface_current%implicit_zero_mode = .true.
+  call generate_matching_plane_zhao_response_table( &
+    failure_cfg, query_path, output_path, status, message &
+    )
+  call assert_equal_i32( &
+    status, matching_plane_generator_invalid_argument, &
+    'response-table generation silently treated continuation rows as independent bootstraps' &
+    )
+  call test_end()
+
+  call test_begin('continuation_step_limit_remains_distinct_at_provider_boundary')
+  failure_cfg = cfg
+  failure_cfg%surface_current%zhao_branch = 'a'
+  failure_cfg%surface_current%zhao_root_selection = 'continuation'
+  failure_cfg%surface_current%implicit_zero_mode = .true.
+  serial_mpi = mpi_context()
+  call continuation_provider%initialize(failure_cfg, serial_mpi, status, message)
+  call assert_equal_i32(status, matching_plane_provider_ok, 'continuation provider initialization failed')
+  query = [ &
+          1.4187346568707933e-11_dp, 1.3754433596232731e13_dp, &
+          2.2_dp, 0.0_dp, 0.0_dp &
+          ]
+  call continuation_provider%evaluate_local( &
+    query, online_response, status, message, continuation_candidate=bootstrap_seed &
+    )
+  call assert_equal_i32(status, matching_plane_provider_ok, 'continuation bootstrap failed: '//trim(message))
+  distant_seed = bootstrap_seed
+  distant_seed%ambient_electron_density_m3 = distant_seed%ambient_electron_density_m3*exp(10.0_dp)
+  call continuation_provider%evaluate_local( &
+    query, online_response, status, message, &
+    continuation_seed=distant_seed, continuation_candidate=rejected_seed &
+    )
+  call assert_equal_i32( &
+    status, matching_plane_provider_continuation_step_too_large, &
+    'continuation step overflow was collapsed into a no-root provider status' &
+    )
+  call assert_true(.not. rejected_seed%valid, 'ambiguous continuation exposed a candidate root')
   call test_end()
 
   call test_begin('evaluation_failure_preserves_existing_output_atomically')

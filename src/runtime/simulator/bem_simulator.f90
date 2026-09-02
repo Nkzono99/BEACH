@@ -29,7 +29,9 @@ module bem_simulator
                                                   matching_plane_provider_ok, &
                                                   matching_plane_provider_invalid_argument, &
                                                   matching_plane_provider_no_physical_solution, &
-                                                  matching_plane_provider_numerical_failure
+                                                  matching_plane_provider_numerical_failure, &
+                                                  matching_plane_provider_continuation_step_too_large
+  use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
   use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &

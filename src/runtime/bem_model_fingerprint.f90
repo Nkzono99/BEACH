@@ -154,7 +154,11 @@ contains
           call feed_string(hash, 'charge_driven_finite_h_sagdeev')
           call feed_string(hash, 'photoelectron_moment_matched_half_maxwellian')
           call feed_string(hash, 'ambient_outward_feedback_transparent')
-          call feed_string(hash, 'stateless_branch_selection')
+          if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
+            call feed_string(hash, 'accepted_endpoint_continuation_v1')
+          else
+            call feed_string(hash, 'stateless_branch_selection')
+          end if
           if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique') then
             call feed_string(hash, 'matching_plane_zhao_root_selection_v1')
             call feed_string(hash, cfg%surface_current%zhao_root_selection)

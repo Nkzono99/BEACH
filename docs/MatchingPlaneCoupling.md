@@ -119,7 +119,7 @@ implicit_zero_mode = true
 
 この経路には `response_table_path` も事前の `matching_query.csv` も不要です。完全な CSV 不要例は
 `examples/periodic2_matching_plane_zhao_implicit.toml` です。table snapshot を使う場合だけ query grid と
-`beach-zhao-response` を別途使います。
+`beach-zhao-response` を別途使います。accepted endpoint の履歴を持たない表生成では `continuation` を指定できません。
 
 implicit 化だけでは Zhao branch を選びません。既定では `auto` が現在の seed で一意な物理解を保証できない場合に停止します。
 強い PE では `a` / `b` / `c` を別々に走査してから、検証した branch を明示してください。
@@ -143,8 +143,26 @@ sheath potential-energy 比較に基づきますが、有限 multistart が全�
 
 $D_H$ や PE moment の変化に伴って最小エネルギー根が切り替わると、online 応答は不連続になり得ます。その点で
 backward-Euler 方程式に通常の根がなければ、BEACH は2根を補間せず停止します。これはシース解が両側で存在していても
-起こり得ます。Newton の検出順を根番号として固定する方式は物理的な識別子にならないため採用していません。履歴依存の
-continuation / hysteresis を使うには、前の accepted root を checkpoint state として明示的に保持する必要があります。
+起こり得ます。Newton の検出順は物理的な root ID ではありません。
+
+検証済みの Type A root family を accepted batch 間で追跡する場合は、次の opt-in を使えます。
+
+```toml
+response_backend = "zhao_online"
+zhao_branch = "a"
+implicit_zero_mode = true
+zhao_root_selection = "continuation"
+```
+
+新規 run の初回は minimum-energy multistart で Type A root を選び、その後は accepted endpoint から局所追跡します。
+Newton、root の復号、profile 検査が失敗した場合、または候補が大きく跳んだ場合は full multistart へ戻ります。
+最近傍 root までの対数距離が
+0.25 を超える probe は、最後の有効 root との間を二分して刻み直します。刻み直しても Type A root を再取得できない場合、
+または距離が区別できない最近傍 root が複数ある場合は停止し、Type B / C へは切り替えません。有効 root の直後で
+解なしまたは数値失敗となった probe も同様に刻み直し、粗い走査による branch 終端付近の見落としを避けます。
+
+これは pseudo-arclength continuation ではなく、fold の検出や通過を保証しません。棄却 trial の rollback、restart、
+距離と曖昧性の数値契約は [`zhao_root_selection` リファレンス](MatchingPlaneReference.html#zhao_root_selection)を参照してください。
 
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
@@ -176,8 +194,10 @@ table の header、直積格子、整合面高度を `beach` の起動時に検�
 3. **同じ batch を追跡する。** $\Phi_H$ を `periodic2` の zero-mode gauge に使い、粒子を追跡して外向き moment と
    PE の return / escape を測ります。
 4. **固定点を確認する。** 測定値が仮定した feedback と一致しなければ緩和して再実行します。各 trial は同じ
-   batch 開始 RNG state と macro 粒子端数から再生され、未収束 trial は状態を変更しません。
-5. **1 回だけ commit する。** 収束した trial だけが表面電荷、RNG、ledger、history、外部 state を更新します。
+   batch 開始 RNG state と macro 粒子端数から再生され、受理前の trial は状態を変更しません。有限なまま反復上限に
+   達した最終 trial は、残差を記録して warning 付きで受理します。
+5. **1 回だけ commit する。** 収束した trial または warning 付きで受理した有限な最終 trial だけが、表面電荷、RNG、
+   ledger、history、外部 state を更新します。`continuation` の root seed もこの accepted state に属します。
    adaptive $k\ne0$ 条件が trial を棄却した場合は、batch 幅を半分にして外部 state も巻き戻します。
 
 この反復により Monte Carlo の乱数差ではなく、同じ粒子写像に対する外部応答の整合性を評価します。
@@ -232,6 +252,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
 | 固定点が反復上限に到達して warning 付きで継続 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | 履歴で頻度と残差を確認する。必要なら ray / macro 粒子数、緩和係数、許容値を調整する |
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
+| `continuation` が停止 | 刻み直しても Type A root を再取得できない、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の Type A 可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
@@ -270,8 +291,8 @@ online Zhao は PE の束と平均法線 energy を、その 2 moment を再現�
 `auto` の複数根判定は有限個の multistart で見つけた根の比較であり、数学的な root isolation ではありません。
 branch 別の検証では `a` / `b` / `c` を明示して scan します。
 
-各 query は物理的に stateless で、前の root からの continuation は行いません。解けない場合も明示 branch や
-backend を暗黙に切り替えません。
+`require_unique` と `minimum_energy` は query ごとに stateless です。`continuation` だけは前の accepted Type A root
+family を保持します。どの policy も、解けない場合に明示 branch や backend を暗黙に切り替えません。
 
 これらが主要効果なら、独立した 1D--3D kinetic coupling または full PIC で検証します。応答表の grid、固定点許容値、
 matching-plane 高度を変える検証項目は[数値・応答表リファレンス](MatchingPlaneReference.html#収束と適用性を検証する)にまとめています。

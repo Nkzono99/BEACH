@@ -207,7 +207,7 @@ $$
 | receipt | 内容 |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` または `zhao_online` |
-| `surface_current_model_zhao_root_selection` | online Zhao の複数根規則。`require_unique` または `minimum_energy` |
+| `surface_current_model_zhao_root_selection` | online Zhao の root 規則。`require_unique`、`minimum_energy`、または `continuation` |
 | `surface_current_model_implicit_zero_mode` | `T` なら面平均 $D_H$ を backward Euler で更新し、`F` なら batch 開始値を固定 |
 | `surface_current_model_matching_plane_z_m` | matching plane の z 座標 |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | 各 channel に割り当てた species |
@@ -240,7 +240,13 @@ warning 付き commit した state はこれを超え、`matching_plane_iteratio
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
-| `zhao_online` | `surface_current_model_outer_solver_state=stateless` |
+| `zhao_online` + `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
+| `zhao_online` + `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1` |
+
+`accepted_endpoint_continuation_v1` は、accepted endpoint だけを次 batch の seed にする設定方針を示す
+provenance receipt です。局所 Newton だけで追跡できたこと、full multistart や step subdivision の実行回数、
+または root の移動量を示す実績 receipt ではありません。accepted state の有無は
+`matching_plane_state_valid` で判断してください。
 
 ## 履歴
 
@@ -422,8 +428,10 @@ branch policy、implicit mode を含みます。model / species fingerprint は�
 continuation なので、出力先を分けて結果の連続性を利用者が評価してください。mesh fingerprint の不一致は、
 `charges.csv` の要素対応を保証できないため停止します。
 
-online implicit の bracket node は永続 table や checkpoint state ではありません。restart 後も同じ Zhao contract
-から必要な response を直接再評価するため、`matching_query.csv` や自動探索点の fingerprint はありません。
+online implicit の bracket node と step-subdivision node は永続 table や checkpoint state ではありません。
+`continuation` は `summary.txt` に保存した accepted response から restart seed の再構成を試み、再構成できなければ
+minimum-energy bootstrap に戻ります。どの policy も必要な response を同じ Zhao contract から直接再評価するため、
+`matching_query.csv` や自動探索点の fingerprint はありません。
 
 実際の操作は[実行・再開する](Execution.html)を参照してください。
 

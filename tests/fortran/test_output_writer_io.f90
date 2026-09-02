@@ -23,7 +23,7 @@ program test_output_writer_io
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
-  logical :: saw_matching_receipts(13), matching_history_opened
+  logical :: saw_matching_receipts(13), matching_history_opened, saw_continuation_state
   logical :: saw_online_matching_receipts(9)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
@@ -387,6 +387,16 @@ program test_output_writer_io
     out_dir_matching_online//'/summary.txt', saw_online_matching_receipts &
     )
   call assert_true(all(saw_online_matching_receipts), 'summary should record online Zhao solver provenance')
+  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%zhao_root_selection = 'continuation'
+  cfg%surface_current%implicit_zero_mode = .true.
+  call write_result_files(out_dir_matching_online, mesh, stats, cfg)
+  call scan_summary_line( &
+    out_dir_matching_online//'/summary.txt', &
+    'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1', &
+    saw_continuation_state &
+    )
+  call assert_true(saw_continuation_state, 'summary should identify accepted-endpoint continuation state')
   call test_end()
 
   call cleanup_output_dir(out_dir_disabled)
@@ -398,6 +408,26 @@ program test_output_writer_io
   call test_summary()
 
 contains
+
+  subroutine scan_summary_line(summary_path, expected_line, found)
+    character(len=*), intent(in) :: summary_path, expected_line
+    logical, intent(out) :: found
+    integer :: summary_unit, summary_ios
+    character(len=2048) :: summary_line
+
+    found = .false.
+    open (newunit=summary_unit, file=trim(summary_path), status='old', action='read', iostat=summary_ios)
+    if (summary_ios /= 0) error stop 'failed to open summary fixture'
+    do
+      read (summary_unit, '(A)', iostat=summary_ios) summary_line
+      if (summary_ios /= 0) exit
+      if (trim(summary_line) == trim(expected_line)) then
+        found = .true.
+        exit
+      end if
+    end do
+    close (summary_unit)
+  end subroutine scan_summary_line
 
   subroutine scan_resolved_field_solver(summary_path, expected_solver, found)
     character(len=*), intent(in) :: summary_path, expected_solver

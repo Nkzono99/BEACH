@@ -419,8 +419,8 @@ $$
 validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
 seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
 未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
-縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解き、最終残差が
-許容値に達しなければ停止します。
+縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解きます。有限なbracketを
+最後まで縮小しても残差が許容値の8倍を超える場合は、残差が小さい方の有限端点をwarning付きで受理します。
 signed scanは明示A/B/C branchだけに適用します。既定の`zhao_root_selection="require_unique"`では、`auto`が
 seedで一意な物理解を返さない場合は、探索中にbranchを選ばずfail closedとします。したがってimplicit化だけでは
 branch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
@@ -434,7 +434,8 @@ PE target を生成しません。
 `batch_duration`の上限を除去しません。
 
 `response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`と
-`zhao_root_selection="require_unique" / "minimum_energy"`を受理します。table backendとstationary Zhaoは
+`zhao_root_selection="require_unique" / "minimum_energy" / "continuation"`を受理します。`continuation`は
+`zhao_branch="a"`かつ`implicit_zero_mode=true`に限定します。table backendとstationary Zhaoは
 `zhao_root_selection`を拒否します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
 Sagdeev A/B/C rootを解きます。これは壁面の零電流根ではなく、零電流条件を課さないcharge-driven responseです。
 既定の`require_unique`では、`auto`が複数の物理解を検出した場合、または数値失敗により一意なbranchを
@@ -448,6 +449,20 @@ $$
 数値失敗により集合を確定できない場合、または最小値が相対$10^{-6}$以内で縮退する場合はfail closedとします。
 v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
 電位エネルギー比較も時間依存安定性の証明ではありません。
+
+`continuation`の初回queryは`minimum_energy`と同じmultistartでType A rootを選びます。以後は最後にacceptedとなった
+endpointの$(\phi_0,\phi_m,n_{e,\infty})$をNewton seedにします。候補とseedをType Aの対数未知数へ写像したときの
+最大成分差が0.25以下なら局所Newtonの根を受理します。Newton失敗、rootのdecode失敗、profile検証失敗、または
+この距離を超える場合だけfull multistartへ戻り、検出したType A rootのうちseedに最も近いものを調べます。
+最近傍距離を$d_1$、2番目を$d_2$としたとき、$d_1\le0.25$かつ
+$|d_2-d_1|\le10^{-6}\max(1,d_1)$なら、guessの検出順では選ばず曖昧状態として停止します。
+
+最近傍rootも距離0.25を超える場合、Zhao evaluatorは解なしやfamily ambiguityではなく専用の
+step-too-large statusを返します。implicit solverは有効なrootと棄却probeの間を二分し、距離条件を満たす
+中間rootから探索を続けます。有効rootの直後で解なしまたは数値失敗となったprobeも、branch終端を粗く
+飛び越えないよう同じ二分を試します。二分しても中間rootを再取得できない場合だけ停止します。
+この規則はA/B/Cを暗黙に切り替えず、pseudo-arclength continuationのようにfoldの位置や通過を保証もしません。
+`beach-zhao-response`にはaccepted endpointがないため、history-dependentな`continuation`を指定した表生成は拒否します。
 最小エネルギー根の切替でresponseが不連続になり、backward-Euler残差が零点を持たず不連続だけをまたぐ場合は、
 根を補間または混合せずnumerical failureとします。Newton multistartの検出順は物理的なroot IDとして公開しません。
 branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
@@ -457,7 +472,10 @@ online closureでは$H$の絶対座標をSagdeev方程式の数値parameterに�
 PE populationは0のまま、PE speciesがない場合はambient electron温度を数値scaleのfallbackに使います。
 
 online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
-反映しません。各queryはstatelessで、outer inventory、前rootのcontinuation、flight-time queueを保存しません。
+反映しません。`require_unique`と`minimum_energy`の各queryはstatelessです。`continuation`はaccepted endpointのrootだけを
+次batchのseedとして保持し、棄却したimplicit probe、固定点trial、adaptive trialをcommitしません。restartでは既存の
+accepted responseからseedを再構成し、再構成できなければ初回multistartへ戻ります。outer inventoryとflight-time queueは
+どのpolicyも保存しません。
 設定したbranch policyで解が存在しない、branch制約を満たさない、Sagdeev積分が実数にならない、または非線形solveが
 収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
 `photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。

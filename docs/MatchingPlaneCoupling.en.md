@@ -120,7 +120,8 @@ implicit_zero_mode = true
 
 This path needs neither `response_table_path` nor a prebuilt `matching_query.csv`. See
 `examples/periodic2_matching_plane_zhao_implicit.toml` for the complete CSV-free case. A query grid and
-`beach-zhao-response` are needed only when creating a separate table snapshot.
+`beach-zhao-response` are needed only when creating a separate table snapshot. Table generation has no accepted-endpoint
+history and therefore rejects `continuation`.
 
 Implicit integration alone does not choose a Zhao branch. By default, it stops if `auto` cannot certify a unique
 physical solution at the current seed. With strong PE, scan `a`, `b`, and `c` separately and then select the validated
@@ -148,8 +149,27 @@ proof that every mathematical root was found, and the energy comparison is not a
 The online response can become discontinuous when changing $D_H$ or PE moments switches the minimum-energy root. If
 the backward-Euler equation then has no ordinary root, BEACH stops instead of interpolating between the two sheath
 states. This can happen even though a sheath solution exists on both sides. BEACH does not expose Newton discovery
-order as a root number because it is not a physical identifier. A continuation or hysteresis policy would have to keep
-the previous accepted-root signature explicitly in checkpoint state.
+order as a physical root identifier.
+
+To follow a validated Type-A root family between accepted batches, enable the opt-in policy:
+
+```toml
+response_backend = "zhao_online"
+zhao_branch = "a"
+implicit_zero_mode = true
+zhao_root_selection = "continuation"
+```
+
+A new run selects its first Type-A root with minimum-energy multistart, then locally tracks later solves from the accepted
+endpoint. BEACH returns to full multistart when Newton, root decoding, or profile certification fails, or when the
+candidate makes a large jump. A probe whose closest root is farther than 0.25 in logarithmic coordinates is subdivided
+from the last valid root. BEACH stops if this cannot reacquire a Type-A root or if multiple closest roots have numerically
+indistinguishable distances; it does not switch to Type B or C. A no-solution or numerical-failure probe immediately after
+a valid root is subdivided in the same way, avoiding coarse-scan misses near a branch endpoint.
+
+This is not pseudo-arclength continuation and does not guarantee detection or passage through a fold. See the
+[`zhao_root_selection` reference](MatchingPlaneReference.en.html#zhao_root_selection) for rejected-trial rollback,
+restart behavior, and the numerical distance and ambiguity rules.
 
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
@@ -183,9 +203,11 @@ fixed point, not physical validity of the outer sheath or particle-count converg
 3. **Track the same batch.** Use $\Phi_H$ as the `periodic2` zero-mode gauge, track particles, and measure outward moments
    and PE return and escape.
 4. **Check the fixed point.** If the measurements disagree with the assumed feedback, relax the feedback and replay.
-   Every trial starts from the same batch-start RNG state and macro-particle residuals, and an unconverged trial changes no state.
-5. **Commit once.** Only the converged trial updates surface charge, RNG, ledger, history, and outer state. If the adaptive
-   $k\ne0$ condition rejects it, BEACH halves the batch duration and rolls the outer state back as well.
+   Every trial starts from the same batch-start RNG state and macro-particle residuals, and no trial changes state before
+   acceptance. If the finite final trial reaches the iteration limit, BEACH records its residual and accepts it with a warning.
+5. **Commit once.** Only a converged trial or a finite final trial accepted with a warning updates surface charge, RNG,
+   ledger, history, and outer state. The `continuation` root seed belongs to this accepted state as well. If the adaptive
+   $k\ne0$ condition rejects the trial, BEACH halves the batch duration and rolls the outer state back.
 
 This replay tests the consistency of the outer response against one particle map instead of comparing different Monte Carlo draws.
 
@@ -242,6 +264,7 @@ summary receipts, and the exact time convention.
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
 | Fixed point reaches the iteration limit and continues with a warning | Particle noise, strong feedback, or overly tight tolerances | Check frequency and residuals in history; adjust ray or macro count, relaxation, or tolerance if needed |
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
+| `continuation` stops | Subdivision cannot reacquire a Type-A root, or nearest-root distances are numerically indistinguishable | Map Type-A solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
@@ -281,8 +304,8 @@ not retain the high-energy tail.
 The `auto` multiple-root check compares roots found by a finite multistart set; it is not mathematical root isolation.
 Validate branches by scanning explicit `a`, `b`, and `c` selections.
 
-Every query is physically stateless and does not continue from the previous root. If it cannot solve a query, it does not silently
-switch an explicit branch or backend.
+`require_unique` and `minimum_energy` are stateless between queries. Only `continuation` retains the previous accepted
+Type-A root family. No policy silently switches an explicit branch or backend when a query cannot be solved.
 
 When these effects control the result, validate against an independent one-dimensional--three-dimensional kinetic
 coupling or full PIC calculation. The [numerical and response-table reference](MatchingPlaneReference.en.html#validate-convergence-and-applicability)

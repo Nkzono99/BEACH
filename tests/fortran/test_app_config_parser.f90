@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(42)
+  call test_init(45)
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -72,6 +72,42 @@ program test_app_config_parser
     trim(cfg%surface_current%zhao_root_selection) == 'minimum_energy', &
     'online Zhao minimum-energy root selection mismatch' &
     )
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_accepts_type_a_continuation')
+  call write_matching_online_variant( &
+    matching_variant_path, 'a', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_true( &
+    trim(cfg%surface_current%zhao_root_selection) == 'continuation', &
+    'online Zhao continuation root selection mismatch' &
+    )
+  call assert_true(cfg%surface_current%implicit_zero_mode, 'continuation requires implicit zero mode')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_continuation_rejects_non_type_a_branch')
+  call write_matching_online_variant( &
+    matching_variant_path, 'b', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
+    )
+  call assert_config_rejected(matching_variant_path, 'zhao_root_selection="continuation" requires')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_continuation_requires_implicit_zero_mode')
+  call write_matching_online_variant( &
+    matching_variant_path, 'a', .false., 'photoelectron_species = "photoelectron"', &
+    'photoelectron_species = "photoelectron"'//new_line('a')// &
+    'zhao_root_selection = "continuation"' &
+    )
+  call assert_config_rejected(matching_variant_path, 'zhao_root_selection="continuation" requires')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 

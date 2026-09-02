@@ -774,11 +774,19 @@ contains
         error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
       end select
       select case (trim(lower_ascii(cfg%surface_current%zhao_root_selection)))
-      case ('require_unique', 'minimum_energy')
+      case ('require_unique', 'minimum_energy', 'continuation')
         continue
       case default
-        error stop 'surface_current_model.zhao_root_selection must be "require_unique" or "minimum_energy".'
+        error stop 'surface_current_model.zhao_root_selection must be "require_unique", "minimum_energy", '// &
+          'or "continuation".'
       end select
+      if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
+        if (trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'a' .or. &
+            .not. cfg%surface_current%implicit_zero_mode) then
+          error stop 'surface_current_model.zhao_root_selection="continuation" requires '// &
+            'response_backend="zhao_online", zhao_branch="a", and implicit_zero_mode=true.'
+        end if
+      end if
     case default
       error stop 'surface_current_model.response_backend must be "table" or "zhao_online".'
     end select

@@ -330,7 +330,7 @@ closure.
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `response_backend` | string | `"table"` | Matching response source: `table` / `zhao_online` |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; branch for stationary or online Zhao; no-PE stationary accepts only `auto` / `c` |
-| `zhao_root_selection` | string | `"require_unique"` | Multiple-root policy for online Zhao. `require_unique` stops; `minimum_energy` chooses the detected candidate with the lowest full-sheath potential energy. Forbidden for stationary Zhao and tables |
+| `zhao_root_selection` | string | `"require_unique"` | Online-Zhao root policy. `require_unique` rejects multiplicity; `minimum_energy` selects the lowest-potential-energy root; `continuation` tracks the accepted Type-A root. `continuation` requires `zhao_branch="a"` and `implicit_zero_mode=true`. Forbidden for stationary Zhao and tables. See the [numerical and response-table reference](MatchingPlaneReference.en.html#zhao_root_selection) |
 | `electron_species` | string | unspecified | Ambient-electron `species_key`; required for Zhao / matching; 1–64 characters |
 | `ion_species` | string | unspecified | Cold-ion `species_key`; required for Zhao / matching; 1–64 characters |
 | `photoelectron_species` | string | required when PE is enabled | PE `species_key`; 1–64 characters; omission disables PE in matching |
@@ -391,7 +391,7 @@ All rows below are required:
 | Backend | Required, forbidden, and species constraints |
 |---|---|
 | `table` | Requires `response_table_path`; forbids `zhao_branch` and `zhao_root_selection` |
-| `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` and `zhao_root_selection` `require_unique` / `minimum_energy`. With `implicit_zero_mode=true`, searches the selected branch without a response/query CSV |
+| `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` and `zhao_root_selection` `require_unique` / `minimum_energy` / `continuation`. `continuation` is restricted to explicit Type A with `implicit_zero_mode=true`. Implicit mode searches the selected branch without a response/query CSV |
 | `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; negative z component of electron / ion `drift_velocity`; with PE, equal electron/PE masses and $T_{pe}>0$ |
 | All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, and `photoelectron_source_scale` |
 

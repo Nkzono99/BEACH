@@ -13,6 +13,7 @@ diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlane
 | Need | Section |
 |---|---|
 | Update only the mean charge implicitly at a seconds-scale batch width | [`implicit_zero_mode`](#implicit_zero_mode) |
+| Look up online-Zhao multiplicity and root-family policies | [`zhao_root_selection`](#zhao_root_selection) |
 | Look up the exact header, 11 columns, units, and Cartesian grid | [Table-backend response CSV v1](#table-backend-response-csv-v1) |
 | Build a response table with `beach-zhao-response` | [Build a response table for the table backend](#build-a-response-table-for-the-table-backend) |
 | Look up the fixed-point acceptance and relaxation equations | [Fixed-point numerical contract](#fixed-point-numerical-contract) |
@@ -73,10 +74,19 @@ After finite endpoints establish a sign-changing bracket, a roundoff-scale resid
 BEACH accepts the endpoint with the smaller residual and emits a warning. An absent bracket, non-finite response, or
 missing physical solution still stops the run.
 
-The signed scan applies only to an explicit `a`, `b`, or `c` selection. With the default
-`zhao_root_selection="require_unique"`, the implicit solver stops instead of choosing a branch when `auto` cannot
-certify a unique physical solution at the seed. Implicit integration therefore does not remove strong-PE A/B
-coexistence; branchwise solvability still has to be validated.
+The signed scan applies only to an explicit `a`, `b`, or `c` selection. Implicit integration does not remove strong-PE
+A/B coexistence; branchwise solvability still has to be validated.
+
+### `zhao_root_selection`
+
+| Value | Scope | Rule |
+|---|---|---|
+| `require_unique` | Online Zhao | Require one physical root at each query. If `auto` cannot certify uniqueness, stop rather than select a branch |
+| `minimum_energy` | Online Zhao | Choose the detected multistart candidate with the lowest full-sheath potential energy |
+| `continuation` | Online Zhao, explicit `zhao_branch="a"`, and `implicit_zero_mode=true` | Locally track a Type-A root from the last accepted endpoint; fallback accepts only the detected root nearest to the seed |
+
+The default is `require_unique`. `continuation` is an opt-in, history-dependent policy. It is unavailable with `auto`,
+Type B or C, explicit mean-charge updates, tables, and stationary Zhao.
 
 With `zhao_root_selection="minimum_energy"`, BEACH evaluates every candidate detected by the multistart search over
 the full profile from the surface to infinity:
@@ -91,6 +101,33 @@ tied within a relative $10^{-6}$. This energy comparison is a candidate-selectio
 not guarantee enumeration of every root or prove time-dependent stability.
 The response can be discontinuous where the minimum-energy root switches. If the backward-Euler residual crosses that
 discontinuity without an ordinary zero, BEACH reports numerical failure instead of mixing the two roots.
+
+For a new run, `continuation` selects its first Type-A root with the same full multistart minimum-energy bootstrap.
+Later evaluations use the last accepted endpoint root as the Newton seed and locally track a Type-A root. BEACH returns to
+full multistart only when Newton fails to converge, its result cannot be decoded as a valid Type-A root, profile
+certification fails, or the candidate makes a large jump. A local Newton result is accepted directly when the maximum
+absolute log ratio among $(\phi_0,|\phi_m|,n_{e,\infty})$ does not exceed 0.25, corresponding to approximately 0.78--1.28
+times the accepted value for each component.
+
+After full multistart, BEACH selects the closest detected Type-A root using the same logarithmic distance. Let the two
+smallest distances be $d_1$ and $d_2$. If $d_1\le0.25$ and
+$|d_2-d_1|\le10^{-6}\max(1,d_1)$, they are numerically indistinguishable; BEACH reports ambiguity instead of using
+initial-guess order. If the closest root is farther than 0.25, the evaluator does not declare family loss. It returns a
+dedicated step-too-large status, and the implicit solver bisects between the last valid root and the rejected probe before
+continuing its bracket search from a substep within the bound. The same subdivision is attempted when a probe immediately
+after a valid root reports no physical solution or a numerical failure, so a coarse scan does not skip a root near a branch
+endpoint. The solve stops if subdivision cannot reacquire a root or if no physical Type-A root exists.
+It does not switch to Type B or C.
+
+This is not pseudo-arclength continuation. Full multistart and step subdivision can reacquire a nearby root lost by local
+Newton, but they neither locate nor prove passage through a fold. The bootstrap and fallback retain the finite-multistart
+limitation: they do not enumerate every mathematical root.
+
+Rejected implicit probes, unaccepted fixed-point trials, and rejected adaptive-batch trials do not commit their root
+candidates to the accepted continuation state. Only an accepted endpoint seeds the next batch. On restart, BEACH tries
+to reconstruct the seed from the saved accepted response and falls back to the minimum-energy bootstrap if
+reconstruction fails. See the [Output format reference](OutputReference.en.html#matching_plane_quasistatic) for saved
+state and receipts.
 
 With PEs, the half-Maxwellian reduction gives
 
@@ -178,6 +215,8 @@ beach-zhao-response \
 ```
 
 The configuration must be a complete matching case with `response_backend="zhao_online"` and no `response_table_path`.
+Because a table has no accepted-endpoint history, generation rejects `zhao_root_selection="continuation"`. Use
+`require_unique` or `minimum_energy` when generating a table.
 The query CSV permits blank lines and `#` comments. Its first noncomment line is the exact header below. Every value is
 finite, and fluxes and PE energy are nonnegative.
 

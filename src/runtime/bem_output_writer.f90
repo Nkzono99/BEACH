@@ -541,7 +541,12 @@ contains
             'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
           write (u, '(a)') &
             'surface_current_model_ambient_outward_feedback=transparent'
-          write (u, '(a)') 'surface_current_model_outer_solver_state=stateless'
+          if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
+            write (u, '(a)') &
+              'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1'
+          else
+            write (u, '(a)') 'surface_current_model_outer_solver_state=stateless'
+          end if
         case default
           error stop 'write_summary_file: unknown matching-plane response backend.'
         end select

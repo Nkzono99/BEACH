@@ -6,9 +6,10 @@ program test_matching_plane_zhao
   use bem_constants, only: eps0, qe
   use bem_matching_plane_zhao, only: &
     matching_plane_zhao_model_type, matching_plane_zhao_diagnostics_type, &
+    matching_plane_zhao_root_seed_type, &
     matching_plane_zhao_ok, matching_plane_zhao_invalid_argument, &
     matching_plane_zhao_no_physical_solution, matching_plane_zhao_numerical_failure, &
-    matching_plane_zhao_ambiguous_solution
+    matching_plane_zhao_ambiguous_solution, matching_plane_zhao_continuation_step_too_large
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
     assert_close_dp, assert_allclose_1d
@@ -36,14 +37,16 @@ program test_matching_plane_zhao
   type(matching_plane_zhao_diagnostics_type) :: diagnostics, inactive_diagnostics
   type(matching_plane_zhao_diagnostics_type) :: energy_a_diagnostics, energy_b_diagnostics
   type(matching_plane_zhao_diagnostics_type) :: threaded_energy_a_diagnostics
+  type(matching_plane_zhao_root_seed_type) :: bootstrap_seed, continued_seed, reconstructed_seed
+  type(matching_plane_zhao_root_seed_type) :: fallback_seed, fallback_candidate, distant_seed, rejected_seed
   real(dp) :: input(5), output(6), inactive_output(6), feedback_scales(4), energy_a_output(6)
-  real(dp) :: threaded_energy_a_output(6)
+  real(dp) :: threaded_energy_a_output(6), continuation_output(6), reconstructed_output(6)
   real(dp) :: electron_thermal_speed_mps, expected_electron_density_m3
   integer :: omp_threads_before
   integer(i32) :: status
   character(len=512) :: message
 
-  call test_init(8)
+  call test_init(11)
 
   call test_begin('zero_field_without_photoelectrons_is_degenerate_zhao_b')
   call initialize_model('auto', configured_photoelectron_temperature_ev)
@@ -181,6 +184,88 @@ program test_matching_plane_zhao
     diagnostics%minimum_field_squared_hat >= -1.0e-7_dp, &
     'positive-field Zhao-A path contains an imaginary-field interval' &
     )
+  call test_end()
+
+  call test_begin('type_a_continuation_reuses_and_reconstructs_the_accepted_root')
+  call initialize_model('a', type_a_photoelectron_temperature_ev, 'continuation')
+  call model%evaluate( &
+    type_a_input, output, status, message, diagnostics, continuation_candidate=bootstrap_seed &
+    )
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A continuation bootstrap failed: '//trim(message))
+  call assert_true(bootstrap_seed%valid, 'Type-A continuation bootstrap did not return a root seed')
+  call assert_true(.not. diagnostics%continuation_used, 'bootstrap was incorrectly reported as a continuation step')
+
+  input = type_a_input
+  input(1) = input(1)*(1.0_dp + 1.0e-6_dp)
+  call model%evaluate( &
+    input, continuation_output, status, message, diagnostics, &
+    continuation_seed=bootstrap_seed, continuation_candidate=continued_seed &
+    )
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A continuation step failed: '//trim(message))
+  call assert_true(diagnostics%continuation_used, 'accepted seed was not used for Type-A continuation')
+  call assert_true(.not. diagnostics%continuation_fallback_used, 'nearby Type-A root required a full multistart fallback')
+  call assert_true( &
+    diagnostics%continuation_root_jump >= 0.0_dp .and. diagnostics%continuation_root_jump <= 0.25_dp, &
+    'accepted Type-A continuation root exceeded the bounded encoded distance' &
+    )
+  call assert_true(continued_seed%valid, 'accepted Type-A continuation root did not return the next seed')
+
+  call model%reconstruct_seed(input, continuation_output, reconstructed_seed, status, message)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A restart seed reconstruction failed: '//trim(message))
+  call assert_close_dp( &
+    reconstructed_seed%ambient_electron_density_m3, continued_seed%ambient_electron_density_m3, &
+    1.0e-12_dp*continued_seed%ambient_electron_density_m3, &
+    'restart response did not reconstruct the accepted ambient electron density' &
+    )
+  call model%evaluate( &
+    input, reconstructed_output, status, message, diagnostics, continuation_seed=reconstructed_seed &
+    )
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'reconstructed Type-A seed was not reusable: '//trim(message))
+  call assert_allclose_1d( &
+    reconstructed_output, continuation_output, 1.0e-12_dp*maxval(abs(continuation_output)), &
+    'reconstructed Type-A seed changed the matching response' &
+    )
+  call test_end()
+
+  call test_begin('type_a_continuation_reacquires_a_nearby_root_after_local_newton_failure')
+  input = [5.6749386274831732e-12_dp, 4.8140517586819559e12_dp, 1.1_dp, 0.0_dp, 0.0_dp]
+  fallback_seed%valid = .true.
+  fallback_seed%phi0_v = 4.1874671269993607e-1_dp
+  fallback_seed%phi_m_v = -6.4058530638434064e-1_dp
+  fallback_seed%ambient_electron_density_m3 = 8.5523788611962516e6_dp
+  call model%evaluate( &
+    input, output, status, message, diagnostics, &
+    continuation_seed=fallback_seed, continuation_candidate=fallback_candidate &
+    )
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A continuation fallback failed: '//trim(message))
+  call assert_true(diagnostics%continuation_used, 'Type-A continuation did not use the supplied seed')
+  call assert_true(diagnostics%continuation_fallback_used, 'local Newton failure did not trigger full multistart')
+  call assert_close_dp(diagnostics%continuation_root_jump, 0.2_dp, 1.0e-12_dp, 'fallback root distance mismatch')
+  call assert_true(fallback_candidate%valid, 'reacquired nearby Type-A root did not return a candidate seed')
+  call assert_close_dp(output(1), 3.7889769433045589e-1_dp, 1.0e-10_dp, 'fallback matching potential mismatch')
+  call assert_close_dp(output(4), -7.8241266005471111e-1_dp, 1.0e-10_dp, 'fallback potential minimum mismatch')
+  call test_end()
+
+  call test_begin('type_a_continuation_reports_a_distant_probe_for_step_reduction')
+  input = type_a_input
+  distant_seed = continued_seed
+  distant_seed%ambient_electron_density_m3 = &
+    distant_seed%ambient_electron_density_m3*exp(10.0_dp)
+  call model%evaluate( &
+    input, output, status, message, diagnostics, &
+    continuation_seed=distant_seed, continuation_candidate=rejected_seed &
+    )
+  call assert_equal_i32( &
+    status, matching_plane_zhao_continuation_step_too_large, &
+    'Type-A continuation silently accepted a probe beyond its bounded step' &
+    )
+  call assert_true(diagnostics%continuation_fallback_used, 'distant root did not trigger full multistart recovery')
+  call assert_true(.not. rejected_seed%valid, 'rejected distant root was exposed as an accepted continuation seed')
+  call assert_true( &
+    diagnostics%continuation_root_jump > 0.25_dp, &
+    'full multistart recovery did not record the large encoded root distance' &
+    )
+  call assert_true(all(output == 0.0_dp), 'rejected distant continuation returned a partial response')
   call test_end()
 
   call test_begin('auto_positive_field_fails_closed_when_uniqueness_is_uncertain')

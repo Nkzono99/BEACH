@@ -13,6 +13,7 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 | 調べるもの | 節 |
 |---|---|
 | 秒スケールの batch 幅で面平均電荷だけを陰的に更新する | [`implicit_zero_mode`](#implicit_zero_mode) |
+| online Zhao の複数根・root family 選択を調べる | [`zhao_root_selection`](#zhao_root_selection) |
 | 応答表の exact header、11 列、単位、直積格子 | [Table backend の応答 CSV v1](#table-backend-の応答-csv-v1) |
 | `beach-zhao-response` で応答表を作る | [Table backend用の応答表を作る](#table-backend用の応答表を作る) |
 | 固定点の受理式と緩和式 | [固定点の数値契約](#固定点の数値契約) |
@@ -72,10 +73,19 @@ Zhao branch が終点より前に終わる、走査範囲または数値範囲�
 有限な両端で符号変化を確認した後、丸め誤差で残差許容値に届かなかった場合は、残差が小さい方の端点を
 採用して警告します。根を bracket できない場合、応答評価が非有限な場合、物理解がない場合は従来どおり停止します。
 
-signed scan は明示した `a` / `b` / `c` にだけ使います。既定の
-`zhao_root_selection="require_unique"` では、`auto` が seed で一意な物理解を保証できない場合、implicit solver は
-branch を代わりに選ばず停止します。したがって強い PE の A/B 共存は implicit 化だけでは解消せず、branch 別の
-可解性評価が必要です。
+signed scan は明示した `a` / `b` / `c` にだけ使います。強い PE の A/B 共存は implicit 化だけでは解消せず、
+branch 別の可解性評価が必要です。
+
+### `zhao_root_selection`
+
+| 値 | 適用範囲 | 規則 |
+|---|---|---|
+| `require_unique` | online Zhao | query ごとに一意な物理解を要求する。`auto` が一意性を確認できなければ branch を代わりに選ばず停止 |
+| `minimum_energy` | online Zhao | multistart で検出した候補から全シース電位エネルギーが最小の根を選択 |
+| `continuation` | online Zhao、明示的な `zhao_branch="a"`、`implicit_zero_mode=true` | 最後に受理した endpoint を seed に Type A root を局所追跡し、fallback では seed に最も近い検出根だけを受理 |
+
+既定値は `require_unique` です。`continuation` は履歴依存の opt-in で、`auto`、Type B / C、明示更新、table、
+stationary Zhao には使えません。
 
 `zhao_root_selection="minimum_energy"` では、multistart で検出した各候補について表面から無限遠までの profile から
 
@@ -88,6 +98,31 @@ $$
 停止します。このエネルギー比較は候補選択規則であり、有限 multistart による全根の列挙や時間依存安定性を保証しません。
 最小エネルギー根の切替点では応答が不連続になり得ます。backward-Euler 残差がその不連続をまたいでも通常の零点が
 なければ、2根を混合せず数値失敗として停止します。
+
+`continuation` は新規 run の最初の Type A root を `minimum_energy` と同じ full multistart で選びます。
+その後は、最後に受理した endpoint の root を次の Newton seed とし、Type A root を局所追跡します。Newton が
+収束しない、収束値を有効な Type A root に復号できない、profile 検査に通らない、または候補が大きく離れた場合だけ
+full multistart へ戻ります。局所 Newton の受理判定には $(\phi_0,|\phi_m|,n_{e,\infty})$ の各比の対数を使い、
+最大絶対値 0.25 以下、すなわち各成分がおよそ 0.78--1.28 倍の範囲にあることを要求します。
+
+full multistart でも同じ対数距離で最も近い Type A root を選びます。最近傍距離を $d_1$、2 番目を $d_2$ としたとき、
+$d_1\le0.25$ かつ $|d_2-d_1|\le10^{-6}\max(1,d_1)$ なら数値的に区別できないため、初期 guess の順では
+選ばず曖昧状態として停止します。最近傍 root が 0.25 より遠い場合は family loss と断定せず、専用の
+step-too-large status を返します。implicit solver は
+最後の有効 root と棄却した probe の間を二分し、0.25 以内の中間 root を取得してから bracket 探索を続けます。
+最後の有効 root の直後で解なしまたは数値失敗となった probe にも同じ二分を試し、branch 終端付近の root を
+粗い走査で飛び越えないようにします。二分しても root を再取得できない場合、または物理的な Type A root が
+ない場合は停止します。
+Type B / C へは切り替えません。
+
+この方法は pseudo-arclength continuation ではありません。full multistart と step subdivision は局所 Newton が失った
+近傍 root を再取得する手段ですが、fold の位置や通過可能性は証明しません。初回と fallback の multistart にも、
+有限個の初期値では全数学根を列挙できないという制限があります。
+
+implicit root 探索で棄却した probe、固定点の未受理 trial、adaptive batch の棄却 trial は候補 root を accepted
+continuation state に commit しません。accepted endpoint だけが次の batch の seed になります。restart では保存済み
+accepted response から seed の再構成を試み、再構成できない場合は minimum-energy bootstrap に戻ります。保存状態と
+receipt は[出力形式リファレンス](OutputReference.html#matching_plane_quasistatic)を参照してください。
 
 PE ありでは half-Maxwellian 近似から
 
@@ -173,6 +208,8 @@ beach-zhao-response \
 ```
 
 設定ファイルは完全な `response_backend="zhao_online"` matching case とし、`response_table_path` は指定しません。
+表には accepted endpoint の履歴がないため、`zhao_root_selection="continuation"` を指定した生成は拒否されます。
+表生成には `require_unique` または `minimum_energy` を使います。
 query CSV は空行と `#` comment を許し、最初の非 comment 行を次の exact header にします。全値は有限、flux と
 PE energy は非負です。
 

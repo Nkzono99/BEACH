@@ -10,11 +10,13 @@ module bem_matching_plane_response_provider
                                          matching_plane_response_output_count, &
                                          matching_plane_response_ok, &
                                          preflight_matching_plane_response_mpi
-  use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_ok, &
+  use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_root_seed_type, &
+                                     matching_plane_zhao_ok, &
                                      matching_plane_zhao_diagnostics_type, &
                                      matching_plane_zhao_invalid_argument, &
                                      matching_plane_zhao_no_physical_solution, &
-                                     matching_plane_zhao_ambiguous_solution
+                                     matching_plane_zhao_ambiguous_solution, &
+                                     matching_plane_zhao_continuation_step_too_large
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_min_i32_scalar, &
                      mpi_allreduce_max_i32_scalar, mpi_allreduce_min_real_dp_array, &
                      mpi_allreduce_max_real_dp_array, mpi_bcast_i32_array, &
@@ -28,6 +30,8 @@ module bem_matching_plane_response_provider
   integer(i32), parameter, public :: matching_plane_provider_load_failure = 2_i32
   integer(i32), parameter, public :: matching_plane_provider_no_physical_solution = 3_i32
   integer(i32), parameter, public :: matching_plane_provider_numerical_failure = 4_i32
+  integer(i32), parameter, public :: matching_plane_provider_ambiguous_solution = 5_i32
+  integer(i32), parameter, public :: matching_plane_provider_continuation_step_too_large = 6_i32
 
   integer(i32), parameter :: provider_backend_none = 0_i32
   integer(i32), parameter :: provider_backend_table = 1_i32
@@ -55,6 +59,8 @@ module bem_matching_plane_response_provider
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
     procedure, public :: evaluate_local => evaluate_matching_plane_response_provider_local
+    procedure, public :: reconstruct_continuation_seed_local => &
+      reconstruct_matching_plane_continuation_seed_local
     procedure, public :: evaluate_zhao_local => evaluate_matching_plane_zhao_provider_local
     procedure, public :: validate_feedback => validate_matching_plane_provider_feedback
     procedure, public :: feedback_converged => matching_plane_provider_feedback_converged
@@ -371,17 +377,22 @@ contains
 
   !> MPI collectiveを伴わず、呼出rankだけで応答を評価する。
   !! implicit zero-mode root はMPI root上でこの入口を反復し、最終結果だけをbroadcastする。
-  subroutine evaluate_matching_plane_response_provider_local(self, input, output, status, message)
+  subroutine evaluate_matching_plane_response_provider_local( &
+    self, input, output, status, message, continuation_seed, continuation_candidate &
+    )
     class(matching_plane_response_provider_type), intent(inout) :: self
     real(dp), intent(in) :: input(matching_plane_response_input_count)
     real(dp), intent(out) :: output(matching_plane_response_output_count)
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
+    type(matching_plane_zhao_root_seed_type), intent(in), optional :: continuation_seed
+    type(matching_plane_zhao_root_seed_type), intent(out), optional :: continuation_candidate
 
     integer(i32) :: backend_status
     character(len=512) :: backend_message
 
     output = 0.0_dp
+    if (present(continuation_candidate)) continuation_candidate = matching_plane_zhao_root_seed_type()
     call accept_provider(status, message)
     backend_message = ''
     if (.not. self%active .or. self%backend == provider_backend_none .or. &
@@ -403,7 +414,10 @@ contains
         return
       end if
     case (provider_backend_zhao_online)
-      call self%zhao%evaluate(input, output, backend_status, backend_message)
+      call self%zhao%evaluate( &
+        input, output, backend_status, backend_message, &
+        continuation_seed=continuation_seed, continuation_candidate=continuation_candidate &
+        )
       if (backend_status /= matching_plane_zhao_ok) then
         call map_zhao_failure(backend_status, backend_message, status, message)
         return
@@ -424,6 +438,36 @@ contains
         )
     end if
   end subroutine evaluate_matching_plane_response_provider_local
+
+  !> 保存済みの有限なonline Zhao応答からcontinuation seedを再構成する。
+  subroutine reconstruct_matching_plane_continuation_seed_local( &
+    self, input, output, seed, status, message &
+    )
+    class(matching_plane_response_provider_type), intent(in) :: self
+    real(dp), intent(in) :: input(matching_plane_response_input_count)
+    real(dp), intent(in) :: output(matching_plane_response_output_count)
+    type(matching_plane_zhao_root_seed_type), intent(out) :: seed
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    integer(i32) :: backend_status
+    character(len=512) :: backend_message
+
+    seed = matching_plane_zhao_root_seed_type()
+    call accept_provider(status, message)
+    if (.not. self%active .or. self%backend /= provider_backend_zhao_online) then
+      call reject_provider( &
+        matching_plane_provider_invalid_argument, &
+        'continuation seed reconstruction requires an initialized online Zhao provider.', status, message &
+        )
+      return
+    end if
+
+    call self%zhao%reconstruct_seed(input, output, seed, backend_status, backend_message)
+    if (backend_status /= matching_plane_zhao_ok) then
+      call map_zhao_failure(backend_status, backend_message, status, message)
+    end if
+  end subroutine reconstruct_matching_plane_continuation_seed_local
 
   !> Online Zhao backendをMPI collectiveなしで評価し、Zhao固有statusを保持する。
   !! Solvability atlas専用の入口であり、通常runtimeは共通evaluate APIを使う。
@@ -685,8 +729,12 @@ contains
     select case (zhao_status)
     case (matching_plane_zhao_invalid_argument)
       call reject_provider(matching_plane_provider_invalid_argument, zhao_message, status, message)
-    case (matching_plane_zhao_no_physical_solution, matching_plane_zhao_ambiguous_solution)
+    case (matching_plane_zhao_no_physical_solution)
       call reject_provider(matching_plane_provider_no_physical_solution, zhao_message, status, message)
+    case (matching_plane_zhao_ambiguous_solution)
+      call reject_provider(matching_plane_provider_ambiguous_solution, zhao_message, status, message)
+    case (matching_plane_zhao_continuation_step_too_large)
+      call reject_provider(matching_plane_provider_continuation_step_too_large, zhao_message, status, message)
     case default
       call reject_provider(matching_plane_provider_numerical_failure, zhao_message, status, message)
     end select

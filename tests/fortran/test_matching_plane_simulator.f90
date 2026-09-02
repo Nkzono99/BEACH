@@ -48,7 +48,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(16)
+  call test_init(17)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -294,10 +294,11 @@ program test_matching_plane_simulator
     )
   call test_end()
 
-  call test_begin('strong_photo_type_a_implicit_brackets_from_neutral')
+  call test_begin('strong_photo_type_a_continuation_bootstraps_one_batch')
   call configure_fixture(mesh, cfg, inject_state)
   call configure_online_backend(cfg)
   cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%zhao_root_selection = 'continuation'
   cfg%surface_current%implicit_zero_mode = .true.
   ! A small ray ensemble preserves the exact outward number flux and gives the
   ! fixed-current closure a nonempty return channel.  Its sampled mean energy
@@ -335,6 +336,62 @@ program test_matching_plane_simulator
   call assert_close_dp( &
     qe*resumed_stats%matching_plane_feedback(1), 4.5e-6_dp, 1.0e-18_dp, &
     'strong-PE matching-plane outward current mismatch' &
+    )
+  call test_end()
+
+  call test_begin('accepted_type_a_state_resumes_with_continuation')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%zhao_root_selection = 'continuation'
+  cfg%surface_current%implicit_zero_mode = .true.
+  cfg%surface_current%coupling_rtol = 1.0e-3_dp
+  cfg%surface_current%coupling_atol = [3.0e11_dp, 0.1_dp, 0.0_dp, 0.0_dp]
+  cfg%surface_current%coupling_max_iterations = 128_i32
+  cfg%surface_current%coupling_relaxation = 0.25_dp
+  cfg%sim%batch_count = 2_i32
+  cfg%sim%batch_duration = 1.0e-8_dp
+  cfg%sim%dt = 1.0e-7_dp
+  cfg%sim%max_step = 32_i32
+  cfg%particle_species(1)%w_particle = 1.0e4_dp
+  cfg%particle_species(2)%w_particle = 1.0e4_dp
+  cfg%particle_species(3)%temperature_ev = 2.2_dp
+  cfg%particle_species(3)%rays_per_batch = 512_i32
+  ! This fixed raycast current reproduces the stored H-plane outward flux for
+  ! the accepted Type-A profile, so the resume checks continuation, not a PE jump.
+  cfg%particle_species(3)%emit_current_density_a_m2 = 3.7237493222296290e-6_dp
+  mesh%q_elem = 0.5_dp*1.4187346568707933e-11_dp
+  stats = sim_stats()
+  stats%batches = 1_i32
+  stats%simulated_time = cfg%sim%batch_duration
+  stats%matching_plane_state_valid = .true.
+  stats%matching_plane_displacement_c_m2 = 1.4187346568707933e-11_dp
+  stats%matching_plane_phi_v = 2.9712182740209556_dp
+  stats%matching_plane_response = [ &
+                                  2.9712182740209556_dp, 5.9844426451342832e12_dp, 3.5261090340487202e12_dp, &
+                                  -0.81691219174628227_dp, 0.0_dp, -0.81691219174628227_dp &
+                                  ]
+  stats%matching_plane_feedback = [1.3754433596232731e13_dp, 2.2_dp, 0.0_dp, 0.0_dp]
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator( &
+    mesh, cfg, resumed_stats, initial_stats=stats, inject_state=inject_state &
+    )
+  call assert_equal_i32(resumed_stats%batches, 2_i32, 'resumed Type-A continuation batch mismatch')
+  call assert_true(resumed_stats%matching_plane_state_valid, 'resumed Type-A state was not committed')
+  call assert_true( &
+    resumed_stats%matching_plane_phi_v > 0.0_dp .and. &
+    resumed_stats%matching_plane_response(4) < 0.0_dp .and. &
+    resumed_stats%matching_plane_response(6) < 0.0_dp, &
+    'reconstructed continuation did not retain the Type-A potential profile' &
+    )
+  call assert_true( &
+    resumed_stats%matching_plane_residual <= cfg%surface_current%coupling_rtol, &
+    'resumed Type-A continuation did not converge within the configured tolerance' &
+    )
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, stats%matching_plane_displacement_c_m2, &
+    1.0e-3_dp*stats%matching_plane_displacement_c_m2, &
+    'resumed Type-A endpoint moved outside the local continuation neighborhood' &
     )
   call test_end()
 

@@ -36,6 +36,7 @@ contains
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: matching_active, replay_active, matching_converged, matching_history_enabled
   logical :: implicit_zero_mode, implicit_zero_mode_supported, implicit_displacement_bounded
+  logical :: matching_continuation_active
   logical :: matching_photoelectron_active
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2)
@@ -69,6 +70,9 @@ contains
   type(external_boundary_contract_type) :: boundary_contract
   type(surface_closure_contract_type) :: surface_closure
   type(matching_plane_response_provider_type) :: matching_response_provider
+  type(matching_plane_zhao_root_seed_type) :: matching_root_committed
+  type(matching_plane_zhao_root_seed_type) :: matching_root_trial
+  type(matching_plane_zhao_root_seed_type) :: matching_root_candidate
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   type(app_config) :: trial_app
@@ -96,6 +100,11 @@ contains
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   matching_active = trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
   implicit_zero_mode = matching_active .and. app%surface_current%implicit_zero_mode
+  matching_continuation_active = matching_active .and. &
+                                 trim(lower_ascii(app%surface_current%zhao_root_selection)) == 'continuation'
+  matching_root_committed = matching_plane_zhao_root_seed_type()
+  matching_root_trial = matching_plane_zhao_root_seed_type()
+  matching_root_candidate = matching_plane_zhao_root_seed_type()
   implicit_zero_mode_supported = .false.
   implicit_displacement_bounded = .false.
   implicit_displacement_min = 0.0_dp
@@ -270,6 +279,22 @@ contains
     if (stats%batches > 0_i32 .and. .not. stats%matching_plane_state_valid) then
       error stop 'matching-plane resume requires a schema-v9 committed coupling state.'
     end if
+    if (matching_continuation_active .and. stats%matching_plane_state_valid .and. mpi_is_root(mpi_ctx)) then
+      matching_response_input = [ &
+                                stats%matching_plane_displacement_c_m2, stats%matching_plane_feedback &
+                                ]
+      call matching_response_provider%reconstruct_continuation_seed_local( &
+        matching_response_input, stats%matching_plane_response, matching_root_committed, &
+        matching_response_status, matching_response_message &
+        )
+      if (matching_response_status /= matching_plane_provider_ok) then
+        matching_root_committed = matching_plane_zhao_root_seed_type()
+        write (error_unit, '(a)') &
+          'WARNING: matching-plane continuation resume seed was not reconstructed; '// &
+          'the next endpoint will use a full multistart bootstrap: '//trim(matching_response_message)
+        flush (error_unit)
+      end if
+    end if
   else
     stats%matching_plane_state_valid = .false.
   end if
@@ -319,6 +344,7 @@ contains
     end if
 
     do while (.not. trial_accepted)
+      if (matching_continuation_active) matching_root_trial = matching_root_committed
       if (replay_active) then
         call random_seed(put=rng_state_before)
         if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
@@ -389,8 +415,9 @@ contains
               app%particle_species(matching_electron_idx)%q_particle, &
               app%particle_species(matching_ion_idx)%q_particle, &
               matching_photoelectron_active, matching_photoelectron_charge, &
-              matching_displacement, matching_response_output &
+              matching_root_trial, matching_root_candidate, matching_displacement, matching_response_output &
               )
+            if (matching_continuation_active) matching_root_trial = matching_root_candidate
           end if
           call random_seed(put=rng_state_before)
           if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
@@ -689,6 +716,7 @@ contains
 
     call perf_region_begin(perf_region_stats_update, t0)
     stats = stats_candidate
+    if (matching_continuation_active) matching_root_committed = matching_root_trial
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
@@ -1665,7 +1693,7 @@ contains
     provider, mpi, displacement_before, displacement_seed, duration, displacement_bounded, &
     displacement_min, displacement_max, &
     displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
-    photoelectron_charge, displacement_after, response_after &
+    photoelectron_charge, root_before, root_after, displacement_after, response_after &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     type(mpi_context), intent(in) :: mpi
@@ -1676,6 +1704,8 @@ contains
     real(dp), intent(in) :: feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
+    type(matching_plane_zhao_root_seed_type), intent(in) :: root_before
+    type(matching_plane_zhao_root_seed_type), intent(out) :: root_after
     real(dp), intent(out) :: displacement_after, response_after(6)
 
     real(dp) :: result_packet(7)
@@ -1684,6 +1714,7 @@ contains
 
     displacement_after = 0.0_dp
     response_after = 0.0_dp
+    root_after = matching_plane_zhao_root_seed_type()
     result_packet = 0.0_dp
     status = matching_plane_provider_ok
     message = ''
@@ -1692,7 +1723,7 @@ contains
         provider, displacement_before, displacement_seed, duration, displacement_bounded, &
         displacement_min, displacement_max, &
         displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
-        photoelectron_charge, displacement_after, response_after, status, message &
+        photoelectron_charge, root_before, root_after, displacement_after, response_after, status, message &
         )
       if (status == matching_plane_provider_ok .and. len_trim(message) > 0) then
         write (error_unit, '(a)') trim(message)
@@ -1719,7 +1750,7 @@ contains
     provider, displacement_before, displacement_seed, duration, displacement_bounded, &
     displacement_min, displacement_max, &
     displacement_scale, search_direction, feedback_reference, electron_charge, ion_charge, photoelectron_active, &
-    photoelectron_charge, displacement_after, response_after, status, message &
+    photoelectron_charge, root_before, root_after, displacement_after, response_after, status, message &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     logical, intent(in) :: displacement_bounded
@@ -1729,6 +1760,8 @@ contains
     real(dp), intent(in) :: feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
+    type(matching_plane_zhao_root_seed_type), intent(in) :: root_before
+    type(matching_plane_zhao_root_seed_type), intent(out) :: root_after
     real(dp), intent(out) :: displacement_after, response_after(6)
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
@@ -1737,19 +1770,28 @@ contains
     real(dp) :: lower_residual, upper_residual, candidate_residual
     real(dp) :: displacement_tolerance, residual_tolerance
     real(dp) :: lower_response(6), upper_response(6), candidate_response(6)
+    type(matching_plane_zhao_root_seed_type) :: lower_root, upper_root, candidate_root, evaluation_root
     real(dp) :: current_density
     integer(i32), parameter :: online_expansion_count = 64_i32
     integer(i32), parameter :: online_initial_scan_count = 256_i32
     real(dp), parameter :: online_initial_scan_spacing = 1.0_dp/32.0_dp
-    integer(i32) :: iteration, boundary_iteration
+    integer(i32) :: iteration, boundary_iteration, rejected_status
     character(len=512) :: evaluation_message
     logical :: bracketed, lower_candidate_brackets, have_valid_point
-    logical :: saw_numerical_candidate, boundary_failure_numerical
+    logical :: saw_numerical_candidate, saw_continuation_step_limit
+    logical :: boundary_failure_numerical, boundary_failure_step_limit
 
     displacement_after = 0.0_dp
     response_after = 0.0_dp
+    root_after = matching_plane_zhao_root_seed_type()
+    lower_root = matching_plane_zhao_root_seed_type()
+    upper_root = matching_plane_zhao_root_seed_type()
+    candidate_root = matching_plane_zhao_root_seed_type()
+    evaluation_root = matching_plane_zhao_root_seed_type()
     status = matching_plane_provider_ok
     message = ''
+    saw_numerical_candidate = .false.
+    saw_continuation_step_limit = .false.
     displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*max( &
                              displacement_scale, abs(displacement_before), tiny(1.0_dp) &
                              )
@@ -1767,16 +1809,18 @@ contains
       call evaluate_matching_implicit_residual_local( &
         provider, lower, displacement_before, duration, feedback_reference, &
         electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-        lower_residual, lower_response, current_density, status, evaluation_message &
+        root_before, lower_root, lower_residual, lower_response, current_density, status, evaluation_message &
         )
       if (status /= matching_plane_provider_ok) then
         message = 'implicit matching-plane lower endpoint failed: '//trim(evaluation_message)
         return
       end if
+      evaluation_root = root_before
+      if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
       call evaluate_matching_implicit_residual_local( &
         provider, upper, displacement_before, duration, feedback_reference, &
         electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-        upper_residual, upper_response, current_density, status, evaluation_message &
+        evaluation_root, upper_root, upper_residual, upper_response, current_density, status, evaluation_message &
         )
       if (status /= matching_plane_provider_ok) then
         message = 'implicit matching-plane upper endpoint failed: '//trim(evaluation_message)
@@ -1793,7 +1837,7 @@ contains
       call evaluate_matching_implicit_residual_local( &
         provider, lower, displacement_before, duration, feedback_reference, &
         electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-        lower_residual, lower_response, current_density, status, evaluation_message &
+        root_before, lower_root, lower_residual, lower_response, current_density, status, evaluation_message &
         )
       bracketed = .false.
       have_valid_point = status == matching_plane_provider_ok
@@ -1801,6 +1845,7 @@ contains
         if (abs(lower_residual) <= residual_tolerance) then
           displacement_after = lower
           response_after = lower_response
+          root_after = lower_root
           return
         end if
         ! At the seed, the residual gives a local endpoint correction scale.
@@ -1808,7 +1853,9 @@ contains
         step = min(displacement_scale, max(abs(lower_residual), displacement_tolerance))
       else
         if ((status /= matching_plane_provider_no_physical_solution .and. &
-             status /= matching_plane_provider_numerical_failure) .or. search_direction == 0_i32) then
+             status /= matching_plane_provider_numerical_failure .and. &
+             status /= matching_plane_provider_continuation_step_too_large) .or. &
+            search_direction == 0_i32) then
           message = 'implicit matching-plane Zhao starting point failed: '//trim(evaluation_message)
           return
         end if
@@ -1817,20 +1864,41 @@ contains
         ! Scan the natural displacement scale without bracketing across such a
         ! gap; geometric powers can skip the whole Type-A interval.
         saw_numerical_candidate = status == matching_plane_provider_numerical_failure
+        saw_continuation_step_limit = status == matching_plane_provider_continuation_step_too_large
         status = matching_plane_provider_ok
         step = online_initial_scan_spacing*displacement_scale
         have_valid_point = .false.
         do iteration = 1_i32, online_initial_scan_count
           candidate = real(search_direction*iteration, dp)*step
+          evaluation_root = root_before
+          if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
           call evaluate_matching_implicit_residual_local( &
             provider, candidate, displacement_before, duration, feedback_reference, &
             electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-            candidate_residual, candidate_response, current_density, status, evaluation_message &
+            evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
+            status, evaluation_message &
             )
+          if ((status == matching_plane_provider_no_physical_solution .or. &
+               status == matching_plane_provider_numerical_failure .or. &
+               status == matching_plane_provider_continuation_step_too_large) .and. have_valid_point) then
+            invalid_candidate = candidate
+            rejected_status = status
+            call recover_matching_continuation_substep_local( &
+              provider, lower, invalid_candidate, rejected_status, displacement_before, duration, feedback_reference, &
+              electron_charge, ion_charge, photoelectron_active, photoelectron_charge, evaluation_root, &
+              displacement_tolerance, candidate, candidate_root, candidate_residual, candidate_response, &
+              current_density, status, evaluation_message &
+              )
+            if (status /= matching_plane_provider_ok) then
+              message = 'implicit matching-plane Zhao initial-scan subdivision failed: '//trim(evaluation_message)
+              return
+            end if
+          end if
           if (status == matching_plane_provider_ok) then
             if (abs(candidate_residual) <= residual_tolerance) then
               displacement_after = candidate
               response_after = candidate_response
+              root_after = candidate_root
               return
             end if
             if (have_valid_point .and. residuals_bracket_zero(lower_residual, candidate_residual)) then
@@ -1838,13 +1906,16 @@ contains
                 upper = lower
                 upper_residual = lower_residual
                 upper_response = lower_response
+                upper_root = lower_root
                 lower = candidate
                 lower_residual = candidate_residual
                 lower_response = candidate_response
+                lower_root = candidate_root
               else
                 upper = candidate
                 upper_residual = candidate_residual
                 upper_response = candidate_response
+                upper_root = candidate_root
               end if
               bracketed = .true.
               exit
@@ -1852,11 +1923,15 @@ contains
             lower = candidate
             lower_residual = candidate_residual
             lower_response = candidate_response
+            lower_root = candidate_root
             have_valid_point = .true.
           else if (status == matching_plane_provider_no_physical_solution .or. &
-                   status == matching_plane_provider_numerical_failure) then
+                   status == matching_plane_provider_numerical_failure .or. &
+                   status == matching_plane_provider_continuation_step_too_large) then
             saw_numerical_candidate = saw_numerical_candidate .or. &
                                       status == matching_plane_provider_numerical_failure
+            saw_continuation_step_limit = saw_continuation_step_limit .or. &
+                                          status == matching_plane_provider_continuation_step_too_large
             have_valid_point = .false.
             status = matching_plane_provider_ok
           else
@@ -1865,7 +1940,9 @@ contains
           end if
         end do
         if (.not. bracketed) then
-          if (saw_numerical_candidate) then
+          if (saw_continuation_step_limit) then
+            status = matching_plane_provider_continuation_step_too_large
+          else if (saw_numerical_candidate) then
             status = matching_plane_provider_numerical_failure
           else
             status = matching_plane_provider_no_physical_solution
@@ -1891,34 +1968,42 @@ contains
           message = 'implicit matching-plane Zhao bracket expansion overflowed.'
           return
         end if
+        evaluation_root = root_before
+        if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
         call evaluate_matching_implicit_residual_local( &
           provider, candidate, displacement_before, duration, feedback_reference, &
           electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-          candidate_residual, candidate_response, current_density, status, evaluation_message &
+          evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
+          status, evaluation_message &
           )
         if (status == matching_plane_provider_ok) then
           if (abs(candidate_residual) <= residual_tolerance) then
             displacement_after = candidate
             response_after = candidate_response
+            root_after = candidate_root
             return
           end if
           if (.not. have_valid_point) then
             lower = candidate
             lower_residual = candidate_residual
             lower_response = candidate_response
+            lower_root = candidate_root
             have_valid_point = .true.
           else if (residuals_bracket_zero(lower_residual, candidate_residual)) then
             if (candidate < lower) then
               upper = lower
               upper_residual = lower_residual
               upper_response = lower_response
+              upper_root = lower_root
               lower = candidate
               lower_residual = candidate_residual
               lower_response = candidate_response
+              lower_root = candidate_root
             else
               upper = candidate
               upper_residual = candidate_residual
               upper_response = candidate_response
+              upper_root = candidate_root
             end if
             bracketed = .true.
             exit
@@ -1926,27 +2011,34 @@ contains
             lower = candidate
             lower_residual = candidate_residual
             lower_response = candidate_response
+            lower_root = candidate_root
           end if
         else if ((status == matching_plane_provider_no_physical_solution .or. &
-                  status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
+                  status == matching_plane_provider_numerical_failure .or. &
+                  status == matching_plane_provider_continuation_step_too_large) .and. have_valid_point) then
           ! Do not skip a root merely because the geometric probe crossed the
           ! branch boundary.  Approach the invalid endpoint from the last valid
           ! point and look for a sign change without extrapolating the response.
           invalid_candidate = candidate
           boundary_failure_numerical = status == matching_plane_provider_numerical_failure
+          boundary_failure_step_limit = status == matching_plane_provider_continuation_step_too_large
           status = matching_plane_provider_ok
           do boundary_iteration = 1_i32, online_expansion_count
-            candidate = 0.5_dp*(lower + invalid_candidate)
+            candidate = 0.5_dp*lower + 0.5_dp*invalid_candidate
             if (abs(candidate - lower) <= displacement_tolerance) exit
+            evaluation_root = root_before
+            if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
             call evaluate_matching_implicit_residual_local( &
               provider, candidate, displacement_before, duration, feedback_reference, &
               electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-              candidate_residual, candidate_response, current_density, status, evaluation_message &
+              evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
+              status, evaluation_message &
               )
             if (status == matching_plane_provider_ok) then
               if (abs(candidate_residual) <= residual_tolerance) then
                 displacement_after = candidate
                 response_after = candidate_response
+                root_after = candidate_root
                 return
               end if
               if (residuals_bracket_zero(lower_residual, candidate_residual)) then
@@ -1954,13 +2046,16 @@ contains
                   upper = lower
                   upper_residual = lower_residual
                   upper_response = lower_response
+                  upper_root = lower_root
                   lower = candidate
                   lower_residual = candidate_residual
                   lower_response = candidate_response
+                  lower_root = candidate_root
                 else
                   upper = candidate
                   upper_residual = candidate_residual
                   upper_response = candidate_response
+                  upper_root = candidate_root
                 end if
                 bracketed = .true.
                 exit
@@ -1968,10 +2063,14 @@ contains
               lower = candidate
               lower_residual = candidate_residual
               lower_response = candidate_response
+              lower_root = candidate_root
             else if (status == matching_plane_provider_no_physical_solution .or. &
-                     status == matching_plane_provider_numerical_failure) then
+                     status == matching_plane_provider_numerical_failure .or. &
+                     status == matching_plane_provider_continuation_step_too_large) then
               boundary_failure_numerical = boundary_failure_numerical .or. &
                                            status == matching_plane_provider_numerical_failure
+              boundary_failure_step_limit = boundary_failure_step_limit .or. &
+                                            status == matching_plane_provider_continuation_step_too_large
               invalid_candidate = candidate
               status = matching_plane_provider_ok
             else
@@ -1980,14 +2079,17 @@ contains
             end if
           end do
           if (bracketed) exit
-          if (boundary_failure_numerical) then
+          if (boundary_failure_step_limit) then
+            status = matching_plane_provider_continuation_step_too_large
+          else if (boundary_failure_numerical) then
             status = matching_plane_provider_numerical_failure
           else
             status = matching_plane_provider_no_physical_solution
           end if
           message = 'implicit matching-plane Zhao branch ended before the backward-Euler root.'
           return
-        else if (status /= matching_plane_provider_no_physical_solution) then
+        else if (status /= matching_plane_provider_no_physical_solution .and. &
+                 status /= matching_plane_provider_continuation_step_too_large) then
           message = 'implicit matching-plane Zhao bracket expansion failed: '//trim(evaluation_message)
           return
         else
@@ -2011,16 +2113,18 @@ contains
     if (abs(lower_residual) <= residual_tolerance) then
       displacement_after = lower
       response_after = lower_response
+      root_after = lower_root
       return
     end if
     if (abs(upper_residual) <= residual_tolerance) then
       displacement_after = upper
       response_after = upper_response
+      root_after = upper_root
       return
     end if
 
     do iteration = 1_i32, online_expansion_count
-      candidate = 0.5_dp*(lower + upper)
+      candidate = 0.5_dp*lower + 0.5_dp*upper
       if (.not. displacement_bounded) then
         denominator = upper_residual - lower_residual
         if (ieee_is_finite(denominator) .and. denominator /= 0.0_dp) then
@@ -2028,14 +2132,43 @@ contains
         end if
         guard = 0.25_dp*(upper - lower)
         if (.not. ieee_is_finite(candidate) .or. candidate <= lower + guard .or. candidate >= upper - guard) then
-          candidate = 0.5_dp*(lower + upper)
+          candidate = 0.5_dp*lower + 0.5_dp*upper
         end if
+      end if
+      if (.not. root_before%valid) then
+        evaluation_root = root_before
+      else if (abs(candidate - lower) <= abs(upper - candidate)) then
+        evaluation_root = lower_root
+      else
+        evaluation_root = upper_root
       end if
       call evaluate_matching_implicit_residual_local( &
         provider, candidate, displacement_before, duration, feedback_reference, &
         electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-        candidate_residual, candidate_response, current_density, status, evaluation_message &
+        evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
+        status, evaluation_message &
         )
+      if (status == matching_plane_provider_no_physical_solution .or. &
+          status == matching_plane_provider_numerical_failure .or. &
+          status == matching_plane_provider_continuation_step_too_large) then
+        invalid_candidate = candidate
+        rejected_status = status
+        if (abs(candidate - lower) <= abs(upper - candidate)) then
+          call recover_matching_continuation_substep_local( &
+            provider, lower, invalid_candidate, rejected_status, displacement_before, duration, feedback_reference, &
+            electron_charge, ion_charge, photoelectron_active, photoelectron_charge, evaluation_root, &
+            displacement_tolerance, candidate, candidate_root, candidate_residual, candidate_response, &
+            current_density, status, evaluation_message &
+            )
+        else
+          call recover_matching_continuation_substep_local( &
+            provider, upper, invalid_candidate, rejected_status, displacement_before, duration, feedback_reference, &
+            electron_charge, ion_charge, photoelectron_active, photoelectron_charge, evaluation_root, &
+            displacement_tolerance, candidate, candidate_root, candidate_residual, candidate_response, &
+            current_density, status, evaluation_message &
+            )
+        end if
+      end if
       if (status /= matching_plane_provider_ok) then
         message = 'implicit matching-plane bracket refinement failed: '//trim(evaluation_message)
         return
@@ -2043,6 +2176,7 @@ contains
       if (abs(candidate_residual) <= residual_tolerance) then
         displacement_after = candidate
         response_after = candidate_response
+        root_after = candidate_root
         return
       end if
       lower_candidate_brackets = residuals_bracket_zero(lower_residual, candidate_residual)
@@ -2050,19 +2184,23 @@ contains
         upper = candidate
         upper_residual = candidate_residual
         upper_response = candidate_response
+        upper_root = candidate_root
       else
         lower = candidate
         lower_residual = candidate_residual
         lower_response = candidate_response
+        lower_root = candidate_root
       end if
       if (upper - lower <= displacement_tolerance) exit
     end do
     if (abs(lower_residual) <= abs(upper_residual)) then
       displacement_after = lower
       response_after = lower_response
+      root_after = lower_root
     else
       displacement_after = upper
       response_after = upper_response
+      root_after = upper_root
     end if
     if (min(abs(lower_residual), abs(upper_residual)) > 8.0_dp*residual_tolerance) then
       write (message, '(a,es12.4,a,es12.4,a,es12.4)') &
@@ -2072,15 +2210,79 @@ contains
     end if
   end subroutine solve_matching_implicit_zero_mode_local
 
+  subroutine recover_matching_continuation_substep_local( &
+    provider, anchor_displacement, rejected_displacement, rejected_status, &
+    displacement_before, duration, feedback_reference, &
+    electron_charge, ion_charge, photoelectron_active, photoelectron_charge, anchor_root, displacement_tolerance, &
+    recovered_displacement, recovered_root, residual, response, current_density, status, message &
+    )
+    type(matching_plane_response_provider_type), intent(inout) :: provider
+    real(dp), intent(in) :: anchor_displacement, rejected_displacement, displacement_before, duration
+    integer(i32), intent(in) :: rejected_status
+    real(dp), intent(in) :: feedback_reference(4)
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    logical, intent(in) :: photoelectron_active
+    type(matching_plane_zhao_root_seed_type), intent(in) :: anchor_root
+    real(dp), intent(in) :: displacement_tolerance
+    real(dp), intent(out) :: recovered_displacement, residual, response(6), current_density
+    type(matching_plane_zhao_root_seed_type), intent(out) :: recovered_root
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+
+    integer(i32), parameter :: subdivision_count = 128_i32
+    real(dp) :: invalid_displacement
+    integer(i32) :: iteration
+    logical :: saw_numerical_failure, saw_step_limit
+
+    recovered_displacement = anchor_displacement
+    recovered_root = matching_plane_zhao_root_seed_type()
+    residual = 0.0_dp
+    response = 0.0_dp
+    current_density = 0.0_dp
+    status = rejected_status
+    message = ''
+    invalid_displacement = rejected_displacement
+    saw_numerical_failure = rejected_status == matching_plane_provider_numerical_failure
+    saw_step_limit = rejected_status == matching_plane_provider_continuation_step_too_large
+
+    do iteration = 1_i32, subdivision_count
+      recovered_displacement = 0.5_dp*anchor_displacement + 0.5_dp*invalid_displacement
+      if (abs(recovered_displacement - anchor_displacement) <= displacement_tolerance) exit
+      call evaluate_matching_implicit_residual_local( &
+        provider, recovered_displacement, displacement_before, duration, feedback_reference, &
+        electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+        anchor_root, recovered_root, residual, response, current_density, status, message &
+        )
+      if (status == matching_plane_provider_ok) return
+      if (status /= matching_plane_provider_no_physical_solution .and. &
+          status /= matching_plane_provider_numerical_failure .and. &
+          status /= matching_plane_provider_continuation_step_too_large) return
+      saw_numerical_failure = saw_numerical_failure .or. status == matching_plane_provider_numerical_failure
+      saw_step_limit = saw_step_limit .or. status == matching_plane_provider_continuation_step_too_large
+      invalid_displacement = recovered_displacement
+    end do
+
+    if (saw_step_limit) then
+      status = matching_plane_provider_continuation_step_too_large
+    else if (saw_numerical_failure) then
+      status = matching_plane_provider_numerical_failure
+    else
+      status = matching_plane_provider_no_physical_solution
+    end if
+    message = 'no valid same-family Zhao response was found within the continuation subdivision tolerance.'
+  end subroutine recover_matching_continuation_substep_local
+
   subroutine evaluate_matching_implicit_residual_local( &
     provider, displacement, displacement_before, duration, feedback_reference, &
     electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-    residual, response, current_density, status, message &
+    root_before, root_after, residual, response, current_density, status, message &
     )
     type(matching_plane_response_provider_type), intent(inout) :: provider
     real(dp), intent(in) :: displacement, displacement_before, duration, feedback_reference(4)
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
+    type(matching_plane_zhao_root_seed_type), intent(in) :: root_before
+    type(matching_plane_zhao_root_seed_type), intent(out) :: root_after
     real(dp), intent(out) :: residual, response(6), current_density
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
@@ -2088,7 +2290,9 @@ contains
     real(dp) :: input(5), escape_fraction, escape_flux, barrier_energy_ev
 
     input = [displacement, feedback_reference]
-    call provider%evaluate_local(input, response, status, message)
+    call provider%evaluate_local( &
+      input, response, status, message, continuation_seed=root_before, continuation_candidate=root_after &
+      )
     residual = 0.0_dp
     current_density = 0.0_dp
     if (status /= matching_plane_provider_ok) return

@@ -207,6 +207,12 @@ program test_model_fingerprint
   cfg_changed%surface_current%zhao_root_selection = 'minimum_energy'
   fp_b = model_fingerprint(cfg_changed)
   call assert_true(fp_a /= fp_b, 'online Zhao root selection must alter the model fingerprint')
+  cfg_changed%surface_current%zhao_branch = 'a'
+  cfg_changed%surface_current%implicit_zero_mode = .true.
+  fp_a = model_fingerprint(cfg_changed)
+  cfg_changed%surface_current%zhao_root_selection = 'continuation'
+  fp_b = model_fingerprint(cfg_changed)
+  call assert_true(fp_a /= fp_b, 'online Zhao continuation must alter the model fingerprint')
   call delete_file_if_exists(matching_response_path)
   call delete_file_if_exists(matching_response_alias_path)
   call reset_matching_plane_response_snapshot_cache()

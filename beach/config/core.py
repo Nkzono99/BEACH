@@ -1841,11 +1841,21 @@ def _validate_matching_plane_model(
         root_selection = model_config.get("zhao_root_selection", "require_unique")
         if (
             not isinstance(root_selection, str)
-            or root_selection not in {"require_unique", "minimum_energy"}
+            or root_selection
+            not in {"require_unique", "minimum_energy", "continuation"}
         ):
             raise ConfigValidationError(
                 "BEACH constraint error: surface_current_model.zhao_root_selection "
-                'must be "require_unique" or "minimum_energy".'
+                'must be "require_unique", "minimum_energy", or "continuation".'
+            )
+        if root_selection == "continuation" and (
+            zhao_branch != "a" or implicit_zero_mode is not True
+        ):
+            raise ConfigValidationError(
+                "BEACH constraint error: surface_current_model."
+                'zhao_root_selection="continuation" requires '
+                'response_backend="zhao_online", zhao_branch="a", and '
+                "implicit_zero_mode=true."
             )
     for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
         value = model_config.get(key, default)

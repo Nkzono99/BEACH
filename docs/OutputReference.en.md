@@ -209,7 +209,7 @@ the post-commit field at the start of the next batch.
 | Receipt | Meaning |
 | --- | --- |
 | `surface_current_model_response_backend` | `table` or `zhao_online` |
-| `surface_current_model_zhao_root_selection` | Online-Zhao multiple-root policy: `require_unique` or `minimum_energy` |
+| `surface_current_model_zhao_root_selection` | Online-Zhao root policy: `require_unique`, `minimum_energy`, or `continuation` |
 | `surface_current_model_implicit_zero_mode` | `T` advances the plane-mean $D_H$ with backward Euler; `F` holds its batch-start value fixed |
 | `surface_current_model_matching_plane_z_m` | Matching-plane z coordinate |
 | `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | Species assigned to each channel |
@@ -243,7 +243,13 @@ converted to an effective residual, so a converged state's `matching_plane_resid
 | `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
-| `zhao_online` | `surface_current_model_outer_solver_state=stateless` |
+| `zhao_online` with `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
+| `zhao_online` with `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1` |
+
+`accepted_endpoint_continuation_v1` is a provenance receipt for the configured ownership rule: only an accepted endpoint
+seeds the next batch. It is not an execution receipt proving that local Newton alone tracked the root, nor does it report
+the number of full-multistart or step-subdivision evaluations or the root displacement. Use
+`matching_plane_state_valid` to determine whether an accepted state exists.
 
 ## History
 
@@ -426,9 +432,10 @@ configuration. This is a changed-condition continuation, so use a separate outpu
 the observables. A mesh fingerprint mismatch remains fatal because BEACH cannot safely map `charges.csv` rows to
 different elements.
 
-Online implicit bracket nodes are neither a persistent table nor checkpoint state. After restart, BEACH evaluates the
-needed response directly from the same Zhao contract, so no `matching_query.csv` or fingerprint of automatic search
-points is required.
+Online implicit bracket and step-subdivision nodes are neither a persistent table nor checkpoint state. With
+`continuation`, BEACH tries to reconstruct the restart seed from the accepted response saved in `summary.txt` and falls
+back to the minimum-energy bootstrap if reconstruction fails. Every policy evaluates the needed response directly from
+the same Zhao contract, so no `matching_query.csv` or fingerprint of automatic search points is required.
 
 See [Execution and Resume](Execution.en.html) for the actual procedure.
 

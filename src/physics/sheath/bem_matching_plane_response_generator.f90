@@ -53,6 +53,14 @@ contains
         )
       return
     end if
+    if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
+      call reject_generator( &
+        matching_plane_generator_invalid_argument, &
+        'response-table generation does not define an accepted endpoint for Zhao continuation.', &
+        status, message &
+        )
+      return
+    end if
     if (len_trim(query_path) == 0 .or. len_trim(output_path) == 0) then
       call reject_generator( &
         matching_plane_generator_invalid_argument, &
