@@ -417,7 +417,9 @@ contains
               matching_photoelectron_active, matching_photoelectron_charge, &
               matching_root_trial, matching_root_candidate, matching_displacement, matching_response_output &
               )
-            if (matching_continuation_active) matching_root_trial = matching_root_candidate
+            if (matching_continuation_active .and. matching_root_committed%valid) then
+              matching_root_trial = matching_root_candidate
+            end if
           end if
           call random_seed(put=rng_state_before)
           if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
@@ -716,7 +718,7 @@ contains
 
     call perf_region_begin(perf_region_stats_update, t0)
     stats = stats_candidate
-    if (matching_continuation_active) matching_root_committed = matching_root_trial
+    if (matching_continuation_active) matching_root_committed = matching_root_candidate
     call perf_region_end(perf_region_stats_update, t0)
 
     call perf_region_begin(perf_region_history_write, t0)
