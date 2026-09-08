@@ -3,63 +3,63 @@
   "files": [
     {
       "name": "summary.txt",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_summary.f90",
       "condition": "output.write_files=true",
       "restart_role": "required",
       "consumer": "src/runtime/bem_restart.f90"
     },
     {
       "name": "charges.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true",
       "restart_role": "required",
       "consumer": "src/runtime/bem_restart.f90"
     },
     {
       "name": "mesh_triangles.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true",
       "restart_role": "none"
     },
     {
       "name": "mesh_sources.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true for OBJ and template meshes",
       "restart_role": "none"
     },
     {
       "name": "mesh_potential.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true and output.write_mesh_potential=true",
       "restart_role": "none"
     },
     {
       "name": "charge_history.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_history.f90",
       "condition": "output.write_files=true and output.history_stride>0",
       "restart_role": "none"
     },
     {
       "name": "potential_history.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_history.f90",
       "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0",
       "restart_role": "none"
     },
     {
       "name": "top_reference_history.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_history.f90",
       "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0 and [domain] is configured",
       "restart_role": "none"
     },
     {
       "name": "matching_plane_history.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_history.f90",
       "condition": "output.write_files=true and output.history_stride>0 and surface_current_model.model=matching_plane_quasistatic",
       "restart_role": "none"
     },
     {
       "name": "charge_ledger.csv",
-      "producer": "src/runtime/bem_output_writer.f90",
+      "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true and charge ledger state is present",
       "restart_role": "conditional: required when summary contains ledger checkpoint metadata",
       "consumer": "src/runtime/bem_restart.f90"
@@ -67,17 +67,17 @@
     {
       "name": "rng_state.txt",
       "mpi_name": "rng_state_rankNNNNN.txt",
-      "producer": "src/runtime/bem_restart.f90",
+      "producer": "src/runtime/bem_restart_injection.f90",
       "condition": "output.write_files=true; serial name or one file per MPI rank",
       "restart_role": "required",
-      "consumer": "src/runtime/bem_restart.f90"
+      "consumer": "src/runtime/bem_restart_injection.f90"
     },
     {
       "name": "macro_residuals.csv",
-      "producer": "src/runtime/bem_restart.f90",
+      "producer": "src/runtime/bem_restart_injection.f90",
       "condition": "output.write_files=true and macro-particle residual state is allocated; one global file in serial and MPI",
       "restart_role": "schema v8+: required when checkpoint_complete.txt declares it present; legacy: restore when present",
-      "consumer": "src/runtime/bem_restart.f90"
+      "consumer": "src/runtime/bem_restart_injection.f90"
     },
     {
       "name": "checkpoint_complete.txt",
