@@ -155,7 +155,7 @@ contains
           call feed_string(hash, 'photoelectron_moment_matched_half_maxwellian')
           call feed_string(hash, 'ambient_outward_feedback_transparent')
           if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
-            call feed_string(hash, 'accepted_endpoint_continuation_v1')
+            call feed_string(hash, 'accepted_endpoint_continuation_v2')
           else
             call feed_string(hash, 'stateless_branch_selection')
           end if

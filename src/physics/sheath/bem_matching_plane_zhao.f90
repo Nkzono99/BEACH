@@ -46,7 +46,6 @@ module bem_matching_plane_zhao
   integer(i32), parameter, public :: matching_plane_zhao_no_physical_solution = 2_i32
   integer(i32), parameter, public :: matching_plane_zhao_numerical_failure = 3_i32
   integer(i32), parameter, public :: matching_plane_zhao_ambiguous_solution = 4_i32
-  integer(i32), parameter, public :: matching_plane_zhao_continuation_step_too_large = 5_i32
 
   type, public :: matching_plane_zhao_diagnostics_type
     character(len=1) :: branch = ' '
@@ -865,12 +864,9 @@ contains
       end if
     end do
     root_jump = nearest_jump
-    if (nearest_index > 0 .and. nearest_jump > continuation_root_jump_limit) then
-      status = matching_plane_zhao_continuation_step_too_large
-      message = 'matching-plane Zhao continuation probe is too far from the accepted Type-A root.'
-    else if (nearest_index > 0 .and. &
-             abs(second_nearest_jump - nearest_jump) <= &
-             continuation_distance_tie_tolerance*max(1.0_dp, nearest_jump)) then
+    if (nearest_index > 0 .and. &
+        abs(second_nearest_jump - nearest_jump) <= &
+        continuation_distance_tie_tolerance*max(1.0_dp, nearest_jump)) then
       status = matching_plane_zhao_ambiguous_solution
       message = 'matching-plane Zhao continuation fallback found indistinguishable nearest Type-A roots.'
     else if (nearest_index > 0) then

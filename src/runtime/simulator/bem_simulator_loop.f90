@@ -1780,8 +1780,8 @@ contains
     integer(i32) :: iteration, boundary_iteration, rejected_status
     character(len=512) :: evaluation_message
     logical :: bracketed, lower_candidate_brackets, have_valid_point
-    logical :: saw_numerical_candidate, saw_continuation_step_limit
-    logical :: boundary_failure_numerical, boundary_failure_step_limit
+    logical :: saw_numerical_candidate
+    logical :: boundary_failure_numerical
 
     displacement_after = 0.0_dp
     response_after = 0.0_dp
@@ -1793,7 +1793,6 @@ contains
     status = matching_plane_provider_ok
     message = ''
     saw_numerical_candidate = .false.
-    saw_continuation_step_limit = .false.
     displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*max( &
                              displacement_scale, abs(displacement_before), tiny(1.0_dp) &
                              )
@@ -1855,8 +1854,7 @@ contains
         step = min(displacement_scale, max(abs(lower_residual), displacement_tolerance))
       else
         if ((status /= matching_plane_provider_no_physical_solution .and. &
-             status /= matching_plane_provider_numerical_failure .and. &
-             status /= matching_plane_provider_continuation_step_too_large) .or. &
+             status /= matching_plane_provider_numerical_failure) .or. &
             search_direction == 0_i32) then
           message = 'implicit matching-plane Zhao starting point failed: '//trim(evaluation_message)
           return
@@ -1866,7 +1864,6 @@ contains
         ! Scan the natural displacement scale without bracketing across such a
         ! gap; geometric powers can skip the whole Type-A interval.
         saw_numerical_candidate = status == matching_plane_provider_numerical_failure
-        saw_continuation_step_limit = status == matching_plane_provider_continuation_step_too_large
         status = matching_plane_provider_ok
         step = online_initial_scan_spacing*displacement_scale
         have_valid_point = .false.
@@ -1881,8 +1878,7 @@ contains
             status, evaluation_message &
             )
           if ((status == matching_plane_provider_no_physical_solution .or. &
-               status == matching_plane_provider_numerical_failure .or. &
-               status == matching_plane_provider_continuation_step_too_large) .and. have_valid_point) then
+               status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
             invalid_candidate = candidate
             rejected_status = status
             call recover_matching_continuation_substep_local( &
@@ -1928,12 +1924,9 @@ contains
             lower_root = candidate_root
             have_valid_point = .true.
           else if (status == matching_plane_provider_no_physical_solution .or. &
-                   status == matching_plane_provider_numerical_failure .or. &
-                   status == matching_plane_provider_continuation_step_too_large) then
+                   status == matching_plane_provider_numerical_failure) then
             saw_numerical_candidate = saw_numerical_candidate .or. &
                                       status == matching_plane_provider_numerical_failure
-            saw_continuation_step_limit = saw_continuation_step_limit .or. &
-                                          status == matching_plane_provider_continuation_step_too_large
             have_valid_point = .false.
             status = matching_plane_provider_ok
           else
@@ -1942,9 +1935,7 @@ contains
           end if
         end do
         if (.not. bracketed) then
-          if (saw_continuation_step_limit) then
-            status = matching_plane_provider_continuation_step_too_large
-          else if (saw_numerical_candidate) then
+          if (saw_numerical_candidate) then
             status = matching_plane_provider_numerical_failure
           else
             status = matching_plane_provider_no_physical_solution
@@ -2016,14 +2007,12 @@ contains
             lower_root = candidate_root
           end if
         else if ((status == matching_plane_provider_no_physical_solution .or. &
-                  status == matching_plane_provider_numerical_failure .or. &
-                  status == matching_plane_provider_continuation_step_too_large) .and. have_valid_point) then
+                  status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
           ! Do not skip a root merely because the geometric probe crossed the
           ! branch boundary.  Approach the invalid endpoint from the last valid
           ! point and look for a sign change without extrapolating the response.
           invalid_candidate = candidate
           boundary_failure_numerical = status == matching_plane_provider_numerical_failure
-          boundary_failure_step_limit = status == matching_plane_provider_continuation_step_too_large
           status = matching_plane_provider_ok
           do boundary_iteration = 1_i32, online_expansion_count
             candidate = 0.5_dp*lower + 0.5_dp*invalid_candidate
@@ -2067,12 +2056,9 @@ contains
               lower_response = candidate_response
               lower_root = candidate_root
             else if (status == matching_plane_provider_no_physical_solution .or. &
-                     status == matching_plane_provider_numerical_failure .or. &
-                     status == matching_plane_provider_continuation_step_too_large) then
+                     status == matching_plane_provider_numerical_failure) then
               boundary_failure_numerical = boundary_failure_numerical .or. &
                                            status == matching_plane_provider_numerical_failure
-              boundary_failure_step_limit = boundary_failure_step_limit .or. &
-                                            status == matching_plane_provider_continuation_step_too_large
               invalid_candidate = candidate
               status = matching_plane_provider_ok
             else
@@ -2081,17 +2067,14 @@ contains
             end if
           end do
           if (bracketed) exit
-          if (boundary_failure_step_limit) then
-            status = matching_plane_provider_continuation_step_too_large
-          else if (boundary_failure_numerical) then
+          if (boundary_failure_numerical) then
             status = matching_plane_provider_numerical_failure
           else
             status = matching_plane_provider_no_physical_solution
           end if
           message = 'implicit matching-plane Zhao branch ended before the backward-Euler root.'
           return
-        else if (status /= matching_plane_provider_no_physical_solution .and. &
-                 status /= matching_plane_provider_continuation_step_too_large) then
+        else if (status /= matching_plane_provider_no_physical_solution) then
           message = 'implicit matching-plane Zhao bracket expansion failed: '//trim(evaluation_message)
           return
         else
@@ -2151,8 +2134,7 @@ contains
         status, evaluation_message &
         )
       if (status == matching_plane_provider_no_physical_solution .or. &
-          status == matching_plane_provider_numerical_failure .or. &
-          status == matching_plane_provider_continuation_step_too_large) then
+          status == matching_plane_provider_numerical_failure) then
         invalid_candidate = candidate
         rejected_status = status
         if (abs(candidate - lower) <= abs(upper - candidate)) then
@@ -2234,7 +2216,7 @@ contains
     integer(i32), parameter :: subdivision_count = 128_i32
     real(dp) :: invalid_displacement
     integer(i32) :: iteration
-    logical :: saw_numerical_failure, saw_step_limit
+    logical :: saw_numerical_failure
 
     recovered_displacement = anchor_displacement
     recovered_root = matching_plane_zhao_root_seed_type()
@@ -2245,7 +2227,6 @@ contains
     message = ''
     invalid_displacement = rejected_displacement
     saw_numerical_failure = rejected_status == matching_plane_provider_numerical_failure
-    saw_step_limit = rejected_status == matching_plane_provider_continuation_step_too_large
 
     do iteration = 1_i32, subdivision_count
       recovered_displacement = 0.5_dp*anchor_displacement + 0.5_dp*invalid_displacement
@@ -2257,21 +2238,17 @@ contains
         )
       if (status == matching_plane_provider_ok) return
       if (status /= matching_plane_provider_no_physical_solution .and. &
-          status /= matching_plane_provider_numerical_failure .and. &
-          status /= matching_plane_provider_continuation_step_too_large) return
+          status /= matching_plane_provider_numerical_failure) return
       saw_numerical_failure = saw_numerical_failure .or. status == matching_plane_provider_numerical_failure
-      saw_step_limit = saw_step_limit .or. status == matching_plane_provider_continuation_step_too_large
       invalid_displacement = recovered_displacement
     end do
 
-    if (saw_step_limit) then
-      status = matching_plane_provider_continuation_step_too_large
-    else if (saw_numerical_failure) then
+    if (saw_numerical_failure) then
       status = matching_plane_provider_numerical_failure
     else
       status = matching_plane_provider_no_physical_solution
     end if
-    message = 'no valid same-family Zhao response was found within the continuation subdivision tolerance.'
+    message = 'no valid Type-A Zhao response was found within the continuation subdivision tolerance.'
   end subroutine recover_matching_continuation_substep_local
 
   subroutine evaluate_matching_implicit_residual_local( &

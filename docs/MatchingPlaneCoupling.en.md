@@ -162,12 +162,14 @@ zhao_root_selection = "continuation"
 
 A new run selects its first Type-A root with minimum-energy multistart, then locally tracks later solves from the accepted
 endpoint. BEACH returns to full multistart when Newton, root decoding, or profile certification fails, or when the
-candidate makes a large jump. A probe whose closest root is farther than 0.25 in logarithmic coordinates is subdivided
-from the last valid root. BEACH stops if this cannot reacquire a Type-A root or if multiple closest roots have numerically
-indistinguishable distances; it does not switch to Type B or C. A no-solution or numerical-failure probe immediately after
-a valid root is subdivided in the same way, avoiding coarse-scan misses near a branch endpoint.
+candidate makes a large jump. Local Newton uses a logarithmic distance of 0.25 from the accepted root as its fast-path
+limit. After fallback, full multistart applies no distance limit and accepts the numerically unique closest Type-A root.
+BEACH stops when several roots have indistinguishable nearest distances, no Type-A root is detected, or root search or
+profile certification fails numerically; it does not switch to Type B or C. A no-solution or numerical-failure probe
+immediately after a valid root is still subdivided, avoiding coarse-scan misses near a branch endpoint.
 
-This is not pseudo-arclength continuation and does not guarantee detection or passage through a fold. See the
+This is not pseudo-arclength continuation and does not guarantee retention of the same physical family, detection of a
+fold, or passage through one. See the
 [`zhao_root_selection` reference](MatchingPlaneReference.en.html#zhao_root_selection) for rejected-trial rollback,
 restart behavior, and the numerical distance and ambiguity rules.
 
@@ -264,7 +266,7 @@ summary receipts, and the exact time convention.
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
 | Fixed point reaches the iteration limit and continues with a warning | Particle noise, strong feedback, or overly tight tolerances | Check frequency and residuals in history; adjust ray or macro count, relaxation, or tolerance if needed |
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
-| `continuation` stops | Subdivision cannot reacquire a Type-A root, or nearest-root distances are numerically indistinguishable | Map Type-A solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
+| `continuation` stops | Full multistart detects no Type-A root, root search or profile certification fails numerically, or nearest-root distances are numerically indistinguishable | Map Type-A solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |

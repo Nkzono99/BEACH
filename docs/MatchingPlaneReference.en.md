@@ -110,17 +110,18 @@ absolute log ratio among $(\phi_0,|\phi_m|,n_{e,\infty})$ does not exceed 0.25, 
 times the accepted value for each component.
 
 After full multistart, BEACH selects the closest detected Type-A root using the same logarithmic distance. Let the two
-smallest distances be $d_1$ and $d_2$. If $d_1\le0.25$ and
+smallest distances be $d_1$ and $d_2$. If
 $|d_2-d_1|\le10^{-6}\max(1,d_1)$, they are numerically indistinguishable; BEACH reports ambiguity instead of using
-initial-guess order. If the closest root is farther than 0.25, the evaluator does not declare family loss. It returns a
-dedicated step-too-large status, and the implicit solver bisects between the last valid root and the rejected probe before
-continuing its bracket search from a substep within the bound. The same subdivision is attempted when a probe immediately
-after a valid root reports no physical solution or a numerical failure, so a coarse scan does not skip a root near a branch
-endpoint. The solve stops if subdivision cannot reacquire a root or if no physical Type-A root exists.
+initial-guess order. Otherwise it accepts the closest root whether its distance is below or above 0.25. The 0.25 bound is
+only the fast-path acceptance limit for local Newton; it is not a physical distance limit on the root family after full
+multistart. The solve stops when full multistart finds no Type-A root or when root search or profile certification fails
+numerically. If a probe immediately after a valid root reports no physical solution or a numerical failure, the implicit
+solver still subdivides that interval so a coarse scan does not skip a root near a branch endpoint.
 It does not switch to Type B or C.
 
-This is not pseudo-arclength continuation. Full multistart and step subdivision can reacquire a nearby root lost by local
-Newton, but they neither locate nor prove passage through a fold. The bootstrap and fallback retain the finite-multistart
+This is not pseudo-arclength continuation. Full multistart and branch-boundary subdivision can reacquire a root lost by
+local Newton, but they do not prove retention of the same physical family, locate a fold, or prove passage through one.
+The bootstrap and fallback retain the finite-multistart
 limitation: they do not enumerate every mathematical root.
 
 Rejected implicit probes, unaccepted fixed-point trials, and rejected adaptive-batch trials do not commit their root

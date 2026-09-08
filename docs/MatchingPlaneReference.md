@@ -106,17 +106,16 @@ full multistart へ戻ります。局所 Newton の受理判定には $(\phi_0,|
 最大絶対値 0.25 以下、すなわち各成分がおよそ 0.78--1.28 倍の範囲にあることを要求します。
 
 full multistart でも同じ対数距離で最も近い Type A root を選びます。最近傍距離を $d_1$、2 番目を $d_2$ としたとき、
-$d_1\le0.25$ かつ $|d_2-d_1|\le10^{-6}\max(1,d_1)$ なら数値的に区別できないため、初期 guess の順では
-選ばず曖昧状態として停止します。最近傍 root が 0.25 より遠い場合は family loss と断定せず、専用の
-step-too-large status を返します。implicit solver は
-最後の有効 root と棄却した probe の間を二分し、0.25 以内の中間 root を取得してから bracket 探索を続けます。
-最後の有効 root の直後で解なしまたは数値失敗となった probe にも同じ二分を試し、branch 終端付近の root を
-粗い走査で飛び越えないようにします。二分しても root を再取得できない場合、または物理的な Type A root が
-ない場合は停止します。
+$|d_2-d_1|\le10^{-6}\max(1,d_1)$ なら数値的に区別できないため、初期 guess の順では選ばず曖昧状態として停止します。
+それ以外は、最近傍 root を距離 0.25 の内外にかかわらず受理します。0.25 は局所 Newton をそのまま使う fast path の
+上限であり、full multistart 後の root family に対する物理的な距離上限ではありません。full multistart で Type A root を
+検出できない場合、または探索や profile 検査が数値的に失敗した場合は停止します。最後の有効 root の直後で解なしまたは
+数値失敗となった implicit probe には二分を試し、branch 終端付近の root を粗い走査で飛び越えないようにします。
 Type B / C へは切り替えません。
 
-この方法は pseudo-arclength continuation ではありません。full multistart と step subdivision は局所 Newton が失った
-近傍 root を再取得する手段ですが、fold の位置や通過可能性は証明しません。初回と fallback の multistart にも、
+この方法は pseudo-arclength continuation ではありません。full multistart と branch-boundary subdivision は局所 Newton が
+失った root を再取得する手段ですが、同じ物理 family の保持、fold の位置、fold の通過可能性は証明しません。
+初回と fallback の multistart にも、
 有限個の初期値では全数学根を列挙できないという制限があります。
 
 implicit root 探索で棄却した probe、固定点の未受理 trial、adaptive batch の棄却 trial は候補 root を accepted

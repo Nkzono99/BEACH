@@ -454,14 +454,13 @@ v1の複数根検出は有限個のmultistartから得た収束根のcluster判�
 endpointの$(\phi_0,\phi_m,n_{e,\infty})$をNewton seedにします。候補とseedをType Aの対数未知数へ写像したときの
 最大成分差が0.25以下なら局所Newtonの根を受理します。Newton失敗、rootのdecode失敗、profile検証失敗、または
 この距離を超える場合だけfull multistartへ戻り、検出したType A rootのうちseedに最も近いものを調べます。
-最近傍距離を$d_1$、2番目を$d_2$としたとき、$d_1\le0.25$かつ
-$|d_2-d_1|\le10^{-6}\max(1,d_1)$なら、guessの検出順では選ばず曖昧状態として停止します。
-
-最近傍rootも距離0.25を超える場合、Zhao evaluatorは解なしやfamily ambiguityではなく専用の
-step-too-large statusを返します。implicit solverは有効なrootと棄却probeの間を二分し、距離条件を満たす
-中間rootから探索を続けます。有効rootの直後で解なしまたは数値失敗となったprobeも、branch終端を粗く
-飛び越えないよう同じ二分を試します。二分しても中間rootを再取得できない場合だけ停止します。
-この規則はA/B/Cを暗黙に切り替えず、pseudo-arclength continuationのようにfoldの位置や通過を保証もしません。
+最近傍距離を$d_1$、2番目を$d_2$としたとき、
+$|d_2-d_1|\le10^{-6}\max(1,d_1)$なら、guessの検出順では選ばず曖昧状態として停止します。それ以外は最近傍rootを
+距離0.25の内外にかかわらず受理します。0.25は局所Newton fast pathの受理上限であり、full multistart後の
+root familyに対する物理的な距離上限ではありません。full multistartでType A rootを検出できない場合、または
+探索・profile検証が数値的に失敗した場合は停止します。有効rootの直後で解なしまたは数値失敗となったimplicit probeは、
+branch終端を粗く飛び越えないよう二分を試します。この規則はA/B/Cを暗黙に切り替えず、同じ物理familyの保持や
+pseudo-arclength continuationのようなfoldの位置・通過も保証しません。
 `beach-zhao-response`にはaccepted endpointがないため、history-dependentな`continuation`を指定した表生成は拒否します。
 最小エネルギー根の切替でresponseが不連続になり、backward-Euler残差が零点を持たず不連続だけをまたぐ場合は、
 根を補間または混合せずnumerical failureとします。Newton multistartの検出順は物理的なroot IDとして公開しません。

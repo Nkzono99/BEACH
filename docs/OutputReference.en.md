@@ -244,11 +244,11 @@ converted to an effective residual, so a converged state's `matching_plane_resid
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
 | `zhao_online` with `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
-| `zhao_online` with `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1` |
+| `zhao_online` with `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2` |
 
-`accepted_endpoint_continuation_v1` is a provenance receipt for the configured ownership rule: only an accepted endpoint
-seeds the next batch. It is not an execution receipt proving that local Newton alone tracked the root, nor does it report
-the number of full-multistart or step-subdivision evaluations or the root displacement. Use
+`accepted_endpoint_continuation_v2` is a provenance receipt for the configured ownership rule: only an accepted endpoint
+seeds the next batch, and a unique nearest root from full multistart is used when local Newton cannot reacquire a nearby
+root. It does not report the number of full-multistart or step-subdivision evaluations or the root displacement. Use
 `matching_plane_state_valid` to determine whether an accepted state exists.
 
 ## History

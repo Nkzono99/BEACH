@@ -148,14 +148,15 @@ beach.toml
 | `multiple_box_events_retry_backend` | string | `"none"` | `multiple_box_events` 後の再試行。`none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_grace` | int | `1000` | 累積 soft discard 率の判定を開始する件数猶予。`>= 0` |
 | `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | 累積 soft discard 率の停止上限。`0 < value <= 1` |
-| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積 soft discard 絶対電荷の停止上限 [C]。有限かつ `>0` |
+| `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積 soft discard 絶対電荷の警告閾値 [C]。有限かつ `>0` |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大 bounce 数。有効時 `>=1` |
 
 `batch_duration` と `batch_duration_step` の同時指定はエラーです。
 `boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
 
 `upper_panel_fourier` は `cached_kneq0` の `periodic2` 構成でのみ有効です。
-`soft_discard` は、件数猶予の超過後に累積破棄率が率上限を超えた場合、または累積絶対電荷が電荷上限を超えた場合に停止します。
+`soft_discard` は、件数猶予の超過後に累積破棄率が率上限を超えた場合だけ停止します。
+累積絶対電荷は実行時間とともに増えるため、電荷閾値の初回超過は警告として記録します。
 再試行の成立条件と診断値は[粒子の衝突・境界イベント](ParticleEvents.html#判定を完了できなければ停止する)を参照してください。
 
 #### 外部場
@@ -319,7 +320,7 @@ face_potential_grid_n = 3
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `response_backend` | string | `"table"` | matchingの応答源。`table` / `zhao_online` |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
-| `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は検出候補の全シース電位エネルギーが最小の根を選ぶ。`continuation` は accepted endpoint から Type A root を局所追跡し、fallback では seed に最も近い検出根だけを受理する opt-in。明示的な `zhao_branch="a"` と `implicit_zero_mode=true` が必須。stationary / table では指定不可 |
+| `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は最小電位エネルギー根を選択、`continuation` は accepted Type A root を追跡。`continuation` には `zhao_branch="a"` と `implicit_zero_mode=true` が必須。stationary / table では指定不可。詳細は[数値・応答表リファレンス](MatchingPlaneReference.html#zhao_root_selection) |
 | `electron_species` | string | 未指定 | ambient electron の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `ion_species` | string | 未指定 | cold ion の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字、matching で省略すると PE なし |
@@ -369,7 +370,7 @@ matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain �
 | box / 場 | x/y 周期・z 非周期 open、`field_boundary.mode="periodic2"`、明示的な `[periodic2]` split 設定 |
 | split | `nonzero_mode_backend` は `cached_kneq0` または `panel_spectral_reference`、`zero_mode_policy="exclude_k0"`、下側は `e_bottom_zero` または `symmetric_vacuum` |
 | 外部場・開放面 | `sim.e0=sim.b0=[0,0,0]`、`ordinary_open_model="escape"`、generic reservoir potential model は使用不可 |
-| event policy | `abort`、または率・件数猶予・絶対電荷上限を指定した `soft_discard` |
+| event policy | `abort`、または率・件数猶予・絶対電荷警告閾値を指定した `soft_discard` |
 | role | enabled かつ相互に異なる electron / ion / 任意の PE だけを置き、`surface_charge_closure="explicit"` |
 | electron / ion source | それぞれ負 / 正電荷、`source_mode="volume_seed"`、`npcls_per_step=0`、z-high の `boundary_inflow="reservoir"` のみ |
 | PE source | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true` |
@@ -382,8 +383,6 @@ matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain �
 | `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c`。`zhao_root_selection` は `require_unique` / `minimum_energy` / `continuation`。`continuation` は明示的な Type A と `implicit_zero_mode=true` に限定。implicit mode では response/query CSV なしで選択 branch の終点を探索 |
 | `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity` の z 成分は負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
 | matching 共通 | stationary 専用の `solar_elevation_deg`、`photoelectron_ref_density_m3`、`photoelectron_source_scale` は指定不可 |
-
-`beach-zhao-response` には accepted endpoint の履歴がないため、`continuation` を指定した表生成は拒否します。
 
 `model="none"` では `model` 以外を指定しません。廃止済みの `[outer_plasma]` / `[coupling]` は未対応です。
 model の選択、物理的意味、適用限界は[matching-plane 準定常連成を使う](MatchingPlaneCoupling.html)、

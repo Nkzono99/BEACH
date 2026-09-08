@@ -15,8 +15,7 @@ module bem_matching_plane_response_provider
                                      matching_plane_zhao_diagnostics_type, &
                                      matching_plane_zhao_invalid_argument, &
                                      matching_plane_zhao_no_physical_solution, &
-                                     matching_plane_zhao_ambiguous_solution, &
-                                     matching_plane_zhao_continuation_step_too_large
+                                     matching_plane_zhao_ambiguous_solution
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_min_i32_scalar, &
                      mpi_allreduce_max_i32_scalar, mpi_allreduce_min_real_dp_array, &
                      mpi_allreduce_max_real_dp_array, mpi_bcast_i32_array, &
@@ -31,7 +30,6 @@ module bem_matching_plane_response_provider
   integer(i32), parameter, public :: matching_plane_provider_no_physical_solution = 3_i32
   integer(i32), parameter, public :: matching_plane_provider_numerical_failure = 4_i32
   integer(i32), parameter, public :: matching_plane_provider_ambiguous_solution = 5_i32
-  integer(i32), parameter, public :: matching_plane_provider_continuation_step_too_large = 6_i32
 
   integer(i32), parameter :: provider_backend_none = 0_i32
   integer(i32), parameter :: provider_backend_table = 1_i32
@@ -733,8 +731,6 @@ contains
       call reject_provider(matching_plane_provider_no_physical_solution, zhao_message, status, message)
     case (matching_plane_zhao_ambiguous_solution)
       call reject_provider(matching_plane_provider_ambiguous_solution, zhao_message, status, message)
-    case (matching_plane_zhao_continuation_step_too_large)
-      call reject_provider(matching_plane_provider_continuation_step_too_large, zhao_message, status, message)
     case default
       call reject_provider(matching_plane_provider_numerical_failure, zhao_message, status, message)
     end select

@@ -14,8 +14,7 @@ program test_matching_plane_response_generator
                                                    matching_plane_generator_invalid_grid, &
                                                    matching_plane_generator_evaluation_failure
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
-                                                  matching_plane_provider_ok, &
-                                                  matching_plane_provider_continuation_step_too_large
+                                                  matching_plane_provider_ok
   use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
   use bem_mpi, only: mpi_context
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
@@ -98,7 +97,7 @@ program test_matching_plane_response_generator
     )
   call test_end()
 
-  call test_begin('continuation_step_limit_remains_distinct_at_provider_boundary')
+  call test_begin('continuation_provider_reacquires_a_unique_distant_root')
   failure_cfg = cfg
   failure_cfg%surface_current%zhao_branch = 'a'
   failure_cfg%surface_current%zhao_root_selection = 'continuation'
@@ -120,11 +119,16 @@ program test_matching_plane_response_generator
     query, online_response, status, message, &
     continuation_seed=distant_seed, continuation_candidate=rejected_seed &
     )
-  call assert_equal_i32( &
-    status, matching_plane_provider_continuation_step_too_large, &
-    'continuation step overflow was collapsed into a no-root provider status' &
+  call assert_equal_i32(status, matching_plane_provider_ok, 'continuation provider rejected a unique distant root')
+  call assert_true(rejected_seed%valid, 'continuation provider did not expose the reacquired root')
+  call assert_close_dp( &
+    online_response(1), 2.9712182827319435_dp, 5.0e-5_dp, &
+    'continuation provider selected the wrong distant Type-A root' &
     )
-  call assert_true(.not. rejected_seed%valid, 'ambiguous continuation exposed a candidate root')
+  call assert_close_dp( &
+    online_response(6), -0.8169121871620854_dp, 5.0e-5_dp, &
+    'continuation provider changed the distant Type-A barrier' &
+    )
   call test_end()
 
   call test_begin('evaluation_failure_preserves_existing_output_atomically')

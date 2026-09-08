@@ -241,11 +241,12 @@ warning 付き commit した state はこれを超え、`matching_plane_iteratio
 | `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
 | `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
 | `zhao_online` + `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
-| `zhao_online` + `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1` |
+| `zhao_online` + `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2` |
 
-`accepted_endpoint_continuation_v1` は、accepted endpoint だけを次 batch の seed にする設定方針を示す
-provenance receipt です。局所 Newton だけで追跡できたこと、full multistart や step subdivision の実行回数、
-または root の移動量を示す実績 receipt ではありません。accepted state の有無は
+`accepted_endpoint_continuation_v2` は、accepted endpoint だけを次 batch の seed にし、局所 Newton で
+近傍根を再取得できなければ full multistart の一意な最近傍根を採用する設定方針を示す provenance receipt
+です。full multistart や step subdivision の実行回数、または root の移動量を示す実績 receipt ではありません。
+accepted state の有無は
 `matching_plane_state_valid` で判断してください。
 
 ## 履歴

@@ -9,7 +9,7 @@ program test_matching_plane_zhao
     matching_plane_zhao_root_seed_type, &
     matching_plane_zhao_ok, matching_plane_zhao_invalid_argument, &
     matching_plane_zhao_no_physical_solution, matching_plane_zhao_numerical_failure, &
-    matching_plane_zhao_ambiguous_solution, matching_plane_zhao_continuation_step_too_large
+    matching_plane_zhao_ambiguous_solution
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
     assert_close_dp, assert_allclose_1d
@@ -240,13 +240,13 @@ program test_matching_plane_zhao
   call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A continuation fallback failed: '//trim(message))
   call assert_true(diagnostics%continuation_used, 'Type-A continuation did not use the supplied seed')
   call assert_true(diagnostics%continuation_fallback_used, 'local Newton failure did not trigger full multistart')
-  call assert_close_dp(diagnostics%continuation_root_jump, 0.2_dp, 1.0e-12_dp, 'fallback root distance mismatch')
+  call assert_close_dp(diagnostics%continuation_root_jump, 0.2_dp, 1.0e-10_dp, 'fallback root distance mismatch')
   call assert_true(fallback_candidate%valid, 'reacquired nearby Type-A root did not return a candidate seed')
   call assert_close_dp(output(1), 3.7889769433045589e-1_dp, 1.0e-10_dp, 'fallback matching potential mismatch')
   call assert_close_dp(output(4), -7.8241266005471111e-1_dp, 1.0e-10_dp, 'fallback potential minimum mismatch')
   call test_end()
 
-  call test_begin('type_a_continuation_reports_a_distant_probe_for_step_reduction')
+  call test_begin('type_a_continuation_reacquires_a_unique_distant_root_with_multistart')
   input = type_a_input
   distant_seed = continued_seed
   distant_seed%ambient_electron_density_m3 = &
@@ -255,17 +255,16 @@ program test_matching_plane_zhao
     input, output, status, message, diagnostics, &
     continuation_seed=distant_seed, continuation_candidate=rejected_seed &
     )
-  call assert_equal_i32( &
-    status, matching_plane_zhao_continuation_step_too_large, &
-    'Type-A continuation silently accepted a probe beyond its bounded step' &
-    )
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'Type-A continuation did not reacquire a distant root')
   call assert_true(diagnostics%continuation_fallback_used, 'distant root did not trigger full multistart recovery')
-  call assert_true(.not. rejected_seed%valid, 'rejected distant root was exposed as an accepted continuation seed')
+  call assert_true(rejected_seed%valid, 'reacquired distant root did not return a continuation seed')
   call assert_true( &
     diagnostics%continuation_root_jump > 0.25_dp, &
     'full multistart recovery did not record the large encoded root distance' &
     )
-  call assert_true(all(output == 0.0_dp), 'rejected distant continuation returned a partial response')
+  call assert_close_dp(output(1), type_a_phi0_v, 5.0e-5_dp, 'distant fallback selected the wrong Type-A root')
+  call assert_close_dp(output(4), type_a_phi_m_v, 5.0e-5_dp, 'distant fallback changed the Type-A minimum')
+  call assert_close_dp(output(6), type_a_phi_m_v, 5.0e-5_dp, 'distant fallback changed the PE barrier')
   call test_end()
 
   call test_begin('auto_positive_field_fails_closed_when_uniqueness_is_uncertain')

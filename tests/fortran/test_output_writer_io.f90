@@ -393,7 +393,7 @@ program test_output_writer_io
   call write_result_files(out_dir_matching_online, mesh, stats, cfg)
   call scan_summary_line( &
     out_dir_matching_online//'/summary.txt', &
-    'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1', &
+    'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2', &
     saw_continuation_state &
     )
   call assert_true(saw_continuation_state, 'summary should identify accepted-endpoint continuation state')

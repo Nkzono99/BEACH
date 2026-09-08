@@ -543,7 +543,7 @@ contains
             'surface_current_model_ambient_outward_feedback=transparent'
           if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
             write (u, '(a)') &
-              'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v1'
+              'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2'
           else
             write (u, '(a)') 'surface_current_model_outer_solver_state=stateless'
           end if

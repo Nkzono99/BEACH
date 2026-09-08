@@ -156,12 +156,13 @@ zhao_root_selection = "continuation"
 
 新規 run の初回は minimum-energy multistart で Type A root を選び、その後は accepted endpoint から局所追跡します。
 Newton、root の復号、profile 検査が失敗した場合、または候補が大きく跳んだ場合は full multistart へ戻ります。
-最近傍 root までの対数距離が
-0.25 を超える probe は、最後の有効 root との間を二分して刻み直します。刻み直しても Type A root を再取得できない場合、
-または距離が区別できない最近傍 root が複数ある場合は停止し、Type B / C へは切り替えません。有効 root の直後で
-解なしまたは数値失敗となった probe も同様に刻み直し、粗い走査による branch 終端付近の見落としを避けます。
+局所 Newton では accepted root からの対数距離 0.25 を fast path の上限とします。full multistart へ戻った後は、
+距離上限を課さず、数値的に一意な最近傍 Type A root を受理します。最近傍距離を区別できない root が複数ある、
+Type A root を検出できない、または探索や profile 検査が数値的に失敗した場合は停止し、Type B / C へは切り替えません。
+有効 root の直後で解なしまたは数値失敗となった probe は刻み直し、粗い走査による branch 終端付近の見落としを避けます。
 
-これは pseudo-arclength continuation ではなく、fold の検出や通過を保証しません。棄却 trial の rollback、restart、
+これは pseudo-arclength continuation ではなく、同じ物理 family の保持、fold の検出、fold の通過を保証しません。
+棄却 trial の rollback、restart、
 距離と曖昧性の数値契約は [`zhao_root_selection` リファレンス](MatchingPlaneReference.html#zhao_root_selection)を参照してください。
 
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
@@ -252,7 +253,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
 | 固定点が反復上限に到達して warning 付きで継続 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | 履歴で頻度と残差を確認する。必要なら ray / macro 粒子数、緩和係数、許容値を調整する |
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
-| `continuation` が停止 | 刻み直しても Type A root を再取得できない、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の Type A 可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
+| `continuation` が停止 | full multistart で Type A root を検出できない、探索・profile 検査が数値的に失敗、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の Type A 可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
