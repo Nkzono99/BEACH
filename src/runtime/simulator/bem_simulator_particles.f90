@@ -6,22 +6,13 @@ contains
   module procedure prepare_batch_state
   batch_idx = stats%batches + 1_i32
   call workspace%reset_before_injection()
-  if (present(inject_state)) then
-    call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, inject_state, mesh=mesh, &
-      photo_emission_dq_by_species=workspace%photo_emission_dq, &
-      mpi=mpi, collision_failure_status=collision_failure_status, &
-      collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
-      collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan &
-      )
-  else
-    call init_particle_batch_from_config( &
-      app, batch_idx, pcls_batch, mesh=mesh, photo_emission_dq_by_species=workspace%photo_emission_dq, mpi=mpi, &
-      collision_failure_status=collision_failure_status, collision_failure_species=collision_failure_species, &
-      collision_failure_ray=collision_failure_ray, collision_failure_bounce=collision_failure_bounce, &
-      snapshot=snapshot, source_plan=source_plan &
-      )
-  end if
+  call init_particle_batch_from_config( &
+    app, batch_idx, pcls_batch, inject_state, mesh=mesh, &
+    photo_emission_dq_by_species=workspace%photo_emission_dq, &
+    mpi=mpi, collision_failure_status=collision_failure_status, &
+    collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
+    collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan &
+    )
   if (collision_failure_status /= collision_query_ok) return
   call workspace%prepare_particle_flags(pcls_batch%n)
   end procedure prepare_batch_state
@@ -32,8 +23,10 @@ contains
   real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
   type(hit_info) :: hit
   type(particle_step_result) :: step_result, retry_result
-  type(sim_config) :: particle_sim
-  type(external_boundary_contract_type) :: particle_boundary_contract
+  type(sim_config), target :: species_sim(app%n_particle_species)
+  type(external_boundary_contract_type), target :: species_boundary_contract(app%n_particle_species)
+  type(sim_config), pointer :: particle_sim
+  type(external_boundary_contract_type), pointer :: particle_boundary_contract
   logical :: candidate_inside, used_event_resolver, adaptive_nonzero_mode, retry_field_available
 !$ integer(kind=omp_sched_kind) :: previous_schedule_kind
 !$ integer :: previous_schedule_chunk
@@ -49,13 +42,23 @@ contains
   retry_resolved = 0_i64
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp .or. &
                           trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
+  ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
+  do species_idx = 1_i32, app%n_particle_species
+    species_sim(species_idx) = app%sim
+    call resolve_particle_boundaries( &
+      app%sim, app%particle_boundary_low, app%particle_boundary_high, app%particle_species(species_idx), &
+      species_sim(species_idx)%bc_low, species_sim(species_idx)%bc_high &
+      )
+    species_boundary_contract(species_idx) = boundary_contract
+    call apply_species_kinetic_barrier(current_model, species_idx, species_boundary_contract(species_idx))
+  end do
   ! Replayed adaptive trials require an identical particle-index partition.
   ! Keep the normal runtime schedule, but override its ICV with static only for this adaptive loop.
 !$ call omp_get_schedule(previous_schedule_kind, previous_schedule_chunk)
 !$ if (adaptive_nonzero_mode) call omp_set_schedule(omp_sched_static, 0)
 
   !$omp parallel default(none) num_threads(nth) &
-  !$omp shared(mesh,pcls_batch,app,boundary_contract,current_model,snapshot,dq_thread,bfield) &
+  !$omp shared(mesh,pcls_batch,app,species_sim,species_boundary_contract,snapshot,dq_thread,bfield) &
   !$omp shared(escaped_boundary_flag,absorbed_flag,nth,actual_team_size) &
   !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
@@ -74,13 +77,8 @@ contains
   do i = 1_i32, pcls_batch%n
     if (.not. pcls_batch%alive(i)) cycle
     species_idx = pcls_batch%species_id(i)
-    particle_sim = app%sim
-    call resolve_particle_boundaries( &
-      app%sim, app%particle_boundary_low, app%particle_boundary_high, app%particle_species(species_idx), &
-      particle_sim%bc_low, particle_sim%bc_high &
-      )
-    particle_boundary_contract = boundary_contract
-    call apply_species_kinetic_barrier(current_model, species_idx, particle_boundary_contract)
+    particle_sim => species_sim(species_idx)
+    particle_boundary_contract => species_boundary_contract(species_idx)
     do step = 1_i32, app%sim%max_step
       x0 = pcls_batch%x(:, i)
       v0 = pcls_batch%v(:, i)
@@ -197,11 +195,8 @@ contains
     integer(i32) :: axis, face
 
     if (.not. current_model%active) return
-    if (.not. allocated(current_model%has_outflow_kinetic_barrier)) return
-    if (species_idx < 1_i32 .or. species_idx > size(current_model%has_outflow_kinetic_barrier)) return
     if (.not. current_model%has_outflow_kinetic_barrier(species_idx)) return
     face = current_model%outflow_barrier_face(species_idx)
-    if (face < 1_i32 .or. face > 6_i32) return
     axis = (face + 1_i32)/2_i32
     if (mod(face, 2_i32) == 0_i32) then
       contract%barrier_override_high(axis) = .true.

@@ -441,17 +441,7 @@ contains
       end if
     end if
     call perf_region_end(perf_region_history_write, t0)
-    if (present(inject_state)) then
-      if (ledger_enabled) then
-        call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
-      else
-        call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx)
-      end if
-    else if (ledger_enabled) then
-      call maybe_write_periodic_checkpoint(app, mesh, stats, mpi=mpi_ctx, charge_ledger=charge_ledger)
-    else
-      call maybe_write_periodic_checkpoint(app, mesh, stats, mpi=mpi_ctx)
-    end if
+    call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
   call perf_region_end(perf_region_simulation_total, sim_t0)

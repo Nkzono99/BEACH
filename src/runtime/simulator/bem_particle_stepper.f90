@@ -203,7 +203,7 @@ contains
     end if
     if (.not. sim%use_box .or. point_strictly_inside_box(sim, x_candidate)) then
       if (hit%has_hit) then
-        call accept_particle_hit(v0, x_candidate, v_candidate, hit, result)
+        call accept_particle_hit(v0, v_candidate, hit, result)
         return
       end if
       result%x = x_candidate
@@ -298,7 +298,7 @@ contains
     real(dp) :: redistribution_uniform(3)
     integer(i32) :: query_status, boundary_status, event_count
     logical :: alive, escaped, z_high_outward_event, z_high_barrier_event
-    logical :: first_segment
+    logical :: first_segment, requires_redistribution
     type(external_boundary_contract_type) :: active_boundary_contract
 
     active_boundary_contract = external_boundary_contract_type()
@@ -322,30 +322,18 @@ contains
     first_segment = .true.
 
     do
-      if (point_strictly_inside_box(sim, x_trial)) then
-        if (first_segment .and. present(hit)) then
-          if (hit%has_hit) then
-            call accept_particle_hit(v_start, x_trial, v_trial, hit, result)
-            return
-          end if
-        else
-          call query_particle_chord(mesh, sim, x_start, v_start, x_trial, v_trial, result, remainder_hit, query_status)
-          if (query_status /= collision_query_ok .or. result%absorbed) return
+      event = boundary_event_type()
+      if (.not. point_strictly_inside_box(sim, x_trial)) then
+        call find_first_boundary_event(sim, x_start, x_trial, event, boundary_status)
+        if (boundary_status /= boundary_event_ok) then
+          result%status = particle_step_invalid_boundary
+          return
         end if
-        result%x = x_trial
-        result%v = v_trial
-        return
-      end if
-
-      call find_first_boundary_event(sim, x_start, x_trial, event, boundary_status)
-      if (boundary_status /= boundary_event_ok) then
-        result%status = particle_step_invalid_boundary
-        return
       end if
       if (.not. event%has_event) then
         if (first_segment .and. present(hit)) then
           if (hit%has_hit) then
-            call accept_particle_hit(v_start, x_trial, v_trial, hit, result)
+            call accept_particle_hit(v_start, v_trial, hit, result)
             return
           end if
         else
@@ -360,7 +348,7 @@ contains
       if (first_segment .and. present(hit)) then
         if (hit%has_hit) then
           if (hit%t <= event%fraction + 64.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(event%fraction))) then
-            call accept_particle_hit(v_start, x_trial, v_trial, hit, result)
+            call accept_particle_hit(v_start, v_trial, hit, result)
             return
           end if
         end if
@@ -400,14 +388,17 @@ contains
         result%z_high_outward_normal_kinetic_energy_j_sum = &
           result%z_high_outward_normal_kinetic_energy_j_sum + 0.5_dp*m*v_event(3)*v_event(3)
       end if
-      if (event_requires_redistribution_counter(event, active_boundary_contract) .and. &
-          .not. has_boundary_rng_counter) then
-        result%status = particle_step_invalid_boundary
-        return
+      requires_redistribution = event_requires_redistribution_counter(event, active_boundary_contract)
+      redistribution_uniform = 0.0_dp
+      if (requires_redistribution) then
+        if (.not. has_boundary_rng_counter) then
+          result%status = particle_step_invalid_boundary
+          return
+        end if
+        call generate_redistribution_uniform( &
+          sim%rng_seed, boundary_rng_counter, event_count, redistribution_uniform &
+          )
       end if
-      call generate_redistribution_uniform( &
-        sim%rng_seed, boundary_rng_counter, event_count, redistribution_uniform &
-        )
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       alive = .true.
       escaped = .false.
@@ -573,8 +564,8 @@ contains
   end function periodic_event_can_subdivide
 
   !> 既に選択済みのmesh hitをresultへ反映する。
-  subroutine accept_particle_hit(va, xb, vb, hit, result)
-    real(dp), intent(in) :: va(3), xb(3), vb(3)
+  subroutine accept_particle_hit(va, vb, hit, result)
+    real(dp), intent(in) :: va(3), vb(3)
     type(hit_info), intent(in) :: hit
     type(particle_step_result), intent(inout) :: result
 
@@ -601,10 +592,7 @@ contains
     end if
     if (.not. hit%has_hit) return
 
-    result%x = hit%pos
-    result%v = va + hit%t*(vb - va)
-    result%absorbed = .true.
-    result%elem_idx = hit%elem_idx
+    call accept_particle_hit(va, vb, hit, result)
   end subroutine query_particle_chord
 
   !> Chord上のevent位置と、その接線方向・離散workに整合する速度を返す。

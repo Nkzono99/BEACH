@@ -53,15 +53,9 @@ contains
 
     if (mpi_is_root(mpi)) then
       call ensure_output_dir(trim(checkpoint_dir))
-      if (present(charge_ledger)) then
-        call write_checkpoint_state_files( &
-          trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
-          )
-      else
-        call write_checkpoint_state_files( &
-          trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi) &
-          )
-      end if
+      call write_checkpoint_state_files( &
+        trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
+        )
     end if
     ! 非root rankがslot directoryの作成より先にrank別RNGを書き始めないよう同期する。
     call mpi_world_barrier(mpi)

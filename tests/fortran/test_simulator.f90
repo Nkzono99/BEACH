@@ -779,11 +779,11 @@ contains
     species_cfg%sim%box_min = [-1.0_dp, -1.0_dp, -1.0_dp]
     species_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     species_cfg%sim%bc_high(3) = bc_open
-    species_cfg%n_particle_species = 2_i32
+    species_cfg%n_particle_species = 3_i32
     do species_idx = 1_i32, species_cfg%n_particle_species
       species_cfg%particle_species(species_idx) = species_from_defaults()
       species_cfg%particle_species(species_idx)%source_mode = 'volume_seed'
-      species_cfg%particle_species(species_idx)%npcls_per_step = 1_i32
+      species_cfg%particle_species(species_idx)%npcls_per_step = 64_i32
       species_cfg%particle_species(species_idx)%q_particle = 1.0_dp
       species_cfg%particle_species(species_idx)%m_particle = 1.0_dp
       species_cfg%particle_species(species_idx)%w_particle = real(species_idx, dp)
@@ -792,22 +792,25 @@ contains
       species_cfg%particle_species(species_idx)%drift_velocity = [0.0_dp, 0.0_dp, 2.0_dp]
       species_cfg%particle_species(species_idx)%temperature_k = 0.0_dp
     end do
-    species_cfg%particle_species(2)%boundary_high(3) = bc_reflect
+    species_cfg%particle_species(2)%enabled = .false.
+    species_cfg%particle_species(3)%boundary_high(3) = bc_reflect
 
     call seed_particles_from_config(species_cfg)
     call run_absorption_insulator(species_mesh, species_cfg, species_stats, charge_ledger=species_ledger)
-    call assert_equal_i64(species_stats%absorbed, 1_i64, 'species-reflected particle should return to the mesh')
-    call assert_equal_i64(species_stats%escaped_boundary, 1_i64, 'inherited ambient particle should escape z-high')
+    call assert_equal_i64(species_stats%absorbed, 64_i64, 'species-reflected particles should return to the mesh')
+    call assert_equal_i64(species_stats%escaped_boundary, 64_i64, 'inherited ambient particles should escape z-high')
     call assert_equal_i64(species_stats%survived_max_step, 0_i64, 'species z-high boundary fixture must resolve both particles')
     call assert_close_dp( &
-      species_ledger%escaped_to_infinity(1), 1.0_dp, 1.0e-12_dp, 'ambient escaped charge mismatch' &
+      species_ledger%escaped_to_infinity(1), 64.0_dp, 1.0e-12_dp, 'ambient escaped charge mismatch' &
       )
     call assert_close_dp( &
-      species_ledger%escaped_to_infinity(2), 0.0_dp, 1.0e-12_dp, 'reflected species must not escape' &
+      species_ledger%escaped_to_infinity(3), 0.0_dp, 1.0e-12_dp, 'reflected species must not escape' &
       )
     call assert_close_dp( &
-      species_ledger%absorbed_on_surface(2), 2.0_dp, 1.0e-12_dp, 'reflected species absorption mismatch' &
+      species_ledger%absorbed_on_surface(3), 192.0_dp, 1.0e-12_dp, 'reflected species absorption mismatch' &
       )
+    call assert_close_dp(species_ledger%absorbed_on_surface(2), 0.0_dp, 0.0_dp, 'disabled species must not deposit')
+    call assert_close_dp(species_ledger%escaped_to_infinity(2), 0.0_dp, 0.0_dp, 'disabled species must not escape')
     call assert_close_dp(species_ledger%residual(), 0.0_dp, 1.0e-12_dp, 'species boundary ledger residual mismatch')
   end subroutine test_species_z_high_reflect_preserves_ambient_escape
 
