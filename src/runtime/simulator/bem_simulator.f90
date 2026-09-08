@@ -25,17 +25,9 @@ module bem_simulator
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
   use bem_output_writer, only: write_matching_plane_history_snapshot
-  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
-                                                  matching_plane_provider_ok, &
-                                                  matching_plane_provider_invalid_argument, &
-                                                  matching_plane_provider_no_physical_solution, &
-                                                  matching_plane_provider_numerical_failure
-  use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
-  use bem_constants, only: qe
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
-                     mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values, &
-                     mpi_bcast_i32_array, mpi_bcast_real_dp_array
+                     mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
   implicit none
   private
 
@@ -116,6 +108,52 @@ module bem_simulator
       real(dp), intent(out) :: rel
       type(mpi_context), intent(in) :: mpi
     end subroutine commit_batch_charge
+
+    module subroutine prepare_adaptive_charge_candidate(mesh, workspace, mpi)
+      type(mesh_type), intent(in) :: mesh
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
+      type(mpi_context), intent(in) :: mpi
+    end subroutine prepare_adaptive_charge_candidate
+
+    module subroutine apply_neutral_return_surface_closure(app, pcls_batch, fresh_particle_count, workspace, mpi)
+      type(app_config), intent(in) :: app
+      type(particles_soa), intent(in) :: pcls_batch
+      integer(i32), intent(in) :: fresh_particle_count
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
+      type(mpi_context), intent(in) :: mpi
+    end subroutine apply_neutral_return_surface_closure
+
+    module subroutine apply_fixed_surface_current_closure( &
+      app, current_model, pcls_batch, fresh_particle_count, workspace, mpi &
+      )
+      type(app_config), intent(in) :: app
+      type(surface_closure_contract_type), intent(in) :: current_model
+      type(particles_soa), intent(in) :: pcls_batch
+      integer(i32), intent(in) :: fresh_particle_count
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
+      type(mpi_context), intent(in) :: mpi
+    end subroutine apply_fixed_surface_current_closure
+
+    module subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)
+      type(app_config), intent(in) :: app
+      type(particles_soa), intent(in) :: pcls_batch
+      integer(i32), intent(in) :: fresh_particle_count
+      type(charge_ledger_type), intent(inout) :: ledger
+    end subroutine record_batch_initial_charge
+
+    module subroutine record_batch_outcome_charge( &
+      pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, ledger &
+      )
+      type(particles_soa), intent(in) :: pcls_batch
+      logical, intent(in) :: escaped_boundary_flag(:), absorbed_flag(:), soft_discarded_boundary_flag(:)
+      type(charge_ledger_type), intent(inout) :: ledger
+    end subroutine record_batch_outcome_charge
+
+    module subroutine reduce_charge_ledger_fluxes(ledger, mpi, workspace)
+      type(charge_ledger_type), intent(inout) :: ledger
+      type(mpi_context), intent(in) :: mpi
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
+    end subroutine reduce_charge_ledger_fluxes
 
     module subroutine count_batch_outcomes( &
       pcls_batch, escaped_boundary_flag, absorbed_flag, soft_discarded_boundary_flag, &

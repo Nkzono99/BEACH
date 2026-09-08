@@ -36,8 +36,10 @@ flowchart TD
    Its finalize and validate submodules resolve derived values and combination constraints.
    [`bem_app_config_mesh_runtime.f90`](../src/config/bem_app_config_mesh_runtime.f90) builds `mesh_type` from templates or OBJ input.
 3. `main` calls [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90). Its interface is in
-   `bem_simulator.f90`, its main loop is in [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90),
-   and the `bem_simulator_stats.f90` and `bem_simulator_io.f90` submodules implement statistics and history output.
+   `bem_simulator.f90`, and its main loop is in [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90).
+   [`bem_simulator_particles.f90`](../src/runtime/simulator/bem_simulator_particles.f90) handles particle generation and tracking,
+   and [`bem_simulator_charge.f90`](../src/runtime/simulator/bem_simulator_charge.f90) handles charge commits, current corrections,
+   and the ledger. The `bem_simulator_stats.f90` and `bem_simulator_io.f90` submodules implement statistics and history output.
 4. The simulator refreshes [`electrostatic_snapshot_type`](../src/physics/bem_electrostatic_snapshot.f90) from committed
    `mesh%q_elem`. The snapshot stays fixed while particles in the same trial are tracked. Charge from an accepted commit
    first enters the field at the refresh for the next batch.
@@ -54,6 +56,11 @@ flowchart TD
 8. After commit, the simulator updates `sim_stats` and [`charge_ledger_type`](../src/runtime/coupling/bem_charge_ledger.f90),
    then writes histories and periodic checkpoints. Finally, `main` publishes the summary, CSV files, and final checkpoint
    through [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90).
+
+[`bem_matching_plane_coupling.f90`](../src/runtime/simulator/bem_matching_plane_coupling.f90) owns matching-plane initialization,
+trial state, fixed-point acceptance, and continuation-seed commits. The implicit mean-charge update and root search live in
+[`bem_matching_plane_implicit.f90`](../src/physics/sheath/bem_matching_plane_implicit.f90). The main loop coordinates particle
+replay, batch acceptance, and charge commits through these operations without directly changing their internal state.
 
 Adaptive batch duration replays steps 5--7 from the same batch-start state. Matching-plane fixed-point coupling also updates
 the response and snapshot gauge before replaying steps 4--7. Candidate charge, particle outcomes, RNG, macro-particle residuals,
@@ -92,7 +99,7 @@ The tests below are direct tests to run immediately after a change. Select the r
 | Field snapshot, Direct / Treecode / FMM, and periodic2 | `bem_electrostatic_snapshot*.f90`, `src/physics/field_solver/`, `src/physics/periodic_zero_mode/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90), [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), `test_dynamics_fmm`, `test_periodic_zero_mode`, `test_periodic2_cached_snapshot` | [Field Evaluation](FieldSolvers.en.html), [FMM](FMM.en.html), [periodic2 Electrostatics](PeriodicElectrostatics.en.html) |
 | Particle sources and injection | `bem_app_config_particle_runtime.f90`, `src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90), [`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90), [`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [Choose where particles enter](ParticleSourcesBoundaries.en.html), [Inject particles through a boundary](ReservoirInjection.en.html), [Photoelectron Emission](PhotoelectronEmission.en.html) |
 | Boris update, collision, and box events | `bem_particle_stepper.f90`, `bem_pusher.f90`, `bem_collision.f90`, `bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90), [`test_boundary.f90`](../tests/fortran/test_boundary.f90), `test_dynamics_basic` | [Particle Update](ParticleTrackingCollision.en.html), [Boris Pusher](BorisPusher.en.html), [Particle Events](ParticleEvents.en.html) |
-| Surface charge, closure, and ledger | `bem_surface_models*.f90`, `src/physics/sheath/`, `bem_simulator_loop.f90`, `bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90), [`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90), [`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90), `test_matching_plane_simulator` | [How surfaces charge](SurfaceModels.en.html), [Surface-charge update numerics](SurfaceChargeNumerics.en.html), [Matching-plane coupling](MatchingPlaneCoupling.en.html) |
+| Surface charge, closure, and ledger | `bem_surface_models*.f90`, `src/physics/sheath/`, `bem_matching_plane_coupling.f90`, `bem_simulator_charge.f90`, `bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90), [`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90), [`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90), `test_matching_plane_simulator` | [How surfaces charge](SurfaceModels.en.html), [Surface-charge update numerics](SurfaceChargeNumerics.en.html), [Matching-plane coupling](MatchingPlaneCoupling.en.html) |
 | Statistics, output, checkpoints, and restart | `bem_simulator_stats.f90`, `bem_simulator_io.f90`, `bem_output_writer.f90`, `bem_periodic_checkpoint.f90`, `bem_restart.f90` | [`test_output_writer_io.f90`](../tests/fortran/test_output_writer_io.f90), [`test_output_writer_potential.f90`](../tests/fortran/test_output_writer_potential.f90), [`test_restart.f90`](../tests/fortran/test_restart.f90), `test_model_fingerprint` | [Output Guide](OutputGuide.en.html), [Execution and Resume](Execution.en.html), output and restart contracts in `SPEC.md` |
 | Python readers, analysis, and visualization | `beach/` | `tests/python/test_fortran_results.py` and the corresponding CLI or analysis tests | [Post-processing Tutorial](PostprocessTutorial.en.html), [Python API](PythonPostprocessAPI.en.html) |
 

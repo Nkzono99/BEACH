@@ -38,6 +38,8 @@ flowchart TD
    `mesh_type` を構築します。
 3. `main` は [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90) を呼びます。interface は
    `bem_simulator.f90`、主 loop は [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)、
+   粒子生成・追跡は [`bem_simulator_particles.f90`](../src/runtime/simulator/bem_simulator_particles.f90)、
+   電荷反映・電流補正・台帳は [`bem_simulator_charge.f90`](../src/runtime/simulator/bem_simulator_charge.f90) が担当します。
    統計と履歴は `bem_simulator_stats.f90` と `bem_simulator_io.f90` の submodule に分かれます。
 4. simulator は commit 済み `mesh%q_elem` から
    [`electrostatic_snapshot_type`](../src/physics/bem_electrostatic_snapshot.f90) を refresh します。
@@ -55,6 +57,12 @@ flowchart TD
 8. commit 後に `sim_stats` と [`charge_ledger_type`](../src/runtime/coupling/bem_charge_ledger.f90) を更新し、履歴と定期
    checkpoint を書きます。`main` は最終的に [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90) から
    summary、CSV、最終 checkpoint を公開します。
+
+matching-plane の初期化、試行状態、固定点判定、継続解の確定は
+[`bem_matching_plane_coupling.f90`](../src/runtime/simulator/bem_matching_plane_coupling.f90) が管理します。
+陰的な面平均電荷の更新と根探索は
+[`bem_matching_plane_implicit.f90`](../src/physics/sheath/bem_matching_plane_implicit.f90) に分かれています。
+主ループはこれらの内部状態を直接変更せず、粒子の再試行とバッチ全体の受理・電荷反映を進めます。
 
 adaptive batch-duration は手順 5--7 を同じ batch 開始 state から再生します。matching-plane 固定点反復では、
 応答と snapshot の gauge も更新して手順 4--7 を再生します。棄却 trial の候補電荷、粒子 outcome、RNG、
@@ -93,7 +101,7 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | field snapshot、Direct / Treecode / FMM、periodic2 | `bem_electrostatic_snapshot*.f90`、`src/physics/field_solver/`、`src/physics/periodic_zero_mode/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90)、[`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、`test_dynamics_fmm`、`test_periodic_zero_mode`、`test_periodic2_cached_snapshot` | [場の評価](FieldSolvers.html)、[FMM](FMM.html)、[periodic2 静電場](PeriodicElectrostatics.html) |
 | particle source と injection | `bem_app_config_particle_runtime.f90`、`src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90)、[`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90)、[`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [粒子をどこから入れるか](ParticleSourcesBoundaries.html)、[境界から粒子を流入させる](ReservoirInjection.html)、[光電子放出](PhotoelectronEmission.html) |
 | Boris、collision、box event | `bem_particle_stepper.f90`、`bem_pusher.f90`、`bem_collision.f90`、`bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90)、[`test_boundary.f90`](../tests/fortran/test_boundary.f90)、`test_dynamics_basic` | [粒子更新](ParticleTrackingCollision.html)、[Boris](BorisPusher.html)、[粒子 event](ParticleEvents.html) |
-| surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`bem_simulator_loop.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90)、`test_matching_plane_simulator` | [表面はどう帯電するか](SurfaceModels.html)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[matching-plane 連成](MatchingPlaneCoupling.html) |
+| surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`bem_matching_plane_coupling.f90`、`bem_simulator_charge.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90)、`test_matching_plane_simulator` | [表面はどう帯電するか](SurfaceModels.html)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[matching-plane 連成](MatchingPlaneCoupling.html) |
 | stats、output、checkpoint、restart | `bem_simulator_stats.f90`、`bem_simulator_io.f90`、`bem_output_writer.f90`、`bem_periodic_checkpoint.f90`、`bem_restart.f90` | [`test_output_writer_io.f90`](../tests/fortran/test_output_writer_io.f90)、[`test_output_writer_potential.f90`](../tests/fortran/test_output_writer_potential.f90)、[`test_restart.f90`](../tests/fortran/test_restart.f90)、`test_model_fingerprint` | [出力ガイド](OutputGuide.html)、[実行と再開](Execution.html)、`SPEC.md` の出力・再開契約 |
 | Python reader、解析、可視化 | `beach/` | `tests/python/test_fortran_results.py`、対応する CLI / analysis test | [後処理チュートリアル](PostprocessTutorial.html)、[Python API](PythonPostprocessAPI.html) |
 
