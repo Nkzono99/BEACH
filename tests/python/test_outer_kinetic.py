@@ -90,6 +90,31 @@ def test_field_integration_matches_zero_and_uniform_charge() -> None:
     assert charged.gauss_residual_c_m2 == pytest.approx(0.0, abs=1.0e-26)
 
 
+@pytest.mark.parametrize("cell_count", [1, 17, 129])
+def test_field_profile_preserves_discrete_gauss_law_and_potential_gauge(
+    cell_count: int,
+) -> None:
+    rho = np.linspace(-3.0e-12, 5.0e-12, cell_count)
+    rho[::2] *= -1.0
+    original_rho = rho.copy()
+    dz = 0.125
+    displacement = -2.0e-12
+    field = compute_field_profile(
+        rho, displacement_c_m2=displacement, dz_m=dz
+    )
+    np.testing.assert_allclose(
+        np.diff(field.electric_faces_v_m) * 8.8541878128e-12 / dz,
+        rho, rtol=1.0e-12, atol=1.0e-26,
+    )
+    np.testing.assert_allclose(
+        -np.diff(field.potential_faces_v) / dz,
+        field.electric_cells_v_m, rtol=1.0e-12, atol=1.0e-13,
+    )
+    assert field.electric_faces_v_m[0] == displacement / 8.8541878128e-12
+    assert field.potential_faces_v[-1] == 0.0
+    np.testing.assert_array_equal(rho, original_rho)
+
+
 def test_finite_volume_transport_shifts_one_cell_and_preserves_positivity() -> None:
     distribution = np.array(
         [[1.0, 4.0], [2.0, 3.0], [3.0, 2.0], [4.0, 1.0]]

@@ -466,10 +466,7 @@ def compute_field_profile(
     electric_faces[1:] = electric_faces[0] + np.cumsum(rho) * dz_m / EPS0
     electric_cells = 0.5 * (electric_faces[:-1] + electric_faces[1:])
     potential_faces = np.zeros(rho.size + 1)
-    for index in range(rho.size - 1, -1, -1):
-        potential_faces[index] = (
-            potential_faces[index + 1] + electric_cells[index] * dz_m
-        )
+    potential_faces[:-1] = np.cumsum(electric_cells[::-1] * dz_m)[::-1]
     potential_cells = 0.5 * (potential_faces[:-1] + potential_faces[1:])
     gauss_residual = (
         EPS0 * (electric_faces[-1] - electric_faces[0])
@@ -905,6 +902,8 @@ def _certify_time_history(
     autocorrelation_resolved = True
     window_duration = float(times[second[-1]] - times[second[0]])
     sample_spacing = window_duration / max(second.size - 1, 1)
+    relative_time = times[second] - float(np.mean(times[second]))
+    denominator = float(np.dot(relative_time, relative_time))
 
     for name in _OBSERVABLE_NAMES:
         values_first = history[name][first]
@@ -914,8 +913,6 @@ def _certify_time_history(
             stationarity,
             abs(float(np.mean(values_second) - np.mean(values_first))) / scale,
         )
-        relative_time = times[second] - float(np.mean(times[second]))
-        denominator = float(np.dot(relative_time, relative_time))
         slope = (
             float(np.dot(relative_time, values_second - np.mean(values_second)))
             / denominator
