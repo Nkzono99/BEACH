@@ -1242,6 +1242,23 @@ def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> Non
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 10]))
 
 
+def test_charge_history_materialization_preserves_cached_edits(tmp_path: Path) -> None:
+    _write_three_mesh_fixture(tmp_path)
+    history = FortranChargeHistory(tmp_path / "charge_history.csv", mesh_nelem=3)
+    first = history[1]
+    first[0] = 7.0e-9
+    with pytest.raises(ValueError, match="step=2 is not found"):
+        history[2]
+
+    values = history.as_array()
+    np.testing.assert_array_equal(values[:, 0], first)
+    np.testing.assert_array_equal(values[:, 1], [1.0e-9, 2.0e-9, -3.0e-9])
+    np.testing.assert_array_equal(history[-1], values[:, -1])
+    assert history.as_array() is values
+    with pytest.raises(ValueError, match="step=2 is not found"):
+        history[2]
+
+
 def test_list_fortran_runs(tmp_path: Path) -> None:
     valid = tmp_path / "valid"
     valid.mkdir()

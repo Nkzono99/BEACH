@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from pathlib import Path
 
 import numpy as np
@@ -150,6 +151,8 @@ class FortranChargeHistory:
         history = np.empty((self.mesh_nelem, n_snapshots), dtype=float)
         for col, batch in enumerate(self._batch_indices):
             history[:, col] = self._load_step_from_file(int(batch))
+            # The matrix now owns this snapshot; do not retain a second copy.
+            self._step_cache.pop(int(batch))
         self._history_matrix = history
         return history
 
@@ -190,7 +193,7 @@ class FortranChargeHistory:
     def _parse_row(
         line: str,
     ) -> tuple[int, int, float, int, float]:
-        parts = [part.strip() for part in line.split(",", 4)]
+        parts = line.split(",", 4)
         if len(parts) != 5:
             raise ValueError(
                 "invalid charge_history.csv row; expected 5 columns: "
@@ -220,7 +223,7 @@ class FortranChargeHistory:
         processed: list[int] = []
         rel_change: list[float] = []
         current_batch: int | None = None
-        current_start: int | None = None
+        current_start = 0
         current_processed: int | None = None
         current_rel_change: float | None = None
 
@@ -241,8 +244,6 @@ class FortranChargeHistory:
                     if current_batch is None or batch != current_batch:
                         if current_batch is not None:
                             self._validate_complete_batch(current_batch, seen_elem)
-                            if current_start is None:
-                                raise RuntimeError("internal history index state is inconsistent.")
                             step_offsets[current_batch] = (current_start, pos)
                             if batch <= current_batch:
                                 raise ValueError(
@@ -269,12 +270,12 @@ class FortranChargeHistory:
                         raise ValueError(
                             f"charge_history.csv batch={batch} has duplicate elem_idx={elem_number}."
                         )
-                    if not np.isfinite(charge):
+                    if not isfinite(charge):
                         raise ValueError(
                             f"charge_history.csv batch={batch} elem_idx={elem_number} "
                             "has non-finite charge_C."
                         )
-                    if not np.isfinite(rel_value):
+                    if not isfinite(rel_value):
                         raise ValueError(
                             f"charge_history.csv batch={batch} elem_idx={elem_number} "
                             "has non-finite rel_change."
@@ -297,8 +298,6 @@ class FortranChargeHistory:
 
             if current_batch is not None:
                 self._validate_complete_batch(current_batch, seen_elem)
-                if current_start is None:
-                    raise RuntimeError("internal history index state is inconsistent.")
                 step_offsets[current_batch] = (current_start, end_pos)
 
         self._step_offsets = step_offsets
@@ -324,12 +323,7 @@ class FortranChargeHistory:
         if step in self._step_cache:
             return self._step_cache[step]
 
-        offsets = self._step_offsets.get(step)
-        if offsets is None:
-            self._column_for_step(step)
-            raise RuntimeError("history step offset is unavailable after index lookup.")
-
-        start, end = offsets
+        start, end = self._step_offsets[step]
         charges = np.empty(self.mesh_nelem, dtype=float)
         with self.path.open("r", encoding="utf-8") as stream:
             stream.seek(start)

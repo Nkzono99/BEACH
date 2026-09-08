@@ -5,6 +5,7 @@ program test_periodic_zero_mode
   use bem_mesh, only: init_mesh
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
+                                         build_periodic_zero_mode_height_plan, &
                                          symmetric_vacuum_bottom_field, periodic_zero_mode_ok
   use bem_periodic_zero_mode_eval, only: zero_mode_trace_minus, zero_mode_trace_principal_value, &
                                          zero_mode_trace_plus, eval_periodic_zero_mode
@@ -18,8 +19,13 @@ program test_periodic_zero_mode
   real(dp), parameter :: charge = 3.0e-12_dp
   integer(i32) :: status
   character(len=128) :: message
+  real(dp), parameter :: sheet_z(9) = [-100.0_dp, -4.0_dp, -1.0_dp, 0.0_dp, 0.5_dp, &
+                                       2.0_dp, 5.0_dp, 20.0_dp, 60.0_dp]
+  real(dp), parameter :: gauges(3) = [-120.0_dp, -0.3_dp, 80.0_dp]
+  real(dp) :: heights(3, 9), charges(9), z, tolerance, expected_field, expected_potential
+  integer(i32) :: i, j, gauge, offset, trace
 
-  call test_init(2)
+  call test_init(3)
 
   call test_begin('horizontal_sheet_jumps_superposition_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -68,6 +74,42 @@ program test_periodic_zero_mode
   call assert_close_dp(field, -charge/(2.0_dp*eps0), 2.0e-12_dp, 'symmetric lower far field mismatch')
   call eval_periodic_zero_mode(plan, state, 3.0_dp, zero_mode_trace_plus, potential, field)
   call assert_close_dp(field, charge/(2.0_dp*eps0), 2.0e-12_dp, 'symmetric upper far field mismatch')
+  call test_end()
+
+  call test_begin('signed_sheet_heights_traces_and_arbitrary_gauge')
+  do i = 1, size(sheet_z)
+    heights(:, i) = sheet_z(i)
+    charges(i) = real((-1)**i, dp)*charge
+  end do
+  call build_periodic_zero_mode_height_plan(heights, 2.0_dp, plan, status, message)
+  call assert_equal_i32(status, periodic_zero_mode_ok, 'signed sheet plan status mismatch')
+  tolerance = 128.0_dp*epsilon(1.0_dp)*100.0_dp
+  do gauge = 1, size(gauges)
+    call refresh_periodic_zero_mode_state(plan, charges, 0.2_dp, gauges(gauge), 1.25_dp, state)
+    do i = 1, size(sheet_z)
+      do offset = -2, 2
+        z = sheet_z(i) + real(offset, dp)*0.75_dp*tolerance
+        do trace = zero_mode_trace_minus, zero_mode_trace_plus
+          expected_field = 0.2_dp
+          expected_potential = 1.25_dp - 0.2_dp*(z - gauges(gauge))
+          do j = 1, size(sheet_z)
+            if (abs(z - sheet_z(j)) <= tolerance) then
+              expected_field = expected_field + 0.5_dp*real(1 + trace, dp)*charges(j)/(2.0_dp*eps0)
+            else if (z > sheet_z(j)) then
+              expected_field = expected_field + charges(j)/(2.0_dp*eps0)
+            end if
+            expected_potential = expected_potential - charges(j)/(2.0_dp*eps0)* &
+                                 (max(z - sheet_z(j), 0.0_dp) - max(gauges(gauge) - sheet_z(j), 0.0_dp))
+          end do
+          call eval_periodic_zero_mode(plan, state, z, trace, potential, field)
+          call assert_close_dp(field, expected_field, 1.0e-12_dp, 'signed sheet field mismatch')
+          call assert_close_dp(potential, expected_potential, 1.0e-10_dp, 'signed sheet potential mismatch')
+        end do
+      end do
+    end do
+    call eval_periodic_zero_mode(plan, state, gauges(gauge), zero_mode_trace_plus, potential, field)
+    call assert_close_dp(potential, 1.25_dp, 1.0e-14_dp, 'arbitrary gauge potential mismatch')
+  end do
   call test_end()
 
   call test_summary()

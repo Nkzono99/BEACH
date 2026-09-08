@@ -20,7 +20,7 @@ contains
     integer(i32), intent(in) :: trace
     real(dp), intent(out) :: potential, field
     real(dp) :: cumulative_charge, sheet_correction, primitive, gauge_primitive
-    integer(i32) :: interval, breakpoint
+    integer(i32) :: interval, breakpoint, gauge_interval
 
     if (trace < zero_mode_trace_minus .or. trace > zero_mode_trace_plus) then
       error stop 'invalid periodic zero-mode trace.'
@@ -32,19 +32,20 @@ contains
       cumulative_charge = cumulative_charge - sheet_correction
     end if
     field = state%e_bottom + cumulative_charge/(eps0*plan%area_xy)
-    primitive = charge_primitive(plan, state, z)
-    gauge_primitive = charge_primitive(plan, state, state%z_gauge)
+    primitive = charge_primitive(plan, state, z, interval)
+    call locate_interval(plan%break_z, state%z_gauge, gauge_interval, breakpoint)
+    gauge_primitive = charge_primitive(plan, state, state%z_gauge, gauge_interval)
     potential = state%phi_gauge - state%e_bottom*(z - state%z_gauge) - &
                 (primitive - gauge_primitive)/(eps0*plan%area_xy)
   end subroutine eval_periodic_zero_mode
 
-  pure real(dp) function charge_primitive(plan, state, z) result(primitive)
+  pure real(dp) function charge_primitive(plan, state, z, interval) result(primitive)
     type(periodic_zero_mode_plan_type), intent(in) :: plan
     type(periodic_zero_mode_state_type), intent(in) :: state
     real(dp), intent(in) :: z
-    integer(i32) :: interval, breakpoint, lower_break
+    integer(i32), intent(in) :: interval
+    integer(i32) :: lower_break
 
-    call locate_interval(plan%break_z, z, interval, breakpoint)
     if (interval == 1_i32) then
       primitive = integrate_polynomial(state%cumulative_charge_coeff(:, 1), plan%break_z(1), z)
       return
@@ -62,7 +63,8 @@ contains
     integer(i32) :: low, high, middle
     real(dp) :: tolerance
 
-    tolerance = 128.0_dp*epsilon(1.0_dp)*max(1.0_dp, max(abs(z), maxval(abs(break_z))))
+    ! The plan stores sorted breakpoints, so an endpoint has the largest magnitude.
+    tolerance = 128.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(z), abs(break_z(1)), abs(break_z(size(break_z))))
     low = 1_i32
     high = size(break_z)
     breakpoint = 0_i32
