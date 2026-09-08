@@ -114,7 +114,7 @@ done
 | reference または double で振動・発散する | `batch_duration` を下げる |
 | 幅を変えると最終電荷が系統的に変わる | より小さい幅でもう一度比較する |
 | 履歴が Monte Carlo ノイズに埋もれる | `w_particle` または `target_macro_particles_per_batch` を先に調整する |
-| 終了時にも変化が続く | 物理終了時刻を揃えたまま `batch_count` を増やす |
+| 終了時にも変化が続く | 比較する全 run の `batch_count` を同じ倍率で増やし、共通の物理終了時刻を延ばす |
 
 この比較は Richardson 外挿ではなく、step-size sensitivity check です。誤差の冪乗則や
 特定の収束次数は仮定しません。理論的な理由は

@@ -127,52 +127,6 @@ Implicit integration alone does not choose a Zhao branch. By default, it stops i
 physical solution at the current seed. With strong PE, scan `a`, `b`, and `c` separately and then select the validated
 branch explicitly.
 
-Online Zhao can select multiple roots by a physical quantity when configured as follows:
-
-```toml
-zhao_root_selection = "minimum_energy"
-```
-
-For each candidate detected by the multistart search, BEACH evaluates the full profile from the surface to infinity and
-computes
-
-$$
-U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx.
-$$
-
-It selects the lowest $U$ within an explicit branch, or across certified A, B, and C candidates for `auto`. It still
-stops if a numerical failure prevents certification of the candidate set or if the lowest energies are tied within a
-relative $10^{-6}$. This criterion follows the sheath potential-energy comparison of
-[Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684), but finite multistart search is not
-proof that every mathematical root was found, and the energy comparison is not a time-dependent stability proof.
-
-The online response can become discontinuous when changing $D_H$ or PE moments switches the minimum-energy root. If
-the backward-Euler equation then has no ordinary root, BEACH stops instead of interpolating between the two sheath
-states. This can happen even though a sheath solution exists on both sides. BEACH does not expose Newton discovery
-order as a physical root identifier.
-
-To follow a validated Type-A root family between accepted batches, enable the opt-in policy:
-
-```toml
-response_backend = "zhao_online"
-zhao_branch = "a"
-implicit_zero_mode = true
-zhao_root_selection = "continuation"
-```
-
-A new run selects its first Type-A root with minimum-energy multistart, then locally tracks later solves from the accepted
-endpoint. BEACH returns to full multistart when Newton, root decoding, or profile certification fails, or when the
-candidate makes a large jump. Local Newton uses a logarithmic distance of 0.25 from the accepted root as its fast-path
-limit. After fallback, full multistart applies no distance limit and accepts the numerically unique closest Type-A root.
-BEACH stops when several roots have indistinguishable nearest distances, no Type-A root is detected, or root search or
-profile certification fails numerically; it does not switch to Type B or C. A no-solution or numerical-failure probe
-immediately after a valid root is still subdivided, avoiding coarse-scan misses near a branch endpoint.
-
-This is not pseudo-arclength continuation and does not guarantee retention of the same physical family, detection of a
-fold, or passage through one. See the
-[`zhao_root_selection` reference](MatchingPlaneReference.en.html#zhao_root_selection) for rejected-trial rollback,
-restart behavior, and the numerical distance and ambiguity rules.
-
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
 [Input parameters](Parameters.en.html#matching-plane-quasistatic-closure).
@@ -189,11 +143,41 @@ beach-inspect outputs/periodic2_matching_plane_zhao_online
 After a successful run, `outputs/periodic2_matching_plane_zhao_online/` contains at least `summary.txt`, `charges.csv`,
 and `matching_plane_history.csv`.
 
-Check `batches=4` and `matching_plane_state_valid=T` in `summary.txt`. They establish four accepted batches and a solved
-fixed point, not physical validity of the outer sheath or particle-count convergence.
+Check `batches=4` and `matching_plane_state_valid=T` in `summary.txt`. They establish four accepted batches and a saved
+outer state. Confirm fixed-point convergence from the residuals under [output checks](#4-decide-whether-the-result-succeeded):
+a finite state that reaches the iteration limit can also be accepted with a warning.
 
 `beachx lint` checks TOML and known parameter combinations, but it does not read the response CSV. With
 `response_backend="table"`, `beach` checks the table header, Cartesian grid, and matching-plane height at startup.
+
+### Choose an online Zhao root policy
+
+After checking the basic example, change the selection policy only when investigating the effect of multiple roots
+on your research case.
+
+| `zhao_root_selection` | Selection | What to check |
+| --- | --- | --- |
+| `require_unique` (default) | Require a unique physical root at each query | Stop if uniqueness cannot be certified |
+| `minimum_energy` | Choose the detected candidate with the lowest full-sheath potential energy | A root switch can make the response discontinuous and eliminate the implicit-update endpoint |
+| `continuation` | Track from the last accepted Type-A root | Requires explicit `zhao_branch="a"` and `implicit_zero_mode=true` |
+
+To select `continuation`, change these keys in the existing `[surface_current_model]` table:
+
+```toml
+response_backend = "zhao_online"
+zhao_branch = "a"
+implicit_zero_mode = true
+zhao_root_selection = "continuation"
+```
+
+The first root is the minimum-energy Type-A root. Subsequent solves track from the previous accepted root; when local
+search cannot reacquire it, full multistart selects the unique nearest root. Missing roots, ambiguity, or numerical
+failure stop the solve; it does not switch to Type B or C. This does not guarantee retention of the same physical
+family or passage through a fold.
+
+No policy proves that a finite set of initial guesses found every mathematical root or establishes time-dependent
+stability. The energy definition, distance and ambiguity rules, probe subdivision, and restart behavior are documented
+in the [`zhao_root_selection` reference](MatchingPlaneReference.en.html#zhao_root_selection).
 
 ## 3. What happens in one accepted batch
 
@@ -271,8 +255,8 @@ summary receipts, and the exact time convention.
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
 
-A completed run establishes backend evaluation and numerical fixed-point convergence. It does not establish physical
-validity of the outer sheath, invariance to matching-plane height, or Monte Carlo convergence.
+A completed run may contain batches accepted with warnings. Use history residuals to establish fixed-point convergence,
+then check physical validity of the outer sheath, dependence on matching-plane height, and Monte Carlo convergence.
 
 ## 5. Accepted configuration and model limits
 
@@ -306,8 +290,8 @@ not retain the high-energy tail.
 The `auto` multiple-root check compares roots found by a finite multistart set; it is not mathematical root isolation.
 Validate branches by scanning explicit `a`, `b`, and `c` selections.
 
-`require_unique` and `minimum_energy` are stateless between queries. Only `continuation` retains the previous accepted
-Type-A root family. No policy silently switches an explicit branch or backend when a query cannot be solved.
+`require_unique` and `minimum_energy` are stateless between queries. `continuation` retains the previous accepted
+Type-A root as the next search seed. No policy silently switches an explicit branch or backend when a query cannot be solved.
 
 When these effects control the result, validate against an independent one-dimensional--three-dimensional kinetic
 coupling or full PIC calculation. The [numerical and response-table reference](MatchingPlaneReference.en.html#validate-convergence-and-applicability)

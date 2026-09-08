@@ -53,7 +53,8 @@ Confirm that particle counts in `summary.txt` are consistent with the configured
 | `escaped_boundary` | particles leaving through the box boundary or outer model |
 | `survived_max_step` | particles whose absorption or escape was unresolved at `sim.max_step` |
 
-`survived_max_step` is neither absorption nor escape. If it is large enough to affect the conclusion, revise
+`survived_max_step` counts particles whose physical absorption or boundary escape is unresolved. It is included in the
+aggregate `escaped` count; use `escaped_boundary` for physical escape. If the unresolved count affects the conclusion, revise
 `sim.max_step`, `sim.dt`, or the box dimensions and show that the unresolved population becomes negligible.
 
 Then inspect the charge balance in `charge_ledger.csv` and `summary.txt`:
@@ -81,11 +82,12 @@ Separate Monte Carlo variation from time-discretization effects.
 | Quantity varied | Main effect tested |
 | --- | --- |
 | `sim.rng_seed` | random-sampling variation |
-| macro-particle count or particle weight | Monte Carlo noise |
+| macro-particle count and weight, while preserving the physical supply | Monte Carlo noise |
 | `sim.batch_count` | adequacy of the simulated duration |
 | `sim.batch_duration` or `sim.batch_duration_step` | stability of the end-of-batch surface-charge update |
 
-As a practical check, compare `batch_duration` at 0.5x and 2x the baseline. See
+Follow [Case design](ConfigurationRecipes.en.html#7-set-time-scales-and-particle-sampling) when changing particle counts
+and weights. Compare `batch_duration` at 0.5x and 2x the baseline, adjusting batch counts to reach the same physical time. See
 [`batch_duration` Stability and Steady Values](BatchDurationStability.en.html) for the underlying interpretation.
 
 ## 4. Check numerical-resolution dependence
@@ -95,7 +97,7 @@ and require the changes to fall below the previously declared tolerances.
 
 | Convergence axis | Example comparison | Error being tested |
 | --- | --- | --- |
-| particle time step | halve `sim.dt` | orbit, collision location, absorption, and escape |
+| particle time step | halve `sim.dt`, double `sim.max_step`, and hold `batch_duration` fixed | orbit, collision location, absorption, and escape |
 | tracking length | increase `sim.max_step` | truncation from unresolved particles |
 | surface mesh | refine the triangles | spatial discretization of charge and potential |
 | field solver | compare with Direct on a small case | Treecode or FMM approximation |

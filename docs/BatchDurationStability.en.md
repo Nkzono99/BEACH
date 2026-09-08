@@ -117,7 +117,7 @@ oscillation. Define “agreement” from the accuracy required for the study's q
 | The reference or double run oscillates or diverges | Lower `batch_duration` |
 | Final charge changes systematically with width | Repeat the comparison at smaller widths |
 | Monte Carlo noise obscures the history | Adjust `w_particle` or `target_macro_particles_per_batch` first |
-| Change continues at the end | Increase `batch_count` while keeping the physical end time aligned |
+| Change continues at the end | Increase `batch_count` by the same factor in all compared runs, extending their common physical end time |
 
 This is a step-size sensitivity check, not Richardson extrapolation. It assumes neither a power law for the error nor a
 particular convergence order. [`batch_duration` theory](BatchDurationTheory.en.html) explains why.

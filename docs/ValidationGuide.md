@@ -53,7 +53,8 @@ beachx inspect outputs/latest
 | `escaped_boundary` | box境界またはouter modelから流出した粒子 |
 | `survived_max_step` | `sim.max_step`までに吸収・流出が確定しなかった粒子 |
 
-`survived_max_step`は吸収にも流出にも数えられない未解決粒子です。結論に影響する量なら、
+`survived_max_step` は物理的な吸収・境界脱出が未確定の粒子です。集計上は `escaped` の内訳に含まれるため、
+物理的な流出量には `escaped_boundary` を使います。未解決量が結論に影響するなら、
 `sim.max_step`、`sim.dt`、boxの大きさを見直し、十分に小さくなることを確認します。
 
 次に`charge_ledger.csv`と`summary.txt`の電荷収支を確認します。
@@ -81,11 +82,12 @@ Monte Carloノイズと時間離散化の影響は分けて確認します。
 | 変更するもの | 主に確認できる影響 |
 | --- | --- |
 | `sim.rng_seed` | 乱数に起因するばらつき |
-| マクロ粒子数または粒子重み | Monte Carloノイズ |
+| 物理的な供給量を保ってマクロ粒子数・重みを変更 | Monte Carloノイズ |
 | `sim.batch_count` | 計算時間が十分か |
 | `sim.batch_duration`または`sim.batch_duration_step` | batch末尾の表面電荷更新の安定性 |
 
-`batch_duration`は基準値の0.5倍と2倍を目安に比較します。詳しい考え方は
+粒子数と重みの変更は[ケース設計](ConfigurationRecipes.html#7-時間と粒子数を決める)に従います。
+`batch_duration` は基準値の 0.5 倍と 2 倍を目安に比較し、batch 数を調整して同じ物理時刻まで計算します。詳しい考え方は
 [`batch_duration`の安定性と定常値](BatchDurationStability.html)にまとめています。
 
 ## 4. 数値解像度への依存性を確認する
@@ -95,7 +97,7 @@ Monte Carloノイズと時間離散化の影響は分けて確認します。
 
 | 収束軸 | 比較例 | 確認する誤差 |
 | --- | --- | --- |
-| 粒子時間刻み | `sim.dt`を1/2にする | 軌道、衝突位置、吸収・流出量 |
+| 粒子時間刻み | `sim.dt` を 1/2、`sim.max_step` を 2 倍にし、`batch_duration` は固定 | 軌道、衝突位置、吸収・流出量 |
 | 粒子追跡長 | `sim.max_step`を増やす | 未解決粒子による打切り |
 | 表面mesh | 三角形を細分化する | 電荷・電位の空間離散化 |
 | 場ソルバ | 小規模ケースでDirectと比較する | Treecode/FMM近似 |

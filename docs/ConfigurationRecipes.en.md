@@ -4,9 +4,9 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 
 # Case Design Workflow
 
-This page gives the decision order for turning the tested official tutorial into a research case. It does not reproduce
-the complete configuration. Each step shows only the minimum change, while the
-[input parameter reference](Parameters.en.html) remains canonical for all keys and combination constraints.
+This page turns the tested official tutorial into a research case: choose geometry, sources, and boundaries, then set
+time steps and particle sampling to obtain comparable results. Look up types, defaults, and combination constraints in
+the [input parameter reference](Parameters.en.html).
 
 **Starting point:** Complete the [10-minute tutorial](Tutorial.en.html). In the working directory that contains
 `beach.toml` and `outputs/tutorial`, copy the baseline configuration.
@@ -17,7 +17,7 @@ beachx lint case.toml
 ```
 
 Change one decision at a time and rerun `beachx lint case.toml` after every change. Keep the tutorial output as the
-baseline; step 7 assigns a different output directory to the new case.
+baseline; step 8 assigns a different output directory to the new case.
 
 ## 1. Define the purpose and acceptance criteria
 
@@ -152,7 +152,41 @@ Keep the tutorial reference run at `field_solver="direct"`. Before adopting a fa
 Direct in a reduced case with the same mesh and particle conditions. See [Field evaluation](FieldSolvers.en.html) for
 compatibility and selection, and [Use FMM](FMM.en.html) for FMM configuration and accuracy tuning.
 
-## 7. Separate the output and run the case
+## 7. Set time scales and particle sampling
+
+First choose physical conditions such as density, temperature, and flux, then decide how many macro-particles will
+represent them. The weight `w_particle` is the number of physical particles represented by one simulated particle.
+
+| Decision | Setting | How to choose it |
+| --- | --- | --- |
+| Particle orbit step | `sim.dt` | Halve it and compare impact locations and absorption rates |
+| Tracking limit per particle | `sim.max_step` | Increase it until unresolved particles, `survived_max_step`, have a sufficiently small effect |
+| Surface-charge update interval | `sim.batch_duration` | Use positive seconds for flux-driven sources and compare with half the interval |
+| Simulation duration | `sim.batch_count` | With a fixed interval, `batch_duration × batch_count` is the physical end time |
+
+When halving the orbit step, double `max_step` to preserve the available tracking time.
+With `batch_duration_step`, the relation is `batch_duration = dt × batch_duration_step`, so changing `dt` alone also
+changes the charge-update interval. Specifying `batch_duration` in seconds initially makes these two controls independent
+and their effects easier to compare. The two ways to specify the batch interval are mutually exclusive.
+
+How to increase sampling depends on the selected source.
+
+| Source | Change to improve statistics | Physical conditions to hold fixed |
+| --- | --- | --- |
+| `volume_seed` | Increase `npcls_per_step` and decrease `w_particle` by the same factor | Physical particles per batch, `npcls_per_step × w_particle` |
+| `plane_source` / `boundary_inflow` | Increase `target_macro_particles_per_batch`, or decrease fixed `w_particle`; do not specify both | Distribution, density or flux, area, and `batch_duration` |
+| `photo_raycast` | Increase `rays_per_batch` | Photoelectric current density, illumination direction, geometry, and `batch_duration` |
+
+Despite its name, `npcls_per_step` is a count **per batch**. For example, changing the tutorial's
+`npcls_per_step=200, w_particle=2.0e5` to `400, 1.0e5` doubles the sample count while preserving the number of physical
+particles supplied. Increasing only the particle count also increases the supplied charge and changes the physical case.
+The photoelectron macro-particle count also depends on the ray hit fraction.
+
+For the tutorial, which does not assign physical seconds, keep `batch_duration=0` and compare results by batch.
+See [Choosing `batch_duration`](BatchDurationStability.en.html) for interval comparisons and adaptive stepping in
+flux-driven research cases.
+
+## 8. Separate the output and run the case
 
 Finally, change only `dir` in the existing `[output]` table so that the baseline result is not overwritten.
 
@@ -175,7 +209,7 @@ The minimum pass condition is `status=ok` from `lint`, process exit code 0, `bat
 `sim.batch_count`, and the presence of `summary.txt` and `charges.csv`. This proves completion, not physical correctness.
 See [Inspect output files](OutputGuide.en.html) for interpreting each output.
 
-## 8. Validate the result
+## 9. Validate the result
 
 For the observable defined in step 1, check at least the following:
 

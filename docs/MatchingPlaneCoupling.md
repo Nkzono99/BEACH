@@ -124,47 +124,6 @@ implicit_zero_mode = true
 implicit 化だけでは Zhao branch を選びません。既定では `auto` が現在の seed で一意な物理解を保証できない場合に停止します。
 強い PE では `a` / `b` / `c` を別々に走査してから、検証した branch を明示してください。
 
-複数根を物理量で選ぶ場合は、online Zhao に限り次を指定できます。
-
-```toml
-zhao_root_selection = "minimum_energy"
-```
-
-BEACH は multistart 探索で検出した候補について、表面から無限遠までの profile から
-
-$$
-U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx
-$$
-
-を計算し、最も低い $U$ を選びます。明示 branch ではその branch 内、`auto` では検証できた A / B / C 間の比較です。
-別 branch の数値失敗で候補集合を確定できない場合や、最小値が相対 $10^{-6}$ 以内で縮退する場合は停止します。
-この判定は [Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684) の
-sheath potential-energy 比較に基づきますが、有限 multistart が全数学根を列挙する保証や時間依存安定性の証明ではありません。
-
-$D_H$ や PE moment の変化に伴って最小エネルギー根が切り替わると、online 応答は不連続になり得ます。その点で
-backward-Euler 方程式に通常の根がなければ、BEACH は2根を補間せず停止します。これはシース解が両側で存在していても
-起こり得ます。Newton の検出順は物理的な root ID ではありません。
-
-検証済みの Type A root family を accepted batch 間で追跡する場合は、次の opt-in を使えます。
-
-```toml
-response_backend = "zhao_online"
-zhao_branch = "a"
-implicit_zero_mode = true
-zhao_root_selection = "continuation"
-```
-
-新規 run の初回は minimum-energy multistart で Type A root を選び、その後は accepted endpoint から局所追跡します。
-Newton、root の復号、profile 検査が失敗した場合、または候補が大きく跳んだ場合は full multistart へ戻ります。
-局所 Newton では accepted root からの対数距離 0.25 を fast path の上限とします。full multistart へ戻った後は、
-距離上限を課さず、数値的に一意な最近傍 Type A root を受理します。最近傍距離を区別できない root が複数ある、
-Type A root を検出できない、または探索や profile 検査が数値的に失敗した場合は停止し、Type B / C へは切り替えません。
-有効 root の直後で解なしまたは数値失敗となった probe は刻み直し、粗い走査による branch 終端付近の見落としを避けます。
-
-これは pseudo-arclength continuation ではなく、同じ物理 family の保持、fold の検出、fold の通過を保証しません。
-棄却 trial の rollback、restart、
-距離と曖昧性の数値契約は [`zhao_root_selection` リファレンス](MatchingPlaneReference.html#zhao_root_selection)を参照してください。
-
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
 
@@ -180,11 +139,39 @@ beach-inspect outputs/periodic2_matching_plane_zhao_online
 正常終了すると `outputs/periodic2_matching_plane_zhao_online/` に少なくとも `summary.txt`、`charges.csv`、
 `matching_plane_history.csv` が生成されます。
 
-`summary.txt` の `batches=4` と `matching_plane_state_valid=T` を確認してください。これは 4 accepted batch と
-固定点の成立を示しますが、外部シースの物理妥当性や粒子数への収束は示しません。
+`summary.txt` の `batches=4` と `matching_plane_state_valid=T` を確認してください。これは 4 batch が受理され、
+外部状態が保存されたことを示します。固定点の収束は[出力の判定](#4-出力から成否を判断する)で残差から確認します。
+反復上限に達した有限な状態も、警告付きで受理されるためです。
 
 `beachx lint` は TOML と既知の組合せを検査しますが、応答 CSV の内容は読みません。`response_backend="table"` では、
 table の header、直積格子、整合面高度を `beach` の起動時に検査します。
+
+### online Zhao の根を選ぶ
+
+基本例を確認した後、複数根が研究条件へ与える影響を調べる場合にだけ選択方針を変えます。
+
+| `zhao_root_selection` | 選び方 | 注意すること |
+| --- | --- | --- |
+| `require_unique`（既定） | query ごとに一意な物理解を要求 | 一意性を確認できなければ停止 |
+| `minimum_energy` | 検出した候補から全シース電位エネルギーが最小の根を選ぶ | 根の切替で応答が不連続になり、陰的更新の終点が存在しなくなる場合がある |
+| `continuation` | 最後に受理した Type A root を seed として追跡 | 明示的な `zhao_branch="a"` と `implicit_zero_mode=true` が必須 |
+
+`continuation` を選ぶ場合は、既存の `[surface_current_model]` の該当キーを変更します。
+
+```toml
+response_backend = "zhao_online"
+zhao_branch = "a"
+implicit_zero_mode = true
+zhao_root_selection = "continuation"
+```
+
+初回は最小エネルギーの Type A root を選びます。その後は前の受理根から追跡し、局所探索で再取得できなければ
+full multistart で一意な最近傍根を選びます。解なし、曖昧性、数値失敗では停止し、Type B / C へは切り替えません。
+同じ物理 family の保持や fold の通過を保証する方法ではありません。
+
+どの方針も、有限個の初期値で全数学根を検出したことや時間依存安定性を保証しません。
+エネルギーの式、距離・曖昧性の判定、探索の刻み直し、再開時の扱いは
+[`zhao_root_selection` リファレンス](MatchingPlaneReference.html#zhao_root_selection)にまとめています。
 
 ## 3. 1 accepted batch で起こること
 
@@ -258,8 +245,8 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
 
-run の正常終了が示すのは、backend 評価と数値的な固定点収束です。外部シースの物理妥当性、matching-plane 高度への
-不変性、Monte Carlo 収束までは証明しません。
+正常終了しても、警告付きで受理した batch が含まれる場合があります。履歴の残差を確認して固定点の収束を判定し、
+さらに外部シースの物理妥当性、matching-plane 高度への依存性、Monte Carlo 収束を調べてください。
 
 ## 5. 受理される構成と適用限界
 
@@ -292,8 +279,8 @@ online Zhao は PE の束と平均法線 energy を、その 2 moment を再現�
 `auto` の複数根判定は有限個の multistart で見つけた根の比較であり、数学的な root isolation ではありません。
 branch 別の検証では `a` / `b` / `c` を明示して scan します。
 
-`require_unique` と `minimum_energy` は query ごとに stateless です。`continuation` だけは前の accepted Type A root
-family を保持します。どの policy も、解けない場合に明示 branch や backend を暗黙に切り替えません。
+`require_unique` と `minimum_energy` は query ごとに stateless です。`continuation` は前の accepted Type A root を
+次の探索の seed として保持します。どの policy も、解けない場合に明示 branch や backend を暗黙に切り替えません。
 
 これらが主要効果なら、独立した 1D--3D kinetic coupling または full PIC で検証します。応答表の grid、固定点許容値、
 matching-plane 高度を変える検証項目は[数値・応答表リファレンス](MatchingPlaneReference.html#収束と適用性を検証する)にまとめています。

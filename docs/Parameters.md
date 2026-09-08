@@ -4,24 +4,22 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
-本文書は、Fortran実行系が読む`beach.toml`のパラメータリファレンスです。
-単位は、特に断りがない限り SI 単位です。
+`beach.toml` のキーを調べるための一覧です。型、既定値、単位、必須条件と排他条件を記載します。
+単位は特記しない限り SI です。最初の設定は[ケース設計](ConfigurationRecipes.html)、
+編集後の確認は[設定の検証](Configuration.html)から始めてください。
 
-このページはすべての入力キーを掲載し、型、既定値、単位、値域、必須・排他条件、一文での効果を保持します。
-モデルの導出、アルゴリズム、設計理由、出力の解釈、運用例は併記せず、専用の解説・ガイドへリンクします。
+| 調べる対象 | このページの項目 |
+| --- | --- |
+| 時間刻み、batch 数、場 solver、外部場 | [`sim`](#sim-実行制御と場計算) |
+| 計算領域と周期軸 | [`domain`](#domain-box-geometryと周期topology) |
+| 場と粒子の境界条件 | [`field_boundary`](#field_boundary-場のclosure) / [`particle_boundary`](#particle_boundary-global粒子境界) |
+| 粒子種、供給量、放出方式 | [`particles.species`](#particlesspecies-粒子種) |
+| 表面の形状・材料・配置 | [`mesh`](#mesh-メッシュ入力) / [座標・配置の補助](#座標配置の補助パラメータ) |
+| 保存する量と再開 | [`output`](#output-出力と再開) |
+| 外部プラズマや周期場の詳細 | [`reservoir`](#reservoir-外部reservoir条件) / [`surface_current_model`](#surface_current_model-外部シースclosure) / [`periodic2`](#periodic2-非零モード零モード下側境界) |
 
-初めて設定を組む場合は、先に[シミュレーションケースを設計する](ConfigurationRecipes.html)を読むと全体像を掴みやすいです。
-
-box基準の座標・配置を指定する補助パラメータも通常のinput keyとして掲載し、どの値を計算または上書きするかを
-[座標・配置の補助パラメータ](#座標配置の補助パラメータ)に明記しています。
-
-| 関連ドキュメント | 内容 |
-|---|---|
-| [シミュレーションケースを設計する](ConfigurationRecipes.html) | 目的別の設定手順と調整ポイント |
-| [`beach.toml`を作成・検証する](Configuration.html) | `beachx config`、schema、lint |
-| [Algorithms](Algorithms.html) | BEM 場計算、粒子 push、衝突、蓄積電荷の計算手順への導線 |
-| [Workflow](Workflow.html) | 実行、開発、テスト、KUDPC での注意 |
-| [FMM](FMM.html) | `field_solver="fmm"`の選択と精度確認 |
+設定ファイルへ全項目をコピーする必要はありません。使う粒子源・境界・solver に必要な項目を選び、
+省略した項目には表の既定値を使います。「必須」「未指定」と書かれた項目は、各表の適用条件も確認してください。
 
 ---
 
@@ -142,17 +140,32 @@ beach.toml
 | `batch_duration` | float | `0.0` | 1 バッチの物理時間 [s]。有限値、流束 source では `>0` |
 | `batch_duration_step` | float | `0.0` | `batch_duration=dt*batch_duration_step`。`>0`、`batch_duration` と排他 |
 | `max_step` | int | `400` | 粒子 1 個あたりの最大 push 回数。`>=1` |
+
+`batch_duration` と `batch_duration_step` の同時指定はエラーです。
+`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
+刻み・追跡長・粒子数を一緒に設計する手順は[ケース設計](ConfigurationRecipes.html#7-時間と粒子数を決める)を参照してください。
+
+#### 変化量の監視
+
+以下は電荷変化の診断用です。計算終了は `batch_count` で決まり、これらを変えても早期停止しません。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
 | `tol_rel` | float | `1.0e-8` | 相対変化量の監視値。有限かつ `>=0`、停止条件には未使用 |
 | `q_floor` | float | `1.0e-30` | `rel_change` 計算時の分母下限。有限かつ `>0` |
+
+#### 境界イベントと ray の制御
+
+境界通過の再試行・破棄、または光電子の ray tracing を調整する場合に使います。
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
 | `multiple_box_events_policy` | string | `"abort"` | 1 step の境界event上限超過時に `abort` / `soft_discard` |
 | `multiple_box_events_retry_backend` | string | `"none"` | `multiple_box_events` 後の再試行。`none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_grace` | int | `1000` | 累積 soft discard 率の判定を開始する件数猶予。`>= 0` |
 | `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | 累積 soft discard 率の停止上限。`0 < value <= 1` |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | 累積 soft discard 絶対電荷の警告閾値 [C]。有限かつ `>0` |
 | `raycast_max_bounce` | int | `16` | `photo_raycast` の最大 bounce 数。有効時 `>=1` |
-
-`batch_duration` と `batch_duration_step` の同時指定はエラーです。
-`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast` では、解決後の `batch_duration > 0` が必須です。
 
 `upper_panel_fourier` は `cached_kneq0` の `periodic2` 構成でのみ有効です。
 `soft_discard` は、件数猶予の超過後に累積破棄率が率上限を超えた場合だけ停止します。

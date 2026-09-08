@@ -5,8 +5,8 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 # ケース設計の流れ
 
 このページは、動作確認済みの公式チュートリアルを研究用ケースへ変更するときの判断順を示します。
-設定全体をここへ複製せず、各段階で必要な最小差分だけを示します。全キーと組合せ制約は
-[入力パラメータリファレンス](Parameters.html)を正本とします。
+形状・粒子源・境界を選び、時間刻みと粒子数を決めて、比較できる計算結果を作ります。
+各キーの型、既定値、組合せ制約は[入力パラメータリファレンス](Parameters.html)で調べられます。
 
 **出発点:** [10 分チュートリアル](Tutorial.html)を完了し、`beach.toml` と
 `outputs/tutorial` がある作業ディレクトリで、基準設定を複製します。
@@ -17,7 +17,7 @@ beachx lint case.toml
 ```
 
 以降は一つの判断だけを変更し、そのたびに `beachx lint case.toml` を実行します。チュートリアルの
-出力は基準結果として残し、新しい出力先は手順 7 で指定します。
+出力は基準結果として残し、新しい出力先は手順 8 で指定します。
 
 ## 1. 目的と合格条件を決める
 
@@ -152,7 +152,41 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
 [場の評価方法](FieldSolvers.html)、FMM の設定と精度調整は [FMM を使う](FMM.html)を参照してください。
 
-## 7. 出力先を分けて実行する
+## 7. 時間と粒子数を決める
+
+先に密度、温度、流束などの物理条件を決め、その条件を何個のマクロ粒子で表現するかを決めます。
+マクロ粒子の重み `w_particle` は、一つの計算粒子が代表する実粒子数です。
+
+| 決めるもの | 設定 | 選び方 |
+| --- | --- | --- |
+| 粒子軌道の刻み | `sim.dt` | 半分にして衝突位置や吸収率の変化を調べる |
+| 一粒子を追跡する長さ | `sim.max_step` | 未解決粒子 `survived_max_step` の影響が十分小さくなるまで増やす |
+| 表面電荷を更新する幅 | `sim.batch_duration` | 流束源では正の秒数を指定し、半分の幅でも結果を比較する |
+| 計算する期間 | `sim.batch_count` | 固定幅なら `batch_duration × batch_count` が物理終了時刻になる |
+
+軌道刻みを半分にする比較では、`max_step` を 2 倍にして追跡可能な時間も揃えます。
+`batch_duration_step` を使う場合は `batch_duration = dt × batch_duration_step` なので、
+`dt` だけを変えると電荷更新幅も変わります。まず秒単位の `batch_duration` で両者を独立に指定すると、
+どちらの影響を比較しているか明確になります。この二つの幅の指定は排他です。
+
+粒子数の調整方法は、選んだ粒子源で異なります。
+
+| 粒子源 | 統計精度を上げるときの変更 | 固定する物理条件 |
+| --- | --- | --- |
+| `volume_seed` | `npcls_per_step` を増やし、`w_particle` を同じ比率で減らす | 1 batch の実粒子数 `npcls_per_step × w_particle` |
+| `plane_source` / `boundary_inflow` | `target_macro_particles_per_batch` を増やす、または固定 `w_particle` を減らす。両方は指定しない | 分布、密度または流束、面積、`batch_duration` |
+| `photo_raycast` | `rays_per_batch` を増やす | 光電流密度、照射方向、形状、`batch_duration` |
+
+`npcls_per_step` は名前に反して **1 batch 当たり**の生成数です。例えば入門ケースの
+`npcls_per_step=200, w_particle=2.0e5` を `400, 1.0e5` にすると、投入する実粒子数を保って
+標本数を 2 倍にできます。粒子数だけを増やすと、投入電荷も増えて別の物理条件になります。
+光電子のマクロ粒子数は ray の命中率にも依存します。
+
+物理秒を割り当てない入門ケースでは `batch_duration=0` のまま batch ごとの結果を比較します。
+流束を指定する研究ケースの時間幅比較と適応進行は
+[`batch_duration` をどう決めるか](BatchDurationStability.html)を参照してください。
+
+## 8. 出力先を分けて実行する
 
 最後に、既存の `[output]` で `dir` だけを変更し、基準結果を上書きしない出力先へ分けます。
 
@@ -174,7 +208,7 @@ beachx inspect outputs/case
 `sim.batch_count` と一致し、`summary.txt` と `charges.csv` が存在することです。これは完走した証拠であり、
 物理的に正しい証拠ではありません。各出力の読み方は[出力ファイルを調べる](OutputGuide.html)を参照してください。
 
-## 8. 妥当性を確認する
+## 9. 妥当性を確認する
 
 目的に対応する観測量について、少なくとも次を確認します。
 

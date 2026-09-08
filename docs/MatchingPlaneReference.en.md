@@ -97,8 +97,9 @@ $$
 
 It selects the lowest $U$ within an explicit branch, or among numerically certified A, B, and C candidates for `auto`.
 The solve stops when a numerical failure prevents certification of the candidate set or when the lowest values are
-tied within a relative $10^{-6}$. This energy comparison is a candidate-selection rule; finite multistart search does
-not guarantee enumeration of every root or prove time-dependent stability.
+tied within a relative $10^{-6}$. This candidate-selection rule follows the sheath potential-energy comparison of
+[Mishra et al. (2023)](https://academic.oup.com/mnras/article/520/1/233/6987684); finite multistart search does not
+guarantee enumeration of every root or prove time-dependent stability.
 The response can be discontinuous where the minimum-energy root switches. If the backward-Euler residual crosses that
 discontinuity without an ordinary zero, BEACH reports numerical failure instead of mixing the two roots.
 

@@ -4,27 +4,23 @@ Lang: [English](Parameters.en.md) | [日本語](Parameters.md)
 
 # Input Parameters Reference
 
-This document is the parameter reference for `beach.toml` read by the Fortran runtime.
-Unless otherwise noted, units are SI units.
+Look up `beach.toml` keys, types, defaults, units, and required or mutually exclusive conditions here.
+Units are SI unless stated otherwise. Start a new configuration with [Case design](ConfigurationRecipes.en.html),
+then follow [Configuration validation](Configuration.en.html) after editing it.
 
-This page lists every input key and retains its type, default, unit, range, required or mutually exclusive conditions,
-and a one-sentence effect. Model derivations, algorithms, design rationale, output interpretation, and operational
-examples are kept in dedicated explanations and guides linked from this reference.
+| What to look up | Section on this page |
+| --- | --- |
+| Time steps, batch count, field solver, and external fields | [`sim`](#sim-run-control-and-field-calculation) |
+| Domain geometry and periodic axes | [`domain`](#domain-box-geometry-and-periodic-topology) |
+| Field and particle boundary conditions | [`field_boundary`](#field_boundary-field-closure) / [`particle_boundary`](#particle_boundary-global-particle-boundaries) |
+| Species, supply rates, and emission | [`particles.species`](#particlesspecies-particle-species) |
+| Surface geometry, material, and placement | [`mesh`](#mesh-mesh-input) / [Coordinate and placement helpers](#coordinate-and-placement-helper-parameters) |
+| Saved quantities and resume | [`output`](#output-output-and-resume) |
+| External plasma and periodic-field details | [`reservoir`](#reservoir-external-reservoir-conditions) / [`surface_current_model`](#surface_current_model-external-sheath-closure) / [`periodic2`](#periodic2-nonzero-mode-zero-mode-and-lower-boundary) |
 
-For first-time configuration work, start with
-[Design a Simulation Case](ConfigurationRecipes.en.html).
-
-Coordinate and placement helpers are listed as ordinary input keys. See
-[Coordinate and placement helper parameters](#coordinate-and-placement-helper-parameters) for the values each helper calculates
-or replaces.
-
-| Related document | Contents |
-|---|---|
-| [Design a Simulation Case](ConfigurationRecipes.en.html) | Task-oriented configuration steps and tuning points |
-| [Create and Validate `beach.toml`](Configuration.en.html) | `beachx config`, schema, and lint |
-| [Algorithms](Algorithms.en.html) | Entry point to BEM field calculation, particle push, collision, and accumulated-charge procedure |
-| [Workflow](Workflow.en.html) | Execution, development, testing, and KUDPC notes |
-| [FMM](FMM.en.html) | Selection and accuracy checks for `field_solver="fmm"` |
+You do not need to copy every entry into your configuration. Select the settings required by your sources, boundaries,
+and solver; omitted settings use the listed defaults. For entries marked required or unspecified, also check the
+applicability conditions below each table.
 
 ---
 
@@ -146,17 +142,33 @@ At least one `[[particles.species]]` entry is required.
 | `batch_duration` | float | `0.0` | Physical time per batch [s]. Finite; must be `>0` for flux-driven sources |
 | `batch_duration_step` | float | `0.0` | Resolves `batch_duration=dt*batch_duration_step`. `>0`; mutually exclusive with `batch_duration` |
 | `max_step` | int | `400` | Maximum pushes per particle. `>=1` |
+
+Specifying both `batch_duration` and `batch_duration_step` is an error. For
+`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
+See [Case design](ConfigurationRecipes.en.html#7-set-time-scales-and-particle-sampling) to choose steps, tracking limits,
+and particle counts together.
+
+#### Change Monitoring
+
+These settings diagnose charge changes. The run ends at `batch_count`; changing these values does not enable early stopping.
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
 | `tol_rel` | float | `1.0e-8` | Monitored relative-change value. Finite and `>=0`; not a stop condition |
 | `q_floor` | float | `1.0e-30` | Denominator floor for `rel_change`. Finite and `>0` |
+
+#### Boundary Events and Rays
+
+Use these controls when adjusting boundary retries, particle discard, or photoelectron ray tracing.
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
 | `multiple_box_events_policy` | string | `"abort"` | `abort` / `soft_discard` after the per-step boundary-event limit |
 | `multiple_box_events_retry_backend` | string | `"none"` | Retry after `multiple_box_events`: `none` / `upper_panel_fourier` |
 | `multiple_box_events_soft_discard_count_grace` | int | `1000` | Count grace before enforcing the cumulative soft-discard fraction. Must be `>= 0` |
 | `multiple_box_events_soft_discard_fraction_limit` | float | `1.0e-6` | Stop limit for the cumulative soft-discard fraction. Must satisfy `0 < value <= 1` |
 | `multiple_box_events_soft_discard_abs_charge_limit` | float | `1.0e-12` | Warning threshold for cumulative soft-discard absolute charge [C]. Finite and `>0` |
 | `raycast_max_bounce` | int | `16` | Maximum `photo_raycast` bounce count. `>=1` when enabled |
-
-Specifying both `batch_duration` and `batch_duration_step` is an error. For
-`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
 
 `upper_panel_fourier` is valid only for a `cached_kneq0` `periodic2` configuration. `soft_discard` stops only after the
 count grace when its cumulative fraction exceeds the fraction limit. Because cumulative absolute charge grows with
