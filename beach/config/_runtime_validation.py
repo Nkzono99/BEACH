@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import math
 from collections.abc import Mapping
 from typing import Any
@@ -34,32 +33,31 @@ from ._surface_validation import (
 
 
 def validate_runtime_config(config: Mapping[str, Any]) -> None:
-    """Validate the merged final config against known BEACH constraints."""
+    """Validate runtime constraints without modifying the caller's configuration."""
 
-    final_config = copy.deepcopy(dict(config))
     _validate_fragment_structure(
-        final_config,
+        config,
         context="runtime config",
         allow_meta_keys=False,
     )
     for key in _REQUIRED_RUNTIME_TABLES:
-        if key not in final_config:
+        if key not in config:
             raise ConfigValidationError(
                 f"BEACH constraint error: runtime config is missing top-level [{key}] table."
             )
 
-    sim = _require_table(final_config, "sim", context="runtime config")
-    particles = _require_table(final_config, "particles", context="runtime config")
-    mesh = _require_table(final_config, "mesh", context="runtime config")
-    _require_table(final_config, "output", context="runtime config")
-    domain = _optional_runtime_table(final_config, "domain")
-    field_boundary = _optional_runtime_table(final_config, "field_boundary")
-    particle_boundary = _optional_runtime_table(final_config, "particle_boundary")
-    reservoir = _optional_runtime_table(final_config, "reservoir")
+    sim = _require_table(config, "sim", context="runtime config")
+    particles = _require_table(config, "particles", context="runtime config")
+    mesh = _require_table(config, "mesh", context="runtime config")
+    _require_table(config, "output", context="runtime config")
+    domain = _optional_runtime_table(config, "domain")
+    field_boundary = _optional_runtime_table(config, "field_boundary")
+    particle_boundary = _optional_runtime_table(config, "particle_boundary")
+    reservoir = _optional_runtime_table(config, "reservoir")
     surface_current_model = _optional_runtime_table(
-        final_config, "surface_current_model"
+        config, "surface_current_model"
     )
-    periodic2_config = final_config.get("periodic2", {})
+    periodic2_config = config.get("periodic2", {})
     removed_sim_keys = sorted(set(sim) & _REMOVED_SIM_KEYS)
     if removed_sim_keys:
         raise ConfigValidationError(

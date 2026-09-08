@@ -41,7 +41,7 @@ def _validate_runtime_mesh(mesh: Mapping[str, Any]) -> None:
             "BEACH constraint error: mesh.templates must be an array of tables."
         )
     for index, item in enumerate(templates, start=1):
-        _validate_runtime_template(dict(item), index=index)
+        _validate_runtime_template(item, index=index)
 
 
 def _validate_runtime_template(template: Mapping[str, Any], *, index: int) -> None:

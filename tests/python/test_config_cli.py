@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -12,7 +13,34 @@ from beach.config import (
     default_config,
     load_config_file,
     normalize_config_document,
+    validate_runtime_config,
 )
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+@pytest.mark.parametrize("read_only", [False, True])
+def test_runtime_validation_preserves_caller_configuration(
+    invalid: bool, read_only: bool,
+) -> None:
+    config = default_config()
+    if invalid:
+        config["particles"]["species"][0]["source_mode"] = "unknown"
+    original = copy.deepcopy(config)
+
+    def freeze_tables(value):
+        if isinstance(value, dict):
+            return MappingProxyType({key: freeze_tables(item) for key, item in value.items()})
+        if isinstance(value, list):
+            return [freeze_tables(item) for item in value]
+        return value
+
+    document = freeze_tables(config) if read_only else config
+    if invalid:
+        with pytest.raises(ConfigValidationError, match="source_mode"):
+            validate_runtime_config(document)
+    else:
+        validate_runtime_config(document)
+    assert config == original
 
 
 def _write_base_config(path: Path, *, field_bc_mode: str = "periodic2") -> None:

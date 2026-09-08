@@ -191,24 +191,24 @@ def _require_table(
     key: str,
     *,
     context: str,
-) -> dict[str, Any]:
+) -> Mapping[str, Any]:
     value = document.get(key)
     if not isinstance(value, Mapping):
         raise ConfigValidationError(
             f"BEACH constraint error: {context} requires [{key}] to be a table."
         )
-    return dict(value)
+    return value
 
 
 def _optional_runtime_table(
     document: Mapping[str, Any], key: str
-) -> dict[str, Any] | None:
+) -> Mapping[str, Any] | None:
     value = document.get(key)
     if value is None:
         return None
     if not isinstance(value, Mapping):
         raise ConfigValidationError(f"BEACH constraint error: [{key}] must be a table.")
-    return dict(value)
+    return value
 
 
 def _maybe_vec3(value: object, *, name: str) -> list[float] | None:

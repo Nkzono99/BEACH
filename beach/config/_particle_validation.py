@@ -533,7 +533,7 @@ def _validate_particle_species(
     has_volume_seed = False
     total_npcls_per_step = 0
     for index, item in enumerate(species, start=1):
-        species_table = dict(item)
+        species_table = item
         source_mode = species_table.get("source_mode", "volume_seed")
         if not isinstance(source_mode, str):
             raise ConfigValidationError(
