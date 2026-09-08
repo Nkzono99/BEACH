@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import operator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Iterable, Iterator
 
 import numpy as np
+
+from ._numeric import _cumulative_trapezoid, _nonnegative_integer, _nonnegative_scalar
 
 from .constants import K_COULOMB
 from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
@@ -794,29 +795,6 @@ def _sum_component(left: object, right: object) -> WrenchComponent:
 
 def _zero_gauge_z(snapshot: ObjectInteractionSnapshot) -> float:
     return float(np.min(snapshot._triangles_m[:, :, 2]))
-
-
-def _cumulative_trapezoid(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    return np.concatenate(
-        ([0.0], np.cumsum(0.5 * (y[:-1] + y[1:]) * np.diff(x)))
-    )
-
-
-def _nonnegative_integer(value: int, name: str) -> int:
-    try:
-        result = operator.index(value)
-    except TypeError as exc:
-        raise ValueError(f"{name} must be a non-negative integer.") from exc
-    if isinstance(value, (bool, np.bool_)) or result < 0:
-        raise ValueError(f"{name} must be a non-negative integer.")
-    return result
-
-
-def _nonnegative_scalar(value: float, name: str) -> float:
-    result = float(value)
-    if not np.isfinite(result) or result < 0.0:
-        raise ValueError(f"{name} must be finite and non-negative.")
-    return result
 
 
 def _readonly_vec3(value: np.ndarray, name: str) -> np.ndarray:

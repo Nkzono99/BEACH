@@ -7,6 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ._numeric import _finite_scalar, _readonly
+
 from .kernel import FieldKernelError, _load_kernel_library
 
 
@@ -221,16 +223,3 @@ def _charges(value: np.ndarray, expected: int) -> np.ndarray:
     if not np.all(np.isfinite(charges)):
         raise ValueError("source_charges_C must contain finite values.")
     return np.ascontiguousarray(charges)
-
-
-def _finite_scalar(value: float, name: str) -> float:
-    result = float(value)
-    if not np.isfinite(result):
-        raise ValueError(f"{name} must be finite.")
-    return result
-
-
-def _readonly(value: np.ndarray) -> np.ndarray:
-    result = np.array(value, dtype=np.float64, copy=True)
-    result.setflags(write=False)
-    return result

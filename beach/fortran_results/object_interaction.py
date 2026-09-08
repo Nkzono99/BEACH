@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-import operator
 from pathlib import Path
 from threading import RLock
 from typing import Iterable, Mapping
 
 import numpy as np
+
+from ._numeric import (
+    _cumulative_trapezoid,
+    _nonnegative_integer,
+    _nonnegative_scalar,
+    _readonly,
+)
 
 from .context import RunContext
 from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
@@ -1315,34 +1321,6 @@ def _path_displacement(value: np.ndarray) -> np.ndarray:
     if np.any(np.diff(result) <= 0.0):
         raise ValueError("displacement_m must be strictly increasing.")
     return np.array(result, copy=True)
-
-
-def _nonnegative_scalar(value: float, name: str) -> float:
-    result = float(value)
-    if not np.isfinite(result) or result < 0.0:
-        raise ValueError(f"{name} must be finite and non-negative.")
-    return result
-
-
-def _nonnegative_integer(value: int, name: str) -> int:
-    try:
-        result = operator.index(value)
-    except TypeError as exc:
-        raise ValueError(f"{name} must be a non-negative integer.") from exc
-    if isinstance(value, (bool, np.bool_)) or result < 0:
-        raise ValueError(f"{name} must be a non-negative integer.")
-    return result
-
-
-def _cumulative_trapezoid(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-    increments = 0.5 * (y[:-1] + y[1:]) * np.diff(x)
-    return np.concatenate(([0.0], np.cumsum(increments)))
-
-
-def _readonly(value: np.ndarray) -> np.ndarray:
-    result = np.array(value, dtype=np.float64, copy=True)
-    result.setflags(write=False)
-    return result
 
 
 def _readonly_int(value: np.ndarray) -> np.ndarray:

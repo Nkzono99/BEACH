@@ -11,6 +11,8 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from ._numeric import _vec3
+
 from .context import RunContext, load_config_for_output
 from .mesh import _triangle_centers
 from .panel_quadrature import panel_target_quadrature
@@ -1386,15 +1388,6 @@ def _charges_1d(charges: np.ndarray, *, expected: int, name: str) -> np.ndarray:
     arr = np.asarray(charges, dtype=np.float64)
     if arr.ndim != 1 or arr.shape[0] != expected:
         raise ValueError(f"{name} must have shape ({expected},).")
-    if not np.all(np.isfinite(arr)):
-        raise ValueError(f"{name} must contain finite values.")
-    return np.ascontiguousarray(arr)
-
-
-def _vec3(value: Iterable[float], *, name: str) -> np.ndarray:
-    arr = np.asarray(list(value), dtype=np.float64)
-    if arr.shape != (3,):
-        raise ValueError(f"{name} must contain exactly 3 values.")
     if not np.all(np.isfinite(arr)):
         raise ValueError(f"{name} must contain finite values.")
     return np.ascontiguousarray(arr)

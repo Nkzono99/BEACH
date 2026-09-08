@@ -7,6 +7,8 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from ._numeric import _points
+
 from .context import (
     RunContext,
     find_config_path_near_output as _find_config_path_near_output,
@@ -322,15 +324,6 @@ def _eval_phi_chunks(
         stop = min(start + chunk_size, points.shape[0])
         values[start:stop] = kernel.eval_phi(points[start:stop])
     return values
-
-
-def _points(value: np.ndarray) -> np.ndarray:
-    points = np.asarray(value, dtype=float)
-    if points.ndim != 2 or points.shape[1] != 3:
-        raise ValueError("points must have shape (n_points, 3).")
-    if not np.all(np.isfinite(points)):
-        raise ValueError("points must contain finite values.")
-    return points
 
 
 def _coerce_box_bounds(

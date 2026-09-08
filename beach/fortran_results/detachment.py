@@ -9,6 +9,8 @@ from typing import Mapping
 
 import numpy as np
 
+from ._numeric import _finite_scalar, _readonly
+
 
 @dataclass(frozen=True)
 class WrenchComponent:
@@ -548,19 +550,6 @@ def _vec3(value: np.ndarray, name: str) -> np.ndarray:
     if not np.all(np.isfinite(result)):
         raise ValueError(f"{name} must contain finite values.")
     return _readonly(result)
-
-
-def _readonly(value: np.ndarray) -> np.ndarray:
-    result = np.array(value, dtype=np.float64, copy=True)
-    result.setflags(write=False)
-    return result
-
-
-def _finite_scalar(value: float, name: str) -> float:
-    result = float(value)
-    if not np.isfinite(result):
-        raise ValueError(f"{name} must be finite.")
-    return result
 
 
 def _freeze_array_mapping(value: Mapping[str, np.ndarray], npoint: int) -> Mapping[str, np.ndarray]:

@@ -8,6 +8,8 @@ from typing import Iterable, Literal, Mapping
 
 import numpy as np
 
+from ._numeric import _vec3
+
 from .context import RunContext
 from .kernel import (
     FieldKernel,
@@ -430,15 +432,6 @@ def _mesh_id_tuple(mesh_ids: int | Iterable[int]) -> tuple[int, ...]:
     if len(ids) == 0:
         raise ValueError("at least one mesh id must be provided.")
     return ids
-
-
-def _vec3(value: Iterable[float], *, name: str) -> np.ndarray:
-    arr = np.asarray(list(value), dtype=np.float64)
-    if arr.shape != (3,):
-        raise ValueError(f"{name} must contain exactly 3 values.")
-    if not np.all(np.isfinite(arr)):
-        raise ValueError(f"{name} must contain finite values.")
-    return np.ascontiguousarray(arr)
 
 
 def _readonly_array(value: np.ndarray, dtype: object) -> np.ndarray:
