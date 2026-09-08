@@ -86,6 +86,18 @@ state. See [`batch_duration` theory](BatchDurationTheory.en.html) and
 This separation identifies where a candidate value is produced and where accepted state becomes final. Updating a trial-local
 array does not by itself update statistics, the ledger, histories, or checkpoints.
 
+## Follow public entry points to their implementation
+
+Public entry points coordinate call order and data transfer, delegating each format or physics domain to its owner.
+
+| Responsibility | Public entry point | Implementation owner |
+| --- | --- | --- |
+| Fortran result output | `bem_output_writer.f90` | The `_history` submodule creates and appends histories, `_summary` writes the summary, and `_files` writes mesh, charge, and ledger CSVs |
+| Checkpoint restart | `bem_restart.f90` | `_contract` validates restart conditions, `_records` reads statistics, charges, and the ledger, and `_injection` saves and restores RNG state and macro-particle residuals |
+| Particle generation from configuration | `bem_app_config_particle_runtime.f90` | The parent module builds the source plan, `_batch` distributes work across MPI ranks and assembles batches, and `_sampling` handles species sampling and injection-velocity corrections |
+| Python configuration | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) lowers spatial notation, and [`_runtime_validation.py`](../beach/config/_runtime_validation.py) calls field, particle, surface-current, and mesh validation in order |
+| Python result loading | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | Reads basic mesh and charge data, delegating coupling state to [`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) and field-reconstruction metadata to [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) |
+
 ## Move from a subsystem to its implementation and tests
 
 The tests below are direct tests to run immediately after a change. Select the required cumulative gate from

@@ -88,6 +88,18 @@ macro 粒子端数、outer state は accepted state にしません。受理・r
 この区別により、変更時には「候補値を作る場所」と「accepted state を確定する場所」を分けて確認できます。
 trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoint まで更新したとみなしてはいけません。
 
+## 公開入口から責務の担当へ進む
+
+公開入口は呼び出し順とデータの受け渡しを管理し、個別の形式や物理分野の処理を次の実装へ委譲します。
+
+| 処理 | 公開入口 | 実装の担当 |
+| --- | --- | --- |
+| Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
+| チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
+| 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
+| Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) は空間指定の展開、[`_runtime_validation.py`](../beach/config/_runtime_validation.py) は場・粒子・表面電流・メッシュの検証を順に呼ぶ |
+| Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に連成状態・場の再構築メタデータを委譲する |
+
 ## Subsystem から実装と test へ移動する
 
 表の test は変更直後に使う直接 test です。必要な累積 gate は[開発ワークフロー](Workflow.html#変更からテストを選ぶ)で
