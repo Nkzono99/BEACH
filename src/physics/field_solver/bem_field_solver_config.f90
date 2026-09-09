@@ -1,6 +1,6 @@
 !> `bem_field_solver` の初期化・設定補助手続きを実装する submodule。
 submodule(bem_field_solver) bem_field_solver_config
-  use bem_coulomb_fmm_core, only: build_panel_plan, update_state, destroy_plan, destroy_state
+  use bem_coulomb_fmm_core, only: destroy_plan, destroy_state
   use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
   implicit none
 contains
@@ -10,14 +10,11 @@ contains
   character(len=16) :: requested_mode, field_bc_mode
   integer(i32) :: axis, n_periodic
   real(dp) :: span
-  real(dp), allocatable :: panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
   integer(i32) :: panel_status
   character(len=256) :: panel_message
 
-  self%fmm_core_state = fmm_state_type()
   call destroy_plan(self%fmm_core_plan)
   call destroy_state(self%fmm_core_state)
-  self%fmm_use_core = .false.
   self%fmm_core_ready = .false.
   call reset_tree_storage(self)
 
@@ -147,18 +144,7 @@ contains
     case default
       error stop 'FMM core received an unsupported periodic far correction.'
     end select
-    self%fmm_use_core = .true.
-    if (mesh%nelem > 0_i32) then
-      allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
-      panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
-      deallocate (panel_v0, panel_v1, panel_v2)
-      call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-      self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
-      call sync_core_plan_view(self)
-    end if
+    call refresh_fmm_solver(self, mesh)
     return
   end if
 

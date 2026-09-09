@@ -97,5 +97,76 @@ program test_dynamics_panel_fmm
   call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
   call assert_true(trim(fmm_solver%mode) == 'fmm', 'large panel auto case must select FMM')
   call test_end()
+  call test_solver_reinitialization()
   call test_summary()
+
+contains
+
+  subroutine test_solver_reinitialization()
+    type(mesh_type) :: small_mesh, empty_mesh
+    type(field_solver_type) :: solver, reference
+    type(sim_config) :: sim, reference_sim
+    character(len=8), parameter :: modes(5) = [character(len=8) :: 'fmm', 'fmm', 'treecode', 'direct', 'fmm']
+    real(dp) :: r(3), actual_e(3), actual_phi
+    integer :: iteration
+
+    call test_begin('panel_solver_reinitialization_and_empty_refresh_preserve_fields')
+    reference_sim%field_solver = 'direct'
+    r = [0.13_dp, -0.17_dp, 0.4_dp]
+    do iteration = 1, size(modes)
+      call make_plane(small_mesh, size_x=1.0_dp, size_y=1.0_dp, &
+                      nx=int(iteration, i32), ny=1_i32, center=[0.0_dp, 0.0_dp, 0.0_dp])
+      small_mesh%q_elem = 1.0e-12_dp
+      call resolve_panel_surface_sides(small_mesh, 'normal_plus', status, message)
+      call assert_equal_i32(status, panel_surface_side_ok, 'reinitialization panel sides')
+      sim = reference_sim
+      sim%field_solver = modes(iteration)
+      sim%has_tree_leaf_max = .true.
+      sim%tree_leaf_max = 32_i32
+      sim%field_normalization = 'length'
+      sim%field_length_scale = 2.0_dp
+      call reference%init(small_mesh, reference_sim)
+      call solver%init(small_mesh, sim)
+      call check_fields(solver, reference, small_mesh, sim, reference_sim, r)
+      if (trim(sim%field_solver) == 'fmm') then
+        call solver%refresh(empty_mesh)
+        call solver%eval_e(empty_mesh, r, actual_e)
+        call solver%eval_potential(empty_mesh, sim, r, actual_phi)
+        call assert_true(all(actual_e == 0.0_dp), 'empty mesh must have zero field')
+        call assert_true(actual_phi == 0.0_dp, 'empty mesh must have zero potential')
+        call solver%refresh(small_mesh)
+        call check_fields(solver, reference, small_mesh, sim, reference_sim, r)
+        ! A different source count must rebuild the plan without reinitializing options.
+        call make_plane(small_mesh, size_x=1.0_dp, size_y=1.0_dp, &
+                        nx=2_i32*int(iteration, i32), ny=1_i32, center=[0.0_dp, 0.0_dp, 0.0_dp])
+        small_mesh%q_elem = -2.0e-12_dp
+        call resolve_panel_surface_sides(small_mesh, 'normal_plus', status, message)
+        call assert_equal_i32(status, panel_surface_side_ok, 'resized panel sides')
+        call reference%init(small_mesh, reference_sim)
+        call solver%refresh(small_mesh)
+        call check_fields(solver, reference, small_mesh, sim, reference_sim, r)
+      end if
+    end do
+    ! Reinitializing to direct also releases the last FMM state.
+    call solver%init(small_mesh, reference_sim)
+    call test_end()
+  end subroutine test_solver_reinitialization
+
+  subroutine check_fields(solver, reference, current_mesh, sim, reference_sim, r)
+    type(field_solver_type), intent(inout) :: solver, reference
+    type(mesh_type), intent(in) :: current_mesh
+    type(sim_config), intent(in) :: sim, reference_sim
+    real(dp), intent(in) :: r(3)
+    real(dp) :: actual_e(3), expected_e(3), actual_phi, expected_phi
+
+    call solver%eval_e(current_mesh, r, actual_e)
+    call reference%eval_e(current_mesh, r, expected_e)
+    call solver%eval_potential(current_mesh, sim, r, actual_phi)
+    call reference%eval_potential(current_mesh, reference_sim, r, expected_phi)
+    call assert_true(maxval(abs(actual_e - expected_e)) < 1.0e-10_dp*maxval(abs(expected_e)), &
+                     'reused solver field must match direct panel integration')
+    call assert_true(abs(actual_phi - expected_phi) < 1.0e-10_dp*abs(expected_phi), &
+                     'reused solver potential must match direct panel integration')
+  end subroutine check_fields
+
 end program test_dynamics_panel_fmm

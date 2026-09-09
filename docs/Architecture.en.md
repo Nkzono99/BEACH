@@ -92,11 +92,21 @@ Public entry points coordinate call order and data transfer, delegating each for
 
 | Responsibility | Public entry point | Implementation owner |
 | --- | --- | --- |
+| Field evaluation | `bem_field_solver.f90` | `_config` resolves configuration, `_tree` owns treecode topology and moments, `_fmm` manages panel geometry and charge state in the FMM core, and `_eval` dispatches evaluations |
+| External sheath response | `bem_matching_plane_response_provider.f90` | The parent module owns model evaluation and feedback contracts; `_mpi` initializes from configuration, checks agreement across ranks, and broadcasts root evaluation results |
+| Response table | `bem_matching_plane_response.f90` | The parent module shares immutable snapshots and interpolates responses; `_io` reads CSV, validates the grid, and computes the content fingerprint |
 | Fortran result output | `bem_output_writer.f90` | The `_history` submodule creates and appends histories, `_summary` writes the summary, and `_files` writes mesh, charge, and ledger CSVs |
 | Checkpoint restart | `bem_restart.f90` | `_contract` validates restart conditions, `_records` reads statistics, charges, and the ledger, and `_injection` saves and restores RNG state and macro-particle residuals |
 | Particle generation from configuration | `bem_app_config_particle_runtime.f90` | The parent module builds the source plan, `_batch` distributes work across MPI ranks and assembles batches, and `_sampling` handles species sampling and injection-velocity corrections |
 | Python configuration | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) lowers spatial notation, and [`_runtime_validation.py`](../beach/config/_runtime_validation.py) calls field, particle, surface-current, and mesh validation in order |
 | Python result loading | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | Reads basic mesh and charge data, delegating coupling state to [`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) and field-reconstruction metadata to [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) |
+
+`field_solver_type%fmm_core_plan` owns FMM topology and interaction lists; `%fmm_core_state` holds charge-dependent work arrays.
+The old FMM mirror view and unused local-expansion arrays have been removed. Inspect the core plan and state for diagnostics;
+the treecode arrays do not describe FMM state. `init` releases existing FMM work arrays before rebuilding them. For example,
+repeat `call solver%init(mesh, sim)` on the same `solver` after changing `sim%field_solver` to switch backends.
+Use `refresh(mesh)` for charge changes; the FMM path also handles an empty mesh or a changed element count.
+If vertex coordinates change while the element count stays the same, use `init` to rebuild geometry.
 
 ### Generate particle arrays directly
 

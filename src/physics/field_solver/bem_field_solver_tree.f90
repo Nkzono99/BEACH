@@ -1,6 +1,5 @@
 !> `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 submodule(bem_field_solver) bem_field_solver_tree
-  use bem_coulomb_fmm_core, only: build_panel_plan, update_state, destroy_plan, destroy_state
   implicit none
 contains
 
@@ -10,44 +9,11 @@ contains
   integer(i32) :: p, idx, p_end
   integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
   real(dp) :: q, abs_q, qx, qy, qz, qi
-  real(dp), allocatable :: panel_v0(:, :), panel_v1(:, :), panel_v2(:, :)
-  logical :: plan_view_dirty
 
   if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
 
   if (trim(self%mode) == 'fmm') then
-    self%fmm_use_core = .true.
-    plan_view_dirty = .false.
-    if (mesh%nelem <= 0_i32) then
-      call destroy_plan(self%fmm_core_plan)
-      call destroy_state(self%fmm_core_state)
-      self%fmm_core_ready = .false.
-      plan_view_dirty = .true.
-      call sync_core_plan_view(self)
-      return
-    end if
-
-    if (.not. self%fmm_core_plan%built .or. self%fmm_core_plan%nsrc /= mesh%nelem) then
-      call destroy_plan(self%fmm_core_plan)
-      call destroy_state(self%fmm_core_state)
-      allocate (panel_v0(3, mesh%nelem), panel_v1(3, mesh%nelem), panel_v2(3, mesh%nelem))
-      panel_v0 = (mesh%v0 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      panel_v1 = (mesh%v1 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      panel_v2 = (mesh%v2 - spread(self%field_origin, 2, mesh%nelem))*self%field_inv_length_scale
-      call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
-      deallocate (panel_v0, panel_v1, panel_v2)
-      plan_view_dirty = .true.
-    end if
-
-    call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
-    self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
-    self%tree_ready = self%fmm_core_plan%built
-    self%fmm_ready = self%fmm_core_state%ready
-    self%nelem = self%fmm_core_plan%nsrc
-    self%target_tree_ready = self%fmm_core_plan%target_tree_ready
-    if (plan_view_dirty) then
-      call sync_core_plan_view(self)
-    end if
+    call refresh_fmm_solver(self, mesh)
     return
   end if
 
@@ -119,7 +85,6 @@ contains
     !$omp end parallel do
   end do
 
-  self%fmm_ready = .false.
   end procedure refresh_field_solver
 
   !> 要素重心を octree に再配置して木構造トポロジを構築する。
@@ -154,7 +119,6 @@ contains
   call rebuild_source_level_cache(self)
   self%nelem = mesh%nelem
   self%tree_ready = .true.
-  self%fmm_ready = .false.
   end procedure build_tree_topology
 
   !> 指定区間の要素を1ノードとして登録し、条件を満たせば8分木分割する。
@@ -344,8 +308,6 @@ contains
 
   !> treecode で使う作業配列を解放し、ノード状態を未初期化に戻す。
   module procedure reset_tree_storage
-  call destroy_plan(self%fmm_core_plan)
-  call destroy_state(self%fmm_core_state)
   if (allocated(self%elem_order)) deallocate (self%elem_order)
   if (allocated(self%node_start)) deallocate (self%node_start)
   if (allocated(self%node_count)) deallocate (self%node_count)
@@ -364,154 +326,11 @@ contains
   if (allocated(self%node_qy)) deallocate (self%node_qy)
   if (allocated(self%node_qz)) deallocate (self%node_qz)
   if (allocated(self%node_charge_center)) deallocate (self%node_charge_center)
-  if (allocated(self%leaf_nodes)) deallocate (self%leaf_nodes)
-  if (allocated(self%leaf_slot_of_node)) deallocate (self%leaf_slot_of_node)
-  if (allocated(self%target_child_count)) deallocate (self%target_child_count)
-  if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
-  if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
-  if (allocated(self%target_node_depth)) deallocate (self%target_node_depth)
-  if (allocated(self%target_level_start)) deallocate (self%target_level_start)
-  if (allocated(self%target_level_nodes)) deallocate (self%target_level_nodes)
-  if (allocated(self%target_node_center)) deallocate (self%target_node_center)
-  if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
-  if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
-  if (allocated(self%near_start)) deallocate (self%near_start)
-  if (allocated(self%near_nodes)) deallocate (self%near_nodes)
-  if (allocated(self%far_start)) deallocate (self%far_start)
-  if (allocated(self%far_nodes)) deallocate (self%far_nodes)
-  if (allocated(self%fmm_m2l_target_nodes)) deallocate (self%fmm_m2l_target_nodes)
-  if (allocated(self%fmm_m2l_source_nodes)) deallocate (self%fmm_m2l_source_nodes)
-  if (allocated(self%fmm_m2l_target_start)) deallocate (self%fmm_m2l_target_start)
-  if (allocated(self%fmm_m2l_pair_order)) deallocate (self%fmm_m2l_pair_order)
-  if (allocated(self%fmm_parent_of)) deallocate (self%fmm_parent_of)
-  if (allocated(self%fmm_node_local_e0)) deallocate (self%fmm_node_local_e0)
-  if (allocated(self%fmm_node_local_jac)) deallocate (self%fmm_node_local_jac)
-  if (allocated(self%fmm_node_local_hess)) deallocate (self%fmm_node_local_hess)
-  if (allocated(self%fmm_shift_axis1)) deallocate (self%fmm_shift_axis1)
-  if (allocated(self%fmm_shift_axis2)) deallocate (self%fmm_shift_axis2)
-  if (allocated(self%leaf_far_e0)) deallocate (self%leaf_far_e0)
-  if (allocated(self%leaf_far_jac)) deallocate (self%leaf_far_jac)
-  if (allocated(self%leaf_far_hess)) deallocate (self%leaf_far_hess)
-
   self%nnode = 0_i32
   self%max_node = 0_i32
   self%node_max_depth = 0_i32
-  self%nleaf = 0_i32
-  self%target_nnode = 0_i32
-  self%target_max_node = 0_i32
-  self%target_node_max_depth = 0_i32
-  self%target_tree_ready = .false.
   self%tree_ready = .false.
-  self%fmm_ready = .false.
   self%nelem = 0_i32
-  self%fmm_use_core = .false.
-  self%fmm_core_ready = .false.
-  self%fmm_core_options = fmm_options_type()
   end procedure reset_tree_storage
-
-  module procedure sync_core_plan_view
-  self%tree_ready = self%fmm_core_plan%built
-  self%fmm_ready = self%fmm_core_state%ready
-  self%nelem = self%fmm_core_plan%nsrc
-  self%max_node = self%fmm_core_plan%max_node
-  self%nnode = self%fmm_core_plan%nnode
-  self%node_max_depth = self%fmm_core_plan%node_max_depth
-  self%nleaf = self%fmm_core_plan%nleaf
-  self%target_tree_ready = self%fmm_core_plan%target_tree_ready
-  self%target_max_node = self%fmm_core_plan%target_max_node
-  self%target_nnode = self%fmm_core_plan%target_nnode
-  self%target_node_max_depth = self%fmm_core_plan%target_node_max_depth
-
-  call copy_i32_1d(self%elem_order, self%fmm_core_plan%elem_order)
-  call copy_i32_1d(self%node_start, self%fmm_core_plan%node_start)
-  call copy_i32_1d(self%node_count, self%fmm_core_plan%node_count)
-  call copy_i32_1d(self%child_count, self%fmm_core_plan%child_count)
-  call copy_i32_2d(self%child_idx, self%fmm_core_plan%child_idx)
-  call copy_i32_2d(self%child_octant, self%fmm_core_plan%child_octant)
-  call copy_i32_1d(self%node_depth, self%fmm_core_plan%node_depth)
-  call copy_i32_1d(self%node_level_start, self%fmm_core_plan%node_level_start)
-  call copy_i32_1d(self%node_level_nodes, self%fmm_core_plan%node_level_nodes)
-  call copy_dp_2d(self%node_center, self%fmm_core_plan%node_center)
-  call copy_dp_2d(self%node_half_size, self%fmm_core_plan%node_half_size)
-  call copy_dp_1d(self%node_radius, self%fmm_core_plan%node_radius)
-
-  call copy_i32_1d(self%leaf_nodes, self%fmm_core_plan%leaf_nodes)
-  call copy_i32_1d(self%leaf_slot_of_node, self%fmm_core_plan%leaf_slot_of_node)
-  call copy_i32_1d(self%near_start, self%fmm_core_plan%near_start)
-  call copy_i32_1d(self%near_nodes, self%fmm_core_plan%near_nodes)
-  call copy_i32_1d(self%far_start, self%fmm_core_plan%far_start)
-  call copy_i32_1d(self%far_nodes, self%fmm_core_plan%far_nodes)
-  call copy_i32_1d(self%fmm_m2l_target_nodes, self%fmm_core_plan%m2l_target_nodes)
-  call copy_i32_1d(self%fmm_m2l_source_nodes, self%fmm_core_plan%m2l_source_nodes)
-  call copy_i32_1d(self%fmm_m2l_target_start, self%fmm_core_plan%m2l_target_start)
-  call copy_i32_1d(self%fmm_m2l_pair_order, self%fmm_core_plan%m2l_pair_order)
-  call copy_i32_1d(self%fmm_parent_of, self%fmm_core_plan%parent_of)
-  call copy_dp_1d(self%fmm_shift_axis1, self%fmm_core_plan%shift_axis1)
-  call copy_dp_1d(self%fmm_shift_axis2, self%fmm_core_plan%shift_axis2)
-
-  if (self%target_tree_ready) then
-    call copy_i32_1d(self%target_child_count, self%fmm_core_plan%target_child_count)
-    call copy_i32_2d(self%target_child_idx, self%fmm_core_plan%target_child_idx)
-    call copy_i32_2d(self%target_child_octant, self%fmm_core_plan%target_child_octant)
-    call copy_i32_1d(self%target_node_depth, self%fmm_core_plan%target_node_depth)
-    call copy_i32_1d(self%target_level_start, self%fmm_core_plan%target_level_start)
-    call copy_i32_1d(self%target_level_nodes, self%fmm_core_plan%target_level_nodes)
-    call copy_dp_2d(self%target_node_center, self%fmm_core_plan%target_node_center)
-    call copy_dp_2d(self%target_node_half_size, self%fmm_core_plan%target_node_half_size)
-    call copy_dp_1d(self%target_node_radius, self%fmm_core_plan%target_node_radius)
-  else
-    if (allocated(self%target_child_count)) deallocate (self%target_child_count)
-    if (allocated(self%target_child_idx)) deallocate (self%target_child_idx)
-    if (allocated(self%target_child_octant)) deallocate (self%target_child_octant)
-    if (allocated(self%target_node_depth)) deallocate (self%target_node_depth)
-    if (allocated(self%target_level_start)) deallocate (self%target_level_start)
-    if (allocated(self%target_level_nodes)) deallocate (self%target_level_nodes)
-    if (allocated(self%target_node_center)) deallocate (self%target_node_center)
-    if (allocated(self%target_node_half_size)) deallocate (self%target_node_half_size)
-    if (allocated(self%target_node_radius)) deallocate (self%target_node_radius)
-  end if
-
-contains
-
-  subroutine copy_i32_1d(dst, src)
-    integer(i32), allocatable, intent(inout) :: dst(:)
-    integer(i32), allocatable, intent(in) :: src(:)
-
-    if (allocated(dst)) deallocate (dst)
-    if (.not. allocated(src)) return
-    allocate (dst(size(src)))
-    dst = src
-  end subroutine copy_i32_1d
-
-  subroutine copy_i32_2d(dst, src)
-    integer(i32), allocatable, intent(inout) :: dst(:, :)
-    integer(i32), allocatable, intent(in) :: src(:, :)
-
-    if (allocated(dst)) deallocate (dst)
-    if (.not. allocated(src)) return
-    allocate (dst(size(src, 1), size(src, 2)))
-    dst = src
-  end subroutine copy_i32_2d
-
-  subroutine copy_dp_1d(dst, src)
-    real(dp), allocatable, intent(inout) :: dst(:)
-    real(dp), allocatable, intent(in) :: src(:)
-
-    if (allocated(dst)) deallocate (dst)
-    if (.not. allocated(src)) return
-    allocate (dst(size(src)))
-    dst = src
-  end subroutine copy_dp_1d
-
-  subroutine copy_dp_2d(dst, src)
-    real(dp), allocatable, intent(inout) :: dst(:, :)
-    real(dp), allocatable, intent(in) :: src(:, :)
-
-    if (allocated(dst)) deallocate (dst)
-    if (.not. allocated(src)) return
-    allocate (dst(size(src, 1), size(src, 2)))
-    dst = src
-  end subroutine copy_dp_2d
-  end procedure sync_core_plan_view
 
 end submodule bem_field_solver_tree

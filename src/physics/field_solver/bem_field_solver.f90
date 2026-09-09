@@ -52,33 +52,6 @@ module bem_field_solver
     real(dp), allocatable :: node_q(:), node_abs_q(:)
     real(dp), allocatable :: node_qx(:), node_qy(:), node_qz(:)
     real(dp), allocatable :: node_charge_center(:, :)
-    logical :: fmm_ready = .false.
-    integer(i32) :: nleaf = 0_i32
-    integer(i32), allocatable :: leaf_nodes(:)
-    integer(i32), allocatable :: leaf_slot_of_node(:)
-    logical :: target_tree_ready = .false.
-    integer(i32) :: target_max_node = 0_i32
-    integer(i32) :: target_nnode = 0_i32
-    integer(i32), allocatable :: target_child_count(:), target_child_idx(:, :), target_child_octant(:, :)
-    integer(i32), allocatable :: target_node_depth(:)
-    integer(i32) :: target_node_max_depth = 0_i32
-    integer(i32), allocatable :: target_level_start(:), target_level_nodes(:)
-    real(dp), allocatable :: target_node_center(:, :)
-    real(dp), allocatable :: target_node_half_size(:, :)
-    real(dp), allocatable :: target_node_radius(:)
-    integer(i32), allocatable :: near_start(:), near_nodes(:)
-    integer(i32), allocatable :: far_start(:), far_nodes(:)
-    integer(i32), allocatable :: fmm_m2l_target_nodes(:), fmm_m2l_source_nodes(:)
-    integer(i32), allocatable :: fmm_m2l_target_start(:), fmm_m2l_pair_order(:)
-    integer(i32), allocatable :: fmm_parent_of(:)
-    real(dp), allocatable :: fmm_node_local_e0(:, :)
-    real(dp), allocatable :: fmm_node_local_jac(:, :, :)
-    real(dp), allocatable :: fmm_node_local_hess(:, :, :, :)
-    real(dp), allocatable :: fmm_shift_axis1(:), fmm_shift_axis2(:)
-    real(dp), allocatable :: leaf_far_e0(:, :)
-    real(dp), allocatable :: leaf_far_jac(:, :, :)
-    real(dp), allocatable :: leaf_far_hess(:, :, :, :)
-    logical :: fmm_use_core = .false.
     logical :: fmm_core_ready = .false.
     type(fmm_options_type) :: fmm_core_options = fmm_options_type()
     type(fmm_plan_type) :: fmm_core_plan
@@ -209,15 +182,16 @@ module bem_field_solver
       class(field_solver_type), intent(inout) :: self
     end subroutine rebuild_source_level_cache
 
-    !> treecode/FMM 作業配列を解放する。
+    !> treecode 作業配列を解放する。
     module subroutine reset_tree_storage(self)
       class(field_solver_type), intent(inout) :: self
     end subroutine reset_tree_storage
 
-    !> core FMM plan の可観測メタデータを solver view へ同期する。
-    module subroutine sync_core_plan_view(self)
+    !> FMM のパネル幾何と電荷状態を構築・更新する。
+    module subroutine refresh_fmm_solver(self, mesh)
       class(field_solver_type), intent(inout) :: self
-    end subroutine sync_core_plan_view
+      type(mesh_type), intent(in) :: mesh
+    end subroutine refresh_fmm_solver
 
     !> メッシュ重心での電位を計算する（FMM/direct 自動切替）。
     module subroutine compute_mesh_potential_field_solver(self, mesh, sim, potential_v)

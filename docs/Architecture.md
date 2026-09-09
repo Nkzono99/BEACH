@@ -94,11 +94,22 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 
 | 処理 | 公開入口 | 実装の担当 |
 | --- | --- | --- |
+| 場の評価 | `bem_field_solver.f90` | `_config` は設定解決、`_tree` は treecode の木とモーメント、`_fmm` は FMM core のパネル幾何・電荷状態、`_eval` は評価方式の切り替え |
+| 外部シース応答 | `bem_matching_plane_response_provider.f90` | 親 module はモデル評価とフィードバックの契約、`_mpi` は設定からの初期化・rank 間の合意・root の評価結果の配信 |
+| 応答テーブル | `bem_matching_plane_response.f90` | 親 module は不変 snapshot の共有と補間、`_io` は CSV 読み込み・格子検証・内容 fingerprint の生成 |
 | Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
 | Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) は空間指定の展開、[`_runtime_validation.py`](../beach/config/_runtime_validation.py) は場・粒子・表面電流・メッシュの検証を順に呼ぶ |
 | Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に連成状態・場の再構築メタデータを委譲する |
+
+FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、電荷から計算する作業状態は
+`%fmm_core_state` が保持します。旧 FMM の複製 view と未使用の局所展開配列は削除しました。
+診断時は core plan / state を参照し、treecode 用配列から FMM の状態を読まないでください。
+`init` は既存の FMM 作業状態を解放してから再構築します。たとえば、同じ `solver` に対して
+`call solver%init(mesh, sim)` を再度呼び、`sim%field_solver` を切り替えられます。
+`refresh(mesh)` は電荷更新に用い、FMM では空メッシュまたは要素数の変更にも対応します。
+同じ要素数で頂点座標を変更した場合は `init` で幾何を再構築してください。
 
 ### 粒子配列を直接生成する
 

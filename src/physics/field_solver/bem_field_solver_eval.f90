@@ -196,7 +196,7 @@ contains
   potential_v = 0.0d0
   if (mesh%nelem <= 0) return
 
-  if (self%fmm_use_core .and. self%fmm_core_ready) then
+  if (trim(self%mode) == 'fmm' .and. self%fmm_core_ready) then
     call compute_mesh_potential_fmm(self, mesh, potential_v)
   else if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
     call compute_mesh_potential_tree(self, mesh, potential_v)
@@ -218,7 +218,7 @@ contains
   if (.not. all(ieee_is_finite(charge_step)) .or. .not. all(ieee_is_finite(mesh%q_elem))) then
     error stop 'cached kneq0 potential step requires finite charges.'
   end if
-  if (trim(self%mode) /= 'fmm' .or. .not. self%fmm_use_core .or. &
+  if (trim(self%mode) /= 'fmm' .or. &
       .not. self%use_periodic2 .or. trim(self%periodic_far_correction) /= 'cached_kneq0') then
     error stop 'kneq0 potential-step measurement requires the cached_kneq0 FMM backend.'
   end if
