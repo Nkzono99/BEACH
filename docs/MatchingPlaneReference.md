@@ -156,6 +156,31 @@ $X^m$ でこの終点を解き、同じ trial の粒子追跡で得た PE moment
 6 s のような幅を使えるかは、局所電位変化、粒子 sampling、root bracket、物理範囲を別々に検証します。
 実務上の比較手順は [`batch_duration` の選択](BatchDurationStability.html)を参照してください。
 
+## Ambient VDF とシース密度の整合性
+
+流入束と粒子のエネルギー保存が一致しても、外部シースの密度分布まで一致するとは限りません。
+現行実装の Type A 下側では、ambient electron の密度係数を
+
+$$
+\frac{n_e(\phi)}{n_{e,\infty}}=
+\frac12 e^{\phi/T_e}\operatorname{erfc}\!\left(\sqrt{(\phi-\phi_m)/T_e}-u\right)
+$$
+
+とします。ここでは電位を V、$T_e$ を eV の数値で表し、
+$u=v_d/\sqrt{2eT_e/m_e}$ は内向き drift です。一方、上流 drifting Maxwellian を
+エネルギー保存で写像した、電位極小を通過する population の密度は
+
+$$
+\frac{n_e^{kin}(\phi)}{n_{e,\infty}}=
+\frac{1}{\sqrt\pi}\int_{\sqrt{-\phi_m/T_e}}^\infty
+\frac{s\,e^{-(s-u)^2}}{\sqrt{s^2+\phi/T_e}}\,ds
+$$
+
+です。$s$ は上流の内向き法線速度を $\sqrt{2eT_e/m_e}$ で割った値で、$\phi_m<0$、$\phi\ge\phi_m$ とします。
+両者は $u=0$ で一致しますが、有限 drift では一般に異なります。このため現行 online Zhao と
+reservoir の組合せを、完全に同一の VDF から閉じた外部 kinetic 解とは扱いません。密度式を差し替える検証では、
+中性条件・積分条件の根に加え、上側と下側の全 profile で $E^2\ge0$ となることも確認します。
+
 ## Table backend の応答 CSV v1
 
 header より前に整合面高度を 1 回だけ書きます。この値は `domain.box_max` の z 成分と一致させます。

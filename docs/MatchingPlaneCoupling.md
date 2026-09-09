@@ -189,6 +189,9 @@ full multistart で一意な最近傍根を選びます。解なし、曖昧性�
    adaptive $k\ne0$ 条件が trial を棄却した場合は、batch 幅を半分にして外部 state も巻き戻します。
 
 この反復により Monte Carlo の乱数差ではなく、同じ粒子写像に対する外部応答の整合性を評価します。
+光電子の放出標本は ambient 粒子より先に生成し、応答によって ambient 粒子の生成数が変わっても、同じ batch の
+光電子の放出位置・速度を保ちます。この生成順序の修正により、修正前の版とは同じ `rng_seed` でも標本列が変わります。
+species の識別子と追跡時の粒子配列順序は変わりません。
 
 ### 0 V reservoir と PE return
 
@@ -275,6 +278,9 @@ matching-plane は平均場や粒子 channel の二重計上を防ぐため、�
 
 online Zhao は PE の束と平均法線 energy を、その 2 moment を再現する half-Maxwellian へ縮約します。
 そのため、高 energy tail は保持しません。
+ambient 側も、有限 drift では現行シース密度式と流入 VDF の速度積分が一般に一致しません。
+流入束の一致だけで完全な kinetic 整合性を判断せず、
+[密度との整合性](MatchingPlaneReference.html#ambient-vdf-とシース密度の整合性)を確認してください。
 
 `auto` の複数根判定は有限個の multistart で見つけた根の比較であり、数学的な root isolation ではありません。
 branch 別の検証では `a` / `b` / `c` を明示して scan します。

@@ -164,6 +164,31 @@ Therefore, using a width such as 6 s requires separate checks of local potential
 root bracketing, and the physical range. See [How to choose `batch_duration`](BatchDurationStability.en.html)
 for the comparison workflow.
 
+## Consistency between the ambient VDF and sheath density
+
+Agreement of inward flux and particle energy conservation does not ensure agreement of the outer sheath density.
+For the lower Type-A branch, the current implementation uses
+
+$$
+\frac{n_e(\phi)}{n_{e,\infty}}=
+\frac12 e^{\phi/T_e}\operatorname{erfc}\!\left(\sqrt{(\phi-\phi_m)/T_e}-u\right).
+$$
+
+Here potentials are numerical values in V, $T_e$ is the numerical value in eV, and
+$u=v_d/\sqrt{2eT_e/m_e}$ is the inward drift. Mapping the upstream drifting Maxwellian by energy conservation
+instead gives the density of the population that crosses the potential minimum as
+
+$$
+\frac{n_e^{kin}(\phi)}{n_{e,\infty}}=
+\frac{1}{\sqrt\pi}\int_{\sqrt{-\phi_m/T_e}}^\infty
+\frac{s\,e^{-(s-u)^2}}{\sqrt{s^2+\phi/T_e}}\,ds.
+$$
+
+Here $s$ is the upstream inward normal speed divided by $\sqrt{2eT_e/m_e}$, with $\phi_m<0$ and $\phi\ge\phi_m$.
+The expressions agree at $u=0$ but generally differ at finite drift. The current online Zhao and reservoir combination
+therefore does not form an outer kinetic solution closed with one identical VDF. When testing a replacement density,
+check $E^2\ge0$ along both complete profile branches in addition to roots of the neutrality and integral constraints.
+
 ## Table-backend response CSV v1
 
 Declare the matching-plane height once before the header. It must equal the z component of `domain.box_max`.

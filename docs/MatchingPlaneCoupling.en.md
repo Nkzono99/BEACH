@@ -196,6 +196,9 @@ in the [`zhao_root_selection` reference](MatchingPlaneReference.en.html#zhao_roo
    $k\ne0$ condition rejects the trial, BEACH halves the batch duration and rolls the outer state back.
 
 This replay tests the consistency of the outer response against one particle map instead of comparing different Monte Carlo draws.
+Photoelectron emission is sampled before ambient particles, so response-dependent ambient counts do not change the emission
+positions and velocities within a batch. This sampling-order correction changes the random sequence relative to earlier
+versions even with the same `rng_seed`. Species identifiers and particle assembly order for tracking are unchanged.
 
 ### The 0 V reservoir and PE return
 
@@ -286,6 +289,9 @@ This model does not solve:
 
 Online Zhao reduces the PE flux and mean normal energy to a half-Maxwellian that reproduces those two moments. It does
 not retain the high-energy tail.
+On the ambient side, the current sheath density and velocity integral of the injected VDF also generally differ at
+finite drift. Agreement of inward flux alone does not establish full kinetic consistency; see
+[the density comparison](MatchingPlaneReference.en.html#consistency-between-the-ambient-vdf-and-sheath-density).
 
 The `auto` multiple-root check compares roots found by a finite multistart set; it is not mathematical root isolation.
 Validate branches by scanning explicit `a`, `b`, and `c` selections.

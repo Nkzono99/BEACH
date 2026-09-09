@@ -2,11 +2,11 @@
 program test_matching_plane_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0, qe
-  use bem_types, only: mesh_type, sim_stats, injection_state, bc_open, bc_periodic
+  use bem_types, only: mesh_type, sim_stats, injection_state, particles_soa, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
-                            particle_inflow_reservoir
+                            particle_inflow_reservoir, init_particle_batch_from_config
   use bem_matching_plane_response, only: &
     matching_plane_response_csv_header, reset_matching_plane_response_snapshot_cache
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
@@ -48,7 +48,11 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(17)
+  call test_init(18)
+
+  call test_begin('photo_sample_is_fixed_when_ambient_count_changes_during_replay')
+  call assert_photo_sample_replay()
+  call test_end()
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -301,10 +305,10 @@ program test_matching_plane_simulator
   cfg%surface_current%zhao_root_selection = 'continuation'
   cfg%surface_current%implicit_zero_mode = .true.
   ! A small ray ensemble preserves the exact outward number flux and gives the
-  ! fixed-current closure a nonempty return channel.  The production energy
-  ! tolerance forces several feedback replays, so every provisional endpoint
+  ! fixed-current closure a nonempty return channel.  A tight energy
+  ! tolerance forces feedback replay, so every provisional endpoint
   ! must remain a bootstrap until the first batch is accepted.
-  cfg%surface_current%coupling_atol(2) = 0.1_dp
+  cfg%surface_current%coupling_atol(2) = 0.0_dp
   cfg%surface_current%coupling_max_iterations = 2_i32
   cfg%sim%batch_duration = 0.5_dp
   cfg%sim%dt = 1.0e-7_dp
@@ -546,6 +550,61 @@ program test_matching_plane_simulator
   call test_summary()
 
 contains
+
+  subroutine assert_photo_sample_replay()
+    type(mesh_type) :: replay_mesh
+    type(app_config) :: replay_cfg
+    type(injection_state) :: replay_state, original_state
+    type(particles_soa) :: first, second
+    integer, allocatable :: replay_seed(:)
+    integer :: nseed, i, j
+    real(dp) :: first_x(3, 8), first_v(3, 8), first_w(8), emission_first(2), emission_second(2)
+
+    call configure_fixture(replay_mesh, replay_cfg, original_state)
+    replay_cfg%particle_species(1)%boundary_inflow_high = 0_i32
+    replay_cfg%particle_species(1)%npcls_per_step = 3_i32
+    replay_cfg%particle_species(2)%enabled = .false.
+    replay_cfg%particle_species(3)%rays_per_batch = 8_i32
+    replay_cfg%particle_species(3)%m_particle = 9.1093837015e-31_dp
+    replay_cfg%particle_species(3)%temperature_ev = 2.2_dp
+    replay_cfg%particle_species(3)%has_temperature_ev = .true.
+    call random_seed(size=nseed)
+    allocate (replay_seed(nseed))
+    call random_seed(get=replay_seed)
+    replay_state = original_state
+    call init_particle_batch_from_config( &
+      replay_cfg, 1_i32, first, state=replay_state, mesh=replay_mesh, photo_emission_dq=emission_first &
+      )
+    call random_seed(put=replay_seed)
+    replay_cfg%particle_species(1)%npcls_per_step = 7_i32
+    replay_state = original_state
+    call init_particle_batch_from_config( &
+      replay_cfg, 1_i32, second, state=replay_state, mesh=replay_mesh, photo_emission_dq=emission_second &
+      )
+    call random_seed(put=replay_seed)
+    call assert_equal_i32(count(first%species_id == 3_i32), 8_i32, 'first replay lost a photoelectron')
+    call assert_equal_i32(count(second%species_id == 3_i32), 8_i32, 'second replay lost a photoelectron')
+    j = 0
+    do i = 1, first%n
+      if (first%species_id(i) /= 3_i32) cycle
+      j = j + 1
+      first_x(:, j) = first%x(:, i)
+      first_v(:, j) = first%v(:, i)
+      first_w(j) = first%w(i)
+    end do
+    j = 0
+    do i = 1, second%n
+      if (second%species_id(i) /= 3_i32) cycle
+      j = j + 1
+      call assert_close_dp(maxval(abs(first_x(:, j) - second%x(:, i))), 0.0_dp, 0.0_dp, &
+                           'ambient count changed photoelectron launch position')
+      call assert_close_dp(maxval(abs(first_v(:, j) - second%v(:, i))), 0.0_dp, 0.0_dp, &
+                           'ambient count changed photoelectron launch velocity')
+      call assert_close_dp(first_w(j), second%w(i), 0.0_dp, 'ambient count changed photoelectron weight')
+    end do
+    call assert_close_dp(maxval(abs(emission_first - emission_second)), 0.0_dp, 0.0_dp, &
+                         'ambient count changed the photoemission charge distribution')
+  end subroutine assert_photo_sample_replay
 
   subroutine configure_fixture(fixture_mesh, fixture_cfg, state)
     type(mesh_type), intent(out) :: fixture_mesh
