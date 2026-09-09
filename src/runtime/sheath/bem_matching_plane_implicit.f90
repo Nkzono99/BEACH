@@ -62,6 +62,16 @@ contains
     if (status /= matching_plane_provider_ok) then
       if (mpi_is_root(mpi)) then
         write (error_unit, '(a)') trim(message)
+        write (error_unit, '(a,3(1x,es24.16))') &
+          'matching-plane failed endpoint: D_before, D_seed [C/m2], duration [s]=', &
+          displacement_before, displacement_seed, duration
+        write (error_unit, '(a,4(1x,es24.16))') &
+          'matching-plane failed feedback: PE flux, PE energy, electron flux, ion flux=', feedback_reference
+        if (root_before%valid) then
+          write (error_unit, '(a,3(1x,es24.16))') &
+            'matching-plane failed seed: phi_H, phi_m [V], electron density [m-3]=', &
+            root_before%phi0_v, root_before%phi_m_v, root_before%ambient_electron_density_m3
+        end if
         flush (error_unit)
       end if
       error stop 128

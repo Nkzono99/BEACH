@@ -142,6 +142,18 @@ The returned $(H,\Phi_H)$ becomes the zero-mode gauge point. This preserves the 
 potential continuous with the outer sheath; it does not add the outer field profile inside BEACH. See
 [Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for configuration and the height-dependence test.
 
+### Can the outer sheath field replace the entire mean field?
+
+In a grain layer, positive and negative charges can occupy different heights, so $C(z)$ can vary substantially even when
+the total charge $Q$ is small. This internal mean field is also part of $k=0$. Replacing it with the planar outer-sheath
+field alone drops this surface-charge contribution and violates $dE_0/dz=\bar\rho_\mathrm{surface}/\epsilon_0$.
+
+A prescribed stationary background must still distinguish sheath space charge from grain-layer surface charge and match
+the boundary potential and displacement. The outer solution and BEM must not count the same surface charge twice.
+The current matching-plane model obtains the internal mean field from surface charges and takes the potential and barriers
+from the response outside the interface. This separation does not remove the time-step restriction caused by freezing
+local fields within a batch; see [batch-duration validation](BatchDurationStability.en.html).
+
 ## Search periodic images reachable by particle trajectories
 
 Field targets are wrapped into the primary periodic cell, while physical trajectory-event positions are retained. Mesh collision
