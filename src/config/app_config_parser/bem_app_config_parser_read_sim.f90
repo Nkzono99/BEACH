@@ -60,16 +60,16 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('box_origin')
-      call get_toml_real3(table, keys(ikey), domain%box_origin, 'domain.box_origin')
+      call get_toml_real_array(table, keys(ikey), domain%box_origin, 'domain.box_origin')
       domain%has_box_origin = .true.
     case ('box_size')
-      call get_toml_real3(table, keys(ikey), domain%box_size, 'domain.box_size')
+      call get_toml_real_array(table, keys(ikey), domain%box_size, 'domain.box_size')
       domain%has_box_size = .true.
     case ('box_min')
-      call get_toml_real3(table, keys(ikey), domain%box_min, 'domain.box_min')
+      call get_toml_real_array(table, keys(ikey), domain%box_min, 'domain.box_min')
       domain%has_box_min = .true.
     case ('box_max')
-      call get_toml_real3(table, keys(ikey), domain%box_max, 'domain.box_max')
+      call get_toml_real_array(table, keys(ikey), domain%box_max, 'domain.box_max')
       domain%has_box_max = .true.
     case ('periodic_axes')
       nullify (array)
@@ -241,7 +241,7 @@ contains
     case ('tree_min_nelem')
       call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'sim.tree_min_nelem')
     case ('e0')
-      call get_toml_real3(table, keys(ikey), cfg%sim%e0, 'sim.e0')
+      call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'sim.e0')
       cfg%sim%has_e0_vector = .true.
     case ('e0_abs')
       call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'sim.e0_abs')
@@ -253,7 +253,7 @@ contains
       call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'sim.e0_phi_z_deg')
       cfg%sim%has_e0_phi_z_deg = .true.
     case ('b0')
-      call get_toml_real3(table, keys(ikey), cfg%sim%b0, 'sim.b0')
+      call get_toml_real_array(table, keys(ikey), cfg%sim%b0, 'sim.b0')
     case ('multiple_box_events_policy')
       call get_toml_string( &
         table, keys(ikey), cfg%sim%multiple_box_events_policy, 'sim.multiple_box_events_policy' &

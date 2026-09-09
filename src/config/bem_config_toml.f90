@@ -4,7 +4,7 @@ module bem_config_toml
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: bc_open, bc_reflect, bc_redistributed_reflect
-  use bem_app_config_types, only: particle_bc_inherit, particle_inflow_none, particle_inflow_reservoir
+  use bem_app_config_types, only: particle_bc_inherit, particle_inflow_reservoir
   use bem_string_utils, only: lower_ascii
   use tomlf, only: toml_array, toml_key, toml_stat, toml_table, get_value, toml_len => len
   implicit none
@@ -15,9 +15,7 @@ module bem_config_toml
   public :: get_toml_int
   public :: get_toml_logical
   public :: get_toml_string
-  public :: get_toml_real3
-  public :: get_toml_real2
-  public :: get_toml_real4
+  public :: get_toml_real_array
   public :: get_toml_real_scalar_or_array3
   public :: get_toml_particle_boundary_mode
   public :: get_toml_boundary_inflow_mode
@@ -97,10 +95,10 @@ contains
     value = trim(tmp)
   end subroutine get_toml_string
 
-  subroutine get_toml_real3(table, key, value, context)
+  subroutine get_toml_real_array(table, key, value, context)
     type(toml_table), intent(inout) :: table
     type(toml_key), intent(in) :: key
-    real(dp), intent(out) :: value(3)
+    real(dp), intent(out) :: value(:)
     character(len=*), intent(in) :: context
     type(toml_array), pointer :: array
     integer :: i, stat
@@ -109,59 +107,15 @@ contains
     call get_value(table, key, array, stat=stat)
     call require_toml_success(stat, context)
     if (.not. associated(array)) call stop_config_error('Invalid TOML value for '//trim(context)//'.')
-    if (toml_len(array) /= 3) then
-      call stop_config_error(trim(context)//' must be an array of 3 numbers.')
+    if (toml_len(array) /= size(value)) then
+      call stop_config_error(trim(context)//' has an invalid array length.')
     end if
-    do i = 1, 3
+    do i = 1, size(value)
       call get_value(array, i, value(i), stat=stat)
       call require_toml_success(stat, context)
       if (.not. ieee_is_finite(value(i))) call stop_config_error(trim(context)//' must contain finite values.')
     end do
-  end subroutine get_toml_real3
-
-  subroutine get_toml_real2(table, key, value, context)
-    type(toml_table), intent(inout) :: table
-    type(toml_key), intent(in) :: key
-    real(dp), intent(out) :: value(2)
-    character(len=*), intent(in) :: context
-    type(toml_array), pointer :: array
-    integer :: i, stat
-
-    nullify (array)
-    call get_value(table, key, array, stat=stat)
-    call require_toml_success(stat, context)
-    if (.not. associated(array)) call stop_config_error('Invalid TOML value for '//trim(context)//'.')
-    if (toml_len(array) /= 2) then
-      call stop_config_error(trim(context)//' must be an array of 2 numbers.')
-    end if
-    do i = 1, 2
-      call get_value(array, i, value(i), stat=stat)
-      call require_toml_success(stat, context)
-      if (.not. ieee_is_finite(value(i))) call stop_config_error(trim(context)//' must contain finite values.')
-    end do
-  end subroutine get_toml_real2
-
-  subroutine get_toml_real4(table, key, value, context)
-    type(toml_table), intent(inout) :: table
-    type(toml_key), intent(in) :: key
-    real(dp), intent(out) :: value(4)
-    character(len=*), intent(in) :: context
-    type(toml_array), pointer :: array
-    integer :: i, stat
-
-    nullify (array)
-    call get_value(table, key, array, stat=stat)
-    call require_toml_success(stat, context)
-    if (.not. associated(array)) call stop_config_error('Invalid TOML value for '//trim(context)//'.')
-    if (toml_len(array) /= 4) then
-      call stop_config_error(trim(context)//' must be an array of 4 numbers.')
-    end if
-    do i = 1, 4
-      call get_value(array, i, value(i), stat=stat)
-      call require_toml_success(stat, context)
-      if (.not. ieee_is_finite(value(i))) call stop_config_error(trim(context)//' must contain finite values.')
-    end do
-  end subroutine get_toml_real4
+  end subroutine get_toml_real_array
 
   subroutine get_toml_real_scalar_or_array3(table, key, value, value_len, context)
     type(toml_table), intent(inout) :: table

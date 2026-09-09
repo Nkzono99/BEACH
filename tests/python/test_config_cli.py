@@ -1152,9 +1152,14 @@ def test_matching_plane_zhao_online_config_contract() -> None:
         Path(__file__).resolve().parents[2]
         / "examples/periodic2_zhao_fixed_current.toml"
     )
-    zhao_stationary["surface_current_model"]["response_backend"] = "zhao_online"
-    with pytest.raises(ConfigValidationError, match="matching-plane-specific"):
-        normalize_config_document(zhao_stationary)
+    for key, value in (
+        ("response_backend", "zhao_online"),
+        ("zhao_root_selection", "minimum_energy"),
+    ):
+        invalid_stationary = copy.deepcopy(zhao_stationary)
+        invalid_stationary["surface_current_model"][key] = value
+        with pytest.raises(ConfigValidationError, match="matching-plane-specific"):
+            normalize_config_document(invalid_stationary)
 
 
 @pytest.mark.parametrize(

@@ -34,9 +34,9 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 | 未知キー | 未知のセクション名・キー名はエラー |
 | schema | `schemas/beach.schema.json` |
 | Python 検証 | `beachx lint beach.toml` / `beachx config validate beach.toml` は同梱 schema と意味的制約を検証 |
-| Fortran 検証 | 開発・診断用の `beach --check-config beach.toml` は設定を読み、正規化・実行前検証だけを行う。path は必須 |
+| Fortran 検証 | 開発・診断用の `beach --check-config beach.toml` は読取・正規化・最小のモデル成立条件を確認。path は必須。実行前 lint の代替にはならない |
 | 基本値 | 実数と配列成分は有限値。整数項目に実数・真偽値は指定不可 |
-| 整数の格納範囲 | 符号付き 32 bit の `-2147483648..2147483647`。範囲外は変換前に拒否し、各項目固有の値域も適用 |
+| 整数の格納範囲 | 符号付き 32 bit の `-2147483648..2147483647`。範囲外は変換前に拒否。各項目固有の値域は lint で検証 |
 | 文字列 | Fortran の格納先を超える長さはエラー。暗黙の切り詰めはしない |
 
 Editor schema を使う場合は、`beach.toml` の先頭に GitHub Raw URL のコメント directive を置きます。
@@ -65,8 +65,9 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 
 数値と配列の各成分は有限値でなければなりません。無効化した species も、入力された値の型・有限性・
 文字列長の検査を受けます。整数の格納範囲も同じです。
-Schema / Python は無効な species にも enum と宣言上の値域を適用します。Fortran は無効な species の
-実行意味検証を省略するため、不正な enum や負の質量を無効な species に残した入力の採否までは一致しません。
+列挙値、宣言上の値域、無効な機能への指定などの詳細な入力診断は Schema / Python が担当します。
+Fortran はその全診断を繰り返さず、派生値・参照解決と実行に必要な最小条件を確認します。
+不正入力の採否は一致を保証しません。
 物理的な組合せ制約は各項目の適用条件に従います。
 `*_low` / `*_high` は各軸の下限・上限です。
 `inject_face` は `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high` のいずれかを指定します。
@@ -913,7 +914,7 @@ group 使用時は、template の `center`、直接 placement キー、`size_mod
 | `[particles]` | `[[particles.species]]` のコンテナとしてのみ使用。直下に `key = value` は書かない |
 | 旧キー | 旧名は未知キーとして扱う |
 | 型 | schema と Fortran パーサの両方で検証 |
-| 値域 | `beachx lint` と実行時 parser が既知制約を検証 |
+| 列挙値・値域・無効な機能への指定 | `beachx lint` が詳細を診断。Fortran は実行に必要な最小条件を確認 |
 
 次の旧 `sim` キーは schema、Python、Fortran のすべてで未知キーとして拒否します。暗黙の移行は行いません。
 

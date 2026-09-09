@@ -50,7 +50,7 @@ flowchart TD
    a normal run initializes MPI and the performance profiler, then resolves the configuration path.
    `load_or_init_run_state` loads configuration and prepares the mesh and either initial or restarted state.
 2. [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) reads TOML into `app_config`.
-   Authoring normalization and domain-specific preflight checks resolve derived values and combination constraints.
+   Authoring normalization and domain-specific preflight checks resolve derived values and references and check minimum model prerequisites.
    [`bem_app_config_mesh_runtime.f90`](../src/runtime/configuration/bem_app_config_mesh_runtime.f90) builds `mesh_type` from templates or OBJ input.
 3. `main` calls [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90). Its interface is in
    `bem_simulator.f90`, and its main loop is in [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90).
@@ -127,28 +127,28 @@ If vertex coordinates change while the element count stays the same, use `init` 
 
 ### Separate configuration interpretation from runtime construction
 
-`src/config/` reads TOML and resolves defaults, coordinate notation, derived values, and combination constraints.
+`src/config/` reads TOML, resolves defaults, coordinate notation, derived values, and references, and checks minimum prerequisites for execution.
 `src/runtime/configuration/` constructs meshes, particles, and boundary potentials from those settings.
 `beach --check-config beach.toml` uses the normal configuration loader and exits before MPI initialization or runtime-data construction.
 
 | Responsibility | Implementation | Boundary |
 | --- | --- | --- |
 | Basic TOML values | [`bem_config_toml.f90`](../src/config/bem_config_toml.f90) | Check types, integer storage ranges, finite reals, array lengths, and string storage lengths before returning values |
-| Table readers | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) and `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | Map keys to configuration types and the authoring overlay; `_read_mesh` also owns basic mesh validation |
+| Table readers | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) and `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | Map keys to configuration types and the authoring overlay |
 | Coordinate and placement notation | [`bem_app_config_authoring.f90`](../src/config/bem_app_config_authoring.f90) and `_types` / `_domain` / `_sources` / `_geometry` | Separate types and defaults, domain geometry, injection faces, and mesh groups and anchors; the parent owns array management and conversion order |
-| Derived values and combinations | Parser `_finalize`, `_preflight_sim` / `_preflight_particles` / `_preflight_surface`, `_validate`, and `bem_physics_config_types` | Finalize owns validation order; `_validate` resolves source-derived values, `bem_physics_config_types` checks field ranges and combinations, and the other preflight implementations own their domain conditions |
+| Derived values and model prerequisites | Parser `_finalize`, `_preflight_sim` / `_preflight_particles` / `_preflight_surface`, `_validate`, and `bem_physics_config_types` | Finalize owns processing order; `_validate` resolves source-derived values, `bem_physics_config_types` checks field-model combinations, and the other preflight implementations resolve domain references and prerequisites |
 | Runtime-data construction | [`runtime/configuration/`](../src/runtime/configuration/) | `bem_app_config` retains the public entry point; separate implementations construct meshes, source plans, batches, sampled particles, and boundary potentials |
 | Shared Python validation | [`beach/config/core.py`](../beach/config/core.py) and [`schema.py`](../beach/config/schema.py) | Use one path for loading, schema checks, authoring normalization, and semantic validation |
 
 Python's `load_config_file`, `normalize_config_document`, `validate_runtime_config`, `config validate`, and `lint`
 share basic-type, integer-storage-range, finite-value, and unknown-key checks. `lint` does not reread the TOML file.
 Declared identifier values are normalized for case; paths and free-form strings are not lowercased indiscriminately.
-The existing Python physics-semantic checks remain. Ordinary operation assumes `beachx lint` succeeds before running;
-`beach --check-config` serves development and diagnostics. Fortran owns conditions needed to store and compute values safely
-and the prerequisites of the selected physical model. Additions and cleanup prioritize these conditions without aiming
-for identical Python and Fortran acceptance of every possible input. `make test-config-contract` compares representative
-shared cases to prevent regressions. This gate is part of L2. See the [development workflow](Workflow.en.html#check-the-configuration-contract)
-for decisions about additional validation.
+Python owns detailed diagnostics for enums, ranges, and settings supplied to inactive features, as well as the existing
+semantic checks. Ordinary operation requires `beachx lint` before running. Fortran owns normalization, reference resolution,
+basic storage constraints, and the prerequisites of the selected physical model. The development and diagnostic command
+`beach --check-config` checks only this scope and does not replace lint. `make test-config-contract` confirms that current
+examples passing lint also load in Fortran; it does not require identical acceptance of invalid inputs. This gate is part of L2.
+See the [development workflow](Workflow.en.html#check-the-configuration-contract) for decisions about additional validation.
 
 ### Field-solver and triangle-geometry responsibilities
 
@@ -319,7 +319,7 @@ source inventory, not the canonical runtime call order, state-ownership descript
 | Information | Canonical source | Responsibility of guides and references |
 | --- | --- | --- |
 | Current simulation behavior and model scope | Fortran implementation and [`SPEC.md`](../SPEC.md) | Model and numerical-method pages explain rationale, equations, scope, and validation |
-| Public TOML tables, keys, types, and structural constraints | `schemas/beach.schema.json`; the Fortran parser and validator own derived and semantic combinations | `Parameters.md` / `.en.md` is the searchable human reference; Configuration gives the editing procedure |
+| Public TOML tables, keys, types, and structural constraints | `schemas/beach.schema.json` and Python lint; Fortran owns derived values, reference resolution, and model prerequisites | `Parameters.md` / `.en.md` is the searchable human reference; Configuration gives the editing procedure |
 | Output-file generation conditions | `schemas/beach.output-manifest.json` and the Fortran writer | OutputGuide explains column meaning, inspection order, and restart roles |
 | Checkpoint compatibility | Checkpoint contract, mesh identity, writer and loader, and `SPEC.md` | Execution gives the safe resume procedure |
 | Test targets and tier membership | `fpm.toml` and `Makefile` | Workflow maps a changed area to the targets to run |

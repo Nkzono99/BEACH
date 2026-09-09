@@ -302,7 +302,6 @@ contains
     adaptive_cfg%particle_species(1)%emit_current_density_a_m2 = emit_current_density
     adaptive_cfg%particle_species(1)%rays_per_batch = 1_i32
     adaptive_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
-    adaptive_cfg%particle_species(1)%has_deposit_opposite_charge_on_emit = .true.
     ! This opening lies wholly over element 1, so one ray deposits a known
     ! charge proportional to batch_duration while the emitted particle survives.
     adaptive_cfg%particle_species(1)%pos_low = [opening_low, opening_low, sim%box_max(3)]

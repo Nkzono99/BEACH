@@ -74,20 +74,24 @@ beachx config validate run.toml
 
 ### 2.4 `beach --check-config`
 
-For development and diagnostics, run only the Fortran executable's configuration loading, normalization, and preflight checks.
+For development and diagnostics, check only Fortran configuration loading, normalization, and minimum prerequisites for execution.
 The configuration path is required. Ordinary use proceeds from `beachx lint` to `beach`; running this command as well is optional.
 
 ```bash
 beach --check-config beach.toml
 ```
 
-Success returns exit code 0 and prints the following. Configuration errors return a nonzero exit code.
+Success returns exit code 0 and prints the following. Detected input errors return a nonzero exit code.
 
 ```text
 config=beach.toml
 checks=toml,semantic
 status=ok
 ```
+
+Here `status=ok` means only that loading, normalization, and the remaining model-prerequisite checks passed.
+`beachx lint` owns detailed diagnostics for enums, ranges, and settings supplied to inactive features, so this command
+does not replace the required lint step before running.
 
 The check does not start a simulation or create result files. It does not validate the contents of external OBJ files,
 response tables, or checkpoints, or the numerical and physical validity of a run. Continue with the normal

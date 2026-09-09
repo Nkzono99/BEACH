@@ -1,7 +1,7 @@
-"""Run the same authored TOML through Python and the actual Fortran preflight.
+"""Check lint diagnostics and load lint-approved TOML in Fortran.
 
 ``make test-config-contract`` supplies the freshly built executable. Ordinary
-Python-only runs skip these integration tests instead of selecting a stale binary.
+Python-only runs skip native loading instead of selecting a stale binary.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def native_checker() -> Path:
     executable = os.environ.get("BEACH_CONFIG_CHECK_EXE")
     if not executable:
-        pytest.skip("run make test-config-contract for Python/Fortran parity")
+        pytest.skip("run make test-config-contract for native config loading")
     path = Path(executable).resolve()
     assert path.is_file(), f"missing Fortran checker: {path}"
     return path
@@ -35,6 +35,14 @@ def native_checker() -> Path:
 
 def _cases() -> list:
     cases = [pytest.param(default_config(), True, id="tutorial")]
+    for name in (
+        "periodic2_zhao_fixed_current",
+        "periodic2_zhao_no_photo_fixed_current",
+        "periodic2_matching_plane_zhao_online",
+        "periodic2_matching_plane_zhao_implicit",
+    ):
+        config = load_toml_file(ROOT / "examples" / f"{name}.toml")
+        cases.append(pytest.param(config, True, id=name))
     for table_path in (
         ("sim",), ("domain",), ("mesh",), ("output",), ("particles",),
         ("field_boundary",), ("particle_boundary",),
@@ -160,8 +168,8 @@ def _cases() -> list:
 
 
 @pytest.mark.parametrize("config,accepted", _cases())
-def test_same_config_in_all_entry_points(
-    config: dict, accepted: bool, native_checker: Path, tmp_path: Path,
+def test_lint_then_native_configuration(
+    config: dict, accepted: bool, request: pytest.FixtureRequest, tmp_path: Path,
 ) -> None:
     config = copy.deepcopy(config)
     output = tmp_path / "simulation-output"
@@ -180,13 +188,17 @@ def test_same_config_in_all_entry_points(
             with pytest.raises((ConfigError, SystemExit)):
                 check()
 
+    # Lint owns detailed input diagnostics. Native loading is required only for
+    # approved configurations; native guards have focused Fortran tests.
+    if not accepted:
+        return
+    native_checker = request.getfixturevalue("native_checker")
     result = subprocess.run(
         [str(native_checker), "--check-config", str(path)],
         cwd=tmp_path, text=True, capture_output=True, timeout=20,
     )
-    assert (result.returncode == 0) == accepted, result.stdout + result.stderr
-    if accepted:
-        assert "status=ok" in result.stdout
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "status=ok" in result.stdout
     assert not output.exists(), "configuration checks must not start a simulation"
 
 

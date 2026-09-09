@@ -15,11 +15,11 @@ module bem_app_config_parser
     ensure_authoring_group_capacity, normalize_high_level_config, lower_boundary_authoring
   use bem_string_utils, only: lower_ascii
   use bem_config_toml, only: require_toml_success, get_toml_real, get_toml_int, get_toml_logical, &
-                             get_toml_string, get_toml_real2, get_toml_real3, get_toml_real4, &
+                             get_toml_string, get_toml_real_array, &
                              get_toml_real_scalar_or_array3, get_toml_particle_boundary_mode, &
                              get_toml_boundary_inflow_mode, stop_config_error
   use bem_injection_flux, only: compute_inflow_flux_from_drifting_maxwellian
-  use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes
+  use bem_injection_geometry, only: compute_face_area_from_bounds
   ! Intel 2023 で同名の TOML constructor と host association が衝突しないよう型名を分ける。
   use tomlf, only: config_toml_array => toml_array, config_toml_table => toml_table, &
                    toml_error, toml_key, toml_parse, toml_stat, get_value, toml_len => len
@@ -28,13 +28,8 @@ module bem_app_config_parser
 
   private :: finalize_loaded_config
   private :: validate_simulation_config
-  private :: validate_mesh_config
   private :: validate_field_config
   private :: validate_particle_species_config
-  private :: validate_source_workload
-  private :: validate_particle_boundary_override
-  private :: validate_particle_boundary_inflow
-  private :: is_automatic_current_species
   private :: validate_surface_current_model_config
   private :: stop_config_error
 
@@ -192,42 +187,13 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
     end subroutine validate_simulation_config
 
-    module subroutine validate_mesh_config(cfg)
-      type(app_config), intent(inout) :: cfg
-    end subroutine validate_mesh_config
-
     module subroutine validate_field_config(cfg)
       type(app_config), intent(inout) :: cfg
     end subroutine validate_field_config
 
-    module subroutine validate_particle_species_config( &
-      cfg, per_batch_particles, has_dynamic_source_species, has_enabled_volume_seed &
-      )
+    module subroutine validate_particle_species_config(cfg)
       type(app_config), intent(inout) :: cfg
-      integer(i32), intent(out) :: per_batch_particles
-      logical, intent(out) :: has_dynamic_source_species, has_enabled_volume_seed
     end subroutine validate_particle_species_config
-
-    module subroutine validate_source_workload(cfg, per_batch_particles, has_dynamic_source_species, has_enabled_volume_seed)
-      type(app_config), intent(in) :: cfg
-      integer(i32), intent(in) :: per_batch_particles
-      logical, intent(in) :: has_dynamic_source_species, has_enabled_volume_seed
-    end subroutine validate_source_workload
-
-    module subroutine validate_particle_boundary_override(action, topology_action, context)
-      integer(i32), intent(in) :: action, topology_action
-      character(len=*), intent(in) :: context
-    end subroutine validate_particle_boundary_override
-
-    module subroutine validate_particle_boundary_inflow(inflow, effective_topology_action, effective_particle_action, context)
-      integer(i32), intent(in) :: inflow, effective_topology_action, effective_particle_action
-      character(len=*), intent(in) :: context
-    end subroutine validate_particle_boundary_inflow
-
-    module logical function is_automatic_current_species(cfg, species_idx) result(selected)
-      type(app_config), intent(in) :: cfg
-      integer, intent(in) :: species_idx
-    end function is_automatic_current_species
 
     module subroutine validate_surface_current_model_config(cfg, periodic2_split_explicit)
       type(app_config), intent(in) :: cfg
@@ -382,33 +348,34 @@ contains
     end do
   end subroutine apply_toml_document
 
-  !> 現在のメッシュ入力設定が conductor 表面を生成し得るかを返す。
-  logical function config_uses_conductor_surface_model(cfg) result(uses_conductor)
+  !> 現在のメッシュ入力設定が指定された表面モデルを使うかを返す。
+  logical function config_uses_surface_model(cfg, surface_model) result(uses_surface_model)
     type(app_config), intent(in) :: cfg
+    character(len=*), intent(in) :: surface_model
     character(len=16) :: mode
     logical :: has_obj
     integer :: i
 
-    uses_conductor = .false.
+    uses_surface_model = .false.
     mode = trim(cfg%mesh_mode)
     select case (mode)
     case ('obj')
-      uses_conductor = trim(cfg%mesh_surface_model) == 'conductor'
+      uses_surface_model = trim(cfg%mesh_surface_model) == surface_model
       return
     case ('auto')
       inquire (file=trim(cfg%obj_path), exist=has_obj)
       if (has_obj) then
-        uses_conductor = trim(cfg%mesh_surface_model) == 'conductor'
+        uses_surface_model = trim(cfg%mesh_surface_model) == surface_model
         return
       end if
     end select
     do i = 1, cfg%n_templates
       if (.not. cfg%templates(i)%enabled) cycle
-      if (trim(cfg%templates(i)%surface_model) == 'conductor') then
-        uses_conductor = .true.
+      if (trim(cfg%templates(i)%surface_model) == surface_model) then
+        uses_surface_model = .true.
         return
       end if
     end do
-  end function config_uses_conductor_surface_model
+  end function config_uses_surface_model
 
 end module bem_app_config_parser

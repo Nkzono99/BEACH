@@ -50,7 +50,7 @@ flowchart TD
    通常実行では MPI と performance profile を初期化して設定 path を解決します。
    `load_or_init_run_state` が設定を読み、mesh と初期 state または restart state を用意します。
 2. [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) は TOML を
-   `app_config` へ読みます。authoring の正規化と領域別 preflight が派生値と組合せ制約を確定します。
+   `app_config` へ読みます。authoring の正規化と領域別 preflight が派生値・参照と最小のモデル成立条件を確認します。
    [`bem_app_config_mesh_runtime.f90`](../src/runtime/configuration/bem_app_config_mesh_runtime.f90) が template または OBJ から
    `mesh_type` を構築します。
 3. `main` は [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90) を呼びます。interface は
@@ -130,27 +130,28 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 
 ### 設定の読取・正規化と実行データ構築を分ける
 
-`src/config/` は TOML を読み、既定値・座標変換・派生値・組合せ制約を確定します。
+`src/config/` は TOML を読み、既定値・座標変換・派生値・参照を解決し、実行に必要な最小条件を確認します。
 その設定からメッシュ、粒子、境界電位を作る処理は `src/runtime/configuration/` に置きます。
 `beach --check-config beach.toml` は通常実行と同じ設定読込を使い、MPI 初期化と実行データ構築の前に終了します。
 
 | 担当 | 実装 | 境界 |
 | --- | --- | --- |
 | TOML の基本値 | [`bem_config_toml.f90`](../src/config/bem_config_toml.f90) | 型、整数の格納範囲、実数の有限性、配列長、文字列の格納長を確認して値を返す |
-| Table ごとの読取 | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) と `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | キーを設定型と authoring overlay に対応付ける。mesh の簡易検証も `_read_mesh` が担当 |
+| Table ごとの読取 | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) と `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | キーを設定型と authoring overlay に対応付ける |
 | 座標・配置の展開 | [`bem_app_config_authoring.f90`](../src/config/bem_app_config_authoring.f90) と `_types` / `_domain` / `_sources` / `_geometry` | 型と既定値、領域、注入面、mesh group・anchor を分離。親は配列管理と変換順序を持つ |
-| 派生値と組合せ | parser の `_finalize`、`_preflight_sim` / `_preflight_particles` / `_preflight_surface`、`_validate`、`bem_physics_config_types` | finalize は検証の順序、`_validate` は粒子源の派生量、`bem_physics_config_types` は場の値域・組合せ、他の preflight は各領域の条件を担当する |
+| 派生値とモデル成立条件 | parser の `_finalize`、`_preflight_sim` / `_preflight_particles` / `_preflight_surface`、`_validate`、`bem_physics_config_types` | finalize は処理順、`_validate` は粒子源の派生量、`bem_physics_config_types` は場のモデルの組合せ、他の preflight は各領域の参照解決と必要条件を担当する |
 | 実行データの構築 | [`runtime/configuration/`](../src/runtime/configuration/) | `bem_app_config` は既存の公開入口。mesh、粒子源計画・batch・sampling、境界電位を担当別に構築する |
 | Python の共通検証 | [`beach/config/core.py`](../beach/config/core.py) と [`schema.py`](../beach/config/schema.py) | 読取、schema、authoring 展開、意味的検証を一つの経路で実行する |
 
 Python の `load_config_file`、`normalize_config_document`、`validate_runtime_config`、`config validate`、
 `lint` は共通の基本型・整数の格納範囲・有限値・未知キー検査を使います。`lint` は TOML を再読込しません。
 列挙された識別値の大文字小文字を正規化し、path や自由文字列を一律に小文字化しません。
-Python の既存の物理的な意味検証も保持しています。通常運用は `beachx lint` を実行前に通すことを前提とし、
-`beach --check-config` は開発・診断に使います。Fortran は値を安全に格納・計算できる条件と、
-選択した物理モデルの成立条件を担います。検証を追加・整理する際はこれらを優先し、全入力の採否を
-Python と完全に一致させることは目標にしません。代表的な共通ケースを `make test-config-contract` で比較し、
-再発を防ぎます。この gate は L2 に含まれます。追加する検証の判断は[開発ワークフロー](Workflow.html#設定の契約を確認する)に従います。
+列挙値・値域・無効な機能への指定などの詳細な入力診断と、既存の意味的検証は Python が担当します。
+通常運用では実行前に `beachx lint` を通します。Fortran は正規化・参照解決・基本値の格納条件と、
+選択した物理モデルの成立条件を担います。開発・診断用の `beach --check-config` はこの範囲だけを確認し、
+lint を代替しません。`make test-config-contract` では lint に成功する現行の設定例を Fortran でも読み込めることを
+確認し、不正入力の採否一致は要求しません。この gate は L2 に含まれます。追加する検証の判断は
+[開発ワークフロー](Workflow.html#設定の契約を確認する)に従います。
 
 ### 電場ソルバーと三角形幾何の担当
 
@@ -317,7 +318,7 @@ module 名や `use` 依存を検索するときは、自動生成した
 | 情報 | 正本 | guide / reference の責務 |
 | --- | --- | --- |
 | 現行 simulation behavior と model scope | Fortran 実装と [`SPEC.md`](../SPEC.md) | model / numerical-method page は理由、式、適用範囲、検証方法を説明する |
-| 公開 TOML の table、key、型、構造制約 | `schemas/beach.schema.json`。派生値と意味的な組合せは Fortran parser / validator | `Parameters.md` / `.en.md` は検索可能な人間向け reference、Configuration は編集手順を示す |
+| 公開 TOML の table、key、型、構造制約 | `schemas/beach.schema.json` と Python lint。派生値・参照解決・モデル成立条件は Fortran | `Parameters.md` / `.en.md` は検索可能な人間向け reference、Configuration は編集手順を示す |
 | output file の生成条件 | `schemas/beach.output-manifest.json` と Fortran writer | OutputGuide は column の意味、確認順、restart での役割を説明する |
 | checkpoint compatibility | checkpoint contract、mesh identity、writer / loader、`SPEC.md` | Execution は安全な再開手順を示す |
 | test target と tier | `fpm.toml` と `Makefile` | Workflow は変更範囲から実行すべき target へ案内する |

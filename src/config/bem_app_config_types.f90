@@ -18,37 +18,24 @@ module bem_app_config_types
   type :: surface_current_model_config
     character(len=32) :: model = 'none'
     character(len=16) :: response_backend = 'table'
-    logical :: has_response_backend = .false.
     character(len=16) :: zhao_branch = 'auto'
-    logical :: has_zhao_branch = .false.
     character(len=16) :: zhao_root_selection = 'require_unique'
-    logical :: has_zhao_root_selection = .false.
     character(len=64) :: electron_species = ''
-    logical :: has_electron_species = .false.
     character(len=64) :: ion_species = ''
-    logical :: has_ion_species = .false.
     character(len=64) :: photoelectron_species = ''
     logical :: has_photoelectron_species = .false.
     real(dp) :: solar_elevation_deg = 0.0_dp
-    logical :: has_solar_elevation_deg = .false.
     real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
-    logical :: has_photoelectron_ref_density_m3 = .false.
     real(dp) :: photoelectron_source_scale = 1.0_dp
-    logical :: has_photoelectron_source_scale = .false.
     real(dp) :: reference_area_m2 = 0.0_dp
     logical :: has_reference_area_m2 = .false.
     character(len=256) :: response_table_path = ''
     logical :: has_response_table_path = .false.
     logical :: implicit_zero_mode = .false.
-    logical :: has_implicit_zero_mode = .false.
     real(dp) :: coupling_rtol = 1.0e-4_dp
-    logical :: has_coupling_rtol = .false.
     real(dp) :: coupling_atol(4) = 0.0_dp
-    logical :: has_coupling_atol = .false.
     integer(i32) :: coupling_max_iterations = 20_i32
-    logical :: has_coupling_max_iterations = .false.
     real(dp) :: coupling_relaxation = 0.5_dp
-    logical :: has_coupling_relaxation = .false.
   end type surface_current_model_config
 
   !> 1粒子種の注入設定を表す。
@@ -56,12 +43,10 @@ module bem_app_config_types
     character(len=64) :: species_key = ''
     logical :: enabled = .false.
     integer(i32) :: npcls_per_step = 0_i32
-    logical :: has_npcls_per_step = .false.
     character(len=16) :: source_mode = 'volume_seed'
     real(dp) :: number_density_cm3 = 0.0d0
     real(dp) :: number_density_m3 = 0.0d0
     logical :: has_number_density_cm3 = .false.
-    logical :: has_number_density_m3 = .false.
     real(dp) :: q_particle = -1.602176634d-19
     real(dp) :: m_particle = 9.10938356d-31
     real(dp) :: w_particle = 1.0d0
@@ -75,23 +60,19 @@ module bem_app_config_types
     character(len=16) :: velocity_grid_pdf_kind = 'phase_space'
     character(len=16) :: velocity_grid_sampling = 'auto'
     real(dp) :: particle_flux_m2_s = 0.0d0
-    logical :: has_particle_flux_m2_s = .false.
     real(dp) :: current_density_a_m2 = 0.0d0
     logical :: has_current_density_a_m2 = .false.
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
     real(dp) :: temperature_ev = -1.0d0
-    logical :: has_temperature_k = .false.
     logical :: has_temperature_ev = .false.
     real(dp) :: emit_current_density_a_m2 = 0.0d0
     integer(i32) :: rays_per_batch = 0_i32
     logical :: deposit_opposite_charge_on_emit = .false.
-    logical :: has_deposit_opposite_charge_on_emit = .false.
     real(dp) :: normal_drift_speed = 0.0d0
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.
     real(dp) :: source_normal(3) = [0.0d0, 0.0d0, -1.0d0]
-    logical :: has_source_normal = .false.
     character(len=16) :: inject_face = ''
     integer(i32) :: boundary_low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     integer(i32) :: boundary_high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]

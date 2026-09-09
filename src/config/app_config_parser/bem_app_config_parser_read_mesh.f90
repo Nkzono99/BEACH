@@ -32,6 +32,7 @@ contains
     select case (trim(k))
     case ('mode')
       call get_toml_string(table, keys(ikey), cfg%mesh_mode, 'mesh.mode')
+      cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
     case ('obj_path')
       call get_toml_string(table, keys(ikey), cfg%obj_path, 'mesh.obj_path')
     case ('surface_model')
@@ -43,9 +44,9 @@ contains
     case ('obj_scale')
       call get_toml_real(table, keys(ikey), cfg%obj_scale, 'mesh.obj_scale')
     case ('obj_rotation')
-      call get_toml_real3(table, keys(ikey), cfg%obj_rotation, 'mesh.obj_rotation')
+      call get_toml_real_array(table, keys(ikey), cfg%obj_rotation, 'mesh.obj_rotation')
     case ('obj_offset')
-      call get_toml_real3(table, keys(ikey), cfg%obj_offset, 'mesh.obj_offset')
+      call get_toml_real_array(table, keys(ikey), cfg%obj_offset, 'mesh.obj_offset')
     case ('templates')
       call read_template_array(cfg, table, keys(ikey), authoring)
     case ('groups')
@@ -101,10 +102,10 @@ contains
       group%anchor = lower_ascii(trim(group%anchor))
       group%has_anchor = .true.
     case ('offset')
-      call get_toml_real3(table, keys(ikey), group%offset, 'mesh.groups.offset')
+      call get_toml_real_array(table, keys(ikey), group%offset, 'mesh.groups.offset')
       group%has_offset = .true.
     case ('offset_frac')
-      call get_toml_real3(table, keys(ikey), group%offset_frac, 'mesh.groups.offset_frac')
+      call get_toml_real_array(table, keys(ikey), group%offset_frac, 'mesh.groups.offset_frac')
       group%has_offset_frac = .true.
     case ('scale')
       call get_toml_real(table, keys(ikey), group%scale, 'mesh.groups.scale')
@@ -168,7 +169,7 @@ contains
       call get_toml_string(table, keys(ikey), spec%surface_side_policy, 'mesh.templates.surface_side')
       spec%surface_side_policy = lower_ascii(trim(spec%surface_side_policy))
     case ('center')
-      call get_toml_real3(table, keys(ikey), spec%center, 'mesh.templates.center')
+      call get_toml_real_array(table, keys(ikey), spec%center, 'mesh.templates.center')
       auth%has_center = .true.
     case ('size_x')
       call get_toml_real(table, keys(ikey), spec%size_x, 'mesh.templates.size_x')
@@ -177,7 +178,7 @@ contains
       call get_toml_real(table, keys(ikey), spec%size_y, 'mesh.templates.size_y')
       auth%has_size_y = .true.
     case ('size')
-      call get_toml_real3(table, keys(ikey), spec%size, 'mesh.templates.size')
+      call get_toml_real_array(table, keys(ikey), spec%size, 'mesh.templates.size')
       auth%has_size = .true.
     case ('nx')
       call get_toml_int(table, keys(ikey), spec%nx, 'mesh.templates.nx')
@@ -216,7 +217,7 @@ contains
       call get_toml_string(table, keys(ikey), auth%group, 'mesh.templates.group')
       auth%has_group = .true.
     case ('center_local')
-      call get_toml_real3(table, keys(ikey), auth%center_local, 'mesh.templates.center_local')
+      call get_toml_real_array(table, keys(ikey), auth%center_local, 'mesh.templates.center_local')
       auth%has_center_local = .true.
     case ('placement_mode')
       call get_toml_string(table, keys(ikey), auth%placement_mode, 'mesh.templates.placement_mode')
@@ -227,10 +228,10 @@ contains
       auth%anchor = lower_ascii(trim(auth%anchor))
       auth%has_anchor = .true.
     case ('offset')
-      call get_toml_real3(table, keys(ikey), auth%offset, 'mesh.templates.offset')
+      call get_toml_real_array(table, keys(ikey), auth%offset, 'mesh.templates.offset')
       auth%has_offset = .true.
     case ('offset_frac')
-      call get_toml_real3(table, keys(ikey), auth%offset_frac, 'mesh.templates.offset_frac')
+      call get_toml_real_array(table, keys(ikey), auth%offset_frac, 'mesh.templates.offset_frac')
       auth%has_offset_frac = .true.
     case ('size_mode')
       call get_toml_string(table, keys(ikey), auth%size_mode, 'mesh.templates.size_mode')
@@ -246,43 +247,5 @@ contains
     end select
   end do
   end procedure apply_template_toml_table
-
-  module procedure validate_mesh_config
-  integer :: i
-  cfg%mesh_mode = lower_ascii(trim(cfg%mesh_mode))
-  select case (trim(cfg%mesh_mode))
-  case ('auto', 'obj', 'template')
-    continue
-  case default
-    error stop 'mesh.mode must be "auto", "obj", or "template".'
-  end select
-  cfg%mesh_surface_model = lower_ascii(trim(cfg%mesh_surface_model))
-  select case (trim(cfg%mesh_surface_model))
-  case ('insulator', 'conductor')
-    continue
-  case ('dielectric')
-    error stop 'mesh.surface_model="dielectric" is not implemented; use "insulator" for charge accumulation.'
-  case default
-    error stop 'mesh.surface_model must be "insulator" or "conductor".'
-  end select
-  do i = 1, cfg%n_templates
-    cfg%templates(i)%surface_model = lower_ascii(trim(cfg%templates(i)%surface_model))
-    select case (trim(cfg%templates(i)%surface_model))
-    case ('insulator', 'conductor')
-      continue
-    case ('dielectric')
-      error stop 'mesh.templates.surface_model="dielectric" is not implemented; use "insulator".'
-    case default
-      error stop 'mesh.templates.surface_model must be "insulator" or "conductor".'
-    end select
-    if (.not. cfg%templates(i)%enabled) cycle
-    select case (trim(lower_ascii(cfg%templates(i)%kind)))
-    case ('plane', 'plate_hole', 'plane_hole', 'disk', 'annulus', 'box', 'cylinder', 'sphere')
-      continue
-    case default
-      error stop 'mesh.templates.kind is unsupported.'
-    end select
-  end do
-  end procedure validate_mesh_config
 
 end submodule bem_app_config_parser_read_mesh

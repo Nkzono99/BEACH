@@ -647,7 +647,6 @@ contains
     fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
     fixture_cfg%particle_species(1)%w_particle = 1.0e6_dp
     fixture_cfg%particle_species(1)%number_density_m3 = 8.7e6_dp
-    fixture_cfg%particle_species(1)%has_number_density_m3 = .true.
     fixture_cfg%particle_species(1)%drift_velocity(3) = -4.0529988897111727e5_dp
     fixture_cfg%particle_species(1)%temperature_ev = 12.0_dp
     fixture_cfg%particle_species(1)%has_temperature_ev = .true.
@@ -655,7 +654,6 @@ contains
     fixture_cfg%particle_species(2)%m_particle = 1.67262192369e-27_dp
     fixture_cfg%particle_species(2)%w_particle = 1.0e6_dp
     fixture_cfg%particle_species(2)%number_density_m3 = 8.7e6_dp
-    fixture_cfg%particle_species(2)%has_number_density_m3 = .true.
     fixture_cfg%particle_species(2)%drift_velocity(3) = -4.0529988897111727e5_dp
     fixture_cfg%particle_species(2)%temperature_ev = 0.1_dp
     fixture_cfg%particle_species(2)%has_temperature_ev = .true.

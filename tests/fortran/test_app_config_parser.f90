@@ -17,7 +17,6 @@ program test_app_config_parser
   character(len=512) :: probe_config_path
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
   character(len=*), parameter :: zhao_generic_barrier_path = 'test_zhao_generic_barrier_tmp.toml'
-  character(len=*), parameter :: zhao_no_photo_stale_path = 'test_zhao_no_photo_stale_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
   character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
   character(len=*), parameter :: fixed_current_variant_path = 'test_fixed_current_variant_tmp.toml'
@@ -33,28 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(53)
-
-  call test_begin('resume_requires_file_output_at_preflight')
-  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', output_extra='resume = true')
-  call assert_config_rejected(input_contract_path, 'output.resume requires output.write_files = true')
-  call delete_file_if_exists(input_contract_path)
-  call test_end()
-
-  call test_begin('enabled_template_kind_is_checked_at_preflight')
-  call write_input_contract_config( &
-    input_contract_path, '1.0e6', '[[mesh.templates]]'//new_line('a')//'kind = "unknown"', 'outputs/test' &
-    )
-  call assert_config_rejected(input_contract_path, 'mesh.templates.kind is unsupported')
-  call write_input_contract_config( &
-    input_contract_path, '1.0e6', '[[mesh.templates]]'//new_line('a')// &
-    'kind = "unknown"'//new_line('a')//'enabled = false', 'outputs/test' &
-    )
-  call default_app_config(cfg)
-  call load_app_config(input_contract_path, cfg)
-  call assert_true(.not. cfg%templates(1)%enabled, 'disabled templates must skip kind preflight')
-  call delete_file_if_exists(input_contract_path)
-  call test_end()
+  call test_init(39)
 
   call test_begin('config_checks_integer_range_before_conversion')
   call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '2147483648')
@@ -147,7 +125,7 @@ program test_app_config_parser
 
   call test_begin('matching_plane_online_accepts_minimum_energy_root_selection')
   call write_matching_online_variant( &
-    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'auto', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = "photoelectron"'//new_line('a')// &
     'zhao_root_selection = "minimum_energy"' &
     )
@@ -162,7 +140,7 @@ program test_app_config_parser
 
   call test_begin('matching_plane_online_accepts_type_a_continuation')
   call write_matching_online_variant( &
-    matching_variant_path, 'a', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'a', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = "photoelectron"'//new_line('a')// &
     'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
     )
@@ -178,7 +156,7 @@ program test_app_config_parser
 
   call test_begin('matching_plane_online_continuation_rejects_non_type_a_branch')
   call write_matching_online_variant( &
-    matching_variant_path, 'b', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'b', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = "photoelectron"'//new_line('a')// &
     'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
     )
@@ -188,21 +166,11 @@ program test_app_config_parser
 
   call test_begin('matching_plane_online_continuation_requires_implicit_zero_mode')
   call write_matching_online_variant( &
-    matching_variant_path, 'a', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'a', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = "photoelectron"'//new_line('a')// &
     'zhao_root_selection = "continuation"' &
     )
   call assert_config_rejected(matching_variant_path, 'zhao_root_selection="continuation" requires')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('matching_plane_online_rejects_unknown_root_selection')
-  call write_matching_online_variant( &
-    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
-    'photoelectron_species = "photoelectron"'//new_line('a')// &
-    'zhao_root_selection = "first"' &
-    )
-  call assert_config_rejected(matching_variant_path, 'zhao_root_selection must be')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -248,15 +216,6 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
-  call test_begin('rejects_unknown_multiple_box_retry_backend')
-  call write_matching_variant( &
-    matching_variant_path, 'matching_plane_quasistatic', '', '', &
-    'multiple_box_events_retry_backend = "unknown"', '', '' &
-    )
-  call assert_config_rejected(matching_variant_path, 'must be "none" or "upper_panel_fourier"')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
   call test_begin('matching_plane_no_photo_config')
   call default_app_config(cfg)
   call load_app_config('tests/fortran/matching_plane_no_photo.toml', cfg)
@@ -289,18 +248,6 @@ program test_app_config_parser
   call delete_file_if_exists(zhao_generic_barrier_path)
   call test_end()
 
-  call test_begin('zhao_rejects_matching_response_backend')
-  call write_zhao_variant(zhao_generic_barrier_path, '', .false., 'response_backend = "zhao_online"')
-  call assert_config_rejected(zhao_generic_barrier_path, 'cannot use matching-plane-specific settings')
-  call delete_file_if_exists(zhao_generic_barrier_path)
-  call test_end()
-
-  call test_begin('stationary_zhao_rejects_root_selection')
-  call write_zhao_variant(zhao_generic_barrier_path, '', .false., 'zhao_root_selection = "minimum_energy"')
-  call assert_config_rejected(zhao_generic_barrier_path, 'cannot use matching-plane-specific settings')
-  call delete_file_if_exists(zhao_generic_barrier_path)
-  call test_end()
-
   call test_begin('zhao_fixed_current_config')
   call default_app_config(cfg)
   call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
@@ -330,21 +277,15 @@ program test_app_config_parser
     all([(trim(cfg%particle_species(i)%surface_charge_closure) == 'fixed_current', i=1, 2)]), &
     'no-PE Zhao ambient species must use fixed_current' &
     )
-  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'c', .false.)
+  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'c')
   call default_app_config(cfg)
   call load_app_config(zhao_no_photo_branch_path, cfg)
   call assert_true(trim(cfg%surface_current%zhao_branch) == 'c', 'no-PE Zhao must accept explicit Type C')
   call delete_file_if_exists(zhao_no_photo_branch_path)
   call test_end()
 
-  call test_begin('zhao_no_photo_rejects_explicit_pe_key')
-  call write_no_photo_zhao_variant(zhao_no_photo_stale_path, 'auto', .true.)
-  call assert_config_rejected(zhao_no_photo_stale_path, 'requires omitting all photoelectron-specific Zhao settings')
-  call delete_file_if_exists(zhao_no_photo_stale_path)
-  call test_end()
-
   call test_begin('zhao_no_photo_rejects_non_c_branch')
-  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'a', .false.)
+  call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'a')
   call assert_config_rejected(zhao_no_photo_branch_path, 'zhao_branch="auto" or "c"')
   call delete_file_if_exists(zhao_no_photo_branch_path)
   call test_end()
@@ -356,7 +297,6 @@ program test_app_config_parser
     trim(cfg%surface_current%model) == 'matching_plane_quasistatic', 'matching-plane model mismatch' &
     )
   call assert_true(trim(cfg%surface_current%response_backend) == 'table', 'matching backend default mismatch')
-  call assert_true(.not. cfg%surface_current%has_response_backend, 'implicit table backend presence mismatch')
   call assert_true(.not. cfg%surface_current%implicit_zero_mode, 'implicit zero mode must default to false')
   call assert_true( &
     trim(cfg%surface_current%response_table_path) == &
@@ -380,7 +320,6 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config(matching_variant_path, cfg)
   call assert_true(cfg%surface_current%implicit_zero_mode, 'implicit zero-mode setting mismatch')
-  call assert_true(cfg%surface_current%has_implicit_zero_mode, 'implicit zero-mode presence mismatch')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -413,21 +352,11 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
-  call test_begin('matching_plane_rejects_negative_component_absolute_tolerance')
-  call write_matching_variant( &
-    matching_variant_path, 'matching_plane_quasistatic', '', &
-    'coupling_atol = [0.0, -0.05, 0.0, 0.0]', '', '', '' &
-    )
-  call assert_config_rejected(matching_variant_path, 'coupling_atol entries must be finite and >= 0')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
   call test_begin('matching_plane_accepts_zhao_online_backend')
-  call write_matching_online_variant(matching_variant_path, 'b', .false., '', '')
+  call write_matching_online_variant(matching_variant_path, 'b', '', '')
   call default_app_config(cfg)
   call load_app_config(matching_variant_path, cfg)
   call assert_true(trim(cfg%surface_current%response_backend) == 'zhao_online', 'online backend mismatch')
-  call assert_true(cfg%surface_current%has_response_backend, 'online backend presence mismatch')
   call assert_true(trim(cfg%surface_current%zhao_branch) == 'b', 'online Zhao branch mismatch')
   call assert_true(.not. cfg%surface_current%has_response_table_path, 'online backend must omit response table')
   call delete_file_if_exists(matching_variant_path)
@@ -435,7 +364,7 @@ program test_app_config_parser
 
   call test_begin('matching_plane_accepts_implicit_zhao_online_backend')
   call write_matching_online_variant( &
-    matching_variant_path, 'b', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'b', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = "photoelectron"'//new_line('a')//'implicit_zero_mode = true' &
     )
   call default_app_config(cfg)
@@ -448,58 +377,19 @@ program test_app_config_parser
 
   call test_begin('matching_plane_rejects_empty_photoelectron_role')
   call write_matching_online_variant( &
-    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
+    matching_variant_path, 'auto', 'photoelectron_species = "photoelectron"', &
     'photoelectron_species = ""' &
     )
-  call assert_config_rejected(matching_variant_path, 'photoelectron_species must be a non-empty string')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('matching_plane_online_rejects_response_table')
-  call write_matching_online_variant(matching_variant_path, 'auto', .true., '', '')
-  call assert_config_rejected(matching_variant_path, 'zhao_online" cannot use response_table_path')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('matching_plane_online_rejects_atol_on_inactive_axis')
-  call write_matching_online_variant( &
-    matching_variant_path, 'auto', .false., 'photoelectron_species = "photoelectron"', &
-    'photoelectron_species = "photoelectron"'//new_line('a')// &
-    'coupling_atol = [0.0, 0.0, 1.0, 0.0]' &
-    )
-  call assert_config_rejected(matching_variant_path, 'coupling_atol must be zero on inactive ambient-outward axes')
+  call assert_config_rejected(matching_variant_path, 'references an unknown or disabled species')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
   call test_begin('matching_plane_online_rejects_nonunit_charge')
   call write_matching_online_variant( &
-    matching_variant_path, 'auto', .false., 'q_particle = -1.602176634e-19', &
+    matching_variant_path, 'auto', 'q_particle = -1.602176634e-19', &
     'q_particle = -3.204353268e-19' &
     )
   call assert_config_rejected(matching_variant_path, 'requires singly charged role species')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('matching_plane_rejects_zhao_settings')
-  call write_matching_variant( &
-    matching_variant_path, 'matching_plane_quasistatic', '', 'zhao_branch = "auto"', '', '', '' &
-    )
-  call assert_config_rejected(matching_variant_path, 'cannot use Zhao-specific settings')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('matching_plane_table_rejects_zhao_root_selection')
-  call write_matching_variant( &
-    matching_variant_path, 'matching_plane_quasistatic', '', &
-    'zhao_root_selection = "minimum_energy"', '', '', '' &
-    )
-  call assert_config_rejected(matching_variant_path, 'cannot use Zhao-specific settings')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('none_rejects_model_specific_settings')
-  call write_matching_variant(matching_variant_path, 'none', '', '', '', '', '')
-  call assert_config_rejected(matching_variant_path, 'model="none" cannot use Zhao or matching-plane settings')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -516,15 +406,6 @@ program test_app_config_parser
     matching_variant_path, 'matching_plane_quasistatic', '', '', '', 'reflect', '' &
     )
   call assert_config_rejected(matching_variant_path, 'z-low/z-high open particle boundaries')
-  call delete_file_if_exists(matching_variant_path)
-  call test_end()
-
-  call test_begin('periodic_face_rejects_particle_override')
-  call write_matching_variant( &
-    matching_variant_path, 'matching_plane_quasistatic', '', '', '', '', '', &
-    particle_boundary_extra='x_low = "reflect"' &
-    )
-  call assert_config_rejected(matching_variant_path, 'cannot override a periodic domain face')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -580,15 +461,6 @@ program test_app_config_parser
     cfg%particle_species(1)%target_absorbed_current_a, -2.0_dp, 1.0e-15_dp, &
     'fixed absorbed target mismatch' &
     )
-  call write_fixed_absorbed_variant('batch_duration = 1.0e-2', '')
-  call assert_config_rejected(fixed_current_variant_path, 'fixed_current" requires at least one target current')
-  call delete_file_if_exists(fixed_current_variant_path)
-  call write_fixed_absorbed_variant('batch_duration = 1.0e-2', '2.0')
-  call assert_config_rejected(fixed_current_variant_path, 'target_absorbed_current_a sign must match q_particle')
-  call delete_file_if_exists(fixed_current_variant_path)
-  call write_fixed_absorbed_variant('batch_duration = 0.0', '-2.0')
-  call assert_config_rejected(fixed_current_variant_path, 'sim.batch_duration must be > 0 for fixed_current')
-  call delete_file_if_exists(fixed_current_variant_path)
   call write_fixed_absorbed_variant('batch_duration_step = 2.0', '-2.0')
   call default_app_config(cfg)
   call load_app_config(fixed_current_variant_path, cfg)
@@ -605,9 +477,6 @@ program test_app_config_parser
     cfg%particle_species(3)%target_emission_current_a, 3.0e-6_dp, 1.0e-18_dp, &
     'fixed emission target mismatch' &
     )
-  call delete_file_if_exists(fixed_current_variant_path)
-  call write_fixed_emission_variant('-3.0e-6')
-  call assert_config_rejected(fixed_current_variant_path, 'target_emission_current_a sign must oppose q_particle')
   call delete_file_if_exists(fixed_current_variant_path)
   call test_end()
 
@@ -673,9 +542,9 @@ program test_app_config_parser
 
 contains
 
-  subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed, output_extra)
+  subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed)
     character(len=*), intent(in) :: path, density, species_extra, output_directory
-    character(len=*), intent(in), optional :: integer_seed, output_extra
+    character(len=*), intent(in), optional :: integer_seed
     integer :: unit
 
     open (newunit=unit, file=path, status='replace', action='write')
@@ -698,21 +567,17 @@ contains
     write (unit, '(a)') '[output]'
     write (unit, '(a)') 'write_files = false'
     write (unit, '(a)') 'dir = "'//output_directory//'"'
-    if (present(output_extra)) write (unit, '(a)') output_extra
     close (unit)
   end subroutine write_input_contract_config
 
-  subroutine write_zhao_variant(path, sim_line, replace_reservoir, surface_line)
+  subroutine write_zhao_variant(path, sim_line, replace_reservoir)
     character(len=*), intent(in) :: path, sim_line
     logical, intent(in) :: replace_reservoir
-    character(len=*), intent(in), optional :: surface_line
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
-    logical :: inserted_sim, inserted_surface, replaced_reservoir
+    logical :: inserted_sim, replaced_reservoir
 
     inserted_sim = len_trim(sim_line) == 0
-    inserted_surface = .not. present(surface_line)
-    if (present(surface_line)) inserted_surface = len_trim(surface_line) == 0
     replaced_reservoir = .not. replace_reservoir
     open (newunit=source_unit, file='examples/periodic2_zhao_fixed_current.toml', &
           status='old', action='read', iostat=ios)
@@ -732,29 +597,21 @@ contains
         write (output_unit, '(a)') trim(sim_line)
         inserted_sim = .true.
       end if
-      if (present(surface_line)) then
-        if (.not. inserted_surface .and. trim(line) == 'model = "zhao_stationary"') then
-          write (output_unit, '(a)') trim(surface_line)
-          inserted_surface = .true.
-        end if
-      end if
     end do
     close (source_unit)
     close (output_unit)
-    if (.not. inserted_sim .or. .not. inserted_surface .or. .not. replaced_reservoir) then
+    if (.not. inserted_sim .or. .not. replaced_reservoir) then
       error stop 'failed to specialize Zhao invalid-config fixture'
     end if
   end subroutine write_zhao_variant
 
-  subroutine write_no_photo_zhao_variant(path, zhao_branch, include_stale_photo_setting)
+  subroutine write_no_photo_zhao_variant(path, zhao_branch)
     character(len=*), intent(in) :: path, zhao_branch
-    logical, intent(in) :: include_stale_photo_setting
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
-    logical :: replaced_branch, inserted_stale_photo_setting
+    logical :: replaced_branch
 
     replaced_branch = .false.
-    inserted_stale_photo_setting = .not. include_stale_photo_setting
     open (newunit=source_unit, file='examples/periodic2_zhao_no_photo_fixed_current.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open no-PE Zhao example fixture'
@@ -769,28 +626,23 @@ contains
       else
         write (output_unit, '(a)') trim(line)
       end if
-      if (include_stale_photo_setting .and. trim(line) == 'photoelectron_source_scale = 0.0') then
-        write (output_unit, '(a)') 'solar_elevation_deg = 0.0'
-        inserted_stale_photo_setting = .true.
-      end if
     end do
     close (source_unit)
     close (output_unit)
-    if (.not. replaced_branch .or. .not. inserted_stale_photo_setting) then
+    if (.not. replaced_branch) then
       error stop 'failed to specialize no-PE Zhao invalid-config fixture'
     end if
   end subroutine write_no_photo_zhao_variant
 
   subroutine write_matching_variant( &
-    path, model_name, response_path, surface_extra, sim_extra, z_low_action, electron_npcls, particle_boundary_extra &
+    path, model_name, response_path, surface_extra, sim_extra, z_low_action, electron_npcls &
     )
     character(len=*), intent(in) :: path, model_name, response_path, surface_extra, sim_extra, z_low_action
     character(len=*), intent(in) :: electron_npcls
-    character(len=*), intent(in), optional :: particle_boundary_extra
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
     logical :: replaced_model, replaced_response, inserted_surface_extra, inserted_sim_extra, replaced_z_low
-    logical :: replaced_electron_npcls, inserted_particle_boundary_extra
+    logical :: replaced_electron_npcls
 
     replaced_model = trim(model_name) == 'matching_plane_quasistatic'
     replaced_response = len_trim(response_path) == 0
@@ -798,10 +650,6 @@ contains
     inserted_sim_extra = len_trim(sim_extra) == 0
     replaced_z_low = len_trim(z_low_action) == 0
     replaced_electron_npcls = len_trim(electron_npcls) == 0
-    inserted_particle_boundary_extra = .true.
-    if (present(particle_boundary_extra)) then
-      inserted_particle_boundary_extra = len_trim(particle_boundary_extra) == 0
-    end if
     open (newunit=source_unit, file='tests/fortran/matching_plane_quasistatic.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open matching-plane config fixture'
@@ -834,23 +682,17 @@ contains
         write (output_unit, '(a)') trim(sim_extra)
         inserted_sim_extra = .true.
       end if
-      if (.not. inserted_particle_boundary_extra .and. trim(line) == '[particle_boundary]') then
-        write (output_unit, '(a)') trim(particle_boundary_extra)
-        inserted_particle_boundary_extra = .true.
-      end if
     end do
     close (source_unit)
     close (output_unit)
     if (.not. replaced_model .or. .not. replaced_response .or. .not. inserted_surface_extra .or. &
-        .not. inserted_sim_extra .or. .not. replaced_z_low .or. .not. replaced_electron_npcls .or. &
-        .not. inserted_particle_boundary_extra) then
+        .not. inserted_sim_extra .or. .not. replaced_z_low .or. .not. replaced_electron_npcls) then
       error stop 'failed to specialize matching-plane config fixture'
     end if
   end subroutine write_matching_variant
 
-  subroutine write_matching_online_variant(path, zhao_branch, keep_response_path, replacement_from, replacement_to)
+  subroutine write_matching_online_variant(path, zhao_branch, replacement_from, replacement_to)
     character(len=*), intent(in) :: path, zhao_branch, replacement_from, replacement_to
-    logical, intent(in) :: keep_response_path
     character(len=1024) :: line
     integer :: source_unit, output_unit, ios
     logical :: inserted_backend, inserted_branch, handled_response, replaced_value
@@ -877,7 +719,6 @@ contains
         end if
       else if (trim(line) == 'response_table_path = "data/matching_response_table.csv"') then
         handled_response = .true.
-        if (keep_response_path) write (output_unit, '(a)') trim(line)
       else if (.not. replaced_value .and. trim(line) == trim(replacement_from)) then
         write (output_unit, '(a)') trim(replacement_to)
         replaced_value = .true.

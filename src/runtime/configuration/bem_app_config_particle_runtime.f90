@@ -348,8 +348,6 @@ contains
       inflow_spec%pos_low(axis) = sim%box_min(axis)
       inflow_spec%pos_high(axis) = sim%box_min(axis)
     end if
-    inflow_spec%has_npcls_per_step = .false.
-    inflow_spec%has_source_normal = .false.
     inflow_spec%boundary_inflow_low = 0_i32
     inflow_spec%boundary_inflow_high = 0_i32
   end subroutine make_boundary_inflow_spec

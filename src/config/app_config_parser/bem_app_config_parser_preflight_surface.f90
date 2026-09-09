@@ -1,4 +1,4 @@
-!> 表面電流と matching-plane のモデル・粒子種・境界条件の preflight。
+!> lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   use bem_constants, only: qe
   use bem_config_helpers, only: resolve_particle_boundaries, species_number_density_m3, species_temperature_k
@@ -6,14 +6,6 @@ submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   implicit none
 contains
 
-  module procedure is_automatic_current_species
-
-  selected = .false.
-  if (trim(lower_ascii(cfg%surface_current%model)) /= 'zhao_stationary') return
-  selected = trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%electron_species) .or. &
-             trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%ion_species) .or. &
-             trim(cfg%particle_species(species_idx)%species_key) == trim(cfg%surface_current%photoelectron_species)
-  end procedure is_automatic_current_species
   module procedure validate_surface_current_model_config
   integer :: electron_idx, ion_idx, photo_idx
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
@@ -22,9 +14,6 @@ contains
 
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
-    if (has_surface_current_model_settings(cfg)) then
-      error stop 'surface_current_model.model="none" cannot use Zhao or matching-plane settings.'
-    end if
     return
   case ('zhao_stationary')
     continue
@@ -32,40 +21,13 @@ contains
     call validate_matching_plane_config(cfg, periodic2_split_explicit)
     return
   case default
-    error stop 'surface_current_model.model must be "none", "zhao_stationary", or "matching_plane_quasistatic".'
+    return
   end select
-  if (cfg%surface_current%has_response_backend .or. &
-      cfg%surface_current%has_response_table_path .or. &
-      cfg%surface_current%has_zhao_root_selection .or. &
-      cfg%surface_current%has_implicit_zero_mode .or. &
-      cfg%surface_current%has_coupling_rtol .or. &
-      cfg%surface_current%has_coupling_atol .or. &
-      cfg%surface_current%has_coupling_max_iterations .or. &
-      cfg%surface_current%has_coupling_relaxation .or. &
-      trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table' .or. &
-      len_trim(cfg%surface_current%response_table_path) > 0 .or. &
-      cfg%surface_current%implicit_zero_mode .or. &
-      cfg%surface_current%coupling_rtol /= 1.0e-4_dp .or. &
-      any(cfg%surface_current%coupling_atol /= 0.0_dp) .or. &
-      cfg%surface_current%coupling_max_iterations /= 20_i32 .or. &
-      cfg%surface_current%coupling_relaxation /= 0.5_dp) then
-    error stop 'surface_current_model="zhao_stationary" cannot use matching-plane-specific settings.'
-  end if
   if (any(cfg%sim%b0 /= 0.0_dp)) then
     error stop 'surface_current_model="zhao_stationary" requires sim.b0=[0,0,0] for its unmagnetized sheath closure.'
   end if
   if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
     error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
-  end if
-  select case (trim(lower_ascii(cfg%surface_current%zhao_branch)))
-  case ('auto', 'a', 'b', 'c')
-    continue
-  case default
-    error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
-  end select
-  if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
-      cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
-    error stop 'surface_current_model.photoelectron_source_scale must be finite and >= 0.'
   end if
   photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
   if (.not. photoelectron_active .and. &
@@ -73,35 +35,8 @@ contains
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
     error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
   end if
-  if (photoelectron_active) then
-    if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
-        cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. &
-        cfg%surface_current%solar_elevation_deg > 90.0_dp) then
-      error stop 'surface_current_model.solar_elevation_deg must be finite and in (0, 90].'
-    end if
-    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
-        cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
-      error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
-    end if
-    if (len_trim(cfg%surface_current%photoelectron_species) == 0) then
-      error stop 'positive photoelectron_source_scale requires surface_current_model.photoelectron_species.'
-    end if
-  else
-    if (cfg%surface_current%has_photoelectron_species .or. &
-        cfg%surface_current%has_solar_elevation_deg .or. &
-        cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
-        len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
-        cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
-        cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
-      error stop 'photoelectron_source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
-    end if
-  end if
-  if (cfg%surface_current%has_reference_area_m2) then
-    if (.not. ieee_is_finite(cfg%surface_current%reference_area_m2) .or. &
-        cfg%surface_current%reference_area_m2 <= 0.0_dp) then
-      error stop 'surface_current_model.reference_area_m2 must be finite and > 0.'
-    end if
-  else if (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2))) then
+  if (.not. cfg%surface_current%has_reference_area_m2 .and. &
+      (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2)))) then
     error stop 'surface_current_model requires reference_area_m2 or a finite x-y domain area.'
   end if
 
@@ -193,118 +128,24 @@ contains
     error stop 'Zhao stationary current model requires cold ions with T_i <= 0.1 T_e.'
   end if
   end procedure validate_surface_current_model_config
-  logical function has_surface_current_model_settings(cfg) result(has_settings)
-    type(app_config), intent(in) :: cfg
-
-    has_settings = cfg%surface_current%has_response_backend .or. &
-                   cfg%surface_current%has_zhao_branch .or. &
-                   cfg%surface_current%has_zhao_root_selection .or. &
-                   cfg%surface_current%has_electron_species .or. &
-                   cfg%surface_current%has_ion_species .or. &
-                   cfg%surface_current%has_photoelectron_species .or. &
-                   cfg%surface_current%has_solar_elevation_deg .or. &
-                   cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
-                   cfg%surface_current%has_photoelectron_source_scale .or. &
-                   cfg%surface_current%has_reference_area_m2 .or. &
-                   cfg%surface_current%has_response_table_path .or. &
-                   cfg%surface_current%has_implicit_zero_mode .or. &
-                   cfg%surface_current%has_coupling_rtol .or. &
-                   cfg%surface_current%has_coupling_atol .or. &
-                   cfg%surface_current%has_coupling_max_iterations .or. &
-                   cfg%surface_current%has_coupling_relaxation .or. &
-                   len_trim(cfg%surface_current%electron_species) > 0 .or. &
-                   len_trim(cfg%surface_current%ion_species) > 0 .or. &
-                   len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
-                   trim(lower_ascii(cfg%surface_current%response_backend)) /= 'table' .or. &
-                   len_trim(cfg%surface_current%response_table_path) > 0 .or. &
-                   cfg%surface_current%implicit_zero_mode .or. &
-                   trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
-                   trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique' .or. &
-                   cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
-                   cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp .or. &
-                   cfg%surface_current%photoelectron_source_scale /= 1.0_dp .or. &
-                   cfg%surface_current%reference_area_m2 /= 0.0_dp .or. &
-                   cfg%surface_current%coupling_rtol /= 1.0e-4_dp .or. &
-                   any(cfg%surface_current%coupling_atol /= 0.0_dp) .or. &
-                   cfg%surface_current%coupling_max_iterations /= 20_i32 .or. &
-                   cfg%surface_current%coupling_relaxation /= 0.5_dp
-  end function has_surface_current_model_settings
-
   subroutine validate_matching_plane_config(cfg, periodic2_split_explicit)
     type(app_config), intent(in) :: cfg
     logical, intent(in) :: periodic2_split_explicit
     integer :: electron_idx, ion_idx, photo_idx, species_idx
     logical :: photoelectron_active
 
-    if (cfg%surface_current%has_solar_elevation_deg .or. &
-        cfg%surface_current%has_photoelectron_ref_density_m3 .or. &
-        cfg%surface_current%has_photoelectron_source_scale .or. &
-        cfg%surface_current%has_reference_area_m2 .or. &
-        cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
-        cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp .or. &
-        cfg%surface_current%photoelectron_source_scale /= 1.0_dp .or. &
-        cfg%surface_current%reference_area_m2 /= 0.0_dp) then
-      error stop 'matching_plane_quasistatic cannot use stationary-Zhao source settings or reference_area_m2.'
+    if (trim(lower_ascii(cfg%surface_current%response_backend)) == 'zhao_online' .and. &
+        trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
+      if (trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'a' .or. &
+          .not. cfg%surface_current%implicit_zero_mode) then
+        error stop 'surface_current_model.zhao_root_selection="continuation" requires '// &
+          'response_backend="zhao_online", zhao_branch="a", and implicit_zero_mode=true.'
+      end if
     end if
-    select case (trim(lower_ascii(cfg%surface_current%response_backend)))
-    case ('table')
-      if (cfg%surface_current%has_zhao_branch .or. cfg%surface_current%has_zhao_root_selection .or. &
-          trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .or. &
-          trim(lower_ascii(cfg%surface_current%zhao_root_selection)) /= 'require_unique') then
-        error stop 'matching_plane_quasistatic response_backend="table" cannot use Zhao-specific settings.'
-      end if
-      if (.not. cfg%surface_current%has_response_table_path .or. &
-          len_trim(cfg%surface_current%response_table_path) == 0) then
-        error stop 'matching_plane_quasistatic response_backend="table" requires response_table_path.'
-      end if
-    case ('zhao_online')
-      if (cfg%surface_current%has_response_table_path .or. &
-          len_trim(cfg%surface_current%response_table_path) > 0) then
-        error stop 'matching_plane_quasistatic response_backend="zhao_online" cannot use response_table_path.'
-      end if
-      select case (trim(lower_ascii(cfg%surface_current%zhao_branch)))
-      case ('auto', 'a', 'b', 'c')
-        continue
-      case default
-        error stop 'surface_current_model.zhao_branch must be "auto", "a", "b", or "c".'
-      end select
-      select case (trim(lower_ascii(cfg%surface_current%zhao_root_selection)))
-      case ('require_unique', 'minimum_energy', 'continuation')
-        continue
-      case default
-        error stop 'surface_current_model.zhao_root_selection must be "require_unique", "minimum_energy", '// &
-          'or "continuation".'
-      end select
-      if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
-        if (trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'a' .or. &
-            .not. cfg%surface_current%implicit_zero_mode) then
-          error stop 'surface_current_model.zhao_root_selection="continuation" requires '// &
-            'response_backend="zhao_online", zhao_branch="a", and implicit_zero_mode=true.'
-        end if
-      end if
-    case default
-      error stop 'surface_current_model.response_backend must be "table" or "zhao_online".'
-    end select
     if (cfg%surface_current%implicit_zero_mode) then
       if (trim(lower_ascii(cfg%periodic2%lower_boundary_model)) /= 'e_bottom_zero') then
         error stop 'surface_current_model.implicit_zero_mode requires periodic2.lower_boundary_model="e_bottom_zero".'
       end if
-    end if
-    if (.not. ieee_is_finite(cfg%surface_current%coupling_rtol) .or. &
-        cfg%surface_current%coupling_rtol <= 0.0_dp .or. cfg%surface_current%coupling_rtol > 1.0_dp) then
-      error stop 'surface_current_model.coupling_rtol must be finite and in (0, 1].'
-    end if
-    if (any(.not. ieee_is_finite(cfg%surface_current%coupling_atol)) .or. &
-        any(cfg%surface_current%coupling_atol < 0.0_dp)) then
-      error stop 'surface_current_model.coupling_atol entries must be finite and >= 0.'
-    end if
-    if (cfg%surface_current%coupling_max_iterations < 1_i32) then
-      error stop 'surface_current_model.coupling_max_iterations must be >= 1.'
-    end if
-    if (.not. ieee_is_finite(cfg%surface_current%coupling_relaxation) .or. &
-        cfg%surface_current%coupling_relaxation <= 0.0_dp .or. &
-        cfg%surface_current%coupling_relaxation > 1.0_dp) then
-      error stop 'surface_current_model.coupling_relaxation must be finite and in (0, 1].'
     end if
     if (trim(lower_ascii(cfg%sim%field_bc_mode)) /= 'periodic2' .or. .not. cfg%sim%use_box) then
       error stop 'matching_plane_quasistatic requires a periodic2 [domain] box.'
@@ -339,16 +180,6 @@ contains
     end if
     if (trim(lower_ascii(cfg%sim%open_boundary_model)) /= 'escape') then
       error stop 'matching_plane_quasistatic requires particle_boundary.ordinary_open_model="escape".'
-    end if
-    if (.not. cfg%surface_current%has_electron_species .or. &
-        len_trim(cfg%surface_current%electron_species) == 0 .or. &
-        .not. cfg%surface_current%has_ion_species .or. &
-        len_trim(cfg%surface_current%ion_species) == 0) then
-      error stop 'matching_plane_quasistatic requires electron and ion species roles.'
-    end if
-    if (cfg%surface_current%has_photoelectron_species .and. &
-        len_trim(cfg%surface_current%photoelectron_species) == 0) then
-      error stop 'matching_plane_quasistatic photoelectron_species must be a non-empty string when provided.'
     end if
     photoelectron_active = cfg%surface_current%has_photoelectron_species
 
@@ -409,31 +240,20 @@ contains
     real(dp) :: electron_temperature, ion_temperature, photoelectron_temperature
     real(dp) :: ion_density
 
-    if (any(cfg%surface_current%coupling_atol(3:4) > 0.0_dp)) then
-      error stop 'matching_plane_quasistatic zhao_online coupling_atol must be zero on inactive ambient-outward axes.'
-    end if
-
-    if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%q_particle) .or. &
-        .not. ieee_is_finite(cfg%particle_species(ion_idx)%q_particle) .or. &
-        abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
+    if (abs(abs(cfg%particle_species(electron_idx)%q_particle) - qe) > 1.0e-6_dp*qe .or. &
         abs(abs(cfg%particle_species(ion_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
       error stop 'matching_plane_quasistatic zhao_online requires singly charged role species.'
     end if
     if (photoelectron_active) then
-      if (.not. ieee_is_finite(cfg%particle_species(photo_idx)%q_particle) .or. &
-          abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
+      if (abs(abs(cfg%particle_species(photo_idx)%q_particle) - qe) > 1.0e-6_dp*qe) then
         error stop 'matching_plane_quasistatic zhao_online requires singly charged role species.'
       end if
     end if
 
     electron_mass = cfg%particle_species(electron_idx)%m_particle
-    if (.not. ieee_is_finite(electron_mass) .or. electron_mass <= 0.0_dp) then
-      error stop 'matching_plane_quasistatic zhao_online requires a positive electron mass.'
-    end if
     if (photoelectron_active) then
       photoelectron_mass = cfg%particle_species(photo_idx)%m_particle
-      if (.not. ieee_is_finite(photoelectron_mass) .or. photoelectron_mass <= 0.0_dp .or. &
-          abs(photoelectron_mass - electron_mass) > 1.0e-6_dp*electron_mass) then
+      if (abs(photoelectron_mass - electron_mass) > 1.0e-6_dp*electron_mass) then
         error stop 'matching_plane_quasistatic zhao_online requires matching ambient-electron and photoelectron masses.'
       end if
     end if

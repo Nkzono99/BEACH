@@ -154,7 +154,6 @@ contains
     app%particle_species(2)%q_particle = 1.602176634e-19_dp
     app%particle_species(2)%m_particle = 1.67262192369e-27_dp
     app%particle_species(2)%number_density_m3 = 8.7e6_dp
-    app%particle_species(2)%has_number_density_m3 = .true.
     app%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
     app%particle_species(3)%species_key = 'photoelectron'
     app%particle_species(3)%q_particle = -1.602176634e-19_dp

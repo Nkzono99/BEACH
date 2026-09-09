@@ -10,11 +10,12 @@
 - `runtime/`: 設定からの実行データ構築、リスタート入出力、シミュレータ本体、シースとの連成
 - `tools/`: 応答表生成や分岐診断など、通常のシミュレーションとは別に使う Fortran ツール
 
-`config/` は入力を `app_config` へ読み、派生値と組合せ制約を確定します。
+`config/` は入力を `app_config` へ読み、派生値・参照を解決し、実行に必要な最小条件を確認します。
 `bem_config_toml` は基本型・有限値・文字列長、`app_config_parser/` は table ごとの読取と領域別 preflight、
 `bem_app_config_authoring*` は authoring 型と座標・配置の展開を担当します。
 メッシュや粒子、境界電位を設定から構築する処理は `runtime/configuration/` に置きます。
-`beach --check-config beach.toml` は設定の読み込み・正規化・検証で終了し、実行データを構築しません。
+詳細な列挙値・値域・組合せ診断は実行前の `beachx lint` が担当します。
+開発・診断用の `beach --check-config beach.toml` は読取・正規化・残されたモデル成立条件だけを確認し、lint を代替しません。
 
 電場の合成と評価は `physics/field_solver/` にまとめています。
 `periodic/` は平面平均の zero mode と Fourier 評価、`panel/` は面電荷の Coulomb 積分、

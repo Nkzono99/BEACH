@@ -9,10 +9,10 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 ## 概要
 
 - ソースファイル数: 125
-- モジュール数: 85
+- モジュール数: 84
 - submodule 数: 40
 - program 数: 3
-- 内部依存エッジ数: 487
+- 内部依存エッジ数: 477
 
 ## 全体グラフ
 
@@ -26,7 +26,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | --- | ---: | ---: |
 | `app` | 3 | 21 |
 | `src/config` | 9 | 26 |
-| `src/config/app_config_parser` | 11 | 33 |
+| `src/config/app_config_parser` | 10 | 23 |
 | `src/core` | 7 | 5 |
 | `src/mesh` | 3 | 11 |
 | `src/mesh/panel` | 3 | 7 |
@@ -55,11 +55,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 83 |
-| `bem_types` | `module` | 37 |
-| `bem_string_utils` | `module` | 36 |
+| `bem_kinds` | `module` | 82 |
+| `bem_types` | `module` | 36 |
+| `bem_string_utils` | `module` | 35 |
 | `bem_constants` | `module` | 24 |
-| `bem_app_config_types` | `module` | 21 |
+| `bem_app_config_types` | `module` | 20 |
 | `bem_mpi` | `module` | 17 |
 | `bem_panel_geometry` | `module` | 13 |
 | `bem_charge_ledger` | `module` | 11 |
@@ -83,16 +83,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_app_config_authoring_geometry` | `submodule` | `src/config/bem_app_config_authoring_geometry.f90` | `bem_app_config_authoring`, `bem_string_utils` | Mesh template の group、anchor、相対サイズを実座標・実寸へ変換する。 |
 | `bem_app_config_authoring_sources` | `submodule` | `src/config/bem_app_config_authoring_sources.f90` | `bem_app_config_authoring`, `bem_string_utils` | 粒子源の face_fraction 入力を注入面上の実座標へ変換する。 |
 | `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
-| `logical` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | - |
 | `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser` | 設定の正規化と領域別 preflight の実行順を管理する。 |
-| `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_config_helpers`, `bem_app_config_types` | 有効粒子種の境界・電流・粒子源の検証と workload 条件。 |
-| `bem_app_config_parser_preflight_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90` | `bem_app_config_parser` | 実行時間・領域・出力と境界条件の preflight。 |
-| `bem_app_config_parser_preflight_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | 表面電流と matching-plane のモデル・粒子種・境界条件の preflight。 |
+| `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_app_config_types` | lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。 |
+| `bem_app_config_parser_preflight_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90` | `bem_app_config_parser` | lint 済み設定の基本的な計算条件を確認し、時間と外部場を確定する。 |
+| `bem_app_config_parser_preflight_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。 |
 | `bem_app_config_parser_read_mesh` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_mesh.f90` | `bem_app_config_parser` | メッシュの TOML 読み取りと、モード・表面モデルの preflight。 |
 | `bem_app_config_parser_read_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_particles.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
 | `bem_app_config_parser_read_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_sim.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
 | `bem_app_config_parser_read_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_surface.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
-| `bem_app_config_parser_validate` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_validate.f90` | `bem_app_config_parser`, `bem_config_helpers` | `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。 |
+| `bem_app_config_parser_validate` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_validate.f90` | `bem_app_config_parser`, `bem_config_helpers` | lint 済みの設定から電場・流束・粒子重みを導出し、計算結果を検査する。 |
 | `bem_constants` | `module` | `src/core/bem_constants.f90` | `bem_kinds` | シミュレーションで使用する物理定数を定義する。 |
 | `bem_external_boundary_contract` | `module` | `src/core/bem_external_boundary_contract.f90` | `bem_kinds`, `bem_string_utils` | 局所 reservoir 流入と通常 open 面の処理を実行時契約へ正規化する。 |
 | `bem_kinds` | `module` | `src/core/bem_kinds.f90` | - | 倍精度実数と32bit整数のkind定義を集約する基盤モジュール。 |
@@ -321,14 +320,6 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: `tomlf`, `ieee_arithmetic`
 - 概要: TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。
 
-### `logical`
-
-- kind: `module`
-- path: `src/config/app_config_parser/bem_app_config_parser.f90`
-- group: `src/config/app_config_parser`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry`
-- external dependencies: `tomlf`, `ieee_arithmetic`
-
 ### `bem_app_config_parser_finalize`
 
 - kind: `submodule`
@@ -345,9 +336,9 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - path: `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90`
 - group: `src/config/app_config_parser`
 - parent: `bem_app_config_parser`
-- 内部依存: `bem_app_config_parser`, `bem_config_helpers`, `bem_app_config_types`
+- 内部依存: `bem_app_config_parser`, `bem_app_config_types`
 - external dependencies: なし
-- 概要: 有効粒子種の境界・電流・粒子源の検証と workload 条件。
+- 概要: lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。
 
 ### `bem_app_config_parser_preflight_sim`
 
@@ -357,7 +348,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - parent: `bem_app_config_parser`
 - 内部依存: `bem_app_config_parser`
 - external dependencies: なし
-- 概要: 実行時間・領域・出力と境界条件の preflight。
+- 概要: lint 済み設定の基本的な計算条件を確認し、時間と外部場を確定する。
 
 ### `bem_app_config_parser_preflight_surface`
 
@@ -367,7 +358,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - parent: `bem_app_config_parser`
 - 内部依存: `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types`
 - external dependencies: なし
-- 概要: 表面電流と matching-plane のモデル・粒子種・境界条件の preflight。
+- 概要: lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。
 
 ### `bem_app_config_parser_read_mesh`
 
@@ -417,7 +408,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - parent: `bem_app_config_parser`
 - 内部依存: `bem_app_config_parser`, `bem_config_helpers`
 - external dependencies: なし
-- 概要: `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。
+- 概要: lint 済みの設定から電場・流束・粒子重みを導出し、計算結果を検査する。
 
 ### `bem_constants`
 

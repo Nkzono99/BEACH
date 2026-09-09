@@ -75,7 +75,7 @@ make test-l3      # L2 + heavy FMM / panel tests
 
 - L0 checks `git diff --check`, source text, JSON schemas, and `make check`.
 - L1 adds the complete Python suite and the normal Fortran test targets.
-- L2 adds the C ABI, periodic zero-mode C contracts, and contract tests comparing Python and Fortran configuration acceptance.
+- L2 adds the C ABI, periodic zero-mode C contracts, and contract tests loading configurations that pass lint in Fortran.
 - L3 adds `test_dynamics_fmm`, FMM core, panel near-correction, and other heavy targets.
 
 The following gates are not all included in the normal tiers. Run them explicitly when required by the change or release decision.
@@ -115,16 +115,19 @@ make test-config-contract
 `schema-check` checks JSON syntax, byte-for-byte agreement among all three files, and agreement between the schema and
 Fortran readers on the key sets of all 16 public tables. Key comparison checks declarations; executable tests check
 value ranges and combinations.
-`test-config-contract` builds the current Fortran `beach` and passes representative TOML cases to the Python loader, validate, and lint
-entry points and to `beach --check-config`. It fails when acceptance differs from the expected result or configuration-only
-checking creates simulation output. The gate is included in L2. Running the ordinary Python suite alone does not establish
-agreement with Fortran.
+`test-config-contract` builds the current Fortran `beach`. It checks Python loader, validate, and lint diagnostics using
+representative cases and requires current examples passing lint to load with `beach --check-config` as well.
+It does not require identical acceptance of invalid inputs. The native check also fails if it creates simulation output.
+This gate is part of L2. Running the ordinary Python suite alone does not check Fortran loading.
 
 Identical acceptance of every input and exhaustive detection of invalid combinations are not guaranteed. Choose additional
 validation based on frequency in research use, impact on results, and maintenance cost. Fortran prioritizes basic conditions
 such as storage ranges and finiteness, plus prerequisites of the selected physical model. Add representative cases for known
-bugs to prevent regressions. Put new constraints required for execution in the appropriate Fortran preflight domain, and
-update the necessary Python checks and shared cases. The parser owns key reading, authoring owns coordinate and placement notation, and runtime configuration
+bugs to prevent regressions. Keep detailed diagnostics for enums, ranges, and settings supplied to inactive features in lint.
+Success from `--check-config`
+means only that loading, normalization, and the remaining model-prerequisite checks passed; it does not replace lint before running.
+Put new constraints required for execution in the appropriate Fortran preflight domain, and update the necessary Python checks
+and shared cases. The parser owns key reading, authoring owns coordinate and placement notation, and runtime configuration
 owns mesh and particle construction.
 
 ## Run development tests on KUDPC

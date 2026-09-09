@@ -35,9 +35,9 @@ applicability conditions below each table.
 | Unknown keys | Unknown section names and key names are errors |
 | schema | `schemas/beach.schema.json` |
 | Python validation | `beachx lint beach.toml` / `beachx config validate beach.toml` check the packaged schema and semantic constraints |
-| Fortran validation | For development and diagnostics, `beach --check-config beach.toml` loads, normalizes, and preflights the configuration only; the path is required |
+| Fortran validation | For development and diagnostics, `beach --check-config beach.toml` checks loading, normalization, and minimum model prerequisites; the path is required. It does not replace lint before running |
 | Basic values | Reals and array components must be finite; integer fields do not accept reals or booleans |
-| Integer storage range | Signed 32-bit `-2147483648..2147483647`; out-of-range values are rejected before conversion, and field-specific ranges also apply |
+| Integer storage range | Signed 32-bit `-2147483648..2147483647`; out-of-range values are rejected before conversion. Lint checks field-specific ranges |
 | Strings | Values exceeding their Fortran destination length are errors; no implicit truncation |
 
 To use an editor schema, put a comment directive with the GitHub Raw URL at the beginning of `beach.toml`.
@@ -66,8 +66,9 @@ The Fortran parser does not accept regular keys before the first section, so do 
 
 Numbers and array components must be finite. Disabled species still undergo checks on the types, finiteness, and string
 lengths of supplied values, including the same integer storage range.
-Schema / Python also apply enums and declared ranges to disabled species. Fortran skips their runtime semantic checks,
-so acceptance can differ for inputs retaining an invalid enum or negative mass in a disabled species.
+Schema / Python own detailed input diagnostics for enums, declared ranges, and settings supplied to inactive features.
+Fortran does not repeat all these diagnostics; it resolves derived values and references and checks minimum prerequisites
+for execution. Identical acceptance of invalid input is not guaranteed.
 Physical combination checks follow each setting's applicability conditions.
 `*_low` / `*_high` are lower and upper bounds on each axis. `inject_face` is one
 of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`.
@@ -936,7 +937,7 @@ Run `beachx lint` from [Create and Validate `beach.toml`](Configuration.en.html)
 | `[particles]` | Used only as the container for `[[particles.species]]`. Do not write `key = value` directly under it |
 | Old keys | Old names are treated as unknown keys |
 | Type | Validated by both the schema and the Fortran parser |
-| Value range | `beachx lint` and the runtime parser validate known constraints |
+| Enums, ranges, and settings for inactive features | `beachx lint` provides detailed diagnostics; Fortran checks minimum prerequisites for execution |
 
 The following old `sim` keys are rejected as unknown keys by the schema, Python, and Fortran. They are not migrated implicitly.
 

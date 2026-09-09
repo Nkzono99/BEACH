@@ -82,7 +82,6 @@ contains
       call get_toml_logical(table, keys(ikey), spec%enabled, 'particles.species.enabled')
     case ('npcls_per_step')
       call get_toml_int(table, keys(ikey), spec%npcls_per_step, 'particles.species.npcls_per_step')
-      spec%has_npcls_per_step = .true.
     case ('source_mode')
       call get_toml_string(table, keys(ikey), spec%source_mode, 'particles.species.source_mode')
       spec%source_mode = lower_ascii(trim(spec%source_mode))
@@ -91,7 +90,6 @@ contains
       spec%has_number_density_cm3 = .true.
     case ('number_density_m3')
       call get_toml_real(table, keys(ikey), spec%number_density_m3, 'particles.species.number_density_m3')
-      spec%has_number_density_m3 = .true.
     case ('q_particle')
       call get_toml_real(table, keys(ikey), spec%q_particle, 'particles.species.q_particle')
     case ('m_particle')
@@ -106,10 +104,10 @@ contains
         )
       spec%has_target_macro_particles_per_batch = .true.
     case ('pos_low')
-      call get_toml_real3(table, keys(ikey), spec%pos_low, 'particles.species.pos_low')
+      call get_toml_real_array(table, keys(ikey), spec%pos_low, 'particles.species.pos_low')
       auth%has_pos_low = .true.
     case ('pos_high')
-      call get_toml_real3(table, keys(ikey), spec%pos_high, 'particles.species.pos_high')
+      call get_toml_real_array(table, keys(ikey), spec%pos_high, 'particles.species.pos_high')
       auth%has_pos_high = .true.
     case ('velocity_distribution')
       call get_toml_string(table, keys(ikey), spec%velocity_distribution, 'particles.species.velocity_distribution')
@@ -124,15 +122,13 @@ contains
       spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
     case ('particle_flux_m2_s')
       call get_toml_real(table, keys(ikey), spec%particle_flux_m2_s, 'particles.species.particle_flux_m2_s')
-      spec%has_particle_flux_m2_s = .true.
     case ('current_density_a_m2')
       call get_toml_real(table, keys(ikey), spec%current_density_a_m2, 'particles.species.current_density_a_m2')
       spec%has_current_density_a_m2 = .true.
     case ('drift_velocity')
-      call get_toml_real3(table, keys(ikey), spec%drift_velocity, 'particles.species.drift_velocity')
+      call get_toml_real_array(table, keys(ikey), spec%drift_velocity, 'particles.species.drift_velocity')
     case ('temperature_k')
       call get_toml_real(table, keys(ikey), spec%temperature_k, 'particles.species.temperature_k')
-      spec%has_temperature_k = .true.
     case ('temperature_ev')
       call get_toml_real(table, keys(ikey), spec%temperature_ev, 'particles.species.temperature_ev')
       spec%has_temperature_ev = .true.
@@ -145,15 +141,13 @@ contains
         table, keys(ikey), spec%deposit_opposite_charge_on_emit, &
         'particles.species.deposit_opposite_charge_on_emit' &
         )
-      spec%has_deposit_opposite_charge_on_emit = .true.
     case ('normal_drift_speed')
       call get_toml_real(table, keys(ikey), spec%normal_drift_speed, 'particles.species.normal_drift_speed')
     case ('ray_direction')
-      call get_toml_real3(table, keys(ikey), spec%ray_direction, 'particles.species.ray_direction')
+      call get_toml_real_array(table, keys(ikey), spec%ray_direction, 'particles.species.ray_direction')
       spec%has_ray_direction = .true.
     case ('source_normal')
-      call get_toml_real3(table, keys(ikey), spec%source_normal, 'particles.species.source_normal')
-      spec%has_source_normal = .true.
+      call get_toml_real_array(table, keys(ikey), spec%source_normal, 'particles.species.source_normal')
     case ('inject_face')
       call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
       spec%inject_face = lower_ascii(trim(spec%inject_face))
@@ -189,10 +183,10 @@ contains
       auth%inject_region_mode = lower_ascii(trim(auth%inject_region_mode))
       auth%has_inject_region_mode = .true.
     case ('uv_low')
-      call get_toml_real2(table, keys(ikey), auth%uv_low, 'particles.species.uv_low')
+      call get_toml_real_array(table, keys(ikey), auth%uv_low, 'particles.species.uv_low')
       auth%has_uv_low = .true.
     case ('uv_high')
-      call get_toml_real2(table, keys(ikey), auth%uv_high, 'particles.species.uv_high')
+      call get_toml_real_array(table, keys(ikey), auth%uv_high, 'particles.species.uv_high')
       auth%has_uv_high = .true.
     case default
       error stop 'Unknown key in [[particles.species]]: '//trim(keys(ikey)%key)

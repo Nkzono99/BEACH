@@ -75,7 +75,7 @@ make test-l3      # L2 + heavy FMM / panel
 
 - L0 は `git diff --check`、source text、JSON schema、`make check` を確認します。
 - L1 は L0 に全 Python test と通常の Fortran test target を加えます。
-- L2 は C ABI、periodic zero-mode C contract、Python / Fortran の設定採否を比較する contract test を加えます。
+- L2 は C ABI、periodic zero-mode C contract、lint に成功する設定を Fortran で読み込む contract test を加えます。
 - L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
 
 次の gate は tier へ常時含めず、変更内容または release 判断に応じて明示的に実行します。
@@ -114,13 +114,16 @@ make test-config-contract
 `schema-sync` は Python package と BEACH context plugin の 2 copy を正本から更新します。
 `schema-check` は JSON の構文、3 ファイルの byte 単位の一致、公開 16 table の schema と Fortran
 読取実装のキー集合の一致を確認します。キーの照合は宣言上の検査であり、値域や組合せは実行 test で確認します。
-`test-config-contract` は現在の Fortran `beach` を build し、代表的な同じ TOML を Python の loader / validate / lint と
-`beach --check-config` に渡します。採否が期待値と異なる場合や検査だけで simulation output を作った場合に失敗します。
-この gate は L2 に含まれます。通常の Python test だけでは Fortran との比較を実施したことにはなりません。
+`test-config-contract` は現在の Fortran `beach` を build します。Python の loader / validate / lint の診断を
+代表ケースで確認し、lint に成功する現行の設定例を `beach --check-config` でも読み込めることを要求します。
+不正入力の採否一致は要求しません。native 検査だけで simulation output を作った場合も失敗します。
+この gate は L2 に含まれます。通常の Python test だけでは Fortran の読み込みを確認したことにはなりません。
 
 Python と Fortran の全入力に対する採否一致や、不正な組合せの網羅は保証しません。研究での発生頻度、
 結果への影響、保守コストから追加検証を選びます。Fortran では格納範囲・有限性などの基本条件と、
 選択した物理モデルに不可欠な条件を優先します。既知の不具合には、その再発を防ぐ代表ケースを追加します。
+列挙値・値域・無効な機能への指定などの詳細な診断は lint が担当します。`--check-config` の成功は
+読取・正規化・残されたモデル成立条件の検査が通ったことだけを示し、実行前 lint の代替にはなりません。
 実行に必要な新しい組合せ制約は Fortran の領域別 preflight に置き、必要な Python 側の検証と共通ケースを更新します。
 公開キーの読取は parser、座標・配置の展開は authoring、mesh・粒子の構築は runtime configuration が担当します。
 

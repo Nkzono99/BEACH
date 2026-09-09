@@ -1,71 +1,32 @@
-!> `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。
+!> lint 済みの設定から電場・流束・粒子重みを導出し、計算結果を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_validate
-  use bem_config_helpers, only: resolve_inject_face, resolve_inward_normal, species_number_density_m3, species_temperature_k
+  use bem_config_helpers, only: resolve_inward_normal, species_number_density_m3, species_temperature_k
   implicit none
 contains
 
-  !> `batch_duration` 系パラメータの排他条件と値域を検証し、確定値を反映する。
+  !> 時間刻み数から batch_duration を導出し、積の overflow/underflow を検査する。
   module procedure resolve_batch_duration
   real(dp) :: batch_duration
 
-  if (cfg%sim%has_batch_duration .and. cfg%sim%has_batch_duration_step) then
-    error stop 'sim.batch_duration and sim.batch_duration_step cannot be used together.'
-  end if
-
   if (cfg%sim%has_batch_duration_step) then
-    if (.not. ieee_is_finite(cfg%sim%batch_duration_step) .or. cfg%sim%batch_duration_step <= 0.0d0) then
-      error stop 'sim.batch_duration_step must be > 0.'
-    end if
-    if (.not. ieee_is_finite(cfg%sim%dt) .or. cfg%sim%dt <= 0.0d0) then
-      error stop 'sim.dt must be > 0 when sim.batch_duration_step is set.'
-    end if
     batch_duration = cfg%sim%dt*cfg%sim%batch_duration_step
     if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
       error stop 'sim.batch_duration_step produced invalid sim.batch_duration.'
     end if
     cfg%sim%batch_duration = batch_duration
     cfg%sim%has_batch_duration = .true.
-  else if (cfg%sim%has_batch_duration) then
-    if (.not. ieee_is_finite(cfg%sim%batch_duration)) then
-      error stop 'sim.batch_duration must be finite.'
-    end if
   end if
   end procedure resolve_batch_duration
 
-  !> 一様外部電場指定を検証し、`sim%e0` へ正規化する。
+  !> 一様外部電場の大きさ・角度を `sim%e0` へ変換する。
   module procedure resolve_external_e_field
   real(dp), parameter :: deg2rad = acos(-1.0d0)/180.0d0
   real(dp) :: phi_xy, phi_z
 
-  if (cfg%sim%has_e0_vector .and. &
-      (cfg%sim%has_e0_abs .or. cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg)) then
-    error stop 'sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg.'
-  end if
-
-  if (cfg%sim%has_e0_vector) then
-    if (.not. all(ieee_is_finite(cfg%sim%e0))) error stop 'sim.e0 must contain finite values.'
-    return
-  end if
-
-  if (cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg) then
-    if (.not. cfg%sim%has_e0_abs) then
-      error stop 'sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.'
-    end if
-  end if
-
+  if (cfg%sim%has_e0_vector) return
   if (.not. cfg%sim%has_e0_abs) then
     cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
     return
-  end if
-
-  if (.not. ieee_is_finite(cfg%sim%e0_abs) .or. cfg%sim%e0_abs < 0.0d0) then
-    error stop 'sim.e0_abs must be finite and >= 0.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%e0_phi_xy_deg)) then
-    error stop 'sim.e0_phi_xy_deg must be finite.'
-  end if
-  if (.not. ieee_is_finite(cfg%sim%e0_phi_z_deg)) then
-    error stop 'sim.e0_phi_z_deg must be finite.'
   end if
 
   phi_xy = cfg%sim%e0_phi_xy_deg*deg2rad
@@ -75,50 +36,19 @@ contains
   cfg%sim%e0(3) = cfg%sim%e0_abs*sin(phi_z)
   end procedure resolve_external_e_field
 
-  !> `reservoir_face` 粒子種の必須項目と幾何条件を検証する。
+  !> reservoir_face の開口面積・流束から粒子重みを導出する。
   module procedure validate_reservoir_species
-  integer :: axis, axis_t1, axis_t2
-  real(dp) :: boundary_value, area
+  real(dp) :: area
   real(dp) :: number_density_m3, temperature_k, gamma_in, w_particle
   real(dp) :: inward_normal(3)
   logical :: use_velocity_grid
   type(particle_species_spec) :: spec
 
   spec = cfg%particle_species(species_idx)
-  spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
-  spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
-  spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
-
-  if (spec%has_npcls_per_step) then
-    error stop 'particles.species.npcls_per_step is auto-computed for reservoir_face.'
-  end if
-  if (abs(spec%emit_current_density_a_m2) > 0.0d0 .or. spec%rays_per_batch /= 0_i32 .or. &
-      spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
-    error stop 'photo_raycast keys are not allowed for reservoir_face.'
-  end if
-  if (.not. cfg%sim%use_box) then
-    error stop 'particles.species.source_mode="reservoir_face" requires a finite [domain].'
-  end if
-  if (cfg%sim%batch_duration <= 0.0d0) then
-    error stop 'sim.batch_duration must be > 0 for reservoir_face.'
-  end if
   call validate_flux_driven_parameters(cfg, species_idx, spec, 'reservoir_face', use_velocity_grid)
 
-  call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
-  axis_t1 = modulo(axis, 3) + 1
-  axis_t2 = modulo(axis + 1, 3) + 1
-  if (abs(spec%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec%pos_high(axis) - boundary_value) > 1.0d-12) then
-    error stop 'reservoir_face pos_low/pos_high must lie on the selected box face.'
-  end if
-  if (spec%pos_high(axis_t1) < spec%pos_low(axis_t1) .or. spec%pos_high(axis_t2) < spec%pos_low(axis_t2)) then
-    error stop 'reservoir_face tangential bounds must satisfy pos_high >= pos_low.'
-  end if
-  if ((spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) <= 0.0d0 .or. &
-      (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) <= 0.0d0) then
-    error stop 'reservoir_face opening area must be positive.'
-  end if
   area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
-  if (area <= 0.0d0) then
+  if (.not. ieee_is_finite(area) .or. area <= 0.0d0) then
     error stop 'reservoir_face opening area must be positive.'
   end if
 
@@ -146,7 +76,7 @@ contains
   cfg%particle_species(species_idx) = spec
   end procedure validate_reservoir_species
 
-  !> box全面に結び付いた reservoir 流入のVDF・重みを検証する。
+  !> 有効な box 面からの総流入率を求め、粒子重みを導出する。
   module procedure validate_boundary_inflow_species
   type(particle_species_spec) :: spec
   real(dp) :: physical_rate, area, inward_normal(3), gamma_in
@@ -155,26 +85,6 @@ contains
   character(len=6) :: face_name
 
   spec = cfg%particle_species(species_idx)
-  if (.not. cfg%sim%use_box) then
-    error stop 'particles.species.boundary_inflow requires a finite [domain].'
-  end if
-  if (cfg%sim%batch_duration <= 0.0_dp) then
-    error stop 'sim.batch_duration must be > 0 for boundary_inflow.'
-  end if
-  if (spec%has_source_normal) then
-    error stop 'source_normal is only valid for source_mode="plane_source".'
-  end if
-  if (len_trim(spec%inject_face) > 0) then
-    error stop 'inject_face is not used by boundary_inflow; select faces in [particles.species.boundary_inflow].'
-  end if
-  if (abs(spec%emit_current_density_a_m2) > 0.0_dp .or. spec%rays_per_batch /= 0_i32 .or. &
-      spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
-    error stop 'photo_raycast keys are not allowed with boundary_inflow.'
-  end if
-  if (trim(spec%velocity_distribution) == 'grid' .and. spec%npcls_per_step > 0_i32) then
-    error stop 'grid boundary_inflow cannot be combined with positive volume_seed npcls_per_step.'
-  end if
-
   call validate_flux_driven_parameters(cfg, species_idx, spec, 'boundary_inflow', use_velocity_grid)
   physical_rate = 0.0_dp
   do face = 1, 6
@@ -192,11 +102,11 @@ contains
       physical_rate = physical_rate + gamma_in*area
     end if
   end do
-  call resolve_flux_driven_weight(cfg, species_idx, spec, physical_rate, 'boundary_inflow')
+  call resolve_flux_driven_weight(cfg, spec, physical_rate, 'boundary_inflow')
   cfg%particle_species(species_idx) = spec
   end procedure validate_boundary_inflow_species
 
-  !> box内部のaxis-aligned矩形面から一方向へ流入させる source を検証する。
+  !> 内部矩形面の法線と面積を確定し、流入率・粒子重みを導出する。
   module procedure validate_plane_source_species
   type(particle_species_spec) :: spec
   real(dp) :: span(3), normal_norm, area, physical_rate, gamma_in
@@ -206,22 +116,6 @@ contains
   character(len=6) :: face_name
 
   spec = cfg%particle_species(species_idx)
-  if (.not. cfg%sim%use_box) error stop 'source_mode="plane_source" requires a finite [domain].'
-  if (cfg%sim%batch_duration <= 0.0_dp) error stop 'sim.batch_duration must be > 0 for plane_source.'
-  if (spec%has_npcls_per_step) then
-    error stop 'particles.species.npcls_per_step is auto-computed for plane_source.'
-  end if
-  if (.not. spec%has_source_normal) then
-    error stop 'source_mode="plane_source" requires source_normal.'
-  end if
-  if (len_trim(spec%inject_face) > 0) then
-    error stop 'inject_face is not used by plane_source.'
-  end if
-  if (abs(spec%emit_current_density_a_m2) > 0.0_dp .or. spec%rays_per_batch /= 0_i32 .or. &
-      spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
-    error stop 'photo_raycast keys are not allowed for plane_source.'
-  end if
-  if (.not. all(ieee_is_finite(spec%source_normal))) error stop 'source_normal must contain finite values.'
   normal_norm = sqrt(sum(spec%source_normal*spec%source_normal))
   if (.not. ieee_is_finite(normal_norm) .or. normal_norm <= 0.0_dp) then
     error stop 'source_normal must have non-zero norm.'
@@ -229,7 +123,6 @@ contains
   spec%source_normal = spec%source_normal/normal_norm
 
   span = spec%pos_high - spec%pos_low
-  if (any(span < 0.0_dp)) error stop 'plane_source pos_high must be >= pos_low on all axes.'
   zero_axis_count = count(abs(span) <= 1.0e-12_dp)
   if (zero_axis_count /= 1) then
     error stop 'plane_source pos_low/pos_high must define one axis-aligned zero-thickness rectangle.'
@@ -238,24 +131,6 @@ contains
   do axis = 1, 3
     if (abs(span(axis)) <= 1.0e-12_dp) normal_axis = axis
   end do
-  if (any(spec%pos_low < cfg%sim%box_min) .or. any(spec%pos_high > cfg%sim%box_max)) then
-    error stop 'plane_source rectangle must lie inside the simulation box.'
-  end if
-  if (spec%pos_low(normal_axis) <= cfg%sim%box_min(normal_axis) .or. &
-      spec%pos_low(normal_axis) >= cfg%sim%box_max(normal_axis)) then
-    error stop 'plane_source zero-thickness axis must lie strictly inside the simulation box.'
-  end if
-  do axis = 1, 3
-    if (axis == normal_axis) cycle
-    if (span(axis) <= 0.0_dp) error stop 'plane_source tangential spans must be positive.'
-    if (abs(spec%source_normal(axis)) > 1.0e-12_dp) then
-      error stop 'plane_source source_normal must be parallel to the zero-thickness axis.'
-    end if
-  end do
-  if (abs(abs(spec%source_normal(normal_axis)) - 1.0_dp) > 1.0e-12_dp) then
-    error stop 'plane_source source_normal must be an axis-aligned unit vector.'
-  end if
-
   call plane_normal_face_name(normal_axis, spec%source_normal(normal_axis), face_name)
   spec%inject_face = face_name
   inward_normal = spec%source_normal
@@ -272,83 +147,18 @@ contains
                )
     physical_rate = gamma_in*area
   end if
-  call resolve_flux_driven_weight(cfg, species_idx, spec, physical_rate, 'plane_source')
+  call resolve_flux_driven_weight(cfg, spec, physical_rate, 'plane_source')
   cfg%particle_species(species_idx) = spec
   end procedure validate_plane_source_species
 
-  !> `photo_raycast` 粒子種の必須項目と幾何/方向条件を検証する。
+  !> photo_raycast の面積と正規化した入射方向を確定する。
   module procedure validate_photo_raycast_species
-  integer :: axis, axis_t1, axis_t2
-  real(dp) :: boundary_value, area, direction_norm, inward_dot
+  real(dp) :: area, direction_norm, inward_dot
   real(dp) :: inward_normal(3)
   type(particle_species_spec) :: spec
 
   spec = cfg%particle_species(species_idx)
 
-  if (spec%has_npcls_per_step) then
-    error stop 'particles.species.npcls_per_step is not allowed for photo_raycast.'
-  end if
-  if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
-    error stop 'number_density_cm3/number_density_m3 are not allowed for photo_raycast.'
-  end if
-  if (spec%has_w_particle) then
-    error stop 'w_particle is not allowed for photo_raycast.'
-  end if
-  if (spec%has_target_macro_particles_per_batch) then
-    error stop 'target_macro_particles_per_batch is not allowed for photo_raycast.'
-  end if
-  if (trim(lower_ascii(spec%velocity_distribution)) /= 'maxwellian' .or. len_trim(spec%velocity_grid_path) > 0 .or. &
-      trim(lower_ascii(spec%velocity_grid_sampling)) /= 'auto' .or. &
-      spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
-    error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
-  end if
-  if (.not. cfg%sim%use_box) then
-    error stop 'particles.species.source_mode="photo_raycast" requires a finite [domain].'
-  end if
-  if (cfg%sim%batch_duration <= 0.0d0) then
-    error stop 'sim.batch_duration must be > 0 for photo_raycast.'
-  end if
-  if (.not. ieee_is_finite(spec%emit_current_density_a_m2) .or. spec%emit_current_density_a_m2 <= 0.0d0) then
-    error stop 'photo_raycast requires emit_current_density_a_m2 > 0.'
-  end if
-  if (spec%rays_per_batch <= 0_i32) then
-    error stop 'photo_raycast requires rays_per_batch > 0.'
-  end if
-  if (.not. ieee_is_finite(spec%normal_drift_speed)) then
-    error stop 'normal_drift_speed must be finite.'
-  end if
-  if (spec%has_temperature_ev .and. spec%has_temperature_k) then
-    error stop 'Specify either temperature_ev or temperature_k, not both.'
-  end if
-  if (spec%has_temperature_ev) then
-    if (.not. ieee_is_finite(spec%temperature_ev) .or. spec%temperature_ev < 0.0d0) then
-      error stop 'temperature_ev must be finite and >= 0.'
-    end if
-  else
-    if (.not. ieee_is_finite(spec%temperature_k) .or. spec%temperature_k < 0.0d0) then
-      error stop 'temperature_k must be finite and >= 0.'
-    end if
-  end if
-  if (.not. ieee_is_finite(spec%m_particle) .or. spec%m_particle <= 0.0d0) then
-    error stop 'm_particle must be finite and > 0.'
-  end if
-  if (.not. ieee_is_finite(spec%q_particle) .or. abs(spec%q_particle) <= 0.0d0) then
-    error stop 'q_particle must be finite and non-zero for photo_raycast.'
-  end if
-
-  call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
-  axis_t1 = modulo(axis, 3) + 1
-  axis_t2 = modulo(axis + 1, 3) + 1
-  if (abs(spec%pos_low(axis) - boundary_value) > 1.0d-12 .or. abs(spec%pos_high(axis) - boundary_value) > 1.0d-12) then
-    error stop 'photo_raycast pos_low/pos_high must lie on the selected box face.'
-  end if
-  if (spec%pos_high(axis_t1) < spec%pos_low(axis_t1) .or. spec%pos_high(axis_t2) < spec%pos_low(axis_t2)) then
-    error stop 'photo_raycast tangential bounds must satisfy pos_high >= pos_low.'
-  end if
-  if ((spec%pos_high(axis_t1) - spec%pos_low(axis_t1)) <= 0.0d0 .or. &
-      (spec%pos_high(axis_t2) - spec%pos_low(axis_t2)) <= 0.0d0) then
-    error stop 'photo_raycast opening area must be positive.'
-  end if
   area = compute_face_area_from_bounds(spec%inject_face, spec%pos_low, spec%pos_high)
   if (.not. ieee_is_finite(area) .or. area <= 0.0d0) then
     error stop 'photo_raycast opening area must be positive.'
@@ -356,11 +166,8 @@ contains
 
   call resolve_inward_normal(spec%inject_face, inward_normal)
   if (spec%has_ray_direction) then
-    if (.not. all(ieee_is_finite(spec%ray_direction))) then
-      error stop 'ray_direction must be finite.'
-    end if
     direction_norm = sqrt(sum(spec%ray_direction*spec%ray_direction))
-    if (direction_norm <= 0.0d0) then
+    if (.not. ieee_is_finite(direction_norm) .or. direction_norm <= 0.0d0) then
       error stop 'ray_direction norm must be > 0.'
     end if
     spec%ray_direction = spec%ray_direction/direction_norm
@@ -385,81 +192,31 @@ contains
     spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
     spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
     spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
-    if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then
-      error stop trim(context)//' does not allow both w_particle and target_macro_particles_per_batch.'
-    end if
-    if (.not. spec%has_w_particle .and. .not. spec%has_target_macro_particles_per_batch) then
-      error stop trim(context)//' requires either w_particle or target_macro_particles_per_batch.'
-    end if
-    if (spec%has_w_particle .and. spec%w_particle <= 0.0_dp) then
-      error stop 'particles.species.w_particle must be > 0 for flux-driven injection.'
-    end if
-    if (spec%has_target_macro_particles_per_batch) then
-      if (spec%target_macro_particles_per_batch == 0_i32 .or. spec%target_macro_particles_per_batch < -1_i32) then
-        error stop 'particles.species.target_macro_particles_per_batch must be > 0 or -1.'
-      end if
-      if (spec%target_macro_particles_per_batch == -1_i32) then
-        if (species_idx == 1) error stop 'particles.species[1].target_macro_particles_per_batch cannot be -1.'
-        if (.not. cfg%particle_species(1)%enabled .or. .not. cfg%particle_species(1)%has_w_particle .or. &
-            cfg%particle_species(1)%w_particle <= 0.0_dp) then
-          error stop 'target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle.'
-        end if
+    if (spec%has_target_macro_particles_per_batch .and. spec%target_macro_particles_per_batch /= -1_i32) then
+      if (spec%target_macro_particles_per_batch <= 0_i32) then
+        error stop 'target_macro_particles_per_batch must be positive for weight division.'
       end if
     end if
-    if (.not. ieee_is_finite(spec%m_particle) .or. spec%m_particle <= 0.0_dp) then
-      error stop 'm_particle must be finite and > 0.'
-    end if
-    if (.not. ieee_is_finite(spec%q_particle) .or. abs(spec%q_particle) <= 0.0_dp) then
-      error stop 'q_particle must be finite and non-zero for flux-driven injection.'
+    if (spec%has_target_macro_particles_per_batch .and. spec%target_macro_particles_per_batch == -1_i32) then
+      if (species_idx == 1) error stop 'particles.species[1].target_macro_particles_per_batch cannot be -1.'
+      if (.not. cfg%particle_species(1)%enabled .or. .not. cfg%particle_species(1)%has_w_particle .or. &
+          .not. ieee_is_finite(cfg%particle_species(1)%w_particle) .or. cfg%particle_species(1)%w_particle <= 0.0_dp) then
+        error stop 'target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle.'
+      end if
     end if
 
-    select case (trim(spec%velocity_distribution))
-    case ('maxwellian')
-      use_velocity_grid = .false.
-    case ('grid')
-      use_velocity_grid = .true.
-    case default
-      error stop 'particles.species.velocity_distribution must be "maxwellian" or "grid".'
-    end select
+    use_velocity_grid = trim(spec%velocity_distribution) == 'grid'
     if (use_velocity_grid) then
-      if (len_trim(spec%velocity_grid_path) == 0) error stop 'velocity_distribution="grid" requires velocity_grid_path.'
-      if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
-        error stop 'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
-      end if
-      if (spec%has_temperature_ev .or. spec%has_temperature_k) then
-        error stop 'temperature_ev/temperature_k are not used with velocity_distribution="grid".'
-      end if
-      if (spec%has_particle_flux_m2_s .and. spec%has_current_density_a_m2) then
-        error stop 'Specify either particle_flux_m2_s or current_density_a_m2, not both.'
-      end if
-      if (.not. spec%has_particle_flux_m2_s .and. .not. spec%has_current_density_a_m2) then
-        error stop 'velocity_distribution="grid" requires particle_flux_m2_s or current_density_a_m2.'
-      end if
       if (spec%has_current_density_a_m2) then
-        if (.not. ieee_is_finite(spec%current_density_a_m2) .or. abs(spec%current_density_a_m2) <= 0.0_dp) then
-          error stop 'current_density_a_m2 must be finite and non-zero.'
-        end if
+        if (spec%q_particle == 0.0_dp) error stop 'current_density_a_m2 conversion requires non-zero q_particle.'
         spec%particle_flux_m2_s = abs(spec%current_density_a_m2/spec%q_particle)
-        spec%has_particle_flux_m2_s = .true.
-      else if (.not. ieee_is_finite(spec%particle_flux_m2_s) .or. spec%particle_flux_m2_s <= 0.0_dp) then
-        error stop 'particle_flux_m2_s must be finite and > 0.'
+      end if
+      if (.not. ieee_is_finite(spec%particle_flux_m2_s) .or. spec%particle_flux_m2_s <= 0.0_dp) then
+        call stop_config_error(trim(context)//' particle flux must resolve to a finite positive value.')
       end if
     else
-      if (len_trim(spec%velocity_grid_path) > 0 .or. trim(spec%velocity_grid_sampling) /= 'auto' .or. &
-          spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
-        error stop 'velocity grid and flux keys require velocity_distribution="grid".'
-      end if
-      if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
-        error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
-      end if
-      if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
-        error stop trim(context)//' requires number_density_cm3 or number_density_m3.'
-      end if
       if (.not. ieee_is_finite(species_number_density_m3(spec)) .or. species_number_density_m3(spec) <= 0.0_dp) then
         error stop 'number_density must be finite and > 0.'
-      end if
-      if (spec%has_temperature_ev .and. spec%has_temperature_k) then
-        error stop 'Specify either temperature_ev or temperature_k, not both.'
       end if
       if (.not. ieee_is_finite(species_temperature_k(spec)) .or. species_temperature_k(spec) < 0.0_dp) then
         error stop 'temperature must be finite and >= 0.'
@@ -467,9 +224,8 @@ contains
     end if
   end subroutine validate_flux_driven_parameters
 
-  subroutine resolve_flux_driven_weight(cfg, species_idx, spec, physical_rate, context)
+  subroutine resolve_flux_driven_weight(cfg, spec, physical_rate, context)
     type(app_config), intent(in) :: cfg
-    integer, intent(in) :: species_idx
     type(particle_species_spec), intent(inout) :: spec
     real(dp), intent(in) :: physical_rate
     character(len=*), intent(in) :: context
@@ -481,7 +237,7 @@ contains
       spec%w_particle = physical_rate*cfg%sim%batch_duration/real(spec%target_macro_particles_per_batch, dp)
     end if
     if (.not. ieee_is_finite(spec%w_particle) .or. spec%w_particle <= 0.0_dp) then
-      error stop trim(context)//' target_macro_particles_per_batch produced invalid w_particle.'
+      call stop_config_error(trim(context)//' target_macro_particles_per_batch produced invalid w_particle.')
     end if
     spec%has_w_particle = .true.
   end subroutine resolve_flux_driven_weight

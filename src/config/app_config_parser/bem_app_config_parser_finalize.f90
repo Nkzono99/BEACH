@@ -4,8 +4,6 @@ submodule(bem_app_config_parser) bem_app_config_parser_finalize
 contains
 
   module procedure finalize_loaded_config
-  integer(i32) :: per_batch_particles
-  logical :: has_dynamic_source_species, has_enabled_volume_seed
 
   call lower_boundary_authoring(cfg, authoring)
   call normalize_high_level_config(cfg, authoring)
@@ -17,15 +15,13 @@ contains
   cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
 
   call validate_simulation_config(cfg)
-  call validate_mesh_config(cfg)
-  call validate_particle_species_config(cfg, per_batch_particles, has_dynamic_source_species, has_enabled_volume_seed)
+  call validate_particle_species_config(cfg)
   call validate_surface_current_model_config( &
     cfg, authoring%periodic2%present .and. &
     authoring%periodic2%has_nonzero_mode_backend .and. &
     authoring%periodic2%has_zero_mode_policy .and. &
     authoring%periodic2%has_lower_boundary_model &
     )
-  call validate_source_workload(cfg, per_batch_particles, has_dynamic_source_species, has_enabled_volume_seed)
   call validate_field_config(cfg)
   end procedure finalize_loaded_config
 
@@ -50,7 +46,8 @@ contains
   call derive_field_panel_config(cfg%sim, field_config, panel_config)
   call validate_active_physics_config(cfg%sim, field_config, cfg%periodic2, panel_config, status, message)
   if (status /= physics_config_ok) call stop_config_error(message)
-  if (trim(cfg%sim%field_bc_mode) /= 'free' .and. config_uses_conductor_surface_model(cfg)) then
+  if (config_uses_surface_model(cfg, 'dielectric')) error stop 'dielectric surface model is not implemented.'
+  if (trim(cfg%sim%field_bc_mode) /= 'free' .and. config_uses_surface_model(cfg, 'conductor')) then
     error stop 'surface_model="conductor" currently requires field_boundary.mode="free".'
   end if
   end procedure validate_field_config
