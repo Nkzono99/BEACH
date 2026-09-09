@@ -57,7 +57,7 @@ crosses subsystem boundaries. Direct tests alone are not sufficient when a chang
 | Field snapshot, Direct, or Treecode | `test_electrostatic_snapshot`, `test_dynamics_field_solver`, `test_panel_kernel` | `make test-l1` |
 | FMM, periodic2, zero mode, or nonzero mode | Relevant `test_coulomb_fmm_*`, `test_periodic_*`, and `test_dynamics_fmm` targets | `make test-l3`; use `make test-fortran-far-correction` for the far correction |
 | C ABI or native field kernel | `test_field_kernel_c`, `test_periodic_zero_mode_c` | `make test-l2`; use `make test-field-kernel-cache` for the cache receipt |
-| Output, checkpoint, fingerprint, or restart | `test_output_writer_io`, `test_output_writer_potential`, `test_restart`, `test_model_fingerprint` | `make test-l1` and the relevant Python reader tests |
+| Output, checkpoint, fingerprint, or restart | `test_output_writer_io`, `test_output_writer_potential`, `test_restart` | `make test-l1` and the relevant Python reader tests |
 | Python reader, analysis, or CLI | The corresponding `tests/python/test_*.py` files | `make test-l1` |
 
 `fpm.toml` is canonical for Fortran test names, and `Makefile` is canonical for tier membership. The

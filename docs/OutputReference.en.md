@@ -72,7 +72,7 @@ keys converted to typed Python attributes.
 | `batches`, `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | Executed work and major particle outcomes |
 | `simulated_time_s`, `last_rel_change` | Accepted simulated time and final relative change. `last_rel_change` is not an early-stop condition |
 | `checkpoint_schema_version`, `checkpoint_stride` | Checkpoint format generation and resolved output interval |
-| `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | Configuration identities checked on restart |
+| `mesh_fingerprint` | Ordered mesh identity used to map saved charges to elements |
 | `reservoir_inflow_map`, `particle_ordinary_open_model` | Resolved reservoir and ordinary-open boundary models |
 
 The build receipt consists of these five keys.
@@ -236,7 +236,7 @@ converted to an effective residual, so a converged state's `matching_plane_resid
 
 | Backend | Receipt |
 | --- | --- |
-| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`. The fingerprint identifies the loaded response operator—$H$, canonical axes, and response values—not its path |
+| `table` | `surface_current_model_response_table_path`. All ranks use the table loaded by root; no content fingerprint is written |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
 | `zhao_online` | `surface_current_model_zhao_root_selection` |
@@ -410,7 +410,7 @@ completion of the requested run with `batches == sim.batch_count` using `summary
 | Search | Inspect the final output under `output.restart_from` and both `slot0` / `slot1` directories |
 | Selection | Choose the loadable candidate with all required files and the largest `batches` value |
 | Index failure | Recover a slot with a complete manifest even if `checkpoint_latest.txt` is missing, malformed, or stale |
-| Mismatch | Stop when required files, the mesh fingerprint, saved-state array shapes, or MPI world size differ. Warn and continue on model or species fingerprint changes |
+| Mismatch | Stop when required files, the mesh fingerprint, saved-state array shapes, or MPI world size differ. Model and species configuration changes are not compared through hashes |
 
 `output.restart_from` changes only the read source; new output is written to `output.dir`.
 
@@ -421,16 +421,16 @@ completion of the requested run with `batches == sim.batch_count` using `summary
 | v6 | `macro_residuals.csv` uses `species_idx,face,residual`; `face=0` is the legacy source and `1..6` are boundary faces. The older two-column `species_idx,residual` form remains readable |
 | v8+ | Publish `state=in_progress` before replacing state. Atomically publish `state=complete` only after closing summary, charges, every rank's RNG, and manifest-declared residual / ledger files |
 | v9 | Store accepted matching-plane feedback, potential, return / escape fluxes, and iteration receipts in `summary.txt` |
+| v10 (current) | Remove model, species, and response-content fingerprints. Continue reading v2–v9 and ignore their old identifiers. Preserve mesh identity and state-array formats |
 
 For schema v8 and later, `checkpoint_complete.txt` itself is required. If the final-output directory contains files
 from different generations, BEACH rejects it and falls back to a complete periodic slot.
 
-The model fingerprint includes canonical response-table contents for the table backend, or the Zhao contract, branch
-policy, and implicit mode for the online backend. Model and species fingerprints remain provenance checks, but a
-mismatch alone does not stop resume. BEACH warns and carries the saved charge and statistics into the current
-configuration. This is a changed-condition continuation, so use a separate output directory and assess continuity of
-the observables. A mesh fingerprint mismatch remains fatal because BEACH cannot safely map `charges.csv` rows to
-different elements.
+Configuration changes are not compared through hashes. BEACH carries saved charges and statistics into the current
+configuration; compare the configuration files and explicit summary values when assessing changed conditions. A mesh
+fingerprint mismatch remains fatal because `charges.csv` rows cannot be mapped safely to different elements. The Python
+reader retains optional `model_fingerprint` and `species_fingerprint` attributes for historical outputs; both are `None`
+for current outputs.
 
 Online implicit bracket and step-subdivision nodes are neither a persistent table nor checkpoint state. With
 `continuation`, BEACH tries to reconstruct the restart seed from the accepted response saved in `summary.txt` and falls

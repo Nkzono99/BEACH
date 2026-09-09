@@ -15,8 +15,7 @@ submodule(bem_output_writer) bem_output_writer_summary
     external_open_escape, &
     external_open_potential_barrier, &
     resolve_external_boundary_contract
-  use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
-  use bem_matching_plane_response, only: get_matching_plane_response_content_fingerprint, matching_plane_response_ok
+  use bem_mesh_identity, only: mesh_fingerprint
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
@@ -34,11 +33,10 @@ contains
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   character(len=1024) :: summary_path
-  character(len=512) :: matching_response_message
   character(len=256) :: boundary_message
-  character(len=16) :: resolved_field_solver, matching_response_fingerprint
+  character(len=16) :: resolved_field_solver
   integer :: u, ios
-  integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max, matching_response_status
+  integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
   real(dp) :: resolved_tree_theta
 
   call resolve_external_boundary_contract( &
@@ -65,9 +63,7 @@ contains
   write (u, '(a,a)') 'build_version_mode=', beach_version_mode
   write (u, '(a,a)') 'build_source_commit=', beach_source_commit
   write (u, '(a,a)') 'build_id=', beach_build_id
-  write (u, '(a,a)') 'model_fingerprint=', model_fingerprint(cfg)
   write (u, '(a,a)') 'mesh_fingerprint=', mesh_fingerprint(mesh)
-  write (u, '(a,a)') 'species_fingerprint=', species_fingerprint(cfg)
   write (u, '(a,i0)') 'mesh_nelem=', mesh%nelem
   write (u, '(a,i0)') 'mesh_count=', max(1_i32, maxval(mesh%elem_mesh_id))
   write (u, '(a,i0)') 'mpi_world_size=', world_size
@@ -173,18 +169,8 @@ contains
         cfg%surface_current%implicit_zero_mode
       select case (trim(lower_ascii(cfg%surface_current%response_backend)))
       case ('table')
-        call get_matching_plane_response_content_fingerprint( &
-          trim(cfg%surface_current%response_table_path), matching_response_fingerprint, &
-          matching_response_status, matching_response_message &
-          )
-        if (matching_response_status /= matching_plane_response_ok) then
-          error stop 'write_summary_file: matching-plane response fingerprint failed: '// &
-            trim(matching_response_message)
-        end if
         write (u, '(a,a)') 'surface_current_model_response_table_path=', &
           trim(cfg%surface_current%response_table_path)
-        write (u, '(a,a)') 'surface_current_model_response_content_fingerprint=', &
-          matching_response_fingerprint
       case ('zhao_online')
         write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
         write (u, '(a,a)') 'surface_current_model_zhao_branch=', &

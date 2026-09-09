@@ -43,7 +43,6 @@ module bem_matching_plane_response_provider
     real(dp) :: implicit_feedback_reference(4) = 0.0_dp
     logical :: implicit_displacement_bounded = .false.
     logical :: implicit_zero_mode_supported = .false.
-    character(len=16) :: content_fingerprint = ''
     type(matching_plane_response_table_type) :: table
     type(matching_plane_zhao_model_type) :: zhao
   contains
@@ -60,7 +59,6 @@ module bem_matching_plane_response_provider
     procedure, public :: get_feedback_scales => get_provider_feedback_scales
     procedure, public :: get_implicit_zero_mode_contract => get_provider_implicit_zero_mode_contract
     procedure, public :: get_backend_name => get_provider_backend_name
-    procedure, public :: get_content_fingerprint => get_provider_content_fingerprint
     procedure, public :: is_active => matching_plane_provider_is_active
   end type matching_plane_response_provider_type
 
@@ -362,13 +360,6 @@ contains
       name = 'none'
     end select
   end function get_provider_backend_name
-
-  function get_provider_content_fingerprint(self) result(fingerprint)
-    class(matching_plane_response_provider_type), intent(in) :: self
-    character(len=16) :: fingerprint
-
-    fingerprint = self%content_fingerprint
-  end function get_provider_content_fingerprint
 
   logical function matching_plane_provider_is_active(self) result(active)
     class(matching_plane_response_provider_type), intent(in) :: self

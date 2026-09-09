@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 89
-- Modules: 74
-- Submodules: 13
-- Programs: 2
-- Internal dependency edges: 378
+- Source files: 107
+- Modules: 79
+- Submodules: 27
+- Programs: 3
+- Internal dependency edges: 441
 
 ## Overall Graph
 
@@ -24,15 +24,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 
 | Directory | Entities | Internal dependencies |
 | --- | ---: | ---: |
-| `app` | 2 | 18 |
-| `src/config` | 9 | 50 |
+| `app` | 3 | 21 |
+| `src/config` | 11 | 52 |
 | `src/config/app_config_parser` | 3 | 13 |
 | `src/core` | 7 | 5 |
 | `src/mesh` | 3 | 11 |
 | `src/particles` | 2 | 7 |
 | `src/particles/injection` | 5 | 22 |
 | `src/physics` | 7 | 27 |
-| `src/physics/field_solver` | 5 | 20 |
+| `src/physics/field_solver` | 6 | 21 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
 | `src/physics/field_solver/fmm/internal/periodic` | 7 | 27 |
@@ -40,41 +40,44 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
-| `src/physics/sheath` | 7 | 33 |
-| `src/runtime` | 7 | 44 |
+| `src/physics/sheath` | 12 | 51 |
+| `src/runtime` | 15 | 69 |
 | `src/runtime/coupling` | 1 | 1 |
-| `src/runtime/simulator` | 6 | 39 |
+| `src/runtime/simulator` | 9 | 53 |
 
 ## Most Depended-on Modules
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 69 |
-| `bem_types` | `module` | 30 |
-| `bem_string_utils` | `module` | 28 |
+| `bem_kinds` | `module` | 77 |
+| `bem_types` | `module` | 35 |
+| `bem_string_utils` | `module` | 31 |
 | `bem_constants` | `module` | 24 |
-| `bem_app_config_types` | `module` | 15 |
+| `bem_app_config_types` | `module` | 17 |
+| `bem_mpi` | `module` | 17 |
 | `bem_panel_geometry` | `module` | 12 |
-| `bem_mpi` | `module` | 11 |
+| `bem_charge_ledger` | `module` | 11 |
+| `bem_electrostatic_snapshot` | `module` | 10 |
 | `bem_coulomb_fmm_types` | `module` | 9 |
-| `bem_physics_config_types` | `module` | 9 |
-| `bem_coulomb_fmm_core` | `module` | 8 |
 
 ## Entity List
 
 | Entity | kind | Path | Internal dependencies | Source summary |
 | --- | --- | --- | --- | --- |
 | `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_matching_plane_response_provider` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
+| `zhao_atlas_main` | `program` | `app/zhao_atlas_main.f90` | `bem_kinds`, `bem_app_config`, `bem_matching_plane_zhao_atlas` | Zhao A/B/C solvability atlasを生成するCLI。 |
 | `zhao_response_main` | `program` | `app/zhao_response_main.f90` | `bem_kinds`, `bem_app_config`, `bem_matching_plane_response_generator` | Zhao online evaluatorからmatching-plane response tableを生成するCLI。 |
 | `bem_app_config` | `module` | `src/config/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
 | `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。 |
 | `bem_app_config_mesh_runtime` | `module` | `src/config/bem_app_config_mesh_runtime.f90` | `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils` | app_config から三角形メッシュを構築する実行時変換。 |
-| `bem_app_config_particle_runtime` | `module` | `src/config/bem_app_config_particle_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_particles`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers` | app_config から粒子源計画と粒子バッチを構築する実行時変換。 |
+| `bem_app_config_particle_runtime` | `module` | `src/config/bem_app_config_particle_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers` | app_config から粒子源計画と粒子バッチを構築する実行時変換。 |
 | `bem_app_config_potential_runtime` | `module` | `src/config/bem_app_config_potential_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_electrostatic_snapshot`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | 粒子注入面とbox基準面の電位統計を評価する実行時変換。 |
 | `bem_app_config_runtime` | `module` | `src/config/bem_app_config_runtime.f90` | `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime` | app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。 |
 | `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
 | `bem_config_helpers` | `module` | `src/config/bem_config_helpers.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。 |
 | `bem_physics_config_types` | `module` | `src/config/bem_physics_config_types.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 場・periodic2・panel の型付き設定と旧 `[sim]` 設定の正規化を定義する。 |
+| `bem_app_config_particle_runtime_batch` | `submodule` | `src/config/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。 |
+| `bem_app_config_particle_runtime_sampling` | `submodule` | `src/config/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
 | `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
 | `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。 |
 | `bem_app_config_parser_validate` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_validate.f90` | `bem_app_config_parser`, `bem_config_helpers` | `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。 |
@@ -106,7 +109,8 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
 | `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
 | `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
-| `bem_field_solver_tree` | `submodule` | `src/physics/field_solver/bem_field_solver_tree.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。 |
+| `bem_field_solver_fmm` | `submodule` | `src/physics/field_solver/bem_field_solver_fmm.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` と FMM core の間のパネル幾何・電荷状態の更新を担う。 |
+| `bem_field_solver_tree` | `submodule` | `src/physics/field_solver/bem_field_solver_tree.f90` | `bem_field_solver` | `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。 |
 | `bem_coulomb_fmm_core` | `module` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | `mesh_type` や `sim_config` に依存しない Coulomb FMM コア API。 |
 | `bem_coulomb_fmm_core_build` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_build.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_plan_ops` | `bem_coulomb_fmm_core` の plan 構築 API ラッパ。 |
 | `bem_coulomb_fmm_core_eval` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_eval.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_eval_ops` | `bem_coulomb_fmm_core` の評価 API ラッパ。 |
@@ -132,26 +136,42 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_periodic_zero_mode_c` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_c.f90` | `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan` | C ABI wrapper for the physical periodic zero mode. |
 | `bem_periodic_zero_mode_eval` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
 | `bem_periodic_zero_mode_plan` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
-| `bem_matching_plane_response` | `module` | `src/physics/sheath/bem_matching_plane_response.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | Matching-plane outer-sheath response table の immutable snapshot と補間。 |
+| `bem_matching_plane_implicit` | `module` | `src/physics/sheath/bem_matching_plane_implicit.f90` | `bem_kinds`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_mpi` | Backward-Euler displacement solve for a matching-plane response, including continuation and MPI broadcast. |
+| `bem_matching_plane_response` | `module` | `src/physics/sheath/bem_matching_plane_response.f90` | `bem_kinds`, `bem_mpi` | Matching-plane outer-sheath response table の immutable snapshot と補間。 |
 | `bem_matching_plane_response_generator` | `module` | `src/physics/sheath/bem_matching_plane_response_generator.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_filesystem`, `bem_mpi`, `bem_string_utils` | Online Zhao evaluator から既存形式の matching-plane 応答表を生成する。 |
-| `bem_matching_plane_response_provider` | `module` | `src/physics/sheath/bem_matching_plane_response_provider.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_matching_plane_zhao`, `bem_mpi`, `bem_string_utils` | Matching-plane 応答の table / online Zhao backend を同じ契約で提供する。 |
+| `bem_matching_plane_response_provider` | `module` | `src/physics/sheath/bem_matching_plane_response_provider.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_zhao`, `bem_mpi` | Matching-plane 応答の table / online Zhao backend を同じ契約で提供する。 |
 | `bem_matching_plane_zhao` | `module` | `src/physics/sheath/bem_matching_plane_zhao.f90` | `bem_kinds`, `bem_constants`, `bem_matching_plane_response`, `bem_sheath_model_core`, `bem_string_utils` | - |
+| `bem_matching_plane_zhao_atlas` | `module` | `src/physics/sheath/bem_matching_plane_zhao_atlas.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils` | Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。 |
 | `bem_sheath_model_core` | `module` | `src/physics/sheath/bem_sheath_model_core.f90` | `bem_kinds`, `bem_constants` | Zhao 系シース数値モデルの core 実装。 |
 | `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
 | `bem_surface_current_model` | `module` | `src/physics/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_sheath_model_core`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
+| `bem_matching_plane_response_io` | `submodule` | `src/physics/sheath/bem_matching_plane_response_io.f90` | `bem_matching_plane_response`, `bem_string_utils` | CSV 応答テーブルの読み込み・格子検証を担う。 |
+| `bem_matching_plane_response_mpi` | `submodule` | `src/physics/sheath/bem_matching_plane_response_mpi.f90` | `bem_matching_plane_response`, `bem_mpi` | root の応答テーブルを配信し、全 rank で同じ補間軸と値を使う。 |
+| `bem_matching_plane_response_provider_mpi` | `submodule` | `src/physics/sheath/bem_matching_plane_response_provider_mpi.f90` | `bem_matching_plane_response_provider`, `bem_constants`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_mpi`, `bem_string_utils` | 応答 provider の設定解決と MPI rank 間の合意・配信を担う。 |
 | `bem_checkpoint_contract` | `module` | `src/runtime/bem_checkpoint_contract.f90` | `bem_kinds`, `bem_filesystem` | BEACH checkpoint metadata and transactional publication shared by output and restart code. |
 | `bem_filesystem` | `module` | `src/runtime/bem_filesystem.f90` | - | Minimal POSIX filesystem operations used by the runtime. |
-| `bem_model_fingerprint` | `module` | `src/runtime/bem_model_fingerprint.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_injection_velocity_grid`, `bem_matching_plane_response`, `bem_string_utils` | Restart compatibility fingerprints for the ordered physical model contract. |
-| `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_model_fingerprint`, `bem_matching_plane_response`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
+| `bem_mesh_identity` | `module` | `src/runtime/bem_mesh_identity.f90` | `bem_kinds`, `bem_types` | Ordered mesh identity for mapping saved element charges. |
+| `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
 | `bem_periodic_checkpoint` | `module` | `src/runtime/bem_periodic_checkpoint.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_filesystem`, `bem_mpi`, `bem_output_writer`, `bem_restart` | accepted batch 境界で二重化した定期チェックポイントを保存・解決する。 |
-| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_model_fingerprint`, `bem_physics_config_types`, `bem_checkpoint_contract`, `bem_mpi`, `bem_string_utils` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `integer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
+| `pure` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
+| `bem_output_writer_files` | `submodule` | `src/runtime/bem_output_writer_files.f90` | `bem_output_writer`, `bem_types`, `bem_string_utils` | メッシュ・電荷・電位・台帳のCSV出力。 |
+| `bem_output_writer_history` | `submodule` | `src/runtime/bem_output_writer_history.f90` | `bem_output_writer`, `bem_string_utils` | 履歴ファイルの生成・再開とスナップショットの出力。 |
+| `bem_output_writer_summary` | `submodule` | `src/runtime/bem_output_writer_summary.f90` | `bem_output_writer`, `bem_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_string_utils` | 実行サマリと再構築用メタデータの出力。 |
+| `bem_restart_contract` | `submodule` | `src/runtime/bem_restart_contract.f90` | `bem_restart`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_checkpoint_contract` | 再開時のスキーマ・メッシュ整合性の検証。 |
+| `bem_restart_injection` | `submodule` | `src/runtime/bem_restart_injection.f90` | `bem_restart`, `bem_kinds`, `bem_mpi` | 再開に必要な乱数状態・マクロ粒子端数の保存と復元。 |
+| `bem_restart_records` | `submodule` | `src/runtime/bem_restart_records.f90` | `bem_restart`, `bem_kinds`, `bem_string_utils` | チェックポイントの統計・電荷・台帳の読み込みと形式検証。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
+| `bem_matching_plane_coupling` | `module` | `src/runtime/simulator/bem_matching_plane_coupling.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_surface_closure_contract`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_matching_plane_implicit`, `bem_mpi` | Matching-plane coupling state and batch lifecycle; particle replay is owned by the simulator. |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_external_boundary_contract` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
-| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_matching_plane_response_provider`, `bem_constants`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
+| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
 | `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
+| `bem_simulator_charge` | `submodule` | `src/runtime/simulator/bem_simulator_charge.f90` | `bem_simulator`, `bem_charge_ledger` | 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。 |
 | `bem_simulator_io` | `submodule` | `src/runtime/simulator/bem_simulator_io.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_output_writer` | `bem_simulator` の進捗表示と履歴出力を実装する submodule。 |
-| `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
+| `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_matching_plane_coupling`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
+| `bem_simulator_particles` | `submodule` | `src/runtime/simulator/bem_simulator_particles.f90` | `bem_simulator` | バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。 |
 | `bem_simulator_stats` | `submodule` | `src/runtime/simulator/bem_simulator_stats.f90` | `bem_simulator` | `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。 |
 
 ## Details
@@ -164,6 +184,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_matching_plane_response_provider`
 - external dependencies: `iso_fortran_env`
 - Source summary: 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
+
+### `zhao_atlas_main`
+
+- kind: `program`
+- path: `app/zhao_atlas_main.f90`
+- group: `app`
+- Internal dependencies: `bem_kinds`, `bem_app_config`, `bem_matching_plane_zhao_atlas`
+- external dependencies: none
+- Source summary: Zhao A/B/C solvability atlasを生成するCLI。
 
 ### `zhao_response_main`
 
@@ -206,7 +235,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/config/bem_app_config_particle_runtime.f90`
 - group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_particles`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers`
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - Source summary: app_config から粒子源計画と粒子バッチを構築する実行時変換。
 
@@ -254,6 +283,26 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_types`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`
 - Source summary: 場・periodic2・panel の型付き設定と旧 `[sim]` 設定の正規化を定義する。
+
+### `bem_app_config_particle_runtime_batch`
+
+- kind: `submodule`
+- path: `src/config/bem_app_config_particle_runtime_batch.f90`
+- group: `src/config`
+- parent: `bem_app_config_particle_runtime`
+- Internal dependencies: `bem_app_config_particle_runtime`, `bem_particles`
+- external dependencies: none
+- Source summary: 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。
+
+### `bem_app_config_particle_runtime_sampling`
+
+- kind: `submodule`
+- path: `src/config/bem_app_config_particle_runtime_sampling.f90`
+- group: `src/config`
+- parent: `bem_app_config_particle_runtime`
+- Internal dependencies: `bem_app_config_particle_runtime`
+- external dependencies: none
+- Source summary: 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。
 
 ### `bem_app_config_parser`
 
@@ -540,13 +589,23 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。
 
+### `bem_field_solver_fmm`
+
+- kind: `submodule`
+- path: `src/physics/field_solver/bem_field_solver_fmm.f90`
+- group: `src/physics/field_solver`
+- parent: `bem_field_solver`
+- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`
+- external dependencies: none
+- Source summary: `bem_field_solver` と FMM core の間のパネル幾何・電荷状態の更新を担う。
+
 ### `bem_field_solver_tree`
 
 - kind: `submodule`
 - path: `src/physics/field_solver/bem_field_solver_tree.f90`
 - group: `src/physics/field_solver`
 - parent: `bem_field_solver`
-- Internal dependencies: `bem_field_solver`, `bem_coulomb_fmm_core`
+- Internal dependencies: `bem_field_solver`
 - external dependencies: none
 - Source summary: `bem_field_solver` の octree 構築・更新とメモリ管理を実装する submodule。
 
@@ -775,12 +834,21 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`
 - external dependencies: `ieee_arithmetic`
 
+### `bem_matching_plane_implicit`
+
+- kind: `module`
+- path: `src/physics/sheath/bem_matching_plane_implicit.f90`
+- group: `src/physics/sheath`
+- Internal dependencies: `bem_kinds`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_mpi`
+- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
+- Source summary: Backward-Euler displacement solve for a matching-plane response, including continuation and MPI broadcast.
+
 ### `bem_matching_plane_response`
 
 - kind: `module`
 - path: `src/physics/sheath/bem_matching_plane_response.f90`
 - group: `src/physics/sheath`
-- Internal dependencies: `bem_kinds`, `bem_mpi`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - Source summary: Matching-plane outer-sheath response table の immutable snapshot と補間。
 
@@ -798,7 +866,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/physics/sheath/bem_matching_plane_response_provider.f90`
 - group: `src/physics/sheath`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_matching_plane_zhao`, `bem_mpi`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_zhao`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - Source summary: Matching-plane 応答の table / online Zhao backend を同じ契約で提供する。
 
@@ -809,6 +877,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - group: `src/physics/sheath`
 - Internal dependencies: `bem_kinds`, `bem_constants`, `bem_matching_plane_response`, `bem_sheath_model_core`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`
+
+### `bem_matching_plane_zhao_atlas`
+
+- kind: `module`
+- path: `src/physics/sheath/bem_matching_plane_zhao_atlas.f90`
+- group: `src/physics/sheath`
+- Internal dependencies: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- Source summary: Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。
 
 ### `bem_sheath_model_core`
 
@@ -837,6 +914,36 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: `ieee_arithmetic`
 - Source summary: 外部モデルから species 別の固定表面電流を解決する。
 
+### `bem_matching_plane_response_io`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_response_io.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_response`
+- Internal dependencies: `bem_matching_plane_response`, `bem_string_utils`
+- external dependencies: none
+- Source summary: CSV 応答テーブルの読み込み・格子検証を担う。
+
+### `bem_matching_plane_response_mpi`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_response_mpi.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_response`
+- Internal dependencies: `bem_matching_plane_response`, `bem_mpi`
+- external dependencies: none
+- Source summary: root の応答テーブルを配信し、全 rank で同じ補間軸と値を使う。
+
+### `bem_matching_plane_response_provider_mpi`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_response_provider_mpi.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_response_provider`
+- Internal dependencies: `bem_matching_plane_response_provider`, `bem_constants`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_mpi`, `bem_string_utils`
+- external dependencies: none
+- Source summary: 応答 provider の設定解決と MPI rank 間の合意・配信を担う。
+
 ### `bem_checkpoint_contract`
 
 - kind: `module`
@@ -855,21 +962,21 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: `iso_c_binding`
 - Source summary: Minimal POSIX filesystem operations used by the runtime.
 
-### `bem_model_fingerprint`
+### `bem_mesh_identity`
 
 - kind: `module`
-- path: `src/runtime/bem_model_fingerprint.f90`
+- path: `src/runtime/bem_mesh_identity.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_injection_velocity_grid`, `bem_matching_plane_response`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`
 - external dependencies: none
-- Source summary: Restart compatibility fingerprints for the ordered physical model contract.
+- Source summary: Ordered mesh identity for mapping saved element charges.
 
 ### `bem_output_writer`
 
 - kind: `module`
 - path: `src/runtime/bem_output_writer.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_model_fingerprint`, `bem_matching_plane_response`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem`
 - external dependencies: none
 - Source summary: 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。
 
@@ -896,9 +1003,85 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/bem_restart.f90`
 - group: `src/runtime`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_model_fingerprint`, `bem_physics_config_types`, `bem_checkpoint_contract`, `bem_mpi`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_mpi`
 - external dependencies: `ieee_arithmetic`
 - Source summary: チェックポイントファイルの保存/復元を扱う補助モジュール。
+
+### `integer`
+
+- kind: `module`
+- path: `src/runtime/bem_output_writer.f90`
+- group: `src/runtime`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem`
+- external dependencies: none
+
+### `pure`
+
+- kind: `module`
+- path: `src/runtime/bem_output_writer.f90`
+- group: `src/runtime`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem`
+- external dependencies: none
+
+### `bem_output_writer_files`
+
+- kind: `submodule`
+- path: `src/runtime/bem_output_writer_files.f90`
+- group: `src/runtime`
+- parent: `bem_output_writer`
+- Internal dependencies: `bem_output_writer`, `bem_types`, `bem_string_utils`
+- external dependencies: none
+- Source summary: メッシュ・電荷・電位・台帳のCSV出力。
+
+### `bem_output_writer_history`
+
+- kind: `submodule`
+- path: `src/runtime/bem_output_writer_history.f90`
+- group: `src/runtime`
+- parent: `bem_output_writer`
+- Internal dependencies: `bem_output_writer`, `bem_string_utils`
+- external dependencies: none
+- Source summary: 履歴ファイルの生成・再開とスナップショットの出力。
+
+### `bem_output_writer_summary`
+
+- kind: `submodule`
+- path: `src/runtime/bem_output_writer_summary.f90`
+- group: `src/runtime`
+- parent: `bem_output_writer`
+- Internal dependencies: `bem_output_writer`, `bem_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_string_utils`
+- external dependencies: none
+- Source summary: 実行サマリと再構築用メタデータの出力。
+
+### `bem_restart_contract`
+
+- kind: `submodule`
+- path: `src/runtime/bem_restart_contract.f90`
+- group: `src/runtime`
+- parent: `bem_restart`
+- Internal dependencies: `bem_restart`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_checkpoint_contract`
+- external dependencies: none
+- Source summary: 再開時のスキーマ・メッシュ整合性の検証。
+
+### `bem_restart_injection`
+
+- kind: `submodule`
+- path: `src/runtime/bem_restart_injection.f90`
+- group: `src/runtime`
+- parent: `bem_restart`
+- Internal dependencies: `bem_restart`, `bem_kinds`, `bem_mpi`
+- external dependencies: none
+- Source summary: 再開に必要な乱数状態・マクロ粒子端数の保存と復元。
+
+### `bem_restart_records`
+
+- kind: `submodule`
+- path: `src/runtime/bem_restart_records.f90`
+- group: `src/runtime`
+- parent: `bem_restart`
+- Internal dependencies: `bem_restart`, `bem_kinds`, `bem_string_utils`
+- external dependencies: none
+- Source summary: チェックポイントの統計・電荷・台帳の読み込みと形式検証。
 
 ### `bem_charge_ledger`
 
@@ -908,6 +1091,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`
 - external dependencies: `ieee_arithmetic`
 - Source summary: batch 間の signed charge stock と移送 flux から電荷収支を集計する。
+
+### `bem_matching_plane_coupling`
+
+- kind: `module`
+- path: `src/runtime/simulator/bem_matching_plane_coupling.f90`
+- group: `src/runtime/simulator`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_surface_closure_contract`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_matching_plane_implicit`, `bem_mpi`
+- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
+- Source summary: Matching-plane coupling state and batch lifecycle; particle replay is owned by the simulator.
 
 ### `bem_particle_stepper`
 
@@ -923,7 +1115,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator.f90`
 - group: `src/runtime/simulator`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_matching_plane_response_provider`, `bem_constants`, `bem_mpi`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi`
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - Source summary: 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。
 
@@ -935,6 +1127,16 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_kinds`
 - external dependencies: none
 - Source summary: シミュレーション実行中に再利用するバッチ作業配列を管理する。
+
+### `bem_simulator_charge`
+
+- kind: `submodule`
+- path: `src/runtime/simulator/bem_simulator_charge.f90`
+- group: `src/runtime/simulator`
+- parent: `bem_simulator`
+- Internal dependencies: `bem_simulator`, `bem_charge_ledger`
+- external dependencies: `iso_fortran_env`
+- Source summary: 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。
 
 ### `bem_simulator_io`
 
@@ -952,9 +1154,19 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/runtime/simulator/bem_simulator_loop.f90`
 - group: `src/runtime/simulator`
 - parent: `bem_simulator`
-- Internal dependencies: `bem_simulator`, `bem_app_config_runtime`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`
+- Internal dependencies: `bem_simulator`, `bem_app_config_runtime`, `bem_matching_plane_coupling`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`
 - external dependencies: `iso_fortran_env`
 - Source summary: `bem_simulator` の主ループと粒子処理計算を実装する submodule。
+
+### `bem_simulator_particles`
+
+- kind: `submodule`
+- path: `src/runtime/simulator/bem_simulator_particles.f90`
+- group: `src/runtime/simulator`
+- parent: `bem_simulator`
+- Internal dependencies: `bem_simulator`
+- external dependencies: none
+- Source summary: バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。
 
 ### `bem_simulator_stats`
 

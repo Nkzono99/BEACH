@@ -868,7 +868,7 @@ Requirements for `resume=true`:
 `restart_from` changes only the checkpoint read source. New output is always written to `output.dir`.
 
 See [Files Used for Resume](OutputReference.en.html#files-used-for-resume) for periodic-slot selection, MPI-required files,
-fingerprints, and schema compatibility.
+mesh identity, and schema compatibility.
 
 ---
 

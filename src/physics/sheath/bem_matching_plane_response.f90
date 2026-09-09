@@ -2,8 +2,7 @@
 module bem_matching_plane_response
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, &
-                     mpi_bcast_i32_array
+  use bem_mpi, only: mpi_context
   implicit none
   private
 
@@ -65,10 +64,9 @@ module bem_matching_plane_response
     integer(i32) :: axis_sizes(matching_plane_response_input_count) = 0_i32
     real(dp), allocatable :: axes(:, :)
     real(dp), allocatable :: response_values(:, :)
-    character(len=16) :: content_fingerprint = ''
   contains
     procedure, public :: evaluate => evaluate_matching_plane_response
-    procedure, public :: get_fingerprint_data => get_matching_plane_fingerprint_data
+    procedure, public :: get_axis_data => get_matching_plane_axis_data
     procedure, public :: get_matching_plane_z => get_matching_plane_z
     procedure, public :: get_source_path => get_matching_plane_source_path
     procedure, public :: is_loaded => matching_plane_response_is_loaded
@@ -82,11 +80,19 @@ module bem_matching_plane_response
   type(matching_plane_response_snapshot_entry), allocatable, save :: response_snapshots(:)
 
   public :: get_matching_plane_response_snapshot
-  public :: get_matching_plane_response_content_fingerprint
-  public :: preflight_matching_plane_response_mpi
+  public :: load_matching_plane_response_mpi
   public :: reset_matching_plane_response_snapshot_cache
 
   interface
+    !> root が読み込んだテーブルを全 rank に配信する。
+    module subroutine load_matching_plane_response_mpi(path, mpi, table, status, message)
+      character(len=*), intent(in) :: path
+      type(mpi_context), intent(in) :: mpi
+      type(matching_plane_response_table_type), intent(out) :: table
+      integer(i32), intent(out) :: status
+      character(len=*), intent(out) :: message
+    end subroutine load_matching_plane_response_mpi
+
     module subroutine read_matching_plane_response_csv(path, table, status, message)
       character(len=*), intent(in) :: path
       type(matching_plane_response_table_type), intent(out) :: table
@@ -123,84 +129,6 @@ contains
     if (status /= matching_plane_response_ok) return
     table = response_snapshots(entry)%table
   end subroutine get_matching_plane_response_snapshot
-
-  !> canonical table内容のcache済みfingerprintを配列copyなしで返す。
-  subroutine get_matching_plane_response_content_fingerprint(path, fingerprint, status, message)
-    character(len=*), intent(in) :: path
-    character(len=16), intent(out) :: fingerprint
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-    integer :: entry
-
-    fingerprint = ''
-    call ensure_matching_plane_response_snapshot(path, entry, status, message)
-    if (status /= matching_plane_response_ok) return
-    fingerprint = response_snapshots(entry)%table%content_fingerprint
-  end subroutine get_matching_plane_response_content_fingerprint
-
-  !> active flag・load成否・canonical contentを全MPI rankで照合する。
-  subroutine preflight_matching_plane_response_mpi(active, path, mpi, fingerprint, status, message, table)
-    logical, intent(in) :: active
-    character(len=*), intent(in) :: path
-    type(mpi_context), intent(in) :: mpi
-    character(len=16), intent(out) :: fingerprint
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-    type(matching_plane_response_table_type), intent(out), optional :: table
-
-    integer :: entry, character_index
-    integer(i32) :: active_min, active_max, load_ok, mismatch
-    integer(i32) :: local_codes(16), root_codes(16)
-
-    fingerprint = ''
-    if (present(table)) table = matching_plane_response_table_type()
-    call accept(status, message)
-
-    active_min = merge(1_i32, 0_i32, active)
-    active_max = active_min
-    call mpi_allreduce_min_i32_scalar(mpi, active_min)
-    call mpi_allreduce_max_i32_scalar(mpi, active_max)
-    if (active_min /= active_max) then
-      call reject( &
-        matching_plane_response_invalid_argument, &
-        'matching-plane activation differs across MPI ranks.', status, message &
-        )
-      return
-    end if
-    if (active_max == 0_i32) return
-
-    call ensure_matching_plane_response_snapshot(path, entry, status, message)
-    load_ok = merge(1_i32, 0_i32, status == matching_plane_response_ok)
-    call mpi_allreduce_min_i32_scalar(mpi, load_ok)
-    if (load_ok == 0_i32) then
-      if (status == matching_plane_response_ok) then
-        call reject( &
-          matching_plane_response_io_error, &
-          'matching-plane response failed to load on another MPI rank.', status, message &
-          )
-      end if
-      return
-    end if
-
-    fingerprint = response_snapshots(entry)%table%content_fingerprint
-    do character_index = 1, len(fingerprint)
-      local_codes(character_index) = int(iachar(fingerprint(character_index:character_index)), i32)
-    end do
-    root_codes = 0_i32
-    if (mpi_is_root(mpi)) root_codes = local_codes
-    call mpi_bcast_i32_array(mpi, root_codes, 0_i32)
-    mismatch = merge(1_i32, 0_i32, any(local_codes /= root_codes))
-    call mpi_allreduce_max_i32_scalar(mpi, mismatch)
-    if (mismatch /= 0_i32) then
-      fingerprint = ''
-      call reject( &
-        matching_plane_response_invalid_grid, &
-        'matching-plane response content differs across MPI ranks.', status, message &
-        )
-      return
-    end if
-    if (present(table)) table = response_snapshots(entry)%table
-  end subroutine preflight_matching_plane_response_mpi
 
   subroutine ensure_matching_plane_response_snapshot(path, entry_index, status, message)
     character(len=*), intent(in) :: path
@@ -257,7 +185,6 @@ contains
     destination%loaded = source%loaded
     destination%matching_plane_z_m = source%matching_plane_z_m
     destination%axis_sizes = source%axis_sizes
-    destination%content_fingerprint = source%content_fingerprint
     if (allocated(source%source_path)) call move_alloc(source%source_path, destination%source_path)
     if (allocated(source%axes)) call move_alloc(source%axes, destination%axes)
     if (allocated(source%response_values)) call move_alloc(source%response_values, destination%response_values)
@@ -368,14 +295,13 @@ contains
     end if
   end subroutine evaluate_matching_plane_response
 
-  !> Fingerprint 用にcanonical axesとaxis-1-fastest出力配列のcopyを返す。
-  subroutine get_matching_plane_fingerprint_data( &
-    self, axis_sizes, axis_values, response_values, matching_plane_z_m, status, message &
+  !> フィードバックの範囲と尺度を決めるために補間軸を返す。
+  subroutine get_matching_plane_axis_data( &
+    self, axis_sizes, axis_values, matching_plane_z_m, status, message &
     )
     class(matching_plane_response_table_type), intent(in) :: self
     integer(i32), allocatable, intent(out) :: axis_sizes(:)
     real(dp), allocatable, intent(out) :: axis_values(:)
-    real(dp), allocatable, intent(out), optional :: response_values(:, :)
     real(dp), intent(out) :: matching_plane_z_m
     integer(i32), intent(out), optional :: status
     character(len=*), intent(out), optional :: message
@@ -385,7 +311,6 @@ contains
     matching_plane_z_m = 0.0_dp
     if (.not. self%loaded) then
       allocate (axis_sizes(0), axis_values(0))
-      if (present(response_values)) allocate (response_values(0, 0))
       call assign_optional_status( &
         matching_plane_response_invalid_argument, 'matching-plane response table is not loaded.', status, message &
         )
@@ -401,10 +326,9 @@ contains
       axis_values(first:last) = self%axes(:self%axis_sizes(axis), axis)
       first = last + 1
     end do
-    if (present(response_values)) allocate (response_values, source=self%response_values)
     matching_plane_z_m = self%matching_plane_z_m
     call assign_optional_status(matching_plane_response_ok, '', status, message)
-  end subroutine get_matching_plane_fingerprint_data
+  end subroutine get_matching_plane_axis_data
 
   !> CSV metadata のmatching-plane高さを返す。
   subroutine get_matching_plane_z(self, matching_plane_z_m, status, message)

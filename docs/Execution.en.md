@@ -171,7 +171,7 @@ A restart may use a different team size; BEACH records the resumed run's actual 
 
 [Files used for resume](OutputReference.en.html#files-used-for-resume) is the source of truth for required files and checkpoint
 selection. If a resume is rejected, use
-[Troubleshooting](Troubleshooting.en.html#cannot-resume-from-a-checkpoint) to check required files, fingerprints,
+[Troubleshooting](Troubleshooting.en.html#cannot-resume-from-a-checkpoint) to check required files, mesh identity,
 MPI world size, and the cumulative `batch_count`.
 
 ## Checks after execution

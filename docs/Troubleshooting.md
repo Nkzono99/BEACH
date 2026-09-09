@@ -135,7 +135,7 @@ ls -l "$checkpoint_dir/summary.txt" \
   "$checkpoint_dir/charges.csv" \
   "$checkpoint_dir/checkpoint_complete.txt"
 ls -l "$checkpoint_dir"/rng_state*.txt
-grep -E '^(checkpoint_schema_version|batches|model_fingerprint|mesh_fingerprint|species_fingerprint|mpi_world_size)=' \
+grep -E '^(checkpoint_schema_version|batches|mesh_fingerprint|mpi_world_size)=' \
   "$checkpoint_dir/summary.txt"
 sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 ```
@@ -145,7 +145,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - `summary.txt`、`charges.csv`、serial の `rng_state.txt` または MPI の全 `rng_state_rankNNNNN.txt` がある
 - schema v8 以降の `checkpoint_complete.txt` が `state=complete` で、その `batches` と `mpi_world_size` が `summary.txt` と一致する
 - manifest が宣言する `macro_residuals.csv` と `charge_ledger.csv` がある
-- ordered mesh fingerprint が一致する。model / species fingerprint の不一致は warning 付きで継続できる
+- ordered mesh fingerprint が一致する。モデル・粒子種の変更は設定ファイルと summary の値で確認する
 - MPI 再開では保存時の `mpi_world_size` と現在の rank 数が一致する
 - `resume.toml` で `output.write_files=true`、`output.resume=true` である。`output.restart_from` を指定した場合は
   確認中の checkpoint を指し、`output.dir` は意図した新しい出力先である。省略した場合は `output.dir` 自体が再開元である

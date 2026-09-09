@@ -1,6 +1,6 @@
-!> 再開時のスキーマ・メッシュ・モデル整合性の検証。
+!> 再開時のスキーマ・メッシュ整合性の検証。
 submodule(bem_restart) bem_restart_contract
-  use bem_model_fingerprint, only: model_fingerprint, mesh_fingerprint, species_fingerprint
+  use bem_mesh_identity, only: mesh_fingerprint
   use bem_physics_config_types, only: &
     field_physics_config, &
     panel_kernel_config, &
@@ -11,16 +11,16 @@ submodule(bem_restart) bem_restart_contract
   implicit none
 contains
 
-  !> schema v2 fingerprint を照合し、state mappingを壊す不一致と条件変更を区別する。
+  !> 保存電荷の対応付けに必要な schema と ordered mesh を照合する。
   module procedure validate_restart_contract
   integer :: u, ios, pos
   integer(i32) :: schema_version
   character(len=512) :: line
   character(len=64) :: key
   character(len=256) :: value
-  character(len=16) :: saved_model, saved_mesh, saved_species
-  character(len=16) :: current_model, current_mesh, current_species
-  logical :: found_schema, found_model, found_mesh, found_species
+  character(len=16) :: saved_mesh
+  character(len=16) :: current_mesh
+  logical :: found_schema, found_mesh
   integer(i32) :: physics_status
   character(len=256) :: physics_message
   type(field_physics_config) :: field_config
@@ -29,13 +29,9 @@ contains
   status = restart_contract_ok
   message = ''
   schema_version = -1_i32
-  saved_model = ''
   saved_mesh = ''
-  saved_species = ''
   found_schema = .false.
-  found_model = .false.
   found_mesh = .false.
-  found_species = .false.
 
   open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
   if (ios /= 0) then
@@ -60,15 +56,9 @@ contains
         return
       end if
       found_schema = .true.
-    case ('model_fingerprint')
-      saved_model = trim(value)
-      found_model = .true.
     case ('mesh_fingerprint')
       saved_mesh = trim(value)
       found_mesh = .true.
-    case ('species_fingerprint')
-      saved_species = trim(value)
-      found_species = .true.
     end select
   end do
   close (u)
@@ -90,26 +80,15 @@ contains
     message = 'unsupported checkpoint schema version'
     return
   end if
-  if (.not. (found_model .and. found_mesh .and. found_species)) then
+  if (.not. found_mesh) then
     status = restart_contract_malformed
-    message = 'schema v2 summary is missing fingerprints'
+    message = 'checkpoint summary is missing mesh_fingerprint'
     return
   end if
-  current_model = model_fingerprint(app)
   current_mesh = mesh_fingerprint(mesh)
-  current_species = species_fingerprint(app)
   if (saved_mesh /= current_mesh) then
     status = restart_contract_mismatch
     message = 'mesh fingerprint differs; saved element charges cannot be mapped safely'
-  else if (saved_model /= current_model .and. saved_species /= current_species) then
-    status = restart_contract_configuration_changed
-    message = 'model and species fingerprints differ'
-  else if (saved_model /= current_model) then
-    status = restart_contract_configuration_changed
-    message = 'model fingerprint differs'
-  else if (saved_species /= current_species) then
-    status = restart_contract_configuration_changed
-    message = 'species fingerprint differs'
   end if
   end procedure validate_restart_contract
 

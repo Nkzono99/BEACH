@@ -1731,16 +1731,9 @@ def _write_run_output(
         if case["periodic_model"] == "infinite_physical"
         else "legacy_implicit"
     )
-    model_fingerprint = (
-        "ABCDEF0123456789"
-        if case["periodic_model"] == "infinite_physical"
-        else "0123456789ABCDEF"
-    )
     lines = [
         "checkpoint_schema_version=3",
-        f"model_fingerprint={model_fingerprint}",
         "mesh_fingerprint=1111111111111111",
-        "species_fingerprint=2222222222222222",
         "field_backend=fmm",
         "field_normalization=si",
         "field_source_model=triangle_p0",
@@ -3598,8 +3591,8 @@ def test_restart_segments_verify_and_history_combines_without_duplicates(
     summary = (first / "summary.txt").read_text(encoding="utf-8")
     (first / "summary.txt").write_text(
         summary.replace(
-            "model_fingerprint=0123456789ABCDEF",
-            "model_fingerprint=FEDCBA9876543210",
+            "mesh_fingerprint=1111111111111111",
+            "mesh_fingerprint=FFFFFFFFFFFFFFFF",
         ),
         encoding="utf-8",
     )
@@ -5785,57 +5778,6 @@ def test_analyze_require_complete_rejects_unstaged_library(
             library=other,
             require_complete=True,
         )
-
-
-def test_complete_run_contract_rejects_finite_infinite_species_mismatch(
-    archive_run: Path,
-    binary: Path,
-    tmp_path: Path,
-) -> None:
-    tool = _load_tool()
-    validation_root = tmp_path / "validation"
-    manifest = tool.stage_validation(
-        archive_run,
-        validation_root,
-        binary,
-        library=binary,
-    )
-    definitions = (
-        ("cache_prime", 1, False, 1),
-        ("smoke_finite_configured", 100, None, None),
-        ("smoke_infinite_physical", 100, True, 0),
-        ("full_finite_configured_140000", 140000, None, None),
-        ("full_finite_configured_280000", 280000, None, None),
-        ("full_infinite_physical_140000", 140000, True, 0),
-        ("full_infinite_physical_280000", 280000, True, 0),
-    )
-    infinite_cases = {
-        "cache_prime",
-        "smoke_infinite_physical",
-        "full_infinite_physical_140000",
-        "full_infinite_physical_280000",
-    }
-    for name, batches, hit, count in definitions:
-        output = _write_run_output(
-            validation_root,
-            name,
-            batches=batches,
-            cache_hit=hit,
-            build_count=count,
-        )
-        if name in infinite_cases:
-            summary = (output / "summary.txt").read_text(encoding="utf-8")
-            (output / "summary.txt").write_text(
-                summary.replace(
-                    "species_fingerprint=2222222222222222",
-                    "species_fingerprint=3333333333333333",
-                ),
-                encoding="utf-8",
-            )
-        tool.verify_run(output, batches)
-
-    with pytest.raises(tool.ValidationError, match="pair species_fingerprint"):
-        tool._verify_complete_runs(validation_root, manifest)
 
 
 def test_analyze_require_complete_verifies_all_cases_and_physics(

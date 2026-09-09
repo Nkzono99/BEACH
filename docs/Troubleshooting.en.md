@@ -139,7 +139,7 @@ ls -l "$checkpoint_dir/summary.txt" \
   "$checkpoint_dir/charges.csv" \
   "$checkpoint_dir/checkpoint_complete.txt"
 ls -l "$checkpoint_dir"/rng_state*.txt
-grep -E '^(checkpoint_schema_version|batches|model_fingerprint|mesh_fingerprint|species_fingerprint|mpi_world_size)=' \
+grep -E '^(checkpoint_schema_version|batches|mesh_fingerprint|mpi_world_size)=' \
   "$checkpoint_dir/summary.txt"
 sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 ```
@@ -150,7 +150,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - For schema v8 and later, `checkpoint_complete.txt` has `state=complete`, and its `batches` and `mpi_world_size`
   match `summary.txt`.
 - `macro_residuals.csv` and `charge_ledger.csv` exist when declared by the manifest.
-- The ordered-mesh fingerprint matches. Model or species fingerprint changes may continue with a warning.
+- The ordered-mesh fingerprint matches. Compare configuration files and explicit summary values when changing model or species settings.
 - For an MPI resume, the saved `mpi_world_size` matches the current rank count.
 - In `resume.toml`, `output.write_files=true` and `output.resume=true`. When set, `output.restart_from` names the
   checkpoint being inspected and `output.dir` is the intended new destination; when omitted, `output.dir` itself is

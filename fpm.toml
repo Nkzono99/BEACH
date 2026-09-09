@@ -83,11 +83,6 @@ source-dir = "tests/fortran"
 main = "test_matching_plane_simulator.f90"
 
 [[test]]
-name = "test_model_fingerprint"
-source-dir = "tests/fortran"
-main = "test_model_fingerprint.f90"
-
-[[test]]
 name = "test_panel_moments"
 source-dir = "tests/fortran"
 main = "test_panel_moments.f90"

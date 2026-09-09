@@ -1,4 +1,4 @@
-!> CSV 応答テーブルの読み込み・格子検証・内容 fingerprint の生成を担う。
+!> CSV 応答テーブルの読み込み・格子検証を担う。
 submodule(bem_matching_plane_response) bem_matching_plane_response_io
   use bem_string_utils, only: is_decimal_real_token
   implicit none
@@ -6,19 +6,11 @@ submodule(bem_matching_plane_response) bem_matching_plane_response_io
   integer, parameter :: response_column_count = 11
   integer, parameter :: response_line_length = 4096
   integer, parameter :: initial_row_capacity = 64
-  integer(i64), parameter :: content_hash_modulus = 2147483647_i64
-  integer(i64), parameter :: content_hash_multiplier_a = 65599_i64
-  integer(i64), parameter :: content_hash_multiplier_b = 131071_i64
   character(len=*), parameter :: matching_plane_z_prefix = '# matching_plane_z_m='
 
   type :: matching_plane_axis_type
     real(dp), allocatable :: values(:)
   end type matching_plane_axis_type
-
-  type :: matching_plane_content_hash_state_type
-    integer(i64) :: a = 146959810_i64
-    integer(i64) :: b = 109951162_i64
-  end type matching_plane_content_hash_state_type
 
 contains
 
@@ -268,7 +260,6 @@ contains
 
     table%source_path = trim(path)
     table%matching_plane_z_m = matching_plane_z_m
-    table%content_fingerprint = compute_matching_plane_content_fingerprint(table)
     table%loaded = .true.
   end subroutine build_matching_plane_response_table
 
@@ -492,75 +483,6 @@ contains
     write (contextual, '(a,i0,a,a)') 'line ', line_number, ': ', trim(message)
     message = trim(contextual)
   end subroutine prefix_line_number
-
-  function compute_matching_plane_content_fingerprint(table) result(fingerprint)
-    type(matching_plane_response_table_type), intent(in) :: table
-    character(len=16) :: fingerprint
-    type(matching_plane_content_hash_state_type) :: hash
-    integer :: axis, point
-
-    call content_hash_feed_string(hash, 'matching_plane_response_csv_v1')
-    call content_hash_feed_real(hash, table%matching_plane_z_m)
-    call content_hash_feed_integer(hash, matching_plane_response_input_count)
-    do axis = 1, matching_plane_response_input_count
-      call content_hash_feed_integer(hash, table%axis_sizes(axis))
-      call content_hash_feed_real_vector(hash, table%axes(:table%axis_sizes(axis), axis))
-    end do
-    call content_hash_feed_integer(hash, matching_plane_response_output_count)
-    call content_hash_feed_integer(hash, int(size(table%response_values, 2), i32))
-    do point = 1, size(table%response_values, 2)
-      call content_hash_feed_real_vector(hash, table%response_values(:, point))
-    end do
-    write (fingerprint, '(z8.8,z8.8)') hash%a, hash%b
-  end function compute_matching_plane_content_fingerprint
-
-  subroutine content_hash_feed_string(hash, value)
-    type(matching_plane_content_hash_state_type), intent(inout) :: hash
-    character(len=*), intent(in) :: value
-    integer :: index
-
-    call content_hash_feed_byte(hash, len_trim(value))
-    do index = 1, len_trim(value)
-      call content_hash_feed_byte(hash, iachar(value(index:index)))
-    end do
-  end subroutine content_hash_feed_string
-
-  subroutine content_hash_feed_integer(hash, value)
-    type(matching_plane_content_hash_state_type), intent(inout) :: hash
-    integer(i32), intent(in) :: value
-    character(len=32) :: encoded
-
-    write (encoded, '(i0)') value
-    call content_hash_feed_string(hash, trim(encoded))
-  end subroutine content_hash_feed_integer
-
-  subroutine content_hash_feed_real(hash, value)
-    type(matching_plane_content_hash_state_type), intent(inout) :: hash
-    real(dp), intent(in) :: value
-    character(len=32) :: encoded
-
-    write (encoded, '(es24.16e3)') value
-    call content_hash_feed_string(hash, trim(adjustl(encoded)))
-  end subroutine content_hash_feed_real
-
-  subroutine content_hash_feed_real_vector(hash, values)
-    type(matching_plane_content_hash_state_type), intent(inout) :: hash
-    real(dp), intent(in) :: values(:)
-    integer :: index
-
-    call content_hash_feed_integer(hash, int(size(values), i32))
-    do index = 1, size(values)
-      call content_hash_feed_real(hash, values(index))
-    end do
-  end subroutine content_hash_feed_real_vector
-
-  subroutine content_hash_feed_byte(hash, value)
-    type(matching_plane_content_hash_state_type), intent(inout) :: hash
-    integer, intent(in) :: value
-
-    hash%a = modulo(hash%a*content_hash_multiplier_a + int(value, i64) + 1_i64, content_hash_modulus)
-    hash%b = modulo(hash%b*content_hash_multiplier_b + int(value, i64) + 1_i64, content_hash_modulus)
-  end subroutine content_hash_feed_byte
 
   module procedure accept
 

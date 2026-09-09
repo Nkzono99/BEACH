@@ -16,8 +16,9 @@ program test_mpi_hybrid
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_matching_plane_response, only: matching_plane_response_csv_header, matching_plane_response_ok, &
-                                         preflight_matching_plane_response_mpi, &
+  use bem_matching_plane_response, only: matching_plane_response_table_type, &
+                                         matching_plane_response_csv_header, matching_plane_response_ok, &
+                                         load_matching_plane_response_mpi, &
                                          reset_matching_plane_response_snapshot_cache
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
                                                   matching_plane_provider_ok, &
@@ -52,9 +53,10 @@ program test_mpi_hybrid
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
+  character(len=:), allocatable :: matching_table_path
   character(len=1024) :: matching_response_path
   character(len=512) :: matching_response_message
-  character(len=16) :: matching_response_fingerprint
+  type(matching_plane_response_table_type) :: matching_table
   character(len=*), parameter :: matching_response_a_path = 'test_mpi_matching_response_a_tmp.csv'
   character(len=*), parameter :: matching_response_b_path = 'test_mpi_matching_response_b_tmp.csv'
   character(len=*), parameter :: matching_response_missing_path = 'test_mpi_matching_response_missing_tmp.csv'
@@ -150,77 +152,48 @@ program test_mpi_hybrid
   call assert_equal_i32(reduced_max, mpi%size, 'MPI i32 maximum reduction mismatch')
   call test_end()
 
-  call test_begin('mpi_matching_plane_response_preflight')
+  call test_begin('mpi_matching_plane_response_root_distribution')
   if (mpi_is_root(mpi)) then
-    call write_matching_response_fixture(matching_response_a_path, 1.0_dp)
-    call write_matching_response_fixture(matching_response_b_path, 2.0_dp)
+    call write_matching_provider_table_fixture(matching_response_a_path)
+    call write_matching_response_fixture(matching_response_b_path, 100.0_dp)
     call delete_file_if_exists(matching_response_missing_path)
   end if
   call mpi_world_barrier(mpi)
 
   call reset_matching_plane_response_snapshot_cache()
-  call preflight_matching_plane_response_mpi( &
-    .true., matching_response_a_path, mpi, matching_response_fingerprint, &
-    matching_response_status, matching_response_message &
+  matching_response_path = matching_response_b_path
+  if (mpi_is_root(mpi)) matching_response_path = matching_response_a_path
+  call load_matching_plane_response_mpi( &
+    trim(matching_response_path), mpi, matching_table, matching_response_status, matching_response_message &
     )
-  call assert_equal_i32( &
-    matching_response_status, matching_plane_response_ok, &
-    'identical matching-plane response should pass on every rank' &
+  call assert_equal_i32(matching_response_status, matching_plane_response_ok, 'root table broadcast failed')
+  matching_provider_input = [5.0e-15_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+  call matching_table%evaluate( &
+    matching_provider_input, matching_provider_output, matching_response_status, matching_response_message &
     )
-
-  call reset_matching_plane_response_snapshot_cache()
-  if (mpi%size > 1_i32 .and. .not. mpi_is_root(mpi)) then
-    matching_response_path = matching_response_b_path
-  else
-    matching_response_path = matching_response_a_path
-  end if
-  call preflight_matching_plane_response_mpi( &
-    .true., trim(matching_response_path), mpi, matching_response_fingerprint, &
-    matching_response_status, matching_response_message &
-    )
-  if (mpi%size > 1_i32) then
-    call assert_true( &
-      matching_response_status /= matching_plane_response_ok, &
-      'rank-local matching-plane content mismatch must fail on every rank' &
-      )
-  else
-    call assert_equal_i32( &
-      matching_response_status, matching_plane_response_ok, &
-      'single-rank matching-plane response should remain valid' &
-      )
-  end if
-
-  call reset_matching_plane_response_snapshot_cache()
-  if (mpi%size > 1_i32 .and. mpi_is_root(mpi)) then
-    matching_response_path = matching_response_a_path
-  else
-    matching_response_path = matching_response_missing_path
-  end if
-  call preflight_matching_plane_response_mpi( &
-    .true., trim(matching_response_path), mpi, matching_response_fingerprint, &
-    matching_response_status, matching_response_message &
-    )
+  call assert_equal_i32(matching_response_status, matching_plane_response_ok, 'broadcast table interpolation failed')
   call assert_true( &
-    matching_response_status /= matching_plane_response_ok, &
-    'rank-local matching-plane load failure must fail on every rank' &
+    all(matching_provider_output == [1.875_dp, 2.0_dp, 3.0_dp, -4.0_dp, 0.0_dp, -1.0_dp]), &
+    'all ranks must interpolate the root axes and values, regardless of local table contents' &
     )
+  call matching_table%get_source_path(matching_table_path)
+  call assert_true(trim(matching_table_path) == matching_response_a_path, 'source path must describe the root table')
 
   call reset_matching_plane_response_snapshot_cache()
-  call preflight_matching_plane_response_mpi( &
-    mpi_is_root(mpi), matching_response_a_path, mpi, matching_response_fingerprint, &
-    matching_response_status, matching_response_message &
+  matching_response_path = matching_response_missing_path
+  if (mpi_is_root(mpi)) matching_response_path = matching_response_a_path
+  call load_matching_plane_response_mpi( &
+    trim(matching_response_path), mpi, matching_table, matching_response_status, matching_response_message &
     )
-  if (mpi%size > 1_i32) then
-    call assert_true( &
-      matching_response_status /= matching_plane_response_ok, &
-      'rank-local matching-plane activation mismatch must fail on every rank' &
-      )
-  else
-    call assert_equal_i32( &
-      matching_response_status, matching_plane_response_ok, &
-      'single-rank matching-plane activation should remain valid' &
-      )
-  end if
+  call assert_equal_i32(matching_response_status, matching_plane_response_ok, 'non-root ranks need no local table file')
+
+  call reset_matching_plane_response_snapshot_cache()
+  matching_response_path = matching_response_a_path
+  if (mpi_is_root(mpi)) matching_response_path = matching_response_missing_path
+  call load_matching_plane_response_mpi( &
+    trim(matching_response_path), mpi, matching_table, matching_response_status, matching_response_message &
+    )
+  call assert_true(matching_response_status /= matching_plane_response_ok, 'root load failure must reach all ranks')
   call reset_matching_plane_response_snapshot_cache()
   call mpi_world_barrier(mpi)
   if (mpi_is_root(mpi)) then

@@ -172,7 +172,7 @@ restart 前後で同じ team size を使う必要はなく、再開後の実 tea
 必須ファイルと checkpoint 選択の契約は
 [再開に使うファイル](OutputReference.html#再開に使うファイル)が正本です。
 再開が拒否された場合は[トラブルシューティング](Troubleshooting.html#checkpointから再開できない)で
-必須ファイル、fingerprint、MPI world size、累積 `batch_count` を確認してください。
+必須ファイル、mesh 識別子、MPI world size、累積 `batch_count` を確認してください。
 
 ## 実行後に確認すること
 

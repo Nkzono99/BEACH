@@ -30,8 +30,8 @@ program test_matching_plane_response
   real(dp) :: full_input(5, 32), full_output(6, 32)
   real(dp) :: singleton_input(5, 1), singleton_output(6, 1)
   real(dp) :: query(5), actual(6), expected(6), matching_plane_z_m
-  real(dp), allocatable :: fingerprint_axes(:), fingerprint_values(:, :)
-  integer(i32), allocatable :: fingerprint_axis_sizes(:)
+  real(dp), allocatable :: grid_axes(:)
+  integer(i32), allocatable :: grid_axis_sizes(:)
   integer(i32) :: status
   character(len=512) :: message
 
@@ -39,7 +39,7 @@ program test_matching_plane_response
   call reset_matching_plane_response_snapshot_cache()
   call test_init(8)
 
-  call test_begin('full_cartesian_multilinear_and_fingerprint')
+  call test_begin('full_cartesian_multilinear_and_axes')
   call build_full_grid(full_input, full_output)
   call write_response_csv(full_path, full_input, full_output, 1.25_dp)
   call get_matching_plane_response_snapshot(full_path, table, status, message)
@@ -53,24 +53,25 @@ program test_matching_plane_response
   call table%get_matching_plane_z(matching_plane_z_m, status, message)
   call assert_equal_i32(status, matching_plane_response_ok, 'matching-plane z getter failed')
   call assert_close_dp(matching_plane_z_m, 1.25_dp, 0.0_dp, 'matching-plane z metadata mismatch')
-  call table%get_fingerprint_data( &
-    fingerprint_axis_sizes, fingerprint_axes, fingerprint_values, matching_plane_z_m, status, message &
+  call table%get_axis_data( &
+    grid_axis_sizes, grid_axes, matching_plane_z_m, status, message &
     )
-  call assert_equal_i32(status, matching_plane_response_ok, 'fingerprint getter failed')
-  call assert_true(all(fingerprint_axis_sizes == 2_i32), 'full-grid fingerprint axis sizes mismatch')
+  call assert_equal_i32(status, matching_plane_response_ok, 'axis getter failed')
+  call assert_true(all(grid_axis_sizes == 2_i32), 'full-grid interpolation axis sizes mismatch')
   call assert_allclose_1d( &
-    fingerprint_axes, [-1.0_dp, 1.0_dp, 0.0_dp, 2.0_dp, 0.0_dp, 4.0_dp, 0.0_dp, 6.0_dp, 0.0_dp, 8.0_dp], &
-    0.0_dp, 'fingerprint axes are not canonical' &
+    grid_axes, [-1.0_dp, 1.0_dp, 0.0_dp, 2.0_dp, 0.0_dp, 4.0_dp, 0.0_dp, 6.0_dp, 0.0_dp, 8.0_dp], &
+    0.0_dp, 'interpolation axes are not canonical' &
     )
-  call affine_response([-1.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp], expected)
-  call assert_allclose_1d( &
-    fingerprint_values(:, 1), expected, 0.0_dp, 'axis-1-fastest first response value mismatch' &
-    )
-  call affine_response([1.0_dp, 2.0_dp, 4.0_dp, 6.0_dp, 8.0_dp], expected)
-  call assert_allclose_1d( &
-    fingerprint_values(:, size(fingerprint_values, 2)), expected, 0.0_dp, &
-    'axis-1-fastest last response value mismatch' &
-    )
+  query = [-1.0_dp, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp]
+  call affine_response(query, expected)
+  call table%evaluate(query, actual, status, message)
+  call assert_equal_i32(status, matching_plane_response_ok, 'lower endpoint evaluation failed')
+  call assert_allclose_1d(actual, expected, 0.0_dp, 'lower grid endpoint response mismatch')
+  query = [1.0_dp, 2.0_dp, 4.0_dp, 6.0_dp, 8.0_dp]
+  call affine_response(query, expected)
+  call table%evaluate(query, actual, status, message)
+  call assert_equal_i32(status, matching_plane_response_ok, 'upper endpoint evaluation failed')
+  call assert_allclose_1d(actual, expected, 0.0_dp, 'upper grid endpoint response mismatch')
   call test_end()
 
   call test_begin('response_csv_numeric_grammar_is_strict')

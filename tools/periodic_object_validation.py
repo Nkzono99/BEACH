@@ -359,9 +359,7 @@ CSV_SCHEMAS: dict[str, tuple[str, ...]] = {
         "survived_max_step",
         "last_rel_change",
         "total_charge_C",
-        "model_fingerprint",
         "mesh_fingerprint",
-        "species_fingerprint",
         "message",
     ),
     "charge_history_pair.csv": (
@@ -3255,10 +3253,8 @@ def verify_run(
         raise ValidationError(
             "escaped != escaped_boundary + survived_max_step + multiple_box_events_soft_discarded"
         )
-    for key in ("model_fingerprint", "mesh_fingerprint", "species_fingerprint"):
-        value = summary.get(key, "")
-        if len(value) != 16:
-            raise ValidationError(f"summary {key} must be a 16-character fingerprint")
+    if len(summary.get("mesh_fingerprint", "")) != 16:
+        raise ValidationError("summary mesh_fingerprint must be a 16-character fingerprint")
     for key, expected_value in PRODUCTION_FIELD_EXECUTION_CONTRACT.items():
         actual_value = summary.get(key)
         if actual_value != expected_value:
@@ -3464,9 +3460,7 @@ def verify_run(
         }
         previous = _summary(restart_output / "summary.txt")
         for key in (
-            "model_fingerprint",
             "mesh_fingerprint",
-            "species_fingerprint",
             *PRODUCTION_FIELD_EXECUTION_CONTRACT,
             *BUILD_INFO_KEYS,
         ):
@@ -3500,14 +3494,7 @@ def verify_run(
         "mesh_count": mesh_count,
         "manifest_sha256": manifest_sha256,
         "case_spec_sha256": _json_sha256(case),
-        "fingerprints": {
-            key: summary[key]
-            for key in (
-                "model_fingerprint",
-                "mesh_fingerprint",
-                "species_fingerprint",
-            )
-        },
+        "fingerprints": {"mesh_fingerprint": summary["mesh_fingerprint"]},
         "field_execution_contract": {
             key: summary[key] for key in PRODUCTION_FIELD_EXECUTION_CONTRACT
         },
@@ -3582,9 +3569,7 @@ def _case_result(
             "survived_max_step": result.survived_max_step,
             "last_rel_change": result.last_rel_change,
             "total_charge_C": math.fsum(charges),
-            "model_fingerprint": result.model_fingerprint or "",
             "mesh_fingerprint": result.mesh_fingerprint or "",
-            "species_fingerprint": result.species_fingerprint or "",
             "message": "",
         }
         return row, run
@@ -7238,52 +7223,16 @@ def _verify_complete_runs(
                 f"complete analysis requires verified case {name}: {exc}"
             ) from exc
         reports[name] = report
-    _verify_pair_fingerprint_contract(reports)
+    _verify_pair_mesh_identity(reports)
     return reports
 
 
-def _verify_pair_fingerprint_contract(
-    reports: Mapping[str, Mapping[str, Any]],
-) -> None:
-    def values(case_names: Sequence[str], key: str) -> set[str]:
-        result: set[str] = set()
-        for case_name in case_names:
-            fingerprints = reports.get(case_name, {}).get("fingerprints")
-            if not isinstance(fingerprints, Mapping):
-                raise ValidationError(f"pair {key} metadata is missing for {case_name}")
-            value = str(fingerprints.get(key, ""))
-            if len(value) != 16:
-                raise ValidationError(f"pair {key} is invalid for {case_name}")
-            result.add(value)
-        return result
-
-    mesh_values = values(STRICT_CASES, "mesh_fingerprint")
+def _verify_pair_mesh_identity(reports: Mapping[str, Mapping[str, Any]]) -> None:
+    mesh_values = {
+        reports[name]["fingerprints"]["mesh_fingerprint"] for name in STRICT_CASES
+    }
     if len(mesh_values) != 1:
         raise ValidationError("pair mesh_fingerprint differs across validation runs")
-    species_values = values(STRICT_CASES, "species_fingerprint")
-    if len(species_values) != 1:
-        raise ValidationError("pair species_fingerprint differs across validation runs")
-    finite_cases = (
-        "smoke_finite_configured",
-        "full_finite_configured_140000",
-        "full_finite_configured_280000",
-    )
-    infinite_cases = (
-        "cache_prime",
-        "smoke_infinite_physical",
-        "full_infinite_physical_140000",
-        "full_infinite_physical_280000",
-    )
-    finite_models = values(finite_cases, "model_fingerprint")
-    if len(finite_models) != 1:
-        raise ValidationError("pair finite model_fingerprint differs within model")
-    infinite_models = values(infinite_cases, "model_fingerprint")
-    if len(infinite_models) != 1:
-        raise ValidationError("pair infinite model_fingerprint differs within model")
-    if finite_models == infinite_models:
-        raise ValidationError(
-            "pair finite/infinite model_fingerprint must differ with the boundary model"
-        )
 
 
 def _verify_submission_provenance(

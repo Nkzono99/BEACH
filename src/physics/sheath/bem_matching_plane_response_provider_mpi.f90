@@ -2,7 +2,7 @@
 submodule(bem_matching_plane_response_provider) bem_matching_plane_response_provider_mpi
   use bem_constants, only: eps0, k_boltzmann, qe
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
-  use bem_matching_plane_response, only: preflight_matching_plane_response_mpi
+  use bem_matching_plane_response, only: load_matching_plane_response_mpi
   use bem_mpi, only: mpi_is_root, mpi_allreduce_min_i32_scalar, &
                      mpi_allreduce_max_i32_scalar, mpi_allreduce_min_real_dp_array, &
                      mpi_allreduce_max_real_dp_array, mpi_bcast_i32_array, &
@@ -37,7 +37,6 @@ contains
   self%implicit_feedback_reference = 0.0_dp
   self%implicit_displacement_bounded = .false.
   self%implicit_zero_mode_supported = .false.
-  self%content_fingerprint = ''
   call accept_provider(status, message)
   self%active = trim(lower_ascii(cfg%surface_current%model)) == 'matching_plane_quasistatic'
   active_code = merge(1_i32, 0_i32, self%active)
@@ -102,9 +101,8 @@ contains
 
   select case (self%backend)
   case (provider_backend_table)
-    call preflight_matching_plane_response_mpi( &
-      .true., trim(cfg%surface_current%response_table_path), mpi, &
-      self%content_fingerprint, zhao_status, backend_message, table=self%table &
+    call load_matching_plane_response_mpi( &
+      trim(cfg%surface_current%response_table_path), mpi, self%table, zhao_status, backend_message &
       )
     if (zhao_status /= matching_plane_response_ok) then
       call reject_provider( &
@@ -114,13 +112,6 @@ contains
     end if
     call initialize_table_feedback_contract(self, status, message)
     if (status /= matching_plane_provider_ok) return
-    call self%table%get_matching_plane_z(self%matching_plane_z_m, zhao_status, backend_message)
-    if (zhao_status /= matching_plane_response_ok) then
-      call reject_provider( &
-        matching_plane_provider_load_failure, trim(backend_message), status, message &
-        )
-      return
-    end if
     if (abs(self%matching_plane_z_m - cfg%sim%box_max(3)) > &
         128.0_dp*epsilon(1.0_dp)*max( &
         1.0_dp, abs(self%matching_plane_z_m), abs(cfg%sim%box_max(3)) &
@@ -230,7 +221,6 @@ contains
     end if
     self%implicit_displacement_bounded = .false.
     self%implicit_zero_mode_supported = .true.
-    self%content_fingerprint = 'zhao-online-v1'
   end select
   if (any(cfg%surface_current%coupling_atol > 0.0_dp .and. self%feedback_scale <= 0.0_dp)) then
     call reject_provider( &
@@ -308,7 +298,7 @@ contains
     integer(i32) :: axis, first, last
 
     call accept_provider(status, message)
-    call self%table%get_fingerprint_data( &
+    call self%table%get_axis_data( &
       axis_sizes, axis_values, matching_plane_z_m=self%matching_plane_z_m &
       )
     if (size(axis_sizes) /= matching_plane_response_input_count .or. any(axis_sizes <= 0_i32) .or. &

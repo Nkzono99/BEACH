@@ -71,7 +71,7 @@ Python が型付き属性へ変換する key は [`io.py`](../beach/fortran_resu
 | `batches`, `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | 実行量と主要な粒子 outcome |
 | `simulated_time_s`, `last_rel_change` | 受理済みの模擬時間と最終相対変化。`last_rel_change` は早期停止条件ではない |
 | `checkpoint_schema_version`, `checkpoint_stride` | checkpoint の形式世代と解決済み出力間隔 |
-| `model_fingerprint`, `mesh_fingerprint`, `species_fingerprint` | 再開時に照合する構成識別子 |
+| `mesh_fingerprint` | 保存電荷を要素へ対応付けるための ordered mesh 識別子 |
 | `reservoir_inflow_map`, `particle_ordinary_open_model` | reservoir と通常 open 面の解決済み境界モデル |
 
 build receipt は次の 5 key です。
@@ -233,7 +233,7 @@ warning 付き commit した state はこれを超え、`matching_plane_iteratio
 
 | backend | receipt |
 | --- | --- |
-| `table` | `surface_current_model_response_table_path`, `surface_current_model_response_content_fingerprint`。fingerprint は path ではなく、$H$、canonical axes、response values を含む読込済み応答演算子を識別する |
+| `table` | `surface_current_model_response_table_path`。root が読み込んだ応答表を使う。内容 fingerprint は出力しない |
 | `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
 | `zhao_online` | `surface_current_model_zhao_branch` |
 | `zhao_online` | `surface_current_model_zhao_root_selection` |
@@ -408,7 +408,7 @@ matching-plane では `result.matching_plane_state` と `result.matching_plane_h
 | 探索 | `output.restart_from` 直下の最終出力と `slot0` / `slot1` を検査する |
 | 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
 | index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
-| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。model / species fingerprint の不一致は warning を出して継続する |
+| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。モデル・粒子種の設定変更はハッシュで照合しない |
 
 `output.restart_from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 
@@ -419,15 +419,15 @@ matching-plane では `result.matching_plane_state` と `result.matching_plane_h
 | v6 | `macro_residuals.csv` は `species_idx,face,residual`。`face=0` は従来 source、`1..6` は boundary face。旧 2 列形式 `species_idx,residual` も読込可能 |
 | v8 以降 | 書き始めに `state=in_progress` を公開する。summary、charges、全 rank の RNG、manifest 宣言済み residual / ledger を閉じてから `state=complete` を原子的に公開する |
 | v9 | matching-plane の accepted feedback、potential、return / escape flux、反復 receipt を `summary.txt` に保存する |
+| v10（現行） | model / species / response-content fingerprint を廃止。v2〜v9 は引き続き読み、旧識別子は無視する。mesh 識別子と状態配列の形式は維持 |
 
 schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下の最終出力に新旧世代のファイルが混在した
 場合、そのディレクトリを選ばず、完全な periodic slot へ戻ります。
 
-model fingerprint は table backend なら response table の canonical 内容、online backend なら Zhao contract、
-branch policy、implicit mode を含みます。model / species fingerprint は再開条件の provenance として照合しますが、
-不一致だけでは停止しません。warning を出し、保存電荷と統計を現在の条件へ引き継ぎます。変更点を含む
-continuation なので、出力先を分けて結果の連続性を利用者が評価してください。mesh fingerprint の不一致は、
-`charges.csv` の要素対応を保証できないため停止します。
+設定変更はハッシュで照合せず、保存電荷と統計を現在の条件へ引き継ぎます。以前の条件との比較には
+設定ファイルと summary の具体的な値を使ってください。mesh fingerprint の不一致は、`charges.csv` の要素対応を
+保証できないため停止します。Python reader の `model_fingerprint` と `species_fingerprint` は過去の出力用の
+任意属性として残り、現行出力では `None` になります。
 
 online implicit の bracket node と step-subdivision node は永続 table や checkpoint state ではありません。
 `continuation` は `summary.txt` に保存した accepted response から restart seed の再構成を試み、再構成できなければ

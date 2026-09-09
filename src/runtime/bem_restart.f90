@@ -1,6 +1,5 @@
 !> チェックポイントファイルの保存/復元を扱う補助モジュール。
 module bem_restart
-  use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: i32
   use bem_types, only: sim_stats, mesh_type, injection_state
@@ -15,7 +14,6 @@ module bem_restart
   integer(i32), parameter, public :: restart_contract_mismatch = 1_i32
   integer(i32), parameter, public :: restart_contract_unsupported_schema = 2_i32
   integer(i32), parameter, public :: restart_contract_malformed = 3_i32
-  integer(i32), parameter, public :: restart_contract_configuration_changed = 4_i32
   public :: load_restart_checkpoint
   public :: validate_restart_contract
   public :: write_rng_state_file
@@ -167,14 +165,7 @@ contains
 
     if (present(app)) then
       call validate_restart_contract(trim(summary_path), mesh, app, contract_status, contract_message)
-      if (contract_status == restart_contract_configuration_changed) then
-        if (local_rank == 0_i32) then
-          write (error_unit, '(a)') 'WARNING: resume fingerprint differs: '//trim(contract_message)
-          write (error_unit, '(a)') &
-            'WARNING: continuing from the saved physical state with the current model/species configuration.'
-          flush (error_unit)
-        end if
-      else if (contract_status /= restart_contract_ok) then
+      if (contract_status /= restart_contract_ok) then
         error stop 'Resume checkpoint contract mismatch: '//trim(contract_message)
       end if
     end if

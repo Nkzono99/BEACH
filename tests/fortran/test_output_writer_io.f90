@@ -19,11 +19,11 @@ program test_output_writer_io
   type(charge_ledger_type) :: ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   logical :: exists, literal_created, marker_created, saw_integrator, saw_residual, saw_ledger_header
-  logical :: saw_schema, saw_model_fp, saw_mesh_fp, saw_species_fp, saw_ledger_stock, saw_ledger_closure
+  logical :: saw_schema, saw_mesh_fp, saw_ledger_stock, saw_ledger_closure
   logical :: saw_build_schema, saw_build_version, saw_build_mode, saw_source_commit, saw_build_id
   logical :: saw_surface_current_model, saw_soft_discard_fraction
   logical :: saw_photoelectron_active_receipt
-  logical :: saw_matching_receipts(13), matching_history_opened, saw_continuation_state
+  logical :: saw_matching_receipts(12), matching_history_opened, saw_continuation_state
   logical :: saw_online_matching_receipts(9)
   logical :: saw_field_reconstruction(23), saw_auto_resolved_direct, saw_auto_resolved_fmm
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
@@ -228,9 +228,7 @@ program test_output_writer_io
   saw_integrator = .false.
   saw_residual = .false.
   saw_schema = .false.
-  saw_model_fp = .false.
   saw_mesh_fp = .false.
-  saw_species_fp = .false.
   saw_ledger_stock = .false.
   saw_ledger_closure = .false.
   saw_build_schema = .false.
@@ -249,10 +247,8 @@ program test_output_writer_io
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. &
                    summary_real_equals(line, 'charge_ledger_residual_C', -0.75_dp, 1.0e-14_dp)
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=9') > 0
-    saw_model_fp = saw_model_fp .or. index(line, 'model_fingerprint=') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=10') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
-    saw_species_fp = saw_species_fp .or. index(line, 'species_fingerprint=') > 0
     saw_ledger_stock = saw_ledger_stock .or. &
                        summary_real_equals( &
                        line, 'charge_ledger_local_flight_charge_before_C', -1.0_dp, 1.0e-14_dp &
@@ -327,7 +323,7 @@ program test_output_writer_io
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
   call assert_true(saw_schema, 'summary should record checkpoint schema v9')
-  call assert_true(saw_model_fp .and. saw_mesh_fp .and. saw_species_fp, 'summary should record restart fingerprints')
+  call assert_true(saw_mesh_fp, 'summary should identify the ordered mesh')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')
   call assert_true(saw_ledger_stock, 'summary should record restartable charge stocks')
@@ -466,7 +462,7 @@ contains
 
   subroutine scan_matching_plane_receipts(summary_path, found)
     character(len=*), intent(in) :: summary_path
-    logical, intent(out) :: found(13)
+    logical, intent(out) :: found(12)
     integer :: summary_unit, summary_ios
     character(len=2048) :: summary_line
 
@@ -481,30 +477,26 @@ contains
                  trim(summary_line) == &
                  'surface_current_model_response_table_path=examples/matching_plane_response_synthetic.csv'
       found(3) = found(3) .or. &
-                 (index(summary_line, 'surface_current_model_response_content_fingerprint=') == 1 .and. &
-                  len_trim(summary_line) == &
-                  len('surface_current_model_response_content_fingerprint=') + 16)
-      found(4) = found(4) .or. &
                  summary_real_equals( &
                  summary_line, 'surface_current_model_matching_plane_z_m', 1.0e-3_dp, 1.0e-16_dp &
                  )
-      found(5) = found(5) .or. &
+      found(4) = found(4) .or. &
                  trim(summary_line) == 'surface_current_model_electron_species=solar_wind_electron'
-      found(6) = found(6) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
-      found(7) = found(7) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
-      found(8) = found(8) .or. &
+      found(5) = found(5) .or. trim(summary_line) == 'surface_current_model_ion_species=solar_wind_ion'
+      found(6) = found(6) .or. trim(summary_line) == 'surface_current_model_photoelectron_species=photoelectron'
+      found(7) = found(7) .or. &
                  summary_real_equals( &
                  summary_line, 'surface_current_model_coupling_rtol', 1.0e-4_dp, 1.0e-16_dp &
                  )
-      found(9) = found(9) .or. index(summary_line, 'surface_current_model_coupling_atol=') == 1
-      found(10) = found(10) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
-      found(11) = found(11) .or. &
+      found(8) = found(8) .or. index(summary_line, 'surface_current_model_coupling_atol=') == 1
+      found(9) = found(9) .or. trim(summary_line) == 'surface_current_model_coupling_max_iterations=20'
+      found(10) = found(10) .or. &
                   summary_real_equals( &
                   summary_line, 'surface_current_model_coupling_relaxation', 0.5_dp, 1.0e-14_dp &
                   )
-      found(12) = found(12) .or. &
+      found(11) = found(11) .or. &
                   trim(summary_line) == 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
-      found(13) = found(13) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=F'
+      found(12) = found(12) .or. trim(summary_line) == 'surface_current_model_implicit_zero_mode=F'
     end do
     close (summary_unit)
   end subroutine scan_matching_plane_receipts

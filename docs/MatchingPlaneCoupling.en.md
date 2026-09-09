@@ -236,7 +236,7 @@ With `output.history_stride>0`, BEACH writes `matching_plane_history.csv`. Check
 | Did the fixed point converge? | `matching_plane_residual` | At or below `surface_current_model_coupling_rtol` |
 | Is there iteration margin? | `matching_plane_iterations` | Not pinned to the limit; stable when controls change |
 | Does PE classification close? | outward / return / escape flux | $\Gamma_{pe}^{out}\simeq\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$ |
-| Is the table provenance identifiable? | response path / content fingerprint | Matches the production data |
+| Is the table provenance identifiable? | response table path / configuration | Matches the production data |
 | Are potential and charging stable? | $D_H$, $\Phi_H$, mesh charge / potential | Within tolerance as batch width, particle count, and mesh vary |
 
 See [Output format reference](OutputReference.en.html#matching_plane_quasistatic) for all 17 accepted-state columns,

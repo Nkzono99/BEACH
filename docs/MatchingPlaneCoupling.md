@@ -226,7 +226,7 @@ $H$ の絶対座標を Sagdeev 方程式の距離 parameter には使わず、�
 | 固定点が収束した | `matching_plane_residual` | `surface_current_model_coupling_rtol` 以下 |
 | 反復に余裕がある | `matching_plane_iterations` | 上限へ張り付かず、条件変更でも安定 |
 | PE の分類が閉じる | outward / return / escape flux | $\Gamma_{pe}^{out}\simeq\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$ |
-| table の由来を識別できる | response path / content fingerprint | production data と一致 |
+| table の由来を識別できる | response table path / configuration | production data と一致 |
 | 電位と帯電が安定する | $D_H$、$\Phi_H$、mesh charge / potential | batch 幅・粒子数・mesh を変えて許容差内 |
 
 accepted state の全 17 列、summary receipt、時刻の意味は
