@@ -13,7 +13,7 @@ module bem_matching_plane_zhao
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi, qe
-  use bem_matching_plane_response, only: &
+  use bem_matching_plane_contract, only: &
     matching_plane_response_input_count, matching_plane_response_output_count, &
     matching_plane_input_displacement, matching_plane_input_photoelectron_outward_flux, &
     matching_plane_input_photoelectron_mean_normal_energy, &

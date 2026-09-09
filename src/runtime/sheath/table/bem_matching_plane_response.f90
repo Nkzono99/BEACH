@@ -3,11 +3,37 @@ module bem_matching_plane_response
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_mpi, only: mpi_context
+  use bem_matching_plane_contract, only: &
+    matching_plane_response_input_count, &
+    matching_plane_response_output_count, &
+    matching_plane_input_displacement, &
+    matching_plane_input_photoelectron_outward_flux, &
+    matching_plane_input_photoelectron_mean_normal_energy, &
+    matching_plane_input_electron_outward_flux, &
+    matching_plane_input_ion_outward_flux, &
+    matching_plane_output_matching_potential, &
+    matching_plane_output_electron_inward_flux, &
+    matching_plane_output_ion_inward_flux, &
+    matching_plane_output_electron_access_potential, &
+    matching_plane_output_ion_access_potential, &
+    matching_plane_output_photoelectron_barrier_potential
   implicit none
   private
 
-  integer(i32), parameter, public :: matching_plane_response_input_count = 5_i32
-  integer(i32), parameter, public :: matching_plane_response_output_count = 6_i32
+  ! The table and analytic model share the same response coordinates.
+  public :: matching_plane_response_input_count
+  public :: matching_plane_response_output_count
+  public :: matching_plane_input_displacement
+  public :: matching_plane_input_photoelectron_outward_flux
+  public :: matching_plane_input_photoelectron_mean_normal_energy
+  public :: matching_plane_input_electron_outward_flux
+  public :: matching_plane_input_ion_outward_flux
+  public :: matching_plane_output_matching_potential
+  public :: matching_plane_output_electron_inward_flux
+  public :: matching_plane_output_ion_inward_flux
+  public :: matching_plane_output_electron_access_potential
+  public :: matching_plane_output_ion_access_potential
+  public :: matching_plane_output_photoelectron_barrier_potential
 
   integer(i32), parameter, public :: matching_plane_response_ok = 0_i32
   integer(i32), parameter, public :: matching_plane_response_invalid_argument = 1_i32
@@ -17,19 +43,6 @@ module bem_matching_plane_response
   integer(i32), parameter, public :: matching_plane_response_invalid_row = 5_i32
   integer(i32), parameter, public :: matching_plane_response_invalid_grid = 6_i32
   integer(i32), parameter, public :: matching_plane_response_out_of_range = 7_i32
-
-  integer(i32), parameter, public :: matching_plane_input_displacement = 1_i32
-  integer(i32), parameter, public :: matching_plane_input_photoelectron_outward_flux = 2_i32
-  integer(i32), parameter, public :: matching_plane_input_photoelectron_mean_normal_energy = 3_i32
-  integer(i32), parameter, public :: matching_plane_input_electron_outward_flux = 4_i32
-  integer(i32), parameter, public :: matching_plane_input_ion_outward_flux = 5_i32
-
-  integer(i32), parameter, public :: matching_plane_output_matching_potential = 1_i32
-  integer(i32), parameter, public :: matching_plane_output_electron_inward_flux = 2_i32
-  integer(i32), parameter, public :: matching_plane_output_ion_inward_flux = 3_i32
-  integer(i32), parameter, public :: matching_plane_output_electron_access_potential = 4_i32
-  integer(i32), parameter, public :: matching_plane_output_ion_access_potential = 5_i32
-  integer(i32), parameter, public :: matching_plane_output_photoelectron_barrier_potential = 6_i32
 
   character(len=*), parameter, public :: matching_plane_response_query_csv_header = &
                                          'displacement_c_m2,'// &

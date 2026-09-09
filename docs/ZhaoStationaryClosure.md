@@ -134,4 +134,4 @@ PE ありでは ray 数、batch 幅、乱数 seed を変え、要素別 return �
 実行完了と零電流収束だけでは、外部シース近似や空間分布の物理妥当性は確定しません。
 
 実装上の定義は [SPEC 7.7](../SPEC.md#77-自動表面電流model) と
-[`bem_surface_current_model.f90`](../src/physics/sheath/bem_surface_current_model.f90) にあります。
+[`bem_surface_current_model.f90`](../src/runtime/sheath/bem_surface_current_model.f90) にあります。

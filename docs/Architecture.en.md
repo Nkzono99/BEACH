@@ -57,9 +57,9 @@ flowchart TD
    then writes histories and periodic checkpoints. Finally, `main` publishes the summary, CSV files, and final checkpoint
    through [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90).
 
-[`bem_matching_plane_coupling.f90`](../src/runtime/simulator/bem_matching_plane_coupling.f90) owns matching-plane initialization,
+[`bem_matching_plane_coupling.f90`](../src/runtime/sheath/bem_matching_plane_coupling.f90) owns matching-plane initialization,
 trial state, fixed-point acceptance, and continuation-seed commits. The implicit mean-charge update and root search live in
-[`bem_matching_plane_implicit.f90`](../src/physics/sheath/bem_matching_plane_implicit.f90). The main loop coordinates particle
+[`bem_matching_plane_implicit.f90`](../src/runtime/sheath/bem_matching_plane_implicit.f90). The main loop coordinates particle
 replay, batch acceptance, and charge commits through these operations without directly changing their internal state.
 
 Adaptive batch duration replays steps 5--7 from the same batch-start state. Matching-plane fixed-point coupling also updates
@@ -110,33 +110,55 @@ If vertex coordinates change while the element count stays the same, use `init` 
 
 ### Sheath and external-response responsibilities
 
-`src/physics/sheath/` contains the stationary problem that determines fixed currents, the matching-plane problem that
-responds to changing surface charge, and offline tools that generate response tables. The stationary problem imposes
-zero net current; the matching-plane problem accepts displacement and particle fluxes. Their root searches solve
-different boundary conditions.
+`src/physics/sheath/` owns the sheath physics and input/output contracts without depending on `app_config`, MPI,
+the filesystem, or the simulator. `src/runtime/sheath/` connects those models to configuration and batch state;
+`src/tools/sheath/` generates response tables and diagnoses branches. Module names and public entry points remain
+unchanged across these directories.
 
-| File under `src/physics/sheath/` | Responsibility |
-| --- | --- |
-| `bem_sheath_model_core.f90` | Zhao density, charge-density, and residual expressions, plus the stationary nonlinear solve |
-| `bem_surface_current_model.f90` | Convert configuration and stationary sheath solutions into species absorption, emission, and inflow currents |
-| `bem_surface_closure_contract.f90` | Data types for the currents and boundary conditions passed to the simulator; no model-specific solver |
-| `bem_matching_plane_zhao.f90` | Public types, initialization, evaluation entry point, and restart-seed reconstruction; coordinate input preparation, root selection, and response conversion |
-| `bem_matching_plane_zhao_physics.f90` | Convert queries to physical quantities, parameterize unknowns, evaluate residuals and Sagdeev integrals, check connecting profiles, and compute energy and inflow responses |
-| `bem_matching_plane_zhao_numerics.f90` | Branch-specific initial guesses, damped Newton iteration, finite-difference Jacobian, and small linear solves |
-| `bem_matching_plane_zhao_roots.f90` | Enumerate A/B/C candidates, cluster equivalent roots, select unique or minimum-energy solutions, and track or reacquire Type-A continuation roots |
-| `bem_matching_plane_implicit.f90` | Solve stiff mean charging with backward Euler, repeatedly evaluating the response, bracketing roots, and subdividing the displacement search interval |
-| `bem_matching_plane_response_provider.f90` | Common table / online Zhao entry point, feedback bounds and scales, and convergence checks |
-| `bem_matching_plane_response_provider_mpi.f90` | Resolve provider configuration, check agreement on configuration and queries, and broadcast root responses |
-| `bem_matching_plane_response.f90` | Store response tables, cache snapshots by path, interpolate in five dimensions, and expose interpolation axes |
-| `bem_matching_plane_response_io.f90` | Parse CSV and validate column names, numeric syntax, grid completeness, and uniqueness |
-| `bem_matching_plane_response_mpi.f90` | Broadcast the axes, values, height, and source path loaded by root |
-| `bem_matching_plane_query_io.f90` | Shared offline query CSV reader: validate column names, column count, decimal syntax, and finite values, and return rows in input order |
-| `bem_matching_plane_response_generator.f90` | Offline tool that evaluates online Zhao on a grid and writes a runtime response CSV |
-| `bem_matching_plane_zhao_atlas.f90` | Offline diagnostic tool that explores A/B/C solvability and failure reasons |
+Zhao imports the five-input/six-output counts and indices from `bem_matching_plane_contract`.
+The response-table module also exports the same constants, preserving existing callers.
+Runtime owns response-table CSV loading and MPI broadcast; the physical model does not reference them.
+The main dependencies point in the following directions:
 
-The runtime `bem_matching_plane_coupling` uses the provider, going through `bem_matching_plane_implicit` when the implicit
-method is selected. Neither generator nor atlas runs inside the normal batch loop. `src/physics/bem_surface_models*.f90`
-owns charge redistribution and conductor conditions on the object, separately from the external sheath response.
+```mermaid
+flowchart LR
+  simulator["simulator: batch control"] --> runtime["runtime/sheath: configuration, coupling, MPI"]
+  tools["tools/sheath: generation and diagnostics"] --> runtime
+  runtime --> table["runtime/sheath/table: loading, interpolation, broadcast"]
+  runtime --> zhao["physics/sheath/zhao: physical models"]
+  table --> contract["physics/sheath: input/output contracts"]
+  zhao --> contract
+```
+
+| Directory under `src/` | File | Responsibility |
+| --- | --- | --- |
+| `physics/sheath/` | `bem_surface_closure_contract.f90` | Data types for the currents and boundary conditions passed to the simulator; no model-specific solver |
+| `physics/sheath/` | `bem_matching_plane_contract.f90` | Matching-plane input/output counts and indices shared by the physical model and response table |
+| `physics/sheath/zhao/` | `bem_sheath_model_core.f90` | Zhao density, charge-density, and residual expressions, plus the stationary nonlinear solve |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao.f90` | Public types, initialization, evaluation entry point, and restart-seed reconstruction; coordinate input preparation, root selection, and response conversion |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao_physics.f90` | Convert queries to physical quantities, parameterize unknowns, evaluate residuals and Sagdeev integrals, check connecting profiles, and compute energy and inflow responses |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao_numerics.f90` | Branch-specific initial guesses, damped Newton iteration, finite-difference Jacobian, and small linear solves |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | Enumerate A/B/C candidates, cluster equivalent roots, select unique or minimum-energy solutions, and track or reacquire Type-A continuation roots |
+| `runtime/sheath/` | `bem_surface_current_model.f90` | Convert configuration and stationary sheath solutions into species absorption, emission, and inflow currents |
+| `runtime/sheath/` | `bem_matching_plane_coupling.f90` | Own coupling initialization, trial state, fixed-point acceptance, continuation-seed commits, and transfer to the simulator |
+| `runtime/sheath/` | `bem_matching_plane_implicit.f90` | Solve stiff mean charging with backward Euler, repeatedly evaluating the response, bracketing roots, and subdividing the displacement search interval |
+| `runtime/sheath/` | `bem_matching_plane_response_provider.f90` | Common table / online Zhao entry point, feedback bounds and scales, and convergence checks |
+| `runtime/sheath/` | `bem_matching_plane_response_provider_mpi.f90` | Resolve provider configuration, check agreement on configuration and queries, and broadcast root responses |
+| `runtime/sheath/table/` | `bem_matching_plane_response.f90` | Store response tables, cache snapshots by path, interpolate in five dimensions, and expose interpolation axes |
+| `runtime/sheath/table/` | `bem_matching_plane_response_io.f90` | Parse CSV and validate column names, numeric syntax, grid completeness, and uniqueness |
+| `runtime/sheath/table/` | `bem_matching_plane_response_mpi.f90` | Broadcast the axes, values, height, and source path loaded by root |
+| `tools/sheath/` | `bem_matching_plane_query_io.f90` | Shared offline query CSV reader: validate column names, column count, decimal syntax, and finite values, and return rows in input order |
+| `tools/sheath/` | `bem_matching_plane_response_generator.f90` | Offline tool that evaluates online Zhao on a grid and writes a runtime response CSV |
+| `tools/sheath/` | `bem_matching_plane_zhao_atlas.f90` | Offline diagnostic tool that explores A/B/C solvability and failure reasons |
+
+`bem_matching_plane_coupling` uses the provider, going through `bem_matching_plane_implicit` when the implicit method
+is selected. Runtime code handles Zhao-specific types such as continuation seeds, while the physical model never
+calls back into runtime. The generator and atlas also reuse provider configuration resolution and do not run inside
+the normal batch loop. `src/physics/bem_surface_models*.f90` owns charge redistribution and conductor conditions on
+the object, separately from the external sheath response.
+
+The stationary problem imposes zero net current; the matching-plane problem returns an external response to the
+given displacement and particle fluxes. Their root searches solve different boundary conditions.
 
 The three Zhao implementations are private submodules. Callers continue to use
 `matching_plane_zhao_model_type%evaluate` without handling internal roots or Newton iteration.
@@ -217,7 +239,7 @@ The tests below are direct tests to run immediately after a change. Select the r
 | Field snapshot, Direct / Treecode / FMM, and periodic2 | `bem_electrostatic_snapshot*.f90`, `src/physics/field_solver/`, `src/physics/periodic_zero_mode/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90), [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), `test_dynamics_fmm`, `test_periodic_zero_mode`, `test_periodic2_cached_snapshot` | [Field Evaluation](FieldSolvers.en.html), [FMM](FMM.en.html), [periodic2 Electrostatics](PeriodicElectrostatics.en.html) |
 | Particle sources and injection | `bem_app_config_particle_runtime.f90`, `src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90), [`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90), [`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [Choose where particles enter](ParticleSourcesBoundaries.en.html), [Inject particles through a boundary](ReservoirInjection.en.html), [Photoelectron Emission](PhotoelectronEmission.en.html) |
 | Boris update, collision, and box events | `bem_particle_stepper.f90`, `bem_pusher.f90`, `bem_collision.f90`, `bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90), [`test_boundary.f90`](../tests/fortran/test_boundary.f90), `test_dynamics_basic` | [Particle Update](ParticleTrackingCollision.en.html), [Boris Pusher](BorisPusher.en.html), [Particle Events](ParticleEvents.en.html) |
-| Surface charge, closure, and ledger | `bem_surface_models*.f90`, `src/physics/sheath/`, `bem_matching_plane_coupling.f90`, `bem_simulator_charge.f90`, `bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90), [`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90), [`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90), `test_matching_plane_simulator` | [How surfaces charge](SurfaceModels.en.html), [Surface-charge update numerics](SurfaceChargeNumerics.en.html), [Matching-plane coupling](MatchingPlaneCoupling.en.html) |
+| Surface charge, closure, and ledger | `bem_surface_models*.f90`, `src/physics/sheath/`, `src/runtime/sheath/`, `bem_simulator_charge.f90`, `bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90), [`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90), [`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90), `test_matching_plane_simulator` | [How surfaces charge](SurfaceModels.en.html), [Surface-charge update numerics](SurfaceChargeNumerics.en.html), [Matching-plane coupling](MatchingPlaneCoupling.en.html) |
 | Statistics, output, checkpoints, and restart | `bem_simulator_stats.f90`, `bem_simulator_io.f90`, `bem_output_writer.f90`, `bem_periodic_checkpoint.f90`, `bem_restart.f90` | [`test_output_writer_io.f90`](../tests/fortran/test_output_writer_io.f90), [`test_output_writer_potential.f90`](../tests/fortran/test_output_writer_potential.f90), [`test_restart.f90`](../tests/fortran/test_restart.f90) | [Output Guide](OutputGuide.en.html), [Execution and Resume](Execution.en.html), output and restart contracts in `SPEC.md` |
 | Python readers, analysis, and visualization | `beach/` | `tests/python/test_fortran_results.py` and the corresponding CLI or analysis tests | [Post-processing Tutorial](PostprocessTutorial.en.html), [Python API](PythonPostprocessAPI.en.html) |
 

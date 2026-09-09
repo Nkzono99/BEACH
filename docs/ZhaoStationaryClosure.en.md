@@ -138,4 +138,4 @@ vary ray count, batch width, and RNG seed until the elementwise return distribut
 closed zero-current budget do not by themselves validate the outer-sheath approximation or the spatial distribution.
 
 The implementation-level definitions are in [SPEC section 7.7](../SPEC.md#77-自動表面電流model) and
-[`bem_surface_current_model.f90`](../src/physics/sheath/bem_surface_current_model.f90).
+[`bem_surface_current_model.f90`](../src/runtime/sheath/bem_surface_current_model.f90).
