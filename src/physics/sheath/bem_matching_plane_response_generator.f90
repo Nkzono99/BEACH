@@ -1,6 +1,5 @@
 !> Online Zhao evaluator から既存形式の matching-plane 応答表を生成する。
 module bem_matching_plane_response_generator
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
   use bem_app_config_types, only: app_config
   use bem_matching_plane_response, only: matching_plane_response_input_count, &
@@ -11,17 +10,17 @@ module bem_matching_plane_response_generator
                                                   matching_plane_provider_ok
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_mpi, only: mpi_context
-  use bem_string_utils, only: lower_ascii, is_decimal_real_token
+  use bem_string_utils, only: lower_ascii
+  use bem_matching_plane_query_io, only: read_matching_plane_query_csv, &
+                                         matching_plane_query_ok, matching_plane_query_io_error, &
+                                         matching_plane_query_invalid_grid
   implicit none
   private
 
-  integer, parameter :: query_line_length = 4096
-  integer, parameter :: initial_query_capacity = 64
-
-  integer(i32), parameter, public :: matching_plane_generator_ok = 0_i32
+  integer(i32), parameter, public :: matching_plane_generator_ok = matching_plane_query_ok
   integer(i32), parameter, public :: matching_plane_generator_invalid_argument = 1_i32
-  integer(i32), parameter, public :: matching_plane_generator_io_error = 2_i32
-  integer(i32), parameter, public :: matching_plane_generator_invalid_grid = 3_i32
+  integer(i32), parameter, public :: matching_plane_generator_io_error = matching_plane_query_io_error
+  integer(i32), parameter, public :: matching_plane_generator_invalid_grid = matching_plane_query_invalid_grid
   integer(i32), parameter, public :: matching_plane_generator_evaluation_failure = 4_i32
 
   public :: generate_matching_plane_zhao_response_table
@@ -94,7 +93,9 @@ contains
       return
     end if
 
-    call read_query_grid(query_path, queries, status, message)
+    call read_matching_plane_query_csv( &
+      query_path, matching_plane_response_query_csv_header, queries, status, message &
+      )
     if (status /= matching_plane_generator_ok) return
     call validate_cartesian_query_grid(queries, status, message)
     if (status /= matching_plane_generator_ok) return
@@ -146,162 +147,6 @@ contains
     end if
   end subroutine generate_matching_plane_zhao_response_table
 
-  subroutine read_query_grid(path, queries, status, message)
-    character(len=*), intent(in) :: path
-    real(dp), allocatable, intent(out) :: queries(:, :)
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-
-    real(dp), allocatable :: buffer(:, :), grown(:, :)
-    real(dp) :: query(matching_plane_response_input_count)
-    character(len=query_line_length) :: line
-    character(len=:), allocatable :: record
-    integer :: unit_id, ios, line_number, row_count, capacity
-    logical :: header_found
-
-    call accept_generator(status, message)
-    capacity = initial_query_capacity
-    allocate (buffer(matching_plane_response_input_count, capacity))
-    row_count = 0
-    line_number = 0
-    header_found = .false.
-    open (newunit=unit_id, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) then
-      allocate (queries(matching_plane_response_input_count, 0))
-      call reject_generator( &
-        matching_plane_generator_io_error, &
-        'could not open matching-plane query CSV: '//trim(path), status, message &
-        )
-      return
-    end if
-
-    do
-      read (unit_id, '(a)', iostat=ios) line
-      if (ios < 0) exit
-      line_number = line_number + 1
-      if (ios > 0) then
-        close (unit_id)
-        allocate (queries(matching_plane_response_input_count, 0))
-        call reject_generator( &
-          matching_plane_generator_io_error, &
-          'failed to read matching-plane query CSV line '//trim(integer_text(line_number))//'.', &
-          status, message &
-          )
-        return
-      end if
-      record = trim(adjustl(line))
-      if (len(record) == 0) cycle
-      if (record(1:1) == '#') cycle
-      if (.not. header_found) then
-        if (record /= matching_plane_response_query_csv_header) then
-          close (unit_id)
-          allocate (queries(matching_plane_response_input_count, 0))
-          call reject_generator( &
-            matching_plane_generator_invalid_grid, &
-            'matching-plane query CSV header does not match the required five-column contract.', &
-            status, message &
-            )
-          return
-        end if
-        header_found = .true.
-        cycle
-      end if
-      if (count_character(record, ',') /= matching_plane_response_input_count - 1_i32) then
-        close (unit_id)
-        allocate (queries(matching_plane_response_input_count, 0))
-        call reject_generator( &
-          matching_plane_generator_invalid_grid, &
-          'matching-plane query row '//trim(integer_text(line_number))//' must contain exactly five values.', &
-          status, message &
-          )
-        return
-      end if
-      call parse_query_record(record, query, ios)
-      if (ios /= 0 .or. any(.not. ieee_is_finite(query)) .or. any(query(2:5) < 0.0_dp)) then
-        close (unit_id)
-        allocate (queries(matching_plane_response_input_count, 0))
-        call reject_generator( &
-          matching_plane_generator_invalid_grid, &
-          'matching-plane query row '//trim(integer_text(line_number))//' contains invalid values.', &
-          status, message &
-          )
-        return
-      end if
-      if (row_count == capacity) then
-        if (capacity > huge(capacity)/2) then
-          close (unit_id)
-          allocate (queries(matching_plane_response_input_count, 0))
-          call reject_generator( &
-            matching_plane_generator_invalid_grid, &
-            'matching-plane query row capacity overflowed.', status, message &
-            )
-          return
-        end if
-        allocate (grown(matching_plane_response_input_count, 2*capacity))
-        grown(:, :capacity) = buffer
-        call move_alloc(grown, buffer)
-        capacity = 2*capacity
-      end if
-      row_count = row_count + 1
-      buffer(:, row_count) = query
-    end do
-    close (unit_id)
-
-    if (.not. header_found .or. row_count == 0) then
-      allocate (queries(matching_plane_response_input_count, 0))
-      call reject_generator( &
-        matching_plane_generator_invalid_grid, &
-        'matching-plane query CSV must contain the required header and at least one row.', &
-        status, message &
-        )
-      return
-    end if
-    allocate (queries(matching_plane_response_input_count, row_count), source=buffer(:, :row_count))
-  end subroutine read_query_grid
-
-  !> List-directed repeat/null/slash syntaxを拒否し、5個の十進実数だけを読む。
-  subroutine parse_query_record(record, query, ios)
-    character(len=*), intent(in) :: record
-    real(dp), intent(out) :: query(matching_plane_response_input_count)
-    integer, intent(out) :: ios
-
-    character(len=:), allocatable :: token
-    integer :: column, comma, first, last
-
-    query = 0.0_dp
-    ios = 0
-    first = 1
-    do column = 1, matching_plane_response_input_count
-      if (column < matching_plane_response_input_count) then
-        comma = index(record(first:), ',')
-        if (comma <= 0) then
-          ios = 1
-          return
-        end if
-        last = first + comma - 2
-      else
-        if (index(record(first:), ',') /= 0) then
-          ios = 1
-          return
-        end if
-        last = len(record)
-      end if
-      if (last < first) then
-        ios = 1
-        return
-      end if
-      token = trim(adjustl(record(first:last)))
-      if (len(token) == 0 .or. scan(token, ' '//achar(9)) > 0 .or. &
-          .not. is_decimal_real_token(token)) then
-        ios = 1
-        return
-      end if
-      read (token, *, iostat=ios) query(column)
-      if (ios /= 0) return
-      first = last + 2
-    end do
-  end subroutine parse_query_record
-
   subroutine validate_cartesian_query_grid(queries, status, message)
     real(dp), intent(in) :: queries(:, :)
     integer(i32), intent(out) :: status
@@ -319,6 +164,13 @@ contains
       call reject_generator( &
         matching_plane_generator_invalid_grid, &
         'matching-plane query grid has invalid dimensions.', status, message &
+        )
+      return
+    end if
+    if (any(queries(2:5, :) < 0.0_dp)) then
+      call reject_generator( &
+        matching_plane_generator_invalid_grid, &
+        'matching-plane query grid contains negative flux or energy values.', status, message &
         )
       return
     end if
@@ -429,17 +281,6 @@ contains
         )
     end if
   end subroutine validate_cartesian_query_grid
-
-  integer(i32) function count_character(text, target) result(count_value)
-    character(len=*), intent(in) :: text
-    character(len=1), intent(in) :: target
-    integer :: index_value
-
-    count_value = 0_i32
-    do index_value = 1, len(text)
-      if (text(index_value:index_value) == target) count_value = count_value + 1_i32
-    end do
-  end function count_character
 
   function integer_text(value) result(text)
     integer, intent(in) :: value

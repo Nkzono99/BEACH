@@ -94,7 +94,7 @@ Public entry points coordinate call order and data transfer, delegating each for
 | --- | --- | --- |
 | Field evaluation | `bem_field_solver.f90` | `_config` resolves configuration, `_tree` owns treecode topology and moments, `_fmm` manages panel geometry and charge state in the FMM core, and `_eval` dispatches evaluations |
 | External sheath response | `bem_matching_plane_response_provider.f90` | The parent module owns model evaluation and feedback contracts; `_mpi` initializes from configuration, checks agreement across ranks, and broadcasts root evaluation results |
-| Response table | `bem_matching_plane_response.f90` | The parent module shares immutable snapshots and interpolates responses; `_io` reads CSV, validates the grid |
+| Response table | `bem_matching_plane_response.f90` | The parent module shares immutable snapshots and interpolates responses; `_io` reads CSV and validates the grid; `_mpi` broadcasts the table loaded by root |
 | Fortran result output | `bem_output_writer.f90` | The `_history` submodule creates and appends histories, `_summary` writes the summary, and `_files` writes mesh, charge, and ledger CSVs |
 | Checkpoint restart | `bem_restart.f90` | `_contract` validates restart conditions, `_records` reads statistics, charges, and the ledger, and `_injection` saves and restores RNG state and macro-particle residuals |
 | Particle generation from configuration | `bem_app_config_particle_runtime.f90` | The parent module builds the source plan, `_batch` distributes work across MPI ranks and assembles batches, and `_sampling` handles species sampling and injection-velocity corrections |
@@ -120,13 +120,17 @@ different boundary conditions.
 | `bem_sheath_model_core.f90` | Zhao density, charge-density, and residual expressions, plus the stationary nonlinear solve |
 | `bem_surface_current_model.f90` | Convert configuration and stationary sheath solutions into species absorption, emission, and inflow currents |
 | `bem_surface_closure_contract.f90` | Data types for the currents and boundary conditions passed to the simulator; no model-specific solver |
-| `bem_matching_plane_zhao.f90` | Solve A/B/C roots for supplied displacement and fluxes, select physical solutions, evaluate responses, and track continuation |
-| `bem_matching_plane_implicit.f90` | Solve stiff mean charging with backward Euler, repeatedly evaluating the response, bracketing roots, and subdividing time when needed |
+| `bem_matching_plane_zhao.f90` | Public types, initialization, evaluation entry point, and restart-seed reconstruction; coordinate input preparation, root selection, and response conversion |
+| `bem_matching_plane_zhao_physics.f90` | Convert queries to physical quantities, parameterize unknowns, evaluate residuals and Sagdeev integrals, check connecting profiles, and compute energy and inflow responses |
+| `bem_matching_plane_zhao_numerics.f90` | Branch-specific initial guesses, damped Newton iteration, finite-difference Jacobian, and small linear solves |
+| `bem_matching_plane_zhao_roots.f90` | Enumerate A/B/C candidates, cluster equivalent roots, select unique or minimum-energy solutions, and track or reacquire Type-A continuation roots |
+| `bem_matching_plane_implicit.f90` | Solve stiff mean charging with backward Euler, repeatedly evaluating the response, bracketing roots, and subdividing the displacement search interval |
 | `bem_matching_plane_response_provider.f90` | Common table / online Zhao entry point, feedback bounds and scales, and convergence checks |
 | `bem_matching_plane_response_provider_mpi.f90` | Resolve provider configuration, check agreement on configuration and queries, and broadcast root responses |
 | `bem_matching_plane_response.f90` | Store response tables, cache snapshots by path, interpolate in five dimensions, and expose interpolation axes |
 | `bem_matching_plane_response_io.f90` | Parse CSV and validate column names, numeric syntax, grid completeness, and uniqueness |
 | `bem_matching_plane_response_mpi.f90` | Broadcast the axes, values, height, and source path loaded by root |
+| `bem_matching_plane_query_io.f90` | Shared offline query CSV reader: validate column names, column count, decimal syntax, and finite values, and return rows in input order |
 | `bem_matching_plane_response_generator.f90` | Offline tool that evaluates online Zhao on a grid and writes a runtime response CSV |
 | `bem_matching_plane_zhao_atlas.f90` | Offline diagnostic tool that explores A/B/C solvability and failure reasons |
 
@@ -134,9 +138,29 @@ The runtime `bem_matching_plane_coupling` uses the provider, going through `bem_
 method is selected. Neither generator nor atlas runs inside the normal batch loop. `src/physics/bem_surface_models*.f90`
 owns charge redistribution and conductor conditions on the object, separately from the external sheath response.
 
-Remaining readability concerns are the combination of formulas, Newton iteration, candidate selection, and continuation
-in `bem_matching_plane_zhao`, and duplicated query CSV parsing in the generator and atlas. These are candidates for
-further separation. Branch-admissibility tests and rejection of negative squared electric fields belong to the physical model.
+The three Zhao implementations are private submodules. Callers continue to use
+`matching_plane_zhao_model_type%evaluate` without handling internal roots or Newton iteration.
+The numerical solver evaluates the physical expressions; root selection combines numerical roots with connecting-profile admissibility.
+
+```mermaid
+flowchart LR
+  entry["zhao: public entry"] --> roots["roots: selection and continuation"]
+  roots --> numerics["numerics: root search"]
+  numerics --> physics["physics: quantities, residuals, admissibility"]
+  roots --> physics
+  entry --> physics
+```
+
+Branch-admissibility tests and rejection of negative squared electric fields are part of the physical model.
+Even with OpenMP evaluation, candidates are selected in initial-guess order, and energy integrals retain their
+accumulation order for reproducible selection. Type-A continuation starts from the accepted root and searches
+the candidates again after a large jump or a failed local solve. For implicit coupling, the MPI root owns the
+continuation seed and broadcasts the updated displacement and response to all ranks.
+
+Query CSV syntax validation is shared, while each tool owns its application constraints. The generator requires
+five inputs with nonnegative fluxes and energy on a complete Cartesian grid. The atlas reads arbitrary rows of
+three inputs, accepting negative finite values so it can record branch-specific failure reasons.
+Response-table loading and interpolation remain the responsibility of the response implementation.
 
 Response-table hash comparisons have been removed; ranks receive the table loaded by root. Call
 `table%get_axis_data(axis_sizes, axis_values, matching_plane_z_m, status, message)` when interpolation axes are needed.

@@ -8,11 +8,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 ## 概要
 
-- ソースファイル数: 107
-- モジュール数: 79
-- submodule 数: 27
+- ソースファイル数: 111
+- モジュール数: 80
+- submodule 数: 30
 - program 数: 3
-- 内部依存エッジ数: 441
+- 内部依存エッジ数: 449
 
 ## 全体グラフ
 
@@ -40,7 +40,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
 | `src/physics/panel` | 5 | 13 |
 | `src/physics/periodic_zero_mode` | 3 | 9 |
-| `src/physics/sheath` | 12 | 51 |
+| `src/physics/sheath` | 16 | 59 |
 | `src/runtime` | 15 | 69 |
 | `src/runtime/coupling` | 1 | 1 |
 | `src/runtime/simulator` | 9 | 53 |
@@ -49,9 +49,9 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 77 |
+| `bem_kinds` | `module` | 78 |
 | `bem_types` | `module` | 35 |
-| `bem_string_utils` | `module` | 31 |
+| `bem_string_utils` | `module` | 32 |
 | `bem_constants` | `module` | 24 |
 | `bem_app_config_types` | `module` | 17 |
 | `bem_mpi` | `module` | 17 |
@@ -137,17 +137,21 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_periodic_zero_mode_eval` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
 | `bem_periodic_zero_mode_plan` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
 | `bem_matching_plane_implicit` | `module` | `src/physics/sheath/bem_matching_plane_implicit.f90` | `bem_kinds`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_mpi` | Backward-Euler displacement solve for a matching-plane response, including continuation and MPI broadcast. |
+| `bem_matching_plane_query_io` | `module` | `src/physics/sheath/bem_matching_plane_query_io.f90` | `bem_kinds`, `bem_string_utils` | Offline Zhao ツール共通の数値 query CSV 入力。物理条件と格子条件は呼出側が扱う。 |
 | `bem_matching_plane_response` | `module` | `src/physics/sheath/bem_matching_plane_response.f90` | `bem_kinds`, `bem_mpi` | Matching-plane outer-sheath response table の immutable snapshot と補間。 |
-| `bem_matching_plane_response_generator` | `module` | `src/physics/sheath/bem_matching_plane_response_generator.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_filesystem`, `bem_mpi`, `bem_string_utils` | Online Zhao evaluator から既存形式の matching-plane 応答表を生成する。 |
+| `bem_matching_plane_response_generator` | `module` | `src/physics/sheath/bem_matching_plane_response_generator.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`, `bem_matching_plane_query_io` | Online Zhao evaluator から既存形式の matching-plane 応答表を生成する。 |
 | `bem_matching_plane_response_provider` | `module` | `src/physics/sheath/bem_matching_plane_response_provider.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_zhao`, `bem_mpi` | Matching-plane 応答の table / online Zhao backend を同じ契約で提供する。 |
 | `bem_matching_plane_zhao` | `module` | `src/physics/sheath/bem_matching_plane_zhao.f90` | `bem_kinds`, `bem_constants`, `bem_matching_plane_response`, `bem_sheath_model_core`, `bem_string_utils` | - |
-| `bem_matching_plane_zhao_atlas` | `module` | `src/physics/sheath/bem_matching_plane_zhao_atlas.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils` | Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。 |
+| `bem_matching_plane_zhao_atlas` | `module` | `src/physics/sheath/bem_matching_plane_zhao_atlas.f90` | `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`, `bem_matching_plane_query_io` | Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。 |
 | `bem_sheath_model_core` | `module` | `src/physics/sheath/bem_sheath_model_core.f90` | `bem_kinds`, `bem_constants` | Zhao 系シース数値モデルの core 実装。 |
 | `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
 | `bem_surface_current_model` | `module` | `src/physics/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_sheath_model_core`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
 | `bem_matching_plane_response_io` | `submodule` | `src/physics/sheath/bem_matching_plane_response_io.f90` | `bem_matching_plane_response`, `bem_string_utils` | CSV 応答テーブルの読み込み・格子検証を担う。 |
 | `bem_matching_plane_response_mpi` | `submodule` | `src/physics/sheath/bem_matching_plane_response_mpi.f90` | `bem_matching_plane_response`, `bem_mpi` | root の応答テーブルを配信し、全 rank で同じ補間軸と値を使う。 |
 | `bem_matching_plane_response_provider_mpi` | `submodule` | `src/physics/sheath/bem_matching_plane_response_provider_mpi.f90` | `bem_matching_plane_response_provider`, `bem_constants`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_mpi`, `bem_string_utils` | 応答 provider の設定解決と MPI rank 間の合意・配信を担う。 |
+| `bem_matching_plane_zhao_numerics` | `submodule` | `src/physics/sheath/bem_matching_plane_zhao_numerics.f90` | `bem_matching_plane_zhao` | - |
+| `bem_matching_plane_zhao_physics` | `submodule` | `src/physics/sheath/bem_matching_plane_zhao_physics.f90` | `bem_matching_plane_zhao`, `bem_sheath_model_core` | - |
+| `bem_matching_plane_zhao_roots` | `submodule` | `src/physics/sheath/bem_matching_plane_zhao_roots.f90` | `bem_matching_plane_zhao` | - |
 | `bem_checkpoint_contract` | `module` | `src/runtime/bem_checkpoint_contract.f90` | `bem_kinds`, `bem_filesystem` | BEACH checkpoint metadata and transactional publication shared by output and restart code. |
 | `bem_filesystem` | `module` | `src/runtime/bem_filesystem.f90` | - | Minimal POSIX filesystem operations used by the runtime. |
 | `bem_mesh_identity` | `module` | `src/runtime/bem_mesh_identity.f90` | `bem_kinds`, `bem_types` | Ordered mesh identity for mapping saved element charges. |
@@ -843,6 +847,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - 概要: Backward-Euler displacement solve for a matching-plane response, including continuation and MPI broadcast.
 
+### `bem_matching_plane_query_io`
+
+- kind: `module`
+- path: `src/physics/sheath/bem_matching_plane_query_io.f90`
+- group: `src/physics/sheath`
+- 内部依存: `bem_kinds`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- 概要: Offline Zhao ツール共通の数値 query CSV 入力。物理条件と格子条件は呼出側が扱う。
+
 ### `bem_matching_plane_response`
 
 - kind: `module`
@@ -857,8 +870,8 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/sheath/bem_matching_plane_response_generator.f90`
 - group: `src/physics/sheath`
-- 内部依存: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`
-- external dependencies: `ieee_arithmetic`
+- 内部依存: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`, `bem_matching_plane_query_io`
+- external dependencies: なし
 - 概要: Online Zhao evaluator から既存形式の matching-plane 応答表を生成する。
 
 ### `bem_matching_plane_response_provider`
@@ -883,7 +896,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/sheath/bem_matching_plane_zhao_atlas.f90`
 - group: `src/physics/sheath`
-- 内部依存: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`
+- 内部依存: `bem_kinds`, `bem_app_config_types`, `bem_matching_plane_response`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_filesystem`, `bem_mpi`, `bem_string_utils`, `bem_matching_plane_query_io`
 - external dependencies: `ieee_arithmetic`
 - 概要: Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。
 
@@ -943,6 +956,33 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_matching_plane_response_provider`, `bem_constants`, `bem_config_helpers`, `bem_matching_plane_response`, `bem_mpi`, `bem_string_utils`
 - external dependencies: なし
 - 概要: 応答 provider の設定解決と MPI rank 間の合意・配信を担う。
+
+### `bem_matching_plane_zhao_numerics`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_zhao_numerics.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_zhao`
+- 内部依存: `bem_matching_plane_zhao`
+- external dependencies: なし
+
+### `bem_matching_plane_zhao_physics`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_zhao_physics.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_zhao`
+- 内部依存: `bem_matching_plane_zhao`, `bem_sheath_model_core`
+- external dependencies: なし
+
+### `bem_matching_plane_zhao_roots`
+
+- kind: `submodule`
+- path: `src/physics/sheath/bem_matching_plane_zhao_roots.f90`
+- group: `src/physics/sheath`
+- parent: `bem_matching_plane_zhao`
+- 内部依存: `bem_matching_plane_zhao`
+- external dependencies: なし
 
 ### `bem_checkpoint_contract`
 

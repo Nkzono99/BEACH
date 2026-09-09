@@ -168,6 +168,14 @@ program test_matching_plane_response_generator
   call assert_invalid_query_does_not_publish( &
     control_query_path, 'Fortran list-directed control syntax was accepted in a query row' &
     )
+  open (newunit=unit_id, file=control_query_path, status='replace', action='write')
+  write (unit_id, '(a)') matching_plane_response_query_csv_header
+  write (unit_id, '(a)') '0,0,3.0,0,0'
+  write (unit_id, '(a)') '0,-1.0,3.0,0,0'
+  close (unit_id)
+  call assert_invalid_query_does_not_publish( &
+    control_query_path, 'response-table generation accepted a negative photoelectron flux' &
+    )
   call test_end()
 
   call test_begin('query_grid_requires_unique_cartesian_product_and_zero_flux')

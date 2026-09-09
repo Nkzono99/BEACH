@@ -390,7 +390,8 @@ $$
 重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2 node以上のfeedback軸2--5は
 初期評価のためゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
 singleton軸はnodeが0以外でもよく、そのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
-tableはprocess内でpathごとのimmutable snapshotとして読み、canonical axis/value列をmodel fingerprintへ含めます。
+table は MPI root が path ごとの immutable snapshot として読み、補間軸・値・高度を全 rank に配信します。
+内容 fingerprint の生成・照合は行いません。
 potential 4列は同じgaugeを使い、外部modelの上流reservoirを0 Vとします。inward VDFはこの0 Vから
 access potentialと$\Phi_H$へ写像するため、potential列だけの定数shiftは同値ではありません。
 
@@ -529,9 +530,8 @@ adaptive batch-durationで棄却したtrialはouter stateもbatch開始値へrol
 
 z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEについては外向き数、法線energy、外部barrierでの
 return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
-outer state、反復回数、残差をhistoryとcheckpoint schema v9へ保存します。restartは保存したfeedbackから反復を
-再開します。tableでは応答内容、onlineではZhao設定をfingerprintへ含めますが、不一致はwarning付きの
-changed-condition continuationとして許可します。
+outer state、反復回数、残差を history と checkpoint へ保存します（v9 以降）。restart は保存した feedback から
+反復を再開します。応答表や Zhao 設定の変更をハッシュで照合せず、現在の設定で継続します。
 onlineの自動bracket点は永続tableやmodel stateではなく、restart後に同じZhao contractから再評価します。
 
 このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
@@ -577,19 +577,16 @@ summary に ledger metadata があれば、schema の世代によらず `charge_
 `checkpoint_latest.txt` が欠落、破損、または古い場合も、完了 manifest を持つ slot は回収対象です。
 `checkpoint_stride=0` でも正常終了時の最終 checkpoint は出力します。
 
-`summary.txt` の checkpoint schema と model / ordered mesh / ordered species fingerprint を照合します。
-ordered mesh fingerprintの不一致は要素電荷を安全に対応付けられないため停止します。model / species fingerprintの
-不一致はprovenance warningとして報告し、保存状態の配列形状が読込可能なら現在の条件で継続します。
+`summary.txt` の checkpoint schema と ordered mesh fingerprint を照合します。
+メッシュの不一致は保存電荷を同じ要素へ対応付けられないため停止します。モデル・粒子種の設定はハッシュ化せず、
+保存状態の配列形状が読込可能なら現在の設定で継続します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
 schema v9はmatching-planeのaccepted feedback、potential、return/escape flux、反復receiptを`summary.txt`へ保存します。
 non-matching modelではこれらを無効値として保持し、v8以前のload可能なcheckpointとの互換性を維持します。
-globalまたはspecies境界のいずれかで`redistributed_reflect`を使う場合だけ、model fingerprintへ
-`sim.rng_seed`と乱数契約識別子`redistributed_reflect_rng_v1`を含めます。また、境界event速度をchord方向かつ
-予測中点電場の離散workと整合させる契約と、表面注入を未照会飛行なしで1 ULP内側から開始する契約にも
-version tagを持たせます。
-tree solverの`tree_theta`と`tree_leaf_max`は値だけでなく明示指定の有無もfingerprintへ含め、条件変更をsummaryと
-warningから追跡可能にします。fingerprintは同一条件の証明とprovenanceに使い、mesh以外は再開禁止には使いません。
+現行 schema v10 は model / species / response-content fingerprint の出力と照合を廃止します。
+v2〜v9 も引き続き読み、旧 fingerprint は無視します。メッシュ識別子の計算法と状態配列の形式は変更しません。
+以前の実行条件は設定ファイルと summary の具体的な値で確認してください。
 必須ファイルの欠落、world size の不一致、非有限値、保存ファイルが要求する配列形状や mesh 要素数の不一致は
 新規実行へ fallback せず停止します。
 

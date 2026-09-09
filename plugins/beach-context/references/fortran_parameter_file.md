@@ -844,7 +844,7 @@ z 軸方向の円柱です。
 
 `restart_from` は checkpoint の読み込み元だけを変更します。新しい出力は常に `output.dir` に書きます。
 
-定期 slot の選択、MPI の必須ファイル、fingerprint と schema の互換条件は
+定期 slot の選択、MPI の必須ファイル、mesh 識別子と schema の互換条件は
 [再開に使うファイル](OutputReference.html#再開に使うファイル)を参照してください。
 
 ---

@@ -1,6 +1,6 @@
 !> Zhao A/B/C branchのsolvabilityを独立評価するoffline atlas生成器。
 module bem_matching_plane_zhao_atlas
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_quiet_nan, ieee_value
+  use, intrinsic :: ieee_arithmetic, only: ieee_quiet_nan, ieee_value
   use bem_kinds, only: dp, i32
   use bem_app_config_types, only: app_config
   use bem_matching_plane_response, only: matching_plane_response_input_count, &
@@ -15,20 +15,21 @@ module bem_matching_plane_zhao_atlas
                                      matching_plane_zhao_ambiguous_solution
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_mpi, only: mpi_context
-  use bem_string_utils, only: lower_ascii, is_decimal_real_token
+  use bem_string_utils, only: lower_ascii
+  use bem_matching_plane_query_io, only: read_matching_plane_query_csv, &
+                                         matching_plane_query_ok, matching_plane_query_io_error, &
+                                         matching_plane_query_invalid_grid
   implicit none
   private
 
   integer, parameter :: atlas_input_count = 3
   integer, parameter :: branch_count = 3
-  integer, parameter :: line_length = 4096
-  integer, parameter :: initial_capacity = 64
   character(len=1), parameter :: branch_names(branch_count) = ['a', 'b', 'c']
 
-  integer(i32), parameter, public :: matching_plane_atlas_ok = 0_i32
+  integer(i32), parameter, public :: matching_plane_atlas_ok = matching_plane_query_ok
   integer(i32), parameter, public :: matching_plane_atlas_invalid_argument = 1_i32
-  integer(i32), parameter, public :: matching_plane_atlas_io_error = 2_i32
-  integer(i32), parameter, public :: matching_plane_atlas_invalid_grid = 3_i32
+  integer(i32), parameter, public :: matching_plane_atlas_io_error = matching_plane_query_io_error
+  integer(i32), parameter, public :: matching_plane_atlas_invalid_grid = matching_plane_query_invalid_grid
   integer(i32), parameter, public :: matching_plane_atlas_initialization_failure = 4_i32
 
   character(len=*), parameter, public :: matching_plane_zhao_atlas_query_csv_header = &
@@ -109,7 +110,9 @@ contains
       end if
     end do
 
-    call read_atlas_query_grid(query_path, queries, status, message)
+    call read_matching_plane_query_csv( &
+      query_path, matching_plane_zhao_atlas_query_csv_header, queries, status, message &
+      )
     if (status /= matching_plane_atlas_ok) return
 
     open (newunit=output_unit, file=temporary_output_path, status='replace', action='write', iostat=ios)
@@ -151,152 +154,6 @@ contains
         )
     end if
   end subroutine generate_matching_plane_zhao_atlas
-
-  subroutine read_atlas_query_grid(path, queries, status, message)
-    character(len=*), intent(in) :: path
-    real(dp), allocatable, intent(out) :: queries(:, :)
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-
-    real(dp), allocatable :: buffer(:, :), grown(:, :)
-    real(dp) :: query(atlas_input_count)
-    character(len=line_length) :: line
-    character(len=:), allocatable :: record
-    integer :: unit_id, ios, line_number, row_count, capacity
-    logical :: header_found
-
-    call accept_atlas(status, message)
-    capacity = initial_capacity
-    allocate (buffer(atlas_input_count, capacity))
-    row_count = 0
-    line_number = 0
-    header_found = .false.
-    open (newunit=unit_id, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) then
-      allocate (queries(atlas_input_count, 0))
-      call reject_atlas( &
-        matching_plane_atlas_io_error, 'could not open Zhao atlas query CSV: '//trim(path), &
-        status, message &
-        )
-      return
-    end if
-
-    do
-      read (unit_id, '(a)', iostat=ios) line
-      if (ios < 0) exit
-      line_number = line_number + 1
-      if (ios > 0) then
-        close (unit_id)
-        allocate (queries(atlas_input_count, 0))
-        call reject_atlas( &
-          matching_plane_atlas_io_error, &
-          'failed to read Zhao atlas query CSV line '//trim(integer_text(line_number))//'.', &
-          status, message &
-          )
-        return
-      end if
-      record = trim(adjustl(line))
-      if (len(record) == 0) cycle
-      if (record(1:1) == '#') cycle
-      if (.not. header_found) then
-        if (record /= matching_plane_zhao_atlas_query_csv_header) then
-          close (unit_id)
-          allocate (queries(atlas_input_count, 0))
-          call reject_atlas( &
-            matching_plane_atlas_invalid_grid, &
-            'Zhao atlas query CSV header does not match the required three-column contract.', &
-            status, message &
-            )
-          return
-        end if
-        header_found = .true.
-        cycle
-      end if
-      if (count_character(record, ',') /= atlas_input_count - 1) then
-        close (unit_id)
-        allocate (queries(atlas_input_count, 0))
-        call reject_atlas( &
-          matching_plane_atlas_invalid_grid, &
-          'Zhao atlas query row '//trim(integer_text(line_number))//' must contain exactly three values.', &
-          status, message &
-          )
-        return
-      end if
-      call parse_query_record(record, query, ios)
-      if (ios /= 0 .or. any(.not. ieee_is_finite(query))) then
-        close (unit_id)
-        allocate (queries(atlas_input_count, 0))
-        call reject_atlas( &
-          matching_plane_atlas_invalid_grid, &
-          'Zhao atlas query row '//trim(integer_text(line_number))//' contains invalid values.', &
-          status, message &
-          )
-        return
-      end if
-      if (row_count == capacity) then
-        allocate (grown(atlas_input_count, 2*capacity))
-        grown(:, :capacity) = buffer
-        call move_alloc(grown, buffer)
-        capacity = 2*capacity
-      end if
-      row_count = row_count + 1
-      buffer(:, row_count) = query
-    end do
-    close (unit_id)
-
-    if (.not. header_found .or. row_count == 0) then
-      allocate (queries(atlas_input_count, 0))
-      call reject_atlas( &
-        matching_plane_atlas_invalid_grid, &
-        'Zhao atlas query CSV must contain the required header and at least one row.', &
-        status, message &
-        )
-      return
-    end if
-    allocate (queries(atlas_input_count, row_count), source=buffer(:, :row_count))
-  end subroutine read_atlas_query_grid
-
-  subroutine parse_query_record(record, query, ios)
-    character(len=*), intent(in) :: record
-    real(dp), intent(out) :: query(atlas_input_count)
-    integer, intent(out) :: ios
-
-    character(len=:), allocatable :: token
-    integer :: column, comma, first, last
-
-    query = 0.0_dp
-    ios = 0
-    first = 1
-    do column = 1, atlas_input_count
-      if (column < atlas_input_count) then
-        comma = index(record(first:), ',')
-        if (comma <= 0) then
-          ios = 1
-          return
-        end if
-        last = first + comma - 2
-      else
-        if (index(record(first:), ',') /= 0) then
-          ios = 1
-          return
-        end if
-        last = len(record)
-      end if
-      if (last < first) then
-        ios = 1
-        return
-      end if
-      token = trim(adjustl(record(first:last)))
-      if (len(token) == 0 .or. scan(token, ' '//achar(9)) > 0 .or. &
-          .not. is_decimal_real_token(token)) then
-        ios = 1
-        return
-      end if
-      read (token, *, iostat=ios) query(column)
-      if (ios /= 0) return
-      first = last + 2
-    end do
-  end subroutine parse_query_record
 
   subroutine write_atlas_row(unit_id, query, branch, status, output, diagnostics, ios)
     integer, intent(in) :: unit_id
@@ -354,24 +211,6 @@ contains
     upper = value
     if (upper >= 'a' .and. upper <= 'z') upper = achar(iachar(upper) - 32)
   end function upper_ascii
-
-  pure integer function count_character(text, needle) result(count)
-    character(len=*), intent(in) :: text
-    character(len=1), intent(in) :: needle
-    integer :: position
-
-    count = 0
-    do position = 1, len(text)
-      if (text(position:position) == needle) count = count + 1
-    end do
-  end function count_character
-
-  pure function integer_text(value) result(text)
-    integer, intent(in) :: value
-    character(len=32) :: text
-
-    write (text, '(i0)') value
-  end function integer_text
 
   subroutine accept_atlas(status, message)
     integer(i32), intent(out) :: status

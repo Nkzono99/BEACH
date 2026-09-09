@@ -14,9 +14,12 @@ program test_matching_plane_zhao_atlas
 
   character(len=*), parameter :: query_path = 'test_matching_plane_zhao_atlas_queries.csv'
   character(len=*), parameter :: output_path = 'test_matching_plane_zhao_atlas.csv'
+  character(len=20), parameter :: invalid_rows(*) = [character(len=20) :: &
+                                                     '0,0', '0,0,0,0', '0,,0', '0,/,0', &
+                                                     '0,2*0,0', '0,NaN,0', '0,1.0e999,0']
   type(app_config) :: cfg
   integer(i32) :: status
-  integer :: unit_id, ios
+  integer :: unit_id, ios, row
   character(len=2048) :: line
   character(len=512) :: message
   logical :: output_exists
@@ -45,6 +48,9 @@ program test_matching_plane_zhao_atlas
     call read_and_assert(',A,invalid_input,', 'invalid PE moment was not retained for Zhao-A')
     call read_and_assert(',B,invalid_input,', 'invalid PE moment was not retained for Zhao-B')
     call read_and_assert(',C,invalid_input,', 'invalid PE moment was not retained for Zhao-C')
+    call read_and_assert(',A,invalid_input,', 'negative PE flux was not retained for Zhao-A')
+    call read_and_assert(',B,invalid_input,', 'negative PE flux was not retained for Zhao-B')
+    call read_and_assert(',C,invalid_input,', 'negative PE flux was not retained for Zhao-C')
     read (unit_id, '(a)', iostat=ios) line
     call assert_true(ios < 0, 'Zhao atlas wrote an unexpected extra row')
     close (unit_id)
@@ -61,6 +67,18 @@ program test_matching_plane_zhao_atlas
   call assert_equal_i32(status, matching_plane_atlas_invalid_grid, 'invalid atlas header was accepted')
   inquire (file=output_path, exist=output_exists)
   call assert_true(.not. output_exists, 'invalid atlas query published an output')
+  do row = 1, size(invalid_rows)
+    open (newunit=unit_id, file=query_path, status='replace', action='write')
+    write (unit_id, '(a)') matching_plane_zhao_atlas_query_csv_header
+    write (unit_id, '(a)') trim(invalid_rows(row))
+    close (unit_id)
+    call generate_matching_plane_zhao_atlas(cfg, query_path, output_path, status, message)
+    call assert_equal_i32( &
+      status, matching_plane_atlas_invalid_grid, 'invalid atlas numeric row was accepted: '//trim(invalid_rows(row)) &
+      )
+    inquire (file=output_path, exist=output_exists)
+    call assert_true(.not. output_exists, 'invalid atlas numeric row published an output')
+  end do
   call test_end()
 
   call cleanup_files()
@@ -109,11 +127,15 @@ contains
     real(dp), parameter :: type_a_flux = 1.3754433596232731e13_dp
 
     open (newunit=unit_id, file=query_path, status='replace', action='write')
+    write (unit_id, '(a)') '# independently evaluated queries may include invalid physical inputs'
+    write (unit_id, '(a)') ''
     write (unit_id, '(a)') matching_plane_zhao_atlas_query_csv_header
     write (unit_id, '(a)') '0,0,0'
     write (unit_id, '(*(g0,:,","))') - 0.02_dp*eps0, 0.0_dp, 0.0_dp
     write (unit_id, '(*(g0,:,","))') type_a_displacement, type_a_flux, 2.2_dp
     write (unit_id, '(a)') '0,1.0e10,0'
+    write (unit_id, '(a)') '# negative flux is a model diagnostic, not a CSV syntax error'
+    write (unit_id, '(a)') '0,-1.0,0'
     close (unit_id)
   end subroutine write_known_queries
 

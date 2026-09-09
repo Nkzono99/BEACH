@@ -96,7 +96,7 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | --- | --- | --- |
 | 場の評価 | `bem_field_solver.f90` | `_config` は設定解決、`_tree` は treecode の木とモーメント、`_fmm` は FMM core のパネル幾何・電荷状態、`_eval` は評価方式の切り替え |
 | 外部シース応答 | `bem_matching_plane_response_provider.f90` | 親 module はモデル評価とフィードバックの契約、`_mpi` は設定からの初期化・rank 間の合意・root の評価結果の配信 |
-| 応答テーブル | `bem_matching_plane_response.f90` | 親 module は不変 snapshot の共有と補間、`_io` は CSV 読み込み・格子検証 |
+| 応答テーブル | `bem_matching_plane_response.f90` | 親 module は不変 snapshot の共有と補間、`_io` は CSV 読み込み・格子検証、`_mpi` は root の読込結果の配信 |
 | Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
@@ -122,13 +122,17 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 | `bem_sheath_model_core.f90` | Zhao モデルの密度・電荷密度・残差式と、定常解の非線形方程式 |
 | `bem_surface_current_model.f90` | 設定と定常シース解を、粒子種別の吸収・放出・流入電流へ変換 |
 | `bem_surface_closure_contract.f90` | simulator が受け取る電流・境界条件のデータ型。モデル固有の解法は持たない |
-| `bem_matching_plane_zhao.f90` | 電束密度と流束を入力に、A/B/C 分岐の根探索、物理解の選択、応答評価、継続解の追跡 |
-| `bem_matching_plane_implicit.f90` | 硬い面平均帯電を後退 Euler で解く。応答モデルを反復評価し、根の挟み込みと必要な時間分割を行う |
+| `bem_matching_plane_zhao.f90` | 公開型、初期化、評価の入口、再開用 seed の復元。入力から解選択・応答変換への呼び出しを管理 |
+| `bem_matching_plane_zhao_physics.f90` | query の物理量への変換、未知数のパラメータ化、残差式、Sagdeev 積分、接続プロファイルの成立条件、エネルギーと流入応答 |
+| `bem_matching_plane_zhao_numerics.f90` | 分岐ごとの初期推定、減衰 Newton 法、差分 Jacobian、小規模線形解法 |
+| `bem_matching_plane_zhao_roots.f90` | A/B/C 候補の列挙、同じ根の重複除去、一意性・最小エネルギーによる選択、Type-A 継続解の追跡と再探索 |
+| `bem_matching_plane_implicit.f90` | 硬い面平均帯電を後退 Euler で解く。応答モデルを反復評価し、根の挟み込みと電束密度の探索区間の細分化を行う |
 | `bem_matching_plane_response_provider.f90` | table / online Zhao の共通入口と、フィードバックの範囲・尺度・収束判定 |
 | `bem_matching_plane_response_provider_mpi.f90` | provider の設定解決、rank 間の設定・query 合意、root で求めた応答の配信 |
 | `bem_matching_plane_response.f90` | 応答表の保持、path ごとの snapshot cache、5 次元補間、補間軸の取得 |
 | `bem_matching_plane_response_io.f90` | CSV の構文・単位付き列名・格子の欠損や重複を検証して応答表を構築 |
 | `bem_matching_plane_response_mpi.f90` | root が読んだ補間軸・値・高度・出典 path を全 rank に配信 |
+| `bem_matching_plane_query_io.f90` | オフラインツール共通の query CSV 読み込み。列名・列数・十進数構文・有限値を検証し、入力順で行を返す |
 | `bem_matching_plane_response_generator.f90` | online Zhao を格子上で評価して、実行用の応答 CSV を作るオフラインツール |
 | `bem_matching_plane_zhao_atlas.f90` | A/B/C 分岐の成立範囲や失敗理由を調べるオフライン診断ツール |
 
@@ -136,9 +140,27 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 `bem_matching_plane_implicit` を介します。generator と atlas は通常の batch loop には入りません。
 `src/physics/bem_surface_models*.f90` は物体側の電荷再配分・導体条件などを担当し、外部シース応答とは別です。
 
-読みやすさの課題は、`bem_matching_plane_zhao` に数式、Newton 法、候補解の選別、continuation が集まっていることと、
-generator / atlas に query CSV の読み取り処理が重複していることです。これらは次の分離候補ですが、
-分岐の成立条件や負の電場二乗を拒否する検査は物理モデルに必要です。
+Zhao の 3 つの実装は非公開 submodule です。呼び出し元は引き続き
+`matching_plane_zhao_model_type%evaluate` を使い、内部の根や Newton 法を直接扱いません。
+数値解法は物理式を評価し、解選択は数値解と接続プロファイルの成立条件を合わせて判断します。
+
+```mermaid
+flowchart LR
+  entry["zhao: 公開入口"] --> roots["roots: 解選択・継続"]
+  roots --> numerics["numerics: 根探索"]
+  numerics --> physics["physics: 物理量・残差・成立条件"]
+  roots --> physics
+  entry --> physics
+```
+
+分岐の成立条件や負の電場二乗を拒否する検査は物理モデルの一部です。候補は OpenMP で計算しても
+初期値の順番で選別し、エネルギー積分の加算順も固定して解選択の再現性を保ちます。
+Type-A 継続では受理済みの根から解き、大きく移動した場合や局所探索に失敗した場合には候補を再探索します。
+陰解法の継続用 seed は MPI root が保持し、更新後の電束密度と応答を全 rank に配信します。
+
+query CSV の形式検証は共通ですが、用途ごとの条件はツール側が持ちます。generator は 5 入力の
+非負流束・エネルギーと完全な直積格子を要求します。atlas は 3 入力の任意の query 群を読み、負の有限値も
+分岐ごとの不成立理由を記録するために受け付けます。応答表の読み込みと補間は引き続き response 側の担当です。
 
 応答表のハッシュ照合は廃止し、root の読込結果を配信します。補間軸が必要なコードは
 `call table%get_axis_data(axis_sizes, axis_values, matching_plane_z_m, status, message)` を使います。
