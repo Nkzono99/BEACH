@@ -4,7 +4,7 @@ module bem_mesh
   use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_string_utils, only: lower_ascii
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_quadrature, only: fill_panel_quadrature
+  use bem_triangle_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 contains

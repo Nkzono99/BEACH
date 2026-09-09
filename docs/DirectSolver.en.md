@@ -94,7 +94,7 @@ Refine the source mesh and particle time step independently.
 ## Code reference
 
 - Direct field, potential, and self terms: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
-- Analytic triangle P0 kernel: [`bem_panel_kernel.f90`](../src/physics/panel/bem_panel_kernel.f90)
-- Panel geometry: [`bem_panel_geometry.f90`](../src/physics/panel/bem_panel_geometry.f90)
+- Analytic triangle P0 kernel: [`bem_panel_kernel.f90`](../src/physics/field_solver/panel/bem_panel_kernel.f90)
+- Panel geometry: [`bem_panel_geometry.f90`](../src/mesh/panel/bem_panel_geometry.f90)
 - Configuration validation: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)
 - Main regression tests: [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), [`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90)

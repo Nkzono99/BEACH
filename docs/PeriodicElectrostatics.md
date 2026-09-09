@@ -7,6 +7,9 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 `field_boundary.mode="periodic2"` の静電場は、x/y 周期・z 非周期の slab で有限画像、無限周期 `k\ne0`、平面平均
 `k=0` を別々に計算し、各成分を一度ずつ加算します。
 
+zero mode の「ゼロ」は x/y の波数 $k_x=k_y=0$ を意味します。この成分は高さに依存する平面平均の電場で、
+下側境界条件と Gauss 則から決まります。電場ソルバーが扱う物理成分の一つです。
+
 ## domain topology と場 closure を指定する
 
 ```toml
@@ -161,6 +164,8 @@ FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)にまと�
 - periodic FMM plan/state/evaluation: [`bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
 - Ewald teacherとcached root operator: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
 - cached symmetric `k=0` subtraction: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
-- surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90)
-- zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90)
-- component ownershipと場の合成: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
+- surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90)
+- zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90)
+- 非ゼロ Fourier 参照評価: [`bem_coulomb_fmm_periodic_nonzero_reference.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90)
+- 上部真空域での Fourier 評価: [`bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90)
+- component ownershipと場の合成: [`bem_electrostatic_snapshot.f90`](../src/physics/field_solver/bem_electrostatic_snapshot.f90)

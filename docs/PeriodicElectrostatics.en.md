@@ -7,6 +7,9 @@ Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.
 For an x/y-periodic, z-nonperiodic slab, `field_boundary.mode="periodic2"` computes finite images, infinite-periodic `k\ne0`, and
 plane-average `k=0` separately and adds each component exactly once.
 
+The zero in zero mode refers to the x/y wave numbers $k_x=k_y=0$. This component is the height-dependent plane-average field,
+determined by the lower boundary condition and Gauss's law. It is one of the physical components handled by the field solver.
+
 ## Specify domain topology and field closure
 
 ```toml
@@ -161,6 +164,8 @@ See [FMM internals](FMMCore.en.html) for internal Ewald formulas and operator AP
 - Periodic FMM plan, state, and evaluation: [`bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
 - Ewald teacher and cached root operator: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
 - Cached symmetric `k=0` subtraction: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
-- Surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90)
-- Zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90)
-- Component ownership and snapshot composition: [`bem_electrostatic_snapshot.f90`](../src/physics/bem_electrostatic_snapshot.f90)
+- Surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90)
+- Zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90)
+- Nonzero Fourier reference evaluation: [`bem_coulomb_fmm_periodic_nonzero_reference.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90)
+- Upper-vacuum Fourier evaluation: [`bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90)
+- Component ownership and snapshot composition: [`bem_electrostatic_snapshot.f90`](../src/physics/field_solver/bem_electrostatic_snapshot.f90)

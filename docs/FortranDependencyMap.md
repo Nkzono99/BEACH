@@ -8,11 +8,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 ## 概要
 
-- ソースファイル数: 112
-- モジュール数: 81
+- ソースファイル数: 113
+- モジュール数: 82
 - submodule 数: 30
 - program 数: 3
-- 内部依存エッジ数: 451
+- 内部依存エッジ数: 455
 
 ## 全体グラフ
 
@@ -29,17 +29,18 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `src/config/app_config_parser` | 3 | 13 |
 | `src/core` | 7 | 5 |
 | `src/mesh` | 3 | 11 |
+| `src/mesh/panel` | 3 | 7 |
 | `src/particles` | 2 | 7 |
 | `src/particles/injection` | 5 | 22 |
-| `src/physics` | 7 | 27 |
-| `src/physics/field_solver` | 6 | 21 |
+| `src/physics` | 5 | 13 |
+| `src/physics/field_solver` | 8 | 35 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
 | `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
-| `src/physics/field_solver/fmm/internal/periodic` | 7 | 27 |
+| `src/physics/field_solver/fmm/internal/periodic` | 5 | 19 |
 | `src/physics/field_solver/fmm/internal/runtime` | 2 | 14 |
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
-| `src/physics/panel` | 5 | 13 |
-| `src/physics/periodic_zero_mode` | 3 | 9 |
+| `src/physics/field_solver/panel` | 3 | 10 |
+| `src/physics/field_solver/periodic` | 5 | 17 |
 | `src/physics/sheath` | 2 | 2 |
 | `src/physics/sheath/zhao` | 5 | 11 |
 | `src/runtime` | 15 | 69 |
@@ -53,13 +54,13 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 79 |
+| `bem_kinds` | `module` | 80 |
 | `bem_types` | `module` | 35 |
 | `bem_string_utils` | `module` | 32 |
-| `bem_constants` | `module` | 24 |
+| `bem_constants` | `module` | 25 |
 | `bem_app_config_types` | `module` | 17 |
 | `bem_mpi` | `module` | 17 |
-| `bem_panel_geometry` | `module` | 12 |
+| `bem_panel_geometry` | `module` | 13 |
 | `bem_charge_ledger` | `module` | 11 |
 | `bem_electrostatic_snapshot` | `module` | 10 |
 | `bem_coulomb_fmm_types` | `module` | 9 |
@@ -93,8 +94,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_types` | `module` | `src/core/bem_types.f90` | `bem_kinds` | シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。 |
 | `bem_version` | `module` | `src/core/bem_version.F90` | - | BEACH build metadata stamped by build.sh. |
 | `bem_importers` | `module` | `src/mesh/bem_importers.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | OBJメッシュを走査・解析し、内部 `mesh_type` へ変換するインポートモジュール。 |
-| `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_quadrature` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
+| `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_triangle_quadrature` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
 | `bem_templates` | `module` | `src/mesh/bem_templates.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。 |
+| `bem_panel_geometry` | `module` | `src/mesh/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
+| `bem_panel_surface_sides` | `module` | `src/mesh/panel/bem_panel_surface_sides.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | Resolve physical vacuum sides without changing ordered triangle winding. |
+| `bem_triangle_quadrature` | `module` | `src/mesh/panel/bem_triangle_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Triangle cubature rules and Gauss-Duffy quadrature plans. |
 | `bem_injection` | `module` | `src/particles/bem_injection.f90` | `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_injection_velocity_grid`, `bem_photoelectron_injection` | 粒子注入APIを責務別internal moduleから再公開する互換facade。 |
 | `bem_particles` | `module` | `src/particles/bem_particles.f90` | `bem_kinds`, `bem_types` | 粒子SoAデータ構造の初期化を提供するモジュール。 |
 | `bem_injection_flux` | `module` | `src/particles/injection/bem_injection_flux.f90` | `bem_kinds`, `bem_constants`, `bem_injection_geometry`, `bem_injection_random` | Maxwell reservoirの流束、macro粒子数、面速度sampling。 |
@@ -104,13 +108,13 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_photoelectron_injection` | `module` | `src/particles/injection/bem_photoelectron_injection.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_boundary`, `bem_collision`, `bem_string_utils`, `bem_injection_flux`, `bem_injection_geometry`, `bem_injection_random` | 光線追跡による光電子放出位置と速度のsampling。 |
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/面内再配置反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
-| `bem_electrostatic_snapshot` | `module` | `src/physics/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`, `bem_panel_geometry`, `bem_panel_kernel` | 1バッチ内で固定する静電場 snapshot。 |
 | `bem_pusher` | `module` | `src/physics/bem_pusher.f90` | `bem_kinds` | 荷電粒子の時間発展にBoris法を適用する運動方程式ソルバ。 |
 | `bem_surface_models` | `module` | `src/physics/bem_surface_models.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 表面モデルごとの電荷更新後処理を扱うモジュール。 |
-| `bem_electrostatic_snapshot_eval` | `submodule` | `src/physics/bem_electrostatic_snapshot_eval.f90` | `bem_electrostatic_snapshot`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum` | `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。 |
 | `bem_surface_models_conductor` | `submodule` | `src/physics/bem_surface_models_conductor.f90` | `bem_surface_models`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。 |
+| `bem_electrostatic_snapshot` | `module` | `src/physics/field_solver/bem_electrostatic_snapshot.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`, `bem_panel_geometry`, `bem_panel_kernel` | 1バッチ内で固定する静電場 snapshot。 |
 | `bem_field_kernel_c` | `module` | `src/physics/field_solver/bem_field_kernel_c.f90` | `bem_constants`, `bem_coulomb_fmm_core`, `bem_kinds`, `bem_panel_geometry`, `bem_version` | C ABI wrapper for the simulator-independent Coulomb FMM field kernel. |
 | `bem_field_solver` | `module` | `src/physics/field_solver/bem_field_solver.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types` | 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。 |
+| `bem_electrostatic_snapshot_eval` | `submodule` | `src/physics/field_solver/bem_electrostatic_snapshot_eval.f90` | `bem_electrostatic_snapshot`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum` | `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。 |
 | `bem_field_solver_config` | `submodule` | `src/physics/field_solver/bem_field_solver_config.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_physics_config_types` | `bem_field_solver` の初期化・設定補助手続きを実装する submodule。 |
 | `bem_field_solver_eval` | `submodule` | `src/physics/field_solver/bem_field_solver_eval.f90` | `bem_field_solver`, `bem_coulomb_fmm_core`, `bem_panel_geometry`, `bem_panel_kernel` | `bem_field_solver` の電場評価と木走査ロジックを実装する submodule。 |
 | `bem_field_solver_fmm` | `submodule` | `src/physics/field_solver/bem_field_solver_fmm.f90` | `bem_field_solver`, `bem_coulomb_fmm_core` | `bem_field_solver` と FMM core の間のパネル幾何・電荷状態の更新を担う。 |
@@ -124,22 +128,20 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_coulomb_fmm_periodic` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の periodic2 境界処理。 |
 | `bem_coulomb_fmm_periodic_cache` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90` | `bem_filesystem`, `bem_kinds` | Versioned stream codec for cached periodic root operators. |
 | `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 cached operator生成用のEwald teacher。 |
-| `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature` | - |
-| `bem_coulomb_fmm_periodic_nonzero_upper_vacuum` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。 |
 | `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
 | `bem_regularized_qr` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_regularized_qr.f90` | `bem_kinds` | Reusable column-scaled QR factorization for ridge-regularized least squares. |
 | `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
 | `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan` | Coulomb FMM state 更新と upward/downward pass。 |
 | `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
 | `bem_coulomb_fmm_tree_utils` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_tree_utils.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | Coulomb FMM tree 構造の共通ユーティリティ。 |
-| `bem_panel_geometry` | `module` | `src/physics/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
-| `bem_panel_kernel` | `module` | `src/physics/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
-| `bem_panel_quadrature` | `module` | `src/physics/panel/bem_panel_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Independent triangle cubature and Gauss-Duffy correctness oracles. |
-| `bem_panel_self_terms` | `module` | `src/physics/panel/bem_panel_self_terms.f90` | `bem_kinds`, `bem_panel_geometry` | On-surface P0 triangle potential and principal-value field integrals. |
-| `bem_panel_surface_sides` | `module` | `src/physics/panel/bem_panel_surface_sides.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | Resolve physical vacuum sides without changing ordered triangle winding. |
-| `bem_periodic_zero_mode_c` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_c.f90` | `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan` | C ABI wrapper for the physical periodic zero mode. |
-| `bem_periodic_zero_mode_eval` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
-| `bem_periodic_zero_mode_plan` | `module` | `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
+| `bem_panel_kernel` | `module` | `src/physics/field_solver/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
+| `bem_panel_quadrature` | `module` | `src/physics/field_solver/panel/bem_panel_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_triangle_quadrature` | Independent Coulomb potential/field correctness oracles for triangle panels. |
+| `bem_panel_self_terms` | `module` | `src/physics/field_solver/panel/bem_panel_self_terms.f90` | `bem_kinds`, `bem_panel_geometry` | On-surface P0 triangle potential and principal-value field integrals. |
+| `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_triangle_quadrature` | - |
+| `bem_coulomb_fmm_periodic_nonzero_upper_vacuum` | `module` | `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。 |
+| `bem_periodic_zero_mode_c` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_c.f90` | `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan` | C ABI wrapper for the physical periodic zero mode. |
+| `bem_periodic_zero_mode_eval` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
+| `bem_periodic_zero_mode_plan` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
 | `bem_matching_plane_contract` | `module` | `src/physics/sheath/bem_matching_plane_contract.f90` | `bem_kinds` | Matching-plane 応答の 5 入力・6 出力の並び。モデル、CSV、MPI の実装には依存しない。 |
 | `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
 | `bem_matching_plane_zhao` | `module` | `src/physics/sheath/zhao/bem_matching_plane_zhao.f90` | `bem_kinds`, `bem_constants`, `bem_matching_plane_contract`, `bem_sheath_model_core`, `bem_string_utils` | - |
@@ -419,7 +421,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/mesh/bem_mesh.f90`
 - group: `src/mesh`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_panel_quadrature`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_triangle_quadrature`
 - external dependencies: `ieee_arithmetic`
 - 概要: 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 
@@ -431,6 +433,33 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_kinds`, `bem_types`, `bem_mesh`
 - external dependencies: なし
 - 概要: 平面/穴あき平面/円板/リング/箱/円柱/球テンプレートから三角形メッシュを生成するユーティリティ。
+
+### `bem_panel_geometry`
+
+- kind: `module`
+- path: `src/mesh/panel/bem_panel_geometry.f90`
+- group: `src/mesh/panel`
+- 内部依存: `bem_kinds`
+- external dependencies: `ieee_arithmetic`
+- 概要: Ordered triangle geometry and exact Cartesian surface moments.
+
+### `bem_panel_surface_sides`
+
+- kind: `module`
+- path: `src/mesh/panel/bem_panel_surface_sides.f90`
+- group: `src/mesh/panel`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_string_utils`
+- external dependencies: なし
+- 概要: Resolve physical vacuum sides without changing ordered triangle winding.
+
+### `bem_triangle_quadrature`
+
+- kind: `module`
+- path: `src/mesh/panel/bem_triangle_quadrature.f90`
+- group: `src/mesh/panel`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`
+- external dependencies: なし
+- 概要: Triangle cubature rules and Gauss-Duffy quadrature plans.
 
 ### `bem_injection`
 
@@ -513,15 +542,6 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: `ieee_arithmetic`, `iso_fortran_env`
 - 概要: 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。
 
-### `bem_electrostatic_snapshot`
-
-- kind: `module`
-- path: `src/physics/bem_electrostatic_snapshot.f90`
-- group: `src/physics`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`, `bem_panel_geometry`, `bem_panel_kernel`
-- external dependencies: `ieee_arithmetic`
-- 概要: 1バッチ内で固定する静電場 snapshot。
-
 ### `bem_pusher`
 
 - kind: `module`
@@ -540,16 +560,6 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: なし
 - 概要: 表面モデルごとの電荷更新後処理を扱うモジュール。
 
-### `bem_electrostatic_snapshot_eval`
-
-- kind: `submodule`
-- path: `src/physics/bem_electrostatic_snapshot_eval.f90`
-- group: `src/physics`
-- parent: `bem_electrostatic_snapshot`
-- 内部依存: `bem_electrostatic_snapshot`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`
-- external dependencies: なし
-- 概要: `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。
-
 ### `bem_surface_models_conductor`
 
 - kind: `submodule`
@@ -559,6 +569,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_surface_models`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`
 - external dependencies: なし
 - 概要: `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。
+
+### `bem_electrostatic_snapshot`
+
+- kind: `module`
+- path: `src/physics/field_solver/bem_electrostatic_snapshot.f90`
+- group: `src/physics/field_solver`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_field_solver`, `bem_physics_config_types`, `bem_string_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_zero_mode_eval`, `bem_coulomb_fmm_periodic_nonzero_reference`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`, `bem_panel_geometry`, `bem_panel_kernel`
+- external dependencies: `ieee_arithmetic`
+- 概要: 1バッチ内で固定する静電場 snapshot。
 
 ### `bem_field_kernel_c`
 
@@ -577,6 +596,16 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_coulomb_fmm_core`, `bem_string_utils`, `bem_physics_config_types`
 - external dependencies: `ieee_arithmetic`
 - 概要: 粒子位置での電場評価を direct / treecode / fmm で切り替える場ソルバ。
+
+### `bem_electrostatic_snapshot_eval`
+
+- kind: `submodule`
+- path: `src/physics/field_solver/bem_electrostatic_snapshot_eval.f90`
+- group: `src/physics/field_solver`
+- parent: `bem_electrostatic_snapshot`
+- 内部依存: `bem_electrostatic_snapshot`, `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`
+- external dependencies: なし
+- 概要: `bem_electrostatic_snapshot` の局所電場・電位評価を実装する submodule。
 
 ### `bem_field_solver_config`
 
@@ -702,23 +731,6 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: なし
 - 概要: periodic2 cached operator生成用のEwald teacher。
 
-### `bem_coulomb_fmm_periodic_nonzero_reference`
-
-- kind: `module`
-- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90`
-- group: `src/physics/field_solver/fmm/internal/periodic`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_panel_quadrature`
-- external dependencies: `ieee_arithmetic`
-
-### `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`
-
-- kind: `module`
-- path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`
-- group: `src/physics/field_solver/fmm/internal/periodic`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`
-- external dependencies: `ieee_arithmetic`
-- 概要: 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。
-
 ### `bem_coulomb_fmm_periodic_root_ops`
 
 - kind: `module`
@@ -773,20 +785,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: なし
 - 概要: Coulomb FMM tree 構造の共通ユーティリティ。
 
-### `bem_panel_geometry`
-
-- kind: `module`
-- path: `src/physics/panel/bem_panel_geometry.f90`
-- group: `src/physics/panel`
-- 内部依存: `bem_kinds`
-- external dependencies: `ieee_arithmetic`
-- 概要: Ordered triangle geometry and exact Cartesian surface moments.
-
 ### `bem_panel_kernel`
 
 - kind: `module`
-- path: `src/physics/panel/bem_panel_kernel.f90`
-- group: `src/physics/panel`
+- path: `src/physics/field_solver/panel/bem_panel_kernel.f90`
+- group: `src/physics/field_solver/panel`
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms`
 - external dependencies: なし
 - 概要: Analytic free-space P0 triangle potential, field, principal value, and jump.
@@ -794,35 +797,43 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 ### `bem_panel_quadrature`
 
 - kind: `module`
-- path: `src/physics/panel/bem_panel_quadrature.f90`
-- group: `src/physics/panel`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`
+- path: `src/physics/field_solver/panel/bem_panel_quadrature.f90`
+- group: `src/physics/field_solver/panel`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_triangle_quadrature`
 - external dependencies: なし
-- 概要: Independent triangle cubature and Gauss-Duffy correctness oracles.
+- 概要: Independent Coulomb potential/field correctness oracles for triangle panels.
 
 ### `bem_panel_self_terms`
 
 - kind: `module`
-- path: `src/physics/panel/bem_panel_self_terms.f90`
-- group: `src/physics/panel`
+- path: `src/physics/field_solver/panel/bem_panel_self_terms.f90`
+- group: `src/physics/field_solver/panel`
 - 内部依存: `bem_kinds`, `bem_panel_geometry`
 - external dependencies: なし
 - 概要: On-surface P0 triangle potential and principal-value field integrals.
 
-### `bem_panel_surface_sides`
+### `bem_coulomb_fmm_periodic_nonzero_reference`
 
 - kind: `module`
-- path: `src/physics/panel/bem_panel_surface_sides.f90`
-- group: `src/physics/panel`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_string_utils`
-- external dependencies: なし
-- 概要: Resolve physical vacuum sides without changing ordered triangle winding.
+- path: `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90`
+- group: `src/physics/field_solver/periodic`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_triangle_quadrature`
+- external dependencies: `ieee_arithmetic`
+
+### `bem_coulomb_fmm_periodic_nonzero_upper_vacuum`
+
+- kind: `module`
+- path: `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`
+- group: `src/physics/field_solver/periodic`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`
+- external dependencies: `ieee_arithmetic`
+- 概要: 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。
 
 ### `bem_periodic_zero_mode_c`
 
 - kind: `module`
-- path: `src/physics/periodic_zero_mode/bem_periodic_zero_mode_c.f90`
-- group: `src/physics/periodic_zero_mode`
+- path: `src/physics/field_solver/periodic/bem_periodic_zero_mode_c.f90`
+- group: `src/physics/field_solver/periodic`
 - 内部依存: `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan`
 - external dependencies: `ieee_arithmetic`, `iso_c_binding`
 - 概要: C ABI wrapper for the physical periodic zero mode.
@@ -830,16 +841,16 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 ### `bem_periodic_zero_mode_eval`
 
 - kind: `module`
-- path: `src/physics/periodic_zero_mode/bem_periodic_zero_mode_eval.f90`
-- group: `src/physics/periodic_zero_mode`
+- path: `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90`
+- group: `src/physics/field_solver/periodic`
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan`
 - external dependencies: なし
 
 ### `bem_periodic_zero_mode_plan`
 
 - kind: `module`
-- path: `src/physics/periodic_zero_mode/bem_periodic_zero_mode_plan.f90`
-- group: `src/physics/periodic_zero_mode`
+- path: `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90`
+- group: `src/physics/field_solver/periodic`
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_types`
 - external dependencies: `ieee_arithmetic`
 

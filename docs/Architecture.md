@@ -9,6 +9,22 @@ BEACH の Fortran 実装を初めて変更する開発者が、実行入口か�
 [開発ワークフロー](Workflow.html)を参照してください。このページは全 module の一覧を再掲せず、runtime の
 制御フロー、主要 state の所有者、subsystem の境界だけを扱います。
 
+## ディレクトリの責務を判断する
+
+配置は扱う対象と処理の責務で決めます。`mesh/` は形状と離散化、`physics/` は物理モデルと数値解法、
+`runtime/` はそれらを結ぶ実行制御です。たとえば三角形の面積や求積点は mesh、面電荷が作る電場の積分は
+field solver に属します。
+
+| ディレクトリ（`src/` 以下） | 担当 |
+| --- | --- |
+| `core/` | 共通の型・定数・文字列処理・MPI 基盤 |
+| `mesh/` | 形状の生成・読み込み、三角形幾何、面の向き、求積、衝突検索用の幾何 |
+| `particles/` | 粒子配列の管理と注入分布のサンプリング |
+| `physics/` | 電場・粒子運動・境界・表面・シースの物理モデルと数値解法 |
+| `config/` | 入力の解析・検証と実行用データの構築 |
+| `runtime/` | バッチ制御、モデル間の連成、出力、再開 |
+| `tools/` | 通常のバッチ計算から独立した表生成・診断ツール |
+
 ## 実行フローを追う
 
 ```mermaid
@@ -42,7 +58,7 @@ flowchart TD
    電荷反映・電流補正・台帳は [`bem_simulator_charge.f90`](../src/runtime/simulator/bem_simulator_charge.f90) が担当します。
    統計と履歴は `bem_simulator_stats.f90` と `bem_simulator_io.f90` の submodule に分かれます。
 4. simulator は commit 済み `mesh%q_elem` から
-   [`electrostatic_snapshot_type`](../src/physics/bem_electrostatic_snapshot.f90) を refresh します。
+   [`electrostatic_snapshot_type`](../src/physics/field_solver/bem_electrostatic_snapshot.f90) を refresh します。
    同じ trial の粒子追跡中はこの snapshot を固定し、accepted commit の電荷は次の batch の refresh で初めて場へ入ります。
 5. `build_particle_source_plan` と `prepare_batch_state` が、source 設定と `batch_duration` から trial 用の
    `particles_soa` を作ります。設定からの粒子構築は
@@ -110,6 +126,30 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 `call solver%init(mesh, sim)` を再度呼び、`sim%field_solver` を切り替えられます。
 `refresh(mesh)` は電荷更新に用い、FMM では空メッシュまたは要素数の変更にも対応します。
 同じ要素数で頂点座標を変更した場合は `init` で幾何を再構築してください。
+
+### 電場ソルバーと三角形幾何の担当
+
+`src/physics/field_solver/` は最終的な静電場の合成まで担当します。
+`bem_field_solver` は Direct / Treecode / FMM の評価を切り替え、`bem_electrostatic_snapshot` は
+周期場の平均成分と非ゼロ成分、指定一様場を合成してバッチ中に固定する場を提供します。
+
+| ディレクトリ（`src/` 以下） | 担当 |
+| --- | --- |
+| `mesh/panel/` | 三角形の幾何・モーメント・面の向き、幾何だけから求める求積点と重み |
+| `physics/field_solver/` | snapshot による場の合成、Direct / Treecode / FMM の切り替え、C API |
+| `physics/field_solver/panel/` | 三角形面電荷の Coulomb 積分、面上の自己項、求積による電場の検証用実装 |
+| `physics/field_solver/periodic/` | 平面平均場の解法、非ゼロ Fourier 成分の参照評価、上部真空域での Fourier 評価 |
+| `physics/field_solver/fmm/` | FMM の公開 API と内部の木・展開・相互作用・Ewald 遠方演算子・cache |
+
+zero mode は x/y 波数がゼロの平面平均場で、電場ソルバーの一部です。高さごとの累積電荷と下側境界条件から
+Gauss 則を積分します。非ゼロ成分を Fourier 参照計算で求める場合と FMM の `cached_kneq0` で求める場合に
+同じ実装を使うため、`periodic/` に置きます。合成時の重複除去と式は
+[periodic2 静電場](PeriodicElectrostatics.html)を参照してください。
+共有する Fourier 評価もこのディレクトリに置き、FMM 固有の演算子生成・cache は `fmm/internal/periodic/` が持ちます。
+
+メッシュ構築は `bem_triangle_quadrature` の `fill_panel_quadrature` を直接使い、電場評価に依存しません。
+`bem_panel_quadrature` は電場の検証用積分を持ち、既存の求積 API も公開して従来の呼び出し元を維持します。
+幾何の準備を共有しても、Coulomb kernel の検証用積分は解析 kernel と別の式で評価します。
 
 ### シースと外部応答の担当
 
@@ -234,9 +274,9 @@ call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_
 | Subsystem | 主な source | 直接 test | 正本・解説 |
 | --- | --- | --- | --- |
 | CLI、config、runtime resolution | `app/main.f90`、`src/config/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90)、[`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90)、`tests/python/test_config_schema.py`、`test_config_cli.py` | [設定を編集する](Configuration.html)、[設定パラメータ](Parameters.html) |
-| mesh、template、OBJ、panel geometry | `src/mesh/`、`src/physics/panel/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90)、[`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90)、[`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90) | [設定レシピ](ConfigurationRecipes.html)、[Direct](DirectSolver.html) |
+| mesh、template、OBJ、panel geometry | `src/mesh/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90)、[`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90)、[`test_panel_moments.f90`](../tests/fortran/test_panel_moments.f90) | [設定レシピ](ConfigurationRecipes.html)、[Direct](DirectSolver.html) |
 | batch orchestration | `src/runtime/simulator/bem_simulator*.f90` | [`test_simulator.f90`](../tests/fortran/test_simulator.f90)、[`test_dynamics_basic.f90`](../tests/fortran/test_dynamics_basic.f90) | [`SPEC.md`](../SPEC.md)、[BEACH の計算サイクル](Algorithms.html) |
-| field snapshot、Direct / Treecode / FMM、periodic2 | `bem_electrostatic_snapshot*.f90`、`src/physics/field_solver/`、`src/physics/periodic_zero_mode/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90)、[`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、`test_dynamics_fmm`、`test_periodic_zero_mode`、`test_periodic2_cached_snapshot` | [場の評価](FieldSolvers.html)、[FMM](FMM.html)、[periodic2 静電場](PeriodicElectrostatics.html) |
+| field snapshot、Direct / Treecode / FMM、periodic2 | `src/physics/field_solver/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90)、[`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、[`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90)、`test_dynamics_fmm`、`test_periodic_zero_mode`、`test_periodic2_cached_snapshot` | [場の評価](FieldSolvers.html)、[FMM](FMM.html)、[periodic2 静電場](PeriodicElectrostatics.html) |
 | particle source と injection | `bem_app_config_particle_runtime.f90`、`src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90)、[`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90)、[`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [粒子をどこから入れるか](ParticleSourcesBoundaries.html)、[境界から粒子を流入させる](ReservoirInjection.html)、[光電子放出](PhotoelectronEmission.html) |
 | Boris、collision、box event | `bem_particle_stepper.f90`、`bem_pusher.f90`、`bem_collision.f90`、`bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90)、[`test_boundary.f90`](../tests/fortran/test_boundary.f90)、`test_dynamics_basic` | [粒子更新](ParticleTrackingCollision.html)、[Boris](BorisPusher.html)、[粒子 event](ParticleEvents.html) |
 | surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`src/runtime/sheath/`、`bem_simulator_charge.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90)、`test_matching_plane_simulator` | [表面はどう帯電するか](SurfaceModels.html)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[matching-plane 連成](MatchingPlaneCoupling.html) |

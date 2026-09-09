@@ -9,6 +9,22 @@ affected source and its direct tests. See [The BEACH computation cycle](Algorith
 algorithm, and [Development Workflow](Workflow.en.html) for build and test selection. This page does not repeat every module;
 it covers the runtime control flow, ownership of major state, and subsystem boundaries.
 
+## Choose a directory by responsibility
+
+Placement follows the object being handled and the operation being performed. `mesh/` owns geometry and discretization,
+`physics/` owns physical models and numerical solvers, and `runtime/` coordinates their execution. For example, triangle areas
+and quadrature points belong to mesh, while integration of the field from surface charge belongs to the field solver.
+
+| Directory under `src/` | Responsibility |
+| --- | --- |
+| `core/` | Shared types, constants, string utilities, and MPI infrastructure |
+| `mesh/` | Geometry generation and loading, triangle geometry, surface orientation, quadrature, and collision-search geometry |
+| `particles/` | Particle-array management and injection-distribution sampling |
+| `physics/` | Physical models and numerical methods for fields, particle motion, boundaries, surfaces, and sheaths |
+| `config/` | Input parsing and validation, and construction of runtime data |
+| `runtime/` | Batch control, coupling between models, output, and restart |
+| `tools/` | Table generation and diagnostics outside the normal batch calculation |
+
 ## Follow the execution flow
 
 ```mermaid
@@ -40,7 +56,7 @@ flowchart TD
    [`bem_simulator_particles.f90`](../src/runtime/simulator/bem_simulator_particles.f90) handles particle generation and tracking,
    and [`bem_simulator_charge.f90`](../src/runtime/simulator/bem_simulator_charge.f90) handles charge commits, current corrections,
    and the ledger. The `bem_simulator_stats.f90` and `bem_simulator_io.f90` submodules implement statistics and history output.
-4. The simulator refreshes [`electrostatic_snapshot_type`](../src/physics/bem_electrostatic_snapshot.f90) from committed
+4. The simulator refreshes [`electrostatic_snapshot_type`](../src/physics/field_solver/bem_electrostatic_snapshot.f90) from committed
    `mesh%q_elem`. The snapshot stays fixed while particles in the same trial are tracked. Charge from an accepted commit
    first enters the field at the refresh for the next batch.
 5. `build_particle_source_plan` and `prepare_batch_state` create the trial `particles_soa` from source settings and
@@ -107,6 +123,31 @@ the treecode arrays do not describe FMM state. `init` releases existing FMM work
 repeat `call solver%init(mesh, sim)` on the same `solver` after changing `sim%field_solver` to switch backends.
 Use `refresh(mesh)` for charge changes; the FMM path also handles an empty mesh or a changed element count.
 If vertex coordinates change while the element count stays the same, use `init` to rebuild geometry.
+
+### Field-solver and triangle-geometry responsibilities
+
+`src/physics/field_solver/` owns evaluation through composition of the complete electrostatic field.
+`bem_field_solver` dispatches Direct / Treecode / FMM evaluation, while `bem_electrostatic_snapshot` combines periodic mean
+and nonzero components with the prescribed uniform field and provides the field held fixed during a batch.
+
+| Directory under `src/` | Responsibility |
+| --- | --- |
+| `mesh/panel/` | Triangle geometry, moments, surface orientation, and geometry-only quadrature points and weights |
+| `physics/field_solver/` | Snapshot field composition, Direct / Treecode / FMM dispatch, and the C API |
+| `physics/field_solver/panel/` | Coulomb integrals over charged triangles, on-surface self terms, and quadrature-based field references |
+| `physics/field_solver/periodic/` | Plane-average field solve, nonzero Fourier reference evaluation, and upper-vacuum Fourier evaluation |
+| `physics/field_solver/fmm/` | Public FMM API and internal trees, expansions, interactions, Ewald far operators, and caches |
+
+The zero mode is the plane-average field with zero x/y wave numbers and is part of the field solver. It integrates Gauss's law
+from the cumulative charge below each height and the lower boundary condition. The same implementation is used whether
+the nonzero field comes from the Fourier reference or FMM's `cached_kneq0`, so it belongs in `periodic/`.
+See [periodic2 Electrostatics](PeriodicElectrostatics.en.html) for the equations and prevention of double counting during
+composition. Shared Fourier evaluation also belongs here; FMM-specific operator generation and caching remain in
+`fmm/internal/periodic/`.
+
+Mesh construction imports `fill_panel_quadrature` directly from `bem_triangle_quadrature` without depending on field evaluation.
+`bem_panel_quadrature` owns reference field integrals and also exports the existing quadrature API to preserve existing callers.
+Although geometric preparation is shared, the reference Coulomb integrals use formulas separate from the analytic kernel.
 
 ### Sheath and external-response responsibilities
 
@@ -234,9 +275,9 @@ The tests below are direct tests to run immediately after a change. Select the r
 | Subsystem | Main source | Direct tests | Canonical source and explanation |
 | --- | --- | --- | --- |
 | CLI, configuration, and runtime resolution | `app/main.f90`, `src/config/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90), [`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90), `tests/python/test_config_schema.py`, `test_config_cli.py` | [Edit Configuration](Configuration.en.html), [Configuration Parameters](Parameters.en.html) |
-| Meshes, templates, OBJ input, and panel geometry | `src/mesh/`, `src/physics/panel/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90), [`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90), [`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90) | [Configuration Recipes](ConfigurationRecipes.en.html), [Direct Solver](DirectSolver.en.html) |
+| Meshes, templates, OBJ input, and panel geometry | `src/mesh/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90), [`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90), [`test_panel_moments.f90`](../tests/fortran/test_panel_moments.f90) | [Configuration Recipes](ConfigurationRecipes.en.html), [Direct Solver](DirectSolver.en.html) |
 | Batch orchestration | `src/runtime/simulator/bem_simulator*.f90` | [`test_simulator.f90`](../tests/fortran/test_simulator.f90), [`test_dynamics_basic.f90`](../tests/fortran/test_dynamics_basic.f90) | [`SPEC.md`](../SPEC.md), [The BEACH computation cycle](Algorithms.en.html) |
-| Field snapshot, Direct / Treecode / FMM, and periodic2 | `bem_electrostatic_snapshot*.f90`, `src/physics/field_solver/`, `src/physics/periodic_zero_mode/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90), [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), `test_dynamics_fmm`, `test_periodic_zero_mode`, `test_periodic2_cached_snapshot` | [Field Evaluation](FieldSolvers.en.html), [FMM](FMM.en.html), [periodic2 Electrostatics](PeriodicElectrostatics.en.html) |
+| Field snapshot, Direct / Treecode / FMM, and periodic2 | `src/physics/field_solver/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90), [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), [`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90), `test_dynamics_fmm`, `test_periodic_zero_mode`, `test_periodic2_cached_snapshot` | [Field Evaluation](FieldSolvers.en.html), [FMM](FMM.en.html), [periodic2 Electrostatics](PeriodicElectrostatics.en.html) |
 | Particle sources and injection | `bem_app_config_particle_runtime.f90`, `src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90), [`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90), [`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [Choose where particles enter](ParticleSourcesBoundaries.en.html), [Inject particles through a boundary](ReservoirInjection.en.html), [Photoelectron Emission](PhotoelectronEmission.en.html) |
 | Boris update, collision, and box events | `bem_particle_stepper.f90`, `bem_pusher.f90`, `bem_collision.f90`, `bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90), [`test_boundary.f90`](../tests/fortran/test_boundary.f90), `test_dynamics_basic` | [Particle Update](ParticleTrackingCollision.en.html), [Boris Pusher](BorisPusher.en.html), [Particle Events](ParticleEvents.en.html) |
 | Surface charge, closure, and ledger | `bem_surface_models*.f90`, `src/physics/sheath/`, `src/runtime/sheath/`, `bem_simulator_charge.f90`, `bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90), [`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90), [`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90), `test_matching_plane_simulator` | [How surfaces charge](SurfaceModels.en.html), [Surface-charge update numerics](SurfaceChargeNumerics.en.html), [Matching-plane coupling](MatchingPlaneCoupling.en.html) |

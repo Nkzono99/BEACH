@@ -3,7 +3,7 @@ module bem_coulomb_fmm_periodic_nonzero_reference
   use bem_constants, only: eps0, pi
   use bem_types, only: mesh_type
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_duffy_quadrature
+  use bem_triangle_quadrature, only: panel_quadrature_plan_type, build_panel_duffy_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private

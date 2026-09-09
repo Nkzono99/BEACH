@@ -92,7 +92,7 @@ Directとの差が小さければ、FMMやTreecodeの近似誤差が小さいこ
 ## Code reference
 
 - Directの電場・電位と自己項: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
-- triangle P0解析kernel: [`bem_panel_kernel.f90`](../src/physics/panel/bem_panel_kernel.f90)
-- panel geometry: [`bem_panel_geometry.f90`](../src/physics/panel/bem_panel_geometry.f90)
+- triangle P0解析kernel: [`bem_panel_kernel.f90`](../src/physics/field_solver/panel/bem_panel_kernel.f90)
+- panel geometry: [`bem_panel_geometry.f90`](../src/mesh/panel/bem_panel_geometry.f90)
 - 設定の検証: [`bem_physics_config_types.f90`](../src/config/bem_physics_config_types.f90)
 - 主な回帰テスト: [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、[`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90)
