@@ -42,6 +42,30 @@ FPM_ACTION=test ./build.sh --target test_particle_stepper
 複数の `fpm test` または `build.sh` test target を並行実行しないでください。同じ `build/` directory を
 共有するため、compile artifact が競合します。
 
+### ソース配置変更後のビルドキャッシュ
+
+`build.sh` とそれを使う Make target は、ソースの追加・削除・移動やコンパイラの差し替えを検出すると、
+対象コンパイラの fpm キャッシュを削除して再構築します。初回のビルドも同じ処理を行い、古い module や archive の混入を防ぎます。
+コンパイラの実体パス・version と、`src/`、`app/`、`tests/fortran/`、`benchmarks/fortran/` にある
+コンパイル対象の相対パス一覧を `build/.beach-cache-<compiler>.context` に記録します。
+
+削除対象は `build/<compiler>_<16-hex-digits>/` 内の object、module、archive、実行ファイルです。
+他のコンパイラのキャッシュ、依存ライブラリの checkout、log、生成ドキュメントは残ります。
+ソース本文の編集、Git commit、profile・flag・target の変更ではこの一括削除を行わず、fpm の通常の増分ビルドと
+キャッシュ選択に任せます。直接 `fpm` を実行した場合は、この自動検出の対象外です。
+
+`make build-kernel` は同じコンパイラ・profile・flag で `build.sh --list` が示す archive を選び、共有ライブラリへリンクします。
+
+古い成果物の混入が疑われる場合は、一度だけ再構築してから通常のテストを実行します。
+
+```bash
+BEACH_REBUILD=1 make check
+make test-l2
+```
+
+再構築時は `[build.sh] Resetting ... caches:` が表示されます。`BEACH_REBUILD=1` は最初のコマンドだけに指定します。
+`BEACH_REBUILD=1 make test-l2` のように複数 target のテストへ渡すと、各 target で再構築されます。
+
 ## 変更からテストを選ぶ
 
 最初に直接関係する test を実行し、その後で少なくとも表の gate まで確認します。複数 subsystem にまたがる変更では、

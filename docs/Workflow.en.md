@@ -41,6 +41,30 @@ FPM_ACTION=test ./build.sh --target test_particle_stepper
 Do not run multiple `fpm test` commands or `build.sh` test targets concurrently. They share the same `build/`
 directory and can corrupt or race on compilation artifacts.
 
+### Build caches after source-layout changes
+
+`build.sh` and Make targets using it detect added, deleted, or moved source files and compiler replacements, then clear
+that compiler's fpm caches before rebuilding. The first build does the same to prevent stale modules or archives from
+being reused. The compiler's resolved path and version, plus the relative paths of compilable sources under `src/`, `app/`,
+`tests/fortran/`, and `benchmarks/fortran/`, are recorded in `build/.beach-cache-<compiler>.context`.
+
+The reset removes objects, modules, archives, and executables under `build/<compiler>_<16-hex-digits>/`.
+Caches for other compilers, dependency checkouts, logs, and generated documentation remain. Source-content edits, Git commits,
+and profile, flag, or target changes do not trigger this reset; fpm handles its normal incremental build and cache selection.
+Direct `fpm` commands bypass this automatic detection.
+
+`make build-kernel` links the archive identified by `build.sh --list` with the same compiler, profile, and flags into the shared library.
+
+If stale build products are suspected, rebuild once and then run the normal tests:
+
+```bash
+BEACH_REBUILD=1 make check
+make test-l2
+```
+
+A reset prints `[build.sh] Resetting ... caches:`. Set `BEACH_REBUILD=1` for the first command only.
+Passing it to a command with multiple test targets, such as `BEACH_REBUILD=1 make test-l2`, rebuilds for every target.
+
 ## Select tests from the change
 
 Run the directly related tests first, then complete at least the gate shown in the table. Combine rows when a change

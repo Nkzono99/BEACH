@@ -169,8 +169,11 @@ build-kernel:
 	BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
 		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH)
 	@set -eu; \
-	lib=$$(find build -name libbeach_fortran.a -printf '%T@ %p\n' | sort -nr | awk 'NR==1 {print $$2}'); \
-	if [ -z "$$lib" ]; then echo "libbeach_fortran.a not found; run fpm build first." >&2; exit 1; fi; \
+	targets=$$(BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH) --list 2>&1) || \
+		{ printf '%s\n' "$$targets" >&2; exit 1; }; \
+	lib=$$(printf '%s\n' "$$targets" | awk '$$NF ~ /\/beach_fortran\/libbeach_fortran[.]a$$/ {print $$NF}'); \
+	if [ ! -f "$$lib" ]; then echo "fpm did not identify one built BEACH archive for this configuration." >&2; exit 1; fi; \
 	mkdir -p "$$(dirname "$(KERNEL_LIB)")"; \
 	$(KERNEL_FC) -shared -o "$(KERNEL_LIB)" \
 		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG); \

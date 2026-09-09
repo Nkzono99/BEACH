@@ -11,6 +11,67 @@ FPM_ACTION="${FPM_ACTION:-build}"
 FPM_PROFILE="${FPM_PROFILE:-${PROFILE:-}}"
 PREFIX="${PREFIX:-${HOME}/.local}"
 
+prepare_fpm_cache() {
+  local compiler="${FPM_FC:-gfortran}"
+  local compiler_name compiler_path compiler_version context context_file cache_dir cache_suffix
+  local source_dir
+  local source_dirs=()
+
+  case "${FPM_ACTION}" in
+    build|run|test|install) ;;
+    *) return ;;
+  esac
+  while (($#)); do
+    case "$1" in
+      --) break ;;
+      --help|-h|--version|-V|--list|--list=*|--show-model) return ;;
+      --compiler)
+        (($# >= 2)) || return 0
+        compiler="$2"
+        shift
+        ;;
+      --compiler=*) compiler="${1#--compiler=}" ;;
+    esac
+    shift
+  done
+
+  # Let fpm report an unavailable compiler without discarding a usable cache.
+  compiler_path="$(command -v "${compiler}")" || return 0
+  compiler_path="$(readlink -f -- "${compiler_path}")" || return 0
+  compiler_version="$(LC_ALL=C "${compiler}" --version 2>&1)" || true
+  compiler_name="${compiler##*/}"
+  context_file="build/.beach-cache-${compiler_name}.context"
+  for source_dir in src app tests/fortran benchmarks/fortran; do
+    [[ ! -d "${source_dir}" ]] || source_dirs+=("${source_dir}")
+  done
+  context="$(
+    printf 'compiler_name=%s\ncompiler_path=%s\ncompiler_version:\n%s\nsources:\n' \
+      "${compiler_name}" "${compiler_path}" "${compiler_version}"
+    if ((${#source_dirs[@]})); then
+      find "${source_dirs[@]}" -type f \
+        \( -iname '*.f90' -o -iname '*.f' -o -iname '*.for' -o -iname '*.fpp' \
+        -o -iname '*.c' -o -iname '*.cc' -o -iname '*.cpp' -o -iname '*.cxx' \) \
+        -print | LC_ALL=C sort
+    fi
+  )"
+
+  if [[ "${BEACH_REBUILD:-0}" == "1" ]] || \
+    ! cmp -s "${context_file}" <(printf '%s\n' "${context}"); then
+    # fpm keeps library and executable objects in separate flag-hash directories.
+    # Invalidate both, including their modules and archives, after a source move.
+    # Keep other compilers, dependency checkouts, logs and generated products.
+    echo "[build.sh] Resetting ${compiler_name} caches: source layout/compiler changed or rebuild requested."
+    for cache_dir in build/"${compiler_name}_"*; do
+      [[ -d "${cache_dir}" && ! -L "${cache_dir}" ]] || continue
+      cache_suffix="${cache_dir#"build/${compiler_name}_"}"
+      [[ "${cache_suffix}" =~ ^[[:xdigit:]]{16}$ ]] || continue
+      rm -rf -- "${cache_dir}"
+    done
+    mkdir -p build
+    printf '%s\n' "${context}" >"${context_file}"
+  fi
+}
+
 read_fpm_version() {
   sed -n -E 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' fpm.toml | head -n 1
 }
@@ -86,6 +147,8 @@ echo "[build.sh] BEACH_VERSION_MODE=${RESOLVED_VERSION_MODE}"
 echo "[build.sh] BEACH_SOURCE_COMMIT=${SOURCE_COMMIT}"
 echo "[build.sh] BEACH_BUILD_ID=${BUILD_ID}"
 echo "[build.sh] FPM_FFLAGS=${EFFECTIVE_FFLAGS}"
+
+prepare_fpm_cache "$@"
 
 case "${FPM_ACTION}" in
   build)
