@@ -6,9 +6,15 @@
 - `mesh/`: メッシュ初期化、テンプレート生成、外部メッシュ読込。`panel/` は三角形の幾何・面の向き・求積点と重み
 - `physics/`: 物理モデルとその数値解法。電場評価、Boris pusher、衝突判定、ボックス境界、シースを含む
 - `particles/`: 粒子 SoA 初期化、注入サンプリング
-- `config/`: 設定ファイルの型定義・パーサ・ランタイム解決
-- `runtime/`: リスタート入出力、シミュレータ本体、シースとの連成
+- `config/`: 設定型・TOML の基本値読み込み・領域別パーサ・正規化・実行前検証
+- `runtime/`: 設定からの実行データ構築、リスタート入出力、シミュレータ本体、シースとの連成
 - `tools/`: 応答表生成や分岐診断など、通常のシミュレーションとは別に使う Fortran ツール
+
+`config/` は入力を `app_config` へ読み、派生値と組合せ制約を確定します。
+`bem_config_toml` は基本型・有限値・文字列長、`app_config_parser/` は table ごとの読取と領域別 preflight、
+`bem_app_config_authoring*` は authoring 型と座標・配置の展開を担当します。
+メッシュや粒子、境界電位を設定から構築する処理は `runtime/configuration/` に置きます。
+`beach --check-config beach.toml` は設定の読み込み・正規化・検証で終了し、実行データを構築しません。
 
 電場の合成と評価は `physics/field_solver/` にまとめています。
 `periodic/` は平面平均の zero mode と Fourier 評価、`panel/` は面電荷の Coulomb 積分、

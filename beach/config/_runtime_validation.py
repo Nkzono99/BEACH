@@ -18,38 +18,22 @@ from ._particle_validation import (
     _validate_particle_species,
 )
 from ._shared import (
-    _REMOVED_SIM_KEYS,
-    _REQUIRED_RUNTIME_TABLES,
     _RESERVOIR_SOURCE_MODES,
     ConfigValidationError,
     _maybe_vec3,
     _optional_runtime_table,
-    _require_table,
-    _validate_fragment_structure,
 )
 from ._surface_validation import (
     _validate_surface_current_model,
 )
 
 
-def validate_runtime_config(config: Mapping[str, Any]) -> None:
-    """Validate runtime constraints without modifying the caller's configuration."""
+def _validate_runtime_semantics(config: Mapping[str, Any]) -> None:
+    """Check physical combinations after the shared schema/value validation."""
 
-    _validate_fragment_structure(
-        config,
-        context="runtime config",
-        allow_meta_keys=False,
-    )
-    for key in _REQUIRED_RUNTIME_TABLES:
-        if key not in config:
-            raise ConfigValidationError(
-                f"BEACH constraint error: runtime config is missing top-level [{key}] table."
-            )
-
-    sim = _require_table(config, "sim", context="runtime config")
-    particles = _require_table(config, "particles", context="runtime config")
-    mesh = _require_table(config, "mesh", context="runtime config")
-    _require_table(config, "output", context="runtime config")
+    sim = config.get("sim", {})
+    particles = config["particles"]
+    mesh = config.get("mesh", {})
     domain = _optional_runtime_table(config, "domain")
     field_boundary = _optional_runtime_table(config, "field_boundary")
     particle_boundary = _optional_runtime_table(config, "particle_boundary")
@@ -57,14 +41,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     surface_current_model = _optional_runtime_table(
         config, "surface_current_model"
     )
-    periodic2_config = config.get("periodic2", {})
-    removed_sim_keys = sorted(set(sim) & _REMOVED_SIM_KEYS)
-    if removed_sim_keys:
-        raise ConfigValidationError(
-            "BEACH constraint error: removed sim key(s): "
-            + ", ".join(removed_sim_keys)
-            + "."
-        )
+    periodic2_config = config.get("periodic2")
     _validate_runtime_external_e_field(sim)
     _validate_runtime_mesh(mesh)
     _validate_runtime_boundary_tables(
@@ -75,14 +52,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     )
 
     species = particles.get("species")
-    if (
-        not isinstance(species, list)
-        or len(species) == 0
-        or not all(isinstance(item, Mapping) for item in species)
-    ):
-        raise ConfigValidationError(
-            "BEACH constraint error: particles.species must be a non-empty array of tables."
-        )
     automatic_current_species = set()
     if (
         surface_current_model is not None
@@ -123,11 +92,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
     multiple_event_retry_backend = sim.get(
         "multiple_box_events_retry_backend", "none"
     )
-    if multiple_event_retry_backend not in {"none", "upper_panel_fourier"}:
-        raise ConfigValidationError(
-            "BEACH constraint error: sim.multiple_box_events_retry_backend "
-            'must be "none" or "upper_panel_fourier".'
-        )
     retry_nonzero_backend = (
         periodic2_config.get("nonzero_mode_backend")
         if isinstance(periodic2_config, Mapping)
@@ -148,43 +112,6 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
             'periodic2.nonzero_mode_backend="cached_kneq0".'
         )
 
-    multiple_event_policy = sim.get("multiple_box_events_policy", "abort")
-    if multiple_event_policy == "soft_discard":
-        count_grace = sim.get("multiple_box_events_soft_discard_count_grace", 1000)
-        fraction_limit = sim.get(
-            "multiple_box_events_soft_discard_fraction_limit", 1.0e-6
-        )
-        charge_limit = sim.get(
-            "multiple_box_events_soft_discard_abs_charge_limit", 1.0e-12
-        )
-        if (
-            not isinstance(count_grace, int)
-            or isinstance(count_grace, bool)
-            or count_grace < 0
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: soft_discard count grace must be an integer >= 0."
-            )
-        if (
-            not isinstance(fraction_limit, (int, float))
-            or isinstance(fraction_limit, bool)
-            or not math.isfinite(float(fraction_limit))
-            or float(fraction_limit) <= 0.0
-            or float(fraction_limit) > 1.0
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: soft_discard fraction limit must be finite and in (0, 1]."
-            )
-        if (
-            not isinstance(charge_limit, (int, float))
-            or isinstance(charge_limit, bool)
-            or not math.isfinite(float(charge_limit))
-            or float(charge_limit) <= 0.0
-        ):
-            raise ConfigValidationError(
-                "BEACH constraint error: soft_discard absolute charge limit must be finite and > 0."
-            )
-
     if any(
         bool(item.get("enabled", True))
         and item.get("source_mode", "volume_seed") == "photo_raycast"
@@ -201,7 +128,7 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
                 "when photo_raycast is enabled."
             )
 
-    uses_face_sources, has_volume_seed, total_npcls_per_step = _validate_particle_species(
+    uses_face_sources, total_npcls_per_step = _validate_particle_species(
         species, use_box=use_box, resolved_batch_duration=resolved_batch_duration,
         box_min=box_min, box_max=box_max, periodic_axes=periodic_axes,
         global_particle_boundary=global_particle_boundary,
@@ -219,9 +146,10 @@ def validate_runtime_config(config: Mapping[str, Any]) -> None:
         periodic2_config=periodic2_config,
     )
 
-    if has_volume_seed and not uses_face_sources and total_npcls_per_step < 1:
+    if not uses_face_sources and total_npcls_per_step < 1:
         raise ConfigValidationError(
-            "BEACH constraint error: volume_seed species require total npcls_per_step >= 1."
+            "BEACH constraint error: at least one enabled particle source is required; "
+            "volume_seed species require total npcls_per_step >= 1."
         )
     if adaptive_nonzero_mode_limit > 0.0 and any(
         item.get("enabled", True) is True
@@ -260,5 +188,11 @@ def _resolve_batch_duration(sim: Mapping[str, Any]) -> float:
             "cannot be specified together."
         )
     if has_batch_duration_step:
-        return dt * float(sim["batch_duration_step"])
+        duration = dt * float(sim["batch_duration_step"])
+        if not math.isfinite(duration) or duration <= 0.0:
+            raise ConfigValidationError(
+                "BEACH constraint error: sim.dt * sim.batch_duration_step must "
+                "produce a finite positive sim.batch_duration."
+            )
+        return duration
     return float(sim.get("batch_duration", 0.0))

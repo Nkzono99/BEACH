@@ -124,6 +124,8 @@ def run_validate(args: argparse.Namespace) -> None:
         raise SystemExit(f"config file not found: {args.config_path}") from exc
     except ConfigError as exc:
         raise SystemExit(str(exc)) from exc
+    except ValueError as exc:
+        raise SystemExit(f"TOML parse error: {exc}") from exc
 
     print(f"config={args.config_path}")
     print("status=ok")
@@ -143,6 +145,8 @@ def run_diff(args: argparse.Namespace) -> None:
         raise SystemExit(f"config file not found: {exc.filename}") from exc
     except ConfigError as exc:
         raise SystemExit(str(exc)) from exc
+    except ValueError as exc:
+        raise SystemExit(f"TOML parse error: {exc}") from exc
 
     lines = semantic_diff(left_document, right_document)
     if not lines:

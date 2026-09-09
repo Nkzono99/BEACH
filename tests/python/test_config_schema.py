@@ -36,6 +36,17 @@ def test_schema_distribution_copies_match_canonical() -> None:
         )
 
 
+def test_schema_distinguishes_fortran_integer_storage_from_real_values() -> None:
+    schema, _ = load_schema()
+    for value in (-(2**31), 2**31 - 1):
+        assert schema_errors(_config_with_sim(rng_seed=value), schema) == []
+    for value in (-(2**31) - 1, 2**31, 1.0, True):
+        assert schema_errors(_config_with_sim(rng_seed=value), schema)
+    config = _minimal_valid_config()
+    config["particles"]["species"][0]["number_density_m3"] = 10**12
+    assert schema_errors(config, schema) == []
+
+
 def test_tree_parameter_schema_uses_runtime_omission_semantics() -> None:
     schema, _ = load_schema()
     sim = schema["$defs"]["sim"]["properties"]

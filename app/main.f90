@@ -190,9 +190,11 @@ program main
 
 contains
 
-  !> 設定読込を始める前に完結する CLI option を処理する。
+  !> MPI 初期化や計算状態の構築前に完結する CLI option を処理する。
   subroutine handle_early_cli()
     character(len=256) :: arg
+    character(len=:), allocatable :: config_path
+    integer :: path_length
 
     if (command_argument_count() < 1) return
     call get_command_argument(1, arg)
@@ -203,8 +205,20 @@ contains
     case ('--build-info')
       print '(a)', beach_build_info
       stop
+    case ('--check-config')
+      if (command_argument_count() /= 2) error stop 'usage: beach --check-config beach.toml'
+      call get_command_argument(2, length=path_length)
+      allocate (character(len=path_length) :: config_path)
+      call get_command_argument(2, config_path)
+      call default_app_config(app)
+      call load_app_config(config_path, app)
+      print '(a,a)', 'config=', config_path
+      print '(a)', 'checks=toml,semantic'
+      print '(a)', 'status=ok'
+      stop
     case ('--help', '-h')
       print '(a)', 'usage: beach [beach.toml]'
+      print '(a)', '       beach --check-config beach.toml'
       print '(a)', '       beach --version'
       print '(a)', '       beach --build-info'
       stop
@@ -251,7 +265,6 @@ contains
     initial_stats = sim_stats()
     resumed = .false.
     if (app%resume_output) then
-      if (.not. app%write_output) error stop 'output.resume requires output.write_files = true.'
       restart_dir = app%output_dir
       if (len_trim(app%output_restart_from) > 0) restart_dir = app%output_restart_from
       call resolve_latest_checkpoint_dir(trim(restart_dir), restart_dir)

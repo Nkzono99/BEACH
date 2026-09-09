@@ -16,7 +16,7 @@ contains
   !! @param[in] pos_low 開口領域の下限座標 `(x,y,z)` [m]。
   !! @param[in] pos_high 開口領域の上限座標 `(x,y,z)` [m]。
   !! @return area 注入開口の有効面積 [m^2]。
-  real(dp) function compute_face_area_from_bounds(inject_face, pos_low, pos_high) result(area)
+  pure real(dp) function compute_face_area_from_bounds(inject_face, pos_low, pos_high) result(area)
     character(len=*), intent(in) :: inject_face
     real(dp), intent(in) :: pos_low(3), pos_high(3)
     integer :: axis_t1, axis_t2
@@ -29,7 +29,7 @@ contains
   !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
   !! @param[out] axis_t1 注入面の第1接線軸インデックス（1:x, 2:y, 3:z）。
   !! @param[out] axis_t2 注入面の第2接線軸インデックス（1:x, 2:y, 3:z）。
-  subroutine resolve_face_axes(inject_face, axis_t1, axis_t2)
+  pure subroutine resolve_face_axes(inject_face, axis_t1, axis_t2)
     character(len=*), intent(in) :: inject_face
     integer, intent(out) :: axis_t1, axis_t2
 

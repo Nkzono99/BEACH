@@ -5,6 +5,9 @@ on:
     paths:
       - "src/**"
       - "app/**"
+      - "beach/config/**"
+      - "beach/cli/config.py"
+      - "beach/cli/lint.py"
       - "tests/**"
       - "schemas/**"
       - "examples/**"
@@ -13,6 +16,8 @@ on:
       - "pyproject.toml"
       - "Makefile"
       - "tools/verify_sdist.py"
+      - "tools/run_config_contracts.py"
+      - "tools/check_config_schema.py"
       - ".github/workflows/publish-pypi.yml"
       - ".github/workflows/physics-contracts.yml"
   push:

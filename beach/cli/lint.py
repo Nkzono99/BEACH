@@ -10,12 +10,10 @@ from typing import Sequence
 from beach.config import (
     CONFIG_FILENAME,
     ConfigError,
-    load_config_file,
-    normalize_high_level_config,
 )
-from beach.config._toml import load_toml_file
+from beach.config.core import _load_config_file
+from beach.config.schema import ConfigSchemaError
 from beach.config.schema import load_schema as _load_schema
-from beach.config.schema import schema_errors as _schema_errors
 
 from ._shared import configure_entry_parser
 
@@ -53,7 +51,7 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--schema",
         type=Path,
-        help="JSON Schema path (default: packaged beach.schema.json)",
+        help="additional JSON Schema constraints (the packaged BEACH contract always applies)",
     )
     parser.add_argument(
         "--max-errors",
@@ -71,14 +69,10 @@ def run_lint(args: argparse.Namespace) -> None:
         raise SystemExit("--max-errors must be >= 1")
 
     try:
-        raw_config = load_toml_file(args.config_path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"config file not found: {exc.filename}") from exc
-    except ValueError as exc:
-        raise SystemExit(f"TOML parse error: {exc}") from exc
-
-    try:
-        schema, schema_label = _load_schema(args.schema)
+        schema, schema_label = _load_schema()
+        additional_schema = None
+        if args.schema is not None:
+            additional_schema, schema_label = _load_schema(args.schema)
     except FileNotFoundError as exc:
         raise SystemExit(f"schema file not found: {exc.filename}") from exc
     except json.JSONDecodeError as exc:
@@ -86,35 +80,23 @@ def run_lint(args: argparse.Namespace) -> None:
     except ValueError as exc:
         raise SystemExit(f"schema error: {exc}") from exc
 
-    raw_schema_errors = _schema_errors(raw_config, schema)
-    if raw_schema_errors:
+    try:
+        _load_config_file(
+            args.config_path, schema=schema, additional_schema=additional_schema,
+        )
+    except ConfigSchemaError as exc:
         _raise_schema_errors(
             path=args.config_path,
-            phase="authoring",
-            errors=raw_schema_errors,
+            phase=exc.phase,
+            errors=exc.errors,
             max_errors=args.max_errors,
         )
-
-    try:
-        normalized_config = normalize_high_level_config(raw_config)
-    except (ConfigError, TypeError, ValueError) as exc:
+    except FileNotFoundError as exc:
+        raise SystemExit(f"config file not found: {exc.filename}") from exc
+    except ConfigError as exc:
         raise SystemExit(str(exc)) from exc
-
-    schema_errors = _schema_errors(normalized_config, schema)
-    if schema_errors:
-        _raise_schema_errors(
-            path=args.config_path,
-            phase="normalized",
-            errors=schema_errors,
-            max_errors=args.max_errors,
-        )
-
-    try:
-        # Re-read through the runtime loader so relative response-table paths
-        # receive the same config-directory resolution and length checks.
-        load_config_file(args.config_path)
-    except (ConfigError, TypeError, ValueError) as exc:
-        raise SystemExit(str(exc)) from exc
+    except ValueError as exc:
+        raise SystemExit(f"TOML parse error: {exc}") from exc
 
     print(f"config={args.config_path}")
     print(f"schema={schema_label}")

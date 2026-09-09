@@ -21,8 +21,8 @@ field solver に属します。
 | `mesh/` | 形状の生成・読み込み、三角形幾何、面の向き、求積、衝突検索用の幾何 |
 | `particles/` | 粒子配列の管理と注入分布のサンプリング |
 | `physics/` | 電場・粒子運動・境界・表面・シースの物理モデルと数値解法 |
-| `config/` | 入力の解析・検証と実行用データの構築 |
-| `runtime/` | バッチ制御、モデル間の連成、出力、再開 |
+| `config/` | 設定型、TOML の読取、座標・単位の正規化、実行前検証 |
+| `runtime/` | 設定からの実行データ構築、バッチ制御、モデル間の連成、出力、再開 |
 | `tools/` | 通常のバッチ計算から独立した表生成・診断ツール |
 
 ## 実行フローを追う
@@ -30,7 +30,7 @@ field solver に属します。
 ```mermaid
 flowchart TD
     cli["app/main.f90\nCLI / MPI 初期化"]
-    config["config parser / runtime\napp_config と mesh を構築"]
+    config["config parser / runtime configuration\napp_config と mesh を構築"]
     restart["restart または初期 state\nq_elem / stats / residual / ledger"]
     loop["run_absorption_insulator\naccepted batch / trial loop"]
     field["electrostatic snapshot\ncommit 済み q_elem から refresh"]
@@ -46,11 +46,12 @@ flowchart TD
     record -->|batch_count 到達| final
 ```
 
-1. [`app/main.f90`](../app/main.f90) は CLI、MPI、performance profile を初期化し、設定 path を解決します。
+1. [`app/main.f90`](../app/main.f90) は CLI option を処理します。`--check-config` は設定検証で終了し、
+   通常実行では MPI と performance profile を初期化して設定 path を解決します。
    `load_or_init_run_state` が設定を読み、mesh と初期 state または restart state を用意します。
 2. [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) は TOML を
-   `app_config` へ読みます。派生値と組合せ制約は parser の finalize / validate submodule で確定します。
-   [`bem_app_config_mesh_runtime.f90`](../src/config/bem_app_config_mesh_runtime.f90) が template または OBJ から
+   `app_config` へ読みます。authoring の正規化と領域別 preflight が派生値と組合せ制約を確定します。
+   [`bem_app_config_mesh_runtime.f90`](../src/runtime/configuration/bem_app_config_mesh_runtime.f90) が template または OBJ から
    `mesh_type` を構築します。
 3. `main` は [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90) を呼びます。interface は
    `bem_simulator.f90`、主 loop は [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90)、
@@ -62,7 +63,7 @@ flowchart TD
    同じ trial の粒子追跡中はこの snapshot を固定し、accepted commit の電荷は次の batch の refresh で初めて場へ入ります。
 5. `build_particle_source_plan` と `prepare_batch_state` が、source 設定と `batch_duration` から trial 用の
    `particles_soa` を作ります。設定からの粒子構築は
-   [`bem_app_config_particle_runtime.f90`](../src/config/bem_app_config_particle_runtime.f90)、分布 sampling は
+   [`bem_app_config_particle_runtime.f90`](../src/runtime/configuration/bem_app_config_particle_runtime.f90)、分布 sampling は
    `src/particles/` が担当します。
 6. `process_particle_batch` は [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90) を通して
    予測中点場、Boris 更新、候補軌道を作ります。`bem_collision.f90` と `bem_boundary.f90` が最初の mesh hit または
@@ -116,7 +117,7 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
-| Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) は空間指定の展開、[`_runtime_validation.py`](../beach/config/_runtime_validation.py) は場・粒子・表面電流・メッシュの検証を順に呼ぶ |
+| Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | 共通の schema・正規化・意味的検証を呼ぶ。`_authoring.py` は空間指定、`_runtime_validation.py` は場・粒子・表面電流・mesh の検証を担当 |
 | Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に連成状態・場の再構築メタデータを委譲する |
 
 FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、電荷から計算する作業状態は
@@ -126,6 +127,30 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 `call solver%init(mesh, sim)` を再度呼び、`sim%field_solver` を切り替えられます。
 `refresh(mesh)` は電荷更新に用い、FMM では空メッシュまたは要素数の変更にも対応します。
 同じ要素数で頂点座標を変更した場合は `init` で幾何を再構築してください。
+
+### 設定の読取・正規化と実行データ構築を分ける
+
+`src/config/` は TOML を読み、既定値・座標変換・派生値・組合せ制約を確定します。
+その設定からメッシュ、粒子、境界電位を作る処理は `src/runtime/configuration/` に置きます。
+`beach --check-config beach.toml` は通常実行と同じ設定読込を使い、MPI 初期化と実行データ構築の前に終了します。
+
+| 担当 | 実装 | 境界 |
+| --- | --- | --- |
+| TOML の基本値 | [`bem_config_toml.f90`](../src/config/bem_config_toml.f90) | 型、整数の格納範囲、実数の有限性、配列長、文字列の格納長を確認して値を返す |
+| Table ごとの読取 | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) と `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | キーを設定型と authoring overlay に対応付ける。mesh の簡易検証も `_read_mesh` が担当 |
+| 座標・配置の展開 | [`bem_app_config_authoring.f90`](../src/config/bem_app_config_authoring.f90) と `_types` / `_domain` / `_sources` / `_geometry` | 型と既定値、領域、注入面、mesh group・anchor を分離。親は配列管理と変換順序を持つ |
+| 派生値と組合せ | parser の `_finalize`、`_preflight_sim` / `_preflight_particles` / `_preflight_surface`、`_validate`、`bem_physics_config_types` | finalize は検証の順序、`_validate` は粒子源の派生量、`bem_physics_config_types` は場の値域・組合せ、他の preflight は各領域の条件を担当する |
+| 実行データの構築 | [`runtime/configuration/`](../src/runtime/configuration/) | `bem_app_config` は既存の公開入口。mesh、粒子源計画・batch・sampling、境界電位を担当別に構築する |
+| Python の共通検証 | [`beach/config/core.py`](../beach/config/core.py) と [`schema.py`](../beach/config/schema.py) | 読取、schema、authoring 展開、意味的検証を一つの経路で実行する |
+
+Python の `load_config_file`、`normalize_config_document`、`validate_runtime_config`、`config validate`、
+`lint` は共通の基本型・整数の格納範囲・有限値・未知キー検査を使います。`lint` は TOML を再読込しません。
+列挙された識別値の大文字小文字を正規化し、path や自由文字列を一律に小文字化しません。
+Python の既存の物理的な意味検証も保持しています。通常運用は `beachx lint` を実行前に通すことを前提とし、
+`beach --check-config` は開発・診断に使います。Fortran は値を安全に格納・計算できる条件と、
+選択した物理モデルの成立条件を担います。検証を追加・整理する際はこれらを優先し、全入力の採否を
+Python と完全に一致させることは目標にしません。代表的な共通ケースを `make test-config-contract` で比較し、
+再発を防ぎます。この gate は L2 に含まれます。追加する検証の判断は[開発ワークフロー](Workflow.html#設定の契約を確認する)に従います。
 
 ### 電場ソルバーと三角形幾何の担当
 
@@ -273,7 +298,7 @@ call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_
 
 | Subsystem | 主な source | 直接 test | 正本・解説 |
 | --- | --- | --- | --- |
-| CLI、config、runtime resolution | `app/main.f90`、`src/config/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90)、[`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90)、`tests/python/test_config_schema.py`、`test_config_cli.py` | [設定を編集する](Configuration.html)、[設定パラメータ](Parameters.html) |
+| CLI、config、runtime resolution | `app/main.f90`、`src/config/`、`src/runtime/configuration/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90)、[`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90)、`tests/python/test_config_schema.py`、`test_config_cli.py`、`make test-config-contract` | [設定を編集する](Configuration.html)、[設定パラメータ](Parameters.html) |
 | mesh、template、OBJ、panel geometry | `src/mesh/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90)、[`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90)、[`test_panel_moments.f90`](../tests/fortran/test_panel_moments.f90) | [設定レシピ](ConfigurationRecipes.html)、[Direct](DirectSolver.html) |
 | batch orchestration | `src/runtime/simulator/bem_simulator*.f90` | [`test_simulator.f90`](../tests/fortran/test_simulator.f90)、[`test_dynamics_basic.f90`](../tests/fortran/test_dynamics_basic.f90) | [`SPEC.md`](../SPEC.md)、[BEACH の計算サイクル](Algorithms.html) |
 | field snapshot、Direct / Treecode / FMM、periodic2 | `src/physics/field_solver/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90)、[`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、[`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90)、`test_dynamics_fmm`、`test_periodic_zero_mode`、`test_periodic2_cached_snapshot` | [場の評価](FieldSolvers.html)、[FMM](FMM.html)、[periodic2 静電場](PeriodicElectrostatics.html) |

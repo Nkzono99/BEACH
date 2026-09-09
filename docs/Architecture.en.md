@@ -21,8 +21,8 @@ and quadrature points belong to mesh, while integration of the field from surfac
 | `mesh/` | Geometry generation and loading, triangle geometry, surface orientation, quadrature, and collision-search geometry |
 | `particles/` | Particle-array management and injection-distribution sampling |
 | `physics/` | Physical models and numerical methods for fields, particle motion, boundaries, surfaces, and sheaths |
-| `config/` | Input parsing and validation, and construction of runtime data |
-| `runtime/` | Batch control, coupling between models, output, and restart |
+| `config/` | Configuration types, TOML reading, coordinate and unit normalization, and preflight checks |
+| `runtime/` | Runtime-data construction from configuration, batch control, model coupling, output, and restart |
 | `tools/` | Table generation and diagnostics outside the normal batch calculation |
 
 ## Follow the execution flow
@@ -30,7 +30,7 @@ and quadrature points belong to mesh, while integration of the field from surfac
 ```mermaid
 flowchart TD
     cli["app/main.f90\nCLI / MPI initialization"]
-    config["config parser / runtime\nbuild app_config and mesh"]
+    config["config parser / runtime configuration\nbuild app_config and mesh"]
     restart["restart or initial state\nq_elem / stats / residual / ledger"]
     loop["run_absorption_insulator\naccepted-batch / trial loop"]
     field["electrostatic snapshot\nrefresh from committed q_elem"]
@@ -46,11 +46,12 @@ flowchart TD
     record -->|batch_count reached| final
 ```
 
-1. [`app/main.f90`](../app/main.f90) initializes the CLI, MPI, and performance profiler, then resolves the configuration path.
+1. [`app/main.f90`](../app/main.f90) handles CLI options. `--check-config` exits after configuration validation;
+   a normal run initializes MPI and the performance profiler, then resolves the configuration path.
    `load_or_init_run_state` loads configuration and prepares the mesh and either initial or restarted state.
 2. [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) reads TOML into `app_config`.
-   Its finalize and validate submodules resolve derived values and combination constraints.
-   [`bem_app_config_mesh_runtime.f90`](../src/config/bem_app_config_mesh_runtime.f90) builds `mesh_type` from templates or OBJ input.
+   Authoring normalization and domain-specific preflight checks resolve derived values and combination constraints.
+   [`bem_app_config_mesh_runtime.f90`](../src/runtime/configuration/bem_app_config_mesh_runtime.f90) builds `mesh_type` from templates or OBJ input.
 3. `main` calls [`run_absorption_insulator`](../src/runtime/simulator/bem_simulator.f90). Its interface is in
    `bem_simulator.f90`, and its main loop is in [`bem_simulator_loop.f90`](../src/runtime/simulator/bem_simulator_loop.f90).
    [`bem_simulator_particles.f90`](../src/runtime/simulator/bem_simulator_particles.f90) handles particle generation and tracking,
@@ -60,7 +61,7 @@ flowchart TD
    `mesh%q_elem`. The snapshot stays fixed while particles in the same trial are tracked. Charge from an accepted commit
    first enters the field at the refresh for the next batch.
 5. `build_particle_source_plan` and `prepare_batch_state` create the trial `particles_soa` from source settings and
-   `batch_duration`. [`bem_app_config_particle_runtime.f90`](../src/config/bem_app_config_particle_runtime.f90) constructs
+   `batch_duration`. [`bem_app_config_particle_runtime.f90`](../src/runtime/configuration/bem_app_config_particle_runtime.f90) constructs
    particles from resolved configuration, and `src/particles/` implements distribution sampling.
 6. `process_particle_batch` uses [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90) to build a
    predicted-midpoint field sample, Boris update, and candidate trajectory. `bem_collision.f90` and `bem_boundary.f90`
@@ -114,7 +115,7 @@ Public entry points coordinate call order and data transfer, delegating each for
 | Fortran result output | `bem_output_writer.f90` | The `_history` submodule creates and appends histories, `_summary` writes the summary, and `_files` writes mesh, charge, and ledger CSVs |
 | Checkpoint restart | `bem_restart.f90` | `_contract` validates restart conditions, `_records` reads statistics, charges, and the ledger, and `_injection` saves and restores RNG state and macro-particle residuals |
 | Particle generation from configuration | `bem_app_config_particle_runtime.f90` | The parent module builds the source plan, `_batch` distributes work across MPI ranks and assembles batches, and `_sampling` handles species sampling and injection-velocity corrections |
-| Python configuration | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) lowers spatial notation, and [`_runtime_validation.py`](../beach/config/_runtime_validation.py) calls field, particle, surface-current, and mesh validation in order |
+| Python configuration | [`beach/config/core.py`](../beach/config/core.py) | Run shared schema, normalization, and semantic checks; `_authoring.py` handles spatial notation and `_runtime_validation.py` validates fields, particles, surface currents, and meshes |
 | Python result loading | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | Reads basic mesh and charge data, delegating coupling state to [`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) and field-reconstruction metadata to [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) |
 
 `field_solver_type%fmm_core_plan` owns FMM topology and interaction lists; `%fmm_core_state` holds charge-dependent work arrays.
@@ -123,6 +124,31 @@ the treecode arrays do not describe FMM state. `init` releases existing FMM work
 repeat `call solver%init(mesh, sim)` on the same `solver` after changing `sim%field_solver` to switch backends.
 Use `refresh(mesh)` for charge changes; the FMM path also handles an empty mesh or a changed element count.
 If vertex coordinates change while the element count stays the same, use `init` to rebuild geometry.
+
+### Separate configuration interpretation from runtime construction
+
+`src/config/` reads TOML and resolves defaults, coordinate notation, derived values, and combination constraints.
+`src/runtime/configuration/` constructs meshes, particles, and boundary potentials from those settings.
+`beach --check-config beach.toml` uses the normal configuration loader and exits before MPI initialization or runtime-data construction.
+
+| Responsibility | Implementation | Boundary |
+| --- | --- | --- |
+| Basic TOML values | [`bem_config_toml.f90`](../src/config/bem_config_toml.f90) | Check types, integer storage ranges, finite reals, array lengths, and string storage lengths before returning values |
+| Table readers | [`bem_app_config_parser.f90`](../src/config/app_config_parser/bem_app_config_parser.f90) and `_read_sim` / `_read_particles` / `_read_mesh` / `_read_surface` | Map keys to configuration types and the authoring overlay; `_read_mesh` also owns basic mesh validation |
+| Coordinate and placement notation | [`bem_app_config_authoring.f90`](../src/config/bem_app_config_authoring.f90) and `_types` / `_domain` / `_sources` / `_geometry` | Separate types and defaults, domain geometry, injection faces, and mesh groups and anchors; the parent owns array management and conversion order |
+| Derived values and combinations | Parser `_finalize`, `_preflight_sim` / `_preflight_particles` / `_preflight_surface`, `_validate`, and `bem_physics_config_types` | Finalize owns validation order; `_validate` resolves source-derived values, `bem_physics_config_types` checks field ranges and combinations, and the other preflight implementations own their domain conditions |
+| Runtime-data construction | [`runtime/configuration/`](../src/runtime/configuration/) | `bem_app_config` retains the public entry point; separate implementations construct meshes, source plans, batches, sampled particles, and boundary potentials |
+| Shared Python validation | [`beach/config/core.py`](../beach/config/core.py) and [`schema.py`](../beach/config/schema.py) | Use one path for loading, schema checks, authoring normalization, and semantic validation |
+
+Python's `load_config_file`, `normalize_config_document`, `validate_runtime_config`, `config validate`, and `lint`
+share basic-type, integer-storage-range, finite-value, and unknown-key checks. `lint` does not reread the TOML file.
+Declared identifier values are normalized for case; paths and free-form strings are not lowercased indiscriminately.
+The existing Python physics-semantic checks remain. Ordinary operation assumes `beachx lint` succeeds before running;
+`beach --check-config` serves development and diagnostics. Fortran owns conditions needed to store and compute values safely
+and the prerequisites of the selected physical model. Additions and cleanup prioritize these conditions without aiming
+for identical Python and Fortran acceptance of every possible input. `make test-config-contract` compares representative
+shared cases to prevent regressions. This gate is part of L2. See the [development workflow](Workflow.en.html#check-the-configuration-contract)
+for decisions about additional validation.
 
 ### Field-solver and triangle-geometry responsibilities
 
@@ -274,7 +300,7 @@ The tests below are direct tests to run immediately after a change. Select the r
 
 | Subsystem | Main source | Direct tests | Canonical source and explanation |
 | --- | --- | --- | --- |
-| CLI, configuration, and runtime resolution | `app/main.f90`, `src/config/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90), [`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90), `tests/python/test_config_schema.py`, `test_config_cli.py` | [Edit Configuration](Configuration.en.html), [Configuration Parameters](Parameters.en.html) |
+| CLI, configuration, and runtime resolution | `app/main.f90`, `src/config/`, `src/runtime/configuration/` | [`test_app_config_parser.f90`](../tests/fortran/test_app_config_parser.f90), [`test_physics_config_types.f90`](../tests/fortran/test_physics_config_types.f90), `tests/python/test_config_schema.py`, `test_config_cli.py`, `make test-config-contract` | [Edit Configuration](Configuration.en.html), [Configuration Parameters](Parameters.en.html) |
 | Meshes, templates, OBJ input, and panel geometry | `src/mesh/` | [`test_templates_importers_runtime.f90`](../tests/fortran/test_templates_importers_runtime.f90), [`test_panel_geometry_near.f90`](../tests/fortran/test_panel_geometry_near.f90), [`test_panel_moments.f90`](../tests/fortran/test_panel_moments.f90) | [Configuration Recipes](ConfigurationRecipes.en.html), [Direct Solver](DirectSolver.en.html) |
 | Batch orchestration | `src/runtime/simulator/bem_simulator*.f90` | [`test_simulator.f90`](../tests/fortran/test_simulator.f90), [`test_dynamics_basic.f90`](../tests/fortran/test_dynamics_basic.f90) | [`SPEC.md`](../SPEC.md), [The BEACH computation cycle](Algorithms.en.html) |
 | Field snapshot, Direct / Treecode / FMM, and periodic2 | `src/physics/field_solver/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90), [`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90), [`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90), `test_dynamics_fmm`, `test_periodic_zero_mode`, `test_periodic2_cached_snapshot` | [Field Evaluation](FieldSolvers.en.html), [FMM](FMM.en.html), [periodic2 Electrostatics](PeriodicElectrostatics.en.html) |

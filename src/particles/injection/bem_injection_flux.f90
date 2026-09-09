@@ -27,7 +27,7 @@ contains
   !! @param[in] inward_normal 注入面の内向き単位法線ベクトル。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @return gamma_in 片側流入束 [1/m^2/s]。
-  real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
+  pure real(dp) function compute_inflow_flux_from_drifting_maxwellian( &
     number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal &
     ) result(gamma_in)
     real(dp), intent(in) :: number_density_m3

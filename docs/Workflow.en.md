@@ -49,7 +49,7 @@ crosses subsystem boundaries. Direct tests alone are not sufficient when a chang
 | Changed area | Direct tests | Minimum gate / additional check |
 | --- | --- | --- |
 | Documentation, navigation, or Japanese/English parity | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`; after a site-structure change, run `python tools/sync_starlight_docs.py` and then `npm --prefix docs-site run check` |
-| TOML, schema, parser, or defaults | `test_app_config_parser`, `test_physics_config_types`, `tests/python/test_config_schema.py`, `tests/python/test_config_cli.py` | `make test-l1` and `make schema-check` |
+| TOML, schema, parser, or defaults | `test_app_config_parser`, `test_physics_config_types`, `tests/python/test_config_schema.py`, `tests/python/test_config_cli.py`, `make test-config-contract` | `make test-l2` and `make schema-check` |
 | Mesh templates, OBJ import, or panel geometry | `test_templates_importers_runtime`, `test_panel_geometry_near`, `test_panel_kernel` | `make test-l1`; use `make test-l3` when panel FMM is affected |
 | Particle sources, reservoirs, or photoelectron injection | `test_injection_sampling`, `test_reservoir_injection`, `test_external_field_velocity_grid` | `make test-l1` |
 | Boris update, collision, box boundary, or particle events | `test_particle_stepper`, `test_boundary`, `test_dynamics_basic` | `make test-l1`; also use `make test-mpi` when the MPI or OpenMP path changes |
@@ -69,13 +69,13 @@ maps subsystems to source, direct tests, and related documentation.
 ```bash
 make test-l0      # static / schema / build
 make test         # L1: Python + lightweight Fortran; alias of test-l1
-make test-l2      # L1 + C / kernel contracts
+make test-l2      # L1 + C / kernel contracts + Python / Fortran configuration contract
 make test-l3      # L2 + heavy FMM / panel tests
 ```
 
 - L0 checks `git diff --check`, source text, JSON schemas, and `make check`.
 - L1 adds the complete Python suite and the normal Fortran test targets.
-- L2 adds the C ABI and periodic zero-mode C contracts.
+- L2 adds the C ABI, periodic zero-mode C contracts, and contract tests comparing Python and Fortran configuration acceptance.
 - L3 adds `test_dynamics_fmm`, FMM core, panel near-correction, and other heavy targets.
 
 The following gates are not all included in the normal tiers. Run them explicitly when required by the change or release decision.
@@ -96,6 +96,36 @@ correctness tests and use the release-profile `make test-fortran-benchmark`. Fol
 
 Before handoff, run `make fmt-check-fortran` after a Fortran change, `ruff check .` after a Python change, and finish with
 `git diff --check` for whitespace errors. A test tier does not replace these format and lint checks when they apply.
+
+## Check the configuration contract
+
+Ordinary operation requires `beachx lint` before running. `beach --check-config` is for development and diagnostics;
+users do not need to run both validation commands each time.
+
+`schemas/beach.schema.json` is the structural source of truth. After editing it, synchronize the distributed copies and
+run the shared configuration cases.
+
+```bash
+make schema-sync
+make schema-check
+make test-config-contract
+```
+
+`schema-sync` updates the two copies in the Python package and BEACH context plugin from the canonical file.
+`schema-check` checks JSON syntax, byte-for-byte agreement among all three files, and agreement between the schema and
+Fortran readers on the key sets of all 16 public tables. Key comparison checks declarations; executable tests check
+value ranges and combinations.
+`test-config-contract` builds the current Fortran `beach` and passes representative TOML cases to the Python loader, validate, and lint
+entry points and to `beach --check-config`. It fails when acceptance differs from the expected result or configuration-only
+checking creates simulation output. The gate is included in L2. Running the ordinary Python suite alone does not establish
+agreement with Fortran.
+
+Identical acceptance of every input and exhaustive detection of invalid combinations are not guaranteed. Choose additional
+validation based on frequency in research use, impact on results, and maintenance cost. Fortran prioritizes basic conditions
+such as storage ranges and finiteness, plus prerequisites of the selected physical model. Add representative cases for known
+bugs to prevent regressions. Put new constraints required for execution in the appropriate Fortran preflight domain, and
+update the necessary Python checks and shared cases. The parser owns key reading, authoring owns coordinate and placement notation, and runtime configuration
+owns mesh and particle construction.
 
 ## Run development tests on KUDPC
 

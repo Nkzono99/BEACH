@@ -40,6 +40,27 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - 誘電体分極・誘電境界条件
 - 反射や二次電子放出を含む一般化衝突モデル
 
+### 2.3 設定入力の検証
+
+公開設定は `beach.toml` です。未知の table/key、基本型の不一致、非有限の実数・配列成分、
+Fortran の格納先の長さを超える文字列は読み込み時に拒否します。文字列を暗黙に切り詰めません。
+整数は符号付き 32 bit の `-2147483648..2147483647` に制限し、範囲外は変換前に拒否します。
+各項目固有の値域はこの格納範囲に加えて適用します。
+無効化した species も基本値の検査対象です。物理的な組合せは有効な機能の preflight で検証します。
+
+通常運用では `beachx lint beach.toml` に成功してから `beach beach.toml` を実行します。
+開発・診断用の `beach --check-config beach.toml` は通常実行と同じ既定値・読取・正規化・preflight を適用し、
+成功時は終了コード 0 と `status=ok`、設定エラー時は非ゼロの終了コードを返します。
+MPI 初期化、mesh 構築、外部データの内容読込、simulation、結果・checkpoint 出力は行いません。
+
+Python の `load_config_file`、`normalize_config_document`、`validate_runtime_config`、
+`beachx config validate`、`beachx lint` は共通の schema・基本値・意味的検証経路を使います。
+Fortran 実行系が物理的な派生値と組合せ制約の正本です。Python の意味的検証も保持し、
+両系の設定採否は代表的な TOML を使う contract test で比較します。
+Schema / Python は無効な species にも enum と宣言上の値域を適用します。Fortran は無効な species の
+実行意味検証を省略するため、その不正な enum や負の質量まで含む全入力の採否一致は保証しません。
+`beachx lint --schema` は同梱契約に制約を追加し、正規化前後に検査します。同梱契約を緩める指定には使えません。
+
 ## 3. データモデル
 
 ### 3.1 メッシュ

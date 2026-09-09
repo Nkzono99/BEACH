@@ -15,7 +15,7 @@ from ._authoring import (
     _resolved_box_bounds,
 )
 from ._runtime_validation import (
-    validate_runtime_config as validate_runtime_config,
+    _validate_runtime_semantics,
 )
 from ._shared import (
     BEACH_SCHEMA_URL as BEACH_SCHEMA_URL,
@@ -40,10 +40,17 @@ from ._shared import (
 )
 from ._shared import (
     _is_array_of_tables,
-    _validate_fragment_structure,
+    _validate_legacy_keys,
     _validate_high_level_fragment,
 )
 from ._toml import load_toml_file, render_toml_document
+from .schema import (
+    ConfigSchemaError,
+    load_schema,
+    prepare_schema_document,
+    reject_basic_schema_errors,
+    validation_errors,
+)
 
 
 def default_config() -> dict[str, Any]:
@@ -108,9 +115,17 @@ def default_config() -> dict[str, Any]:
 def load_config_file(path: str | Path) -> dict[str, Any]:
     """Load, normalize, and validate one direct ``beach.toml`` file."""
 
-    raw = load_toml_file(path)
-    _resolve_surface_response_table_path(raw, config_path=Path(path))
-    return normalize_config_document(raw)
+    return _load_config_file(path)
+
+
+def _load_config_file(
+    path: str | Path, *, schema: Mapping[str, Any] | None = None,
+    additional_schema: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    return _validate_config_document(
+        load_toml_file(path), schema=schema, additional_schema=additional_schema,
+        config_path=Path(path), normalize=True,
+    )
 
 
 def _resolve_surface_response_table_path(
@@ -132,15 +147,49 @@ def _resolve_surface_response_table_path(
 def normalize_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level authoring notation and validate the runtime config."""
 
-    _validate_fragment_structure(
-        config,
-        context="config",
-        allow_meta_keys=False,
-    )
-    _validate_high_level_fragment(config, context="config")
-    normalized = normalize_high_level_config(config)
-    validate_runtime_config(normalized)
-    return normalized
+    return _validate_config_document(config, normalize=True)
+
+
+def validate_runtime_config(config: Mapping[str, Any]) -> None:
+    """Validate a runtime document without changing the caller's mapping."""
+
+    _validate_config_document(config, normalize=False)
+
+
+def _validate_config_document(
+    config: Mapping[str, Any], *, normalize: bool,
+    schema: Mapping[str, Any] | None = None, config_path: Path | None = None,
+    additional_schema: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if schema is None:
+        schema, _ = load_schema()
+    document = prepare_schema_document(config, schema)
+    _validate_legacy_keys(document)
+    phase = "authoring" if normalize else "normalized"
+    input_errors = validation_errors(document, schema)
+    reject_basic_schema_errors(input_errors, phase=phase)
+    if normalize:
+        _validate_high_level_fragment(document, context="config")
+        resolved = normalize_high_level_config(document)
+    else:
+        resolved = document
+    if config_path is not None:
+        _resolve_surface_response_table_path(resolved, config_path=config_path)
+    # Authoring arithmetic and path resolution can create new invalid values.
+    resolved = prepare_schema_document(resolved, schema)
+    resolved_errors = validation_errors(resolved, schema)
+    reject_basic_schema_errors(resolved_errors, phase="normalized")
+    _validate_runtime_semantics(resolved)
+    if input_errors:
+        raise ConfigSchemaError(input_errors, phase=phase)
+    if resolved_errors:
+        raise ConfigSchemaError(resolved_errors, phase="normalized")
+    if additional_schema is not None:
+        for candidate, candidate_phase in ((document, phase), (resolved, "normalized")):
+            errors = validation_errors(candidate, additional_schema)
+            if errors:
+                raise ConfigSchemaError(errors, phase=candidate_phase)
+    return resolved
 
 
 def _strip_id_fields(config: dict[str, Any]) -> None:

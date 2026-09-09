@@ -28,9 +28,11 @@ beach beach.toml
 beachx inspect outputs/tutorial
 ```
 
-1. `beachx lint`でTOML、JSON Schema、座標・配置パラメータの組合せ、既知の制約を検査します。
-2. `beach`に設定ファイルを渡してシミュレーションを実行します。
-3. `output.dir`に作成された結果を`beachx inspect`で確認します。
+1. 実行前に `beachx lint` で TOML、JSON Schema、座標・配置パラメータの組合せ、既知の制約を検査し、`status=ok` を確認します。
+2. `beach` に設定ファイルを渡してシミュレーションを実行します。
+3. `output.dir` に作成された結果を `beachx inspect` で確認します。
+
+設定検査で確認する範囲と外部データの扱いは[設定を検証する](Configuration.html)を参照してください。
 
 引数を省略した`beach`は、カレントディレクトリの`beach.toml`を読み込みます。
 

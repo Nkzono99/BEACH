@@ -187,4 +187,4 @@ closed PEの補正量と未解決率は[出力ファイルを調べる](OutputGu
 ## Code reference
 
 - ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/runtime/configuration/bem_app_config_runtime.f90)

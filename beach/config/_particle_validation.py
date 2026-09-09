@@ -527,18 +527,35 @@ def _validate_particle_species(
     box_min: list[float] | None, box_max: list[float] | None,
     periodic_axes: set[str], global_particle_boundary: Mapping[str, Any],
     automatic_current_species: set[str],
-) -> tuple[bool, bool, int]:
+) -> tuple[bool, int]:
     """Validate species and report which source families contribute particles."""
     uses_face_sources = False
-    has_volume_seed = False
     total_npcls_per_step = 0
-    for index, item in enumerate(species, start=1):
-        species_table = item
-        source_mode = species_table.get("source_mode", "volume_seed")
-        if not isinstance(source_mode, str):
+    species_keys: set[str] = set()
+    for index, species_table in enumerate(species, start=1):
+        species_key = species_table.get("species_key", f"species_{index}")
+        if species_key in species_keys:
             raise ConfigValidationError(
-                f"BEACH constraint error: particles.species[{index}] source_mode must be a string."
+                f"BEACH constraint error: particles.species[{index}].species_key "
+                f"duplicates {species_key!r}; species_key values must be unique."
             )
+        species_keys.add(species_key)
+        if not species_table.get("enabled", True):
+            continue
+        if species_table.get("q_particle", -1.602176634e-19) == 0.0:
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}].q_particle "
+                "must be non-zero for an enabled species."
+            )
+        if not use_box and any(
+            action != "inherit"
+            for action in species_table.get("boundary", {}).values()
+        ):
+            raise ConfigValidationError(
+                f"BEACH constraint error: particles.species[{index}].boundary "
+                "requires a finite [domain]."
+            )
+        source_mode = species_table.get("source_mode", "volume_seed")
         effective_particle_boundary = _validate_species_particle_boundary(
             species_table,
             index=index,
@@ -568,16 +585,6 @@ def _validate_particle_species(
                 source_mode=source_mode,
             )
         surface_charge_closure = species_table.get("surface_charge_closure", "explicit")
-        if surface_charge_closure not in {
-            "explicit",
-            "fixed_current",
-            "neutral_return",
-        }:
-            raise ConfigValidationError(
-                f"BEACH constraint error: particles.species[{index}]."
-                'surface_charge_closure must be "explicit", "fixed_current", '
-                'or "neutral_return".'
-            )
         fixed_absorbed_present = "target_absorbed_current_a" in species_table
         fixed_emission_present = "target_emission_current_a" in species_table
         if surface_charge_closure == "explicit" and (
@@ -674,37 +681,7 @@ def _validate_particle_species(
                 f"BEACH constraint error: particles.species[{index}] cannot define both "
                 "temperature_k and temperature_ev."
             )
-        velocity_distribution = (
-            str(species_table.get("velocity_distribution", "maxwellian"))
-            .strip()
-            .lower()
-        )
-        velocity_grid_pdf_kind = (
-            str(species_table.get("velocity_grid_pdf_kind", "phase_space"))
-            .strip()
-            .lower()
-        )
-        velocity_grid_sampling = (
-            str(species_table.get("velocity_grid_sampling", "auto")).strip().lower()
-        )
-        if velocity_distribution not in {"maxwellian", "grid"}:
-            raise ConfigValidationError(
-                f"BEACH constraint error: particles.species[{index}] has unsupported "
-                f"velocity_distribution={velocity_distribution!r}."
-            )
-        if velocity_grid_pdf_kind not in {"phase_space", "flux_weighted"}:
-            raise ConfigValidationError(
-                f"BEACH constraint error: particles.species[{index}] has unsupported "
-                f"velocity_grid_pdf_kind={velocity_grid_pdf_kind!r}."
-            )
-        if velocity_grid_sampling not in {"auto", "rectilinear", "discrete"}:
-            raise ConfigValidationError(
-                f"BEACH constraint error: particles.species[{index}] has unsupported "
-                f"velocity_grid_sampling={velocity_grid_sampling!r}."
-            )
-
         if source_mode == "volume_seed":
-            has_volume_seed = True
             if not has_reservoir_injection:
                 _validate_velocity_grid_forbidden(
                     species_table,
@@ -712,11 +689,6 @@ def _validate_particle_species(
                     source_mode=source_mode,
                 )
             npcls_per_step = species_table.get("npcls_per_step", 0)
-            if not isinstance(npcls_per_step, int):
-                raise ConfigValidationError(
-                    f"BEACH constraint error: particles.species[{index}].npcls_per_step "
-                    "must be an integer."
-                )
             total_npcls_per_step += npcls_per_step
             if (
                 not has_reservoir_injection
@@ -804,4 +776,4 @@ def _validate_particle_species(
             f"BEACH constraint error: particles.species[{index}] has unsupported "
             f"source_mode={source_mode!r}."
         )
-    return uses_face_sources, has_volume_seed, total_npcls_per_step
+    return uses_face_sources, total_npcls_per_step

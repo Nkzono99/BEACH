@@ -2,7 +2,8 @@
 	install install-local install-auto install-generic install-camphor install-camphor-local \
 	install-intel install-intel-local \
 	build check run \
-	static-check source-text-check schema-check \
+	static-check source-text-check schema-check schema-sync \
+	test-config-contract \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
@@ -18,7 +19,7 @@
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
 	test-field-kernel-cache \
-	test-mpi test-mpi-periodic-cache
+	test-mpi test-mpi-periodic-cache test-config-contract
 
 .DEFAULT_GOAL := install
 
@@ -198,6 +199,10 @@ schema-check:
 			exit 1; \
 		}; \
 	done
+	$(PYTHON) tools/check_config_schema.py
+
+schema-sync:
+	@set -eu; for schema in $(SCHEMA_COPIES); do cp "$(SCHEMA_CANONICAL)" "$$schema"; done
 
 test-l0: static-check schema-check check
 
@@ -205,7 +210,12 @@ test: test-l1
 
 test-l1: test-l0 test-python test-fortran-light
 
-test-l2: test-l1 test-fortran-contract
+test-l2: test-l1 test-fortran-contract test-config-contract
+
+test-config-contract:
+	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
+		FPM_PROFILE=debug FPM_FFLAGS="$(FORTRAN_TEST_FLAGS)" $(BUILD_SH) \
+		--target beach --runner "$(PYTHON) tools/run_config_contracts.py"
 
 test-l3: test-l2 test-fortran-heavy
 

@@ -50,7 +50,7 @@ FPM_ACTION=test ./build.sh --target test_particle_stepper
 | 変更範囲 | 直接確認する test | 最低 gate / 追加確認 |
 | --- | --- | --- |
 | documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
-| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py` | `make test-l1` と `make schema-check` |
+| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
 | mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
 | 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection`、`test_external_field_velocity_grid` | `make test-l1` |
 | Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
@@ -69,13 +69,13 @@ Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正
 ```bash
 make test-l0      # static / schema / build
 make test         # L1: Python + 軽量 Fortran（test-l1 の alias）
-make test-l2      # L1 + C / kernel contract
+make test-l2      # L1 + C / kernel contract + Python / Fortran 設定契約
 make test-l3      # L2 + heavy FMM / panel
 ```
 
 - L0 は `git diff --check`、source text、JSON schema、`make check` を確認します。
 - L1 は L0 に全 Python test と通常の Fortran test target を加えます。
-- L2 は C ABI と periodic zero-mode C contract を加えます。
+- L2 は C ABI、periodic zero-mode C contract、Python / Fortran の設定採否を比較する contract test を加えます。
 - L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
 
 次の gate は tier へ常時含めず、変更内容または release 判断に応じて明示的に実行します。
@@ -97,6 +97,32 @@ release profile の `make test-fortran-benchmark` を使います。物理 relea
 handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
 最後に `git diff --check` で whitespace error を確認します。これらの format / lint check が必要な変更では、
 test tier の通過だけで代用しません。
+
+## 設定の契約を確認する
+
+通常運用では実行前に `beachx lint` を通します。`beach --check-config` は開発・診断用で、
+利用者に両方の検証コマンドを毎回実行することは求めません。
+
+構造の正本は `schemas/beach.schema.json` です。編集後は配布 copy を同期し、設定検証の共通ケースを確認します。
+
+```bash
+make schema-sync
+make schema-check
+make test-config-contract
+```
+
+`schema-sync` は Python package と BEACH context plugin の 2 copy を正本から更新します。
+`schema-check` は JSON の構文、3 ファイルの byte 単位の一致、公開 16 table の schema と Fortran
+読取実装のキー集合の一致を確認します。キーの照合は宣言上の検査であり、値域や組合せは実行 test で確認します。
+`test-config-contract` は現在の Fortran `beach` を build し、代表的な同じ TOML を Python の loader / validate / lint と
+`beach --check-config` に渡します。採否が期待値と異なる場合や検査だけで simulation output を作った場合に失敗します。
+この gate は L2 に含まれます。通常の Python test だけでは Fortran との比較を実施したことにはなりません。
+
+Python と Fortran の全入力に対する採否一致や、不正な組合せの網羅は保証しません。研究での発生頻度、
+結果への影響、保守コストから追加検証を選びます。Fortran では格納範囲・有限性などの基本条件と、
+選択した物理モデルに不可欠な条件を優先します。既知の不具合には、その再発を防ぐ代表ケースを追加します。
+実行に必要な新しい組合せ制約は Fortran の領域別 preflight に置き、必要な Python 側の検証と共通ケースを更新します。
+公開キーの読取は parser、座標・配置の展開は authoring、mesh・粒子の構築は runtime configuration が担当します。
 
 ## KUDPC で開発テストを実行する
 

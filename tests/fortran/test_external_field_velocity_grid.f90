@@ -191,7 +191,7 @@ contains
     write (u, '(a)') 'e0_abs = 2.0'
     write (u, '(a)') 'e0_phi_xy_deg = 45.0'
     write (u, '(a)') 'e0_phi_z_deg = 30.0'
-    write (u, '(a)') 'use_box = true'
+    write (u, '(a)') '[domain]'
     write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
     write (u, '(a)') ''

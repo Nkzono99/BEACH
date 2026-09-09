@@ -199,4 +199,4 @@ species-resolved charge balance and closed-PE correction diagnostics.
 ## Code reference
 
 - Ray propagation, hit, emission velocity, and weight: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- Source creation and emission charge difference: [`bem_app_config_runtime.f90`](../src/config/bem_app_config_runtime.f90)
+- Source creation and emission charge difference: [`bem_app_config_runtime.f90`](../src/runtime/configuration/bem_app_config_runtime.f90)

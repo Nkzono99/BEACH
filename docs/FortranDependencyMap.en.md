@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 113
-- Modules: 82
-- Submodules: 30
+- Source files: 125
+- Modules: 85
+- Submodules: 40
 - Programs: 3
-- Internal dependency edges: 455
+- Internal dependency edges: 487
 
 ## Overall Graph
 
@@ -25,8 +25,8 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | Directory | Entities | Internal dependencies |
 | --- | ---: | ---: |
 | `app` | 3 | 21 |
-| `src/config` | 11 | 52 |
-| `src/config/app_config_parser` | 3 | 13 |
+| `src/config` | 9 | 26 |
+| `src/config/app_config_parser` | 11 | 33 |
 | `src/core` | 7 | 5 |
 | `src/mesh` | 3 | 11 |
 | `src/mesh/panel` | 3 | 7 |
@@ -44,6 +44,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/physics/sheath` | 2 | 2 |
 | `src/physics/sheath/zhao` | 5 | 11 |
 | `src/runtime` | 15 | 69 |
+| `src/runtime/configuration` | 7 | 38 |
 | `src/runtime/coupling` | 1 | 1 |
 | `src/runtime/sheath` | 5 | 34 |
 | `src/runtime/sheath/table` | 3 | 7 |
@@ -54,16 +55,16 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 80 |
-| `bem_types` | `module` | 35 |
-| `bem_string_utils` | `module` | 32 |
-| `bem_constants` | `module` | 25 |
-| `bem_app_config_types` | `module` | 17 |
+| `bem_kinds` | `module` | 83 |
+| `bem_types` | `module` | 37 |
+| `bem_string_utils` | `module` | 36 |
+| `bem_constants` | `module` | 24 |
+| `bem_app_config_types` | `module` | 21 |
 | `bem_mpi` | `module` | 17 |
 | `bem_panel_geometry` | `module` | 13 |
 | `bem_charge_ledger` | `module` | 11 |
+| `bem_app_config_parser` | `module` | 10 |
 | `bem_electrostatic_snapshot` | `module` | 10 |
-| `bem_coulomb_fmm_types` | `module` | 9 |
 
 ## Entity List
 
@@ -72,19 +73,25 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_matching_plane_response_provider` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
 | `zhao_atlas_main` | `program` | `app/zhao_atlas_main.f90` | `bem_kinds`, `bem_app_config`, `bem_matching_plane_zhao_atlas` | Zhao A/B/C solvability atlasを生成するCLI。 |
 | `zhao_response_main` | `program` | `app/zhao_response_main.f90` | `bem_kinds`, `bem_app_config`, `bem_matching_plane_response_generator` | Zhao online evaluatorからmatching-plane response tableを生成するCLI。 |
-| `bem_app_config` | `module` | `src/config/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
-| `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。 |
-| `bem_app_config_mesh_runtime` | `module` | `src/config/bem_app_config_mesh_runtime.f90` | `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils` | app_config から三角形メッシュを構築する実行時変換。 |
-| `bem_app_config_particle_runtime` | `module` | `src/config/bem_app_config_particle_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers` | app_config から粒子源計画と粒子バッチを構築する実行時変換。 |
-| `bem_app_config_potential_runtime` | `module` | `src/config/bem_app_config_potential_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_electrostatic_snapshot`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | 粒子注入面とbox基準面の電位統計を評価する実行時変換。 |
-| `bem_app_config_runtime` | `module` | `src/config/bem_app_config_runtime.f90` | `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime` | app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。 |
+| `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_app_config_types`, `bem_app_config_authoring_types` | Authoring overlay の公開入口。配列管理と領域別変換の入口を持つ。 |
+| `bem_app_config_authoring_types` | `module` | `src/config/bem_app_config_authoring_types.f90` | `bem_kinds`, `bem_app_config_types` | TOML authoring overlay の型と default。実行時設定への変換処理は持たない。 |
 | `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types`, `bem_physics_config_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
 | `bem_config_helpers` | `module` | `src/config/bem_config_helpers.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。 |
+| `bem_config_toml` | `module` | `src/config/bem_config_toml.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | TOML の基本型・固定長文字列・配列を検査して読み込む共通入口。 |
 | `bem_physics_config_types` | `module` | `src/config/bem_physics_config_types.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 場・periodic2・panel の型付き設定と旧 `[sim]` 設定の正規化を定義する。 |
-| `bem_app_config_particle_runtime_batch` | `submodule` | `src/config/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。 |
-| `bem_app_config_particle_runtime_sampling` | `submodule` | `src/config/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
-| `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
-| `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。 |
+| `bem_app_config_authoring_domain` | `submodule` | `src/config/bem_app_config_authoring_domain.f90` | `bem_app_config_authoring`, `bem_types`, `bem_string_utils` | 計算領域、境界、reservoir 設定の正規化と box の幾何条件。 |
+| `bem_app_config_authoring_geometry` | `submodule` | `src/config/bem_app_config_authoring_geometry.f90` | `bem_app_config_authoring`, `bem_string_utils` | Mesh template の group、anchor、相対サイズを実座標・実寸へ変換する。 |
+| `bem_app_config_authoring_sources` | `submodule` | `src/config/bem_app_config_authoring_sources.f90` | `bem_app_config_authoring`, `bem_string_utils` | 粒子源の face_fraction 入力を注入面上の実座標へ変換する。 |
+| `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
+| `logical` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | - |
+| `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser` | 設定の正規化と領域別 preflight の実行順を管理する。 |
+| `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_config_helpers`, `bem_app_config_types` | 有効粒子種の境界・電流・粒子源の検証と workload 条件。 |
+| `bem_app_config_parser_preflight_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90` | `bem_app_config_parser` | 実行時間・領域・出力と境界条件の preflight。 |
+| `bem_app_config_parser_preflight_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | 表面電流と matching-plane のモデル・粒子種・境界条件の preflight。 |
+| `bem_app_config_parser_read_mesh` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_mesh.f90` | `bem_app_config_parser` | メッシュの TOML 読み取りと、モード・表面モデルの preflight。 |
+| `bem_app_config_parser_read_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_particles.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
+| `bem_app_config_parser_read_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_sim.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
+| `bem_app_config_parser_read_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_surface.f90` | `bem_app_config_parser` | 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。 |
 | `bem_app_config_parser_validate` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_validate.f90` | `bem_app_config_parser`, `bem_config_helpers` | `bem_app_config_parser` の入力検証・物理量導出手続きを実装する submodule。 |
 | `bem_constants` | `module` | `src/core/bem_constants.f90` | `bem_kinds` | シミュレーションで使用する物理定数を定義する。 |
 | `bem_external_boundary_contract` | `module` | `src/core/bem_external_boundary_contract.f90` | `bem_kinds`, `bem_string_utils` | 局所 reservoir 流入と通常 open 面の処理を実行時契約へ正規化する。 |
@@ -164,6 +171,13 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_restart_contract` | `submodule` | `src/runtime/bem_restart_contract.f90` | `bem_restart`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_checkpoint_contract` | 再開時のスキーマ・メッシュ整合性の検証。 |
 | `bem_restart_injection` | `submodule` | `src/runtime/bem_restart_injection.f90` | `bem_restart`, `bem_kinds`, `bem_mpi` | 再開に必要な乱数状態・マクロ粒子端数の保存と復元。 |
 | `bem_restart_records` | `submodule` | `src/runtime/bem_restart_records.f90` | `bem_restart`, `bem_kinds`, `bem_string_utils` | チェックポイントの統計・電荷・台帳の読み込みと形式検証。 |
+| `bem_app_config` | `module` | `src/runtime/configuration/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
+| `bem_app_config_mesh_runtime` | `module` | `src/runtime/configuration/bem_app_config_mesh_runtime.f90` | `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils` | app_config から三角形メッシュを構築する実行時変換。 |
+| `bem_app_config_particle_runtime` | `module` | `src/runtime/configuration/bem_app_config_particle_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers` | app_config から粒子源計画と粒子バッチを構築する実行時変換。 |
+| `bem_app_config_potential_runtime` | `module` | `src/runtime/configuration/bem_app_config_potential_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_electrostatic_snapshot`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers` | 粒子注入面とbox基準面の電位統計を評価する実行時変換。 |
+| `bem_app_config_runtime` | `module` | `src/runtime/configuration/bem_app_config_runtime.f90` | `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime` | app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。 |
+| `bem_app_config_particle_runtime_batch` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。 |
+| `bem_app_config_particle_runtime_sampling` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
 | `bem_matching_plane_coupling` | `module` | `src/runtime/sheath/bem_matching_plane_coupling.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_surface_closure_contract`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_matching_plane_implicit`, `bem_mpi` | Matching-plane coupling state and batch lifecycle; particle replay is owned by the simulator. |
 | `bem_matching_plane_implicit` | `module` | `src/runtime/sheath/bem_matching_plane_implicit.f90` | `bem_kinds`, `bem_matching_plane_response_provider`, `bem_matching_plane_zhao`, `bem_mpi` | Backward-Euler displacement solve for a matching-plane response, including continuation and MPI broadcast. |
@@ -214,59 +228,23 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: Zhao online evaluatorからmatching-plane response tableを生成するCLI。
 
-### `bem_app_config`
-
-- kind: `module`
-- path: `src/config/bem_app_config.f90`
-- group: `src/config`
-- Internal dependencies: `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime`
-- external dependencies: none
-- Source summary: 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。
-
 ### `bem_app_config_authoring`
 
 - kind: `module`
 - path: `src/config/bem_app_config_authoring.f90`
 - group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils`
-- external dependencies: `ieee_arithmetic`
-- Source summary: BEACH TOML の高水準 authoring キーを実行時設定へ正規化する補助モジュール。
-
-### `bem_app_config_mesh_runtime`
-
-- kind: `module`
-- path: `src/config/bem_app_config_mesh_runtime.f90`
-- group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils`
-- external dependencies: `ieee_arithmetic`
-- Source summary: app_config から三角形メッシュを構築する実行時変換。
-
-### `bem_app_config_particle_runtime`
-
-- kind: `module`
-- path: `src/config/bem_app_config_particle_runtime.f90`
-- group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers`
-- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
-- Source summary: app_config から粒子源計画と粒子バッチを構築する実行時変換。
-
-### `bem_app_config_potential_runtime`
-
-- kind: `module`
-- path: `src/config/bem_app_config_potential_runtime.f90`
-- group: `src/config`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_electrostatic_snapshot`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers`
-- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
-- Source summary: 粒子注入面とbox基準面の電位統計を評価する実行時変換。
-
-### `bem_app_config_runtime`
-
-- kind: `module`
-- path: `src/config/bem_app_config_runtime.f90`
-- group: `src/config`
-- Internal dependencies: `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime`
+- Internal dependencies: `bem_kinds`, `bem_app_config_types`, `bem_app_config_authoring_types`
 - external dependencies: none
-- Source summary: app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。
+- Source summary: Authoring overlay の公開入口。配列管理と領域別変換の入口を持つ。
+
+### `bem_app_config_authoring_types`
+
+- kind: `module`
+- path: `src/config/bem_app_config_authoring_types.f90`
+- group: `src/config`
+- Internal dependencies: `bem_kinds`, `bem_app_config_types`
+- external dependencies: none
+- Source summary: TOML authoring overlay の型と default。実行時設定への変換処理は持たない。
 
 ### `bem_app_config_types`
 
@@ -286,6 +264,15 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。
 
+### `bem_config_toml`
+
+- kind: `module`
+- path: `src/config/bem_config_toml.f90`
+- group: `src/config`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`, `iso_fortran_env`, `tomlf`
+- Source summary: TOML の基本型・固定長文字列・配列を検査して読み込む共通入口。
+
 ### `bem_physics_config_types`
 
 - kind: `module`
@@ -295,34 +282,52 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: `ieee_arithmetic`
 - Source summary: 場・periodic2・panel の型付き設定と旧 `[sim]` 設定の正規化を定義する。
 
-### `bem_app_config_particle_runtime_batch`
+### `bem_app_config_authoring_domain`
 
 - kind: `submodule`
-- path: `src/config/bem_app_config_particle_runtime_batch.f90`
+- path: `src/config/bem_app_config_authoring_domain.f90`
 - group: `src/config`
-- parent: `bem_app_config_particle_runtime`
-- Internal dependencies: `bem_app_config_particle_runtime`, `bem_particles`
-- external dependencies: none
-- Source summary: 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。
+- parent: `bem_app_config_authoring`
+- Internal dependencies: `bem_app_config_authoring`, `bem_types`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- Source summary: 計算領域、境界、reservoir 設定の正規化と box の幾何条件。
 
-### `bem_app_config_particle_runtime_sampling`
+### `bem_app_config_authoring_geometry`
 
 - kind: `submodule`
-- path: `src/config/bem_app_config_particle_runtime_sampling.f90`
+- path: `src/config/bem_app_config_authoring_geometry.f90`
 - group: `src/config`
-- parent: `bem_app_config_particle_runtime`
-- Internal dependencies: `bem_app_config_particle_runtime`
+- parent: `bem_app_config_authoring`
+- Internal dependencies: `bem_app_config_authoring`, `bem_string_utils`
 - external dependencies: none
-- Source summary: 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。
+- Source summary: Mesh template の group、anchor、相対サイズを実座標・実寸へ変換する。
+
+### `bem_app_config_authoring_sources`
+
+- kind: `submodule`
+- path: `src/config/bem_app_config_authoring_sources.f90`
+- group: `src/config`
+- parent: `bem_app_config_authoring`
+- Internal dependencies: `bem_app_config_authoring`, `bem_string_utils`
+- external dependencies: none
+- Source summary: 粒子源の face_fraction 入力を注入面上の実座標へ変換する。
 
 ### `bem_app_config_parser`
 
 - kind: `module`
 - path: `src/config/app_config_parser/bem_app_config_parser.f90`
 - group: `src/config/app_config_parser`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry`
 - external dependencies: `tomlf`, `ieee_arithmetic`
 - Source summary: TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。
+
+### `logical`
+
+- kind: `module`
+- path: `src/config/app_config_parser/bem_app_config_parser.f90`
+- group: `src/config/app_config_parser`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry`
+- external dependencies: `tomlf`, `ieee_arithmetic`
 
 ### `bem_app_config_parser_finalize`
 
@@ -330,9 +335,79 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - path: `src/config/app_config_parser/bem_app_config_parser_finalize.f90`
 - group: `src/config/app_config_parser`
 - parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: 設定の正規化と領域別 preflight の実行順を管理する。
+
+### `bem_app_config_parser_preflight_particles`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`, `bem_config_helpers`, `bem_app_config_types`
+- external dependencies: none
+- Source summary: 有効粒子種の境界・電流・粒子源の検証と workload 条件。
+
+### `bem_app_config_parser_preflight_sim`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: 実行時間・領域・出力と境界条件の preflight。
+
+### `bem_app_config_parser_preflight_surface`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
 - Internal dependencies: `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types`
-- external dependencies: `iso_fortran_env`
-- Source summary: 読み込み済み TOML 設定の正規化・派生値確定・検証を実装する submodule。
+- external dependencies: none
+- Source summary: 表面電流と matching-plane のモデル・粒子種・境界条件の preflight。
+
+### `bem_app_config_parser_read_mesh`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_read_mesh.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: メッシュの TOML 読み取りと、モード・表面モデルの preflight。
+
+### `bem_app_config_parser_read_particles`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_read_particles.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。
+
+### `bem_app_config_parser_read_sim`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_read_sim.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。
+
+### `bem_app_config_parser_read_surface`
+
+- kind: `submodule`
+- path: `src/config/app_config_parser/bem_app_config_parser_read_surface.f90`
+- group: `src/config/app_config_parser`
+- parent: `bem_app_config_parser`
+- Internal dependencies: `bem_app_config_parser`
+- external dependencies: none
+- Source summary: 領域別の TOML 読み取り。意味検証と派生値の確定は preflight が担当する。
 
 ### `bem_app_config_parser_validate`
 
@@ -1054,6 +1129,71 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - Internal dependencies: `bem_restart`, `bem_kinds`, `bem_string_utils`
 - external dependencies: none
 - Source summary: チェックポイントの統計・電荷・台帳の読み込みと形式検証。
+
+### `bem_app_config`
+
+- kind: `module`
+- path: `src/runtime/configuration/bem_app_config.f90`
+- group: `src/runtime/configuration`
+- Internal dependencies: `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime`
+- external dependencies: none
+- Source summary: 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。
+
+### `bem_app_config_mesh_runtime`
+
+- kind: `module`
+- path: `src/runtime/configuration/bem_app_config_mesh_runtime.f90`
+- group: `src/runtime/configuration`
+- Internal dependencies: `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`
+- Source summary: app_config から三角形メッシュを構築する実行時変換。
+
+### `bem_app_config_particle_runtime`
+
+- kind: `module`
+- path: `src/runtime/configuration/bem_app_config_particle_runtime.f90`
+- group: `src/runtime/configuration`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_collision`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers`
+- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
+- Source summary: app_config から粒子源計画と粒子バッチを構築する実行時変換。
+
+### `bem_app_config_potential_runtime`
+
+- kind: `module`
+- path: `src/runtime/configuration/bem_app_config_potential_runtime.f90`
+- group: `src/runtime/configuration`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_types`, `bem_electrostatic_snapshot`, `bem_app_config_types`, `bem_string_utils`, `bem_config_helpers`
+- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
+- Source summary: 粒子注入面とbox基準面の電位統計を評価する実行時変換。
+
+### `bem_app_config_runtime`
+
+- kind: `module`
+- path: `src/runtime/configuration/bem_app_config_runtime.f90`
+- group: `src/runtime/configuration`
+- Internal dependencies: `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime`
+- external dependencies: none
+- Source summary: app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。
+
+### `bem_app_config_particle_runtime_batch`
+
+- kind: `submodule`
+- path: `src/runtime/configuration/bem_app_config_particle_runtime_batch.f90`
+- group: `src/runtime/configuration`
+- parent: `bem_app_config_particle_runtime`
+- Internal dependencies: `bem_app_config_particle_runtime`, `bem_particles`
+- external dependencies: none
+- Source summary: 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。
+
+### `bem_app_config_particle_runtime_sampling`
+
+- kind: `submodule`
+- path: `src/runtime/configuration/bem_app_config_particle_runtime_sampling.f90`
+- group: `src/runtime/configuration`
+- parent: `bem_app_config_particle_runtime`
+- Internal dependencies: `bem_app_config_particle_runtime`
+- external dependencies: none
+- Source summary: 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。
 
 ### `bem_charge_ledger`
 

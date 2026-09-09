@@ -24,6 +24,8 @@ beachx lint beach.toml
 beach beach.toml
 ```
 
+Run `beachx lint` before a simulation and confirm `status=ok` before starting `beach`.
+
 Write `box_origin` / `box_size`, `inject_region_mode`, `mesh.groups`, and related keys directly in TOML. See
 [Coordinate and placement helper parameters](Parameters.en.html#coordinate-and-placement-helper-parameters) for the coordinates
 or dimensions they calculate and any explicit values they replace.
@@ -49,24 +51,49 @@ or `photo_raycast`.
 
 ### 2.2 `lint`
 
-Run TOML parsing, JSON Schema validation, coordinate and placement combination checks, and BEACH-specific constraints together.
+Run TOML parsing, the packaged JSON Schema, coordinate and placement combination checks, and known BEACH constraints together.
+Success prints `checks=toml,schema,semantic` and `status=ok`.
 
 ```bash
 beachx lint beach.toml
 beachx lint run.toml --schema schemas/beach.schema.json
 ```
 
+`--schema` adds constraints to the packaged BEACH schema. The supplied schema applies before and after normalization;
+it cannot disable or relax the normal BEACH validation rules.
+
 ### 2.3 `validate`
 
-Read `beach.toml` and validate coordinate and placement combinations plus known constraints of the final settings.
-Use `beachx lint` when JSON Schema validation should also be included.
+Read `beach.toml` using the same packaged schema, coordinate and placement normalization, and semantic checks as `lint`.
+Success prints the configuration path and `status=ok`. Use `lint` to add schema constraints or set the error display limit.
 
 ```bash
 beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.4 `diff`
+### 2.4 `beach --check-config`
+
+For development and diagnostics, run only the Fortran executable's configuration loading, normalization, and preflight checks.
+The configuration path is required. Ordinary use proceeds from `beachx lint` to `beach`; running this command as well is optional.
+
+```bash
+beach --check-config beach.toml
+```
+
+Success returns exit code 0 and prints the following. Configuration errors return a nonzero exit code.
+
+```text
+config=beach.toml
+checks=toml,semantic
+status=ok
+```
+
+The check does not start a simulation or create result files. It does not validate the contents of external OBJ files,
+response tables, or checkpoints, or the numerical and physical validity of a run. Continue with the normal
+`beach beach.toml` command to check external-file loading and model initialization.
+
+### 2.5 `diff`
 
 Semantically compare two configs. By default, coordinate and placement helpers are converted to physical coordinates and sizes
 before comparison.
@@ -98,7 +125,7 @@ comment directive rather than `"$schema" = "..."`.
 
 ### 4.1 Top-Level Key Placement
 
-Runtime settings belong under `sim`, `particles`, `mesh`, and `output`.
+Settings belong under the [public TOML sections](Parameters.en.html#toml-hierarchy-and-section-list).
 Ordinary keys before the first section, or unknown top-level sections, fail validation or Fortran loading.
 
 ### 4.2 Specifying the Same Coordinate Two Ways
@@ -109,5 +136,7 @@ the affected keys are listed in [Input Parameters Reference](Parameters.en.html#
 
 ### 4.3 Checking Before Running
 
-Run `beachx lint beach.toml` to check TOML parsing, JSON Schema, coordinate and placement combinations, and known BEACH
-constraints together.
+Run `beachx lint beach.toml` before a simulation, then start `beach beach.toml` after it succeeds.
+Use `beach --check-config beach.toml` for development or diagnostics when examining Fortran configuration loading separately.
+Numbers must be finite, and integer fields must use
+integers. The Fortran reader reports strings exceeding their destination length as errors instead of truncating them.

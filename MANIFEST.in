@@ -9,7 +9,10 @@ include build.sh
 include install.sh
 include fpm.toml
 include tools/check_source_text.py
+include tools/check_config_schema.py
+include tools/run_config_contracts.py
 include tools/verify_sdist.py
+include plugins/beach-context/references/schemas/beach.schema.json
 
 recursive-include app *.f90
 recursive-include benchmarks *.f90

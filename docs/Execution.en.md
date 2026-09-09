@@ -27,9 +27,11 @@ beach beach.toml
 beachx inspect outputs/tutorial
 ```
 
-1. `beachx lint` checks TOML, JSON Schema, coordinate and placement combinations, and known constraints.
+1. Before running, use `beachx lint` to check TOML, JSON Schema, coordinate and placement combinations, and known constraints; confirm `status=ok`.
 2. `beach` runs the simulation from the configuration file.
 3. `beachx inspect` reads the results under `output.dir`.
+
+See [Validate configuration](Configuration.en.html) for the scope of these checks and their treatment of external data.
 
 With no argument, `beach` reads `beach.toml` from the current directory.
 

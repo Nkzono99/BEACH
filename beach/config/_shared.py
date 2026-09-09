@@ -25,11 +25,7 @@ TOP_LEVEL_CONFIG_ORDER = (
     "output",
 )
 
-_REQUIRED_RUNTIME_TABLES = ("sim", "particles", "mesh", "output")
-
 SCHEMA_DIRECTIVE = f"#:schema {BEACH_SCHEMA_URL}"
-
-_FRAGMENT_TOP_LEVEL_KEYS = frozenset(TOP_LEVEL_CONFIG_ORDER)
 
 _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
@@ -78,73 +74,22 @@ class ConfigValidationError(ConfigError):
     """Raised when ``beach.toml`` violates known BEACH constraints."""
 
 
-def _validate_id_fields(
-    items: list[Any],
-    *,
-    context: str,
-    table_name: str,
-) -> None:
-    """Validate that ``id`` fields, when present, are non-empty strings."""
-    for index, item in enumerate(items, start=1):
-        if not isinstance(item, Mapping):
-            continue
-        item_id = item.get("id")
-        if item_id is None:
-            continue
-        if not isinstance(item_id, str) or not item_id:
-            raise ConfigError(
-                f"{context} error: {table_name}[{index}].id must be a non-empty string."
-            )
+def _validate_legacy_keys(document: Mapping[str, Any]) -> None:
+    """Keep migration diagnostics; the schema owns the set of accepted keys."""
 
-
-def _validate_fragment_structure(
-    document: Mapping[str, Any],
-    *,
-    context: str,
-    allow_meta_keys: bool,
-) -> None:
-    unknown_keys = [key for key in document if key not in _FRAGMENT_TOP_LEVEL_KEYS]
-    if not allow_meta_keys:
-        forbidden = [key for key in document if key in _RESERVED_TOP_LEVEL_KEYS]
-        if forbidden:
-            raise ConfigError(
-                f"{context} error: reserved top-level key(s) are not allowed: "
-                + ", ".join(sorted(forbidden))
-            )
-    if unknown_keys:
+    forbidden = sorted(set(document) & _RESERVED_TOP_LEVEL_KEYS)
+    if forbidden:
         raise ConfigError(
-            f"{context} error: unsupported top-level key(s): "
-            + ", ".join(sorted(unknown_keys))
+            "config error: reserved top-level key(s) are not allowed: "
+            + ", ".join(forbidden)
         )
-
-    for key in _FRAGMENT_TOP_LEVEL_KEYS.intersection(document):
-        value = document[key]
-        if not isinstance(value, Mapping):
-            raise ConfigError(
-                f"{context} error: top-level key {key!r} must be a table."
+    sim = document.get("sim")
+    if isinstance(sim, Mapping):
+        removed = sorted(set(sim) & _REMOVED_SIM_KEYS)
+        if removed:
+            raise ConfigValidationError(
+                "BEACH constraint error: removed sim key(s): " + ", ".join(removed) + "."
             )
-
-    particles = document.get("particles")
-    if isinstance(particles, Mapping) and "species" in particles:
-        species = particles["species"]
-        if not isinstance(species, list) or not all(
-            isinstance(item, Mapping) for item in species
-        ):
-            raise ConfigError(
-                f"{context} error: particles.species must be an array of tables."
-            )
-        _validate_id_fields(species, context=context, table_name="particles.species")
-
-    mesh = document.get("mesh")
-    if isinstance(mesh, Mapping) and "templates" in mesh:
-        templates = mesh["templates"]
-        if not isinstance(templates, list) or not all(
-            isinstance(item, Mapping) for item in templates
-        ):
-            raise ConfigError(
-                f"{context} error: mesh.templates must be an array of tables."
-            )
-        _validate_id_fields(templates, context=context, table_name="mesh.templates")
 
 
 def _validate_high_level_fragment(
@@ -184,20 +129,6 @@ def _validate_high_level_fragment(
                     f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
                     'but source_mode must be "reservoir_face" or "photo_raycast".'
                 )
-
-
-def _require_table(
-    document: Mapping[str, Any],
-    key: str,
-    *,
-    context: str,
-) -> Mapping[str, Any]:
-    value = document.get(key)
-    if not isinstance(value, Mapping):
-        raise ConfigValidationError(
-            f"BEACH constraint error: {context} requires [{key}] to be a table."
-        )
-    return value
 
 
 def _optional_runtime_table(

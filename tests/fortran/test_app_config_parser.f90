@@ -22,6 +22,7 @@ program test_app_config_parser
   character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
   character(len=*), parameter :: fixed_current_variant_path = 'test_fixed_current_variant_tmp.toml'
   character(len=*), parameter :: matching_absolute_response_path = '/tmp/beach_matching_response.csv'
+  character(len=*), parameter :: input_contract_path = 'test_input_contract_tmp.toml'
   character(len=*), parameter :: config_failure_path = 'test_zhao_config_failure_tmp.log'
 
   call get_command_argument(1, run_mode)
@@ -32,7 +33,91 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(45)
+  call test_init(53)
+
+  call test_begin('resume_requires_file_output_at_preflight')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', output_extra='resume = true')
+  call assert_config_rejected(input_contract_path, 'output.resume requires output.write_files = true')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('enabled_template_kind_is_checked_at_preflight')
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', '[[mesh.templates]]'//new_line('a')//'kind = "unknown"', 'outputs/test' &
+    )
+  call assert_config_rejected(input_contract_path, 'mesh.templates.kind is unsupported')
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', '[[mesh.templates]]'//new_line('a')// &
+    'kind = "unknown"'//new_line('a')//'enabled = false', 'outputs/test' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_true(.not. cfg%templates(1)%enabled, 'disabled templates must skip kind preflight')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('config_checks_integer_range_before_conversion')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '2147483648')
+  call assert_config_rejected(input_contract_path, 'rng_seed must fit a 32-bit signed integer')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '-2147483649')
+  call assert_config_rejected(input_contract_path, 'rng_seed must fit a 32-bit signed integer')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '2147483647')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_equal_i32(cfg%sim%rng_seed, huge(0_i32), 'maximum integer input must remain exact')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '-2147483648')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_equal_i32(cfg%sim%rng_seed, -huge(0_i32) - 1_i32, 'minimum integer input must remain exact')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('config_rejects_nonfinite_density_with_explicit_weight')
+  call write_input_contract_config(input_contract_path, 'nan', '', 'outputs/test')
+  call assert_config_rejected(input_contract_path, 'number_density_m3 must be finite')
+  call write_input_contract_config(input_contract_path, 'inf', '', 'outputs/test')
+  call assert_config_rejected(input_contract_path, 'number_density_m3 must be finite')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('config_rejects_nonfinite_array_element')
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', 'drift_velocity = [0.0, 0.0, nan]', 'outputs/test' &
+    )
+  call assert_config_rejected(input_contract_path, 'drift_velocity must contain finite values')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('config_rejects_truncated_paths_and_species_names')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', repeat('p', 257))
+  call assert_config_rejected(input_contract_path, 'output.dir is too long')
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', 'species_key = "'//repeat('s', 65)//'"', 'outputs/test' &
+    )
+  call assert_config_rejected(input_contract_path, 'species_key is too long')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('config_preserves_full_length_output_path')
+  call write_input_contract_config(input_contract_path, '1.0e6', '', repeat('p', 256))
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_true(cfg%output_dir == repeat('p', 256), 'full-length path must not be shortened')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('disabled_species_skip_semantic_preflight')
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', '[[particles.species]]'//new_line('a')// &
+    'enabled = false'//new_line('a')//'m_particle = -1.0'//new_line('a')//'source_mode = "unused"', &
+    'outputs/test' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_equal_i32(cfg%n_particle_species, 2_i32, 'disabled species must remain present')
+  call assert_true(.not. cfg%particle_species(2)%enabled, 'disabled flag must be preserved')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
 
   call test_begin('default_config')
   call default_app_config(cfg)
@@ -587,6 +672,35 @@ program test_app_config_parser
   call test_summary()
 
 contains
+
+  subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed, output_extra)
+    character(len=*), intent(in) :: path, density, species_extra, output_directory
+    character(len=*), intent(in), optional :: integer_seed, output_extra
+    integer :: unit
+
+    open (newunit=unit, file=path, status='replace', action='write')
+    write (unit, '(a)') '[sim]'
+    write (unit, '(a)') 'dt = 1.0e-9'
+    write (unit, '(a)') 'batch_duration = 1.0e-6'
+    if (present(integer_seed)) write (unit, '(a)') 'rng_seed = '//integer_seed
+    write (unit, '(a)') '[domain]'
+    write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (unit, '(a)') '[[particles.species]]'
+    write (unit, '(a)') 'source_mode = "reservoir_face"'
+    write (unit, '(a)') 'number_density_m3 = '//trim(density)
+    write (unit, '(a)') 'temperature_ev = 1.0'
+    write (unit, '(a)') 'w_particle = 1.0e6'
+    write (unit, '(a)') 'inject_face = "z_high"'
+    write (unit, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
+    write (unit, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
+    if (len_trim(species_extra) > 0) write (unit, '(a)') species_extra
+    write (unit, '(a)') '[output]'
+    write (unit, '(a)') 'write_files = false'
+    write (unit, '(a)') 'dir = "'//output_directory//'"'
+    if (present(output_extra)) write (unit, '(a)') output_extra
+    close (unit)
+  end subroutine write_input_contract_config
 
   subroutine write_zhao_variant(path, sim_line, replace_reservoir, surface_line)
     character(len=*), intent(in) :: path, sim_line

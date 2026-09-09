@@ -34,7 +34,11 @@ applicability conditions below each table.
 | Format | TOML. Multi-line arrays are supported |
 | Unknown keys | Unknown section names and key names are errors |
 | schema | `schemas/beach.schema.json` |
-| lint | `beachx lint beach.toml` |
+| Python validation | `beachx lint beach.toml` / `beachx config validate beach.toml` check the packaged schema and semantic constraints |
+| Fortran validation | For development and diagnostics, `beach --check-config beach.toml` loads, normalizes, and preflights the configuration only; the path is required |
+| Basic values | Reals and array components must be finite; integer fields do not accept reals or booleans |
+| Integer storage range | Signed 32-bit `-2147483648..2147483647`; out-of-range values are rejected before conversion, and field-specific ranges also apply |
+| Strings | Values exceeding their Fortran destination length are errors; no implicit truncation |
 
 To use an editor schema, put a comment directive with the GitHub Raw URL at the beginning of `beach.toml`.
 The Fortran parser does not accept regular keys before the first section, so do not use `"$schema" = "..."`.
@@ -60,7 +64,11 @@ The Fortran parser does not accept regular keys before the first section, so do 
 | Temperature | `temperature_k`, `temperature_ev` | K or eV. They cannot both be specified |
 | Angle | `e0_phi_xy_deg`, `e0_phi_z_deg` | degree |
 
-Numbers and array components must be finite unless a key explicitly permits otherwise.
+Numbers and array components must be finite. Disabled species still undergo checks on the types, finiteness, and string
+lengths of supplied values, including the same integer storage range.
+Schema / Python also apply enums and declared ranges to disabled species. Fortran skips their runtime semantic checks,
+so acceptance can differ for inputs retaining an invalid enum or negative mass in a disabled species.
+Physical combination checks follow each setting's applicability conditions.
 `*_low` / `*_high` are lower and upper bounds on each axis. `inject_face` is one
 of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, or `z_high`.
 
@@ -929,6 +937,17 @@ Run `beachx lint` from [Create and Validate `beach.toml`](Configuration.en.html)
 | Old keys | Old names are treated as unknown keys |
 | Type | Validated by both the schema and the Fortran parser |
 | Value range | `beachx lint` and the runtime parser validate known constraints |
+
+The following old `sim` keys are rejected as unknown keys by the schema, Python, and Fortran. They are not migrated implicitly.
+
+| Rejected old keys | Current location |
+| --- | --- |
+| `sim.box_min` / `sim.box_max` / `sim.box_origin` / `sim.box_size` | Same-named keys under `domain` |
+| `sim.bc_x_low` / `sim.bc_x_high` / `sim.bc_y_low` / `sim.bc_y_high` / `sim.bc_z_low` / `sim.bc_z_high` | Periodicity in `domain.periodic_axes`; particle face actions in `particle_boundary` |
+| `sim.use_box` | Public flag removed; specify the domain under `domain` |
+| `sim.field_bc_mode` | `field_boundary.mode` |
+| `sim.phi_infty` | `reservoir.phi_infty` |
+| `sim.injection_face_phi_grid_n` | `reservoir.face_potential_grid_n` |
 
 Before running, this is recommended.
 

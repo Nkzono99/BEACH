@@ -33,7 +33,11 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 | 形式 | TOML。複数行配列も利用可能 |
 | 未知キー | 未知のセクション名・キー名はエラー |
 | schema | `schemas/beach.schema.json` |
-| lint | `beachx lint beach.toml` |
+| Python 検証 | `beachx lint beach.toml` / `beachx config validate beach.toml` は同梱 schema と意味的制約を検証 |
+| Fortran 検証 | 開発・診断用の `beach --check-config beach.toml` は設定を読み、正規化・実行前検証だけを行う。path は必須 |
+| 基本値 | 実数と配列成分は有限値。整数項目に実数・真偽値は指定不可 |
+| 整数の格納範囲 | 符号付き 32 bit の `-2147483648..2147483647`。範囲外は変換前に拒否し、各項目固有の値域も適用 |
+| 文字列 | Fortran の格納先を超える長さはエラー。暗黙の切り詰めはしない |
 
 Editor schema を使う場合は、`beach.toml` の先頭に GitHub Raw URL のコメント directive を置きます。
 Fortran パーサは最初のセクションより前の通常キーを受け付けないため、`"$schema" = "..."` は使いません。
@@ -59,7 +63,11 @@ Fortran パーサは最初のセクションより前の通常キーを受け付
 | 温度 | `temperature_k`, `temperature_ev` | K または eV。両方の同時指定は不可 |
 | 角度 | `e0_phi_xy_deg`, `e0_phi_z_deg` | degree |
 
-数値と配列の各成分は、明示的に許可されたキーがない限り有限値でなければなりません。
+数値と配列の各成分は有限値でなければなりません。無効化した species も、入力された値の型・有限性・
+文字列長の検査を受けます。整数の格納範囲も同じです。
+Schema / Python は無効な species にも enum と宣言上の値域を適用します。Fortran は無効な species の
+実行意味検証を省略するため、不正な enum や負の質量を無効な species に残した入力の採否までは一致しません。
+物理的な組合せ制約は各項目の適用条件に従います。
 `*_low` / `*_high` は各軸の下限・上限です。
 `inject_face` は `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high` のいずれかを指定します。
 
@@ -906,6 +914,17 @@ group 使用時は、template の `center`、直接 placement キー、`size_mod
 | 旧キー | 旧名は未知キーとして扱う |
 | 型 | schema と Fortran パーサの両方で検証 |
 | 値域 | `beachx lint` と実行時 parser が既知制約を検証 |
+
+次の旧 `sim` キーは schema、Python、Fortran のすべてで未知キーとして拒否します。暗黙の移行は行いません。
+
+| 拒否する旧キー | 現行の指定先 |
+| --- | --- |
+| `sim.box_min` / `sim.box_max` / `sim.box_origin` / `sim.box_size` | `domain` 内の同名キー |
+| `sim.bc_x_low` / `sim.bc_x_high` / `sim.bc_y_low` / `sim.bc_y_high` / `sim.bc_z_low` / `sim.bc_z_high` | 周期性は `domain.periodic_axes`、粒子の面作用は `particle_boundary` |
+| `sim.use_box` | 公開フラグを削除。領域の指定は `domain` に書く |
+| `sim.field_bc_mode` | `field_boundary.mode` |
+| `sim.phi_infty` | `reservoir.phi_infty` |
+| `sim.injection_face_phi_grid_n` | `reservoir.face_potential_grid_n` |
 
 実行前には次を推奨します。
 

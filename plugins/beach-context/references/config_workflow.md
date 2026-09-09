@@ -1,28 +1,33 @@
-title: beachx config / 高水準記法ガイド
+title: beach.tomlを作成・検証する
 
 Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
-# `beachx config` / 高水準記法ガイド
+# `beach.toml`を作成・検証する
 
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
+メッシュ、粒子源、境界条件を選んで物理的な構成を組み立てる手順は
+[シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。
 
-- Fortran 実行系 `beach` は `beach.toml` を直接読み、高水準記法を読み込み時に解決します。
-- `beachx config init` は小さく実行可能な `beach.toml` を作ります。
-- 最終キーの仕様は [Fortran パラメータファイル仕様](Parameters.html) を参照してください。
+- Fortran 実行系 `beach` は `beach.toml` を直接読みます。
+- `beachx config init` は、多数粒子・20 batch の公式チュートリアル設定を作ります。
+- 全キーと、読み込み時に値を計算する座標・配置パラメータは[入力パラメータリファレンス](Parameters.html)にまとめています。
 
 ## 1. 基本フロー
 
 ```bash
-mkdir run_periodic2
-cd run_periodic2
+mkdir beach-tutorial
+cd beach-tutorial
 
-beachx config init
+beachx config init beach.toml
 $EDITOR beach.toml
 beachx lint beach.toml
 beach beach.toml
 ```
 
-高水準記法を使っても別ファイルへ展開する必要はありません。Fortran parser が `box_origin` / `box_size`、`inject_region_mode`、`mesh.groups` などを実行時キーへ正規化してから検証します。
+実行前には `beachx lint` を通し、`status=ok` を確認してから `beach` を実行します。
+
+`box_origin` / `box_size`、`inject_region_mode`、`mesh.groups`なども通常のTOML keyとして直接書けます。
+これらがどの座標・寸法を計算し、明示値を置き換えるかは[座標・配置の補助パラメータ](Parameters.html#座標配置の補助パラメータ)を確認してください。
 
 ## 2. コマンド
 
@@ -36,180 +41,66 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-初期値は、x/y 周期 FMM、`volume_seed`、平面メッシュ、標準出力設定を含む小さな確認用設定です。
+生成内容は[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)と
+同一です。`volume_seed` から毎 batch 200 個のマクロ電子を絶縁体平面へ入射し、20 batch にわたる
+電荷分布と後続粒子への feedback を確認する公式入門ケースです。理解しやすい
+`field_solver="direct"` と `[field_boundary] mode="free"` を使い、周期境界、ion species、
+`photo_raycast` は含みません。
 
 ### 2.2 `lint`
 
-TOML parse、JSON Schema、高水準記法、BEACH の既知制約をまとめて検証します。
+TOML、同梱の JSON Schema、座標・配置パラメータの組合せ、BEACH の既知制約をまとめて検証します。
+成功時は `checks=toml,schema,semantic` と `status=ok` を表示します。
 
 ```bash
 beachx lint beach.toml
 beachx lint run.toml --schema schemas/beach.schema.json
 ```
 
+`--schema` は同梱の BEACH スキーマに追加の制約を課します。指定したスキーマは正規化前後の設定に適用され、
+通常の BEACH 検証を無効化したり、その制約を緩めたりすることはできません。
+
 ### 2.3 `validate`
 
-`beach.toml` を読み、高水準記法の整合性と最終設定の既知制約を検証します。
-JSON Schema も含めて確認したい場合は `beachx lint` を使います。
+`beach.toml` を読み、`lint` と同じ同梱スキーマ、座標・配置の正規化、意味的制約を検証します。
+成功時は設定 path と `status=ok` を表示します。追加のスキーマ制約やエラー表示件数を指定する場合は `lint` を使います。
 
 ```bash
 beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.4 `diff`
+### 2.4 `beach --check-config`
 
-2 つの設定を意味的に比較します。既定では高水準記法を正規化してから比較します。
+開発・診断用に、Fortran 実行系の読み込み・正規化・実行前検証だけを実行します。検査対象の path は必須です。
+通常利用では `beachx lint` の後に `beach` を実行すればよく、このコマンドの追加実行は必要ありません。
+
+```bash
+beach --check-config beach.toml
+```
+
+成功時は終了コード 0 と次の表示を返します。設定のエラーは非ゼロの終了コードで報告します。
+
+```text
+config=beach.toml
+checks=toml,semantic
+status=ok
+```
+
+この検査ではシミュレーションを開始せず、結果ファイルも作りません。
+OBJ、応答表、checkpoint などの外部データの内容や、実行後の数値・物理的妥当性は検証しません。
+外部ファイルの読み込みとモデル初期化は通常の `beach beach.toml` で続けて確認します。
+
+### 2.5 `diff`
+
+2つの設定を意味的に比較します。既定では座標・配置パラメータを実座標と実寸へ変換してから比較します。
 
 ```bash
 beachx config diff left.toml right.toml
 beachx config diff --raw left.toml right.toml
 ```
 
-## 3. 高水準記法
-
-高水準記法は、研究者が意図しやすい領域・境界・座標指定を`beach.toml`へ直接書くための公開形式です。
-Fortran parserは読み込み時に実行用設定へ正規化します。
-
-### 3.1 計算領域と周期軸
-
-`[domain]`では`box_origin` / `box_size`または`box_min` / `box_max`のどちらか一組を指定します。
-周期性は`periodic_axes`だけで指定します。
-
-```toml
-[domain]
-box_origin = [0.0, 0.0, -1.0]
-box_size = [1.0, 1.0, 2.0]
-periodic_axes = ["x", "y"]
-```
-
-同じgeometryを端点で書く場合:
-
-```toml
-[domain]
-box_min = [0.0, 0.0, -1.0]
-box_max = [1.0, 1.0, 1.0]
-periodic_axes = ["x", "y"]
-```
-
-2つのgeometry表現は併用できません。`field_boundary.mode="periodic2"`では
-`periodic_axes=["x","y"]`が必要です。
-
-### 3.2 場・粒子・reservoir境界
-
-場closure、global粒子作用、外部reservoir条件は別tableで指定します。
-
-```toml
-[field_boundary]
-mode = "periodic2"
-
-[particle_boundary]
-z_low = "open"
-z_high = "open"
-ordinary_open_model = "escape"
-
-[reservoir]
-inflow_model = "source_vdf"
-phi_infty = 0.0
-face_potential_grid_n = 3
-```
-
-`[particle_boundary]`の6面キー`x_low`, `x_high`, `y_low`, `y_high`, `z_low`, `z_high`は
-非周期面の`open|reflect|redistributed_reflect`だけを受け付けます。周期面は`[domain]`が所有するため、
-このtableで`periodic`を指定したり、周期面を上書きしたりできません。
-
-species単位の6面overrideは、対象`[[particles.species]]`の直後へ書きます。
-
-```toml
-[[particles.species]]
-source_mode = "photo_raycast"
-inject_face = "z_high"
-# ... source keys ...
-
-[particles.species.boundary]
-x_low = "inherit"
-x_high = "inherit"
-y_low = "inherit"
-y_high = "inherit"
-z_low = "inherit"
-z_high = "reflect"
-```
-
-species側の各面は`inherit|open|reflect|redistributed_reflect`です。`inherit`はglobal作用を使います。
-周期面では`inherit`だけが有効で、それ以外へのoverrideはvalidation errorです。
-closed PEの`neutral_return`では、effectiveな`inject_face`作用を`reflect`または`redistributed_reflect`にします。
-後者は反射速度を保ったままreturn位置をevent面内で一様再配置します。
-
-外部reservoir流入はspeciesごとのtableで非周期面へ指定します。
-
-```toml
-[[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 0
-# ... density, velocity, and weight keys ...
-
-[particles.species.boundary_inflow]
-z_high = "reservoir"
-```
-
-選択したbox面全体から流入します。外向き作用とは独立であり、周期面には指定できません。
-流入面の有効な外向き作用は`open`にします。
-
-### 3.3 内部の明示的な平面source
-
-box内部のaxis-aligned矩形面から一方向fluxを与える場合は`plane_source`を使います。
-
-```toml
-[[particles.species]]
-source_mode = "plane_source"
-pos_low = [0.25, 0.25, 0.5]
-pos_high = [0.75, 0.75, 0.5]
-source_normal = [0.0, 0.0, -1.0]
-# ... density, velocity, and weight keys ...
-```
-
-内部平面には`reservoir.inflow_model="infinity_barrier"`や`phi_infty`を適用しません。
-旧`source_mode="reservoir_face"`は既存caseの互換入力として残り、暗黙変換されません。
-
-### 3.4 メッシュ配置
-
-`mesh.templates` では、計算箱に対するアンカー指定が使えます。
-
-```toml
-[[mesh.templates]]
-kind = "plane"
-size_mode = "box_fraction"
-size_frac = [1.0, 1.0]
-placement_mode = "box_anchor"
-anchor = "z_low_face_center"
-offset_frac = [0.0, 0.0, 0.02]
-nx = 20
-ny = 20
-```
-
-読み込み時に `size_x` / `size_y` / `center` などへ解決されます。
-
-### 3.5 グループ配置
-
-`mesh.groups` は、複数 template に共通の原点やスケールを与えるための table です。
-
-```toml
-[mesh.groups.cavity_unit]
-placement_mode = "box_anchor"
-anchor = "box_center"
-scale_from = "box_x"
-scale_factor = 0.5
-
-[[mesh.templates]]
-group = "cavity_unit"
-kind = "sphere"
-radius = 0.2
-center = [0.0, 0.0, 0.0]
-```
-
-読み込み時に、`mesh.groups`、`group`、`scale_from` などから template ごとの実座標と実寸が決まります。
-
-## 4. スキーマ
+## 3. スキーマ
 
 `beach.toml` の先頭に `#:schema` directive を置くと、VS Code の Even Better TOML / Taplo などで補完や型検証を使えます。
 
@@ -225,24 +116,22 @@ center = [0.0, 0.0, 0.0]
 
 BEACH の Fortran パーサは「最初のセクションより前の `key = value`」を受け付けないため、`"$schema" = "..."` ではなくコメント directive を使ってください。
 
-## 5. よくある失敗
+## 4. よくある失敗
 
-### 5.1 top-level key の位置が違う
+### 4.1 top-level keyを置く位置が正しくない
 
-公開設定は`sim`、`domain`、`field_boundary`、`particle_boundary`、`reservoir`、
-`particles`、`periodic2`、`mesh`、`output`の下へ書きます。
+設定は[公開 TOML セクション](Parameters.html#toml-の階層とセクション一覧)の下へ書きます。
 最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
 
-### 5.2 高水準キーと実行時キーを混ぜる
+### 4.2 同じ座標を2通りで指定する
 
-`domain.box_origin` / `domain.box_size`と`domain.box_min` / `domain.box_max`のように、
-同じgeometryを表す2形式を同時に書くと検証で失敗します。どちらか一方に揃えてください。
+`box_origin` / `box_size`と`box_min` / `box_max`のように、同じ座標を2通りで書くと検証で失敗します。
+ただし`size_mode="box_fraction"`とgroup scaleは、対応する寸法を計算値で置き換える仕様です。対象キーは
+[入力パラメータリファレンス](Parameters.html#座標配置の補助パラメータ)に明記しています。
 
-### 5.3 周期性を粒子境界へ書く
+### 4.3 実行前に設定を検査する
 
-`periodic`は`domain.periodic_axes`だけで指定します。`[particle_boundary]`または
-`[particles.species.boundary]`へ`periodic`を書くとvalidation errorです。
-
-### 5.4 実行前に確認したい
-
-`beachx lint beach.toml` で TOML parse、schema、高水準記法の整合性、既知の BEACH 制約をまとめて確認できます。
+実行前には `beachx lint beach.toml` で設定を検証し、成功後に `beach beach.toml` を実行します。
+Fortran 側の設定読込を単独で調べる場合は、開発・診断用の `beach --check-config beach.toml` を使えます。
+数値は有限値、整数項目は整数として記述してください。Fortran が格納できる長さを超えた文字列は、
+切り詰めずにエラーとして報告します。

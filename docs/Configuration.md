@@ -24,6 +24,8 @@ beachx lint beach.toml
 beach beach.toml
 ```
 
+実行前には `beachx lint` を通し、`status=ok` を確認してから `beach` を実行します。
+
 `box_origin` / `box_size`、`inject_region_mode`、`mesh.groups`なども通常のTOML keyとして直接書けます。
 これらがどの座標・寸法を計算し、明示値を置き換えるかは[座標・配置の補助パラメータ](Parameters.html#座標配置の補助パラメータ)を確認してください。
 
@@ -47,24 +49,49 @@ beachx config init --force
 
 ### 2.2 `lint`
 
-TOML parse、JSON Schema、座標・配置パラメータの組合せ、BEACHの既知制約をまとめて検証します。
+TOML、同梱の JSON Schema、座標・配置パラメータの組合せ、BEACH の既知制約をまとめて検証します。
+成功時は `checks=toml,schema,semantic` と `status=ok` を表示します。
 
 ```bash
 beachx lint beach.toml
 beachx lint run.toml --schema schemas/beach.schema.json
 ```
 
+`--schema` は同梱の BEACH スキーマに追加の制約を課します。指定したスキーマは正規化前後の設定に適用され、
+通常の BEACH 検証を無効化したり、その制約を緩めたりすることはできません。
+
 ### 2.3 `validate`
 
-`beach.toml`を読み、座標・配置パラメータの組合せと最終設定の既知制約を検証します。
-JSON Schema も含めて確認したい場合は `beachx lint` を使います。
+`beach.toml` を読み、`lint` と同じ同梱スキーマ、座標・配置の正規化、意味的制約を検証します。
+成功時は設定 path と `status=ok` を表示します。追加のスキーマ制約やエラー表示件数を指定する場合は `lint` を使います。
 
 ```bash
 beachx config validate
 beachx config validate run.toml
 ```
 
-### 2.4 `diff`
+### 2.4 `beach --check-config`
+
+開発・診断用に、Fortran 実行系の読み込み・正規化・実行前検証だけを実行します。検査対象の path は必須です。
+通常利用では `beachx lint` の後に `beach` を実行すればよく、このコマンドの追加実行は必要ありません。
+
+```bash
+beach --check-config beach.toml
+```
+
+成功時は終了コード 0 と次の表示を返します。設定のエラーは非ゼロの終了コードで報告します。
+
+```text
+config=beach.toml
+checks=toml,semantic
+status=ok
+```
+
+この検査ではシミュレーションを開始せず、結果ファイルも作りません。
+OBJ、応答表、checkpoint などの外部データの内容や、実行後の数値・物理的妥当性は検証しません。
+外部ファイルの読み込みとモデル初期化は通常の `beach beach.toml` で続けて確認します。
+
+### 2.5 `diff`
 
 2つの設定を意味的に比較します。既定では座標・配置パラメータを実座標と実寸へ変換してから比較します。
 
@@ -93,7 +120,7 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 ### 4.1 top-level keyを置く位置が正しくない
 
-実行時の設定は `sim`、`particles`、`mesh`、`output` の下へ書きます。
+設定は[公開 TOML セクション](Parameters.html#toml-の階層とセクション一覧)の下へ書きます。
 最初のセクションより前に通常キーを置いたり、未知の top-level セクションを追加したりすると validation または Fortran 読み込みで失敗します。
 
 ### 4.2 同じ座標を2通りで指定する
@@ -104,4 +131,7 @@ BEACH の Fortran パーサは「最初のセクションより前の `key = val
 
 ### 4.3 実行前に設定を検査する
 
-`beachx lint beach.toml`でTOML parse、schema、座標・配置パラメータの組合せ、既知のBEACH制約をまとめて確認できます。
+実行前には `beachx lint beach.toml` で設定を検証し、成功後に `beach beach.toml` を実行します。
+Fortran 側の設定読込を単独で調べる場合は、開発・診断用の `beach --check-config beach.toml` を使えます。
+数値は有限値、整数項目は整数として記述してください。Fortran が格納できる長さを超えた文字列は、
+切り詰めずにエラーとして報告します。

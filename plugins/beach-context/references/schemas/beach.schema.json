@@ -35,22 +35,20 @@
     "periodic2": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "nonzero_mode_backend",
-        "zero_mode_policy",
-        "lower_boundary_model"
-      ],
       "properties": {
         "nonzero_mode_backend": {
+          "default": "panel_spectral_reference",
           "enum": [
             "panel_spectral_reference",
             "cached_kneq0"
           ]
         },
         "zero_mode_policy": {
+          "default": "exclude_k0",
           "const": "exclude_k0"
         },
         "lower_boundary_model": {
+          "default": "e_bottom_zero",
           "enum": [
             "e_bottom_zero",
             "symmetric_vacuum"
@@ -1140,6 +1138,7 @@
       "properties": {
         "dt": {
           "type": "number",
+          "exclusiveMinimum": 0,
           "default": 1E-9,
           "description": "Time step [s]."
         },
@@ -1171,6 +1170,7 @@
         },
         "tol_rel": {
           "type": "number",
+          "minimum": 0,
           "default": 1E-8,
           "description": "Monitoring metric; not an early-stop condition."
         },
@@ -1259,6 +1259,7 @@
         },
         "field_periodic_cache_dir": {
           "type": "string",
+          "maxLength": 256,
           "default": ".beach_cache/periodic2",
           "description": "Directory for versioned cached_kneq0 operators."
         },
@@ -1480,7 +1481,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "description": "Stable species identifier used by restart fingerprints; defaults to species_<1-based index>."
+          "description": "Stable unique species identifier used by surface-current model references; defaults to species_<1-based index>."
         },
         "enabled": {
           "type": "boolean",
@@ -1575,6 +1576,7 @@
         "velocity_grid_path": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 256,
           "description": "CSV file with columns vx_m_s,vy_m_s,vz_m_s,f for velocity_distribution=grid. Complete rectilinear grids are sampled with trilinear interpolation; other inputs fall back to discrete row sampling."
         },
         "velocity_grid_pdf_kind": {
@@ -2432,6 +2434,7 @@
         },
         "obj_path": {
           "type": "string",
+          "maxLength": 256,
           "default": "examples/simple_plate.obj",
           "description": "Path to OBJ mesh file."
         },
@@ -2490,6 +2493,10 @@
         },
         "groups": {
           "type": "object",
+          "propertyNames": {
+            "minLength": 1,
+            "maxLength": 64
+          },
           "additionalProperties": {
             "$ref": "#/$defs/meshGroup"
           },
@@ -2796,6 +2803,7 @@
         "group": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "High-level mesh group name. Grouped templates use center_local and group scale/origin."
         },
         "center_local": {
@@ -2987,6 +2995,7 @@
         },
         "dir": {
           "type": "string",
+          "maxLength": 256,
           "default": "outputs/latest",
           "description": "Output directory path."
         },
@@ -3009,6 +3018,7 @@
         },
         "restart_from": {
           "type": "string",
+          "maxLength": 256,
           "description": "Checkpoint input directory used when resume=true. New outputs are still written to output.dir."
         }
       },

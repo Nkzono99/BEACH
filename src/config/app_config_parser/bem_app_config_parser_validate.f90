@@ -96,128 +96,13 @@ contains
       spec%has_ray_direction .or. spec%has_deposit_opposite_charge_on_emit) then
     error stop 'photo_raycast keys are not allowed for reservoir_face.'
   end if
-  if (spec%has_w_particle .and. spec%has_target_macro_particles_per_batch) then
-    error stop 'reservoir_face does not allow both w_particle and target_macro_particles_per_batch.'
-  end if
-  if (.not. spec%has_w_particle .and. .not. spec%has_target_macro_particles_per_batch) then
-    error stop 'reservoir_face requires either w_particle or target_macro_particles_per_batch.'
-  end if
-  if (spec%has_w_particle) then
-    if (spec%w_particle <= 0.0d0) error stop 'particles.species.w_particle must be > 0 for reservoir_face.'
-  end if
-  if (spec%has_target_macro_particles_per_batch) then
-    if (spec%target_macro_particles_per_batch == 0_i32 .or. spec%target_macro_particles_per_batch < -1_i32) then
-      error stop 'particles.species.target_macro_particles_per_batch must be > 0 or -1.'
-    end if
-    if (spec%target_macro_particles_per_batch == -1_i32) then
-      if (species_idx == 1) then
-        error stop 'particles.species[1].target_macro_particles_per_batch cannot be -1.'
-      end if
-      if (.not. cfg%particle_species(1)%enabled) then
-        error stop 'target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled.'
-      end if
-      if (trim(lower_ascii(cfg%particle_species(1)%source_mode)) /= 'reservoir_face') then
-        error stop 'target_macro_particles_per_batch=-1 requires particles.species[1].source_mode="reservoir_face".'
-      end if
-      if (.not. cfg%particle_species(1)%has_w_particle .or. cfg%particle_species(1)%w_particle <= 0.0d0) then
-        error stop 'target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle.'
-      end if
-    end if
-  end if
   if (.not. cfg%sim%use_box) then
-    error stop 'particles.species.source_mode="reservoir_face" requires sim.use_box = true.'
+    error stop 'particles.species.source_mode="reservoir_face" requires a finite [domain].'
   end if
   if (cfg%sim%batch_duration <= 0.0d0) then
     error stop 'sim.batch_duration must be > 0 for reservoir_face.'
   end if
-  if (spec%m_particle <= 0.0d0) then
-    error stop 'm_particle must be > 0.'
-  end if
-  if (.not. ieee_is_finite(spec%q_particle) .or. abs(spec%q_particle) <= 0.0d0) then
-    error stop 'q_particle must be finite and non-zero for reservoir_face.'
-  end if
-
-  select case (trim(spec%velocity_distribution))
-  case ('maxwellian')
-    use_velocity_grid = .false.
-  case ('grid')
-    use_velocity_grid = .true.
-  case default
-    error stop 'particles.species.velocity_distribution must be "maxwellian" or "grid".'
-  end select
-
-  select case (trim(spec%velocity_grid_pdf_kind))
-  case ('phase_space', 'flux_weighted')
-    continue
-  case default
-    error stop 'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
-  end select
-  select case (trim(spec%velocity_grid_sampling))
-  case ('auto', 'rectilinear', 'discrete')
-    continue
-  case default
-    error stop 'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
-  end select
-
-  if (use_velocity_grid) then
-    if (len_trim(spec%velocity_grid_path) == 0) then
-      error stop 'velocity_distribution="grid" requires velocity_grid_path.'
-    end if
-    if (spec%has_number_density_cm3 .or. spec%has_number_density_m3) then
-      error stop 'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
-    end if
-    if (spec%has_temperature_ev .or. spec%has_temperature_k) then
-      error stop 'temperature_ev/temperature_k are not used with velocity_distribution="grid".'
-    end if
-    if (spec%has_particle_flux_m2_s .and. spec%has_current_density_a_m2) then
-      error stop 'Specify either particle_flux_m2_s or current_density_a_m2, not both.'
-    end if
-    if (.not. spec%has_particle_flux_m2_s .and. .not. spec%has_current_density_a_m2) then
-      error stop 'velocity_distribution="grid" requires particle_flux_m2_s or current_density_a_m2.'
-    end if
-    if (spec%has_particle_flux_m2_s) then
-      if (.not. ieee_is_finite(spec%particle_flux_m2_s) .or. spec%particle_flux_m2_s <= 0.0d0) then
-        error stop 'particle_flux_m2_s must be finite and > 0.'
-      end if
-    else
-      if (.not. ieee_is_finite(spec%current_density_a_m2) .or. abs(spec%current_density_a_m2) <= 0.0d0) then
-        error stop 'current_density_a_m2 must be finite and non-zero.'
-      end if
-      spec%particle_flux_m2_s = abs(spec%current_density_a_m2/spec%q_particle)
-      spec%has_particle_flux_m2_s = .true.
-    end if
-  else
-    if (len_trim(spec%velocity_grid_path) > 0) then
-      error stop 'velocity_grid_path is only valid with velocity_distribution="grid".'
-    end if
-    if (trim(spec%velocity_grid_sampling) /= 'auto') then
-      error stop 'velocity_grid_sampling is only valid with velocity_distribution="grid".'
-    end if
-    if (spec%has_particle_flux_m2_s .or. spec%has_current_density_a_m2) then
-      error stop 'particle_flux_m2_s/current_density_a_m2 are only valid with velocity_distribution="grid".'
-    end if
-    if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
-      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
-    end if
-    if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
-      error stop 'reservoir_face requires number_density_cm3 or number_density_m3.'
-    end if
-    if (spec%has_number_density_cm3) then
-      if (spec%number_density_cm3 <= 0.0d0) error stop 'number_density_cm3 must be > 0.'
-    else
-      if (spec%number_density_m3 <= 0.0d0) error stop 'number_density_m3 must be > 0.'
-    end if
-    if (spec%has_temperature_ev .and. spec%has_temperature_k) then
-      error stop 'Specify either temperature_ev or temperature_k, not both.'
-    end if
-    if (spec%has_temperature_ev) then
-      if (spec%temperature_ev < 0.0d0) error stop 'temperature_ev must be >= 0.'
-    else if (spec%has_temperature_k) then
-      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-    else
-      if (spec%temperature_k < 0.0d0) error stop 'temperature_k must be >= 0.'
-    end if
-  end if
+  call validate_flux_driven_parameters(cfg, species_idx, spec, 'reservoir_face', use_velocity_grid)
 
   call resolve_inject_face(cfg%sim%box_min, cfg%sim%box_max, spec%inject_face, axis, boundary_value)
   axis_t1 = modulo(axis, 3) + 1
@@ -296,7 +181,7 @@ contains
     if (.not. boundary_inflow_face_enabled(spec, face)) cycle
     call boundary_face_name(face, face_name)
     call resolve_inward_normal(face_name, inward_normal)
-    area = full_box_face_area(cfg%sim%box_min, cfg%sim%box_max, face)
+    area = compute_face_area_from_bounds(face_name, cfg%sim%box_min, cfg%sim%box_max)
     if (use_velocity_grid) then
       physical_rate = physical_rate + spec%particle_flux_m2_s*area
     else
@@ -418,7 +303,7 @@ contains
     error stop 'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
   end if
   if (.not. cfg%sim%use_box) then
-    error stop 'particles.species.source_mode="photo_raycast" requires sim.use_box = true.'
+    error stop 'particles.species.source_mode="photo_raycast" requires a finite [domain].'
   end if
   if (cfg%sim%batch_duration <= 0.0d0) then
     error stop 'sim.batch_duration must be > 0 for photo_raycast.'
@@ -570,7 +455,9 @@ contains
       if (.not. spec%has_number_density_cm3 .and. .not. spec%has_number_density_m3) then
         error stop trim(context)//' requires number_density_cm3 or number_density_m3.'
       end if
-      if (species_number_density_m3(spec) <= 0.0_dp) error stop 'number_density must be > 0.'
+      if (.not. ieee_is_finite(species_number_density_m3(spec)) .or. species_number_density_m3(spec) <= 0.0_dp) then
+        error stop 'number_density must be finite and > 0.'
+      end if
       if (spec%has_temperature_ev .and. spec%has_temperature_k) then
         error stop 'Specify either temperature_ev or temperature_k, not both.'
       end if
@@ -632,17 +519,6 @@ contains
     end select
   end subroutine boundary_face_name
 
-  pure real(dp) function full_box_face_area(box_min, box_max, face) result(area)
-    real(dp), intent(in) :: box_min(3), box_max(3)
-    integer, intent(in) :: face
-    integer :: axis, i
-    real(dp) :: span(3)
-
-    axis = (face + 1)/2
-    span = box_max - box_min
-    area = product(pack(span, [(i /= axis, i=1, 3)]))
-  end function full_box_face_area
-
   pure subroutine plane_normal_face_name(axis, component, name)
     integer, intent(in) :: axis
     real(dp), intent(in) :: component
@@ -659,87 +535,5 @@ contains
       error stop 'invalid plane_source normal axis.'
     end select
   end subroutine plane_normal_face_name
-
-  !> drifting Maxwellian の片側流入束 `[1/m^2/s]` を評価する。
-  module procedure compute_inflow_flux_from_drifting_maxwellian
-  real(dp) :: sigma, x, u_n, pdf, survival, residual
-  real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
-
-  u_n = dot_product(drift_velocity, inward_normal)
-  sigma = sqrt(k_boltzmann*temperature_k/m_particle)
-  if (sigma <= 0.0d0) then
-    gamma_in = number_density_m3*max(0.0d0, u_n)
-    return
-  end if
-
-  x = -u_n/sigma
-  pdf = standard_normal_pdf(x)
-  survival = 0.5_dp*erfc(x*inv_sqrt_2)
-  if (x > 8.0_dp) then
-    residual = pdf*normal_tail_residual_ratio(x)
-  else
-    residual = pdf - x*survival
-  end if
-  gamma_in = number_density_m3*sigma*max(0.0_dp, residual)
-  end procedure compute_inflow_flux_from_drifting_maxwellian
-
-  pure real(dp) function normal_tail_residual_ratio(x) result(ratio)
-    real(dp), intent(in) :: x
-    real(dp) :: inv_x2, term, candidate, previous_abs
-    integer :: order
-
-    inv_x2 = 1.0_dp/(x*x)
-    term = inv_x2
-    ratio = term
-    previous_abs = abs(term)
-    do order = 2, 64
-      term = -term*real(2*order - 1, dp)*inv_x2
-      if (abs(term) >= previous_abs) exit
-      candidate = ratio + term
-      if (candidate <= 0.0_dp) exit
-      ratio = candidate
-      previous_abs = abs(term)
-      if (abs(term) <= epsilon(1.0_dp)*abs(ratio)) exit
-    end do
-  end function normal_tail_residual_ratio
-
-  !> 標準正規分布の PDF を評価する。
-  module procedure standard_normal_pdf
-  real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
-
-  pdf = inv_sqrt_2pi*exp(-0.5d0*x*x)
-  end procedure standard_normal_pdf
-
-  !> 標準正規分布の CDF を評価する。
-  module procedure standard_normal_cdf
-  real(dp), parameter :: inv_sqrt_2 = 7.07106781186547524d-1
-
-  cdf = 0.5d0*(1.0d0 + erf(x*inv_sqrt_2))
-  end procedure standard_normal_cdf
-
-  !> 注入面上開口矩形の有効面積 `[m^2]` を計算する。
-  module procedure compute_face_area_from_bounds
-  integer :: axis_t1, axis_t2
-
-  call resolve_face_axes(inject_face, axis_t1, axis_t2)
-  area = (pos_high(axis_t1) - pos_low(axis_t1))*(pos_high(axis_t2) - pos_low(axis_t2))
-  end procedure compute_face_area_from_bounds
-
-  !> 注入面識別子から接線2軸インデックスを返す。
-  module procedure resolve_face_axes
-  select case (trim(lower_ascii(inject_face)))
-  case ('x_low', 'x_high')
-    axis_t1 = 2
-    axis_t2 = 3
-  case ('y_low', 'y_high')
-    axis_t1 = 3
-    axis_t2 = 1
-  case ('z_low', 'z_high')
-    axis_t1 = 1
-    axis_t2 = 2
-  case default
-    error stop 'Unknown particles.species.inject_face.'
-  end select
-  end procedure resolve_face_axes
 
 end submodule bem_app_config_parser_validate

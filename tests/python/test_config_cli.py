@@ -121,6 +121,15 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
     assert result["mesh"]["templates"][0]["kind"] == "plane"
 
 
+def test_declared_enum_normalization_preserves_leading_spaces() -> None:
+    config = default_config()
+    config["sim"]["field_solver"] = "DIRECT "
+    assert normalize_config_document(config)["sim"]["field_solver"] == "direct"
+    config["sim"]["field_solver"] = " DIRECT"
+    with pytest.raises(ConfigValidationError, match="field_solver"):
+        normalize_config_document(config)
+
+
 def test_default_config_uses_free_space_without_periodic_options() -> None:
     config = default_config()
 
@@ -160,7 +169,7 @@ def test_runtime_validator_rejects_removed_top_level_contracts(
     config = default_config()
     config[key] = value
 
-    with pytest.raises(ConfigError, match=rf"unsupported top-level key.*{key}"):
+    with pytest.raises(ConfigError, match=rf"Additional properties.*{key}"):
         normalize_config_document(config)
 
 
@@ -181,14 +190,34 @@ def test_default_config_matches_official_tutorial_case() -> None:
     )
 
 
+def test_normalization_preserves_case_in_paths_and_species_identifiers() -> None:
+    config = default_config()
+    config["sim"]["field_solver"] = "DIRECT"
+    config["output"]["dir"] = "Outputs/MixedCase"
+    config["particles"]["species"][0]["species_key"] = "ElectronA"
+
+    normalized = normalize_config_document(config)
+
+    assert normalized["sim"]["field_solver"] == "direct"
+    assert config["sim"]["field_solver"] == "DIRECT"
+    assert normalized["output"]["dir"] == "Outputs/MixedCase"
+    assert normalized["particles"]["species"][0]["species_key"] == "ElectronA"
+
+
 def test_periodic2_accepts_symmetric_vacuum_and_rejects_unknown_lower_model() -> None:
     config = load_config_file(Path("examples/periodic2_closed_photoelectron.toml"))
+    config["sim"]["field_solver"] = "direct"
     config["periodic2"] = {}
     config["periodic2"]["lower_boundary_model"] = "symmetric_vacuum"
 
     normalized = normalize_config_document(config)
 
     assert normalized["periodic2"]["lower_boundary_model"] == "symmetric_vacuum"
+    assert "nonzero_mode_backend" not in normalized["periodic2"]
+    wrong_solver = copy.deepcopy(config)
+    wrong_solver["sim"]["field_solver"] = "fmm"
+    with pytest.raises(ConfigValidationError, match="panel_spectral_reference.*direct"):
+        normalize_config_document(wrong_solver)
     config["periodic2"]["lower_boundary_model"] = "unknown"
     with pytest.raises(ConfigValidationError, match="lower_boundary_model"):
         normalize_config_document(config)
@@ -224,6 +253,9 @@ def test_adaptive_nonzero_mode_requires_cached_time_scaled_sources() -> None:
         normalize_config_document(spectral)
 
     volume = default_config()
+    volume["sim"]["field_solver"] = "fmm"
+    volume["domain"]["periodic_axes"] = ["x", "y"]
+    volume["field_boundary"]["mode"] = "periodic2"
     volume["sim"]["batch_duration"] = 1.0e-6
     volume["sim"]["field_periodic_far_correction"] = "cached_kneq0"
     volume["periodic2"] = {
@@ -279,6 +311,54 @@ def test_particle_boundary_cannot_override_periodic_topology() -> None:
     config = _default_periodic2_config()
     config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
     with pytest.raises(ConfigValidationError, match="periodic domain face"):
+        normalize_config_document(config)
+
+
+@pytest.mark.parametrize("species_override", [False, True])
+def test_particle_boundary_overrides_require_domain(species_override: bool) -> None:
+    config = default_config()
+    del config["domain"]
+    config["particle_boundary"] = {"ordinary_open_model": "escape"}
+    normalize_config_document(config)
+    if species_override:
+        config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
+    else:
+        config["particle_boundary"]["z_high"] = "reflect"
+    with pytest.raises(ConfigValidationError, match="boundary.*finite.*domain"):
+        normalize_config_document(config)
+
+
+def test_periodic_image_layers_bounds_apply_only_to_periodic_fields() -> None:
+    config = default_config()
+    config["sim"]["field_periodic_image_layers"] = -1
+    normalize_config_document(config)
+    config = _default_periodic2_config()
+    config["sim"]["field_periodic_image_layers"] = 0
+    normalize_config_document(config)
+    config["sim"]["field_periodic_image_layers"] = -1
+    with pytest.raises(ConfigValidationError, match="field_periodic_image_layers.*>= 0"):
+        normalize_config_document(config)
+
+
+def test_enabled_particle_species_require_nonzero_charge() -> None:
+    config = default_config()
+    config["particles"]["species"][0]["q_particle"] = 0.0
+    with pytest.raises(ConfigValidationError, match="q_particle.*non-zero"):
+        normalize_config_document(config)
+    disabled = copy.deepcopy(config["particles"]["species"][0])
+    disabled["enabled"] = False
+    config = default_config()
+    config["particles"]["species"].append(disabled)
+    normalize_config_document(config)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_particle_species_keys_cannot_duplicate_generated_defaults(enabled: bool) -> None:
+    config = default_config()
+    species = copy.deepcopy(config["particles"]["species"][0])
+    species.update(species_key="species_1", enabled=enabled)
+    config["particles"]["species"].append(species)
+    with pytest.raises(ConfigValidationError, match="species_key.*unique"):
         normalize_config_document(config)
 
 
@@ -549,12 +629,12 @@ def test_load_config_file_rejects_conductor_with_periodic2(tmp_path: Path) -> No
 def test_config_rejects_unimplemented_dielectric_inputs() -> None:
     config = default_config()
     config["mesh"]["templates"][0]["surface_model"] = "dielectric"
-    with pytest.raises(ConfigValidationError, match="dielectric.*not implemented"):
+    with pytest.raises(ConfigValidationError, match="surface_model.*dielectric"):
         normalize_config_document(config)
 
     config = default_config()
     config["mesh"]["templates"][0]["epsilon_r"] = 3.9
-    with pytest.raises(ConfigValidationError, match="epsilon_r was removed"):
+    with pytest.raises(ConfigValidationError, match="epsilon_r"):
         normalize_config_document(config)
 
 
@@ -584,50 +664,28 @@ def test_inactive_sim_controls_do_not_enforce_backend_specific_bounds() -> None:
 
 
 @pytest.mark.parametrize(
-    ("key", "value", "match"),
+    ("key", "value"),
     [
-        ("multiple_box_events_soft_discard_count_grace", True, "count grace"),
-        ("multiple_box_events_soft_discard_count_grace", -1, "count grace"),
-        ("multiple_box_events_soft_discard_count_grace", 1.5, "count grace"),
-        ("multiple_box_events_soft_discard_fraction_limit", True, "fraction limit"),
-        ("multiple_box_events_soft_discard_fraction_limit", 0.0, "fraction limit"),
-        (
-            "multiple_box_events_soft_discard_fraction_limit",
-            1.000001,
-            "fraction limit",
-        ),
-        (
-            "multiple_box_events_soft_discard_fraction_limit",
-            float("inf"),
-            "fraction limit",
-        ),
-        (
-            "multiple_box_events_soft_discard_fraction_limit",
-            float("nan"),
-            "fraction limit",
-        ),
-        (
-            "multiple_box_events_soft_discard_abs_charge_limit",
-            True,
-            "absolute charge limit",
-        ),
-        (
-            "multiple_box_events_soft_discard_abs_charge_limit",
-            float("nan"),
-            "absolute charge limit",
-        ),
+        ("multiple_box_events_soft_discard_count_grace", True),
+        ("multiple_box_events_soft_discard_count_grace", -1),
+        ("multiple_box_events_soft_discard_count_grace", 1.5),
+        ("multiple_box_events_soft_discard_fraction_limit", True),
+        ("multiple_box_events_soft_discard_fraction_limit", 0.0),
+        ("multiple_box_events_soft_discard_fraction_limit", 1.000001),
+        ("multiple_box_events_soft_discard_fraction_limit", float("inf")),
+        ("multiple_box_events_soft_discard_fraction_limit", float("nan")),
+        ("multiple_box_events_soft_discard_abs_charge_limit", True),
+        ("multiple_box_events_soft_discard_abs_charge_limit", float("nan")),
     ],
 )
 def test_active_soft_discard_controls_reject_invalid_values(
-    key: str,
-    value: object,
-    match: str,
+    key: str, value: object,
 ) -> None:
     config = default_config()
     config["sim"]["multiple_box_events_policy"] = "soft_discard"
     config["sim"][key] = value
 
-    with pytest.raises(ConfigValidationError, match=match):
+    with pytest.raises(ConfigValidationError, match=key):
         normalize_config_document(config)
 
 
@@ -655,7 +713,7 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
     )
     config_path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(ConfigValidationError, match="mesh.templates\\[1\\].size_x"):
+    with pytest.raises(ConfigValidationError, match="mesh.templates\\[0\\].size_x"):
         load_config_file(config_path)
 
 
@@ -750,7 +808,7 @@ def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
 
     malformed_drift = copy.deepcopy(normalized)
     malformed_drift["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0]
-    with pytest.raises(ConfigValidationError, match="inward z-high"):
+    with pytest.raises(ConfigValidationError, match="drift_velocity.*too short"):
         normalize_config_document(malformed_drift)
 
     reflected_photoelectrons = copy.deepcopy(normalized)
@@ -1123,12 +1181,12 @@ def test_matching_plane_zhao_online_rejects_stationary_zhao_settings(
     [
         (0, "q_particle", -2.0 * 1.602176634e-19, "singly charged"),
         (2, "m_particle", 2.0 * 9.1093837139e-31, "matching ambient-electron"),
-        (1, "m_particle", -1.0, "positive role-species masses"),
+        (1, "m_particle", -1.0, "m_particle.*minimum"),
         (0, "temperature_ev", 0.0, "positive electron temperature"),
         (2, "temperature_ev", 0.0, "positive photoelectron temperature"),
         (1, "temperature_ev", 2.0, "cold ions"),
         (0, "drift_velocity", [0.0, 0.0, 0.0], "inward drift"),
-        (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "finite drift"),
+        (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "drift_velocity.*finite"),
         (1, "number_density_cm3", 0.0, "finite and > 0"),
     ],
 )
@@ -1287,6 +1345,31 @@ def test_lint_cli_reports_toml_parse_error(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="TOML parse error"):
         beachx_main(["lint", str(config_path)])
+
+
+def test_lint_custom_schema_adds_constraints_without_replacing_beach_contract(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "beach.toml"
+    schema_path = tmp_path / "extra.schema.json"
+    _write_base_config(config_path)
+    schema_path.write_text("{}", encoding="utf-8")
+    beachx_main(["lint", str(config_path), "--schema", str(schema_path)])
+
+    schema_path.write_text(
+        '{"properties": {"sim": {"properties": {"batch_count": {"maximum": 1}}}}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="batch_count.*maximum"):
+        beachx_main(["lint", str(config_path), "--schema", str(schema_path)])
+
+    schema_path.write_text("{}", encoding="utf-8")
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8").replace("batch_count = 2", "batch_count = true"),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="batch_count.*integer"):
+        beachx_main(["lint", str(config_path), "--schema", str(schema_path)])
 
 
 def test_lint_cli_reports_authoring_schema_error(tmp_path: Path) -> None:
