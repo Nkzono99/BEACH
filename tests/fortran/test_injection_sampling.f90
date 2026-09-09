@@ -5,7 +5,7 @@ program test_injection_sampling
   use bem_types, only: particles_soa, mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_injection, only: &
-    seed_rng, sample_shifted_maxwell_velocities, init_random_beam_particles, &
+    seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
   use bem_collision, only: collision_query_image_limit
@@ -20,6 +20,7 @@ program test_injection_sampling
   integer(i32), allocatable :: emit_elem(:)
   real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
+  real(dp) :: contiguous_sample(3, 5), strided_sample(6, 10), next_contiguous, next_strided
   integer(i32) :: n_macro, n_emit, collision_status, failure_ray, failure_bounce
   integer :: i
   real(dp), parameter :: rare_tail_a(6) = [0.0_dp, 4.0_dp, 6.0_dp, 8.0_dp, 10.0_dp, 12.0_dp]
@@ -36,9 +37,35 @@ program test_injection_sampling
     error stop 'photo query failure probe unexpectedly completed'
   end if
 
-  call test_init(21)
+  call test_init(22)
 
   call seed_rng()
+
+  call test_begin('sampling_preserves_strided_output_and_rng_state')
+  do i = 1, 2
+    strided_sample = -999.0_dp
+    call seed_rng([867_i32])
+    if (i == 1) then
+      call sample_uniform_positions([-2.0_dp, 1.0_dp, 4.0_dp], [3.0_dp, 2.0_dp, 4.0_dp], contiguous_sample)
+    else
+      call sample_shifted_maxwell_velocities([1.0_dp, 2.0_dp, 3.0_dp], 1.0_dp, contiguous_sample, &
+                                             thermal_speed=2.0_dp, sigma_cutoff=0.5_dp)
+    end if
+    call random_number(next_contiguous)
+    call seed_rng([867_i32])
+    if (i == 1) then
+      call sample_uniform_positions([-2.0_dp, 1.0_dp, 4.0_dp], [3.0_dp, 2.0_dp, 4.0_dp], strided_sample(1:6:2, 1:10:2))
+    else
+      call sample_shifted_maxwell_velocities([1.0_dp, 2.0_dp, 3.0_dp], 1.0_dp, strided_sample(1:6:2, 1:10:2), &
+                                             thermal_speed=2.0_dp, sigma_cutoff=0.5_dp)
+    end if
+    call random_number(next_strided)
+    call assert_true(all(strided_sample(1:6:2, 1:10:2) == contiguous_sample), 'strides changed sampled values')
+    call assert_true(all(strided_sample(2:6:2, :) == -999.0_dp), 'sampling overwrote unselected rows')
+    call assert_true(all(strided_sample(:, 2:10:2) == -999.0_dp), 'sampling overwrote unselected columns')
+    call assert_close_dp(next_strided, next_contiguous, 0.0_dp, 'strides changed the following RNG draw')
+  end do
+  call test_end()
 
   call test_begin('thermal_velocity_sampling')
   allocate (x(3, 16), v(3, 16))
@@ -82,6 +109,16 @@ program test_injection_sampling
   call assert_true(all(pcls%q == -1.0d0), 'beam particle charge mismatch')
   call assert_true(all(pcls%m == 2.0d0), 'beam particle mass mismatch')
   call assert_true(all(pcls%w == 100.0d0), 'beam particle weight mismatch')
+  call assert_true(all(pcls%species_id == 0_i32), 'beam default species mismatch')
+  call assert_true(all(pcls%source_element == -1_i32), 'beam default source provenance mismatch')
+  call init_random_beam_particles( &
+    pcls, 0_i32, -1.0_dp, 2.0_dp, 100.0_dp, &
+    [-0.5_dp, -0.5_dp, -0.5_dp], [0.5_dp, 0.5_dp, 0.5_dp], [1.0_dp, 0.0_dp, 0.0_dp], &
+    thermal_speed=0.0_dp &
+    )
+  call assert_equal_i32(pcls%n, 0_i32, 'empty beam must replace existing particles')
+  call assert_true(size(pcls%x, 1) == 3 .and. size(pcls%x, 2) == 0, 'empty beam position shape mismatch')
+  call assert_true(size(pcls%q) == 0 .and. size(pcls%alive) == 0, 'empty beam retained old particle state')
   call test_end()
 
   call test_begin('rare_tail_reservoir_sampling')

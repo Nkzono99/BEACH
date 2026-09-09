@@ -5,6 +5,22 @@ module bem_particles
   implicit none
 contains
 
+  !> 粒子数に一致するSoA領域を確保する。位置・速度・電荷・質量は呼出し元で埋める。
+  !! 重みは1、粒子種IDは0、放出元は-1、aliveはtrueで初期化する。
+  subroutine allocate_particles(pcls, n)
+    type(particles_soa), intent(out) :: pcls
+    integer(i32), intent(in) :: n
+
+    if (n < 0_i32) error stop "n must be non-negative"
+    pcls%n = n
+    allocate (pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), &
+              pcls%species_id(n), pcls%source_element(n), pcls%alive(n))
+    pcls%w = 1.0_dp
+    pcls%species_id = 0_i32
+    pcls%source_element = -1_i32
+    pcls%alive = .true.
+  end subroutine allocate_particles
+
   !> 位置・速度・電荷・質量(と任意重み)配列から `particles_soa` を検証付きで構築する。
   !! @param[out] pcls 検証済み配列を内部に保持した `particles_soa` 構造体。
   !! @param[in] x 粒子位置配列 `x(3,n)` [m]。
@@ -30,11 +46,7 @@ contains
       error stop "particle input size mismatch"
     end if
 
-    pcls%n = n
-    allocate ( &
-      pcls%x(3, n), pcls%v(3, n), pcls%q(n), pcls%m(n), pcls%w(n), &
-      pcls%species_id(n), pcls%source_element(n), pcls%alive(n) &
-      )
+    call allocate_particles(pcls, n)
     pcls%x = x
     pcls%v = v
     pcls%q = q
@@ -42,22 +54,15 @@ contains
     if (present(w)) then
       if (size(w) /= n) error stop "w size mismatch"
       pcls%w = w
-    else
-      pcls%w = 1.0d0
     end if
     if (present(species_id)) then
       if (size(species_id) /= n) error stop "species_id size mismatch"
       pcls%species_id = species_id
-    else
-      pcls%species_id = 0_i32
     end if
     if (present(source_element)) then
       if (size(source_element) /= n) error stop "source_element size mismatch"
       pcls%source_element = source_element
-    else
-      pcls%source_element = -1_i32
     end if
-    pcls%alive = .true.
   end subroutine init_particles
 
   !> 既存 SoA の末尾へ粒子群を追加し、既存の alive 状態を保持する。

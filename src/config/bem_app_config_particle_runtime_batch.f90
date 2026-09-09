@@ -1,6 +1,13 @@
 !> 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。
 submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_batch
+  use bem_particles, only: allocate_particles
   implicit none
+
+  ! Each species owns only its requested capacity; ray hits can fill fewer entries.
+  type :: sampled_species_type
+    real(dp), allocatable :: x(:, :), v(:, :), w(:)
+    integer(i32), allocatable :: source_element(:)
+  end type sampled_species_type
 contains
 
   !> 指定バッチ番号に対応する粒子バッチを生成する。
@@ -19,18 +26,16 @@ contains
   !! @param[out] photo_emission_dq_by_species species別のphoto放出反作用電荷 `photo_emission_dq_by_species(nelem, nspecies)`（省略可）。
   module procedure init_particle_batch_from_config
 
-  integer(i32) :: s, i, face, batch_n, max_rank, out_idx, local_rank, n_ranks, global_count
+  integer(i32) :: s, i, face, local_rank, n_ranks, global_count
   integer(i32) :: source_begin, source_end, face_begin, face_end
   integer(i32) :: boundary_status
   integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
   integer(i32), allocatable :: counts_max(:), counts_actual(:), source_counts(:), global_counts(:), &
-                               boundary_counts(:, :), boundary_global_counts(:, :), species_cursor(:), species_id(:), &
-                               source_element(:), emit_elem_species(:, :)
+                               boundary_counts(:, :), boundary_global_counts(:, :)
   real(dp), allocatable :: vmin_normal(:), barrier_normal(:), boundary_vmin(:, :), boundary_barrier(:, :), &
                            batch_density_m3(:), batch_weight(:)
   logical :: use_collective_reservoir_count
-  real(dp), allocatable :: x_species(:, :, :), v_species(:, :, :), w_species(:, :)
-  real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
+  type(sampled_species_type), allocatable :: sampled(:)
   type(particle_source_plan_type), target :: generated_source_plan
   type(particle_source_plan_type), pointer :: active_source_plan
   type(external_boundary_contract_type) :: active_boundary_contract
@@ -232,123 +237,116 @@ contains
     end do
   end if
   counts_max = source_counts + sum(boundary_counts, dim=1)
-  max_rank = max(1_i32, maxval(counts_max))
-  allocate (x_species(3, max_rank, cfg%n_particle_species))
-  allocate (v_species(3, max_rank, cfg%n_particle_species))
-  allocate (w_species(max_rank, cfg%n_particle_species))
-  allocate (emit_elem_species(max_rank, cfg%n_particle_species))
-  x_species = 0.0d0
-  v_species = 0.0d0
-  w_species = 0.0d0
-  emit_elem_species = -1_i32
+  allocate (sampled(cfg%n_particle_species))
   do s = 1, cfg%n_particle_species
     if (counts_max(s) <= 0_i32) cycle
-    source_begin = 1_i32
-    source_end = source_counts(s)
-    if (source_end >= source_begin) then
-      select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
-      case ('volume_seed', 'reservoir_face', 'plane_source')
-        call sample_species_state( &
-          cfg%sim, cfg%particle_species(s), source_counts(s), &
-          x_species(:, source_begin:source_end, s), v_species(:, source_begin:source_end, s), &
-          barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
-          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
-          )
-        counts_actual(s) = source_counts(s)
-        w_species(source_begin:source_end, s) = batch_weight(s)
-      case ('photo_raycast')
-        if (.not. present(mesh)) then
-          error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
-        end if
-        if (photo_emit_current_density(s) > 0.0_dp) then
-          call sample_photo_species_state( &
-            cfg%sim, cfg%particle_species(s), mesh, source_counts(s), x_species(:, source_begin:source_end, s), &
-            v_species(:, source_begin:source_end, s), w_species(source_begin:source_end, s), counts_actual(s), &
-            emit_elem_idx=emit_elem_species(source_begin:source_end, s), &
-            global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
-            emit_current_density_override=photo_emit_current_density(s), &
-            normal_drift_speed_override=photo_normal_drift_speed(s), &
-            collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
-            collision_failure_bounce=photo_collision_bounce &
+    allocate (sampled(s)%x(3, counts_max(s)), sampled(s)%v(3, counts_max(s)), &
+              sampled(s)%w(counts_max(s)), sampled(s)%source_element(counts_max(s)))
+    sampled(s)%source_element = -1_i32
+    associate (x_species => sampled(s)%x, v_species => sampled(s)%v, &
+               w_species => sampled(s)%w, emit_elem_species => sampled(s)%source_element)
+      source_begin = 1_i32
+      source_end = source_counts(s)
+      if (source_end >= source_begin) then
+        select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
+        case ('volume_seed', 'reservoir_face', 'plane_source')
+          call sample_species_state( &
+            cfg%sim, cfg%particle_species(s), source_counts(s), &
+            x_species(:, source_begin:source_end), v_species(:, source_begin:source_end), &
+            barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
+            temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
             )
-          if (photo_collision_status /= collision_query_ok) then
-            call finalize_particle_batch_collision_query( &
-              photo_collision_status, batch_idx, s, photo_collision_ray, photo_collision_bounce, &
-              collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+          counts_actual(s) = source_counts(s)
+          w_species(source_begin:source_end) = batch_weight(s)
+        case ('photo_raycast')
+          if (.not. present(mesh)) then
+            error stop 'photo_raycast requires mesh in init_particle_batch_from_config.'
+          end if
+          if (photo_emit_current_density(s) > 0.0_dp) then
+            call sample_photo_species_state( &
+              cfg%sim, cfg%particle_species(s), mesh, source_counts(s), x_species(:, source_begin:source_end), &
+              v_species(:, source_begin:source_end), w_species(source_begin:source_end), counts_actual(s), &
+              emit_elem_idx=emit_elem_species(source_begin:source_end), &
+              global_rays_per_batch=cfg%particle_species(s)%rays_per_batch, &
+              emit_current_density_override=photo_emit_current_density(s), &
+              normal_drift_speed_override=photo_normal_drift_speed(s), &
+              collision_failure_status=photo_collision_status, collision_failure_ray=photo_collision_ray, &
+              collision_failure_bounce=photo_collision_bounce &
               )
-            return
+            if (photo_collision_status /= collision_query_ok) then
+              call finalize_particle_batch_collision_query( &
+                photo_collision_status, batch_idx, s, photo_collision_ray, photo_collision_bounce, &
+                collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+                )
+              return
+            end if
+            if ((present(photo_emission_dq) .or. present(photo_emission_dq_by_species)) .and. &
+                cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
+              do i = 1, counts_actual(s)
+                if (emit_elem_species(i) < 1_i32 .or. emit_elem_species(i) > mesh%nelem) then
+                  error stop 'photo_raycast emitted invalid elem_idx.'
+                end if
+                if (present(photo_emission_dq)) then
+                  photo_emission_dq(emit_elem_species(i)) = photo_emission_dq(emit_elem_species(i)) - &
+                                                            cfg%particle_species(s)%q_particle*w_species(i)
+                end if
+                if (present(photo_emission_dq_by_species)) then
+                  photo_emission_dq_by_species(emit_elem_species(i), s) = &
+                    photo_emission_dq_by_species(emit_elem_species(i), s) - &
+                    cfg%particle_species(s)%q_particle*w_species(i)
+                end if
+              end do
+            end if
           end if
-          if ((present(photo_emission_dq) .or. present(photo_emission_dq_by_species)) .and. &
-              cfg%particle_species(s)%deposit_opposite_charge_on_emit) then
-            do i = 1, counts_actual(s)
-              if (emit_elem_species(i, s) < 1_i32 .or. emit_elem_species(i, s) > mesh%nelem) then
-                error stop 'photo_raycast emitted invalid elem_idx.'
-              end if
-              if (present(photo_emission_dq)) then
-                photo_emission_dq(emit_elem_species(i, s)) = photo_emission_dq(emit_elem_species(i, s)) - &
-                                                             cfg%particle_species(s)%q_particle*w_species(i, s)
-              end if
-              if (present(photo_emission_dq_by_species)) then
-                photo_emission_dq_by_species(emit_elem_species(i, s), s) = &
-                  photo_emission_dq_by_species(emit_elem_species(i, s), s) - &
-                  cfg%particle_species(s)%q_particle*w_species(i, s)
-              end if
-            end do
-          end if
-        end if
-      case default
-        error stop 'Unknown particles.species.source_mode.'
-      end select
-    end if
-    do face = 1, 6
-      if (boundary_counts(face, s) <= 0_i32) cycle
-      face_begin = counts_actual(s) + 1_i32
-      face_end = face_begin + boundary_counts(face, s) - 1_i32
-      call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), face, face_spec)
-      call sample_species_state( &
-        cfg%sim, face_spec, boundary_counts(face, s), x_species(:, face_begin:face_end, s), &
-        v_species(:, face_begin:face_end, s), barrier_normal_energy=boundary_barrier(face, s), &
-        vmin_normal=boundary_vmin(face, s), temperature_k_override=effective_temperature_k(s), &
-        drift_velocity_override=effective_drift_velocity(:, s) &
-        )
-      w_species(face_begin:face_end, s) = batch_weight(s)
-      counts_actual(s) = face_end
-    end do
+        case default
+          error stop 'Unknown particles.species.source_mode.'
+        end select
+      end if
+      do face = 1, 6
+        if (boundary_counts(face, s) <= 0_i32) cycle
+        face_begin = counts_actual(s) + 1_i32
+        face_end = face_begin + boundary_counts(face, s) - 1_i32
+        call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), face, face_spec)
+        call sample_species_state( &
+          cfg%sim, face_spec, boundary_counts(face, s), x_species(:, face_begin:face_end), &
+          v_species(:, face_begin:face_end), barrier_normal_energy=boundary_barrier(face, s), &
+          vmin_normal=boundary_vmin(face, s), temperature_k_override=effective_temperature_k(s), &
+          drift_velocity_override=effective_drift_velocity(:, s) &
+          )
+        w_species(face_begin:face_end) = batch_weight(s)
+        counts_actual(s) = face_end
+      end do
+    end associate
   end do
 
-  batch_n = sum(counts_actual)
-  allocate (species_id(batch_n), source_element(batch_n))
-  source_element = -1_i32
-  out_idx = 0_i32
-  do i = 1, max_rank
-    do s = 1, cfg%n_particle_species
-      if (i > counts_actual(s)) cycle
-      out_idx = out_idx + 1_i32
-      species_id(out_idx) = s
-    end do
-  end do
-
-  allocate (x(3, batch_n), v(3, batch_n), q(batch_n), m(batch_n), w(batch_n))
-  allocate (species_cursor(cfg%n_particle_species))
-  species_cursor = 0_i32
-  do i = 1, batch_n
-    s = species_id(i)
-    species_cursor(s) = species_cursor(s) + 1_i32
-    x(:, i) = x_species(:, species_cursor(s), s)
-    v(:, i) = v_species(:, species_cursor(s), s)
-    q(i) = cfg%particle_species(s)%q_particle
-    m(i) = cfg%particle_species(s)%m_particle
-    w(i) = w_species(species_cursor(s), s)
-    if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'photo_raycast') then
-      source_element(i) = emit_elem_species(species_cursor(s), s)
-    end if
-  end do
-
-  call init_particles( &
-    pcls, x, v, q, m, w, species_id=species_id, source_element=source_element &
-    )
+  call assemble_particle_batch(cfg%particle_species, counts_actual, sampled, pcls)
   end associate
   end procedure init_particle_batch_from_config
+
+  !> 種別のサンプルを従来のround-robin順で完成したSoAへ直接詰める。
+  subroutine assemble_particle_batch(species, counts, sampled, pcls)
+    type(particle_species_spec), intent(in) :: species(:)
+    integer(i32), intent(in) :: counts(:)
+    type(sampled_species_type), intent(in) :: sampled(:)
+    type(particles_soa), intent(out) :: pcls
+    integer(i32) :: i, s, out_idx
+
+    call allocate_particles(pcls, sum(counts))
+    out_idx = 0_i32
+    do i = 1, maxval(counts)
+      do s = 1, size(counts)
+        if (i > counts(s)) cycle
+        out_idx = out_idx + 1_i32
+        pcls%x(:, out_idx) = sampled(s)%x(:, i)
+        pcls%v(:, out_idx) = sampled(s)%v(:, i)
+        pcls%q(out_idx) = species(s)%q_particle
+        pcls%m(out_idx) = species(s)%m_particle
+        pcls%w(out_idx) = sampled(s)%w(i)
+        pcls%species_id(out_idx) = s
+        pcls%source_element(out_idx) = sampled(s)%source_element(i)
+      end do
+    end do
+  end subroutine assemble_particle_batch
 
   !> batch injection の不完全な photo collision query を返し、status 未要求なら serial に停止する。
   subroutine finalize_particle_batch_collision_query( &

@@ -2,7 +2,7 @@
 program test_panel_moments
   use bem_kinds, only: dp, i32
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature
+  use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature, build_panel_duffy_quadrature
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok, panel_surface_side_open
@@ -27,7 +27,7 @@ program test_panel_moments
   v0 = [0.0_dp, 0.0_dp, 0.0_dp]
   v1 = [1.0_dp, 0.0_dp, 0.0_dp]
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
-  call test_init(6)
+  call test_init(8)
 
   call test_begin('unit_triangle_geometry_and_raw_moments')
   call init_panel_geometry(v0, v1, v2, geom, status)
@@ -119,6 +119,30 @@ program test_panel_moments
   call assert_allclose_1d(scaled%moment1, 8.0_dp*geom%moment1, 1.0e-14_dp, 'scaled first moment mismatch')
   call assert_allclose_1d(reshape(scaled%moment2, [9]), 16.0_dp*reshape(geom%moment2, [9]), 1.0e-14_dp, &
                           'scaled second moment mismatch')
+  call test_end()
+
+  call test_begin('reused_cubature_replaces_geometry_and_rule')
+  call build_panel_duffy_quadrature(geom, 3_i32, quad)
+  call build_panel_quadrature(scaled, quad)
+  call assert_equal_i32(quad%npoint, 7_i32, 'cubature must replace the prior Duffy rule')
+  call assert_true(all(shape(quad%position) == [3, 7]) .and. size(quad%weight) == 7, 'cubature resize mismatch')
+  call assert_close_dp(sum(quad%weight), 2.0_dp, 1.0e-14_dp, 'reused cubature area mismatch')
+  call assert_close_dp(sum(quad%weight*quad%position(1, :)), 4.0_dp/3.0_dp, 1.0e-14_dp, &
+                       'reused cubature first moment mismatch')
+  call build_panel_quadrature(geom, quad)
+  call assert_close_dp(sum(quad%weight), 0.5_dp, 1.0e-14_dp, 'same-size rebuild retained previous area')
+  call assert_close_dp(sum(quad%weight*quad%position(1, :)), 1.0_dp/6.0_dp, 1.0e-14_dp, &
+                       'same-size rebuild retained previous positions')
+  call test_end()
+
+  call test_begin('thin_triangle_retains_collision_geometry')
+  call init_mesh(mesh, reshape(v0, [3, 1]), reshape(v1, [3, 1]), reshape([0.0_dp, 1.0e-16_dp, 0.0_dp], [3, 1]))
+  call assert_close_dp(mesh%panel_area(1), 0.0_dp, 0.0_dp, 'thin triangle must remain excluded from panel integration')
+  call assert_close_dp(mesh%h_elem(1), sqrt(0.5e-16_dp), 1.0e-23_dp, 'thin collision triangle lost its size')
+  call assert_allclose_1d(mesh%normals(:, 1), [0.0_dp, 0.0_dp, 1.0_dp], 0.0_dp, 'thin triangle normal mismatch')
+  call assert_allclose_1d(mesh%centers(:, 1), [1.0_dp, 1.0e-16_dp, 0.0_dp]/3.0_dp, 0.0_dp, &
+                          'thin triangle centroid mismatch')
+  call assert_true(all(mesh%panel_quad_weight == 0.0_dp), 'thin triangle retained quadrature weights')
   call test_end()
 
   call test_summary()

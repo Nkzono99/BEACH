@@ -98,6 +98,43 @@ Public entry points coordinate call order and data transfer, delegating each for
 | Python configuration | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) lowers spatial notation, and [`_runtime_validation.py`](../beach/config/_runtime_validation.py) calls field, particle, surface-current, and mesh validation in order |
 | Python result loading | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | Reads basic mesh and charge data, delegating coupling state to [`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) and field-reconstruction metadata to [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) |
 
+### Generate particle arrays directly
+
+`allocate_particles(pcls, n)` in `bem_particles` owns allocation of arrays with exactly the requested nonnegative particle count.
+The caller fills positions, velocities, charges, and masses. Weights default to 1, species IDs to 0, source elements to -1,
+and `alive` to true. A count of zero allocates zero-length arrays and replaces any previous particles.
+For example, stationary particles can be initialized directly as follows:
+
+```fortran
+use bem_kinds, only: dp, i32
+use bem_types, only: particles_soa
+use bem_particles, only: allocate_particles
+
+type(particles_soa) :: pcls
+
+call allocate_particles(pcls, 100_i32)
+pcls%x = 0.0_dp
+pcls%v = 0.0_dp
+pcls%q = -1.602176634e-19_dp
+pcls%m = 9.1093837015e-31_dp
+```
+
+`init_particles` continues to validate and copy existing arrays. Injection samplers write directly into their destination.
+Batch assembly temporarily holds only each species' requested capacity and fills the completed SoA in the existing
+round-robin species order. Random draw order and source-element provenance are preserved.
+
+Mesh geometry updates reuse the centroid, normal, and area computed by `bem_panel_geometry`.
+`fill_panel_quadrature(panel, position, weight)` writes quadrature points and weights into existing
+`position(3,7)` and `weight(7)` arrays. Mesh construction uses this entry point to avoid allocating and copying temporary
+arrays for each triangle. The existing `build_panel_quadrature` entry point shares this calculation when creating a plan.
+Mesh updates write into the arrays for element `i` as follows:
+
+```fortran
+call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_quad_weight(:, i))
+```
+
+Thin triangles excluded from panel integration retain their collision geometry.
+
 ## Move from a subsystem to its implementation and tests
 
 The tests below are direct tests to run immediately after a change. Select the required cumulative gate from

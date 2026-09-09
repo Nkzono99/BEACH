@@ -2,7 +2,7 @@
 module bem_injection_random
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
-  use bem_particles, only: init_particles
+  use bem_particles, only: allocate_particles
   use bem_types, only: particles_soa
   implicit none
   private
@@ -48,14 +48,17 @@ contains
   subroutine sample_uniform_positions(low, high, x)
     real(dp), intent(in) :: low(3), high(3)
     real(dp), intent(out) :: x(:, :)
-    real(dp), allocatable :: u(:, :)
+    real(dp) :: span(3)
+    integer :: i
 
     if (size(x, 1) /= 3) error stop "x first dimension must be 3"
     if (any(high < low)) error stop "high must be >= low for all axes"
 
-    allocate (u(3, size(x, 2)))
-    call random_number(u)
-    x = spread(low, dim=2, ncopies=size(x, 2)) + spread(high - low, dim=2, ncopies=size(x, 2))*u
+    span = high - low
+    call random_number(x)
+    do i = 1, size(x, 2)
+      x(:, i) = low + span*x(:, i)
+    end do
   end subroutine sample_uniform_positions
 
   !> ドリフト速度付きMaxwell分布(温度または熱速度指定)から粒子速度を生成する。
@@ -72,9 +75,8 @@ contains
     real(dp), intent(in), optional :: temperature_k
     real(dp), intent(in), optional :: thermal_speed
     real(dp), intent(in), optional :: sigma_cutoff
-    integer :: n
+    integer :: i
     real(dp) :: sigma, cutoff
-    real(dp), allocatable :: z(:, :)
 
     if (size(v, 1) /= 3) error stop "v first dimension must be 3"
     if (m_particle <= 0.0_dp) error stop "m_particle must be > 0"
@@ -93,11 +95,11 @@ contains
     cutoff = default_velocity_sigma_cutoff
     if (present(sigma_cutoff)) cutoff = sigma_cutoff
 
-    n = size(v, 2)
-    allocate (z(3, n))
-    call sample_standard_normal(z, sigma_cutoff=cutoff)
-
-    v = sigma*z + spread(drift_velocity, dim=2, ncopies=n)
+    ! Zero temperature still consumes the same draws for restart and trial replay.
+    call sample_standard_normal(v, sigma_cutoff=cutoff)
+    do i = 1, size(v, 2)
+      v(:, i) = sigma*v(:, i) + drift_velocity
+    end do
   end subroutine sample_shifted_maxwell_velocities
 
   !> 指定粒子数ぶんの位置/速度/電荷/質量/重みを生成し `particles_soa` を初期化する。
@@ -119,18 +121,12 @@ contains
     real(dp), intent(in) :: pos_low(3), pos_high(3), drift_velocity(3)
     real(dp), intent(in), optional :: temperature_k, thermal_speed
 
-    real(dp), allocatable :: x(:, :), v(:, :), q(:), m(:), w(:)
-
-    if (n < 0) error stop "n must be non-negative"
-
-    allocate (x(3, n), v(3, n), q(n), m(n), w(n))
-    call sample_uniform_positions(pos_low, pos_high, x)
-    call sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k, thermal_speed)
-    q = q_particle
-    m = m_particle
-    w = w_particle
-
-    call init_particles(pcls, x, v, q, m, w)
+    call allocate_particles(pcls, n)
+    call sample_uniform_positions(pos_low, pos_high, pcls%x)
+    call sample_shifted_maxwell_velocities(drift_velocity, m_particle, pcls%v, temperature_k, thermal_speed)
+    pcls%q = q_particle
+    pcls%m = m_particle
+    pcls%w = w_particle
   end subroutine init_random_beam_particles
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
@@ -138,8 +134,7 @@ contains
   subroutine sample_standard_normal(z, sigma_cutoff)
     real(dp), intent(out) :: z(:, :)
     real(dp), intent(in), optional :: sigma_cutoff
-    integer :: n_total, i
-    real(dp), allocatable :: out(:)
+    integer :: n_total, i, row, column
     real(dp) :: r, theta, pi, u1, u2, z1, z2, cutoff
 
     n_total = size(z)
@@ -148,8 +143,9 @@ contains
     if (present(sigma_cutoff)) cutoff = sigma_cutoff
     if (cutoff <= 0.0_dp) error stop "sigma_cutoff must be > 0"
 
-    allocate (out(n_total))
     i = 1
+    row = 1
+    column = 1
     do while (i <= n_total)
       call random_number(u1)
       call random_number(u2)
@@ -159,16 +155,24 @@ contains
       z1 = r*cos(theta)
       z2 = r*sin(theta)
       if (abs(z1) <= cutoff) then
-        out(i) = z1
+        z(row, column) = z1
+        row = row + 1
+        if (row > size(z, 1)) then
+          row = 1
+          column = column + 1
+        end if
         i = i + 1
       end if
       if (i <= n_total .and. abs(z2) <= cutoff) then
-        out(i) = z2
+        z(row, column) = z2
+        row = row + 1
+        if (row > size(z, 1)) then
+          row = 1
+          column = column + 1
+        end if
         i = i + 1
       end if
     end do
-
-    z = reshape(out, shape(z))
   end subroutine sample_standard_normal
 
 end module bem_injection_random

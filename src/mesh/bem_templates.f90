@@ -4,6 +4,7 @@ module bem_templates
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   implicit none
+  private :: build_unit_circle
 contains
 
   !> XY平面を `nx*ny` 分割し、各セルを2三角形へ分割したメッシュを生成する。
@@ -83,10 +84,10 @@ contains
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in), optional :: radius, inner_radius, center(3)
     integer(i32), intent(in), optional :: n_theta, n_r
-    real(dp) :: r_out, r_in, c(3), pi, t0, t1, r0, r1, dr
+    real(dp) :: r_out, r_in, c(3), r0, r1, dr
     integer(i32) :: nt, nr0, ir, it, itri, nelem
     real(dp) :: p00(3), p01(3), p10(3), p11(3), center_p(3)
-    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), circle(:, :)
 
     r_out = 0.5d0; r_in = 0.25d0; nt = 24; nr0 = 4; c = 0.0d0
     if (present(radius)) r_out = radius
@@ -106,20 +107,18 @@ contains
     end if
     allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem))
 
-    pi = acos(-1.0d0)
     dr = (r_out - r_in)/real(nr0, dp)
     center_p = [c(1), c(2), c(3)]
     itri = 0
+    call build_unit_circle(nt, circle)
     do ir = 0, nr0 - 1
       r0 = r_in + dr*real(ir, dp)
       r1 = r_in + dr*real(ir + 1, dp)
       do it = 0, nt - 1
-        t0 = 2.0d0*pi*real(it, dp)/real(nt, dp)
-        t1 = 2.0d0*pi*real(mod(it + 1, nt), dp)/real(nt, dp)
-        p00 = [c(1) + r0*cos(t0), c(2) + r0*sin(t0), c(3)]
-        p01 = [c(1) + r0*cos(t1), c(2) + r0*sin(t1), c(3)]
-        p10 = [c(1) + r1*cos(t0), c(2) + r1*sin(t0), c(3)]
-        p11 = [c(1) + r1*cos(t1), c(2) + r1*sin(t1), c(3)]
+        p00 = [c(1) + r0*circle(1, it), c(2) + r0*circle(2, it), c(3)]
+        p01 = [c(1) + r0*circle(1, it + 1), c(2) + r0*circle(2, it + 1), c(3)]
+        p10 = [c(1) + r1*circle(1, it), c(2) + r1*circle(2, it), c(3)]
+        p11 = [c(1) + r1*circle(1, it + 1), c(2) + r1*circle(2, it + 1), c(3)]
         if (ir == 0 .and. r_in <= 0.0d0) then
           call push_tri(v0, v1, v2, itri, center_p, p10, p11)
         else
@@ -347,12 +346,11 @@ contains
     real(dp), intent(in), optional :: radius, height, center(3)
     integer(i32), intent(in), optional :: n_theta, n_z
     logical, intent(in), optional :: cap, cap_top, cap_bottom
-    real(dp) :: r, h, c(3), t0, t1, z0, z1, pi
+    real(dp) :: r, h, c(3), z0, z1
     integer(i32) :: nt, nz0, iz, it, nelem, itri
     logical :: cap_top0, cap_bottom0
-    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), circle(:, :)
 
-    pi = acos(-1.0d0)
     r = 0.5d0; h = 1.0d0; nt = 24; nz0 = 1; cap_top0 = .true.; cap_bottom0 = .true.; c = 0.0d0
     if (present(radius)) r = radius
     if (present(height)) h = height
@@ -372,41 +370,36 @@ contains
     if (cap_top0) nelem = nelem + nt
     allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem)); itri = 0
 
+    call build_unit_circle(nt, circle)
     do iz = 0, nz0 - 1
       z0 = c(3) - 0.5d0*h + h*real(iz, dp)/real(nz0, dp)
       z1 = c(3) - 0.5d0*h + h*real(iz + 1, dp)/real(nz0, dp)
       do it = 0, nt - 1
-        t0 = 2.0d0*pi*real(it, dp)/real(nt, dp)
-        t1 = 2.0d0*pi*real(mod(it + 1, nt), dp)/real(nt, dp)
         call push_tri(v0, v1, v2, itri, &
-                      [c(1) + r*cos(t0), c(2) + r*sin(t0), z0], &
-                      [c(1) + r*cos(t1), c(2) + r*sin(t1), z0], &
-                      [c(1) + r*cos(t1), c(2) + r*sin(t1), z1])
+                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), z0], &
+                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), z0], &
+                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), z1])
         call push_tri(v0, v1, v2, itri, &
-                      [c(1) + r*cos(t0), c(2) + r*sin(t0), z0], &
-                      [c(1) + r*cos(t1), c(2) + r*sin(t1), z1], &
-                      [c(1) + r*cos(t0), c(2) + r*sin(t0), z1])
+                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), z0], &
+                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), z1], &
+                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), z1])
       end do
     end do
 
     if (cap_bottom0) then
       do it = 0, nt - 1
-        t0 = 2.0d0*pi*real(it, dp)/real(nt, dp)
-        t1 = 2.0d0*pi*real(mod(it + 1, nt), dp)/real(nt, dp)
         call push_tri(v0, v1, v2, itri, &
                       [c(1), c(2), c(3) - 0.5d0*h], &
-                      [c(1) + r*cos(t1), c(2) + r*sin(t1), c(3) - 0.5d0*h], &
-                      [c(1) + r*cos(t0), c(2) + r*sin(t0), c(3) - 0.5d0*h])
+                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) - 0.5d0*h], &
+                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) - 0.5d0*h])
       end do
     end if
     if (cap_top0) then
       do it = 0, nt - 1
-        t0 = 2.0d0*pi*real(it, dp)/real(nt, dp)
-        t1 = 2.0d0*pi*real(mod(it + 1, nt), dp)/real(nt, dp)
         call push_tri(v0, v1, v2, itri, &
                       [c(1), c(2), c(3) + 0.5d0*h], &
-                      [c(1) + r*cos(t0), c(2) + r*sin(t0), c(3) + 0.5d0*h], &
-                      [c(1) + r*cos(t1), c(2) + r*sin(t1), c(3) + 0.5d0*h])
+                      [c(1) + r*circle(1, it), c(2) + r*circle(2, it), c(3) + 0.5d0*h], &
+                      [c(1) + r*circle(1, it + 1), c(2) + r*circle(2, it + 1), c(3) + 0.5d0*h])
       end do
     end if
 
@@ -423,10 +416,10 @@ contains
     type(mesh_type), intent(out) :: mesh
     real(dp), intent(in), optional :: radius, center(3)
     integer(i32), intent(in), optional :: n_lon, n_lat
-    real(dp) :: r, c(3), t0, t1, p0, p1, pi
+    real(dp) :: r, c(3), p0, p1, pi, ring_r0, ring_r1, ring_z0, ring_z1
     integer(i32) :: nl, nphi, ilon, ilat, nelem, itri
     real(dp) :: a(3), b(3), c0(3), d(3)
-    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :)
+    real(dp), allocatable :: v0(:, :), v1(:, :), v2(:, :), circle(:, :)
 
     pi = acos(-1.0d0)
     r = 0.5d0; nl = 24; nphi = 12; c = 0.0d0
@@ -439,16 +432,19 @@ contains
     nelem = 2*nl*(nphi - 1)
     allocate (v0(3, nelem), v1(3, nelem), v2(3, nelem)); itri = 0
 
+    call build_unit_circle(nl, circle)
     do ilat = 0, nphi - 1
       p0 = pi*real(ilat, dp)/real(nphi, dp)
       p1 = pi*real(ilat + 1, dp)/real(nphi, dp)
+      ring_r0 = r*sin(p0)
+      ring_r1 = r*sin(p1)
+      ring_z0 = c(3) + r*cos(p0)
+      ring_z1 = c(3) + r*cos(p1)
       do ilon = 0, nl - 1
-        t0 = 2.0d0*pi*real(ilon, dp)/real(nl, dp)
-        t1 = 2.0d0*pi*real(mod(ilon + 1, nl), dp)/real(nl, dp)
-        call sph(r, c, t0, p0, a)
-        call sph(r, c, t1, p0, b)
-        call sph(r, c, t0, p1, c0)
-        call sph(r, c, t1, p1, d)
+        a = [c(1) + ring_r0*circle(1, ilon), c(2) + ring_r0*circle(2, ilon), ring_z0]
+        b = [c(1) + ring_r0*circle(1, ilon + 1), c(2) + ring_r0*circle(2, ilon + 1), ring_z0]
+        c0 = [c(1) + ring_r1*circle(1, ilon), c(2) + ring_r1*circle(2, ilon), ring_z1]
+        d = [c(1) + ring_r1*circle(1, ilon + 1), c(2) + ring_r1*circle(2, ilon + 1), ring_z1]
         if (ilat == 0) then
           call push_tri(v0, v1, v2, itri, a, c0, d)
         else if (ilat == nphi - 1) then
@@ -613,6 +609,22 @@ contains
     p(2) = c(2) + r*sin(phi)*sin(theta)
     p(3) = c(3) + r*cos(phi)
   end subroutine sph
+
+  !> 周方向の三角関数を一度だけ計算し、終端を始点と一致させる。
+  subroutine build_unit_circle(n, points)
+    integer(i32), intent(in) :: n
+    real(dp), allocatable, intent(out) :: points(:, :)
+    real(dp) :: theta, pi
+    integer(i32) :: i
+
+    allocate (points(2, 0:n))
+    pi = acos(-1.0_dp)
+    do i = 0, n - 1
+      theta = 2.0_dp*pi*real(i, dp)/real(n, dp)
+      points(:, i) = [cos(theta), sin(theta)]
+    end do
+    points(:, n) = points(:, 0)
+  end subroutine build_unit_circle
 
   !> 三角形頂点 `a,b,c` を出力配列の次インデックスへ書き込む。
   !! @param[inout] v0 三角形頂点0を保持する配列 `v0(3,nelem)`。

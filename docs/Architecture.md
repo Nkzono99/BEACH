@@ -100,6 +100,43 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | [`_authoring.py`](../beach/config/_authoring.py) は空間指定の展開、[`_runtime_validation.py`](../beach/config/_runtime_validation.py) は場・粒子・表面電流・メッシュの検証を順に呼ぶ |
 | Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に連成状態・場の再構築メタデータを委譲する |
 
+### 粒子配列を直接生成する
+
+`bem_particles` の `allocate_particles(pcls, n)` が非負の粒子数 `n` に一致する配列の確保を担当します。
+位置・速度・電荷・質量は呼び出し元が埋めます。重みは 1、粒子種 ID は 0、放出元要素は -1、
+`alive` は true で初期化されます。`n=0` でも長さゼロの配列を確保し、既存の粒子群を置き換えます。
+たとえば、静止粒子を直接生成する場合は次のように書けます。
+
+```fortran
+use bem_kinds, only: dp, i32
+use bem_types, only: particles_soa
+use bem_particles, only: allocate_particles
+
+type(particles_soa) :: pcls
+
+call allocate_particles(pcls, 100_i32)
+pcls%x = 0.0_dp
+pcls%v = 0.0_dp
+pcls%q = -1.602176634e-19_dp
+pcls%m = 9.1093837015e-31_dp
+```
+
+既存の配列を検証してコピーする用途は引き続き `init_particles` が担当します。
+注入時は分布サンプラーが生成先へ直接書き込み、バッチ構築では種別ごとの必要数だけを一時保持し、
+従来の種別交互順で完成した SoA へ詰めます。乱数の消費順と放出元要素の対応を維持します。
+
+mesh の幾何更新は `bem_panel_geometry` が計算した重心・法線・面積を利用します。
+`fill_panel_quadrature(panel, position, weight)` は確保済みの `position(3,7)` と `weight(7)` に
+積分点と重みを書き込みます。mesh はこの入口を使い、三角形ごとの一時配列の確保・コピーを省きます。
+積分計画を新しく構築する既存の `build_panel_quadrature` も、この計算を共有します。
+mesh 更新では次のように要素 `i` の配列へ書き込みます。
+
+```fortran
+call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_quad_weight(:, i))
+```
+
+積分対象から除外する細長い三角形も、衝突判定用の幾何情報は保持します。
+
 ## Subsystem から実装と test へ移動する
 
 表の test は変更直後に使う直接 test です。必要な累積 gate は[開発ワークフロー](Workflow.html#変更からテストを選ぶ)で

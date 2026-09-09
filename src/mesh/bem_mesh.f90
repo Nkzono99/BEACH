@@ -4,7 +4,7 @@ module bem_mesh
   use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
   use bem_string_utils, only: lower_ascii
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature
+  use bem_panel_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 contains
@@ -125,45 +125,36 @@ contains
 
     integer(i32) :: i
     real(dp) :: e1(3), e2(3), nvec(3), nn
-    real(dp) :: cx, cy, cz
     type(panel_geometry_type) :: panel
-    type(panel_quadrature_plan_type) :: quadrature
     integer(i32) :: panel_status
 
     do i = 1, mesh%nelem
-      cx = (mesh%v0(1, i) + mesh%v1(1, i) + mesh%v2(1, i))/3.0d0
-      cy = (mesh%v0(2, i) + mesh%v1(2, i) + mesh%v2(2, i))/3.0d0
-      cz = (mesh%v0(3, i) + mesh%v1(3, i) + mesh%v2(3, i))/3.0d0
-      mesh%centers(1, i) = cx
-      mesh%centers(2, i) = cy
-      mesh%centers(3, i) = cz
-      mesh%center_x(i) = cx
-      mesh%center_y(i) = cy
-      mesh%center_z(i) = cz
+      call init_panel_geometry(mesh%v0(:, i), mesh%v1(:, i), mesh%v2(:, i), panel, panel_status)
       mesh%bb_min(:, i) = min(min(mesh%v0(:, i), mesh%v1(:, i)), mesh%v2(:, i))
       mesh%bb_max(:, i) = max(max(mesh%v0(:, i), mesh%v1(:, i)), mesh%v2(:, i))
-
-      e1 = mesh%v1(:, i) - mesh%v0(:, i)
-      e2 = mesh%v2(:, i) - mesh%v0(:, i)
-      nvec = cross(e1, e2)
-      nn = sqrt(sum(nvec*nvec))
-      if (nn > 0.0d0) then
-        mesh%normals(:, i) = nvec/nn
-      else
-        mesh%normals(:, i) = 0.0d0
-      end if
-      mesh%h_elem(i) = sqrt(0.5d0*nn)
-      call init_panel_geometry(mesh%v0(:, i), mesh%v1(:, i), mesh%v2(:, i), panel, panel_status)
       if (panel_status == panel_geometry_ok) then
+        mesh%centers(:, i) = panel%centroid
+        mesh%normals(:, i) = panel%normal
+        mesh%h_elem(i) = sqrt(panel%area)
         mesh%panel_area(i) = panel%area
         mesh%panel_moment1(:, i) = panel%moment1
         mesh%panel_moment2(:, :, i) = panel%moment2
         mesh%panel_edge_length(:, i) = panel%edge_length
         mesh%panel_edge_outward(:, :, i) = panel%edge_outward
-        call build_panel_quadrature(panel, quadrature)
-        mesh%panel_quad_position(:, :, i) = quadrature%position
-        mesh%panel_quad_weight(:, i) = quadrature%weight
+        call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_quad_weight(:, i))
       else
+        ! Collision geometry still includes thin triangles rejected by panel integration.
+        mesh%centers(:, i) = (mesh%v0(:, i) + mesh%v1(:, i) + mesh%v2(:, i))/3.0_dp
+        e1 = mesh%v1(:, i) - mesh%v0(:, i)
+        e2 = mesh%v2(:, i) - mesh%v0(:, i)
+        nvec = cross(e1, e2)
+        nn = sqrt(sum(nvec*nvec))
+        if (nn > 0.0_dp) then
+          mesh%normals(:, i) = nvec/nn
+        else
+          mesh%normals(:, i) = 0.0_dp
+        end if
+        mesh%h_elem(i) = sqrt(0.5_dp*nn)
         mesh%panel_area(i) = 0.0_dp
         mesh%panel_moment1(:, i) = 0.0_dp
         mesh%panel_moment2(:, :, i) = 0.0_dp
@@ -172,6 +163,9 @@ contains
         mesh%panel_quad_position(:, :, i) = 0.0_dp
         mesh%panel_quad_weight(:, i) = 0.0_dp
       end if
+      mesh%center_x(i) = mesh%centers(1, i)
+      mesh%center_y(i) = mesh%centers(2, i)
+      mesh%center_z(i) = mesh%centers(3, i)
       if (mesh%elem_vacuum_sign(i) == 1_i32 .or. mesh%elem_vacuum_sign(i) == -1_i32) then
         mesh%vacuum_normals(:, i) = real(mesh%elem_vacuum_sign(i), dp)*mesh%normals(:, i)
       else
@@ -195,7 +189,7 @@ contains
 
     integer(i32) :: nx, ny, nz, ncells
     integer(i32) :: i, iaxis, ix0, ix1, iy0, iy1, iz0, iz1, ix, iy, iz, cid, total_refs, pos
-    integer(i32), allocatable :: counts(:), offsets(:)
+    integer(i32), allocatable :: cursor(:)
     real(dp) :: span(3), span_ref, target_cells, cell_size, eps_expand
 
     mesh%use_collision_grid = .false.
@@ -240,8 +234,8 @@ contains
     nz = mesh%grid_ncell(3)
     ncells = nx*ny*nz
 
-    allocate (counts(ncells))
-    counts = 0_i32
+    allocate (cursor(ncells))
+    cursor = 0_i32
     do i = 1, mesh%nelem
       ix0 = coord_to_cell(mesh, mesh%bb_min(1, i), 1_i32)
       ix1 = coord_to_cell(mesh, mesh%bb_max(1, i), 1_i32)
@@ -253,7 +247,7 @@ contains
         do iy = iy0, iy1
           do ix = ix0, ix1
             cid = cell_id(ix, iy, iz, nx, ny)
-            counts(cid) = counts(cid) + 1_i32
+            cursor(cid) = cursor(cid) + 1_i32
           end do
         end do
       end do
@@ -262,7 +256,7 @@ contains
     allocate (mesh%grid_cell_start(ncells + 1))
     mesh%grid_cell_start(1) = 1_i32
     do cid = 1, ncells
-      mesh%grid_cell_start(cid + 1) = mesh%grid_cell_start(cid) + counts(cid)
+      mesh%grid_cell_start(cid + 1) = mesh%grid_cell_start(cid) + cursor(cid)
     end do
 
     total_refs = mesh%grid_cell_start(ncells + 1) - 1_i32
@@ -272,8 +266,7 @@ contains
     allocate (mesh%grid_cell_elem(total_refs))
 
     if (total_refs > 0_i32) then
-      allocate (offsets(ncells))
-      offsets = mesh%grid_cell_start(1:ncells)
+      cursor = mesh%grid_cell_start(1:ncells)
       do i = 1, mesh%nelem
         ix0 = coord_to_cell(mesh, mesh%bb_min(1, i), 1_i32)
         ix1 = coord_to_cell(mesh, mesh%bb_max(1, i), 1_i32)
@@ -285,17 +278,16 @@ contains
           do iy = iy0, iy1
             do ix = ix0, ix1
               cid = cell_id(ix, iy, iz, nx, ny)
-              pos = offsets(cid)
+              pos = cursor(cid)
               mesh%grid_cell_elem(pos) = i
-              offsets(cid) = pos + 1_i32
+              cursor(cid) = pos + 1_i32
             end do
           end do
         end do
       end do
-      deallocate (offsets)
     end if
 
-    deallocate (counts)
+    deallocate (cursor)
     mesh%use_collision_grid = .true.
   end subroutine build_collision_grid
 

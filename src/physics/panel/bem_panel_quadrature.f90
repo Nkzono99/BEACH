@@ -13,6 +13,7 @@ module bem_panel_quadrature
   end type panel_quadrature_plan_type
 
   public :: build_panel_quadrature
+  public :: fill_panel_quadrature
   public :: build_panel_duffy_quadrature
   public :: panel_oracle_potential_field
   public :: panel_singular_potential_oracle
@@ -48,6 +49,16 @@ contains
   subroutine build_panel_quadrature(geometry, plan)
     type(panel_geometry_type), intent(in) :: geometry
     type(panel_quadrature_plan_type), intent(out) :: plan
+
+    plan%npoint = 7_i32
+    allocate (plan%position(3, plan%npoint), plan%weight(plan%npoint))
+    call fill_panel_quadrature(geometry, plan%position, plan%weight)
+  end subroutine build_panel_quadrature
+
+  !> Fill an existing seven-point cubature buffer without allocating a plan.
+  subroutine fill_panel_quadrature(geometry, position, weight)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(out) :: position(3, 7), weight(7)
     real(dp), parameter :: barycentric(3, 7) = reshape([ &
                                                        1.0_dp/3.0_dp, 1.0_dp/3.0_dp, 1.0_dp/3.0_dp, &
                                                        0.059715871789770_dp, 0.470142064105115_dp, 0.470142064105115_dp, &
@@ -64,13 +75,11 @@ contains
                            ]
     integer :: point
 
-    plan%npoint = 7_i32
-    allocate (plan%position(3, plan%npoint), plan%weight(plan%npoint))
-    do point = 1, plan%npoint
-      plan%position(:, point) = matmul(geometry%vertex, barycentric(:, point))
+    do point = 1, 7
+      position(:, point) = matmul(geometry%vertex, barycentric(:, point))
     end do
-    plan%weight = geometry%area*normalized_weight
-  end subroutine build_panel_quadrature
+    weight = geometry%area*normalized_weight
+  end subroutine fill_panel_quadrature
 
   subroutine panel_oracle_potential_field(geometry, charge, target, order, potential, field)
     type(panel_geometry_type), intent(in) :: geometry

@@ -12,7 +12,6 @@ module bem_app_config_particle_runtime
     compute_macro_particles_from_flux, sample_reservoir_face_particles, sample_reservoir_velocity_grid_particles, &
     sample_photo_raycast_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
-  use bem_particles, only: init_particles
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type, external_boundary_ok, external_inflow_none, external_inflow_scalar_barrier, &
     resolve_external_boundary_contract

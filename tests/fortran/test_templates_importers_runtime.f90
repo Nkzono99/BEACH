@@ -33,7 +33,11 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(11)
+  call test_init(12)
+
+  call test_begin('uneven_species_batch_order_and_empty_batch')
+  call test_uneven_species_batch()
+  call test_end()
 
   call test_begin('template_shapes')
   call make_plane(mesh, nx=2_i32, ny=3_i32)
@@ -408,6 +412,49 @@ program test_templates_importers_runtime
   call test_summary()
 
 contains
+
+  subroutine test_uneven_species_batch()
+    type(app_config) :: app
+    type(particles_soa) :: particles
+    integer(i32), parameter :: counts(4) = [4_i32, 20_i32, 2_i32, 1_i32]
+    integer(i32), parameter :: expected_species(7) = [1_i32, 3_i32, 4_i32, 1_i32, 3_i32, 1_i32, 1_i32]
+    integer :: s, j
+
+    call default_app_config(app)
+    app%sim%batch_count = 1_i32
+    app%n_particle_species = 4_i32
+    do s = 1, 4
+      app%particle_species(s) = species_from_defaults()
+      app%particle_species(s)%npcls_per_step = counts(s)
+      app%particle_species(s)%enabled = s /= 2
+      app%particle_species(s)%pos_low = real(s, dp)
+      app%particle_species(s)%pos_high = real(s, dp)
+      app%particle_species(s)%drift_velocity = -real(s, dp)
+      app%particle_species(s)%temperature_k = 0.0_dp
+      app%particle_species(s)%q_particle = -real(s, dp)
+      app%particle_species(s)%m_particle = 2.0_dp*s
+      app%particle_species(s)%w_particle = 3.0_dp*s
+    end do
+    call seed_particles_from_config(app)
+    call init_particle_batch_from_config(app, 1_i32, particles)
+    call assert_equal_i32(particles%n, 7_i32, 'uneven species count mismatch')
+    call assert_true(all(particles%species_id == expected_species), 'species round-robin order changed')
+    do j = 1, particles%n
+      s = expected_species(j)
+      call assert_true(all(particles%x(:, j) == real(s, dp)), 'position was assigned to the wrong species')
+      call assert_true(all(particles%v(:, j) == -real(s, dp)), 'velocity was assigned to the wrong species')
+      call assert_close_dp(particles%q(j), -real(s, dp), 0.0_dp, 'species charge mismatch')
+      call assert_close_dp(particles%m(j), 2.0_dp*s, 0.0_dp, 'species mass mismatch')
+      call assert_close_dp(particles%w(j), 3.0_dp*s, 0.0_dp, 'species weight mismatch')
+    end do
+    call assert_true(all(particles%alive), 'new batch particles must be alive')
+    call assert_true(all(particles%source_element == -1_i32), 'volume seed acquired surface provenance')
+    app%particle_species(:)%npcls_per_step = 0_i32
+    call init_particle_batch_from_config(app, 1_i32, particles)
+    call assert_equal_i32(particles%n, 0_i32, 'empty batch retained old particles')
+    call assert_true(size(particles%x, 1) == 3 .and. size(particles%x, 2) == 0, 'empty batch position shape mismatch')
+    call assert_true(size(particles%species_id) == 0 .and. size(particles%alive) == 0, 'empty batch state mismatch')
+  end subroutine test_uneven_species_batch
 
   subroutine assert_template_mesh(candidate, expected_nelem, label)
     type(mesh_type), intent(in) :: candidate
