@@ -172,7 +172,12 @@ contains
         write (u, '(a,a)') 'surface_current_model_response_table_path=', &
           trim(cfg%surface_current%response_table_path)
       case ('zhao_online')
-        write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
+        if (cfg%surface_current%density_model == 'source_kinetic') then
+          write (u, '(a)') 'surface_current_model_response_contract=matching_plane_source_kinetic_v1'
+        else
+          write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
+        end if
+        write (u, '(a,a)') 'surface_current_model_density_model=', trim(cfg%surface_current%density_model)
         write (u, '(a,a)') 'surface_current_model_zhao_branch=', &
           trim(lower_ascii(cfg%surface_current%zhao_branch))
         write (u, '(a,a)') 'surface_current_model_zhao_root_selection=', &

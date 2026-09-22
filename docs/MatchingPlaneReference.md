@@ -10,6 +10,9 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 
 ## 目的別索引
 
+`density_model="source_kinetic"` の密度式、追加 Type、全候補 atlas は
+[source-connected リファレンス](SourceKineticSheath.html)にまとめています。以下の Zhao 固有の根選択は `zhao_legacy` 用です。
+
 | 調べるもの | 節 |
 |---|---|
 | 秒スケールの batch 幅で面平均電荷だけを陰的に更新する | [`implicit_zero_mode`](#implicit_zero_mode) |

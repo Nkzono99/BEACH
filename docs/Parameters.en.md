@@ -350,6 +350,7 @@ closure.
 |---|---|---:|---|
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `response_backend` | string | `"table"` | Matching response source: `table` / `zhao_online` |
+| `density_model` | string | `"zhao_legacy"` | Online density law: `zhao_legacy` / `source_kinetic`. The latter requires zero electron drift and `T_i=0`, also searches `n` / `b0`, and supports only `require_unique`. See the [density and diagnostic contract](SourceKineticSheath.en.html) |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; branch for stationary or online Zhao; no-PE stationary accepts only `auto` / `c` |
 | `zhao_root_selection` | string | `"require_unique"` | Online-Zhao root policy. `require_unique` rejects multiplicity; `minimum_energy` selects the lowest-potential-energy root; `continuation` tracks the accepted Type-A root. `continuation` requires `zhao_branch="a"` and `implicit_zero_mode=true`. Forbidden for stationary Zhao and tables. See the [numerical and response-table reference](MatchingPlaneReference.en.html#zhao_root_selection) |
 | `electron_species` | string | unspecified | Ambient-electron `species_key`; required for Zhao / matching; 1–64 characters |
@@ -391,7 +392,10 @@ The complete case is `examples/periodic2_zhao_fixed_current.toml`.
 
 #### Matching-plane quasistatic closure
 
-`response_backend="table"` uses an external response CSV; `"zhao_online"` uses the finite-$H$ Zhao response implemented
+The A/B/C and energy/continuation descriptions below apply to `density_model="zhao_legacy"`. See the
+[source-connected reference](SourceKineticSheath.en.html) for additional Types and zero-drift/cold-ion requirements.
+
+`response_backend="table"` uses an external response CSV; `"zhao_online"` uses the semi-infinite response implemented
 in BEACH. Without PE, omit `photoelectron_species`; table PE-flux and PE-energy input axes must also be zero. The matching
 plane coordinate $H$ is the z component of `domain.box_max`, its area is the domain x-y area, and every mesh vertex must lie below $H$.
 

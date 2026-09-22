@@ -4,6 +4,9 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 
 # Matching-plane numerical and response-table reference
 
+For `density_model="source_kinetic"`, including additional Types and the full candidate atlas, see the
+[source-connected reference](SourceKineticSheath.en.html). Zhao-specific root policies below apply to `zhao_legacy`.
+
 This reference defines the response CSV, implicit mean-charge update, and fixed-point convergence contract for
 `surface_current_model.model="matching_plane_quasistatic"`. For model selection, the first four-batch run, and output
 diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlaneCoupling.en.html).

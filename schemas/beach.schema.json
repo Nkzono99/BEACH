@@ -686,6 +686,24 @@
       ],
       "allOf": [
         {
+          "if": {"required": ["density_model"]},
+          "then": {
+            "properties": {
+              "model": {"const": "matching_plane_quasistatic"},
+              "response_backend": {"const": "zhao_online"}
+            },
+            "required": ["response_backend"]
+          }
+        },
+        {
+          "if": {
+            "properties": {"density_model": {"const": "source_kinetic"}},
+            "required": ["density_model"]
+          },
+          "then": {"properties": {"zhao_root_selection": {"const": "require_unique"}}},
+          "else": {"properties": {"zhao_branch": {"enum": ["auto", "a", "b", "c"]}}}
+        },
+        {
           "if": {
             "properties": {
               "zhao_root_selection": {"const": "continuation"}
@@ -718,8 +736,13 @@
           "description": "Matching-plane response source: a precomputed CSV table or the built-in online Zhao closure."
         },
         "zhao_branch": {
-          "enum": ["auto", "a", "b", "c"],
+          "enum": ["auto", "a", "b", "c", "n", "b0"],
           "default": "auto"
+        },
+        "density_model": {
+          "enum": ["zhao_legacy", "source_kinetic"],
+          "default": "zhao_legacy",
+          "description": "Online density law. source_kinetic uses zero-drift source-connected orbits and retains A/N/B/C/B0 candidates; zhao_legacy preserves released Zhao behavior."
         },
         "zhao_root_selection": {
           "enum": ["require_unique", "minimum_energy", "continuation"],

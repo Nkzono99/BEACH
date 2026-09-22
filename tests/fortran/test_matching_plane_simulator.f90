@@ -10,6 +10,7 @@ program test_matching_plane_simulator
   use bem_matching_plane_response, only: &
     matching_plane_response_csv_header, reset_matching_plane_response_snapshot_cache
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
+  use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_ok
   use test_support, only: &
     test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, assert_equal_i64, &
     assert_close_dp, delete_file_if_exists
@@ -48,7 +49,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(17)
+  call test_init(18)
 
   call test_begin('accepted_fixed_point_replays_one_particle_batch')
   open (newunit=history_unit, file=history_path, status='replace', action='write')
@@ -292,6 +293,26 @@ program test_matching_plane_simulator
     all(resumed_stats%matching_plane_feedback(1:2) == 0.0_dp), &
     'no-PE online implicit state acquired PE feedback' &
     )
+  call test_end()
+
+  call test_begin('source_kinetic_online_and_table_implicit_charge_agree')
+  call configure_source_fixture()
+  call write_source_table()
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state)
+  call assert_true(stats%matching_plane_state_valid, 'source online state was not committed')
+  call assert_true(stats%matching_plane_phi_v < 0, 'dark source sheath should charge negatively')
+  call configure_source_fixture()
+  cfg%surface_current%response_backend = 'table'
+  cfg%surface_current%response_table_path = response_path
+  call reset_matching_plane_response_snapshot_cache()
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_close_dp(resumed_stats%matching_plane_displacement_c_m2, stats%matching_plane_displacement_c_m2, &
+                       2.e-3_dp*abs(stats%matching_plane_displacement_c_m2), 'table/online charge mismatch')
+  call assert_close_dp(resumed_stats%matching_plane_phi_v, stats%matching_plane_phi_v, &
+                       2.e-3_dp*abs(stats%matching_plane_phi_v), 'table/online potential mismatch')
+  call assert_true(all(resumed_stats%matching_plane_feedback(1:2) == 0), 'dark table acquired PE feedback')
   call test_end()
 
   call test_begin('strong_photo_type_a_continuation_bootstraps_one_batch')
@@ -546,6 +567,43 @@ program test_matching_plane_simulator
   call test_summary()
 
 contains
+
+  subroutine configure_source_fixture()
+    call configure_fixture(mesh, cfg, inject_state)
+    call configure_online_backend(cfg)
+    call configure_no_photo_fixture(cfg, inject_state)
+    cfg%surface_current%density_model = 'source_kinetic'
+    cfg%surface_current%implicit_zero_mode = .true.
+    cfg%particle_species(1)%drift_velocity = 0
+    cfg%particle_species(2)%temperature_ev = 0
+    cfg%sim%dt = 2.e-6_dp
+    cfg%sim%max_step = 2
+  end subroutine
+
+  subroutine write_source_table()
+    type(matching_plane_zhao_model_type) :: model
+    real(dp) :: input(5), response(6), displacement_scale
+    integer(i32) :: status
+    integer :: i, unit_id
+    character(len=512) :: message
+    call model%initialize('auto', 'require_unique', 8.7e6_dp, 12._dp, 0._dp, &
+                          4.0529988897111727e5_dp, cfg%particle_species(2)%m_particle, &
+                          cfg%particle_species(1)%m_particle, 12._dp, status, message, &
+                          density_model='source_kinetic')
+    call assert_equal_i32(status, matching_plane_zhao_ok, 'source table initialization')
+    displacement_scale = sqrt(eps0*8.7e6_dp*qe*12._dp)
+    open (newunit=unit_id, file=response_path, status='replace', action='write')
+    write (unit_id, '(a)') '# matching_plane_z_m=1.0'
+    write (unit_id, '(a)') matching_plane_response_csv_header
+    do i = 0, 128
+      input = 0
+      input(1) = -displacement_scale*0.25_dp*i/128
+      call model%evaluate(input, response, status, message)
+      call assert_equal_i32(status, matching_plane_zhao_ok, 'source table row: '//trim(message))
+      write (unit_id, '(11(es24.16,:,","))') input, response
+    end do
+    close (unit_id)
+  end subroutine
 
   subroutine configure_fixture(fixture_mesh, fixture_cfg, state)
     type(mesh_type), intent(out) :: fixture_mesh

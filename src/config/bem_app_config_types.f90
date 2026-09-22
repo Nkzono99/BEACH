@@ -18,6 +18,7 @@ module bem_app_config_types
   type :: surface_current_model_config
     character(len=32) :: model = 'none'
     character(len=16) :: response_backend = 'table'
+    character(len=16) :: density_model = 'zhao_legacy'
     character(len=16) :: zhao_branch = 'auto'
     character(len=16) :: zhao_root_selection = 'require_unique'
     character(len=64) :: electron_species = ''

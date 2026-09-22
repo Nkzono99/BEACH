@@ -20,6 +20,9 @@ contains
         table, keys(ikey), cfg%surface_current%response_backend, 'surface_current_model.response_backend' &
         )
       cfg%surface_current%response_backend = lower_ascii(trim(cfg%surface_current%response_backend))
+    case ('density_model')
+      call get_toml_string(table, keys(ikey), cfg%surface_current%density_model, 'surface_current_model.density_model')
+      cfg%surface_current%density_model = lower_ascii(trim(cfg%surface_current%density_model))
     case ('zhao_branch')
       call get_toml_string(table, keys(ikey), cfg%surface_current%zhao_branch, 'surface_current_model.zhao_branch')
       cfg%surface_current%zhao_branch = lower_ascii(trim(cfg%surface_current%zhao_branch))

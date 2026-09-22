@@ -163,7 +163,7 @@ contains
         -cfg%particle_species(ion_idx)%drift_velocity(3), &
         cfg%particle_species(ion_idx)%m_particle, &
         cfg%particle_species(electron_idx)%m_particle, &
-        photoelectron_temperature_ev, zhao_status, backend_message &
+        photoelectron_temperature_ev, zhao_status, backend_message, density_model=cfg%surface_current%density_model &
         )
     end if
     status_packet = [zhao_status]

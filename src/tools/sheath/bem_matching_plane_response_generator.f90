@@ -124,6 +124,7 @@ contains
       return
     end if
     write (output_unit, '(a,es24.16)', iostat=ios) '# matching_plane_z_m=', cfg%sim%box_max(3)
+    if (ios == 0) write (output_unit, '(a,a)', iostat=ios) '# density_model=', trim(cfg%surface_current%density_model)
     if (ios == 0) write (output_unit, '(a)', iostat=ios) matching_plane_response_csv_header
     do row = 1, size(queries, 2)
       if (ios /= 0) exit

@@ -26,7 +26,7 @@ program test_matching_plane_zhao_atlas
 
   call cleanup_files()
   call configure_online_fixture(cfg)
-  call test_init(2)
+  call test_init(3)
 
   call test_begin('known_points_keep_independent_branch_statuses')
   call write_known_queries()
@@ -81,6 +81,27 @@ program test_matching_plane_zhao_atlas
   end do
   call test_end()
 
+  call test_begin('source_atlas_keeps_coexisting_roots_before_selection')
+  cfg%surface_current%density_model = 'source_kinetic'
+  cfg%particle_species(1)%drift_velocity = 0
+  cfg%particle_species(2)%temperature_ev = 0
+  cfg%particle_species(2)%drift_velocity(3) = &
+    -10*sqrt(qe*12._dp/cfg%particle_species(2)%m_particle)
+  open (newunit=unit_id, file=query_path, status='replace', action='write')
+  write (unit_id, '(a)') matching_plane_zhao_atlas_query_csv_header
+  write (unit_id, '(*(g0,:,","))') 0.1_dp*sqrt(eps0*8.7e6_dp*qe*12._dp), &
+    0.3_dp*8.7e6_dp*sqrt(qe*12._dp/cfg%particle_species(1)%m_particle), 2.4_dp
+  close (unit_id)
+  call generate_matching_plane_zhao_atlas(cfg, query_path, output_path, status, message)
+  call assert_equal_i32(status, matching_plane_atlas_ok, 'source atlas failed: '//trim(message))
+  open (newunit=unit_id, file=output_path, status='old', action='read')
+  call read_and_assert('barrier_resolution_limited', 'source diagnostics header missing')
+  call read_and_assert(',solutions,2,1,T,B,', 'B coexistence row missing')
+  call read_and_assert(',solutions,2,2,T,N,', 'N coexistence row missing')
+  read (unit_id, '(a)', iostat=ios) line
+  call assert_true(ios < 0, 'source atlas duplicated detected roots')
+  close (unit_id)
+  call test_end()
   call cleanup_files()
   call test_summary()
 

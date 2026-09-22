@@ -101,6 +101,9 @@ contains
         error stop 'Unknown Type-A Zhao side.'
       end if
     case ('B')
+      ! Released BEACH compatibility density: omits the position-dependent
+      ! ambient velocity cutoff. This is not the zero-drift specialization of
+      ! Zhao et al. (2020), Eq. (3); see docs/SourceKineticSheath.md.
       s_phe = sqrt(max(0.0d0, phi_hat))
       n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 + erf(p%u))
       n_swe_r_hat = 0.0d0

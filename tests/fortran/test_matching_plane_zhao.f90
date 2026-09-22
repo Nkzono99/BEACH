@@ -46,7 +46,34 @@ program test_matching_plane_zhao
   integer(i32) :: status
   character(len=512) :: message
 
-  call test_init(11)
+  call test_init(12)
+
+  call test_begin('source_kinetic_SI_response_preserves_multiplicity_and_units')
+  call model%initialize( &
+    'auto', 'require_unique', ion_density_m3, electron_temperature_ev, 0._dp, &
+    10*sqrt(qe*electron_temperature_ev/(1836.15267343_dp*electron_mass_kg)), &
+    1836.15267343_dp*electron_mass_kg, electron_mass_kg, 0.2_dp*electron_temperature_ev, &
+    status, message, density_model='source_kinetic')
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'source model initialization: '//trim(message))
+  input = [0.1_dp*sqrt(eps0*ion_density_m3*qe*electron_temperature_ev), &
+           0.3_dp*ion_density_m3*sqrt(qe*electron_temperature_ev/electron_mass_kg), &
+           0.2_dp*electron_temperature_ev, 0._dp, 0._dp]
+  call model%evaluate(input, output, status, message, diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ambiguous_solution, 'coexisting source roots must not be auto-selected')
+  call assert_true(size(diagnostics%kinetic%roots) == 2, 'all source roots must survive the selection failure')
+  call model%initialize( &
+    'n', 'require_unique', ion_density_m3, electron_temperature_ev, 0._dp, &
+    10*sqrt(qe*electron_temperature_ev/(1836.15267343_dp*electron_mass_kg)), &
+    1836.15267343_dp*electron_mass_kg, electron_mass_kg, 0.2_dp*electron_temperature_ev, &
+    status, message, density_model='source_kinetic')
+  call model%evaluate(input, output, status, message, diagnostics)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'explicit source N: '//trim(message))
+  call assert_close_dp(output(1), -0.1329182235_dp*electron_temperature_ev, 1.e-8_dp, 'Te potential normalization')
+  call assert_close_dp(output(4), -0.1480124772_dp*electron_temperature_ev, 1.e-8_dp, 'N electron access')
+  call assert_close_dp(output(6), output(4), 0._dp, 'N PE barrier')
+  call assert_close_dp(diagnostics%ambient_electron_density_m3/ion_density_m3, &
+                       0.8974844341_dp, 1.e-9_dp, 'source amplitude normalization')
+  call test_end()
 
   call test_begin('zero_field_without_photoelectrons_is_degenerate_zhao_b')
   call initialize_model('auto', configured_photoelectron_temperature_ev)

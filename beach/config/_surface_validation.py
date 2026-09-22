@@ -37,6 +37,7 @@ def _validate_surface_current_model(
             )
         return
     matching_keys = {
+        "density_model",
         "response_backend",
         "response_table_path",
         "zhao_root_selection",
@@ -327,7 +328,7 @@ def _validate_matching_plane_model(
             'be "table" or "zhao_online".'
         )
     if response_backend == "table":
-        if {"zhao_branch", "zhao_root_selection"}.intersection(model_config):
+        if {"zhao_branch", "zhao_root_selection", "density_model"}.intersection(model_config):
             raise ConfigValidationError(
                 "BEACH constraint error: matching_plane_quasistatic "
                 'response_backend="table" cannot use Zhao-specific settings such '
@@ -345,21 +346,33 @@ def _validate_matching_plane_model(
                 "response_table_path of at most 256 characters."
             )
     else:
+        density_model = model_config.get("density_model", "zhao_legacy")
+        if density_model not in {"zhao_legacy", "source_kinetic"}:
+            raise ConfigValidationError(
+                'BEACH constraint error: density_model must be "zhao_legacy" or "source_kinetic".'
+            )
         if "response_table_path" in model_config:
             raise ConfigValidationError(
                 "BEACH constraint error: matching_plane_quasistatic "
                 'response_backend="zhao_online" cannot use response_table_path.'
             )
         zhao_branch = model_config.get("zhao_branch", "auto")
+        branches = {"auto", "a", "b", "c"}
+        if density_model == "source_kinetic":
+            branches.update({"n", "b0"})
         if (
             not isinstance(zhao_branch, str)
-            or zhao_branch not in {"auto", "a", "b", "c"}
+            or zhao_branch not in branches
         ):
             raise ConfigValidationError(
                 "BEACH constraint error: surface_current_model.zhao_branch must be "
-                '"auto", "a", "b", or "c".'
+                f'one of {", ".join(sorted(branches))} for density_model="{density_model}".'
             )
         root_selection = model_config.get("zhao_root_selection", "require_unique")
+        if density_model == "source_kinetic" and root_selection != "require_unique":
+            raise ConfigValidationError(
+                "BEACH constraint error: source_kinetic supports only require_unique among detected roots."
+            )
         if (
             not isinstance(root_selection, str)
             or root_selection
@@ -640,12 +653,16 @@ def _validate_matching_plane_model(
             )
 
     if response_backend == "zhao_online":
-        _validate_matching_plane_zhao_online(selected, charges)
+        _validate_matching_plane_zhao_online(
+            selected, charges, source_kinetic=model_config.get("density_model") == "source_kinetic"
+        )
 
 
 def _validate_matching_plane_zhao_online(
     selected: Mapping[str, Mapping[str, Any]],
     charges: Mapping[str, float],
+    *,
+    source_kinetic: bool = False,
 ) -> None:
     elementary_charge = 1.602176634e-19
     if any(
@@ -708,6 +725,8 @@ def _validate_matching_plane_zhao_online(
         temperature_k(photoelectron) if photoelectron is not None else None
     )
     ion_temperature = temperature_k(selected["ion"])
+    if source_kinetic and ion_temperature != 0.0:
+        raise ConfigValidationError("BEACH constraint error: source_kinetic requires T_i=0.")
     if electron_temperature is None or electron_temperature <= 0.0:
         raise ConfigValidationError(
             "BEACH constraint error: matching_plane_quasistatic zhao_online "
@@ -741,7 +760,12 @@ def _validate_matching_plane_zhao_online(
             parsed = [finite_float(component) for component in drift]
             if all(component is not None for component in parsed):
                 drift_components = [float(component) for component in parsed]
-        if drift_components is None or drift_components[2] >= 0.0:
+        if source_kinetic and role == "electron":
+            if drift_components != [0.0, 0.0, 0.0]:
+                raise ConfigValidationError(
+                    "BEACH constraint error: source_kinetic requires zero ambient electron drift."
+                )
+        elif drift_components is None or drift_components[2] >= 0.0:
             raise ConfigValidationError(
                 "BEACH constraint error: matching_plane_quasistatic zhao_online "
                 "requires finite drift vectors and positive ambient inward drift at z-high."
