@@ -19,6 +19,34 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 | 固定点の受理式と緩和式 | [固定点の数値契約](#固定点の数値契約) |
 | grid、batch 幅、matching-plane 高度を収束させる | [収束と適用性を検証する](#収束と適用性を検証する) |
 
+## Zhao Type B の電子密度
+
+Type B の ambient 電子は、正電位へ加速されて到達する粒子の速度下限を残して積分します。
+[Zhao et al. (2020), §III.A、式 (3)](https://scholarworks.indianapolis.iu.edu/server/api/core/bitstreams/e20ede43-d66d-4b73-b89c-3d3192672188/content)
+に経路最低電位 $\Phi_m=\Phi_\infty=0$ を入れた式は、BEACH の規格化で
+
+$$
+\hat n_{e,f}=\frac{\hat n_{e,\infty}}{2}
+\exp(\hat\phi/\tau)\operatorname{erfc}\!\left(\sqrt{\hat\phi/\tau}-u\right)
+$$
+
+です。$\hat\phi=e(\Phi-\Phi_\infty)/(k_BT_{ph})$、$\tau=T_e/T_{ph}$、
+$u=v_d/\sqrt{2k_BT_e/m_e}$ とし、密度は基準 PE 密度で規格化します。
+零ドリフトでは $\hat n_{e,f}=(\hat n_{e,\infty}/2)\operatorname{erfcx}(\sqrt{\hat\phi/\tau})$ です。
+実装でも大きな正電位で指数関数と小さい尾部を直接掛けないよう、scaled erfc を使います。
+
+この速度下限は [Zhao (2022) 学位論文](https://scholarsmine.mst.edu/doctoral_dissertations/3176/)の付録・式 (1) にもあります。
+Maxwell 分布を使うことは、全速度を積分した Boltzmann 密度を仮定することとは異なります。
+有限ドリフトについても原著の分布式を使いますが、この式の復元だけで厳密な境界 VDF 輸送との一致や時間安定性を保証しません。
+2021 年 IEEE TPS 版の本文は未取得で、その版の式まで直接確認済みとはしません。
+
+以前の Type B 実装は `erfc(sqrt(phi_hat/tau)-u)` を位置によらない `1+erf(u)` としていました。
+既存の Zhao 密度評価を修正し、online の Poisson 積分と応答表生成に反映しています。
+設定キー、source type、A/B/C の名前は追加していません。原点の密度と零電流の境界式は変わらず、
+Type B の指定電場応答・電位エネルギー・`auto` の根選択は変わり得ます。
+修正前の Type B または `auto` から生成した応答表は、修正後の `beach-zhao-response` で再生成してください。
+table reader は既存 CSV の数値をそのまま使い、過去の表を自動修正しません。
+
 ## `implicit_zero_mode`
 
 秒スケールの `batch_duration` で面平均電流の陽的更新が硬い場合、`implicit_zero_mode=true` で

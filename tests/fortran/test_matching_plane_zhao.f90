@@ -3,7 +3,8 @@ program test_matching_plane_zhao
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
 !$ use omp_lib, only: omp_get_max_threads, omp_set_num_threads
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0, qe
+  use bem_constants, only: eps0, qe, pi
+  use bem_sheath_model_core, only: zhao_params_type, build_zhao_params, evaluate_zhao_density_hat
   use bem_matching_plane_zhao, only: &
     matching_plane_zhao_model_type, matching_plane_zhao_diagnostics_type, &
     matching_plane_zhao_root_seed_type, &
@@ -25,9 +26,10 @@ program test_matching_plane_zhao
   real(dp), parameter :: type_a_phi0_v = 2.9712182827319435_dp
   real(dp), parameter :: type_a_phi_m_v = -0.8169121871620854_dp
   real(dp), parameter :: type_a_source_density_m3 = 5.5425625842204072e7_dp
-  ! Legacy nested quadrature values are independent references for the current formula.
+  ! Independent nested quadrature references. Type B uses SciPy adaptive
+  ! quadrature of Zhao (2020), Eq. (3), with neutrality and the prescribed field.
   real(dp), parameter :: type_a_energy_reference_j_m2 = -1.2875334387049235e-11_dp
-  real(dp), parameter :: type_b_energy_reference_j_m2 = -1.2171504622341230e-11_dp
+  real(dp), parameter :: type_b_energy_reference_j_m2 = -1.2958400777036397e-11_dp
   ! Type-A既知解を固定値化し、productionのrho積分でtest入力を再生成しない。
   real(dp), parameter :: type_a_input(5) = [ &
                          1.4187346568707933e-11_dp, 1.3754433596232731e13_dp, &
@@ -46,7 +48,11 @@ program test_matching_plane_zhao
   integer(i32) :: status
   character(len=512) :: message
 
-  call test_init(11)
+  call test_init(13)
+
+  call test_begin('type_b_density_retains_the_original_velocity_cutoff')
+  call assert_type_b_velocity_integral()
+  call test_end()
 
   call test_begin('zero_field_without_photoelectrons_is_degenerate_zhao_b')
   call initialize_model('auto', configured_photoelectron_temperature_ev)
@@ -111,6 +117,9 @@ program test_matching_plane_zhao
   call initialize_model('b', type_a_photoelectron_temperature_ev, 'minimum_energy')
   call model%evaluate(input, output, status, message, energy_b_diagnostics)
   call assert_equal_i32(status, matching_plane_zhao_ok, 'minimum-energy Zhao-B solve failed: '//trim(message))
+  call assert_close_dp(output(1), 3.956627756217795_dp, 1.e-7_dp, 'independent Type B potential')
+  call assert_close_dp(energy_b_diagnostics%ambient_electron_density_m3, 6742539.857612752_dp, &
+                       1._dp, 'independent Type B ambient density')
   call assert_close_dp( &
     energy_a_diagnostics%potential_energy_j_m2, type_a_energy_reference_j_m2, &
     1.0e-7_dp*abs(type_a_energy_reference_j_m2), &
@@ -146,9 +155,14 @@ program test_matching_plane_zhao
   call test_end()
 
   call test_begin('explicit_zhao_b_solves_a_positive_field_profile')
-  call initialize_model('b', configured_photoelectron_temperature_ev)
-  input = 0.0_dp
-  input(1) = 0.02_dp*eps0
+  ! Independent handoff fixture: M=10, Tph/Te=0.2, G=0.3, E_H=0.1, zero electron drift.
+  call model%initialize('b', 'require_unique', ion_density_m3, electron_temperature_ev, 0._dp, &
+                        10*sqrt(qe*electron_temperature_ev/proton_mass_kg), proton_mass_kg, electron_mass_kg, &
+                        0.2_dp*electron_temperature_ev, status, message)
+  call assert_equal_i32(status, matching_plane_zhao_ok, 'zero-drift B initialization')
+  input = [0.1_dp*sqrt(eps0*ion_density_m3*qe*electron_temperature_ev), &
+           0.3_dp*ion_density_m3*sqrt(qe*electron_temperature_ev/electron_mass_kg), &
+           0.2_dp*electron_temperature_ev, 0._dp, 0._dp]
   call model%evaluate(input, output, status, message, diagnostics)
   call assert_equal_i32(status, matching_plane_zhao_ok, 'positive-field Zhao-B solve failed: '//trim(message))
   call assert_true(diagnostics%branch == 'B' .and. output(1) > 0.0_dp, &
@@ -159,6 +173,20 @@ program test_matching_plane_zhao
     'positive-field Zhao-B path contains an imaginary-field interval' &
     )
   call assert_true(all(output(4:6) == 0.0_dp), 'Zhao-B access/barrier potentials must use the upstream gauge')
+  call assert_close_dp(output(1), 0.0228867312916_dp*electron_temperature_ev, 1.e-7_dp, &
+                       'zero-drift B differs from the independent orbit solver')
+  call assert_close_dp(diagnostics%ambient_electron_density_m3/ion_density_m3, 0.5003210848357_dp, 1.e-7_dp, &
+                       'zero-drift B amplitude differs from the independent orbit solver')
+  call test_end()
+
+  call test_begin('positive_field_without_photoelectrons_has_no_type_b_response')
+  call initialize_model('b', configured_photoelectron_temperature_ev)
+  input = 0._dp
+  input(1) = 0.02_dp*eps0
+  call model%evaluate(input, output, status, message, diagnostics)
+  call assert_true(status == matching_plane_zhao_no_physical_solution .or. &
+                   status == matching_plane_zhao_numerical_failure, 'dark positive-field B was accepted')
+  call assert_true(all(output == 0._dp), 'dark positive-field B returned a partial response')
   call test_end()
 
   call test_begin('explicit_zhao_a_solves_a_positive_nonmonotonic_profile')
@@ -334,6 +362,44 @@ program test_matching_plane_zhao
   call test_summary()
 
 contains
+
+  subroutine assert_type_b_velocity_integral()
+    type(zhao_params_type) :: params
+    real(dp), parameter :: potentials(6) = [0._dp, 0.01_dp, 0.2_dp, 1._dp, 9._dp, 1000._dp]
+    real(dp), parameter :: amplitude = 0.7_dp
+    integer, parameter :: panels = 20000
+    real(dp) :: phi, cutoff, u, v, step, weight, integral, ion, free, reflected, photo, captured
+    integer :: drift_index, potential_index, point
+
+    call build_zhao_params(90._dp, ion_density_m3, ion_density_m3, 12._dp, 2.4_dp, 0._dp, &
+                           100*sqrt(qe*12._dp/proton_mass_kg), proton_mass_kg, electron_mass_kg, params, &
+                           photoelectron_source_scale=0._dp)
+    do drift_index = 0, 2
+      u = 0.5_dp*drift_index
+      params%u = u
+      do potential_index = 1, size(potentials)
+        phi = potentials(potential_index)
+        cutoff = sqrt(phi)
+        step = 12._dp/(max(1._dp, (cutoff - u)/4)*panels)
+        integral = 0
+        ! Direct quadrature of the original local Maxwellian over v >= sqrt(phi).
+        ! Velocity is in sqrt(2 Te/me) units; no erf/erfc is used by this oracle.
+        do point = 0, panels
+          v = cutoff + point*step
+          weight = 2
+          if (mod(point, 2) == 1) weight = 4
+          if (point == 0 .or. point == panels) weight = 1
+          integral = integral + weight*exp(phi - (v - u)**2)
+        end do
+        integral = amplitude*integral*step/(3*sqrt(pi))
+        call evaluate_zhao_density_hat(params, 'B', 'monotonic', phi*params%tau, phi*params%tau, &
+                                       phi*params%tau, amplitude, ion, free, reflected, photo, captured)
+        call assert_true(ieee_is_finite(free), 'Type B electron density overflowed')
+        call assert_close_dp(free, integral, 3.e-11_dp*integral, 'Type B velocity-domain integral mismatch')
+        call assert_close_dp(reflected, 0._dp, 0._dp, 'Type B acquired reflected ambient electrons')
+      end do
+    end do
+  end subroutine assert_type_b_velocity_integral
 
   subroutine initialize_model(branch, photoelectron_temperature_ev, root_selection)
     character(len=*), intent(in) :: branch
