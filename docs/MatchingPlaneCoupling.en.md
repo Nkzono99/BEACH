@@ -48,6 +48,36 @@ Vlasov response.
 The outer-sheath connection remains active without PEs. Omit `photoelectron_species` and the `photo_raycast` species;
 the response backend still determines the matching potential and ambient inflow.
 
+### Retain the PE distribution
+
+BEACH tracks return and absorption between the emitting surface and H as particle trajectories. The outer sheath is
+supplied by the PEs that cross H outward after this transport. Substituting the surface `emit_current_density_a_m2`
+directly for the H flux would also supply the exterior with particles that never reached H.
+
+The default `photoelectron_closure="moment_matched_half_maxwellian"` maps the flux and mean normal energy at H
+to a Maxwell distribution with the same two moments. To preserve the shape selected by inner transport, add the
+following to an online Zhao configuration with PEs:
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+photoelectron_closure = "energy_spectrum"
+photoelectron_spectrum_bins_per_decade = 32
+# Also specify electron_species / ion_species / photoelectron_species.
+```
+
+This option records outward crossings at H before the outer reflection decision and derives exterior density,
+return, and escape from the energy-resolved flux. The implicit mean-charge update uses the escape integral of
+the same distribution. The PE source remains `photo_raycast`. A complete configuration is provided in
+[`periodic2_matching_plane_pe_spectrum.toml`](../examples/periodic2_matching_plane_pe_spectrum.toml).
+
+The existing five-input response table cannot encode a distribution, so this option cannot be used with `table`.
+Compare the observed and response-input distributions in `matching_plane_spectrum_history.csv` and check convergence
+by increasing bin and ray counts. This remains a planar 1D exterior approximation and does not solve the volume
+space charge of PEs flying inside BEACH. See the [numerical reference](MatchingPlaneReference.en.html#photoelectron_closure)
+for distribution, iteration, and restart details.
+
 ### Distinguish stationary Zhao from online Zhao
 
 The similarly named models solve different constraints.

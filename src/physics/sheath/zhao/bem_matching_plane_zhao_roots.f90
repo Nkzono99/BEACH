@@ -15,7 +15,7 @@ contains
 
   character(len=1) :: order(3), candidate
   type(zhao_matching_root_type) :: trial_root, successful_root, successful_roots(3)
-  real(dp) :: field_scale, target_field_hat, degenerate_density_m3
+  real(dp) :: field_scale, target_field_hat, degenerate_density_m3, pe_free, pe_returning
   integer :: candidate_count, candidate_index, successful_count
   logical :: saw_numerical_failure, saw_ambiguous_solution
 
@@ -41,6 +41,10 @@ contains
     degenerate_density_m3 = ( &
                             2.0_dp*params%n_swi_inf_m3 - params%n_phe0_m3 &
                             )/(1.0_dp + erf(params%u))
+    if (allocated(params%pe_spectrum%flux)) then
+      call params%pe_spectrum%density(0.0_dp, 0.0_dp, 0.0_dp, params%m_e_kg, pe_free, pe_returning, .true.)
+      degenerate_density_m3 = 2.0_dp*(params%n_swi_inf_m3 - pe_free)/(1.0_dp + erf(params%u))
+    end if
     if (.not. ieee_is_finite(degenerate_density_m3) .or. degenerate_density_m3 <= 0.0_dp) then
       status = matching_plane_zhao_no_physical_solution
       message = 'zero-field Zhao-B state has no positive ambient electron density.'

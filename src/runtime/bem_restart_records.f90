@@ -12,7 +12,7 @@ contains
   !! @param[out] stats 復元した統計値。
   module procedure load_summary_file
 
-  integer :: u, ios, pos
+  integer :: u, ios, pos, observed_count, input_count, bin_index, observed_read, input_read
   integer(i32) :: mesh_nelem, saved_world_size, summary_schema_version
   character(len=512) :: line
   character(len=64) :: key
@@ -22,8 +22,15 @@ contains
   logical :: found_matching_state, found_matching_displacement, found_matching_phi
   logical :: found_matching_response(2:6), found_matching_feedback(4)
   logical :: found_matching_return, found_matching_escape, found_matching_iterations, found_matching_residual
+  logical :: found_pe_grid, found_pe_closure, found_response_input, found_model_escape
 
   stats = sim_stats()
+  found_pe_grid = .false.
+  found_pe_closure = .false.
+  found_response_input = .false.
+  found_model_escape = .false.
+  observed_read = 0
+  input_read = 0
   mesh_nelem = -1_i32
   saved_world_size = 1_i32
   summary_schema_version = -1_i32
@@ -57,8 +64,53 @@ contains
 
     key = trim(adjustl(line(:pos - 1)))
     value = trim(adjustl(line(pos + 1:)))
+    bin_index = 0
+    if (index(key, 'matching_plane_pe_observed_bin_') == 1) then
+      read (key(len('matching_plane_pe_observed_bin_') + 1:), *, iostat=ios) bin_index
+      if (ios /= 0) error stop 'Invalid PE spectrum bin key in checkpoint.'
+      key = 'matching_plane_pe_observed_bin'
+    else if (index(key, 'matching_plane_pe_input_bin_') == 1) then
+      read (key(len('matching_plane_pe_input_bin_') + 1:), *, iostat=ios) bin_index
+      if (ios /= 0) error stop 'Invalid PE input spectrum bin key in checkpoint.'
+      key = 'matching_plane_pe_input_bin'
+    end if
 
     select case (trim(key))
+    case ('matching_plane_spectral_closure')
+      call require_unique_summary_key(found_pe_closure, key)
+      call read_matching_summary_logical(value, key, stats%matching_plane_spectral_closure)
+    case ('matching_plane_response_input')
+      call require_unique_summary_key(found_response_input, key)
+      read (value, *, iostat=ios) stats%matching_plane_response_input
+      if (ios /= 0 .or. .not. all(ieee_is_finite(stats%matching_plane_response_input))) &
+        error stop 'Invalid matching-plane response input in checkpoint.'
+    case ('matching_plane_model_escape_flux')
+      call require_unique_summary_key(found_model_escape, key)
+      call read_matching_summary_real(value, key, stats%matching_plane_model_escape_flux)
+    case ('matching_plane_pe_grid')
+      call require_unique_summary_key(found_pe_grid, key)
+      read (value, *, iostat=ios) stats%matching_plane_pe_input%energy_scale_ev, &
+        stats%matching_plane_pe_input%bins_per_decade, observed_count, input_count
+      if (ios /= 0) error stop 'Invalid PE spectrum grid in checkpoint.'
+      if (.not. ieee_is_finite(stats%matching_plane_pe_input%energy_scale_ev) .or. &
+          stats%matching_plane_pe_input%energy_scale_ev <= 0.0_dp .or. &
+          stats%matching_plane_pe_input%bins_per_decade <= 0 .or. min(observed_count, input_count) < 0) &
+        error stop 'Invalid PE spectrum grid in checkpoint.'
+      stats%matching_plane_pe_observed = stats%matching_plane_pe_input
+      allocate (stats%matching_plane_pe_input%flux(input_count), stats%matching_plane_pe_observed%flux(observed_count))
+    case ('matching_plane_pe_observed_bin', 'matching_plane_pe_input_bin')
+      if (.not. found_pe_grid) error stop 'PE spectrum bins precede grid in checkpoint.'
+      if (trim(key) == 'matching_plane_pe_observed_bin') then
+        observed_read = observed_read + 1
+        if (observed_read > observed_count) error stop 'Extra PE spectrum bin in checkpoint.'
+        read (value, *, iostat=ios) stats%matching_plane_pe_observed%flux(observed_read)
+        if (ios /= 0 .or. bin_index /= observed_read) error stop 'Invalid PE spectrum bin index in checkpoint.'
+      else
+        input_read = input_read + 1
+        if (input_read > input_count) error stop 'Extra PE input spectrum bin in checkpoint.'
+        read (value, *, iostat=ios) stats%matching_plane_pe_input%flux(input_read)
+        if (ios /= 0 .or. bin_index /= input_read) error stop 'Invalid PE input spectrum bin index in checkpoint.'
+      end if
     case ('checkpoint_schema_version')
       read (value, *) summary_schema_version
     case ('mesh_nelem')
@@ -156,6 +208,17 @@ contains
     end select
   end do
   close (u)
+
+  if (stats%matching_plane_spectral_closure .and. .not. found_pe_grid) &
+    error stop 'Spectral matching-plane checkpoint is missing its spectrum.'
+  if (found_pe_grid) then
+    if (observed_read /= observed_count .or. input_read /= input_count .or. .not. found_response_input .or. &
+        .not. found_model_escape) error stop 'Incomplete PE spectrum checkpoint.'
+    if (.not. all(ieee_is_finite(stats%matching_plane_pe_input%flux)) .or. &
+        .not. all(ieee_is_finite(stats%matching_plane_pe_observed%flux)) .or. &
+        any(stats%matching_plane_pe_input%flux < 0.0_dp) .or. any(stats%matching_plane_pe_observed%flux < 0.0_dp)) &
+      error stop 'Invalid PE spectrum flux in checkpoint.'
+  end if
 
   if (.not. (found_mesh .and. found_processed .and. found_absorbed .and. &
              found_escaped .and. found_batches .and. found_rel)) then

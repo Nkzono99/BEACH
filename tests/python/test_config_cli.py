@@ -1037,6 +1037,67 @@ def _matching_plane_zhao_online_config() -> dict[str, object]:
     return config
 
 
+def test_matching_plane_photoelectron_spectrum_config_contract() -> None:
+    config = _matching_plane_zhao_online_config()
+    default = normalize_config_document(config)["surface_current_model"]
+    assert default.get("photoelectron_closure", "moment_matched_half_maxwellian") == (
+        "moment_matched_half_maxwellian"
+    )
+    config["surface_current_model"].update(
+        photoelectron_closure="energy_spectrum",
+        photoelectron_spectrum_bins_per_decade=64,
+    )
+    normalized = normalize_config_document(config)
+    assert normalized["surface_current_model"]["photoelectron_closure"] == (
+        "energy_spectrum"
+    )
+    assert normalized["surface_current_model"][
+        "photoelectron_spectrum_bins_per_decade"
+    ] == 64
+    assert normalized["particles"]["species"][2]["source_mode"] == "photo_raycast"
+
+    example = load_config_file(
+        Path(__file__).resolve().parents[2]
+        / "examples/periodic2_matching_plane_pe_spectrum.toml"
+    )
+    assert normalize_config_document(example)["surface_current_model"][
+        "photoelectron_closure"
+    ] == "energy_spectrum"
+
+    table = copy.deepcopy(config)
+    table["surface_current_model"]["response_backend"] = "table"
+    table["surface_current_model"]["response_table_path"] = "outer-response.csv"
+    with pytest.raises(ConfigValidationError, match="surface_current_model"):
+        normalize_config_document(table)
+
+    no_photo = copy.deepcopy(config)
+    no_photo["surface_current_model"].pop("photoelectron_species")
+    no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]
+    with pytest.raises(ConfigValidationError, match="surface_current_model"):
+        normalize_config_document(no_photo)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("photoelectron_closure", "config_current"),
+        ("photoelectron_closure", True),
+        ("photoelectron_spectrum_bins_per_decade", 0),
+        ("photoelectron_spectrum_bins_per_decade", -1),
+        ("photoelectron_spectrum_bins_per_decade", 1.5),
+        ("photoelectron_spectrum_bins_per_decade", True),
+        ("photoelectron_spectrum_bins_per_decade", 2147483648),
+    ],
+)
+def test_matching_plane_rejects_invalid_spectrum_settings(
+    key: str, value: object
+) -> None:
+    config = _matching_plane_zhao_online_config()
+    config["surface_current_model"][key] = value
+    with pytest.raises(ConfigValidationError, match=key):
+        normalize_config_document(config)
+
+
 def test_matching_plane_zhao_online_config_contract() -> None:
     implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
     assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
@@ -1155,6 +1216,8 @@ def test_matching_plane_zhao_online_config_contract() -> None:
     for key, value in (
         ("response_backend", "zhao_online"),
         ("zhao_root_selection", "minimum_energy"),
+        ("photoelectron_closure", "energy_spectrum"),
+        ("photoelectron_spectrum_bins_per_decade", 32),
     ):
         invalid_stationary = copy.deepcopy(zhao_stationary)
         invalid_stationary["surface_current_model"][key] = value

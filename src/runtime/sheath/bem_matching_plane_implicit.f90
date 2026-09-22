@@ -599,7 +599,7 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    real(dp) :: input(5), escape_fraction, escape_flux, barrier_energy_ev
+    real(dp) :: input(5), escape_flux, barrier_energy_ev
 
     input = [displacement, feedback_reference]
     call provider%evaluate_local( &
@@ -608,12 +608,11 @@ contains
     residual = 0.0_dp
     current_density = 0.0_dp
     if (status /= matching_plane_provider_ok) return
-    escape_fraction = 0.0_dp
     escape_flux = 0.0_dp
     current_density = electron_charge*response(2) + ion_charge*response(3)
     if (photoelectron_active) then
-      barrier_energy_ev = response(1) - response(6)
-      if (.not. ieee_is_finite(barrier_energy_ev) .or. barrier_energy_ev < 0.0_dp) then
+      barrier_energy_ev = max(0.0_dp, response(1) - response(6))
+      if (.not. ieee_is_finite(barrier_energy_ev)) then
         status = matching_plane_provider_invalid_argument
         message = 'implicit matching-plane PE barrier or reference energy is invalid.'
         return
@@ -624,13 +623,12 @@ contains
           message = 'positive implicit matching-plane PE flux requires positive mean energy.'
           return
         end if
-        escape_fraction = exp(-barrier_energy_ev/feedback_reference(2))
-        escape_flux = feedback_reference(1)*escape_fraction
+        escape_flux = provider%photoelectron_escape_flux(feedback_reference, response)
       end if
       current_density = current_density - photoelectron_charge*escape_flux
     end if
     residual = displacement - displacement_before - duration*current_density
-    if (.not. all(ieee_is_finite([escape_fraction, escape_flux, current_density, residual]))) then
+    if (.not. all(ieee_is_finite([escape_flux, current_density, residual]))) then
       status = matching_plane_provider_numerical_failure
       message = 'implicit matching-plane zero-mode residual is not finite.'
     end if

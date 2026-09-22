@@ -29,6 +29,17 @@ contains
         'surface_current_model.zhao_root_selection' &
         )
       cfg%surface_current%zhao_root_selection = lower_ascii(trim(cfg%surface_current%zhao_root_selection))
+    case ('photoelectron_closure')
+      call get_toml_string( &
+        table, keys(ikey), cfg%surface_current%photoelectron_closure, &
+        'surface_current_model.photoelectron_closure' &
+        )
+      cfg%surface_current%photoelectron_closure = lower_ascii(trim(cfg%surface_current%photoelectron_closure))
+    case ('photoelectron_spectrum_bins_per_decade')
+      call get_toml_int( &
+        table, keys(ikey), cfg%surface_current%photoelectron_spectrum_bins_per_decade, &
+        'surface_current_model.photoelectron_spectrum_bins_per_decade' &
+        )
     case ('electron_species')
       call get_toml_string( &
         table, keys(ikey), cfg%surface_current%electron_species, 'surface_current_model.electron_species' &

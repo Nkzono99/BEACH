@@ -18,7 +18,7 @@ contains
   end procedure prepare_batch_state
 
   module procedure process_particle_batch
-  integer(i32) :: i, step, tid, nth, collision_status, species_idx
+  integer(i32) :: i, step, tid, nth, collision_status, species_idx, crossing, photoelectron_idx
   integer(i64) :: retry_attempted, retry_resolved
   real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
   type(hit_info) :: hit
@@ -42,6 +42,20 @@ contains
   retry_resolved = 0_i64
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp .or. &
                           trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
+  photoelectron_idx = 0_i32
+  if (trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic') then
+    do species_idx = 1_i32, app%n_particle_species
+      if (trim(app%particle_species(species_idx)%species_key) /= trim(app%surface_current%photoelectron_species)) cycle
+      photoelectron_idx = species_idx
+      do tid = 1_i32, nth
+        matching_plane_spectra_thread(tid)%energy_scale_ev = &
+          species_temperature_k(app%particle_species(species_idx))*k_boltzmann/qe
+        if (matching_plane_spectra_thread(tid)%energy_scale_ev <= 0.0_dp) &
+          matching_plane_spectra_thread(tid)%energy_scale_ev = 1.0_dp
+        matching_plane_spectra_thread(tid)%bins_per_decade = app%surface_current%photoelectron_spectrum_bins_per_decade
+      end do
+    end do
+  end if
   ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
   do species_idx = 1_i32, app%n_particle_species
     species_sim(species_idx) = app%sim
@@ -63,9 +77,9 @@ contains
   !$omp shared(absorbed_element,soft_discarded_boundary_flag,batch_idx,mpi_rank) &
   !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
   !$omp shared(collision_failure_x,collision_failure_v) &
-  !$omp shared(matching_plane_moments_thread) &
+  !$omp shared(matching_plane_moments_thread,matching_plane_spectra_thread,photoelectron_idx) &
   !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result,retry_result) &
-  !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
+  !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx,crossing) &
   !$omp private(collision_status,candidate_inside,used_event_resolver,retry_field_available) &
   !$omp reduction(+:retry_attempted,retry_resolved)
   tid = 1_i32
@@ -154,6 +168,11 @@ contains
         matching_plane_moments_thread(1, species_idx, tid) = &
           matching_plane_moments_thread(1, species_idx, tid) + &
           pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
+        if (species_idx == photoelectron_idx .and. allocated(step_result%z_high_outward_energy_j)) then
+          do crossing = 1, size(step_result%z_high_outward_energy_j)
+            call matching_plane_spectra_thread(tid)%add(step_result%z_high_outward_energy_j(crossing)/qe, pcls_batch%w(i))
+          end do
+        end if
         matching_plane_moments_thread(2, species_idx, tid) = &
           matching_plane_moments_thread(2, species_idx, tid) + &
           pcls_batch%w(i)*step_result%z_high_outward_normal_kinetic_energy_j_sum

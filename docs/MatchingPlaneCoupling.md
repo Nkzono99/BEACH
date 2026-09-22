@@ -46,6 +46,35 @@ matching-plane では、外部応答の取得方法をさらに選びます。
 PE なしでも外部シースとの接続は有効です。`photoelectron_species` と `photo_raycast` species を省略するだけで、
 整合面電位と ambient 流入束は引き続き response backend が決めます。
 
+### PE の分布を保持する
+
+表面から H までの引き戻し・吸収は、BEACH 内の粒子軌道として扱います。外部シースの供給は、
+その内側輸送を経て H を外向きに横切る PE です。表面の `emit_current_density_a_m2` を
+H の流束として直接代入すると、H に届かなかった粒子まで外部へ供給してしまいます。
+
+既定の `photoelectron_closure="moment_matched_half_maxwellian"` は、H の束と平均法線エネルギーを
+同じ二つのモーメントを持つ Maxwell 分布へ写像します。内側輸送によって選別された分布の形を残したい場合は、
+online Zhao の PE あり設定に次を加えます。
+
+```toml
+[surface_current_model]
+model = "matching_plane_quasistatic"
+response_backend = "zhao_online"
+photoelectron_closure = "energy_spectrum"
+photoelectron_spectrum_bins_per_decade = 32
+# electron_species / ion_species / photoelectron_species も指定する。
+```
+
+この選択では H の外向き通過を外部反射判定の前に集計し、エネルギー別流束から外部密度と
+return / escape を計算します。面平均電荷を陰的更新する場合も、同じ分布の escape 積分を使います。
+PE source は引き続き `photo_raycast` です。完全な設定例は
+[`periodic2_matching_plane_pe_spectrum.toml`](../examples/periodic2_matching_plane_pe_spectrum.toml)にあります。
+
+既存の 5 入力応答表には分布を格納できないため `table` とは併用できません。
+`matching_plane_spectrum_history.csv` の観測分布と応答入力分布を比較し、bin 数と ray 数を増やして
+主要量の収束を確認します。この変更も外部の平面 1D 近似であり、内側を飛ぶ PE の体積空間電荷は解きません。
+分布・反復・再開の詳細は[数値リファレンス](MatchingPlaneReference.html#photoelectron_closure)を参照してください。
+
 ### stationary Zhao と online Zhao を区別する
 
 名前は似ていますが、解いている条件が異なります。

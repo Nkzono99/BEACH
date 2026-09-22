@@ -488,8 +488,21 @@ pseudo-arclength continuationのようなfoldの位置・通過も保証しま�
 branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
 ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
 online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。
-外向きPE number fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ写像します。PE fluxが0なら
+`photoelectron_closure="moment_matched_half_maxwellian"`（既定）は外向きPE number fluxと平均法線energyを、
+その2 momentを再現するhalf-Maxwellianへ写像します。PE fluxが0なら
 PE populationは0のまま、PE speciesがない場合はambient electron温度を数値scaleのfallbackに使います。
+
+`photoelectron_closure="energy_spectrum"`は`matching_plane_quasistatic` + `zhao_online` + PE role専用で、
+Hを外向きに横切るPEの法線energy別流束$F_H(K)$を使用します。tableの5入力では分布を表せないため併用を拒否します。
+内部の表面吸収・帰還は既存軌道として残し、Hの通過を外部反射判定の前に集計します。再通過も数えます。
+`photoelectron_spectrum_bins_per_decade=N`は正のint32、既定32です。
+境界$K_j=T_{pe,config}(10^{j/N}-1)$ [eV]を測定energyの範囲まで動的に延ばし、binごとの積分束を保存します。
+各bin内で$F_H$を一定とし、密度とその電位積分を解析的に評価します。PEの外部escapeは
+$\Gamma_{escape}=\int_{\max(0,\Phi_H-\Phi_{pe,barrier})}^\infty F_H(K)dK$、外部returnは
+$\Gamma_H-\Gamma_{escape}$です。Sagdeev積分、外部反射、陰的面平均電流に同じ分布を使い、
+陰的PE targetには既存の平均energyによる指数式を残しません。表面放出targetは設定current、総return targetは
+表面放出束からこのescapeを引いた値です。表面currentをHの供給束へ直接代入するoptionはありません。
+spectrum modeのPE平均energyはbin表現から計算するため、標本平均とは離散化誤差だけ異なります。
 
 online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
 反映しません。`require_unique`と`minimum_energy`の各queryはstatelessです。`continuation`はaccepted endpointのrootだけを
@@ -541,6 +554,10 @@ inactive軸の$a_j$は0でなければならず、非零値は設定検査また
 出力する`matching_plane_residual`は、$a_j>r s_j$の成分を$r|\Delta_j|/a_j$、それ以外を
 $|\Delta_j|/s_j$として最大値を取るため、絶対許容値を使っても収束したtrialでは
 `matching_plane_residual <= coupling_rtol`を保ちます。
+spectrum modeは初回またはspectrum未保存の旧checkpointで利用可能なPE momentからMaxwell初期guessを作り、
+以後は観測分布を使います。新規runのspectrum初期guessは陽的modeでも設定放出束と$T_{pe}$を使用します。
+分布全体も同じ係数で緩和し、上の条件に加えてbin積分束の差のL1 normが
+$\max(r s_\Gamma,a_1)$以下であることを要求します。棄却trialでは分布もrollbackします。
 tableはactive feedback軸のspanを$s_j$とし、singleton軸を除外します。onlineはZhao modelの基準flux / energyから
 $s_j$を導出し、transparentなambient electron / ion outward軸を除外します。tableのactive軸が補間範囲外、
 online solveが失敗した場合、または非有限値を含む場合はfail closedとします。
@@ -553,6 +570,13 @@ return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe
 outer state、反復回数、残差を history と checkpoint へ保存します（v9 以降）。restart は保存した feedback から
 反復を再開します。応答表や Zhao 設定の変更をハッシュで照合せず、現在の設定で継続します。
 onlineの自動bracket点は永続tableやmodel stateではなく、restart後に同じZhao contractから再評価します。
+PE分布を記録したrunでは、`matching_plane_spectrum_history.csv`に観測分布と応答入力分布、bin境界、
+厳密なresponse input、model escapeを保存します。既存scalar historyの列は変更しません。
+checkpoint schema v10のsummaryに任意のPE grid/bin/response-input receiptを追加し、旧checkpointは
+分布未保存として初期guessを作り直せます。同じgridなら保存済み非Maxwell分布を復元します。
+設定PE温度またはbin分解能が異なる場合はwarningを出し、保存済みflux/meanを持つMaxwell初期guessを
+新しいgrid上で再構成し、Hで分布を再計測します。既定moment modeも診断grid変更だけでは停止しません。
+入力分布と観測分布は有限な固定点残差だけ異なり得ます。
 
 このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
 外部過渡、BEACH領域内volume plasma chargeは解きません。online Zhaoもfull VDF、1D PIC、time-dependent outer sheathの

@@ -2,6 +2,7 @@
 module bem_sheath_model_core
   use bem_kinds, only: dp
   use bem_constants, only: pi, eps0, qe
+  use bem_pe_spectrum, only: pe_spectrum_type
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -18,6 +19,7 @@ module bem_sheath_model_core
   end interface
 
   type :: zhao_params_type
+    type(pe_spectrum_type) :: pe_spectrum
     real(dp) :: alpha_rad = 0.0d0
     real(dp) :: n_swi_inf_m3 = 0.0d0
     real(dp) :: n_phe_ref_m3 = 0.0d0
@@ -52,31 +54,33 @@ module bem_sheath_model_core
 
 contains
 
-  subroutine evaluate_zhao_rho_hat(p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, rho_hat)
+  subroutine evaluate_zhao_rho_hat(p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, rho_hat, include_pe)
     type(zhao_params_type), intent(in) :: p
     character(len=1), intent(in) :: branch
     character(len=*), intent(in) :: side
     real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
     real(dp), intent(out) :: rho_hat
+    logical, intent(in), optional :: include_pe
 
     real(dp) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
 
     call evaluate_zhao_density_hat( &
       p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
-      n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
+      n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat, include_pe &
       )
     rho_hat = n_swi_hat - n_swe_f_hat - n_swe_r_hat - n_phe_f_hat - n_phe_c_hat
   end subroutine evaluate_zhao_rho_hat
 
   subroutine evaluate_zhao_density_hat( &
     p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
-    n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
+    n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat, include_pe &
     )
     type(zhao_params_type), intent(in) :: p
     character(len=1), intent(in) :: branch
     character(len=*), intent(in) :: side
     real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
     real(dp), intent(out) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
+    logical, intent(in), optional :: include_pe
 
     real(dp) :: arg_ion, s_swe, s_phe, populated_sin_alpha
 
@@ -124,6 +128,28 @@ contains
     case default
       error stop 'Unknown Zhao branch in density evaluation.'
     end select
+    if (present(include_pe)) then
+      if (.not. include_pe) then
+        n_phe_f_hat = 0.0_dp
+        n_phe_c_hat = 0.0_dp
+        return
+      end if
+    end if
+    if (allocated(p%pe_spectrum%flux)) then
+      select case (branch)
+      case ('A')
+        call p%pe_spectrum%density(phi_hat*p%t_phe_ev, phi0_hat*p%t_phe_ev, phi_m_hat*p%t_phe_ev, &
+                                   p%m_e_kg, n_phe_f_hat, n_phe_c_hat, trim(side) == 'upper')
+      case ('B')
+        call p%pe_spectrum%density(phi_hat*p%t_phe_ev, phi0_hat*p%t_phe_ev, 0.0_dp, &
+                                   p%m_e_kg, n_phe_f_hat, n_phe_c_hat)
+      case ('C')
+        call p%pe_spectrum%density(phi_hat*p%t_phe_ev, phi0_hat*p%t_phe_ev, phi0_hat*p%t_phe_ev, &
+                                   p%m_e_kg, n_phe_f_hat, n_phe_c_hat, .true.)
+      end select
+      n_phe_f_hat = n_phe_f_hat/p%n_phe_ref_m3
+      n_phe_c_hat = n_phe_c_hat/p%n_phe_ref_m3
+    end if
   end subroutine evaluate_zhao_density_hat
 
   subroutine build_zhao_params( &

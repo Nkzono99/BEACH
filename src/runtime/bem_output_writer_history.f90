@@ -94,6 +94,7 @@ contains
   history_unit = -1
   if (.not. app%write_output) return
   path = trim(app%output_dir)//'/matching_plane_history.csv'
+  if (.not. resumed) call delete_matching_plane_history_if_exists(trim(app%output_dir)//'/matching_plane_spectrum_history.csv')
   if (app%history_stride <= 0_i32 .or. &
       trim(lower_ascii(app%surface_current%model)) /= 'matching_plane_quasistatic') then
     if (.not. resumed) call delete_matching_plane_history_if_exists(path)
@@ -127,6 +128,10 @@ contains
   end subroutine delete_matching_plane_history_if_exists
 
   module procedure write_matching_plane_history_snapshot
+  integer :: spectrum_unit, j, count
+  real(dp) :: observed, input
+  logical :: output_exists
+  character(len=1024) :: spectrum_path
 
   if (.not. stats%matching_plane_state_valid) return
   write (unit_id, '(i0,14(a,es24.16),a,i0,a,es24.16)') &
@@ -139,6 +144,32 @@ contains
     ',', stats%matching_plane_feedback(4), ',', stats%matching_plane_photoelectron_return_flux_m2_s, &
     ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
     ',', stats%matching_plane_residual
+  if (.not. present(output_dir)) return
+  if (.not. allocated(stats%matching_plane_pe_input%flux)) return
+  inquire (file=trim(output_dir)//'/.', exist=output_exists)
+  if (.not. output_exists) call ensure_output_dir(output_dir)
+  spectrum_path = trim(output_dir)//'/matching_plane_spectrum_history.csv'
+  call open_history_file(spectrum_path, .true., &
+                         'batch,simulated_time_s,energy_low_eV,energy_high_eV,observed_flux_m2_s,input_flux_m2_s,'// &
+                         'spectral_closure,input_D_H_C_m2,input_PE_flux_m2_s,input_mean_energy_eV,phi_H_V,phi_min_V,'// &
+                         'modeled_escape_flux_m2_s', spectrum_unit, 'Failed to open matching-plane spectrum history.')
+  count = size(stats%matching_plane_pe_input%flux)
+  if (allocated(stats%matching_plane_pe_observed%flux)) count = max(count, size(stats%matching_plane_pe_observed%flux))
+  do j = 1, count
+    observed = 0.0_dp
+    input = 0.0_dp
+    if (allocated(stats%matching_plane_pe_observed%flux)) then
+      if (j <= size(stats%matching_plane_pe_observed%flux)) observed = stats%matching_plane_pe_observed%flux(j)
+    end if
+    if (j <= size(stats%matching_plane_pe_input%flux)) input = stats%matching_plane_pe_input%flux(j)
+    write (spectrum_unit, '(i0,5(a,es24.16),a,l1,6(a,es24.16))') batch_idx, ',', simulated_time_s, &
+      ',', stats%matching_plane_pe_input%edge(j - 1), ',', stats%matching_plane_pe_input%edge(j), &
+      ',', observed, ',', input, ',', stats%matching_plane_spectral_closure, &
+      ',', stats%matching_plane_response_input(1), ',', stats%matching_plane_response_input(2), &
+      ',', stats%matching_plane_response_input(3), ',', stats%matching_plane_phi_v, &
+      ',', stats%matching_plane_response(6), ',', stats%matching_plane_model_escape_flux
+  end do
+  close (spectrum_unit)
   end procedure write_matching_plane_history_snapshot
 
   !> Append or replace a history file; an existing resumed file keeps its original header.

@@ -346,6 +346,8 @@ face_potential_grid_n = 3
 | `electron_species` | string | 未指定 | ambient electron の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `ion_species` | string | 未指定 | cold ion の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字、matching で省略すると PE なし |
+| `photoelectron_closure` | string | `"moment_matched_half_maxwellian"` | matching の PE 分布。既定は H の流束と平均法線エネルギーによる Maxwell 近似。`energy_spectrum` は H の実測エネルギー別流束を使い、`zhao_online` と PE role が必須。stationary では指定不可 |
+| `photoelectron_spectrum_bins_per_decade` | int32 | `32` | PE spectrum の分解能。正の整数、最大 2147483647。境界は $K_j=T_{pe,config}(10^{j/N}-1)$ [eV]、測定範囲まで動的に拡張。大きい値ほどメモリ・計算量が増える。詳細は[分布の数値契約](MatchingPlaneReference.html#photoelectron_closure) |
 | `solar_elevation_deg` | float | stationaryのPE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | stationaryのPE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3]。`>0` |
 | `photoelectron_source_scale` | float | `1.0` | stationary Zhao の $s_{UV}$。`>=0`、0 は PE なし |

@@ -49,6 +49,68 @@ boundary equations are unchanged; Type B prescribed-field responses, potential e
 Regenerate tables produced from the previous Type B or `auto` implementation with the corrected `beach-zhao-response`.
 The table reader uses existing CSV values as supplied and does not retroactively correct them.
 
+## `photoelectron_closure`
+
+For online Zhao, `moment_matched_half_maxwellian` (default) preserves the existing PE outward-flux and mean-normal-energy approximation
+at H. `energy_spectrum` uses the outward normal-energy flux distribution $F_H(K)=d\Gamma_H/dK$ at H. It requires
+`model="matching_plane_quasistatic"`, `response_backend="zhao_online"`, and an active `photoelectron_species` role.
+It cannot be selected with the five-input table, stationary Zhao, or a PE-free case. Ambient electron/ion density
+laws and A/B/C branch constraints remain unchanged.
+
+### Distribution and currents
+
+Outward crossings at H are recorded before the outer-barrier decision. Macro weights are divided by area and batch
+duration to obtain flux. Recrossings count too. PEs absorbed below H do not enter this supply; exterior returns
+reflect at H and resume the existing interior trajectory tracking. Surface emission is not added back to the H flux.
+
+With $K$ in eV and $B=\max(0,\Phi_H-\Phi_{pe,barrier})$ the barrier energy in the same units,
+
+$$
+\Gamma_{escape}=\int_B^\infty F_H(K)\,dK,\qquad
+\Gamma_{return,H}=\Gamma_H-\Gamma_{escape}.
+$$
+
+Exterior density uses this same distribution, dividing the accessible flux at each energy by its local speed.
+The segment between H and a Type-A minimum, and Type B, include the returning population; beyond the minimum only
+the transmitted population is retained. Binwise density and its potential integral are evaluated analytically for
+piecewise-constant $F_H$. The existing finite search checks Sagdeev integrals, far neutrality, and profile E².
+Failure to detect a root does not generally prove nonexistence.
+
+For `implicit_zero_mode=true`, the PE escape target uses the integral above throughout; it does not retain a
+mean-energy exponential approximation. The surface emission target remains the configured current, and the total
+return target is surface emission minus this escape. Exterior return and total return to the surface are distinct.
+
+### Grid, iteration, and restart
+
+For `photoelectron_spectrum_bins_per_decade=N` (default 32, positive int32), bin edges are
+
+$$
+K_j=T_{pe,config}\left(10^{j/N}-1\right)\quad[j=0,1,\ldots].
+$$
+
+$T_{pe,config}$ is the configured PE temperature in eV. The grid extends to cover measured energies. Each bin stores
+its integrated flux $f_j$, representing constant $F_H=f_j/(K_{j+1}-K_j)$ over that interval. The configured temperature
+sets the grid scale; it does not reset the measured distribution to a Maxwell distribution. Spectrum-mode mean
+energy is computed from these bins, so it differs from the former sample mean by the discretization error.
+
+Initial startup or restart from an older checkpoint without a spectrum builds a Maxwell initial guess from
+the available PE moments. Each trial relaxes the whole distribution with `coupling_relaxation`. In addition to the
+existing moment convergence criteria, $\sum_j|f_{j,observed}-f_{j,input}|$ must be no larger than the PE-flux tolerance
+$\max(\mathtt{coupling\_rtol}\,s_\Gamma,\mathtt{coupling\_atol}[1])$, where `[1]` denotes the first component.
+The existing warning and acceptance policy for finite unconverged trials is unchanged.
+
+`matching_plane_spectrum_history.csv` saves observed and response-input distributions separately. Checkpoint summary
+records additionally retain both distributions, their grid, and the response input; existing scalar-history columns
+are preserved. If the configured PE temperature and bin resolution match the saved grid, restart restores the saved
+distribution, including its non-Maxwell shape. A changed grid produces a warning and a new Maxwell initial guess
+with the saved flux and mean energy; subsequent trials measure the distribution again at H. The default moment
+mode also continues when only its diagnostic grid changes. See the
+[output reference](OutputReference.en.html#pe-spectrum-observations-and-response-inputs) for columns and units.
+
+Check convergence and balance by changing resolution, ray count, batch duration, and H. This remains a planar,
+collisionless, unmagnetized 1D exterior approximation. It adds neither correlations beyond normal energy, delayed
+outer returns, nor PE volume space charge inside BEACH.
+
 ## `implicit_zero_mode`
 
 When the explicit mean-current update becomes stiff at a seconds-scale `batch_duration`, set

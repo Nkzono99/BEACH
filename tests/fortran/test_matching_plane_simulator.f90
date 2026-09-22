@@ -48,7 +48,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call write_affine_response_table(response_path)
   call seed_particles_from_config(cfg)
-  call test_init(18)
+  call test_init(19)
 
   call test_begin('photo_sample_is_fixed_when_ambient_count_changes_during_replay')
   call assert_photo_sample_replay()
@@ -74,6 +74,8 @@ program test_matching_plane_simulator
     'accepted ion inward number flux response mismatch' &
     )
   call assert_close_dp(stats%matching_plane_feedback(1), 1.0_dp, 1.0e-14_dp, 'accepted PE outflow mismatch')
+  call assert_close_dp(stats%matching_plane_pe_observed%total_flux(), stats%matching_plane_feedback(1), &
+                       1.0e-14_dp, 'replay spectrum did not conserve weighted H crossings')
   call assert_close_dp( &
     stats%matching_plane_photoelectron_return_flux_m2_s + &
     stats%matching_plane_photoelectron_escape_flux_m2_s, &
@@ -210,6 +212,37 @@ program test_matching_plane_simulator
     all(resumed_stats%matching_plane_response(2:3) > 0.0_dp), &
     'online Zhao did not provide ambient inward fluxes' &
     )
+  call test_end()
+
+  call test_begin('energy_spectrum_replays_measured_H_distribution_including_empty_source')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  cfg%surface_current%photoelectron_closure = 'energy_spectrum'
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_true(allocated(resumed_stats%matching_plane_pe_input%flux), 'zero PE source lost its spectral closure')
+  call assert_close_dp(resumed_stats%matching_plane_pe_input%total_flux(), 0.0_dp, 0.0_dp, 'empty source gained PE')
+  call configure_fixture(mesh, cfg, inject_state)
+  call configure_online_backend(cfg)
+  cfg%surface_current%photoelectron_closure = 'energy_spectrum'
+  cfg%particle_species(3)%rays_per_batch = 32_i32
+  cfg%particle_species(3)%emit_current_density_a_m2 = qe*1.0e9_dp
+  cfg%sim%dt = 1.0e-7_dp
+  cfg%sim%max_step = 128_i32
+  call seed_particles_from_config(cfg)
+  call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
+  call assert_true(resumed_stats%matching_plane_spectral_closure, 'measured spectrum was not selected')
+  call assert_true(resumed_stats%matching_plane_pe_observed%total_flux() > 0.0_dp, 'no measured PE reached H')
+  call assert_true(resumed_stats%matching_plane_iterations >= 2_i32, 'bootstrap distribution was accepted without replay')
+  call assert_close_dp(resumed_stats%matching_plane_model_escape_flux, &
+                       resumed_stats%matching_plane_pe_input%tail_flux(0.0_dp), 1.0e-6_dp, &
+                       'escape target used a different source distribution')
+  call assert_close_dp(resumed_stats%matching_plane_pe_observed%total_flux(), &
+                       resumed_stats%matching_plane_feedback(1), 1.0e-6_dp, 'weighted H histogram and event flux disagree')
+  call assert_close_dp(resumed_stats%matching_plane_pe_input%mean_energy(), &
+                       resumed_stats%matching_plane_response_input(3), 1.0e-12_dp, 'response did not use relaxed spectrum energy')
+  call assert_true(resumed_stats%matching_plane_residual <= cfg%surface_current%coupling_rtol, &
+                   'frozen trajectory spectrum did not converge')
   call test_end()
 
   call test_begin('implicit_zero_mode_reuses_committed_nonunit_area_endpoint')
@@ -623,6 +656,7 @@ contains
     fixture_mesh%vacuum_normals = fixture_mesh%normals
 
     call default_app_config(fixture_cfg)
+    fixture_cfg%write_output = .false.
     fixture_cfg%sim%rng_seed = 2468_i32
     fixture_cfg%sim%batch_count = 1_i32
     fixture_cfg%sim%dt = 0.1_dp

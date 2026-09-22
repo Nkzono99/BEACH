@@ -277,6 +277,7 @@ contains
           workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
           collision_failure_status, collision_failure_particle, collision_failure_step, &
           collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread, &
+          workspace%matching_plane_spectra_thread, &
           batch_retry_counts &
           )
         call perf_region_end(perf_region_particle_batch, t0)
@@ -322,7 +323,8 @@ contains
           trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
           )
         if (coupling%finish_iteration( &
-            app, mpi_ctx, workspace%matching_plane_moments_thread, trial_batch_duration, batch_idx)) exit
+            app, mpi_ctx, workspace%matching_plane_moments_thread, workspace%matching_plane_spectra_thread, &
+            trial_batch_duration, batch_idx)) exit
       end do
 
       if (adaptive_nonzero_mode) then
@@ -431,7 +433,11 @@ contains
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
-        call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
+        if (app%write_output) then
+          call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats, app%output_dir)
+        else
+          call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
+        end if
       end if
       if (potential_history_enabled) then
         call maybe_write_potential_history_snapshot( &

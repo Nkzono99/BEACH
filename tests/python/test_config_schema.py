@@ -353,6 +353,31 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     zhao_online["surface_current_model"]["zhao_root_selection"] = "minimum_energy"
     assert schema_errors(zhao_online, schema) == []
 
+    spectrum = copy.deepcopy(zhao_online)
+    spectrum["surface_current_model"].update(
+        photoelectron_closure="energy_spectrum",
+        photoelectron_spectrum_bins_per_decade=32,
+    )
+    assert schema_errors(spectrum, schema) == []
+    for invalid_bins in (0, -1, 1.5, True, 2147483648):
+        invalid_spectrum = copy.deepcopy(spectrum)
+        invalid_spectrum["surface_current_model"][
+            "photoelectron_spectrum_bins_per_decade"
+        ] = invalid_bins
+        assert schema_errors(invalid_spectrum, schema)
+    for invalid_closure in ("config_current", True):
+        invalid_spectrum = copy.deepcopy(spectrum)
+        invalid_spectrum["surface_current_model"][
+            "photoelectron_closure"
+        ] = invalid_closure
+        assert schema_errors(invalid_spectrum, schema)
+    spectrum_table = copy.deepcopy(matching)
+    spectrum_table["surface_current_model"]["photoelectron_closure"] = "energy_spectrum"
+    assert schema_errors(spectrum_table, schema)
+    spectrum_no_photo = copy.deepcopy(spectrum)
+    spectrum_no_photo["surface_current_model"].pop("photoelectron_species")
+    assert schema_errors(spectrum_no_photo, schema)
+
     continuation = copy.deepcopy(zhao_online)
     continuation["surface_current_model"].update(
         {

@@ -930,6 +930,8 @@ contains
     call assert_true(result%z_high_outward_event_count == 1_i32, 'z-high outward event count mismatch')
     call assert_true(result%outer_barrier_return_count == 1_i32, 'outer barrier return count mismatch')
     call assert_true(result%outer_barrier_escape_count == 0_i32, 'outer barrier escape count mismatch')
+    call assert_true(allocated(result%z_high_outward_energy_j), 'barrier return was omitted from outward spectrum')
+    call assert_close_dp(sum(result%z_high_outward_energy_j), 0.5_dp, 1.0e-14_dp, 'outward spectrum energy mismatch')
     call assert_close_dp( &
       result%z_high_outward_normal_kinetic_energy_j_sum, 0.5_dp, 1.0e-14_dp, &
       'z-high outward normal energy mismatch' &
@@ -944,6 +946,7 @@ contains
     call assert_true(result%escaped_boundary, 'z-high super-barrier electron should escape')
     call assert_true(result%outer_barrier_return_count == 0_i32, 'outer barrier return reset mismatch')
     call assert_true(result%outer_barrier_escape_count == 1_i32, 'outer barrier escape count mismatch')
+    call assert_true(size(result%z_high_outward_energy_j) == 1, 'spectrum samples leaked from previous step')
 
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
@@ -951,6 +954,7 @@ contains
       boundary_contract=contract &
       )
     call assert_true(result%escaped_boundary, 'z-low must remain ordinary escape when only z-high is overridden')
+    call assert_true(.not. allocated(result%z_high_outward_energy_j), 'z-low was counted in the H spectrum')
   end subroutine test_species_barrier_override_is_face_local
 
   subroutine test_species_barrier_corner_ordinary_open_escapes()

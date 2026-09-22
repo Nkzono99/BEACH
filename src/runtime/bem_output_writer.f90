@@ -65,11 +65,12 @@ module bem_output_writer
       integer, intent(out) :: history_unit
     end subroutine open_matching_plane_history_writer
 
-    module subroutine write_matching_plane_history_snapshot(unit_id, batch_idx, simulated_time_s, stats)
+    module subroutine write_matching_plane_history_snapshot(unit_id, batch_idx, simulated_time_s, stats, output_dir)
       integer, intent(in) :: unit_id
       integer(i32), intent(in) :: batch_idx
       real(dp), intent(in) :: simulated_time_s
       type(sim_stats), intent(in) :: stats
+      character(len=*), intent(in), optional :: output_dir
     end subroutine write_matching_plane_history_snapshot
 
     module subroutine write_summary_file( &

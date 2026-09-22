@@ -20,6 +20,8 @@ module bem_app_config_types
     character(len=16) :: response_backend = 'table'
     character(len=16) :: zhao_branch = 'auto'
     character(len=16) :: zhao_root_selection = 'require_unique'
+    character(len=32) :: photoelectron_closure = 'moment_matched_half_maxwellian'
+    integer(i32) :: photoelectron_spectrum_bins_per_decade = 32_i32
     character(len=64) :: electron_species = ''
     character(len=64) :: ion_species = ''
     character(len=64) :: photoelectron_species = ''

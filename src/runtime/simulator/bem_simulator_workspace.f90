@@ -1,6 +1,7 @@
 !> シミュレーション実行中に再利用するバッチ作業配列を管理する。
 module bem_simulator_workspace
   use bem_kinds, only: dp, i32, i64
+  use bem_pe_spectrum, only: pe_spectrum_type
   implicit none
   private
 
@@ -37,6 +38,7 @@ module bem_simulator_workspace
     integer(i64), allocatable :: ledger_count_values(:)
     ! (outward number, outward normal energy [J], barrier return number, barrier escape number)
     real(dp), allocatable :: matching_plane_moments_thread(:, :, :)
+    type(pe_spectrum_type), allocatable :: matching_plane_spectra_thread(:)
   contains
     procedure :: init => init_simulator_batch_workspace
     procedure :: reset_before_injection
@@ -82,6 +84,7 @@ contains
       )
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
     allocate (self%matching_plane_moments_thread(4_i32, nspecies, nthreads))
+    allocate (self%matching_plane_spectra_thread(nthreads))
 
     self%dq = 0.0_dp
     self%q_before = 0.0_dp
@@ -94,6 +97,7 @@ contains
 
   subroutine reset_before_injection(self)
     class(simulator_batch_workspace_type), intent(inout) :: self
+    integer :: thread
 
     if (.not. allocated(self%dq_thread)) error stop 'simulator workspace is not initialized.'
     self%dq_thread = 0.0_dp
@@ -117,6 +121,9 @@ contains
     self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
     self%matching_plane_moments_thread = 0.0_dp
+    do thread = 1, size(self%matching_plane_spectra_thread)
+      call self%matching_plane_spectra_thread(thread)%reset()
+    end do
   end subroutine reset_before_injection
 
   subroutine prepare_particle_flags(self, particle_count)

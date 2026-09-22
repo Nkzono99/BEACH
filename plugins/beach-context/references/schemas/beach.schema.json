@@ -580,6 +580,8 @@
               {"required": ["zhao_branch"]},
               {"required": ["zhao_root_selection"]},
               {"required": ["electron_species"]},
+              {"required": ["photoelectron_closure"]},
+              {"required": ["photoelectron_spectrum_bins_per_decade"]},
               {"required": ["ion_species"]},
               {"required": ["photoelectron_species"]},
               {"required": ["solar_elevation_deg"]},
@@ -610,6 +612,8 @@
               {"required": ["response_table_path"]},
               {"required": ["zhao_root_selection"]},
               {"required": ["implicit_zero_mode"]},
+              {"required": ["photoelectron_closure"]},
+              {"required": ["photoelectron_spectrum_bins_per_decade"]},
               {"required": ["coupling_rtol"]},
               {"required": ["coupling_atol"]},
               {"required": ["coupling_max_iterations"]},
@@ -688,6 +692,21 @@
         {
           "if": {
             "properties": {
+              "photoelectron_closure": {"const": "energy_spectrum"}
+            },
+            "required": ["photoelectron_closure"]
+          },
+          "then": {
+            "properties": {
+              "model": {"const": "matching_plane_quasistatic"},
+              "response_backend": {"const": "zhao_online"}
+            },
+            "required": ["model", "response_backend", "photoelectron_species"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
               "zhao_root_selection": {"const": "continuation"}
             },
             "required": ["zhao_root_selection"]
@@ -725,6 +744,18 @@
           "enum": ["require_unique", "minimum_energy", "continuation"],
           "default": "require_unique",
           "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted Type-A endpoint in implicit mode."
+        },
+        "photoelectron_closure": {
+          "enum": ["moment_matched_half_maxwellian", "energy_spectrum"],
+          "default": "moment_matched_half_maxwellian",
+          "description": "PE boundary distribution: retain the legacy flux/mean-energy Maxwell approximation, or use the measured outward normal-energy flux spectrum at H. energy_spectrum requires matching_plane_quasistatic, zhao_online, and a photoelectron species."
+        },
+        "photoelectron_spectrum_bins_per_decade": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 32,
+          "description": "Resolution of energy_spectrum bins: edge[j] = configured Tpe in eV * (10**(j/bins_per_decade) - 1). The grid extends to cover measured energies; larger values increase memory and solve cost."
         },
         "electron_species": {
           "type": "string",

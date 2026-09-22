@@ -2,6 +2,7 @@
 module bem_matching_plane_response_provider
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
+  use bem_pe_spectrum, only: pe_spectrum_type
   use bem_app_config_types, only: app_config
   use bem_matching_plane_response, only: matching_plane_response_table_type, &
                                          matching_plane_response_input_count, &
@@ -45,7 +46,10 @@ module bem_matching_plane_response_provider
     logical :: implicit_zero_mode_supported = .false.
     type(matching_plane_response_table_type) :: table
     type(matching_plane_zhao_model_type) :: zhao
+    type(pe_spectrum_type) :: pe_spectrum
   contains
+    procedure, public :: set_photoelectron_spectrum
+    procedure, public :: photoelectron_escape_flux
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
     procedure, public :: evaluate_local => evaluate_matching_plane_response_provider_local
@@ -102,6 +106,26 @@ module bem_matching_plane_response_provider
   end interface
 
 contains
+
+  subroutine set_photoelectron_spectrum(self, spectrum)
+    class(matching_plane_response_provider_type), intent(inout) :: self
+    type(pe_spectrum_type), intent(in) :: spectrum
+    self%pe_spectrum = spectrum
+    call self%zhao%set_photoelectron_spectrum(spectrum)
+  end subroutine set_photoelectron_spectrum
+
+  real(dp) function photoelectron_escape_flux(self, feedback, response) result(flux)
+    class(matching_plane_response_provider_type), intent(in) :: self
+    real(dp), intent(in) :: feedback(4), response(6)
+    real(dp) :: barrier
+    barrier = max(0.0_dp, response(1) - response(6))
+    flux = 0.0_dp
+    if (allocated(self%pe_spectrum%flux)) then
+      flux = self%pe_spectrum%tail_flux(barrier)
+    else if (feedback(1) > 0.0_dp .and. feedback(2) > 0.0_dp) then
+      flux = feedback(1)*exp(-barrier/feedback(2))
+    end if
+  end function photoelectron_escape_flux
 
   !> MPI collectiveを伴わず、呼出rankだけで応答を評価する。
   !! implicit zero-mode root はMPI root上でこの入口を反復し、最終結果だけをbroadcastする。

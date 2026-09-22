@@ -54,6 +54,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_surface_current_model \
 	test_matching_plane_response \
 	test_matching_plane_zhao \
+	test_pe_spectrum \
+	test_matching_plane_pe_spectrum \
 	test_matching_plane_response_generator \
 	test_matching_plane_zhao_atlas \
 	test_matching_plane_simulator \
@@ -295,7 +297,7 @@ run-mpi:
 test-mpi:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \
 		FPM_PROFILE=debug FPM_FC=$(MPI_FC) FPM_FFLAGS="$(MPI_TEST_FLAGS)" \
-		$(BUILD_SH) --target test_mpi_hybrid --runner "$(MPI_RUNNER)"
+		$(BUILD_SH) --target test_mpi_hybrid,test_matching_plane_spectrum_mpi --runner "$(MPI_RUNNER)"
 
 test-mpi-periodic-cache:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=test \

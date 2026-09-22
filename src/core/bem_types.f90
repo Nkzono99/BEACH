@@ -1,5 +1,6 @@
 !> シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 module bem_types
+  use bem_pe_spectrum, only: pe_spectrum_type
   use bem_kinds, only: dp, i32, i64
   implicit none
 
@@ -88,6 +89,10 @@ module bem_types
     real(dp) :: matching_plane_phi_v = 0.0_dp
     real(dp) :: matching_plane_response(6) = 0.0_dp
     real(dp) :: matching_plane_feedback(4) = 0.0_dp
+    type(pe_spectrum_type) :: matching_plane_pe_observed, matching_plane_pe_input
+    real(dp) :: matching_plane_response_input(5) = 0.0_dp
+    real(dp) :: matching_plane_model_escape_flux = 0.0_dp
+    logical :: matching_plane_spectral_closure = .false.
     real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp
     real(dp) :: matching_plane_photoelectron_escape_flux_m2_s = 0.0_dp
     integer(i32) :: matching_plane_iterations = 0_i32

@@ -103,6 +103,12 @@ program test_restart
   state%boundary_macro_residual = 0.0_dp
   state%boundary_macro_residual(2, 1) = 0.125_dp
   state%boundary_macro_residual(5, 2) = 0.625_dp
+  call stats%matching_plane_pe_observed%add(0.2_dp, 7.0_dp)
+  call stats%matching_plane_pe_observed%add(9.0_dp, 2.0_dp)
+  call stats%matching_plane_pe_input%bootstrap_maxwellian(8.0_dp, 2.0_dp)
+  stats%matching_plane_response_input = [2.0e-12_dp, 8.0_dp, 2.0_dp, 0.0_dp, 0.0_dp]
+  stats%matching_plane_model_escape_flux = stats%matching_plane_pe_input%tail_flux(1.0_dp)
+  stats%matching_plane_spectral_closure = .true.
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
   call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
@@ -115,6 +121,15 @@ program test_restart
     out_dir, mesh, stats, has_restart, state, app=cfg, charge_ledger=restored_ledger &
     )
   call assert_true(has_restart, 'checkpoint should load')
+  call assert_true(stats%matching_plane_spectral_closure, 'spectrum closure flag was lost on resume')
+  call assert_close_dp(stats%matching_plane_pe_observed%total_flux(), 9.0_dp, 1.0e-14_dp, &
+                       'observed PE spectrum did not survive checkpoint')
+  call assert_close_dp(stats%matching_plane_pe_observed%tail_flux(1.0_dp), 2.0_dp, 1.0e-14_dp, &
+                       'non-Maxwell PE tail did not survive checkpoint')
+  call assert_close_dp(stats%matching_plane_pe_input%total_flux(), 8.0_dp, 1.0e-13_dp, &
+                       'response PE spectrum was confused with observed spectrum')
+  call assert_close_dp(stats%matching_plane_model_escape_flux, stats%matching_plane_pe_input%tail_flux(1.0_dp), &
+                       1.0e-14_dp, 'escape target does not use the saved response input')
   call assert_equal_i32(restored_ledger%batch_count, 2_i32, 'ledger batch count mismatch')
   call assert_close_dp(restored_ledger%surface_charge_before, 1.0_dp, 1.0e-12_dp, 'ledger stock mismatch')
   call assert_allclose_1d( &

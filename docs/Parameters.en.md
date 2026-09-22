@@ -355,6 +355,8 @@ closure.
 | `electron_species` | string | unspecified | Ambient-electron `species_key`; required for Zhao / matching; 1–64 characters |
 | `ion_species` | string | unspecified | Cold-ion `species_key`; required for Zhao / matching; 1–64 characters |
 | `photoelectron_species` | string | required when PE is enabled | PE `species_key`; 1–64 characters; omission disables PE in matching |
+| `photoelectron_closure` | string | `"moment_matched_half_maxwellian"` | Matching-plane PE distribution. The default Maxwell approximation uses flux and mean normal energy at H. `energy_spectrum` uses the measured energy-resolved outward flux and requires `zhao_online` with a PE role. Forbidden for stationary Zhao |
+| `photoelectron_spectrum_bins_per_decade` | int32 | `32` | PE spectrum resolution: positive integer, at most 2147483647. Edges are $K_j=T_{pe,config}(10^{j/N}-1)$ in eV and extend to cover measured energies. Larger values increase memory and solve cost. See the [distribution contract](MatchingPlaneReference.en.html#photoelectron_closure) |
 | `solar_elevation_deg` | float | required with stationary PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
 | `photoelectron_ref_density_m3` | float | required with stationary PE | Reference PE density $n_{pe,ref}$ [m^-3]. `>0` |
 | `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$. `>=0`; `0` disables PE |

@@ -4,10 +4,12 @@ module bem_simulator
   use, intrinsic :: iso_fortran_env, only: output_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
+  use bem_pe_spectrum, only: pe_spectrum_type
+  use bem_constants, only: qe, k_boltzmann
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
-  use bem_config_helpers, only: resolve_particle_boundaries
+  use bem_config_helpers, only: resolve_particle_boundaries, species_temperature_k
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
@@ -78,7 +80,7 @@ module bem_simulator
       absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, matching_plane_moments_thread, retry_counts &
+      collision_failure_x, collision_failure_v, matching_plane_moments_thread, matching_plane_spectra_thread, retry_counts &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -96,6 +98,7 @@ module bem_simulator
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
       real(dp), intent(inout) :: matching_plane_moments_thread(:, :, :)
+      type(pe_spectrum_type), intent(inout) :: matching_plane_spectra_thread(:)
       integer(i64), intent(out) :: retry_counts(2)
     end subroutine process_particle_batch
 

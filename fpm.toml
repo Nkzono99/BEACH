@@ -68,6 +68,21 @@ source-dir = "tests/fortran"
 main = "test_matching_plane_zhao.f90"
 
 [[test]]
+name = "test_pe_spectrum"
+source-dir = "tests/fortran"
+main = "test_pe_spectrum.f90"
+
+[[test]]
+name = "test_matching_plane_pe_spectrum"
+source-dir = "tests/fortran"
+main = "test_matching_plane_pe_spectrum.f90"
+
+[[test]]
+name = "test_matching_plane_spectrum_mpi"
+source-dir = "tests/fortran"
+main = "test_matching_plane_spectrum_mpi.f90"
+
+[[test]]
 name = "test_matching_plane_response_generator"
 source-dir = "tests/fortran"
 main = "test_matching_plane_response_generator.f90"

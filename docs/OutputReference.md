@@ -163,7 +163,7 @@ matching-plane receipt を状態値として読みます。
 | --- | --- |
 | 生成条件 | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=matching_plane_quasistatic` |
 | 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 15 状態列。accepted state だけを書く |
-| 解釈 | 同じ行の flux、barrier、反復 receipt を 1 batch の固定点解として読む |
+| 解釈 | 同じ行の観測 flux、応答 barrier、反復残差を 1 accepted trial の記録として読む |
 | Python | `result.matching_plane_history`。最後の accepted state は `result.matching_plane_state` |
 | 再開 | CSV 自体は使わない。schema v9 は最後の accepted state を `summary.txt` に保存する |
 
@@ -182,8 +182,8 @@ matching-plane receipt を状態値として読みます。
 | `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_mean_normal_energy_eV` | 固定点へ返す PE 平均法線 energy |
 | `matching_plane_electron_outward_flux_m2_s` | `electron_outward_flux_m2_s` | 固定点へ返す electron outward flux |
 | `matching_plane_ion_outward_flux_m2_s` | `ion_outward_flux_m2_s` | 固定点へ返す ion outward flux |
-| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | backend が返す PE return flux |
-| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | backend が返す PE escape flux |
+| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | H での軌道反射判定から測定した PE return flux |
+| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | H での軌道透過判定から測定した PE escape flux |
 | `matching_plane_iterations` | `iterations` | 固定点反復回数 |
 | `matching_plane_residual` | `residual` | 受理時の有効相対残差 |
 
@@ -199,8 +199,40 @@ $$
 +\mathtt{photoelectron\_escape\_flux\_m2\_s}.
 $$
 
-各行の $D_H$ と $\Phi_H$ は、その batch の粒子追跡に使った commit 前の表面電荷 state に対応します。
-一方、`simulated_time_s` は trial を受理して進めた後の時刻です。次 batch 開始時の post-commit 場とは区別します。
+各行の $\Phi_H$ はその trial の応答です。通常の $D_H$ は trial の指定値ですが、陰的更新では
+commit 後の総表面電荷から再計算されます。`simulated_time_s` は trial を受理して進めた後の時刻です。
+応答を厳密に再評価する場合は、以下の `input_D_H_C_m2` と入力分布を使用してください。
+
+#### PE spectrum の観測と応答入力
+
+PE spectrum が保存される matching-plane run では、scalar history と同じ出力時刻に
+`matching_plane_spectrum_history.csv` を追加します。1 行は 1 energy bin であり、同じ batch の複数行で
+一つの分布を表します。既定の Maxwell closure で診断分布を保存した場合も、`spectral_closure=F` により
+実際の応答には分布を使っていないことを区別できます。
+
+| 列 | 内容 |
+|---|---|
+| `batch`, `simulated_time_s` | accepted batch と受理後時刻 [s] |
+| `energy_low_eV`, `energy_high_eV` | 法線エネルギー bin の下端・上端 [eV] |
+| `observed_flux_m2_s` | その trial で H を外向きに通過した bin 積分束 [/m²/s] |
+| `input_flux_m2_s` | 応答へ渡した分布の bin 積分束 [/m²/s] |
+| `spectral_closure` | `T` なら spectrum を外部応答に使用、`F` なら従来のモーメント近似 |
+| `input_D_H_C_m2`, `input_PE_flux_m2_s`, `input_mean_energy_eV` | 応答評価に実際に渡した変位、PE 束、平均法線エネルギー |
+| `phi_H_V`, `phi_min_V` | 応答の H 電位と PE 障壁電位 [V] |
+| `modeled_escape_flux_m2_s` | 入力分布（既定 closure では Maxwell 近似）から求めた escape 束 [/m²/s] |
+
+積分束を bin 幅で割ると $F_H(K)=d\Gamma_H/dK$ になります。入力と観測の差は固定点残差を含むため、
+観測分布だけを応答の厳密な入力とみなしません。`modeled_escape_flux_m2_s` と scalar history の
+軌道観測 escape は別の量です。既存の Python `matching_plane_history` は scalar history を読む API のままです。
+
+再開用 summary には `matching_plane_pe_grid`（energy scale、bins per decade、観測bin数、入力bin数）、
+1 始まりの index を持つ `matching_plane_pe_observed_bin_<index>=flux` /
+`matching_plane_pe_input_bin_<index>=flux`、
+`matching_plane_response_input`、`matching_plane_model_escape_flux`、`matching_plane_spectral_closure` を保存します。
+checkpoint schema v10 への任意 receipt の追加で、分布のない旧 checkpoint は Maxwell 初期guessから再開します。
+同じ grid なら保存した非 Maxwell 分布をそのまま復元します。設定 PE 温度・bin 分解能が異なる場合は警告し、
+保存済みの束・平均を持つ Maxwell 初期guessを新しい格子上に作り、H で分布を再計測します。
+既定 moment mode の診断格子の変更もこの扱いです。CSV 自体は再開に使いません。
 
 #### 実行条件と収束条件
 

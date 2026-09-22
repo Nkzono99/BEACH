@@ -13,6 +13,7 @@ module bem_matching_plane_zhao
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi, qe
+  use bem_pe_spectrum, only: pe_spectrum_type
   use bem_matching_plane_contract, only: &
     matching_plane_response_input_count, matching_plane_response_output_count, &
     matching_plane_input_displacement, matching_plane_input_photoelectron_outward_flux, &
@@ -78,7 +79,9 @@ module bem_matching_plane_zhao
     real(dp) :: ion_mass_kg = 0.0_dp
     real(dp) :: electron_mass_kg = 0.0_dp
     real(dp) :: configured_photoelectron_temperature_ev = 0.0_dp
+    type(pe_spectrum_type) :: pe_spectrum
   contains
+    procedure, public :: set_photoelectron_spectrum
     procedure, public :: initialize => initialize_matching_plane_zhao
     procedure, public :: evaluate => evaluate_matching_plane_zhao
     procedure, public :: reconstruct_seed => reconstruct_matching_plane_zhao_type_a_seed
@@ -189,6 +192,14 @@ module bem_matching_plane_zhao
 
 contains
 
+  !> H outward flux spectrum, before the external barrier acts. An empty
+  !! allocated spectrum represents zero PE supply; unallocated selects moments.
+  subroutine set_photoelectron_spectrum(self, spectrum)
+    class(matching_plane_zhao_model_type), intent(inout) :: self
+    type(pe_spectrum_type), intent(in) :: spectrum
+    self%pe_spectrum = spectrum
+  end subroutine set_photoelectron_spectrum
+
   subroutine initialize_matching_plane_zhao( &
     self, branch_model, root_selection, ion_density_m3, electron_temperature_ev, electron_drift_mps, &
     ion_drift_mps, ion_mass_kg, electron_mass_kg, configured_photoelectron_temperature_ev, &
@@ -206,6 +217,7 @@ contains
     character(len=:), allocatable :: normalized_branch, normalized_root_selection
 
     self%initialized = .false.
+    call self%pe_spectrum%clear()
     self%branch_model = 'auto'
     self%root_selection = 'require_unique'
     self%ion_density_m3 = 0.0_dp

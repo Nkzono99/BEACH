@@ -47,6 +47,66 @@ Type B の指定電場応答・電位エネルギー・`auto` の根選択は変
 修正前の Type B または `auto` から生成した応答表は、修正後の `beach-zhao-response` で再生成してください。
 table reader は既存 CSV の数値をそのまま使い、過去の表を自動修正しません。
 
+## `photoelectron_closure`
+
+online Zhao の `moment_matched_half_maxwellian`（既定）は従来どおり H の PE 外向き束と平均法線エネルギーを使います。
+`energy_spectrum` は H の法線エネルギー別外向き流束 $F_H(K)=d\Gamma_H/dK$ を使います。
+後者は `model="matching_plane_quasistatic"`、`response_backend="zhao_online"`、有効な
+`photoelectron_species` が必要です。5 入力の table、stationary Zhao、PE なしには指定できません。
+ambient electron / ion の密度式と A/B/C の branch 制約は変えません。
+
+### 分布と電流
+
+H の外向き通過を外部障壁との比較前に記録し、macro weight を面積と batch 時間で割って束へ直します。
+再通過も数えます。H より内側で表面に戻った PE はこの束に含めず、外部から戻った PE は既存の
+H での反射を経て内側を再追跡します。設定の表面放出電流を H の束に足し戻しません。
+
+$K$ を eV、$B=\max(0,\Phi_H-\Phi_{pe,barrier})$ を同じ単位の障壁エネルギーとすると、
+
+$$
+\Gamma_{escape}=\int_B^\infty F_H(K)\,dK,\qquad
+\Gamma_{return,H}=\Gamma_H-\Gamma_{escape}.
+$$
+
+外部の密度にも同じ分布を使い、到達する各エネルギーの束を局所速度で割ります。
+Type A の極小までの区間と Type B では戻り population も加え、極小から遠方の区間では
+透過 population だけを使います。bin ごとの密度とその電位積分は区分一定の $F_H$ に対して
+解析的に評価します。Sagdeev 積分・遠方中性・profile の E² を満たす根を既存の有限探索で求めます。
+根の未検出は一般的な不存在の証明ではありません。
+
+`implicit_zero_mode=true` の PE escape target も上式を使い、平均エネルギーの指数式と混在させません。
+表面の emission target は設定電流、全 return target は表面放出束からこの escape を引いた量です。
+外部での return と表面まで戻った総量は別の量として扱います。
+
+### 格子・反復・再開
+
+`photoelectron_spectrum_bins_per_decade=N`（既定 32、正の int32）に対し、bin 境界は
+
+$$
+K_j=T_{pe,config}\left(10^{j/N}-1\right)\quad[j=0,1,\ldots]
+$$
+
+です。$T_{pe,config}$ は設定 PE 温度 [eV] で、測定エネルギーを覆うまで格子を延ばします。
+各 bin の積分束 $f_j$ を保存し、その区間の $F_H=f_j/(K_{j+1}-K_j)$ を一定とします。
+設定温度は格子の尺度であり、測定分布をその温度の Maxwell 分布へ戻す操作ではありません。
+spectrum mode の平均エネルギーはこの bin 表現から計算するため、既存の標本平均とは離散化誤差だけ異なります。
+
+初回、または spectrum を持たない旧 checkpoint からの再開時は、利用できる PE モーメントから
+Maxwell 初期分布を作ります。各 trial では分布全体を `coupling_relaxation` で緩和し、
+既存のモーメント収束条件に加えて $\sum_j|f_{j,observed}-f_{j,input}|$ が PE 束の許容値
+$\max(\mathtt{coupling\_rtol}\,s_\Gamma,\mathtt{coupling\_atol}[1])$ 以下であることを要求します。
+ここで `[1]` は第 1 成分を指します。有限な未収束 trial の warning と受理方針は従来どおりです。
+
+観測分布と応答へ渡した分布は `matching_plane_spectrum_history.csv` に別々に保存します。
+再開用には現在の checkpoint の summary に両分布・格子・応答入力を追加し、既存 scalar history の列は変えません。
+保存済み格子と設定の PE 温度・bin 分解能が同じ場合は、非 Maxwell の形を含めて保存分布を復元します。
+異なる場合は警告し、保存済みの束・平均エネルギーを持つ Maxwell 分布で初期値を作り直して H で再計測します。
+これは再開用の初期値であり、以後の反復は測定分布を使います。既定の moment mode でも診断格子の変更だけでは
+停止しません。出力列と units は[出力形式](OutputReference.html#pe-spectrum-の観測と応答入力)を参照してください。
+
+分解能、ray 数、batch 幅、H の位置を変えて収束・収支を確認してください。これは外部の平面・無衝突・非磁化 1D
+近似です。法線エネルギー以外の相関、外部の遅延 return、BEACH 内部の PE 体積空間電荷は追加していません。
+
 ## `implicit_zero_mode`
 
 秒スケールの `batch_duration` で面平均電流の陽的更新が硬い場合、`implicit_zero_mode=true` で

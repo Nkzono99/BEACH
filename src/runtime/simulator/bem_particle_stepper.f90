@@ -32,6 +32,7 @@ module bem_particle_stepper
     integer(i32) :: outer_barrier_return_count = 0_i32
     integer(i32) :: outer_barrier_escape_count = 0_i32
     real(dp) :: z_high_outward_normal_kinetic_energy_j_sum = 0.0_dp
+    real(dp), allocatable :: z_high_outward_energy_j(:)
   end type particle_step_result
 
   public :: build_particle_step_candidate
@@ -384,6 +385,7 @@ contains
       z_high_barrier_event = z_high_outward_event .and. &
                              open_face_uses_potential_barrier(6_i32, active_boundary_contract)
       if (z_high_outward_event) then
+        call append_crossing_energies(result%z_high_outward_energy_j, [0.5_dp*m*v_event(3)**2])
         result%z_high_outward_event_count = result%z_high_outward_event_count + 1_i32
         result%z_high_outward_normal_kinetic_energy_j_sum = &
           result%z_high_outward_normal_kinetic_energy_j_sum + 0.5_dp*m*v_event(3)*v_event(3)
@@ -480,6 +482,7 @@ contains
     integer(i32) :: prior_field_evals, prior_collision_queries
     integer(i32) :: prior_z_high_events, prior_outer_returns, prior_outer_escapes
     real(dp) :: prior_z_high_energy
+    real(dp), allocatable :: prior_energies(:)
 
     prior_field_evals = result%field_eval_count
     prior_collision_queries = result%collision_query_count
@@ -487,6 +490,7 @@ contains
     prior_outer_returns = result%outer_barrier_return_count
     prior_outer_escapes = result%outer_barrier_escape_count
     prior_z_high_energy = result%z_high_outward_normal_kinetic_energy_j_sum
+    if (allocated(result%z_high_outward_energy_j)) prior_energies = result%z_high_outward_energy_j
     if (has_boundary_rng_counter) then
       call advance_particle_step_impl( &
         mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract, &
@@ -506,6 +510,7 @@ contains
     if (first_half%status /= particle_step_ok .or. first_half%absorbed .or. first_half%escaped_boundary) then
       result = first_half
       result%field_eval_count = prior_field_evals + first_half%field_eval_count
+      if (allocated(prior_energies)) call append_crossing_energies(result%z_high_outward_energy_j, prior_energies)
       result%collision_query_count = prior_collision_queries + first_half%collision_query_count
       result%z_high_outward_event_count = prior_z_high_events + first_half%z_high_outward_event_count
       result%outer_barrier_return_count = prior_outer_returns + first_half%outer_barrier_return_count
@@ -528,6 +533,9 @@ contains
         )
     end if
     result = second_half
+    if (allocated(prior_energies)) call append_crossing_energies(result%z_high_outward_energy_j, prior_energies)
+    if (allocated(first_half%z_high_outward_energy_j)) &
+      call append_crossing_energies(result%z_high_outward_energy_j, first_half%z_high_outward_energy_j)
     result%field_eval_count = prior_field_evals + first_half%field_eval_count + second_half%field_eval_count
     result%collision_query_count = prior_collision_queries + first_half%collision_query_count + &
                                    second_half%collision_query_count
@@ -541,6 +549,16 @@ contains
                                                         first_half%z_high_outward_normal_kinetic_energy_j_sum + &
                                                         second_half%z_high_outward_normal_kinetic_energy_j_sum
   end subroutine advance_periodic_substeps
+
+  subroutine append_crossing_energies(energies, added)
+    real(dp), allocatable, intent(inout) :: energies(:)
+    real(dp), intent(in) :: added(:)
+    if (allocated(energies)) then
+      energies = [energies, added]
+    else
+      energies = added
+    end if
+  end subroutine append_crossing_energies
 
   !> eventの全faceがperiodicで、適応分割中に乱数境界へ入らない場合だけ再試行する。
   pure logical function periodic_event_can_subdivide(sim, event) result(can_subdivide)

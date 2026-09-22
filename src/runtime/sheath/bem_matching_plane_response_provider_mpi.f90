@@ -25,6 +25,7 @@ contains
   real(dp) :: height_min(1), height_max(1), height_tolerance
 
   self%active = .false.
+  call self%pe_spectrum%clear()
   self%backend = provider_backend_none
   self%matching_plane_z_m = 0.0_dp
   self%feedback_min = 0.0_dp

@@ -91,6 +91,7 @@ contains
     params%photoelectron_population_fraction = 1.0_dp
     params%t_swe_ev = self%electron_temperature_ev
     params%t_phe_ev = photoelectron_temperature_ev
+    params%pe_spectrum = self%pe_spectrum
     params%v_d_electron_mps = self%electron_drift_mps
     params%v_d_ion_mps = self%ion_drift_mps
     params%m_i_kg = self%ion_mass_kg
@@ -231,6 +232,17 @@ contains
     residual(1) = raw(1)/params%n_phe_ref_m3
     residual(2) = (max(0.0_dp, field_squared) - target_field_hat*target_field_hat)/field_residual_scale
     residual(3) = raw(3)
+    if (allocated(params%pe_spectrum%flux)) then
+      call integrate_matching_rho_hat(params, branch, 'upper', phi_m_hat, 0.0_dp, &
+                                      phi0_hat, phi_m_hat, density_hat, integral, integral_ok)
+      if (.not. integral_ok) then
+        valid = .false.
+        return
+      end if
+      ! Remove the automatic d^(3/2) collapse as the minimum approaches
+      ! infinity potential; a shallow B limit must not masquerade as an A root.
+      residual(3) = -2.0_dp*integral/(-phi_m_hat)**1.5_dp
+    end if
   case ('B', 'C')
     x2 = [phi0_v, density_m3]
     if (branch == 'B') then
@@ -258,6 +270,14 @@ contains
     valid = .false.
     return
   end select
+  if (allocated(params%pe_spectrum%flux)) then
+    if (branch == 'A') then
+      call evaluate_zhao_rho_hat(params, branch, 'upper', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
+    else
+      call evaluate_zhao_rho_hat(params, branch, 'monotonic', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
+    end if
+    residual(1) = -residual(1)
+  end if
   valid = all(ieee_is_finite(residual))
   end procedure evaluate_charge_residual
 
@@ -272,7 +292,8 @@ contains
     real(dp), intent(out) :: integral
     logical, intent(out) :: success
 
-    real(dp) :: t, phi_hat, jacobian, rho_hat, summand, weight, h
+    real(dp) :: t, phi_hat, jacobian, rho_hat, summand, weight, h, minimum_v, pe_integral
+    logical :: spectral, upper_side
     integer :: point
 
     integral = 0.0_dp
@@ -281,13 +302,14 @@ contains
                                  lower_phi_hat, upper_phi_hat, phi0_hat, phi_m_hat, density_hat &
                                  ])) .or. density_hat <= 0.0_dp) return
     h = 1.0_dp/real(rho_quadrature_panels, dp)
+    spectral = allocated(params%pe_spectrum%flux)
     do point = 0, rho_quadrature_panels
       t = real(point, dp)*h
       phi_hat = lower_phi_hat + (upper_phi_hat - lower_phi_hat)*sin(0.5_dp*pi*t)**2
       jacobian = (upper_phi_hat - lower_phi_hat)*0.5_dp*pi*sin(pi*t)
       if (.not. ion_accessible(params, phi_hat)) return
       call evaluate_zhao_rho_hat( &
-        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_hat &
+        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_hat, include_pe=.not. spectral &
         )
       if (.not. ieee_is_finite(rho_hat)) return
       summand = rho_hat*jacobian
@@ -301,6 +323,17 @@ contains
       integral = integral + weight*summand
     end do
     integral = integral*h/3.0_dp
+    if (spectral) then
+      minimum_v = phi_m_hat*params%t_phe_ev
+      if (branch == 'B') minimum_v = 0.0_dp
+      if (branch == 'C') minimum_v = phi0_hat*params%t_phe_ev
+      upper_side = trim(side) == 'upper' .or. branch == 'C'
+      pe_integral = params%pe_spectrum%integrated_density(upper_phi_hat*params%t_phe_ev, &
+                                                          phi0_hat*params%t_phe_ev, minimum_v, params%m_e_kg, upper_side) - &
+                    params%pe_spectrum%integrated_density(lower_phi_hat*params%t_phe_ev, &
+                                                          phi0_hat*params%t_phe_ev, minimum_v, params%m_e_kg, upper_side)
+      integral = integral - pe_integral/(params%n_phe_ref_m3*params%t_phe_ev)
+    end if
     success = ieee_is_finite(integral)
   end subroutine integrate_matching_rho_hat
 

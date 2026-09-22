@@ -40,6 +40,8 @@ def _validate_surface_current_model(
         "response_backend",
         "response_table_path",
         "zhao_root_selection",
+        "photoelectron_closure",
+        "photoelectron_spectrum_bins_per_decade",
         "implicit_zero_mode",
         "coupling_rtol",
         "coupling_atol",
@@ -318,6 +320,36 @@ def _validate_matching_plane_model(
 
     response_backend = model_config.get("response_backend", "table")
     implicit_zero_mode = model_config.get("implicit_zero_mode", False)
+    photoelectron_closure = model_config.get(
+        "photoelectron_closure", "moment_matched_half_maxwellian"
+    )
+    if not isinstance(photoelectron_closure, str) or photoelectron_closure not in {
+        "moment_matched_half_maxwellian",
+        "energy_spectrum",
+    }:
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.photoelectron_closure "
+            'must be "moment_matched_half_maxwellian" or "energy_spectrum".'
+        )
+    spectrum_bins = model_config.get("photoelectron_spectrum_bins_per_decade", 32)
+    if (
+        not isinstance(spectrum_bins, int)
+        or isinstance(spectrum_bins, bool)
+        or not 1 <= spectrum_bins <= 2147483647
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model."
+            "photoelectron_spectrum_bins_per_decade must be a positive int32."
+        )
+    if photoelectron_closure == "energy_spectrum" and (
+        response_backend != "zhao_online"
+        or not model_config.get("photoelectron_species")
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.photoelectron_closure="
+            '"energy_spectrum" requires matching_plane_quasistatic, zhao_online, '
+            "and a photoelectron_species role."
+        )
     if (
         not isinstance(response_backend, str)
         or response_backend not in {"table", "zhao_online"}

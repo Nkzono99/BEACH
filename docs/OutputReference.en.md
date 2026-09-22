@@ -164,7 +164,7 @@ fixed-point equations, response CSV, and `implicit_zero_mode` contract.
 | --- | --- |
 | Generation | `output.write_files=true`, `output.history_stride>0`, and `surface_current_model.model=matching_plane_quasistatic` |
 | One row | Leading `batch`, `simulated_time_s`, followed by the 15 state columns below; only accepted states are written |
-| Interpretation | Read the fluxes, barriers, and iteration receipt on one row as one batch's fixed-point solution |
+| Interpretation | Read observed fluxes, response barriers, and iteration residual on one row as one accepted trial's record |
 | Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last accepted state |
 | Restart | The CSV is not used. Schema v9 stores the last accepted state in `summary.txt` |
 
@@ -183,8 +183,8 @@ fixed-point equations, response CSV, and `implicit_zero_mode` contract.
 | `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_mean_normal_energy_eV` | PE mean normal energy fed back to the fixed point |
 | `matching_plane_electron_outward_flux_m2_s` | `electron_outward_flux_m2_s` | Outward electron flux fed back to the fixed point |
 | `matching_plane_ion_outward_flux_m2_s` | `ion_outward_flux_m2_s` | Outward ion flux fed back to the fixed point |
-| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | PE return flux produced by the backend |
-| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | PE escape flux produced by the backend |
+| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | PE return flux measured from trajectory reflection decisions at H |
+| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | PE escape flux measured from trajectory transmission decisions at H |
 | `matching_plane_iterations` | `iterations` | Fixed-point iteration count |
 | `matching_plane_residual` | `residual` | Effective relative residual at acceptance |
 
@@ -200,9 +200,41 @@ $$
 +\mathtt{photoelectron\_escape\_flux\_m2\_s}.
 $$
 
-The $D_H$ and $\Phi_H$ in each record correspond to the pre-commit surface-charge state used to track that batch.
-In contrast, `simulated_time_s` is the time after the trial was accepted and advanced. Do not interpret the record as
-the post-commit field at the start of the next batch.
+Each $\Phi_H$ is that trial's response. $D_H$ normally denotes the prescribed trial value, but implicit mode
+recomputes it from the total surface charge after commit. `simulated_time_s` is the time after acceptance.
+Use `input_D_H_C_m2` and the input distribution below when reproducing an exact response query.
+
+#### PE spectrum observations and response inputs
+
+Matching-plane runs that retain a PE spectrum additionally write `matching_plane_spectrum_history.csv` at scalar-history
+output times. Each row represents one energy bin; multiple rows in the same batch form a distribution. Diagnostic
+spectra retained with the default Maxwell closure have `spectral_closure=F`, identifying that the distribution was
+not used by the actual response.
+
+| Column | Meaning |
+|---|---|
+| `batch`, `simulated_time_s` | Accepted batch and time after acceptance [s] |
+| `energy_low_eV`, `energy_high_eV` | Lower and upper normal-energy bin edges [eV] |
+| `observed_flux_m2_s` | Integrated outward-crossing flux in the bin for that trial [/m²/s] |
+| `input_flux_m2_s` | Integrated bin flux of the distribution supplied to the response [/m²/s] |
+| `spectral_closure` | `T` uses the spectrum in the exterior response; `F` uses the legacy moment approximation |
+| `input_D_H_C_m2`, `input_PE_flux_m2_s`, `input_mean_energy_eV` | Displacement, PE flux, and mean normal energy actually supplied to the response |
+| `phi_H_V`, `phi_min_V` | Response H potential and PE barrier potential [V] |
+| `modeled_escape_flux_m2_s` | Escape flux calculated from the input spectrum, or the Maxwell approximation for the default closure [/m²/s] |
+
+Dividing integrated flux by bin width gives $F_H(K)=d\Gamma_H/dK$. Input and observed distributions may differ by the
+fixed-point residual; the observed distribution alone is not the exact response input. `modeled_escape_flux_m2_s`
+is distinct from the trajectory-observed escape in the scalar history. The existing Python `matching_plane_history`
+API continues to read scalar history.
+
+Restart summaries retain `matching_plane_pe_grid` (energy scale, bins per decade, observed-bin count, input-bin count),
+uniquely indexed `matching_plane_pe_observed_bin_<index>=flux` / `matching_plane_pe_input_bin_<index>=flux`
+records (indices start at 1), `matching_plane_response_input`,
+`matching_plane_model_escape_flux`, and `matching_plane_spectral_closure`. These are optional additions to checkpoint
+schema v10; an older checkpoint without a distribution restarts from a Maxwell initial guess. A matching grid restores
+the saved non-Maxwell distribution directly. A changed PE temperature scale or bin resolution produces a warning and
+a Maxwell initial guess on the new grid with the saved flux and mean; trials measure the distribution again at H.
+The same rule applies to diagnostic-grid changes in the default moment mode. The CSV is not used for restart.
 
 #### Provenance and convergence
 

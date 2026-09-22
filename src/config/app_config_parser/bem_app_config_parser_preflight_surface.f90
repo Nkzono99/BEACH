@@ -12,6 +12,23 @@ contains
   real(dp) :: electron_temperature, ion_temperature
   logical :: photoelectron_active
 
+  select case (trim(lower_ascii(cfg%surface_current%photoelectron_closure)))
+  case ('moment_matched_half_maxwellian')
+    continue
+  case ('energy_spectrum')
+    if (trim(lower_ascii(cfg%surface_current%model)) /= 'matching_plane_quasistatic' .or. &
+        trim(lower_ascii(cfg%surface_current%response_backend)) /= 'zhao_online' .or. &
+        .not. cfg%surface_current%has_photoelectron_species) then
+      error stop 'surface_current_model.photoelectron_closure="energy_spectrum" requires '// &
+        'matching_plane_quasistatic, zhao_online, and a photoelectron_species role.'
+    end if
+  case default
+    error stop 'surface_current_model.photoelectron_closure must be moment_matched_half_maxwellian or energy_spectrum.'
+  end select
+  if (cfg%surface_current%photoelectron_spectrum_bins_per_decade <= 0_i32) then
+    error stop 'surface_current_model.photoelectron_spectrum_bins_per_decade must be a positive integer.'
+  end if
+
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
     return

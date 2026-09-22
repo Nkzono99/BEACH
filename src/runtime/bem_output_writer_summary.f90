@@ -35,7 +35,7 @@ contains
   character(len=1024) :: summary_path
   character(len=256) :: boundary_message
   character(len=16) :: resolved_field_solver
-  integer :: u, ios
+  integer :: u, ios, j, observed_count, input_count
   integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
   real(dp) :: resolved_tree_theta
 
@@ -113,6 +113,22 @@ contains
     stats%matching_plane_photoelectron_escape_flux_m2_s
   write (u, '(a,i0)') 'matching_plane_iterations=', stats%matching_plane_iterations
   write (u, '(a,es24.16)') 'matching_plane_residual=', stats%matching_plane_residual
+  write (u, '(a,l1)') 'matching_plane_spectral_closure=', stats%matching_plane_spectral_closure
+  write (u, '(a,5(es24.16,1x))') 'matching_plane_response_input=', stats%matching_plane_response_input
+  write (u, '(a,es24.16)') 'matching_plane_model_escape_flux=', stats%matching_plane_model_escape_flux
+  if (allocated(stats%matching_plane_pe_input%flux)) then
+    observed_count = 0
+    if (allocated(stats%matching_plane_pe_observed%flux)) observed_count = size(stats%matching_plane_pe_observed%flux)
+    input_count = size(stats%matching_plane_pe_input%flux)
+    write (u, '(a,es24.16,3(1x,i0))') 'matching_plane_pe_grid=', stats%matching_plane_pe_input%energy_scale_ev, &
+      stats%matching_plane_pe_input%bins_per_decade, observed_count, input_count
+    do j = 1, observed_count
+      write (u, '(a,i0,a,es24.16)') 'matching_plane_pe_observed_bin_', j, '=', stats%matching_plane_pe_observed%flux(j)
+    end do
+    do j = 1, input_count
+      write (u, '(a,i0,a,es24.16)') 'matching_plane_pe_input_bin_', j, '=', stats%matching_plane_pe_input%flux(j)
+    end do
+  end if
   write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
   write (u, '(a,a)') 'field_backend=', trim(field_config%backend)
   write (u, '(a,a)') 'field_normalization=', trim(field_config%normalization)
@@ -179,8 +195,9 @@ contains
           trim(lower_ascii(cfg%surface_current%zhao_root_selection))
         write (u, '(a)') &
           'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
-        write (u, '(a)') &
-          'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
+        write (u, '(a,a)') 'surface_current_model_photoelectron_closure=', trim(cfg%surface_current%photoelectron_closure)
+        write (u, '(a,i0)') 'surface_current_model_photoelectron_spectrum_bins_per_decade=', &
+          cfg%surface_current%photoelectron_spectrum_bins_per_decade
         write (u, '(a)') &
           'surface_current_model_ambient_outward_feedback=transparent'
         if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then

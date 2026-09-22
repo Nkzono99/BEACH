@@ -3,7 +3,9 @@ module bem_matching_plane_coupling
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_constants, only: qe
+  use bem_constants, only: qe, k_boltzmann
+  use bem_pe_spectrum, only: pe_spectrum_type
+  use bem_config_helpers, only: species_temperature_k
   use bem_types, only: mesh_type, sim_stats
   use bem_app_config, only: app_config
   use bem_string_utils, only: lower_ascii
@@ -13,7 +15,7 @@ module bem_matching_plane_coupling
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, matching_plane_provider_ok
   use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
   use bem_matching_plane_implicit, only: solve_matching_implicit_zero_mode
-  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_max_i32_scalar
   implicit none
   private
 
@@ -23,6 +25,7 @@ module bem_matching_plane_coupling
     logical :: implicit_zero_mode = .false.
     logical :: continuation_active = .false.
     logical :: photoelectron_active = .false.
+    logical :: spectral_closure = .false.
     logical :: displacement_bounded = .false.
     integer(i32) :: electron_idx = 0_i32
     integer(i32) :: ion_idx = 0_i32
@@ -45,6 +48,7 @@ module bem_matching_plane_coupling
     real(dp) :: residual
     real(dp) :: return_flux
     real(dp) :: escape_flux
+    type(pe_spectrum_type) :: spectrum_guess, spectrum_observed
     type(matching_plane_response_provider_type) :: provider
     type(matching_plane_zhao_root_seed_type) :: root_committed
     type(matching_plane_zhao_root_seed_type) :: root_trial
@@ -107,6 +111,21 @@ contains
         self%photoelectron_charge = app%particle_species(self%photoelectron_idx)%q_particle
         self%photoelectron_emission_current_density = &
           app%particle_species(self%photoelectron_idx)%emit_current_density_a_m2
+        self%spectral_closure = trim(app%surface_current%photoelectron_closure) == 'energy_spectrum'
+        self%spectrum_guess%energy_scale_ev = &
+          species_temperature_k(app%particle_species(self%photoelectron_idx))*k_boltzmann/qe
+        if (self%spectrum_guess%energy_scale_ev <= 0.0_dp) self%spectrum_guess%energy_scale_ev = 1.0_dp
+        self%spectrum_guess%bins_per_decade = app%surface_current%photoelectron_spectrum_bins_per_decade
+        self%spectrum_observed = self%spectrum_guess
+        if (allocated(stats%matching_plane_pe_observed%flux) .and. mpi_is_root(mpi_ctx)) then
+          if (stats%matching_plane_pe_observed%bins_per_decade /= self%spectrum_guess%bins_per_decade .or. &
+              stats%matching_plane_pe_observed%energy_scale_ev /= self%spectrum_guess%energy_scale_ev) then
+            write (error_unit, '(a)') 'WARNING: changed PE spectrum grid; bootstrap from saved moments and remeasure at H.'
+          end if
+        end if
+        if (self%spectral_closure .and. allocated(stats%matching_plane_pe_input%flux)) then
+          call self%provider%set_photoelectron_spectrum(stats%matching_plane_pe_input)
+        end if
       end if
       self%area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
       if (.not. ieee_is_finite(self%area) .or. self%area <= 0.0_dp) then
@@ -169,6 +188,7 @@ contains
         matching_response_input = [ &
                                   stats%matching_plane_displacement_c_m2, stats%matching_plane_feedback &
                                   ]
+        if (allocated(stats%matching_plane_pe_input%flux)) matching_response_input = stats%matching_plane_response_input
         call self%provider%reconstruct_continuation_seed_local( &
           matching_response_input, stats%matching_plane_response, self%root_committed, &
           matching_response_status, matching_response_message &
@@ -208,6 +228,8 @@ contains
     type(electrostatic_snapshot_type), intent(in) :: snapshot
     type(sim_stats), intent(in) :: stats
 
+    logical :: reuse_spectrum
+
     if (self%continuation_active) self%root_trial = self%root_committed
     self%iteration = 0_i32
     self%residual = 0.0_dp
@@ -239,6 +261,25 @@ contains
         self%guess = stats%matching_plane_feedback
       else
         self%guess = 0.0_dp
+        if (self%spectral_closure) then
+          self%guess(1) = self%photoelectron_emission_current_density/(-self%photoelectron_charge)
+          self%guess(2) = self%spectrum_guess%energy_scale_ev
+        end if
+      end if
+      if (self%photoelectron_active) then
+        reuse_spectrum = .false.
+        if (allocated(stats%matching_plane_pe_observed%flux)) then
+          reuse_spectrum = stats%matching_plane_pe_observed%bins_per_decade == self%spectrum_guess%bins_per_decade .and. &
+                           stats%matching_plane_pe_observed%energy_scale_ev == self%spectrum_guess%energy_scale_ev
+        end if
+        if (reuse_spectrum) then
+          self%spectrum_guess = stats%matching_plane_pe_observed
+        else
+          call self%spectrum_guess%bootstrap_maxwellian( &
+            self%guess(1), merge(self%guess(2), self%spectrum_guess%energy_scale_ev, self%guess(2) > 0.0_dp))
+          if (.not. allocated(self%spectrum_guess%flux)) allocate (self%spectrum_guess%flux(0))
+        end if
+        if (self%spectral_closure) call synchronize_spectral_moments(self)
       end if
     end if
   end subroutine begin_trial
@@ -257,6 +298,7 @@ contains
 
     if (.not. self%active) return
     self%iteration = self%iteration + 1_i32
+    if (self%spectral_closure) call self%provider%set_photoelectron_spectrum(self%spectrum_guess)
     if (self%implicit_zero_mode) then
       matching_displacement_seed = self%displacement
       call solve_matching_implicit_zero_mode( &
@@ -285,23 +327,27 @@ contains
     call configure_matching_surface_closure( &
       surface_closure, self%electron_idx, self%ion_idx, self%photoelectron_idx, &
       self%photoelectron_active, self%response, self%implicit_zero_mode, self%area, &
-      self%guess, &
       app%particle_species(self%electron_idx)%q_particle, &
       app%particle_species(self%ion_idx)%q_particle, &
-      self%photoelectron_charge, self%photoelectron_emission_current_density &
+      self%photoelectron_charge, self%photoelectron_emission_current_density, &
+      self%provider%photoelectron_escape_flux(self%guess, self%response) &
       )
     call snapshot%set_matching_plane_gauge(mesh, self%plane_z, self%response(1))
   end subroutine prepare_iteration
 
-  logical function finish_iteration(self, app, mpi_ctx, moments_thread, trial_batch_duration, batch_idx) result(done)
+  logical function finish_iteration( &
+    self, app, mpi_ctx, moments_thread, spectra_thread, trial_batch_duration, batch_idx &
+    ) result(done)
     class(matching_plane_coupling_type), intent(inout) :: self
     type(app_config), intent(in) :: app
     type(mpi_context), intent(in) :: mpi_ctx
     real(dp), intent(in) :: moments_thread(:, :, :), trial_batch_duration
+    type(pe_spectrum_type), intent(in) :: spectra_thread(:)
     integer(i32), intent(in) :: batch_idx
     logical :: matching_converged
-    integer(i32) :: matching_response_status, matching_axis
-    real(dp) :: matching_feedback_scales(4), matching_absolute_defects(4), matching_component_residuals(4)
+    integer(i32) :: matching_response_status, matching_axis, bin_count, thread, n
+    real(dp) :: matching_feedback_scales(4), matching_absolute_defects(4), matching_component_residuals(4), defect, tolerance
+    real(dp), allocatable :: spectrum_difference(:)
     character(len=512) :: matching_response_message
 
     done = .true.
@@ -315,6 +361,24 @@ contains
       self%photoelectron_active, self%area, trial_batch_duration, self%observed, &
       self%return_flux, self%escape_flux &
       )
+    if (self%photoelectron_active) then
+      call self%spectrum_observed%clear()
+      do thread = 1, size(spectra_thread)
+        call self%spectrum_observed%combine(spectra_thread(thread), 1.0_dp, 1.0_dp)
+      end do
+      bin_count = 0_i32
+      if (allocated(self%spectrum_observed%flux)) bin_count = size(self%spectrum_observed%flux)
+      call mpi_allreduce_max_i32_scalar(mpi_ctx, bin_count)
+      allocate (spectrum_difference(bin_count), source=0.0_dp)
+      if (allocated(self%spectrum_observed%flux)) then
+        n = size(self%spectrum_observed%flux)
+        spectrum_difference(:n) = self%spectrum_observed%flux
+      end if
+      call mpi_allreduce_sum_real_dp_array(mpi_ctx, spectrum_difference)
+      self%spectrum_observed%flux = spectrum_difference/(self%area*trial_batch_duration)
+      deallocate (spectrum_difference)
+      if (self%spectral_closure .and. self%observed(1) > 0.0_dp) self%observed(2) = self%spectrum_observed%mean_energy()
+    end if
     if (self%photoelectron_active .and. self%observed(1) == 0.0_dp) then
       ! Mean energy is undefined for an empty PE sample.  Preserve the
       ! current canonical energy instead of introducing a spurious zero.
@@ -334,6 +398,19 @@ contains
                          self%guess, self%observed, app%surface_current%coupling_rtol, &
                          app%surface_current%coupling_atol &
                          )
+    if (self%spectral_closure) then
+      call self%provider%get_feedback_scales(matching_feedback_scales)
+      bin_count = max(size(self%spectrum_guess%flux), size(self%spectrum_observed%flux))
+      allocate (spectrum_difference(bin_count), source=0.0_dp)
+      spectrum_difference(:size(self%spectrum_guess%flux)) = self%spectrum_guess%flux
+      n = size(self%spectrum_observed%flux)
+      spectrum_difference(:n) = spectrum_difference(:n) - self%spectrum_observed%flux
+      defect = sum(abs(spectrum_difference))
+      tolerance = max(app%surface_current%coupling_atol(1), &
+                      app%surface_current%coupling_rtol*matching_feedback_scales(1))
+      matching_converged = matching_converged .and. defect <= tolerance
+      self%residual = max(self%residual, app%surface_current%coupling_rtol*defect/max(tolerance, tiny(1.0_dp)))
+    end if
     if (matching_converged) return
     if (self%iteration >= app%surface_current%coupling_max_iterations) then
       if (mpi_is_root(mpi_ctx)) then
@@ -373,9 +450,20 @@ contains
     end if
     self%guess = self%guess + app%surface_current%coupling_relaxation* &
                  (self%observed - self%guess)
+    if (self%photoelectron_active) then
+      call self%spectrum_guess%combine(self%spectrum_observed, 1.0_dp - app%surface_current%coupling_relaxation, &
+                                       app%surface_current%coupling_relaxation)
+      if (self%spectral_closure) call synchronize_spectral_moments(self)
+    end if
     if (self%implicit_zero_mode .and. .not. self%displacement_bounded) self%guess(3:4) = 0.0_dp
     done = .false.
   end function finish_iteration
+
+  subroutine synchronize_spectral_moments(self)
+    class(matching_plane_coupling_type), intent(inout) :: self
+    self%guess(1) = self%spectrum_guess%total_flux()
+    if (self%guess(1) > 0.0_dp) self%guess(2) = self%spectrum_guess%mean_energy()
+  end subroutine synchronize_spectral_moments
 
   subroutine stage_stats(self, stats_candidate)
     class(matching_plane_coupling_type), intent(in) :: self
@@ -387,6 +475,11 @@ contains
       stats_candidate%matching_plane_phi_v = self%response(1)
       stats_candidate%matching_plane_response = self%response
       stats_candidate%matching_plane_feedback = self%observed
+      stats_candidate%matching_plane_pe_observed = self%spectrum_observed
+      stats_candidate%matching_plane_pe_input = self%spectrum_guess
+      stats_candidate%matching_plane_response_input = [self%displacement, self%guess]
+      stats_candidate%matching_plane_model_escape_flux = self%provider%photoelectron_escape_flux(self%guess, self%response)
+      stats_candidate%matching_plane_spectral_closure = self%spectral_closure
       stats_candidate%matching_plane_photoelectron_return_flux_m2_s = self%return_flux
       stats_candidate%matching_plane_photoelectron_escape_flux_m2_s = self%escape_flux
       stats_candidate%matching_plane_iterations = self%iteration
@@ -428,16 +521,16 @@ contains
 
   subroutine configure_matching_surface_closure( &
     contract, electron_idx, ion_idx, photoelectron_idx, photoelectron_active, response, implicit_zero_mode, area_m2, &
-    feedback_reference, electron_charge, ion_charge, photoelectron_charge, &
-    photoelectron_emission_current_density &
+    electron_charge, ion_charge, photoelectron_charge, &
+    photoelectron_emission_current_density, modeled_escape_flux &
     )
     type(surface_closure_contract_type), intent(inout) :: contract
     integer(i32), intent(in) :: electron_idx, ion_idx, photoelectron_idx
     real(dp), intent(in) :: response(6)
     logical, intent(in) :: implicit_zero_mode, photoelectron_active
-    real(dp), intent(in) :: area_m2, feedback_reference(4)
+    real(dp), intent(in) :: area_m2
     real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
-    real(dp), intent(in) :: photoelectron_emission_current_density
+    real(dp), intent(in) :: photoelectron_emission_current_density, modeled_escape_flux
 
     real(dp) :: barrier_energy_ev, emission_flux, escape_flux, return_flux
 
@@ -477,14 +570,8 @@ contains
       contract%absorbed_current_a(electron_idx) = electron_charge*response(2)*area_m2
       contract%absorbed_current_a(ion_idx) = ion_charge*response(3)*area_m2
       if (photoelectron_active) then
-        barrier_energy_ev = response(1) - response(6)
-        escape_flux = 0.0_dp
-        if (feedback_reference(1) > 0.0_dp) then
-          if (.not. ieee_is_finite(feedback_reference(2)) .or. feedback_reference(2) <= 0.0_dp) then
-            error stop 'positive implicit matching-plane PE flux requires positive mean energy.'
-          end if
-          escape_flux = feedback_reference(1)*exp(-barrier_energy_ev/feedback_reference(2))
-        end if
+        barrier_energy_ev = max(0.0_dp, response(1) - response(6))
+        escape_flux = modeled_escape_flux
         emission_flux = photoelectron_emission_current_density/(-photoelectron_charge)
         return_flux = emission_flux - escape_flux
         if (.not. all(ieee_is_finite([barrier_energy_ev, emission_flux, escape_flux, return_flux])) .or. &
