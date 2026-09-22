@@ -4,9 +4,6 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 
 # Matching-plane numerical and response-table reference
 
-For `density_model="source_kinetic"`, including additional Types and the full candidate atlas, see the
-[source-connected reference](SourceKineticSheath.en.html). Zhao-specific root policies below apply to `zhao_legacy`.
-
 This reference defines the response CSV, implicit mean-charge update, and fixed-point convergence contract for
 `surface_current_model.model="matching_plane_quasistatic"`. For model selection, the first four-batch run, and output
 diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlaneCoupling.en.html).
@@ -21,6 +18,36 @@ diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlane
 | Build a response table with `beach-zhao-response` | [Build a response table for the table backend](#build-a-response-table-for-the-table-backend) |
 | Look up the fixed-point acceptance and relaxation equations | [Fixed-point numerical contract](#fixed-point-numerical-contract) |
 | Converge the grid, batch width, and matching-plane height | [Validate convergence and applicability](#validate-convergence-and-applicability) |
+
+## Zhao Type B electron density
+
+Type B ambient electrons retain the lower velocity bound of particles accelerated into positive potential.
+Applying the path minimum $\Phi_m=\Phi_\infty=0$ to
+[Zhao et al. (2020), §III.A, equation (3)](https://scholarworks.indianapolis.iu.edu/server/api/core/bitstreams/e20ede43-d66d-4b73-b89c-3d3192672188/content)
+gives, in BEACH's normalization,
+
+$$
+\hat n_{e,f}=\frac{\hat n_{e,\infty}}{2}
+\exp(\hat\phi/\tau)\operatorname{erfc}\!\left(\sqrt{\hat\phi/\tau}-u\right).
+$$
+
+Here $\hat\phi=e(\Phi-\Phi_\infty)/(k_BT_{ph})$, $\tau=T_e/T_{ph}$,
+and $u=v_d/\sqrt{2k_BT_e/m_e}$; densities are normalized by the reference PE density.
+At zero drift, $\hat n_{e,f}=(\hat n_{e,\infty}/2)\operatorname{erfcx}(\sqrt{\hat\phi/\tau})$.
+The implementation uses scaled erfc to avoid directly multiplying a large exponential by a small tail.
+
+Appendix equation (1) of [Zhao's 2022 dissertation](https://scholarsmine.mst.edu/doctoral_dissertations/3176/) retains
+the same cutoff. A Maxwellian distribution does not imply a Boltzmann density integrated over all velocities.
+Nonzero drift follows the original distribution formula too; restoring it does not establish exact boundary-VDF
+transport or dynamic stability. The full text of the 2021 IEEE TPS version was not retrieved, so its equations are
+not claimed to have been checked directly.
+
+The previous Type B implementation replaced `erfc(sqrt(phi_hat/tau)-u)` with the position-independent `1+erf(u)`.
+The correction is in the existing Zhao density evaluator and therefore enters online Poisson integrals and response-table
+generation. It adds no configuration key, source type, or A/B/C name. The density at zero potential and zero-current
+boundary equations are unchanged; Type B prescribed-field responses, potential energies, and `auto` root selection can change.
+Regenerate tables produced from the previous Type B or `auto` implementation with the corrected `beach-zhao-response`.
+The table reader uses existing CSV values as supplied and does not retroactively correct them.
 
 ## `implicit_zero_mode`
 

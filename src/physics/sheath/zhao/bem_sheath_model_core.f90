@@ -101,11 +101,16 @@ contains
         error stop 'Unknown Type-A Zhao side.'
       end if
     case ('B')
-      ! Released BEACH compatibility density: omits the position-dependent
-      ! ambient velocity cutoff. This is not the zero-drift specialization of
-      ! Zhao et al. (2020), Eq. (3); see docs/SourceKineticSheath.md.
+      ! Zhao et al. (2020), Eq. (3): the path minimum for Type B is 0,
+      ! so incident electrons retain the local cutoff sqrt(phi_hat/tau).
+      s_swe = sqrt(max(0.0d0, phi_hat/p%tau))
       s_phe = sqrt(max(0.0d0, phi_hat))
-      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 + erf(p%u))
+      if (s_swe >= p%u) then
+        ! Avoid exp(phi/tau)*erfc(s-u) overflow and tail cancellation.
+        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(2*s_swe*p%u - p%u**2)*erfc_scaled(s_swe - p%u)
+      else
+        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*erfc(s_swe - p%u)
+      end if
       n_swe_r_hat = 0.0d0
       n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
       n_phe_c_hat = populated_sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)

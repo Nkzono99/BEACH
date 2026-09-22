@@ -286,8 +286,3 @@ main = "test_field_kernel_cache_c.f90"
 name = "test_version"
 source-dir = "tests/fortran"
 main = "test_version.f90"
-
-[[test]]
-name = "test_source_kinetic_sheath"
-source-dir = "tests/fortran"
-main = "test_source_kinetic_sheath.f90"

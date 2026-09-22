@@ -1037,24 +1037,6 @@ def _matching_plane_zhao_online_config() -> dict[str, object]:
     return config
 
 
-def test_source_kinetic_model_contract() -> None:
-    config = _matching_plane_zhao_online_config()
-    config["surface_current_model"].update(density_model="source_kinetic", zhao_branch="n")
-    config["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0, 0.0]
-    config["particles"]["species"][1]["temperature_ev"] = 0.0
-    normalized = normalize_config_document(config)
-    assert normalized["surface_current_model"]["density_model"] == "source_kinetic"
-    assert normalized["surface_current_model"]["zhao_branch"] == "n"
-    for key, value in (("density_model", "zhao_legacy"), ("zhao_root_selection", "minimum_energy")):
-        invalid = copy.deepcopy(config)
-        invalid["surface_current_model"][key] = value
-        with pytest.raises(ConfigValidationError):
-            normalize_config_document(invalid)
-    config["particles"]["species"][0]["drift_velocity"][2] = -1.0
-    with pytest.raises(ConfigValidationError, match="zero ambient electron drift"):
-        normalize_config_document(config)
-
-
 def test_matching_plane_zhao_online_config_contract() -> None:
     implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
     assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"

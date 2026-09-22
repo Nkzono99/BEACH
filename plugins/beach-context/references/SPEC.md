@@ -352,13 +352,6 @@ targetを再計算しません。z-high反射は外部turning pointまでの距�
 
 ### 7.8 matching-plane 準定常連成
 
-online backend の密度則は `density_model="zhao_legacy"`（互換既定）または `"source_kinetic"` で識別する。
-以下の Zhao A/B/C・energy/continuation 方針は前者に対応する。後者は零 drift Maxwell 電子・冷たい非反射イオン・
-half-Maxwell 放出に限定し、A/N/B/C/B0 の全検出根を保存してから Type と `require_unique` で選ぶ。
-境界非接続の捕捉軌道は空、外端は電位・電場・電荷密度ゼロ、指定電場は $D_H/\epsilon_0$ とし、零電流条件を加えない。
-独立の $T_e$ 規格化を使い、有限走査の未検出と解析的除外を区別する。旧 Zhao・有限境界への自動切替は禁止する。
-追加 Type、密度式、探索範囲、診断の正本は [SourceKineticSheath.md](docs/SourceKineticSheath.md) とする。
-
 `model="matching_plane_quasistatic"`は、`domain.box_max`のz成分をmatching plane $H$ とし、外部1Dシースを
 非線形境界演算子としてBEACHへ接続します。`response_backend="table"`（既定）は事前計算済み応答表、
 `response_backend="zhao_online"`は有限$H$のcharge-driven Zhao A/B/C準定常solveを使います。

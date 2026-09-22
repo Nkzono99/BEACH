@@ -24,7 +24,6 @@ module bem_matching_plane_zhao
   use bem_sheath_model_core, only: &
     zhao_params_type, swe_free_current_term
   use bem_string_utils, only: lower_ascii
-  use bem_source_kinetic_sheath, only: source_kinetic_result
   implicit none
   private
 
@@ -35,8 +34,7 @@ module bem_matching_plane_zhao
   integer(i32), parameter, public :: matching_plane_zhao_ambiguous_solution = 4_i32
 
   type, public :: matching_plane_zhao_diagnostics_type
-    character(len=2) :: branch = ' '
-    type(source_kinetic_result) :: kinetic
+    character(len=1) :: branch = ' '
     real(dp) :: interface_field_v_m = 0.0_dp
     real(dp) :: effective_photoelectron_temperature_ev = 0.0_dp
     real(dp) :: photoelectron_source_density_m3 = 0.0_dp
@@ -73,7 +71,6 @@ module bem_matching_plane_zhao
     logical :: initialized = .false.
     character(len=9) :: branch_model = 'auto'
     character(len=16) :: root_selection = 'require_unique'
-    character(len=16) :: density_model = 'zhao_legacy'
     real(dp) :: ion_density_m3 = 0.0_dp
     real(dp) :: electron_temperature_ev = 0.0_dp
     real(dp) :: electron_drift_mps = 0.0_dp
@@ -89,17 +86,8 @@ module bem_matching_plane_zhao
     procedure, public :: is_initialized => matching_plane_zhao_is_initialized
   end type matching_plane_zhao_model_type
 
-  ! Private entry points shared by the implementation submodules.
+  ! Private entry points shared by the three implementation submodules.
   interface
-    module subroutine evaluate_source_response(self, input, output, diagnostics, status, message)
-      class(matching_plane_zhao_model_type), intent(in) :: self
-      real(dp), intent(in) :: input(matching_plane_response_input_count)
-      real(dp), intent(out) :: output(matching_plane_response_output_count)
-      type(matching_plane_zhao_diagnostics_type), intent(inout) :: diagnostics
-      integer(i32), intent(out) :: status
-      character(len=*), intent(out) :: message
-    end subroutine
-
     module subroutine solve_matching_root(model, root_selection, params, interface_field_v_m, root, status, message)
       character(len=*), intent(in) :: model, root_selection
       type(zhao_params_type), intent(in) :: params
@@ -204,7 +192,7 @@ contains
   subroutine initialize_matching_plane_zhao( &
     self, branch_model, root_selection, ion_density_m3, electron_temperature_ev, electron_drift_mps, &
     ion_drift_mps, ion_mass_kg, electron_mass_kg, configured_photoelectron_temperature_ev, &
-    status, message, density_model &
+    status, message &
     )
     class(matching_plane_zhao_model_type), intent(inout) :: self
     character(len=*), intent(in) :: branch_model
@@ -214,15 +202,12 @@ contains
     real(dp), intent(in) :: configured_photoelectron_temperature_ev
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
-    character(len=*), intent(in), optional :: density_model
 
     character(len=:), allocatable :: normalized_branch, normalized_root_selection
 
     self%initialized = .false.
     self%branch_model = 'auto'
     self%root_selection = 'require_unique'
-    self%density_model = 'zhao_legacy'
-    if (present(density_model)) self%density_model = trim(lower_ascii(density_model))
     self%ion_density_m3 = 0.0_dp
     self%electron_temperature_ev = 0.0_dp
     self%electron_drift_mps = 0.0_dp
@@ -242,32 +227,11 @@ contains
       self%branch_model = 'b'
     case ('c', 'zhao_c')
       self%branch_model = 'c'
-    case ('n', 'b0')
-      self%branch_model = normalized_branch
     case default
-      message = 'matching-plane branch must be auto, a, b, c, or source_kinetic n/b0.'
+      message = 'matching-plane Zhao branch must be auto, a, b, or c.'
       return
     end select
     normalized_root_selection = trim(lower_ascii(root_selection))
-    select case (self%density_model)
-    case ('zhao_legacy')
-      if (self%branch_model == 'n' .or. self%branch_model == 'b0') then
-        message = 'N and B0 selectors require density_model="source_kinetic".'
-        return
-      end if
-    case ('source_kinetic')
-      if (electron_drift_mps /= 0._dp) then
-        message = 'source_kinetic currently requires zero ambient electron drift.'
-        return
-      end if
-      if (normalized_root_selection /= 'require_unique') then
-        message = 'source_kinetic currently supports only require_unique among detected roots.'
-        return
-      end if
-    case default
-      message = 'density_model must be zhao_legacy or source_kinetic.'
-      return
-    end select
     select case (normalized_root_selection)
     case ('require_unique', 'minimum_energy', 'continuation')
       self%root_selection = normalized_root_selection
@@ -341,11 +305,6 @@ contains
     local_diagnostics%interface_field_v_m = interface_field_v_m
     local_diagnostics%effective_photoelectron_temperature_ev = photoelectron_temperature_ev
     local_diagnostics%photoelectron_source_density_m3 = photoelectron_source_density_m3
-    if (self%density_model == 'source_kinetic') then
-      call evaluate_source_response(self, input, output, local_diagnostics, status, message)
-      call assign_diagnostics(diagnostics, local_diagnostics)
-      return
-    end if
     have_continuation_seed = .false.
     if (present(continuation_seed)) have_continuation_seed = continuation_seed%valid
     if (self%root_selection == 'continuation' .and. have_continuation_seed) then

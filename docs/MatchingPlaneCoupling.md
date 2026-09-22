@@ -4,9 +4,6 @@ Lang: [日本語](MatchingPlaneCoupling.md) | [English](MatchingPlaneCoupling.en
 
 # matching-plane で外部シースを接続する
 
-零ドリフトの軌道密度を使う新しい選択肢は [source-connected シース応答](SourceKineticSheath.html)を参照してください。
-以下の Zhao の分岐・根選択の説明は、既定の `density_model="zhao_legacy"` に対応します。
-
 `surface_current_model.model="matching_plane_quasistatic"` は、BEACH の box 上端を外部 1D シースとの
 matching plane（整合面）にします。表面電荷が変わるたびに、外部応答から上端電位、ambient 粒子の流入束、
 光電子（PE）の return 障壁を更新できます。

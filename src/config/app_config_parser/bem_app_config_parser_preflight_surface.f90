@@ -274,16 +274,9 @@ contains
       error stop 'matching_plane_quasistatic zhao_online requires cold ions with T_i <= 0.1 T_e.'
     end if
 
-    if (cfg%surface_current%density_model == 'source_kinetic') then
-      if (any(cfg%particle_species(electron_idx)%drift_velocity /= 0._dp)) then
-        error stop 'source_kinetic requires zero ambient electron drift.'
-      end if
-      if (ion_temperature /= 0._dp) error stop 'source_kinetic requires T_i=0.'
-    else if (cfg%particle_species(electron_idx)%drift_velocity(3) >= 0._dp) then
-      error stop 'zhao_legacy requires positive ambient electron inward drift at z-high.'
-    end if
     if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%drift_velocity(3)) .or. &
         .not. ieee_is_finite(cfg%particle_species(ion_idx)%drift_velocity(3)) .or. &
+        cfg%particle_species(electron_idx)%drift_velocity(3) >= 0.0_dp .or. &
         cfg%particle_species(ion_idx)%drift_velocity(3) >= 0.0_dp) then
       error stop 'matching_plane_quasistatic zhao_online requires positive ambient inward drift at z-high.'
     end if

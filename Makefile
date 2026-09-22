@@ -54,7 +54,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_surface_current_model \
 	test_matching_plane_response \
 	test_matching_plane_zhao \
-	test_source_kinetic_sheath \
 	test_matching_plane_response_generator \
 	test_matching_plane_zhao_atlas \
 	test_matching_plane_simulator \

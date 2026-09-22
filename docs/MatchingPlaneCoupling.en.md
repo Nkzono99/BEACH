@@ -4,9 +4,6 @@ Lang: [日本語](MatchingPlaneCoupling.md) | [English](MatchingPlaneCoupling.en
 
 # Couple an outer sheath at a matching plane
 
-For zero-drift orbit densities, see the [source-connected sheath response](SourceKineticSheath.en.html).
-The Zhao branch and root-policy descriptions below refer to the default `density_model="zhao_legacy"`.
-
 `surface_current_model.model="matching_plane_quasistatic"` makes the top of the BEACH box a matching plane with an
 outer one-dimensional sheath. As the surface charge changes, the outer response can update the top potential, ambient
 particle inflow, and the photoelectron (PE) return barrier.

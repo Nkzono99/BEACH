@@ -341,7 +341,6 @@ face_potential_grid_n = 3
 |---|---|---:|---|
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `response_backend` | string | `"table"` | matchingの応答源。`table` / `zhao_online` |
-| `density_model` | string | `"zhao_legacy"` | online の密度則。`zhao_legacy` / `source_kinetic`。後者は零電子 drift・`T_i=0`、`n` / `b0` も探索し、根選択は `require_unique` のみ。[密度・診断の契約](SourceKineticSheath.html) |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
 | `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は最小電位エネルギー根を選択、`continuation` は accepted Type A root を追跡。`continuation` には `zhao_branch="a"` と `implicit_zero_mode=true` が必須。stationary / table では指定不可。詳細は[数値・応答表リファレンス](MatchingPlaneReference.html#zhao_root_selection) |
 | `electron_species` | string | 未指定 | ambient electron の `species_key`。Zhao / matching で必須、1–64 文字 |
@@ -382,9 +381,7 @@ PE emission / return / escape targetは生成しません。
 
 #### Matching-plane quasistatic closure
 
-`response_backend="table"` は外部応答 CSV、`"zhao_online"` は BEACH 内の半無限応答を使います。
-以下の A/B/C と energy/continuation の記述は `density_model="zhao_legacy"` 用です。
-`source_kinetic` の追加 Type・零 drift・冷たいイオン条件は [専用リファレンス](SourceKineticSheath.html)を参照してください。
+`response_backend="table"` は外部応答 CSV、`"zhao_online"` は BEACH 内の有限 $H$ Zhao 応答を使います。
 PE なしでは `photoelectron_species` を省略します。table の PE flux / energy 入力軸も 0 にします。
 matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain の x-y 面積です。すべての mesh 頂点を $H$ より下に置きます。
 
