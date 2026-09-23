@@ -284,7 +284,8 @@ contains
   real(dp) :: phi0_hat, phi_m_hat, density_hat, phi_hat, fraction
   real(dp) :: integral, field_squared, interface_field_squared, upper_endpoint_field_squared
   real(dp) :: minimum_field_squared, field_squared_scale, upstream_rho
-  integer :: point
+  real(dp) :: flux_left, flux_right, energy_low, energy_high, ambient_edge, photo_edge
+  integer :: point, bin
   logical :: integral_ok
 
   status = matching_plane_zhao_numerical_failure
@@ -307,6 +308,33 @@ contains
     ! For u>0 this makes E^2 negative arbitrarily near neutral infinity.
     message = 'Reflected drifting electrons cannot approach neutral zero-field infinity.'
     return
+  end if
+  if (root%branch == 'B' .and. root%phi0_v > 0.0_dp) then
+    ! At positive potential, rho = C*sqrt(phi) + O(phi*log(phi)).
+    ! C>0 makes E^2 negative arbitrarily near infinity even when a finite
+    ! profile grid misses that interval. A spectral bin edge has two limits.
+    flux_left = 0.0_dp
+    flux_right = 0.0_dp
+    if (allocated(params%pe_spectrum%flux)) then
+      do bin = 1, size(params%pe_spectrum%flux)
+        energy_low = params%pe_spectrum%edge(bin - 1)
+        energy_high = params%pe_spectrum%edge(bin)
+        if (root%phi0_v > energy_low .and. root%phi0_v <= energy_high) &
+          flux_left = params%pe_spectrum%flux(bin)/(energy_high - energy_low)
+        if (root%phi0_v >= energy_low .and. root%phi0_v < energy_high) &
+          flux_right = params%pe_spectrum%flux(bin)/(energy_high - energy_low)
+      end do
+    else
+      flux_left = params%photoelectron_population_fraction*params%n_phe0_m3*params%v_phe_th_mps &
+                  /(2.0_dp*sqrt(pi)*params%t_phe_ev)*exp(-root%phi0_v/params%t_phe_ev)
+      flux_right = flux_left
+    end if
+    ambient_edge = root%ambient_electron_density_m3*exp(-params%u**2)/sqrt(pi*params%t_swe_ev)
+    photo_edge = (4.0_dp*flux_left - 2.0_dp*flux_right)*sqrt(params%m_e_kg/(2.0_dp*qe))
+    if (ambient_edge - photo_edge > 128.0_dp*epsilon(1.0_dp)*max(abs(ambient_edge), abs(photo_edge))) then
+      message = 'Zhao-B source cannot approach neutral zero-field infinity.'
+      return
+    end if
   end if
   if (.not. ion_accessible(params, max(phi0_hat, 0.0_dp))) then
     message = 'The matching-plane potential blocks the cold ion beam.'

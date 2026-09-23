@@ -53,6 +53,7 @@ module bem_matching_plane_response_provider
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
     procedure, public :: evaluate_local => evaluate_matching_plane_response_provider_local
+    procedure, public :: solve_implicit_endpoint => solve_matching_plane_provider_implicit_endpoint
     procedure, public :: reconstruct_continuation_seed_local => &
       reconstruct_matching_plane_continuation_seed_local
     procedure, public :: evaluate_zhao_local => evaluate_matching_plane_zhao_provider_local
@@ -126,6 +127,39 @@ contains
       flux = feedback(1)*exp(-barrier/feedback(2))
     end if
   end function photoelectron_escape_flux
+
+  !> Online backendが専用の陰的解法を持つ場合だけ、呼出rank上でendpointを解く。
+  subroutine solve_matching_plane_provider_implicit_endpoint( &
+    self, feedback, displacement_before, duration, electron_charge, ion_charge, &
+    photoelectron_active, photoelectron_charge, seed, handled, displacement, response, candidate, status, message &
+    )
+    class(matching_plane_response_provider_type), intent(inout) :: self
+    real(dp), intent(in) :: feedback(4), displacement_before, duration
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge
+    logical, intent(in) :: photoelectron_active
+    type(matching_plane_zhao_root_seed_type), intent(in) :: seed
+    logical, intent(out) :: handled
+    real(dp), intent(out) :: displacement, response(matching_plane_response_output_count)
+    type(matching_plane_zhao_root_seed_type), intent(out) :: candidate
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    integer(i32) :: backend_status
+    character(len=512) :: backend_message
+
+    handled = .false.
+    displacement = 0.0_dp
+    response = 0.0_dp
+    candidate = matching_plane_zhao_root_seed_type()
+    call accept_provider(status, message)
+    if (.not. self%active .or. self%backend /= provider_backend_zhao_online) return
+    call self%zhao%solve_implicit_endpoint( &
+      feedback, displacement_before, duration, electron_charge, ion_charge, photoelectron_active, &
+      photoelectron_charge, seed, handled, displacement, response, candidate, backend_status, backend_message &
+      )
+    message = backend_message
+    if (backend_status /= matching_plane_zhao_ok) &
+      call map_zhao_failure(backend_status, backend_message, status, message)
+  end subroutine solve_matching_plane_provider_implicit_endpoint
 
   !> MPI collectiveを伴わず、呼出rankだけで応答を評価する。
   !! implicit zero-mode root はMPI root上でこの入口を反復し、最終結果だけをbroadcastする。

@@ -157,6 +157,11 @@ Implicit integration alone does not choose a Zhao branch. By default, it stops i
 physical solution at the current seed. With strong PE, scan `a`, `b`, and `c` separately and then select the validated
 branch explicitly.
 
+When Type B is the only candidate, BEACH searches the boundary potential directly to reduce missed narrow displacement
+intervals. Multiple physical endpoints can remain even when the search follows the spectrum bins. See the
+[numerical reference](MatchingPlaneReference.en.html#implicit_zero_mode) for bootstrap uniqueness, nearest-root continuation,
+and validity near infinity.
+
 When omitting PEs from a table case, also make the table's PE-flux and PE-energy axes zero-valued singletons. Check the
 complete species, boundary, and `periodic2` requirements in
 [Input parameters](Parameters.en.html#matching-plane-quasistatic-closure).
@@ -288,7 +293,7 @@ summary receipts, and the exact time convention.
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
 | `continuation` stops | The bootstrap root is not unique, full multistart detects no root, root search or profile certification fails numerically, or nearest-root distances are numerically indistinguishable | Map solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
-| Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
+| Online implicit root is not bracketed | The Zhao branch ends, or the finite potential/displacement search detects no sign change | Check the branch and initial charge; reduce `batch_duration` if needed. A missed root alone does not prove physical nonexistence |
 | Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
 
 A completed run may contain batches accepted with warnings. Use history residuals to establish fixed-point convergence,

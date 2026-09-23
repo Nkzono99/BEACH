@@ -376,54 +376,48 @@ contains
                    abs(log(root%ambient_electron_density_m3/seed%ambient_electron_density_m3)))
   end function matching_seed_distance
 
-  subroutine select_minimum_energy_root(params, roots, root_count, root, status, message)
-    type(zhao_params_type), intent(in) :: params
-    type(zhao_matching_root_type), intent(in) :: roots(:)
-    integer, intent(in) :: root_count
-    type(zhao_matching_root_type), intent(out) :: root
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
+  module procedure select_minimum_energy_root
 
-    type(zhao_matching_root_type) :: candidates(size(roots))
-    real(dp) :: energy_scale
-    integer :: candidate_index, best_index
+  type(zhao_matching_root_type) :: candidates(size(roots))
+  real(dp) :: energy_scale
+  integer :: candidate_index, best_index
 
-    root = zhao_matching_root_type()
-    candidates = roots
-    status = matching_plane_zhao_numerical_failure
-    message = ''
-    if (root_count < 1 .or. root_count > size(roots)) then
-      message = 'matching-plane Zhao minimum-energy selection received an invalid candidate count.'
+  root = zhao_matching_root_type()
+  candidates = roots
+  status = matching_plane_zhao_numerical_failure
+  message = ''
+  if (root_count < 1 .or. root_count > size(roots)) then
+    message = 'matching-plane Zhao minimum-energy selection received an invalid candidate count.'
+    return
+  end if
+  do candidate_index = 1, root_count
+    call evaluate_root_potential_energy(params, candidates(candidate_index), status, message)
+    if (status /= matching_plane_zhao_ok) return
+  end do
+  best_index = 1
+  do candidate_index = 2, root_count
+    if (candidates(candidate_index)%potential_energy_j_m2 < &
+        candidates(best_index)%potential_energy_j_m2) best_index = candidate_index
+  end do
+  do candidate_index = 1, root_count
+    if (candidate_index == best_index) cycle
+    energy_scale = max( &
+                   abs(candidates(best_index)%potential_energy_j_m2), &
+                   abs(candidates(candidate_index)%potential_energy_j_m2), tiny(1.0_dp) &
+                   )
+    if (abs( &
+        candidates(candidate_index)%potential_energy_j_m2 - &
+        candidates(best_index)%potential_energy_j_m2 &
+        ) <= energy_tie_tolerance*energy_scale) then
+      status = matching_plane_zhao_ambiguous_solution
+      message = 'matching-plane Zhao minimum-energy candidates are numerically tied.'
       return
     end if
-    do candidate_index = 1, root_count
-      call evaluate_root_potential_energy(params, candidates(candidate_index), status, message)
-      if (status /= matching_plane_zhao_ok) return
-    end do
-    best_index = 1
-    do candidate_index = 2, root_count
-      if (candidates(candidate_index)%potential_energy_j_m2 < &
-          candidates(best_index)%potential_energy_j_m2) best_index = candidate_index
-    end do
-    do candidate_index = 1, root_count
-      if (candidate_index == best_index) cycle
-      energy_scale = max( &
-                     abs(candidates(best_index)%potential_energy_j_m2), &
-                     abs(candidates(candidate_index)%potential_energy_j_m2), tiny(1.0_dp) &
-                     )
-      if (abs( &
-          candidates(candidate_index)%potential_energy_j_m2 - &
-          candidates(best_index)%potential_energy_j_m2 &
-          ) <= energy_tie_tolerance*energy_scale) then
-        status = matching_plane_zhao_ambiguous_solution
-        message = 'matching-plane Zhao minimum-energy candidates are numerically tied.'
-        return
-      end if
-    end do
-    root = candidates(best_index)
-    status = matching_plane_zhao_ok
-    message = ''
-  end subroutine select_minimum_energy_root
+  end do
+  root = candidates(best_index)
+  status = matching_plane_zhao_ok
+  message = ''
+  end procedure select_minimum_energy_root
 
   pure logical function matching_roots_equivalent(params, first, second) result(equivalent)
     type(zhao_params_type), intent(in) :: params

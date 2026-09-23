@@ -436,7 +436,12 @@ D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
 $$
 
 を解きます。PEなしでは最後のPE項を除きます。tableは$D_H$範囲の両端でbracketし、二分法で解きます。
-両端が根を挟まない場合は外挿せず停止します。onlineは前のouter反復の終点（最初は$D_H^n$）をseedとし、
+両端が根を挟まない場合は外挿せず停止します。onlineの明示B、または正の内向き電子driftによりBだけが物理的に
+許される`auto`では、$\Phi_H$を未知数にして陰的終点を直接解きます。上流中性からambient密度を消去し、
+Sagdeev積分から$D_H(\Phi_H)$を求めます。spectrumのbin境界・四分点も探索し、狭い$D_H$区間の飛び越しを避けます。
+`continuation`の有効seedがあれば一意な最近傍根を選び、初期seedがなければ一意根を要求します。
+全数学根の列挙は保証せず、複数の陰的終点を検出順で選びません。
+その他のonline条件では前のouter反復の終点（最初は$D_H^n$）をseedとし、
 validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
 seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
 未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
@@ -536,6 +541,8 @@ ambient電子密度は流入束と同じ上流drifting Maxwellianをエネルギ
 Type Aは$\phi_m<\min(0,\Phi_H)$を要求して$\Phi_H<0$も許容します。Sagdeevの符号付き残差と全profileの
 $E^2\ge0$を検査します。正の内向きelectron driftと低速電子の完全反射を持つA/Cは、厳密な無限遠中性・零電場条件では
 成立しません。有限上流境界の別問題は本modelに追加しません。
+Type Bは無限遠近傍の電荷密度の$\sqrt{\phi}$項も検査し、有限profile格子で見落とす負の$E^2$を棄却します。
+PE分布の障壁位置の流束密度を使い、bin境界では両側の極限を区別します。
 
 各batch trialでは、表面総電荷とlower boundaryから
 

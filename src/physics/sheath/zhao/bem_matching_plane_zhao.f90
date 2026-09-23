@@ -87,6 +87,7 @@ module bem_matching_plane_zhao
     procedure, public :: set_photoelectron_spectrum
     procedure, public :: initialize => initialize_matching_plane_zhao
     procedure, public :: evaluate => evaluate_matching_plane_zhao
+    procedure, public :: solve_implicit_endpoint => solve_matching_implicit_endpoint
     procedure, public :: reconstruct_seed => reconstruct_matching_plane_zhao_seed
     procedure, public :: get_feedback_scales => get_matching_plane_zhao_feedback_scales
     procedure, public :: is_initialized => matching_plane_zhao_is_initialized
@@ -94,6 +95,30 @@ module bem_matching_plane_zhao
 
   ! Private entry points shared by the three implementation submodules.
   interface
+    module subroutine solve_matching_implicit_endpoint( &
+      self, feedback, displacement_before, duration, electron_charge, ion_charge, &
+      photoelectron_active, photoelectron_charge, seed, handled, displacement, response, candidate, status, message &
+      )
+      class(matching_plane_zhao_model_type), intent(in) :: self
+      real(dp), intent(in) :: feedback(4), displacement_before, duration, electron_charge, ion_charge, photoelectron_charge
+      logical, intent(in) :: photoelectron_active
+      type(matching_plane_zhao_root_seed_type), intent(in) :: seed
+      logical, intent(out) :: handled
+      real(dp), intent(out) :: displacement, response(6)
+      type(matching_plane_zhao_root_seed_type), intent(out) :: candidate
+      integer(i32), intent(out) :: status
+      character(len=*), intent(out) :: message
+    end subroutine solve_matching_implicit_endpoint
+
+    module subroutine select_minimum_energy_root(params, roots, root_count, root, status, message)
+      type(zhao_params_type), intent(in) :: params
+      type(zhao_matching_root_type), intent(in) :: roots(:)
+      integer, intent(in) :: root_count
+      type(zhao_matching_root_type), intent(out) :: root
+      integer(i32), intent(out) :: status
+      character(len=*), intent(out) :: message
+    end subroutine select_minimum_energy_root
+
     module subroutine solve_matching_root(model, root_selection, params, interface_field_v_m, root, status, message)
       character(len=*), intent(in) :: model, root_selection
       type(zhao_params_type), intent(in) :: params

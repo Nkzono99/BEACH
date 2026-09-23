@@ -114,7 +114,7 @@ contains
     character(len=512) :: evaluation_message
     logical :: bracketed, lower_candidate_brackets, have_valid_point
     logical :: saw_numerical_candidate
-    logical :: boundary_failure_numerical, scan_crossed_invalid_point
+    logical :: boundary_failure_numerical, scan_crossed_invalid_point, backend_handled
 
     displacement_after = 0.0_dp
     response_after = 0.0_dp
@@ -125,6 +125,13 @@ contains
     evaluation_root = matching_plane_zhao_root_seed_type()
     status = matching_plane_provider_ok
     message = ''
+    if (.not. displacement_bounded) then
+      call provider%solve_implicit_endpoint( &
+        feedback_reference, displacement_before, duration, electron_charge, ion_charge, photoelectron_active, &
+        photoelectron_charge, root_before, backend_handled, displacement_after, response_after, root_after, status, message &
+        )
+      if (backend_handled) return
+    end if
     saw_numerical_candidate = .false.
     displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*max( &
                              displacement_scale, abs(displacement_before), tiny(1.0_dp) &

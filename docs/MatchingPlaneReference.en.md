@@ -133,9 +133,18 @@ D_H^{n+1}=D_H^n+hJ(D_H^{n+1})
 $$
 
 by first bracketing a sign change. A table uses bisection between its CSV endpoints and stops rather than extrapolating
-when they do not bracket a root. Online Zhao uses a guarded secant step with a midpoint fallback.
+when they do not bracket a root.
 
-Online Zhao seeds the solve with the previous outer iteration's endpoint (initially $D_H^n$). For a valid seed it starts
+Online Type B solves the implicit endpoint directly in the boundary potential $\Phi_H$ when `zhao_branch="b"`, or
+when `auto` with positive inward electron drift permits only Type B physically. At each potential, upstream neutrality
+determines the ambient density and the Sagdeev integral gives $D_H(\Phi_H)$. With `energy_spectrum`, the search also
+samples bin edges and quarter points within each bin, avoiding a coarse displacement step that skips a narrow
+$D_H$ solution interval. Finite search does not guarantee enumeration of every mathematical root. With a valid seed,
+`continuation` selects a unique nearest root; without an initial seed it requires uniqueness. It does not choose
+between multiple implicit endpoints by discovery order.
+
+Other online conditions search in $D_H$ with a guarded secant step and midpoint fallback.
+The previous outer iteration's endpoint (initially $D_H^n$) seeds the solve. For a valid seed it starts
 from the explicit endpoint correction, capped by the natural sheath scale
 
 $$
@@ -153,8 +162,7 @@ After finite endpoints establish a sign-changing bracket, a roundoff-scale resid
 BEACH accepts the endpoint with the smaller residual and emits a warning. An absent bracket, non-finite response, or
 missing physical solution still stops the run.
 
-The signed scan applies only to an explicit `a`, `b`, or `c` selection. Implicit integration does not remove strong-PE
-A/B coexistence; branchwise solvability still has to be validated.
+Implicit integration does not remove strong-PE A/B coexistence; branchwise solvability still has to be validated.
 
 ### `zhao_root_selection`
 
@@ -272,6 +280,9 @@ Nonzero drift is not approximated by a Boltzmann factor times shifted erfc. PE d
 orbits and passing/reflected velocity ranges. Type A requires $\phi_m<\min(0,\Phi_H)$ and permits $\Phi_H<0$.
 
 Roots of neutrality and Sagdeev integral constraints are insufficient: the whole profile must satisfy $E^2\ge0$.
+Type B also checks the $\sqrt{\phi}$ term of the charge density near infinity, rejecting a negative-$E^2$ interval
+that a finite profile grid can miss. This coefficient uses the PE flux density at the barrier, with distinct left and
+right values at a bin edge.
 Positive inward drift with complete reflection of slow ambient electrons in Type A / C violates this condition near
 infinity under strict neutral, zero-field upstream conditions. A finite upstream boundary defines a different boundary-value
 problem and is not part of the current online closure.

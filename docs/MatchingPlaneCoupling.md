@@ -153,6 +153,10 @@ implicit_zero_mode = true
 implicit 化だけでは Zhao branch を選びません。既定では `auto` が現在の seed で一意な物理解を保証できない場合に停止します。
 強い PE では `a` / `b` / `c` を別々に走査してから、検証した branch を明示してください。
 
+Type B だけが候補の場合は境界電位から陰的終点を直接探索し、狭い変位区間の見落としを減らします。
+分布の bin に応じて探索しても、複数の物理的な終点が残る場合があります。初回の一意性と継続時の最近傍選択、
+無限遠近傍の成立条件は[数値リファレンス](MatchingPlaneReference.html#implicit_zero_mode)を参照してください。
+
 table で PE を省略する場合は、応答表の PE flux / energy 軸も 0 の singleton にします。species、境界、
 `periodic2` の完全な入力条件は[入力パラメータ](Parameters.html#matching-plane-quasistatic-closure)で確認してください。
 
@@ -276,7 +280,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
 | `continuation` が停止 | 初回の一意根を確認できない、full multistart で root を検出できない、探索・profile 検査が数値的に失敗、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
-| online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
+| online implicit root を bracket できない | Zhao branch が終わるか、電位または変位の有限探索で符号変化を検出できない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする。未検出だけで物理的な不存在とは判断しない |
 | soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
 
 正常終了しても、警告付きで受理した batch が含まれる場合があります。履歴の残差を確認して固定点の収束を判定し、

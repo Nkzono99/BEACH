@@ -3,6 +3,11 @@ program test_matching_plane_pe_spectrum
   use bem_kinds, only: dp, i32
   use bem_constants, only: qe, eps0, pi
   use bem_pe_spectrum, only: pe_spectrum_type
+  use bem_app_config, only: app_config, default_app_config, species_from_defaults
+  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
+                                                  matching_plane_provider_ok, matching_plane_provider_ambiguous_solution
+  use bem_matching_plane_implicit, only: solve_matching_implicit_zero_mode
+  use bem_mpi, only: mpi_context
   use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_diagnostics_type, &
                                      matching_plane_zhao_root_seed_type, matching_plane_zhao_ok, &
                                      matching_plane_zhao_no_physical_solution
@@ -23,7 +28,7 @@ program test_matching_plane_pe_spectrum
   character(len=1) :: branch
   character(len=512) :: message
 
-  call test_init(7)
+  call test_init(8)
   spectrum%energy_scale_ev = 0.1_dp*te
   spectrum%bins_per_decade = 1024_i32
   second%energy_scale_ev = spectrum%energy_scale_ev
@@ -181,9 +186,128 @@ program test_matching_plane_pe_spectrum
                        'previously attached spectrum cannot leak into reinitialized model')
   call test_end()
 
+  call test_begin('captured_spectrum_implicit_endpoints_preserve_ambiguity_and_continuation')
+  call check_captured_implicit_endpoints()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine check_captured_implicit_endpoints()
+    ! First-batch replay spectrum captured on 2026-09-23.  Independent SciPy
+    ! upstream-velocity and Poisson quadrature found these three BE endpoints.
+    real(dp), parameter :: root_phi(3) = [5.829194512583357_dp, 5.945909126905672_dp, 6.055444426356461_dp]
+    real(dp), parameter :: root_density(3) = [4425184.213264361_dp, 4380830.616359554_dp, 4321700.853467314_dp]
+    real(dp), parameter :: root_displacement(3) = [ &
+                           1.769541040692815e-11_dp, 1.7696825059325093e-11_dp, 1.7704024051544765e-11_dp]
+    real(dp), parameter :: captured_me = 9.1093837139e-31_dp
+    type(app_config) :: cfg
+    type(matching_plane_response_provider_type) :: provider
+    type(matching_plane_zhao_root_seed_type) :: previous, candidate
+    type(pe_spectrum_type) :: captured
+    type(mpi_context) :: serial
+    real(dp) :: feedback(4), output(6), displacement, lower_edge, upper_edge, net_current
+    integer :: unit_id, ios, bin_index, root_index
+    integer(i32) :: provider_status
+    logical :: handled
+    character(len=512) :: provider_message, header
+
+    captured%energy_scale_ev = 2.19999999970613391_dp
+    captured%bins_per_decade = 128_i32
+    allocate (captured%flux(207))
+    open (newunit=unit_id, file='tests/fixtures/matching_plane_pe_captured_spectrum.csv', &
+          status='old', action='read', iostat=ios)
+    call assert_true(ios == 0, 'captured spectrum fixture is available')
+    if (ios /= 0) return
+    read (unit_id, '(a)', iostat=ios) header
+    call assert_true(ios == 0 .and. trim(header) == 'energy_low_ev,energy_high_ev,flux_m2_s', 'captured spectrum header')
+    do bin_index = 1, size(captured%flux)
+      read (unit_id, *, iostat=ios) lower_edge, upper_edge, captured%flux(bin_index)
+      call assert_true(ios == 0, 'captured spectrum bin is readable')
+      if (ios /= 0) then
+        close (unit_id)
+        return
+      end if
+      call assert_close_dp(lower_edge, captured%edge(bin_index - 1), 1.0e-12_dp, 'captured lower energy edge')
+      call assert_close_dp(upper_edge, captured%edge(bin_index), 1.0e-12_dp, 'captured upper energy edge')
+    end do
+    close (unit_id)
+    call assert_close_dp(captured%total_flux(), 1.6662817804987412e13_dp, 1.0_dp, 'captured outward flux')
+    feedback = [captured%total_flux(), captured%mean_energy(), 0.0_dp, 0.0_dp]
+
+    call default_app_config(cfg)
+    cfg%surface_current%model = 'matching_plane_quasistatic'
+    cfg%surface_current%response_backend = 'zhao_online'
+    cfg%surface_current%zhao_branch = 'auto'
+    cfg%surface_current%zhao_root_selection = 'continuation'
+    cfg%surface_current%photoelectron_closure = 'energy_spectrum'
+    cfg%surface_current%electron_species = 'electron'
+    cfg%surface_current%ion_species = 'ion'
+    cfg%surface_current%photoelectron_species = 'photoelectron'
+    cfg%n_particle_species = 3_i32
+    cfg%particle_species(1:3) = species_from_defaults()
+    cfg%particle_species(1)%species_key = 'electron'
+    cfg%particle_species(1)%q_particle = -qe
+    cfg%particle_species(1)%m_particle = captured_me
+    cfg%particle_species(1)%temperature_ev = 10.0_dp
+    cfg%particle_species(1)%has_temperature_ev = .true.
+    cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
+    cfg%particle_species(2)%species_key = 'ion'
+    cfg%particle_species(2)%q_particle = qe
+    cfg%particle_species(2)%m_particle = mi
+    cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
+    cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
+    cfg%particle_species(3)%species_key = 'photoelectron'
+    cfg%particle_species(3)%q_particle = -qe
+    cfg%particle_species(3)%m_particle = captured_me
+    cfg%particle_species(3)%temperature_ev = captured%energy_scale_ev
+    cfg%particle_species(3)%has_temperature_ev = .true.
+    serial = mpi_context()
+    call provider%initialize(cfg, serial, provider_status, provider_message)
+    call assert_equal_i32(provider_status, matching_plane_provider_ok, 'captured provider initialization: '// &
+                          trim(provider_message))
+    if (provider_status /= matching_plane_provider_ok) return
+    call provider%set_photoelectron_spectrum(captured)
+    previous = matching_plane_zhao_root_seed_type()
+    call provider%solve_implicit_endpoint(feedback, 0.0_dp, 2.0_dp, -qe, qe, .true., -qe, &
+                                          previous, handled, displacement, output, candidate, provider_status, provider_message)
+    call assert_true(handled, 'positive-drift online implicit endpoint has a dedicated solve')
+    call assert_equal_i32(provider_status, matching_plane_provider_ambiguous_solution, &
+                          'three physical endpoints without a seed remain ambiguous: '//trim(provider_message))
+    call assert_true(.not. candidate%valid, 'ambiguous endpoint cannot publish a continuation seed')
+
+    do root_index = 1, size(root_phi)
+      previous%valid = .true.
+      previous%branch = 'B'
+      previous%phi0_v = root_phi(root_index) + 0.01_dp
+      previous%phi_m_v = previous%phi0_v
+      previous%ambient_electron_density_m3 = root_density(root_index)
+      call provider%solve_implicit_endpoint(feedback, 0.0_dp, 2.0_dp, -qe, qe, .true., -qe, &
+                                            previous, handled, displacement, output, candidate, provider_status, provider_message)
+      call assert_equal_i32(provider_status, matching_plane_provider_ok, 'captured seeded endpoint: '//trim(provider_message))
+      if (provider_status /= matching_plane_provider_ok) cycle
+      call assert_true(handled .and. candidate%valid .and. candidate%branch == 'B', 'certified Type-B endpoint seed')
+      call assert_close_dp(output(1), root_phi(root_index), 5.0e-6_dp, 'independent implicit interface potential')
+      call assert_close_dp(candidate%ambient_electron_density_m3, root_density(root_index), 10.0_dp, &
+                           'independent implicit electron normalization')
+      call assert_close_dp(displacement, root_displacement(root_index), 5.0e-17_dp, 'independent implicit displacement')
+      net_current = qe*(output(3) - output(2) + captured%tail_flux(output(1)))
+      call assert_close_dp(displacement - 2.0_dp*net_current, 0.0_dp, 2.0e-17_dp, 'backward Euler charge balance')
+    end do
+
+    ! The previous replay seed must select the highest-potential endpoint, even
+    ! when the whole physical interval fits between two old displacement probes.
+    previous%phi0_v = 6.96756157119758868_dp
+    previous%phi_m_v = previous%phi0_v
+    previous%ambient_electron_density_m3 = 4.22844877100958023e6_dp
+    call solve_matching_implicit_zero_mode( &
+      provider, serial, 0.0_dp, 2.43269927022345257e-11_dp, 2.0_dp, .false., 0.0_dp, 0.0_dp, &
+      8.42198694632710321e-12_dp, 0_i32, feedback, -qe, qe, .true., -qe, previous, candidate, displacement, output)
+    call assert_close_dp(output(1), root_phi(3), 5.0e-6_dp, 'outer implicit solve preserves continuation selection')
+    call assert_close_dp(displacement, root_displacement(3), 5.0e-17_dp, 'outer implicit displacement')
+    call assert_true(candidate%valid, 'outer implicit solve publishes its certified seed')
+  end subroutine check_captured_implicit_endpoints
 
   subroutine initialize(model, selected_branch, u, policy)
     type(matching_plane_zhao_model_type), intent(inout) :: model
