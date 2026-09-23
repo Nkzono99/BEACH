@@ -28,7 +28,7 @@ program test_matching_plane_pe_spectrum
   character(len=1) :: branch
   character(len=512) :: message
 
-  call test_init(10)
+  call test_init(11)
   spectrum%energy_scale_ev = 0.1_dp*te
   spectrum%bins_per_decade = 1024_i32
   second%energy_scale_ev = spectrum%energy_scale_ev
@@ -198,9 +198,102 @@ program test_matching_plane_pe_spectrum
   call check_batch14_implicit_endpoint()
   call test_end()
 
+  call test_begin('batch154_spectrum_resolves_the_endpoint_within_one_potential_ulp')
+  call check_batch154_implicit_endpoint()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine check_batch154_implicit_endpoint()
+    type(matching_plane_zhao_model_type) :: model
+    type(matching_plane_zhao_root_seed_type) :: previous, candidate
+    type(pe_spectrum_type) :: captured
+    real(dp) :: displacement, output(6), lower_edge, upper_edge, captured_te, current
+    real(dp) :: pe_upstream, electron_fraction, neutrality, flux_coefficient, charge_scale
+    integer :: unit_id, ios, bin_index
+    logical :: handled
+    character(len=128) :: header
+
+    ! Job 297871, batch 154: no binary64 phi meets BE after eliminating Ne
+    ! exactly. Resolve Ne within the densities at the adjacent phi bracket.
+    captured%energy_scale_ev = 2.19999999970613391_dp
+    captured%bins_per_decade = 128_i32
+    allocate (captured%flux(144))
+    open (newunit=unit_id, file='tests/fixtures/matching_plane_pe_batch154_spectrum.csv', &
+          status='old', action='read', iostat=ios)
+    call assert_true(ios == 0, 'batch 154 spectrum fixture is available')
+    if (ios /= 0) return
+    read (unit_id, '(a)', iostat=ios) header
+    do bin_index = 1, size(captured%flux)
+      read (unit_id, *, iostat=ios) lower_edge, upper_edge, captured%flux(bin_index)
+      call assert_true(ios == 0, 'batch 154 spectrum bin is readable')
+      if (ios /= 0) then
+        close (unit_id)
+        return
+      end if
+      call assert_close_dp(lower_edge, captured%edge(bin_index - 1), 1.0e-12_dp, 'batch 154 lower energy edge')
+      call assert_close_dp(upper_edge, captured%edge(bin_index), 1.0e-12_dp, 'batch 154 upper energy edge')
+    end do
+    close (unit_id)
+    ! Reproduce the public configuration eV -> K -> eV conversion as well.
+    captured_te = 10.0_dp*1.160451812e4_dp
+    captured_te = captured_te*1.380649e-23_dp/qe
+    call model%initialize('auto', 'continuation', 5.0e6_dp, captured_te, 4.0e5_dp, 4.0e5_dp, &
+                          mi, 9.1093837139e-31_dp, captured%energy_scale_ev, status, message)
+    call assert_equal_i32(status, matching_plane_zhao_ok, 'batch 154 model initialization')
+    if (status /= matching_plane_zhao_ok) return
+    call model%set_photoelectron_spectrum(captured)
+    previous%valid = .true.
+    previous%branch = 'B'
+    previous%phi0_v = 6.4332174193985452_dp
+    previous%phi_m_v = previous%phi0_v
+    previous%ambient_electron_density_m3 = 4.1679100894339955e6_dp
+    call model%solve_implicit_endpoint([1.7485673005233697e13_dp, 2.4900318074921848_dp, 0.0_dp, 0.0_dp], &
+                                       1.9063843552418728e-11_dp, 2.0_dp, -qe, qe, .true., -qe, &
+                                       previous, handled, displacement, output, candidate, status, message)
+    call assert_equal_i32(status, matching_plane_zhao_ok, 'batch 154 physical implicit endpoint: '//trim(message))
+    if (status /= matching_plane_zhao_ok) return
+    call assert_true(handled .and. candidate%valid .and. candidate%branch == 'B', 'batch 154 certified endpoint')
+    call assert_true(len_trim(message) == 0, 'successful implicit solve does not emit a failure diagnostic')
+    call assert_close_dp(output(1), 6.43321741907773337_dp, spacing(output(1)), 'batch 154 interface potential')
+    call assert_true(candidate%ambient_electron_density_m3 >= 4167907.56298497412_dp .and. &
+                     candidate%ambient_electron_density_m3 <= 4167907.56299195765_dp, &
+                     'batch 154 density stays within the adjacent-potential neutral densities')
+    ! A separate 60-decimal-digit velocity/Poisson oracle gives this density.
+    call assert_close_dp(candidate%ambient_electron_density_m3, 4167907.56298632319959109_dp, 2.0e-6_dp, &
+                         'batch 154 independent high-precision electron density')
+    call assert_close_dp(displacement, 1.9063843016813198782561e-11_dp, 5.0e-24_dp, &
+                         'batch 154 independent high-precision displacement')
+    current = qe*(output(3) - output(2) + captured%tail_flux(output(1)))
+    call assert_close_dp(displacement - 1.9063843552418728e-11_dp - 2.0_dp*current, &
+                         0.0_dp, 2.62867842270823562e-19_dp, 'batch 154 unchanged backward Euler charge tolerance')
+    ! Here dt*Jscale dominates Dscale, so the unchanged normalized threshold
+    ! is 128*epsilon. Check the physical charge equation in dimensionless form.
+    charge_scale = 2.0_dp*qe*(5.0e6_dp*sqrt(2.0_dp*qe*captured_te/9.1093837139e-31_dp) + &
+                              5.0e6_dp*4.0e5_dp + 1.7485673005233697e13_dp)
+    call assert_close_dp((displacement - 1.9063843552418728e-11_dp - 2.0_dp*current)/charge_scale, &
+                         0.0_dp, 128.0_dp*epsilon(1.0_dp), 'batch 154 dimensionless backward Euler accuracy')
+    ! Independently integrate the piecewise constant escaping spectrum at
+    ! infinity, and combine it with the incoming drifting Maxwellian half-space.
+    pe_upstream = 0.0_dp
+    lower_edge = 0.0_dp
+    do bin_index = 1, size(captured%flux)
+      upper_edge = captured%edge(bin_index)
+      pe_upstream = pe_upstream + captured%flux(bin_index)/(upper_edge - lower_edge)* &
+                    (sqrt(max(upper_edge - output(1), 0.0_dp)) - sqrt(max(lower_edge - output(1), 0.0_dp)))
+      lower_edge = upper_edge
+    end do
+    pe_upstream = pe_upstream*sqrt(2.0_dp*9.1093837139e-31_dp/qe)
+    electron_fraction = 0.5_dp*(1.0_dp + erf(4.0e5_dp/sqrt(2.0_dp*qe*captured_te/9.1093837139e-31_dp)))
+    neutrality = candidate%ambient_electron_density_m3*electron_fraction + pe_upstream - 5.0e6_dp
+    call assert_close_dp(neutrality/5.0e6_dp, 0.0_dp, 2.0e-12_dp, 'batch 154 upstream neutrality at float resolution')
+    flux_coefficient = sqrt(2.0_dp*qe*captured_te/9.1093837139e-31_dp)/(2.0_dp*sqrt(pi))* &
+                       exp(-(4.0e5_dp/sqrt(2.0_dp*qe*captured_te/9.1093837139e-31_dp))**2) + 4.0e5_dp*electron_fraction
+    call assert_close_dp(output(2)/(flux_coefficient*candidate%ambient_electron_density_m3), 1.0_dp, &
+                         2.0e-15_dp, 'batch 154 flux uses the retained electron density')
+  end subroutine check_batch154_implicit_endpoint
 
   subroutine check_batch14_implicit_endpoint()
     type(matching_plane_zhao_model_type) :: model
@@ -212,8 +305,8 @@ contains
     character(len=128) :: header
 
     ! Job 297857, batch 14: independent velocity/Poisson quadrature locates a
-    ! physical BE root at phiH=6.432956538216116 V.  A 64-epsilon interval-width
-    ! stop rejected this root before its steep residual met the BE tolerance.
+    ! physical BE root at phiH=6.432956538216116 V. A relative-width stop
+    ! rejected this root before its steep residual met the BE tolerance.
     captured%energy_scale_ev = 2.19999999970613391_dp
     captured%bins_per_decade = 128_i32
     allocate (captured%flux(136))
@@ -281,6 +374,9 @@ contains
     call assert_true(index(message, 'no absence proof') > 0, 'finite search does not claim mathematical absence')
     call assert_true(index(message, 'E2neg=') > 0 .and. index(message, 'min_abs_F=') > 0, &
                      'implicit failure retains field rejection and residual diagnostics')
+    call assert_true(index(message, 'best_abs_R=') > 0 .and. index(message, 'R_tol=') > 0 .and. &
+                     index(message, 'F_tol=') > 0, 'dimensionless accuracy and physical charge receipt remain available')
+    call assert_true(index(message, 'reason=none') > 0, 'compact failure diagnostic fits the public message buffer')
     call assert_true(.not. candidate%valid, 'failed search does not publish a root seed')
   end subroutine check_unresolved_implicit_diagnostic
 

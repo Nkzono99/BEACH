@@ -20,10 +20,10 @@ contains
   type(zhao_matching_root_type) :: trial_root, selected_root
   real(dp), allocatable :: grid(:)
   real(dp) :: input(5), tpe, npe, ion_limit, phi_max, source_max, field_scale, displacement_scale
-  real(dp) :: residual_tolerance, current_scale, phi_left, phi_right, f_left, f_right, trial_d, trial_response(6)
-  real(dp) :: root_phi, root_residual, distance, nearest_distance, second_distance
+  real(dp) :: residual_tolerance, residual_scale, current_scale, phi_left, phi_right, f_left, f_right, trial_d, trial_response(6)
+  real(dp) :: root_phi, root_density, root_residual, distance, nearest_distance, second_distance
   real(dp) :: old_value, left_edge, right_edge
-  real(dp) :: best_abs_residual, best_phi, first_reject_phi
+  real(dp) :: best_abs_residual, best_abs_normalized, best_phi, first_reject_phi
   real(dp) :: bisection_best_residual, bisection_best_phi, best_bisection_residual
   integer :: grid_count, capacity, bin_count, bin, quarter, index, previous, root_count, selected_index
   integer :: iterations
@@ -35,7 +35,7 @@ contains
   character(len=512) :: profile_message
   character(len=512) :: first_reject_reason
   character(len=256) :: count_summary
-  character(len=224) :: metric_summary
+  character(len=280) :: metric_summary
   character(len=32) :: failure_class
 
   handled = self%branch_model == 'b' .or. &
@@ -70,10 +70,12 @@ contains
   current_scale = abs(electron_charge)*params%n_swi_inf_m3*params%v_swe_th_mps + &
                   abs(ion_charge)*params%n_swi_inf_m3*params%v_d_ion_mps
   if (photoelectron_active) current_scale = current_scale + abs(photoelectron_charge)*feedback(1)
-  ! Resolve BE cancellation using the larger of field-scale and floating-point
-  ! current-roundoff tolerances; this does not change the prescribed duration.
-  residual_tolerance = max(sqrt(epsilon(1.0_dp))*displacement_scale, &
-                           128.0_dp*epsilon(1.0_dp)*duration*current_scale)
+  ! R = F/S is dimensionless, with S in C/m2. Scale BOTH the residual and
+  ! tolerance so nondimensionalization preserves the existing charge accuracy.
+  ! F stays dimensional for sign tests and physical diagnostics only.
+  residual_scale = max(displacement_scale, duration*current_scale)
+  residual_tolerance = max(sqrt(epsilon(1.0_dp))*displacement_scale/residual_scale, &
+                           128.0_dp*epsilon(1.0_dp)*duration*current_scale/residual_scale)
   ion_limit = 0.5_dp*params%t_swe_ev*params%mach**2
   source_max = 32.0_dp*params%t_phe_ev
   bin_count = 0
@@ -163,15 +165,17 @@ contains
     root_valid = .false.
     iterations = 0
     if (right_valid) then
-      if (abs(f_right) <= residual_tolerance) then
+      if (abs(f_right)/residual_scale <= residual_tolerance) then
         root_phi = phi_right
+        root_density = trial_root%ambient_electron_density_m3
         root_valid = .true.
       else if (index > 1 .and. left_valid) then
         if ((f_left < 0.0_dp .and. f_right > 0.0_dp) .or. (f_left > 0.0_dp .and. f_right < 0.0_dp)) then
           bracket_count = bracket_count + 1
           call bisect_implicit_b_root(params, phi_left, phi_right, f_left, f_right, displacement_before, duration, &
                                       electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-                                      residual_tolerance, root_phi, iterations, root_valid, bisection_reason, &
+                                      residual_scale, residual_tolerance, root_phi, root_density, iterations, root_valid, &
+                                      bisection_reason, &
                                       bisection_best_residual, bisection_best_phi)
           best_bisection_residual = min(best_bisection_residual, bisection_best_residual)
           if (bisection_best_residual < best_abs_residual) then
@@ -187,14 +191,15 @@ contains
     if (root_valid) then
       call evaluate_implicit_b_state(params, root_phi, displacement_before, duration, electron_charge, ion_charge, &
                                      photoelectron_active, photoelectron_charge, trial_root, trial_d, trial_response, &
-                                     root_residual, root_valid)
+                                     root_residual, root_valid, density_m3=root_density)
+      root_valid = root_valid .and. abs(root_residual)/residual_scale <= residual_tolerance
       if (root_valid) then
         located_count = located_count + 1
         if (abs(root_residual) < best_abs_residual) then
           best_abs_residual = abs(root_residual)
           best_phi = root_phi
         end if
-        trial_root%residual_norm = abs(root_residual)/max(displacement_scale, duration*current_scale)
+        trial_root%residual_norm = abs(root_residual)/residual_scale
         trial_root%nonlinear_iterations = int(iterations, i32)
         call validate_matching_root_profile(params, trial_root, trial_d/displacement_scale, &
                                             profile_status, profile_message)
@@ -245,12 +250,18 @@ contains
       ',profile_numeric=', profile_numerical, ',accepted=', root_count, &
       ',mid_invalid=', invalid_midpoints, ',tol_miss=', tolerance_misses
     ! Negative min|F| denotes that no finite evaluable grid state was found.
-    if (best_abs_residual == huge(1.0_dp)) best_abs_residual = -1.0_dp
+    if (best_abs_residual == huge(1.0_dp)) then
+      best_abs_residual = -1.0_dp
+      best_abs_normalized = -1.0_dp
+    else
+      best_abs_normalized = best_abs_residual/residual_scale
+    end if
     if (best_bisection_residual == huge(1.0_dp)) best_bisection_residual = -1.0_dp
-    write (metric_summary, '(6(a,es11.3))') &
-      ' phi=[0,', phi_max, ']V; min_abs_F=', best_abs_residual, 'C/m2 at phi=', best_phi, &
-      'V; bisect_best_F=', best_bisection_residual, 'C/m2; F_tol=', residual_tolerance, &
-      'C/m2; first_reject_phi=', first_reject_phi
+    write (metric_summary, '(8(a,es10.3))') &
+      ' phi=[0,', phi_max, ']V; min_abs_F=', best_abs_residual, '@', best_phi, &
+      'V; bisect_best_F=', best_bisection_residual, '; F_tol=', residual_tolerance*residual_scale, &
+      'C/m2; best_abs_R=', best_abs_normalized, '; R_tol=', residual_tolerance, &
+      '; first_reject_phi=', first_reject_phi
     message = trim(failure_class)//'; finite search, no absence proof; '//trim(count_summary)//';'// &
               trim(metric_summary)//'V; reason='//trim(first_reject_reason)
     return
@@ -291,8 +302,9 @@ contains
   status = matching_plane_zhao_numerical_failure
   call evaluate_implicit_b_state(params, selected_root%phi0_v, displacement_before, duration, &
                                  electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-                                 trial_root, displacement, response, root_residual, root_valid)
-  if (.not. root_valid) then
+                                 trial_root, displacement, response, root_residual, root_valid, &
+                                 density_m3=selected_root%ambient_electron_density_m3)
+  if (.not. root_valid .or. abs(root_residual)/residual_scale > residual_tolerance) then
     message = 'selected implicit Zhao-B endpoint could not be reevaluated.'
     return
   end if
@@ -300,14 +312,14 @@ contains
   candidate%valid = .true.
   candidate%phi0_v = selected_root%phi0_v
   candidate%phi_m_v = selected_root%phi0_v
-  candidate%ambient_electron_density_m3 = selected_root%ambient_electron_density_m3
+  candidate%ambient_electron_density_m3 = trial_root%ambient_electron_density_m3
   status = matching_plane_zhao_ok
   message = ''
   end procedure solve_matching_implicit_endpoint
 
   subroutine evaluate_implicit_b_state(params, phi, displacement_before, duration, electron_charge, ion_charge, &
                                        photoelectron_active, photoelectron_charge, root, displacement, response, residual, &
-                                       valid, reason)
+                                       valid, reason, density_m3)
     type(zhao_params_type), intent(in) :: params
     real(dp), intent(in) :: phi, displacement_before, duration, electron_charge, ion_charge, photoelectron_charge
     logical, intent(in) :: photoelectron_active
@@ -315,6 +327,7 @@ contains
     real(dp), intent(out) :: displacement, response(6), residual
     logical, intent(out) :: valid
     integer, intent(out), optional :: reason
+    real(dp), intent(in), optional :: density_m3
     real(dp) :: ion, free, reflected, photo, captured, density_hat, phi_hat, e2_hat, escape_flux, current
     integer(i32) :: status
     character(len=512) :: message
@@ -337,7 +350,10 @@ contains
       return
     end if
     density_hat = (ion - photo - captured)/(free + reflected)
+    if (present(density_m3)) density_hat = density_m3/params%n_phe_ref_m3
+    if (.not. ieee_is_finite(density_hat) .or. density_hat <= 0.0_dp) return
     root%ambient_electron_density_m3 = density_hat*params%n_phe_ref_m3
+    if (present(density_m3)) root%ambient_electron_density_m3 = density_m3
     e2_hat = 2.0_dp*integrate_zhao_rho(params, 'B', 'monotonic', phi_hat, 0.0_dp, phi_hat, phi_hat, density_hat)
     if (.not. ieee_is_finite(e2_hat)) return
     if (e2_hat < 0.0_dp) then
@@ -366,24 +382,29 @@ contains
 
   subroutine bisect_implicit_b_root(params, left, right, f_left, f_right, displacement_before, duration, &
                                     electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-                                    tolerance, phi, iterations, valid, failure_reason, best_abs_residual, best_phi)
+                                    residual_scale, tolerance, phi, density_m3, iterations, valid, failure_reason, &
+                                    best_abs_residual, best_phi)
     type(zhao_params_type), intent(in) :: params
     real(dp), intent(in) :: left, right, f_left, f_right, displacement_before, duration
-    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge, tolerance
+    real(dp), intent(in) :: electron_charge, ion_charge, photoelectron_charge, residual_scale, tolerance
     logical, intent(in) :: photoelectron_active
-    real(dp), intent(out) :: phi
+    real(dp), intent(out) :: phi, density_m3
     integer, intent(out) :: iterations
     logical, intent(out) :: valid
     integer, intent(out) :: failure_reason
     real(dp), intent(out) :: best_abs_residual, best_phi
     type(zhao_matching_root_type) :: root
     real(dp) :: lo, hi, flo, fhi, fmid, displacement, response(6)
+    real(dp) :: density_lo, density_hi, density_mid
+    logical :: adjacent_potentials
 
     lo = left
     hi = right
     flo = f_left
     fhi = f_right
     valid = .false.
+    density_m3 = 0.0_dp
+    adjacent_potentials = .false.
     failure_reason = bisect_tolerance_miss
     best_abs_residual = min(abs(flo), abs(fhi))
     best_phi = lo
@@ -392,7 +413,10 @@ contains
       phi = 0.5_dp*lo + 0.5_dp*hi
       ! A steep residual can need more accuracy than a relative interval-width
       ! cutoff allows. Stop geometrically only when no midpoint is representable.
-      if (phi == lo .or. phi == hi) exit
+      if (phi == lo .or. phi == hi) then
+        adjacent_potentials = .true.
+        exit
+      end if
       call evaluate_implicit_b_state(params, phi, displacement_before, duration, electron_charge, ion_charge, &
                                      photoelectron_active, photoelectron_charge, root, displacement, response, fmid, valid)
       ! An invalid midpoint separates domains; never bridge it with a bracket.
@@ -404,7 +428,8 @@ contains
         best_abs_residual = abs(fmid)
         best_phi = phi
       end if
-      if (abs(fmid) <= tolerance) then
+      if (abs(fmid)/residual_scale <= tolerance) then
+        density_m3 = root%ambient_electron_density_m3
         failure_reason = bisect_ok
         return
       end if
@@ -418,12 +443,79 @@ contains
     end do
     if (abs(flo) <= abs(fhi)) then
       phi = lo
-      valid = abs(flo) <= tolerance
     else
       phi = hi
-      valid = abs(fhi) <= tolerance
     end if
-    if (valid) failure_reason = bisect_ok
+    if (.not. adjacent_potentials) then
+      valid = .false.
+      return
+    end if
+
+    ! A spectral bin edge can make F(phi) steeper than binary64 phi resolves.
+    ! Retain the nearest representable phi and resolve the coupled BE equation
+    ! in Ne, restricted to the neutral densities at these TWO neighboring phi.
+    ! This is a coordinate change within the last rounding cell, not a relaxed
+    ! BE/neutrality tolerance. D, currents, and the later profile validation all
+    ! use the resulting density; never overwrite only the returned current.
+    call evaluate_implicit_b_state(params, lo, displacement_before, duration, electron_charge, ion_charge, &
+                                   photoelectron_active, photoelectron_charge, root, displacement, response, fmid, valid)
+    if (.not. valid) return
+    density_lo = root%ambient_electron_density_m3
+    call evaluate_implicit_b_state(params, hi, displacement_before, duration, electron_charge, ion_charge, &
+                                   photoelectron_active, photoelectron_charge, root, displacement, response, fmid, valid)
+    if (.not. valid) return
+    density_hi = root%ambient_electron_density_m3
+    if (density_hi < density_lo) then
+      density_mid = density_lo
+      density_lo = density_hi
+      density_hi = density_mid
+    end if
+    call evaluate_implicit_b_state(params, phi, displacement_before, duration, electron_charge, ion_charge, &
+                                   photoelectron_active, photoelectron_charge, root, displacement, response, flo, valid, &
+                                   density_m3=density_lo)
+    if (.not. valid) return
+    call evaluate_implicit_b_state(params, phi, displacement_before, duration, electron_charge, ion_charge, &
+                                   photoelectron_active, photoelectron_charge, root, displacement, response, fhi, valid, &
+                                   density_m3=density_hi)
+    if (.not. valid) return
+    if (min(abs(flo), abs(fhi))/residual_scale <= tolerance) then
+      density_m3 = density_lo
+      if (abs(fhi) < abs(flo)) density_m3 = density_hi
+      if (min(abs(flo), abs(fhi)) < best_abs_residual) then
+        best_abs_residual = min(abs(flo), abs(fhi))
+        best_phi = phi
+      end if
+      failure_reason = bisect_ok
+      return
+    end if
+    valid = .false.
+    if (.not. ((flo < 0.0_dp .and. fhi > 0.0_dp) .or. (flo > 0.0_dp .and. fhi < 0.0_dp))) return
+    do while (iterations < scalar_max_iterations)
+      iterations = iterations + 1
+      density_mid = 0.5_dp*density_lo + 0.5_dp*density_hi
+      if (density_mid == density_lo .or. density_mid == density_hi) exit
+      call evaluate_implicit_b_state(params, phi, displacement_before, duration, electron_charge, ion_charge, &
+                                     photoelectron_active, photoelectron_charge, root, displacement, response, fmid, valid, &
+                                     density_m3=density_mid)
+      if (.not. valid) return
+      if (abs(fmid) < best_abs_residual) then
+        best_abs_residual = abs(fmid)
+        best_phi = phi
+      end if
+      if (abs(fmid)/residual_scale <= tolerance) then
+        density_m3 = root%ambient_electron_density_m3
+        failure_reason = bisect_ok
+        return
+      end if
+      if ((flo < 0.0_dp .and. fmid > 0.0_dp) .or. (flo > 0.0_dp .and. fmid < 0.0_dp)) then
+        density_hi = density_mid
+        fhi = fmid
+      else
+        density_lo = density_mid
+        flo = fmid
+      end if
+    end do
+    valid = .false.
   end subroutine bisect_implicit_b_root
 
 end submodule bem_matching_plane_zhao_implicit

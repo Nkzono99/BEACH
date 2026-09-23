@@ -64,6 +64,9 @@ def read_failure_capture(path):
         raise ValueError('malformed endpoint/feedback receipt')
     query.update(displacement_before_c_m2=str(endpoint[0]), displacement_seed_c_m2=str(endpoint[1]),
                  trial_batch_duration_s=str(endpoint[2]), guess=' '.join(map(str, feedback)))
+    tolerances = re.findall(r'\bF_tol=\s*([+\-0-9.EeDd]+)', before)
+    if tolerances:
+        query['native_BE_residual_tolerance_C_m2'] = float(tolerances[-1].replace('D', 'E'))
     seed_prefix = 'matching-plane failed seed: phi_H, phi_m [V], electron density [m-3]='
     if seed_prefix in before:
         seed = last_numbers(seed_prefix)
@@ -147,6 +150,9 @@ def main():
             parser.error('CSV input requires --query or explicit --duration and --displacement-before.')
         args.displacement_before = float(query['displacement_before_c_m2'].replace('D', 'E'))
     assert args.duration > 0.0 and math.isfinite(args.displacement_before)
+    requested_tolerance = query.get('native_BE_residual_tolerance_C_m2')
+    if requested_tolerance is not None:
+        requested_tolerance = float(requested_tolerance)
     lo, hi, flux = load_spectrum(spectrum_text)
     spectral_flux = flux/(hi-lo)
     total_flux = float(flux.sum())
@@ -399,6 +405,10 @@ def main():
                                    Gamma_e=ne*ELECTRON_FLUX_PER_DENSITY, Gamma_i=ION_FLUX,
                                    Gamma_PE_escape=tail(h), current_A_m2=QE*current_number(h),
                                    BE_residual_C_m2=residual if eh2 >= 0.0 else None,
+                                   independent_BE_residual_within_native_tolerance=(
+                                       bool(abs(residual) <= requested_tolerance)
+                                       if kind == 'backward_euler' and eh2 >= 0.0 and requested_tolerance is not None
+                                       else None),
                                    minimum_profile_E_squared=float(e2.min()),
                                    minimum_phi=float(points[int(e2.argmin())]),
                                    profile_tolerance_E_squared=tol, profile_points=len(points),
@@ -428,6 +438,7 @@ def main():
         writer.writerow(['kind', 'index', 'phi_H', 'Ne', 'phi', 'E_squared'])
         writer.writerows(profile_rows)
     physical_roots = [c for c in candidates if c['kind']=='backward_euler' and c['physical']]
+    confirmed_roots = [c for c in physical_roots if c['independent_BE_residual_within_native_tolerance'] is True]
     valid_endpoint_states = [state for state in states if state[1] > 0.0 and state[2] >= 0.0]
     best = min(valid_endpoint_states, key=lambda state: abs(state[3])) if valid_endpoint_states else None
     root_stable = (len(coarse_current_roots) == len(current_roots) and
@@ -575,8 +586,15 @@ def main():
                                sampled_negative_endpoint_E2=sum(state[2] < 0.0 for state in states),
                                closest_valid_sample_to_BE_zero=best),
                    candidates=candidates, physical_BE_candidates=len(physical_roots),
+                   BE_residual_confirmation=dict(
+                       requested_tolerance_C_m2=requested_tolerance,
+                       tolerance_source='rounded native failure receipt' if requested_tolerance is not None else None,
+                       physical_candidates_within_tolerance=len(confirmed_roots) if requested_tolerance is not None else None,
+                       meaning='Physical candidates passed profile checks. BE residual confirmation is separate and uses independent quadrature, not the native solver.'),
                    absence_certificate=certificate,
-                   diagnosis=('physical_BE_endpoint_found' if physical_roots else
+                   diagnosis=('physical_BE_endpoint_found' if confirmed_roots else
+                              'physical_profile_found_BE_residual_unresolved' if physical_roots and requested_tolerance is not None else
+                              'physical_profile_found_BE_tolerance_unverified' if physical_roots else
                               'type_B_absence_certified_in_model_with_roundoff_margin' if certificate['complete'] else
                               'located_BE_endpoints_rejected_by_physical_conditions' if be_roots else
                               'no_BE_endpoint_located_by_finite_search'),

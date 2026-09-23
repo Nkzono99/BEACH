@@ -104,7 +104,7 @@ contains
 
     real(dp) :: lower, upper, candidate, step, invalid_candidate, denominator, guard
     real(dp) :: lower_residual, upper_residual, candidate_residual
-    real(dp) :: displacement_tolerance, residual_tolerance
+    real(dp) :: displacement_tolerance, residual_tolerance, residual_scale, normalized_residual_tolerance
     real(dp) :: lower_response(6), upper_response(6), candidate_response(6)
     type(matching_plane_zhao_root_seed_type) :: lower_root, upper_root, candidate_root, evaluation_root
     real(dp) :: current_density
@@ -134,9 +134,8 @@ contains
       if (backend_handled) return
     end if
     saw_numerical_candidate = .false.
-    displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*max( &
-                             displacement_scale, abs(displacement_before), tiny(1.0_dp) &
-                             )
+    residual_scale = max(displacement_scale, abs(displacement_before), tiny(1.0_dp))
+    displacement_tolerance = 128.0_dp*epsilon(1.0_dp)*residual_scale
     residual_tolerance = displacement_tolerance
     if (.not. displacement_bounded) then
       residual_tolerance = max( &
@@ -144,6 +143,8 @@ contains
                            sqrt(epsilon(1.0_dp))*max(displacement_scale, abs(displacement_before)) &
                            )
     end if
+    ! Keep the physical tolerance; compare the dimensionless BE residual F/S.
+    normalized_residual_tolerance = residual_tolerance/residual_scale
 
     if (displacement_bounded) then
       lower = displacement_min
@@ -184,7 +185,7 @@ contains
       bracketed = .false.
       have_valid_point = status == matching_plane_provider_ok
       if (have_valid_point) then
-        if (abs(lower_residual) <= residual_tolerance) then
+        if (abs(lower_residual)/residual_scale <= normalized_residual_tolerance) then
           displacement_after = lower
           response_after = lower_response
           root_after = lower_root
@@ -241,7 +242,7 @@ contains
                 )
             end if
             if (status == matching_plane_provider_ok) then
-              if (abs(candidate_residual) <= residual_tolerance) then
+              if (abs(candidate_residual)/residual_scale <= normalized_residual_tolerance) then
                 displacement_after = candidate
                 response_after = candidate_response
                 root_after = candidate_root
@@ -320,7 +321,7 @@ contains
           status, evaluation_message &
           )
         if (status == matching_plane_provider_ok) then
-          if (abs(candidate_residual) <= residual_tolerance) then
+          if (abs(candidate_residual)/residual_scale <= normalized_residual_tolerance) then
             displacement_after = candidate
             response_after = candidate_response
             root_after = candidate_root
@@ -376,7 +377,7 @@ contains
               status, evaluation_message &
               )
             if (status == matching_plane_provider_ok) then
-              if (abs(candidate_residual) <= residual_tolerance) then
+              if (abs(candidate_residual)/residual_scale <= normalized_residual_tolerance) then
                 displacement_after = candidate
                 response_after = candidate_response
                 root_after = candidate_root
@@ -445,13 +446,13 @@ contains
       end if
     end if
 
-    if (abs(lower_residual) <= residual_tolerance) then
+    if (abs(lower_residual)/residual_scale <= normalized_residual_tolerance) then
       displacement_after = lower
       response_after = lower_response
       root_after = lower_root
       return
     end if
-    if (abs(upper_residual) <= residual_tolerance) then
+    if (abs(upper_residual)/residual_scale <= normalized_residual_tolerance) then
       displacement_after = upper
       response_after = upper_response
       root_after = upper_root
@@ -505,7 +506,7 @@ contains
         message = 'implicit matching-plane bracket refinement failed: '//trim(evaluation_message)
         return
       end if
-      if (abs(candidate_residual) <= residual_tolerance) then
+      if (abs(candidate_residual)/residual_scale <= normalized_residual_tolerance) then
         displacement_after = candidate
         response_after = candidate_response
         root_after = candidate_root
@@ -534,11 +535,12 @@ contains
       response_after = upper_response
       root_after = upper_root
     end if
-    if (min(abs(lower_residual), abs(upper_residual)) > 8.0_dp*residual_tolerance) then
-      write (message, '(a,es12.4,a,es12.4,a,es12.4)') &
-        'WARNING: implicit matching-plane bracket refinement accepted the finite best endpoint: residual=', &
-        min(abs(lower_residual), abs(upper_residual)), ', tolerance=', 8.0_dp*residual_tolerance, &
-        ', bracket_width=', upper - lower
+    if (min(abs(lower_residual), abs(upper_residual))/residual_scale > 8.0_dp*normalized_residual_tolerance) then
+      write (message, '(a,5(es12.4,a))') &
+        'WARNING: implicit matching-plane bracket refinement accepted the finite best endpoint: R=', &
+        min(abs(lower_residual), abs(upper_residual))/residual_scale, ', R_tol=', normalized_residual_tolerance, &
+        ', F=', min(abs(lower_residual), abs(upper_residual)), ' C/m2, F_tol=', residual_tolerance, &
+        ' C/m2, bracket_width=', upper - lower, ' C/m2'
     end if
   end subroutine solve_matching_implicit_zero_mode_local
 

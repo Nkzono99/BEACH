@@ -442,6 +442,12 @@ Sagdeev積分から$D_H(\Phi_H)$を求めます。spectrumのbin境界・四分�
 `continuation`の有効seedがあれば一意な最近傍根を選び、初期seedがなければ一意根を要求します。
 全数学根の列挙は保証せず、複数の陰的終点を検出順で選びません。
 Type Bの二分探索は残差許容値を維持し、区間幅だけでは打ち切らず、新しい中点を表現できなくなるまで最大96反復を行います。
+隣接電位の残差が許容値を飛び越える場合に限り、その二点の中性密度の間でambient密度を補正し、
+同じ密度で電場・流束を再評価します。元の上流中性・profile・電荷保存条件をすべて要求します。
+電荷保存は$R=F/S$を無次元で比較します。Type Bは$S=\max(D_*,hJ_*)$、$D_*=\epsilon_0T_{pe}/\lambda_D$、
+$J_*=|q_e|n_i v_{th,e}+|q_i|n_i u_i+|q_{pe}|\Gamma_{pe}^{out}$（PE無効時は末項なし）とし、
+$|R|\leq\max(\sqrt{\epsilon}D_*/S,128\epsilon hJ_*/S)$です。その他の経路は
+$S=\max(D_{scale},|D_H^n|,\mathrm{tiny})$で残差・従来の許容値をともに割り、同じ受理精度を保ちます。
 その他のonline条件では前のouter反復の終点（最初は$D_H^n$）をseedとし、
 validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
 seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
@@ -542,10 +548,15 @@ Type Bの有限電位探索は、未確定なら`search_unresolved`、検出候�
 最小絶対残差が−1なら有効評価点なし、検出候補数は重複除去前です。
 二分失敗は`mid_invalid`と`tol_miss`へ分け、二分探索中の最小絶対残差`bisect_best_F`と受理閾値`F_tol`（C/m2）を併記します。
 二分未実施なら`bisect_best_F=-1`です。`min_abs_F`は二分中の有効評価も含みます。
+実際の比較に使う無次元量`best_abs_R`と`R_tol`も記録します。`best_abs_R=-1`は有効評価なしです。
 解析専用の`tools/diagnose_matching_plane_failure.py`は元のTOMLと停止ログのexact spectrumからType Bを独立に検証し、
 候補検出と、電位区間の保守的上下界による排除を区別します。`absence_certificate.complete`は全Type B区間を排除した場合
 だけtrueとし、他branchを含む設定では`configuration.all_configured_branches_covered`も確認します。
 この排除はfloat64と丸め余裕に基づき、有向丸め区間演算による厳密証明ではありません。NumPy/SciPyはこの任意解析だけの依存です。
+独立計算のprofile成立とBE残差の精度確認は別です。停止ログの丸め済み`F_tol`を満たす候補がある場合だけ
+`physical_BE_endpoint_found`とし、profileのみ成立してBE残差未達なら
+`physical_profile_found_BE_residual_unresolved`、許容値不明なら`physical_profile_found_BE_tolerance_unverified`とします。
+`BE_residual_confirmation`と候補ごとの`independent_BE_residual_within_native_tolerance`に確認結果を保存します。
 
 online implicitのPEありでは、各outer feedback反復の現在値$X^m$で後退Euler終点を解き、同じtrialの粒子追跡で
 得たPE momentを緩和してから次の終点を解き直します。PE fluxが0のtrialでは平均energyは未定義なので、現在の

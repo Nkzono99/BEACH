@@ -144,6 +144,16 @@ $D_H$ solution interval. Finite search does not guarantee enumeration of every m
 `continuation` selects a unique nearest root; without an initial seed it requires uniqueness. It does not choose
 between multiple implicit endpoints by discovery order.
 Type-B bisection keeps the residual tolerance and continues until no new midpoint is representable (at most 96 iterations), rather than stopping on interval width alone.
+If adjacent potentials straddle zero but both miss the tolerance, the solver refines the ambient density only between
+their two neutrality densities. It recomputes field and fluxes from that same density and requires all original
+upstream-neutrality, profile, and charge-conservation checks.
+
+Charge conservation compares the dimensionless residual $R=F/S$, where $F=D_H^{n+1}-D_H^n-hJ$.
+Type B uses $S=\max(D_*,hJ_*)$, $D_*=\epsilon_0T_{pe}/\lambda_D$, and
+$J_*=|q_e|n_i v_{th,e}+|q_i|n_i u_i+|q_{pe}|\Gamma_{pe}^{out}$ (omit the last term when PE is inactive).
+With double-precision machine epsilon $\epsilon$, it requires $|R|\leq\max(\sqrt{\epsilon}D_*/S,128\epsilon hJ_*/S)$.
+Table and other online paths also divide both residual and tolerance by the larger of the representative displacement
+and previous displacement magnitude. These comparisons preserve the previous dimensional acceptance thresholds.
 
 Other online conditions search in $D_H$ with a guarded secant step and midpoint fallback.
 The previous outer iteration's endpoint (initially $D_H^n$) seeds the solve. For a valid seed it starts
@@ -290,6 +300,7 @@ and its potential, and the first rejected potential with its `reason`. `min_abs_
 is the smallest absolute residual during bisection and `F_tol` is the acceptance threshold, both in C/m2; a tolerance
 miss is distinct from physical rejection.
 `bisect_best_F=-1` means no bisection was performed. `min_abs_F` also includes valid evaluations inside bisection.
+The log also includes the dimensionless `best_abs_R` and `R_tol` used in acceptance. `best_abs_R=-1` means no valid evaluation.
 
 On failure, standard error records $D_{before}$, $D_{seed}$, duration, feedback, and the continuation seed's potentials
 and density when valid. If a spectrum is attached, all bins are written as CSV between
@@ -313,8 +324,12 @@ python tools/diagnose_matching_plane_failure.py run.err --config beach.toml --ou
 ```
 
 It reads the last failed input and writes `diagnosis/batch14.json` plus `-spectrum.csv`, `-scan.csv`, `-profiles.csv`,
-and `-intervals.csv`. JSON `diagnosis=physical_BE_endpoint_found` means a candidate satisfying the physical checks was
-found for the same input. `type_B_absence_certified_in_model_with_roundoff_margin` sets
+and `-intervals.csv`. JSON `diagnosis=physical_BE_endpoint_found` means a physical candidate's independently integrated
+BE residual meets the rounded tolerance printed in the failure log. A valid profile with an unresolved BE residual gives
+`physical_profile_found_BE_residual_unresolved`; a missing tolerance, as with CSV input, gives
+`physical_profile_found_BE_tolerance_unverified`. Inspect `BE_residual_confirmation` and each candidate's
+`independent_BE_residual_within_native_tolerance`. This confirms the independent calculation's accuracy, not acceptance
+by the native solver. `type_B_absence_certified_in_model_with_roundoff_margin` sets
 `absence_certificate.complete=true` only when conservative bounds exclude the entire Type-B potential domain.
 This uses float64 and explicit roundoff margins, not a rigorous directed-rounding interval proof. Check
 `configuration.all_configured_branches_covered` before extending that conclusion to every configured branch.

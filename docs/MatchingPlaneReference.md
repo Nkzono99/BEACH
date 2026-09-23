@@ -141,6 +141,15 @@ online の Type B は、`zhao_branch="b"`、または `auto` で正の内向き�
 有限探索は全数学根の列挙を保証しません。`continuation` に有効な seed があれば一意な最近傍根を選び、
 初期 seed がない場合は一意根を要求します。複数の陰的終点を初期値の検出順で選びません。
 Type B の二分探索は残差許容値を維持し、区間幅だけでは打ち切らず、新しい中点を表現できなくなるまで（最大 96 反復）続けます。
+隣接電位の残差が許容値を飛び越える場合は、その二点の中性密度の間で ambient 密度を補正します。
+同じ密度で電場・流束を再計算し、元の上流中性・profile・電荷保存条件をすべて満たす場合だけ採用します。
+
+電荷保存は $F=D_H^{n+1}-D_H^n-hJ$ を規格化した $R=F/S$ で判定します。
+Type B は $S=\max(D_*,hJ_*)$、$D_*=\epsilon_0T_{pe}/\lambda_D$ とし、
+$J_*=|q_e|n_i v_{th,e}+|q_i|n_i u_i+|q_{pe}|\Gamma_{pe}^{out}$（PE 無効時は末項なし）です。
+倍精度の機械イプシロン $\epsilon$ に対し $|R|\leq\max(\sqrt{\epsilon}D_*/S,128\epsilon hJ_*/S)$ を要求します。
+table とその他の online 経路も、代表変位と前回変位の絶対値の大きい方で残差・許容値をともに割ります。
+これらは従来の有次元の許容値と等価で、許容精度の緩和ではありません。
 
 その他の online 条件では $D_H$ を探索し、guard 付き secant と中点 fallback を使います。
 前の outer 反復の終点（最初は $D_H^n$）を seed とし、valid な seed では明示更新の変位を自然なシース尺度
@@ -279,6 +288,7 @@ Type B の電位探索で根を確定できなかった場合は、次の分類�
 `bisect_fail` の内訳は、中点が無効になった `mid_invalid` と残差許容値に届かなかった `tol_miss` です。
 `bisect_best_F` は二分探索中の最小絶対残差、`F_tol` は受理閾値（ともに C/m2）で、許容値未達を物理棄却と区別します。
 二分探索を実施しなければ `bisect_best_F=-1` です。`min_abs_F` は二分探索中の有効評価も含みます。
+実際の比較に用いる無次元量 `best_abs_R` と `R_tol` も併記します。`best_abs_R=-1` は有効評価なしです。
 
 停止時の標準エラー出力には $D_{before}$、$D_{seed}$、時間幅、feedback と、有効なら継続 seed の電位・密度を記録します。
 spectrum がある場合は `matching-plane failed spectrum begin` と `matching-plane failed spectrum end` の間に
@@ -302,7 +312,11 @@ python tools/diagnose_matching_plane_failure.py run.err --config beach.toml --ou
 ```
 
 最後の失敗入力を読み、`diagnosis/batch14.json` と `-spectrum.csv`、`-scan.csv`、`-profiles.csv`、`-intervals.csv`
-を出力します。JSON の `diagnosis` が `physical_BE_endpoint_found` なら同じ入力で物理条件を満たす候補を検出しています。
+を出力します。`physical_BE_endpoint_found` は、物理候補の独立積分による BE 残差が、停止ログの丸め済み許容値以下の場合です。
+profile のみ成立して BE 残差未達なら `physical_profile_found_BE_residual_unresolved`、
+CSV 入力などで許容値が不明なら `physical_profile_found_BE_tolerance_unverified` とします。
+`BE_residual_confirmation` と候補の `independent_BE_residual_within_native_tolerance` で確認できます。
+この精度確認は独立計算についてのもので、native solver の受理を再現したという意味ではありません。
 `type_B_absence_certified_in_model_with_roundoff_margin` は、`absence_certificate.complete=true` として
 Type B の全電位区間を保守的な上下界で排除できた場合です。これは float64 と明示した丸め余裕に基づき、
 有向丸めの区間演算による厳密証明ではありません。設定した全 branch について結論を述べる前に
