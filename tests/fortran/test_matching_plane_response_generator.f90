@@ -16,6 +16,7 @@ program test_matching_plane_response_generator
   use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
                                                   matching_plane_provider_ok
   use bem_matching_plane_zhao, only: matching_plane_zhao_root_seed_type
+  use bem_pe_spectrum, only: pe_spectrum_type
   use bem_mpi, only: mpi_context
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, &
                           assert_equal_i32, assert_close_dp, delete_file_if_exists
@@ -43,7 +44,11 @@ program test_matching_plane_response_generator
 
   call cleanup_files()
   call configure_online_fixture(cfg)
-  call test_init(6)
+  call test_init(7)
+
+  call test_begin('failure_spectrum_preserves_exact_bin_distribution')
+  call assert_failure_spectrum_roundtrip()
+  call test_end()
 
   call test_begin('generated_curve_roundtrips_through_table_backend')
   call write_nonzero_photoelectron_curve(query_path)
@@ -199,6 +204,42 @@ program test_matching_plane_response_generator
   call test_summary()
 
 contains
+
+  subroutine assert_failure_spectrum_roundtrip()
+    type(matching_plane_response_provider_type) :: spectral_provider
+    type(pe_spectrum_type) :: source
+    real(dp) :: lower_edge, upper_edge, flux
+    integer :: unit_id, ios, bin
+    character(len=128) :: line
+
+    source%energy_scale_ev = 2.19999999970613391_dp
+    source%bins_per_decade = 128_i32
+    source%flux = [3.750000000000001e12_dp, 0.0_dp, 9.123456789123457e9_dp, 0.0_dp]
+    call spectral_provider%set_photoelectron_spectrum(source)
+    open (newunit=unit_id, status='scratch', action='readwrite', form='formatted')
+    call spectral_provider%write_failure_spectrum(unit_id)
+    rewind (unit_id)
+    read (unit_id, '(a)', iostat=ios) line
+    call assert_true(ios == 0 .and. trim(line) == 'matching-plane failed spectrum begin', &
+                     'failure spectrum start marker is missing')
+    read (unit_id, '(a)', iostat=ios) line
+    call assert_true(ios == 0 .and. trim(line) == 'energy_low_ev,energy_high_ev,flux_m2_s', &
+                     'failure spectrum CSV header changed')
+    do bin = 1, size(source%flux)
+      read (unit_id, *, iostat=ios) lower_edge, upper_edge, flux
+      call assert_true(ios == 0, 'failure spectrum row cannot be read as three CSV numbers')
+      if (ios /= 0) exit
+      call assert_close_dp(lower_edge, source%edge(bin - 1), 0.0_dp, 'failure spectrum lower edge lost precision')
+      call assert_close_dp(upper_edge, source%edge(bin), 0.0_dp, 'failure spectrum upper edge lost precision')
+      call assert_close_dp(flux, source%flux(bin), 0.0_dp, 'failure spectrum changed flux or omitted an empty bin')
+    end do
+    read (unit_id, '(a)', iostat=ios) line
+    call assert_true(ios == 0 .and. trim(line) == 'matching-plane failed spectrum end', &
+                     'failure spectrum end marker is missing')
+    read (unit_id, '(a)', iostat=ios) line
+    call assert_true(ios < 0, 'failure spectrum contains unexpected trailing records')
+    close (unit_id)
+  end subroutine assert_failure_spectrum_roundtrip
 
   subroutine configure_online_fixture(fixture_cfg)
     type(app_config), intent(out) :: fixture_cfg

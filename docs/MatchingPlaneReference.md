@@ -14,6 +14,7 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 |---|---|
 | 秒スケールの batch 幅で面平均電荷だけを陰的に更新する | [`implicit_zero_mode`](#implicit_zero_mode) |
 | online Zhao の複数根・root family 選択を調べる | [`zhao_root_selection`](#zhao_root_selection) |
+| 陰的終点の探索失敗を同じ分布で再現する | [失敗時の診断と PE 分布](#失敗時の診断と-pe-分布) |
 | 応答表の exact header、11 列、単位、直積格子 | [Table backend の応答 CSV v1](#table-backend-の応答-csv-v1) |
 | `beach-zhao-response` で応答表を作る | [Table backend用の応答表を作る](#table-backend用の応答表を作る) |
 | 固定点の受理式と緩和式 | [固定点の数値契約](#固定点の数値契約) |
@@ -139,6 +140,7 @@ online の Type B は、`zhao_branch="b"`、または `auto` で正の内向き�
 探索するため、$D_H$ 方向に狭い解区間を粗い変位刻みで飛び越える問題を避けます。
 有限探索は全数学根の列挙を保証しません。`continuation` に有効な seed があれば一意な最近傍根を選び、
 初期 seed がない場合は一意根を要求します。複数の陰的終点を初期値の検出順で選びません。
+Type B の二分探索は残差許容値を維持し、区間幅だけでは打ち切らず、新しい中点を表現できなくなるまで（最大 96 反復）続けます。
 
 その他の online 条件では $D_H$ を探索し、guard 付き secant と中点 fallback を使います。
 前の outer 反復の終点（最初は $D_H^n$）を seed とし、valid な seed では明示更新の変位を自然なシース尺度
@@ -252,6 +254,60 @@ $X^m$ でこの終点を解き、同じ trial の粒子追跡で得た PE moment
 陰的になるのは $k=0$ の面平均だけです。要素別 $k\ne0$ 分布は batch 開始場から追跡します。したがって、
 6 s のような幅を使えるかは、局所電位変化、粒子 sampling、root bracket、物理範囲を別々に検証します。
 実務上の比較手順は [`batch_duration` の選択](BatchDurationStability.html)を参照してください。
+
+## 失敗時の診断と PE 分布
+
+陰的終点を求められない場合は、停止ログの探索結果と実際に応答へ渡した分布を一緒に調べます。
+有限探索で根を検出しなかったこと、見つかった代数根が物理条件を満たさなかったこと、根の数値検証に失敗したことは
+別の結果です。検出した候補がすべて棄却されても、未探索の区間を含む一般的な不存在の証明にはなりません。
+
+Type B の電位探索で根を確定できなかった場合は、次の分類を出します。どちらも返却 status は
+`numerical_failure` で、`finite search, no absence proof` と記録します。
+
+| 分類 | 意味 |
+|---|---|
+| `search_unresolved` | 未検出、二分探索失敗、非有限評価、または profile の数値検証失敗が残る |
+| `detected_roots_all_nonphysical` | 検出した候補がすべて物理条件で棄却され、二分探索・非有限評価・応答評価の数値失敗はない |
+
+`grid` / `valid` は主探索点の評価数／有効数です。`neutral`、`E2neg`、`nonfinite`、`response_fail` は
+その主探索点の棄却理由別件数で、二分探索の内部評価を含みません。`brackets` / `bisect_fail`、`located`、
+`physical_reject` / `profile_numeric`、`accepted` は、符号変化／二分失敗、検出候補、物理／数値検証による棄却、
+重複除去後の物理根の件数です。`located` は重複除去前なので `accepted` と直接比較しないでください。
+探索電位範囲と最小の `min_abs_F` [C/m2]、その電位、最初の棄却電位と `reason` も記録します。
+`min_abs_F=-1` は有効な評価点がなかったことを表します。
+`neutral` は上流中性を満たす正の ambient 密度が得られない点、`E2neg` は境界の $E^2$ が負になる点です。
+`bisect_fail` の内訳は、中点が無効になった `mid_invalid` と残差許容値に届かなかった `tol_miss` です。
+`bisect_best_F` は二分探索中の最小絶対残差、`F_tol` は受理閾値（ともに C/m2）で、許容値未達を物理棄却と区別します。
+二分探索を実施しなければ `bisect_best_F=-1` です。`min_abs_F` は二分探索中の有効評価も含みます。
+
+停止時の標準エラー出力には $D_{before}$、$D_{seed}$、時間幅、feedback と、有効なら継続 seed の電位・密度を記録します。
+spectrum がある場合は `matching-plane failed spectrum begin` と `matching-plane failed spectrum end` の間に
+次の header と全 bin の CSV を出力します。
+
+```csv
+energy_low_ev,energy_high_ev,flux_m2_s
+```
+
+`flux_m2_s` は bin 内の積分数流束であり、流束密度 $d\Gamma/dK$ ではありません。空 bin も保持します。
+この区間の header と数値行を取り出すと、停止した query の PE 分布を倍精度で再現できます。
+直前の accepted history や checkpoint の分布とは限らないため、代用しないでください。上流条件などの残りの入力は
+その実行の `beach.toml` と停止ログから取ります。分布を持たない moment closure では CSV 区間を出力しません。
+この診断出力は checkpoint を更新せず、失敗した trial を受理しません。
+
+Type B を独立に再検証するには、repository root から次を実行します。Python 3.10 以上、NumPy、SciPy
+（Python 3.10 では追加で `tomli`）が必要な解析専用ツールです。HPC では計算ノードで実行してください。
+
+```bash
+python tools/diagnose_matching_plane_failure.py run.err --config beach.toml --output diagnosis/batch14
+```
+
+最後の失敗入力を読み、`diagnosis/batch14.json` と `-spectrum.csv`、`-scan.csv`、`-profiles.csv`、`-intervals.csv`
+を出力します。JSON の `diagnosis` が `physical_BE_endpoint_found` なら同じ入力で物理条件を満たす候補を検出しています。
+`type_B_absence_certified_in_model_with_roundoff_margin` は、`absence_certificate.complete=true` として
+Type B の全電位区間を保守的な上下界で排除できた場合です。これは float64 と明示した丸め余裕に基づき、
+有向丸めの区間演算による厳密証明ではありません。設定した全 branch について結論を述べる前に
+`configuration.all_configured_branches_covered` も確認してください。候補棄却または有限探索の未検出という
+他の `diagnosis` は、不存在の証明にはなりません。
 
 ## Ambient VDF とシース密度の整合性
 

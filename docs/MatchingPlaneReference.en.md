@@ -14,6 +14,7 @@ diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlane
 |---|---|
 | Update only the mean charge implicitly at a seconds-scale batch width | [`implicit_zero_mode`](#implicit_zero_mode) |
 | Look up online-Zhao multiplicity and root-family policies | [`zhao_root_selection`](#zhao_root_selection) |
+| Reproduce an implicit-endpoint failure with the same distribution | [Failure diagnostics and the PE distribution](#failure-diagnostics-and-the-pe-distribution) |
 | Look up the exact header, 11 columns, units, and Cartesian grid | [Table-backend response CSV v1](#table-backend-response-csv-v1) |
 | Build a response table with `beach-zhao-response` | [Build a response table for the table backend](#build-a-response-table-for-the-table-backend) |
 | Look up the fixed-point acceptance and relaxation equations | [Fixed-point numerical contract](#fixed-point-numerical-contract) |
@@ -142,6 +143,7 @@ samples bin edges and quarter points within each bin, avoiding a coarse displace
 $D_H$ solution interval. Finite search does not guarantee enumeration of every mathematical root. With a valid seed,
 `continuation` selects a unique nearest root; without an initial seed it requires uniqueness. It does not choose
 between multiple implicit endpoints by discovery order.
+Type-B bisection keeps the residual tolerance and continues until no new midpoint is representable (at most 96 iterations), rather than stopping on interval width alone.
 
 Other online conditions search in $D_H$ with a guarded secant step and midpoint fallback.
 The previous outer iteration's endpoint (initially $D_H^n$) seeds the solve. For a valid seed it starts
@@ -261,6 +263,62 @@ Only the mean $k=0$ charge is implicit. The elementwise $k\ne0$ distribution sti
 Therefore, using a width such as 6 s requires separate checks of local potential change, particle sampling,
 root bracketing, and the physical range. See [How to choose `batch_duration`](BatchDurationStability.en.html)
 for the comparison workflow.
+
+## Failure diagnostics and the PE distribution
+
+When an implicit endpoint cannot be found, inspect the search result together with the distribution actually supplied
+to the response. A finite search detecting no root, a located algebraic root violating physical conditions, and numerical
+failure to certify a root are different outcomes. Rejecting every detected candidate does not prove nonexistence in
+unsearched intervals.
+
+If the Type-B potential search cannot certify a root, it reports one of these classifications. Both return
+`numerical_failure` and include `finite search, no absence proof`.
+
+| Classification | Meaning |
+|---|---|
+| `search_unresolved` | No root was detected, or bisection failure, non-finite evaluation, or numerical profile-certification failure remains |
+| `detected_roots_all_nonphysical` | Every detected candidate violated a physical condition, with no bisection, non-finite, or response-evaluation failures |
+
+`grid` / `valid` count evaluated/valid main-grid points. `neutral`, `E2neg`, `nonfinite`, and `response_fail` classify
+those main-grid rejections, excluding evaluations inside bisection. `brackets` / `bisect_fail`, `located`,
+`physical_reject` / `profile_numeric`, and `accepted` count sign changes/bisection failures, detected candidates,
+physical/numerical certification rejections, and distinct physical roots. `located` precedes deduplication and must not
+be compared directly with `accepted`. The log also records the potential search range, smallest `min_abs_F` [C/m2]
+and its potential, and the first rejected potential with its `reason`. `min_abs_F=-1` means no valid evaluable point existed.
+`neutral` means no positive ambient density satisfies upstream neutrality; `E2neg` means the interface field squared is negative.
+`bisect_fail` separates invalid midpoints (`mid_invalid`) from residual-tolerance misses (`tol_miss`). `bisect_best_F`
+is the smallest absolute residual during bisection and `F_tol` is the acceptance threshold, both in C/m2; a tolerance
+miss is distinct from physical rejection.
+`bisect_best_F=-1` means no bisection was performed. `min_abs_F` also includes valid evaluations inside bisection.
+
+On failure, standard error records $D_{before}$, $D_{seed}$, duration, feedback, and the continuation seed's potentials
+and density when valid. If a spectrum is attached, all bins are written as CSV between
+`matching-plane failed spectrum begin` and `matching-plane failed spectrum end`, with this header:
+
+```csv
+energy_low_ev,energy_high_ev,flux_m2_s
+```
+
+`flux_m2_s` is the integrated number flux within a bin, not $d\Gamma/dK$. Empty bins are retained. Extracting the header
+and numeric rows reproduces the failed query's PE distribution in double precision. The last accepted history or
+checkpoint can contain a different distribution and must not be substituted. Obtain the other inputs, including
+upstream conditions, from that run's `beach.toml` and failure log. Moment closure with no attached spectrum writes no
+CSV block. These diagnostics do not update the checkpoint or accept the failed trial.
+
+To recheck Type B independently, run the following from the repository root. This optional analysis tool requires
+Python 3.10 or later, NumPy, and SciPy (plus `tomli` on Python 3.10). On HPC systems, run it on a compute node.
+
+```bash
+python tools/diagnose_matching_plane_failure.py run.err --config beach.toml --output diagnosis/batch14
+```
+
+It reads the last failed input and writes `diagnosis/batch14.json` plus `-spectrum.csv`, `-scan.csv`, `-profiles.csv`,
+and `-intervals.csv`. JSON `diagnosis=physical_BE_endpoint_found` means a candidate satisfying the physical checks was
+found for the same input. `type_B_absence_certified_in_model_with_roundoff_margin` sets
+`absence_certificate.complete=true` only when conservative bounds exclude the entire Type-B potential domain.
+This uses float64 and explicit roundoff margins, not a rigorous directed-rounding interval proof. Check
+`configuration.all_configured_branches_covered` before extending that conclusion to every configured branch.
+The other diagnoses, candidate rejection or no root located by finite search, do not prove nonexistence.
 
 ## Consistency between the ambient VDF and sheath density
 

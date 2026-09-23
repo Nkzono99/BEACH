@@ -10,7 +10,7 @@ program test_matching_plane_pe_spectrum
   use bem_mpi, only: mpi_context
   use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_diagnostics_type, &
                                      matching_plane_zhao_root_seed_type, matching_plane_zhao_ok, &
-                                     matching_plane_zhao_no_physical_solution
+                                     matching_plane_zhao_no_physical_solution, matching_plane_zhao_numerical_failure
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
@@ -28,7 +28,7 @@ program test_matching_plane_pe_spectrum
   character(len=1) :: branch
   character(len=512) :: message
 
-  call test_init(8)
+  call test_init(10)
   spectrum%energy_scale_ev = 0.1_dp*te
   spectrum%bins_per_decade = 1024_i32
   second%energy_scale_ev = spectrum%energy_scale_ev
@@ -190,9 +190,99 @@ program test_matching_plane_pe_spectrum
   call check_captured_implicit_endpoints()
   call test_end()
 
+  call test_begin('implicit_failure_distinguishes_finite_search_from_absence_proof')
+  call check_unresolved_implicit_diagnostic()
+  call test_end()
+
+  call test_begin('batch14_spectrum_resolves_the_steep_implicit_endpoint')
+  call check_batch14_implicit_endpoint()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine check_batch14_implicit_endpoint()
+    type(matching_plane_zhao_model_type) :: model
+    type(matching_plane_zhao_root_seed_type) :: previous, candidate
+    type(pe_spectrum_type) :: captured
+    real(dp) :: displacement, output(6), lower_edge, upper_edge, captured_te, current
+    integer :: unit_id, ios, bin_index
+    logical :: handled
+    character(len=128) :: header
+
+    ! Job 297857, batch 14: independent velocity/Poisson quadrature locates a
+    ! physical BE root at phiH=6.432956538216116 V.  A 64-epsilon interval-width
+    ! stop rejected this root before its steep residual met the BE tolerance.
+    captured%energy_scale_ev = 2.19999999970613391_dp
+    captured%bins_per_decade = 128_i32
+    allocate (captured%flux(136))
+    open (newunit=unit_id, file='tests/fixtures/matching_plane_pe_batch14_spectrum.csv', &
+          status='old', action='read', iostat=ios)
+    call assert_true(ios == 0, 'batch 14 spectrum fixture is available')
+    if (ios /= 0) return
+    read (unit_id, '(a)', iostat=ios) header
+    do bin_index = 1, size(captured%flux)
+      read (unit_id, *, iostat=ios) lower_edge, upper_edge, captured%flux(bin_index)
+      call assert_true(ios == 0, 'batch 14 spectrum bin is readable')
+      if (ios /= 0) then
+        close (unit_id)
+        return
+      end if
+      call assert_close_dp(lower_edge, captured%edge(bin_index - 1), 1.0e-12_dp, 'batch 14 lower energy edge')
+      call assert_close_dp(upper_edge, captured%edge(bin_index), 1.0e-12_dp, 'batch 14 upper energy edge')
+    end do
+    close (unit_id)
+    ! Reproduce the public configuration eV -> K -> eV conversion as well.
+    captured_te = 10.0_dp*1.160451812e4_dp
+    captured_te = captured_te*1.380649e-23_dp/qe
+    call model%initialize('auto', 'continuation', 5.0e6_dp, captured_te, 4.0e5_dp, 4.0e5_dp, &
+                          mi, 9.1093837139e-31_dp, captured%energy_scale_ev, status, message)
+    call assert_equal_i32(status, matching_plane_zhao_ok, 'batch 14 model initialization')
+    if (status /= matching_plane_zhao_ok) return
+    call model%set_photoelectron_spectrum(captured)
+    previous%valid = .true.
+    previous%branch = 'B'
+    previous%phi0_v = 6.3426083082212781_dp
+    previous%phi_m_v = previous%phi0_v
+    previous%ambient_electron_density_m3 = 4.0565671561757475e6_dp
+    call model%solve_implicit_endpoint([1.6662817804987410e13_dp, 2.4528372846867743_dp, 0.0_dp, 0.0_dp], &
+                                       1.9174651506096518e-11_dp, 2.0_dp, -qe, qe, .true., -qe, &
+                                       previous, handled, displacement, output, candidate, status, message)
+    call assert_equal_i32(status, matching_plane_zhao_ok, 'batch 14 physical implicit endpoint: '//trim(message))
+    if (status /= matching_plane_zhao_ok) return
+    call assert_true(handled .and. candidate%valid .and. candidate%branch == 'B', 'batch 14 certified endpoint')
+    call assert_true(len_trim(message) == 0, 'successful implicit solve does not emit a failure diagnostic')
+    call assert_close_dp(output(1), 6.432956538216116_dp, 1.0e-9_dp, 'batch 14 independent interface potential')
+    call assert_close_dp(candidate%ambient_electron_density_m3, 4168219.508159956_dp, 0.05_dp, &
+                         'batch 14 independent electron density')
+    call assert_close_dp(displacement, 1.8389121567787426e-11_dp, 5.0e-17_dp, 'batch 14 independent displacement')
+    current = qe*(output(3) - output(2) + captured%tail_flux(output(1)))
+    call assert_close_dp(displacement - 1.9174651506096518e-11_dp - 2.0_dp*current, &
+                         0.0_dp, 5.0e-19_dp, 'batch 14 backward Euler charge balance')
+  end subroutine check_batch14_implicit_endpoint
+
+  subroutine check_unresolved_implicit_diagnostic()
+    type(matching_plane_zhao_model_type) :: model
+    type(matching_plane_zhao_root_seed_type) :: previous, candidate
+    real(dp) :: displacement, output(6)
+    logical :: handled
+
+    ! With no PE supply, the zero-field B state has an inward net current,
+    ! while positive-potential B samples have negative endpoint E^2.  The
+    ! finite search reports these observations without proving global absence.
+    call initialize(model, 'B', 0.2_dp)
+    call model%solve_implicit_endpoint([0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 2.0_dp, &
+                                       -qe, qe, .false., 0.0_dp, previous, handled, displacement, output, candidate, &
+                                       status, message)
+    call assert_true(handled, 'explicit B implicit search is handled')
+    call assert_equal_i32(status, matching_plane_zhao_numerical_failure, 'unresolved finite implicit search status')
+    call assert_true(index(message, 'search_unresolved;') == 1, 'finite search failure classification')
+    call assert_true(index(message, 'no absence proof') > 0, 'finite search does not claim mathematical absence')
+    call assert_true(index(message, 'E2neg=') > 0 .and. index(message, 'min_abs_F=') > 0, &
+                     'implicit failure retains field rejection and residual diagnostics')
+    call assert_true(.not. candidate%valid, 'failed search does not publish a root seed')
+  end subroutine check_unresolved_implicit_diagnostic
 
   subroutine check_captured_implicit_endpoints()
     ! First-batch replay spectrum captured on 2026-09-23.  Independent SciPy

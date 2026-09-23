@@ -49,6 +49,7 @@ module bem_matching_plane_response_provider
     type(pe_spectrum_type) :: pe_spectrum
   contains
     procedure, public :: set_photoelectron_spectrum
+    procedure, public :: write_failure_spectrum
     procedure, public :: photoelectron_escape_flux
     procedure, public :: initialize => initialize_matching_plane_response_provider
     procedure, public :: evaluate => evaluate_matching_plane_response_provider
@@ -114,6 +115,22 @@ contains
     self%pe_spectrum = spectrum
     call self%zhao%set_photoelectron_spectrum(spectrum)
   end subroutine set_photoelectron_spectrum
+
+  !> Preserve the actual closure input for an independent replay after a failed solve.
+  subroutine write_failure_spectrum(self, unit)
+    class(matching_plane_response_provider_type), intent(in) :: self
+    integer, intent(in) :: unit
+    integer :: bin
+
+    if (.not. allocated(self%pe_spectrum%flux)) return
+    write (unit, '(a)') 'matching-plane failed spectrum begin'
+    write (unit, '(a)') 'energy_low_ev,energy_high_ev,flux_m2_s'
+    do bin = 1, size(self%pe_spectrum%flux)
+      write (unit, '(es25.17,2(a,es25.17))') self%pe_spectrum%edge(bin - 1), ',', &
+        self%pe_spectrum%edge(bin), ',', self%pe_spectrum%flux(bin)
+    end do
+    write (unit, '(a)') 'matching-plane failed spectrum end'
+  end subroutine write_failure_spectrum
 
   real(dp) function photoelectron_escape_flux(self, feedback, response) result(flux)
     class(matching_plane_response_provider_type), intent(in) :: self

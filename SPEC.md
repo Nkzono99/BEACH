@@ -441,6 +441,7 @@ $$
 Sagdeev積分から$D_H(\Phi_H)$を求めます。spectrumのbin境界・四分点も探索し、狭い$D_H$区間の飛び越しを避けます。
 `continuation`の有効seedがあれば一意な最近傍根を選び、初期seedがなければ一意根を要求します。
 全数学根の列挙は保証せず、複数の陰的終点を検出順で選びません。
+Type Bの二分探索は残差許容値を維持し、区間幅だけでは打ち切らず、新しい中点を表現できなくなるまで最大96反復を行います。
 その他のonline条件では前のouter反復の終点（最初は$D_H^n$）をseedとし、
 validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
 seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
@@ -526,6 +527,25 @@ accepted responseからseedを再構成し、再構成できなければ初回mu
 設定したbranch policyで解が存在しない、branch制約を満たさない、Sagdeev積分が実数にならない、または非線形solveが
 収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
 `photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。
+
+陰的終点の失敗時はroot rankが標準エラーへ$D_{before}$、$D_{seed}$、時間幅、feedbackと有効な継続seedを記録します。
+spectrumがある場合は`matching-plane failed spectrum begin` / `matching-plane failed spectrum end`の間へ
+`energy_low_ev,energy_high_ev,flux_m2_s`をheaderとする全binのCSVを倍精度再現可能な桁数で出力します。
+flux列はbin内の積分数流束で、零binも省略しません。保存するのは失敗した応答の入力分布であり、
+直前のaccepted分布ではありません。分布が未割当ならこの区間は出力せず、空の割当分布ならheaderだけを出力します。
+このログはcheckpointを変更せず、未受理trialをcommitしません。有限探索で未検出、候補の物理棄却、数値検証失敗を
+区別し、全候補の棄却を全数学根の不存在証明とはしません。
+Type Bの有限電位探索は、未確定なら`search_unresolved`、検出候補がすべて物理棄却されて二分・非有限・応答評価の
+数値失敗がなければ`detected_roots_all_nonphysical`と記録します。どちらも`numerical_failure`を返し、
+`finite search, no absence proof`、主探索点の成否件数、bracketと検出候補・profile検査の件数、探索範囲、
+最小絶対残差とその電位、最初のprofile棄却理由を添えます。主探索点件数には二分の内部評価を含めません。
+最小絶対残差が−1なら有効評価点なし、検出候補数は重複除去前です。
+二分失敗は`mid_invalid`と`tol_miss`へ分け、二分探索中の最小絶対残差`bisect_best_F`と受理閾値`F_tol`（C/m2）を併記します。
+二分未実施なら`bisect_best_F=-1`です。`min_abs_F`は二分中の有効評価も含みます。
+解析専用の`tools/diagnose_matching_plane_failure.py`は元のTOMLと停止ログのexact spectrumからType Bを独立に検証し、
+候補検出と、電位区間の保守的上下界による排除を区別します。`absence_certificate.complete`は全Type B区間を排除した場合
+だけtrueとし、他branchを含む設定では`configuration.all_configured_branches_covered`も確認します。
+この排除はfloat64と丸め余裕に基づき、有向丸め区間演算による厳密証明ではありません。NumPy/SciPyはこの任意解析だけの依存です。
 
 online implicitのPEありでは、各outer feedback反復の現在値$X^m$で後退Euler終点を解き、同じtrialの粒子追跡で
 得たPE momentを緩和してから次の終点を解き直します。PE fluxが0のtrialでは平均energyは未定義なので、現在の

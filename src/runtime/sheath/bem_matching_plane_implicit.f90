@@ -72,6 +72,7 @@ contains
             'matching-plane failed seed: phi_H, phi_m [V], electron density [m-3]=', &
             root_before%phi0_v, root_before%phi_m_v, root_before%ambient_electron_density_m3
         end if
+        call provider%write_failure_spectrum(error_unit)
         flush (error_unit)
       end if
       error stop 128
