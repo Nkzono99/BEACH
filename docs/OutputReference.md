@@ -463,7 +463,7 @@ schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下�
 
 online implicit の bracket node と step-subdivision node は永続 table や checkpoint state ではありません。
 `continuation` は `summary.txt` に保存した accepted response から restart seed の再構成を試み、再構成できなければ
-minimum-energy bootstrap に戻ります。どの policy も必要な response を同じ Zhao contract から直接再評価するため、
+初回の一意根探索に戻ります。どの policy も必要な response を同じ Zhao contract から直接再評価するため、
 `matching_query.csv` や自動探索点の fingerprint はありません。
 
 実際の操作は[実行・再開する](Execution.html)を参照してください。

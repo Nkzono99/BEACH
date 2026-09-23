@@ -183,19 +183,21 @@ table の header、直積格子、整合面高度を `beach` の起動時に検�
 | --- | --- | --- |
 | `require_unique`（既定） | query ごとに一意な物理解を要求 | 一意性を確認できなければ停止 |
 | `minimum_energy` | 検出した候補から全シース電位エネルギーが最小の根を選ぶ | 根の切替で応答が不連続になり、陰的更新の終点が存在しなくなる場合がある |
-| `continuation` | 最後に受理した Type A root を seed として追跡 | 明示的な `zhao_branch="a"` と `implicit_zero_mode=true` が必須 |
+| `continuation` | 最後に受理した root を seed として追跡 | `implicit_zero_mode=true` が必須。`auto` / `a` / `b` / `c` に対応 |
 
 `continuation` を選ぶ場合は、既存の `[surface_current_model]` の該当キーを変更します。
 
 ```toml
 response_backend = "zhao_online"
-zhao_branch = "a"
+zhao_branch = "auto"
 implicit_zero_mode = true
 zhao_root_selection = "continuation"
 ```
 
-初回は最小エネルギーの Type A root を選びます。その後は前の受理根から追跡し、局所探索で再取得できなければ
-full multistart で一意な最近傍根を選びます。解なし、曖昧性、数値失敗では停止し、Type B / C へは切り替えません。
+初回は入力の温度・流束・電場尺度に応じた複数初期値から探索し、一意な物理解を要求します。
+その後は前の受理根から追跡し、局所探索で再取得できなければ full multistart で一意な最近傍根を選びます。
+同じ batch の feedback 反復では直前の有効根を使い、batch を受理した時点で次 batch 用の根を確定します。
+解なし、曖昧性、数値失敗では停止します。明示した branch は保持し、`auto` では検証済み A / B / C が候補です。
 同じ物理 family の保持や fold の通過を保証する方法ではありません。
 
 どの方針も、有限個の初期値で全数学根を検出したことや時間依存安定性を保証しません。
@@ -238,7 +240,7 @@ online Zhao の branch と barrier は次の関係です。
 
 | branch | $\Phi_H$ | electron access / PE barrier |
 |---|---:|---:|
-| Type A | 正 | $\phi_m<0$ |
+| Type A | $\Phi_H>\phi_m$（負も可） | $\phi_m<\min(0,\Phi_H)$ |
 | Type B | 正（$D_H=0$ では 0） | 0 V |
 | Type C | 負 | 0 V |
 
@@ -272,7 +274,7 @@ accepted state の全 17 列、summary receipt、時刻の意味は
 | table query が範囲外 | active 軸の sweep が過渡状態を覆っていない | 外挿せず、物理的に検証した範囲で表を再生成する |
 | 固定点が反復上限に到達して warning 付きで継続 | 粒子 noise、強すぎる feedback、狭すぎる許容値 | 履歴で頻度と残差を確認する。必要なら ray / macro 粒子数、緩和係数、許容値を調整する |
 | online Zhao に物理解がない、または曖昧 | $D_H$ と branch の不整合、複数根、数値失敗 | `a` / `b` / `c` を個別に scan。必要なら検証後に `minimum_energy` を使う |
-| `continuation` が停止 | full multistart で Type A root を検出できない、探索・profile 検査が数値的に失敗、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の Type A 可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
+| `continuation` が停止 | 初回の一意根を確認できない、full multistart で root を検出できない、探索・profile 検査が数値的に失敗、または最近傍 root の距離が数値的に区別できない | accepted state 周辺の可解性を調べ、`batch_duration` を小さくする。固定点 tolerance miss とは区別する |
 | table implicit root を bracket できない | 応答表内に backward-Euler 終点がない | [`implicit_zero_mode` の契約](MatchingPlaneReference.html#implicit_zero_mode)に沿って $D_H$ 範囲を見直すか `batch_duration` を小さくする |
 | online implicit root を bracket できない | Zhao branch が終わるか、幾何拡張または signed natural-scale scan で符号変化がない | branch と初期電荷を確認し、必要なら `batch_duration` を小さくする |
 | soft discard の率上限または電荷警告に到達 | 周期境界 event の未解決粒子が増えている | [soft discard の停止条件](ParticleEvents.html#境界通過後の残り時間を進める)に従い、batch ごとの burst、累積率、絶対電荷を調べる |
@@ -305,16 +307,16 @@ matching-plane は平均場や粒子 channel の二重計上を防ぐため、�
 - BEACH 領域内の volume plasma charge
 - online Zhao v1 における ambient 外向き population の外部 return
 
-online Zhao は PE の束と平均法線 energy を、その 2 moment を再現する half-Maxwellian へ縮約します。
-そのため、高 energy tail は保持しません。
-ambient 側も、有限 drift では現行シース密度式と流入 VDF の速度積分が一般に一致しません。
-流入束の一致だけで完全な kinetic 整合性を判断せず、
-[密度との整合性](MatchingPlaneReference.html#ambient-vdf-とシース密度の整合性)を確認してください。
+online Zhao の既定 moment closure は PE を 2 moment の half-Maxwellian へ縮約するため、tail の形を保持しません。
+`energy_spectrum` は測定した法線 energy 分布を bin 内一定として使い、この縮約を避けます。
+ambient 密度は流入 VDF の軌道写像に整合しますが、無限遠の中性・零電場条件と全 profile の実数性が必要です。
+正の内向き電子 drift を持つ Type A / C の制約は、
+[密度と上流条件](MatchingPlaneReference.html#ambient-vdf-とシース密度の整合性)を確認してください。
 
 `auto` の複数根判定は有限個の multistart で見つけた根の比較であり、数学的な root isolation ではありません。
 branch 別の検証では `a` / `b` / `c` を明示して scan します。
 
-`require_unique` と `minimum_energy` は query ごとに stateless です。`continuation` は前の accepted Type A root を
+`require_unique` と `minimum_energy` は query ごとに stateless です。`continuation` は前の accepted root を
 次の探索の seed として保持します。どの policy も、解けない場合に明示 branch や backend を暗黙に切り替えません。
 
 これらが主要効果なら、独立した 1D--3D kinetic coupling または full PIC で検証します。応答表の grid、固定点許容値、

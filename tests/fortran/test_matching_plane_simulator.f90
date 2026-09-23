@@ -26,7 +26,7 @@ program test_matching_plane_simulator
   type(injection_state) :: inject_state
   type(charge_ledger_type) :: implicit_ledger, no_photo_ledger
   integer :: history_unit
-  real(dp) :: cancellation_area, displacement_reference
+  real(dp) :: cancellation_area, displacement_reference, implicit_endpoint
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
@@ -314,6 +314,7 @@ program test_matching_plane_simulator
   call configure_fixture(mesh, cfg, inject_state)
   call configure_online_backend(cfg)
   call configure_no_photo_fixture(cfg, inject_state)
+  cfg%particle_species(1)%drift_velocity(3) = 0.0_dp
   cfg%surface_current%implicit_zero_mode = .true.
   cfg%sim%dt = 2.0e-6_dp
   cfg%sim%max_step = 2_i32
@@ -331,16 +332,16 @@ program test_matching_plane_simulator
     )
   call test_end()
 
-  call test_begin('strong_photo_type_a_continuation_bootstraps_one_batch')
+  call test_begin('strong_photo_auto_continuation_bootstraps_from_uncharged_state')
   call configure_fixture(mesh, cfg, inject_state)
   call configure_online_backend(cfg)
-  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%zhao_branch = 'auto'
   cfg%surface_current%zhao_root_selection = 'continuation'
   cfg%surface_current%implicit_zero_mode = .true.
   ! A small ray ensemble preserves the exact outward number flux and gives the
   ! fixed-current closure a nonempty return channel.  A tight energy
-  ! tolerance forces feedback replay, so every provisional endpoint
-  ! must remain a bootstrap until the first batch is accepted.
+  ! tolerance forces feedback replay. The first unique endpoint seeds later
+  ! iterations in this trial; it is committed only when the batch is accepted.
   cfg%surface_current%coupling_atol(2) = 0.0_dp
   cfg%surface_current%coupling_max_iterations = 2_i32
   cfg%sim%batch_duration = 0.5_dp
@@ -348,7 +349,7 @@ program test_matching_plane_simulator
   cfg%sim%max_step = 128_i32
   cfg%particle_species(1)%number_density_m3 = 5.0e6_dp
   cfg%particle_species(1)%temperature_ev = 10.0_dp
-  cfg%particle_species(1)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(1)%drift_velocity(3) = 0.0_dp
   cfg%particle_species(1)%w_particle = 1.0e10_dp
   cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
   cfg%particle_species(2)%temperature_ev = 0.1_dp
@@ -360,10 +361,10 @@ program test_matching_plane_simulator
   call seed_particles_from_config(cfg)
   call run_absorption_insulator(mesh, cfg, resumed_stats, inject_state=inject_state)
   displacement_reference = sqrt(eps0*5.0e6_dp*qe*10.0_dp)
-  call assert_true(resumed_stats%matching_plane_state_valid, 'strong-PE Type-A state was not committed')
+  call assert_true(resumed_stats%matching_plane_state_valid, 'strong-PE auto state was not committed')
   call assert_true( &
     resumed_stats%matching_plane_displacement_c_m2/displacement_reference > 0.0_dp, &
-    'strong-PE Type-A backward-Euler endpoint is not positive' &
+    'strong-PE auto backward-Euler endpoint is not positive' &
     )
   call assert_equal_i32( &
     resumed_stats%matching_plane_iterations, cfg%surface_current%coupling_max_iterations, &
@@ -371,12 +372,12 @@ program test_matching_plane_simulator
     )
   call assert_true( &
     resumed_stats%matching_plane_residual >= 0.0_dp, &
-    'strong-PE Type-A bootstrap committed a non-finite residual' &
+    'strong-PE auto bootstrap committed a non-finite residual' &
     )
-  call assert_true(resumed_stats%matching_plane_phi_v > 0.0_dp, 'strong-PE Type-A matching potential is not positive')
+  call assert_true(resumed_stats%matching_plane_phi_v > 0.0_dp, 'strong-PE auto matching potential is not positive')
   call assert_true( &
-    resumed_stats%matching_plane_response(6) < 0.0_dp, &
-    'strong-PE Type-A profile did not retain a negative potential minimum' &
+    resumed_stats%matching_plane_response(6) <= min(resumed_stats%matching_plane_phi_v, 0.0_dp), &
+    'strong-PE auto escape barrier is inconsistent with the endpoint potential' &
     )
   call assert_close_dp( &
     qe*resumed_stats%matching_plane_feedback(1), 4.5e-6_dp, 1.0e-18_dp, &
@@ -399,6 +400,7 @@ program test_matching_plane_simulator
   cfg%sim%dt = 1.0e-7_dp
   cfg%sim%max_step = 32_i32
   cfg%particle_species(1)%w_particle = 1.0e4_dp
+  cfg%particle_species(1)%drift_velocity(3) = 0.0_dp
   cfg%particle_species(2)%w_particle = 1.0e4_dp
   cfg%particle_species(3)%temperature_ev = 2.2_dp
   cfg%particle_species(3)%rays_per_batch = 512_i32
@@ -411,10 +413,13 @@ program test_matching_plane_simulator
   stats%simulated_time = cfg%sim%batch_duration
   stats%matching_plane_state_valid = .true.
   stats%matching_plane_displacement_c_m2 = 1.4187346568707933e-11_dp
-  stats%matching_plane_phi_v = 2.9712182740209556_dp
+  ! Independently integrated zero-electron-drift A root at E_H = 1.6 V/m.
+  stats%matching_plane_phi_v = 3.393550813392_dp
   stats%matching_plane_response = [ &
-                                  2.9712182740209556_dp, 5.9844426451342832e12_dp, 3.5261090340487202e12_dp, &
-                                  -0.81691219174628227_dp, 0.0_dp, -0.81691219174628227_dp &
+                                  3.393550813392_dp, &
+                                  9.428939104546e6_dp*sqrt(qe*12.0_dp/(2.0_dp*acos(-1.0_dp)*9.1093837015e-31_dp))* &
+                                  exp(-0.534079400853_dp/12.0_dp), 3.5261090340487202e12_dp, &
+                                  -0.534079400853_dp, 0.0_dp, -0.534079400853_dp &
                                   ]
   stats%matching_plane_feedback = [1.3754433596232731e13_dp, 2.2_dp, 0.0_dp, 0.0_dp]
   call seed_particles_from_config(cfg)
@@ -445,9 +450,8 @@ program test_matching_plane_simulator
   call configure_online_backend(cfg)
   cfg%surface_current%zhao_branch = 'a'
   cfg%surface_current%implicit_zero_mode = .true.
-  ! Start the outer iteration from the legacy H-plane moment.  The ray sample
-  ! then reports the H-plane moment produced by the 4.5-microampere surface
-  ! source, so the next endpoint solve must leave the old Type-A interval.
+  ! Start from a weaker H-plane source. The measured stronger source requires
+  ! a new endpoint; verify its charge balance independently of its location.
   cfg%surface_current%coupling_atol(2) = 10.0_dp
   cfg%surface_current%coupling_relaxation = 1.0_dp
   cfg%sim%batch_duration = 0.5_dp
@@ -455,7 +459,7 @@ program test_matching_plane_simulator
   cfg%sim%max_step = 128_i32
   cfg%particle_species(1)%number_density_m3 = 5.0e6_dp
   cfg%particle_species(1)%temperature_ev = 10.0_dp
-  cfg%particle_species(1)%drift_velocity(3) = -4.0e5_dp
+  cfg%particle_species(1)%drift_velocity(3) = 0.0_dp
   cfg%particle_species(1)%w_particle = 1.0e10_dp
   cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
   cfg%particle_species(2)%temperature_ev = 0.1_dp
@@ -473,10 +477,14 @@ program test_matching_plane_simulator
   call run_absorption_insulator( &
     mesh, cfg, resumed_stats, initial_stats=stats, inject_state=inject_state &
     )
-  call assert_true( &
-    resumed_stats%matching_plane_displacement_c_m2/displacement_reference > 2.5_dp .and. &
-    resumed_stats%matching_plane_displacement_c_m2/displacement_reference < 3.1_dp, &
-    'Type-A endpoint did not move into the updated strong-PE interval' &
+  implicit_endpoint = cfg%sim%batch_duration*qe*( &
+                      resumed_stats%matching_plane_response(3) - resumed_stats%matching_plane_response(2) + &
+                      resumed_stats%matching_plane_response_input(2)*exp( &
+                      -(resumed_stats%matching_plane_phi_v - resumed_stats%matching_plane_response(6))/ &
+                      resumed_stats%matching_plane_response_input(3)))
+  call assert_close_dp( &
+    resumed_stats%matching_plane_displacement_c_m2, implicit_endpoint, 1.0e-3_dp*displacement_reference, &
+    'updated Type-A endpoint violates backward-Euler current balance' &
     )
   call assert_true(resumed_stats%matching_plane_iterations >= 2_i32, 'online implicit feedback was not replayed')
   call assert_true( &

@@ -420,15 +420,15 @@ access potentialと$\Phi_H$へ写像するため、potential列だけの定数sh
 singletonのfeedback軸2--5を要求します。singleton参照値はPEありでは
 $\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、PEなしではこの2値を両方0とし、どちらも
 $\Gamma_e^{out}=\Gamma_i^{out}=0$とします。onlineはresponse/query CSVを要求せず、現在のfeedbackを使います。
-PEありではhalf-Maxwellian近似から
+PEありのmoment closureまたはtableではhalf-Maxwellian近似から
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
-\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
+\exp\left[-\frac{\max(0,\Phi_H(D)-\Phi_{pe,barrier}(D))}
 {\langle K_{pe,n}^{out}\rangle}\right]
 $$
 
-を求め、
+を求めます。`energy_spectrum`では代わりに測定分布を障壁以上で積分し、
 
 $$
 D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
@@ -442,7 +442,8 @@ seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$
 未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
 縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解きます。有限なbracketを
 最後まで縮小しても残差が許容値の8倍を超える場合は、残差が小さい方の有限端点をwarning付きで受理します。
-signed scanは明示A/B/C branchだけに適用します。既定の`zhao_root_selection="require_unique"`では、`auto`が
+`auto` + `continuation`は未解決の初期点から両符号を走査し、有効根を見つけた区間ではそのrootを局所seedにします。
+未受理の局所seedは次batchへcommitしません。既定の`zhao_root_selection="require_unique"`では、`auto`が
 seedで一意な物理解を返さない場合は、探索中にbranchを選ばずfail closedとします。したがってimplicit化だけでは
 branch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
 局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
@@ -456,7 +457,7 @@ PE target を生成しません。
 
 `response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`と
 `zhao_root_selection="require_unique" / "minimum_energy" / "continuation"`を受理します。`continuation`は
-`zhao_branch="a"`かつ`implicit_zero_mode=true`に限定します。table backendとstationary Zhaoは
+`implicit_zero_mode=true`を要求し、`auto` / `a` / `b` / `c`の全branch policyに対応します。table backendとstationary Zhaoは
 `zhao_root_selection`を拒否します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
 Sagdeev A/B/C rootを解きます。これは壁面の零電流根ではなく、零電流条件を課さないcharge-driven responseです。
 既定の`require_unique`では、`auto`が複数の物理解を検出した場合、または数値失敗により一意なbranchを
@@ -471,16 +472,23 @@ $$
 v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
 電位エネルギー比較も時間依存安定性の証明ではありません。
 
-`continuation`の初回queryは`minimum_energy`と同じmultistartでType A rootを選びます。以後は最後にacceptedとなった
-endpointの$(\phi_0,\phi_m,n_{e,\infty})$をNewton seedにします。候補とseedをType Aの対数未知数へ写像したときの
-最大成分差が0.25以下なら局所Newtonの根を受理します。Newton失敗、rootのdecode失敗、profile検証失敗、または
-この距離を超える場合だけfull multistartへ戻り、検出したType A rootのうちseedに最も近いものを調べます。
+各branchの初期値は最大8個です。PE分布の流束中央値・平均energy、電場の電位尺度
+$\epsilon_0E_H^2/(en_i)$、電子温度、冷イオン運動energyの上限から電位候補を作り、各候補の上流中性から
+ambient密度を初期化します。固定のVやm$^{-3}$の初期値は使いません。
+
+`continuation`の初回queryは有限multistartで`require_unique`と同じ一意根条件を要求し、energy順位を使いません。
+batch trialは最後のaccepted endpointから始め、有効endpointが得られた後は、そのrootを次のfeedback反復の
+Newton seedにします。初回batchも同じ規則です。距離は境界電位差と経路最低電位差を$T_{pe}$で
+割った値、ambient密度比の対数絶対値の最大値です。経路最低電位はAで$\phi_m$、Bで0、Cで$\Phi_H$です。
+距離0.25以下なら局所Newtonの根を受理します。Newton失敗、decode失敗、profile検証失敗、または
+この距離を超える場合だけfull multistartへ戻り、設定branch policy内の検出根でseedに最も近いものを調べます。
 最近傍距離を$d_1$、2番目を$d_2$としたとき、
 $|d_2-d_1|\le10^{-6}\max(1,d_1)$なら、guessの検出順では選ばず曖昧状態として停止します。それ以外は最近傍rootを
 距離0.25の内外にかかわらず受理します。0.25は局所Newton fast pathの受理上限であり、full multistart後の
-root familyに対する物理的な距離上限ではありません。full multistartでType A rootを検出できない場合、または
+root familyに対する物理的な距離上限ではありません。full multistartでrootを検出できない場合、または
 探索・profile検証が数値的に失敗した場合は停止します。有効rootの直後で解なしまたは数値失敗となったimplicit probeは、
-branch終端を粗く飛び越えないよう二分を試します。この規則はA/B/Cを暗黙に切り替えず、同じ物理familyの保持や
+branch終端を粗く飛び越えないよう二分を試します。明示branchは保持し、`auto`では検証済みA/B/C候補を比較します。
+この規則は同じ物理familyの保持や
 pseudo-arclength continuationのようなfoldの位置・通過も保証しません。
 `beach-zhao-response`にはaccepted endpointがないため、history-dependentな`continuation`を指定した表生成は拒否します。
 最小エネルギー根の切替でresponseが不連続になり、backward-Euler残差が零点を持たず不連続だけをまたぐ場合は、
@@ -506,7 +514,8 @@ spectrum modeのPE平均energyはbin表現から計算するため、標本平�
 
 online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
 反映しません。`require_unique`と`minimum_energy`の各queryはstatelessです。`continuation`はaccepted endpointのrootだけを
-次batchのseedとして保持し、棄却したimplicit probe、固定点trial、adaptive trialをcommitしません。restartでは既存の
+次batchのseedとして保持し、棄却したimplicit probe、固定点trial、adaptive trialをcommitしません。
+trial内の継続seedはtrialの棄却時に破棄します。restartでは既存の
 accepted responseからseedを再構成し、再構成できなければ初回multistartへ戻ります。outer inventoryとflight-time queueは
 どのpolicyも保存しません。
 設定したbranch policyで解が存在しない、branch制約を満たさない、Sagdeev積分が実数にならない、または非線形solveが
@@ -518,9 +527,15 @@ online implicitのPEありでは、各outer feedback反復の現在値$X^m$で�
 canonical energyを保ち、escape fluxを0とします。このnested反復によりPE returnと$D_H^{n+1}$を整合させます。
 
 online Zhaoは平面・無衝突・非磁化、全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、
-正の無限遠ion密度、ambient electron / ionの正の内向きdrift
-（`drift_velocity`のz成分は負）を要求します。設定検査は
+正の無限遠ion密度、ambient electronの非負・ionの正の内向きdrift
+（`drift_velocity`のz成分はelectronが0以下、ionが負）を要求します。設定検査は
 これらを満たさないcaseを拒否します。PE指定時はambient electronとPEの同一質量および$T_{pe}>0$も要求します。
+
+ambient電子密度は流入束と同じ上流drifting Maxwellianをエネルギー保存で写像し、速度下限と反射群を保ちます。
+有限driftをBoltzmann因子とずらしたerfcの積で代用しません。PE密度も放出点からの軌道と反射・透過範囲を保ち、
+Type Aは$\phi_m<\min(0,\Phi_H)$を要求して$\Phi_H<0$も許容します。Sagdeevの符号付き残差と全profileの
+$E^2\ge0$を検査します。正の内向きelectron driftと低速電子の完全反射を持つA/Cは、厳密な無限遠中性・零電場条件では
+成立しません。有限上流境界の別問題は本modelに追加しません。
 
 各batch trialでは、表面総電荷とlower boundaryから
 

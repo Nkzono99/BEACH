@@ -5,7 +5,7 @@
 !! 定常表面電流の零電流条件は課さないため、BEACH 側の帯電過程を消去しない。
 !! 平面・半無限の外部問題は z 方向に並進対称なので、絶対高度 H は数値式に
 !! 入らず、runtime がこの応答を domain の z-high gauge へ結び付ける。
-!! 既定policyはqueryごとにstatelessで、opt-inのType A continuationだけが
+!! 既定policyはqueryごとにstatelessで、opt-inのcontinuationだけが
 !! 呼出側から渡されたaccepted endpoint rootをseedとして使う。
 !! この module は公開型と評価の入口を持ち、物理式を physics、Newton 法を
 !! numerics、根の選択と継続を roots の非公開 submodule へ委譲する。
@@ -23,7 +23,7 @@ module bem_matching_plane_zhao
     matching_plane_output_ion_inward_flux, matching_plane_output_electron_access_potential, &
     matching_plane_output_ion_access_potential, matching_plane_output_photoelectron_barrier_potential
   use bem_sheath_model_core, only: &
-    zhao_params_type, swe_free_current_term
+    zhao_params_type, swe_free_current_term, evaluate_zhao_density_hat
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -33,6 +33,8 @@ module bem_matching_plane_zhao
   integer(i32), parameter, public :: matching_plane_zhao_no_physical_solution = 2_i32
   integer(i32), parameter, public :: matching_plane_zhao_numerical_failure = 3_i32
   integer(i32), parameter, public :: matching_plane_zhao_ambiguous_solution = 4_i32
+
+  integer, parameter :: matching_root_seed_count = 8
 
   type, public :: matching_plane_zhao_diagnostics_type
     character(len=1) :: branch = ' '
@@ -50,6 +52,7 @@ module bem_matching_plane_zhao
   end type matching_plane_zhao_diagnostics_type
 
   type, public :: matching_plane_zhao_root_seed_type
+    character(len=1) :: branch = ' '
     logical :: valid = .false.
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
@@ -84,7 +87,7 @@ module bem_matching_plane_zhao
     procedure, public :: set_photoelectron_spectrum
     procedure, public :: initialize => initialize_matching_plane_zhao
     procedure, public :: evaluate => evaluate_matching_plane_zhao
-    procedure, public :: reconstruct_seed => reconstruct_matching_plane_zhao_type_a_seed
+    procedure, public :: reconstruct_seed => reconstruct_matching_plane_zhao_seed
     procedure, public :: get_feedback_scales => get_matching_plane_zhao_feedback_scales
     procedure, public :: is_initialized => matching_plane_zhao_is_initialized
   end type matching_plane_zhao_model_type
@@ -100,23 +103,25 @@ module bem_matching_plane_zhao
       character(len=*), intent(out) :: message
     end subroutine solve_matching_root
 
-    module subroutine solve_matching_type_a_continuation( &
-      params, interface_field_v_m, seed, root, fallback_used, root_jump, status, message &
+    module subroutine solve_matching_continuation( &
+      model, params, interface_field_v_m, seed, root, fallback_used, root_jump, status, message &
       )
       type(zhao_params_type), intent(in) :: params
       real(dp), intent(in) :: interface_field_v_m
+      character(len=*), intent(in) :: model
       type(matching_plane_zhao_root_seed_type), intent(in) :: seed
       type(zhao_matching_root_type), intent(out) :: root
       logical, intent(out) :: fallback_used
       real(dp), intent(out) :: root_jump
       integer(i32), intent(out) :: status
       character(len=*), intent(out) :: message
-    end subroutine solve_matching_type_a_continuation
+    end subroutine solve_matching_continuation
 
-    module subroutine make_matching_branch_guesses(params, branch, guesses, count)
+    module subroutine make_matching_branch_guesses(params, branch, target_field_hat, guesses, count)
       type(zhao_params_type), intent(in) :: params
       character(len=1), intent(in) :: branch
-      real(dp), intent(out) :: guesses(3, 8)
+      real(dp), intent(in) :: target_field_hat
+      real(dp), intent(out) :: guesses(3, matching_root_seed_count)
       integer, intent(out) :: count
     end subroutine make_matching_branch_guesses
 
@@ -251,10 +256,6 @@ contains
       message = 'matching-plane Zhao root selection must be require_unique, minimum_energy, or continuation.'
       return
     end select
-    if (self%root_selection == 'continuation' .and. self%branch_model /= 'a') then
-      message = 'matching-plane Zhao continuation requires an explicit Type-A branch.'
-      return
-    end if
     if (.not. all(ieee_is_finite([ &
                                  ion_density_m3, electron_temperature_ev, electron_drift_mps, ion_drift_mps, &
                                  ion_mass_kg, electron_mass_kg, configured_photoelectron_temperature_ev &
@@ -321,15 +322,15 @@ contains
     if (present(continuation_seed)) have_continuation_seed = continuation_seed%valid
     if (self%root_selection == 'continuation' .and. have_continuation_seed) then
       local_diagnostics%continuation_used = .true.
-      call solve_matching_type_a_continuation( &
-        params, interface_field_v_m, continuation_seed, root, continuation_fallback_used, &
+      call solve_matching_continuation( &
+        trim(self%branch_model), params, interface_field_v_m, continuation_seed, root, continuation_fallback_used, &
         continuation_root_jump, status, message &
         )
       local_diagnostics%continuation_fallback_used = continuation_fallback_used
       local_diagnostics%continuation_root_jump = continuation_root_jump
     else if (self%root_selection == 'continuation') then
       call solve_matching_root( &
-        'a', 'minimum_energy', params, interface_field_v_m, root, status, message &
+        trim(self%branch_model), 'require_unique', params, interface_field_v_m, root, status, message &
         )
     else
       call solve_matching_root( &
@@ -353,7 +354,8 @@ contains
       call assign_diagnostics(diagnostics, local_diagnostics)
       return
     end if
-    if (present(continuation_candidate) .and. root%branch == 'A') then
+    if (present(continuation_candidate)) then
+      continuation_candidate%branch = root%branch
       continuation_candidate%valid = .true.
       continuation_candidate%phi0_v = root%phi0_v
       continuation_candidate%phi_m_v = root%phi_m_v
@@ -362,7 +364,7 @@ contains
     call assign_diagnostics(diagnostics, local_diagnostics)
   end subroutine evaluate_matching_plane_zhao
 
-  subroutine reconstruct_matching_plane_zhao_type_a_seed( &
+  subroutine reconstruct_matching_plane_zhao_seed( &
     self, input, response, seed, status, message &
     )
     class(matching_plane_zhao_model_type), intent(in) :: self
@@ -383,10 +385,6 @@ contains
       message = 'matching-plane Zhao model is not initialized.'
       return
     end if
-    if (self%branch_model /= 'a') then
-      message = 'matching-plane Zhao Type-A seed reconstruction requires an explicit Type-A model.'
-      return
-    end if
     if (.not. all(ieee_is_finite(response))) then
       message = 'matching-plane Zhao restart response must be finite.'
       return
@@ -396,10 +394,25 @@ contains
       self, input, params, photoelectron_temperature_ev, photoelectron_source_density_m3, status, message &
       )
     if (status /= matching_plane_zhao_ok) return
+    status = matching_plane_zhao_invalid_argument
 
     seed%phi0_v = response(matching_plane_output_matching_potential)
     seed%phi_m_v = response(matching_plane_output_electron_access_potential)
-    electron_cutoff = sqrt(max(0.0_dp, -seed%phi_m_v/params%t_swe_ev)) - params%u
+    if (seed%phi_m_v < min(seed%phi0_v, 0.0_dp)) then
+      seed%branch = 'A'
+    else if (seed%phi0_v < 0.0_dp) then
+      seed%branch = 'C'
+      seed%phi_m_v = seed%phi0_v
+    else
+      seed%branch = 'B'
+      seed%phi_m_v = seed%phi0_v
+    end if
+    if (self%branch_model /= 'auto' .and. &
+        trim(self%branch_model) /= lower_ascii(seed%branch)) then
+      message = 'matching-plane Zhao restart response disagrees with the requested branch.'
+      return
+    end if
+    electron_cutoff = sqrt(max(0.0_dp, -min(seed%phi_m_v, 0.0_dp)/params%t_swe_ev)) - params%u
     unit_density_electron_term = swe_free_current_term(params, 1.0_dp, electron_cutoff)
     number_flux_scale = params%v_phe_th_mps/(2.0_dp*sqrt(pi))
     flux_coefficient = number_flux_scale*unit_density_electron_term
@@ -412,16 +425,15 @@ contains
     end if
     seed%ambient_electron_density_m3 = &
       response(matching_plane_output_electron_inward_flux)/flux_coefficient
-    seed%valid = seed%phi0_v > 0.0_dp .and. seed%phi_m_v < 0.0_dp .and. &
-                 ieee_is_finite(seed%ambient_electron_density_m3) .and. &
+    seed%valid = ieee_is_finite(seed%ambient_electron_density_m3) .and. &
                  seed%ambient_electron_density_m3 > 0.0_dp
     if (.not. seed%valid) then
       seed = matching_plane_zhao_root_seed_type()
-      message = 'matching-plane Zhao restart response is not a valid Type-A root seed.'
+      message = 'matching-plane Zhao restart response is not a valid root seed.'
       return
     end if
     status = matching_plane_zhao_ok
-  end subroutine reconstruct_matching_plane_zhao_type_a_seed
+  end subroutine reconstruct_matching_plane_zhao_seed
 
   subroutine get_matching_plane_zhao_feedback_scales(self, scales, status, message)
     class(matching_plane_zhao_model_type), intent(in) :: self

@@ -13,15 +13,12 @@ contains
 
   module procedure solve_matching_root
 
-  character(len=1) :: order(3), candidate
-  type(zhao_matching_root_type) :: trial_root, successful_root, successful_roots(3)
-  real(dp) :: field_scale, target_field_hat, degenerate_density_m3, pe_free, pe_returning
-  integer :: candidate_count, candidate_index, successful_count
-  logical :: saw_numerical_failure, saw_ambiguous_solution
+  type(zhao_matching_root_type) :: roots(3*matching_root_seed_count)
+  real(dp) :: field_scale, target_field_hat
+  integer :: root_count
+  logical :: saw_nonphysical, saw_numerical
 
   root = zhao_matching_root_type()
-  status = matching_plane_zhao_no_physical_solution
-  message = ''
   field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
   target_field_hat = interface_field_v_m/field_scale
   if (.not. all(ieee_is_finite([field_scale, target_field_hat])) .or. field_scale <= 0.0_dp) then
@@ -29,92 +26,90 @@ contains
     message = 'matching-plane Zhao field normalization is invalid.'
     return
   end if
-
-  call matching_branch_order(model, target_field_hat, order, candidate_count, status, message)
+  call collect_matching_roots(model, params, target_field_hat, roots, root_count, &
+                              saw_nonphysical, saw_numerical, status, message)
   if (status /= matching_plane_zhao_ok) return
-  if (abs(target_field_hat) <= zero_field_tolerance_hat) then
-    if (trim(model) /= 'auto' .and. trim(model) /= 'b') then
-      status = matching_plane_zhao_no_physical_solution
-      message = 'requested Zhao branch does not contain the zero-field state.'
-      return
-    end if
-    degenerate_density_m3 = ( &
-                            2.0_dp*params%n_swi_inf_m3 - params%n_phe0_m3 &
-                            )/(1.0_dp + erf(params%u))
-    if (allocated(params%pe_spectrum%flux)) then
-      call params%pe_spectrum%density(0.0_dp, 0.0_dp, 0.0_dp, params%m_e_kg, pe_free, pe_returning, .true.)
-      degenerate_density_m3 = 2.0_dp*(params%n_swi_inf_m3 - pe_free)/(1.0_dp + erf(params%u))
-    end if
-    if (.not. ieee_is_finite(degenerate_density_m3) .or. degenerate_density_m3 <= 0.0_dp) then
-      status = matching_plane_zhao_no_physical_solution
-      message = 'zero-field Zhao-B state has no positive ambient electron density.'
-      return
-    end if
-    root%branch = 'B'
-    root%ambient_electron_density_m3 = degenerate_density_m3
-    root%residual_norm = 0.0_dp
-    root%minimum_field_squared_hat = 0.0_dp
-    root%potential_energy_j_m2 = 0.0_dp
-    root%nonlinear_iterations = 0_i32
-    status = matching_plane_zhao_ok
-    message = 'zero-field degenerate Zhao-B state'
-    return
-  end if
-
-  saw_numerical_failure = .false.
-  saw_ambiguous_solution = .false.
-  successful_count = 0
-  successful_root = zhao_matching_root_type()
-  do candidate_index = 1, candidate_count
-    candidate = order(candidate_index)
-    call solve_one_matching_branch( &
-      params, candidate, target_field_hat, root_selection, trial_root, status, message &
-      )
-    if (status == matching_plane_zhao_ok) then
-      successful_count = successful_count + 1
-      successful_roots(successful_count) = trial_root
-      if (successful_count == 1) successful_root = trial_root
-    end if
-    if (status == matching_plane_zhao_numerical_failure) saw_numerical_failure = .true.
-    if (status == matching_plane_zhao_ambiguous_solution) saw_ambiguous_solution = .true.
-  end do
-  if (saw_ambiguous_solution) then
-    status = matching_plane_zhao_ambiguous_solution
-    message = 'matching-plane Zhao branch search found multiple roots within one branch.'
-    return
-  end if
-  if (successful_count == 1 .and. saw_numerical_failure .and. trim(model) == 'auto') then
+  if (saw_numerical) then
     status = matching_plane_zhao_numerical_failure
-    message = 'matching-plane Zhao auto selection could not certify a unique branch.'
-    return
-  else if (successful_count == 1) then
-    root = successful_root
-    status = matching_plane_zhao_ok
-    message = ''
-    return
-  else if (successful_count > 1) then
-    if (saw_numerical_failure .and. trim(model) == 'auto' .and. &
-        trim(root_selection) == 'minimum_energy') then
-      status = matching_plane_zhao_numerical_failure
-      message = 'matching-plane Zhao minimum-energy selection could not certify every candidate branch.'
-    else if (trim(root_selection) == 'minimum_energy') then
-      call select_minimum_energy_root( &
-        params, successful_roots, successful_count, root, status, message &
-        )
+    message = 'matching-plane Zhao candidate profile could not be certified numerically.'
+  else if (root_count == 1) then
+    root = roots(1)
+    if (trim(root_selection) == 'minimum_energy') then
+      call evaluate_root_potential_energy(params, root, status, message)
+    end if
+  else if (root_count > 1) then
+    if (trim(root_selection) == 'minimum_energy') then
+      call select_minimum_energy_root(params, roots, root_count, root, status, message)
     else
       status = matching_plane_zhao_ambiguous_solution
-      message = 'matching-plane Zhao auto selection is ambiguous across multiple physical branches.'
+      message = 'matching-plane Zhao search found multiple physical roots.'
     end if
-    return
-  end if
-  if (saw_numerical_failure) then
+  else if (saw_nonphysical) then
+    status = matching_plane_zhao_no_physical_solution
+    message = 'all located Zhao candidates have nonphysical connecting profiles.'
+  else
     status = matching_plane_zhao_numerical_failure
     message = 'matching-plane Zhao branch search did not converge.'
-  else
-    status = matching_plane_zhao_no_physical_solution
-    message = 'no Zhao branch satisfies the prescribed matching-plane field.'
   end if
   end procedure solve_matching_root
+
+  subroutine collect_matching_roots(model, params, target_field_hat, roots, root_count, &
+                                    saw_nonphysical, saw_numerical, status, message)
+    character(len=*), intent(in) :: model
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: target_field_hat
+    type(zhao_matching_root_type), intent(out) :: roots(3*matching_root_seed_count)
+    integer, intent(out) :: root_count
+    logical, intent(out) :: saw_nonphysical, saw_numerical
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    character(len=1) :: order(3)
+    type(zhao_matching_root_type) :: branch_roots(matching_root_seed_count)
+    integer :: branch_count, branch_index, count, index, previous
+    logical :: nonphysical, numerical, duplicate, any_compatible
+
+    roots = zhao_matching_root_type()
+    root_count = 0
+    saw_nonphysical = .false.
+    saw_numerical = .false.
+    any_compatible = .false.
+    call matching_branch_order(model, target_field_hat, order, branch_count, status, message)
+    if (status /= matching_plane_zhao_ok) return
+    do branch_index = 1, branch_count
+      call collect_matching_branch_roots(params, order(branch_index), target_field_hat, branch_roots, &
+                                         count, nonphysical, numerical, status, message)
+      if (status == matching_plane_zhao_no_physical_solution) cycle
+      if (status /= matching_plane_zhao_ok) return
+      any_compatible = .true.
+      saw_nonphysical = saw_nonphysical .or. nonphysical
+      saw_numerical = saw_numerical .or. numerical
+      do index = 1, count
+        duplicate = .false.
+        do previous = 1, root_count
+          if (matching_roots_equivalent(params, branch_roots(index), roots(previous))) duplicate = .true.
+          ! At zero field a vanishing C endpoint is the analytic flat B state.
+          ! The field-squared Newton tolerance gives O(sqrt(tol)) voltage uncertainty.
+          if (abs(target_field_hat) <= zero_field_tolerance_hat .and. &
+              (branch_roots(index)%phi0_v == 0.0_dp .or. roots(previous)%phi0_v == 0.0_dp)) then
+            if (max(abs(branch_roots(index)%phi0_v), abs(roots(previous)%phi0_v)) &
+                < 1.0e-4_dp*params%t_phe_ev) then
+              duplicate = .true.
+              if (branch_roots(index)%phi0_v == 0.0_dp) roots(previous) = branch_roots(index)
+            end if
+          end if
+        end do
+        if (duplicate) cycle
+        root_count = root_count + 1
+        roots(root_count) = branch_roots(index)
+      end do
+    end do
+    status = matching_plane_zhao_ok
+    message = ''
+    if (.not. any_compatible) then
+      status = matching_plane_zhao_no_physical_solution
+      message = 'requested Zhao branches are incompatible with the prescribed field or upstream state.'
+    end if
+  end subroutine collect_matching_roots
 
   subroutine matching_branch_order(model, target_field_hat, order, count, status, message)
     character(len=*), intent(in) :: model
@@ -139,7 +134,9 @@ contains
       order(1) = 'C'
       count = 1
     case ('auto')
-      if (target_field_hat > 0.0_dp) then
+      if (abs(target_field_hat) <= zero_field_tolerance_hat) then
+        order = ['B', 'C', 'A']
+      else if (target_field_hat > 0.0_dp) then
         order = ['A', 'B', 'C']
       else
         order = ['C', 'A', 'B']
@@ -151,53 +148,6 @@ contains
     end select
   end subroutine matching_branch_order
 
-  subroutine solve_one_matching_branch(params, branch, target_field_hat, root_selection, root, status, message)
-    type(zhao_params_type), intent(in) :: params
-    character(len=1), intent(in) :: branch
-    character(len=*), intent(in) :: root_selection
-    real(dp), intent(in) :: target_field_hat
-    type(zhao_matching_root_type), intent(out) :: root
-    integer(i32), intent(out) :: status
-    character(len=*), intent(out) :: message
-
-    type(zhao_matching_root_type) :: unique_roots(8)
-    integer :: unique_count
-    logical :: saw_nonphysical_profile, saw_numerical_profile_failure
-
-    root = zhao_matching_root_type()
-    root%branch = branch
-    call collect_matching_branch_roots( &
-      params, branch, target_field_hat, unique_roots, unique_count, &
-      saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
-      )
-    if (status /= matching_plane_zhao_ok) return
-    if (unique_count > 1) then
-      if (trim(root_selection) == 'minimum_energy') then
-        call select_minimum_energy_root(params, unique_roots, unique_count, root, status, message)
-      else
-        status = matching_plane_zhao_ambiguous_solution
-        message = 'charge-driven Zhao solve found multiple roots in the requested branch.'
-      end if
-    else if (saw_numerical_profile_failure) then
-      status = matching_plane_zhao_numerical_failure
-      message = 'charge-driven Zhao root profile could not be certified numerically.'
-    else if (unique_count == 1) then
-      root = unique_roots(1)
-      if (trim(root_selection) == 'minimum_energy') then
-        call evaluate_root_potential_energy(params, root, status, message)
-      else
-        status = matching_plane_zhao_ok
-        message = ''
-      end if
-    else if (saw_nonphysical_profile) then
-      status = matching_plane_zhao_no_physical_solution
-      message = 'charge-driven Zhao endpoint root has no real connecting field profile.'
-    else
-      status = matching_plane_zhao_numerical_failure
-      message = 'charge-driven Zhao Newton solve did not converge.'
-    end if
-  end subroutine solve_one_matching_branch
-
   subroutine collect_matching_branch_roots( &
     params, branch, target_field_hat, unique_roots, unique_count, &
     saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
@@ -205,18 +155,18 @@ contains
     type(zhao_params_type), intent(in) :: params
     character(len=1), intent(in) :: branch
     real(dp), intent(in) :: target_field_hat
-    type(zhao_matching_root_type), intent(out) :: unique_roots(8)
+    type(zhao_matching_root_type), intent(out) :: unique_roots(matching_root_seed_count)
     integer, intent(out) :: unique_count
     logical, intent(out) :: saw_nonphysical_profile, saw_numerical_profile_failure
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    real(dp) :: guesses(3, 8), y(3), norm
-    type(zhao_matching_root_type) :: candidate_root, candidate_roots(8)
+    real(dp) :: guesses(3, matching_root_seed_count), y(3), norm, ion, free, reflected, photo, captured
+    type(zhao_matching_root_type) :: candidate_root, candidate_roots(matching_root_seed_count)
     integer :: guess_count, guess_index, iterations, root_index
     integer(i32) :: profile_status
-    logical :: success, compatible, duplicate_root, candidate_valid(8)
-    logical :: guess_nonphysical_profile(8), guess_numerical_profile_failure(8)
+    logical :: success, compatible, duplicate_root, candidate_valid(matching_root_seed_count)
+    logical :: guess_nonphysical_profile(matching_root_seed_count), guess_numerical_profile_failure(matching_root_seed_count)
     character(len=512) :: profile_message
 
     unique_roots = zhao_matching_root_type()
@@ -225,14 +175,36 @@ contains
     saw_numerical_profile_failure = .false.
     status = matching_plane_zhao_no_physical_solution
     message = ''
-    compatible = (branch == 'C' .and. target_field_hat < 0.0_dp) .or. &
-                 ((branch == 'A' .or. branch == 'B') .and. target_field_hat > 0.0_dp)
+    compatible = (branch == 'C' .and. target_field_hat <= 0.0_dp) .or. &
+                 (branch == 'B' .and. target_field_hat >= 0.0_dp) .or. &
+                 (branch == 'A' .and. target_field_hat > 0.0_dp)
+    if ((branch == 'A' .or. branch == 'C') .and. params%u > 0.0_dp) then
+      message = 'positive electron drift admits no A/C connection to a strict field-free infinity.'
+      return
+    end if
     if (.not. compatible) then
       message = 'Zhao branch and matching-plane field signs are incompatible.'
       return
     end if
 
-    call make_matching_branch_guesses(params, branch, guesses, guess_count)
+    if (branch == 'B' .and. abs(target_field_hat) <= zero_field_tolerance_hat) then
+      call evaluate_zhao_density_hat(params, 'B', 'monotonic', 0.0_dp, 0.0_dp, 0.0_dp, &
+                                     1.0_dp, ion, free, reflected, photo, captured)
+      if (ion <= photo + captured .or. free + reflected <= 0.0_dp) then
+        message = 'zero-field Zhao-B state has no positive ambient electron density.'
+        return
+      end if
+      unique_count = 1
+      unique_roots(1)%branch = 'B'
+      unique_roots(1)%ambient_electron_density_m3 = &
+        params%n_phe_ref_m3*(ion - photo - captured)/(free + reflected)
+      unique_roots(1)%residual_norm = 0.0_dp
+      unique_roots(1)%minimum_field_squared_hat = 0.0_dp
+      unique_roots(1)%potential_energy_j_m2 = 0.0_dp
+      status = matching_plane_zhao_ok
+      return
+    end if
+    call make_matching_branch_guesses(params, branch, target_field_hat, guesses, guess_count)
     candidate_roots = zhao_matching_root_type()
     candidate_valid = .false.
     guess_nonphysical_profile = .false.
@@ -295,14 +267,14 @@ contains
     status = matching_plane_zhao_ok
   end subroutine collect_matching_branch_roots
 
-  module procedure solve_matching_type_a_continuation
+  module procedure solve_matching_continuation
 
-  type(zhao_matching_root_type) :: candidate_root, roots(8)
+  type(zhao_matching_root_type) :: candidate_root, roots(3*matching_root_seed_count)
   real(dp) :: field_scale, target_field_hat, seed_y(3), candidate_y(3), norm
   real(dp) :: candidate_jump, nearest_jump, second_nearest_jump
   integer :: iterations, root_count, root_index, nearest_index
   integer(i32) :: profile_status
-  logical :: seed_valid, success, candidate_valid
+  logical :: seed_valid, success, candidate_valid, branch_allowed
   logical :: saw_nonphysical_profile, saw_numerical_profile_failure
   character(len=512) :: profile_message
 
@@ -311,14 +283,11 @@ contains
   root_jump = huge(1.0_dp)
   status = matching_plane_zhao_invalid_argument
   message = ''
-  call encode_matching_unknowns( &
-    params, 'A', seed%phi0_v, seed%phi_m_v, seed%ambient_electron_density_m3, seed_y, seed_valid &
-    )
-  if (.not. seed_valid) then
-    message = 'matching-plane Zhao continuation seed is not a valid Type-A state.'
+  if (.not. all(ieee_is_finite([seed%phi0_v, seed%phi_m_v, seed%ambient_electron_density_m3])) .or. &
+      seed%ambient_electron_density_m3 <= 0.0_dp .or. index('ABC', seed%branch) == 0) then
+    message = 'matching-plane Zhao continuation seed is invalid.'
     return
   end if
-
   field_scale = params%t_phe_ev/params%lambda_d_phe_ref_m
   target_field_hat = interface_field_v_m/field_scale
   if (.not. all(ieee_is_finite([field_scale, target_field_hat])) .or. field_scale <= 0.0_dp) then
@@ -326,57 +295,51 @@ contains
     message = 'matching-plane Zhao field normalization is invalid.'
     return
   end if
-  if (target_field_hat <= zero_field_tolerance_hat) then
-    status = matching_plane_zhao_no_physical_solution
-    message = 'requested Zhao-A continuation requires a positive matching-plane field.'
-    return
-  end if
-
-  call newton_matching_branch( &
-    params, 'A', target_field_hat, seed_y, candidate_y, norm, iterations, success &
-    )
-  if (success) then
-    candidate_root = zhao_matching_root_type()
-    candidate_root%branch = 'A'
-    call decode_matching_unknowns( &
-      params, 'A', candidate_y, candidate_root%phi0_v, candidate_root%phi_m_v, &
-      candidate_root%ambient_electron_density_m3, candidate_valid &
-      )
-    if (candidate_valid) then
-      candidate_root%residual_norm = norm
-      candidate_root%nonlinear_iterations = int(iterations, i32)
-      call validate_matching_root_profile( &
-        params, candidate_root, target_field_hat, profile_status, profile_message &
-        )
-      if (profile_status == matching_plane_zhao_ok) then
-        candidate_jump = maxval(abs(candidate_y - seed_y))
-        root_jump = candidate_jump
-        if (candidate_jump <= continuation_root_jump_limit) then
-          root = candidate_root
-          status = matching_plane_zhao_ok
-          return
+  branch_allowed = trim(model) == 'auto' .or. trim(model) == lower_ascii(seed%branch)
+  branch_allowed = branch_allowed .and. &
+                   ((seed%branch == 'A' .and. target_field_hat > 0.0_dp .and. params%u <= 0.0_dp) .or. &
+                    (seed%branch == 'B' .and. target_field_hat > 0.0_dp) .or. &
+                    (seed%branch == 'C' .and. target_field_hat <= 0.0_dp .and. params%u <= 0.0_dp))
+  call encode_matching_unknowns(params, seed%branch, seed%phi0_v, seed%phi_m_v, &
+                                seed%ambient_electron_density_m3, seed_y, seed_valid)
+  if (seed_valid .and. branch_allowed) then
+    call newton_matching_branch(params, seed%branch, target_field_hat, seed_y, &
+                                candidate_y, norm, iterations, success)
+    if (success) then
+      candidate_root = zhao_matching_root_type()
+      candidate_root%branch = seed%branch
+      call decode_matching_unknowns(params, seed%branch, candidate_y, candidate_root%phi0_v, &
+                                    candidate_root%phi_m_v, candidate_root%ambient_electron_density_m3, candidate_valid)
+      if (candidate_valid) then
+        candidate_root%residual_norm = norm
+        candidate_root%nonlinear_iterations = int(iterations, i32)
+        call validate_matching_root_profile(params, candidate_root, target_field_hat, profile_status, profile_message)
+        if (profile_status == matching_plane_zhao_ok) then
+          root_jump = matching_seed_distance(params, seed, candidate_root)
+          if (root_jump <= continuation_root_jump_limit) then
+            root = candidate_root
+            status = matching_plane_zhao_ok
+            return
+          end if
         end if
       end if
     end if
   end if
 
   fallback_used = .true.
-  call collect_matching_branch_roots( &
-    params, 'A', target_field_hat, roots, root_count, &
-    saw_nonphysical_profile, saw_numerical_profile_failure, status, message &
-    )
+  call collect_matching_roots(model, params, target_field_hat, roots, root_count, &
+                              saw_nonphysical_profile, saw_numerical_profile_failure, status, message)
   if (status /= matching_plane_zhao_ok) return
-
+  if (saw_numerical_profile_failure) then
+    status = matching_plane_zhao_numerical_failure
+    message = 'matching-plane Zhao continuation could not certify a candidate profile numerically.'
+    return
+  end if
   nearest_jump = huge(1.0_dp)
   second_nearest_jump = huge(1.0_dp)
   nearest_index = 0
   do root_index = 1, root_count
-    call encode_matching_unknowns( &
-      params, 'A', roots(root_index)%phi0_v, roots(root_index)%phi_m_v, &
-      roots(root_index)%ambient_electron_density_m3, candidate_y, candidate_valid &
-      )
-    if (.not. candidate_valid) cycle
-    candidate_jump = maxval(abs(candidate_y - seed_y))
+    candidate_jump = matching_seed_distance(params, seed, roots(root_index))
     if (candidate_jump < nearest_jump) then
       second_nearest_jump = nearest_jump
       nearest_jump = candidate_jump
@@ -390,25 +353,28 @@ contains
       abs(second_nearest_jump - nearest_jump) <= &
       continuation_distance_tie_tolerance*max(1.0_dp, nearest_jump)) then
     status = matching_plane_zhao_ambiguous_solution
-    message = 'matching-plane Zhao continuation fallback found indistinguishable nearest Type-A roots.'
+    message = 'matching-plane Zhao continuation found indistinguishable nearest roots.'
   else if (nearest_index > 0) then
     root = roots(nearest_index)
     status = matching_plane_zhao_ok
     message = ''
-  else if (root_count > 0) then
-    status = matching_plane_zhao_numerical_failure
-    message = 'matching-plane Zhao continuation fallback returned no valid encoded Type-A root.'
-  else if (saw_numerical_profile_failure) then
-    status = matching_plane_zhao_numerical_failure
-    message = 'matching-plane Zhao continuation fallback could not certify a root profile numerically.'
   else if (saw_nonphysical_profile) then
     status = matching_plane_zhao_no_physical_solution
-    message = 'matching-plane Zhao continuation fallback found no real connecting field profile.'
+    message = 'all located Zhao continuation candidates have nonphysical connecting profiles.'
   else
     status = matching_plane_zhao_numerical_failure
-    message = 'matching-plane Zhao continuation fallback did not converge.'
+    message = 'matching-plane Zhao continuation multistart did not converge.'
   end if
-  end procedure solve_matching_type_a_continuation
+  end procedure solve_matching_continuation
+
+  pure real(dp) function matching_seed_distance(params, seed, root) result(distance)
+    type(zhao_params_type), intent(in) :: params
+    type(matching_plane_zhao_root_seed_type), intent(in) :: seed
+    type(zhao_matching_root_type), intent(in) :: root
+    distance = max(abs(root%phi0_v - seed%phi0_v)/params%t_phe_ev, &
+                   abs(min(root%phi_m_v, 0.0_dp) - min(seed%phi_m_v, 0.0_dp))/params%t_phe_ev, &
+                   abs(log(root%ambient_electron_density_m3/seed%ambient_electron_density_m3)))
+  end function matching_seed_distance
 
   subroutine select_minimum_energy_root(params, roots, root_count, root, status, message)
     type(zhao_params_type), intent(in) :: params

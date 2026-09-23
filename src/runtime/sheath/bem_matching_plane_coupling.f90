@@ -311,9 +311,9 @@ contains
         self%photoelectron_active, self%photoelectron_charge, &
         self%root_trial, self%root_candidate, self%displacement, self%response &
         )
-      if (self%continuation_active .and. self%root_committed%valid) then
-        self%root_trial = self%root_candidate
-      end if
+      ! A first-batch bootstrap is already a certified root. Reuse it across
+      ! feedback replays; begin_trial restores the committed seed on rollback.
+      if (self%continuation_active) self%root_trial = self%root_candidate
     else
       matching_response_input = [self%displacement, self%guess]
       call self%provider%evaluate( &

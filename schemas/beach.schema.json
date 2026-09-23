@@ -715,13 +715,11 @@
             "properties": {
               "model": {"const": "matching_plane_quasistatic"},
               "response_backend": {"const": "zhao_online"},
-              "zhao_branch": {"const": "a"},
               "implicit_zero_mode": {"const": true}
             },
             "required": [
               "model",
               "response_backend",
-              "zhao_branch",
               "implicit_zero_mode"
             ]
           }
@@ -743,7 +741,7 @@
         "zhao_root_selection": {
           "enum": ["require_unique", "minimum_energy", "continuation"],
           "default": "require_unique",
-          "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted Type-A endpoint in implicit mode."
+          "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted endpoint in implicit mode."
         },
         "photoelectron_closure": {
           "enum": ["moment_matched_half_maxwellian", "energy_spectrum"],

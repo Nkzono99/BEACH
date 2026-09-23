@@ -1154,10 +1154,24 @@ def test_matching_plane_zhao_online_config_contract() -> None:
         == "continuation"
     )
 
-    continuation_wrong_branch = copy.deepcopy(continuation)
-    continuation_wrong_branch["surface_current_model"]["zhao_branch"] = "b"
-    with pytest.raises(ConfigValidationError, match="continuation.*zhao_branch"):
-        normalize_config_document(continuation_wrong_branch)
+    for branch in ("auto", "b", "c"):
+        continuation_branch = copy.deepcopy(continuation)
+        continuation_branch["surface_current_model"]["zhao_branch"] = branch
+        normalized_branch = normalize_config_document(continuation_branch)
+        assert normalized_branch["surface_current_model"]["zhao_branch"] == branch
+    continuation_default_branch = copy.deepcopy(continuation)
+    continuation_default_branch["surface_current_model"].pop("zhao_branch")
+    assert (
+        normalize_config_document(continuation_default_branch)["surface_current_model"].get("zhao_branch", "auto")
+        == "auto"
+    )
+
+    nondrifting_electrons = copy.deepcopy(continuation)
+    nondrifting_electrons["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0, 0.0]
+    assert (
+        normalize_config_document(nondrifting_electrons)["particles"]["species"][0]["drift_velocity"]
+        == [0.0, 0.0, 0.0]
+    )
 
     continuation_without_implicit = copy.deepcopy(continuation)
     continuation_without_implicit["surface_current_model"].pop("implicit_zero_mode")
@@ -1253,7 +1267,8 @@ def test_matching_plane_zhao_online_rejects_stationary_zhao_settings(
         (0, "temperature_ev", 0.0, "positive electron temperature"),
         (2, "temperature_ev", 0.0, "positive photoelectron temperature"),
         (1, "temperature_ev", 2.0, "cold ions"),
-        (0, "drift_velocity", [0.0, 0.0, 0.0], "inward drift"),
+        (0, "drift_velocity", [0.0, 0.0, 1.0], "inward drift"),
+        (1, "drift_velocity", [0.0, 0.0, 0.0], "inward drift"),
         (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "drift_velocity.*finite"),
         (1, "number_density_cm3", 0.0, "finite and > 0"),
     ],

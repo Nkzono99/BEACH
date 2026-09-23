@@ -3,19 +3,25 @@ program test_pe_spectrum
   use bem_kinds, only: dp, i32
   use bem_constants, only: qe, pi
   use bem_pe_spectrum, only: pe_spectrum_type
+  use bem_sheath_model_orbits, only: electron_density
+  use bem_sheath_model_core, only: zhao_params_type, evaluate_zhao_rho_hat, integrate_zhao_rho, swe_free_current_term
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
   real(dp), parameter :: electron_mass = 9.1093837015e-31_dp
   real(dp), parameter :: source_flux = 3.1e13_dp, temperature = 2.4_dp
   type(pe_spectrum_type) :: spectrum, other, saved, fine, low, high
+  type(zhao_params_type) :: params
   real(dp) :: free, returning, expected_free, expected_returning, value, expected, barrier
   real(dp) :: first_mean, low_mean, high_mean, high_weight, previous_flux, previous_tail
   real(dp) :: phi_h, phi_min, phi, gap, reference_density, fine_error, coarse_error
-  integer :: j, n
+  real(dp) :: drift, psi, orbit_barrier, local_flux, current_term, rho, plus, minus
+  real(dp), parameter :: orbit_psi(4) = [0.25_dp, -0.03_dp, 0.25_dp, -0.3_dp]
+  real(dp), parameter :: orbit_barriers(4) = [-0.08_dp, -0.08_dp, 0.0_dp, -0.5_dp]
+  integer :: j, n, k
   logical :: upper
 
-  call test_init(9)
+  call test_init(12)
 
   call test_begin('empty_and_reset_spectra_have_zero_flux_and_density')
   call assert_close_dp(spectrum%total_flux(), 0.0_dp, 0.0_dp, 'empty total flux')
@@ -193,9 +199,146 @@ program test_pe_spectrum
   end do
   call test_end()
 
+  call test_begin('drifting_electron_density_and_flux_preserve_upstream_orbits')
+  do k = 0, 2
+    drift = 0.2_dp*real(k - 1, dp)
+    do j = 1, size(orbit_psi)
+      psi = orbit_psi(j)
+      orbit_barrier = orbit_barriers(j)
+      call electron_density(psi, orbit_barrier, drift, free, returning)
+      expected = upstream_density_oracle(psi, orbit_barrier, drift)
+      call assert_close_dp(free, expected, 3.0e-9_dp, 'passing density versus upstream-velocity integral')
+      expected = upstream_reflected_density_oracle(psi, orbit_barrier, drift)
+      call assert_close_dp(returning, expected, 3.0e-9_dp, 'both reflected legs versus upstream-velocity integral')
+      local_flux = local_flux_oracle(psi, orbit_barrier, drift)
+      params%t_swe_ev = 12.0_dp
+      params%t_phe_ev = temperature
+      params%v_swe_th_mps = sqrt(2.0_dp*qe*params%t_swe_ev/electron_mass)
+      params%v_phe_th_mps = sqrt(2.0_dp*qe*params%t_phe_ev/electron_mass)
+      params%v_d_electron_mps = drift*params%v_swe_th_mps
+      current_term = params%v_phe_th_mps/(2.0_dp*sqrt(pi))* &
+                     swe_free_current_term(params, 1.0_dp, sqrt(-orbit_barrier) - drift)
+      call assert_close_dp(local_flux, current_term/params%v_swe_th_mps, 3.0e-10_dp, &
+                           'local VDF flux equals the upstream current expression')
+    end do
+  end do
+  call test_end()
+
+  call test_begin('sagdeev_integral_uses_the_same_orbit_density_and_spectrum')
+  params%n_swi_inf_m3 = 8.7e6_dp
+  params%n_phe_ref_m3 = 8.7e6_dp
+  params%n_phe0_m3 = 2.0_dp*sqrt(pi)*source_flux/params%v_phe_th_mps
+  params%t_swe_ev = 12.0_dp
+  params%t_phe_ev = temperature
+  params%tau = params%t_swe_ev/params%t_phe_ev
+  params%mach = 5.0_dp
+  params%m_e_kg = electron_mass
+  params%pe_spectrum = fine
+  do k = 0, 1
+    params%u = 0.2_dp*real(k, dp)
+    do j = 0, 1
+      phi_h = 1.7_dp/temperature
+      phi_min = -0.8_dp/temperature
+      phi = -0.3_dp/temperature
+      gap = 1.0e-5_dp
+      if (j == 0) then
+        call evaluate_zhao_rho_hat(params, 'A', 'lower', phi, phi_h, phi_min, 0.9_dp, rho)
+        plus = integrate_zhao_rho(params, 'A', 'lower', phi_min, phi + gap, phi_h, phi_min, 0.9_dp)
+        minus = integrate_zhao_rho(params, 'A', 'lower', phi_min, phi - gap, phi_h, phi_min, 0.9_dp)
+      else
+        call evaluate_zhao_rho_hat(params, 'A', 'upper', phi, phi_h, phi_min, 0.9_dp, rho)
+        plus = integrate_zhao_rho(params, 'A', 'upper', phi_min, phi + gap, phi_h, phi_min, 0.9_dp)
+        minus = integrate_zhao_rho(params, 'A', 'upper', phi_min, phi - gap, phi_h, phi_min, 0.9_dp)
+      end if
+      call assert_close_dp((plus - minus)/(2.0_dp*gap), rho, 3.0e-6_dp*max(1.0_dp, abs(rho)), &
+                           'Sagdeev derivative matches the actual total space-charge density')
+    end do
+  end do
+  call test_end()
+
+  call test_begin('positive_drift_algebraic_root_has_negative_upstream_field_squared')
+  call params%pe_spectrum%clear()
+  params%n_phe_ref_m3 = 64.0e6_dp
+  params%n_phe0_m3 = 64.0e6_dp*sin(pi/3.0_dp)
+  params%t_phe_ev = 2.2_dp
+  params%t_swe_ev = 12.0_dp
+  params%tau = params%t_swe_ev/params%t_phe_ev
+  params%v_d_ion_mps = 468.0e3_dp*sin(pi/3.0_dp)
+  params%mach = params%v_d_ion_mps/sqrt(qe*params%t_swe_ev/1.67262192369e-27_dp)
+  params%u = params%v_d_ion_mps/sqrt(2.0_dp*qe*params%t_swe_ev/electron_mass)
+  value = 2.0_dp*integrate_zhao_rho(params, 'A', 'upper', -0.01_dp, 0.0_dp, &
+                                    2.6544268139403324_dp/params%t_phe_ev, &
+                                    -1.1897238115913789_dp/params%t_phe_ev, 7923268.55824609_dp/params%n_phe_ref_m3)
+  call assert_true(value < -1.0e-7_dp, 'independent upstream field obstruction survives without the profile guard')
+  call test_end()
+
   call test_summary()
 
 contains
+
+  ! An independent Simpson integral in upstream speed with its density Jacobian.
+  real(dp) function upstream_density_oracle(psi, barrier, drift) result(value)
+    real(dp), intent(in) :: psi, barrier, drift
+    integer, parameter :: panels = 32768
+    real(dp) :: a, h, weight
+    integer :: k
+
+    h = 12.0_dp/real(panels, dp)
+    value = 0.0_dp
+    do k = 0, panels
+      a = sqrt(-barrier) + h*real(k, dp)
+      weight = 2.0_dp
+      if (mod(k, 2) == 1) weight = 4.0_dp
+      if (k == 0 .or. k == panels) weight = 1.0_dp
+      value = value + weight*a*exp(-(a - drift)**2)/sqrt(a*a + psi)
+    end do
+    value = value*h/(3.0_dp*sqrt(pi))
+  end function upstream_density_oracle
+
+  real(dp) function upstream_reflected_density_oracle(psi, barrier, drift) result(value)
+    real(dp), intent(in) :: psi, barrier, drift
+    integer, parameter :: panels = 8192
+    real(dp) :: t, a, minimum_squared, h, weight, jacobian
+    integer :: k
+
+    minimum_squared = max(0.0_dp, -psi)
+    h = sqrt(max(0.0_dp, -barrier - minimum_squared))/real(panels, dp)
+    value = 0.0_dp
+    if (h == 0.0_dp) return
+    ! a^2=a_min^2+t^2 removes the upstream density Jacobian's turning-point pole.
+    do k = 0, panels
+      t = h*real(k, dp)
+      a = sqrt(minimum_squared + t*t)
+      jacobian = 1.0_dp
+      if (psi > 0.0_dp) jacobian = t/sqrt(t*t + psi)
+      weight = 2.0_dp
+      if (mod(k, 2) == 1) weight = 4.0_dp
+      if (k == 0 .or. k == panels) weight = 1.0_dp
+      value = value + weight*jacobian*exp(-(a - drift)**2)
+    end do
+    value = 2.0_dp*value*h/(3.0_dp*sqrt(pi))
+  end function upstream_reflected_density_oracle
+
+  ! Integrate w*f(w) at the local potential; the squared map resolves the cutoff.
+  real(dp) function local_flux_oracle(psi, barrier, drift) result(value)
+    real(dp), intent(in) :: psi, barrier, drift
+    integer, parameter :: panels = 8192
+    real(dp) :: t, w, upstream, h, weight
+    integer :: k
+
+    h = 4.0_dp/real(panels, dp)
+    value = 0.0_dp
+    do k = 0, panels
+      t = h*real(k, dp)
+      w = sqrt(psi - barrier) + t*t
+      upstream = sqrt(max(0.0_dp, w*w - psi))
+      weight = 2.0_dp
+      if (mod(k, 2) == 1) weight = 4.0_dp
+      if (k == 0 .or. k == panels) weight = 1.0_dp
+      value = value + weight*w*exp(-(upstream - drift)**2)*2.0_dp*t
+    end do
+    value = value*h/(3.0_dp*sqrt(pi))
+  end function local_flux_oracle
 
   ! Analytic velocity integrals of F(K)=Gamma/T*exp(-K/T), independent of bins.
   subroutine maxwell_density(phi, phi_h, phi_min, free, returning)

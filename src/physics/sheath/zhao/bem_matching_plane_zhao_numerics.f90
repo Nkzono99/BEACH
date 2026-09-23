@@ -11,67 +11,68 @@ contains
 
   module procedure make_matching_branch_guesses
 
-  real(dp) :: density
+  real(dp) :: density, phi0, phi_m, ion, electron_free, electron_reflected, photo, captured
+  real(dp) :: photo_scale, field_scale, ion_limit, positive_scale, negative_scale
+  real(dp) :: potential(matching_root_seed_count), minimum(matching_root_seed_count)
+  real(dp) :: source_ratio, total_flux, cumulative, median_energy
+  integer :: index, bin
   logical :: valid
+  character(len=9) :: side
 
+  ! Every voltage scale follows the current query. For spectra, use the flux
+  ! median as well as the mean so a small energetic tail cannot set every seed.
+  photo_scale = params%t_phe_ev
+  if (allocated(params%pe_spectrum%flux)) then
+    total_flux = params%pe_spectrum%total_flux()
+    cumulative = 0.0_dp
+    do bin = 1, size(params%pe_spectrum%flux)
+      cumulative = cumulative + params%pe_spectrum%flux(bin)
+      if (total_flux <= 0.0_dp .or. cumulative < 0.5_dp*total_flux) cycle
+      median_energy = 0.5_dp*(params%pe_spectrum%edge(bin - 1) + params%pe_spectrum%edge(bin))
+      photo_scale = max(median_energy, 0.25_dp*params%t_phe_ev)
+      exit
+    end do
+  end if
+  field_scale = params%t_phe_ev*target_field_hat**2
+  ion_limit = 0.5_dp*params%t_swe_ev*params%mach**2
+  source_ratio = max(1.0_dp, params%n_phe0_m3/(2.0_dp*params%n_swi_inf_m3))
+  positive_scale = max(photo_scale*(1.0_dp + log(source_ratio)), field_scale)
+  negative_scale = max(params%t_swe_ev, photo_scale, field_scale)
   guesses = 0.0_dp
+  count = 0
   select case (branch)
   case ('A')
-    count = 5
-    call encode_matching_unknowns(params, branch, 3.6_dp, -0.5_dp, 8.2e6_dp, guesses(:, 1), valid)
-    call encode_matching_unknowns(params, branch, 2.8_dp, -0.3_dp, 8.0e6_dp, guesses(:, 2), valid)
-    call encode_matching_unknowns(params, branch, 4.5_dp, -0.8_dp, 8.4e6_dp, guesses(:, 3), valid)
-    call encode_matching_unknowns( &
-      params, branch, 1.3_dp*params%t_phe_ev, -0.3_dp*params%t_phe_ev, &
-      max(0.9_dp*params%n_swi_inf_m3, tiny(1.0_dp)), guesses(:, 4), valid &
-      )
-    call encode_matching_unknowns( &
-      params, branch, 0.8_dp*params%t_phe_ev, -0.1_dp*params%t_phe_ev, &
-      params%n_swi_inf_m3, guesses(:, 5), valid &
-      )
+    potential = positive_scale*[0.25_dp, 0.75_dp, 1.5_dp, 3.0_dp, 0.5_dp, 2.0_dp, -0.1_dp, -0.5_dp]
+    minimum = -params%t_swe_ev*[0.02_dp, 0.1_dp, 0.3_dp, 1.0_dp, 0.5_dp, 0.02_dp, 0.3_dp, 1.0_dp]
+    potential(7:8) = -negative_scale*[0.25_dp, 0.5_dp]
+    minimum(7) = potential(7) - max(field_scale, 0.01_dp*photo_scale)
+    minimum(8) = potential(8) - photo_scale
+    side = 'upper'
   case ('B')
-    count = 7
-    call encode_matching_unknowns(params, branch, 1.3_dp, 1.3_dp, 7.0e6_dp, guesses(:, 1), valid)
-    call encode_matching_unknowns(params, branch, 0.8_dp, 0.8_dp, 6.5e6_dp, guesses(:, 2), valid)
-    call encode_matching_unknowns(params, branch, 2.0_dp, 2.0_dp, 7.8e6_dp, guesses(:, 3), valid)
-    call encode_matching_unknowns( &
-      params, branch, 0.6_dp*params%t_phe_ev, 0.6_dp*params%t_phe_ev, &
-      params%n_swi_inf_m3, guesses(:, 4), valid &
-      )
-    call encode_matching_unknowns( &
-      params, branch, 0.2_dp*params%t_phe_ev, 0.2_dp*params%t_phe_ev, &
-      0.8_dp*params%n_swi_inf_m3, guesses(:, 5), valid &
-      )
-    density = max( &
-              (2.0_dp*params%n_swi_inf_m3 - params%n_phe0_m3)/(1.0_dp + erf(params%u)), &
-              0.5_dp*params%n_swi_inf_m3 &
-              )
-    call encode_matching_unknowns( &
-      params, branch, 0.02_dp*params%t_phe_ev, 0.02_dp*params%t_phe_ev, &
-      density, guesses(:, 6), valid &
-      )
-    call encode_matching_unknowns( &
-      params, branch, 0.002_dp*params%t_phe_ev, 0.002_dp*params%t_phe_ev, &
-      density, guesses(:, 7), valid &
-      )
+    potential = positive_scale*[0.002_dp, 0.02_dp, 0.1_dp, 0.3_dp, 0.7_dp, 1.5_dp, 3.0_dp, 6.0_dp]
+    minimum = potential
+    side = 'monotonic'
   case ('C')
-    count = 7
-    call encode_matching_unknowns(params, branch, -0.5_dp, -0.5_dp, 6.0e6_dp, guesses(:, 1), valid)
-    call encode_matching_unknowns(params, branch, -2.0_dp, -2.0_dp, 7.0e6_dp, guesses(:, 2), valid)
-    call encode_matching_unknowns(params, branch, -5.0_dp, -5.0_dp, 8.0e6_dp, guesses(:, 3), valid)
-    call encode_matching_unknowns(params, branch, -10.0_dp, -10.0_dp, 8.2e6_dp, guesses(:, 4), valid)
-    call encode_matching_unknowns(params, branch, -15.0_dp, -15.0_dp, 8.5e6_dp, guesses(:, 5), valid)
-    call encode_matching_unknowns( &
-      params, branch, -params%t_phe_ev, -params%t_phe_ev, &
-      params%n_swi_inf_m3, guesses(:, 6), valid &
-      )
-    call encode_matching_unknowns( &
-      params, branch, -3.0_dp*params%t_phe_ev, -3.0_dp*params%t_phe_ev, &
-      0.9_dp*params%n_swi_inf_m3, guesses(:, 7), valid &
-      )
+    potential = -negative_scale*[0.002_dp, 0.02_dp, 0.1_dp, 0.3_dp, 0.7_dp, 1.5_dp, 3.0_dp, 6.0_dp]
+    minimum = potential
+    side = 'monotonic'
   case default
-    count = 0
+    return
   end select
+  do index = 1, matching_root_seed_count
+    phi0 = min(potential(index), 0.9_dp*ion_limit)
+    phi_m = minimum(index)
+    if (branch == 'A') phi_m = min(phi_m, phi0 - 0.1_dp*photo_scale)
+    if (branch /= 'A') phi_m = phi0
+    call evaluate_zhao_density_hat(params, branch, trim(side), 0.0_dp, phi0/params%t_phe_ev, &
+                                   phi_m/params%t_phe_ev, 1.0_dp, ion, electron_free, &
+                                   electron_reflected, photo, captured)
+    if (.not. all(ieee_is_finite([ion, electron_free, electron_reflected, photo, captured]))) cycle
+    if (electron_free + electron_reflected <= 0.0_dp .or. ion <= photo + captured) cycle
+    density = params%n_phe_ref_m3*(ion - photo - captured)/(electron_free + electron_reflected)
+    call encode_matching_unknowns(params, branch, phi0, phi_m, density, guesses(:, count + 1), valid)
+    if (valid) count = count + 1
+  end do
   end procedure make_matching_branch_guesses
 
   module procedure newton_matching_branch

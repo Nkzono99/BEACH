@@ -1,13 +1,11 @@
 !> Zhao query の物理量への変換、残差式、Sagdeev 積分、接続プロファイルと流入応答。
 !! 根の探索順・選択方針を持たず、与えられた状態の物理量と成立条件を評価する。
 submodule(bem_matching_plane_zhao) bem_matching_plane_zhao_physics
-  use bem_sheath_model_core, only: evaluate_zhao_rho_hat, &
-                                   zhao_residuals_type_a, zhao_residuals_type_b, zhao_residuals_type_c
+  use bem_sheath_model_core, only: evaluate_zhao_rho_hat, integrate_zhao_rho
   implicit none
 
-  integer, parameter :: rho_quadrature_panels = 256
   integer, parameter :: energy_quadrature_panels = 128
-  integer, parameter :: profile_validation_samples = 32
+  integer, parameter :: profile_validation_samples = 128
   real(dp), parameter :: profile_negative_tolerance = 1.0e-7_dp
   real(dp), parameter :: profile_endpoint_tolerance = 1.0e-5_dp
 
@@ -128,9 +126,9 @@ contains
   if (.not. valid) return
   select case (branch)
   case ('A')
-    valid = phi0_v > 0.0_dp .and. phi_m_v < 0.0_dp
+    valid = phi_m_v < min(phi0_v, 0.0_dp)
     if (.not. valid) return
-    y(1) = log(phi0_v/params%t_phe_ev)
+    y(1) = log((phi0_v - phi_m_v)/params%t_phe_ev)
     y(2) = log(-phi_m_v/params%t_phe_ev)
     y(3) = log(density_m3/params%n_phe_ref_m3)
   case ('B')
@@ -166,8 +164,8 @@ contains
       valid = .false.
       return
     end if
-    phi0_v = params%t_phe_ev*exp(y(1))
     phi_m_v = -params%t_phe_ev*exp(y(2))
+    phi0_v = phi_m_v + params%t_phe_ev*exp(y(1))
     density_m3 = params%n_phe_ref_m3*exp(y(3))
   case ('B')
     if (y(2) < -30.0_dp .or. y(2) > log(1.0e6_dp)) then
@@ -194,8 +192,7 @@ contains
   module procedure evaluate_charge_residual
 
   real(dp) :: phi0_v, phi_m_v, density_m3, phi0_hat, phi_m_hat, density_hat
-  real(dp) :: raw(3), integral, field_squared, field_residual_scale
-  real(dp) :: x3(3), x2(2)
+  real(dp) :: integral, field_squared, field_residual_scale
   logical :: integral_ok
 
   residual = 0.0_dp
@@ -213,8 +210,6 @@ contains
 
   select case (branch)
   case ('A')
-    x3 = [phi0_v, phi_m_v, density_m3]
-    call zhao_residuals_type_a(params, x3, raw)
     call integrate_matching_rho_hat( &
       params, branch, 'lower', phi_m_hat, phi0_hat, phi0_hat, phi_m_hat, &
       density_hat, integral, integral_ok &
@@ -224,32 +219,21 @@ contains
       return
     end if
     field_squared = -2.0_dp*integral
-    if (field_squared < -1.0e-10_dp) then
+    field_residual_scale = max(1.0_dp, target_field_hat*target_field_hat)
+    residual(2) = (field_squared - target_field_hat*target_field_hat)/field_residual_scale
+    call integrate_matching_rho_hat(params, branch, 'upper', phi_m_hat, 0.0_dp, &
+                                    phi0_hat, phi_m_hat, density_hat, integral, integral_ok)
+    if (.not. integral_ok) then
       valid = .false.
       return
     end if
-    field_residual_scale = max(1.0_dp, target_field_hat*target_field_hat)
-    residual(1) = raw(1)/params%n_phe_ref_m3
-    residual(2) = (max(0.0_dp, field_squared) - target_field_hat*target_field_hat)/field_residual_scale
-    residual(3) = raw(3)
+    residual(3) = -2.0_dp*integral
     if (allocated(params%pe_spectrum%flux)) then
-      call integrate_matching_rho_hat(params, branch, 'upper', phi_m_hat, 0.0_dp, &
-                                      phi0_hat, phi_m_hat, density_hat, integral, integral_ok)
-      if (.not. integral_ok) then
-        valid = .false.
-        return
-      end if
       ! Remove the automatic d^(3/2) collapse as the minimum approaches
       ! infinity potential; a shallow B limit must not masquerade as an A root.
       residual(3) = -2.0_dp*integral/(-phi_m_hat)**1.5_dp
     end if
   case ('B', 'C')
-    x2 = [phi0_v, density_m3]
-    if (branch == 'B') then
-      call zhao_residuals_type_b(params, x2, raw(1:2))
-    else
-      call zhao_residuals_type_c(params, x2, raw(1:2))
-    end if
     call integrate_matching_rho_hat( &
       params, branch, 'monotonic', phi0_hat, 0.0_dp, phi0_hat, phi_m_hat, &
       density_hat, integral, integral_ok &
@@ -259,25 +243,18 @@ contains
       return
     end if
     field_squared = 2.0_dp*integral
-    if (field_squared < -1.0e-10_dp) then
-      valid = .false.
-      return
-    end if
     field_residual_scale = max(1.0_dp, target_field_hat*target_field_hat)
-    residual(1) = raw(1)/params%n_phe_ref_m3
-    residual(2) = (max(0.0_dp, field_squared) - target_field_hat*target_field_hat)/field_residual_scale
+    residual(2) = (field_squared - target_field_hat*target_field_hat)/field_residual_scale
   case default
     valid = .false.
     return
   end select
-  if (allocated(params%pe_spectrum%flux)) then
-    if (branch == 'A') then
-      call evaluate_zhao_rho_hat(params, branch, 'upper', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
-    else
-      call evaluate_zhao_rho_hat(params, branch, 'monotonic', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
-    end if
-    residual(1) = -residual(1)
+  if (branch == 'A') then
+    call evaluate_zhao_rho_hat(params, branch, 'upper', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
+  else
+    call evaluate_zhao_rho_hat(params, branch, 'monotonic', 0.0_dp, phi0_hat, phi_m_hat, density_hat, residual(1))
   end if
+  residual(1) = -residual(1)
   valid = all(ieee_is_finite(residual))
   end procedure evaluate_charge_residual
 
@@ -292,48 +269,13 @@ contains
     real(dp), intent(out) :: integral
     logical, intent(out) :: success
 
-    real(dp) :: t, phi_hat, jacobian, rho_hat, summand, weight, h, minimum_v, pe_integral
-    logical :: spectral, upper_side
-    integer :: point
-
     integral = 0.0_dp
     success = .false.
     if (.not. all(ieee_is_finite([ &
                                  lower_phi_hat, upper_phi_hat, phi0_hat, phi_m_hat, density_hat &
                                  ])) .or. density_hat <= 0.0_dp) return
-    h = 1.0_dp/real(rho_quadrature_panels, dp)
-    spectral = allocated(params%pe_spectrum%flux)
-    do point = 0, rho_quadrature_panels
-      t = real(point, dp)*h
-      phi_hat = lower_phi_hat + (upper_phi_hat - lower_phi_hat)*sin(0.5_dp*pi*t)**2
-      jacobian = (upper_phi_hat - lower_phi_hat)*0.5_dp*pi*sin(pi*t)
-      if (.not. ion_accessible(params, phi_hat)) return
-      call evaluate_zhao_rho_hat( &
-        params, branch, side, phi_hat, phi0_hat, phi_m_hat, density_hat, rho_hat, include_pe=.not. spectral &
-        )
-      if (.not. ieee_is_finite(rho_hat)) return
-      summand = rho_hat*jacobian
-      if (point == 0 .or. point == rho_quadrature_panels) then
-        weight = 1.0_dp
-      else if (mod(point, 2) == 0) then
-        weight = 2.0_dp
-      else
-        weight = 4.0_dp
-      end if
-      integral = integral + weight*summand
-    end do
-    integral = integral*h/3.0_dp
-    if (spectral) then
-      minimum_v = phi_m_hat*params%t_phe_ev
-      if (branch == 'B') minimum_v = 0.0_dp
-      if (branch == 'C') minimum_v = phi0_hat*params%t_phe_ev
-      upper_side = trim(side) == 'upper' .or. branch == 'C'
-      pe_integral = params%pe_spectrum%integrated_density(upper_phi_hat*params%t_phe_ev, &
-                                                          phi0_hat*params%t_phe_ev, minimum_v, params%m_e_kg, upper_side) - &
-                    params%pe_spectrum%integrated_density(lower_phi_hat*params%t_phe_ev, &
-                                                          phi0_hat*params%t_phe_ev, minimum_v, params%m_e_kg, upper_side)
-      integral = integral - pe_integral/(params%n_phe_ref_m3*params%t_phe_ev)
-    end if
+    integral = integrate_zhao_rho(params, branch, side, lower_phi_hat, upper_phi_hat, &
+                                  phi0_hat, phi_m_hat, density_hat)
     success = ieee_is_finite(integral)
   end subroutine integrate_matching_rho_hat
 
@@ -341,7 +283,7 @@ contains
 
   real(dp) :: phi0_hat, phi_m_hat, density_hat, phi_hat, fraction
   real(dp) :: integral, field_squared, interface_field_squared, upper_endpoint_field_squared
-  real(dp) :: minimum_field_squared, field_squared_scale
+  real(dp) :: minimum_field_squared, field_squared_scale, upstream_rho
   integer :: point
   logical :: integral_ok
 
@@ -358,6 +300,28 @@ contains
     message = 'matching-plane Zhao profile normalization is invalid.'
     return
   end if
+
+  status = matching_plane_zhao_no_physical_solution
+  if ((root%branch == 'A' .or. root%branch == 'C') .and. params%u > 0.0_dp) then
+    ! Reflected slow electrons contribute +const*u*h*log(1/h) to n_e(-h).
+    ! For u>0 this makes E^2 negative arbitrarily near neutral infinity.
+    message = 'Reflected drifting electrons cannot approach neutral zero-field infinity.'
+    return
+  end if
+  if (.not. ion_accessible(params, max(phi0_hat, 0.0_dp))) then
+    message = 'The matching-plane potential blocks the cold ion beam.'
+    return
+  end if
+  if (root%branch == 'A') then
+    call evaluate_zhao_rho_hat(params, root%branch, 'upper', 0.0_dp, phi0_hat, phi_m_hat, density_hat, upstream_rho)
+  else
+    call evaluate_zhao_rho_hat(params, root%branch, 'monotonic', 0.0_dp, phi0_hat, phi_m_hat, density_hat, upstream_rho)
+  end if
+  if (abs(upstream_rho) > 1.0e-7_dp*max(1.0_dp, density_hat)) then
+    message = 'The matching-plane root does not approach a neutral upstream state.'
+    return
+  end if
+  status = matching_plane_zhao_numerical_failure
 
   minimum_field_squared = huge(1.0_dp)
   interface_field_squared = huge(1.0_dp)

@@ -466,7 +466,7 @@ for current outputs.
 
 Online implicit bracket and step-subdivision nodes are neither a persistent table nor checkpoint state. With
 `continuation`, BEACH tries to reconstruct the restart seed from the accepted response saved in `summary.txt` and falls
-back to the minimum-energy bootstrap if reconstruction fails. Every policy evaluates the needed response directly from
+back to the initial unique-root search if reconstruction fails. Every policy evaluates the needed response directly from
 the same Zhao contract, so no `matching_query.csv` or fingerprint of automatic search points is required.
 
 See [Execution and Resume](Execution.en.html) for the actual procedure.

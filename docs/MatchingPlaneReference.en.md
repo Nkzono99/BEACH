@@ -21,33 +21,18 @@ diagnosis, start with [Couple an outer sheath at a matching plane](MatchingPlane
 
 ## Zhao Type B electron density
 
-Type B ambient electrons retain the lower velocity bound of particles accelerated into positive potential.
-Applying the path minimum $\Phi_m=\Phi_\infty=0$ to
-[Zhao et al. (2020), §III.A, equation (3)](https://scholarworks.indianapolis.iu.edu/server/api/core/bitstreams/e20ede43-d66d-4b73-b89c-3d3192672188/content)
-gives, in BEACH's normalization,
+Type B ambient electrons transport the upstream distribution by energy conservation, retaining the lower velocity
+bound of particles accelerated into positive potential. At zero drift, BEACH's normalization gives
 
 $$
 \hat n_{e,f}=\frac{\hat n_{e,\infty}}{2}
-\exp(\hat\phi/\tau)\operatorname{erfc}\!\left(\sqrt{\hat\phi/\tau}-u\right).
+\operatorname{erfcx}\!\left(\sqrt{\hat\phi/\tau}\right).
 $$
 
 Here $\hat\phi=e(\Phi-\Phi_\infty)/(k_BT_{ph})$, $\tau=T_e/T_{ph}$,
-and $u=v_d/\sqrt{2k_BT_e/m_e}$; densities are normalized by the reference PE density.
-At zero drift, $\hat n_{e,f}=(\hat n_{e,\infty}/2)\operatorname{erfcx}(\sqrt{\hat\phi/\tau})$.
-The implementation uses scaled erfc to avoid directly multiplying a large exponential by a small tail.
-
-Appendix equation (1) of [Zhao's 2022 dissertation](https://scholarsmine.mst.edu/doctoral_dissertations/3176/) retains
-the same cutoff. A Maxwellian distribution does not imply a Boltzmann density integrated over all velocities.
-Nonzero drift follows the original distribution formula too; restoring it does not establish exact boundary-VDF
-transport or dynamic stability. The full text of the 2021 IEEE TPS version was not retrieved, so its equations are
-not claimed to have been checked directly.
-
-The previous Type B implementation replaced `erfc(sqrt(phi_hat/tau)-u)` with the position-independent `1+erf(u)`.
-The correction is in the existing Zhao density evaluator and therefore enters online Poisson integrals and response-table
-generation. It adds no configuration key, source type, or A/B/C name. The density at zero potential and zero-current
-boundary equations are unchanged; Type B prescribed-field responses, potential energies, and `auto` root selection can change.
-Regenerate tables produced from the previous Type B or `auto` implementation with the corrected `beach-zhao-response`.
-The table reader uses existing CSV values as supplied and does not retroactively correct them.
+and densities are normalized by the reference PE density. Nonzero drift uses the
+[upstream-VDF orbit integral](#consistency-between-the-ambient-vdf-and-sheath-density), not a shifted erfc argument.
+Regenerate tables produced before the density correction with `beach-zhao-response`; the reader uses existing CSV values as supplied.
 
 ## `photoelectron_closure`
 
@@ -161,6 +146,8 @@ and doubles the width at most 64 times. If the seed lies outside an explicit A, 
 the branch-compatible sign in $D_{ref}/32$ increments out to $8D_{ref}$. It never forms a bracket across an uncertified
 gap. This searches only the current batch endpoint; it does not persistently extend a table. The run stops if the branch
 ends before the endpoint, the scan or numeric range is exceeded, or no sign change is found.
+With `auto` + `continuation`, an unresolved initial point triggers a scan in both signs. A valid root found on an
+interval seeds local searches there; unaccepted local seeds do not become the next batch's accepted state.
 
 After finite endpoints establish a sign-changing bracket, a roundoff-scale residual miss no longer stops the run.
 BEACH accepts the endpoint with the smaller residual and emits a warning. An absent bracket, non-finite response, or
@@ -175,10 +162,14 @@ A/B coexistence; branchwise solvability still has to be validated.
 |---|---|---|
 | `require_unique` | Online Zhao | Require one physical root at each query. If `auto` cannot certify uniqueness, stop rather than select a branch |
 | `minimum_energy` | Online Zhao | Choose the detected multistart candidate with the lowest full-sheath potential energy |
-| `continuation` | Online Zhao, explicit `zhao_branch="a"`, and `implicit_zero_mode=true` | Locally track a Type-A root from the last accepted endpoint; fallback accepts only the detected root nearest to the seed |
+| `continuation` | Online Zhao and `implicit_zero_mode=true` | Locally track from the last accepted endpoint; fallback accepts the detected root nearest to the seed within the configured branch policy |
 
-The default is `require_unique`. `continuation` is an opt-in, history-dependent policy. It is unavailable with `auto`,
-Type B or C, explicit mean-charge updates, tables, and stationary Zhao.
+The default is `require_unique`. `continuation` is an opt-in, history-dependent policy for `auto` / `a` / `b` / `c`.
+It is unavailable with explicit mean-charge updates, tables, and stationary Zhao.
+
+Each branch uses at most eight initial guesses. Potential candidates use the PE flux-distribution median, PE mean
+energy, $\epsilon_0 E_H^2/(en_i)$, electron temperature, and the cold-ion kinetic-energy limit. The initial ambient
+density follows upstream neutrality for each candidate. Guesses do not use fixed values in V or m$^{-3}$.
 
 With `zhao_root_selection="minimum_energy"`, BEACH evaluates every candidate detected by the multistart search over
 the full profile from the surface to infinity:
@@ -195,22 +186,27 @@ guarantee enumeration of every root or prove time-dependent stability.
 The response can be discontinuous where the minimum-energy root switches. If the backward-Euler residual crosses that
 discontinuity without an ordinary zero, BEACH reports numerical failure instead of mixing the two roots.
 
-For a new run, `continuation` selects its first Type-A root with the same full multistart minimum-energy bootstrap.
-Later evaluations use the last accepted endpoint root as the Newton seed and locally track a Type-A root. BEACH returns to
-full multistart only when Newton fails to converge, its result cannot be decoded as a valid Type-A root, profile
-certification fails, or the candidate makes a large jump. A local Newton result is accepted directly when the maximum
-absolute log ratio among $(\phi_0,|\phi_m|,n_{e,\infty})$ does not exceed 0.25, corresponding to approximately 0.78--1.28
-times the accepted value for each component.
+For a new run, `continuation` performs finite multistart with the same uniqueness requirement as `require_unique`.
+It does not rank bootstrap roots by energy. Each batch trial starts from the last accepted endpoint. Once a valid
+endpoint is found within the trial, that root seeds the next feedback iteration, including in the first batch.
+BEACH returns to full multistart when Newton fails to converge, its result cannot be decoded, profile certification fails,
+or the candidate makes a large jump. The local Newton result must have distance
 
-After full multistart, BEACH selects the closest detected Type-A root using the same logarithmic distance. Let the two
+$$
+d=\max\left(\frac{|\Delta\Phi_H|}{T_{pe}},\frac{|\Delta\Phi_{min}|}{T_{pe}},
+\left|\log\frac{n_{e,\infty}}{n_{e,\infty}^{seed}}\right|\right)
+$$
+
+at most 0.25. Potential differences use the PE temperature scale; the path minimum is $\phi_m$ for Type A, zero for
+Type B, and $\Phi_H$ for Type C. After full multistart, BEACH selects the closest detected root with the same distance. Let the two
 smallest distances be $d_1$ and $d_2$. If
 $|d_2-d_1|\le10^{-6}\max(1,d_1)$, they are numerically indistinguishable; BEACH reports ambiguity instead of using
 initial-guess order. Otherwise it accepts the closest root whether its distance is below or above 0.25. The 0.25 bound is
 only the fast-path acceptance limit for local Newton; it is not a physical distance limit on the root family after full
-multistart. The solve stops when full multistart finds no Type-A root or when root search or profile certification fails
+multistart. The solve stops when full multistart finds no root or when root search or profile certification fails
 numerically. If a probe immediately after a valid root reports no physical solution or a numerical failure, the implicit
 solver still subdivides that interval so a coarse scan does not skip a root near a branch endpoint.
-It does not switch to Type B or C.
+It preserves an explicit branch; `auto` considers certified A / B / C candidates.
 
 This is not pseudo-arclength continuation. Full multistart and branch-boundary subdivision can reacquire a root lost by
 local Newton, but they do not prove retention of the same physical family, locate a fold, or prove passage through one.
@@ -218,20 +214,22 @@ The bootstrap and fallback retain the finite-multistart
 limitation: they do not enumerate every mathematical root.
 
 Rejected implicit probes, unaccepted fixed-point trials, and rejected adaptive-batch trials do not commit their root
-candidates to the accepted continuation state. Only an accepted endpoint seeds the next batch. On restart, BEACH tries
-to reconstruct the seed from the saved accepted response and falls back to the minimum-energy bootstrap if
+candidates to the accepted continuation state. Rejecting a trial discards its local seed; only an accepted endpoint
+seeds the next batch. On restart, BEACH tries
+to reconstruct the seed from the saved accepted response and falls back to the initial unique-root search if
 reconstruction fails. See the [Output format reference](OutputReference.en.html#matching_plane_quasistatic) for saved
 state and receipts.
 
-With PEs, the half-Maxwellian reduction gives
+With PEs and either moment closure or a table, the half-Maxwellian reduction gives
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
-\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
+\exp\left[-\frac{\max(0,\Phi_H(D)-\Phi_{pe,barrier}(D))}
 {\langle K_{pe,n}^{out}\rangle}\right].
 $$
 
-With $q_{pe}<0$, BEACH solves the endpoint of
+`energy_spectrum` instead integrates the measured distribution above the barrier. In either case, with $q_{pe}<0$,
+BEACH solves the endpoint of
 
 $$
 D_H^{n+1}=D_H^n+h\left[
@@ -258,28 +256,25 @@ for the comparison workflow.
 
 ## Consistency between the ambient VDF and sheath density
 
-Agreement of inward flux and particle energy conservation does not ensure agreement of the outer sheath density.
-For the lower Type-A branch, the current implementation uses
+Ambient-electron density transports the same upstream drifting Maxwellian used for inward flux by energy conservation.
+With potentials in V, $T_e$ in eV, and inward drift $u=v_d/\sqrt{2eT_e/m_e}$, the Type-A population crossing
+the potential minimum has density
 
 $$
 \frac{n_e(\phi)}{n_{e,\infty}}=
-\frac12 e^{\phi/T_e}\operatorname{erfc}\!\left(\sqrt{(\phi-\phi_m)/T_e}-u\right).
-$$
-
-Here potentials are numerical values in V, $T_e$ is the numerical value in eV, and
-$u=v_d/\sqrt{2eT_e/m_e}$ is the inward drift. Mapping the upstream drifting Maxwellian by energy conservation
-instead gives the density of the population that crosses the potential minimum as
-
-$$
-\frac{n_e^{kin}(\phi)}{n_{e,\infty}}=
 \frac{1}{\sqrt\pi}\int_{\sqrt{-\phi_m/T_e}}^\infty
 \frac{s\,e^{-(s-u)^2}}{\sqrt{s^2+\phi/T_e}}\,ds.
 $$
 
 Here $s$ is the upstream inward normal speed divided by $\sqrt{2eT_e/m_e}$, with $\phi_m<0$ and $\phi\ge\phi_m$.
-The expressions agree at $u=0$ but generally differ at finite drift. The current online Zhao and reservoir combination
-therefore does not form an outer kinetic solution closed with one identical VDF. When testing a replacement density,
-check $E^2\ge0$ along both complete profile branches in addition to roots of the neutrality and integral constraints.
+Type B sets the lower bound to zero; reflecting intervals add the reflected population from the same upstream VDF.
+Nonzero drift is not approximated by a Boltzmann factor times shifted erfc. PE density likewise preserves the source
+orbits and passing/reflected velocity ranges. Type A requires $\phi_m<\min(0,\Phi_H)$ and permits $\Phi_H<0$.
+
+Roots of neutrality and Sagdeev integral constraints are insufficient: the whole profile must satisfy $E^2\ge0$.
+Positive inward drift with complete reflection of slow ambient electrons in Type A / C violates this condition near
+infinity under strict neutral, zero-field upstream conditions. A finite upstream boundary defines a different boundary-value
+problem and is not part of the current online closure.
 
 ## Table-backend response CSV v1
 

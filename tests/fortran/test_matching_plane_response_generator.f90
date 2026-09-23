@@ -1,7 +1,7 @@
 !> Built-in Zhao evaluatorから既存形式のresponse CSVを生成できることを検証する。
 program test_matching_plane_response_generator
   use bem_kinds, only: dp, i32
-  use bem_constants, only: qe
+  use bem_constants, only: qe, eps0
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_matching_plane_response, only: matching_plane_response_table_type, &
                                          matching_plane_response_query_csv_header, &
@@ -99,6 +99,7 @@ program test_matching_plane_response_generator
 
   call test_begin('continuation_provider_reacquires_a_unique_distant_root')
   failure_cfg = cfg
+  failure_cfg%particle_species(1)%drift_velocity = 0.0_dp
   failure_cfg%surface_current%zhao_branch = 'a'
   failure_cfg%surface_current%zhao_root_selection = 'continuation'
   failure_cfg%surface_current%implicit_zero_mode = .true.
@@ -106,7 +107,7 @@ program test_matching_plane_response_generator
   call continuation_provider%initialize(failure_cfg, serial_mpi, status, message)
   call assert_equal_i32(status, matching_plane_provider_ok, 'continuation provider initialization failed')
   query = [ &
-          1.4187346568707933e-11_dp, 1.3754433596232731e13_dp, &
+          1.6_dp*eps0, 1.3754433596232731e13_dp, &
           2.2_dp, 0.0_dp, 0.0_dp &
           ]
   call continuation_provider%evaluate_local( &
@@ -122,11 +123,11 @@ program test_matching_plane_response_generator
   call assert_equal_i32(status, matching_plane_provider_ok, 'continuation provider rejected a unique distant root')
   call assert_true(rejected_seed%valid, 'continuation provider did not expose the reacquired root')
   call assert_close_dp( &
-    online_response(1), 2.9712182827319435_dp, 5.0e-5_dp, &
+    online_response(1), 3.3935508133919789_dp, 5.0e-5_dp, &
     'continuation provider selected the wrong distant Type-A root' &
     )
   call assert_close_dp( &
-    online_response(6), -0.8169121871620854_dp, 5.0e-5_dp, &
+    online_response(6), -0.53407940085298677_dp, 5.0e-5_dp, &
     'continuation provider changed the distant Type-A barrier' &
     )
   call test_end()

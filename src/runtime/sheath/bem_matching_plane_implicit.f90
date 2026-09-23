@@ -110,11 +110,11 @@ contains
     integer(i32), parameter :: online_expansion_count = 64_i32
     integer(i32), parameter :: online_initial_scan_count = 256_i32
     real(dp), parameter :: online_initial_scan_spacing = 1.0_dp/32.0_dp
-    integer(i32) :: iteration, boundary_iteration, rejected_status
+    integer(i32) :: iteration, boundary_iteration, rejected_status, scan_pass, scan_pass_count, scan_direction
     character(len=512) :: evaluation_message
     logical :: bracketed, lower_candidate_brackets, have_valid_point
     logical :: saw_numerical_candidate
-    logical :: boundary_failure_numerical
+    logical :: boundary_failure_numerical, scan_crossed_invalid_point
 
     displacement_after = 0.0_dp
     response_after = 0.0_dp
@@ -150,7 +150,7 @@ contains
         return
       end if
       evaluation_root = root_before
-      if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
+      if (lower_root%valid) evaluation_root = lower_root
       call evaluate_matching_implicit_residual_local( &
         provider, upper, displacement_before, duration, feedback_reference, &
         electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
@@ -186,86 +186,95 @@ contains
         ! Probe that local scale first and only then expand geometrically.
         step = min(displacement_scale, max(abs(lower_residual), displacement_tolerance))
       else
-        if ((status /= matching_plane_provider_no_physical_solution .and. &
-             status /= matching_plane_provider_numerical_failure) .or. &
-            search_direction == 0_i32) then
+        if (status /= matching_plane_provider_no_physical_solution .and. &
+            status /= matching_plane_provider_numerical_failure) then
           message = 'implicit matching-plane Zhao starting point failed: '//trim(evaluation_message)
           return
         end if
-        ! Explicit A/B/C can have a narrow certified interval separated from
+        ! Each branch can have a narrow certified interval separated from
         ! zero by points where the finite-start Zhao solve is inconclusive.
         ! Scan the natural displacement scale without bracketing across such a
         ! gap; geometric powers can skip the whole Type-A interval.
         saw_numerical_candidate = status == matching_plane_provider_numerical_failure
         status = matching_plane_provider_ok
         step = online_initial_scan_spacing*displacement_scale
-        have_valid_point = .false.
-        do iteration = 1_i32, online_initial_scan_count
-          candidate = real(search_direction*iteration, dp)*step
-          evaluation_root = root_before
-          if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
-          call evaluate_matching_implicit_residual_local( &
-            provider, candidate, displacement_before, duration, feedback_reference, &
-            electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
-            evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
-            status, evaluation_message &
-            )
-          if ((status == matching_plane_provider_no_physical_solution .or. &
-               status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
-            invalid_candidate = candidate
-            rejected_status = status
-            call recover_matching_continuation_substep_local( &
-              provider, lower, invalid_candidate, rejected_status, displacement_before, duration, feedback_reference, &
-              electron_charge, ion_charge, photoelectron_active, photoelectron_charge, evaluation_root, &
-              displacement_tolerance, candidate, candidate_root, candidate_residual, candidate_response, &
-              current_density, status, evaluation_message &
+        ! Auto searches each sign separately, with no bracket or seed carried
+        ! across an interval where a physical response was not established.
+        scan_pass_count = 1_i32
+        if (search_direction == 0_i32) scan_pass_count = 2_i32
+        do scan_pass = 1_i32, scan_pass_count
+          scan_direction = search_direction
+          if (search_direction == 0_i32) scan_direction = 3_i32 - 2_i32*scan_pass
+          have_valid_point = .false.
+          lower_root = root_before
+          do iteration = 1_i32, online_initial_scan_count
+            scan_crossed_invalid_point = .false.
+            candidate = real(scan_direction*iteration, dp)*step
+            evaluation_root = root_before
+            if (have_valid_point .and. lower_root%valid) evaluation_root = lower_root
+            call evaluate_matching_implicit_residual_local( &
+              provider, candidate, displacement_before, duration, feedback_reference, &
+              electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
+              evaluation_root, candidate_root, candidate_residual, candidate_response, current_density, &
+              status, evaluation_message &
               )
-            if (status /= matching_plane_provider_ok) then
-              message = 'implicit matching-plane Zhao initial-scan subdivision failed: '//trim(evaluation_message)
-              return
+            if ((status == matching_plane_provider_no_physical_solution .or. &
+                 status == matching_plane_provider_numerical_failure) .and. have_valid_point) then
+              scan_crossed_invalid_point = .true.
+              saw_numerical_candidate = saw_numerical_candidate .or. &
+                                        status == matching_plane_provider_numerical_failure
+              invalid_candidate = candidate
+              rejected_status = status
+              call recover_matching_continuation_substep_local( &
+                provider, lower, invalid_candidate, rejected_status, displacement_before, duration, feedback_reference, &
+                electron_charge, ion_charge, photoelectron_active, photoelectron_charge, evaluation_root, &
+                displacement_tolerance, candidate, candidate_root, candidate_residual, candidate_response, &
+                current_density, status, evaluation_message &
+                )
             end if
-          end if
-          if (status == matching_plane_provider_ok) then
-            if (abs(candidate_residual) <= residual_tolerance) then
-              displacement_after = candidate
-              response_after = candidate_response
-              root_after = candidate_root
-              return
-            end if
-            if (have_valid_point .and. residuals_bracket_zero(lower_residual, candidate_residual)) then
-              if (candidate < lower) then
-                upper = lower
-                upper_residual = lower_residual
-                upper_response = lower_response
-                upper_root = lower_root
-                lower = candidate
-                lower_residual = candidate_residual
-                lower_response = candidate_response
-                lower_root = candidate_root
-              else
-                upper = candidate
-                upper_residual = candidate_residual
-                upper_response = candidate_response
-                upper_root = candidate_root
+            if (status == matching_plane_provider_ok) then
+              if (abs(candidate_residual) <= residual_tolerance) then
+                displacement_after = candidate
+                response_after = candidate_response
+                root_after = candidate_root
+                return
               end if
-              bracketed = .true.
-              exit
+              if (have_valid_point .and. residuals_bracket_zero(lower_residual, candidate_residual)) then
+                if (candidate < lower) then
+                  upper = lower
+                  upper_residual = lower_residual
+                  upper_response = lower_response
+                  upper_root = lower_root
+                  lower = candidate
+                  lower_residual = candidate_residual
+                  lower_response = candidate_response
+                  lower_root = candidate_root
+                else
+                  upper = candidate
+                  upper_residual = candidate_residual
+                  upper_response = candidate_response
+                  upper_root = candidate_root
+                end if
+                bracketed = .true.
+                exit
+              end if
+              lower = candidate
+              lower_residual = candidate_residual
+              lower_response = candidate_response
+              lower_root = candidate_root
+              have_valid_point = .not. scan_crossed_invalid_point
+            else if (status == matching_plane_provider_no_physical_solution .or. &
+                     status == matching_plane_provider_numerical_failure) then
+              saw_numerical_candidate = saw_numerical_candidate .or. &
+                                        status == matching_plane_provider_numerical_failure
+              have_valid_point = .false.
+              status = matching_plane_provider_ok
+            else
+              message = 'implicit matching-plane Zhao initial signed scan failed: '//trim(evaluation_message)
+              return
             end if
-            lower = candidate
-            lower_residual = candidate_residual
-            lower_response = candidate_response
-            lower_root = candidate_root
-            have_valid_point = .true.
-          else if (status == matching_plane_provider_no_physical_solution .or. &
-                   status == matching_plane_provider_numerical_failure) then
-            saw_numerical_candidate = saw_numerical_candidate .or. &
-                                      status == matching_plane_provider_numerical_failure
-            have_valid_point = .false.
-            status = matching_plane_provider_ok
-          else
-            message = 'implicit matching-plane Zhao initial signed scan failed: '//trim(evaluation_message)
-            return
-          end if
+          end do
+          if (bracketed) exit
         end do
         if (.not. bracketed) then
           if (saw_numerical_candidate) then
@@ -295,7 +304,7 @@ contains
           return
         end if
         evaluation_root = root_before
-        if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
+        if (lower_root%valid) evaluation_root = lower_root
         call evaluate_matching_implicit_residual_local( &
           provider, candidate, displacement_before, duration, feedback_reference, &
           electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
@@ -351,7 +360,7 @@ contains
             candidate = 0.5_dp*lower + 0.5_dp*invalid_candidate
             if (abs(candidate - lower) <= displacement_tolerance) exit
             evaluation_root = root_before
-            if (root_before%valid .and. lower_root%valid) evaluation_root = lower_root
+            if (lower_root%valid) evaluation_root = lower_root
             call evaluate_matching_implicit_residual_local( &
               provider, candidate, displacement_before, duration, feedback_reference, &
               electron_charge, ion_charge, photoelectron_active, photoelectron_charge, &
@@ -453,9 +462,7 @@ contains
           candidate = 0.5_dp*lower + 0.5_dp*upper
         end if
       end if
-      if (.not. root_before%valid) then
-        evaluation_root = root_before
-      else if (abs(candidate - lower) <= abs(upper - candidate)) then
+      if (abs(candidate - lower) <= abs(upper - candidate)) then
         evaluation_root = lower_root
       else
         evaluation_root = upper_root
@@ -581,7 +588,7 @@ contains
     else
       status = matching_plane_provider_no_physical_solution
     end if
-    message = 'no valid Type-A Zhao response was found within the continuation subdivision tolerance.'
+    message = 'no valid Zhao response was found within the continuation subdivision tolerance.'
   end subroutine recover_matching_continuation_substep_local
 
   subroutine evaluate_matching_implicit_residual_local( &

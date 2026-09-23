@@ -21,31 +21,18 @@ Lang: [日本語](MatchingPlaneReference.md) | [English](MatchingPlaneReference.
 
 ## Zhao Type B の電子密度
 
-Type B の ambient 電子は、正電位へ加速されて到達する粒子の速度下限を残して積分します。
-[Zhao et al. (2020), §III.A、式 (3)](https://scholarworks.indianapolis.iu.edu/server/api/core/bitstreams/e20ede43-d66d-4b73-b89c-3d3192672188/content)
-に経路最低電位 $\Phi_m=\Phi_\infty=0$ を入れた式は、BEACH の規格化で
+Type B の ambient 電子は、上流分布をエネルギー保存で輸送し、正電位へ加速される粒子の速度下限を残して積分します。
+零ドリフトの場合は、BEACH の規格化で
 
 $$
 \hat n_{e,f}=\frac{\hat n_{e,\infty}}{2}
-\exp(\hat\phi/\tau)\operatorname{erfc}\!\left(\sqrt{\hat\phi/\tau}-u\right)
+\operatorname{erfcx}\!\left(\sqrt{\hat\phi/\tau}\right)
 $$
 
 です。$\hat\phi=e(\Phi-\Phi_\infty)/(k_BT_{ph})$、$\tau=T_e/T_{ph}$、
-$u=v_d/\sqrt{2k_BT_e/m_e}$ とし、密度は基準 PE 密度で規格化します。
-零ドリフトでは $\hat n_{e,f}=(\hat n_{e,\infty}/2)\operatorname{erfcx}(\sqrt{\hat\phi/\tau})$ です。
-実装でも大きな正電位で指数関数と小さい尾部を直接掛けないよう、scaled erfc を使います。
-
-この速度下限は [Zhao (2022) 学位論文](https://scholarsmine.mst.edu/doctoral_dissertations/3176/)の付録・式 (1) にもあります。
-Maxwell 分布を使うことは、全速度を積分した Boltzmann 密度を仮定することとは異なります。
-有限ドリフトについても原著の分布式を使いますが、この式の復元だけで厳密な境界 VDF 輸送との一致や時間安定性を保証しません。
-2021 年 IEEE TPS 版の本文は未取得で、その版の式まで直接確認済みとはしません。
-
-以前の Type B 実装は `erfc(sqrt(phi_hat/tau)-u)` を位置によらない `1+erf(u)` としていました。
-既存の Zhao 密度評価を修正し、online の Poisson 積分と応答表生成に反映しています。
-設定キー、source type、A/B/C の名前は追加していません。原点の密度と零電流の境界式は変わらず、
-Type B の指定電場応答・電位エネルギー・`auto` の根選択は変わり得ます。
-修正前の Type B または `auto` から生成した応答表は、修正後の `beach-zhao-response` で再生成してください。
-table reader は既存 CSV の数値をそのまま使い、過去の表を自動修正しません。
+密度は基準 PE 密度で規格化します。有限ドリフトでは、この式の erfc 引数を単にずらさず、
+[上流 VDF の軌道積分](#ambient-vdf-とシース密度の整合性)を使います。
+密度修正前に作った応答表は `beach-zhao-response` で再生成してください。table reader は既存 CSV の数値をそのまま使います。
 
 ## `photoelectron_closure`
 
@@ -155,6 +142,8 @@ $$
 以下に抑えた初期幅から、幅を 2 倍ずつ最大 64 回拡張します。seed が明示 Type A / B / C の解領域外なら、
 branch と整合する符号を $D_{ref}/32$ 刻み、最大 $8D_{ref}$ まで走査します。数値未保証の gap をまたいだ2点は
 bracket とみなしません。これは table を永続的に拡張する処理ではなく、その batch の終点を探す処理です。
+`auto` + `continuation` は初期点が未解決なら両符号を走査し、見つかった有効根をその区間内の探索 seed に使います。
+この局所 seed は未受理の間は次 batch の accepted state に保存しません。
 Zhao branch が終点より前に終わる、走査範囲または数値範囲を超える、または符号変化を見つけられない場合は
 停止します。
 
@@ -170,10 +159,14 @@ branch 別の可解性評価が必要です。
 |---|---|---|
 | `require_unique` | online Zhao | query ごとに一意な物理解を要求する。`auto` が一意性を確認できなければ branch を代わりに選ばず停止 |
 | `minimum_energy` | online Zhao | multistart で検出した候補から全シース電位エネルギーが最小の根を選択 |
-| `continuation` | online Zhao、明示的な `zhao_branch="a"`、`implicit_zero_mode=true` | 最後に受理した endpoint を seed に Type A root を局所追跡し、fallback では seed に最も近い検出根だけを受理 |
+| `continuation` | online Zhao、`implicit_zero_mode=true` | 最後に受理した endpoint を seed に局所追跡し、fallback では設定 branch 内で seed に最も近い検出根だけを受理 |
 
-既定値は `require_unique` です。`continuation` は履歴依存の opt-in で、`auto`、Type B / C、明示更新、table、
-stationary Zhao には使えません。
+既定値は `require_unique` です。`continuation` は履歴依存の opt-in で、`auto` / `a` / `b` / `c` に使えます。
+明示更新、table、stationary Zhao には使えません。
+
+各 branch の multistart は最大 8 個の初期値を使います。電位候補は PE 流束分布の中央値、PE 平均エネルギー、
+$\epsilon_0 E_H^2/(en_i)$、電子温度、冷イオンの運動エネルギー上限から定め、ambient 密度の初期値は
+各候補の上流中性条件から求めます。固定の V や m$^{-3}$ に依存した初期値は使いません。
 
 `zhao_root_selection="minimum_energy"` では、multistart で検出した各候補について表面から無限遠までの profile から
 
@@ -188,19 +181,26 @@ sheath potential-energy 比較に基づく候補選択規則であり、有限 m
 最小エネルギー根の切替点では応答が不連続になり得ます。backward-Euler 残差がその不連続をまたいでも通常の零点が
 なければ、2根を混合せず数値失敗として停止します。
 
-`continuation` は新規 run の最初の Type A root を `minimum_energy` と同じ full multistart で選びます。
-その後は、最後に受理した endpoint の root を次の Newton seed とし、Type A root を局所追跡します。Newton が
-収束しない、収束値を有効な Type A root に復号できない、profile 検査に通らない、または候補が大きく離れた場合だけ
-full multistart へ戻ります。局所 Newton の受理判定には $(\phi_0,|\phi_m|,n_{e,\infty})$ の各比の対数を使い、
-最大絶対値 0.25 以下、すなわち各成分がおよそ 0.78--1.28 倍の範囲にあることを要求します。
+`continuation` は新規 run の初回に有限 multistart を行い、`require_unique` と同じ一意性条件を要求します。
+エネルギー順位で初期根を選びません。batch trial は最後の受理済み endpoint から始め、trial 内で有効な
+endpoint が得られた後は、その根を次の feedback 反復の Newton seed にします。初回 batch も同じ規則です。
+Newton が収束しない、root を復号できない、profile 検査に通らない、または候補が大きく離れた場合だけ
+full multistart へ戻ります。局所 Newton の受理判定は、PE 温度尺度で規格化した境界電位差、経路最低電位差、
+ambient 密度比の対数の最大値
 
-full multistart でも同じ対数距離で最も近い Type A root を選びます。最近傍距離を $d_1$、2 番目を $d_2$ としたとき、
+$$
+d=\max\left(\frac{|\Delta\Phi_H|}{T_{pe}},\frac{|\Delta\Phi_{min}|}{T_{pe}},
+\left|\log\frac{n_{e,\infty}}{n_{e,\infty}^{seed}}\right|\right)
+$$
+
+が 0.25 以下であることを要求します。経路最低電位は Type A で $\phi_m$、Type B で 0、Type C で $\Phi_H$ です。
+full multistart でも同じ距離で最も近い根を選びます。最近傍距離を $d_1$、2 番目を $d_2$ としたとき、
 $|d_2-d_1|\le10^{-6}\max(1,d_1)$ なら数値的に区別できないため、初期 guess の順では選ばず曖昧状態として停止します。
 それ以外は、最近傍 root を距離 0.25 の内外にかかわらず受理します。0.25 は局所 Newton をそのまま使う fast path の
-上限であり、full multistart 後の root family に対する物理的な距離上限ではありません。full multistart で Type A root を
+上限であり、full multistart 後の root family に対する物理的な距離上限ではありません。full multistart で root を
 検出できない場合、または探索や profile 検査が数値的に失敗した場合は停止します。最後の有効 root の直後で解なしまたは
 数値失敗となった implicit probe には二分を試し、branch 終端付近の root を粗い走査で飛び越えないようにします。
-Type B / C へは切り替えません。
+明示した branch は切り替えません。`auto` では検証済み A / B / C 候補が対象です。
 
 この方法は pseudo-arclength continuation ではありません。full multistart と branch-boundary subdivision は局所 Newton が
 失った root を再取得する手段ですが、同じ物理 family の保持、fold の位置、fold の通過可能性は証明しません。
@@ -208,19 +208,21 @@ Type B / C へは切り替えません。
 有限個の初期値では全数学根を列挙できないという制限があります。
 
 implicit root 探索で棄却した probe、固定点の未受理 trial、adaptive batch の棄却 trial は候補 root を accepted
-continuation state に commit しません。accepted endpoint だけが次の batch の seed になります。restart では保存済み
-accepted response から seed の再構成を試み、再構成できない場合は minimum-energy bootstrap に戻ります。保存状態と
+continuation state に commit しません。trial 内の継続 seed は trial の棄却時に破棄し、accepted endpoint だけを
+次の batch の seed にします。restart では保存済み
+accepted response から seed の再構成を試み、再構成できない場合は初回の一意根探索へ戻ります。保存状態と
 receipt は[出力形式リファレンス](OutputReference.html#matching_plane_quasistatic)を参照してください。
 
-PE ありでは half-Maxwellian 近似から
+PE ありで moment closure または table を使う場合は half-Maxwellian 近似から
 
 $$
 \Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
-\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
+\exp\left[-\frac{\max(0,\Phi_H(D)-\Phi_{pe,barrier}(D))}
 {\langle K_{pe,n}^{out}\rangle}\right]
 $$
 
-を求め、$q_{pe}<0$ として
+を求めます。`energy_spectrum` では上の指数式を使わず、測定分布の障壁以上を積分します。
+どちらも $q_{pe}<0$ として
 
 $$
 D_H^{n+1}=D_H^n+h\left[
@@ -246,28 +248,24 @@ $X^m$ でこの終点を解き、同じ trial の粒子追跡で得た PE moment
 
 ## Ambient VDF とシース密度の整合性
 
-流入束と粒子のエネルギー保存が一致しても、外部シースの密度分布まで一致するとは限りません。
-現行実装の Type A 下側では、ambient electron の密度係数を
+ambient electron の密度は、流入束と同じ上流 drifting Maxwellian をエネルギー保存で写像します。
+電位を V、$T_e$ を eV の数値で表し、$u=v_d/\sqrt{2eT_e/m_e}$ を内向き drift とすると、
+Type A の電位極小を通過する population は
 
 $$
 \frac{n_e(\phi)}{n_{e,\infty}}=
-\frac12 e^{\phi/T_e}\operatorname{erfc}\!\left(\sqrt{(\phi-\phi_m)/T_e}-u\right)
-$$
-
-とします。ここでは電位を V、$T_e$ を eV の数値で表し、
-$u=v_d/\sqrt{2eT_e/m_e}$ は内向き drift です。一方、上流 drifting Maxwellian を
-エネルギー保存で写像した、電位極小を通過する population の密度は
-
-$$
-\frac{n_e^{kin}(\phi)}{n_{e,\infty}}=
 \frac{1}{\sqrt\pi}\int_{\sqrt{-\phi_m/T_e}}^\infty
 \frac{s\,e^{-(s-u)^2}}{\sqrt{s^2+\phi/T_e}}\,ds
 $$
 
 です。$s$ は上流の内向き法線速度を $\sqrt{2eT_e/m_e}$ で割った値で、$\phi_m<0$、$\phi\ge\phi_m$ とします。
-両者は $u=0$ で一致しますが、有限 drift では一般に異なります。このため現行 online Zhao と
-reservoir の組合せを、完全に同一の VDF から閉じた外部 kinetic 解とは扱いません。密度式を差し替える検証では、
-中性条件・積分条件の根に加え、上側と下側の全 profile で $E^2\ge0$ となることも確認します。
+Type B では下限を 0 にし、反射する区間では同じ上流分布の反射 population を加えます。
+有限 drift を Boltzmann 因子とずらした erfc の積に置き換えません。PE 密度も放出点からの軌道と
+反射・透過の速度範囲を保ちます。Type A は $\phi_m<\min(0,\Phi_H)$ を要求し、$\Phi_H<0$ も許容します。
+
+中性条件・Sagdeev 積分条件の代数根だけでは物理解にならないため、全 profile の $E^2\ge0$ を検査します。
+低速 ambient 電子が完全反射する Type A / C に正の内向き drift を与えると、厳密な中性・零電場の無限遠条件の下では
+無限遠近傍でこの条件を満たしません。有限上流境界は別の境界値問題であり、現在の online closure には含めません。
 
 ## Table backend の応答 CSV v1
 

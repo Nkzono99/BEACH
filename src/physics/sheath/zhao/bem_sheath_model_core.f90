@@ -3,7 +3,8 @@ module bem_sheath_model_core
   use bem_kinds, only: dp
   use bem_constants, only: pi, eps0, qe
   use bem_pe_spectrum, only: pe_spectrum_type
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use bem_sheath_model_orbits, only: electron_density, gauss_x, gauss_w
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_value, ieee_quiet_nan
   implicit none
 
   real(dp), parameter :: nonlinear_tol = 1.0d-5
@@ -51,6 +52,7 @@ module bem_sheath_model_core
   public :: zhao_residuals_type_c
   public :: swe_free_current_term
   public :: type_a_e2_sum_at_infinity
+  public :: integrate_zhao_rho
 
 contains
 
@@ -82,47 +84,44 @@ contains
     real(dp), intent(out) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
     logical, intent(in), optional :: include_pe
 
-    real(dp) :: arg_ion, s_swe, s_phe, populated_sin_alpha
+    real(dp) :: arg_ion, s_phe, populated_sin_alpha, barrier, free, reflected
 
     populated_sin_alpha = p%photoelectron_population_fraction*p%n_phe0_m3/p%n_phe_ref_m3
     arg_ion = 1.0d0 - 2.0d0*phi_hat/(p%tau*p%mach*p%mach)
-    if (arg_ion <= 0.0d0) error stop 'Zhao ion density argument became non-positive.'
+    if (arg_ion <= 0.0d0) then
+      n_swi_hat = ieee_value(0.0_dp, ieee_quiet_nan)
+      n_swe_f_hat = n_swi_hat
+      n_swe_r_hat = n_swi_hat
+      n_phe_f_hat = n_swi_hat
+      n_phe_c_hat = n_swi_hat
+      return
+    end if
     n_swi_hat = (p%n_swi_inf_m3/p%n_phe_ref_m3)*arg_ion**(-0.5d0)
+    barrier = min(0.0_dp, phi0_hat)/p%tau
+    if (branch == 'A') barrier = phi_m_hat/p%tau
+    call electron_density(phi_hat/p%tau, barrier, p%u, free, reflected)
+    n_swe_f_hat = n_swe_inf_hat*free
+    n_swe_r_hat = n_swe_inf_hat*reflected
 
     select case (branch)
     case ('A')
-      s_swe = sqrt(max(0.0d0, (phi_hat - phi_m_hat)/p%tau))
       s_phe = sqrt(max(0.0d0, phi_hat - phi_m_hat))
-      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
       n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
       if (trim(side) == 'lower') then
         n_swe_r_hat = 0.0d0
         n_phe_c_hat = populated_sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
       else if (trim(side) == 'upper') then
-        n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
         n_phe_c_hat = 0.0d0
       else
         error stop 'Unknown Type-A Zhao side.'
       end if
     case ('B')
-      ! Zhao et al. (2020), Eq. (3): the path minimum for Type B is 0,
-      ! so incident electrons retain the local cutoff sqrt(phi_hat/tau).
-      s_swe = sqrt(max(0.0d0, phi_hat/p%tau))
       s_phe = sqrt(max(0.0d0, phi_hat))
-      if (s_swe >= p%u) then
-        ! Avoid exp(phi/tau)*erfc(s-u) overflow and tail cancellation.
-        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(2*s_swe*p%u - p%u**2)*erfc_scaled(s_swe - p%u)
-      else
-        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*erfc(s_swe - p%u)
-      end if
       n_swe_r_hat = 0.0d0
       n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
       n_phe_c_hat = populated_sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
     case ('C')
-      s_swe = sqrt(max(0.0d0, (phi_hat - phi0_hat)/p%tau))
       s_phe = sqrt(max(0.0d0, phi_hat - phi0_hat))
-      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
-      n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
       n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*erfc(s_phe)
       n_phe_c_hat = 0.0d0
     case default
@@ -594,7 +593,7 @@ contains
     phi0_v = x(1)
     phi_m_v = x(2)
     n_swe_inf_m3 = x(3)
-    if (phi0_v <= 0.0d0 .or. phi_m_v >= 0.0d0 .or. phi_m_v >= phi0_v .or. n_swe_inf_m3 <= 0.0d0) then
+    if (phi_m_v >= min(phi0_v, 0.0d0) .or. n_swe_inf_m3 <= 0.0d0) then
       f = 1.0d6
       return
     end if
@@ -609,6 +608,13 @@ contains
     ! The tracked emission current remains the full surface source.  The
     ! population fraction only closes the instantaneous outer density.
     f(2) = p%n_phe0_m3*exp((phi_m_v - phi0_v)/p%t_phe_ev) - swe_free_current_term(p, n_swe_inf_m3, a_swe) + ion_term
+    if (allocated(p%pe_spectrum%flux)) then
+      call evaluate_zhao_rho_hat(p, 'A', 'upper', 0.0_dp, phi0_v/p%t_phe_ev, phi_m_v/p%t_phe_ev, &
+                                 n_swe_inf_m3/p%n_phe_ref_m3, f(1))
+      f(1) = -f(1)*p%n_phe_ref_m3
+      f(2) = 2.0_dp*sqrt(pi)*p%pe_spectrum%tail_flux(phi0_v - phi_m_v)/p%v_phe_th_mps - &
+             swe_free_current_term(p, n_swe_inf_m3, a_swe) + ion_term
+    end if
     f(3) = type_a_e2_sum_at_infinity(p, phi0_v, phi_m_v, n_swe_inf_m3)
   end subroutine zhao_residuals_type_a
 
@@ -630,6 +636,13 @@ contains
     f(1) = 0.5d0*n_swe_inf_m3*(1.0d0 + erf(p%u)) + &
            0.5d0*p%photoelectron_population_fraction*p%n_phe0_m3*exp(-phi0_v/p%t_phe_ev) - p%n_swi_inf_m3
     f(2) = p%n_phe0_m3*exp(-phi0_v/p%t_phe_ev) - swe_free_current_term(p, n_swe_inf_m3, -p%u) + ion_term
+    if (allocated(p%pe_spectrum%flux)) then
+      call evaluate_zhao_rho_hat(p, 'B', 'monotonic', 0.0_dp, phi0_v/p%t_phe_ev, 0.0_dp, &
+                                 n_swe_inf_m3/p%n_phe_ref_m3, f(1))
+      f(1) = -f(1)*p%n_phe_ref_m3
+      f(2) = 2.0_dp*sqrt(pi)*p%pe_spectrum%tail_flux(phi0_v)/p%v_phe_th_mps - &
+             swe_free_current_term(p, n_swe_inf_m3, -p%u) + ion_term
+    end if
   end subroutine zhao_residuals_type_b
 
   subroutine zhao_residuals_type_c(p, x, f)
@@ -654,6 +667,13 @@ contains
            0.5d0*p%photoelectron_population_fraction*p%n_phe0_m3* &
            exp(-phi0_v/p%t_phe_ev)*erfc(a_phe) - p%n_swi_inf_m3
     f(2) = p%n_phe0_m3 - swe_free_current_term(p, n_swe_inf_m3, a_swe) + ion_term
+    if (allocated(p%pe_spectrum%flux)) then
+      call evaluate_zhao_rho_hat(p, 'C', 'monotonic', 0.0_dp, phi0_v/p%t_phe_ev, phi0_v/p%t_phe_ev, &
+                                 n_swe_inf_m3/p%n_phe_ref_m3, f(1))
+      f(1) = -f(1)*p%n_phe_ref_m3
+      f(2) = 2.0_dp*sqrt(pi)*p%pe_spectrum%total_flux()/p%v_phe_th_mps - &
+             swe_free_current_term(p, n_swe_inf_m3, a_swe) + ion_term
+    end if
   end subroutine zhao_residuals_type_c
 
   real(dp) function swe_free_current_term(p, n_swe_inf_m3, a_swe) result(term)
@@ -668,45 +688,48 @@ contains
     type(zhao_params_type), intent(in) :: p
     real(dp), intent(in) :: phi0_v, phi_m_v, n_swe_inf_m3
 
-    real(dp) :: phi, s_swe, s_phe, e2_swe_f, e2_swe_r, e2_phe_f, e2_swi, arg_phi, arg_m
-
-    if (abs(p%u) <= 1.0d-12) then
-      e2_sum = 1.0d30
-      return
-    end if
-
-    phi = 0.0d0
-    s_swe = sqrt(max(0.0d0, (phi - phi_m_v)/p%t_swe_ev))
-    s_phe = sqrt(max(0.0d0, (phi - phi_m_v)/p%t_phe_ev))
-
-    e2_swe_f = (p%t_swe_ev/p%t_phe_ev)*(n_swe_inf_m3/p%n_phe_ref_m3)*( &
-               exp(phi/p%t_swe_ev)*(1.0d0 - erf(s_swe - p%u)) - &
-               exp(phi_m_v/p%t_swe_ev)*(1.0d0 - erf(-p%u)) + &
-               (1.0d0/(sqrt(pi)*p%u))*exp(phi_m_v/p%t_swe_ev - p%u*p%u)*(exp(2.0d0*p%u*s_swe) - 1.0d0) &
-               )
-
-    e2_swe_r = 2.0d0*(p%t_swe_ev/p%t_phe_ev)*(n_swe_inf_m3/p%n_phe_ref_m3)*( &
-               exp(phi/p%t_swe_ev)*(erf(s_swe - p%u) + erf(p%u)) - &
-               (1.0d0/(sqrt(pi)*p%u))*exp(phi_m_v/p%t_swe_ev - p%u*p%u)*(exp(2.0d0*p%u*s_swe) - 1.0d0) &
-               )
-
-    e2_phe_f = p%photoelectron_population_fraction*(p%n_phe0_m3/p%n_phe_ref_m3)*( &
-               exp((phi - phi0_v)/p%t_phe_ev)*(1.0d0 - erf(s_phe)) - &
-               exp((phi_m_v - phi0_v)/p%t_phe_ev)*(1.0d0 - 2.0d0*s_phe/sqrt(pi)) &
-               )
-
-    arg_phi = 1.0d0 - 2.0d0*phi/(p%t_swe_ev*p%mach*p%mach)
-    arg_m = 1.0d0 - 2.0d0*phi_m_v/(p%t_swe_ev*p%mach*p%mach)
-    if (arg_phi <= 0.0d0 .or. arg_m <= 0.0d0) then
-      e2_sum = 1.0d30
-      return
-    end if
-
-    e2_swi = 2.0d0*(p%t_swe_ev/p%t_phe_ev)*(p%n_swi_inf_m3/p%n_phe_ref_m3)*p%mach*p%mach*( &
-             sqrt(arg_phi) - sqrt(arg_m) &
-             )
-    e2_sum = e2_swe_f + e2_swe_r + e2_phe_f + e2_swi
+    e2_sum = -2.0_dp*integrate_zhao_rho(p, 'A', 'upper', phi_m_v/p%t_phe_ev, 0.0_dp, &
+                                        phi0_v/p%t_phe_ev, phi_m_v/p%t_phe_ev, n_swe_inf_m3/p%n_phe_ref_m3)
   end function type_a_e2_sum_at_infinity
+
+  !> Poisson 一次積分は密度・流束と同じ軌道を使い、PE bin の原始関数は厳密に積分する。
+  real(dp) function integrate_zhao_rho(p, branch, side, lo, hi, phi0, phim, density) result(value)
+    type(zhao_params_type), intent(in) :: p
+    character(len=1), intent(in) :: branch
+    character(len=*), intent(in) :: side
+    real(dp), intent(in) :: lo, hi, phi0, phim, density
+    real(dp) :: t, phi, rho, minimum_v, pe_integral
+    integer :: panel, j
+    logical :: spectral, upper_side
+
+    value = 0.0_dp
+    if (lo == hi) return
+    spectral = allocated(p%pe_spectrum%flux)
+    do panel = 0, 3
+      do j = 1, 16
+        t = (real(panel, dp) + 0.5_dp*(1.0_dp + gauss_x(j)))/4.0_dp
+        phi = lo + (hi - lo)*sin(0.5_dp*pi*t)**2
+        call evaluate_zhao_rho_hat(p, branch, side, phi, phi0, phim, density, rho, include_pe=.not. spectral)
+        if (.not. ieee_is_finite(rho)) then
+          value = ieee_value(0.0_dp, ieee_quiet_nan)
+          return
+        end if
+        value = value + gauss_w(j)*rho*(hi - lo)*0.5_dp*pi*sin(pi*t)
+      end do
+    end do
+    value = value/8.0_dp
+    if (spectral) then
+      minimum_v = phim*p%t_phe_ev
+      if (branch == 'B') minimum_v = 0.0_dp
+      if (branch == 'C') minimum_v = phi0*p%t_phe_ev
+      upper_side = trim(side) == 'upper' .or. branch == 'C'
+      pe_integral = p%pe_spectrum%integrated_density(hi*p%t_phe_ev, phi0*p%t_phe_ev, &
+                                                     minimum_v, p%m_e_kg, upper_side) - &
+                    p%pe_spectrum%integrated_density(lo*p%t_phe_ev, phi0*p%t_phe_ev, &
+                                                     minimum_v, p%m_e_kg, upper_side)
+      value = value - pe_integral/(p%n_phe_ref_m3*p%t_phe_ev)
+    end if
+  end function integrate_zhao_rho
 
   subroutine solve_nonlinear_system(n, guesses, residual_fn, x_best, success)
     integer, intent(in) :: n

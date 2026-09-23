@@ -401,13 +401,11 @@ def _validate_matching_plane_model(
                 "BEACH constraint error: surface_current_model.zhao_root_selection "
                 'must be "require_unique", "minimum_energy", or "continuation".'
             )
-        if root_selection == "continuation" and (
-            zhao_branch != "a" or implicit_zero_mode is not True
-        ):
+        if root_selection == "continuation" and implicit_zero_mode is not True:
             raise ConfigValidationError(
                 "BEACH constraint error: surface_current_model."
                 'zhao_root_selection="continuation" requires '
-                'response_backend="zhao_online", zhao_branch="a", and '
+                'response_backend="zhao_online" and '
                 "implicit_zero_mode=true."
             )
     for key, default in (("coupling_rtol", 1.0e-4), ("coupling_relaxation", 0.5)):
@@ -773,10 +771,15 @@ def _validate_matching_plane_zhao_online(
             parsed = [finite_float(component) for component in drift]
             if all(component is not None for component in parsed):
                 drift_components = [float(component) for component in parsed]
-        if drift_components is None or drift_components[2] >= 0.0:
+        if (
+            drift_components is None
+            or drift_components[2] > 0.0
+            or (role == "ion" and drift_components[2] == 0.0)
+        ):
             raise ConfigValidationError(
                 "BEACH constraint error: matching_plane_quasistatic zhao_online "
-                "requires finite drift vectors and positive ambient inward drift at z-high."
+                "requires finite drift vectors, nonnegative electron inward drift, "
+                "and positive ion inward drift at z-high."
             )
 
     ion = selected["ion"]

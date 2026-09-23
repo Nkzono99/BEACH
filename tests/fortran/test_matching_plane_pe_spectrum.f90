@@ -4,7 +4,8 @@ program test_matching_plane_pe_spectrum
   use bem_constants, only: qe, eps0, pi
   use bem_pe_spectrum, only: pe_spectrum_type
   use bem_matching_plane_zhao, only: matching_plane_zhao_model_type, matching_plane_zhao_diagnostics_type, &
-                                     matching_plane_zhao_root_seed_type, matching_plane_zhao_ok
+                                     matching_plane_zhao_root_seed_type, matching_plane_zhao_ok, &
+                                     matching_plane_zhao_no_physical_solution
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
   implicit none
 
@@ -17,7 +18,6 @@ program test_matching_plane_pe_spectrum
   type(pe_spectrum_type) :: spectrum, second, empty
   real(dp) :: input(5), response(6), reference(6), drift, g, field, fraction
   real(dp) :: free, returning, expected, h, minimum, amplitude, escape, g_components(2), t_components(2)
-  real(dp) :: finite_ni, finite_te, finite_g, finite_mach, finite_u, finite_d_unit, finite_flux_unit
   integer(i32) :: status
   integer :: branch_index, drift_index
   character(len=1) :: branch
@@ -29,7 +29,7 @@ program test_matching_plane_pe_spectrum
   second%energy_scale_ev = spectrum%energy_scale_ev
   second%bins_per_decade = spectrum%bins_per_decade
 
-  call test_begin('maxwell_spectrum_reproduces_B_and_C_moment_roots_with_and_without_drift')
+  call test_begin('maxwell_spectrum_reproduces_admissible_B_and_C_moment_roots')
   do branch_index = 1, 2
     branch = 'B'
     g = 0.4_dp
@@ -47,6 +47,10 @@ program test_matching_plane_pe_spectrum
       call spectral%set_photoelectron_spectrum(spectrum)
       input = [field*d_unit, spectrum%total_flux(), spectrum%mean_energy(), 0.0_dp, 0.0_dp]
       call spectral%evaluate(input, response, status, message, diagnostic)
+      if (branch == 'C' .and. drift > 0.0_dp) then
+        call assert_equal_i32(status, matching_plane_zhao_no_physical_solution, 'drifting C upstream obstruction')
+        cycle
+      end if
       call assert_equal_i32(status, matching_plane_zhao_ok, 'spectral '//branch//' response: '//trim(message))
       if (status /= matching_plane_zhao_ok) cycle
       call moments%evaluate(input, reference, status, message, reference_diagnostic)
@@ -71,6 +75,7 @@ program test_matching_plane_pe_spectrum
   call initialize(spectral, 'A', 0.0_dp, 'continuation')
   call spectral%set_photoelectron_spectrum(spectrum)
   seed%valid = .true.
+  seed%branch = 'A'
   seed%phi0_v = 0.1854122640629287_dp*te
   seed%phi_m_v = -0.01182341861232325_dp*te
   seed%ambient_electron_density_m3 = 1.204317385077186_dp*ni
@@ -89,42 +94,16 @@ program test_matching_plane_pe_spectrum
   end if
   call test_end()
 
-  call test_begin('finite_drift_A_preserves_the_maxwell_limit_and_actual_upper_integral')
-  finite_ni = 8.7e6_dp
-  finite_te = 12.0_dp
-  finite_flux_unit = finite_ni*sqrt(qe*finite_te/me)
-  finite_d_unit = sqrt(eps0*finite_ni*qe*finite_te)
-  drift = 4.0529988897111727e5_dp
-  finite_mach = drift/sqrt(qe*finite_te/mi)
-  finite_u = drift/sqrt(2.0_dp*qe*finite_te/me)
-  finite_g = 1.3754433596232731e13_dp/finite_flux_unit
-  call spectrum%bootstrap_maxwellian(1.3754433596232731e13_dp, 2.2_dp)
-  call moments%initialize('a', 'minimum_energy', finite_ni, finite_te, drift, drift, mi, me, 2.2_dp, status, message)
-  call assert_equal_i32(status, matching_plane_zhao_ok, 'finite-drift moment initialization')
-  call moments%set_photoelectron_spectrum(empty)
-  input = [1.4187346568707933e-11_dp, spectrum%total_flux(), 2.2_dp, 0.0_dp, 0.0_dp]
+  call test_begin('finite_drift_A_rejects_the_nonphysical_neutral_infinity_connection')
+  call spectrum%bootstrap_maxwellian(0.4_dp*flux_unit, 0.2_dp*te)
+  call initialize(spectral, 'A', 0.2_dp)
+  call initialize(moments, 'A', 0.2_dp)
+  call spectral%set_photoelectron_spectrum(spectrum)
+  input = [0.5_dp*d_unit, spectrum%total_flux(), spectrum%mean_energy(), 0.0_dp, 0.0_dp]
   call moments%evaluate(input, reference, status, message, reference_diagnostic)
-  call assert_equal_i32(status, matching_plane_zhao_ok, 'finite-drift moment A: '//trim(message))
-  if (status == matching_plane_zhao_ok) then
-    call spectral%initialize('a', 'continuation', finite_ni, finite_te, drift, drift, mi, me, 2.2_dp, status, message)
-    call assert_equal_i32(status, matching_plane_zhao_ok, 'finite-drift spectral initialization')
-    call spectral%set_photoelectron_spectrum(spectrum)
-    seed%phi0_v = reference(1)
-    seed%phi_m_v = reference(6)
-    seed%ambient_electron_density_m3 = reference_diagnostic%ambient_electron_density_m3
-    call spectral%evaluate(input, response, status, message, diagnostic, continuation_seed=seed)
-    call assert_equal_i32(status, matching_plane_zhao_ok, 'finite-drift spectral A: '//trim(message))
-    if (status == matching_plane_zhao_ok) then
-      call assert_close_dp(response(1)/finite_te, reference(1)/finite_te, 2.0e-4_dp, 'finite-drift Maxwell A potential')
-      call assert_close_dp(response(6)/finite_te, reference(6)/finite_te, 2.0e-4_dp, 'finite-drift Maxwell A minimum')
-      call assert_close_dp(diagnostic%ambient_electron_density_m3/finite_ni, &
-                           reference_diagnostic%ambient_electron_density_m3/finite_ni, &
-                           2.0e-4_dp, 'finite-drift Maxwell A ambient amplitude')
-      call check_orbit_closure('A', response(1)/finite_te, response(6)/finite_te, &
-                               diagnostic%ambient_electron_density_m3/finite_ni, input(1)/finite_d_unit, finite_mach, &
-                               finite_u, [finite_g, 0.0_dp], [2.2_dp/finite_te, 1.0_dp])
-    end if
-  end if
+  call assert_equal_i32(status, matching_plane_zhao_no_physical_solution, 'drifting moment A upstream obstruction')
+  call spectral%evaluate(input, response, status, message, diagnostic)
+  call assert_equal_i32(status, matching_plane_zhao_no_physical_solution, 'drifting spectral A upstream obstruction')
   call test_end()
 
   call test_begin('same_H_flux_and_mean_have_different_roots_and_escape_for_a_filtered_mixture')
@@ -178,8 +157,8 @@ program test_matching_plane_pe_spectrum
   call test_begin('allocated_zero_spectrum_preserves_the_no_PE_C_solution')
   call spectrum%clear()
   allocate (spectrum%flux(0))
-  call initialize(spectral, 'C', 0.2_dp)
-  call initialize(moments, 'C', 0.2_dp)
+  call initialize(spectral, 'C', 0.0_dp)
+  call initialize(moments, 'C', 0.0_dp)
   call spectral%set_photoelectron_spectrum(spectrum)
   input = [-0.3_dp*d_unit, 0.0_dp, 0.0_dp, 0.0_dp, 0.0_dp]
   call spectral%evaluate(input, response, status, message, diagnostic)
@@ -269,6 +248,9 @@ contains
     electrons = 0.5_dp*amplitude*exp(phi)*erfc(cutoff - u)
     if (branch == 'C' .or. (branch == 'A' .and. side == 'upper')) &
       electrons = electrons + amplitude*exp(phi)*(erf(cutoff - u) + erf(u))
+    ! The drifted incoming distribution is specified at infinity.  Integrate
+    ! in upstream velocity, independently of the production local quadrature.
+    if (u /= 0.0_dp) electrons = amplitude*upstream_density(phi, minimum, u)
     photoelectrons = 0.0_dp
     do component = 1, 2
       prefactor = fluxes(component)*sqrt(pi/(2.0_dp*temperatures(component)))*exp((phi - h)/temperatures(component))
@@ -279,6 +261,26 @@ contains
     end do
     rho = 1.0_dp/sqrt(1.0_dp - 2.0_dp*phi/(mach*mach)) - electrons - photoelectrons
   end function oracle_rho
+
+  real(dp) function upstream_density(phi, minimum, u) result(value)
+    real(dp), intent(in) :: phi, minimum, u
+    integer, parameter :: panels = 1024
+    integer :: point
+    real(dp) :: a, step, weight, factor
+
+    step = 12.0_dp/real(panels, dp)
+    value = 0.0_dp
+    do point = 0, panels
+      a = sqrt(max(-minimum, 0.0_dp)) + real(point, dp)*step
+      factor = 1.0_dp
+      if (a*a + phi > 0.0_dp) factor = a/sqrt(a*a + phi)
+      weight = 2.0_dp
+      if (mod(point, 2) == 1) weight = 4.0_dp
+      if (point == 0 .or. point == panels) weight = 1.0_dp
+      value = value + weight*factor*exp(-(a - u)**2)
+    end do
+    value = value*step/(3.0_dp*sqrt(pi))
+  end function upstream_density
 
   real(dp) function rho_integral(lo, hi, branch, side, h, minimum, amplitude, mach, u, fluxes, temperatures) result(value)
     real(dp), intent(in) :: lo, hi, h, minimum, amplitude, mach, u, fluxes(2), temperatures(2)

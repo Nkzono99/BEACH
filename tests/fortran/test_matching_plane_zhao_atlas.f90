@@ -26,7 +26,7 @@ program test_matching_plane_zhao_atlas
 
   call cleanup_files()
   call configure_online_fixture(cfg)
-  call test_init(2)
+  call test_init(3)
 
   call test_begin('known_points_keep_independent_branch_statuses')
   call write_known_queries()
@@ -41,8 +41,8 @@ program test_matching_plane_zhao_atlas
     call read_and_assert(',C,no_physical_solution,', 'zero-field Zhao-C status changed')
     call read_and_assert(',A,', 'negative-field Zhao-A row is missing')
     call read_and_assert(',B,no_physical_solution,', 'negative-field Zhao-B silently fell back')
-    call read_and_assert(',C,ok,', 'negative-field Zhao-C was not certified')
-    call read_and_assert(',A,ok,', 'known Zhao-A point was not certified')
+    call read_and_assert(',C,no_physical_solution,', 'positive-drift Zhao-C was incorrectly certified')
+    call read_and_assert(',A,no_physical_solution,', 'positive-drift Zhao-A was incorrectly certified')
     call read_and_assert(',B,', 'known Zhao-A query lost the independent Zhao-B row')
     call read_and_assert(',C,', 'known Zhao-A query lost the independent Zhao-C row')
     call read_and_assert(',A,invalid_input,', 'invalid PE moment was not retained for Zhao-A')
@@ -53,6 +53,31 @@ program test_matching_plane_zhao_atlas
     call read_and_assert(',C,invalid_input,', 'negative PE flux was not retained for Zhao-C')
     read (unit_id, '(a)', iostat=ios) line
     call assert_true(ios < 0, 'Zhao atlas wrote an unexpected extra row')
+    close (unit_id)
+  end if
+  call test_end()
+
+  call test_begin('zero_drift_reflected_branches_are_certified')
+  cfg%particle_species(1)%drift_velocity = 0.0_dp
+  open (newunit=unit_id, file=query_path, status='replace', action='write')
+  write (unit_id, '(a)') matching_plane_zhao_atlas_query_csv_header
+  write (unit_id, '(*(g0,:,","))') - 0.02_dp*eps0, 0.0_dp, 0.0_dp
+  write (unit_id, '(*(g0,:,","))') 1.6_dp*eps0, 1.3754433596232731e13_dp, 2.2_dp
+  close (unit_id)
+  call generate_matching_plane_zhao_atlas(cfg, query_path, output_path, status, message)
+  call assert_equal_i32(status, matching_plane_atlas_ok, 'zero-drift atlas generation failed: '//trim(message))
+  open (newunit=unit_id, file=output_path, status='old', action='read', iostat=ios)
+  call assert_true(ios == 0, 'zero-drift Zhao atlas output was not published')
+  if (ios == 0) then
+    call read_and_assert(matching_plane_zhao_atlas_csv_header, 'zero-drift atlas header changed')
+    call read_and_assert(',A,no_physical_solution,', 'negative-field Zhao-A silently fell back')
+    call read_and_assert(',B,no_physical_solution,', 'negative-field Zhao-B silently fell back')
+    call read_and_assert(',C,ok,', 'zero-drift negative-field Zhao-C was not certified')
+    call read_and_assert(',A,ok,', 'zero-drift known Zhao-A point was not certified')
+    call read_and_assert(',B,', 'zero-drift Zhao-A query lost the independent Zhao-B row')
+    call read_and_assert(',C,no_physical_solution,', 'positive-field Zhao-C silently fell back')
+    read (unit_id, '(a)', iostat=ios) line
+    call assert_true(ios < 0, 'zero-drift Zhao atlas wrote an unexpected extra row')
     close (unit_id)
   end if
   call test_end()
@@ -122,7 +147,7 @@ contains
   end subroutine configure_online_fixture
 
   subroutine write_known_queries()
-    real(dp), parameter :: type_a_displacement = 1.4187346568707933e-11_dp
+    real(dp), parameter :: type_a_displacement = 1.6_dp*eps0
     real(dp), parameter :: type_a_flux = 1.3754433596232731e13_dp
 
     open (newunit=unit_id, file=query_path, status='replace', action='write')

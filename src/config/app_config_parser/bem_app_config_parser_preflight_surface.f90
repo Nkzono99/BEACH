@@ -153,10 +153,9 @@ contains
 
     if (trim(lower_ascii(cfg%surface_current%response_backend)) == 'zhao_online' .and. &
         trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
-      if (trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'a' .or. &
-          .not. cfg%surface_current%implicit_zero_mode) then
+      if (.not. cfg%surface_current%implicit_zero_mode) then
         error stop 'surface_current_model.zhao_root_selection="continuation" requires '// &
-          'response_backend="zhao_online", zhao_branch="a", and implicit_zero_mode=true.'
+          'response_backend="zhao_online" and implicit_zero_mode=true.'
       end if
     end if
     if (cfg%surface_current%implicit_zero_mode) then
@@ -293,9 +292,9 @@ contains
 
     if (.not. ieee_is_finite(cfg%particle_species(electron_idx)%drift_velocity(3)) .or. &
         .not. ieee_is_finite(cfg%particle_species(ion_idx)%drift_velocity(3)) .or. &
-        cfg%particle_species(electron_idx)%drift_velocity(3) >= 0.0_dp .or. &
+        cfg%particle_species(electron_idx)%drift_velocity(3) > 0.0_dp .or. &
         cfg%particle_species(ion_idx)%drift_velocity(3) >= 0.0_dp) then
-      error stop 'matching_plane_quasistatic zhao_online requires positive ambient inward drift at z-high.'
+      error stop 'matching_plane_quasistatic zhao_online requires nonnegative electron and positive ion inward drift at z-high.'
     end if
 
     ion_density = species_number_density_m3(cfg%particle_species(ion_idx))

@@ -205,7 +205,7 @@ flowchart LR
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao.f90` | Public types, initialization, evaluation entry point, and restart-seed reconstruction; coordinate input preparation, root selection, and response conversion |
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao_physics.f90` | Convert queries to physical quantities, parameterize unknowns, evaluate residuals and Sagdeev integrals, check connecting profiles, and compute energy and inflow responses |
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao_numerics.f90` | Branch-specific initial guesses, damped Newton iteration, finite-difference Jacobian, and small linear solves |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | Enumerate A/B/C candidates, cluster equivalent roots, select unique or minimum-energy solutions, and track or reacquire Type-A continuation roots |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | Enumerate A/B/C candidates, cluster equivalent roots, select unique or minimum-energy solutions, and track or reacquire accepted continuation roots |
 | `runtime/sheath/` | `bem_surface_current_model.f90` | Convert configuration and stationary sheath solutions into species absorption, emission, and inflow currents |
 | `runtime/sheath/` | `bem_matching_plane_coupling.f90` | Own coupling initialization, trial state, fixed-point acceptance, continuation-seed commits, and transfer to the simulator |
 | `runtime/sheath/` | `bem_matching_plane_implicit.f90` | Solve stiff mean charging with backward Euler, repeatedly evaluating the response, bracketing roots, and subdividing the displacement search interval |
@@ -242,7 +242,7 @@ flowchart LR
 
 Branch-admissibility tests and rejection of negative squared electric fields are part of the physical model.
 Even with OpenMP evaluation, candidates are selected in initial-guess order, and energy integrals retain their
-accumulation order for reproducible selection. Type-A continuation starts from the accepted root and searches
+accumulation order for reproducible selection. Continuation starts from the accepted root and searches
 the candidates again after a large jump or a failed local solve. For implicit coupling, the MPI root owns the
 continuation seed and broadcasts the updated displacement and response to all ranks.
 

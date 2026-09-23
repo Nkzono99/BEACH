@@ -14,6 +14,7 @@ program test_app_config_parser
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
   integer :: i
   character(len=64) :: run_mode
+  character(len=4), parameter :: continuation_branches(3) = [character(len=4) :: 'auto', 'b', 'c']
   character(len=512) :: probe_config_path
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
   character(len=*), parameter :: zhao_generic_barrier_path = 'test_zhao_generic_barrier_tmp.toml'
@@ -32,7 +33,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(39)
+  call test_init(40)
 
   call test_begin('config_checks_integer_range_before_conversion')
   call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '2147483648')
@@ -154,13 +155,20 @@ program test_app_config_parser
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
-  call test_begin('matching_plane_online_continuation_rejects_non_type_a_branch')
-  call write_matching_online_variant( &
-    matching_variant_path, 'b', 'photoelectron_species = "photoelectron"', &
-    'photoelectron_species = "photoelectron"'//new_line('a')// &
-    'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
-    )
-  call assert_config_rejected(matching_variant_path, 'zhao_root_selection="continuation" requires')
+  call test_begin('matching_plane_online_continuation_accepts_all_branch_policies')
+  do i = 1, size(continuation_branches)
+    call write_matching_online_variant( &
+      matching_variant_path, trim(continuation_branches(i)), 'photoelectron_species = "photoelectron"', &
+      'photoelectron_species = "photoelectron"'//new_line('a')// &
+      'zhao_root_selection = "continuation"'//new_line('a')//'implicit_zero_mode = true' &
+      )
+    call default_app_config(cfg)
+    call load_app_config(matching_variant_path, cfg)
+    call assert_true( &
+      trim(cfg%surface_current%zhao_branch) == trim(continuation_branches(i)), &
+      'continuation did not preserve the configured branch policy' &
+      )
+  end do
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 
@@ -171,6 +179,19 @@ program test_app_config_parser
     'zhao_root_selection = "continuation"' &
     )
   call assert_config_rejected(matching_variant_path, 'zhao_root_selection="continuation" requires')
+  call delete_file_if_exists(matching_variant_path)
+  call test_end()
+
+  call test_begin('matching_plane_online_accepts_nondrifting_electrons')
+  call write_matching_online_variant( &
+    matching_variant_path, 'a', 'drift_velocity = [0.0, 0.0, -4.0529988897e5]', &
+    'drift_velocity = [0.0, 0.0, 0.0]' &
+    )
+  call default_app_config(cfg)
+  call load_app_config(matching_variant_path, cfg)
+  call assert_close_dp(cfg%particle_species(1)%drift_velocity(3), 0.0_dp, 0.0_dp, &
+                       'nondrifting electron reservoir was not preserved')
+  call assert_true(cfg%particle_species(2)%drift_velocity(3) < 0.0_dp, 'ion inward drift was changed')
   call delete_file_if_exists(matching_variant_path)
   call test_end()
 

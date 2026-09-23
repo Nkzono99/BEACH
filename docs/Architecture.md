@@ -206,7 +206,7 @@ flowchart LR
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao.f90` | 公開型、初期化、評価の入口、再開用 seed の復元。入力から解選択・応答変換への呼び出しを管理 |
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao_physics.f90` | query の物理量への変換、未知数のパラメータ化、残差式、Sagdeev 積分、接続プロファイルの成立条件、エネルギーと流入応答 |
 | `physics/sheath/zhao/` | `bem_matching_plane_zhao_numerics.f90` | 分岐ごとの初期推定、減衰 Newton 法、差分 Jacobian、小規模線形解法 |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | A/B/C 候補の列挙、同じ根の重複除去、一意性・最小エネルギーによる選択、Type-A 継続解の追跡と再探索 |
+| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | A/B/C 候補の列挙、同じ根の重複除去、一意性・最小エネルギーによる選択、受理済み継続解の追跡と再探索 |
 | `runtime/sheath/` | `bem_surface_current_model.f90` | 設定と定常シース解を、粒子種別の吸収・放出・流入電流へ変換 |
 | `runtime/sheath/` | `bem_matching_plane_coupling.f90` | 連成の初期化、試行状態、固定点判定、継続解の確定と simulator への受け渡し |
 | `runtime/sheath/` | `bem_matching_plane_implicit.f90` | 硬い面平均帯電を後退 Euler で解く。応答モデルを反復評価し、根の挟み込みと電束密度の探索区間の細分化を行う |
@@ -243,7 +243,7 @@ flowchart LR
 
 分岐の成立条件や負の電場二乗を拒否する検査は物理モデルの一部です。候補は OpenMP で計算しても
 初期値の順番で選別し、エネルギー積分の加算順も固定して解選択の再現性を保ちます。
-Type-A 継続では受理済みの根から解き、大きく移動した場合や局所探索に失敗した場合には候補を再探索します。
+継続では受理済みの根から解き、大きく移動した場合や局所探索に失敗した場合には候補を再探索します。
 陰解法の継続用 seed は MPI root が保持し、更新後の電束密度と応答を全 rank に配信します。
 
 query CSV の形式検証は共通ですが、用途ごとの条件はツール側が持ちます。generator は 5 入力の

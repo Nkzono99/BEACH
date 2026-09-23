@@ -388,9 +388,13 @@ def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
     )
     assert schema_errors(continuation, schema) == []
 
-    continuation_wrong_branch = copy.deepcopy(continuation)
-    continuation_wrong_branch["surface_current_model"]["zhao_branch"] = "b"
-    assert schema_errors(continuation_wrong_branch, schema)
+    for branch in ("auto", "b", "c"):
+        continuation_branch = copy.deepcopy(continuation)
+        continuation_branch["surface_current_model"]["zhao_branch"] = branch
+        assert schema_errors(continuation_branch, schema) == []
+    continuation_default_branch = copy.deepcopy(continuation)
+    continuation_default_branch["surface_current_model"].pop("zhao_branch")
+    assert schema_errors(continuation_default_branch, schema) == []
 
     continuation_without_implicit = copy.deepcopy(continuation)
     continuation_without_implicit["surface_current_model"].pop(

@@ -189,21 +189,24 @@ on your research case.
 | --- | --- | --- |
 | `require_unique` (default) | Require a unique physical root at each query | Stop if uniqueness cannot be certified |
 | `minimum_energy` | Choose the detected candidate with the lowest full-sheath potential energy | A root switch can make the response discontinuous and eliminate the implicit-update endpoint |
-| `continuation` | Track from the last accepted Type-A root | Requires explicit `zhao_branch="a"` and `implicit_zero_mode=true` |
+| `continuation` | Track from the last accepted root | Requires `implicit_zero_mode=true`; supports `auto` / `a` / `b` / `c` |
 
 To select `continuation`, change these keys in the existing `[surface_current_model]` table:
 
 ```toml
 response_backend = "zhao_online"
-zhao_branch = "a"
+zhao_branch = "auto"
 implicit_zero_mode = true
 zhao_root_selection = "continuation"
 ```
 
-The first root is the minimum-energy Type-A root. Subsequent solves track from the previous accepted root; when local
-search cannot reacquire it, full multistart selects the unique nearest root. Missing roots, ambiguity, or numerical
-failure stop the solve; it does not switch to Type B or C. This does not guarantee retention of the same physical
-family or passage through a fold.
+The first solve uses multiple guesses derived from the input temperature, flux, and field scales and requires one
+physical root. Subsequent solves track from the previous accepted root; when local search cannot reacquire it, full
+multistart selects the unique nearest root. Missing roots, ambiguity, or numerical failure stop the solve. An explicit
+branch is preserved; `auto` considers certified A / B / C candidates. This does not guarantee retention of the same
+physical family or passage through a fold.
+Feedback iterations within one batch use the latest valid root; the seed for the next batch is committed only when
+the batch is accepted.
 
 No policy proves that a finite set of initial guesses found every mathematical root or establishes time-dependent
 stability. The energy definition, distance and ambiguity rules, probe subdivision, and restart behavior are documented
@@ -248,7 +251,7 @@ For online Zhao, branch and barrier have the following relation.
 
 | Branch | $\Phi_H$ | Electron access / PE barrier |
 |---|---:|---:|
-| Type A | Positive | $\phi_m<0$ |
+| Type A | $\Phi_H>\phi_m$ (may be negative) | $\phi_m<\min(0,\Phi_H)$ |
 | Type B | Positive (zero at $D_H=0$) | 0 V |
 | Type C | Negative | 0 V |
 
@@ -283,7 +286,7 @@ summary receipts, and the exact time convention.
 | Table query out of range | The active-axis sweep does not cover the transient | Do not extrapolate; regenerate the table over a physically validated range |
 | Fixed point reaches the iteration limit and continues with a warning | Particle noise, strong feedback, or overly tight tolerances | Check frequency and residuals in history; adjust ray or macro count, relaxation, or tolerance if needed |
 | Online Zhao has no or ambiguous physical solution | Incompatible $D_H$ and branch, multiple roots, or numerical failure | Scan `a`, `b`, and `c` separately; use `minimum_energy` only after validation |
-| `continuation` stops | Full multistart detects no Type-A root, root search or profile certification fails numerically, or nearest-root distances are numerically indistinguishable | Map Type-A solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
+| `continuation` stops | The bootstrap root is not unique, full multistart detects no root, root search or profile certification fails numerically, or nearest-root distances are numerically indistinguishable | Map solvability around the accepted state and reduce `batch_duration`; do not treat this as a fixed-point tolerance miss |
 | Table implicit root is not bracketed | The backward-Euler endpoint is absent from the table | Revisit the $D_H$ range under the [`implicit_zero_mode` contract](MatchingPlaneReference.en.html#implicit_zero_mode) or reduce `batch_duration` |
 | Online implicit root is not bracketed | The Zhao branch ends, or geometric expansion / the signed natural-scale scan finds no sign change | Check the branch and initial charge; reduce `batch_duration` if needed |
 | Soft-discard fraction limit or charge warning is reached | Unresolved periodic events are accumulating | Follow the [soft-discard stop conditions](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) and inspect per-batch bursts, cumulative fraction, and absolute charge |
@@ -317,17 +320,17 @@ This model does not solve:
 - volume plasma charge inside the BEACH region; or
 - return of outward ambient populations in online Zhao v1.
 
-Online Zhao reduces the PE flux and mean normal energy to a half-Maxwellian that reproduces those two moments. It does
-not retain the high-energy tail.
-On the ambient side, the current sheath density and velocity integral of the injected VDF also generally differ at
-finite drift. Agreement of inward flux alone does not establish full kinetic consistency; see
-[the density comparison](MatchingPlaneReference.en.html#consistency-between-the-ambient-vdf-and-sheath-density).
+Online Zhao's default moment closure reduces PEs to a two-moment half-Maxwellian and does not retain the tail shape.
+`energy_spectrum` avoids this reduction by using the measured normal-energy distribution, constant within each bin.
+Ambient density uses the same orbit mapping as the injected VDF, but upstream neutrality, zero field, and a real
+profile remain necessary. For the Type-A / C restriction with positive inward electron drift, see
+[density and upstream conditions](MatchingPlaneReference.en.html#consistency-between-the-ambient-vdf-and-sheath-density).
 
 The `auto` multiple-root check compares roots found by a finite multistart set; it is not mathematical root isolation.
 Validate branches by scanning explicit `a`, `b`, and `c` selections.
 
 `require_unique` and `minimum_energy` are stateless between queries. `continuation` retains the previous accepted
-Type-A root as the next search seed. No policy silently switches an explicit branch or backend when a query cannot be solved.
+root as the next search seed. No policy silently switches an explicit branch or backend when a query cannot be solved.
 
 When these effects control the result, validate against an independent one-dimensional--three-dimensional kinetic
 coupling or full PIC calculation. The [numerical and response-table reference](MatchingPlaneReference.en.html#validate-convergence-and-applicability)
