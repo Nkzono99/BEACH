@@ -13,6 +13,8 @@ BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM�
 
 現行版の中心は絶縁体表面の帯電です。体積プラズマを PIC として解くコードではありません。
 外部シースは、必要な場合だけ計算領域上端の matching plane を介した準定常の境界応答として接続します。
+Zhao Type B の密度は原著の速度下限を含めて評価します。修正前に生成した応答表の扱いは
+[matching-plane リファレンス](docs/MatchingPlaneReference.md)を参照してください。
 詳しい適用範囲と更新順は [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) を参照してください。
 
 <div align="center">
