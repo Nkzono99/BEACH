@@ -23,8 +23,9 @@ After reading this page, you should be able to choose one path and continue to t
 | Bring particles in from plasma outside the box | `boundary_inflow` | Reservoir flux × box area × `batch_duration` | Nonperiodic box face |
 | Emit from a surface reached by light | `source_mode="photo_raycast"` | Current density, projected area, `batch_duration` | First surface hit by a ray |
 
-`source_mode` and `boundary_inflow` are separate settings. In the current schema, a species that uses boundary inflow
-alone must also specify `source_mode="volume_seed"` and `npcls_per_step=0`. This does not create particles in a volume.
+For boundary inflow alone, specify the physical parameters and `boundary_inflow`. Omit `source_mode` and
+`npcls_per_step`; specify them when using volume generation or another source. Omitting them creates no volume
+population. See [Input Parameters](Parameters.en.html) for defaults and combination constraints.
 
 ## Place a specified count: `volume_seed`
 
@@ -57,8 +58,6 @@ action on every selected face as `open`.
 
 ```toml
 [[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 0
 # density, temperature, charge, mass, and macro-particle weight
 
 [particles.species.boundary_inflow]

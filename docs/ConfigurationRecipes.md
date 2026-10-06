@@ -116,8 +116,8 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 ```
 
 外部 plasma から非周期の box 面全体を通す流入は `source_mode` ではなく
-`[particles.species.boundary_inflow]` です。現行 schema では、境界流入だけの species にも
-`source_mode="volume_seed"` と `npcls_per_step=0` を指定します。選択の詳細は
+`[particles.species.boundary_inflow]` です。境界流入だけの species では、物理パラメータと流入面を指定し、
+`source_mode` と `npcls_per_step` は省略します。選択の詳細は
 [粒子をどこから入れるか](ParticleSourcesBoundaries.html)、境界流入は
 [境界から粒子を流入させる](ReservoirInjection.html)、光電子は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。

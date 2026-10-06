@@ -23,9 +23,9 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 | box 外の plasma から流入させる | `boundary_inflow` | reservoir 流束 × box 面積 × `batch_duration` | 非周期の box 面 |
 | 光が当たった表面から放出する | `source_mode="photo_raycast"` | 電流密度、投影面積、`batch_duration` | ray が最初に命中した表面 |
 
-`source_mode` と `boundary_inflow` は別の設定です。現行 schema で境界流入だけを使う species は、
-形式上 `source_mode="volume_seed"` と `npcls_per_step=0` も指定します。これは volume から粒子を
-生成するという意味ではありません。
+境界流入だけを使う species は、物理パラメータと `boundary_inflow` を指定します。
+`source_mode` と `npcls_per_step` は省略し、体積生成などを使う場合に明示します。
+省略時は体積生成を行いません。既定値と併用制約は[入力パラメータ](Parameters.html)を参照してください。
 
 ## 指定個数を置く: `volume_seed`
 
@@ -58,8 +58,6 @@ source_normal = [0.0, 0.0, -1.0]
 
 ```toml
 [[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 0
 # density, temperature, charge, mass, and macro-particle weight
 
 [particles.species.boundary_inflow]

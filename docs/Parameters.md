@@ -394,7 +394,7 @@ matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain �
 | 外部場・開放面 | `sim.e0=sim.b0=[0,0,0]`、`ordinary_open_model="escape"`、generic reservoir potential model は使用不可 |
 | event policy | `abort`、または率・件数猶予・絶対電荷警告閾値を指定した `soft_discard` |
 | role | enabled かつ相互に異なる electron / ion / 任意の PE だけを置き、`surface_charge_closure="explicit"` |
-| electron / ion source | それぞれ負 / 正電荷、`source_mode="volume_seed"`、`npcls_per_step=0`、z-high の `boundary_inflow="reservoir"` のみ |
+| electron / ion source | それぞれ負 / 正電荷、z-high の `boundary_inflow="reservoir"` のみ。`source_mode` と `npcls_per_step` の解決値は `volume_seed` と `0`（両キーは省略可） |
 | PE source | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true` |
 | 粒子境界 | 全 role で x/y は `periodic`、z-low/z-high は `open` |
 | 電流 target | 手動 `fixed_current` target は指定不可 |
@@ -534,7 +534,8 @@ z_high = "reflect"
 | 粒子数 | 境界流入を使わない場合、有効 species 全体で `npcls_per_step` 合計が 1 以上必要 |
 | 重み自動解決 | `boundary_inflow`を持たない`volume_seed`では`target_macro_particles_per_batch`は使用不可 |
 
-`boundary_inflow`を持つspeciesでは`npcls_per_step=0`を許容します。Maxwell分布で正の値なら、
+`boundary_inflow` だけを使う species では `source_mode` と `npcls_per_step` を省略します。
+既定値はそれぞれ `volume_seed` と `0` で、体積生成は行いません。Maxwell分布で正の値なら、
 体積seedと境界流入を同じspeciesに加えます。速度gridの境界流入は正の値と併用できません。
 
 #### `[particles.species.boundary_inflow]`
@@ -553,7 +554,11 @@ z_high = "reservoir"
 | `z_low`, `z_high` | string | 省略 | `reservoir`。省略時は流入なし |
 
 `reservoir` は選択した非周期 box 面全体から流入させます。対象面の有効な粒子境界は `open` でなければなりません。
-`source_mode="volume_seed"` とのみ併用でき、複数面の `target_macro_particles_per_batch` は全流入面の合計です。
+境界流入だけなら `source_mode` と `npcls_per_step` は省略します。内部ではそれぞれ `volume_seed` と `0` に
+解決されます。Maxwell 分布で体積生成を追加する場合は `source_mode="volume_seed"` と正の
+`npcls_per_step` を指定します。
+解決後の `source_mode` が `volume_seed` の場合だけ併用でき、複数面の
+`target_macro_particles_per_batch` は全流入面の合計です。
 流束と電位障壁の詳細は[境界から粒子を流入させる](ReservoirInjection.html)を参照してください。
 
 #### `source_mode = "plane_source"`

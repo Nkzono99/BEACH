@@ -270,7 +270,7 @@ Matching-plane coupling is restricted to the following configuration to prevent 
 | Box / field | x/y periodic, z open, `field_boundary.mode="periodic2"`, and `sim.e0=sim.b0=[0,0,0]` |
 | Periodic split | `cached_kneq0` or `panel_spectral_reference`, `exclude_k0`, and `symmetric_vacuum` or `e_bottom_zero` |
 | Reservoir / open faces | `[reservoir].inflow_model="source_vdf"` and `ordinary_open_model="escape"` |
-| Ambient species | Only electron and ion roles; `volume_seed`, `npcls_per_step=0`, and z-high reservoir inflow |
+| Ambient species | Only electron and ion roles, with z-high reservoir inflow. `source_mode` and `npcls_per_step` resolve to `volume_seed` and `0`; both keys may be omitted |
 | PE species | Optional; negative `photo_raycast` from z-high with opposite charge deposited at emission |
 | Surface closure | `explicit` for every role; no manual `fixed_current` target or `neutral_return` |
 | Event policy | `abort`, or [`soft_discard` with a fraction limit, count grace, and absolute-charge warning threshold](ParticleEvents.en.html#advance-the-time-remaining-after-a-boundary-crossing) |

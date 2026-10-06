@@ -34,8 +34,6 @@ ordinary_open_model = "escape"
 
 [[particles.species]]
 species_key = "electron"
-source_mode = "volume_seed"
-npcls_per_step = 0
 velocity_distribution = "maxwellian"
 number_density_m3 = 5.0e6
 temperature_ev = 10.0
@@ -56,8 +54,8 @@ z-high 面の内向き法線は $-z$ 方向なので、この例の負の z ド�
 - 解決後の `sim.batch_duration` を正にする。
 - 流入面を `domain.periodic_axes` に含めず、species override を含む有効な外向き作用を `open` にする。
 - `boundary_inflow` は box 面全体を使う。`pos_low`、`pos_high`、`inject_face` では開口を切り出さない。
-- 現行 schema では `source_mode="volume_seed"` が必要である。境界流入だけなら
-  `npcls_per_step=0` とし、これは体積中に粒子を生成する指定ではない。
+- 境界流入だけなら `source_mode` と `npcls_per_step` は省略する。既定では体積生成を行わない。
+  体積生成を追加する場合の条件は[入力パラメータ](Parameters.html#particlesspeciesboundary_inflow)を参照する。
 
 設定を保存したら、通常の実行前に構造と組合せを検査します。
 

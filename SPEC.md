@@ -159,8 +159,6 @@ phi_infty = 0.0
 face_potential_grid_n = 5
 
 [[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 
@@ -176,7 +174,10 @@ z_high = "reservoir"
 
 `boundary_inflow` は外向き粒子作用を上書きしません。周期面への reservoir 流入、および有効な外向き作用が
 `open` でない流入面は拒否します。
-同じ species では `source_mode="volume_seed"` とだけ併用でき、`plane_source`、`photo_raycast`、
+境界流入だけの species では `source_mode` と `npcls_per_step` を省略します。省略値はそれぞれ
+`volume_seed` と `0` で、体積生成は行いません。Maxwell 分布で体積生成を追加する場合だけ
+`source_mode="volume_seed"` と正の `npcls_per_step` を明示します。
+同じ species では解決後の `source_mode="volume_seed"` とだけ併用でき、`plane_source`、`photo_raycast`、
 `reservoir_face` との併用は fail closed です。
 
 外部プラズマ profile、外部領域の particle transport、delayed return queue は現行スコープ外です。

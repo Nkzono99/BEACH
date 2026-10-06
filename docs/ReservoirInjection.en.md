@@ -35,8 +35,6 @@ ordinary_open_model = "escape"
 
 [[particles.species]]
 species_key = "electron"
-source_mode = "volume_seed"
-npcls_per_step = 0
 velocity_distribution = "maxwellian"
 number_density_m3 = 5.0e6
 temperature_ev = 10.0
@@ -58,8 +56,8 @@ The configuration must satisfy these conditions:
 - Each inflow face is absent from `domain.periodic_axes`, and its effective outward action, including any species
   override, is `open`.
 - `boundary_inflow` uses a complete box face. `pos_low`, `pos_high`, and `inject_face` do not select an aperture.
-- The current schema requires `source_mode="volume_seed"`. For boundary-only inflow, set `npcls_per_step=0`; this does
-  not create a volume population.
+- For boundary inflow alone, omit `source_mode` and `npcls_per_step`. The defaults create no volume population.
+  See [Input Parameters](Parameters.en.html#particlesspeciesboundary_inflow) for conditions on adding volume generation.
 
 After saving the configuration, check its structure and combinations before the normal run.
 

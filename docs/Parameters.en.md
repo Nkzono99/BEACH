@@ -404,7 +404,7 @@ All rows below are required:
 | External field / open face | `sim.e0=sim.b0=[0,0,0]`; `ordinary_open_model="escape"`; no generic reservoir-potential model |
 | Event policy | `abort`, or `soft_discard` with a fraction limit, count grace, and absolute-charge warning threshold |
 | Roles | Only distinct, enabled electron / ion / optional PE roles; each uses `surface_charge_closure="explicit"` |
-| Electron / ion source | Negative / positive charge; `source_mode="volume_seed"`; `npcls_per_step=0`; only z-high `boundary_inflow="reservoir"` |
+| Electron / ion source | Negative / positive charge; only z-high `boundary_inflow="reservoir"`. `source_mode` and `npcls_per_step` resolve to `volume_seed` and `0`; both keys may be omitted |
 | PE source | Negative `photo_raycast`; `inject_face="z_high"`; `deposit_opposite_charge_on_emit=true` |
 | Particle boundaries | `periodic` x/y and `open` z-low/z-high for every role |
 | Current targets | No manual `fixed_current` target |
@@ -548,7 +548,8 @@ Constraints:
 | Particle count | Without boundary inflow, the sum of `npcls_per_step` over enabled species must be at least 1 |
 | Automatic weight resolution | A `volume_seed` without `boundary_inflow` cannot use `target_macro_particles_per_batch` |
 
-When the species has `boundary_inflow`, `npcls_per_step=0` is allowed. For a Maxwell distribution, a positive value combines
+For boundary inflow alone, omit `source_mode` and `npcls_per_step`. They default to `volume_seed` and `0`, so no volume
+population is generated. For a Maxwell distribution, a positive value combines
 a volume seed with boundary inflow for the same species. Velocity-grid boundary inflow cannot use a positive value.
 
 #### `[particles.species.boundary_inflow]`
@@ -567,7 +568,10 @@ z_high = "reservoir"
 | `z_low`, `z_high` | string | omitted | `reservoir`; omission disables inflow |
 
 `reservoir` injects across a complete selected nonperiodic box face, whose effective particle boundary must be `open`.
-It combines only with `source_mode="volume_seed"`; on multiple faces, `target_macro_particles_per_batch` is the total
+For boundary inflow alone, omit `source_mode` and `npcls_per_step`; internally they resolve to `volume_seed` and `0`.
+To add volume generation with a Maxwell distribution, specify `source_mode="volume_seed"` and a positive
+`npcls_per_step`. Only a resolved `source_mode` of `volume_seed` can be combined with inflow; on multiple faces,
+`target_macro_particles_per_batch` is the total
 across all inflow faces. See [Inject Particles Through a Boundary](ReservoirInjection.en.html) for flux and barrier details.
 
 #### `source_mode = "plane_source"`

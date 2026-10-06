@@ -260,7 +260,7 @@ matching-plane は平均場や粒子 channel の二重計上を防ぐため、�
 | box / 場 | x / y periodic、z open、`field_boundary.mode="periodic2"`、`sim.e0=sim.b0=[0,0,0]` |
 | periodic split | `cached_kneq0` または `panel_spectral_reference`、`exclude_k0`、`symmetric_vacuum` または `e_bottom_zero` |
 | reservoir / open 面 | `[reservoir].inflow_model="source_vdf"`、`ordinary_open_model="escape"` |
-| ambient species | electron と ion だけを role に指定。`volume_seed`、`npcls_per_step=0`、z-high reservoir 流入 |
+| ambient species | electron と ion だけを role に指定し、z-high reservoir 流入を使う。`source_mode` と `npcls_per_step` の解決値は `volume_seed` と `0`（両キーは省略可） |
 | PE species | 任意。負電荷の `photo_raycast`、z-high 注入、放出反作用あり |
 | surface closure | 全 role が `explicit`。手動 `fixed_current` target と `neutral_return` は使わない |
 | event policy | `abort`、または[率・件数猶予・絶対電荷警告閾値を持つ `soft_discard`](ParticleEvents.html#境界通過後の残り時間を進める) |

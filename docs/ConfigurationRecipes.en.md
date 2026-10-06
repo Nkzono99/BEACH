@@ -116,8 +116,8 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 ```
 
 Inflow from external plasma through a complete nonperiodic box face uses `[particles.species.boundary_inflow]`, not
-another `source_mode`. The current schema also requires `source_mode="volume_seed"` and `npcls_per_step=0` for a species
-that uses only boundary inflow. See [Choose where particles enter](ParticleSourcesBoundaries.en.html) for selection,
+another `source_mode`. For boundary inflow alone, specify the physical parameters and inflow faces, and omit
+`source_mode` and `npcls_per_step`. See [Choose where particles enter](ParticleSourcesBoundaries.en.html) for selection,
 [Inflow through a simulation boundary](ReservoirInjection.en.html) for boundary inflow, and
 [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for photoelectrons.
 
