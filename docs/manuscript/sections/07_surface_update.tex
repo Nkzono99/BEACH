@@ -1,0 +1,102 @@
+\chapter{表面電荷更新と時間離散化}
+\label{ch:update}
+
+\section{絶縁体への電荷蓄積}
+粒子 $p$ が要素 $i$ へ最初に吸収されたとき、その粒子を追跡から除き、
+\begin{equation}
+ \Delta q_i^{\mathrm{abs}}\mathrel{+}=q_p w_p
+\end{equation}
+を記録する。放出反作用と選択した closure の補正を含む電荷差分を
+thread ごとの配列へ集め、OpenMP の加算と MPI の全体集約の後に一度だけ反映する。
+絶縁体の基本更新は
+\begin{equation}
+ q_i^{n+1}=q_i^n+\Delta q_i^{\mathrm{abs}}
+                 +\Delta q_i^{\mathrm{emit}}+\Delta q_i^{\mathrm{closure}}
+ \label{eq:charge_update}
+\end{equation}
+である。一般の表面散乱、二次電子放出、材料内の伝導・拡散はこの吸収モデルに含まれない。
+
+\section{閉じた光電子の統計的帰還 closure}
+反射境界によって光電子軌道を閉じても、追跡上限で未帰還が残ることがある。
+\code{neutral_return} は、放出粒子の符号付き電荷 $S<0$、解決済み再吸収 $R<0$、
+未解決 $U<0$ に対して $S=R+U$ を確認し、帰還 deposit を $S/R$ 倍する。
+放出反作用の $-S$ と合わせた表面総電荷増分は零になる。
+
+この closure は未解決粒子の帰還先が、解決済み粒子と同じ分布を持つと仮定する。
+長寿命粒子が特定の表面や速度に偏る場合は、この仮定が成立しない可能性がある。
+実装は放出があるのに帰還がない状態、実 escape などの不整合を受理せず、
+未帰還率 $5\%$ 超も固定の適用範囲外とする。
+raw 吸収量と補正後の量を電荷台帳で区別し、倍率と未帰還率を報告する。
+
+\code{fixed_current} は与えた電流 $I$ の目標電荷 $Ih$ に raw 分布を合わせる別の closure である。
+光電子では放出と再吸収を別々に規格化する。
+大きい二電流の差である小さな正味電流を倍率の分母に用いると、標本誤差を増幅するためである。
+この補正は軌道から得た空間分布を使う一方、総電流の振幅は外部モデルから与える。
+
+\section{浮遊導体の等電位化}
+自由空間に限り、\code{mesh_id} ごとに浮遊導体の要素電荷を再配分できる。
+SI 単位で influence coefficient を
+\begin{equation}
+ H_{ij}=\frac{\kc}{A_j}\int_{T_j}
+       \frac1{\lVert\vect c_i-\vect y\rVert}\dd S_{\vect y}
+\end{equation}
+と定義する。導体 group $g(i)$ の未知電位を $V_{g(i)}$、
+絶縁体電荷と外場の電位を $\phi_i^{\mathrm{fixed}}$ とすると、
+\begin{align}
+ \sum_{j\in\mathrm{conductor}}H_{ij}q_j-V_{g(i)}
+   &=-\phi_i^{\mathrm{fixed}},\\
+ \sum_{i\in g}q_i&=Q_g^{\mathrm{before\ relaxation}}
+ \label{eq:conductor}
+\end{align}
+を解く。自己項を含む P0 電位を重心で collocation し、dense system を部分 pivot 付き Gauss 消去で解く。
+実装内部では $\kc$ を割った電位規約を用いるが、上式は SI で統一した同じ拘束である。
+
+この再配分は、吸収・放出後の各物体の総電荷を保存する。
+物体間に接触電流を流すモデルや、接地電位を固定するモデルではない。
+基本の絶縁体計算とは区別して検証し、現行の \code{periodic2} と併用しない。
+
+\section{バッチ幅の安定性}
+固定した $\vect q$ に対する粒子応答を十分に平均できると仮定し、
+要素ごとの符号付き電流密度を $J_i(\vect q)$ とする。
+平均帯電速度 $F_i=A_iJ_i$ に対して、通常の絶縁体更新は概念的に
+\begin{equation}
+ \vect q^{\,n+1}=\vect q^{\,n}+h\vect F(\vect q^{\,n})+\vect\eta^n
+ \label{eq:mean_batch}
+\end{equation}
+となる。$\vect\eta^n$ は有限標本に由来する電荷誤差である。
+滑らかな平均応答の仮定では、場を固定する更新は陽的 Euler 型の帯電離散化と解釈できる。
+
+平均固定点 $\vect q^*$ は $\vect F(\vect q^*)=0$ を満たす。
+固定点の式に $h$ が現れなくても、離散更新が同じ点へ安定に収束するとは限らない。
+$\mathsf M=\partial\vect F/\partial\vect q|_{\vect q^*}$ に対する線形条件は
+\begin{equation}
+ \rho(\mathsf I+h\mathsf M)<1
+\end{equation}
+である。支配固有値が実負で単一の時間尺度 $\tau$ に近似できるときだけ、
+$h<2\tau$ が非発散、$h<\tau$ が単調収束の目安となる。
+複素固有値、非正規結合、複数固定点にはこの目安をそのまま適用できない。
+
+\section{非零モードの適応幅と監視値}
+周期場では候補電荷の変化に対して
+\begin{equation}
+ \max_i|\Delta\phi_{k\ne0}(\vect c_i;\Delta\vect q)|\le\Phi_{\max}
+\end{equation}
+を満たすバッチ幅を受理できる。
+不合格なら $h,h/2,h/4,\ldots$ を試し、乱数状態と粒子数端数を戻す。
+棄却試行の電荷・統計・履歴を確定状態へ混入させない。
+この上限は固定した非零場の変化を抑える条件であり、局所打切り誤差推定器や全系の精度保証ではない。
+零モード、外部応答、粒子標本の誤差は別に評価する。
+
+電荷変化の監視量は
+\begin{equation}
+ r_q=\frac{\lVert\vect q^{\,n+1}-\vect q^{\,n}\rVert_2}
+ {\max(\lVert\vect q^{\,n+1}\rVert_2,q_{\mathrm{floor}})}
+\end{equation}
+である。\code{tol_rel} は監視・出力値であり、現行の早期停止条件ではない。
+指定した accepted batch 数を処理する。
+小さい $h$ や大きな残留電荷によって比が小さくなる場合もあるため、
+これだけで正味電流が零、または平衡が達成されたと判断しない。
+
+\basisdoc{\src{docs/SurfaceChargeNumerics.md}、\src{docs/BatchDurationTheory.md}、
+\src{src/physics/bem_surface_models_conductor.f90}、
+\src{src/runtime/simulator/bem_simulator_loop.f90}。}

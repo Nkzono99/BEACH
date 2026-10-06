@@ -1,0 +1,132 @@
+% Build from this directory: make
+% Engine: XeLaTeX. Bibliography: BibTeX + plainnat.
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\setmainfont{texgyretermes-regular.otf}[
+  BoldFont=texgyretermes-bold.otf,ItalicFont=texgyretermes-italic.otf,
+  BoldItalicFont=texgyretermes-bolditalic.otf]
+\setsansfont{texgyreheros-regular.otf}[
+  BoldFont=texgyreheros-bold.otf,ItalicFont=texgyreheros-italic.otf,
+  BoldItalicFont=texgyreheros-bolditalic.otf]
+\setmonofont{texgyrecursor-regular.otf}[Scale=0.88,
+  BoldFont=texgyrecursor-bold.otf,ItalicFont=texgyrecursor-italic.otf,
+  BoldItalicFont=texgyrecursor-bolditalic.otf]
+\setCJKmainfont{Noto Serif CJK JP}
+\setCJKsansfont{Noto Sans CJK JP}
+\setCJKmonofont{Noto Sans Mono CJK JP}
+\usepackage[margin=25mm,headheight=15pt]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{graphicx,xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{titlesec}
+\usepackage[unicode,colorlinks=true,linkcolor=blue!45!black,
+  citecolor=green!35!black,urlcolor=blue!45!black]{hyperref}
+\hypersetup{pdftitle={BEACH の物理モデルと数値アルゴリズム},
+  pdfsubject={表面帯電、境界要素法、粒子追跡、周期場、準定常シース}}
+\titleformat{\chapter}[display]{\sffamily\bfseries\huge}
+  {第\thechapter 章}{12pt}{\Huge}
+\titleformat{\section}{\sffamily\bfseries\Large}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\sffamily\bfseries\large}{\thesubsection}{0.8em}{}
+\renewcommand{\contentsname}{目次}
+\renewcommand{\listfigurename}{図目次}
+\renewcommand{\listtablename}{表目次}
+\renewcommand{\figurename}{図}
+\renewcommand{\tablename}{表}
+\renewcommand{\bibname}{参考文献}
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{2}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{0.25em}
+\setlength{\emergencystretch}{2em}
+\renewcommand{\arraystretch}{1.2}
+\newcommand{\vect}[1]{\bm{#1}}
+\newcommand{\dd}{\mathop{}\!\mathrm{d}}
+\newcommand{\eps}{\epsilon_0}
+\newcommand{\kc}{k_{\mathrm c}}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\src}[1]{{\small\nolinkurl{#1}}}
+\newcommand{\basisdoc}[1]{\par\smallskip\noindent
+  {\small\raggedright\textbf{実装・仕様の根拠：}#1\par}\medskip}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{BEACH の物理モデルと数値アルゴリズム\\[0.6em]
+  \Large 表面帯電・境界要素法・粒子追跡の技術解説}
+\author{技術原稿（著者・所属は確定時に記入）}
+\date{2026 年 10 月 6 日\\\small 実装に基づく初稿}
+
+\begin{document}
+\pagestyle{plain}
+\frontmatter
+\maketitle
+\chapter*{本書の位置づけ}
+\addcontentsline{toc}{chapter}{本書の位置づけ}
+本書は BEACH（BEM + Accumulated CHarge）が採用するモデルとアルゴリズムを、
+研究背景、支配方程式、離散化、計算手順、適用限界の順にまとめた日本語の技術原稿である。
+想定読者は、プラズマと表面の相互作用を研究し、BEACH の計算結果を論文で説明したい研究者である。
+設定キーの網羅的な説明は既存の入力リファレンスに委ね、物理量がどの近似を経て計算されるかを重視する。
+
+対象は 2026 年 10 月 5 日に確認したローカル作業ツリーである。
+基点の Git commit は \code{57561eb2fe795d84e06e5b6abaf29ff15c1d8070} であり、
+確認時点では周期場の長さ尺度と零モードに関する未コミットの変更を含んでいた。
+したがって、この原稿を当該 commit のみに対する仕様、あるいは公開リリースの保証と解釈してはならない。
+機能の記述には現行 \src{SPEC.md}、対応する説明文書、Fortran 実装を用いた。
+インストール済み context plugin の説明よりローカルの新しい実装を優先している。
+設定例と粒子源の説明は 2026 年 10 月 6 日に改訂し、境界流入だけの場合は
+\code{source_mode} と \code{npcls_per_step} を省略する書き方に揃えた。
+
+本書は新たなシミュレーション結果を報告する研究論文ではない。
+性能、実環境との一致、研究上の新規性を実測したとは主張しない。
+第\ref{ch:validation}章に、研究ケースごとに必要な検証を示す。
+文献は理論の由来と比較対象を示すものであり、BEACH 全体を先行論文と同一のモデルと認定するものではない。
+
+\chapter*{概要}
+\addcontentsline{toc}{chapter}{概要}
+BEACH は三角形表面要素に蓄積した電荷から静電場を評価し、荷電テスト粒子の前進軌道と
+表面への吸収・放出を通じて電荷分布を更新する。各三角形には一定面電荷密度を仮定し、
+近傍相互作用を解析的な panel 積分、遠方相互作用を直接和、treecode または Cartesian FMM で扱う。
+粒子は予測中点電場を用いた Boris 速度更新と台形位置更新によって進め、軌道線分上の最初の表面衝突または
+計算箱境界イベントを処理する。場はバッチ中に固定し、電荷差分をバッチ末尾に確定反映する。
+通常の絶縁体電荷蓄積に加え、自由空間での浮遊導体再配分、光電子の照射 ray による放出、
+2 軸周期静電場、準定常外部シースとの整合面連成が実装されている。
+一方、BEACH 領域内の体積プラズマ空間電荷、誘電分極、表面伝導、外部シースの時間依存輸送は解かない。
+本書は、このモデル分担と数値誤差の所在を明確にし、研究利用に必要な収束確認と比較検証を整理する。
+
+\noindent\textbf{キーワード：}表面帯電、境界要素法、テスト粒子、Boris 法、高速多重極法、光電子、準定常シース
+
+\section*{Abstract}
+BEACH evaluates electrostatic fields from charge accumulated on triangular surface elements and updates
+the charge distribution through forward tracking, absorption, and emission of charged test particles.
+Its constant-density triangular sources are evaluated using analytic panel integrals for near interactions
+and direct summation, a treecode, or a Cartesian fast multipole method for field evaluation.
+Particle positions and velocities are stored at the same time. A predicted midpoint field, Boris velocity
+rotation, and trapezoidal position update define each candidate step, followed by the first surface or
+box-boundary event. Fields remain fixed during each batch, and charge increments are committed at its end.
+Implemented extensions include floating conductors in free space, ray-based photoelectron emission,
+two-dimensional periodic electrostatics, and quasistatic coupling to an outer sheath at a matching plane.
+The inner domain does not solve volume plasma space charge, dielectric polarization, surface conduction,
+or time-dependent outer transport. This technical manuscript documents the model partition, numerical
+approximations, and verification procedures needed for research use. It reports no newly generated
+simulation results and makes no claim of general experimental validation or measured performance.
+
+\tableofcontents
+\mainmatter
+\input{sections/01_background}
+\input{sections/02_model}
+\input{sections/03_electrostatics}
+\input{sections/04_field_algorithms}
+\input{sections/05_particles}
+\input{sections/06_sources}
+\input{sections/07_surface_update}
+\input{sections/08_sheath}
+\input{sections/09_validation}
+\input{sections/10_research}
+\appendix
+\input{sections/appendix_sources}
+\backmatter
+\bibliographystyle{plainnat}
+\bibliography{references}
+\end{document}

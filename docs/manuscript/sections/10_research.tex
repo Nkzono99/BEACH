@@ -1,0 +1,95 @@
+\chapter{設定例の読み方と研究への接続}
+\label{ch:research}
+
+\section{開いている設定例が表す計算}
+確認した \src{examples/beach.toml} は、床、小平板、円柱、球を含む複数物体の例である。
+床・円柱・球は絶縁体、小平板は浮遊導体を選ぶ。
+位置、温度、質量、境界はそのまま特定の月面環境を表す値とは扱わない。
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{p{57mm}Y}
+\toprule
+確認した入力 & モデル上の意味 \\
+\midrule
+\code{dt = 1.4e-8} & 粒子の step 幅 $\delta t=14$ ns \\
+\code{batch_duration_step = 200.0} & 帯電更新幅 $h=2.8\,\mu\mathrm{s}$ \\
+\code{batch_count = 5} & 固定幅なら累積帯電時間 $14\,\mu\mathrm{s}$ \\
+\code{max_step = 500} & 一粒子の最長追跡時間の目安 $7\,\mu\mathrm{s}$ \\
+\code{periodic_axes = ["x"]} & 粒子・ray の domain topology の x 周期 \\
+\code{field_boundary.mode = "free"} & 静電場は有限 mesh の自由空間場 \\
+\code{inflow_model = "infinity_barrier"} & 上流の零電位からの scalar 流入補正 \\
+\code{boundary_inflow}\newline\code{z_high = "reservoir"} & 上面全体からの外部 reservoir 流入 \\
+\bottomrule
+\end{tabularx}
+\end{center}
+粒子の x 周期と場の自由空間は、独立に選ばれたモデルである。
+この例を二軸無限周期のレゴリス層として説明することはできない。
+二軸周期場と外部シースを研究する場合は、対応する \code{periodic2} の例から条件を選び直す。
+
+正電荷 species の質量は $9.10938356\times10^{-28}$ kg で、電子質量の $1000$ 倍である。
+物理的な陽子をそのまま設定した値ではない。
+reduced mass ratio が飛行時間、捕集、シース応答に与える影響を確認する必要がある。
+また、例には有効な光電子 species がなく、照射と光電子 feedback を含む月昼側モデルではない。
+境界流入だけの species では \code{source_mode} と \code{npcls_per_step} を省略し、
+物理パラメータと流入面から意図を読み取れる書き方を採用している。
+
+\section{物体間力と離脱の後処理}
+保存済み電荷から対象物体を除く場 $\vect E_{\mathrm{other}}$ を評価すれば、
+重心求積による合力と torque は概念的に
+\begin{align}
+ \vect F&\simeq\sum_{i\in\mathrm{target}}q_i
+                 \vect E_{\mathrm{other}}(\vect c_i),\\
+ \vect\tau&\simeq\sum_{i\in\mathrm{target}}
+       (\vect c_i-\vect x_{\mathrm{ref}})\times
+       q_i\vect E_{\mathrm{other}}(\vect c_i)
+\end{align}
+となる。primary の自己場を除く規約と周期画像の力を保つ規約は、利用する後処理 API で確認する。
+BEACH には固定位置の力、移動指標、保存電荷を固定した鉛直離脱経路を調べる後処理がある。
+
+鉛直経路の静電仕事 $W_e(z)=\int_{z_0}^{z}F_z(\zeta)\dd\zeta$ に対して、
+重力と付着を含む障壁は
+\begin{equation}
+ \Delta U(z)=-W_e(z)+mg(z-z_0)+U_{\mathrm{adh}}(z)
+\end{equation}
+のように評価できる。初期位置で $F_z>mg$ でも、途中の付着・静電障壁を越えられるとは限らない。
+保存電荷を動かさずに評価する経路は、移動中の再帯電、周囲粒子の移動、接触の変化を解かない。
+その結果は離脱条件の診断であり、ダストの動的放出・飛翔量の予測とは区別する。
+
+\section{論文で明示すべき方法と限界}
+BEACH を用いた手法節には、表面 geometry、P0 要素、場境界と solver、
+species の分布と重み、$\delta t$ と $h$、追跡上限、表面 model、外部 closure を記載する。
+periodic2 なら nonzero mode と物理的 zero mode の closure を、
+matching-plane なら応答 backend、branch、$H$、固定点残差を示す。
+これらは結果の再現と、モデルの適用性の判断に必要な情報である。
+
+本実装の適用限界には、内側体積空間電荷の省略、材料分極・伝導の省略、
+吸収中心の表面相互作用、固定 geometry、バッチ内固定場、外部帰還の即時境界縮約がある。
+各研究では、このうち結論に影響する近似を独立の計算や測定と照合する。
+例えば内側空間電荷の寄与を PIC と、外部 profile を kinetic oracle と、
+粒子放出の初期条件と付着力を実験または別の力学モデルと比較する。
+
+新規性を主張する対象は、採用済みの Boris 法や FMM そのものではなく、
+実際に検証した物理的問い、モデル分担、あるいは得られた定量的知見である。
+本書の文献調査は選択した基礎・関連研究の確認であり、系統的レビューや網羅的な先行性調査ではない。
+
+\section{データと原稿作成に関する記載}
+\textbf{データ利用可能性：}本書の根拠は BEACH のソース、仕様、文書、および参考文献である。
+新規計算データは生成していない。実際の研究論文へ展開する際は、設定、mesh、応答表、
+収束データの保存先と利用条件を著者が確定する。
+
+\textbf{研究倫理：}本書は計算手法の技術解説であり、人体・動物・個人情報を対象にした研究を含まない。
+研究データを追加する際は、その研究に適用される倫理要件を改めて記載する。
+
+\textbf{著者貢献：}著者・所属と CRediT に基づく貢献分担は未確定である。
+ソフトウェア開発、検証、原稿の確認と編集の担当を実際の貢献に従って記入する。
+
+\textbf{利益相反・研究費：}情報が提供されていないため未記入である。
+「なし」と推定せず、公開・投稿時に著者が確定する。
+
+\textbf{AI 利用：}この初稿は OpenAI Codex による実装読解、文献の書誌確認、文章作成の支援を用いた。
+著者による全文の科学的確認や、全引用文献の精読を完了した原稿ではない。
+公開・投稿前に、著者が数式、引用箇所、物理的解釈を確認し、対象媒体の方針に沿って開示文を確定する。
+
+\basisdoc{\src{examples/beach.toml}、\src{docs/ObjectForcesDetachment.md}、
+\src{docs/PythonPostprocessAPI.md}、\src{SPEC.md}。}

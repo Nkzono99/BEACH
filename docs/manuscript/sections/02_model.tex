@@ -1,0 +1,79 @@
+\chapter{モデルの分担と支配方程式}
+\label{ch:model}
+
+\section{状態量と計算領域}
+表面メッシュを $N$ 個の三角形 $T_i$ で構成し、頂点、面積 $A_i$、重心 $\vect c_i$、
+単位法線 $\vect n_i$ を保持する。形状は通常の帯電計算中に固定される。
+要素の状態量は総電荷 $q_i$ [C] であり、面電荷密度は
+\begin{equation}
+  \sigma_i=\frac{q_i}{A_i}\qquad[\mathrm{C\,m^{-2}}]
+  \label{eq:p0}
+\end{equation}
+である。$q_i$ と $\sigma_i$ を混同すると、面積依存の誤りが場と堆積量の両方へ入る。
+
+荷電テスト粒子 $p$ は、位置 $\vect x_p$、速度 $\vect v_p$、実粒子一個の電荷 $q_p$、
+質量 $m_p$、macro weight $w_p$ を持つ。軌道の電荷質量比は $q_p/m_p$、
+表面へ移す電荷は $q_p w_p$ である。$w_p$ を軌道加速へ重ねて掛けない。
+species は電荷・質量だけでなく、速度分布、粒子源、境界作用を指定する。
+
+\section{テスト粒子と表面電荷の自己無撞着性}
+粒子の運動方程式は、非相対論的 Lorentz 力
+\begin{equation}
+ \frac{\dd\vect x_p}{\dd t}=\vect v_p,\qquad
+ \frac{\dd\vect v_p}{\dd t}
+ =\frac{q_p}{m_p}\left[\vect E(\vect x_p)+\vect v_p\times\vect B_0\right]
+ \label{eq:lorentz}
+\end{equation}
+である。通常経路の $\vect B_0$ は指定した一様外部磁場であり、誘導磁場は求めない。
+場は表面電荷と指定した外場から作る。
+
+自由空間の静電場では、表面以外の領域に対して
+\begin{equation}
+ \nabla^2\phi=0,\qquad \vect E=-\nabla\phi+\vect E_0
+\end{equation}
+となる。ここで $\phi$ は表面電荷が作る電位であり、一様外場を電位に含める場合は
+$-\vect E_0\cdot\vect x$ を一度だけ加える。
+追跡中の電子・イオンが空間に作る体積電荷は、この場の右辺に含まれない。
+
+表面電荷の更新と次の粒子軌道は結合するが、体積プラズマを自己無撞着に解く PIC ではない。
+外部シース closure を選んでも、BEACH 内部の体積電荷の欠落が自動的に解消されるわけではない。
+局所の空間電荷が場を支配するケースでは、その効果を独立した kinetic 計算で調べる。
+
+\section{二つの時間刻み}
+粒子の一回の軌道更新幅を $\delta t$、表面電荷更新のバッチ幅を $h$ とする。
+$\delta t$ は \code{sim.dt}、$h$ は解決後の \code{sim.batch_duration} に対応する。
+\code{batch_duration_step} を使う場合は $h=\delta t\,\code{batch_duration_step}$ である。
+バッチ数を $N_b$ とすると、累積帯電時間は受理された幅の和
+\begin{equation}
+ t_{\mathrm{charge}}=\sum_{n=0}^{N_b-1} h_n
+\end{equation}
+となる。粒子一個に許す最長追跡時間の目安 $\delta t\,\code{max_step}$ は別の量である。
+一つのバッチで複数 species の軌道を順に追っても、その飛行時間を足して帯電時間にはしない。
+
+\section{一バッチの結合手順}
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[node distance=6mm,
+ box/.style={draw,rounded corners,align=center,text width=95mm,
+   minimum height=9mm,fill=blue!4,font=\small},
+ arr/.style={-{Latex[length=2mm]},thick}]
+ \node[box] (q) {確定済み表面電荷 $\vect q^{\,n}$};
+ \node[box,below=of q] (e) {静電場を構成し、バッチ中は固定};
+ \node[box,below=of e] (s) {流入・表面放出の粒子を生成};
+ \node[box,below=of s] (p) {Boris 更新と最初の衝突・境界作用};
+ \node[box,below=of p] (d) {吸収・放出・必要な closure の電荷差分};
+ \node[box,below=of d] (c) {並列集約、候補を検査、受理時に一回だけ反映};
+ \node[box,below=of c] (o) {表面電荷 $\vect q^{\,n+1}$ と履歴・電荷台帳を保存};
+ \foreach \a/\b in {q/e,e/s,s/p,p/d,d/c,c/o}{\draw[arr] (\a)--(\b);}
+\end{tikzpicture}
+\caption{基本の表面帯電サイクル。外部シース連成を使う場合は、候補バッチの内側で
+同じ初期状態から軌道計算を反復する。}
+\label{fig:batch}
+\end{figure}
+同じバッチ中の粒子は同じ場を参照する。先に吸収された粒子の電荷が、後続粒子へ即時に作用することはない。
+この分離によって粒子ごとの並列計算が可能になる一方、場を固定する時間幅の誤差を持つ。
+最大 step 数で未解決となった粒子は、解決済みの吸収や escape と区別して集計する。
+一般の時間依存粒子 inventory や外部帰還遅延を保持するモデルとして解釈しない。
+
+\basisdoc{\src{src/core/bem_types.f90}、\src{src/particles/bem_particles.f90}、
+\src{src/runtime/simulator/bem_simulator_loop.f90}、\src{docs/Algorithms.md}。}

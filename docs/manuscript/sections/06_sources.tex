@@ -1,0 +1,97 @@
+\chapter{粒子流入と光電子放出}
+\label{ch:sources}
+
+\section{境界を横切る速度分布}
+数密度で規格化した位相空間分布を $f_s(\vect v)$、内向き法線速度を
+$v_n=\vect v\cdot\vect n_{\mathrm{in}}$ とすると、境界流入束は
+\begin{equation}
+ \Gamma_s=\int_{v_n>0}v_n f_s(\vect v)\dd^3v.
+ \label{eq:flux}
+\end{equation}
+境界を横切る粒子は $v_n f_s$ から標本化する。
+体積中の Maxwell 分布をそのまま境界速度へ使うと、低速粒子を過剰に注入する。
+
+法線ドリフト $u_n$、一次元熱速度の標準偏差 $s=\sqrt{k_{\mathrm B}T/m}$ を持つ Maxwell 分布では
+\begin{equation}
+ \Gamma=n\left[
+ \frac{s}{\sqrt{2\pi}}\exp\!\left(-\frac{u_n^2}{2s^2}\right)
+ +\frac{u_n}{2}\operatorname{erfc}\!\left(-\frac{u_n}{\sqrt2 s}\right)
+ \right].
+\end{equation}
+流入面積 $A_f$ とバッチ幅 $h$ に対し、macro 粒子数の期待値は
+\begin{equation}
+ \mathbb E[N_{\mathrm{macro}}]=\frac{\Gamma A_f h}{w}.
+\end{equation}
+整数化の端数を後のバッチへ持ち越すことで、長時間の流入量を表す。
+
+\code{target_macro_particles_per_batch} は標本数から重みを決める指定であり、物理流束の変更ではない。
+
+\section{粒子源と速度 grid}
+\code{volume_seed} は指定領域内の標本、\code{plane_source} は内部の軸平行矩形面からの流束を表す。
+外部 reservoir は非周期 open 面の \code{boundary_inflow} で与える。
+\code{reservoir_face} は deprecated な粒子源であり、新規ケースでは内部面と外部境界を明確に分ける。
+
+境界流入だけの species は、物理パラメータと流入面を指定する次の書き方を基本とする。
+\begin{verbatim}
+[[particles.species]]
+# density, temperature, charge, mass, and macro-particle weight
+
+[particles.species.boundary_inflow]
+z_high = "reservoir"
+\end{verbatim}
+\code{source_mode} と \code{npcls_per_step} は省略する。
+省略時の解決値はそれぞれ \code{volume_seed} と \code{0} であり、体積生成は行わない。
+体積生成などを使う場合に、その粒子源とパラメータを明示する。
+
+速度 grid には速度三成分と非負の分布値を与える。
+\code{phase_space} なら式\eqref{eq:flux}の $v_n$ を掛け、
+\code{flux_weighted} なら既に境界流束で重み付けされた分布として扱う。
+二重に速度を掛けない。分布形状の規格化と、物理粒子束または電流密度による流入振幅は区別する。
+
+Maxwell 標本化は有限な速度範囲を使い、現行 Gaussian sampling は $6s$ の cutoff を持つ。
+通常の熱分布では小さい tail でも、障壁を越える希少な粒子が目的量を支配する場合には確認が必要になる。
+
+\section{無限遠分布の scalar 電位補正}
+\code{source_vdf} は境界上で定義した分布を用いる。
+\code{infinity_barrier} は上流基準電位 $\phi_\infty$ と境界面平均電位 $\phi_f$ から
+\begin{equation}
+ \frac12m v_{n,f}^2=\frac12m v_{n,\infty}^2-q(\phi_f-\phi_\infty)
+ \label{eq:inflow_energy}
+\end{equation}
+によって到達条件と法線速度を補正する。$q$ は符号を持つため、電子と正イオンでは応答が逆になる。
+必要なエネルギーを持たない上流粒子は到達流束へ含めない。
+
+この補正は面平均による一つの電位障壁の近似である。
+箱外の三次元電場、飛行時間、磁化された軌道、途中の非単調電位は自動的に解かれない。
+面内電位差が大きいケースでは、面平均流入の誤差を評価する。
+外向き open 粒子を単に escape とするか、障壁により反射するかは別の境界作用である。
+
+\section{照射 ray による表面放出}
+\code{photo_raycast} は、箱面上の開口から照射 ray を発射し、最初に命中した要素から光電子を放出する。
+遮蔽と可視面積が命中率に反映されるため、全表面へ同じ放出量を一律に置くモデルではない。
+開口面積 $A_{\mathrm{ap}}$、単位 ray 方向 $\widehat{\vect d}$ に対する投影面積は
+\begin{equation}
+ A_{\mathrm{proj}}=A_{\mathrm{ap}}
+ |\widehat{\vect d}\cdot\vect n_{\mathrm{in}}|.
+\end{equation}
+全 rank 合計の ray 数 $N_{\mathrm{ray}}$、正の放出電流密度 $J_{\mathrm{emit}}$ に対し、
+命中 ray の粒子重みは
+\begin{equation}
+ w_{\mathrm{hit}}=
+ \frac{J_{\mathrm{emit}} A_{\mathrm{proj}}h}{|q|N_{\mathrm{ray}}}.
+ \label{eq:ray_weight}
+\end{equation}
+miss は粒子を生成しない。ray 数を増やすと一粒子の重みが減り、照射積分の統計誤差が小さくなる。
+放出時に escape 率を重みに掛けるのではなく、生成後の軌道が再吸収と escape を決める。
+
+法線速度は flux-weighted half-range Maxwell 分布、接線速度は Gaussian 分布から作る。
+放出点は入射 ray と反対向きの法線へ微小にずらし、直後の自己衝突を避ける。
+確認した実装の変位は $10^{-12}$ m であり、問題の幾何尺度と近接表面間隔に対する相対的大きさも点検する。
+
+放出反作用が有効なら放出元要素 $i$ へ $-q w$、吸収先 $j$ へ $+q w$ を加える。
+電子では放出によって正電荷が残り、同じ要素への帰還は相殺、別の要素への帰還は表面間の電荷移送になる。
+この移送は粒子の飛行によるもので、材料内の表面伝導ではない。
+
+\basisdoc{\src{docs/ParticleSourcesBoundaries.md}、\src{docs/ReservoirInjection.md}、
+\src{docs/PhotoelectronEmission.md}、\src{src/particles/injection/bem_injection_flux.f90}、
+\src{src/particles/injection/bem_photoelectron_injection.f90}。}

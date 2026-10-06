@@ -1,0 +1,89 @@
+\chapter{検証、収束、再現性}
+\label{ch:validation}
+
+\section{実行成功と科学的妥当性}
+終了コード零は、設定したアルゴリズムが完了したことを示す。
+そのことと、離散化が収束したこと、closure が適用できること、実環境を説明できることは別である。
+BEACH の release verification には小規模 fixture の収束記録があるが、
+それを研究ケース全体の物理妥当性や性能の証明として引用しない。
+本原稿の作成では新しい物理 run や benchmark を実行していない。
+
+\section{誤差を支配する軸から検証する}
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{25mm}YY}
+\toprule
+誤差・近似 & 変える量 & 比較する目的量 \\
+\midrule
+表面の離散化 & mesh 密度・形状品質 & 表面電位、局所密度、物体別電荷 \\
+場の遠方近似 & Direct/FMM、$\theta$、leaf size & 同じ保存電荷に対する $\phi,\vect E$ \\
+周期遠方場 & Ewald 層・分割、参照 Fourier & 非零場の絶対誤差、零モードの Gauss 則 \\
+軌道と衝突 & $\delta t$、追跡上限 & 命中先、吸収・escape、軌道 energy \\
+帯電の更新 & $h$、同じ累積物理時刻 & 電荷履歴、電流、定常分布 \\
+有限標本 & 重み・粒子数・ray 数・seed & 平均、分散、低頻度 channel \\
+外部 closure & 応答 grid、$H$、明示 branch & $\Phi_H$、流束、return、連成残差 \\
+\bottomrule
+\end{tabularx}
+\caption{研究ケースで切り分ける主な誤差。各軸を同時に変更すると原因を特定しにくい。}
+\end{table}
+
+優先する軸は目的量によって異なる。光電子の再吸収先なら ray 標本と衝突幾何、
+弱い外部場との比較なら周期 nonzero mode の絶対誤差、
+長時間の帯電ならバッチ幅と closure の固定点を先に調べる。
+全 parameter に同じ労力を割くより、結論を変え得る近似を重点的に検証する。
+
+\section{独立した oracle を使う基本検証}
+無場の直線運動、一様電場の等加速度運動、純磁場の速さ保存と旋回位相を確認する。
+滑らかな場では $\delta t,\delta t/2,\delta t/4$ で誤差比を測る。
+刻みを小さくしたときは、同じ物理追跡時間を保つよう \code{max_step} も調整する。
+
+場は解析 sheet の jump、有限 panel の独立積分、
+同じ P0 mesh の Direct 和、上部真空の Fourier 参照などと比較する。
+Direct と FMM の差は FMM 誤差を分離するが、共通の mesh 誤差は検出しない。
+零に近い基準場では相対誤差が発散するため、絶対誤差または代表場による規格化も使う。
+
+幾何では一つの三角形への既知の命中、複数要素の最初の交点、
+box 面と mesh の発生順、周期画像への衝突を確認する。
+境界反射があるケースでは chord 時刻近似も含めて刻み収束を確認する。
+密な接触 geometry では表面の重なり、法線、極小間隔の影響を調べる。
+
+\section{電荷台帳と channel 別の収支}
+表面の総電荷増分は
+\begin{equation}
+ Q^{n+1}-Q^n=
+  Q_{\mathrm{abs}}+Q_{\mathrm{emit\ reaction}}+Q_{\mathrm{closure}}
+ \label{eq:ledger}
+\end{equation}
+として確認する。導体再配分は各物体内で総電荷を保存するため、右辺へ新たな外部電流を加えない。
+開放系では外部から粒子が流入し外へ escape するので、表面だけの $Q$ が保存される必要はない。
+閉じた光電子 channel、固定電流 channel、外部境界へ運ばれる電荷を別々に監査する。
+
+raw 吸収、目標電流に対応する電荷、実際に反映した補正電荷を \code{charge_ledger.csv} で区別する。
+大きな正負 channel が相殺する場合、正味残差だけでは標本不足を隠す。
+倍率、未解決率、各 channel の粒子数と絶対電荷を併せて確認する。
+
+\section{標本誤差と平衡判定}
+独立で有限分散の標本に対する Monte Carlo の平均誤差は通常 $N^{-1/2}$ の尺度を持つ。
+希少な escape、強い再重み付け、相関した連成反復では単純な標本数だけで有効精度を判断できない。
+粒子数や ray 数を増やす比較に加え、複数 seed の反復から主要量の分散を報告する。
+
+バッチ幅を変えると粒子重みや整数化残差も変わる場合がある。
+同じ最終バッチ番号より、同じ累積物理時刻で電荷履歴と電流を比べる。
+統計的な揺らぎがある平衡では、最後の一点ではなく時間窓の平均と分散を示す。
+\code{tol_rel} の小ささだけで平衡を宣言しない。
+
+\section{実装検証と研究成果の再現性}
+Fortran の主要 test と Python の出力契約 test は異なる役割を持つ。
+前者は場・軌道・収支、後者は設定、結果読込、後処理の契約を確認する。
+全体の検証手順は \src{docs/PhysicsReleaseVerification.md} を正本とし、
+KUDPC では計算ノード上で実行する。
+
+研究結果には、実際の commit と作業ツリー差分、完全な設定、mesh または OBJ、
+応答 CSV、入力速度分布、乱数 seed、MPI/OpenMP 構成、compiler・build 条件を保存する。
+周期 cache は cold/warm の区別と generation 条件を残す。
+checkpoint 再開では、読込可能だったことと同じ物理条件で継続したことを別に確認する。
+並列 reduction と乱数列の違いにより、構成を変えた bitwise 一致は一般に仮定しない。
+
+\basisdoc{\src{docs/ValidationGuide.md}、\src{docs/PhysicsReleaseVerification.md}、
+\src{docs/BatchDurationStability.md}、\src{docs/OutputReference.md}、
+\src{docs/Execution.md}。}

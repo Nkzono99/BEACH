@@ -1,0 +1,137 @@
+\chapter{外部シースの定常・準定常 closure}
+\label{ch:sheath}
+
+\section{外部領域を縮約する条件}
+BEACH の通常の場は表面電荷に由来し、内側の体積プラズマ空間電荷を含まない。
+外部シースが主に平面平均応答を与え、その応答時間が帯電時間より短いと考えられる場合、
+外部領域を電位・流束・速度障壁を返す低次元モデルに縮約できる。
+これは時間尺度と空間尺度の仮定であり、シースを接続すれば任意の局所 geometry が妥当になるわけではない。
+
+平面・無衝突・非磁化モデルは、電位による速度空間の到達・帰還を使い、
+\begin{equation}
+ \frac{\dd^2\phi}{\dd z^2}=-\frac{\rho_{\mathrm{plasma}}(\phi)}{\eps}
+ \label{eq:outer_poisson}
+\end{equation}
+を閉じる。単一価 ion、ambient electron、photoelectron の例では
+$\rho_{\mathrm{plasma}}=e n_i-e n_e-e n_{\mathrm{pe}}$ である。
+分布を到達可能な速度領域で積分して密度を求めるため、単純な Boltzmann 密度だけで全 branch を表せるとは限らない。
+Zhao 型モデルの背景は光電子シースの解析・kinetic 比較にある\citep{Zhao2020}。
+
+\section{Type A、B、C と Sagdeev 積分}
+上流電位を零とし、表面から外側へ向かう構造を整理すると、
+Type A は途中に負の電位極小を持つ非単調な構造、Type B は正の表面から零へ低下する構造、
+Type C は負の表面から零へ上昇する構造である。
+返ってくる粒子群と通り抜ける粒子群を branch ごとに区別する必要がある。
+
+式\eqref{eq:outer_poisson}に $\dd\phi/\dd z$ を掛け、上流で $E=0$ とすると
+\begin{equation}
+ \frac{E^2(\phi)}{2}
+ =-\frac1\eps\int_0^\phi\rho_{\mathrm{plasma}}(\psi)\dd\psi.
+ \label{eq:sagdeev}
+\end{equation}
+右辺の符号と turning point の条件が、電位 profile の成立性を拘束する。
+BEACH の online 経路は密度式、Sagdeev 積分、非線形根、profile の成立性を組み合わせる。
+全速度分布の時間発展を解く経路ではない。
+
+現行の Type B ambient electron 密度では、加速後に存在できる粒子の最小速度を反映する。
+この下限は 2020 年の Zhao 文献に基づく実装修正として \src{MatchingPlaneReference.md} に説明されている。
+未取得の別出版版の式まで同一と確認したとは扱わない。
+
+\section{固定電流の stationary Zhao}
+\code{zhao_stationary} は run 開始時に零電流の定常根を一回だけ解く。
+ambient electron 吸収 $J_e<0$、ion 吸収 $J_i>0$、光電子放出 $J_{\mathrm{emit}}>0$、
+再吸収 $J_{\mathrm{return}}\le0$、escape の表面寄与 $J_{\mathrm{escape}}>0$ とすると
+\begin{align}
+ J_{\mathrm{return}}&=J_{\mathrm{escape}}-J_{\mathrm{emit}},\\
+ J_e+J_i+J_{\mathrm{escape}}&=0,\\
+ J_e+J_i+J_{\mathrm{return}}+J_{\mathrm{emit}}&=0.
+ \label{eq:stationary_budget}
+\end{align}
+escape 電流は外へ運ばれる電子電荷に対応する。
+これを表面へもう一度 deposit すると、放出反作用と二重計上になる。
+
+求めた branch、基準電位、電位極小、species 別電流 target を run 中固定し、
+各バッチの raw hit・return 分布を target に規格化する。
+BEACH 内の表面分布と場は更新されるが、零電流根は毎バッチ解き直さない。
+光電子なしの stationary 契約では Type C の $J_e+J_i=0$ を解く。
+
+流入は上流の零電位から現在の上端面平均電位へエネルギー保存で写す。
+外向きの electron/PE は局所電位と法線運動エネルギーから障壁を越えられるか判定する。
+越えられなければ上端で反射し、外部 turning point までの距離と飛行時間は追わない。
+
+\section{整合面での準定常連成}
+\code{matching_plane_quasistatic} は箱上端 $z=H$ を外部モデルとの整合面とする。
+全表面が $H$ より下にあるとき、内側の平均変位は
+\begin{equation}
+ D_H=\eps E_{\mathrm b}+\frac{Q}{A_{\mathrm c}}
+ \label{eq:matching_d}
+\end{equation}
+である。外部応答は $D_H$ と粒子が運ぶ moment から、上端電位 $\Phi_H$、
+ambient inward flux、各 access potential、光電子 return の障壁を返す。
+$(H,\Phi_H)$ を物理的零モードの gauge にすることで、内側の Gauss 則を保ったまま電位を接続する。
+外部の field profile を内側に重ねて足す処理ではない。
+
+光電子の外向き粒子束と平均法線エネルギーは、界面通過粒子の重みを使って
+\begin{equation}
+ \Gamma_{\mathrm{pe}}^+
+  =\frac{\sum_{p\in\mathrm{out}}w_p}{A_{\mathrm c}h},\qquad
+ \overline{K_n}=\frac{\sum_{p\in\mathrm{out}}w_p m_p v_{n,p}^2/2}
+                         {\sum_{p\in\mathrm{out}}w_p}
+ \label{eq:matching_moments}
+\end{equation}
+と表せる。出力・応答では energy を eV に変換する。
+online Zhao はこの二 moment を half-Maxwellian に縮約し、
+flux-weighted 分布の $\overline{K_n}=k_{\mathrm B}T_{\mathrm{pe}}$ から温度と source 振幅を構成する。
+元の高 energy tail や一般の非 Maxwell 分布を保持するわけではない。
+
+\code{table} backend は直積格子の応答表を補間する。
+範囲外へ無検証に外挿しない。応答表の grid、上流分布、$H$、単位と符号を研究条件に揃える。
+同梱の synthetic CSV は配線確認用であり、物理計算用の応答ではない。
+\code{zhao_online} は外部の現在の電束条件から直接根を求めるため、
+壁面零電流を run 開始時に一回課す stationary Zhao と拘束が異なる。
+特に光電子を省略しても online の branch が必ず Type C になるとは限らない。
+
+\section{固定点反復と陰的零モード}
+バッチ開始時の電荷と乱数状態を固定し、外部への feedback $\vect u$ に対して
+応答取得と内側の軌道計算を行う写像を $\mathcal T$ と書く。
+連成は
+\begin{equation}
+ \vect u=\mathcal T(\vect u;\vect q^{\,n},h)
+\end{equation}
+の固定点として求める。例えば緩和係数 $0<\beta\le1$ による反復は
+\begin{equation}
+ \vect u^{(r+1)}=(1-\beta)\vect u^{(r)}+
+                  \beta\mathcal T(\vect u^{(r)};\vect q^{\,n},h)
+\end{equation}
+である。各 trial は同じ乱数列と粒子数端数から再生される。
+独立の乱数で trial ごとに分布を変えると、応答の不一致と標本 noise を分離しにくい。
+光電子標本を ambient より先に生成し、ambient 粒子数の変化が光電子の初期標本を変えないようにする。
+
+\code{implicit_zero_mode=true} は、下側電束零の closure で面平均変位だけを
+\begin{equation}
+ D_H^{n+1}=D_H^n+hJ(D_H^{n+1})
+ \label{eq:implicit}
+\end{equation}
+の後退 Euler 更新にする。table と online はそれぞれの有効範囲で根を bracket して解く。
+非零モードの電荷分布、軌道積分、Monte Carlo 誤差まで陰的に解いたことにはならない。
+
+有限のまま固定点反復上限へ達した trial は、残差を記録して警告付きで受理される場合がある。
+受理された状態だけが電荷、乱数、history、外部状態を一回更新する。
+正常終了と固定点の収束は区別し、\code{matching_plane_history.csv} の残差を確認する。
+
+\section{根の選択と適用限界}
+\code{require_unique} は検出した物理根の一意性を要求し、
+\code{minimum_energy} は候補のシース電位エネルギーを比較する。
+\code{continuation} は明示した Type A と陰的更新のもとで、前の accepted root を seed に使う。
+複数構造とエネルギー比較の背景には Sana と Mishra の解析がある\citep{SanaMishra2023}。
+有限の multistart は全数学根の isolation ではなく、どの規則も動的安定性や fold 通過を保証しない。
+
+現在の連成は $x,y$ 周期、$z$ open、非磁化、指定外場零などの条件を持つ。
+外部の full VDF、粒子 inventory、flight time、遅延 return queue、衝突、過渡シースは解かない。
+online Zhao の ambient outward feedback は transparent で、外部での ambient 帰還を解かない。
+有限 drift では密度式と流入 VDF の積分が一般に一致しないため、束だけの一致で kinetic 整合性を認定しない。
+これらが主要効果となるケースでは、独立の kinetic oracle や PIC を比較対象にする。
+
+\basisdoc{\src{docs/ZhaoStationaryClosure.md}、\src{docs/MatchingPlaneCoupling.md}、
+\src{docs/MatchingPlaneReference.md}、\src{docs/OuterKineticOracle.md}、
+\src{src/physics/sheath/zhao/bem_matching_plane_zhao_physics.f90}。}

@@ -1,0 +1,58 @@
+\chapter{実装との対応と文献の確認範囲}
+\label{ch:sources_appendix}
+
+\section{実装へ戻るための入口}
+次のパスは repository root からの相対パスである。
+実装の変更時には対応する章の主張と式を更新する。
+\begin{longtable}{>{\raggedright\arraybackslash}p{26mm}>{\raggedright\arraybackslash}p{112mm}}
+\toprule
+内容 & 主な実装・文書 \\
+\midrule
+\endhead
+計算サイクル & \src{src/runtime/simulator/bem_simulator_loop.f90}、\src{docs/Algorithms.md} \\
+三角形場 & \src{src/physics/field_solver/panel/bem_panel_kernel.f90}、\src{docs/DirectSolver.md} \\
+FMM & \src{src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90}、\src{docs/FMMCore.md} \\
+周期遠方場 & \src{src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90}、\src{docs/PeriodicFarCorrection.md} \\
+零モード & \src{src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90}、\src{src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90} \\
+粒子積分 & \src{src/physics/bem_pusher.f90}、\src{src/runtime/simulator/bem_particle_stepper.f90} \\
+衝突 & \src{src/physics/bem_collision.f90}、\src{docs/ParticleEvents.md} \\
+流入・光電子 & \src{src/particles/injection/bem_injection_flux.f90}、\src{src/particles/injection/bem_photoelectron_injection.f90} \\
+導体 & \src{src/physics/bem_surface_models_conductor.f90}、\src{docs/SurfaceChargeNumerics.md} \\
+外部シース & \src{src/physics/sheath/zhao/bem_sheath_model_core.f90}、\src{docs/MatchingPlaneReference.md} \\
+検証 & \src{docs/ValidationGuide.md}、\src{docs/PhysicsReleaseVerification.md} \\
+\bottomrule
+\end{longtable}
+
+\section{文献が支える範囲}
+\begin{longtable}{>{\raggedright\arraybackslash}p{33mm}>{\raggedright\arraybackslash}p{105mm}}
+\toprule
+文献 & 本書で用いる範囲 \\
+\midrule
+\endhead
+Whipple (1981) & 表面電位、電流収支、差動帯電の研究背景 \\
+Stubbs ら (2006) & 静電的なダスト輸送を考える研究動機。BEACH による飛翔予測の根拠とはしない \\
+Horányi ら (2015) & 月ダスト観測に衝突放出の機構があること \\
+Zimmerman ら (2016) & 粒子スケール電荷差と境界帰還の背景。材料伝導の実装を意味しない \\
+Zhao ら (2020) & 平面光電子シースの Type A/B/C と kinetic 比較の背景 \\
+Sana--Mishra (2023) & 単調・非単調構造と候補のエネルギー比較の背景 \\
+Graglia (1993) & 三角形上の Green 関数積分の先行研究。公開 source が P1 であるとはしない \\
+Barnes--Hut (1986) & source tree による遠方群の近似 \\
+Greengard--Rokhlin (1987) & 多重極・局所展開による高速化の理論的系譜 \\
+Lindbo--Tornberg (2012) & 2 軸周期 Ewald の分離。BEACH の FFT 実装を意味しない \\
+Qin ら (2013) & Boris 法の性質。BEACH 全系の symplectic 性や保存性を主張しない \\
+Möller--Trumbore (1997) & ray と三角形の交点を求める方法 \\
+\bottomrule
+\end{longtable}
+
+DOI、著者、題名、出版年、掲載誌は DOI 登録情報と出版社・研究機関の公開ページで照合した。
+内容の確認には公開本文、著者版、abstract を用い、本文未取得の文献について詳細な式の一致を主張しない。
+同名の conference 版と journal 版を混同しない。
+特に Zhao 文献は DOI \code{10.2514/6.2020-1548} の 2020 年 AIAA 版を引用し、
+repository への後年の登録日を出版年として使わない。
+\src{references.bib} に DOI と到達先 URL を保存している。
+
+\section{現行仕様と説明文書の優先順位}
+モデルの記述を修正するときは、該当する Fortran 実装と現行 \src{SPEC.md} を確認する。
+plugin の同梱説明や古い agent guidance には、絶縁体のみを想定した時点の記述が残る場合がある。
+実装済み拡張の存在、公開入力から選べる範囲、独立に検証された範囲を別々に記述する。
+本書の数式に示した一般的な見方と、公開設定で受理される組合せが異なる場合は、後者を操作の正本とする。
