@@ -48,24 +48,15 @@ PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'periodic2.panel_quadrature_order': 'fields.periodic.reference.panel_quadrature_order',
  'periodic2.max_nonzero_mode_potential_step': 'run.batch.adaptive.max_nonzero_mode_potential_step_v',
  'surface_current_model.model': 'sheath.closure',
- 'surface_current_model.response_backend': 'sheath.response',
  'surface_current_model.zhao_branch': 'sheath.zhao.branch',
- 'surface_current_model.zhao_root_selection': 'sheath.zhao.root_selection',
  'surface_current_model.electron_species': 'sheath.species.electron',
  'surface_current_model.ion_species': 'sheath.species.ion',
  'surface_current_model.photoelectron_species': 'sheath.species.photoelectron',
- 'surface_current_model.solar_elevation_deg': 'sheath.stationary.solar_elevation_deg',
- 'surface_current_model.photoelectron_ref_density_m3': 'sheath.stationary.photoelectron_ref_density_m3',
- 'surface_current_model.photoelectron_source_scale': 'sheath.stationary.photoelectron_source_scale',
- 'surface_current_model.reference_area_m2': 'sheath.stationary.reference_area_m2',
- 'surface_current_model.outflow_refresh_batches': 'sheath.stationary.outflow_refresh_batches',
- 'surface_current_model.response_table_path': 'sheath.table.path',
- 'surface_current_model.implicit_zero_mode': 'sheath.coupling.mean_field_update',
- 'surface_current_model.coupling_rtol': 'sheath.coupling.rtol',
- 'surface_current_model.coupling_max_iterations': 'sheath.coupling.max_iterations',
- 'surface_current_model.coupling_relaxation': 'sheath.coupling.relaxation',
- 'surface_current_model.photoelectron_closure': 'sheath.photoelectrons.closure',
- 'surface_current_model.photoelectron_spectrum_bins_per_decade': 'sheath.photoelectrons.spectrum_bins_per_decade',
+ 'surface_current_model.solar_elevation_deg': 'sheath.photoelectrons.solar_elevation_deg',
+ 'surface_current_model.photoelectron_ref_density_m3': 'sheath.photoelectrons.ref_density_m3',
+ 'surface_current_model.photoelectron_source_scale': 'sheath.photoelectrons.source_scale',
+ 'surface_current_model.reference_area_m2': 'sheath.reference_area_m2',
+ 'surface_current_model.outflow_refresh_batches': 'sheath.coupling.outflow_refresh_batches',
  'output.write_files': 'output.enabled',
  'output.dir': 'output.dir',
  'output.write_mesh_potential': 'output.final.mesh_potential',
@@ -128,18 +119,11 @@ SPECIES_PATHS = {'species_key': 'species_key',
  'boundary': 'boundary',
  'boundary_inflow': 'inflow'}
 
-ATOL_COMPONENTS = (
-    "photoelectron_outward_flux_m2_s", "photoelectron_mean_normal_energy_ev",
-    "electron_outward_flux_m2_s", "ion_outward_flux_m2_s",
-)
 TOP_LEVEL_ORDER = ("run", "domain", "mesh", "particles", "fields", "sheath", "output")
 PRESERVED = {"domain": "domain", "mesh.mode": "mesh.mode",
              "mesh.groups": "mesh.groups", "mesh.templates": "mesh.templates"}
 CHOICES = {
-    "sheath.closure": {"none": "none", "zero_current": "zhao_stationary",
-                       "matching_plane": "matching_plane_quasistatic"},
-    "sheath.response": {"zhao": "zhao_online", "table": "table"},
-    "sheath.coupling.mean_field_update": {"backward_euler": True, "explicit": False},
+    "sheath.closure": {"none": "none", "zero_current": "zhao_stationary"},
 }
 
 
@@ -187,7 +171,7 @@ def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
     reverse = {new: old for old, new in PATHS.items()}
     reverse.update(PRESERVED)
     result = {}
-    preserved = {*PRESERVED, "particles.species", "run.restart", "sheath.coupling.atol"}
+    preserved = {*PRESERVED, "particles.species", "run.restart"}
     for path, value in _leaves(config, preserved=preserved):
         if path == "particles.species":
             species = []
@@ -210,11 +194,6 @@ def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
                 if key != "from":
                     raise ConfigValidationError(f"unknown run.restart key: {key}")
                 _put(result, "output.restart_from", val)
-        elif path == "sheath.coupling.atol":
-            if set(value) - set(ATOL_COMPONENTS):
-                raise ConfigValidationError("unknown sheath.coupling.atol component")
-            _put(result, "surface_current_model.coupling_atol",
-                 [value.get(name, 0.0) for name in ATOL_COMPONENTS])
         elif path == "fields.periodic.backend":
             if value not in {"cached_kneq0", "panel_spectral_reference", "finite_images"}:
                 raise ConfigValidationError("invalid fields.periodic.backend")
@@ -236,9 +215,6 @@ def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
     if periodic.get("backend", "finite_images") == "finite_images" and (
             "lower_boundary_model" in periodic or "reference" in periodic):
         raise ConfigValidationError("split periodic settings require an explicit split backend")
-    sheath = config.get("sheath", {})
-    if sheath.get("closure") == "zero_current" and sheath.get("response", "zhao") != "zhao":
-        raise ConfigValidationError("zero_current requires sheath.response=zhao")
     # An empty source table has semantics, even though it has no leaves.
     for item in config.get("particles", {}).get("species", []):
         if "source" in item and "mode" not in item["source"]:
@@ -286,10 +262,6 @@ def to_grouped_layout(config: Mapping[str, Any]) -> dict[str, Any]:
             # An inactive legacy path must not turn a fresh run into a resume.
             if value:
                 raise ConfigValidationError("set output.resume=true before migrating restart_from")
-        elif path == "surface_current_model.coupling_atol":
-            if len(value) != len(ATOL_COMPONENTS):
-                raise ConfigValidationError("coupling_atol requires four components")
-            _put(result, "sheath.coupling.atol", dict(zip(ATOL_COMPONENTS, value)))
         elif path == "sim.field_periodic_far_correction":
             continue  # Select the effective typed backend below.
         elif path in paths:

@@ -136,11 +136,10 @@ $$
 誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
 物理defaultではありません。
 
-`matching_plane_quasistatic`では、同じlower closureと全表面電荷から整合面直下の
-$D_H=\epsilon_0E_\mathrm{bottom}+Q/A$を外部応答へ渡します。応答が返した$(H,\Phi_H)$をzero-modeのgauge点に
-するため、場とGauss則を変えずにinner potentialを外部シースへ連続させます。外部のfield profileをBEACH領域へ
-追加する処理ではありません。構成と高さ依存性の検証は
-[matching-plane準定常連成](MatchingPlaneCoupling.html)にまとめています。
+`surface_current_model.model="zhao_stationary"`では、外部シース根の壁電位$\phi_0$をz-high面$(H,\phi_0)$の
+zero-mode gauge点にします。真空中の定数電位なので場とGauss則は変わらず、inner potentialが上流プラズマ0 V基準になります。
+外部のfield profileをBEACH領域へ追加する処理ではありません。総電荷は零電流targetが浮遊条件へ拘束します。詳細は
+[Zhao closure](ZhaoStationaryClosure.html)にまとめています。
 
 ### 外部シースの平均場だけで置き換えられるか
 
@@ -150,7 +149,7 @@ $dE_0/dz=\bar\rho_\mathrm{surface}/\epsilon_0$ を満たさなくなります。
 
 外部定常解を背景として使う場合も、シースの空間電荷と粒子層の表面電荷を区別して足し、境界の電束と電位を
 整合させる必要があります。同じ表面電荷を外部解と BEM の両方で数えてはいけません。
-現行の matching-plane は、粒子層内の平均場を表面電荷から求め、整合面より外側の応答から電位と障壁を受け取ります。
+現行の Zhao closure は、粒子層内の平均場を表面電荷から求め、外部シースの零電流根から電位基準と障壁を受け取ります。
 この分離自体は、batch 内で固定する局所場の時間刻み制限をなくしません。
 [batch 幅の検証](BatchDurationStability.html)も必要です。
 

@@ -53,7 +53,11 @@ contains
 
     self%active = trim(lower_ascii(app%surface_current%model)) == 'zhao_stationary' .and. &
                   app%surface_current%outflow_refresh_batches > 0_i32
-    if (.not. self%active) return
+    if (.not. self%active) then
+      ! 外部根を更新しない run は、checkpoint に残る外部状態を引き継がない。
+      stats%matching_plane_state_valid = .false.
+      return
+    end if
     self%refresh_batches = app%surface_current%outflow_refresh_batches
     self%area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
     if (app%surface_current%has_reference_area_m2) self%area = app%surface_current%reference_area_m2

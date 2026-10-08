@@ -52,11 +52,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_physics_config_types \
 	test_charge_ledger \
 	test_surface_current_model \
-	test_matching_plane_response \
-	test_matching_plane_zhao \
-	test_matching_plane_response_generator \
-	test_matching_plane_zhao_atlas \
-	test_matching_plane_simulator \
 	test_zhao_outflow_refresh \
 	test_panel_moments \
 	test_panel_kernel \

@@ -173,11 +173,6 @@
               },
               {
                 "required": [
-                  "zhao_root_selection"
-                ]
-              },
-              {
-                "required": [
                   "electron_species"
                 ]
               },
@@ -213,41 +208,6 @@
               },
               {
                 "required": [
-                  "response_backend"
-                ]
-              },
-              {
-                "required": [
-                  "response_table_path"
-                ]
-              },
-              {
-                "required": [
-                  "implicit_zero_mode"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_rtol"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_atol"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_max_iterations"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_relaxation"
-                ]
-              },
-              {
-                "required": [
                   "outflow_refresh_batches"
                 ]
               }
@@ -264,50 +224,6 @@
             "electron_species",
             "ion_species"
           ],
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "response_backend"
-                ]
-              },
-              {
-                "required": [
-                  "response_table_path"
-                ]
-              },
-              {
-                "required": [
-                  "zhao_root_selection"
-                ]
-              },
-              {
-                "required": [
-                  "implicit_zero_mode"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_rtol"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_atol"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_max_iterations"
-                ]
-              },
-              {
-                "required": [
-                  "coupling_relaxation"
-                ]
-              }
-            ]
-          },
           "oneOf": [
             {
               "required": [
@@ -357,140 +273,14 @@
               }
             }
           ]
-        },
-        {
-          "properties": {
-            "model": {
-              "const": "matching_plane_quasistatic"
-            }
-          },
-          "required": [
-            "electron_species",
-            "ion_species"
-          ],
-          "not": {
-            "anyOf": [
-              {
-                "required": [
-                  "solar_elevation_deg"
-                ]
-              },
-              {
-                "required": [
-                  "photoelectron_ref_density_m3"
-                ]
-              },
-              {
-                "required": [
-                  "photoelectron_source_scale"
-                ]
-              },
-              {
-                "required": [
-                  "reference_area_m2"
-                ]
-              },
-              {
-                "required": [
-                  "outflow_refresh_batches"
-                ]
-              }
-            ]
-          },
-          "oneOf": [
-            {
-              "properties": {
-                "response_backend": {
-                  "const": "table"
-                }
-              },
-              "required": [
-                "response_table_path"
-              ],
-              "not": {
-                "anyOf": [
-                  {
-                    "required": [
-                      "zhao_branch"
-                    ]
-                  },
-                  {
-                    "required": [
-                      "zhao_root_selection"
-                    ]
-                  }
-                ]
-              }
-            },
-            {
-              "properties": {
-                "response_backend": {
-                  "const": "zhao_online"
-                }
-              },
-              "required": [
-                "response_backend"
-              ],
-              "not": {
-                "required": [
-                  "response_table_path"
-                ]
-              }
-            }
-          ]
-        }
-      ],
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "zhao_root_selection": {
-                "const": "continuation"
-              }
-            },
-            "required": [
-              "zhao_root_selection"
-            ]
-          },
-          "then": {
-            "properties": {
-              "model": {
-                "const": "matching_plane_quasistatic"
-              },
-              "response_backend": {
-                "const": "zhao_online"
-              },
-              "zhao_branch": {
-                "const": "a"
-              },
-              "implicit_zero_mode": {
-                "const": true
-              }
-            },
-            "required": [
-              "model",
-              "response_backend",
-              "zhao_branch",
-              "implicit_zero_mode"
-            ]
-          }
         }
       ],
       "properties": {
         "model": {
           "enum": [
             "none",
-            "zhao_stationary",
-            "matching_plane_quasistatic"
+            "zhao_stationary"
           ]
-        },
-        "response_backend": {
-          "enum": [
-            "table",
-            "zhao_online"
-          ],
-          "default": "table",
-          "description": "Matching-plane response source: a precomputed CSV table or the built-in online Zhao closure."
         },
         "zhao_branch": {
           "enum": [
@@ -500,15 +290,6 @@
             "c"
           ],
           "default": "auto"
-        },
-        "zhao_root_selection": {
-          "enum": [
-            "require_unique",
-            "minimum_energy",
-            "continuation"
-          ],
-          "default": "require_unique",
-          "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted Type-A endpoint in implicit mode."
         },
         "electron_species": {
           "type": "string",
@@ -551,51 +332,6 @@
           "minimum": 0,
           "default": 0,
           "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
-        },
-        "response_table_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "pattern": "\\S",
-          "description": "Outer-sheath response table. Relative paths are resolved from the beach.toml directory."
-        },
-        "implicit_zero_mode": {
-          "type": "boolean",
-          "default": false,
-          "description": "Use a backward-Euler update for the matching-plane mean displacement. A table supplies fixed bounds and singleton feedback axes; Zhao online searches the selected branch without a CSV."
-        },
-        "coupling_rtol": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1,
-          "default": 0.0001
-        },
-        "coupling_atol": {
-          "description": "Absolute tolerances for [photoelectron outward flux (m^-2 s^-1), photoelectron mean normal energy (eV), electron outward flux (m^-2 s^-1), ion outward flux (m^-2 s^-1)].",
-          "type": "array",
-          "items": {
-            "type": "number",
-            "minimum": 0
-          },
-          "minItems": 4,
-          "maxItems": 4,
-          "default": [
-            0,
-            0,
-            0,
-            0
-          ]
-        },
-        "coupling_max_iterations": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 20
-        },
-        "coupling_relaxation": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "maximum": 1,
-          "default": 0.5
         }
       }
     },
@@ -3251,123 +2987,6 @@
               }
             ]
           }
-        },
-        {
-          "if": {
-            "properties": {
-              "surface_current_model": {
-                "properties": {
-                  "model": {
-                    "const": "matching_plane_quasistatic"
-                  }
-                },
-                "required": [
-                  "model"
-                ]
-              }
-            },
-            "required": [
-              "surface_current_model"
-            ]
-          },
-          "then": {
-            "required": [
-              "sim",
-              "domain",
-              "field_boundary",
-              "periodic2"
-            ],
-            "properties": {
-              "sim": {
-                "properties": {
-                  "e0": {
-                    "items": {
-                      "const": 0
-                    }
-                  },
-                  "e0_abs": {
-                    "const": 0
-                  },
-                  "b0": {
-                    "items": {
-                      "const": 0
-                    }
-                  }
-                }
-              },
-              "domain": {
-                "properties": {
-                  "periodic_axes": {
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "allOf": [
-                      {
-                        "contains": {
-                          "const": "x"
-                        }
-                      },
-                      {
-                        "contains": {
-                          "const": "y"
-                        }
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "periodic_axes"
-                ]
-              },
-              "field_boundary": {
-                "properties": {
-                  "mode": {
-                    "const": "periodic2"
-                  }
-                },
-                "required": [
-                  "mode"
-                ]
-              },
-              "particle_boundary": {
-                "properties": {
-                  "ordinary_open_model": {
-                    "const": "escape"
-                  }
-                }
-              },
-              "periodic2": {
-                "properties": {
-                  "nonzero_mode_backend": {
-                    "enum": [
-                      "cached_kneq0",
-                      "panel_spectral_reference"
-                    ]
-                  },
-                  "zero_mode_policy": {
-                    "const": "exclude_k0"
-                  },
-                  "lower_boundary_model": {
-                    "enum": [
-                      "e_bottom_zero",
-                      "symmetric_vacuum"
-                    ]
-                  }
-                },
-                "required": [
-                  "nonzero_mode_backend",
-                  "zero_mode_policy",
-                  "lower_boundary_model"
-                ]
-              },
-              "reservoir": {
-                "properties": {
-                  "inflow_model": {
-                    "const": "source_vdf"
-                  }
-                }
-              }
-            }
-          }
         }
       ]
     },
@@ -3842,15 +3461,7 @@
               "type": "string",
               "enum": [
                 "none",
-                "zero_current",
-                "matching_plane"
-              ]
-            },
-            "response": {
-              "type": "string",
-              "enum": [
-                "zhao",
-                "table"
+                "zero_current"
               ]
             },
             "zhao": {
@@ -3865,15 +3476,6 @@
                     "c"
                   ],
                   "default": "auto"
-                },
-                "root_selection": {
-                  "enum": [
-                    "require_unique",
-                    "minimum_energy",
-                    "continuation"
-                  ],
-                  "default": "require_unique",
-                  "description": "Online Zhao root policy: reject multiplicity, select the lowest-energy candidate, or continue the accepted Type-A endpoint in implicit mode."
                 }
               }
             },
@@ -3900,7 +3502,7 @@
                 }
               }
             },
-            "stationary": {
+            "photoelectrons": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -3909,20 +3511,26 @@
                   "exclusiveMinimum": 0,
                   "maximum": 90
                 },
-                "photoelectron_ref_density_m3": {
+                "ref_density_m3": {
                   "type": "number",
                   "exclusiveMinimum": 0
                 },
-                "photoelectron_source_scale": {
+                "source_scale": {
                   "type": "number",
                   "minimum": 0,
                   "default": 1
-                },
-                "reference_area_m2": {
-                  "type": "number",
-                  "exclusiveMinimum": 0,
-                  "description": "Zhao effective z-normal collection area [m^2]. Defaults to the domain x-y area."
-                },
+                }
+              }
+            },
+            "reference_area_m2": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Zhao effective z-normal collection area [m^2]. Defaults to the domain x-y area."
+            },
+            "coupling": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
                 "outflow_refresh_batches": {
                   "type": "integer",
                   "minimum": 0,
@@ -3930,99 +3538,9 @@
                   "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
                 }
               }
-            },
-            "table": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 256,
-                  "pattern": "\\S",
-                  "description": "Outer-sheath response table. Relative paths are resolved from the beach.toml directory."
-                }
-              }
-            },
-            "coupling": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "mean_field_update": {
-                  "type": "string",
-                  "enum": [
-                    "backward_euler",
-                    "explicit"
-                  ]
-                },
-                "rtol": {
-                  "type": "number",
-                  "exclusiveMinimum": 0,
-                  "maximum": 1,
-                  "default": 0.0001
-                },
-                "max_iterations": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "default": 20
-                },
-                "relaxation": {
-                  "type": "number",
-                  "exclusiveMinimum": 0,
-                  "maximum": 1,
-                  "default": 0.5
-                },
-                "atol": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "photoelectron_outward_flux_m2_s": {
-                      "type": "number",
-                      "minimum": 0,
-                      "default": 0
-                    },
-                    "photoelectron_mean_normal_energy_ev": {
-                      "type": "number",
-                      "minimum": 0,
-                      "default": 0
-                    },
-                    "electron_outward_flux_m2_s": {
-                      "type": "number",
-                      "minimum": 0,
-                      "default": 0
-                    },
-                    "ion_outward_flux_m2_s": {
-                      "type": "number",
-                      "minimum": 0,
-                      "default": 0
-                    }
-                  }
-                }
-              }
             }
           },
-          "allOf": [
-            {
-              "if": {
-                "required": [
-                  "closure"
-                ],
-                "properties": {
-                  "closure": {
-                    "const": "zero_current"
-                  }
-                }
-              },
-              "then": {
-                "properties": {
-                  "response": {
-                    "const": "zhao"
-                  }
-                }
-              }
-            }
-          ],
-          "description": "External sheath closure, branch selection, response and coupling."
+          "description": "External sheath zero-current closure, roles, photoelectron source and outer-root refresh."
         },
         "mesh": {
           "type": "object",

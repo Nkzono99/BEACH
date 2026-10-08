@@ -38,7 +38,6 @@ jobs:
           "$smoke_dir/bin/python" -m pip install "$GITHUB_WORKSPACE"/build/wheelhouse/*.whl
           cd "$RUNNER_TEMP"
           "$smoke_dir/bin/beach" --version
-          "$smoke_dir/bin/beach-zhao-response" --help
           "$smoke_dir/bin/beachx" --help
 
       - name: Upload sdist artifact

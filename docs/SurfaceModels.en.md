@@ -62,8 +62,8 @@ real material.
 redistributes charge so element-centroid potentials are equal while preserving the object's total charge. It is not a
 grounded, fixed-potential boundary.
 
-The current implementation accepts only a free-space field and cannot be combined with periodic fields or an outer
-matching-plane response. For research use, verify convergence of object potential and surface-charge distribution under
+The current implementation accepts only a free-space field and cannot be combined with periodic fields or an outer-sheath
+closure. For research use, verify convergence of object potential and surface-charge distribution under
 mesh refinement.
 
 The linear system, P0-panel influence, parallel reduction, and conserved quantities are separated into

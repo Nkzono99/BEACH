@@ -124,7 +124,7 @@ Paths such as `sim.dt` and `domain.periodic_axes` mean “table name.key” in t
 | `[field_boundary]` | root | optional | `free` / `periodic2` field closure |
 | `[particle_boundary]` | root | optional | Global particle actions on nonperiodic faces |
 | `[reservoir]` | root | optional | External-reservoir inflow barrier and reference potential |
-| `[surface_current_model]` | root | optional | External sheath closure resolving per-species `fixed_current` targets or a matching-plane response |
+| `[surface_current_model]` | root | optional | External sheath closure deriving per-species `fixed_current` targets and barriers from a zero-current root |
 | `[particles]` | root | required | Container for `[[particles.species]]`; do not put ordinary keys directly under it |
 | `[[particles.species]]` | `[particles]` | one or more | Species, injection mode, velocity distribution, macro-particle weight |
 | `[particles.species.boundary]` | latest `[[particles.species]]` | optional | Nonperiodic-face overrides for that species |
@@ -346,38 +346,27 @@ closure.
 | `model` | Effect | Details |
 |---|---|---|
 | `none` | Do not use an external-sheath closure | Configure species `surface_charge_closure` |
-| `zhao_stationary` | Resolve fixed currents and the z-high energy barrier from a Zhao stationary root | [Zhao Stationary Closure](ZhaoStationaryClosure.en.html) |
-| `matching_plane_quasistatic` | Couple the box top quasistatically to an outer-sheath response | [Use Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) |
+| `zhao_stationary` | Resolve species currents and the z-high energy barrier from the Zhao zero-current root of an outer 1-D sheath | [Zhao Closure](ZhaoStationaryClosure.en.html) |
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
-| `response_backend` | string | `"table"` | Matching response source: `table` / `zhao_online` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; branch for stationary or online Zhao; no-PE stationary accepts only `auto` / `c` |
-| `zhao_root_selection` | string | `"require_unique"` | Online-Zhao root policy. `require_unique` rejects multiplicity; `minimum_energy` selects the lowest-potential-energy root; `continuation` tracks the accepted Type-A root. `continuation` requires `zhao_branch="a"` and `implicit_zero_mode=true`. Forbidden for stationary Zhao and tables. See the [numerical and response-table reference](MatchingPlaneReference.en.html#zhao_root_selection) |
-| `electron_species` | string | unspecified | Ambient-electron `species_key`; required for Zhao / matching; 1–64 characters |
-| `ion_species` | string | unspecified | Cold-ion `species_key`; required for Zhao / matching; 1–64 characters |
-| `photoelectron_species` | string | required when PE is enabled | PE `species_key`; 1–64 characters; omission disables PE in matching |
-| `solar_elevation_deg` | float | required with stationary PE | Solar elevation $\alpha$ used by the Zhao source; $0<\alpha\le90$ degrees |
-| `photoelectron_ref_density_m3` | float | required with stationary PE | Reference PE density $n_{pe,ref}$ [m^-3]. `>0` |
-| `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$. `>=0`; `0` disables PE |
-| `reference_area_m2` | float | domain x-y area | Area converting Zhao current densities to total currents [m^2]. `>0`; forbidden for matching |
-| `outflow_refresh_batches` | int | `0` | Re-solve the stationary Zhao outer root every N accepted batches from the PE outflow observed at z-high. `>=0`; 0 keeps the initial root; forbidden for matching |
-| `response_table_path` | string | required for table matching | Outer-sheath response CSV v1. Resolved length 1–256 characters; forbidden online |
-| `implicit_zero_mode` | bool | `false` | Apply backward Euler to the matching-plane mean $D_H$; requires `e_bottom_zero`. A table uses a finite $D_H$ axis and singleton feedback; online Zhao searches the selected branch without a CSV |
-| `coupling_rtol` | float | `1.0e-4` | Relative matching fixed-point tolerance; finite $0<r\le1$ |
-| `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | Per-feedback-component absolute tolerances, ordered as outward PE flux [m^-2 s^-1], PE mean normal energy [eV], outward electron flux [m^-2 s^-1], and outward ion flux [m^-2 s^-1]; values must be finite and nonnegative, with zero on inactive components |
-| `coupling_max_iterations` | int | `20` | Maximum matching fixed-point iterations; `>=1` |
-| `coupling_relaxation` | float | `0.5` | Matching update relaxation; finite $0<\omega\le1$ |
-
-#### Zhao stationary closure
+| `model` | string | `"none"` | `none` / `zhao_stationary` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; without PE only `auto` / `c` |
+| `electron_species` | string | unset | Ambient-electron `species_key`; required, 1–64 characters |
+| `ion_species` | string | unset | Cold-ion `species_key`; required, 1–64 characters |
+| `photoelectron_species` | string | required with PE | PE `species_key`; 1–64 characters |
+| `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ for the surface emission; $0<\alpha\le90$ degree |
+| `photoelectron_ref_density_m3` | float | required with PE | PE reference density $n_{pe,ref}$ [m^-3]; `>0` |
+| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$; `>=0`, and 0 disables PE |
+| `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2]; `>0` |
+| `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE outflow observed at z-high; `>=0`, and 0 keeps the initial root |
 
 Input constraints:
 
 | Item | Required condition |
 |---|---|
 | Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
-| Ambient electron / ion | Enter inward from the z-high reservoir; no manual `target_*_current_a` |
+| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 (0 means no drift) and the ion component is negative; no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |
@@ -385,50 +374,19 @@ Input constraints:
 | Outer-root refresh | `outflow_refresh_batches>0` requires PE, `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table |
 
 Without PE, Type C produces only electron/ion absorption targets satisfying $J_e+J_i=0$ and the z-high kinetic-barrier
-map; it produces no PE emission, return, or escape target.
-`ion_species.number_density_*` is the ion density at infinity. Electron density and PE emission-current density are
-sampling inputs; the closure determines current targets.
+map; it produces no PE emission, return, or escape target. Without PE there is no PE outflow at H, so the outer-root
+refresh is unavailable. `ion_species.number_density_*` is the ion density at infinity. Electron density and PE
+emission-current density are sampling inputs; the closure determines current targets.
 
-This is a stationary-current closure, not a transient outer-sheath solve. With a split `[periodic2]` table, the z-high
-plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y periodic axes, particles returned by the outer
-barrier re-enter at a cell-uniform position. `outflow_refresh_batches>0` is a weak coupling that quasi-statically re-solves
-the outer root from the observed PE outflow. See [Zhao Stationary Closure](ZhaoStationaryClosure.en.html) for current,
-barrier, PE-return, refresh, and output definitions.
+With a split `[periodic2]` table, the z-high plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y
+periodic axes, particles returned by the outer barrier re-enter at a cell-uniform position. `outflow_refresh_batches>0`
+is a weak coupling that quasi-statically re-solves the outer root from the observed PE outflow. BEACH does not solve a
+transient outer sheath. See the [Zhao Closure](ZhaoStationaryClosure.en.html) for current, barrier, PE-return, refresh,
+and output definitions. With `model="none"`, specify no key other than `model`. The removed `[outer_plasma]` /
+`[coupling]` tables and matching-plane coupling are unsupported.
 
 The complete case is `examples/periodic2_zhao_fixed_current.toml`; the outer-root refresh case is
 `examples/periodic2_zhao_outflow_refresh.toml`.
-
-#### Matching-plane quasistatic closure
-
-`response_backend="table"` uses an external response CSV; `"zhao_online"` uses the finite-$H$ Zhao response implemented
-in BEACH. Without PE, omit `photoelectron_species`; table PE-flux and PE-energy input axes must also be zero. The matching
-plane coordinate $H$ is the z component of `domain.box_max`, its area is the domain x-y area, and every mesh vertex must lie below $H$.
-
-All rows below are required:
-
-| Item | Required condition |
-|---|---|
-| Box / field | x/y periodic, z nonperiodic and open; `field_boundary.mode="periodic2"`; explicit `[periodic2]` split |
-| Split | `nonzero_mode_backend` is `cached_kneq0` or `panel_spectral_reference`; `zero_mode_policy="exclude_k0"`; lower boundary is `e_bottom_zero` or `symmetric_vacuum` |
-| External field / open face | `sim.e0=sim.b0=[0,0,0]`; `ordinary_open_model="escape"`; no generic reservoir-potential model |
-| Event policy | `abort`, or `soft_discard` with a fraction limit, count grace, and absolute-charge warning threshold |
-| Roles | Only distinct, enabled electron / ion / optional PE roles; each uses `surface_charge_closure="explicit"` |
-| Electron / ion source | Negative / positive charge; only z-high `boundary_inflow="reservoir"`. `source_mode` and `npcls_per_step` resolve to `volume_seed` and `0`; both keys may be omitted |
-| PE source | Negative `photo_raycast`; `inject_face="z_high"`; `deposit_opposite_charge_on_emit=true` |
-| Particle boundaries | `periodic` x/y and `open` z-low/z-high for every role |
-| Current targets | No manual `fixed_current` target |
-
-| Backend | Required, forbidden, and species constraints |
-|---|---|
-| `table` | Requires `response_table_path`; forbids `zhao_branch` and `zhao_root_selection` |
-| `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` and `zhao_root_selection` `require_unique` / `minimum_energy` / `continuation`. `continuation` is restricted to explicit Type A with `implicit_zero_mode=true`. Implicit mode searches the selected branch without a response/query CSV |
-| `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; negative z component of electron / ion `drift_velocity`; with PE, equal electron/PE masses and $T_{pe}>0$ |
-| All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, `photoelectron_source_scale`, and `outflow_refresh_batches` |
-
-With `model="none"`, do not specify another key. Removed `[outer_plasma]` and `[coupling]` tables remain invalid.
-See [Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for model selection, physical meaning, and
-applicability limits. The [matching-plane numerical and response-table reference](MatchingPlaneReference.en.html)
-defines the CSV, implicit update, and fixed-point contracts.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
@@ -874,7 +832,7 @@ Use `outward_closed` only for consistently oriented, closed two-manifold compone
 | `restart_from` | string | none | Checkpoint source when `resume=true`; requires `write_files=true` |
 
 See [Output Format Reference](OutputReference.en.html) for file-generation conditions, columns, potential conventions,
-matching-plane state, and ledger interpretation.
+outer-sheath state, and ledger interpretation.
 
 Requirements for `resume=true`:
 

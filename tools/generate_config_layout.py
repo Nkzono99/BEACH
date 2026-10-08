@@ -13,7 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from beach.config._layout import ATOL_COMPONENTS, CHOICES, PATHS, PRESERVED, SPECIES_PATHS
+from beach.config._layout import CHOICES, PATHS, PRESERVED, SPECIES_PATHS
 
 
 def object_rule():
@@ -65,8 +65,6 @@ def generate_schema(schema):
     insert(grouped,'run.restart', {'type':'object','additionalProperties':False,
         'properties':{'from':lookup(legacy,'output.restart_from',schema)},
         'description':'Presence resumes from a checkpoint. Omit from to search output.dir.'})
-    insert(grouped,'sheath.coupling.atol', {**object_rule(), 'properties':{
-        name:{'type':'number','minimum':0,'default':0} for name in ATOL_COMPONENTS}})
     species = object_rule()
     for old,new in SPECIES_PATHS.items():
         insert(species,new,schema['$defs']['species']['properties'][old])
@@ -74,9 +72,6 @@ def generate_schema(schema):
     species['allOf'] = [{'if': {'not': {'required': ['source']}},
         'then': {'properties': {'sampling': {'properties': {
             'volume_macro_particles_per_batch': {'const': 0}}}}}}]
-    grouped['properties']['sheath']['allOf'] = [
-        {'if': {'required': ['closure'], 'properties': {'closure': {'const': 'zero_current'}}},
-         'then': {'properties': {'response': {'const': 'zhao'}}}}]
     insert(grouped,'particles.species', {**copy.deepcopy(schema['$defs']['particles']['properties']['species']),
         'items':{'$ref':'#/$defs/groupedSpecies'}})
     # The same mutual exclusions apply before and after authoring normalization.
@@ -95,7 +90,7 @@ def generate_schema(schema):
         'mesh':'Surface geometry, OBJ input, groups, and templates.',
         'particles':'Boundary actions, reservoir, tracking, species and sampling.',
         'fields':'Field boundary, imposed fields, solver and periodic backend.',
-        'sheath':'External sheath closure, branch selection, response and coupling.',
+        'sheath':'External sheath zero-current closure, roles, photoelectron source and outer-root refresh.',
         'output':'Files, history, checkpoints and diagnostics.'}
     for key,description in descriptions.items():
         grouped['properties'][key]['description']=description
@@ -111,7 +106,7 @@ def fortran_paths():
     paths.update({f'particles.species.{new}':f'particles.species.{old}'
                   for old,new in SPECIES_PATHS.items()})
     preserved={'domain','mesh.groups','mesh.templates','particles.species.boundary','particles.species.inflow'}
-    containers={'', 'run.restart','sheath.coupling.atol','particles.species'}
+    containers={'', 'run.restart','particles.species'}
     for path in paths:
         parts=path.split('.')
         containers.update('.'.join(parts[:i]) for i in range(1,len(parts)))

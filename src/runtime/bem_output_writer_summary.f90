@@ -162,108 +162,62 @@ contains
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
   if (current_model%active) then
     write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
-    if (trim(current_model%model) == 'matching_plane_quasistatic') then
-      write (u, '(a,a)') 'surface_current_model_response_backend=', &
-        trim(lower_ascii(cfg%surface_current%response_backend))
-      write (u, '(a,l1)') 'surface_current_model_implicit_zero_mode=', &
-        cfg%surface_current%implicit_zero_mode
-      select case (trim(lower_ascii(cfg%surface_current%response_backend)))
-      case ('table')
-        write (u, '(a,a)') 'surface_current_model_response_table_path=', &
-          trim(cfg%surface_current%response_table_path)
-      case ('zhao_online')
-        write (u, '(a)') 'surface_current_model_response_contract=matching_plane_zhao_online_v1'
-        write (u, '(a,a)') 'surface_current_model_zhao_branch=', &
-          trim(lower_ascii(cfg%surface_current%zhao_branch))
-        write (u, '(a,a)') 'surface_current_model_zhao_root_selection=', &
-          trim(lower_ascii(cfg%surface_current%zhao_root_selection))
-        write (u, '(a)') &
-          'surface_current_model_outer_solver=charge_driven_finite_h_sagdeev'
-        write (u, '(a)') &
-          'surface_current_model_photoelectron_closure=moment_matched_half_maxwellian'
-        write (u, '(a)') &
-          'surface_current_model_ambient_outward_feedback=transparent'
-        if (trim(lower_ascii(cfg%surface_current%zhao_root_selection)) == 'continuation') then
-          write (u, '(a)') &
-            'surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2'
-        else
-          write (u, '(a)') 'surface_current_model_outer_solver_state=stateless'
-        end if
-      case default
-        error stop 'write_summary_file: unknown matching-plane response backend.'
-      end select
-      write (u, '(a,es24.16)') 'surface_current_model_matching_plane_z_m=', cfg%sim%box_max(3)
-      write (u, '(a,a)') 'surface_current_model_electron_species=', &
-        trim(cfg%surface_current%electron_species)
-      write (u, '(a,a)') 'surface_current_model_ion_species=', trim(cfg%surface_current%ion_species)
-      write (u, '(a,a)') 'surface_current_model_photoelectron_species=', &
-        trim(cfg%surface_current%photoelectron_species)
-      write (u, '(a,es24.16)') 'surface_current_model_coupling_rtol=', cfg%surface_current%coupling_rtol
-      write (u, '(a,4(1x,es24.16))') 'surface_current_model_coupling_atol=', &
-        cfg%surface_current%coupling_atol
-      write (u, '(a,i0)') 'surface_current_model_coupling_max_iterations=', &
-        cfg%surface_current%coupling_max_iterations
-      write (u, '(a,es24.16)') 'surface_current_model_coupling_relaxation=', &
-        cfg%surface_current%coupling_relaxation
-      write (u, '(a)') 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
+    write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
+    write (u, '(a,i0)') 'surface_current_model_outflow_refresh_batches=', &
+      cfg%surface_current%outflow_refresh_batches
+    if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
+      write (u, '(a)') 'surface_current_model_dynamic_state_source=matching_plane_state_outflow_refresh'
     else
-      write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
-      write (u, '(a,i0)') 'surface_current_model_outflow_refresh_batches=', &
-        cfg%surface_current%outflow_refresh_batches
-      if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
-        write (u, '(a)') 'surface_current_model_dynamic_state_source=matching_plane_state_outflow_refresh'
-      else
-        write (u, '(a)') 'surface_current_model_dynamic_state_source=initial_root'
-      end if
-      if (current_model%outer_return_cell_uniform) then
-        write (u, '(a)') 'surface_current_model_outer_return_position=cell_uniform'
-      else
-        write (u, '(a)') 'surface_current_model_outer_return_position=crossing_point'
-      end if
-      write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
-      write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
-      write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
-      write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
-      write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
-        current_model%ambient_electron_density_m3
-      write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &
-        current_model%electron_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_ion_current_density_A_m2=', &
-        current_model%ion_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_emission_current_density_A_m2=', &
-        current_model%photoelectron_emission_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_current_density_A_m2=', &
-        current_model%photoelectron_escape_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_pe_return_current_density_A_m2=', &
-        current_model%photoelectron_return_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
-        current_model%net_current_density_a_m2
-      write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
-      write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
-        current_model%photoelectron_budget_residual_current_density_a_m2
-      write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
-        current_model%surface_budget_residual_current_density_a_m2
-      if (current_model%photoelectron_active) then
-        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
-          current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
-      else
-        write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
-      end if
-      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
-        current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
-      write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
-        current_model%inflow_access_potential_v(current_model%electron_species_idx)
-      write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
-        current_model%inflow_kinetic_face(current_model%electron_species_idx)
-      if (current_model%photoelectron_active) then
-        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
-          current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
-        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
-          current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
-      else
-        write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
-        write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
-      end if
+      write (u, '(a)') 'surface_current_model_dynamic_state_source=initial_root'
+    end if
+    if (current_model%outer_return_cell_uniform) then
+      write (u, '(a)') 'surface_current_model_outer_return_position=cell_uniform'
+    else
+      write (u, '(a)') 'surface_current_model_outer_return_position=crossing_point'
+    end if
+    write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
+    write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
+    write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
+    write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
+    write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
+      current_model%ambient_electron_density_m3
+    write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &
+      current_model%electron_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_ion_current_density_A_m2=', &
+      current_model%ion_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_pe_emission_current_density_A_m2=', &
+      current_model%photoelectron_emission_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_pe_escape_current_density_A_m2=', &
+      current_model%photoelectron_escape_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_pe_return_current_density_A_m2=', &
+      current_model%photoelectron_return_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_net_current_density_A_m2=', &
+      current_model%net_current_density_a_m2
+    write (u, '(a)') 'surface_current_model_current_budget_contract=surface_targets_plus_external_escape'
+    write (u, '(a,es24.16)') 'surface_current_model_pe_budget_residual_current_density_A_m2=', &
+      current_model%photoelectron_budget_residual_current_density_a_m2
+    write (u, '(a,es24.16)') 'surface_current_model_surface_budget_residual_current_density_A_m2=', &
+      current_model%surface_budget_residual_current_density_a_m2
+    if (current_model%photoelectron_active) then
+      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', &
+        current_model%escaped_particle_current_a(current_model%photoelectron_species_idx)
+    else
+      write (u, '(a,es24.16)') 'surface_current_model_pe_escape_particle_current_A=', 0.0_dp
+    end if
+    write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_reservoir_potential_V=', &
+      current_model%inflow_reservoir_potential_v(current_model%electron_species_idx)
+    write (u, '(a,es24.16)') 'surface_current_model_electron_inflow_access_potential_V=', &
+      current_model%inflow_access_potential_v(current_model%electron_species_idx)
+    write (u, '(a,i0)') 'surface_current_model_electron_inflow_face=', &
+      current_model%inflow_kinetic_face(current_model%electron_species_idx)
+    if (current_model%photoelectron_active) then
+      write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', &
+        current_model%outflow_barrier_potential_v(current_model%photoelectron_species_idx)
+      write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', &
+        current_model%outflow_barrier_face(current_model%photoelectron_species_idx)
+    else
+      write (u, '(a,es24.16)') 'surface_current_model_pe_outflow_barrier_potential_V=', 0.0_dp
+      write (u, '(a,i0)') 'surface_current_model_pe_outflow_barrier_face=', 0_i32
     end if
   end if
   if (present(electrostatic_diagnostics)) then

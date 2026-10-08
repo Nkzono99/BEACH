@@ -44,29 +44,6 @@ program test_surface_current_model
   end if
   call test_end()
 
-  call test_begin('matching_plane_dispatch_is_batch_local')
-  call default_app_config(cfg)
-  cfg%n_particle_species = 2_i32
-  cfg%surface_current%model = 'matching_plane_quasistatic'
-  call evaluate_surface_current_model(cfg, result)
-  call assert_true(result%active, 'matching-plane current model must be active')
-  call assert_true( &
-    trim(result%kinetic_contract) == 'matching_plane_v1', &
-    'matching-plane kinetic contract mismatch' &
-    )
-  call evaluate_surface_closure(cfg, closure)
-  call assert_true(closure%active, 'matching-plane surface closure must be active')
-  call assert_true( &
-    .not. any(closure%has_absorbed_target) .and. &
-    .not. any(closure%has_emission_target) .and. &
-    .not. any(closure%has_escape_target) .and. &
-    .not. any(closure%has_inflow_kinetic_map) .and. &
-    .not. any(closure%has_outflow_kinetic_barrier) .and. &
-    .not. any(closure%has_inflow_number_flux), &
-    'matching-plane static dispatch must not publish batch-local channels' &
-    )
-  call test_end()
-
   call test_begin('zhao_stationary_type_b_channels')
   call configure_zhao_fixture(cfg)
   cfg%surface_current%zhao_branch = 'b'
@@ -133,6 +110,14 @@ program test_surface_current_model
   call assert_close_dp(result%photoelectron_return_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE return')
   call assert_close_dp(result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, 'no-PE stationary net current')
   call assert_kinetic_contract(result, 0.0_dp, 'no-PE Zhao')
+  call test_end()
+
+  call test_begin('zhao_stationary_zero_electron_drift')
+  call configure_zhao_fixture(cfg)
+  cfg%particle_species(1)%drift_velocity = 0.0_dp
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(index('ABC', result%zhao_branch) > 0, 'zero-drift Zhao model must resolve a root')
+  call assert_current_decomposition(result, 'zero-drift root')
   call test_end()
 
   call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')

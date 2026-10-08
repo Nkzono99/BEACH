@@ -30,12 +30,13 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.
 - Keep v1 scope clear: absorption and insulator accumulation are standard; conductor/resistive/secondary-emission models are extension points unless the repo now documents them.
-- Treat `matching_plane_quasistatic` with `response_backend="table"` or
-  `response_backend="zhao_online"` as the implemented reduced outer-sheath closure.
+- Treat `surface_current_model.model="zhao_stationary"` as the implemented reduced outer-sheath closure:
+  the Zhao zero-current root sets species currents and z-high barriers, and `outflow_refresh_batches>0`
+  re-solves the root from the observed PE outflow (a quasi-static weak coupling for periodic regolith cells).
 - Keep full-VDF, 1D PIC, time-dependent outer-sheath solvers, and external particle
-  transport outside the BEACH runtime scope.
+  transport outside the BEACH runtime scope. The removed matching-plane coupling is not available.
 - Use local reservoir inflow, scalar barriers, or closed PE as alternative boundary
-  models when they fit the physical intent; do not stack them on matching-plane coupling.
+  models when they fit the physical intent; do not stack them on the Zhao closure.
 
 ## Output
 

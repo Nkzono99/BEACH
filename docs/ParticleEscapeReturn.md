@@ -63,16 +63,15 @@ open 面外側の電場、turning 位置、flight time、空間電荷は保持�
 一様電場には有限な無限遠電位がないため、`sim.e0` と併用する場合は `reservoir.phi_infty` を有効な
 reservoir 基準電位として整合させてください。
 
-## matching planeの外部barrier
+## 外部シースの障壁
 
-`matching_plane_quasistatic`は通常の`ordinary_open_model`とは別に、選択したresponse backendが返す
-electron / ionのaccess電位と
-PEの最大外部barrierをz-highへ適用します。外向き粒子の判定式は同じscalar energy testですが、基準値は各固定点反復で
-更新されます。PEが反射すればreturn、通過すればescapeとして別々に集約し、両者の和を実際のoutward crossingと照合します。
+`surface_current_model.model="zhao_stationary"`は通常の`ordinary_open_model`とは別に、外部シースの零電流根が与える
+electron / PE の障壁電位をz-highへ適用します。外向き粒子の判定式は同じscalar energy testです。障壁を越えない粒子は
+法線速度を反転してreturn、越える粒子はescapeとして別々に集約します。
 
-returnは同じz-high位置で即時に法線速度を反転する準定常近似です。outer turning位置、flight time、横方向変位は
-保持しません。このmodelを使うcaseではmanualな`potential_barrier`やclosed PE reflectionを重ねません。
-[matching-plane準定常連成](MatchingPlaneCoupling.html)に応答値と適用限界をまとめています。
+returnは即時に法線速度を反転する準定常近似で、outer turning位置とflight timeは保持しません。x/y周期セルでは
+外部での横移動がセル幅より大きいとみなし、戻り位置をz-high面内で一様に選び直します。このmodelを使うcaseでは
+manualな`potential_barrier`やclosed PE reflectionを重ねません。障壁と電位基準は[Zhao closure](ZhaoStationaryClosure.html)にまとめています。
 
 ## 閉じた光電子の return
 

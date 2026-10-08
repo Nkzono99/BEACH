@@ -94,7 +94,7 @@ program test_electrostatic_snapshot
     )
   call test_end()
 
-  call test_begin('matching_plane_gauge_survives_refresh_and_clears')
+  call test_begin('matching_plane_gauge_survives_refresh')
   target = [0.37_dp, 0.43_dp, sim%box_max(3)]
   call snapshot%set_matching_plane_gauge(mesh, sim%box_max(3), -2.5_dp)
   call eval_periodic_nonzero_panel_reference( &
@@ -102,10 +102,6 @@ program test_electrostatic_snapshot
     )
   call snapshot%eval_local_phi(mesh, sim, target, potential)
   call assert_close_dp(potential, nonzero_potential - 2.5_dp, 1.0e-12_dp, 'matching-plane gauge mismatch')
-  call assert_close_dp( &
-    snapshot%get_matching_plane_displacement(), 2.0e-12_dp, 1.0e-24_dp, &
-    'matching-plane displacement mismatch' &
-    )
   mesh%q_elem = 3.0e-12_dp
   call snapshot%refresh(mesh)
   call eval_periodic_nonzero_panel_reference( &
@@ -113,17 +109,6 @@ program test_electrostatic_snapshot
     )
   call snapshot%eval_local_phi(mesh, sim, target, potential)
   call assert_close_dp(potential, nonzero_potential - 2.5_dp, 1.0e-12_dp, 'matching-plane gauge was not retained')
-  call assert_close_dp( &
-    snapshot%get_matching_plane_displacement(), 3.0e-12_dp, 1.0e-24_dp, &
-    'matching-plane displacement was not refreshed' &
-    )
-  call snapshot%clear_matching_plane_gauge(mesh)
-  zero_potential = -(mesh%q_elem(1)/eps0)*(target(3) - 0.25_dp)
-  call snapshot%eval_local_phi(mesh, sim, target, potential)
-  call assert_close_dp( &
-    potential, nonzero_potential + zero_potential, 1.0e-12_dp, &
-    'clearing matching-plane gauge did not restore the default gauge' &
-    )
   call test_end()
 
   call test_begin('triangle_p0_primary_self_is_excluded')

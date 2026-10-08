@@ -23,7 +23,7 @@ BEACH が保持する主な状態は、三角形要素ごとの表面電荷で�
 表面電荷の変化が、次の場へ影響します。
 
 空間中に分布する粒子電荷や、計算領域の外側にある plasma の時間発展は直接計算しません。外部 sheath の
-応答が必要な場合にだけ、別の[matching-plane 準定常連成](MatchingPlaneCoupling.html)を接続します。
+応答が必要な場合にだけ、box 上端へ外部 1-D シースの零電流根を接続する[Zhao closure](ZhaoStationaryClosure.html)を使います。
 対応済み・未対応機能の完全な一覧は [`SPEC.md`](../SPEC.md) を正本とします。
 
 ## 6 段階の計算サイクル
@@ -99,7 +99,7 @@ checkpoint から再開するときも、必要な状態を復元して同じ計
 | 必要な機能 | 専用ページ |
 | --- | --- |
 | batch 当たりの場変化を制限し、短い幅で再試行する | [`batch_duration` をどう決めるか](BatchDurationStability.html) |
-| 外部 1D sheath 応答と準定常に連成する | [matching-plane 準定常連成](MatchingPlaneCoupling.html) |
+| 外部 1D sheath と準定常に連成する | [観測した PE 流出で外部根を解き直す](ZhaoStationaryClosure.html#観測した-pe-流出で外部根を解き直す) |
 | 周期表面の平均場と非一様場を扱う | [periodic2 静電場](PeriodicElectrostatics.html) |
 | solver を Direct、Treecode、FMM から選ぶ | [電場 solver の選び方](FieldSolvers.html) |
 

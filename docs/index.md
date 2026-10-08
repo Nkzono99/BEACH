@@ -33,8 +33,8 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | 必要に応じた計算領域上端の準定常境界応答 | 時間変化する外部 sheath や完全な速度分布 solver |
 
 通常の表面電荷更新サイクルと `dt`、`batch_duration`、`batch_count` の違いは
-[BEACH の計算サイクル](Algorithms.html)で図解しています。外部 sheath を接続する場合の領域分担は
-[matching-plane 準定常連成](MatchingPlaneCoupling.html)を参照してください。
+[BEACH の計算サイクル](Algorithms.html)で図解しています。外部 sheath を接続する場合の分担は
+[Zhao closure](ZhaoStationaryClosure.html)を参照してください。
 
 ## 目的から選ぶ
 
@@ -44,8 +44,7 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | 粒子源や表面モデルを選ぶ | [粒子をどこから入れるか](ParticleSourcesBoundaries.html) → [表面はどう帯電するか](SurfaceModels.html) |
 | open 境界と return を構成する | [境界から粒子を流入させる](ReservoirInjection.html) → [粒子の escape と return](ParticleEscapeReturn.html) |
 | 光電子を扱う | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
-| 定常外部シースから固定電流を与える | [Zhao stationary closure](ZhaoStationaryClosure.html) |
-| 外部 1D sheath と連成する | [matching-plane 準定常連成](MatchingPlaneCoupling.html) → [offline kinetic oracle で検証する](OuterKineticOracle.html) |
+| 外部 1D sheath の零電流根から電流と障壁を与える | [Zhao closure](ZhaoStationaryClosure.html) → [観測した PE 流出で外部根を解き直す](ZhaoStationaryClosure.html#観測した-pe-流出で外部根を解き直す) |
 | 場ソルバや周期境界を選ぶ | [場の評価](FieldSolvers.html) → [periodic2 静電場](PeriodicElectrostatics.html) |
 | 出力を可視化する | [後処理チュートリアル](PostprocessTutorial.html) → [Python API](PythonPostprocessAPI.html) |
 | ソースを変更する | [アーキテクチャ](Architecture.html) → [開発とテスト](Workflow.html) |

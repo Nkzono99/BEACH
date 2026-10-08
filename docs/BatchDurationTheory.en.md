@@ -137,7 +137,7 @@ the $k=0$ update or the applicability range of a response table or particle samp
 - The linear condition applies only where $\mathbf F$ is differentiable near the fixed point of interest.
 - Fixed-point analysis alone cannot predict the final state with multiple fixed points, hysteresis, or a time-dependent attractor.
 - A stability condition that omits $\boldsymbol\eta^n$ does not guarantee the fluctuation amplitude of a finite-macro-particle run.
-- The adaptive $k\ne0$ condition is not a stability condition for the complete system, including matching-plane inner iteration or implicit zero-mode updates.
+- The adaptive $k\ne0$ condition is not a stability condition for the complete system, including outer-sheath root updates.
 - This explanation covers v1.0 insulator accumulation and does not extend to unimplemented resistive or dielectric response.
 
 Select the final value with a step-size sensitivity check at the same physical time, not from theoretical scales alone.

@@ -135,7 +135,7 @@ $$
 - 線形条件は、調べる固定点の近傍で $\mathbf F$ が微分可能である場合に限ります。
 - 複数の固定点、hysteresis、非定常な attractor がある場合、固定点解析だけでは最終状態を予測できません。
 - $\boldsymbol\eta^n$ を無視した安定条件は、有限 macro 粒子 run の揺らぎ幅を保証しません。
-- adaptive $k\ne0$ 条件は、matching-plane の内側反復や implicit zero-mode 更新を含む全系の安定条件ではありません。
+- adaptive $k\ne0$ 条件は、外部シース closure の根の更新を含む全系の安定条件ではありません。
 - この説明は v1.0 の insulator accumulation を対象とし、未実装の resistive / dielectric 応答へ拡張しません。
 
 したがって最終的な値は、理論 scale だけでなく、同じ物理時刻での step-size sensitivity check で決めます。

@@ -130,13 +130,14 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `mesh_sources` | `dict[int, MeshSource] \| None` | mesh 種別・surface model・epsilon_r メタデータ |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Fortran 出力の重心電位 [V] |
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
-| `matching_plane_state` | `MatchingPlaneState \| None` | 最後に受理したmatching-plane state。summaryでstateが無効なら`None` |
-| `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | matching-plane履歴。stateが無効またはCSVがなければ`None` |
+| `matching_plane_state` | `MatchingPlaneState \| None` | `zhao_stationary`の外部根を更新したrunの最後の外部状態。summaryでstateが無効なら`None` |
+| `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | 外部状態の履歴。stateが無効またはCSVがなければ`None` |
 
-`MatchingPlaneState`は$D_H$、$\Phi_H$、inward応答、outward feedback、PE return / escape、反復回数、
-収束残差を名前付きfieldで保持します。`MatchingPlaneHistoryEntry`は`batch`、`simulated_time_s`と、その時点の
+`MatchingPlaneState`はセル平均電荷$D_H$、壁電位$\Phi_H=\phi_0$、流入束、外部の放出源、PE return / escape、
+採用した外部根の数、直前の更新での相対変化を名前付きfieldで保持します。各fieldの意味は
+[出力形式リファレンス](OutputReference.html#zhao_stationary)を参照してください。`MatchingPlaneHistoryEntry`は`batch`、`simulated_time_s`と、その時点の
 `state: MatchingPlaneState`を保持します。`matching_plane_history.csv`がheaderだけなら履歴は空tuple `()`です。
-このため、`None`は「履歴ファイルがない、または有効なmatching-plane stateではない」、空tupleは
+このため、`None`は「履歴ファイルがない、または有効な外部状態ではない」、空tupleは
 「有効なstateだが記録行がない」と区別できます。
 
 ### 3.3 `FortranChargeHistory`

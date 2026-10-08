@@ -118,12 +118,11 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`reservoir.phi_infty`、法線運動エネルギーによる反射・流出判定 |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
-| `matching_plane_quasistatic` | 共通: 固定点残差と反復回数、PEの`outward = return + escape`、緩和率・matching高度依存性。table: response-grid依存性。online: branch policy、root solve、moment reduction |
+| `zhao_stationary` の外部根の更新 | `matching_plane_residual`の減少、窓幅`outflow_refresh_batches`と標本数への依存、branch の変化、`charge_ledger.csv`の倍率が1に近いこと、z-high面平均電位と$\phi_0$の一致、H高度依存性 |
 
 各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と
-[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース連成の model 選択と適用限界は
-[matching-plane 準定常連成](MatchingPlaneCoupling.html)、table 生成、固定点、高度 sweep は
-[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)を参照してください。
+[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース closure の model と適用限界は
+[Zhao closure](ZhaoStationaryClosure.html)を参照してください。
 
 ## 6. 物理的な結論の範囲を確認する
 

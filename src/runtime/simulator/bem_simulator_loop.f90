@@ -2,7 +2,6 @@
 submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
-  use bem_matching_plane_coupling, only: matching_plane_coupling_type
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
@@ -33,7 +32,7 @@ contains
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
-  logical :: matching_active, replay_active, matching_history_enabled, outflow_refreshed
+  logical :: replay_active, matching_history_enabled, outflow_refreshed
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -48,7 +47,6 @@ contains
   type(electrostatic_diagnostics_type) :: committed_snapshot_diagnostics
   type(periodic_zero_mode_state_type) :: committed_zero_state
   type(charge_ledger_type) :: batch_ledger
-  type(matching_plane_coupling_type) :: coupling
   type(zhao_outflow_refresh_type) :: outflow_refresh
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
@@ -79,9 +77,7 @@ contains
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
-  call coupling%initialize(app, mesh, stats, mpi_ctx)
-  matching_active = coupling%is_active()
-  replay_active = adaptive_nonzero_mode .or. matching_active
+  replay_active = adaptive_nonzero_mode
   omp_dynamic_before = .false.
 !$ omp_dynamic_before = omp_get_dynamic()
   nth = 1_i32
@@ -167,7 +163,6 @@ contains
   call derive_field_panel_config(app%sim, field_config, panel_config)
   call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
   call perf_region_end(perf_region_field_solver_init, t0)
-  call coupling%restore_gauge(mesh, stats, snapshot)
   call outflow_refresh%initialize(app, mesh, stats, surface_closure)
   call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .true.)
 
@@ -231,103 +226,88 @@ contains
           app%particle_species(species_idx)%w_particle*duration_ratio
       end do
 
-      call coupling%begin_trial(mesh, snapshot, stats)
+      call perf_region_begin(perf_region_prepare_batch, t0)
+      call build_particle_source_plan( &
+        trial_app, source_plan, mpi=mpi_ctx, &
+        kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
+        kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
+        kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
+        kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
+        number_flux_override_active=surface_closure%has_inflow_number_flux, &
+        number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s &
+        )
+      call prepare_batch_state( &
+        mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
+        photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
+        )
+      call perf_region_end(perf_region_prepare_batch, t0)
+      fresh_particle_count = pcls_batch%n
 
-      do
-        if (matching_active) then
-          call random_seed(put=rng_state_before)
-          if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
-          if (allocated(boundary_injection_residual_before)) then
-            inject_state%boundary_macro_residual = boundary_injection_residual_before
+      photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+      call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
+      if (photo_failure_count > 0_i32) then
+        photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+        call mpi_select_lowest_rank_i32_values( &
+          mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
+          photo_failure_rank, photo_selected_failure_values &
+          )
+        call stop_for_photo_collision_failure( &
+          batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
+          photo_selected_failure_values(3), photo_selected_failure_values(4) &
+          )
+      end if
+
+      call perf_region_begin(perf_region_particle_batch, t0)
+      call process_particle_batch( &
+        mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
+        workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
+        workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
+        collision_failure_status, collision_failure_particle, collision_failure_step, &
+        collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread, &
+        batch_retry_counts &
+        )
+      call perf_region_end(perf_region_particle_batch, t0)
+
+      if (replay_active) then
+        particle_team_size_min = particle_team_size
+        particle_team_size_max = particle_team_size
+        call mpi_allreduce_min_i32_scalar(mpi_ctx, particle_team_size_min)
+        call mpi_allreduce_max_i32_scalar(mpi_ctx, particle_team_size_max)
+        if (particle_team_size_min /= nth .or. particle_team_size_max /= nth) then
+          if (mpi_is_root(mpi_ctx)) then
+            write (error_unit, '(a,i0,a,i0,a,i0)') &
+              'replayed-trial OpenMP team size changed after replay probe: expected=', nth, &
+              ' min=', particle_team_size_min, ' max=', particle_team_size_max
+            flush (error_unit)
           end if
+          error stop 'replayed-trial OpenMP team size changed after the replay probe.'
         end if
-        call coupling%prepare_iteration(app, mesh, snapshot, surface_closure, mpi_ctx, trial_batch_duration)
+      end if
 
-        call perf_region_begin(perf_region_prepare_batch, t0)
-        call build_particle_source_plan( &
-          trial_app, source_plan, mpi=mpi_ctx, &
-          kinetic_inflow_active=surface_closure%has_inflow_kinetic_map, &
-          kinetic_reservoir_potential_v=surface_closure%inflow_reservoir_potential_v, &
-          kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
-          kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
-          number_flux_override_active=surface_closure%has_inflow_number_flux, &
-          number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s &
+      collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+      call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
+      if (collision_failure_count > 0_i32) then
+        local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+        call mpi_select_lowest_rank_i32_values( &
+          mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
+          collision_failure_rank, selected_failure_values &
           )
-        call prepare_batch_state( &
-          mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
-          photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
-          )
-        call perf_region_end(perf_region_prepare_batch, t0)
-        fresh_particle_count = pcls_batch%n
-
-        photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
-        call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
-        if (photo_failure_count > 0_i32) then
-          photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
-          call mpi_select_lowest_rank_i32_values( &
-            mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
-            photo_failure_rank, photo_selected_failure_values &
-            )
-          call stop_for_photo_collision_failure( &
-            batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
-            photo_selected_failure_values(3), photo_selected_failure_values(4) &
-            )
+        selected_failure_state = 0.0_dp
+        if (mpi_ctx%rank == collision_failure_rank) then
+          selected_failure_state(1:3) = collision_failure_x
+          selected_failure_state(4:6) = collision_failure_v
         end if
-
-        call perf_region_begin(perf_region_particle_batch, t0)
-        call process_particle_batch( &
-          mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
-          workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
-          workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
-          collision_failure_status, collision_failure_particle, collision_failure_step, &
-          collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread, &
-          batch_retry_counts &
+        call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
+        call stop_for_collision_failure( &
+          batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
+          selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
           )
-        call perf_region_end(perf_region_particle_batch, t0)
+      end if
 
-        if (replay_active) then
-          particle_team_size_min = particle_team_size
-          particle_team_size_max = particle_team_size
-          call mpi_allreduce_min_i32_scalar(mpi_ctx, particle_team_size_min)
-          call mpi_allreduce_max_i32_scalar(mpi_ctx, particle_team_size_max)
-          if (particle_team_size_min /= nth .or. particle_team_size_max /= nth) then
-            if (mpi_is_root(mpi_ctx)) then
-              write (error_unit, '(a,i0,a,i0,a,i0)') &
-                'replayed-trial OpenMP team size changed after replay probe: expected=', nth, &
-                ' min=', particle_team_size_min, ' max=', particle_team_size_max
-              flush (error_unit)
-            end if
-            error stop 'replayed-trial OpenMP team size changed after the replay probe.'
-          end if
-        end if
-
-        collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
-        call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
-        if (collision_failure_count > 0_i32) then
-          local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
-          call mpi_select_lowest_rank_i32_values( &
-            mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
-            collision_failure_rank, selected_failure_values &
-            )
-          selected_failure_state = 0.0_dp
-          if (mpi_ctx%rank == collision_failure_rank) then
-            selected_failure_state(1:3) = collision_failure_x
-            selected_failure_state(4:6) = collision_failure_v
-          end if
-          call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
-          call stop_for_collision_failure( &
-            batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
-            selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
-            )
-        end if
-
-        call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
-        call apply_fixed_surface_current_closure( &
-          trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
-          )
-        if (coupling%finish_iteration( &
-            app, mpi_ctx, workspace%matching_plane_moments_thread, trial_batch_duration, batch_idx)) exit
-      end do
+      call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
+      call apply_fixed_surface_current_closure( &
+        trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+        )
 
       if (adaptive_nonzero_mode) then
         call prepare_adaptive_charge_candidate(mesh, workspace, mpi_ctx)
@@ -391,7 +371,6 @@ contains
                                                               trial_halvings &
                                                               )
     end if
-    call coupling%stage_stats(stats_candidate)
 
     if (ledger_enabled) then
       call batch_ledger%reset(batch_idx)
@@ -419,7 +398,6 @@ contains
       mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, workspace, rel, mpi_ctx &
       )
     call perf_region_end(perf_region_commit_charge, t0)
-    call coupling%commit(mesh, stats_candidate)
     call outflow_refresh%commit_batch( &
       app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &

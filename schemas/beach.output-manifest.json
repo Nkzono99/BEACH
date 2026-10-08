@@ -54,7 +54,7 @@
     {
       "name": "matching_plane_history.csv",
       "producer": "src/runtime/bem_output_writer_history.f90",
-      "condition": "output.write_files=true and output.history_stride>0 and (surface_current_model.model=matching_plane_quasistatic or (surface_current_model.model=zhao_stationary and surface_current_model.outflow_refresh_batches>0))",
+      "condition": "output.write_files=true and output.history_stride>0 and surface_current_model.model=zhao_stationary and surface_current_model.outflow_refresh_batches>0",
       "restart_role": "none"
     },
     {

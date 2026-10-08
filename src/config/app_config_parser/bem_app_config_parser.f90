@@ -273,29 +273,8 @@ contains
     call normalize_config_layout(document)
     call apply_toml_document(cfg, document, authoring)
     call document%destroy
-    call resolve_surface_current_model_path(path, cfg)
     call finalize_loaded_config(cfg, authoring)
   end subroutine load_toml_config
-
-  !> response table の相対パスを設定ファイルの配置ディレクトリ基準へ解決する。
-  subroutine resolve_surface_current_model_path(config_path, cfg)
-    character(len=*), intent(in) :: config_path
-    type(app_config), intent(inout) :: cfg
-    character(len=:), allocatable :: resolved_path
-    integer :: directory_end
-
-    if (.not. cfg%surface_current%has_response_table_path) return
-    if (len_trim(cfg%surface_current%response_table_path) == 0) return
-    if (cfg%surface_current%response_table_path(1:1) == '/') return
-
-    directory_end = scan(trim(config_path), '/', back=.true.)
-    if (directory_end == 0) return
-    resolved_path = config_path(:directory_end)//trim(cfg%surface_current%response_table_path)
-    if (len(resolved_path) > len(cfg%surface_current%response_table_path)) then
-      error stop 'Resolved surface_current_model.response_table_path is too long.'
-    end if
-    cfg%surface_current%response_table_path = resolved_path
-  end subroutine resolve_surface_current_model_path
 
   !> `toml-f` のルートテーブルから既知セクションを読み込む。
   subroutine apply_toml_document(cfg, document, authoring)

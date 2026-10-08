@@ -29,7 +29,7 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - species 別の simulation boundary reservoir 流入
 - 境界 reservoir の流入補正
 - closed photoelectron の局所反射と neutral-return closure
-- 応答表または組み込み `zhao_online` による matching-plane 準定常外部シース連成
+- 外部 1-D シースの Zhao 零電流根による表面電流 closure と、観測 PE 流出による外部根の準定常更新
 - checkpoint 再開
 
 ### 2.2 未実装・予約
@@ -132,8 +132,8 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 `cached_kneq0` の物理的 $k=0$ は `periodic2.zero_mode_policy="exclude_k0"` と
 `lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
-このzero-mode構築自体は外部プラズマ応答を合成しません。matching-plane modelを選んだ場合、その応答は
-別の連成層で適用します。
+このzero-mode構築自体は外部プラズマ応答を合成しません。外部シースclosureを選んだ場合、その壁電位は
+z-high面の電位基準として別の層で与えます。
 
 ### 5.3 領域・粒子境界・reservoir
 
@@ -310,7 +310,7 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 
 Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
-z-highからの内向きambient流入、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
+z-high reservoirからのambient流入（electron driftの内向き成分は0以上、ionは正）、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
 fail-closedに検証します。
 非磁化closureなので`sim.b0`はゼロを要求します。Zhao固有の0 V reservoirと速度写像を使うため、genericな
 `reservoir.inflow_model="infinity_barrier"`との併用も拒否します。
@@ -373,215 +373,6 @@ $J_{return}=J_{escape}-J_{emit}$はセル内再吸収と外部returnの和です
 `outflow_refresh_batches=0`ではrun中の表面電位に応じてtargetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
 外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
 
-### 7.8 matching-plane 準定常連成
-
-`model="matching_plane_quasistatic"`は、`domain.box_max`のz成分をmatching plane $H$ とし、外部1Dシースを
-非線形境界演算子としてBEACHへ接続します。`response_backend="table"`（既定）は事前計算済み応答表、
-`response_backend="zhao_online"`は有限$H$のcharge-driven Zhao A/B/C準定常solveを使います。
-全mesh頂点は$H$より厳密に下へ置きます。BEACHは
-全triangleの実表面電荷を保持し、$H$より下の
-$k=0$と$k\neq0$を解きます。外部Zhao/PIC場をmicrodomainへ重ねず、Zhaoの定常壁電位または表面電荷も追加しません。
-speciesの設定は`surface_charge_closure="explicit"`のままです。既定の陽的更新はraw trajectory depositを使います。
-後述の`implicit_zero_mode=true`だけは、粒子追跡が与えた要素別分布を保ちながらchannel総量を陰的終点へ正規化します。
-
-このmodelはexplicitな`periodic2`構成だけに対応します。nonzero backendは`cached_kneq0`または
-`panel_spectral_reference`、zero-mode policyは`exclude_k0`、lower boundaryは`e_bottom_zero`または
-`symmetric_vacuum`とします。x/yはperiodic、z-low/z-highはopen、`sim.e0`と`sim.b0`はゼロです。
-enabled speciesはambient electron、ion、および任意のphotoelectron roleだけを別speciesとして明示し、前2者はz-high
-reservoir流入、PEを指定する場合は負電荷の`photo_raycast`かつopenなz-highを使います。generic `infinity_barrier`、手動fixed-current target、
-`reference_area_m2`は併用しません。面積はdomainのx-y面積、$H$はbox上端、更新間隔は
-1 accepted batchから導出し、重複parameterを公開しません。multiple-box-event policyは`abort`または
-累積率で制限した `soft_discard` とします。soft discard の累積件数を $D$、accepted batch で
-処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
-
-$$
-\left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
-$$
-
-です。`multiple_box_events_soft_discard_count_grace` の既定値 $G=1000$ は累積件数の単独上限ではなく、
-率判定を開始する件数猶予です。`multiple_box_events_soft_discard_fraction_limit` の既定値は $10^{-6}$、
-制約は $0<f_{\mathrm{limit}}\le1$ で、$G\ge0$ とします。いずれの閾値も等値では停止しません。
-`multiple_box_events_soft_discard_abs_charge_limit` は停止条件ではなく、累積絶対電荷の初回超過を知らせる
-警告閾値です。
-`summary.txt` と checkpoint には `multiple_box_events_soft_discarded`、
-`multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から導出した
-`multiple_box_events_soft_discard_fraction` を残します。累積率は長い正常履歴によって後半の burst を
-希釈しうるため、監査では batch ごとの集約 log も確認します。
-`multiple_box_events_retry_backend="upper_panel_fourier"`は、通常の`cached_kneq0`場を変更せず、
-`multiple_box_events`となった 1 step だけを元の状態から再試行します。再試行の$k\neq0$場は triangle P0 電荷の
-有限 Fourier 展開を全 mesh 頂点より上で因子化し、既存の$k=0$場と外部一様場を合成します。potential-barrier
-境界電位も同じ展開とgaugeで評価します。全評価点が成立域に
-入らない場合または再試行も失敗する場合は、元の status に対して設定済み policy を適用します。
-
-`response_backend="table"`は`response_table_path`を必須とし、`zhao_branch`を含むZhao固有keyを拒否します。
-response CSV v1は、headerより前に一意な`# matching_plane_z_m=<finite>`を持ち、その値を$H$と照合します。
-入力5列は
-
-$$
-(D_H,\ \Gamma_{pe}^{out},\ \langle K_{pe,n}^{out}\rangle,\
- \Gamma_e^{out},\ \Gamma_i^{out})
-$$
-
-であり、出力6列は
-
-$$
-(\Phi_H,\ \Gamma_e^{in},\ \Gamma_i^{in},\
- \Phi_{e,access},\ \Phi_{i,access},\ \Phi_{pe,barrier})
-$$
-
-です。列名と単位は`docs/MatchingPlaneReference.md`を正本とします。rowは5入力軸の完全Cartesian productで、
-重複・欠損・非有限値を拒否します。flux、PE平均法線energy、出力fluxは非負です。2 node以上のfeedback軸2--5は
-初期評価のためゼロを含みます。2 node以上の軸はclosed range内で最大32 cornerの多重線形補間を行い、外挿しません。
-singleton軸はnodeが0以外でもよく、そのfeedback依存を意図的に無効化し、任意のfinite queryを係数0で受理します。
-table は MPI root が path ごとの immutable snapshot として読み、補間軸・値・高度を全 rank に配信します。
-内容 fingerprint の生成・照合は行いません。
-potential 4列は同じgaugeを使い、外部modelの上流reservoirを0 Vとします。inward VDFはこの0 Vから
-access potentialと$\Phi_H$へ写像するため、potential列だけの定数shiftは同値ではありません。
-
-`implicit_zero_mode=true`は、硬い面平均帯電だけを後退Eulerで更新します。table / `zhao_online`の両backendで
-使用でき、共通して`lower_boundary_model="e_bottom_zero"`を要求します。tableは2 node以上の$D_H$軸と
-singletonのfeedback軸2--5を要求します。singleton参照値はPEありでは
-$\Gamma_{pe}^{out}>0$、$\langle K_{pe,n}^{out}\rangle>0$、PEなしではこの2値を両方0とし、どちらも
-$\Gamma_e^{out}=\Gamma_i^{out}=0$とします。onlineはresponse/query CSVを要求せず、現在のfeedbackを使います。
-PEありではhalf-Maxwellian近似から
-
-$$
-\Gamma_{pe}^{escape}(D)=\Gamma_{pe}^{out}
-\exp\left[-\frac{\Phi_H(D)-\Phi_{pe,barrier}(D)}
-{\langle K_{pe,n}^{out}\rangle}\right]
-$$
-
-を求め、
-
-$$
-D_H^{n+1}=D_H^n+h\left[q_e\Gamma_e^{in}(D_H^{n+1})
-+q_i\Gamma_i^{in}(D_H^{n+1})-q_{pe}\Gamma_{pe}^{escape}(D_H^{n+1})\right]
-$$
-
-を解きます。PEなしでは最後のPE項を除きます。tableは$D_H$範囲の両端でbracketし、二分法で解きます。
-両端が根を挟まない場合は外挿せず停止します。onlineは前のouter反復の終点（最初は$D_H^n$）をseedとし、
-validなら明示終点変位を$D_{ref}=\sqrt{\epsilon_0n_i eT_e}$以下に抑えた初期幅から最大64回まで2倍にします。
-seedが明示A/B/C branchの解領域外なら、branchと整合する符号を$D_{ref}/32$刻み、最大$8D_{ref}$まで走査し、
-未保証区間をまたがない隣接valid点だけでbracketします。Zhao branch境界を越えたprobeは最後のvalid点との間を
-縮小探索し、responseを外挿しません。bracket後はguard付きsecantと中点fallbackで解きます。有限なbracketを
-最後まで縮小しても残差が許容値の8倍を超える場合は、残差が小さい方の有限端点をwarning付きで受理します。
-signed scanは明示A/B/C branchだけに適用します。既定の`zhao_root_selection="require_unique"`では、`auto`が
-seedで一意な物理解を返さない場合は、探索中にbranchを選ばずfail closedとします。したがってimplicit化だけでは
-branch多重性を解消せず、強いPEではA/B/Cの事前scanが必要です。
-局所軌道はbatch開始時の表面電荷から計算し、陰的終点のresponseを流入VDF、PE barrier、matching gaugeへ使います。
-ambient吸収の総量は陰的応答へ、PEありではPE放出を設定した表面放出電流へ、PE returnを
-「表面放出flux - 外部escape flux」へ正規化し、要素別のraw分布は維持します。陰的終点との整合性は PE あり・なしと
-強い正負相殺を含む回帰 test で検証します。runtime は mesh 電荷の補償和から得た有限な commit 済み $Q/A$ を
-次 batch の canonical な$D_H$とします。PE なしでは
-PE target を生成しません。
-これは$k=0$の時間刻み安定化であり、$k\ne0$の局所電位変化、backendの物理範囲、粒子samplingに対する
-`batch_duration`の上限を除去しません。
-
-`response_backend="zhao_online"`は`response_table_path`を禁止し、`zhao_branch="auto" / "a" / "b" / "c"`と
-`zhao_root_selection="require_unique" / "minimum_energy" / "continuation"`を受理します。`continuation`は
-`zhao_branch="a"`かつ`implicit_zero_mode=true`に限定します。table backendとstationary Zhaoは
-`zhao_root_selection`を拒否します。各queryで$E_H=D_H/\epsilon_0$を境界条件とし、上流0 V・零電場へ接続する有限$H$の
-Sagdeev A/B/C rootを解きます。これは壁面の零電流根ではなく、零電流条件を課さないcharge-driven responseです。
-既定の`require_unique`では、`auto`が複数の物理解を検出した場合、または数値失敗により一意なbranchを
-確認できない場合はfail closedとします。`minimum_energy`では検出候補の表面から無限遠までについて
-
-$$
-U=-\frac{\epsilon_0}{2}\int_0^\infty E^2\,dx
-$$
-
-を評価し、明示branchではbranch内、`auto`では検証済みA/B/C候補間で最小の$U$を選びます。候補branchの
-数値失敗により集合を確定できない場合、または最小値が相対$10^{-6}$以内で縮退する場合はfail closedとします。
-v1の複数根検出は有限個のmultistartから得た収束根のcluster判定であり、数学的なroot isolationではありません。
-電位エネルギー比較も時間依存安定性の証明ではありません。
-
-`continuation`の初回queryは`minimum_energy`と同じmultistartでType A rootを選びます。以後は最後にacceptedとなった
-endpointの$(\phi_0,\phi_m,n_{e,\infty})$をNewton seedにします。候補とseedをType Aの対数未知数へ写像したときの
-最大成分差が0.25以下なら局所Newtonの根を受理します。Newton失敗、rootのdecode失敗、profile検証失敗、または
-この距離を超える場合だけfull multistartへ戻り、検出したType A rootのうちseedに最も近いものを調べます。
-最近傍距離を$d_1$、2番目を$d_2$としたとき、
-$|d_2-d_1|\le10^{-6}\max(1,d_1)$なら、guessの検出順では選ばず曖昧状態として停止します。それ以外は最近傍rootを
-距離0.25の内外にかかわらず受理します。0.25は局所Newton fast pathの受理上限であり、full multistart後の
-root familyに対する物理的な距離上限ではありません。full multistartでType A rootを検出できない場合、または
-探索・profile検証が数値的に失敗した場合は停止します。有効rootの直後で解なしまたは数値失敗となったimplicit probeは、
-branch終端を粗く飛び越えないよう二分を試します。この規則はA/B/Cを暗黙に切り替えず、同じ物理familyの保持や
-pseudo-arclength continuationのようなfoldの位置・通過も保証しません。
-`beach-zhao-response`にはaccepted endpointがないため、history-dependentな`continuation`を指定した表生成は拒否します。
-最小エネルギー根の切替でresponseが不連続になり、backward-Euler残差が零点を持たず不連続だけをまたぐ場合は、
-根を補間または混合せずnumerical failureとします。Newton multistartの検出順は物理的なroot IDとして公開しません。
-branch別の物理検証では`a` / `b` / `c`を明示してparameter scanします。
-ここで$H$は外部半無限領域のinterface原点、zero-mode gauge、PE moment測定面を固定します。平面・並進対称の
-online closureでは$H$の絶対座標をSagdeev方程式の数値parameterにせず、壁面から$H$までの距離拘束は解きません。
-外向きPE number fluxと平均法線energyは、その2 momentを再現するhalf-Maxwellianへ写像します。PE fluxが0なら
-PE populationは0のまま、PE speciesがない場合はambient electron温度を数値scaleのfallbackに使います。
-
-online MVPはambient electron / ionの外向きfeedbackをtransparentとして扱い、外部profile、戻りflux、応答値へ
-反映しません。`require_unique`と`minimum_energy`の各queryはstatelessです。`continuation`はaccepted endpointのrootだけを
-次batchのseedとして保持し、棄却したimplicit probe、固定点trial、adaptive trialをcommitしません。restartでは既存の
-accepted responseからseedを再構成し、再構成できなければ初回multistartへ戻ります。outer inventoryとflight-time queueは
-どのpolicyも保存しません。
-設定したbranch policyで解が存在しない、branch制約を満たさない、Sagdeev積分が実数にならない、または非線形solveが
-収束しない場合は停止します。明示したbranchやbackendを暗黙に切り替えません。stationary Zhaoの`solar_elevation_deg`、
-`photoelectron_ref_density_m3`、`photoelectron_source_scale`はonline入力ではありません。
-
-online implicitのPEありでは、各outer feedback反復の現在値$X^m$で後退Euler終点を解き、同じtrialの粒子追跡で
-得たPE momentを緩和してから次の終点を解き直します。PE fluxが0のtrialでは平均energyは未定義なので、現在の
-canonical energyを保ち、escape fluxを0とします。このnested反復によりPE returnと$D_H^{n+1}$を整合させます。
-
-online Zhaoは平面・無衝突・非磁化、全roleの単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、
-正の無限遠ion密度、ambient electron / ionの正の内向きdrift
-（`drift_velocity`のz成分は負）を要求します。設定検査は
-これらを満たさないcaseを拒否します。PE指定時はambient electronとPEの同一質量および$T_{pe}>0$も要求します。
-
-各batch trialでは、表面総電荷とlower boundaryから
-
-$$
-D_H=D_b+Q_{cell}/A
-$$
-
-を得ます。accepted済みouter feedback $X^0$から、選択したresponse backendの評価、
-$\Phi_H$を指定したinner field、
-応答flux/barrierを使う粒子追跡、実際の$H$外向きmoment測定を反復します。同じbatch開始RNG stateと
-macro-particle端数を毎反復で再生し、Monte Carlo写像を反復間で変えません。新規runの通常modeはゼロから
-開始します。implicit tableはsingleton参照値、implicit onlineのPEありは設定した放出number fluxと$T_{pe}$、
-PEなしはゼロを初期値とします。raw response $X_{raw}^{m+1}$は
-
-$$
-X^{m+1}=(1-\alpha)X^m+\alpha X_{raw}^{m+1},
-\qquad 0<\alpha\le1
-$$
-
-で緩和します。feedback vectorと`coupling_atol`の成分順は、PE外向きnumber flux [m^-2 s^-1]、
-PE外向き平均法線energy [eV]、ambient electron外向きnumber flux [m^-2 s^-1]、
-ion外向きnumber flux [m^-2 s^-1]です。active軸$j$のbackend scaleを$s_j$、
-`coupling_rtol`を$r$、`coupling_atol`の成分を$a_j$とすると、収束条件は
-
-$$
-\left|X_{raw,j}^{m+1}-X_j^m\right|\le\max(r s_j,a_j)
-$$
-
-です。`coupling_atol`は有限な非負4-vectorで、既定値`[0, 0, 0, 0]`は従来の相対許容値だけの判定を保ちます。
-inactive軸の$a_j$は0でなければならず、非零値は設定検査またはprovider初期化で拒否します。
-出力する`matching_plane_residual`は、$a_j>r s_j$の成分を$r|\Delta_j|/a_j$、それ以外を
-$|\Delta_j|/s_j$として最大値を取るため、絶対許容値を使っても収束したtrialでは
-`matching_plane_residual <= coupling_rtol`を保ちます。
-tableはactive feedback軸のspanを$s_j$とし、singleton軸を除外します。onlineはZhao modelの基準flux / energyから
-$s_j$を導出し、transparentなambient electron / ion outward軸を除外します。tableのactive軸が補間範囲外、
-online solveが失敗した場合、または非有限値を含む場合はfail closedとします。
-有限なtrialが`coupling_max_iterations`までに収束しない場合はwarningを出し、残差と最大反復回数をreceiptとして
-最終trialをcommitします。次batchのouter stateは観測feedbackから開始します。
-adaptive batch-durationで棄却したtrialはouter stateもbatch開始値へrollbackします。
-
-z-highの外向きeventはspecies別にmacro weightを掛けて集約し、PEについては外向き数、法線energy、外部barrierでの
-return数、escape数を独立に保持します。$\Gamma_{pe}^{out}=\Gamma_{pe}^{return}+\Gamma_{pe}^{escape}$を診断し、
-outer state、反復回数、残差を history と checkpoint へ保存します（v9 以降）。restart は保存した feedback から
-反復を再開します。応答表や Zhao 設定の変更をハッシュで照合せず、現在の設定で継続します。
-onlineの自動bracket点は永続tableやmodel stateではなく、restart後に同じZhao contractから再評価します。
-
-このmodelは準定常・無衝突・非磁化の低次元closureです。完全6D VDF、外部flight time、遅延return queue、
-外部過渡、BEACH領域内volume plasma chargeは解きません。online Zhaoもfull VDF、1D PIC、time-dependent outer sheathの
-代替ではありません。production tableは独立に検証したZhao/1D PIC sweepから作成し、どちらのbackendでも
-matching-plane高度$H$をoverlap region内で変えたときの主要量の不変性を連成検証とします。
-
 ## 8. 実行制御
 
 - 新規実行は `sim.batch_count` 個の accepted batch を処理する
@@ -599,7 +390,7 @@ matching-plane高度$H$をoverlap region内で変えたときの主要量の不�
 - `mesh_sources.csv`
 - `mesh_potential.csv`（設定時）
 - `charge_history.csv` / `potential_history.csv` / `top_reference_history.csv`（設定時）
-- `matching_plane_history.csv`（matching-plane連成かつ履歴出力時）
+- `matching_plane_history.csv`（`zhao_stationary`の外部根更新かつ履歴出力時）
 - `charge_ledger.csv`（ledger がある場合）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`
@@ -625,8 +416,8 @@ summary に ledger metadata があれば、schema の世代によらず `charge_
 保存状態の配列形状が読込可能なら現在の設定で継続します。
 schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、`face=0` は従来 source、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
-schema v9はmatching-planeのaccepted feedback、potential、return/escape flux、反復receiptを`summary.txt`へ保存します。
-non-matching modelではこれらを無効値として保持し、v8以前のload可能なcheckpointとの互換性を維持します。
+schema v9は`matching_plane_*`の外部状態（放出源、壁電位、return/escape flux、採用根数と相対変化）を`summary.txt`へ
+保存します。外部根を更新しないmodelではこれらを無効値として保持し、v8以前のload可能なcheckpointとの互換性を維持します。
 現行 schema v10 は model / species / response-content fingerprint の出力と照合を廃止します。
 v2〜v9 も引き続き読み、旧 fingerprint は無視します。メッシュ識別子の計算法と状態配列の形式は変更しません。
 以前の実行条件は設定ファイルと summary の具体的な値で確認してください。

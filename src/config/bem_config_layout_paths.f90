@@ -81,42 +81,24 @@ contains
       legacy = 'periodic2.max_nonzero_mode_potential_step'
     case ('sheath.closure')
       legacy = 'surface_current_model.model'
-    case ('sheath.response')
-      legacy = 'surface_current_model.response_backend'
     case ('sheath.zhao.branch')
       legacy = 'surface_current_model.zhao_branch'
-    case ('sheath.zhao.root_selection')
-      legacy = 'surface_current_model.zhao_root_selection'
     case ('sheath.species.electron')
       legacy = 'surface_current_model.electron_species'
     case ('sheath.species.ion')
       legacy = 'surface_current_model.ion_species'
     case ('sheath.species.photoelectron')
       legacy = 'surface_current_model.photoelectron_species'
-    case ('sheath.stationary.solar_elevation_deg')
+    case ('sheath.photoelectrons.solar_elevation_deg')
       legacy = 'surface_current_model.solar_elevation_deg'
-    case ('sheath.stationary.photoelectron_ref_density_m3')
+    case ('sheath.photoelectrons.ref_density_m3')
       legacy = 'surface_current_model.photoelectron_ref_density_m3'
-    case ('sheath.stationary.photoelectron_source_scale')
+    case ('sheath.photoelectrons.source_scale')
       legacy = 'surface_current_model.photoelectron_source_scale'
-    case ('sheath.stationary.reference_area_m2')
+    case ('sheath.reference_area_m2')
       legacy = 'surface_current_model.reference_area_m2'
-    case ('sheath.stationary.outflow_refresh_batches')
+    case ('sheath.coupling.outflow_refresh_batches')
       legacy = 'surface_current_model.outflow_refresh_batches'
-    case ('sheath.table.path')
-      legacy = 'surface_current_model.response_table_path'
-    case ('sheath.coupling.mean_field_update')
-      legacy = 'surface_current_model.implicit_zero_mode'
-    case ('sheath.coupling.rtol')
-      legacy = 'surface_current_model.coupling_rtol'
-    case ('sheath.coupling.max_iterations')
-      legacy = 'surface_current_model.coupling_max_iterations'
-    case ('sheath.coupling.relaxation')
-      legacy = 'surface_current_model.coupling_relaxation'
-    case ('sheath.photoelectrons.closure')
-      legacy = 'surface_current_model.photoelectron_closure'
-    case ('sheath.photoelectrons.spectrum_bins_per_decade')
-      legacy = 'surface_current_model.photoelectron_spectrum_bins_per_decade'
     case ('output.enabled')
       legacy = 'output.write_files'
     case ('output.dir')
@@ -316,15 +298,9 @@ contains
       known = .true.
     case ('sheath.coupling')
       known = .true.
-    case ('sheath.coupling.atol')
-      known = .true.
     case ('sheath.photoelectrons')
       known = .true.
     case ('sheath.species')
-      known = .true.
-    case ('sheath.stationary')
-      known = .true.
-    case ('sheath.table')
       known = .true.
     case ('sheath.zhao')
       known = .true.

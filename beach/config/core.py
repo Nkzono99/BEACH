@@ -130,22 +130,6 @@ def _load_config_file(
     )
 
 
-def _resolve_surface_response_table_path(
-    config: dict[str, Any], *, config_path: Path
-) -> None:
-    """Resolve a relative outer-response path from the config directory."""
-
-    model = config.get("surface_current_model")
-    if not isinstance(model, dict):
-        return
-    raw_path = model.get("response_table_path")
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        return
-    if Path(raw_path).is_absolute():
-        return
-    model["response_table_path"] = str(config_path.parent / raw_path)
-
-
 def normalize_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level authoring notation and validate the runtime config."""
 
@@ -176,9 +160,7 @@ def _validate_config_document(
         resolved = normalize_high_level_config(runtime_document)
     else:
         resolved = runtime_document
-    if config_path is not None:
-        _resolve_surface_response_table_path(resolved, config_path=config_path)
-    # Authoring arithmetic and path resolution can create new invalid values.
+    # Authoring arithmetic can create new invalid values.
     resolved = prepare_schema_document(resolved, schema)
     resolved_errors = validation_errors(resolved, schema)
     reject_basic_schema_errors(resolved_errors, phase="normalized")

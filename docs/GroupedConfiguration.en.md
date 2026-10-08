@@ -14,7 +14,7 @@ mesh generator emit this layout. Both the Fortran runner and Python lint read it
 | `mesh` | Surfaces, OBJ input, templates, placement groups |
 | `particles` | Boundary actions, reservoir, tracking, species, sources and sampling |
 | `fields` | Field boundary, imposed E/B, solver, periodic backend and cache |
-| `sheath` | External closure, branch, response and convergence controls |
+| `sheath` | External zero-current closure, branch, species roles, photoelectron source and outer-root refresh |
 | `output` | Files, history, checkpoints and diagnostics |
 
 Released flat 1.6 input remains readable throughout 1.x; remove that reader at 2.0.
@@ -24,9 +24,8 @@ duplicating density and temperature. Python loading still returns the existing
 normalized runtime dictionary layout.
 
 Migration validates input and output and refuses to overwrite a destination file.
-Relative response-table paths become absolute so moving the config does not change
-the response file. Other path bases, including cache and OBJ paths, remain unchanged;
-keep the simulation working directory when comparing runs.
+Path bases, including cache and OBJ paths, remain unchanged; keep the simulation
+working directory when comparing runs.
 
 ```bash
 beachx config migrate old.toml grouped.toml
@@ -119,7 +118,7 @@ serve different purposes. Presence of `[run.restart]` enables resume. An optiona
 before. `batch_count` remains a cumulative target during resume.
 `output.diagnostics.charge_rel_change_threshold` is a diagnostic, not an early stop.
 
-## Periodic fields and an online sheath
+## Periodic fields and an outer sheath
 
 Old:
 
@@ -135,11 +134,14 @@ nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
 lower_boundary_model = "e_bottom_zero"
 [surface_current_model]
-model = "matching_plane_quasistatic"
-response_backend = "zhao_online"
+model = "zhao_stationary"
 zhao_branch = "auto"
-implicit_zero_mode = true
-coupling_atol = [3.0e11, 0.1, 0.0, 0.0]
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+solar_elevation_deg = 60.0
+photoelectron_ref_density_m3 = 6.4e7
+outflow_refresh_batches = 50
 ```
 
 New:
@@ -154,30 +156,28 @@ backend = "cached_kneq0"
 lower_boundary_model = "e_bottom_zero"
 cache_dir = ".beach_cache/periodic2"
 [sheath]
-closure = "matching_plane"
-response = "zhao"
+closure = "zero_current"
 [sheath.zhao]
 branch = "auto"
+[sheath.species]
+electron = "solar_wind_electron"
+ion = "solar_wind_ion"
+photoelectron = "photoelectron"
+[sheath.photoelectrons]
+solar_elevation_deg = 60.0
+ref_density_m3 = 6.4e7
 [sheath.coupling]
-mean_field_update = "backward_euler"
-[sheath.coupling.atol]
-photoelectron_outward_flux_m2_s = 3.0e11
-photoelectron_mean_normal_energy_ev = 0.1
-electron_outward_flux_m2_s = 0.0
-ion_outward_flux_m2_s = 0.0
+outflow_refresh_batches = 50
 ```
 
-Missing absolute-tolerance components default to zero; table order has no effect.
-`branch` keeps `auto/a/b/c`; root selection retains its existing choices.
-`closure="zero_current"` selects stationary Zhao $J_z=0$, while `matching_plane`
-selects the external matching-plane response. Omitted matching `response` retains
-the response-table default: explicitly select `response="zhao"` for an online solve.
-Zero-current closure only supports Zhao. Development photoelectron closure APIs
-are available only in a checkout containing their corresponding implementation.
+`closure="zero_current"` selects the Zhao zero-current root $J_z=0$ of an outer 1-D sheath; `branch` is `auto/a/b/c`.
+`sheath.photoelectrons` holds the solar elevation, reference density, and scale that set the surface emission, and
+`sheath.coupling.outflow_refresh_batches` is the accepted-batch interval for re-solving the outer root from the observed
+PE outflow.
 
 Periodic backends are `cached_kneq0`, `panel_spectral_reference`, and `finite_images`.
 The first two split nonzero and zero modes and derive `exclude_k0` internally.
-Explicitly select `lower_boundary_model` for matching-plane coupling.
+Use a split backend (`cached_kneq0` or `panel_spectral_reference`) for the outer-root refresh.
 `finite_images` names the old `none/auto` finite image computation; it is not an
 infinite periodic solution and cannot accept split lower-boundary/reference settings.
 Periodic topology does not implicitly select `fields.boundary`.
@@ -191,7 +191,7 @@ relative to the working directory.
 Complete examples: [boundary inflow](../examples/beach.toml),
 [tutorial](../examples/tutorial_insulator.toml),
 [stationary Zhao](../examples/grouped/zero_current.toml),
-[online matching plane](../examples/grouped/matching_plane.toml).
+[outer-root refresh](../examples/grouped/zero_current_refresh.toml).
 The [flat parameter reference](Parameters.en.html) retains physical constraints
 and default values; use the mapping below to find their new locations.
 
@@ -239,22 +239,15 @@ sampling configuration and charging closure.
 | `periodic2.panel_quadrature_order` | `fields.periodic.reference.panel_quadrature_order` |
 | `periodic2.max_nonzero_mode_potential_step` | `run.batch.adaptive.max_nonzero_mode_potential_step_v` |
 | `surface_current_model.model` | `sheath.closure` |
-| `surface_current_model.response_backend` | `sheath.response` |
 | `surface_current_model.zhao_branch` | `sheath.zhao.branch` |
-| `surface_current_model.zhao_root_selection` | `sheath.zhao.root_selection` |
 | `surface_current_model.electron_species` | `sheath.species.electron` |
 | `surface_current_model.ion_species` | `sheath.species.ion` |
 | `surface_current_model.photoelectron_species` | `sheath.species.photoelectron` |
-| `surface_current_model.solar_elevation_deg` | `sheath.stationary.solar_elevation_deg` |
-| `surface_current_model.photoelectron_ref_density_m3` | `sheath.stationary.photoelectron_ref_density_m3` |
-| `surface_current_model.photoelectron_source_scale` | `sheath.stationary.photoelectron_source_scale` |
-| `surface_current_model.reference_area_m2` | `sheath.stationary.reference_area_m2` |
-| `surface_current_model.outflow_refresh_batches` | `sheath.stationary.outflow_refresh_batches` |
-| `surface_current_model.response_table_path` | `sheath.table.path` |
-| `surface_current_model.implicit_zero_mode` | `sheath.coupling.mean_field_update` |
-| `surface_current_model.coupling_rtol` | `sheath.coupling.rtol` |
-| `surface_current_model.coupling_max_iterations` | `sheath.coupling.max_iterations` |
-| `surface_current_model.coupling_relaxation` | `sheath.coupling.relaxation` |
+| `surface_current_model.solar_elevation_deg` | `sheath.photoelectrons.solar_elevation_deg` |
+| `surface_current_model.photoelectron_ref_density_m3` | `sheath.photoelectrons.ref_density_m3` |
+| `surface_current_model.photoelectron_source_scale` | `sheath.photoelectrons.source_scale` |
+| `surface_current_model.reference_area_m2` | `sheath.reference_area_m2` |
+| `surface_current_model.outflow_refresh_batches` | `sheath.coupling.outflow_refresh_batches` |
 | `output.write_files` | `output.enabled` |
 | `output.dir` | `output.dir` |
 | `output.write_mesh_potential` | `output.final.mesh_potential` |
@@ -318,4 +311,3 @@ sampling configuration and charging closure.
 | `output.resume` | `run.restart` |
 | `periodic2.nonzero_mode_backend` | `fields.periodic.backend` |
 | `periodic2.zero_mode_policy` | `exclude_k0` (derived) |
-| `surface_current_model.coupling_atol` | `sheath.coupling.atol` (named components) |

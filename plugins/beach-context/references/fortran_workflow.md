@@ -78,7 +78,7 @@ make test-l2
 | mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
 | 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection`、`test_external_field_velocity_grid` | `make test-l1` |
 | Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
-| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。matching-plane は `test_matching_plane_simulator` も確認 |
+| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。外部根の更新は `test_zhao_outflow_refresh` も確認 |
 | field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
 | FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l3`。遠方補正は `make test-fortran-far-correction` |
 | C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c` | `make test-l2`。cache receipt は `make test-field-kernel-cache` |

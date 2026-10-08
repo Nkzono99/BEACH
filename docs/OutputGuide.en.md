@@ -189,7 +189,7 @@ The ordinary official case does not require the following details. Select only t
 | File conditions | [Generation](OutputReference.en.html#file-generation-conditions) |
 | Field, periodic2, and boundary | [Receipts](OutputReference.en.html#locate-configuration-specific-values) |
 | Zhao currents and corrections | [`zhao_stationary`](OutputReference.en.html#zhao_stationary) |
-| Accepted matching-plane state | [`matching_plane_quasistatic`](OutputReference.en.html#matching_plane_quasistatic) |
+| Outer state during an outer-root refresh | [`zhao_stationary`](OutputReference.en.html#zhao_stationary) |
 | Every `charge_ledger.csv` column | [Charge ledger](OutputReference.en.html#charge-ledger) |
 | Adaptive periodic2 trials | [Adaptive-batch diagnostics](OutputReference.en.html#adaptive-batch-diagnostics) |
 | Checkpoint schemas and required files | [Files used for resume](OutputReference.en.html#files-used-for-resume) |

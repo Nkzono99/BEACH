@@ -12,7 +12,8 @@ BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM�
 次のバッチの電場へ反映します。
 
 現行版の中心は絶縁体表面の帯電です。体積プラズマを PIC として解くコードではありません。
-外部シースは、必要な場合だけ計算領域上端の matching plane を介した準定常の境界応答として接続します。
+外部シースは、必要な場合だけ計算領域上端へ Zhao 零電流根の電流・障壁として接続し、計算領域から出る光電子流出に
+合わせて外部根を準定常に解き直せます。
 詳しい適用範囲と更新順は [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) を参照してください。
 
 <div align="center">
@@ -62,12 +63,10 @@ beachx inspect outputs/tutorial
 | 名前 | 役割 |
 | --- | --- |
 | `beach` | Fortran シミュレーション本体。`--check-config` は開発・診断用の設定検証 |
-| `beach-zhao-response` | matching-plane 用 Zhao 応答表の生成（現在の source build） |
 | `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
 | `beach` Python package | 出力の読込と独自解析 |
 
 コマンドの全オプションは `beach --help`、`beachx --help` および `beachx <command> --help` で確認できます。
-`beach-zhao-response` が必要で公開 package に含まれない場合は、開発版をインストールしてください。
 
 ## 開発
 

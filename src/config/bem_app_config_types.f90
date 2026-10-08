@@ -14,16 +14,13 @@ module bem_app_config_types
   integer(i32), parameter :: particle_inflow_none = 0_i32
   integer(i32), parameter :: particle_inflow_reservoir = 1_i32
 
-  !> 外部シース電流またはmatching-plane応答を与えるモデルの共通設定。
+  !> 外部シースの零電流根から species 別の表面電流と境界写像を与えるモデルの設定。
   type :: surface_current_model_config
     character(len=32) :: model = 'none'
-    character(len=16) :: response_backend = 'table'
     character(len=16) :: zhao_branch = 'auto'
-    character(len=16) :: zhao_root_selection = 'require_unique'
     character(len=64) :: electron_species = ''
     character(len=64) :: ion_species = ''
     character(len=64) :: photoelectron_species = ''
-    logical :: has_photoelectron_species = .false.
     real(dp) :: solar_elevation_deg = 0.0_dp
     real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
     real(dp) :: photoelectron_source_scale = 1.0_dp
@@ -31,13 +28,6 @@ module bem_app_config_types
     logical :: has_reference_area_m2 = .false.
     !> zhao_stationary の外部シース源を観測PE流出で解き直す accepted batch 間隔。0 は初期根を固定する。
     integer(i32) :: outflow_refresh_batches = 0_i32
-    character(len=256) :: response_table_path = ''
-    logical :: has_response_table_path = .false.
-    logical :: implicit_zero_mode = .false.
-    real(dp) :: coupling_rtol = 1.0e-4_dp
-    real(dp) :: coupling_atol(4) = 0.0_dp
-    integer(i32) :: coupling_max_iterations = 20_i32
-    real(dp) :: coupling_relaxation = 0.5_dp
   end type surface_current_model_config
 
   !> 1粒子種の注入設定を表す。

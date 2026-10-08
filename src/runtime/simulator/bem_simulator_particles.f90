@@ -40,8 +40,7 @@ contains
   collision_failure_v = 0.0_dp
   retry_attempted = 0_i64
   retry_resolved = 0_i64
-  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp .or. &
-                          trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic'
+  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
   do species_idx = 1_i32, app%n_particle_species
     species_sim(species_idx) = app%sim

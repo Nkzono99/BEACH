@@ -23,8 +23,8 @@ from that charge and configured external fields, then tracks charged particles u
 computational region. Surface-charge changes from absorption and emission affect a later field.
 
 BEACH does not directly calculate charge distributed through space or the time evolution of plasma outside the
-computational region. When an outer-sheath response is needed, a separate
-[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) can be connected.
+computational region. When an outer-sheath response is needed, the [Zhao closure](ZhaoStationaryClosure.en.html) connects the zero-current root
+of an outer 1-D sheath to the top of the box.
 [`SPEC.md`](../SPEC.md) is the source of truth for the complete implemented and unsupported feature set.
 
 ## The six-stage cycle
@@ -101,7 +101,7 @@ After understanding the ordinary path, open only the specialized page needed by 
 | Needed feature | Dedicated page |
 | --- | --- |
 | Limit the field change per batch and retry with a shorter interval | [How to choose `batch_duration`](BatchDurationStability.en.html) |
-| Couple a quasistatic outer 1-D sheath response | [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) |
+| Couple a quasistatic outer 1-D sheath | [Re-solve the outer root from the observed PE outflow](ZhaoStationaryClosure.en.html#re-solve-the-outer-root-from-the-observed-pe-outflow) |
 | Treat the mean and nonuniform fields of a periodic surface | [`periodic2` electrostatics](PeriodicElectrostatics.en.html) |
 | Choose Direct, Treecode, or FMM | [Choose a field solver](FieldSolvers.en.html) |
 

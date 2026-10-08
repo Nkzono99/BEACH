@@ -20,10 +20,9 @@ The Zhao stationary closure assumes a planar, collisionless, unmagnetized outer 
 cold ions, and photoelectrons when PE is active to solve a Zhao Type A, B, or C zero-current root. The solution provides
 the branch, surface potential $\phi_0$, potential minimum $\phi_m$, ambient-electron density, and species current densities.
 
-BEACH does not resolve the root again during the run. The branch, $\phi_0$, $\phi_m$, and current targets remain fixed as
-the surface charge changes between batches. This differs from
-[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html), which iterates the outer response against the
-outward fluxes in every batch.
+By default, BEACH does not resolve the root again during the run. The branch, $\phi_0$, $\phi_m$, and current targets
+remain fixed as the surface charge changes between batches. To update the outer root from the observed PE outflow, see
+[Re-solve the outer root from the observed PE outflow](#re-solve-the-outer-root-from-the-observed-pe-outflow).
 
 ### No PE means Type C
 

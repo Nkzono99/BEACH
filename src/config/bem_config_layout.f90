@@ -1,9 +1,9 @@
 !> 7グループの入力を既存の内部TOMLへ変換する。物理検証と既定値は既存readerが所有する。
 !! 公開済みのflat入力は1.xで維持し、2.0で読み取り互換を削除する。
 module bem_config_layout
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: i32
   use bem_string_utils, only: lower_ascii
-  use bem_config_toml, only: stop_config_error, require_toml_success, get_toml_real, get_toml_int
+  use bem_config_toml, only: stop_config_error, require_toml_success, get_toml_int
   use bem_config_layout_paths, only: legacy_layout_path, grouped_layout_table
   use tomlf, only: toml_table, toml_array, toml_keyval, toml_value, toml_key, get_value, set_value, &
                    new_table, add_table, toml_len => len
@@ -91,10 +91,6 @@ contains
       call find_node(table, 'mode', node)
       if (.not. associated(node)) call stop_config_error('particles.species.source requires mode')
     end if
-    if (prefix == 'sheath.coupling.atol') then
-      call translate_atol(table, target)
-      return
-    end if
     call table%get_keys(keys)
     do i = 1, size(keys)
       path = joined_path(prefix, lower_ascii(keys(i)%key))
@@ -112,8 +108,7 @@ contains
         call require_toml_success(stat, path)
         if (.not. allocated(text)) call stop_config_error(path//' must be a string')
         call translate_backend(lower_ascii(trim(text)), target)
-      else if (path == 'sheath.closure' .or. path == 'sheath.response' .or. &
-               path == 'sheath.coupling.mean_field_update') then
+      else if (path == 'sheath.closure') then
         call get_value(table, keys(i), text, stat=stat)
         call require_toml_success(stat, path)
         if (.not. allocated(text)) call stop_config_error(path//' must be a string')
@@ -223,62 +218,11 @@ contains
         call put_string(target, 'surface_current_model.model', 'none')
       case ('zero_current')
         call put_string(target, 'surface_current_model.model', 'zhao_stationary')
-      case ('matching_plane')
-        call put_string(target, 'surface_current_model.model', 'matching_plane_quasistatic')
       case default
         call stop_config_error('invalid sheath.closure')
       end select
-    case ('sheath.response')
-      select case (value)
-      case ('zhao')
-        call put_string(target, 'surface_current_model.response_backend', 'zhao_online')
-      case ('table')
-        call put_string(target, 'surface_current_model.response_backend', 'table')
-      case default
-        call stop_config_error('invalid sheath.response')
-      end select
-    case ('sheath.coupling.mean_field_update')
-      select case (value)
-      case ('backward_euler')
-        call put_logical(target, 'surface_current_model.implicit_zero_mode', .true.)
-      case ('explicit')
-        call put_logical(target, 'surface_current_model.implicit_zero_mode', .false.)
-      case default
-        call stop_config_error('invalid sheath.coupling.mean_field_update')
-      end select
     end select
   end subroutine translate_choice
-
-  subroutine translate_atol(table, target)
-    type(toml_table), intent(inout) :: table
-    type(toml_table), intent(inout), target :: target
-    character(len=40), parameter :: components(4) = [character(len=40) :: &
-                                                     'photoelectron_outward_flux_m2_s', 'photoelectron_mean_normal_energy_ev', &
-                                                     'electron_outward_flux_m2_s', 'ion_outward_flux_m2_s']
-    type(toml_key), allocatable :: keys(:)
-    type(toml_array) :: normalized
-    real(dp) :: values(4)
-    logical :: seen(4)
-    integer :: i, j, stat
-
-    values = 0.0_dp
-    seen = .false.
-    call table%get_keys(keys)
-    do i = 1, size(keys)
-      do j = 1, size(components)
-        if (components(j) == lower_ascii(keys(i)%key)) exit
-      end do
-      if (j > size(components)) call stop_config_error('Unknown sheath.coupling.atol component: '//keys(i)%key)
-      if (seen(j)) call stop_config_error('Duplicate sheath.coupling.atol component: '//keys(i)%key)
-      seen(j) = .true.
-      call get_toml_real(table, keys(i), values(j), 'sheath.coupling.atol.'//keys(i)%key)
-    end do
-    call new_array(normalized)
-    call set_value(normalized, values, stat=stat)
-    call require_toml_success(stat, 'sheath.coupling.atol')
-    call put_node(target, 'surface_current_model.coupling_atol', normalized)
-    call normalized%destroy()
-  end subroutine translate_atol
 
   subroutine validate_source_presence(table)
     type(toml_table), intent(inout) :: table

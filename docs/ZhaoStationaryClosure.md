@@ -19,9 +19,9 @@ Zhao stationary closure は平面、無衝突、非磁化の外部シースを�
 PE を有効にした場合は photoelectron を用いて、Zhao Type A / B / C の零電流定常根を解きます。
 解から branch、表面電位 $\phi_0$、電位極小 $\phi_m$、ambient electron 密度、species 別電流密度を得ます。
 
-零電流根は run 中に解き直しません。各 batch の表面電荷が変わっても、branch、$\phi_0$、$\phi_m$、
-電流 target は同じです。各 batch の外向き flux と外部応答を反復する
-[matching-plane 準定常連成](MatchingPlaneCoupling.html)とは、この点が異なります。
+既定では零電流根を run 中に解き直しません。各 batch の表面電荷が変わっても、branch、$\phi_0$、$\phi_m$、
+電流 target は同じです。外部根を観測 PE 流出に合わせて更新する場合は
+[観測した PE 流出で外部根を解き直す](#観測した-pe-流出で外部根を解き直す)を参照してください。
 
 ### PE なしは Type C
 

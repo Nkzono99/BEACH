@@ -26,7 +26,7 @@ the linked section repeats this information before expanding its columns and dec
 | `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`. Not used for restart |
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
-| `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `surface_current_model.model=matching_plane_quasistatic` or [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`. Not used for restart |
+| `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
 | `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
 | `macro_residuals.csv` | `output.write_files=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
@@ -157,123 +157,36 @@ This section defines how to read its receipts.
 Face indices are `1..6 = x_low, x_high, y_low, y_high, z_low, z_high`.
 
 The `surface_current_model_*` potentials and currents are those of the initial root. With `outflow_refresh_batches>0`,
-read the current outer root from `matching_plane_*` and the seventeen columns of `matching_plane_history.csv`:
+read the current outer root from the `matching_plane_*` keys in `summary.txt` and from `matching_plane_history.csv`.
 
-| Column | Meaning for the outer-root refresh |
+| Item | `matching_plane_history.csv` contract |
 | --- | --- |
-| `D_H_C_m2` | Committed total cell charge per area; a check of the mean charge held by the zero-current targets |
-| `phi_H_V` | Outer-root wall potential $\phi_0$, the reference for the z-high plane-mean potential |
-| `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | Number fluxes of the outer-root electron / ion absorption targets |
-| `electron_access_potential_V`, `photoelectron_barrier_potential_V` | $\phi_m$ for Type A; 0 for Type B / C |
-| `ion_access_potential_V` | Always 0 |
-| `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | Outer-root emission source: the surface emission for the initial root, then the window-mean observed outflow |
-| `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | Unused; 0 |
-| `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | The source split into return and escape by the outer-root barrier |
-| `iterations` | Number of accepted outer roots, counting the initial root as 1 |
-| `residual` | Largest relative change of the source at the last refresh; it decreases toward the weak-coupling fixed point |
+| Generation | `output.write_files=true`, `output.history_stride>0`, `surface_current_model.model=zhao_stationary`, and `outflow_refresh_batches>0` |
+| Row | Leading `batch`, `simulated_time_s`, then the fifteen state columns below; seventeen columns in total |
+| Time | State after the batch's charge commit and outer-root update; the next batch uses this outer root |
+| Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last state |
+| Restart | The CSV is not used. `summary.txt` stores the last state, and a restart reconstructs the outer root from its emission source |
+
+| `summary.txt` receipt | `matching_plane_history.csv` column | Meaning |
+| --- | --- | --- |
+| `matching_plane_displacement_C_m2` | `D_H_C_m2` | Committed total cell charge per area; a check of the mean charge held by the zero-current targets |
+| `matching_plane_phi_V` | `phi_H_V` | Outer-root wall potential $\phi_0$, the reference for the z-high plane-mean potential |
+| `matching_plane_electron_inward_flux_m2_s`, `matching_plane_ion_inward_flux_m2_s` | `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | Number fluxes of the outer-root electron / ion absorption targets |
+| `matching_plane_electron_access_potential_V`, `matching_plane_photoelectron_barrier_potential_V` | `electron_access_potential_V`, `photoelectron_barrier_potential_V` | $\phi_m$ for Type A; 0 for Type B / C |
+| `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | Always 0 |
+| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | Outer-root emission source: the surface emission for the initial root, then the window-mean observed outflow |
+| `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | Unused; 0 |
+| `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | The source split into return and escape by the outer-root barrier |
+| `matching_plane_iterations` | `iterations` | Number of accepted outer roots, counting the initial root as 1 |
+| `matching_plane_residual` | `residual` | Largest relative change of the source at the last refresh; it decreases toward the weak-coupling fixed point |
+
+Do not use the state receipts of a summary with `matching_plane_state_valid=F`. The source satisfies
+`photoelectron_outward_flux_m2_s = photoelectron_return_flux_m2_s + photoelectron_escape_flux_m2_s`.
 
 With an explicit split `[periodic2]` table, the z-high plane-mean potential is fixed to $\phi_0$, so potentials in
 `potential_history.csv` and `mesh_potential.csv` are referenced to the upstream plasma at 0 V. Potential differences
 between particles do not depend on the outer root, but absolute values depend on the outer model's branch and
 approximations through $\phi_0$.
-
-### `matching_plane_quasistatic`
-
-For this model, treat the accepted-batch matching-plane receipts listed below as state values instead of using static
-surface-current targets.
-See the [matching-plane numerical and response-table reference](MatchingPlaneReference.en.html) for the canonical
-fixed-point equations, response CSV, and `implicit_zero_mode` contract.
-
-| Item | `matching_plane_history.csv` contract |
-| --- | --- |
-| Generation | `output.write_files=true`, `output.history_stride>0`, and `surface_current_model.model=matching_plane_quasistatic` |
-| One row | Leading `batch`, `simulated_time_s`, followed by the 15 state columns below; only accepted states are written |
-| Interpretation | Read the fluxes, barriers, and iteration receipt on one row as one batch's fixed-point solution |
-| Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last accepted state |
-| Restart | The CSV is not used. Schema v9 stores the last accepted state in `summary.txt` |
-
-#### Accepted state
-
-| `summary.txt` receipt | `matching_plane_history.csv` column | Meaning |
-| --- | --- | --- |
-| `matching_plane_displacement_C_m2` | `D_H_C_m2` | Displacement charge density $D_H$ at the matching plane |
-| `matching_plane_phi_V` | `phi_H_V` | Matching-plane potential $\Phi_H$ |
-| `matching_plane_electron_inward_flux_m2_s` | `electron_inward_flux_m2_s` | Inward electron flux |
-| `matching_plane_ion_inward_flux_m2_s` | `ion_inward_flux_m2_s` | Inward ion flux |
-| `matching_plane_electron_access_potential_V` | `electron_access_potential_V` | Electron access potential |
-| `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | Ion access potential |
-| `matching_plane_photoelectron_barrier_potential_V` | `photoelectron_barrier_potential_V` | PE barrier potential |
-| `matching_plane_photoelectron_outward_flux_m2_s` | `photoelectron_outward_flux_m2_s` | Outward PE flux fed back to the fixed point |
-| `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_mean_normal_energy_eV` | PE mean normal energy fed back to the fixed point |
-| `matching_plane_electron_outward_flux_m2_s` | `electron_outward_flux_m2_s` | Outward electron flux fed back to the fixed point |
-| `matching_plane_ion_outward_flux_m2_s` | `ion_outward_flux_m2_s` | Outward ion flux fed back to the fixed point |
-| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | PE return flux produced by the backend |
-| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | PE escape flux produced by the backend |
-| `matching_plane_iterations` | `iterations` | Fixed-point iteration count |
-| `matching_plane_residual` | `residual` | Effective relative residual at acceptance |
-
-The first two history columns are `batch` and `simulated_time_s`, giving 17 columns in total. When
-`matching_plane_state_valid` is false, do not treat the state receipts listed above as an accepted
-state.
-
-Check the PE balance within the same batch:
-
-$$
-\mathtt{photoelectron\_outward\_flux\_m2\_s}
-=\mathtt{photoelectron\_return\_flux\_m2\_s}
-+\mathtt{photoelectron\_escape\_flux\_m2\_s}.
-$$
-
-The $D_H$ and $\Phi_H$ in each record correspond to the pre-commit surface-charge state used to track that batch.
-In contrast, `simulated_time_s` is the time after the trial was accepted and advanced. Do not interpret the record as
-the post-commit field at the start of the next batch.
-
-#### Provenance and convergence
-
-| Receipt | Meaning |
-| --- | --- |
-| `surface_current_model_response_backend` | `table` or `zhao_online` |
-| `surface_current_model_zhao_root_selection` | Online-Zhao root policy: `require_unique`, `minimum_energy`, or `continuation` |
-| `surface_current_model_implicit_zero_mode` | `T` advances the plane-mean $D_H$ with backward Euler; `F` holds its batch-start value fixed |
-| `surface_current_model_matching_plane_z_m` | Matching-plane z coordinate |
-| `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | Species assigned to each channel |
-| `surface_current_model_coupling_rtol` | Relative tolerance for active components |
-| `surface_current_model_coupling_atol` | Four componentwise absolute tolerances |
-| `surface_current_model_coupling_max_iterations` | Maximum iteration count |
-| `surface_current_model_coupling_relaxation` | Fixed-point relaxation factor |
-| `surface_current_model_dynamic_state_source` | `surface_current_model_dynamic_state_source=accepted_batch_fixed_point` for committed matching trials. This compatibility string alone does not imply convergence |
-
-The four values of `surface_current_model_coupling_atol` are ordered as follows:
-
-1. Outward PE flux [m^-2 s^-1]
-2. PE mean normal energy [eV]
-3. Outward electron flux [m^-2 s^-1]
-4. Outward ion flux [m^-2 s^-1]
-
-All default to zero, and inactive components must also remain zero. Each active component uses
-`max(coupling_rtol * backend_scale, coupling_atol)` as its threshold. An absolute-tolerance-dominated component is
-converted to an effective residual, so a converged state's `matching_plane_residual` remains no greater than
-`surface_current_model_coupling_rtol`. A state committed with an iteration-limit warning exceeds that value and has
-`matching_plane_iterations` equal to the configured limit.
-
-#### Backend-specific receipts
-
-| Backend | Receipt |
-| --- | --- |
-| `table` | `surface_current_model_response_table_path`. All ranks use the table loaded by root; no content fingerprint is written |
-| `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
-| `zhao_online` | `surface_current_model_zhao_branch` |
-| `zhao_online` | `surface_current_model_zhao_root_selection` |
-| `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
-| `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
-| `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
-| `zhao_online` with `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
-| `zhao_online` with `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2` |
-
-`accepted_endpoint_continuation_v2` is a provenance receipt for the configured ownership rule: only an accepted endpoint
-seeds the next batch, and a unique nearest root from full multistart is used when local Newton cannot reacquire a nearby
-root. It does not report the number of full-multistart or step-subdivision evaluations or the root displacement. Use
-`matching_plane_state_valid` to determine whether an accepted state exists.
 
 ## History
 
@@ -282,13 +195,13 @@ root. It does not report the number of full-multistart or step-subdivision evalu
 | `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`; one snapshot contains all element charges | `result.history` |
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
-| `matching_plane_history.csv` | Matching-plane or outer-root refresh, with stride enabled | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
+| `matching_plane_history.csv` | Outer-root refresh with stride enabled | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history` |
 
 The reference in `top_reference_history.csv` is the mean over the box z-high face, not infinity or plasma potential.
 Join it to the same batch in `potential_history.csv` and compute `potential_V - potential_mean_V` for element-relative
 potential.
 
-For matching-plane output, typed `result.matching_plane_state` and `result.matching_plane_history` receipts avoid
+For an outer-root refresh run, typed `result.matching_plane_state` and `result.matching_plane_history` receipts avoid
 manual column indexing.
 
 ## Mesh potential
@@ -483,10 +396,10 @@ print(result.matching_plane_state)
 | `charges.csv` | `result.charges` |
 | `charge_ledger.csv` | `result.charge_ledger` |
 | Field-reconstruction receipt | `result.field_reconstruction` |
-| Matching-plane summary | `result.matching_plane_state` |
+| Outer-state summary | `result.matching_plane_state` |
 | `matching_plane_history.csv` | `result.matching_plane_history` |
 
-`summary.txt` and `charges.csv` are required. Mesh, history, ledger, field-reconstruction, and matching-plane state are
+`summary.txt` and `charges.csv` are required. Mesh, history, ledger, field-reconstruction, and outer state are
 loaded only when the corresponding output is present.
 
 When `matching_plane_state_valid` is false, the reader does not

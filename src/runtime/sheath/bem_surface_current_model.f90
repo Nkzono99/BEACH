@@ -67,11 +67,6 @@ contains
       return
     case ('zhao_stationary')
       call evaluate_zhao_stationary_current(app, result)
-    case ('matching_plane_quasistatic')
-      ! Batch-local response evaluation is owned by the simulator fixed point.
-      ! Keep this static dispatch side-effect free for output/config callers.
-      result%active = .true.
-      result%kinetic_contract = 'matching_plane_v1'
     case default
       error stop 'Unknown surface current model dispatch.'
     end select

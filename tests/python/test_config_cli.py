@@ -840,328 +840,6 @@ def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
         normalize_config_document(invalid_no_photo_branch)
 
 
-def test_matching_plane_quasistatic_config_contract(tmp_path: Path) -> None:
-    root = Path(__file__).resolve().parents[2]
-    fixture = root / "tests/fortran/matching_plane_quasistatic.toml"
-
-    normalized = load_config_file(fixture)
-
-    public_example = load_config_file(
-        root / "examples/periodic2_matching_plane_quasistatic.toml"
-    )
-    assert public_example["surface_current_model"]["model"] == (
-        "matching_plane_quasistatic"
-    )
-    assert Path(
-        public_example["surface_current_model"]["response_table_path"]
-    ).name == "matching_plane_response_synthetic.csv"
-
-    model = normalized["surface_current_model"]
-    assert model["model"] == "matching_plane_quasistatic"
-    assert model.get("response_backend", "table") == "table"
-    assert model["response_table_path"] == str(
-        fixture.parent / "data/matching_response_table.csv"
-    )
-    assert all(
-        item["surface_charge_closure"] == "explicit"
-        for item in normalized["particles"]["species"]
-    )
-
-    no_photo = copy.deepcopy(normalized)
-    no_photo["surface_current_model"].pop("photoelectron_species")
-    no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]
-    normalized_no_photo = normalize_config_document(no_photo)
-    assert "photoelectron_species" not in normalized_no_photo["surface_current_model"]
-    assert len(normalized_no_photo["particles"]["species"]) == 2
-
-    explicit_table = copy.deepcopy(normalized)
-    explicit_table["surface_current_model"]["response_backend"] = "table"
-    assert normalize_config_document(explicit_table)["surface_current_model"][
-        "response_backend"
-    ] == "table"
-
-    implicit_zero_mode = copy.deepcopy(normalized)
-    implicit_zero_mode["surface_current_model"]["implicit_zero_mode"] = True
-    assert normalize_config_document(implicit_zero_mode)["surface_current_model"][
-        "implicit_zero_mode"
-    ] is True
-
-    implicit_symmetric_vacuum = copy.deepcopy(implicit_zero_mode)
-    implicit_symmetric_vacuum["periodic2"]["lower_boundary_model"] = (
-        "symmetric_vacuum"
-    )
-    with pytest.raises(ConfigValidationError, match="implicit_zero_mode.*e_bottom_zero"):
-        normalize_config_document(implicit_symmetric_vacuum)
-
-    absolute_response = tmp_path / "outer-response.csv"
-    absolute_config = tmp_path / "beach.toml"
-    absolute_config.write_text(
-        fixture.read_text(encoding="utf-8").replace(
-            'response_table_path = "data/matching_response_table.csv"',
-            f'response_table_path = "{absolute_response}"',
-        ),
-        encoding="utf-8",
-    )
-    absolute = load_config_file(absolute_config)
-    assert absolute["surface_current_model"]["response_table_path"] == str(
-        absolute_response
-    )
-
-    mixed = copy.deepcopy(normalized)
-    mixed["surface_current_model"]["zhao_branch"] = "auto"
-    with pytest.raises(ConfigValidationError, match="Zhao-specific"):
-        normalize_config_document(mixed)
-
-    zhao = load_config_file(root / "examples/periodic2_zhao_fixed_current.toml")
-    zhao["surface_current_model"]["response_table_path"] = "outer-response.csv"
-    with pytest.raises(ConfigValidationError, match="matching-plane-specific"):
-        normalize_config_document(zhao)
-
-    nonzero_field = copy.deepcopy(normalized)
-    nonzero_field["sim"]["e0"] = [0.0, 0.0, 1.0]
-    with pytest.raises(ConfigValidationError, match="sim.e0=sim.b0"):
-        normalize_config_document(nonzero_field)
-
-    no_split_zero_mode = copy.deepcopy(normalized)
-    no_split_zero_mode.pop("periodic2")
-    with pytest.raises(ConfigValidationError, match="split.*periodic2"):
-        normalize_config_document(no_split_zero_mode)
-
-    wrong_closure = copy.deepcopy(normalized)
-    electron = wrong_closure["particles"]["species"][0]
-    electron["surface_charge_closure"] = "fixed_current"
-    electron["target_absorbed_current_a"] = -1.0e-9
-    with pytest.raises(ConfigValidationError, match='surface_charge_closure="explicit"'):
-        normalize_config_document(wrong_closure)
-
-    extra_fixed_current = copy.deepcopy(normalized)
-    diagnostic = copy.deepcopy(extra_fixed_current["particles"]["species"][0])
-    diagnostic["species_key"] = "diagnostic_electron"
-    diagnostic["surface_charge_closure"] = "fixed_current"
-    diagnostic["target_absorbed_current_a"] = -1.0e-9
-    extra_fixed_current["particles"]["species"].append(diagnostic)
-    with pytest.raises(ConfigValidationError, match="any enabled species"):
-        normalize_config_document(extra_fixed_current)
-
-    extra_explicit = copy.deepcopy(normalized)
-    diagnostic = copy.deepcopy(extra_explicit["particles"]["species"][0])
-    diagnostic["species_key"] = "diagnostic_electron"
-    extra_explicit["particles"]["species"].append(diagnostic)
-    with pytest.raises(ConfigValidationError, match="exactly its enabled"):
-        normalize_config_document(extra_explicit)
-
-    reflected_photoelectron = copy.deepcopy(normalized)
-    reflected_photoelectron["particles"]["species"][2]["boundary"] = {
-        "z_high": "reflect"
-    }
-    with pytest.raises(ConfigValidationError, match="z-low/z-high open"):
-        normalize_config_document(reflected_photoelectron)
-
-    reflected_z_low = copy.deepcopy(normalized)
-    reflected_z_low["particle_boundary"]["z_low"] = "reflect"
-    with pytest.raises(ConfigValidationError, match="z-low/z-high open"):
-        normalize_config_document(reflected_z_low)
-
-    generic_open_barrier = copy.deepcopy(normalized)
-    generic_open_barrier["particle_boundary"]["ordinary_open_model"] = (
-        "potential_barrier"
-    )
-    with pytest.raises(ConfigValidationError, match="ordinary_open_model"):
-        normalize_config_document(generic_open_barrier)
-
-    soft_discard = copy.deepcopy(normalized)
-    soft_discard["sim"]["multiple_box_events_policy"] = "soft_discard"
-    soft_discard["sim"]["multiple_box_events_soft_discard_count_grace"] = 100
-    soft_discard["sim"]["multiple_box_events_soft_discard_fraction_limit"] = 1.0e-6
-    soft_discard["sim"]["multiple_box_events_soft_discard_abs_charge_limit"] = 1.0e-14
-    normalized_soft_discard = normalize_config_document(soft_discard)
-    assert normalized_soft_discard["sim"]["multiple_box_events_policy"] == "soft_discard"
-
-    upper_retry = copy.deepcopy(normalized)
-    upper_retry["sim"]["multiple_box_events_retry_backend"] = (
-        "upper_panel_fourier"
-    )
-    normalized_upper_retry = normalize_config_document(upper_retry)
-    assert (
-        normalized_upper_retry["sim"]["multiple_box_events_retry_backend"]
-        == "upper_panel_fourier"
-    )
-
-    invalid_retry = copy.deepcopy(normalized)
-    invalid_retry["sim"]["multiple_box_events_retry_backend"] = "unknown"
-    with pytest.raises(ConfigValidationError, match="multiple_box_events_retry_backend"):
-        normalize_config_document(invalid_retry)
-
-    wrong_retry_backend = copy.deepcopy(upper_retry)
-    wrong_retry_backend["sim"]["field_solver"] = "direct"
-    wrong_retry_backend["sim"]["field_periodic_far_correction"] = "none"
-    wrong_retry_backend["periodic2"]["nonzero_mode_backend"] = (
-        "panel_spectral_reference"
-    )
-    with pytest.raises(ConfigValidationError, match="upper_panel_fourier retry"):
-        normalize_config_document(wrong_retry_backend)
-
-    deprecated_subset_source = copy.deepcopy(normalized)
-    deprecated_subset_source["particles"]["species"][0]["source_mode"] = (
-        "reservoir_face"
-    )
-    deprecated_ambient = deprecated_subset_source["particles"]["species"][0]
-    deprecated_ambient.pop("boundary_inflow")
-    deprecated_ambient.pop("npcls_per_step")
-    deprecated_ambient["inject_face"] = "z_high"
-    deprecated_ambient["pos_low"] = [0.0, 0.0, 1.0e-3]
-    deprecated_ambient["pos_high"] = [1.0e-4, 1.0e-4, 1.0e-3]
-    with pytest.raises(ConfigValidationError, match="volume_seed"):
-        normalize_config_document(deprecated_subset_source)
-
-    duplicate_volume_source = copy.deepcopy(normalized)
-    duplicate_volume_source["particles"]["species"][1]["npcls_per_step"] = 1
-    with pytest.raises(ConfigValidationError, match="npcls_per_step=0"):
-        normalize_config_document(duplicate_volume_source)
-
-    disabled_with_matching_key = copy.deepcopy(normalized)
-    disabled_with_matching_key["surface_current_model"] = {
-        "model": "none",
-        "coupling_rtol": 1.0e-4,
-    }
-    with pytest.raises(ConfigValidationError, match='model="none"'):
-        normalize_config_document(disabled_with_matching_key)
-
-
-def _matching_plane_zhao_online_config() -> dict[str, object]:
-    root = Path(__file__).resolve().parents[2]
-    config = load_config_file(root / "tests/fortran/matching_plane_quasistatic.toml")
-    model = config["surface_current_model"]
-    model.pop("response_table_path")
-    model["response_backend"] = "zhao_online"
-    return config
-
-
-def test_matching_plane_zhao_online_config_contract() -> None:
-    implicit_branch = normalize_config_document(_matching_plane_zhao_online_config())
-    assert implicit_branch["surface_current_model"].get("zhao_branch", "auto") == "auto"
-    assert (
-        implicit_branch["surface_current_model"].get(
-            "zhao_root_selection", "require_unique"
-        )
-        == "require_unique"
-    )
-
-    implicit_online = _matching_plane_zhao_online_config()
-    implicit_online["surface_current_model"]["implicit_zero_mode"] = True
-    normalized_implicit = normalize_config_document(implicit_online)
-    assert normalized_implicit["surface_current_model"]["implicit_zero_mode"] is True
-    assert "response_table_path" not in normalized_implicit["surface_current_model"]
-
-    no_photo = _matching_plane_zhao_online_config()
-    no_photo["surface_current_model"].pop("photoelectron_species")
-    no_photo["particles"]["species"] = no_photo["particles"]["species"][:2]
-    normalized_no_photo = normalize_config_document(no_photo)
-    assert "photoelectron_species" not in normalized_no_photo["surface_current_model"]
-    assert len(normalized_no_photo["particles"]["species"]) == 2
-
-    for branch in ("auto", "a", "b", "c"):
-        config = _matching_plane_zhao_online_config()
-        config["surface_current_model"]["zhao_branch"] = branch
-        normalized = normalize_config_document(config)
-        model = normalized["surface_current_model"]
-        assert model["response_backend"] == "zhao_online"
-        assert model["zhao_branch"] == branch
-        assert "response_table_path" not in model
-
-    minimum_energy = _matching_plane_zhao_online_config()
-    minimum_energy["surface_current_model"]["zhao_root_selection"] = (
-        "minimum_energy"
-    )
-    normalized_minimum_energy = normalize_config_document(minimum_energy)
-    assert (
-        normalized_minimum_energy["surface_current_model"]["zhao_root_selection"]
-        == "minimum_energy"
-    )
-
-    continuation = _matching_plane_zhao_online_config()
-    continuation["surface_current_model"].update(
-        {
-            "zhao_branch": "a",
-            "zhao_root_selection": "continuation",
-            "implicit_zero_mode": True,
-        }
-    )
-    normalized_continuation = normalize_config_document(continuation)
-    assert (
-        normalized_continuation["surface_current_model"]["zhao_root_selection"]
-        == "continuation"
-    )
-
-    continuation_wrong_branch = copy.deepcopy(continuation)
-    continuation_wrong_branch["surface_current_model"]["zhao_branch"] = "b"
-    with pytest.raises(ConfigValidationError, match="continuation.*zhao_branch"):
-        normalize_config_document(continuation_wrong_branch)
-
-    continuation_without_implicit = copy.deepcopy(continuation)
-    continuation_without_implicit["surface_current_model"].pop("implicit_zero_mode")
-    with pytest.raises(ConfigValidationError, match="continuation.*implicit_zero_mode"):
-        normalize_config_document(continuation_without_implicit)
-
-    invalid_root_selection = _matching_plane_zhao_online_config()
-    invalid_root_selection["surface_current_model"]["zhao_root_selection"] = "first"
-    with pytest.raises(ConfigValidationError, match="zhao_root_selection"):
-        normalize_config_document(invalid_root_selection)
-
-    table_with_branch = load_config_file(
-        Path(__file__).resolve().parents[2]
-        / "tests/fortran/matching_plane_quasistatic.toml"
-    )
-    table_with_branch["surface_current_model"]["zhao_branch"] = "auto"
-    with pytest.raises(ConfigValidationError, match="Zhao-specific"):
-        normalize_config_document(table_with_branch)
-
-    table_with_root_selection = load_config_file(
-        Path(__file__).resolve().parents[2]
-        / "tests/fortran/matching_plane_quasistatic.toml"
-    )
-    table_with_root_selection["surface_current_model"]["zhao_root_selection"] = (
-        "minimum_energy"
-    )
-    with pytest.raises(ConfigValidationError, match="Zhao-specific"):
-        normalize_config_document(table_with_root_selection)
-
-    online_with_table = _matching_plane_zhao_online_config()
-    online_with_table["surface_current_model"]["response_table_path"] = (
-        "outer-response.csv"
-    )
-    with pytest.raises(ConfigValidationError, match="response_table_path"):
-        normalize_config_document(online_with_table)
-
-    invalid_backend = _matching_plane_zhao_online_config()
-    invalid_backend["surface_current_model"]["response_backend"] = "unknown"
-    with pytest.raises(ConfigValidationError, match="response_backend"):
-        normalize_config_document(invalid_backend)
-
-    inactive_axis_atol = _matching_plane_zhao_online_config()
-    inactive_axis_atol["surface_current_model"]["coupling_atol"] = [
-        0.0,
-        0.0,
-        1.0,
-        0.0,
-    ]
-    with pytest.raises(ConfigValidationError, match="inactive ambient-outward"):
-        normalize_config_document(inactive_axis_atol)
-
-    zhao_stationary = load_config_file(
-        Path(__file__).resolve().parents[2]
-        / "examples/periodic2_zhao_fixed_current.toml"
-    )
-    for key, value in (
-        ("response_backend", "zhao_online"),
-        ("zhao_root_selection", "minimum_energy"),
-    ):
-        invalid_stationary = copy.deepcopy(zhao_stationary)
-        invalid_stationary["surface_current_model"][key] = value
-        with pytest.raises(ConfigValidationError, match="matching-plane-specific"):
-            normalize_config_document(invalid_stationary)
-
-
 def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> None:
     root = Path(__file__).resolve().parents[2]
     refresh = load_config_file(root / "examples/periodic2_zhao_outflow_refresh.toml")
@@ -1194,74 +872,37 @@ def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> 
 
 
 @pytest.mark.parametrize(
-    ("key", "value"),
-    [
-        ("solar_elevation_deg", 60.0),
-        ("photoelectron_ref_density_m3", 1.0e6),
-        ("photoelectron_source_scale", 1.0),
-        ("reference_area_m2", 1.0),
-        ("outflow_refresh_batches", 1),
-    ],
-)
-def test_matching_plane_zhao_online_rejects_stationary_zhao_settings(
-    key: str, value: object
-) -> None:
-    config = _matching_plane_zhao_online_config()
-    config["surface_current_model"][key] = value
-
-    with pytest.raises(ConfigValidationError, match="stationary-Zhao"):
-        normalize_config_document(config)
-
-
-@pytest.mark.parametrize(
     ("role_index", "key", "value", "message"),
     [
         (0, "q_particle", -2.0 * 1.602176634e-19, "singly charged"),
         (2, "m_particle", 2.0 * 9.1093837139e-31, "matching ambient-electron"),
         (1, "m_particle", -1.0, "m_particle.*minimum"),
-        (0, "temperature_ev", 0.0, "positive electron temperature"),
-        (2, "temperature_ev", 0.0, "positive photoelectron temperature"),
+        (0, "temperature_ev", 0.0, "electron temperature must be positive"),
+        (2, "temperature_ev", 0.0, "photoelectron temperature must be positive"),
         (1, "temperature_ev", 2.0, "cold ions"),
-        (0, "drift_velocity", [0.0, 0.0, 0.0], "inward drift"),
+        (0, "drift_velocity", [0.0, 0.0, 1.0e3], "inward z-high"),
+        (1, "drift_velocity", [0.0, 0.0, 0.0], "inward z-high"),
         (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "drift_velocity.*finite"),
-        (1, "number_density_cm3", 0.0, "finite and > 0"),
+        (1, "number_density_cm3", 0.0, "finite and > 0|positive number density"),
     ],
 )
-def test_matching_plane_zhao_online_rejects_unsupported_species_contract(
+def test_zhao_stationary_rejects_unsupported_species_contract(
     role_index: int, key: str, value: object, message: str
 ) -> None:
-    config = _matching_plane_zhao_online_config()
+    root = Path(__file__).resolve().parents[2]
+    config = load_config_file(root / "examples/periodic2_zhao_fixed_current.toml")
     config["particles"]["species"][role_index][key] = value
 
     with pytest.raises(ConfigValidationError, match=message):
         normalize_config_document(config)
 
 
-@pytest.mark.parametrize(
-    ("key", "value", "message"),
-    [
-        ("coupling_rtol", 0.0, "coupling_rtol"),
-        ("coupling_rtol", float("nan"), "coupling_rtol"),
-        ("coupling_atol", [0.0, 0.0, 0.0], "coupling_atol"),
-        ("coupling_atol", [0.0, -1.0, 0.0, 0.0], "coupling_atol"),
-        ("coupling_atol", [0.0, float("nan"), 0.0, 0.0], "coupling_atol"),
-        ("coupling_max_iterations", 0, "coupling_max_iterations"),
-        ("coupling_max_iterations", 1.5, "coupling_max_iterations"),
-        ("coupling_relaxation", 1.1, "coupling_relaxation"),
-        ("response_table_path", "", "response_table_path"),
-        ("response_table_path", "x" * 257, "response_table_path"),
-        ("photoelectron_species", "", "non-empty string"),
-    ],
-)
-def test_matching_plane_rejects_invalid_model_values(
-    key: str, value: object, message: str
-) -> None:
+def test_zhao_stationary_accepts_a_nondrifting_electron_reservoir() -> None:
     root = Path(__file__).resolve().parents[2]
-    config = load_config_file(root / "tests/fortran/matching_plane_quasistatic.toml")
-    config["surface_current_model"][key] = value
-
-    with pytest.raises(ConfigValidationError, match=message):
-        normalize_config_document(config)
+    config = load_config_file(root / "examples/periodic2_zhao_fixed_current.toml")
+    config["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0, 0.0]
+    normalized = normalize_config_document(config)
+    assert normalized["particles"]["species"][0]["drift_velocity"] == [0.0, 0.0, 0.0]
 
 
 def test_config_cli_init_validate_and_diff(
@@ -1325,22 +966,6 @@ def test_lint_cli_accepts_valid_config(
     assert "schema=package:beach.config/schemas/beach.schema.json" in streams.out
     assert "checks=toml,schema,semantic" in streams.out
     assert "status=ok" in streams.out
-
-
-def test_lint_cli_checks_resolved_matching_response_path(tmp_path: Path) -> None:
-    root = Path(__file__).resolve().parents[2]
-    nested = tmp_path / ("a" * 100) / ("b" * 100)
-    nested.mkdir(parents=True)
-    config_path = nested / "beach.toml"
-    config_path.write_text(
-        (root / "tests/fortran/matching_plane_quasistatic.toml").read_text(
-            encoding="utf-8"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(SystemExit, match="response_table_path.*256"):
-        beachx_main(["lint", str(config_path)])
 
 
 def test_lint_cli_accepts_output_restart_from(

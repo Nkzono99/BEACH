@@ -67,7 +67,7 @@ z_high = "reservoir"
 Maxwell 分布または速度 grid、面ごとの流束と端数、無限遠の plasma 電位から境界までの補正は
 [境界から粒子を流入させる](ReservoirInjection.html)で説明します。このモデルは box 外の軌道や
 自己無撞着な外部 sheath を解きません。外部 sheath 応答そのものが必要なら
-[matching-plane 準定常連成](MatchingPlaneCoupling.html)を検討してください。
+[Zhao closure](ZhaoStationaryClosure.html)を検討してください。
 
 ## 照射面から放出する: `photo_raycast`
 

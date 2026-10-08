@@ -136,11 +136,10 @@ For total surface charge $Q=\sum_iq_i$, current choices are:
 Neither solves dielectric screening or polarization. `symmetric_vacuum` is the minimal symmetric closure without an additional
 interface or permittivity; `e_bottom_zero` exists for legacy reproduction and is not a universal physical default.
 
-With `matching_plane_quasistatic`, BEACH passes
-$D_H=\epsilon_0E_\mathrm{bottom}+Q/A$, derived from the same lower closure and complete surface charge, to the outer response.
-The returned $(H,\Phi_H)$ becomes the zero-mode gauge point. This preserves the field and Gauss's law while making the inner
-potential continuous with the outer sheath; it does not add the outer field profile inside BEACH. See
-[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for configuration and the height-dependence test.
+With `surface_current_model.model="zhao_stationary"`, the wall potential $\phi_0$ of the outer-sheath root becomes the
+zero-mode gauge point $(H,\phi_0)$ at z-high. A constant potential in vacuum preserves the field and Gauss's law, and the
+inner potential becomes referenced to the upstream plasma at 0 V; the outer field profile is not added inside BEACH. The
+zero-current targets hold the total charge at the floating condition. See the [Zhao closure](ZhaoStationaryClosure.en.html).
 
 ### Can the outer sheath field replace the entire mean field?
 
@@ -150,8 +149,8 @@ field alone drops this surface-charge contribution and violates $dE_0/dz=\bar\rh
 
 A prescribed stationary background must still distinguish sheath space charge from grain-layer surface charge and match
 the boundary potential and displacement. The outer solution and BEM must not count the same surface charge twice.
-The current matching-plane model obtains the internal mean field from surface charges and takes the potential and barriers
-from the response outside the interface. This separation does not remove the time-step restriction caused by freezing
+The current Zhao closure obtains the internal mean field from surface charges and takes the potential reference and
+barriers from the zero-current root of the outer sheath. This separation does not remove the time-step restriction caused by freezing
 local fields within a batch; see [batch-duration validation](BatchDurationStability.en.html).
 
 ## Search periodic images reachable by particle trajectories

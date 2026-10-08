@@ -187,7 +187,7 @@ beachx animate outputs/tutorial \
 | 全ファイルの生成条件 | [ファイル生成条件](OutputReference.html#ファイル生成条件) |
 | field solver、periodic2、粒子境界の解決結果 | [構成固有の receipt](OutputReference.html#構成固有の値を探す) |
 | `zhao_stationary` の signed 電流と補正 | [`zhao_stationary`](OutputReference.html#zhao_stationary) |
-| matching-plane の accepted state | [`matching_plane_quasistatic`](OutputReference.html#matching_plane_quasistatic) |
+| 外部根を更新したときの外部状態 | [`zhao_stationary`](OutputReference.html#zhao_stationary) |
 | `charge_ledger.csv` の全列 | [charge ledger](OutputReference.html#charge-ledger) |
 | adaptive periodic2 の trial | [適応 batch の診断](OutputReference.html#適応-batch-の診断) |
 | checkpoint schema と必須ファイル | [再開に使うファイル](OutputReference.html#再開に使うファイル) |

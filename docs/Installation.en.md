@@ -67,11 +67,6 @@ python -m pip install fpm
 fpm --version
 ```
 
-Current source builds also provide `beach-zhao-response` for matching-plane response tables and `beach-zhao-atlas`
-for Zhao solvability maps. PyPI distributions may not include these auxiliary executables. Install the GitHub version
-above when you need them, then continue with the
-[matching-plane numerical and response-table reference](MatchingPlaneReference.en.html).
-
 ## Upgrade or remove
 
 ```bash

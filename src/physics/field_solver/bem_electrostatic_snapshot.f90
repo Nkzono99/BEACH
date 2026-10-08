@@ -2,7 +2,6 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
@@ -71,8 +70,6 @@ module bem_electrostatic_snapshot
     procedure :: measure_kneq0_potential_step => measure_snapshot_kneq0_potential_step
     procedure :: get_diagnostics => get_snapshot_diagnostics
     procedure :: set_matching_plane_gauge => set_snapshot_matching_plane_gauge
-    procedure :: clear_matching_plane_gauge => clear_snapshot_matching_plane_gauge
-    procedure :: get_matching_plane_displacement => get_snapshot_matching_plane_displacement
   end type electrostatic_snapshot_type
 
   interface
@@ -220,31 +217,6 @@ contains
       z_high, phi_high, self%zero_state &
       )
   end subroutine set_snapshot_matching_plane_gauge
-
-  subroutine clear_snapshot_matching_plane_gauge(self, mesh)
-    class(electrostatic_snapshot_type), intent(inout) :: self
-    type(mesh_type), intent(in) :: mesh
-
-    self%matching_plane_gauge_active = .false.
-    self%matching_plane_z = 0.0_dp
-    self%matching_plane_phi = 0.0_dp
-    call self%refresh(mesh)
-  end subroutine clear_snapshot_matching_plane_gauge
-
-  !> matching plane直下の法線電束密度 D_H = eps0 E_bottom + Q/A を返す。
-  function get_snapshot_matching_plane_displacement(self) result(displacement_c_m2)
-    class(electrostatic_snapshot_type), intent(in) :: self
-    real(dp) :: displacement_c_m2
-
-    if (.not. self%use_zero_mode) then
-      error stop 'matching-plane displacement requires an active periodic zero mode.'
-    end if
-    if (self%zero_plan%area_xy <= 0.0_dp) then
-      error stop 'matching-plane displacement requires positive periodic area.'
-    end if
-    displacement_c_m2 = eps0*self%zero_state%e_bottom + &
-                        self%zero_state%total_charge/self%zero_plan%area_xy
-  end function get_snapshot_matching_plane_displacement
 
   subroutine get_snapshot_diagnostics(self, diagnostics)
     class(electrostatic_snapshot_type), intent(in) :: self

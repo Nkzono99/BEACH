@@ -27,7 +27,6 @@ contains
   module procedure init_particle_batch_from_config
 
   integer(i32) :: s, i, face, local_rank, n_ranks, global_count
-  integer(i32) :: sample_index, sampling_order(cfg%n_particle_species)
   integer(i32) :: source_begin, source_end, face_begin, face_end
   integer(i32) :: boundary_status
   integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
@@ -239,22 +238,7 @@ contains
   end if
   counts_max = source_counts + sum(boundary_counts, dim=1)
   allocate (sampled(cfg%n_particle_species))
-  sampling_order = [(s, s=1, cfg%n_particle_species)]
-  if (trim(lower_ascii(cfg%surface_current%model)) == 'matching_plane_quasistatic') then
-    ! The PE source supplies the outer fixed-point feedback.  Draw it before
-    ! response-dependent reservoir counts/samplers consume the replay RNG.
-    ! Assembly below retains the configured species IDs and particle order.
-    do s = 1, cfg%n_particle_species
-      if (.not. cfg%particle_species(s)%enabled) cycle
-      if (trim(lower_ascii(cfg%particle_species(s)%species_key)) /= &
-          trim(lower_ascii(cfg%surface_current%photoelectron_species))) cycle
-      sampling_order(1) = s
-      sampling_order(2:s) = [(i, i=1, s - 1)]
-      exit
-    end do
-  end if
-  do sample_index = 1, cfg%n_particle_species
-    s = sampling_order(sample_index)
+  do s = 1, cfg%n_particle_species
     if (counts_max(s) <= 0_i32) cycle
     allocate (sampled(s)%x(3, counts_max(s)), sampled(s)%v(3, counts_max(s)), &
               sampled(s)%w(counts_max(s)), sampled(s)%source_element(counts_max(s)))

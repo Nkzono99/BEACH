@@ -67,7 +67,7 @@ z_high = "reservoir"
 See [inflow through a simulation boundary](ReservoirInjection.en.html) for Maxwell or velocity-grid distributions,
 per-face flux and remainder, and correction from an upstream plasma potential to the boundary. This model does not solve
 trajectories or a self-consistent sheath outside the box. If the case needs an outer sheath response itself, consider
-[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html).
+the [Zhao closure](ZhaoStationaryClosure.en.html).
 
 ## Emit from illuminated surfaces: `photo_raycast`
 

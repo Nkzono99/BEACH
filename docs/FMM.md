@@ -172,7 +172,7 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 - 対応する場境界は `free` と `periodic2`。完全な互換表は[場の評価](FieldSolvers.html#solverと場境界の互換表)に従う。
 - mesh geometry は実行中に固定される。電荷だけが batch ごとに更新される。
 - `field_normalization` を変更しても、出力される電場と電位は SI 単位へ戻される。
-- FMM 自体は外部 plasma / sheath を解かない。matching-plane response は FMM の外側で合成される。
+- FMM 自体は外部 plasma / sheath を解かない。外部シース closure の電位基準は FMM の外側で周期 k=0 成分へ与える。
 
 FMM の数式、内部 API、geometry と電荷状態の分離、範囲外 fallback、OpenMP 実装を調べる開発者は
 [Coulomb FMMコア内部実装](FMMCore.html)へ進んでください。

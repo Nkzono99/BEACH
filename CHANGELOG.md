@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
-- Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.stationary.outflow_refresh_batches`) for
+- Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.coupling.outflow_refresh_batches`) for
   `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
   z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the
   surface emission target and the per-batch floating targets stay unchanged. The accepted outer state is written to the
@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.
 
 ### Changed
+- `zhao_stationary` now accepts a nondrifting ambient-electron reservoir (`drift_velocity` z component 0).
 - The supported boundary workflow is now local reservoir injection plus closed
   photoelectron reflection/neutral-return closure. `[external_boundary]` is
   limited to local-source inflow and ordinary open-face behavior.
@@ -37,6 +38,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - The mesh-input default is now deterministic `mode="template"`. Explicit `mode="auto"` remains available but, like `mode="obj"`, requires an OBJ `surface_side` so either file-selection branch has a complete triangle-panel contract.
 
 ### Removed
+- Removed the unreleased `matching_plane_quasistatic` coupling (table and `zhao_online` backends, `implicit_zero_mode`,
+  `zhao_root_selection`, `coupling_*` keys, fixed-point replay, `beach-zhao-response`, `beach-zhao-atlas`, and the offline
+  `beach-kinetic-*` oracle). For a cell much smaller than the Debye length the mean charge is a stiff, noise-dominated
+  state; `zhao_stationary` with `outflow_refresh_batches` replaces it by enforcing the floating condition every batch
+  and re-solving only the outer root. The grouped `sheath.stationary.*` keys moved to `sheath.photoelectrons.*`,
+  `sheath.reference_area_m2`, and `sheath.coupling.outflow_refresh_batches`.
 - **BREAKING**: Removed the self-consistent outer-plasma/sheath subsystem,
   including `[outer_plasma]` and `[coupling]`, kinetic/Zhao closures, interface
   particle transfer, delayed return queues, outer checkpoint state and

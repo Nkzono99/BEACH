@@ -75,17 +75,14 @@ flowchart TD
    checkpoint を書きます。`main` は最終的に [`bem_output_writer.f90`](../src/runtime/bem_output_writer.f90) から
    summary、CSV、最終 checkpoint を公開します。
 
-matching-plane の初期化、試行状態、固定点判定、継続解の確定は
-[`bem_matching_plane_coupling.f90`](../src/runtime/sheath/bem_matching_plane_coupling.f90) が管理します。
-陰的な面平均電荷の更新と根探索は
-[`bem_matching_plane_implicit.f90`](../src/runtime/sheath/bem_matching_plane_implicit.f90) に分かれています。
-主ループはこれらの内部状態を直接変更せず、粒子の再試行とバッチ全体の受理・電荷反映を進めます。
+外部シースの根を観測 PE 流出で更新する場合は、
+[`bem_zhao_outflow_refresh.f90`](../src/runtime/sheath/bem_zhao_outflow_refresh.f90) が accepted batch の
+H 通過モーメントを窓に集め、窓が満ちたら根を解き直して次の batch の closure と z-high 電位基準を返します。
+主ループはこの内部状態を直接変更せず、commit 後に一度だけ呼び出します。
 
-adaptive batch-duration は手順 5--7 を同じ batch 開始 state から再生します。matching-plane 固定点反復では、
-応答と snapshot の gauge も更新して手順 4--7 を再生します。棄却 trial の候補電荷、粒子 outcome、RNG、
-macro 粒子端数、outer state は accepted state にしません。受理・rollback の
-詳細は[`batch_duration` の理論](BatchDurationTheory.html)と
-[matching-plane 準定常連成](MatchingPlaneCoupling.html)を参照してください。
+adaptive batch-duration は手順 5--7 を同じ batch 開始 state から再生します。棄却 trial の候補電荷、粒子 outcome、
+RNG、macro 粒子端数は accepted state にしません。受理・rollback の詳細は
+[`batch_duration` の理論](BatchDurationTheory.html)を参照してください。
 
 ## 主要 state の所有者を確認する
 
@@ -112,13 +109,11 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | 処理 | 公開入口 | 実装の担当 |
 | --- | --- | --- |
 | 場の評価 | `bem_field_solver.f90` | `_config` は設定解決、`_tree` は treecode の木とモーメント、`_fmm` は FMM core のパネル幾何・電荷状態、`_eval` は評価方式の切り替え |
-| 外部シース応答 | `bem_matching_plane_response_provider.f90` | 親 module はモデル評価とフィードバックの契約、`_mpi` は設定からの初期化・rank 間の合意・root の評価結果の配信 |
-| 応答テーブル | `bem_matching_plane_response.f90` | 親 module は不変 snapshot の共有と補間、`_io` は CSV 読み込み・格子検証、`_mpi` は root の読込結果の配信 |
 | Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
 | Python の設定処理 | [`beach/config/core.py`](../beach/config/core.py) | 共通の schema・正規化・意味的検証を呼ぶ。`_authoring.py` は空間指定、`_runtime_validation.py` は場・粒子・表面電流・mesh の検証を担当 |
-| Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に連成状態・場の再構築メタデータを委譲する |
+| Python の結果読み込み | [`beach/fortran_results/io.py`](../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../beach/fortran_results/_field_reconstruction_io.py) に外部シース状態・場の再構築メタデータを委譲する |
 
 FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、電荷から計算する作業状態は
 `%fmm_core_state` が保持します。旧 FMM の複製 view と未使用の局所展開配列は削除しました。
@@ -179,81 +174,26 @@ Gauss 則を積分します。非ゼロ成分を Fourier 参照計算で求め�
 
 ### シースと外部応答の担当
 
-`src/physics/sheath/` はシースの物理モデルと入出力の契約を持ち、`app_config`、MPI、ファイルシステム、
-simulator には依存しません。設定とバッチ状態の接続は `src/runtime/sheath/`、応答表生成と分岐診断は
-`src/tools/sheath/` に分かれています。モジュール名と公開入口は配置を変えても維持しています。
-
-Zhao は 5 入力・6 出力の個数と添字を `bem_matching_plane_contract` から読みます。
-応答表モジュールも同じ定数を公開するため、従来の呼び出し元はそのまま使えます。
-応答表の CSV 読み込み・MPI 配信は runtime が担当し、物理モデルからは参照しません。
-主な依存の向きは次のとおりです。
+`src/physics/sheath/` はシースの物理モデルと境界契約を持ち、`app_config`、MPI、ファイルシステム、simulator には
+依存しません。設定とバッチ状態への接続は `src/runtime/sheath/` が担当します。
 
 ```mermaid
 flowchart LR
-  simulator["simulator: バッチ制御"] --> runtime["runtime/sheath: 設定・連成・MPI"]
-  tools["tools/sheath: 表生成・診断"] --> runtime
-  runtime --> table["runtime/sheath/table: 読込・補間・配信"]
-  runtime --> zhao["physics/sheath/zhao: 物理モデル"]
-  table --> contract["physics/sheath: 入出力の契約"]
-  zhao --> contract
+  simulator["simulator: バッチ制御"] --> refresh["runtime/sheath: 外部根の更新"]
+  simulator --> model["runtime/sheath: 設定から closure へ"]
+  refresh --> model
+  model --> zhao["physics/sheath/zhao: Zhao 零電流根"]
+  model --> contract["physics/sheath: 境界契約"]
 ```
 
 | ディレクトリ（`src/` 以下） | ファイル | 担当 |
 | --- | --- | --- |
-| `physics/sheath/` | `bem_surface_closure_contract.f90` | simulator が受け取る電流・境界条件のデータ型。モデル固有の解法は持たない |
-| `physics/sheath/` | `bem_matching_plane_contract.f90` | matching-plane 応答の入力・出力の個数と添字。物理モデルと応答表が共有 |
-| `physics/sheath/zhao/` | `bem_sheath_model_core.f90` | Zhao モデルの密度・電荷密度・残差式と、定常解の非線形方程式 |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao.f90` | 公開型、初期化、評価の入口、再開用 seed の復元。入力から解選択・応答変換への呼び出しを管理 |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao_physics.f90` | query の物理量への変換、未知数のパラメータ化、残差式、Sagdeev 積分、接続プロファイルの成立条件、エネルギーと流入応答 |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao_numerics.f90` | 分岐ごとの初期推定、減衰 Newton 法、差分 Jacobian、小規模線形解法 |
-| `physics/sheath/zhao/` | `bem_matching_plane_zhao_roots.f90` | A/B/C 候補の列挙、同じ根の重複除去、一意性・最小エネルギーによる選択、Type-A 継続解の追跡と再探索 |
-| `runtime/sheath/` | `bem_surface_current_model.f90` | 設定と定常シース解を、粒子種別の吸収・放出・流入電流へ変換 |
-| `runtime/sheath/` | `bem_matching_plane_coupling.f90` | 連成の初期化、試行状態、固定点判定、継続解の確定と simulator への受け渡し |
-| `runtime/sheath/` | `bem_matching_plane_implicit.f90` | 硬い面平均帯電を後退 Euler で解く。応答モデルを反復評価し、根の挟み込みと電束密度の探索区間の細分化を行う |
-| `runtime/sheath/` | `bem_matching_plane_response_provider.f90` | table / online Zhao の共通入口と、フィードバックの範囲・尺度・収束判定 |
-| `runtime/sheath/` | `bem_matching_plane_response_provider_mpi.f90` | provider の設定解決、rank 間の設定・query 合意、root で求めた応答の配信 |
-| `runtime/sheath/table/` | `bem_matching_plane_response.f90` | 応答表の保持、path ごとの snapshot cache、5 次元補間、補間軸の取得 |
-| `runtime/sheath/table/` | `bem_matching_plane_response_io.f90` | CSV の構文・単位付き列名・格子の欠損や重複を検証して応答表を構築 |
-| `runtime/sheath/table/` | `bem_matching_plane_response_mpi.f90` | root が読んだ補間軸・値・高度・出典 path を全 rank に配信 |
-| `tools/sheath/` | `bem_matching_plane_query_io.f90` | オフラインツール共通の query CSV 読み込み。列名・列数・十進数構文・有限値を検証し、入力順で行を返す |
-| `tools/sheath/` | `bem_matching_plane_response_generator.f90` | online Zhao を格子上で評価して、実行用の応答 CSV を作るオフラインツール |
-| `tools/sheath/` | `bem_matching_plane_zhao_atlas.f90` | A/B/C 分岐の成立範囲や失敗理由を調べるオフライン診断ツール |
+| `physics/sheath/` | `bem_surface_closure_contract.f90` | simulator が受け取る電流 target、流入写像、外向き障壁、z-high 電位基準のデータ型。モデル固有の解法は持たない |
+| `physics/sheath/zhao/` | `bem_sheath_model_core.f90` | Zhao モデルの密度・電荷密度・残差式と、A/B/C 零電流根の非線形方程式 |
+| `runtime/sheath/` | `bem_surface_current_model.f90` | 設定から Zhao 入力を作り、表面放出と外部放出源を分けて species 別の電流 target と境界写像へ変換 |
+| `runtime/sheath/` | `bem_zhao_outflow_refresh.f90` | 観測 PE 流出の窓平均で外部根を解き直し、外部状態を stats へ保存。再開時の根の再構成 |
 
-通常の連成では `bem_matching_plane_coupling` が provider を使い、陰解法を選んだ場合だけ
-`bem_matching_plane_implicit` を介します。runtime は継続用 seed など Zhao 固有の型を扱いますが、
-物理モデルから runtime を呼び返すことはありません。generator と atlas も provider の設定解決を使い、
-通常の batch loop には入りません。
 `src/physics/bem_surface_models*.f90` は物体側の電荷再配分・導体条件などを担当し、外部シース応答とは別です。
-
-定常問題は零電流条件を解き、matching-plane 問題は与えられた電束密度と粒子流束から外部応答を返すため、
-両者の根探索は同じ問題ではありません。
-
-Zhao の 3 つの実装は非公開 submodule です。呼び出し元は引き続き
-`matching_plane_zhao_model_type%evaluate` を使い、内部の根や Newton 法を直接扱いません。
-数値解法は物理式を評価し、解選択は数値解と接続プロファイルの成立条件を合わせて判断します。
-
-```mermaid
-flowchart LR
-  entry["zhao: 公開入口"] --> roots["roots: 解選択・継続"]
-  roots --> numerics["numerics: 根探索"]
-  numerics --> physics["physics: 物理量・残差・成立条件"]
-  roots --> physics
-  entry --> physics
-```
-
-分岐の成立条件や負の電場二乗を拒否する検査は物理モデルの一部です。候補は OpenMP で計算しても
-初期値の順番で選別し、エネルギー積分の加算順も固定して解選択の再現性を保ちます。
-Type-A 継続では受理済みの根から解き、大きく移動した場合や局所探索に失敗した場合には候補を再探索します。
-陰解法の継続用 seed は MPI root が保持し、更新後の電束密度と応答を全 rank に配信します。
-
-query CSV の形式検証は共通ですが、用途ごとの条件はツール側が持ちます。generator は 5 入力の
-非負流束・エネルギーと完全な直積格子を要求します。atlas は 3 入力の任意の query 群を読み、負の有限値も
-分岐ごとの不成立理由を記録するために受け付けます。応答表の読み込みと補間は引き続き response 側の担当です。
-
-応答表のハッシュ照合は廃止し、root の読込結果を配信します。補間軸が必要なコードは
-`call table%get_axis_data(axis_sizes, axis_values, matching_plane_z_m, status, message)` を使います。
-再開時はメッシュ識別子だけを照合し、モデル・粒子種・応答内容の fingerprint は生成しません。
-FMM の演算子キャッシュには、別条件の演算子を再利用しないための識別子を残しています。
 
 ### 粒子配列を直接生成する
 
@@ -305,7 +245,7 @@ call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_
 | field snapshot、Direct / Treecode / FMM、periodic2 | `src/physics/field_solver/` | [`test_electrostatic_snapshot.f90`](../tests/fortran/test_electrostatic_snapshot.f90)、[`test_dynamics_field_solver.f90`](../tests/fortran/test_dynamics_field_solver.f90)、[`test_panel_kernel.f90`](../tests/fortran/test_panel_kernel.f90)、`test_dynamics_fmm`、`test_periodic_zero_mode`、`test_periodic2_cached_snapshot` | [場の評価](FieldSolvers.html)、[FMM](FMM.html)、[periodic2 静電場](PeriodicElectrostatics.html) |
 | particle source と injection | `bem_app_config_particle_runtime.f90`、`src/particles/` | [`test_injection_sampling.f90`](../tests/fortran/test_injection_sampling.f90)、[`test_reservoir_injection.f90`](../tests/fortran/test_reservoir_injection.f90)、[`test_external_field_velocity_grid.f90`](../tests/fortran/test_external_field_velocity_grid.f90) | [粒子をどこから入れるか](ParticleSourcesBoundaries.html)、[境界から粒子を流入させる](ReservoirInjection.html)、[光電子放出](PhotoelectronEmission.html) |
 | Boris、collision、box event | `bem_particle_stepper.f90`、`bem_pusher.f90`、`bem_collision.f90`、`bem_boundary.f90` | [`test_particle_stepper.f90`](../tests/fortran/test_particle_stepper.f90)、[`test_boundary.f90`](../tests/fortran/test_boundary.f90)、`test_dynamics_basic` | [粒子更新](ParticleTrackingCollision.html)、[Boris](BorisPusher.html)、[粒子 event](ParticleEvents.html) |
-| surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`src/runtime/sheath/`、`bem_simulator_charge.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90)、`test_matching_plane_simulator` | [表面はどう帯電するか](SurfaceModels.html)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[matching-plane 連成](MatchingPlaneCoupling.html) |
+| surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`src/runtime/sheath/`、`bem_simulator_charge.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../tests/fortran/test_charge_ledger.f90)、[`test_zhao_outflow_refresh.f90`](../tests/fortran/test_zhao_outflow_refresh.f90) | [表面はどう帯電するか](SurfaceModels.html)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[Zhao closure](ZhaoStationaryClosure.html) |
 | stats、output、checkpoint、restart | `bem_simulator_stats.f90`、`bem_simulator_io.f90`、`bem_output_writer.f90`、`bem_periodic_checkpoint.f90`、`bem_restart.f90` | [`test_output_writer_io.f90`](../tests/fortran/test_output_writer_io.f90)、[`test_output_writer_potential.f90`](../tests/fortran/test_output_writer_potential.f90)、[`test_restart.f90`](../tests/fortran/test_restart.f90) | [出力ガイド](OutputGuide.html)、[実行と再開](Execution.html)、`SPEC.md` の出力・再開契約 |
 | Python reader、解析、可視化 | `beach/` | `tests/python/test_fortran_results.py`、対応する CLI / analysis test | [後処理チュートリアル](PostprocessTutorial.html)、[Python API](PythonPostprocessAPI.html) |
 

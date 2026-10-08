@@ -122,7 +122,7 @@ beach.toml
 | `[field_boundary]` | root | 任意 | 場の`free` / `periodic2` closure |
 | `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
 | `[reservoir]` | root | 任意 | 外部reservoirの流入障壁と基準電位 |
-| `[surface_current_model]` | root | 任意 | species別`fixed_current` targetまたはmatching-plane応答を解く外部シースclosure |
+| `[surface_current_model]` | root | 任意 | 外部シースの零電流根から species別`fixed_current` targetと障壁を与えるclosure |
 | `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
@@ -337,38 +337,27 @@ face_potential_grid_n = 3
 | `model` | 効果 | 詳細 |
 |---|---|---|
 | `none` | 外部シース closure を使わない | species 側の `surface_charge_closure` を設定 |
-| `zhao_stationary` | Zhao 定常根から固定電流と z-high のエネルギー障壁を決定 | [Zhao stationary closure](ZhaoStationaryClosure.html) |
-| `matching_plane_quasistatic` | box 上端を外部シース応答と準定常連成 | [matching-plane 準定常連成を使う](MatchingPlaneCoupling.html) |
+| `zhao_stationary` | 外部 1-D シースの Zhao 零電流根から species 別電流と z-high のエネルギー障壁を決定 | [Zhao closure](ZhaoStationaryClosure.html) |
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
-| `response_backend` | string | `"table"` | matchingの応答源。`table` / `zhao_online` |
-| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
-| `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は最小電位エネルギー根を選択、`continuation` は accepted Type A root を追跡。`continuation` には `zhao_branch="a"` と `implicit_zero_mode=true` が必須。stationary / table では指定不可。詳細は[数値・応答表リファレンス](MatchingPlaneReference.html#zhao_root_selection) |
-| `electron_species` | string | 未指定 | ambient electron の `species_key`。Zhao / matching で必須、1–64 文字 |
-| `ion_species` | string | 未指定 | cold ion の `species_key`。Zhao / matching で必須、1–64 文字 |
-| `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字、matching で省略すると PE なし |
-| `solar_elevation_deg` | float | stationaryのPE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
-| `photoelectron_ref_density_m3` | float | stationaryのPE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3]。`>0` |
-| `photoelectron_source_scale` | float | `1.0` | stationary Zhao の $s_{UV}$。`>=0`、0 は PE なし |
-| `reference_area_m2` | float | domainのx-y面積 | Zhao電流密度を総電流へ変換する面積 [m^2]。`>0`、matching では指定不可 |
-| `outflow_refresh_batches` | int | `0` | stationary Zhao の外部根を、accepted batch N 個ごとに z-high で観測した PE 流出から解き直す。`>=0`、0 は初期根を固定。matching では指定不可 |
-| `response_table_path` | string | table matchingで必須 | 外部シース応答 CSV v1。解決後 1–256 文字、online では指定不可 |
-| `implicit_zero_mode` | bool | `false` | matching の面平均 $D_H$ を後退 Euler 更新。`e_bottom_zero` が必須。table は有限 $D_H$ 軸と singleton feedback、online は CSV なしで選択 branch の終点を探索 |
-| `coupling_rtol` | float | `1.0e-4` | matching固定点反復の相対収束許容値。有限な$0<r\le1$ |
-| `coupling_atol` | float[4] | `[0.0, 0.0, 0.0, 0.0]` | feedback成分ごとの絶対許容値。順にPE外向きflux [m^-2 s^-1]、PE平均法線energy [eV]、electron外向きflux [m^-2 s^-1]、ion外向きflux [m^-2 s^-1]。各値は有限かつ非負、inactive成分は0 |
-| `coupling_max_iterations` | int | `20` | matching固定点反復の最大回数。`>=1` |
-| `coupling_relaxation` | float | `0.5` | matching更新の緩和係数。有限な$0<\omega\le1$ |
-
-#### Zhao stationary closure
+| `model` | string | `"none"` | `none` / `zhao_stationary` |
+| `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。PE なしは `auto` / `c` のみ |
+| `electron_species` | string | 未指定 | ambient electron の `species_key`。必須、1–64 文字 |
+| `ion_species` | string | 未指定 | cold ion の `species_key`。必須、1–64 文字 |
+| `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字 |
+| `solar_elevation_deg` | float | PE有効時に必須 | 表面放出に使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
+| `photoelectron_ref_density_m3` | float | PE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3]。`>0` |
+| `photoelectron_source_scale` | float | `1.0` | $s_{UV}$。`>=0`、0 は PE なし |
+| `reference_area_m2` | float | domainのx-y面積 | 電流密度を総電流へ変換する面積 [m^2]。`>0` |
+| `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE 流出から解き直す。`>=0`、0 は初期根を固定 |
 
 入力制約:
 
 | 項目 | 必要条件 |
 |---|---|
 | role species | enabled、相互に異なる、`surface_charge_closure="fixed_current"` |
-| ambient electron / ion | z-high reservoir から内向きに流入、手動 `target_*_current_a` は指定不可 |
+| ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下（0 は drift なし）、ion は負。手動 `target_*_current_a` は指定不可 |
 | PE なし | `photoelectron_source_scale=0.0`、PE 固有キーは省略、`zhao_branch="auto"` または `"c"` |
 | PE あり | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`、有効な z-high 境界は `open` |
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$ |
@@ -376,47 +365,17 @@ face_potential_grid_n = 3
 | 外部根の更新 | `outflow_refresh_batches>0` では PE あり、`field_boundary.mode="periodic2"`、x/y 周期、明示的な split `[periodic2]` |
 
 PEなしType Cは$J_e+J_i=0$を満たすelectron/ion吸収targetとz-high kinetic barrier mapだけを生成し、
-PE emission / return / escape targetは生成しません。
+PE emission / return / escape targetは生成しません。PE がないと H を出る PE 流出がないため、外部根の更新は使えません。
 `ion_species.number_density_*` は無限遠 ion 密度です。electron 密度と PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
 
-この model は定常電流 closure であり、box 外の過渡シースは解きません。split `[periodic2]` では z-high 面の水平平均電位を
-外部シースの壁電位 $\phi_0$ に固定し、x/y 周期では外部障壁で戻る粒子をセル内の一様な位置へ戻します。
-`outflow_refresh_batches>0` は外部根を観測 PE 流出から準定常に解き直す弱連成です。電流・障壁・PE return・更新の定義と出力は
-[Zhao stationary closure](ZhaoStationaryClosure.html)を参照してください。
+split `[periodic2]` では z-high 面の水平平均電位を外部シースの壁電位 $\phi_0$ に固定し、x/y 周期では外部障壁で
+戻る粒子をセル内の一様な位置へ戻します。`outflow_refresh_batches>0` は外部根を観測 PE 流出から準定常に解き直す
+弱連成です。box 外の過渡シースは解きません。電流・障壁・PE return・更新の定義と出力は
+[Zhao closure](ZhaoStationaryClosure.html)を参照してください。`model="none"` では `model` 以外を指定しません。
+廃止済みの `[outer_plasma]` / `[coupling]` と matching-plane 連成は未対応です。
 
 計算例は `examples/periodic2_zhao_fixed_current.toml`、外部根を更新する例は
 `examples/periodic2_zhao_outflow_refresh.toml` です。
-
-#### Matching-plane quasistatic closure
-
-`response_backend="table"` は外部応答 CSV、`"zhao_online"` は BEACH 内の有限 $H$ Zhao 応答を使います。
-PE なしでは `photoelectron_species` を省略します。table の PE flux / energy 入力軸も 0 にします。
-matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain の x-y 面積です。すべての mesh 頂点を $H$ より下に置きます。
-
-次の入力契約をすべて満たす必要があります。
-
-| 項目 | 必要条件 |
-|---|---|
-| box / 場 | x/y 周期・z 非周期 open、`field_boundary.mode="periodic2"`、明示的な `[periodic2]` split 設定 |
-| split | `nonzero_mode_backend` は `cached_kneq0` または `panel_spectral_reference`、`zero_mode_policy="exclude_k0"`、下側は `e_bottom_zero` または `symmetric_vacuum` |
-| 外部場・開放面 | `sim.e0=sim.b0=[0,0,0]`、`ordinary_open_model="escape"`、generic reservoir potential model は使用不可 |
-| event policy | `abort`、または率・件数猶予・絶対電荷警告閾値を指定した `soft_discard` |
-| role | enabled かつ相互に異なる electron / ion / 任意の PE だけを置き、`surface_charge_closure="explicit"` |
-| electron / ion source | それぞれ負 / 正電荷、z-high の `boundary_inflow="reservoir"` のみ。`source_mode` と `npcls_per_step` の解決値は `volume_seed` と `0`（両キーは省略可） |
-| PE source | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true` |
-| 粒子境界 | 全 role で x/y は `periodic`、z-low/z-high は `open` |
-| 電流 target | 手動 `fixed_current` target は指定不可 |
-
-| backend | 必須・禁止・物性制約 |
-|---|---|
-| `table` | `response_table_path` が必須、`zhao_branch` と `zhao_root_selection` は指定不可 |
-| `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c`。`zhao_root_selection` は `require_unique` / `minimum_energy` / `continuation`。`continuation` は明示的な Type A と `implicit_zero_mode=true` に限定。implicit mode では response/query CSV なしで選択 branch の終点を探索 |
-| `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity` の z 成分は負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
-| matching 共通 | stationary 専用の `solar_elevation_deg`、`photoelectron_ref_density_m3`、`photoelectron_source_scale`、`outflow_refresh_batches` は指定不可 |
-
-`model="none"` では `model` 以外を指定しません。廃止済みの `[outer_plasma]` / `[coupling]` は未対応です。
-model の選択、物理的意味、適用限界は[matching-plane 準定常連成を使う](MatchingPlaneCoupling.html)、
-CSV 契約、陰的更新、固定点反復は[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)を参照してください。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
 
@@ -850,7 +809,7 @@ z 軸方向の円柱です。
 | `resume` | bool | `false` | 既存 checkpoint から再開 |
 | `restart_from` | string | なし | `resume=true` 時の checkpoint 読み込み元。指定時は `write_files=true` |
 
-生成条件、列定義、電位の評価規約、matching-plane の状態、ledger の解釈は
+生成条件、列定義、電位の評価規約、外部シース状態、ledger の解釈は
 [出力形式リファレンス](OutputReference.html)を参照してください。
 
 `resume=true` の要件:

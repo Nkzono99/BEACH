@@ -134,7 +134,6 @@ contains
     fixture_cfg%surface_current%electron_species = 'electron'
     fixture_cfg%surface_current%ion_species = 'ion'
     fixture_cfg%surface_current%photoelectron_species = 'photoelectron'
-    fixture_cfg%surface_current%has_photoelectron_species = .true.
     fixture_cfg%surface_current%solar_elevation_deg = 60.0_dp
     fixture_cfg%surface_current%photoelectron_ref_density_m3 = 64.0e6_dp
     fixture_cfg%surface_current%outflow_refresh_batches = refresh_batches

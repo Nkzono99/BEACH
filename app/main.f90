@@ -19,8 +19,6 @@ program main
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
-  use bem_matching_plane_response_provider, only: matching_plane_response_provider_type, &
-                                                  matching_plane_provider_ok
   implicit none
 
   type(mesh_type) :: mesh
@@ -241,22 +239,12 @@ contains
     type(mpi_context), intent(in) :: mpi
     character(len=256) :: cfg_path
     character(len=256) :: restart_dir
-    character(len=512) :: matching_response_message
-    integer(i32) :: matching_response_status
     logical :: has_config
-    type(matching_plane_response_provider_type) :: matching_response_provider
 
     call default_app_config(app)
     call resolve_config_path(cfg_path, has_config)
     if (has_config) then
       call load_app_config(trim(cfg_path), app)
-    end if
-
-    call matching_response_provider%initialize( &
-      app, mpi, matching_response_status, matching_response_message &
-      )
-    if (matching_response_status /= matching_plane_provider_ok) then
-      error stop 'matching-plane response preflight failed: '//trim(matching_response_message)
     end if
 
     call build_mesh_from_config(app, mesh)

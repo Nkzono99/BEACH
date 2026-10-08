@@ -22,14 +22,11 @@
     { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 140, "description": { "root": "open境界、scalar障壁、閉じた光電子のreturn。", "en": "Open boundaries, scalar barriers, and closed-photoelectron return." } },
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 145, "description": { "root": "periodic2の近傍画像、非一様場、平均場の役割。", "en": "Roles of near images, the nonuniform field, and the mean field in periodic2." } },
     { "source": { "root": "FinitePeriodicConfiguration.md", "en": "FinitePeriodicConfiguration.en.md" }, "slug": "finite-periodic-configuration", "order": 150, "description": { "root": "有限画像和、局所reservoir、閉じた光電子、scalar barrierの構成。", "en": "Finite image sums with local reservoirs, closed photoelectrons, and scalar barriers." } },
-    { "source": { "root": "MatchingPlaneCoupling.md", "en": "MatchingPlaneCoupling.en.md" }, "slug": "matching-plane-coupling", "order": 155, "description": { "root": "BEACH領域と外部1D sheath応答を準定常に接続する。", "en": "Couple the BEACH region to a quasistatic outer one-dimensional sheath response." } },
-    { "source": { "root": "OuterKineticOracle.md", "en": "OuterKineticOracle.en.md" }, "slug": "outer-kinetic-oracle", "order": 157, "description": { "root": "外部1D1V kinetic応答を独立計算し、matching-plane表への採用可否を判定する。", "en": "Compute an independent outer 1D1V kinetic response and decide whether it qualifies for a matching-plane table." } },
     { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 160, "description": { "root": "比較計算からbatch_durationを選び、adaptive進行を確認する。", "en": "Choose batch_duration from comparison runs and inspect adaptive progression." } },
     { "source": { "root": "Parameters.md", "en": "Parameters.en.md" }, "slug": "parameters", "order": 170, "description": { "root": "BEACH入力パラメータの完全なリファレンス。", "en": "Complete BEACH input parameter reference." } },
     { "source": { "root": "SurfaceChargeNumerics.md", "en": "SurfaceChargeNumerics.en.md" }, "slug": "surface-charge-numerics", "order": 171, "description": { "root": "表面電荷commit、浮遊導体方程式、並列集約の数値仕様。", "en": "Numerical specification of surface-charge commit, floating conductors, and reductions." } },
     { "source": { "root": "BatchDurationTheory.md", "en": "BatchDurationTheory.en.md" }, "slug": "batch-duration-theory", "order": 172, "description": { "root": "batch_duration依存性とadaptive制御の理論的背景。", "en": "Theory behind batch-duration dependence and adaptive control." } },
     { "source": { "root": "OutputReference.md", "en": "OutputReference.en.md" }, "slug": "output-reference", "order": 173, "description": { "root": "出力ファイル、主要receipt、CSV列、checkpoint契約の検索用リファレンス。", "en": "Lookup reference for output files, major receipts, CSV columns, and checkpoint contracts." } },
-    { "source": { "root": "MatchingPlaneReference.md", "en": "MatchingPlaneReference.en.md" }, "slug": "matching-plane-reference", "order": 174, "description": { "root": "matching-plane応答表、陰的平均電荷更新、固定点反復の数値契約。", "en": "Numerical contracts for matching-plane response tables, implicit mean-charge updates, and fixed-point iteration." } },
     { "source": { "root": "DirectSolver.md", "en": "DirectSolver.en.md" }, "slug": "direct-solver", "order": 175, "description": { "root": "P0 triangle panelのDirect場・電位評価。", "en": "Direct field and potential evaluation for P0 triangle panels." } },
     { "source": { "root": "Treecode.md", "en": "Treecode.en.md" }, "slug": "treecode", "order": 176, "description": { "root": "octree、monopole近似、mixed-sign電荷のTreecode。", "en": "Treecode octree, monopole approximation, and mixed-sign charge handling." } },
     { "source": { "root": "FMM.md", "en": "FMM.en.md" }, "slug": "fmm", "order": 177, "description": { "root": "FMMの選択、設定、精度比較、性能測定。", "en": "FMM selection, configuration, accuracy comparisons, and performance measurement." } },
@@ -86,8 +83,6 @@
         { "type": "page", "slug": "particle-escape-return", "label": { "root": "粒子のescapeとreturn", "en": "Particle escape and return" } },
         { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2静電場", "en": "periodic2 electrostatics" } },
         { "type": "page", "slug": "finite-periodic-configuration", "label": { "root": "有限画像の周期構成", "en": "Finite-image periodic setup" } },
-        { "type": "page", "slug": "matching-plane-coupling", "label": { "root": "matching-plane外部sheath連成", "en": "Matching-plane outer-sheath coupling" } },
-        { "type": "page", "slug": "outer-kinetic-oracle", "label": { "root": "外部kinetic応答を検証する", "en": "Validate an outer kinetic response" } },
         { "type": "page", "slug": "batch-duration-stability", "label": { "root": "batch_durationをどう決めるか", "en": "How to choose batch_duration" } }
       ]
     },
@@ -103,7 +98,6 @@
           "items": [
             { "type": "page", "slug": "surface-charge-numerics", "label": { "root": "表面電荷更新", "en": "Surface-charge update" } },
             { "type": "page", "slug": "batch-duration-theory", "label": { "root": "batch_durationの理論", "en": "batch_duration theory" } },
-            { "type": "page", "slug": "matching-plane-reference", "label": { "root": "matching-plane数値契約", "en": "Matching-plane numerics" } },
             { "type": "page", "slug": "direct-solver", "label": { "root": "Direct solver", "en": "Direct solver" } },
             { "type": "page", "slug": "treecode" },
             { "type": "page", "slug": "fmm", "label": { "root": "FMMを使う", "en": "Use FMM" } },

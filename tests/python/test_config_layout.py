@@ -13,14 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize('name', ['beach.toml', 'periodic2_zhao_fixed_current.toml',
-                                 'periodic2_zhao_outflow_refresh.toml',
-                                 'periodic2_matching_plane_zhao_online.toml'])
+                                 'periodic2_zhao_outflow_refresh.toml'])
 def test_released_input_roundtrip_keeps_physics(name):
     path=ROOT/'examples'/name
     if name=='beach.toml':
         path=ROOT/'tests/fixtures/config_layout/beach_legacy.toml'
-    if not path.exists():
-        path=ROOT/'examples/periodic2_matching_plane_quasistatic.toml'
     old=tomllib.loads(path.read_text())
     grouped=tomllib.loads(dump_beach_toml(old))
     assert set(grouped) <= {'run','domain','mesh','particles','fields','sheath','output'}
@@ -61,12 +58,12 @@ def test_boundary_only_species_has_no_standalone_source():
     assert resolved['particles']['species'][0]['boundary_inflow']=={'z_high':'reservoir'}
 
 
-def test_named_atol_is_independent_of_order_and_defaults_missing_components_to_zero():
-    grouped=to_grouped_layout(default_config())
-    grouped['sheath']={'closure':'none','coupling':{'atol':{
-        'ion_outward_flux_m2_s':4.0,'photoelectron_outward_flux_m2_s':1.0}}}
-    flat=to_runtime_layout(grouped)
-    assert flat['surface_current_model']['coupling_atol']==[1.0,0.0,0.0,4.0]
+def test_outflow_refresh_uses_the_grouped_coupling_table():
+    old=tomllib.loads((ROOT/'examples/periodic2_zhao_outflow_refresh.toml').read_text())
+    grouped=to_grouped_layout(old)
+    assert grouped['sheath']['coupling']=={'outflow_refresh_batches':2}
+    assert grouped['sheath']['photoelectrons']=={'solar_elevation_deg':60.0,'ref_density_m3':6.4e7}
+    assert to_runtime_layout(grouped)['surface_current_model']==old['surface_current_model']
 
 
 @pytest.mark.parametrize('mutation', [
@@ -93,22 +90,6 @@ def test_restart_presence_and_explicit_false_legacy_are_distinct():
     old=default_config()
     old['output']['resume']=False
     assert 'restart' not in to_grouped_layout(old)['run']
-
-
-def test_migrate_keeps_response_target_when_output_directory_changes(tmp_path):
-    from beach.cli.main import main
-    old=tomllib.loads((ROOT/'examples/periodic2_matching_plane_quasistatic.toml').read_text())
-    old['surface_current_model']['response_table_path']='response.csv'
-    source=tmp_path/'source/input.toml'
-    source.parent.mkdir()
-    import tomli_w
-    source.write_text(tomli_w.dumps(old))
-    destination=tmp_path/'dest/grouped.toml'
-    main(['config','migrate',str(source),str(destination)])
-    grouped=tomllib.loads(destination.read_text())
-    assert grouped['sheath']['table']['path']==str(source.parent/'response.csv')
-    with pytest.raises(SystemExit, match='already exists'):
-        main(['config','migrate',str(source),str(destination)])
 
 
 def test_grouped_native_loading_uses_the_same_config_contract(tmp_path):

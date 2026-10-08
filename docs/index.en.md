@@ -33,8 +33,8 @@ validity. Before using a result for research, follow [Validating simulation resu
 | An optional quasistatic boundary response at the top of the region | A time-dependent outer sheath or complete velocity-distribution solver |
 
 See [The BEACH computation cycle](Algorithms.en.html) for the ordinary surface-charge update and the difference among
-`dt`, `batch_duration`, and `batch_count`. See
-[quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) for the spatial division when an outer sheath is attached.
+`dt`, `batch_duration`, and `batch_count`. See the [Zhao closure](ZhaoStationaryClosure.en.html) for the division of work when an outer sheath is
+attached.
 
 ## Choose a path
 
@@ -44,8 +44,7 @@ See [The BEACH computation cycle](Algorithms.en.html) for the ordinary surface-c
 | Select particle sources or surface models | [Choose where particles enter](ParticleSourcesBoundaries.en.html) → [How surfaces charge](SurfaceModels.en.html) |
 | Configure open boundaries and return | [Inject particles through a boundary](ReservoirInjection.en.html) → [Particle escape and return](ParticleEscapeReturn.en.html) |
 | Include photoelectrons | [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) |
-| Apply fixed currents from a stationary outer sheath | [Zhao stationary closure](ZhaoStationaryClosure.en.html) |
-| Couple an outer one-dimensional sheath | [Quasistatic matching-plane coupling](MatchingPlaneCoupling.en.html) → [Validate with the offline kinetic oracle](OuterKineticOracle.en.html) |
+| Apply currents and barriers from the zero-current root of an outer 1-D sheath | [Zhao closure](ZhaoStationaryClosure.en.html) → [Re-solve the outer root from the observed PE outflow](ZhaoStationaryClosure.en.html#re-solve-the-outer-root-from-the-observed-pe-outflow) |
 | Select field solvers or periodic boundaries | [Field evaluation](FieldSolvers.en.html) → [periodic2 electrostatics](PeriodicElectrostatics.en.html) |
 | Visualize output | [Post-processing tutorial](PostprocessTutorial.en.html) → [Python API](PythonPostprocessAPI.en.html) |
 | Change the source code | [Architecture](Architecture.en.html) → [Development and testing](Workflow.en.html) |

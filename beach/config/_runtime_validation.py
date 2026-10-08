@@ -138,11 +138,9 @@ def _validate_runtime_semantics(config: Mapping[str, Any]) -> None:
     _validate_surface_current_model(
         surface_current_model,
         species=species,
-        sim=sim,
         domain=domain,
         field_boundary=field_boundary,
         particle_boundary=particle_boundary,
-        reservoir=reservoir,
         periodic2_config=periodic2_config,
     )
 

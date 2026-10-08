@@ -15,7 +15,7 @@ Fortran の `beach` と Python の `beachx lint` は同じ形式を読み取り�
 | `mesh` | 表面形状、OBJ、テンプレート、配置グループ |
 | `particles` | 粒子境界、reservoir、追跡刻み、粒子種、供給・サンプリング |
 | `fields` | 電場境界、外部E/B、solver、周期場backendとキャッシュ |
-| `sheath` | 外部シースのclosure、枝、応答モデル、結合収束条件 |
+| `sheath` | 外部シースの零電流closure、枝、species role、光電子源、外部根の更新 |
 | `output` | 出力先、履歴、checkpoint、診断 |
 
 旧形式の公開済み1.6入力は1.xの間読み取れます。旧形式の読み取りは2.0で削除する予定です。
@@ -24,7 +24,6 @@ Fortran の `beach` と Python の `beachx lint` は同じ形式を読み取り�
 Pythonの読み込み関数が返す正規化済みruntime辞書は既存の形式を維持します。
 
 既存ファイルの移行は、別ファイルへ出力してください。変換前後を検証し、既存の出力先を上書きしません。
-応答表の相対パスは、移行後も同じファイルを指すように絶対パスへ変換します。
 キャッシュやOBJなどのパスの基準は従来どおりです。実行のworking directoryを維持してください。
 
 ```bash
@@ -115,7 +114,7 @@ batchの蓄積時間と粒子軌道の刻みは異なる役割を持ちます。
 `output.dir` にあるcheckpointを従来どおり探索します。`from` はcheckpoint一式を含むディレクトリです。再開時の `batch_count` は累積の到達目標です。
 `output.diagnostics.charge_rel_change_threshold` は診断値で、早期終了条件ではありません。
 
-## 周期場とオンラインシース
+## 周期場と外部シース
 
 旧形式:
 
@@ -131,11 +130,14 @@ nonzero_mode_backend = "cached_kneq0"
 zero_mode_policy = "exclude_k0"
 lower_boundary_model = "e_bottom_zero"
 [surface_current_model]
-model = "matching_plane_quasistatic"
-response_backend = "zhao_online"
+model = "zhao_stationary"
 zhao_branch = "auto"
-implicit_zero_mode = true
-coupling_atol = [3.0e11, 0.1, 0.0, 0.0]
+electron_species = "solar_wind_electron"
+ion_species = "solar_wind_ion"
+photoelectron_species = "photoelectron"
+solar_elevation_deg = 60.0
+photoelectron_ref_density_m3 = 6.4e7
+outflow_refresh_batches = 50
 ```
 
 新形式:
@@ -150,28 +152,27 @@ backend = "cached_kneq0"
 lower_boundary_model = "e_bottom_zero"
 cache_dir = ".beach_cache/periodic2"
 [sheath]
-closure = "matching_plane"
-response = "zhao"
+closure = "zero_current"
 [sheath.zhao]
 branch = "auto"
+[sheath.species]
+electron = "solar_wind_electron"
+ion = "solar_wind_ion"
+photoelectron = "photoelectron"
+[sheath.photoelectrons]
+solar_elevation_deg = 60.0
+ref_density_m3 = 6.4e7
 [sheath.coupling]
-mean_field_update = "backward_euler"
-[sheath.coupling.atol]
-photoelectron_outward_flux_m2_s = 3.0e11
-photoelectron_mean_normal_energy_ev = 0.1
-electron_outward_flux_m2_s = 0.0
-ion_outward_flux_m2_s = 0.0
+outflow_refresh_batches = 50
 ```
 
-許容誤差の省略成分は0です。table内の記述順には依存しません。
-`branch` は `auto/a/b/c`、`root_selection` は従来の選択肢を維持します。
-`closure="zero_current"` が定常Zhaoの $J_z=0$、`closure="matching_plane"` がmatching planeの外部応答です。
-matching closureの `response` 省略時は従来どおり応答表を使います。オンライン計算には `response="zhao"` を明示してください。
-`zero_current` の応答はZhaoに限ります。光電子のclosure等の開発版APIは、その実装を含むcheckoutだけで利用できます。
+`closure="zero_current"` は外部 1-D シースの Zhao 零電流根 $J_z=0$ です。`branch` は `auto/a/b/c` です。
+`sheath.photoelectrons` は表面放出を決める太陽高度・基準密度・倍率、`sheath.coupling.outflow_refresh_batches` は
+観測 PE 流出から外部根を解き直す accepted batch 間隔です。
 
 周期場backendは `cached_kneq0`、`panel_spectral_reference`、`finite_images` の3つです。
 前の2つは非零モードと零モードを分離し、`exclude_k0` を内部で導出します。
-matching-plane結合には `lower_boundary_model` を明示します。
+外部根の更新には split backend（`cached_kneq0` または `panel_spectral_reference`）を使います。
 `finite_images` は従来の `none/auto` の有限image計算に対応し、無限周期解を表しません。
 このbackendには分離モデルのlower boundary/referenceを指定できません。
 `domain.periodic_axes` と場の境界closureは別の設定です。周期軸だけから `fields.boundary` を推測しません。
@@ -184,7 +185,7 @@ matching-plane結合には `lower_boundary_model` を明示します。
 完全な新形式の例は [通常の境界流入](../examples/beach.toml)、
 [チュートリアル](../examples/tutorial_insulator.toml)、
 [定常Zhao](../examples/grouped/zero_current.toml)、
-[オンラインmatching plane](../examples/grouped/matching_plane.toml) を参照してください。
+[外部根の更新](../examples/grouped/zero_current_refresh.toml) を参照してください。
 物理的な成立条件と既定値の詳細は[旧形式のパラメータ詳細](Parameters.html)を併読してください。
 以下の対応表で新しい記述位置を確認できます。
 
@@ -231,22 +232,15 @@ matching-plane結合には `lower_boundary_model` を明示します。
 | `periodic2.panel_quadrature_order` | `fields.periodic.reference.panel_quadrature_order` |
 | `periodic2.max_nonzero_mode_potential_step` | `run.batch.adaptive.max_nonzero_mode_potential_step_v` |
 | `surface_current_model.model` | `sheath.closure` |
-| `surface_current_model.response_backend` | `sheath.response` |
 | `surface_current_model.zhao_branch` | `sheath.zhao.branch` |
-| `surface_current_model.zhao_root_selection` | `sheath.zhao.root_selection` |
 | `surface_current_model.electron_species` | `sheath.species.electron` |
 | `surface_current_model.ion_species` | `sheath.species.ion` |
 | `surface_current_model.photoelectron_species` | `sheath.species.photoelectron` |
-| `surface_current_model.solar_elevation_deg` | `sheath.stationary.solar_elevation_deg` |
-| `surface_current_model.photoelectron_ref_density_m3` | `sheath.stationary.photoelectron_ref_density_m3` |
-| `surface_current_model.photoelectron_source_scale` | `sheath.stationary.photoelectron_source_scale` |
-| `surface_current_model.reference_area_m2` | `sheath.stationary.reference_area_m2` |
-| `surface_current_model.outflow_refresh_batches` | `sheath.stationary.outflow_refresh_batches` |
-| `surface_current_model.response_table_path` | `sheath.table.path` |
-| `surface_current_model.implicit_zero_mode` | `sheath.coupling.mean_field_update` |
-| `surface_current_model.coupling_rtol` | `sheath.coupling.rtol` |
-| `surface_current_model.coupling_max_iterations` | `sheath.coupling.max_iterations` |
-| `surface_current_model.coupling_relaxation` | `sheath.coupling.relaxation` |
+| `surface_current_model.solar_elevation_deg` | `sheath.photoelectrons.solar_elevation_deg` |
+| `surface_current_model.photoelectron_ref_density_m3` | `sheath.photoelectrons.ref_density_m3` |
+| `surface_current_model.photoelectron_source_scale` | `sheath.photoelectrons.source_scale` |
+| `surface_current_model.reference_area_m2` | `sheath.reference_area_m2` |
+| `surface_current_model.outflow_refresh_batches` | `sheath.coupling.outflow_refresh_batches` |
 | `output.write_files` | `output.enabled` |
 | `output.dir` | `output.dir` |
 | `output.write_mesh_potential` | `output.final.mesh_potential` |
@@ -310,4 +304,3 @@ matching-plane結合には `lower_boundary_model` を明示します。
 | `output.resume` | `run.restart` |
 | `periodic2.nonzero_mode_backend` | `fields.periodic.backend` |
 | `periodic2.zero_mode_policy` | `exclude_k0` (derived) |
-| `surface_current_model.coupling_atol` | `sheath.coupling.atol` (named components) |

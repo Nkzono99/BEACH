@@ -118,13 +118,11 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | `infinity_barrier` | mean reservoir-face potential, image-layer dependence, and warnings for in-plane potential variation |
 | `potential_barrier` | open-face crossing potential, `reservoir.phi_infty`, and the normal-kinetic-energy reflection/escape decision |
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
-| `matching_plane_quasistatic` | common: fixed-point residual and iterations, PE `outward = return + escape`, relaxation, and matching-height dependence; table: response-grid dependence; online: branch policy, root solve, and moment reduction |
+| `zhao_stationary` outer-root refresh | decreasing `matching_plane_residual`, dependence on the window `outflow_refresh_batches` and sample count, branch changes, `charge_ledger.csv` scales near 1, agreement of the z-high plane mean with $\phi_0$, and H-height dependence |
 
 Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html)
-and [Particle Escape and Return](ParticleEscapeReturn.en.html). See
-[Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for model selection and scope, and the
-[matching-plane numerical and response-table reference](MatchingPlaneReference.en.html) for table generation,
-fixed-point checks, and the height sweep.
+and [Particle Escape and Return](ParticleEscapeReturn.en.html). See the [Zhao closure](ZhaoStationaryClosure.en.html) for the outer-sheath
+closure model and its scope.
 
 ## 6. Limit the physical conclusion to what was tested
 

@@ -26,7 +26,7 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
-| `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=matching_plane_quasistatic` または [`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`。再開には不使用 |
+| `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
 | `charge_ledger.csv` | `output.write_files=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
 | `macro_residuals.csv` | `output.write_files=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
@@ -156,121 +156,35 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 
 `surface_current_model_*` の電位・電流は初期根の値です。`outflow_refresh_batches>0` では、現在の外部根を
-`matching_plane_*` と `matching_plane_history.csv` の 17 列で読みます。列の対応は次のとおりです。
+`summary.txt` の `matching_plane_*` と `matching_plane_history.csv` で読みます。
 
-| 列 | 外部根の更新での意味 |
+| 項目 | `matching_plane_history.csv` の契約 |
 | --- | --- |
-| `D_H_C_m2` | 確定後のセル総電荷 / 面積。零電流 target が保つ平均電荷の確認値 |
-| `phi_H_V` | 外部根の壁電位 $\phi_0$。z-high 面平均電位の基準 |
-| `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | 外部根の electron / ion 吸収 target の数束 |
-| `electron_access_potential_V`, `photoelectron_barrier_potential_V` | Type A では $\phi_m$、Type B / C では 0 |
-| `ion_access_potential_V` | 常に 0 |
-| `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源。初期根では表面放出、更新後は窓平均の観測流出 |
-| `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
-| `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
-| `iterations` | 採用した外部根の数。初期根を 1 と数える |
-| `residual` | 直前の更新での放出源の最大相対変化。弱連成の固定点に近づくと小さくなる |
+| 生成条件 | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=zhao_stationary`、`outflow_refresh_batches>0` |
+| 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 15 状態列。全体で 17 列 |
+| 時刻 | その batch の電荷 commit と外部根の更新を終えた後の状態。次の batch はこの外部根を使う |
+| Python | `result.matching_plane_history`。最後の状態は `result.matching_plane_state` |
+| 再開 | CSV 自体は使わない。最後の状態を `summary.txt` に保存し、再開時は放出源から外部根を再構成する |
+
+| `summary.txt` の receipt | `matching_plane_history.csv` の列 | 意味 |
+| --- | --- | --- |
+| `matching_plane_displacement_C_m2` | `D_H_C_m2` | 確定後のセル総電荷 / 面積。零電流 target が保つ平均電荷の確認値 |
+| `matching_plane_phi_V` | `phi_H_V` | 外部根の壁電位 $\phi_0$。z-high 面平均電位の基準 |
+| `matching_plane_electron_inward_flux_m2_s`, `matching_plane_ion_inward_flux_m2_s` | `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | 外部根の electron / ion 吸収 target の数束 |
+| `matching_plane_electron_access_potential_V`, `matching_plane_photoelectron_barrier_potential_V` | `electron_access_potential_V`, `photoelectron_barrier_potential_V` | Type A では $\phi_m$、Type B / C では 0 |
+| `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | 常に 0 |
+| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源。初期根では表面放出、更新後は窓平均の観測流出 |
+| `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
+| `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
+| `matching_plane_iterations` | `iterations` | 採用した外部根の数。初期根を 1 と数える |
+| `matching_plane_residual` | `residual` | 直前の更新での放出源の最大相対変化。弱連成の固定点に近づくと小さくなる |
+
+`matching_plane_state_valid=F` の summary にある状態 receipt は使えません。放出源の収支は
+`photoelectron_outward_flux_m2_s = photoelectron_return_flux_m2_s + photoelectron_escape_flux_m2_s` を満たします。
 
 明示的な split `[periodic2]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
 `mesh_potential.csv` の電位は上流プラズマ 0 V 基準です。粒子間の電位差は外部根に依存しませんが、
 絶対値は $\phi_0$ を通じて外部モデルの branch と近似に依存します。
-
-### `matching_plane_quasistatic`
-
-この model では、静的な surface-current 電流 target ではなく、下表に列挙する accepted batch ごとの
-matching-plane receipt を状態値として読みます。
-固定点式、応答 CSV、`implicit_zero_mode` の正本は
-[matching-plane 数値・応答表リファレンス](MatchingPlaneReference.html)です。
-
-| 項目 | `matching_plane_history.csv` の契約 |
-| --- | --- |
-| 生成条件 | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=matching_plane_quasistatic` |
-| 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 15 状態列。accepted state だけを書く |
-| 解釈 | 同じ行の flux、barrier、反復 receipt を 1 batch の固定点解として読む |
-| Python | `result.matching_plane_history`。最後の accepted state は `result.matching_plane_state` |
-| 再開 | CSV 自体は使わない。schema v9 は最後の accepted state を `summary.txt` に保存する |
-
-#### 受理済み状態
-
-| `summary.txt` の receipt | `matching_plane_history.csv` の列 | 意味 |
-| --- | --- | --- |
-| `matching_plane_displacement_C_m2` | `D_H_C_m2` | matching plane の変位電荷密度 $D_H$ |
-| `matching_plane_phi_V` | `phi_H_V` | matching plane の電位 $\Phi_H$ |
-| `matching_plane_electron_inward_flux_m2_s` | `electron_inward_flux_m2_s` | electron inward flux |
-| `matching_plane_ion_inward_flux_m2_s` | `ion_inward_flux_m2_s` | ion inward flux |
-| `matching_plane_electron_access_potential_V` | `electron_access_potential_V` | electron access potential |
-| `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | ion access potential |
-| `matching_plane_photoelectron_barrier_potential_V` | `photoelectron_barrier_potential_V` | PE barrier potential |
-| `matching_plane_photoelectron_outward_flux_m2_s` | `photoelectron_outward_flux_m2_s` | 固定点へ返す PE outward flux |
-| `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_mean_normal_energy_eV` | 固定点へ返す PE 平均法線 energy |
-| `matching_plane_electron_outward_flux_m2_s` | `electron_outward_flux_m2_s` | 固定点へ返す electron outward flux |
-| `matching_plane_ion_outward_flux_m2_s` | `ion_outward_flux_m2_s` | 固定点へ返す ion outward flux |
-| `matching_plane_photoelectron_return_flux_m2_s` | `photoelectron_return_flux_m2_s` | backend が返す PE return flux |
-| `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_escape_flux_m2_s` | backend が返す PE escape flux |
-| `matching_plane_iterations` | `iterations` | 固定点反復回数 |
-| `matching_plane_residual` | `residual` | 受理時の有効相対残差 |
-
-history の先頭 2 列は `batch`, `simulated_time_s` です。したがって全体は 17 列です。
-`matching_plane_state_valid` が false の summary にある上表の状態 receipt は、accepted state として
-使えません。
-
-PE 収支は、同じ batch について次式で確認します。
-
-$$
-\mathtt{photoelectron\_outward\_flux\_m2\_s}
-=\mathtt{photoelectron\_return\_flux\_m2\_s}
-+\mathtt{photoelectron\_escape\_flux\_m2\_s}.
-$$
-
-各行の $D_H$ と $\Phi_H$ は、その batch の粒子追跡に使った commit 前の表面電荷 state に対応します。
-一方、`simulated_time_s` は trial を受理して進めた後の時刻です。次 batch 開始時の post-commit 場とは区別します。
-
-#### 実行条件と収束条件
-
-| receipt | 内容 |
-| --- | --- |
-| `surface_current_model_response_backend` | `table` または `zhao_online` |
-| `surface_current_model_zhao_root_selection` | online Zhao の root 規則。`require_unique`、`minimum_energy`、または `continuation` |
-| `surface_current_model_implicit_zero_mode` | `T` なら面平均 $D_H$ を backward Euler で更新し、`F` なら batch 開始値を固定 |
-| `surface_current_model_matching_plane_z_m` | matching plane の z 座標 |
-| `surface_current_model_electron_species`, `surface_current_model_ion_species`, `surface_current_model_photoelectron_species` | 各 channel に割り当てた species |
-| `surface_current_model_coupling_rtol` | active 成分の相対許容値 |
-| `surface_current_model_coupling_atol` | 4 成分の絶対許容値 |
-| `surface_current_model_coupling_max_iterations` | 最大反復回数 |
-| `surface_current_model_coupling_relaxation` | 固定点緩和係数 |
-| `surface_current_model_dynamic_state_source` | commit した matching trial では `surface_current_model_dynamic_state_source=accepted_batch_fixed_point`。この互換文字列だけでは収束を意味しない |
-
-`surface_current_model_coupling_atol` の 4 値の順序は次のとおりです。
-
-1. PE 外向き flux [m^-2 s^-1]
-2. PE 平均法線 energy [eV]
-3. electron 外向き flux [m^-2 s^-1]
-4. ion 外向き flux [m^-2 s^-1]
-
-既定値はすべて 0 で、inactive 成分も 0 でなければなりません。active 成分の判定閾値は
-`max(coupling_rtol * backend_scale, coupling_atol)` です。絶対許容値が支配する成分は有効残差へ換算されるため、
-収束した state の `matching_plane_residual` は `surface_current_model_coupling_rtol` 以下になります。反復上限で
-warning 付き commit した state はこれを超え、`matching_plane_iterations` が上限値になります。
-
-#### Backend 固有の receipt
-
-| backend | receipt |
-| --- | --- |
-| `table` | `surface_current_model_response_table_path`。root が読み込んだ応答表を使う。内容 fingerprint は出力しない |
-| `zhao_online` | `surface_current_model_response_contract=matching_plane_zhao_online_v1` |
-| `zhao_online` | `surface_current_model_zhao_branch` |
-| `zhao_online` | `surface_current_model_zhao_root_selection` |
-| `zhao_online` | `surface_current_model_outer_solver=charge_driven_finite_h_sagdeev` |
-| `zhao_online` | `surface_current_model_photoelectron_closure=moment_matched_half_maxwellian` |
-| `zhao_online` | `surface_current_model_ambient_outward_feedback=transparent` |
-| `zhao_online` + `require_unique` / `minimum_energy` | `surface_current_model_outer_solver_state=stateless` |
-| `zhao_online` + `continuation` | `surface_current_model_outer_solver_state=accepted_endpoint_continuation_v2` |
-
-`accepted_endpoint_continuation_v2` は、accepted endpoint だけを次 batch の seed にし、局所 Newton で
-近傍根を再取得できなければ full multistart の一意な最近傍根を採用する設定方針を示す provenance receipt
-です。full multistart や step subdivision の実行回数、または root の移動量を示す実績 receipt ではありません。
-accepted state の有無は
-`matching_plane_state_valid` で判断してください。
 
 ## 履歴
 
@@ -279,13 +193,13 @@ accepted state の有無は
 | `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
-| `matching_plane_history.csv` | matching-plane または外部根の更新があり、stride 有効 | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
+| `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
 
 `top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。
 要素相対電位は同じ batch の `potential_history.csv` と結合し、
 `potential_V - potential_mean_V` として求めます。
 
-matching-plane では `result.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
+外部根を更新した run では `result.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
 手作業で管理せず typed receipt として参照できます。
 
 ## mesh 電位
@@ -479,10 +393,10 @@ print(result.matching_plane_state)
 | `charges.csv` | `result.charges` |
 | `charge_ledger.csv` | `result.charge_ledger` |
 | field reconstruction receipt | `result.field_reconstruction` |
-| matching-plane summary | `result.matching_plane_state` |
+| 外部状態の summary | `result.matching_plane_state` |
 | `matching_plane_history.csv` | `result.matching_plane_history` |
 
-`summary.txt` と `charges.csv` は必須です。mesh、履歴、ledger、field reconstruction、matching-plane state は
+`summary.txt` と `charges.csv` は必須です。mesh、履歴、ledger、field reconstruction、外部状態は
 対応する出力がある場合だけ読み込まれます。
 
 `matching_plane_state_valid` が false なら、reader は

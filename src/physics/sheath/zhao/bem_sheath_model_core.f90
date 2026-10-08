@@ -38,93 +38,13 @@ module bem_sheath_model_core
     real(dp) :: lambda_d_phe_ref_m = 0.0d0
   end type zhao_params_type
 
+  private
   public :: zhao_params_type
   public :: build_zhao_params
-  public :: solve_zhao_unknowns
   public :: try_solve_zhao_unknowns
-  public :: evaluate_zhao_density_hat
-  public :: evaluate_zhao_rho_hat
-  public :: zhao_residuals_type_a
-  public :: zhao_residuals_type_b
-  public :: zhao_residuals_type_c
   public :: swe_free_current_term
-  public :: type_a_e2_sum_at_infinity
 
 contains
-
-  subroutine evaluate_zhao_rho_hat(p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, rho_hat)
-    type(zhao_params_type), intent(in) :: p
-    character(len=1), intent(in) :: branch
-    character(len=*), intent(in) :: side
-    real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
-    real(dp), intent(out) :: rho_hat
-
-    real(dp) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
-
-    call evaluate_zhao_density_hat( &
-      p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
-      n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
-      )
-    rho_hat = n_swi_hat - n_swe_f_hat - n_swe_r_hat - n_phe_f_hat - n_phe_c_hat
-  end subroutine evaluate_zhao_rho_hat
-
-  subroutine evaluate_zhao_density_hat( &
-    p, branch, side, phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat, &
-    n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat &
-    )
-    type(zhao_params_type), intent(in) :: p
-    character(len=1), intent(in) :: branch
-    character(len=*), intent(in) :: side
-    real(dp), intent(in) :: phi_hat, phi0_hat, phi_m_hat, n_swe_inf_hat
-    real(dp), intent(out) :: n_swi_hat, n_swe_f_hat, n_swe_r_hat, n_phe_f_hat, n_phe_c_hat
-
-    real(dp) :: arg_ion, s_swe, s_phe, populated_sin_alpha
-
-    populated_sin_alpha = p%photoelectron_population_fraction*p%n_phe0_m3/p%n_phe_ref_m3
-    arg_ion = 1.0d0 - 2.0d0*phi_hat/(p%tau*p%mach*p%mach)
-    if (arg_ion <= 0.0d0) error stop 'Zhao ion density argument became non-positive.'
-    n_swi_hat = (p%n_swi_inf_m3/p%n_phe_ref_m3)*arg_ion**(-0.5d0)
-
-    select case (branch)
-    case ('A')
-      s_swe = sqrt(max(0.0d0, (phi_hat - phi_m_hat)/p%tau))
-      s_phe = sqrt(max(0.0d0, phi_hat - phi_m_hat))
-      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
-      n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
-      if (trim(side) == 'lower') then
-        n_swe_r_hat = 0.0d0
-        n_phe_c_hat = populated_sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
-      else if (trim(side) == 'upper') then
-        n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
-        n_phe_c_hat = 0.0d0
-      else
-        error stop 'Unknown Type-A Zhao side.'
-      end if
-    case ('B')
-      ! Zhao et al. (2020), Eq. (3): the path minimum for Type B is 0,
-      ! so incident electrons retain the local cutoff sqrt(phi_hat/tau).
-      s_swe = sqrt(max(0.0d0, phi_hat/p%tau))
-      s_phe = sqrt(max(0.0d0, phi_hat))
-      if (s_swe >= p%u) then
-        ! Avoid exp(phi/tau)*erfc(s-u) overflow and tail cancellation.
-        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(2*s_swe*p%u - p%u**2)*erfc_scaled(s_swe - p%u)
-      else
-        n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*erfc(s_swe - p%u)
-      end if
-      n_swe_r_hat = 0.0d0
-      n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*(1.0d0 - erf(s_phe))
-      n_phe_c_hat = populated_sin_alpha*exp(phi_hat - phi0_hat)*erf(s_phe)
-    case ('C')
-      s_swe = sqrt(max(0.0d0, (phi_hat - phi0_hat)/p%tau))
-      s_phe = sqrt(max(0.0d0, phi_hat - phi0_hat))
-      n_swe_f_hat = 0.5d0*n_swe_inf_hat*exp(phi_hat/p%tau)*(1.0d0 - erf(s_swe - p%u))
-      n_swe_r_hat = n_swe_inf_hat*exp(phi_hat/p%tau)*(erf(s_swe - p%u) + erf(p%u))
-      n_phe_f_hat = 0.5d0*populated_sin_alpha*exp(phi_hat - phi0_hat)*erfc(s_phe)
-      n_phe_c_hat = 0.0d0
-    case default
-      error stop 'Unknown Zhao branch in density evaluation.'
-    end select
-  end subroutine evaluate_zhao_density_hat
 
   subroutine build_zhao_params( &
     alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev, v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg, p, &
@@ -182,31 +102,6 @@ contains
       error stop 'Zhao sheath produced an invalid Mach number.'
     end if
   end subroutine build_zhao_params
-
-  subroutine solve_zhao_unknowns(model, p, phi0_v, phi_m_v, n_swe_inf_m3, branch)
-    character(len=*), intent(in) :: model
-    type(zhao_params_type), intent(in) :: p
-    real(dp), intent(out) :: phi0_v, phi_m_v, n_swe_inf_m3
-    character(len=1), intent(out) :: branch
-
-    logical :: success
-
-    call try_solve_zhao_unknowns(model, p, phi0_v, phi_m_v, n_swe_inf_m3, branch, success)
-    if (success) return
-
-    select case (trim(model))
-    case ('zhao_a')
-      error stop 'Zhao Type-A root solve failed.'
-    case ('zhao_b')
-      error stop 'Zhao Type-B root solve failed.'
-    case ('zhao_c')
-      error stop 'Zhao Type-C root solve failed.'
-    case ('zhao_auto')
-      error stop 'Zhao sheath auto branch selection failed.'
-    case default
-      error stop 'Unknown Zhao sheath model.'
-    end select
-  end subroutine solve_zhao_unknowns
 
   !> Zhao の零電流定常根を fail-closed な status 付きで探索する。
   subroutine try_solve_zhao_unknowns(model, p, phi0_v, phi_m_v, n_swe_inf_m3, branch, success)

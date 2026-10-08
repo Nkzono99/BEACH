@@ -132,13 +132,14 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `mesh_sources` | `dict[int, MeshSource] \| None` | Mesh kind, surface model, and epsilon_r metadata |
 | `mesh_potential_v` | `ndarray (mesh_nelem,) \| None` | Centroid potentials output by Fortran [V] |
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
-| `matching_plane_state` | `MatchingPlaneState \| None` | Last accepted matching-plane state; `None` when the summary marks it invalid |
-| `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | Matching-plane history; `None` when the state is invalid or the CSV is absent |
+| `matching_plane_state` | `MatchingPlaneState \| None` | Last outer state of a `zhao_stationary` run with outer-root refresh; `None` when the summary marks it invalid |
+| `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | Outer-state history; `None` when the state is invalid or the CSV is absent |
 
-`MatchingPlaneState` exposes named fields for $D_H$, $\Phi_H$, inward responses, outward feedback, PE return / escape,
-iteration count, and convergence residual. Each `MatchingPlaneHistoryEntry` contains `batch`, `simulated_time_s`, and the
+`MatchingPlaneState` exposes named fields for the cell mean charge $D_H$, wall potential $\Phi_H=\phi_0$, inflow fluxes,
+outer emission source, PE return / escape, the number of accepted outer roots, and the relative change at the last refresh.
+See the [output-format reference](OutputReference.en.html#zhao_stationary) for each field. Each `MatchingPlaneHistoryEntry` contains `batch`, `simulated_time_s`, and the
 corresponding `state: MatchingPlaneState`. A header-only `matching_plane_history.csv` produces the empty tuple `()`.
-Thus `None` means that no history file or no valid matching-plane state exists, whereas an empty tuple means that the
+Thus `None` means that no history file or no valid outer state exists, whereas an empty tuple means that the
 state is valid but the history contains no rows.
 
 ### 3.3 `FortranChargeHistory`

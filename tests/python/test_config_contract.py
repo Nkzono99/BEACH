@@ -41,8 +41,6 @@ def _cases() -> list:
         "periodic2_zhao_fixed_current",
         "periodic2_zhao_no_photo_fixed_current",
         "periodic2_zhao_outflow_refresh",
-        "periodic2_matching_plane_zhao_online",
-        "periodic2_matching_plane_zhao_implicit",
     ):
         config = load_toml_file(ROOT / "examples" / f"{name}.toml")
         cases.append(pytest.param(config, True, id=name))

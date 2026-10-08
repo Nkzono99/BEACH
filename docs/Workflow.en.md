@@ -77,7 +77,7 @@ crosses subsystem boundaries. Direct tests alone are not sufficient when a chang
 | Mesh templates, OBJ import, or panel geometry | `test_templates_importers_runtime`, `test_panel_geometry_near`, `test_panel_kernel` | `make test-l1`; use `make test-l3` when panel FMM is affected |
 | Particle sources, reservoirs, or photoelectron injection | `test_injection_sampling`, `test_reservoir_injection`, `test_external_field_velocity_grid` | `make test-l1` |
 | Boris update, collision, box boundary, or particle events | `test_particle_stepper`, `test_boundary`, `test_dynamics_basic` | `make test-l1`; also use `make test-mpi` when the MPI or OpenMP path changes |
-| Surface model, charge closure, or charge ledger | `test_surface_models`, `test_surface_current_model`, `test_charge_ledger`, `test_simulator` | `make test-l1`; include `test_matching_plane_simulator` for matching-plane work |
+| Surface model, charge closure, or charge ledger | `test_surface_models`, `test_surface_current_model`, `test_charge_ledger`, `test_simulator` | `make test-l1`; include `test_zhao_outflow_refresh` for outer-root refresh work |
 | Field snapshot, Direct, or Treecode | `test_electrostatic_snapshot`, `test_dynamics_field_solver`, `test_panel_kernel` | `make test-l1` |
 | FMM, periodic2, zero mode, or nonzero mode | Relevant `test_coulomb_fmm_*`, `test_periodic_*`, and `test_dynamics_fmm` targets | `make test-l3`; use `make test-fortran-far-correction` for the far correction |
 | C ABI or native field kernel | `test_field_kernel_c`, `test_periodic_zero_mode_c` | `make test-l2`; use `make test-field-kernel-cache` for the cache receipt |

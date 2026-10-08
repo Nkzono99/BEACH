@@ -6,7 +6,7 @@ Lang: [日本語](FinitePeriodicConfiguration.md) | [English](FinitePeriodicConf
 
 このページは、境界 reservoir + closed PE によってレゴリス帯電と光電子の表面内再分配を調べる
 `periodic2` 構成の正本です。太陽風 VDF は z-high 面で定義し、光電子だけを閉じ、電位は z-high 面平均からの
-差として読みます。このbaselineではmatching-plane outer-sheath closureを有効にしません。
+差として読みます。このbaselineでは外部シース closure（`surface_current_model`）を有効にしません。
 
 ## まず二つの構成を区別する
 

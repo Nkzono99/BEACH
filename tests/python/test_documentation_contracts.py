@@ -233,7 +233,7 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     matching_history = next(
         entry for entry in files if entry["name"] == "matching_plane_history.csv"
     )
-    assert "matching_plane_quasistatic" in matching_history["condition"]
+    assert "outflow_refresh_batches>0" in matching_history["condition"]
     assert matching_history["restart_role"] == "none"
 
     reference_docs = (

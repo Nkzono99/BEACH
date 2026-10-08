@@ -157,9 +157,9 @@ electron = "solar_wind_electron"
 ion = "solar_wind_ion"
 photoelectron = "photoelectron"
 
-[sheath.stationary]
+[sheath.photoelectrons]
 solar_elevation_deg = 60.0
-photoelectron_ref_density_m3 = 64000000.0
+ref_density_m3 = 64000000.0
 
 [output]
 enabled = true

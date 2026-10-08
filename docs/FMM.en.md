@@ -172,7 +172,7 @@ See [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.
   [compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility).
 - Mesh geometry remains fixed during a run; only charge changes between batches.
 - Changing `field_normalization` does not change the SI units of output fields and potentials.
-- FMM does not solve an outer plasma or sheath; matching-plane response is composed outside FMM.
+- FMM does not solve an outer plasma or sheath; the outer-sheath potential reference is applied to the periodic k=0 mode outside FMM.
 
 Developers looking for formulas, internal APIs, geometry/charge-state separation, out-of-range fallback, or OpenMP details
 should continue with [Coulomb FMM internals](FMMCore.en.html).

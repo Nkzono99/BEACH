@@ -285,7 +285,7 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     assert schema_errors(disabled, schema) == []
 
     disabled_with_model_key = copy.deepcopy(disabled)
-    disabled_with_model_key["surface_current_model"]["coupling_rtol"] = 1.0e-4
+    disabled_with_model_key["surface_current_model"]["zhao_branch"] = "a"
     assert schema_errors(disabled_with_model_key, schema)
 
     refresh = load_toml_file(ROOT / "examples/periodic2_zhao_outflow_refresh.toml")
@@ -315,126 +315,27 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     assert schema_errors(invalid_no_photo_branch, schema)
 
 
-def test_schema_accepts_matching_plane_and_rejects_model_key_mixing() -> None:
+def test_schema_rejects_removed_matching_plane_contract() -> None:
     schema, _ = load_schema()
-    matching = load_toml_file(
-        ROOT / "tests/fortran/matching_plane_quasistatic.toml"
-    )
-    no_photo = load_toml_file(
-        ROOT / "tests/fortran/matching_plane_no_photo.toml"
-    )
-
-    assert schema_errors(matching, schema) == []
-    assert schema_errors(no_photo, schema) == []
-
-    with_atol = copy.deepcopy(matching)
-    with_atol["surface_current_model"]["coupling_atol"] = [0.0, 0.05, 0.0, 0.0]
-    assert schema_errors(with_atol, schema) == []
-
-    invalid_atol = copy.deepcopy(matching)
-    invalid_atol["surface_current_model"]["coupling_atol"] = [0.0, -0.05, 0.0, 0.0]
-    assert schema_errors(invalid_atol, schema)
-
-    explicit_table = copy.deepcopy(matching)
-    explicit_table["surface_current_model"]["response_backend"] = "table"
-    assert schema_errors(explicit_table, schema) == []
-
-    missing_response = copy.deepcopy(matching)
-    missing_response["surface_current_model"].pop("response_table_path")
-    assert schema_errors(missing_response, schema)
-
-    zhao_key = copy.deepcopy(matching)
-    zhao_key["surface_current_model"]["zhao_branch"] = "auto"
-    assert schema_errors(zhao_key, schema)
-
-    zhao_root_key = copy.deepcopy(matching)
-    zhao_root_key["surface_current_model"]["zhao_root_selection"] = (
-        "minimum_energy"
-    )
-    assert schema_errors(zhao_root_key, schema)
-
-    zhao_online = copy.deepcopy(matching)
-    zhao_online["surface_current_model"].pop("response_table_path")
-    zhao_online["surface_current_model"]["response_backend"] = "zhao_online"
-    assert schema_errors(zhao_online, schema) == []
-
-    zhao_online["surface_current_model"]["zhao_branch"] = "b"
-    assert schema_errors(zhao_online, schema) == []
-
-    zhao_online["surface_current_model"]["zhao_root_selection"] = "minimum_energy"
-    assert schema_errors(zhao_online, schema) == []
-
-    continuation = copy.deepcopy(zhao_online)
-    continuation["surface_current_model"].update(
-        {
-            "zhao_branch": "a",
-            "zhao_root_selection": "continuation",
-            "implicit_zero_mode": True,
-        }
-    )
-    assert schema_errors(continuation, schema) == []
-
-    continuation_wrong_branch = copy.deepcopy(continuation)
-    continuation_wrong_branch["surface_current_model"]["zhao_branch"] = "b"
-    assert schema_errors(continuation_wrong_branch, schema)
-
-    continuation_without_implicit = copy.deepcopy(continuation)
-    continuation_without_implicit["surface_current_model"].pop(
-        "implicit_zero_mode"
-    )
-    assert schema_errors(continuation_without_implicit, schema)
-
-    invalid_root_selection = copy.deepcopy(zhao_online)
-    invalid_root_selection["surface_current_model"]["zhao_root_selection"] = "first"
-    assert schema_errors(invalid_root_selection, schema)
-
-    zhao_online["surface_current_model"]["implicit_zero_mode"] = True
-    assert schema_errors(zhao_online, schema) == []
-
-    online_with_table = copy.deepcopy(zhao_online)
-    online_with_table["surface_current_model"]["response_table_path"] = (
-        "outer-response.csv"
-    )
-    assert schema_errors(online_with_table, schema)
-
-    invalid_backend = copy.deepcopy(zhao_online)
-    invalid_backend["surface_current_model"]["response_backend"] = "unknown"
-    assert schema_errors(invalid_backend, schema)
-
-    reference_area = copy.deepcopy(matching)
-    reference_area["surface_current_model"]["reference_area_m2"] = 1.0
-    assert schema_errors(reference_area, schema)
-
-    no_split_zero_mode = copy.deepcopy(matching)
-    no_split_zero_mode.pop("periodic2")
-    assert schema_errors(no_split_zero_mode, schema)
-
-    nonzero_field = copy.deepcopy(matching)
-    nonzero_field["sim"]["b0"] = [0.0, 0.0, 1.0]
-    assert schema_errors(nonzero_field, schema)
-
-    generic_open_barrier = copy.deepcopy(matching)
-    generic_open_barrier["particle_boundary"]["ordinary_open_model"] = (
-        "potential_barrier"
-    )
-    assert schema_errors(generic_open_barrier, schema)
-
     zhao = load_toml_file(ROOT / "examples/periodic2_zhao_fixed_current.toml")
-    zhao["surface_current_model"]["response_table_path"] = "outer-response.csv"
-    assert schema_errors(zhao, schema)
+    for key, value in (
+        ("response_backend", "zhao_online"),
+        ("response_table_path", "outer-response.csv"),
+        ("implicit_zero_mode", True),
+        ("coupling_rtol", 1.0e-4),
+    ):
+        removed_key = copy.deepcopy(zhao)
+        removed_key["surface_current_model"][key] = value
+        assert schema_errors(removed_key, schema), key
 
-    zhao_backend = load_toml_file(
-        ROOT / "examples/periodic2_zhao_fixed_current.toml"
-    )
-    zhao_backend["surface_current_model"]["response_backend"] = "zhao_online"
-    assert schema_errors(zhao_backend, schema)
+    removed_model = copy.deepcopy(zhao)
+    removed_model["surface_current_model"]["model"] = "matching_plane_quasistatic"
+    assert schema_errors(removed_model, schema)
 
 
 def test_schema_constrains_upper_panel_fourier_retry_backend() -> None:
     schema, _ = load_schema()
-    config = load_toml_file(
-        ROOT / "tests/fortran/matching_plane_quasistatic.toml"
-    )
+    config = load_toml_file(ROOT / "examples/periodic2_zhao_outflow_refresh.toml")
     config["sim"]["multiple_box_events_retry_backend"] = (
         "upper_panel_fourier"
     )
