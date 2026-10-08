@@ -44,6 +44,8 @@ module bem_app_config_particle_runtime
     logical, allocatable :: kinetic_inflow_active(:)
     real(dp), allocatable :: kinetic_reservoir_potential_v(:)
     real(dp), allocatable :: kinetic_access_potential_v(:)
+    !> 流入写像の貯留部密度。0なら species 設定の密度を使う。
+    real(dp), allocatable :: kinetic_reservoir_density_m3(:)
     integer(i32), allocatable :: kinetic_inflow_face(:)
   end type particle_source_plan_type
 
@@ -154,7 +156,8 @@ contains
   !! 乱数、残差、mesh/snapshot依存の障壁は扱わず、run中に不変な値だけを保持する。
   subroutine build_particle_source_plan( &
     cfg, plan, mpi_rank, mpi_size, mpi, kinetic_inflow_active, kinetic_reservoir_potential_v, &
-    kinetic_access_potential_v, kinetic_inflow_face, number_flux_override_active, number_flux_override_m2_s &
+    kinetic_access_potential_v, kinetic_inflow_face, number_flux_override_active, number_flux_override_m2_s, &
+    kinetic_reservoir_density_m3 &
     )
     type(app_config), intent(in) :: cfg
     type(particle_source_plan_type), intent(out) :: plan
@@ -165,6 +168,8 @@ contains
     integer(i32), intent(in), optional :: kinetic_inflow_face(:)
     logical, intent(in), optional :: number_flux_override_active(:)
     real(dp), intent(in), optional :: number_flux_override_m2_s(:)
+    !> 流入写像の面だけで使う貯留部密度。0以下の要素は species 設定の密度を使う。
+    real(dp), intent(in), optional :: kinetic_reservoir_density_m3(:)
 
     integer(i32) :: s, local_rank, n_ranks
     logical :: has_enabled_reservoir
@@ -195,6 +200,7 @@ contains
     allocate (plan%kinetic_inflow_active(cfg%n_particle_species))
     allocate (plan%kinetic_reservoir_potential_v(cfg%n_particle_species))
     allocate (plan%kinetic_access_potential_v(cfg%n_particle_species))
+    allocate (plan%kinetic_reservoir_density_m3(cfg%n_particle_species))
     allocate (plan%kinetic_inflow_face(cfg%n_particle_species))
     plan%effective_density_m3 = 0.0_dp
     plan%effective_particle_flux_m2_s = 0.0_dp
@@ -207,6 +213,7 @@ contains
     plan%kinetic_inflow_active = .false.
     plan%kinetic_reservoir_potential_v = 0.0_dp
     plan%kinetic_access_potential_v = 0.0_dp
+    plan%kinetic_reservoir_density_m3 = 0.0_dp
     plan%kinetic_inflow_face = 0_i32
 
     if (present(kinetic_inflow_active) .or. present(kinetic_reservoir_potential_v) .or. &
@@ -233,6 +240,16 @@ contains
               (plan%kinetic_inflow_face < 1_i32 .or. plan%kinetic_inflow_face > 6_i32))) then
         error stop 'active particle source kinetic map face must be in [1, 6].'
       end if
+    end if
+
+    if (present(kinetic_reservoir_density_m3)) then
+      if (size(kinetic_reservoir_density_m3) /= cfg%n_particle_species) then
+        error stop 'particle source kinetic reservoir density species count mismatch.'
+      end if
+      if (.not. all(ieee_is_finite(kinetic_reservoir_density_m3))) then
+        error stop 'particle source kinetic reservoir densities must be finite.'
+      end if
+      plan%kinetic_reservoir_density_m3 = max(0.0_dp, kinetic_reservoir_density_m3)
     end if
 
     if (present(number_flux_override_active) .or. present(number_flux_override_m2_s)) then

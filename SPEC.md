@@ -391,6 +391,7 @@ $J_{return}=J_{escape}-J_{emit}$はセル内再吸収と外部returnの和です
 - `mesh_potential.csv`（設定時）
 - `charge_history.csv` / `potential_history.csv` / `top_reference_history.csv`（設定時）
 - `matching_plane_history.csv`（`zhao_stationary`の外部根更新かつ履歴出力時）
+- `fixed_current_history.csv`（固定電流 closure があり履歴出力時。species・channel 別の追跡電荷と目標電荷）
 - `charge_ledger.csv`（ledger がある場合）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`

@@ -298,6 +298,15 @@ contains
       all(current%inflow_kinetic_face(1:2) == 6_i32), &
       trim(label)//' inflow map face must be z-high' &
       )
+    ! 電子源はZhaoの準中性から解いた上流Maxwellian密度、イオン源は設定の太陽風密度。
+    call assert_close_dp( &
+      current%inflow_reservoir_density_m3(1), current%ambient_electron_density_m3, &
+      1.0e-12_dp*current%ambient_electron_density_m3, trim(label)//' electron reservoir density mismatch' &
+      )
+    call assert_close_dp( &
+      current%inflow_reservoir_density_m3(2), 8.7e6_dp, 1.0e-6_dp, &
+      trim(label)//' ion reservoir density mismatch' &
+      )
     call assert_close_dp( &
       current%inflow_access_potential_v(1), electron_bottleneck_v, 1.0e-12_dp, &
       trim(label)//' electron access bottleneck mismatch' &

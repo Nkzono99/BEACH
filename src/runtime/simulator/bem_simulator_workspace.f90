@@ -32,6 +32,8 @@ module bem_simulator_workspace
     real(dp), allocatable :: fixed_escape_target_charge(:)
     real(dp), allocatable :: fixed_escape_correction(:)
     real(dp), allocatable :: fixed_current_correction(:)
+    !> この batch で固定電流 target を適用した channel。1=吸収、2=放出、3=脱出。
+    logical, allocatable :: fixed_channel_active(:, :)
     integer(i64), allocatable :: neutral_return_terminal_counts(:)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
@@ -80,6 +82,7 @@ contains
       self%fixed_escape_correction(nspecies), &
       self%fixed_current_correction(nspecies) &
       )
+    allocate (self%fixed_channel_active(3_i32, nspecies))
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
     allocate (self%matching_plane_moments_thread(4_i32, nspecies, nthreads))
 
@@ -116,6 +119,7 @@ contains
     self%fixed_escape_target_charge = 0.0_dp
     self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
+    self%fixed_channel_active = .false.
     self%matching_plane_moments_thread = 0.0_dp
   end subroutine reset_before_injection
 

@@ -27,6 +27,7 @@ the linked section repeats this information before expanding its columns and dec
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
+| `fixed_current_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `zhao_stationary` or a species with `surface_charge_closure="fixed_current"` | [Tracked and target charge per species and channel](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly. Not used for restart |
 | `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
 | `macro_residuals.csv` | `output.write_files=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
@@ -144,7 +145,7 @@ This section defines how to read its receipts.
 | `surface_current_model_photoelectron_active` | Whether PE channels exist. PE receipts are zero when false |
 | `surface_current_model_reference_area_m2` | Reference area for current targets |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | Resolved surface and minimum potentials |
-| `surface_current_model_ambient_electron_density_m3` | Resolved ambient electron density |
+| `surface_current_model_ambient_electron_density_m3` | Resolved upstream electron Maxwellian density. The z-high electron inflow is injected at this density |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | Signed electron and ion current densities |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | Signed PE current densities. Emission and escape are positive; return is negative |
 | `surface_current_model_pe_escape_particle_current_A` | Negative because it is the signed current carried by outward PE particles |
@@ -196,6 +197,7 @@ approximations through $\phi_0$.
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
 | `matching_plane_history.csv` | Outer-root refresh with stride enabled | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history` |
+| `fixed_current_history.csv` | Fixed-current closure with stride enabled | [Eight-column window sums](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly |
 
 The reference in `top_reference_history.csv` is the mean over the box z-high face, not infinity or plasma potential.
 Join it to the same batch in `potential_history.csv` and compute `potential_V - potential_mean_V` for element-relative
@@ -203,6 +205,28 @@ potential.
 
 For an outer-root refresh run, typed `result.matching_plane_state` and `result.matching_plane_history` receipts avoid
 manual column indexing.
+
+### Fixed-current scale factors
+
+The fixed-current closure rescales each species' tracked total charge to its target with one uniform factor.
+`fixed_current_history.csv` sums the tracked and target charge over each history-write interval.
+The scale factors in `charge_ledger.csv` accumulate over the whole run, so read their time variation from this file.
+
+| Column | Meaning |
+| --- | --- |
+| `batch`, `simulated_time_s` | Last accepted batch of the window and the simulated time after it |
+| `window_batches` | Accepted batches in the window. Normally `history_stride`; shorter at the start of a run and right after a resume |
+| `species_idx` | One-based species index |
+| `channel` | `absorbed`, `emission`, or `escape`. Only channels whose target was applied in the window are written |
+| `tracked_charge_C` | Window sum of the tracked signed charge [C]. For emission, the charge left on the surface |
+| `target_charge_C` | Window sum of the external closure's target signed charge [C] |
+| `target_over_tracked` | `target_charge_C / tracked_charge_C`; `nan` when the tracked charge is zero |
+
+For `absorbed` and `emission`, `target_over_tracked` is the mean factor applied to the sample weights in that window.
+`escape` does not change surface charge; the target-minus-tracked difference is recorded as a ledger correction.
+When the outer model and the in-cell tracking agree, every channel stays at 1 within Monte Carlo noise.
+A systematic per-species departure from 1 means the fixed-current closure imposes a current split that the tracking
+does not produce.
 
 ## Mesh potential
 

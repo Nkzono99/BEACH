@@ -13,7 +13,8 @@ program main
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_checkpoint_contract, only: publish_checkpoint_manifest
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
-                               open_matching_plane_history_writer, print_run_summary, write_result_files, ensure_output_dir
+                               open_matching_plane_history_writer, open_fixed_current_history_writer, &
+                               print_run_summary, write_result_files, ensure_output_dir
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
@@ -33,7 +34,9 @@ program main
   integer :: potential_history_unit
   integer :: top_reference_history_unit
   integer :: matching_plane_history_unit
+  integer :: fixed_current_history_unit
   logical :: history_opened, potential_history_opened, top_reference_history_opened, matching_plane_history_opened, resumed
+  logical :: fixed_current_history_opened
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
 
@@ -56,6 +59,9 @@ program main
     call open_matching_plane_history_writer( &
       app, resumed, matching_plane_history_opened, matching_plane_history_unit &
       )
+    call open_fixed_current_history_writer( &
+      app, resumed, fixed_current_history_opened, fixed_current_history_unit &
+      )
     call perf_region_end(perf_region_history_open, perf_t0)
   else
     history_opened = .false.
@@ -66,6 +72,8 @@ program main
     top_reference_history_unit = -1
     matching_plane_history_opened = .false.
     matching_plane_history_unit = -1
+    fixed_current_history_opened = .false.
+    fixed_current_history_unit = -1
   end if
 
   if (history_opened) then
@@ -77,14 +85,16 @@ program main
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       end if
     else
@@ -95,14 +105,16 @@ program main
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
           inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       end if
     end if
@@ -116,14 +128,16 @@ program main
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       end if
     else
@@ -133,13 +147,15 @@ program main
           potential_history_unit=potential_history_unit, &
           top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
           electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       else
         call run_absorption_insulator( &
           mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
           charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit &
+          matching_plane_history_unit=matching_plane_history_unit, &
+          fixed_current_history_unit=fixed_current_history_unit &
           )
       end if
     end if
@@ -147,6 +163,7 @@ program main
   if (potential_history_opened) close (potential_history_unit)
   if (top_reference_history_opened) close (top_reference_history_unit)
   if (matching_plane_history_opened) close (matching_plane_history_unit)
+  if (fixed_current_history_opened) close (fixed_current_history_unit)
 
   if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
 

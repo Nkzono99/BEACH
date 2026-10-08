@@ -41,7 +41,7 @@ contains
   type(external_boundary_contract_type) :: active_boundary_contract
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal
-  real(dp) :: kinetic_vmin_normal, kinetic_barrier_normal
+  real(dp) :: kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
   character(len=256) :: boundary_message
 
   if (present(collision_failure_status)) collision_failure_status = collision_query_ok
@@ -141,6 +141,7 @@ contains
       if (.not. present(state)) then
         error stop 'flux-driven source requires injection_state in init_particle_batch_from_config.'
       end if
+      face_density_m3 = batch_density_m3(s)
       if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face') then
         call reservoir_face_velocity_correction( &
           cfg, cfg%particle_species(s), correction_vmin_normal, barrier_normal(s), mesh, snapshot, &
@@ -159,12 +160,15 @@ contains
             )
           vmin_normal(s) = max(vmin_normal(s), kinetic_vmin_normal)
           barrier_normal(s) = kinetic_barrier_normal
+          if (active_source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
+            face_density_m3 = active_source_plan%kinetic_reservoir_density_m3(s)
+          end if
         end if
       end if
       if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
         call compute_macro_particles_for_species( &
           cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
-          number_density_override=batch_density_m3(s), particle_flux_override=effective_particle_flux_m2_s(s), &
+          number_density_override=face_density_m3, particle_flux_override=effective_particle_flux_m2_s(s), &
           use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
           temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
           w_particle_override=batch_weight(s) &
@@ -193,6 +197,7 @@ contains
           boundary_contract=active_boundary_contract &
           )
         boundary_vmin(face, s) = correction_vmin_normal
+        face_density_m3 = batch_density_m3(s)
         if (active_source_plan%kinetic_inflow_active(s) .and. face == active_source_plan%kinetic_inflow_face(s)) then
           call external_kinetic_face_velocity_correction( &
             cfg, face_spec, active_source_plan%kinetic_reservoir_potential_v(s), &
@@ -202,11 +207,14 @@ contains
             )
           boundary_vmin(face, s) = max(boundary_vmin(face, s), kinetic_vmin_normal)
           boundary_barrier(face, s) = kinetic_barrier_normal
+          if (active_source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
+            face_density_m3 = active_source_plan%kinetic_reservoir_density_m3(s)
+          end if
         end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
             cfg%sim, face_spec, state%boundary_macro_residual(face, s), boundary_global_counts(face, s), &
-            vmin_normal=boundary_vmin(face, s), number_density_override=batch_density_m3(s), &
+            vmin_normal=boundary_vmin(face, s), number_density_override=face_density_m3, &
             particle_flux_override=effective_particle_flux_m2_s(s), &
             use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
             temperature_k_override=effective_temperature_k(s), &

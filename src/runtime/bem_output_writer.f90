@@ -21,6 +21,8 @@ module bem_output_writer
   public :: open_matching_plane_history_writer
   public :: write_top_reference_history_snapshot
   public :: write_matching_plane_history_snapshot
+  public :: open_fixed_current_history_writer
+  public :: write_fixed_current_history_rows
   public :: print_run_summary
   public :: write_result_files
   public :: write_checkpoint_state_files
@@ -71,6 +73,24 @@ module bem_output_writer
       real(dp), intent(in) :: simulated_time_s
       type(sim_stats), intent(in) :: stats
     end subroutine write_matching_plane_history_snapshot
+
+    module subroutine open_fixed_current_history_writer(app, resumed, history_opened, history_unit)
+      type(app_config), intent(in) :: app
+      logical, intent(in) :: resumed
+      logical, intent(out) :: history_opened
+      integer, intent(out) :: history_unit
+    end subroutine open_fixed_current_history_writer
+
+    module subroutine write_fixed_current_history_rows( &
+      unit_id, batch_idx, simulated_time_s, window_batches, channel_active, tracked_charge_c, target_charge_c &
+      )
+      integer, intent(in) :: unit_id
+      integer(i32), intent(in) :: batch_idx, window_batches
+      real(dp), intent(in) :: simulated_time_s
+      !> (channel, species)。channel は 1=吸収、2=放出、3=脱出。
+      logical, intent(in) :: channel_active(:, :)
+      real(dp), intent(in) :: tracked_charge_c(:, :), target_charge_c(:, :)
+    end subroutine write_fixed_current_history_rows
 
     module subroutine write_summary_file( &
       out_dir, mesh, stats, cfg, mpi_world_size, charge_ledger, electrostatic_diagnostics &

@@ -375,8 +375,11 @@ Input constraints:
 
 Without PE, Type C produces only electron/ion absorption targets satisfying $J_e+J_i=0$ and the z-high kinetic-barrier
 map; it produces no PE emission, return, or escape target. Without PE there is no PE outflow at H, so the outer-root
-refresh is unavailable. `ion_species.number_density_*` is the ion density at infinity. Electron density and PE
-emission-current density are sampling inputs; the closure determines current targets.
+refresh is unavailable. `ion_species.number_density_*` is the solar-wind density at infinity; write the same value in
+`electron_species` (a different value is a configuration error). The electron inflow is injected at the upstream electron
+Maxwellian density that the Zhao root solves from quasi-neutrality at infinity
+([reservoir density](ZhaoStationaryClosure.html#reservoir-density)). PE emission-current density is a sampling input; the
+closure determines current targets.
 
 With a split `[periodic2]` table, the z-high plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y
 periodic axes, particles returned by the outer barrier re-enter at a cell-uniform position. `outflow_refresh_batches>0`

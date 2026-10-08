@@ -11,6 +11,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the
   surface emission target and the per-batch floating targets stay unchanged. The accepted outer state is written to the
   `matching_plane_*` summary receipts and `matching_plane_history.csv`, and restarts reconstruct it from the checkpoint.
+- Added `fixed_current_history.csv`, written every `output.history_stride` batches when a fixed-current closure is
+  active. Each row holds the tracked and target signed charge of one species channel (`absorbed`, `emission`, `escape`)
+  summed over the write interval, so the closure's scale factor can be followed in time instead of only as the
+  run-cumulative value in `charge_ledger.csv`.
 - Added a pluggable `[surface_current_model]` closure with a restored Zhao A/B/C stationary zero-current solver. It resolves
   ambient-electron, ion, PE-emission, PE-escape, and PE-return targets independently and applies them through per-species
   `fixed_current` spatial maps.
@@ -29,6 +33,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.
 
 ### Changed
+- `zhao_stationary` now injects the z-high ambient-electron inflow at the upstream electron Maxwellian density
+  $n_{e,\infty}$ solved by the Zhao root (the density that keeps infinity quasi-neutral after the wall absorbs fast
+  electrons), and requires the electron and ion species to share the solar-wind `number_density_*`. Previously the
+  electrons were injected at the configured density, so the injected flux fell short of the root's electron current
+  (about 17 % in the three-layer regolith runs) and the fixed-current closure rescaled every absorbed electron by
+  $n_{e,\infty}/n_i$. Totals are unchanged; the electron sample count and per-batch noise change.
 - `zhao_stationary` now accepts a nondrifting ambient-electron reservoir (`drift_velocity` z component 0).
 - The supported boundary workflow is now local reservoir injection plus closed
   photoelectron reflection/neutral-return closure. `[external_boundary]` is

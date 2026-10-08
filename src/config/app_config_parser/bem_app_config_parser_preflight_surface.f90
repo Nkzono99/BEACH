@@ -117,6 +117,13 @@ contains
   if (species_number_density_m3(cfg%particle_species(ion_idx)) <= 0.0_dp) then
     error stop 'Zhao ion species requires a positive number density.'
   end if
+  ! 電子とイオンのnumber densityは同じ無限遠の太陽風密度を表す。注入する電子の密度は外部根が決める。
+  if (abs(species_number_density_m3(cfg%particle_species(electron_idx)) - &
+          species_number_density_m3(cfg%particle_species(ion_idx))) > &
+      1.0e-9_dp*species_number_density_m3(cfg%particle_species(ion_idx))) then
+    error stop 'Zhao ambient electron and ion species must share the solar-wind number density; '// &
+      'the injected electron reservoir density is derived from the Zhao root.'
+  end if
   electron_temperature = species_temperature_k(cfg%particle_species(electron_idx))
   ion_temperature = species_temperature_k(cfg%particle_species(ion_idx))
   if (electron_temperature <= 0.0_dp) then

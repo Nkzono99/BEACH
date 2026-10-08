@@ -10,11 +10,12 @@ program test_zhao_outflow_refresh
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
-                          assert_close_dp
+                          assert_close_dp, delete_file_if_exists
   implicit none
 
   real(dp), parameter :: cell_width = 1.0e-4_dp
   real(dp), parameter :: box_height = 1.0e-3_dp
+  character(len=*), parameter :: fixed_history_path = 'test_zhao_outflow_refresh_fixed_history_tmp.csv'
   type(mesh_type) :: mesh
   type(app_config) :: cfg
   type(sim_stats) :: stats, resumed_stats
@@ -22,6 +23,8 @@ program test_zhao_outflow_refresh
   type(charge_ledger_type) :: ledger
   type(surface_current_model_result_type) :: static_root
   real(dp) :: emission_flux, predicted_escape_fraction, observed_escape_fraction
+  integer :: fixed_history_unit, read_ios, fixed_history_rows
+  character(len=512) :: line
 
   call test_init(3)
 
@@ -44,12 +47,34 @@ program test_zhao_outflow_refresh
     finite_charge_sum(mesh%q_elem, 'fixed-root surface charge'), 0.0_dp, &
     1.0e-6_dp*abs(ledger%emitted_from_surface(3)), 'zero-current targets must keep the cell floating' &
     )
+  ! 上流電子をZhao根の密度で注入すれば、固定電流の倍率はMC雑音の範囲で1になる。
+  call assert_close_dp( &
+    ledger%fixed_absorbed_weight_scale(1), 1.0_dp, 0.15_dp, &
+    'electron inflow must carry the Zhao upstream density' &
+    )
   call test_end()
 
   call test_begin('flat_plate_outflow_refresh_reproduces_emission_source')
   call configure_fixture(mesh, cfg, inject_state, 1_i32)
   call seed_particles_from_config(cfg)
-  call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state)
+  open (newunit=fixed_history_unit, file=fixed_history_path, status='replace', action='write')
+  call run_absorption_insulator( &
+    mesh, cfg, stats, history_stride=1_i32, inject_state=inject_state, fixed_current_history_unit=fixed_history_unit &
+    )
+  close (fixed_history_unit)
+  open (newunit=fixed_history_unit, file=fixed_history_path, status='old', action='read')
+  fixed_history_rows = 0
+  do
+    read (fixed_history_unit, '(a)', iostat=read_ios) line
+    if (read_ios /= 0) exit
+    fixed_history_rows = fixed_history_rows + 1
+  end do
+  close (fixed_history_unit)
+  call delete_file_if_exists(fixed_history_path)
+  ! electron/ion吸収、PE吸収・放出・脱出の5 channelを毎batch書く。
+  call assert_equal_i32( &
+    int(fixed_history_rows, i32), 5_i32*cfg%sim%batch_count, 'fixed-current history must write every active channel' &
+    )
   emission_flux = static_root%photoelectron_emission_current_density_a_m2/qe
   call assert_true(stats%matching_plane_state_valid, 'outflow refresh state was not published')
   call assert_equal_i32( &

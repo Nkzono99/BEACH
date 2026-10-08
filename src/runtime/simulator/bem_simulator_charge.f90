@@ -302,6 +302,7 @@ contains
       end if
       workspace%fixed_absorbed_target_charge(species_idx) = target_charge
       workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
+      workspace%fixed_channel_active(1, species_idx) = .true.
       workspace%fixed_current_correction(species_idx) = &
         workspace%fixed_current_correction(species_idx) + correction
       do i = 1_i32, fresh_particle_count
@@ -343,6 +344,7 @@ contains
       end if
       workspace%fixed_emission_target_charge(species_idx) = target_charge
       workspace%fixed_emission_weight_scale(species_idx) = weight_scale
+      workspace%fixed_channel_active(2, species_idx) = .true.
       workspace%fixed_current_correction(species_idx) = &
         workspace%fixed_current_correction(species_idx) + correction
       workspace%photo_emission_dq(:, species_idx) = &
@@ -364,6 +366,7 @@ contains
       end if
       workspace%fixed_escape_target_charge(species_idx) = target_charge
       workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
+      workspace%fixed_channel_active(3, species_idx) = .true.
       if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
         error stop 'fixed_current escape correction is not finite.'
       end if

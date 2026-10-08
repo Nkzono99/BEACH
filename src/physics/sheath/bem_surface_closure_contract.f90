@@ -17,6 +17,8 @@ module bem_surface_closure_contract
     real(dp), allocatable :: escaped_particle_current_a(:)
     real(dp), allocatable :: inflow_reservoir_potential_v(:)
     real(dp), allocatable :: inflow_access_potential_v(:)
+    !> 流入写像の0 V貯留部にあるMaxwellianの密度。0以下ならspecies設定の密度を使う。
+    real(dp), allocatable :: inflow_reservoir_density_m3(:)
     integer(i32), allocatable :: inflow_kinetic_face(:)
     real(dp), allocatable :: outflow_barrier_potential_v(:)
     integer(i32), allocatable :: outflow_barrier_face(:)

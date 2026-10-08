@@ -43,8 +43,8 @@ $$
 n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha
 $$
 
-と定めます。ion species の数密度は無限遠 ion 密度です。electron の設定密度と PE species の
-`emit_current_density_a_m2` は raw 粒子分布の標本化に使い、Zhao 根が固定電流 target を決めます。
+と定めます。ion species の数密度は無限遠の太陽風密度です（[reservoir の密度](#reservoir-の密度)）。
+PE species の `emit_current_density_a_m2` は raw 粒子分布の標本化に使い、Zhao 根が固定電流 target を決めます。
 電流の符号は表面帯電への寄与で表します。
 
 | channel | 符号 | BEACH での扱い |
@@ -105,16 +105,39 @@ $$
 飛行時間と接線速度の積で m 程度になり、セル幅よりはるかに大きいためです。x/y が周期でなければ横切り位置へ戻します。
 PE の放出速度そのものは、PE species に設定した表面 half-Maxwellian のままです。
 
+### reservoir の密度
+
+ambient electron と ion の species には、同じ無限遠の太陽風密度 $n_i$ を書きます。値が違うと設定エラーです。
+
+壁に届いた電子は吸収されて戻らないため、無限遠の電子分布は外向きの半分から高速の成分が欠けています。
+Zhao 根は、この欠けを含めて無限遠で準中性になるよう、上流電子 Maxwellian の密度 $n_{e,\infty}$ を解きます。
+drift 0 の Type C では
+
+$$
+n_{e,\infty}=\frac{n_i}{1-\frac12\operatorname{erfc}\sqrt{-\phi_0/T_e}}
+$$
+
+で、$n_i$ より大きくなります。Type A では障壁が $\phi_m$ に変わり、無限遠の PE も準中性に加わります。
+
+BEACH は z-high の電子流入をこの $n_{e,\infty}$ で注入し、ion は設定の $n_i$ で注入します。
+こうすると、注入した束が根の電子電流と一致し、固定電流 closure の電子の倍率は MC 雑音の範囲で 1 になります。
+`outflow_refresh_batches>0` では、外部根を解き直すたびに $n_{e,\infty}$ も更新します。
+
 ## 固定される量と batch ごとに変わる量
 
 | 外部根に属する（`outflow_refresh_batches=0` では run 中固定） | 各 batch で再評価・再標本化 |
 |---|---|
-| branch、$\phi_0$、$\phi_m$、ambient electron 密度 | 表面電荷と BEACH 領域内の場 |
+| branch、$\phi_0$、$\phi_m$、上流電子 Maxwellian 密度 | 表面電荷と BEACH 領域内の場 |
 | species 別の signed 電流密度と reference area | z-high 面平均電位 $\phi_f$ と流入 tail |
 | 吸収・放出・escape の電流 target | 粒子軌道、hit 位置、局所 return / escape 分類 |
 | branch 別の access / barrier 電位 | $I\Delta t$ の target 電荷と raw 分布への倍率 |
 
 この分離により総電流は定常根へ合わせられますが、要素別の帯電分布は各 batch の Monte Carlo 軌道に依存します。
+
+固定電流 closure が追跡と異なる電流配分を課していないかは、`fixed_current_history.csv` の
+`target_over_tracked` で確認します（[列の定義](OutputReference.html#固定電流の倍率)）。
+外部根とセル内の追跡が整合していれば、どの species も 1 の近くに留まります。種ごとに倍率が異なると、
+要素ごとの電流の釣り合いが変わり、定常状態も追跡だけで決まる状態からずれます。
 
 ## 観測した PE 流出で外部根を解き直す
 

@@ -884,6 +884,7 @@ def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> 
         (1, "drift_velocity", [0.0, 0.0, 0.0], "inward z-high"),
         (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "drift_velocity.*finite"),
         (1, "number_density_cm3", 0.0, "finite and > 0|positive number density"),
+        (0, "number_density_cm3", 5.0, "share the solar-wind number density"),
     ],
 )
 def test_zhao_stationary_rejects_unsupported_species_contract(

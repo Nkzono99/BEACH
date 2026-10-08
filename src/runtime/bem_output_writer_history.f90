@@ -97,7 +97,7 @@ contains
   if (app%history_stride <= 0_i32 .or. &
       trim(lower_ascii(app%surface_current%model)) /= 'zhao_stationary' .or. &
       app%surface_current%outflow_refresh_batches <= 0_i32) then
-    if (.not. resumed) call delete_matching_plane_history_if_exists(path)
+    if (.not. resumed) call delete_history_if_exists(path)
     return
   end if
   call ensure_output_dir(app%output_dir)
@@ -113,8 +113,8 @@ contains
   history_opened = .true.
   end procedure open_matching_plane_history_writer
 
-  !> fresh runで生成条件を満たさない旧matching historyを残さない。
-  subroutine delete_matching_plane_history_if_exists(path)
+  !> fresh runで生成条件を満たさない旧条件付きhistoryを残さない。
+  subroutine delete_history_if_exists(path)
     character(len=*), intent(in) :: path
     integer :: unit_id, ios
     logical :: file_exists
@@ -122,10 +122,10 @@ contains
     inquire (file=trim(path), exist=file_exists)
     if (.not. file_exists) return
     open (newunit=unit_id, file=trim(path), status='old', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open stale matching-plane history file for deletion.'
+    if (ios /= 0) error stop 'Failed to open stale history file for deletion: '//trim(path)
     close (unit_id, status='delete', iostat=ios)
-    if (ios /= 0) error stop 'Failed to delete stale matching-plane history file.'
-  end subroutine delete_matching_plane_history_if_exists
+    if (ios /= 0) error stop 'Failed to delete stale history file: '//trim(path)
+  end subroutine delete_history_if_exists
 
   module procedure write_matching_plane_history_snapshot
 
@@ -141,6 +141,57 @@ contains
     ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
     ',', stats%matching_plane_residual
   end procedure write_matching_plane_history_snapshot
+
+  !> 固定電流closureの追跡電荷と目標電荷を、species別channel別に窓合計で記録する。
+  module procedure open_fixed_current_history_writer
+  character(len=1024) :: path
+  integer(i32) :: species_idx
+  logical :: fixed_current_used
+
+  history_opened = .false.
+  history_unit = -1
+  if (.not. app%write_output) return
+  path = trim(app%output_dir)//'/fixed_current_history.csv'
+  fixed_current_used = trim(lower_ascii(app%surface_current%model)) == 'zhao_stationary'
+  do species_idx = 1_i32, app%n_particle_species
+    if (.not. app%particle_species(species_idx)%enabled) cycle
+    fixed_current_used = fixed_current_used .or. &
+                         trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current'
+  end do
+  if (app%history_stride <= 0_i32 .or. .not. fixed_current_used) then
+    if (.not. resumed) call delete_history_if_exists(path)
+    return
+  end if
+  call ensure_output_dir(app%output_dir)
+  call open_history_file( &
+    path, resumed, &
+    'batch,simulated_time_s,window_batches,species_idx,channel,tracked_charge_C,target_charge_C,target_over_tracked', &
+    history_unit, 'Failed to open fixed-current history file.' &
+    )
+  history_opened = .true.
+  end procedure open_fixed_current_history_writer
+
+  !> 窓内でtargetを適用したchannelだけを書く。追跡電荷が0なら比はnanとする。
+  module procedure write_fixed_current_history_rows
+  character(len=*), parameter :: channel_names(3) = [character(len=8) :: 'absorbed', 'emission', 'escape']
+  character(len=32) :: ratio_text
+  integer(i32) :: species_idx, channel
+
+  do species_idx = 1_i32, int(size(channel_active, 2), i32)
+    do channel = 1_i32, 3_i32
+      if (.not. channel_active(channel, species_idx)) cycle
+      if (tracked_charge_c(channel, species_idx) /= 0.0_dp) then
+        write (ratio_text, '(es24.16)') target_charge_c(channel, species_idx)/tracked_charge_c(channel, species_idx)
+      else
+        ratio_text = 'nan'
+      end if
+      write (unit_id, '(i0,a,es24.16,2(a,i0),a,a,2(a,es24.16),a,a)') &
+        batch_idx, ',', simulated_time_s, ',', window_batches, ',', species_idx, ',', trim(channel_names(channel)), &
+        ',', tracked_charge_c(channel, species_idx), ',', target_charge_c(channel, species_idx), &
+        ',', trim(adjustl(ratio_text))
+    end do
+  end do
+  end procedure write_fixed_current_history_rows
 
   !> Append or replace a history file; an existing resumed file keeps its original header.
   subroutine open_history_file(path, resumed, header, unit_id, failure_message)

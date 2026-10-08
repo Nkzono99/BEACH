@@ -4,7 +4,8 @@ program test_output_writer_io
   use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, open_matching_plane_history_writer, &
-                               write_result_files, write_top_reference_history_snapshot
+                               write_result_files, write_top_reference_history_snapshot, &
+                               open_fixed_current_history_writer, write_fixed_current_history_rows
   use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
@@ -58,7 +59,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(7)
+  call test_init(8)
 
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
@@ -383,6 +384,10 @@ program test_output_writer_io
   call assert_true(all(saw_refresh_receipts), 'summary should record the outflow refresh contract')
   call test_end()
 
+  call test_begin('fixed_current_history_rows')
+  call test_fixed_current_history_rows()
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
@@ -391,6 +396,70 @@ program test_output_writer_io
   call test_summary()
 
 contains
+
+  !> 固定電流historyはtargetを適用したchannelだけを窓合計で書き、追跡値0の比をnanにする。
+  subroutine test_fixed_current_history_rows()
+    logical :: opened, active(3, 3)
+    integer :: unit_id, read_ios, row_count
+    real(dp) :: tracked(3, 3), target(3, 3)
+    character(len=512) :: rows(5)
+
+    call default_app_config(cfg)
+    call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+    cfg%output_dir = out_dir_matching
+    cfg%history_stride = 0_i32
+    call ensure_output_dir(out_dir_matching)
+    open (newunit=unit_id, file=out_dir_matching//'/fixed_current_history.csv', status='replace', action='write')
+    write (unit_id, '(a)') 'stale'
+    close (unit_id)
+    call open_fixed_current_history_writer(cfg, .false., opened, unit_id)
+    call assert_true(.not. opened, 'history_stride=0 must disable the fixed-current history')
+    inquire (file=out_dir_matching//'/fixed_current_history.csv', exist=exists)
+    call assert_true(.not. exists, 'fresh run must remove a stale disabled fixed-current history')
+
+    cfg%history_stride = 2_i32
+    call open_fixed_current_history_writer(cfg, .false., opened, unit_id)
+    call assert_true(opened, 'zhao_stationary must open the fixed-current history')
+    if (.not. opened) return
+    active = .false.
+    active(1, 1:2) = .true.
+    active(2:3, 3) = .true.
+    tracked = 0.0_dp
+    target = 0.0_dp
+    tracked(1, 1) = -2.0_dp
+    target(1, 1) = -3.0_dp
+    tracked(1, 2) = 1.0e-12_dp
+    target(1, 2) = 1.0e-12_dp
+    tracked(2, 3) = 4.0e-12_dp
+    target(2, 3) = 4.0e-12_dp
+    target(3, 3) = -1.0e-13_dp
+    call write_fixed_current_history_rows(unit_id, 3_i32, 6.0_dp, 2_i32, active, tracked, target)
+    close (unit_id)
+
+    open (newunit=unit_id, file=out_dir_matching//'/fixed_current_history.csv', status='old', action='read')
+    row_count = 0
+    do
+      read (unit_id, '(a)', iostat=read_ios) line
+      if (read_ios /= 0) exit
+      row_count = row_count + 1
+      if (row_count <= size(rows)) rows(row_count) = line
+    end do
+    close (unit_id)
+    call assert_equal_i32(int(row_count, i32), 5_i32, 'header plus one row per active channel expected')
+    if (row_count /= 5) return
+    call assert_true( &
+      trim(rows(1)) == 'batch,simulated_time_s,window_batches,species_idx,channel,tracked_charge_C,target_charge_C,'// &
+      'target_over_tracked', 'fixed-current history header mismatch' &
+      )
+    call assert_true(index(rows(2), ',2,1,absorbed,') > 0, 'electron absorbed row mismatch')
+    call assert_true(index(rows(2), ',1.5000000000000000E+00') > 0, 'electron target/tracked ratio mismatch')
+    call assert_true(index(rows(3), ',2,2,absorbed,') > 0, 'ion absorbed row mismatch')
+    call assert_true(index(rows(4), ',2,3,emission,') > 0, 'PE emission row mismatch')
+    call assert_true( &
+      index(rows(5), ',2,3,escape,') > 0 .and. rows(5) (len_trim(rows(5)) - 3:len_trim(rows(5))) == ',nan', &
+      'PE escape row with no tracked charge must write nan' &
+      )
+  end subroutine test_fixed_current_history_rows
 
   subroutine scan_summary_line(summary_path, expected_line, found)
     character(len=*), intent(in) :: summary_path, expected_line
@@ -539,6 +608,7 @@ contains
     call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/top_reference_history.csv')
     call delete_file_if_exists(out_dir//'/matching_plane_history.csv')
+    call delete_file_if_exists(out_dir//'/fixed_current_history.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 

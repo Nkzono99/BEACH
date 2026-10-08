@@ -44,8 +44,8 @@ $$
 n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha.
 $$
 
-The ion-species density is the ion density at infinity. The configured electron density and PE
-`emit_current_density_a_m2` sample the raw particle distributions; the Zhao root determines the fixed current targets.
+The ion-species density is the solar-wind density at infinity ([reservoir density](#reservoir-density)). PE
+`emit_current_density_a_m2` samples the raw particle distribution; the Zhao root determines the fixed current targets.
 Current signs below denote contributions to surface charging.
 
 | Channel | Sign | BEACH treatment |
@@ -108,17 +108,41 @@ periodic cell, BEACH redraws the return position uniformly over the z-high plane
 outer flight, tangential speed times flight time, is of order meters and far exceeds the cell width. Without x/y
 periodicity, the particle returns at its crossing point. The PE launch VDF remains the configured surface half-Maxwellian.
 
+### Reservoir density
+
+Write the same solar-wind density at infinity, $n_i$, in both the ambient-electron and the ion species. Different values
+are a configuration error.
+
+Electrons that reach the wall are absorbed and never come back, so the outward half of the electron distribution at
+infinity lacks its fast part. The Zhao root solves for the upstream electron Maxwellian density $n_{e,\infty}$ that keeps
+infinity quasi-neutral with this loss included. For Type C with zero drift,
+
+$$
+n_{e,\infty}=\frac{n_i}{1-\frac12\operatorname{erfc}\sqrt{-\phi_0/T_e}},
+$$
+
+which exceeds $n_i$. In Type A the barrier becomes $\phi_m$, and PE at infinity also enter quasi-neutrality.
+
+BEACH injects the z-high electron inflow at this $n_{e,\infty}$ and the ions at the configured $n_i$. The injected flux
+then matches the root's electron current, and the fixed-current electron scale factor stays at 1 within Monte Carlo
+noise. With `outflow_refresh_batches>0`, $n_{e,\infty}$ is updated each time the outer root is re-solved.
+
 ## Fixed quantities and batch-dependent quantities
 
 | Owned by the outer root (fixed during the run when `outflow_refresh_batches=0`) | Re-evaluated or resampled each batch |
 |---|---|
-| Branch, $\phi_0$, $\phi_m$, ambient-electron density | Surface charge and field inside the BEACH domain |
+| Branch, $\phi_0$, $\phi_m$, upstream electron Maxwellian density | Surface charge and field inside the BEACH domain |
 | Signed species current densities and reference area | Mean z-high potential $\phi_f$ and selected inflow tail |
 | Absorption, emission, and escape current targets | Trajectories, hit positions, and local return / escape classification |
 | Branch-dependent access and barrier potentials | Target charge $I\Delta t$ and scaling of the raw distribution |
 
 This separation enforces the stationary total currents, while the elementwise charging pattern remains a Monte Carlo
 result of the trajectories in each batch.
+
+Check whether the fixed-current closure imposes a current split that the tracking does not produce with
+`target_over_tracked` in `fixed_current_history.csv` ([column definitions](OutputReference.html#fixed-current-scale-factors)).
+When the outer root and the in-cell tracking agree, every species stays near 1. Different factors per species change the
+current balance on each element and move the steady state away from the one set by the tracking alone.
 
 ## Re-solve the outer root from the observed PE outflow
 

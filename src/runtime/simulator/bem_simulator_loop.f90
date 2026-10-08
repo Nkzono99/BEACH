@@ -28,11 +28,15 @@ contains
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
   integer(i32) :: boundary_status
-  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit
+  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
-  logical :: replay_active, matching_history_enabled, outflow_refreshed
+  logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
+  integer(i32) :: fixed_window_batches
+  ! 固定電流historyの窓合計。(channel, species)、channelは1=吸収、2=放出、3=脱出。
+  real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
+  logical, allocatable :: fixed_window_active(:, :)
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -127,12 +131,25 @@ contains
     matching_history_enabled = matching_hist_unit /= -1
   end if
 
+  fixed_history_enabled = present(fixed_current_history_unit)
+  fixed_hist_unit = -1
+  if (fixed_history_enabled) then
+    fixed_hist_unit = fixed_current_history_unit
+    fixed_history_enabled = fixed_hist_unit /= -1
+  end if
+  allocate ( &
+    fixed_window_tracked(3, app%n_particle_species), fixed_window_target(3, app%n_particle_species), &
+    fixed_window_active(3, app%n_particle_species) &
+    )
+  call reset_fixed_current_window()
+
   history_enabled = present(history_unit)
   hist_unit = 0
   if (history_enabled) hist_unit = history_unit
   hist_stride = 1_i32
   if (present(history_stride)) then
     matching_history_enabled = matching_history_enabled .and. history_stride > 0_i32
+    fixed_history_enabled = fixed_history_enabled .and. history_stride > 0_i32
     hist_stride = max(1_i32, history_stride)
   end if
   potential_history_enabled = present(potential_history_unit)
@@ -234,7 +251,8 @@ contains
         kinetic_access_potential_v=surface_closure%inflow_access_potential_v, &
         kinetic_inflow_face=surface_closure%inflow_kinetic_face, &
         number_flux_override_active=surface_closure%has_inflow_number_flux, &
-        number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s &
+        number_flux_override_m2_s=surface_closure%inflow_number_flux_m2_s, &
+        kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
         )
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
@@ -403,6 +421,7 @@ contains
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
     if (outflow_refreshed) call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .false.)
+    if (fixed_history_enabled) call accumulate_fixed_current_window()
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
@@ -419,6 +438,13 @@ contains
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
         call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
+      end if
+      if (fixed_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
+        call write_fixed_current_history_rows( &
+          fixed_hist_unit, batch_idx, stats%simulated_time, fixed_window_batches, fixed_window_active, &
+          fixed_window_tracked, fixed_window_target &
+          )
+        call reset_fixed_current_window()
       end if
       if (potential_history_enabled) then
         call maybe_write_potential_history_snapshot( &
@@ -457,6 +483,30 @@ contains
       electrostatic_diagnostics%top_reference_potential_max = top_phi_max
     end if
   end if
+
+contains
+
+  subroutine reset_fixed_current_window()
+    fixed_window_batches = 0_i32
+    fixed_window_tracked = 0.0_dp
+    fixed_window_target = 0.0_dp
+    fixed_window_active = .false.
+  end subroutine reset_fixed_current_window
+
+  !> accepted batch の固定電流 closure の追跡電荷と目標電荷を history 窓へ足す。
+  subroutine accumulate_fixed_current_window()
+    integer(i32) :: n
+
+    n = app%n_particle_species
+    fixed_window_tracked(1, :) = fixed_window_tracked(1, :) + workspace%fixed_current_charge_values(1:n)
+    fixed_window_tracked(2, :) = fixed_window_tracked(2, :) + workspace%fixed_current_charge_values(n + 1:2*n)
+    fixed_window_tracked(3, :) = fixed_window_tracked(3, :) + workspace%fixed_current_charge_values(2*n + 1:3*n)
+    fixed_window_target(1, :) = fixed_window_target(1, :) + workspace%fixed_absorbed_target_charge
+    fixed_window_target(2, :) = fixed_window_target(2, :) + workspace%fixed_emission_target_charge
+    fixed_window_target(3, :) = fixed_window_target(3, :) + workspace%fixed_escape_target_charge
+    fixed_window_active = fixed_window_active .or. workspace%fixed_channel_active
+    fixed_window_batches = fixed_window_batches + 1_i32
+  end subroutine accumulate_fixed_current_window
   end procedure run_absorption_insulator
 
   !> 外部シース解が与える壁電位を、z-high面の水平平均電位として周期k=0成分へ固定する。

@@ -24,7 +24,7 @@ module bem_simulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
-  use bem_output_writer, only: write_matching_plane_history_snapshot
+  use bem_output_writer, only: write_matching_plane_history_snapshot, write_fixed_current_history_rows
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
@@ -37,7 +37,7 @@ module bem_simulator
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
       potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics, &
-      matching_plane_history_unit &
+      matching_plane_history_unit, fixed_current_history_unit &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -53,6 +53,7 @@ module bem_simulator
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       integer, intent(in), optional :: matching_plane_history_unit
+      integer, intent(in), optional :: fixed_current_history_unit
     end subroutine run_absorption_insulator
 
     module subroutine prepare_batch_state( &

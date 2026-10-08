@@ -237,14 +237,24 @@ def _validate_surface_current_model(
                 "reservoir drift."
             )
 
+    def number_density_m3(item: Mapping[str, Any]) -> float:
+        if "number_density_cm3" in item:
+            return float(item["number_density_cm3"]) * 1.0e6
+        return float(item.get("number_density_m3", 0.0))
+
     ion = selected["ion"]
-    if "number_density_cm3" in ion:
-        ion_density_m3 = float(ion["number_density_cm3"]) * 1.0e6
-    else:
-        ion_density_m3 = float(ion.get("number_density_m3", 0.0))
+    ion_density_m3 = number_density_m3(ion)
     if not math.isfinite(ion_density_m3) or ion_density_m3 <= 0.0:
         raise ConfigValidationError(
             "BEACH constraint error: Zhao ion species requires a positive number density."
+        )
+    # Both densities name the solar wind at infinity; the root sets the injected electron density.
+    electron_density_m3 = number_density_m3(selected["electron"])
+    if not abs(electron_density_m3 - ion_density_m3) <= 1.0e-9 * ion_density_m3:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao ambient electron and ion species must share "
+            "the solar-wind number density; the injected electron reservoir density "
+            "is derived from the Zhao root."
         )
 
     def temperature_k(item: Mapping[str, Any]) -> float:

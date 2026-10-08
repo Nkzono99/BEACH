@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(27)
+  call test_init(28)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -217,12 +217,18 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('zhao_accepts_zero_electron_drift')
-  call write_zero_electron_drift_variant(zhao_refresh_variant_path)
+  call write_first_line_variant(zhao_refresh_variant_path, 'drift_velocity =', 'drift_velocity = [0.0, 0.0, 0.0]')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp( &
     cfg%particle_species(1)%drift_velocity(3), 0.0_dp, 0.0_dp, 'Zhao electron drift must accept zero' &
     )
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('zhao_rejects_electron_density_unlike_solar_wind')
+  call write_first_line_variant(zhao_refresh_variant_path, 'number_density_cm3 =', 'number_density_cm3 = 5.0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'share the solar-wind number density')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -484,8 +490,9 @@ contains
   end subroutine write_no_photo_zhao_variant
 
   !> Copy the Zhao example with a nondrifting ambient electron reservoir.
-  subroutine write_zero_electron_drift_variant(path)
-    character(len=*), intent(in) :: path
+  !> Copy the Zhao example and replace the first line starting with `key`, which belongs to the electron species.
+  subroutine write_first_line_variant(path, key, replacement)
+    character(len=*), intent(in) :: path, key, replacement
     character(len=1024) :: line
     integer :: source_unit, target_unit, ios
     logical :: replaced
@@ -493,13 +500,13 @@ contains
     replaced = .false.
     open (newunit=source_unit, file='examples/periodic2_zhao_fixed_current.toml', status='old', action='read', &
           iostat=ios)
-    if (ios /= 0) error stop 'failed to open Zhao zero-drift variant source'
+    if (ios /= 0) error stop 'failed to open Zhao variant source'
     open (newunit=target_unit, file=path, status='replace', action='write')
     do
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (.not. replaced .and. index(line, 'drift_velocity =') == 1) then
-        write (target_unit, '(A)') 'drift_velocity = [0.0, 0.0, 0.0]'
+      if (.not. replaced .and. index(line, key) == 1) then
+        write (target_unit, '(A)') replacement
         replaced = .true.
       else
         write (target_unit, '(A)') trim(line)
@@ -507,8 +514,8 @@ contains
     end do
     close (source_unit)
     close (target_unit)
-    if (.not. replaced) error stop 'Zhao zero-drift variant found no electron drift'
-  end subroutine write_zero_electron_drift_variant
+    if (.not. replaced) error stop 'Zhao variant found no line to replace'
+  end subroutine write_first_line_variant
 
   !> Copy the split-periodic Zhao example and append one [sim] setting.
   subroutine write_sim_variant(path, sim_extra)

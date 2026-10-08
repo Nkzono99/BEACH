@@ -366,7 +366,7 @@ face_potential_grid_n = 3
 
 PEなしType Cは$J_e+J_i=0$を満たすelectron/ion吸収targetとz-high kinetic barrier mapだけを生成し、
 PE emission / return / escape targetは生成しません。PE がないと H を出る PE 流出がないため、外部根の更新は使えません。
-`ion_species.number_density_*` は無限遠 ion 密度です。electron 密度と PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
+`ion_species.number_density_*` は無限遠の太陽風密度です。`electron_species` にも同じ値を書きます（違えば設定エラー）。電子の流入は、Zhao 根が無限遠の準中性から解いた上流電子 Maxwellian 密度で注入します（[reservoir の密度](ZhaoStationaryClosure.html#reservoir-の密度)）。PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
 
 split `[periodic2]` では z-high 面の水平平均電位を外部シースの壁電位 $\phi_0$ に固定し、x/y 周期では外部障壁で
 戻る粒子をセル内の一様な位置へ戻します。`outflow_refresh_batches>0` は外部根を観測 PE 流出から準定常に解き直す

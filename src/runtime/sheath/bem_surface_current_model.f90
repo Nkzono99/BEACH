@@ -89,6 +89,7 @@ contains
       result%escaped_particle_current_a(app%n_particle_species), &
       result%inflow_reservoir_potential_v(app%n_particle_species), &
       result%inflow_access_potential_v(app%n_particle_species), &
+      result%inflow_reservoir_density_m3(app%n_particle_species), &
       result%inflow_kinetic_face(app%n_particle_species), &
       result%outflow_barrier_potential_v(app%n_particle_species), &
       result%outflow_barrier_face(app%n_particle_species), &
@@ -105,6 +106,7 @@ contains
     result%escaped_particle_current_a = 0.0_dp
     result%inflow_reservoir_potential_v = 0.0_dp
     result%inflow_access_potential_v = 0.0_dp
+    result%inflow_reservoir_density_m3 = 0.0_dp
     result%inflow_kinetic_face = 0_i32
     result%outflow_barrier_potential_v = 0.0_dp
     result%outflow_barrier_face = 0_i32
@@ -319,6 +321,11 @@ contains
       message = 'surface-current evaluation produced non-finite currents.'
       return
     end if
+    if (.not. ieee_is_finite(result%ambient_electron_density_m3) .or. &
+        result%ambient_electron_density_m3 <= 0.0_dp) then
+      message = 'surface-current root produced an invalid upstream electron density.'
+      return
+    end if
     if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
         result%ion_current_density_a_m2 <= 0.0_dp .or. &
         result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
@@ -391,6 +398,10 @@ contains
     result%kinetic_contract = 'zhao_barrier_v1'
     result%has_inflow_kinetic_map([electron_idx, ion_idx]) = .true.
     result%inflow_reservoir_potential_v([electron_idx, ion_idx]) = 0.0_dp
+    ! 上流電子のMaxwellian密度は、壁で吸われて戻らない高速電子を見込んで無限遠の準中性から決まる。
+    ! 設定の太陽風密度をそのまま電子源に使うと流入fluxが根の電子電流からずれる。
+    result%inflow_reservoir_density_m3(electron_idx) = result%ambient_electron_density_m3
+    result%inflow_reservoir_density_m3(ion_idx) = params%n_swi_inf_m3
     result%inflow_access_potential_v(electron_idx) = electron_bottleneck_potential_v
     result%inflow_access_potential_v(ion_idx) = 0.0_dp
     result%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32

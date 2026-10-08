@@ -27,6 +27,7 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
+| `fixed_current_history.csv` | `output.write_files=true`、`output.history_stride>0`、`zhao_stationary` または `surface_charge_closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
 | `charge_ledger.csv` | `output.write_files=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
 | `macro_residuals.csv` | `output.write_files=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
@@ -143,7 +144,7 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_photoelectron_active` | PE channel の有無。false なら PE 関連 receipt は 0 |
 | `surface_current_model_reference_area_m2` | 電流 target の参照面積 |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | 解かれた表面電位と極小電位 |
-| `surface_current_model_ambient_electron_density_m3` | 解かれた ambient electron 密度 |
+| `surface_current_model_ambient_electron_density_m3` | 解かれた上流電子 Maxwellian の密度。z-high の電子流入はこの密度で注入する |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | signed electron / ion 電流密度 |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |
 | `surface_current_model_pe_escape_particle_current_A` | 外向き PE 粒子が運ぶ signed 電流なので負 |
@@ -194,6 +195,7 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
 | `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
+| `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | 専用属性なし。CSV を直接読む |
 
 `top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。
 要素相対電位は同じ batch の `potential_history.csv` と結合し、
@@ -201,6 +203,27 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 
 外部根を更新した run では `result.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
 手作業で管理せず typed receipt として参照できます。
+
+### 固定電流の倍率
+
+固定電流 closure は、粒子追跡で得た species 別の合計電荷を目標値へ一律の倍率で合わせます。
+`fixed_current_history.csv` は、その追跡値と目標値を history の書き出し間隔ごとに合計して記録します。
+`charge_ledger.csv` の倍率は run 全体の累積値なので、時間変化はこのファイルで読みます。
+
+| 列 | 意味 |
+| --- | --- |
+| `batch`, `simulated_time_s` | 窓の最後の accepted batch と、その後の模擬時刻 |
+| `window_batches` | 窓に含まれる accepted batch 数。通常は `history_stride`、run の最初と再開直後は短い |
+| `species_idx` | 1 始まりの species index |
+| `channel` | `absorbed`、`emission`、`escape`。窓内で target を適用した channel だけを書く |
+| `tracked_charge_C` | 粒子追跡で得た signed charge の窓合計 [C]。emission は表面へ残る電荷 |
+| `target_charge_C` | 外部 closure の目標 signed charge の窓合計 [C] |
+| `target_over_tracked` | `target_charge_C / tracked_charge_C`。追跡値が 0 なら `nan` |
+
+`absorbed` と `emission` の `target_over_tracked` は、その窓で標本の weight に掛けた倍率の平均です。
+`escape` は表面電荷に反映せず、目標と追跡の差を ledger の補正として記録します。
+外部モデルとセル内の追跡が整合していれば、どの channel も MC 雑音の範囲で 1 になります。
+種ごとに 1 から系統的にずれる場合、固定電流は追跡と異なる電流の配分を課しています。
 
 ## mesh 電位
 
