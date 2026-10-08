@@ -21,6 +21,8 @@ module bem_external_boundary_contract
     logical :: barrier_override_high(3) = .false.
     real(dp) :: barrier_potential_low_v(3) = 0.0_dp
     real(dp) :: barrier_potential_high_v(3) = 0.0_dp
+    logical :: barrier_redistribute_low(3) = .false.
+    logical :: barrier_redistribute_high(3) = .false.
   end type external_boundary_contract_type
 
   public :: resolve_external_boundary_contract

@@ -6,7 +6,8 @@ Lang: [日本語](ZhaoStationaryClosure.md) | [English](ZhaoStationaryClosure.en
 
 `surface_current_model.model="zhao_stationary"` は、BEACH の計算領域外に定常シースを仮定し、
 その電流と速度空間の障壁を box 上端へ接続します。外部シースを時間発展させる model ではありません。
-run 開始時に一度だけ零電流根を解き、固定した総電流を BEACH 内で追跡した hit・return 分布へ割り当てます。
+既定では run 開始時に一度だけ零電流根を解き、固定した総電流を BEACH 内で追跡した hit・return 分布へ割り当てます。
+`outflow_refresh_batches>0` では、box 上端で観測した PE 流出を外部シースの放出源として、根を定期的に解き直します。
 
 このページでは、零電流根、0 V reservoir からの流入、光電子（PE）の return / escape がどうつながるかを説明します。
 全入力キーと制約は[入力パラメータ](Parameters.html)、出力名は
@@ -76,7 +77,14 @@ PE 粒子が外へ運ぶ signed current は $-A J_{escape}$ で、表面には�
 ## 0 V reservoir を現在の box 上端へ写像する
 
 ambient の設定 Maxwell VDF は、無限遠のプラズマ電位を 0 V とした reservoir 分布です。
-各 batch の開始時に、BEACH は z-high 面の平均電位 $\phi_f$ を現在の表面電荷から評価します。
+各 batch の開始時に、BEACH は z-high 面の平均電位 $\phi_f$ を評価します。
+
+明示的な split `[periodic2]` では、z-high 面の水平平均電位を外部シースの壁電位 $\phi_0$ に固定します。
+計算領域は Debye 長よりはるかに小さく、z-high 面は外部 1-D シースから見た壁そのものです。障壁と流入写像は
+上流 0 V からの電位差なので、この基準がなければ障壁の高さが BEACH 内の電荷配置に依存します。
+真空中の定数電位は軌道を変えないため、この固定は box 内の粒子間電位差を変えません。
+split zero mode を持たない場ソルバーでは z-high 電位を $\phi_0$ に結べず、起動時に警告します。
+
 流入粒子は外部 access bottleneck と $\phi_f$ の両方へ到達できる reservoir tail から選ばれ、法線速度は
 
 $$
@@ -92,12 +100,14 @@ $$
 | Type B / C | 0 V | 0 V | 0 V |
 
 粒子が z-high を外向きに横切るときは、面平均ではなく横切り位置の局所電位と法線運動エネルギーを使います。
-固定 barrier へ到達できない electron / PE は z-high で鏡面反射し、到達できる粒子だけを escape と分類します。
+固定 barrier へ到達できない electron / PE は法線速度を反転して戻し、到達できる粒子だけを escape と分類します。
+接線速度は保ちます。x/y 周期セルでは、戻る位置を z-high 面内で一様に選び直します。外部シース内の横移動は
+飛行時間と接線速度の積で m 程度になり、セル幅よりはるかに大きいためです。x/y が周期でなければ横切り位置へ戻します。
 PE の放出速度そのものは、PE species に設定した表面 half-Maxwellian のままです。
 
 ## 固定される量と batch ごとに変わる量
 
-| run 開始時に固定 | 各 batch で再評価・再標本化 |
+| 外部根に属する（`outflow_refresh_batches=0` では run 中固定） | 各 batch で再評価・再標本化 |
 |---|---|
 | branch、$\phi_0$、$\phi_m$、ambient electron 密度 | 表面電荷と BEACH 領域内の場 |
 | species 別の signed 電流密度と reference area | z-high 面平均電位 $\phi_f$ と流入 tail |
@@ -106,12 +116,53 @@ PE の放出速度そのものは、PE species に設定した表面 half-Maxwel
 
 この分離により総電流は定常根へ合わせられますが、要素別の帯電分布は各 batch の Monte Carlo 軌道に依存します。
 
+## 観測した PE 流出で外部根を解き直す
+
+粒や孔の構造は、外部シースから見た壁の放出を変えます。表面から出た PE の一部はセル内で再吸収され、
+z-high 面を出る PE は放出より少なく、エネルギー分布も変わります。`outflow_refresh_batches=N`（$N>0$）は、
+この変化を外部根へ返す弱連成です。
+
+```toml
+[surface_current_model]
+model = "zhao_stationary"
+outflow_refresh_batches = 50
+```
+
+accepted batch を $N$ 個ためるごとに、BEACH は次を行います。
+
+1. z-high を外向きに横切った PE の数 $N_{out}$ と法線運動エネルギーの和、表面放出数 $N_{emit}$ を窓内で合計する。
+   透過率 $\eta=N_{out}/N_{emit}$ と平均法線エネルギー $\bar K$ を求める。
+2. 外部シースの放出源を、束 $\eta\Gamma_{emit}$、温度 $\bar K$ の half-Maxwellian に置き換えて零電流根を解く。
+   $\Gamma_{emit}$ は設定から決まる表面放出束で、表面の放出 target は変えない。
+3. 新しい根から電流 target、access / barrier、z-high 面の電位基準 $\phi_0$ を次の batch へ渡す。
+
+表面の return target は $J_{emit}-J_{escape}$ のままで、セル内の再吸収と外部からの return を合わせた量になります。
+総電流 $J_e+J_i+J_{escape}=0$ は毎 batch の target が満たすため、セルの平均電荷は浮遊条件に拘束されます。
+平均電荷を外部シースとの状態量として積分しないので、平均電荷のモンテカルロ雑音や、シース容量による硬い時間尺度は
+外部根の更新に入りません。
+
+| 状況 | 動作 |
+|---|---|
+| `zhao_branch` を明示 | その branch だけを解く |
+| `zhao_branch="auto"` | 直前に採用した branch を先に試し、解けなければ通常の `auto` 順に探す |
+| 根が見つからない、流出が 0 | 警告し、直前の外部根を保つ |
+| 再開 | 保存した外部源から根を再構成する。途中まで積んだ窓は捨て、再開時点から数え直す |
+
+$N$ は、窓内の PE 標本数が平均エネルギーを数 % で決められ、かつ表面帯電の変化より十分短くなるように選びます。
+定常状態だけが目的なら、固定点は $N$ によりません。実行中の外部状態は `matching_plane_history.csv` と
+`summary.txt` の `matching_plane_*` に出力します。列の意味は
+[出力形式リファレンス](OutputReference.html#zhao_stationary)を参照してください。
+
+外部シースの過渡、平面性、half-Maxwellian への縮約は固定根と同じ近似です。外部へ逃げた ambient electron は
+外部根へ返しません。
+
 ## 適用範囲
 
 - box 外の電場、空間電荷、Debye shielding、turning point までの距離や飛行時間は解きません。
 - z-high 反射は外部 return 軌道を境界へ縮約した断熱的な近似です。
 - 非磁化 closure なので一様磁場はゼロでなければなりません。
 - 平面定常解なので、曲率、衝突、外部過渡、run 中に変化する照射や plasma 条件は自己整合には応答しません。
+  `outflow_refresh_batches>0` でも、応答するのは観測 PE 流出に対する外部根の準定常な更新だけです。
 - 零電流 residual が小さくても、有限粒子で得た hit / return の空間分布の収束は保証されません。
 
 species、境界、電荷、温度の全入力条件は[入力パラメータ](Parameters.html)で確認してください。
@@ -119,7 +170,8 @@ raycast の放出反作用と VDF は[光電子の放出とreturn](Photoelectron
 
 ## 例を実行する
 
-PE ありの完全な例は `examples/periodic2_zhao_fixed_current.toml` です。
+PE ありの完全な例は `examples/periodic2_zhao_fixed_current.toml`、外部根を更新する例は
+`examples/periodic2_zhao_outflow_refresh.toml` です。
 
 ```bash
 beach examples/periodic2_zhao_fixed_current.toml

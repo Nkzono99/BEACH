@@ -4,6 +4,7 @@ module bem_surface_current_model
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, pi, qe
   use bem_app_config_types, only: app_config
+  use bem_types, only: bc_periodic
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use bem_sheath_model_core, only: zhao_params_type, build_zhao_params, try_solve_zhao_unknowns, &
@@ -31,11 +32,15 @@ module bem_surface_current_model
     real(dp) :: net_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
     real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
+    !> 外部Zhaoシースが壁放出として見るPE束 [1/(m2 s)] とhalf-Maxwellian温度 [eV]。
+    real(dp) :: outer_photoelectron_flux_m2_s = 0.0_dp
+    real(dp) :: outer_photoelectron_mean_energy_ev = 0.0_dp
     character(len=32) :: kinetic_contract = 'none'
   end type surface_current_model_result_type
 
   public :: evaluate_surface_current_model
   public :: evaluate_surface_closure
+  public :: solve_zhao_outflow_closure
 
 contains
 
@@ -53,6 +58,29 @@ contains
   subroutine evaluate_surface_current_model(app, result)
     type(app_config), intent(in) :: app
     type(surface_current_model_result_type), intent(out) :: result
+
+    call allocate_closure_channels(app, result)
+    result%model = trim(lower_ascii(app%surface_current%model))
+
+    select case (trim(result%model))
+    case ('none')
+      return
+    case ('zhao_stationary')
+      call evaluate_zhao_stationary_current(app, result)
+    case ('matching_plane_quasistatic')
+      ! Batch-local response evaluation is owned by the simulator fixed point.
+      ! Keep this static dispatch side-effect free for output/config callers.
+      result%active = .true.
+      result%kinetic_contract = 'matching_plane_v1'
+    case default
+      error stop 'Unknown surface current model dispatch.'
+    end select
+  end subroutine evaluate_surface_current_model
+
+  !> species別channelを未使用状態で確保する。
+  subroutine allocate_closure_channels(app, result)
+    type(app_config), intent(in) :: app
+    type(surface_current_model_result_type), intent(inout) :: result
 
     allocate ( &
       result%has_absorbed_target(app%n_particle_species), &
@@ -86,41 +114,117 @@ contains
     result%outflow_barrier_potential_v = 0.0_dp
     result%outflow_barrier_face = 0_i32
     result%inflow_number_flux_m2_s = 0.0_dp
-    result%model = trim(lower_ascii(app%surface_current%model))
-
-    select case (trim(result%model))
-    case ('none')
-      return
-    case ('zhao_stationary')
-      call evaluate_zhao_stationary_current(app, result)
-    case ('matching_plane_quasistatic')
-      ! Batch-local response evaluation is owned by the simulator fixed point.
-      ! Keep this static dispatch side-effect free for output/config callers.
-      result%active = .true.
-      result%kinetic_contract = 'matching_plane_v1'
-    case default
-      error stop 'Unknown surface current model dispatch.'
-    end select
-  end subroutine evaluate_surface_current_model
+  end subroutine allocate_closure_channels
 
   subroutine evaluate_zhao_stationary_current(app, result)
     type(app_config), intent(in) :: app
     type(surface_current_model_result_type), intent(inout) :: result
     type(zhao_params_type) :: params
+    real(dp) :: emission_current_density
+    character(len=16) :: solver_name
+    character(len=256) :: message
+    logical :: success
+
+    call build_surface_emission_params(app, params)
+    if (app%surface_current%photoelectron_source_scale > 0.0_dp) then
+      solver_name = 'zhao_'//trim(lower_ascii(app%surface_current%zhao_branch))
+      emission_current_density = qe*params%v_phe_th_mps/(2.0_dp*sqrt(pi))*params%n_phe0_m3
+    else
+      select case (trim(lower_ascii(app%surface_current%zhao_branch)))
+      case ('auto', 'c')
+        solver_name = 'zhao_c'
+      case default
+        error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+      end select
+      emission_current_density = 0.0_dp
+    end if
+    call try_solve_zhao_unknowns( &
+      trim(solver_name), params, result%phi0_v, result%phi_m_v, result%ambient_electron_density_m3, &
+      result%zhao_branch, success &
+      )
+    if (.not. success) error stop 'Zhao stationary surface-current root solve failed.'
+    call finish_zhao_closure(app, params, emission_current_density, result, success, message)
+    if (.not. success) error stop 'Zhao stationary '//trim(message)
+  end subroutine evaluate_zhao_stationary_current
+
+  !> 表面放出はそのままに、matching planeで観測したPE流出を外部Zhaoシースの放出源として零電流根を解き直す。
+  !!
+  !! 周期セルは外部シースから見て一様な壁なので、外部の1-D解は壁から出るPEとしてH通過流出だけを見る。
+  !! 流出は同じ束と平均法線エネルギーを持つhalf-Maxwellianへ縮約する。
+  subroutine solve_zhao_outflow_closure( &
+    app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message &
+    )
+    type(app_config), intent(in) :: app
+    real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
+    character(len=1), intent(in) :: preferred_branch
+    type(surface_current_model_result_type), intent(out) :: result
+    logical, intent(out) :: success
+    character(len=*), intent(out) :: message
+    type(zhao_params_type) :: surface_params, outer_params
+    integer(i32) :: electron_idx, ion_idx
+    real(dp) :: emission_current_density, outer_thermal_speed, outer_density
+
+    success = .false.
+    message = ''
+    if (.not. all(ieee_is_finite([outer_flux_m2_s, outer_mean_energy_ev])) .or. &
+        outer_flux_m2_s <= 0.0_dp .or. outer_mean_energy_ev <= 0.0_dp) then
+      message = 'outer photoelectron source must have positive finite flux and mean normal energy.'
+      return
+    end if
+    call allocate_closure_channels(app, result)
+    result%model = 'zhao_stationary'
+    call build_surface_emission_params(app, surface_params)
+    emission_current_density = qe*surface_params%v_phe_th_mps/(2.0_dp*sqrt(pi))*surface_params%n_phe0_m3
+    electron_idx = species_index(app, app%surface_current%electron_species)
+    ion_idx = species_index(app, app%surface_current%ion_species)
+    outer_thermal_speed = sqrt(2.0_dp*qe*outer_mean_energy_ev/app%particle_species(electron_idx)%m_particle)
+    outer_density = 2.0_dp*sqrt(pi)*outer_flux_m2_s/outer_thermal_speed
+    call build_zhao_params( &
+      90.0_dp, surface_params%n_swi_inf_m3, outer_density, surface_params%t_swe_ev, outer_mean_energy_ev, &
+      surface_params%v_d_electron_mps, surface_params%v_d_ion_mps, &
+      app%particle_species(ion_idx)%m_particle, app%particle_species(electron_idx)%m_particle, outer_params &
+      )
+
+    if (trim(lower_ascii(app%surface_current%zhao_branch)) == 'auto') then
+      if (preferred_branch /= ' ') then
+        call try_solve_zhao_unknowns( &
+          'zhao_'//lower_ascii(preferred_branch), outer_params, result%phi0_v, result%phi_m_v, &
+          result%ambient_electron_density_m3, result%zhao_branch, success &
+          )
+      end if
+      if (.not. success) then
+        call try_solve_zhao_unknowns( &
+          'zhao_auto', outer_params, result%phi0_v, result%phi_m_v, result%ambient_electron_density_m3, &
+          result%zhao_branch, success &
+          )
+      end if
+    else
+      call try_solve_zhao_unknowns( &
+        'zhao_'//trim(lower_ascii(app%surface_current%zhao_branch)), outer_params, result%phi0_v, &
+        result%phi_m_v, result%ambient_electron_density_m3, result%zhao_branch, success &
+        )
+    end if
+    if (.not. success) then
+      message = 'outer Zhao zero-current root was not found for the observed photoelectron outflow.'
+      return
+    end if
+    call finish_zhao_closure(app, outer_params, emission_current_density, result, success, message)
+    result%outer_photoelectron_flux_m2_s = outer_flux_m2_s
+    result%outer_photoelectron_mean_energy_ev = outer_mean_energy_ev
+  end subroutine solve_zhao_outflow_closure
+
+  !> 設定の太陽高度・基準密度・PE温度から、表面放出と初期外部源を表すZhao入力を作る。
+  subroutine build_surface_emission_params(app, params)
+    type(app_config), intent(in) :: app
+    type(zhao_params_type), intent(out) :: params
     integer(i32) :: electron_idx, ion_idx, photo_idx
     real(dp) :: electron_temperature_ev, photo_temperature_ev, solar_elevation_deg, photoelectron_ref_density_m3
-    real(dp) :: electron_drift_mps, ion_drift_mps, a_swe, electron_term, ion_term, photo_escape_term
-    real(dp) :: scale, area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
-    character(len=16) :: solver_name
-    logical :: success, photoelectron_active
 
     electron_idx = species_index(app, app%surface_current%electron_species)
     ion_idx = species_index(app, app%surface_current%ion_species)
-    photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
-    photo_idx = 0_i32
-    if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
     electron_temperature_ev = species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
-    if (photoelectron_active) then
+    if (app%surface_current%photoelectron_source_scale > 0.0_dp) then
+      photo_idx = species_index(app, app%surface_current%photoelectron_species)
       photo_temperature_ev = species_temperature_k(app%particle_species(photo_idx))*k_boltzmann/qe
       solar_elevation_deg = app%surface_current%solar_elevation_deg
       photoelectron_ref_density_m3 = app%surface_current%photoelectron_ref_density_m3
@@ -130,37 +234,46 @@ contains
       solar_elevation_deg = 90.0_dp
       photoelectron_ref_density_m3 = species_number_density_m3(app%particle_species(ion_idx))
     end if
-    electron_drift_mps = -app%particle_species(electron_idx)%drift_velocity(3)
-    ion_drift_mps = -app%particle_species(ion_idx)%drift_velocity(3)
-    area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
-    if (app%surface_current%has_reference_area_m2) area = app%surface_current%reference_area_m2
-    if (.not. ieee_is_finite(area) .or. area <= 0.0_dp) then
-      error stop 'Zhao stationary surface-current reference area must be finite and positive.'
-    end if
-
     call build_zhao_params( &
       solar_elevation_deg, &
       species_number_density_m3(app%particle_species(ion_idx)), &
       photoelectron_ref_density_m3, &
-      electron_temperature_ev, photo_temperature_ev, electron_drift_mps, ion_drift_mps, &
+      electron_temperature_ev, photo_temperature_ev, &
+      -app%particle_species(electron_idx)%drift_velocity(3), -app%particle_species(ion_idx)%drift_velocity(3), &
       app%particle_species(ion_idx)%m_particle, app%particle_species(electron_idx)%m_particle, params, &
       photoelectron_source_scale=app%surface_current%photoelectron_source_scale &
       )
-    if (.not. photoelectron_active) then
-      select case (trim(lower_ascii(app%surface_current%zhao_branch)))
-      case ('auto', 'c')
-        solver_name = 'zhao_c'
-      case default
-        error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
-      end select
-    else
-      solver_name = 'zhao_'//trim(lower_ascii(app%surface_current%zhao_branch))
+  end subroutine build_surface_emission_params
+
+  !> 解けたZhao根から、表面放出を別に与えて species 別の固定電流targetと境界写像を作る。
+  !!
+  !! params は外部シースの放出源を表す。表面放出 emission_current_density との差は
+  !! 周期セル内で再吸収されたPEであり、return target に含まれる。
+  subroutine finish_zhao_closure(app, params, emission_current_density, result, success, message)
+    type(app_config), intent(in) :: app
+    type(zhao_params_type), intent(in) :: params
+    real(dp), intent(in) :: emission_current_density
+    type(surface_current_model_result_type), intent(inout) :: result
+    logical, intent(out) :: success
+    character(len=*), intent(out) :: message
+    integer(i32) :: electron_idx, ion_idx, photo_idx
+    real(dp) :: a_swe, electron_term, ion_term, photo_escape_term
+    real(dp) :: scale, area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
+    logical :: photoelectron_active
+
+    success = .false.
+    message = ''
+    electron_idx = species_index(app, app%surface_current%electron_species)
+    ion_idx = species_index(app, app%surface_current%ion_species)
+    photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
+    photo_idx = 0_i32
+    if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
+    area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
+    if (app%surface_current%has_reference_area_m2) area = app%surface_current%reference_area_m2
+    if (.not. ieee_is_finite(area) .or. area <= 0.0_dp) then
+      message = 'surface-current reference area must be finite and positive.'
+      return
     end if
-    call try_solve_zhao_unknowns( &
-      trim(solver_name), params, result%phi0_v, result%phi_m_v, result%ambient_electron_density_m3, &
-      result%zhao_branch, success &
-      )
-    if (.not. success) error stop 'Zhao stationary surface-current root solve failed.'
 
     ion_term = params%n_swi_inf_m3*sqrt( &
                2.0_dp*pi*params%t_swe_ev/params%t_phe_ev*params%m_e_kg/params%m_i_kg &
@@ -178,12 +291,14 @@ contains
       electron_term = swe_free_current_term(params, result%ambient_electron_density_m3, a_swe)
       photo_escape_term = params%n_phe0_m3
     case default
-      error stop 'Zhao stationary current returned an unknown branch.'
+      message = 'surface-current root returned an unknown branch.'
+      return
     end select
+    if (.not. photoelectron_active) photo_escape_term = 0.0_dp
     scale = qe*params%v_phe_th_mps/(2.0_dp*sqrt(pi))
     result%electron_current_density_a_m2 = -scale*electron_term
     result%ion_current_density_a_m2 = scale*ion_term
-    result%photoelectron_emission_current_density_a_m2 = scale*params%n_phe0_m3
+    result%photoelectron_emission_current_density_a_m2 = emission_current_density
     result%photoelectron_escape_current_density_a_m2 = scale*photo_escape_term
     result%photoelectron_return_current_density_a_m2 = &
       result%photoelectron_escape_current_density_a_m2 - result%photoelectron_emission_current_density_a_m2
@@ -206,24 +321,28 @@ contains
                                  result%photoelectron_budget_residual_current_density_a_m2, &
                                  result%surface_budget_residual_current_density_a_m2 &
                                  ]))) then
-      error stop 'Zhao stationary surface-current evaluation produced non-finite currents.'
+      message = 'surface-current evaluation produced non-finite currents.'
+      return
     end if
     if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
         result%ion_current_density_a_m2 <= 0.0_dp .or. &
         result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
-      error stop 'Zhao stationary surface-current evaluation produced invalid channel signs.'
+      message = 'surface-current evaluation produced invalid channel signs.'
+      return
     end if
     if (photoelectron_active) then
       if (result%photoelectron_emission_current_density_a_m2 <= 0.0_dp) then
-        error stop 'Zhao stationary photoelectron closure requires a positive emission current.'
+        message = 'photoelectron closure requires a positive emission current.'
+        return
       end if
     else if (any([ &
                  result%photoelectron_emission_current_density_a_m2, &
                  result%photoelectron_escape_current_density_a_m2, &
                  result%photoelectron_return_current_density_a_m2 &
                  ] /= 0.0_dp)) then
-      error stop 'Zhao stationary no-photoelectron closure produced a nonzero photoelectron current.'
+      message = 'no-photoelectron closure produced a nonzero photoelectron current.'
+      return
     end if
     budget_scale = max( &
                    abs(result%electron_current_density_a_m2), abs(result%ion_current_density_a_m2), &
@@ -233,10 +352,12 @@ contains
                    )
     budget_tolerance = sqrt(epsilon(1.0_dp))*budget_scale
     if (abs(result%photoelectron_budget_residual_current_density_a_m2) > budget_tolerance) then
-      error stop 'Zhao stationary PE current budget does not close.'
+      message = 'PE current budget does not close.'
+      return
     end if
     if (abs(result%surface_budget_residual_current_density_a_m2) > budget_tolerance) then
-      error stop 'Zhao stationary surface current budget does not close.'
+      message = 'surface current budget does not close.'
+      return
     end if
 
     result%active = .true.
@@ -245,6 +366,12 @@ contains
     result%ion_species_idx = ion_idx
     result%photoelectron_species_idx = photo_idx
     result%photoelectron_active = photoelectron_active
+    result%outer_photoelectron_flux_m2_s = scale*params%n_phe0_m3/qe
+    result%outer_photoelectron_mean_energy_ev = params%t_phe_ev
+    if (.not. photoelectron_active) then
+      result%outer_photoelectron_flux_m2_s = 0.0_dp
+      result%outer_photoelectron_mean_energy_ev = 0.0_dp
+    end if
     result%has_absorbed_target([electron_idx, ion_idx]) = .true.
     result%absorbed_current_a(electron_idx) = &
       checked_area_current(area, result%electron_current_density_a_m2)
@@ -281,7 +408,14 @@ contains
       result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
       result%outflow_barrier_face(photo_idx) = 6_i32
     end if
-  end subroutine evaluate_zhao_stationary_current
+    ! 外部障壁と流入写像は上流0 Vからの電位差なので、z-high面の平均電位を壁電位phi0へ固定する。
+    ! 外部での横移動はセル幅よりはるかに大きいので、x/y周期セルでは戻り位置を面内一様にする。
+    result%has_plane_gauge = .true.
+    result%plane_gauge_potential_v = result%phi0_v
+    result%outer_return_cell_uniform = all(app%sim%bc_low(1:2) == bc_periodic) .and. &
+                                       all(app%sim%bc_high(1:2) == bc_periodic)
+    success = .true.
+  end subroutine finish_zhao_closure
 
   integer(i32) function species_index(app, species_key) result(index_value)
     type(app_config), intent(in) :: app

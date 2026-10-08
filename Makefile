@@ -57,6 +57,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_matching_plane_response_generator \
 	test_matching_plane_zhao_atlas \
 	test_matching_plane_simulator \
+	test_zhao_outflow_refresh \
 	test_panel_moments \
 	test_panel_kernel \
 	test_panel_geometry_near \

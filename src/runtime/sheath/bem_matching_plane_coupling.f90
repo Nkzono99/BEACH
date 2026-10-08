@@ -181,7 +181,9 @@ contains
           flush (error_unit)
         end if
       end if
-    else
+    else if (trim(lower_ascii(app%surface_current%model)) /= 'zhao_stationary' .or. &
+             app%surface_current%outflow_refresh_batches <= 0_i32) then
+      ! zhao_stationary の outflow refresh も同じ外部状態欄を保存する。
       stats%matching_plane_state_valid = .false.
     end if
 

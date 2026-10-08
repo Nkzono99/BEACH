@@ -16,7 +16,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(31)
+  call test_init(32)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -124,6 +124,10 @@ program test_particle_stepper
 
   call test_begin('species_barrier_override_is_face_local')
   call test_species_barrier_override_is_face_local()
+  call test_end()
+
+  call test_begin('species_barrier_return_is_cell_uniform')
+  call test_species_barrier_return_is_cell_uniform()
   call test_end()
 
   call test_begin('species_barrier_corner_ordinary_open_escapes')
@@ -952,6 +956,65 @@ contains
       )
     call assert_true(result%escaped_boundary, 'z-low must remain ordinary escape when only z-high is overridden')
   end subroutine test_species_barrier_override_is_face_local
+
+  subroutine test_species_barrier_return_is_cell_uniform()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: first, repeated, other
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%bc_low(1:2) = bc_periodic
+    sim%bc_high(1:2) = bc_periodic
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -1.0_dp
+    contract%barrier_redistribute_high(3) = .true.
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, first, &
+      boundary_contract=contract &
+      )
+    call assert_true( &
+      first%status == particle_step_invalid_boundary, &
+      'cell-uniform barrier return must require a unique counter' &
+      )
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, first, &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      )
+    call assert_true(first%status == particle_step_ok, 'cell-uniform barrier return status mismatch')
+    call assert_true(.not. first%escaped_boundary, 'sub-barrier electron must return')
+    call assert_true(first%outer_barrier_return_count == 1_i32, 'cell-uniform return count mismatch')
+    call assert_close_dp(first%v(1), 0.3_dp, 0.0_dp, 'returned tangential x velocity must be preserved')
+    call assert_close_dp(first%v(2), -0.4_dp, 0.0_dp, 'returned tangential y velocity must be preserved')
+    call assert_close_dp(first%v(3), -1.0_dp, 0.0_dp, 'returned normal velocity must reverse')
+    call assert_true( &
+      all(first%x(1:2) > sim%box_min(1:2)) .and. all(first%x(1:2) < sim%box_max(1:2)) .and. &
+      first%x(3) < sim%box_max(3), 'returned particle must stay inside the cell' &
+      )
+
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, repeated, &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      )
+    call assert_allclose_1d(repeated%x, first%x, 0.0_dp, 'same counter must give the same return position')
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+      [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, other, &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 8_i64, 1_i64] &
+      )
+    call assert_true( &
+      any(abs(other%x(1:2) - first%x(1:2)) > 1.0e-6_dp), &
+      'different particles must not return to the same in-plane position' &
+      )
+    call assert_close_dp(other%x(3), first%x(3), 1.0e-14_dp, 'return height must not depend on the counter')
+  end subroutine test_species_barrier_return_is_cell_uniform
 
   subroutine test_species_barrier_corner_ordinary_open_escapes()
     type(mesh_type) :: mesh

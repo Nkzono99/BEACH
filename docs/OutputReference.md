@@ -26,7 +26,7 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
-| `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=matching_plane_quasistatic` | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`。再開には不使用 |
+| `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=matching_plane_quasistatic` または [`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`。再開には不使用 |
 | `charge_ledger.csv` | `output.write_files=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
 | `macro_residuals.csv` | `output.write_files=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
@@ -135,7 +135,10 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 
 | receipt | 読み方 |
 | --- | --- |
-| `surface_current_model`, `surface_current_model_zhao_branch` | 選択された model と branch |
+| `surface_current_model`, `surface_current_model_zhao_branch` | 選択された model と初期根の branch |
+| `surface_current_model_outflow_refresh_batches` | 外部根を解き直す accepted batch 間隔。0 は初期根を固定 |
+| `surface_current_model_dynamic_state_source` | `initial_root` なら下表が run 中の値。`matching_plane_state_outflow_refresh` なら現在の外部状態は `matching_plane_*` |
+| `surface_current_model_outer_return_position` | 外部障壁で戻る粒子の位置。`cell_uniform` は z-high 面内一様、`crossing_point` は横切り位置 |
 | `surface_current_model_kinetic_contract` | Zhao 電流と対になる速度空間境界写像の契約 |
 | `surface_current_model_photoelectron_active` | PE channel の有無。false なら PE 関連 receipt は 0 |
 | `surface_current_model_reference_area_m2` | 電流 target の参照面積 |
@@ -151,6 +154,26 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_pe_outflow_barrier_potential_V`, `surface_current_model_pe_outflow_barrier_face` | PE outflow barrier の電位と face。PE inactive では 0 |
 
 face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
+
+`surface_current_model_*` の電位・電流は初期根の値です。`outflow_refresh_batches>0` では、現在の外部根を
+`matching_plane_*` と `matching_plane_history.csv` の 17 列で読みます。列の対応は次のとおりです。
+
+| 列 | 外部根の更新での意味 |
+| --- | --- |
+| `D_H_C_m2` | 確定後のセル総電荷 / 面積。零電流 target が保つ平均電荷の確認値 |
+| `phi_H_V` | 外部根の壁電位 $\phi_0$。z-high 面平均電位の基準 |
+| `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | 外部根の electron / ion 吸収 target の数束 |
+| `electron_access_potential_V`, `photoelectron_barrier_potential_V` | Type A では $\phi_m$、Type B / C では 0 |
+| `ion_access_potential_V` | 常に 0 |
+| `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源。初期根では表面放出、更新後は窓平均の観測流出 |
+| `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
+| `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
+| `iterations` | 採用した外部根の数。初期根を 1 と数える |
+| `residual` | 直前の更新での放出源の最大相対変化。弱連成の固定点に近づくと小さくなる |
+
+明示的な split `[periodic2]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
+`mesh_potential.csv` の電位は上流プラズマ 0 V 基準です。粒子間の電位差は外部根に依存しませんが、
+絶対値は $\phi_0$ を通じて外部モデルの branch と近似に依存します。
 
 ### `matching_plane_quasistatic`
 
@@ -256,7 +279,7 @@ accepted state の有無は
 | `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
-| `matching_plane_history.csv` | matching-plane かつ stride 有効 | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
+| `matching_plane_history.csv` | matching-plane または外部根の更新があり、stride 有効 | [17 列の accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
 
 `top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。
 要素相対電位は同じ batch の `potential_history.csv` と結合し、

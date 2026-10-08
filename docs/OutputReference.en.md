@@ -26,7 +26,7 @@ the linked section repeats this information before expanding its columns and dec
 | `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`. Not used for restart |
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
-| `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `surface_current_model.model=matching_plane_quasistatic` | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`. Not used for restart |
+| `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `surface_current_model.model=matching_plane_quasistatic` or [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history`. Not used for restart |
 | `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
 | `macro_residuals.csv` | `output.write_files=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
@@ -136,7 +136,10 @@ This section defines how to read its receipts.
 
 | Receipt | Interpretation |
 | --- | --- |
-| `surface_current_model`, `surface_current_model_zhao_branch` | Selected model and branch |
+| `surface_current_model`, `surface_current_model_zhao_branch` | Selected model and initial-root branch |
+| `surface_current_model_outflow_refresh_batches` | Accepted-batch interval for re-solving the outer root; 0 keeps the initial root |
+| `surface_current_model_dynamic_state_source` | `initial_root`: the receipts below hold during the run. `matching_plane_state_outflow_refresh`: the current outer state is in `matching_plane_*` |
+| `surface_current_model_outer_return_position` | Where outer-barrier returns re-enter: `cell_uniform` over the z-high plane or the `crossing_point` |
 | `surface_current_model_kinetic_contract` | Velocity-space boundary-map contract paired with the Zhao currents |
 | `surface_current_model_photoelectron_active` | Whether PE channels exist. PE receipts are zero when false |
 | `surface_current_model_reference_area_m2` | Reference area for current targets |
@@ -152,6 +155,27 @@ This section defines how to read its receipts.
 | `surface_current_model_pe_outflow_barrier_potential_V`, `surface_current_model_pe_outflow_barrier_face` | PE outflow-barrier potential and face; zero when PE is inactive |
 
 Face indices are `1..6 = x_low, x_high, y_low, y_high, z_low, z_high`.
+
+The `surface_current_model_*` potentials and currents are those of the initial root. With `outflow_refresh_batches>0`,
+read the current outer root from `matching_plane_*` and the seventeen columns of `matching_plane_history.csv`:
+
+| Column | Meaning for the outer-root refresh |
+| --- | --- |
+| `D_H_C_m2` | Committed total cell charge per area; a check of the mean charge held by the zero-current targets |
+| `phi_H_V` | Outer-root wall potential $\phi_0$, the reference for the z-high plane-mean potential |
+| `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | Number fluxes of the outer-root electron / ion absorption targets |
+| `electron_access_potential_V`, `photoelectron_barrier_potential_V` | $\phi_m$ for Type A; 0 for Type B / C |
+| `ion_access_potential_V` | Always 0 |
+| `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | Outer-root emission source: the surface emission for the initial root, then the window-mean observed outflow |
+| `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | Unused; 0 |
+| `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | The source split into return and escape by the outer-root barrier |
+| `iterations` | Number of accepted outer roots, counting the initial root as 1 |
+| `residual` | Largest relative change of the source at the last refresh; it decreases toward the weak-coupling fixed point |
+
+With an explicit split `[periodic2]` table, the z-high plane-mean potential is fixed to $\phi_0$, so potentials in
+`potential_history.csv` and `mesh_potential.csv` are referenced to the upstream plasma at 0 V. Potential differences
+between particles do not depend on the outer root, but absolute values depend on the outer model's branch and
+approximations through $\phi_0$.
 
 ### `matching_plane_quasistatic`
 
@@ -258,7 +282,7 @@ root. It does not report the number of full-multistart or step-subdivision evalu
 | `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`; one snapshot contains all element charges | `result.history` |
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
-| `matching_plane_history.csv` | Matching-plane with stride enabled | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
+| `matching_plane_history.csv` | Matching-plane or outer-root refresh, with stride enabled | [Seventeen-column accepted state](#matching_plane_quasistatic) | `result.matching_plane_history` |
 
 The reference in `top_reference_history.csv` is the mean over the box z-high face, not infinity or plasma potential.
 Join it to the same batch in `potential_history.csv` and compute `potential_V - potential_mean_V` for element-relative

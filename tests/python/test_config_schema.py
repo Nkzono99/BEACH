@@ -288,6 +288,15 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     disabled_with_model_key["surface_current_model"]["coupling_rtol"] = 1.0e-4
     assert schema_errors(disabled_with_model_key, schema)
 
+    refresh = load_toml_file(ROOT / "examples/periodic2_zhao_outflow_refresh.toml")
+    assert schema_errors(refresh, schema) == []
+    disabled_with_refresh = copy.deepcopy(disabled)
+    disabled_with_refresh["surface_current_model"]["outflow_refresh_batches"] = 1
+    assert schema_errors(disabled_with_refresh, schema)
+    negative_refresh = copy.deepcopy(refresh)
+    negative_refresh["surface_current_model"]["outflow_refresh_batches"] = -1
+    assert schema_errors(negative_refresh, schema)
+
     no_photo = load_toml_file(
         ROOT / "examples/periodic2_zhao_no_photo_fixed_current.toml"
     )

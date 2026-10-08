@@ -1162,6 +1162,37 @@ def test_matching_plane_zhao_online_config_contract() -> None:
             normalize_config_document(invalid_stationary)
 
 
+def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> None:
+    root = Path(__file__).resolve().parents[2]
+    refresh = load_config_file(root / "examples/periodic2_zhao_outflow_refresh.toml")
+    assert refresh["surface_current_model"]["outflow_refresh_batches"] == 2
+
+    for value in (-1, 1.5, True):
+        invalid = copy.deepcopy(refresh)
+        invalid["surface_current_model"]["outflow_refresh_batches"] = value
+        with pytest.raises(ConfigValidationError, match="outflow_refresh_batches"):
+            normalize_config_document(invalid)
+
+    without_split = copy.deepcopy(refresh)
+    without_split.pop("periodic2")
+    with pytest.raises(ConfigValidationError, match="split-zero-mode"):
+        normalize_config_document(without_split)
+
+    no_photo = load_config_file(
+        root / "examples/periodic2_zhao_no_photo_fixed_current.toml"
+    )
+    no_photo["surface_current_model"]["outflow_refresh_batches"] = 1
+    with pytest.raises(ConfigValidationError, match="photoelectron_source_scale > 0"):
+        normalize_config_document(no_photo)
+
+    fixed_root = copy.deepcopy(refresh)
+    fixed_root["surface_current_model"]["outflow_refresh_batches"] = 0
+    fixed_root.pop("periodic2")
+    assert normalize_config_document(fixed_root)["surface_current_model"]["model"] == (
+        "zhao_stationary"
+    )
+
+
 @pytest.mark.parametrize(
     ("key", "value"),
     [
@@ -1169,6 +1200,7 @@ def test_matching_plane_zhao_online_config_contract() -> None:
         ("photoelectron_ref_density_m3", 1.0e6),
         ("photoelectron_source_scale", 1.0),
         ("reference_area_m2", 1.0),
+        ("outflow_refresh_batches", 1),
     ],
 )
 def test_matching_plane_zhao_online_rejects_stationary_zhao_settings(

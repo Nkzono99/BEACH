@@ -304,7 +304,8 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 
 トップレベル`[surface_current_model]`は、設定型、model dispatch、model固有solver、species channelとkinetic境界写像への割当を分離します。
 未指定または`model="none"`はtargetを生成せず、speciesに記述した手動targetを使います。初期実装の
-`model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に一度解きます。
+`model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に解きます。
+`outflow_refresh_batches=N>0`では、z-highで観測したPE流出を外部シースの放出源として、accepted batch $N$個ごとに根を解き直します。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
 Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは
@@ -347,15 +348,29 @@ Zhaoの定常電位は`zhao_barrier_v1` kinetic contractとしてz-highへも適
 無限遠電位0 Vのreservoir分布とし、Type A electronは$\phi_m$、Type B/C electronとionは0 Vを外部access
 bottleneckとして使います。各batchのz-high面平均電位を$\phi_f$とすると、流入tailは外部bottleneckと
 $\phi_f$の両方へ到達できる粒子から生成し、法線速度を0 Vから$\phi_f$までエネルギー保存で写像します。
+周期k=0成分を持つ明示的なsplit `[periodic2]`では、z-high面の水平平均電位を根の壁電位$\phi_0$へ固定します。
+障壁と流入写像は上流0 Vからの電位差であり、z-high面は外部1-Dシースから見た壁だからです。split zero modeを
+持たない場ソルバーではこの基準を設定できず、起動時に警告します。
 
 PE放出速度は従来どおり設定した表面half-Maxwellianです。PE、ambient electron、ionがopenなz-highを外向きに
 横切るとき、粒子位置の局所電位から残りのZhao barrierを評価します。electron/PEのbarrier電位はType Aで
-$\phi_m$、Type B/Cで0 V、ionは0 Vです。法線運動エネルギーが不足する粒子はz-highで鏡面反射してreturnへ、
-十分な粒子だけをescapeへ分類します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
+$\phi_m$、Type B/Cで0 V、ionは0 Vです。法線運動エネルギーが不足する粒子は法線速度を反転してreturnへ、
+十分な粒子だけをescapeへ分類します。接線速度は保ち、x/yがともに周期ならreturn位置をz-high面内で一様に
+選び直します。外部シース内の横移動はセル幅よりはるかに大きいためです。一様乱数は粒子eventのcounterから作り、
+OpenMP実行順序に依存しません。x/yが周期でなければ横切り位置へ戻します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
 rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支を決めます。
 
-このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、run中の表面電位に応じて
-targetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
+`outflow_refresh_batches=N>0`は、PE有効、`field_boundary.mode="periodic2"`、x/y周期、明示的なsplit `[periodic2]`を
+要求します。$N$個のaccepted batchで、z-highを外向きに横切ったPE数$N_{out}$、その法線運動エネルギー和、表面放出数
+$N_{emit}$をraw weightで合計し、$\eta=N_{out}/N_{emit}$と平均法線エネルギー$\bar K$を得ます。外部根は放出源を束
+$\eta\Gamma_{emit}$、温度$\bar K$のhalf-Maxwellianとして解き直します。表面放出$J_{emit}$は設定から決まる値のままで、
+$J_{return}=J_{escape}-J_{emit}$はセル内再吸収と外部returnの和です。`zhao_branch`が明示ならそのbranchだけ、
+`"auto"`なら直前に採用したbranchを先に試します。根が得られない窓、または流出0の窓は警告して直前の根を保ちます。
+採用した外部状態は`matching_plane_*`のstatsへ保存し、`matching_plane_history.csv`へ出力します。checkpointからの再開では
+保存した放出源から根を再構成し、途中の窓は再開時点から数え直します。
+
+このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、
+`outflow_refresh_batches=0`ではrun中の表面電位に応じてtargetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
 外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
 
 ### 7.8 matching-plane 準定常連成

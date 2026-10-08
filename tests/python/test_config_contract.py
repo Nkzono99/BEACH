@@ -40,6 +40,7 @@ def _cases() -> list:
     for name in (
         "periodic2_zhao_fixed_current",
         "periodic2_zhao_no_photo_fixed_current",
+        "periodic2_zhao_outflow_refresh",
         "periodic2_matching_plane_zhao_online",
         "periodic2_matching_plane_zhao_implicit",
     ):

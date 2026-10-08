@@ -245,6 +245,11 @@
                 "required": [
                   "coupling_relaxation"
                 ]
+              },
+              {
+                "required": [
+                  "outflow_refresh_batches"
+                ]
               }
             ]
           }
@@ -383,6 +388,11 @@
               {
                 "required": [
                   "reference_area_m2"
+                ]
+              },
+              {
+                "required": [
+                  "outflow_refresh_batches"
                 ]
               }
             ]
@@ -535,6 +545,12 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "Zhao effective z-normal collection area [m^2]. Defaults to the domain x-y area."
+        },
+        "outflow_refresh_batches": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
         },
         "response_table_path": {
           "type": "string",
@@ -3906,6 +3922,12 @@
                   "type": "number",
                   "exclusiveMinimum": 0,
                   "description": "Zhao effective z-normal collection area [m^2]. Defaults to the domain x-y area."
+                },
+                "outflow_refresh_batches": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
                 }
               }
             },

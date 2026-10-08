@@ -25,6 +25,7 @@ Choose the model from the outer-plasma behavior that the case needs.
 |---|---|
 | Change the outer response from the evolving surface charge each batch | `matching_plane_quasistatic` |
 | Hold currents and barriers from a stationary-sheath zero-current root fixed during the run | [`zhao_stationary`](ZhaoStationaryClosure.en.html) |
+| Periodically re-solve the zero-current root for the PE outflow that actually leaves the cell | [`zhao_stationary` with `outflow_refresh_batches`](ZhaoStationaryClosure.en.html#re-solve-the-outer-root-from-the-observed-pe-outflow) |
 | Use no outer-sheath closure and model only the field and particles inside BEACH | `none` |
 
 For matching-plane coupling, also choose how to obtain the outer response.

@@ -12,12 +12,21 @@ contains
   real(dp) :: electron_temperature, ion_temperature
   logical :: photoelectron_active
 
+  if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
+    error stop 'surface_current_model.outflow_refresh_batches must be >= 0.'
+  end if
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
+    if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
+      error stop 'surface_current_model.outflow_refresh_batches requires model="zhao_stationary".'
+    end if
     return
   case ('zhao_stationary')
     continue
   case ('matching_plane_quasistatic')
+    if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
+      error stop 'surface_current_model.outflow_refresh_batches requires model="zhao_stationary".'
+    end if
     call validate_matching_plane_config(cfg, periodic2_split_explicit)
     return
   case default
@@ -127,7 +136,38 @@ contains
   if (ion_temperature > 0.1_dp*electron_temperature) then
     error stop 'Zhao stationary current model requires cold ions with T_i <= 0.1 T_e.'
   end if
+  if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
+    call validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)
+  end if
   end procedure validate_surface_current_model_config
+
+  !> 観測PE流出による外部根の更新は、z-high面の平均電位を外部の壁電位へ固定できる周期セルに限る。
+  subroutine validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)
+    type(app_config), intent(in) :: cfg
+    logical, intent(in) :: photoelectron_active, periodic2_split_explicit
+
+    if (.not. photoelectron_active) then
+      error stop 'surface_current_model.outflow_refresh_batches requires photoelectron_source_scale > 0.'
+    end if
+    if (trim(lower_ascii(cfg%sim%field_bc_mode)) /= 'periodic2' .or. .not. cfg%sim%use_box) then
+      error stop 'surface_current_model.outflow_refresh_batches requires a periodic2 [domain] box.'
+    end if
+    if (any(cfg%sim%bc_low(1:2) /= bc_periodic) .or. any(cfg%sim%bc_high(1:2) /= bc_periodic)) then
+      error stop 'surface_current_model.outflow_refresh_batches requires x/y periodic axes.'
+    end if
+    if (.not. periodic2_split_explicit) then
+      error stop 'surface_current_model.outflow_refresh_batches requires an explicit split-zero-mode [periodic2] table.'
+    end if
+    select case (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)))
+    case ('cached_kneq0', 'panel_spectral_reference')
+      continue
+    case default
+      error stop 'surface_current_model.outflow_refresh_batches requires a split periodic2 nonzero-mode backend.'
+    end select
+    if (trim(lower_ascii(cfg%periodic2%zero_mode_policy)) /= 'exclude_k0') then
+      error stop 'surface_current_model.outflow_refresh_batches requires periodic2.zero_mode_policy="exclude_k0".'
+    end if
+  end subroutine validate_zhao_outflow_refresh_config
   subroutine validate_matching_plane_config(cfg, periodic2_split_explicit)
     type(app_config), intent(in) :: cfg
     logical, intent(in) :: periodic2_split_explicit

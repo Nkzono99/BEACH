@@ -659,7 +659,7 @@ contains
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
     real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, potential_barrier
-    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count
+    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc
     logical :: high_side, reflect_open
 
     status = boundary_event_ok
@@ -754,11 +754,13 @@ contains
       return
     end if
 
-    action_event%face_bc(face_index) = bc_reflect
+    reflect_bc = bc_reflect
+    if (open_face_redistributes_barrier_return(face_index, boundary_contract)) reflect_bc = bc_redistributed_reflect
+    action_event%face_bc(face_index) = reflect_bc
     if (high_side) then
-      action_sim%bc_high(axis) = bc_reflect
+      action_sim%bc_high(axis) = reflect_bc
     else
-      action_sim%bc_low(axis) = bc_reflect
+      action_sim%bc_low(axis) = reflect_bc
     end if
     call apply_escape_reflect_periodic_event( &
       action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
@@ -794,26 +796,44 @@ contains
     end if
   end function open_face_uses_potential_barrier
 
+  !> 外部障壁で戻る粒子を、障壁面に平行な座標について面内一様へ戻すかを返す。
+  pure logical function open_face_redistributes_barrier_return(face, boundary_contract) result(redistributes)
+    integer(i32), intent(in) :: face
+    type(external_boundary_contract_type), intent(in) :: boundary_contract
+    integer(i32) :: axis
+
+    axis = (face + 1_i32)/2_i32
+    if (mod(face, 2_i32) == 1_i32) then
+      redistributes = boundary_contract%barrier_override_low(axis) .and. boundary_contract%barrier_redistribute_low(axis)
+    else
+      redistributes = boundary_contract%barrier_override_high(axis) .and. &
+                      boundary_contract%barrier_redistribute_high(axis)
+    end if
+  end function open_face_redistributes_barrier_return
+
   !> event作用が面内再配置用の一意なcounterを必要とするかを返す。
   pure logical function event_requires_redistribution_counter(event, boundary_contract) result(requires)
     type(boundary_event_type), intent(in) :: event
     type(external_boundary_contract_type), intent(in) :: boundary_contract
     integer(i32) :: face
-    logical :: has_open, has_ordinary_open, has_redistributed_reflect
+    logical :: has_open, has_ordinary_open, has_redistributed_reflect, has_redistributed_barrier
 
     has_open = .false.
     has_ordinary_open = .false.
     has_redistributed_reflect = .false.
+    has_redistributed_barrier = .false.
     do face = 1_i32, 6_i32
       if (.not. btest(event%face_mask, face - 1_i32)) cycle
       has_open = has_open .or. event%face_bc(face) == bc_open
       if (event%face_bc(face) == bc_open) then
         has_ordinary_open = has_ordinary_open .or. .not. open_face_uses_potential_barrier(face, boundary_contract)
+        has_redistributed_barrier = has_redistributed_barrier .or. &
+                                    open_face_redistributes_barrier_return(face, boundary_contract)
       end if
       has_redistributed_reflect = has_redistributed_reflect .or. &
                                   event%face_bc(face) == bc_redistributed_reflect
     end do
-    requires = has_redistributed_reflect .and. .not. has_ordinary_open .and. &
+    requires = (has_redistributed_reflect .or. has_redistributed_barrier) .and. .not. has_ordinary_open .and. &
                (.not. has_open .or. event_uses_potential_barrier(event, boundary_contract))
   end function event_requires_redistribution_counter
 

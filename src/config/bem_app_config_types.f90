@@ -29,6 +29,8 @@ module bem_app_config_types
     real(dp) :: photoelectron_source_scale = 1.0_dp
     real(dp) :: reference_area_m2 = 0.0_dp
     logical :: has_reference_area_m2 = .false.
+    !> zhao_stationary の外部シース源を観測PE流出で解き直す accepted batch 間隔。0 は初期根を固定する。
+    integer(i32) :: outflow_refresh_batches = 0_i32
     character(len=256) :: response_table_path = ''
     logical :: has_response_table_path = .false.
     logical :: implicit_zero_mode = .false.

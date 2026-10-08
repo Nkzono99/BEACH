@@ -83,6 +83,11 @@ source-dir = "tests/fortran"
 main = "test_matching_plane_simulator.f90"
 
 [[test]]
+name = "test_zhao_outflow_refresh"
+source-dir = "tests/fortran"
+main = "test_zhao_outflow_refresh.f90"
+
+[[test]]
 name = "test_panel_moments"
 source-dir = "tests/fortran"
 main = "test_panel_moments.f90"

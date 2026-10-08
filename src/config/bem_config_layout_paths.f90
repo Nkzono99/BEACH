@@ -101,6 +101,8 @@ contains
       legacy = 'surface_current_model.photoelectron_source_scale'
     case ('sheath.stationary.reference_area_m2')
       legacy = 'surface_current_model.reference_area_m2'
+    case ('sheath.stationary.outflow_refresh_batches')
+      legacy = 'surface_current_model.outflow_refresh_batches'
     case ('sheath.table.path')
       legacy = 'surface_current_model.response_table_path'
     case ('sheath.coupling.mean_field_update')

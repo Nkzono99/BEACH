@@ -1,19 +1,26 @@
 !> 自動表面電流modelのdispatchとZhao電流分解を検証する。
 program test_surface_current_model
   use bem_kinds, only: dp, i32
+  use bem_constants, only: qe
+  use bem_types, only: bc_open, bc_periodic
   use bem_app_config, only: app_config, default_app_config
   use bem_app_config_types, only: particle_species_spec
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: &
-    surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure
+    surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure, &
+    solve_zhao_outflow_closure
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
   implicit none
 
   type(app_config) :: cfg
   type(surface_current_model_result_type) :: result
   type(surface_closure_contract_type) :: closure
+  type(surface_current_model_result_type) :: refreshed
+  character(len=256) :: message
+  real(dp) :: barrier_v, expected_escape
+  logical :: success
 
-  call test_init(6)
+  call test_init(9)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -126,6 +133,78 @@ program test_surface_current_model
   call assert_close_dp(result%photoelectron_return_current_density_a_m2, 0.0_dp, 0.0_dp, 'no-PE return')
   call assert_close_dp(result%net_current_density_a_m2, 0.0_dp, 1.0e-12_dp, 'no-PE stationary net current')
   call assert_kinetic_contract(result, 0.0_dp, 'no-PE Zhao')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')
+  call configure_zhao_fixture(cfg)
+  cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
+  cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
+  call evaluate_surface_current_model(cfg, result)
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, result%outer_photoelectron_mean_energy_ev, ' ', refreshed, &
+    success, message &
+    )
+  call assert_true(success, 'emission-source outer solve failed: '//trim(message))
+  call assert_true(refreshed%zhao_branch == result%zhao_branch, 'emission-source outer branch mismatch')
+  call assert_close_dp(refreshed%phi0_v, result%phi0_v, 1.0e-8_dp, 'emission-source phi0 mismatch')
+  call assert_close_dp(refreshed%phi_m_v, result%phi_m_v, 1.0e-8_dp, 'emission-source phi_m mismatch')
+  call assert_close_dp( &
+    refreshed%photoelectron_escape_current_density_a_m2, result%photoelectron_escape_current_density_a_m2, &
+    1.0e-9_dp*result%photoelectron_escape_current_density_a_m2, 'emission-source PE escape mismatch' &
+    )
+  call assert_close_dp( &
+    refreshed%photoelectron_emission_current_density_a_m2, result%photoelectron_emission_current_density_a_m2, &
+    0.0_dp, 'outer solve changed the surface emission' &
+    )
+  call assert_current_decomposition(refreshed, 'emission-source outer solve')
+  call assert_true(result%has_plane_gauge .and. refreshed%has_plane_gauge, 'Zhao closure must publish its H gauge')
+  call assert_close_dp(result%plane_gauge_potential_v, result%phi0_v, 0.0_dp, 'H gauge must be the wall potential')
+  call assert_true(result%outer_return_cell_uniform, 'x/y periodic Zhao closure must return particles cell-uniformly')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_uses_observed_outflow_as_outer_source')
+  call configure_zhao_fixture(cfg)
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(.not. result%outer_return_cell_uniform, 'open x/y Zhao closure must keep crossing-point returns')
+  call solve_zhao_outflow_closure( &
+    cfg, 0.3_dp*result%outer_photoelectron_flux_m2_s, 4.0_dp, result%zhao_branch, refreshed, success, message &
+    )
+  call assert_true(success, 'observed-outflow outer solve failed: '//trim(message))
+  select case (refreshed%zhao_branch)
+  case ('A')
+    barrier_v = refreshed%phi0_v - refreshed%phi_m_v
+  case ('B')
+    barrier_v = refreshed%phi0_v
+  case default
+    barrier_v = 0.0_dp
+  end select
+  ! Half-Maxwellian flux above the outer barrier, independent of the Zhao root equations.
+  expected_escape = qe*0.3_dp*result%outer_photoelectron_flux_m2_s*exp(-barrier_v/4.0_dp)
+  call assert_close_dp( &
+    refreshed%photoelectron_escape_current_density_a_m2, expected_escape, 1.0e-12_dp*expected_escape, &
+    'outer PE escape must be the observed source above the barrier' &
+    )
+  call assert_close_dp( &
+    refreshed%photoelectron_emission_current_density_a_m2, result%photoelectron_emission_current_density_a_m2, &
+    0.0_dp, 'observed outflow must not replace the surface emission' &
+    )
+  call assert_close_dp( &
+    refreshed%outer_photoelectron_flux_m2_s, 0.3_dp*result%outer_photoelectron_flux_m2_s, 0.0_dp, &
+    'outer source flux receipt mismatch' &
+    )
+  call assert_close_dp( &
+    refreshed%net_current_density_a_m2, 0.0_dp, 1.0e-6_dp*refreshed%ion_current_density_a_m2, &
+    'refreshed outer root must float' &
+    )
+  call assert_current_decomposition(refreshed, 'observed-outflow outer solve')
+  call assert_close_dp(refreshed%plane_gauge_potential_v, refreshed%phi0_v, 0.0_dp, 'refreshed H gauge mismatch')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_rejects_empty_source')
+  call configure_zhao_fixture(cfg)
+  call solve_zhao_outflow_closure(cfg, 0.0_dp, 2.0_dp, 'A', refreshed, success, message)
+  call assert_true(.not. success, 'empty observed outflow must not produce an outer root')
+  call assert_true(len_trim(message) > 0, 'empty observed outflow must report a reason')
   call test_end()
 
   call test_summary()

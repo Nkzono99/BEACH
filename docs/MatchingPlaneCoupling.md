@@ -23,6 +23,7 @@ matching plane（整合面）にします。表面電荷が変わるたびに、
 |---|---|
 | 表面電荷に応じて外部応答も batch ごとに変えたい | `matching_plane_quasistatic` |
 | 定常シースの零電流根から得た電流と障壁を run 中固定したい | [`zhao_stationary`](ZhaoStationaryClosure.html) |
+| 零電流根を、セルから実際に出る PE 流出に合わせて定期的に解き直したい | [`zhao_stationary` と `outflow_refresh_batches`](ZhaoStationaryClosure.html#観測した-pe-流出で外部根を解き直す) |
 | 外部シース closure を使わず、BEACH 内の場と粒子だけを扱う | `none` |
 
 matching-plane では、外部応答の取得方法をさらに選びます。

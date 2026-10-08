@@ -6,12 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.stationary.outflow_refresh_batches`) for
+  `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
+  z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the
+  surface emission target and the per-batch floating targets stay unchanged. The accepted outer state is written to the
+  `matching_plane_*` summary receipts and `matching_plane_history.csv`, and restarts reconstruct it from the checkpoint.
 - Added a pluggable `[surface_current_model]` closure with a restored Zhao A/B/C stationary zero-current solver. It resolves
   ambient-electron, ion, PE-emission, PE-escape, and PE-return targets independently and applies them through per-species
   `fixed_current` spatial maps.
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed
+- `zhao_stationary` now fixes the z-high plane-mean potential to the outer wall potential $\phi_0$ when a split
+  `[periodic2]` zero mode is available. Previously the absolute outer barrier $\phi_m$ was compared with a z-high
+  potential tied to the bottom of the charged geometry, so tracked PE and electron returns and the inflow energy map used
+  a barrier lower than the root by about $\phi_0$; the fixed-current scaling hid this in the totals. Results of PE
+  `zhao_stationary` runs with a split zero mode change. Field backends without a split zero mode warn at startup.
+- `zhao_stationary` outer-barrier returns in an x/y periodic cell now re-enter at a counter-based uniform position on the
+  z-high plane instead of the crossing point, because the lateral drift in the outer sheath far exceeds the cell width.
 - The Camphor `ifx` install profile no longer passes unsupported inline/report options or enables the unstable IPO link path, allowing release executables to link reliably with Intel 2023.2.
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 - FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.

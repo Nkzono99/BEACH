@@ -201,9 +201,11 @@ contains
     if (mod(face, 2_i32) == 0_i32) then
       contract%barrier_override_high(axis) = .true.
       contract%barrier_potential_high_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_redistribute_high(axis) = current_model%outer_return_cell_uniform
     else
       contract%barrier_override_low(axis) = .true.
       contract%barrier_potential_low_v(axis) = current_model%outflow_barrier_potential_v(species_idx)
+      contract%barrier_redistribute_low(axis) = current_model%outer_return_cell_uniform
     end if
   end subroutine apply_species_kinetic_barrier
 

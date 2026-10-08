@@ -208,6 +208,18 @@ contains
       write (u, '(a)') 'surface_current_model_dynamic_state_source=accepted_batch_fixed_point'
     else
       write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
+      write (u, '(a,i0)') 'surface_current_model_outflow_refresh_batches=', &
+        cfg%surface_current%outflow_refresh_batches
+      if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
+        write (u, '(a)') 'surface_current_model_dynamic_state_source=matching_plane_state_outflow_refresh'
+      else
+        write (u, '(a)') 'surface_current_model_dynamic_state_source=initial_root'
+      end if
+      if (current_model%outer_return_cell_uniform) then
+        write (u, '(a)') 'surface_current_model_outer_return_position=cell_uniform'
+      else
+        write (u, '(a)') 'surface_current_model_outer_return_position=crossing_point'
+      end if
       write (u, '(a,l1)') 'surface_current_model_photoelectron_active=', current_model%photoelectron_active
       write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
       write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v

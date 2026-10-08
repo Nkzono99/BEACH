@@ -94,8 +94,10 @@ contains
   history_unit = -1
   if (.not. app%write_output) return
   path = trim(app%output_dir)//'/matching_plane_history.csv'
-  if (app%history_stride <= 0_i32 .or. &
-      trim(lower_ascii(app%surface_current%model)) /= 'matching_plane_quasistatic') then
+  if (app%history_stride <= 0_i32 .or. .not. ( &
+      trim(lower_ascii(app%surface_current%model)) == 'matching_plane_quasistatic' .or. &
+      (trim(lower_ascii(app%surface_current%model)) == 'zhao_stationary' .and. &
+       app%surface_current%outflow_refresh_batches > 0_i32))) then
     if (.not. resumed) call delete_matching_plane_history_if_exists(path)
     return
   end if

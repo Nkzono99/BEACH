@@ -60,6 +60,11 @@ contains
         table, keys(ikey), cfg%surface_current%reference_area_m2, 'surface_current_model.reference_area_m2' &
         )
       cfg%surface_current%has_reference_area_m2 = .true.
+    case ('outflow_refresh_batches')
+      call get_toml_int( &
+        table, keys(ikey), cfg%surface_current%outflow_refresh_batches, &
+        'surface_current_model.outflow_refresh_batches' &
+        )
     case ('response_table_path')
       call get_toml_string( &
         table, keys(ikey), cfg%surface_current%response_table_path, &

@@ -241,6 +241,7 @@ matching-plane結合には `lower_boundary_model` を明示します。
 | `surface_current_model.photoelectron_ref_density_m3` | `sheath.stationary.photoelectron_ref_density_m3` |
 | `surface_current_model.photoelectron_source_scale` | `sheath.stationary.photoelectron_source_scale` |
 | `surface_current_model.reference_area_m2` | `sheath.stationary.reference_area_m2` |
+| `surface_current_model.outflow_refresh_batches` | `sheath.stationary.outflow_refresh_batches` |
 | `surface_current_model.response_table_path` | `sheath.table.path` |
 | `surface_current_model.implicit_zero_mode` | `sheath.coupling.mean_field_update` |
 | `surface_current_model.coupling_rtol` | `sheath.coupling.rtol` |

@@ -18,6 +18,7 @@ program test_app_config_parser
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
   character(len=*), parameter :: zhao_generic_barrier_path = 'test_zhao_generic_barrier_tmp.toml'
   character(len=*), parameter :: zhao_no_photo_branch_path = 'test_zhao_no_photo_branch_tmp.toml'
+  character(len=*), parameter :: zhao_refresh_variant_path = 'test_zhao_refresh_variant_tmp.toml'
   character(len=*), parameter :: matching_variant_path = 'test_matching_plane_variant_tmp.toml'
   character(len=*), parameter :: fixed_current_variant_path = 'test_fixed_current_variant_tmp.toml'
   character(len=*), parameter :: matching_absolute_response_path = '/tmp/beach_matching_response.csv'
@@ -32,7 +33,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(44)
+  call test_init(46)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -302,6 +303,22 @@ program test_app_config_parser
     effective_boundary_low, effective_boundary_high &
     )
   call assert_equal_i32(effective_boundary_high(3), bc_open, 'Zhao PE z-high boundary must be open')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_config')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+  call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'refresh Zhao model mismatch')
+  call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 2_i32, 'outflow refresh interval mismatch')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'fixed Zhao root must not refresh')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_requires_split_zero_mode')
+  call write_refresh_variant('examples/periodic2_zhao_fixed_current.toml', zhao_refresh_variant_path)
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
+  call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('zhao_no_photo_fixed_current_config')
@@ -911,6 +928,25 @@ contains
     close (output_unit)
     if (.not. replaced) error stop 'failed to specialize fixed-emission config fixture'
   end subroutine write_fixed_emission_variant
+
+  !> Copy a Zhao example and enable the outflow refresh in its surface-current table.
+  subroutine write_refresh_variant(source_path, path)
+    character(len=*), intent(in) :: source_path, path
+    character(len=1024) :: line
+    integer :: source_unit, target_unit, ios
+
+    open (newunit=source_unit, file=source_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open Zhao refresh variant source'
+    open (newunit=target_unit, file=path, status='replace', action='write')
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      write (target_unit, '(A)') trim(line)
+      if (trim(line) == '[surface_current_model]') write (target_unit, '(A)') 'outflow_refresh_batches = 1'
+    end do
+    close (source_unit)
+    close (target_unit)
+  end subroutine write_refresh_variant
 
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment

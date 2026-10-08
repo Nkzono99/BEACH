@@ -136,6 +136,23 @@ def _validate_surface_current_model(
             "BEACH constraint error: surface_current_model requires reference_area_m2 "
             "or a finite domain."
         )
+    refresh_batches = model_config.get("outflow_refresh_batches", 0)
+    if (
+        not isinstance(refresh_batches, int)
+        or isinstance(refresh_batches, bool)
+        or refresh_batches < 0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.outflow_refresh_batches "
+            "must be an integer >= 0."
+        )
+    if refresh_batches > 0:
+        _validate_zhao_outflow_refresh(
+            photoelectron_active=photoelectron_active,
+            domain=domain,
+            field_boundary=field_boundary,
+            periodic2_config=periodic2_config,
+        )
 
     by_key = {
         str(item.get("species_key", f"species_{index}")): item
@@ -293,6 +310,34 @@ def _validate_surface_current_model(
         )
 
 
+def _validate_zhao_outflow_refresh(
+    *,
+    photoelectron_active: bool,
+    domain: Mapping[str, Any] | None,
+    field_boundary: Mapping[str, Any] | None,
+    periodic2_config: object,
+) -> None:
+    """Require a periodic cell whose z-high mean potential can carry the outer wall potential."""
+    prefix = "BEACH constraint error: surface_current_model.outflow_refresh_batches"
+    if not photoelectron_active:
+        raise ConfigValidationError(
+            f"{prefix} requires photoelectron_source_scale > 0."
+        )
+    if (
+        domain is None
+        or field_boundary is None
+        or field_boundary.get("mode", "free") != "periodic2"
+    ):
+        raise ConfigValidationError(f"{prefix} requires a periodic2 [domain] box.")
+    if set(domain.get("periodic_axes", [])) != {"x", "y"}:
+        raise ConfigValidationError(f"{prefix} requires x/y periodic axes.")
+    # The schema restricts an explicit [periodic2] table to split backends with exclude_k0.
+    if not isinstance(periodic2_config, Mapping):
+        raise ConfigValidationError(
+            f"{prefix} requires an explicit split-zero-mode [periodic2] table."
+        )
+
+
 def _validate_matching_plane_model(
     model_config: Mapping[str, Any],
     *,
@@ -309,6 +354,7 @@ def _validate_matching_plane_model(
         "photoelectron_ref_density_m3",
         "photoelectron_source_scale",
         "reference_area_m2",
+        "outflow_refresh_batches",
     }
     if stationary_zhao_keys.intersection(model_config):
         raise ConfigValidationError(

@@ -362,6 +362,7 @@ closure.
 | `photoelectron_ref_density_m3` | float | required with stationary PE | Reference PE density $n_{pe,ref}$ [m^-3]. `>0` |
 | `photoelectron_source_scale` | float | `1.0` | Stationary-Zhao $s_{UV}$. `>=0`; `0` disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting Zhao current densities to total currents [m^2]. `>0`; forbidden for matching |
+| `outflow_refresh_batches` | int | `0` | Re-solve the stationary Zhao outer root every N accepted batches from the PE outflow observed at z-high. `>=0`; 0 keeps the initial root; forbidden for matching |
 | `response_table_path` | string | required for table matching | Outer-sheath response CSV v1. Resolved length 1–256 characters; forbidden online |
 | `implicit_zero_mode` | bool | `false` | Apply backward Euler to the matching-plane mean $D_H$; requires `e_bottom_zero`. A table uses a finite $D_H$ axis and singleton feedback; online Zhao searches the selected branch without a CSV |
 | `coupling_rtol` | float | `1.0e-4` | Relative matching fixed-point tolerance; finite $0<r\le1$ |
@@ -381,16 +382,21 @@ Input constraints:
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |
 | External field | `sim.b0=[0,0,0]`; `reservoir.inflow_model="infinity_barrier"` is forbidden |
+| Outer-root refresh | `outflow_refresh_batches>0` requires PE, `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table |
 
 Without PE, Type C produces only electron/ion absorption targets satisfying $J_e+J_i=0$ and the z-high kinetic-barrier
 map; it produces no PE emission, return, or escape target.
 `ion_species.number_density_*` is the ion density at infinity. Electron density and PE emission-current density are
 sampling inputs; the closure determines current targets.
 
-This is a stationary-current closure, not a transient outer-sheath solve. See
-[Zhao Stationary Closure](ZhaoStationaryClosure.en.html) for current, barrier, PE-return, and output definitions.
+This is a stationary-current closure, not a transient outer-sheath solve. With a split `[periodic2]` table, the z-high
+plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y periodic axes, particles returned by the outer
+barrier re-enter at a cell-uniform position. `outflow_refresh_batches>0` is a weak coupling that quasi-statically re-solves
+the outer root from the observed PE outflow. See [Zhao Stationary Closure](ZhaoStationaryClosure.en.html) for current,
+barrier, PE-return, refresh, and output definitions.
 
-The complete case is `examples/periodic2_zhao_fixed_current.toml`.
+The complete case is `examples/periodic2_zhao_fixed_current.toml`; the outer-root refresh case is
+`examples/periodic2_zhao_outflow_refresh.toml`.
 
 #### Matching-plane quasistatic closure
 
@@ -417,7 +423,7 @@ All rows below are required:
 | `table` | Requires `response_table_path`; forbids `zhao_branch` and `zhao_root_selection` |
 | `zhao_online` | Forbids `response_table_path`; accepts `zhao_branch` `auto` / `a` / `b` / `c` and `zhao_root_selection` `require_unique` / `minimum_energy` / `continuation`. `continuation` is restricted to explicit Type A with `implicit_zero_mode=true`. Implicit mode searches the selected branch without a response/query CSV |
 | `zhao_online` species | Every role singly charged; $T_e>0$; $0\le T_i\le0.1T_e$; positive ion density; negative z component of electron / ion `drift_velocity`; with PE, equal electron/PE masses and $T_{pe}>0$ |
-| All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, and `photoelectron_source_scale` |
+| All matching backends | Forbid stationary-only `solar_elevation_deg`, `photoelectron_ref_density_m3`, `photoelectron_source_scale`, and `outflow_refresh_batches` |
 
 With `model="none"`, do not specify another key. Removed `[outer_plasma]` and `[coupling]` tables remain invalid.
 See [Quasistatic Matching-Plane Coupling](MatchingPlaneCoupling.en.html) for model selection, physical meaning, and

@@ -3,6 +3,7 @@ submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
   use bem_matching_plane_coupling, only: matching_plane_coupling_type
+  use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
@@ -32,7 +33,7 @@ contains
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
-  logical :: matching_active, replay_active, matching_history_enabled
+  logical :: matching_active, replay_active, matching_history_enabled, outflow_refreshed
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
@@ -48,6 +49,7 @@ contains
   type(periodic_zero_mode_state_type) :: committed_zero_state
   type(charge_ledger_type) :: batch_ledger
   type(matching_plane_coupling_type) :: coupling
+  type(zhao_outflow_refresh_type) :: outflow_refresh
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
   type(external_boundary_contract_type) :: boundary_contract
@@ -166,6 +168,8 @@ contains
   call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
   call perf_region_end(perf_region_field_solver_init, t0)
   call coupling%restore_gauge(mesh, stats, snapshot)
+  call outflow_refresh%initialize(app, mesh, stats, surface_closure)
+  call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .true.)
 
   if (replay_active) then
     call random_seed(size=species_idx)
@@ -416,6 +420,11 @@ contains
       )
     call perf_region_end(perf_region_commit_charge, t0)
     call coupling%commit(mesh, stats_candidate)
+    call outflow_refresh%commit_batch( &
+      app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
+      batch_idx, stats_candidate, surface_closure, outflow_refreshed &
+      )
+    if (outflow_refreshed) call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .false.)
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
       batch_ledger%surface_charge_after = finite_charge_sum(mesh%q_elem, 'batch surface charge after commit')
@@ -471,6 +480,28 @@ contains
     end if
   end if
   end procedure run_absorption_insulator
+
+  !> 外部シース解が与える壁電位を、z-high面の水平平均電位として周期k=0成分へ固定する。
+  subroutine apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi, warn_if_unavailable)
+    type(app_config), intent(in) :: app
+    type(mesh_type), intent(in) :: mesh
+    type(surface_closure_contract_type), intent(in) :: surface_closure
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    type(mpi_context), intent(in) :: mpi
+    logical, intent(in) :: warn_if_unavailable
+
+    if (.not. surface_closure%has_plane_gauge) return
+    if (.not. snapshot%use_zero_mode) then
+      if (warn_if_unavailable .and. mpi_is_root(mpi)) then
+        write (error_unit, '(a)') &
+          'WARNING: the surface-current outer barrier is compared with the z-high potential, but this field '// &
+          'backend has no periodic zero mode to tie that potential to the outer wall potential phi0.'
+        flush (error_unit)
+      end if
+      return
+    end if
+    call snapshot%set_matching_plane_gauge(mesh, app%sim%box_max(3), surface_closure%plane_gauge_potential_v)
+  end subroutine apply_surface_plane_gauge
 
   function checked_add_adaptive_rejected_trials(accumulated, trial_halvings) result(total)
     integer(i64), intent(in) :: accumulated

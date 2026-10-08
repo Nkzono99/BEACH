@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize('name', ['beach.toml', 'periodic2_zhao_fixed_current.toml',
+                                 'periodic2_zhao_outflow_refresh.toml',
                                  'periodic2_matching_plane_zhao_online.toml'])
 def test_released_input_roundtrip_keeps_physics(name):
     path=ROOT/'examples'/name
