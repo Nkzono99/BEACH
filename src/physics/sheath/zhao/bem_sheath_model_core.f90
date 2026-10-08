@@ -1,7 +1,7 @@
 !> Zhao 系シース数値モデルの core 実装。
 module bem_sheath_model_core
   use bem_kinds, only: dp
-  use bem_constants, only: pi, eps0, qe
+  use bem_constants, only: pi, qe
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
@@ -22,7 +22,6 @@ module bem_sheath_model_core
     real(dp) :: n_swi_inf_m3 = 0.0d0
     real(dp) :: n_phe_ref_m3 = 0.0d0
     real(dp) :: n_phe0_m3 = 0.0d0
-    real(dp) :: photoelectron_population_fraction = 1.0d0
     real(dp) :: t_swe_ev = 0.0d0
     real(dp) :: t_phe_ev = 0.0d0
     real(dp) :: v_d_electron_mps = 0.0d0
@@ -34,8 +33,6 @@ module bem_sheath_model_core
     real(dp) :: cs_mps = 0.0d0
     real(dp) :: mach = 0.0d0
     real(dp) :: u = 0.0d0
-    real(dp) :: tau = 0.0d0
-    real(dp) :: lambda_d_phe_ref_m = 0.0d0
   end type zhao_params_type
 
   private
@@ -48,12 +45,11 @@ contains
 
   subroutine build_zhao_params( &
     alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev, v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg, p, &
-    photoelectron_population_fraction, photoelectron_source_scale &
+    photoelectron_source_scale &
     )
     real(dp), intent(in) :: alpha_deg, n_swi_inf_m3, n_phe_ref_m3, t_swe_ev, t_phe_ev
     real(dp), intent(in) :: v_d_electron_mps, v_d_ion_mps, m_i_kg, m_e_kg
     type(zhao_params_type), intent(out) :: p
-    real(dp), intent(in), optional :: photoelectron_population_fraction
     real(dp), intent(in), optional :: photoelectron_source_scale
     real(dp) :: source_scale
 
@@ -63,11 +59,6 @@ contains
     if (n_phe_ref_m3 <= 0.0d0) error stop 'Zhao sheath requires sheath_photoelectron_ref_density_cm3 > 0.'
     if (v_d_ion_mps <= 0.0d0) error stop 'Zhao sheath requires positive ion drift.'
     if (m_i_kg <= 0.0d0 .or. m_e_kg <= 0.0d0) error stop 'Zhao sheath requires positive particle masses.'
-    if (present(photoelectron_population_fraction)) then
-      if (.not. ieee_is_finite(photoelectron_population_fraction) .or. photoelectron_population_fraction < 0.0d0) then
-        error stop 'Zhao sheath requires a finite non-negative photoelectron population fraction.'
-      end if
-    end if
     source_scale = 1.0d0
     if (present(photoelectron_source_scale)) then
       if (.not. ieee_is_finite(photoelectron_source_scale) .or. photoelectron_source_scale < 0.0d0) then
@@ -80,10 +71,6 @@ contains
     p%n_swi_inf_m3 = n_swi_inf_m3
     p%n_phe_ref_m3 = n_phe_ref_m3
     p%n_phe0_m3 = source_scale*n_phe_ref_m3*sin(p%alpha_rad)
-    p%photoelectron_population_fraction = 1.0d0
-    if (present(photoelectron_population_fraction)) then
-      p%photoelectron_population_fraction = photoelectron_population_fraction
-    end if
     p%t_swe_ev = t_swe_ev
     p%t_phe_ev = t_phe_ev
     p%v_d_electron_mps = v_d_electron_mps
@@ -95,8 +82,6 @@ contains
     p%cs_mps = sqrt(qe*p%t_swe_ev/p%m_i_kg)
     p%mach = p%v_d_ion_mps/p%cs_mps
     p%u = p%v_d_electron_mps/p%v_swe_th_mps
-    p%tau = p%t_swe_ev/p%t_phe_ev
-    p%lambda_d_phe_ref_m = sqrt(eps0*qe*p%t_phe_ev/(p%n_phe_ref_m3*qe*qe))
 
     if (.not. ieee_is_finite(p%mach) .or. p%mach <= 0.0d0) then
       error stop 'Zhao sheath produced an invalid Mach number.'
@@ -473,7 +458,7 @@ contains
     ion_term = p%n_swi_inf_m3*sqrt(2.0d0*pi*p%t_swe_ev/p%t_phe_ev*p%m_e_kg/p%m_i_kg)*p%mach
 
     f(1) = 0.5d0*n_swe_inf_m3*(1.0d0 + 2.0d0*erf(p%u) + erf(a_swe)) + &
-           0.5d0*p%photoelectron_population_fraction*p%n_phe0_m3* &
+           0.5d0*p%n_phe0_m3* &
            exp(-phi0_v/p%t_phe_ev)*(1.0d0 - erf(a_phe)) - p%n_swi_inf_m3
     ! The tracked emission current remains the full surface source.  The
     ! population fraction only closes the instantaneous outer density.
@@ -497,7 +482,7 @@ contains
 
     ion_term = p%n_swi_inf_m3*sqrt(2.0d0*pi*p%t_swe_ev/p%t_phe_ev*p%m_e_kg/p%m_i_kg)*p%mach
     f(1) = 0.5d0*n_swe_inf_m3*(1.0d0 + erf(p%u)) + &
-           0.5d0*p%photoelectron_population_fraction*p%n_phe0_m3*exp(-phi0_v/p%t_phe_ev) - p%n_swi_inf_m3
+           0.5d0*p%n_phe0_m3*exp(-phi0_v/p%t_phe_ev) - p%n_swi_inf_m3
     f(2) = p%n_phe0_m3*exp(-phi0_v/p%t_phe_ev) - swe_free_current_term(p, n_swe_inf_m3, -p%u) + ion_term
   end subroutine zhao_residuals_type_b
 
@@ -520,7 +505,7 @@ contains
     ion_term = p%n_swi_inf_m3*sqrt(2.0d0*pi*p%t_swe_ev/p%t_phe_ev*p%m_e_kg/p%m_i_kg)*p%mach
 
     f(1) = 0.5d0*n_swe_inf_m3*(1.0d0 + 2.0d0*erf(p%u) + erf(a_swe)) + &
-           0.5d0*p%photoelectron_population_fraction*p%n_phe0_m3* &
+           0.5d0*p%n_phe0_m3* &
            exp(-phi0_v/p%t_phe_ev)*erfc(a_phe) - p%n_swi_inf_m3
     f(2) = p%n_phe0_m3 - swe_free_current_term(p, n_swe_inf_m3, a_swe) + ion_term
   end subroutine zhao_residuals_type_c
@@ -559,7 +544,7 @@ contains
                (1.0d0/(sqrt(pi)*p%u))*exp(phi_m_v/p%t_swe_ev - p%u*p%u)*(exp(2.0d0*p%u*s_swe) - 1.0d0) &
                )
 
-    e2_phe_f = p%photoelectron_population_fraction*(p%n_phe0_m3/p%n_phe_ref_m3)*( &
+    e2_phe_f = (p%n_phe0_m3/p%n_phe_ref_m3)*( &
                exp((phi - phi0_v)/p%t_phe_ev)*(1.0d0 - erf(s_phe)) - &
                exp((phi_m_v - phi0_v)/p%t_phe_ev)*(1.0d0 - 2.0d0*s_phe/sqrt(pi)) &
                )
