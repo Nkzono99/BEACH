@@ -300,6 +300,7 @@ contains
     logical :: alive, escaped, z_high_outward_event, z_high_barrier_event
     logical :: first_segment, requires_redistribution
     type(external_boundary_contract_type) :: active_boundary_contract
+    type(sim_config) :: action_sim
 
     active_boundary_contract = external_boundary_contract_type()
     select case (trim(sim%open_boundary_model))
@@ -312,6 +313,8 @@ contains
       return
     end select
     if (present(boundary_contract)) active_boundary_contract = boundary_contract
+    action_sim = sim
+    action_sim%open_boundary_model = 'escape'
     x_start = x0
     v_start = v0
     x_trial = x_candidate
@@ -409,7 +412,7 @@ contains
           )
       else
         call apply_escape_reflect_periodic_event( &
-          sim, event, x_event, v_event, alive, escaped, boundary_status, redistribution_uniform &
+          action_sim, event, x_event, v_event, alive, escaped, boundary_status, redistribution_uniform &
           )
       end if
       if (boundary_status /= boundary_event_ok) then

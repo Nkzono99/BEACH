@@ -16,7 +16,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(31)
+  call test_init(32)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -120,6 +120,10 @@ program test_particle_stepper
 
   call test_begin('potential_barrier_uses_crossing_potential')
   call test_potential_barrier_uses_crossing_potential()
+  call test_end()
+
+  call test_begin('global_barrier_after_periodic_or_reflect_event')
+  call test_global_barrier_after_periodic_or_reflect_event()
   call test_end()
 
   call test_begin('species_barrier_override_is_face_local')
@@ -906,6 +910,54 @@ contains
       )
     call assert_true(.not. result%escaped_boundary, 'x=0.75 crossing potential should cause return')
   end subroutine test_potential_barrier_uses_crossing_potential
+
+  subroutine test_global_barrier_after_periodic_or_reflect_event()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(particle_step_result) :: result
+    integer(i32) :: action_index, action
+    integer(i32), parameter :: actions(2) = [bc_periodic, bc_reflect]
+    real(dp) :: expected_x, expected_vx
+
+    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%open_boundary_model = 'potential_barrier'
+    do action_index = 1_i32, size(actions)
+      action = actions(action_index)
+      sim%bc_low(1) = action
+      sim%bc_high(1) = action
+      sim%phi_infty = -1.0_dp
+      ! The force-free trajectory reaches x-high at t=0.2, then z-high at t=0.4.
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+        [0.8_dp, 0.2_dp, 0.6_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.6_dp, result &
+        )
+      expected_x = merge(0.4_dp, 0.6_dp, action == bc_periodic)
+      expected_vx = merge(1.0_dp, -1.0_dp, action == bc_periodic)
+      call assert_true(result%status == particle_step_ok, 'global barrier must allow a preceding non-open event')
+      call assert_true(.not. result%escaped_boundary, 'sub-barrier electron must return after the non-open event')
+      call assert_allclose_1d( &
+        result%x, [expected_x, 0.2_dp, 0.8_dp], 1.0e-12_dp, 'mixed boundary return position mismatch' &
+        )
+      call assert_allclose_1d( &
+        result%v, [expected_vx, 0.0_dp, -1.0_dp], 1.0e-12_dp, 'mixed boundary return velocity mismatch' &
+        )
+      call assert_true(result%outer_barrier_return_count == 1_i32, 'mixed boundary return count mismatch')
+
+      sim%phi_infty = -0.1_dp
+      call advance_particle_step( &
+        mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
+        [0.8_dp, 0.2_dp, 0.6_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.6_dp, result &
+        )
+      expected_x = merge(0.2_dp, 0.8_dp, action == bc_periodic)
+      call assert_true(result%status == particle_step_ok, 'mixed boundary escape status mismatch')
+      call assert_true(result%escaped_boundary, 'super-barrier electron must escape after the non-open event')
+      call assert_allclose_1d( &
+        result%x, [expected_x, 0.2_dp, 1.0_dp], 1.0e-12_dp, 'mixed boundary escape position mismatch' &
+        )
+      call assert_true(result%outer_barrier_escape_count == 1_i32, 'mixed boundary escape count mismatch')
+    end do
+  end subroutine test_global_barrier_after_periodic_or_reflect_event
 
   subroutine test_species_barrier_override_is_face_local()
     type(mesh_type) :: mesh
