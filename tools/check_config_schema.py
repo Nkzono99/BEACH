@@ -55,15 +55,16 @@ def dispatched_keys(source: str, procedure: str) -> set[str]:
 
 def main() -> None:
     schema = json.loads((ROOT / "schemas/beach.schema.json").read_text())
+    legacy = schema["$defs"].get("legacyConfig", schema)
     source = "\n".join(path.read_text() for path in sorted(
         (ROOT / "src/config/app_config_parser").glob("*.f90")
     ))
     failures = []
     for definition, procedure in TABLES:
         if definition is None:
-            rule = schema
+            rule = legacy
         elif definition == "periodic2":
-            rule = schema["properties"][definition]
+            rule = legacy["properties"][definition]
         else:
             rule = schema["$defs"][definition]
         expected = set(rule["properties"])
@@ -76,6 +77,9 @@ def main() -> None:
     if failures:
         raise SystemExit("Schema/Fortran key mismatch:\n" + "\n".join(failures))
     print(f"Schema/Fortran keys agree in {len(TABLES)} tables")
+    import subprocess
+    import sys
+    subprocess.run([sys.executable, str(ROOT / "tools/generate_config_layout.py"), "--check"], check=True)
 
 
 if __name__ == "__main__":

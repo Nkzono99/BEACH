@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import ConfigError, normalize_high_level_config
 from .config._toml import load_toml_file
+from .config._layout import to_runtime_layout
 from .config.schema import schema_definition_property_names
 from .summary import load_summary_file
 
@@ -899,8 +900,9 @@ def read_summary_batches(path: Path) -> int:
 
 
 def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
-    """Return checkpoint batch count when ``output.resume`` is enabled."""
+    """Return checkpoint batch count when config requests a restart."""
 
+    config = to_runtime_layout(config)
     output_raw = config.get("output", {})
     if not isinstance(output_raw, dict):
         return 0
@@ -952,6 +954,10 @@ def estimate_workload(
         If configuration values are inconsistent or invalid.
     """
 
+    try:
+        config = to_runtime_layout(config)
+    except ConfigError as exc:
+        raise SystemExit(str(exc)) from exc
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
         raise SystemExit("[sim] section must be a table.")

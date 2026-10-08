@@ -79,7 +79,7 @@ def _validate_field_config(
         schema, _ = load_schema()
         periodic_defaults = {
             key: rule["default"]
-            for key, rule in schema["properties"]["periodic2"]["properties"].items()
+            for key, rule in schema["$defs"]["legacyConfig"]["properties"]["periodic2"]["properties"].items()
             if "default" in rule
         }
         periodic2_config = {**periodic_defaults, **periodic2_config}

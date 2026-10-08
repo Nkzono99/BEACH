@@ -4,6 +4,9 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
+新しく記述する設定には7グループ形式を使ってください。[設定グループと移行](GroupedConfiguration.html)に新しいキーと変換例をまとめています。以下の旧形式は1.xの間読み取れます。読み取り互換は2.0で削除する予定です。
+
+
 `beach.toml` のキーを調べるための一覧です。型、既定値、単位、必須条件と排他条件を記載します。
 単位は特記しない限り SI です。最初の設定は[ケース設計](ConfigurationRecipes.html)、
 編集後の確認は[設定の検証](Configuration.html)から始めてください。
@@ -342,10 +345,12 @@ face_potential_grid_n = 3
 | `model` | string | `"none"` | `none` / `zhao_stationary` / `matching_plane_quasistatic` |
 | `response_backend` | string | `"table"` | matchingの応答源。`table` / `zhao_online` |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。stationaryまたはonline Zhaoのbranch。PEなしstationaryは`auto` / `c`のみ |
-| `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は最小電位エネルギー根を選択、`continuation` は accepted Type A root を追跡。`continuation` には `zhao_branch="a"` と `implicit_zero_mode=true` が必須。stationary / table では指定不可。詳細は[数値・応答表リファレンス](MatchingPlaneReference.html#zhao_root_selection) |
+| `zhao_root_selection` | string | `"require_unique"` | online Zhao の root 選択。`require_unique` は複数根を拒否、`minimum_energy` は最小電位エネルギー根を選択、`continuation` は accepted root を追跡。`continuation` は `implicit_zero_mode=true` が必須で `auto` / `a` / `b` / `c` に対応。stationary / table では指定不可。詳細は[数値・応答表リファレンス](MatchingPlaneReference.html#zhao_root_selection) |
 | `electron_species` | string | 未指定 | ambient electron の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `ion_species` | string | 未指定 | cold ion の `species_key`。Zhao / matching で必須、1–64 文字 |
 | `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字、matching で省略すると PE なし |
+| `photoelectron_closure` | string | `"moment_matched_half_maxwellian"` | matching の PE 分布。既定は H の流束と平均法線エネルギーによる Maxwell 近似。`energy_spectrum` は H の実測エネルギー別流束を使い、`zhao_online` と PE role が必須。stationary では指定不可 |
+| `photoelectron_spectrum_bins_per_decade` | int32 | `32` | PE spectrum の分解能。正の整数、最大 2147483647。境界は $K_j=T_{pe,config}(10^{j/N}-1)$ [eV]、測定範囲まで動的に拡張。大きい値ほどメモリ・計算量が増える。詳細は[分布の数値契約](MatchingPlaneReference.html#photoelectron_closure) |
 | `solar_elevation_deg` | float | stationaryのPE有効時に必須 | Zhao sourceに使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | stationaryのPE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3]。`>0` |
 | `photoelectron_source_scale` | float | `1.0` | stationary Zhao の $s_{UV}$。`>=0`、0 は PE なし |
@@ -402,8 +407,8 @@ matching plane の $H$ は `domain.box_max` の z 成分で、面積は domain �
 | backend | 必須・禁止・物性制約 |
 |---|---|
 | `table` | `response_table_path` が必須、`zhao_branch` と `zhao_root_selection` は指定不可 |
-| `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c`。`zhao_root_selection` は `require_unique` / `minimum_energy` / `continuation`。`continuation` は明示的な Type A と `implicit_zero_mode=true` に限定。implicit mode では response/query CSV なしで選択 branch の終点を探索 |
-| `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正、electron / ion の `drift_velocity` の z 成分は負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
+| `zhao_online` | `response_table_path` は指定不可、`zhao_branch` は `auto` / `a` / `b` / `c`。`zhao_root_selection` は `require_unique` / `minimum_energy` / `continuation`。`continuation` は `implicit_zero_mode=true` が必須。implicit mode では response/query CSV なしで選択 branch の終点を探索 |
+| `zhao_online` の species | 全 role は単価電荷、$T_e>0$、$0\le T_i\le0.1T_e$、ion 密度は正。`drift_velocity` の z 成分は electron が 0 以下、ion が負。PE 指定時は electron と同一質量かつ $T_{pe}>0$ |
 | matching 共通 | stationary 専用の `solar_elevation_deg`、`photoelectron_ref_density_m3`、`photoelectron_source_scale` は指定不可 |
 
 `model="none"` では `model` 以外を指定しません。廃止済みの `[outer_plasma]` / `[coupling]` は未対応です。

@@ -136,6 +136,11 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
     reloaded = load_base_config(path)
     schema, _ = load_schema()
 
+    # No source/count entry is needed for boundary-only species in grouped TOML.
+    for item in config["particles"]["species"]:
+        if item.get("source_mode") == "volume_seed" and item.get("npcls_per_step") == 0:
+            item.pop("source_mode")
+            item.pop("npcls_per_step")
     assert reloaded == config
     assert schema_errors(reloaded, schema) == []
 

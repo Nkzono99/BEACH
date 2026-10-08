@@ -6,6 +6,8 @@ Python-only runs skip native loading instead of selecting a stale binary.
 
 from __future__ import annotations
 
+from beach.config._layout import to_runtime_layout
+
 import argparse
 import copy
 import os
@@ -140,7 +142,7 @@ def _cases() -> list:
     config["particles"]["species"].append(disabled)
     cases.append(pytest.param(config, True, id="active-source-with-disabled-zero-charge"))
 
-    reservoir = load_toml_file(ROOT / "examples/beach.toml")
+    reservoir = to_runtime_layout(load_toml_file(ROOT / "examples/beach.toml"))
     first_species = reservoir["particles"]["species"][0]
     first_species.pop("target_macro_particles_per_batch")
     first_species["w_particle"] = 1.0e6
@@ -175,7 +177,8 @@ def test_lint_then_native_configuration(
     output = tmp_path / "simulation-output"
     config["output"]["dir"] = str(output)
     path = tmp_path / "beach.toml"
-    path.write_text(dump_beach_toml(config), encoding="utf-8")
+    import tomli_w
+    path.write_text(tomli_w.dumps(config), encoding="utf-8")
 
     for check in (
         lambda: load_config_file(path),

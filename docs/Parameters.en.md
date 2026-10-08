@@ -4,6 +4,9 @@ Lang: [English](Parameters.en.md) | [日本語](Parameters.md)
 
 # Input Parameters Reference
 
+The grouped layout is the current authoring format. See [configuration groups and migration](GroupedConfiguration.en.html) for new keys and conversion examples. The flat notation below remains supported during 1.x and is scheduled for removal at 2.0.
+
+
 Look up `beach.toml` keys, types, defaults, units, and required or mutually exclusive conditions here.
 Units are SI unless stated otherwise. Start a new configuration with [Case design](ConfigurationRecipes.en.html),
 then follow [Configuration validation](Configuration.en.html) after editing it.

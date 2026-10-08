@@ -11,7 +11,8 @@ def _read(path: str) -> str:
 
 
 def _schema() -> dict[str, object]:
-    return json.loads(_read("schemas/beach.schema.json"))
+    schema = json.loads(_read("schemas/beach.schema.json"))
+    return {**schema["$defs"].get("legacyConfig", schema), "$defs": schema["$defs"]}
 
 
 def _markdown_sections(

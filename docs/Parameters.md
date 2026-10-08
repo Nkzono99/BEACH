@@ -4,6 +4,9 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
+新しく記述する設定には7グループ形式を使ってください。[設定グループと移行](GroupedConfiguration.html)に新しいキーと変換例をまとめています。以下の旧形式は1.xの間読み取れます。読み取り互換は2.0で削除する予定です。
+
+
 `beach.toml` のキーを調べるための一覧です。型、既定値、単位、必須条件と排他条件を記載します。
 単位は特記しない限り SI です。最初の設定は[ケース設計](ConfigurationRecipes.html)、
 編集後の確認は[設定の検証](Configuration.html)から始めてください。

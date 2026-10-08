@@ -4,6 +4,9 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
 # `beach.toml`を作成・検証する
 
+新しく記述する設定には7グループ形式を使ってください。[設定グループと移行](GroupedConfiguration.html)に新しいキーと変換例をまとめています。以下の旧形式は1.xの間読み取れます。読み取り互換は2.0で削除する予定です。
+
+
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
 メッシュ、粒子源、境界条件を選んで物理的な構成を組み立てる手順は
 [シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。

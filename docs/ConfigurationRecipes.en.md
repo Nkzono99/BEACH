@@ -4,6 +4,9 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 
 # Case Design Workflow
 
+The grouped layout is the current authoring format. See [configuration groups and migration](GroupedConfiguration.en.html) for new keys and conversion examples. The flat notation below remains supported during 1.x and is scheduled for removal at 2.0.
+
+
 This page turns the tested official tutorial into a research case: choose geometry, sources, and boundaries, then set
 time steps and particle sampling to obtain comparable results. Look up types, defaults, and combination constraints in
 the [input parameter reference](Parameters.en.html).
