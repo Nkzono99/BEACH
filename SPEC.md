@@ -137,6 +137,13 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 ### 5.3 領域・粒子境界・reservoir
 
+公開 TOML の新しいauthoring形式は `run / domain / mesh / particles / fields / sheath / output` の7グループです。
+FortranとPythonは同じ入口で既存の内部物理設定へ正規化します。詳細は
+[設定グループと移行](docs/GroupedConfiguration.md)を参照してください。
+公開済み1.6のflat入力は1.xの間読み取れます。読み取り互換の削除は2.0を予定しています。
+新旧混在はエラーとし、再開・粒子源・周期場backendに暗黙の優先順位を作りません。
+以下の例と内部パラメータ参照はflat入力の契約を記録しています。
+
 公開 TOML は topology、場、外向き粒子作用、外部 reservoir 条件、species 別流入を分離します。
 
 ```toml

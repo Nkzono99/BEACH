@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from beach.config._toml import load_toml_file, render_toml_document
+from beach.config._layout import TOP_LEVEL_ORDER, to_grouped_layout, to_runtime_layout
 
 SQRT2 = math.sqrt(2.0)
 DEFAULT_FLOOR_Z = 0.02
@@ -135,7 +136,7 @@ def load_base_config(path: str | Path | None = None) -> dict[str, Any]:
     config = load_toml_file(path)
     if not isinstance(config, dict):
         raise ValueError("base config must decode to a TOML table.")
-    return config
+    return to_runtime_layout(config)
 
 
 def unit_cell_pitch(radius: float) -> float:
@@ -224,7 +225,7 @@ def build_closepack_config(
     """Build a BEACH config with a close-packed floor + sphere stack."""
 
     spec.validate()
-    config = copy.deepcopy(dict(base_config) if base_config is not None else default_base_config())
+    config = to_runtime_layout(base_config if base_config is not None else default_base_config())
     _ensure_table(config, "sim")
     domain = _ensure_table(config, "domain")
     particles = _ensure_table(config, "particles")
@@ -303,9 +304,9 @@ def render_closepack_toml(
     if base_config_path is not None:
         header_comments.append(f"# base_config={base_config_path}")
     return render_toml_document(
-        config,
+        to_grouped_layout(config),
         header_comments=header_comments,
-        top_level_order=_TOP_LEVEL_SECTION_ORDER,
+        top_level_order=TOP_LEVEL_ORDER,
     )
 
 

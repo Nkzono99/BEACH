@@ -14,6 +14,7 @@ module bem_app_config_parser
     init_app_config_authoring, ensure_authoring_particle_capacity, ensure_authoring_template_capacity, &
     ensure_authoring_group_capacity, normalize_high_level_config, lower_boundary_authoring
   use bem_string_utils, only: lower_ascii
+  use bem_config_layout, only: normalize_config_layout
   use bem_config_toml, only: require_toml_success, get_toml_real, get_toml_int, get_toml_logical, &
                              get_toml_string, get_toml_real_array, &
                              get_toml_real_scalar_or_array3, get_toml_particle_boundary_mode, &
@@ -269,6 +270,7 @@ contains
     end if
     if (.not. allocated(document)) error stop 'Failed to parse TOML config.'
 
+    call normalize_config_layout(document)
     call apply_toml_document(cfg, document, authoring)
     call document%destroy
     call resolve_surface_current_model_path(path, cfg)

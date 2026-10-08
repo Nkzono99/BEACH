@@ -32,7 +32,47 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(39)
+  call test_init(44)
+
+  call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
+  call write_grouped_config(input_contract_path, '')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_close_dp(cfg%sim%dt, 1.0e-9_dp, 1.0e-20_dp, 'tracking clock')
+  call assert_close_dp(cfg%sim%batch_duration, 2.0e-6_dp, 1.0e-16_dp, 'batch clock')
+  call assert_equal_i32(cfg%sim%batch_count, 12_i32, 'batch count')
+  call assert_close_dp(cfg%sim%e0(3), -5.0_dp, 1.0e-12_dp, 'external E')
+  call assert_equal_i32(cfg%particle_species(1)%npcls_per_step, 0_i32, 'absent source has no volume particles')
+  call assert_equal_i32(cfg%particle_species(1)%boundary_inflow_high(3), particle_inflow_reservoir, 'inflow')
+  call test_end()
+
+  call test_begin('grouped_input_named_atol_and_restart')
+  call write_grouped_config(input_contract_path, '[run.restart]'//new_line('a')// &
+                            '[sheath.coupling.atol]'//new_line('a')//'ion_outward_flux_m2_s = 4.0'//new_line('a')// &
+                            'photoelectron_outward_flux_m2_s = 1.0')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_true(cfg%resume_output, 'restart table presence enables resume')
+  call assert_close_dp(cfg%surface_current%coupling_atol(1), 1.0_dp, 1.0e-12_dp, 'named photoelectron atol')
+  call assert_close_dp(cfg%surface_current%coupling_atol(2), 0.0_dp, 1.0e-12_dp, 'omitted energy atol')
+  call assert_close_dp(cfg%surface_current%coupling_atol(4), 4.0_dp, 1.0e-12_dp, 'named ion atol')
+  call test_end()
+
+  call test_begin('grouped_input_rejects_mixed_flat_input')
+  call write_grouped_config(input_contract_path, '[sim]'//new_line('a')//'dt = 1.0e-9')
+  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout table: sim')
+  call test_end()
+
+  call test_begin('grouped_input_rejects_missing_source_mode')
+  call write_grouped_config(input_contract_path, '[particles.species.source]')
+  call assert_config_rejected(input_contract_path, 'particles.species.source requires mode')
+  call test_end()
+
+  call test_begin('grouped_input_rejects_unknown_empty_table')
+  call write_grouped_config(input_contract_path, '[fields.unknown]')
+  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout table: fields.unknown')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
 
   call test_begin('config_checks_integer_range_before_conversion')
   call write_input_contract_config(input_contract_path, '1.0e6', '', 'outputs/test', '2147483648')
@@ -541,6 +581,36 @@ program test_app_config_parser
   call test_summary()
 
 contains
+
+  subroutine write_grouped_config(path, extra)
+    character(len=*), intent(in) :: path, extra
+    integer :: unit
+    open (newunit=unit, file=path, status='replace', action='write')
+    write (unit, '(a)') '[run]'
+    write (unit, '(a)') 'batch_count = 12'
+    write (unit, '(a)') '[run.batch]'
+    write (unit, '(a)') 'duration_s = 2.0e-6'
+    write (unit, '(a)') '[particles.tracking]'
+    write (unit, '(a)') 'dt_s = 1.0e-9'
+    write (unit, '(a)') '[domain]'
+    write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (unit, '(a)') '[[particles.species]]'
+    write (unit, '(a)') 'species_key = "electron"'
+    write (unit, '(a)') '[particles.species.distribution]'
+    write (unit, '(a)') 'number_density_m3 = 1.0e6'
+    write (unit, '(a)') 'temperature_ev = 1.0'
+    write (unit, '(a)') '[particles.species.sampling]'
+    write (unit, '(a)') 'target_macro_particles_per_batch = 100'
+    write (unit, '(a)') '[particles.species.inflow]'
+    write (unit, '(a)') 'z_high = "reservoir"'
+    write (unit, '(a)') '[fields.external]'
+    write (unit, '(a)') 'electric_v_m = [0.0, 0.0, -5.0]'
+    write (unit, '(a)') '[output]'
+    write (unit, '(a)') 'enabled = false'
+    if (len_trim(extra) > 0) write (unit, '(a)') extra
+    close (unit)
+  end subroutine write_grouped_config
 
   subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed)
     character(len=*), intent(in) :: path, density, species_extra, output_directory

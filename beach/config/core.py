@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from ._layout import TOP_LEVEL_ORDER, to_grouped_layout, to_runtime_layout
+
 from ._authoring import (
     _resolve_domain_high_level,
     _resolve_mesh_high_level,
@@ -168,11 +170,12 @@ def _validate_config_document(
     phase = "authoring" if normalize else "normalized"
     input_errors = validation_errors(document, schema)
     reject_basic_schema_errors(input_errors, phase=phase)
+    runtime_document = to_runtime_layout(document)
     if normalize:
-        _validate_high_level_fragment(document, context="config")
-        resolved = normalize_high_level_config(document)
+        _validate_high_level_fragment(runtime_document, context="config")
+        resolved = normalize_high_level_config(runtime_document)
     else:
-        resolved = document
+        resolved = runtime_document
     if config_path is not None:
         _resolve_surface_response_table_path(resolved, config_path=config_path)
     # Authoring arithmetic and path resolution can create new invalid values.
@@ -215,7 +218,7 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
 def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
     """Resolve high-level spatial notation into runtime beach.toml values."""
 
-    resolved = copy.deepcopy(dict(config))
+    resolved = to_runtime_layout(config)
     sim = resolved.get("sim")
     if isinstance(sim, Mapping):
         resolved["sim"] = _resolve_sim_high_level(dict(sim))
@@ -259,9 +262,9 @@ def dump_beach_toml(
     if source_config is not None:
         header_comments.append(f"# source_config={source_config}")
     return render_toml_document(
-        config,
+        to_grouped_layout(config),
         header_comments=header_comments,
-        top_level_order=TOP_LEVEL_CONFIG_ORDER,
+        top_level_order=TOP_LEVEL_ORDER,
     )
 
 

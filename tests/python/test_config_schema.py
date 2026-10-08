@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from beach.config._layout import to_runtime_layout
+
 import copy
 from pathlib import Path
 
@@ -149,7 +151,7 @@ def test_schema_accepts_panel_spectral_reference() -> None:
 
 def test_schema_accepts_species_reflection_actions_and_rejects_unknown_value() -> None:
     schema, _ = load_schema()
-    config = load_toml_file(ROOT / "examples/beach.toml")
+    config = to_runtime_layout(load_toml_file(ROOT / "examples/beach.toml"))
     config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
 
     assert schema_errors(config, schema) == []
@@ -452,7 +454,7 @@ def test_schema_constrains_upper_panel_fourier_retry_backend() -> None:
 
 def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
     schema, _ = load_schema()
-    disabled = load_toml_file(ROOT / "examples/beach.toml")
+    disabled = to_runtime_layout(load_toml_file(ROOT / "examples/beach.toml"))
     disabled["mesh"]["templates"].append({"enabled": False})
     enabled = copy.deepcopy(disabled)
     enabled["mesh"]["templates"][-1]["enabled"] = True
@@ -466,7 +468,7 @@ def test_schema_requires_surface_side_only_for_enabled_templates() -> None:
 
 def test_schema_requires_obj_surface_side_for_explicit_auto_or_obj_mode() -> None:
     schema, _ = load_schema()
-    base = load_toml_file(ROOT / "examples/tutorial_insulator.toml")
+    base = to_runtime_layout(load_toml_file(ROOT / "examples/tutorial_insulator.toml"))
     auto = copy.deepcopy(base)
     auto["mesh"]["mode"] = "auto"
     auto["mesh"].pop("surface_side", None)
