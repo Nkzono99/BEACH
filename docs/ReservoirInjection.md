@@ -172,4 +172,4 @@ head -n 2 outputs/latest/charge_ledger.csv
 - 一様な外部電場には無限遠の電位が決まりません。`infinity_barrier` と併用する場合は、`phi_infty_v` を外部プラズマの
   基準として決め、その意味を別に確かめます。
 
-全キーと制約は[入力パラメータ](Parameters.html#particles)にあります。
+全キーと制約は[入力パラメータ](Parameters.html#particlesspeciesboundary_inflow)にあります。

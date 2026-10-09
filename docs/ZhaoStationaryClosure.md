@@ -191,7 +191,7 @@ outflow_refresh_batches = 50
 - 光電子なし（Type C）は `sheath.photoelectrons.source_scale=0.0` とし、光電子の粒子種と関連キーを省く。
   外部根の更新は使えない。
 
-全キーと組み合わせの制約は[入力パラメータ](Parameters.html#sheath)にあります。完全な例は
+全キーと組み合わせの制約は[入力パラメータ](Parameters.html#surface_current_model-外部シースclosure)にあります。完全な例は
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
 [`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml)、
 [`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml) です。

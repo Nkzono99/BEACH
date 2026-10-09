@@ -328,7 +328,7 @@ face_potential_grid_n = 3
 | `face_potential_grid_n` | int | `3` | 注入面平均電位の`N x N`評価格子。`>=1` |
 
 `infinity_barrier` は `boundary_inflow` だけに適用します。一様電場と併用する場合は、`phi_infty` を有効な reservoir 基準に設定します。
-補正式と適用範囲は[境界から粒子を流入させる](ReservoirInjection.html#3-source_vdf-または-infinity_barrier-を選ぶ)を参照してください。
+補正式と適用範囲は[境界から粒子を流入させる](ReservoirInjection.html#3-流入の写像を選ぶ)を参照してください。
 
 ### `[surface_current_model]`: 外部シースclosure
 
@@ -456,7 +456,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 
 `w_particle` と `target_macro_particles_per_batch` はちょうど一方を明示します。
 Maxwell 分布では密度2形式のちょうど一方と温度を、grid 分布では CSV と flux 2形式のちょうど一方を指定します。
-分布の意味と CSV の sampling は[境界から粒子を流入させる](ReservoirInjection.html#2-maxwell-分布または速度-grid-を選ぶ)を参照してください。
+分布の意味と CSV の sampling は[境界から粒子を流入させる](ReservoirInjection.html#2-分布を選ぶ)を参照してください。
 
 #### `[particles.species.boundary]`: species別override
 
@@ -558,7 +558,7 @@ z_high = "reservoir"
 | 重み共有 | `target_macro_particles_per_batch=-1` は species 2 以降だけ可。species 1 の `w_particle` を共有 |
 
 新しいケースでは、外部 plasma に `boundary_inflow`、内部矩形面に `plane_source` を使います。
-BEACH は旧 mode を暗黙変換しません。CSV と重みの契約は[境界から粒子を流入させる](ReservoirInjection.html#6-旧-reservoir_face-から移行する)を参照してください。
+BEACH は旧 mode を暗黙変換しません。CSV と重みの契約は[境界から粒子を流入させる](ParticleSourcesBoundaries.html#旧-reservoir_face-を読む場合)を参照してください。
 
 #### `source_mode = "photo_raycast"`
 

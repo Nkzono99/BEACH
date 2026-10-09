@@ -335,7 +335,7 @@ face_potential_grid_n = 3
 | `face_potential_grid_n` | int | `3` | `N x N` grid for injection-face average potential. `>=1` |
 
 `infinity_barrier` applies only to `boundary_inflow`. With a uniform field, set `phi_infty` to a consistent effective
-reservoir reference. See [Inject Particles Through a Boundary](ReservoirInjection.en.html#3-choose-source_vdf-or-infinity_barrier)
+reservoir reference. See [Inject Particles Through a Boundary](ReservoirInjection.en.html#3-choose-the-inflow-mapping)
 for the correction and validity domain.
 
 ### `[surface_current_model]`: External Sheath Closure
@@ -471,7 +471,7 @@ Common keys for flux-driven sources (`boundary_inflow`, `plane_source`, and lega
 
 Specify exactly one of `w_particle` and `target_macro_particles_per_batch`.
 For a Maxwell distribution, specify exactly one density form and a temperature. For a grid distribution, specify the CSV
-and exactly one flux form. See [Inject Particles Through a Boundary](ReservoirInjection.en.html#2-choose-maxwell-or-velocity-grid-input)
+and exactly one flux form. See [Inject Particles Through a Boundary](ReservoirInjection.en.html#2-choose-the-distribution)
 for distribution and CSV-sampling semantics.
 
 #### `[particles.species.boundary]`: Per-Species Overrides
@@ -575,7 +575,7 @@ Use the common flux-driven-source keys above. Additional compatibility constrain
 
 For new cases, use `boundary_inflow` for an external plasma and `plane_source` for an internal rectangle. BEACH does not
 silently convert the legacy mode. See
-[Inject Particles Through a Boundary](ReservoirInjection.en.html#6-migrate-from-legacy-reservoir_face) for CSV and
+[Inject Particles Through a Boundary](ParticleSourcesBoundaries.en.html#when-reading-legacy-reservoir_face) for CSV and
 weighting contracts.
 
 #### `source_mode = "photo_raycast"`

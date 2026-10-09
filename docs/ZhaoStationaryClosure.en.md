@@ -204,7 +204,7 @@ outflow_refresh_batches = 50
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
   Outer-root refresh is not available.
 
-All keys and combination constraints are in [Input parameters](Parameters.en.html#sheath). Complete examples are
+All keys and combination constraints are in [Input parameters](Parameters.en.html#surface_current_model-external-sheath-closure). Complete examples are
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml),
 [`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml), and
 [`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml).
