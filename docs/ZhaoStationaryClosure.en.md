@@ -52,15 +52,22 @@ the first root that holds. If no root holds, the run stops at startup with the r
   ($\alpha$ is the solar elevation, $n_{pe,ref}$ the reference density, and $s_{UV}$ a scale factor).
 - The cell is a wall of zero thickness for the outer sheath.
 
-### Why the electron drift must be zero
+### Why the electron drift is set to zero
 
-When electrons drift inward and slow electrons are reflected, Type A and Type C cannot connect to the neutral, field-free
-upstream state. A term $u\,h\log(1/h)$ appears in the electron density close to upstream and makes $E^2<0$ ($u$ is the ratio of
-the drift to the electron thermal speed and $h$ the depth below the upstream potential). This breakdown does not depend on the
-size of $u$, so with any drift only Type B holds. For example, giving electrons the normal solar-wind velocity at a solar
-elevation of 60 degrees rejects Type A and selects B; at 10 degrees no root holds.
+The analytic model of Zhao et al. itself can include the solar-wind electron drift. BEACH sets the drift to zero because of the
+condition sheath-model uses to accept a root.
 
-The electron thermal speed (about 2000 km/s at 12 eV) is much larger than the solar-wind speed, so set the electron drift to zero.
+sheath-model accepts only roots that connect exactly to the neutral, field-free upstream state while keeping $E^2\ge0$ over the
+whole potential profile. With inward-drifting electrons and reflected slow electrons, Type A and Type C do not satisfy this
+condition. Upstream, the distribution of reflected electrons is the mirror image of the drifting incoming distribution, so it has
+a kink at zero velocity. Because of this kink, a term $u\,h\log(1/h)$ appears in the electron density close to upstream; as
+$h\to0$ it exceeds the other terms and makes $E^2<0$ ($u$ is the ratio of the drift to the electron thermal speed and $h$ the depth
+below the upstream potential divided by $T_e$). sheath-model therefore rejects A and C for any drift. For example, giving
+electrons the normal solar-wind velocity at a solar elevation of 60 degrees selects B; at 10 degrees no root holds.
+
+This breakdown comes from the idealization that the reflected upstream electrons are an exact mirror image of the incoming
+distribution, and $E^2<0$ occurs only very close to the upstream potential. The electron thermal speed (about 2000 km/s at 12 eV)
+is much larger than the solar-wind speed, so BEACH sets the electron drift to zero and uses roots that sheath-model can accept.
 The ion drift (the normal solar-wind velocity) is required.
 
 ## How BEACH uses the root
