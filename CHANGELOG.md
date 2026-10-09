@@ -28,11 +28,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `zhao_stationary` runs with a split zero mode change. Field backends without a split zero mode warn at startup.
 - `zhao_stationary` outer-barrier returns in an x/y periodic cell now re-enter at a counter-based uniform position on the
   z-high plane instead of the crossing point, because the lateral drift in the outer sheath far exceeds the cell width.
+  The normal kinetic energy is corrected by the local potential difference between the crossing and return positions
+  so that total energy is conserved; a slow particle that cannot reach the drawn position returns at its crossing point.
 - The Camphor `ifx` install profile no longer passes unsupported inline/report options or enables the unstable IPO link path, allowing release executables to link reliably with Intel 2023.2.
 - Reflected and periodic particle events now place surviving particles a scale-aware distance inside the box, preventing zero-time boundary chatter caused by a subnormal one-ULP offset at zero-valued faces. The existing eight-event safety limit is unchanged.
 - FMM mesh-centroid potential output no longer adds an area-equivalent point self term after the analytic triangle-panel self integral has already been evaluated.
 
 ### Changed
+- `zhao_stationary` now solves its zero-current root with the external sheath-model library (fpm git dependency pinned
+  to `cf55bdc` on branch `fix/ifx-portability`, which also builds with Intel ifx) instead of the in-tree Zhao core,
+  which is removed. sheath-model accepts a root only when the potential profile has $E^2\ge0$ throughout, approaches a
+  neutral zero-field upstream state, and does not block the ion flow. With an inward electron drift, Type A and C have
+  no admissible profile, so roots that the in-tree core accepted are now rejected: the previous examples (electron
+  drift equal to the solar-wind normal speed) move from Type A to Type B at 60 degrees and have no root at 10 degrees.
+  The examples and test fixtures now use a zero electron drift, and the in-tree core's singular `u=0` Type A path is
+  gone. Ions remain a cold beam.
 - `zhao_stationary` now injects the z-high ambient-electron inflow at the upstream electron Maxwellian density
   $n_{e,\infty}$ solved by the Zhao root (the density that keeps infinity quasi-neutral after the wall absorbs fast
   electrons), and requires the electron and ion species to share the solar-wind `number_density_*`. Previously the

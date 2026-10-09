@@ -357,7 +357,7 @@ face_potential_grid_n = 3
 | 項目 | 必要条件 |
 |---|---|
 | role species | enabled、相互に異なる、`surface_charge_closure="fixed_current"` |
-| ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下（0 は drift なし）、ion は負。手動 `target_*_current_a` は指定不可 |
+| ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下、ion は負。electron は 0 を推奨（drift があると Type A / C は成立せず、[理由](ZhaoStationaryClosure.html#電子の-drift-は-0-にする)）。手動 `target_*_current_a` は指定不可 |
 | PE なし | `photoelectron_source_scale=0.0`、PE 固有キーは省略、`zhao_branch="auto"` または `"c"` |
 | PE あり | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`、有効な z-high 境界は `open` |
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\le0.1T_e$ |

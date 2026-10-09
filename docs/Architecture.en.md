@@ -173,23 +173,23 @@ Although geometric preparation is shared, the reference Coulomb integrals use fo
 
 ### Sheath and external-response responsibilities
 
-`src/physics/sheath/` owns the sheath physics and boundary contract and does not depend on `app_config`, MPI, the file
-system, or the simulator. `src/runtime/sheath/` connects them to configuration and batch state.
+`src/physics/sheath/` owns the boundary contract and does not depend on `app_config`, MPI, the file system, or the
+simulator. The external library sheath-model owns the Zhao zero-current root and its admissibility checks, and
+`src/runtime/sheath/` connects them to configuration and batch state.
 
 ```mermaid
 flowchart LR
   simulator["simulator: batch control"] --> refresh["runtime/sheath: outer-root refresh"]
   simulator --> model["runtime/sheath: configuration to closure"]
   refresh --> model
-  model --> zhao["physics/sheath/zhao: Zhao zero-current root"]
+  model --> zhao["sheath-model (external dependency): Zhao zero-current root and admissibility"]
   model --> contract["physics/sheath: boundary contract"]
 ```
 
 | Directory under `src/` | File | Responsibility |
 | --- | --- | --- |
 | `physics/sheath/` | `bem_surface_closure_contract.f90` | Data types for current targets, inflow maps, outward barriers, and the z-high potential reference passed to the simulator; no model-specific solver |
-| `physics/sheath/zhao/` | `bem_sheath_model_core.f90` | Zhao density, charge-density, and residual expressions, plus the nonlinear A/B/C zero-current solve |
-| `runtime/sheath/` | `bem_surface_current_model.f90` | Build Zhao inputs from configuration, separate surface emission from the outer emission source, and convert the root into species current targets and boundary maps |
+| `runtime/sheath/` | `bem_surface_current_model.f90` | Build sheath-model inputs from configuration, obtain an admissible zero-current root, separate surface emission from the outer emission source, and convert the root into species current targets and boundary maps |
 | `runtime/sheath/` | `bem_zhao_outflow_refresh.f90` | Re-solve the outer root from window-averaged PE outflow, store the outer state in stats, and reconstruct it on restart |
 
 `src/physics/bem_surface_models*.f90` owns charge redistribution and conductor conditions on the object, separately from

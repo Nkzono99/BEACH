@@ -16,7 +16,7 @@ program test_particle_stepper
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(32)
+  call test_init(33)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -128,6 +128,10 @@ program test_particle_stepper
 
   call test_begin('species_barrier_return_is_cell_uniform')
   call test_species_barrier_return_is_cell_uniform()
+  call test_end()
+
+  call test_begin('species_barrier_cell_uniform_return_conserves_energy')
+  call test_species_barrier_cell_uniform_return_conserves_energy()
   call test_end()
 
   call test_begin('species_barrier_corner_ordinary_open_escapes')
@@ -1015,6 +1019,67 @@ contains
       )
     call assert_close_dp(other%x(3), first%x(3), 1.0e-14_dp, 'return height must not depend on the counter')
   end subroutine test_species_barrier_return_is_cell_uniform
+
+  !> 面内に電位差があるH面で、別位置へ戻す粒子の全エネルギーを保ち、届かない遅い粒子は横切り位置へ戻す。
+  subroutine test_species_barrier_cell_uniform_return_conserves_energy()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: field_solver
+    type(external_boundary_contract_type) :: contract
+    type(particle_step_result) :: result
+    real(dp) :: x0(3), v0(3), phi_start, phi_end
+
+    call init_x_plane_mesh(mesh, 10.0_dp)
+    sim = sim_config()
+    sim%field_solver = 'direct'
+    sim%field_normalization = 'si'
+    sim%use_box = .true.
+    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
+    sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
+    ! phi = 2x on z-high: an electron returning at larger x gains 2*(x_return - x_crossing) of kinetic energy.
+    sim%e0 = [-2.0_dp, 0.0_dp, 0.0_dp]
+    sim%bc_low(1:2) = bc_periodic
+    sim%bc_high(1:2) = bc_periodic
+    call field_solver%init(mesh, sim)
+    call field_solver%refresh(mesh)
+    contract = external_boundary_contract_type()
+    contract%barrier_override_high(3) = .true.
+    contract%barrier_potential_high_v(3) = -10.0_dp
+    contract%barrier_redistribute_high(3) = .true.
+
+    x0 = [0.5_dp, 0.2_dp, 0.95_dp]
+    v0 = [0.0_dp, 0.0_dp, 3.0_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, 0.1_dp, result, &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      )
+    call assert_true(result%status == particle_step_ok, 'energetic barrier return status mismatch')
+    call assert_true(result%outer_barrier_return_count == 1_i32, 'energetic electron must return from the barrier')
+    call assert_true(abs(result%x(2) - x0(2)) > 1.0e-3_dp, 'energetic return must be redistributed in the plane')
+    call field_solver%eval_local_phi(mesh, sim, x0, phi_start)
+    call field_solver%eval_local_phi(mesh, sim, result%x, phi_end)
+    call assert_close_dp( &
+      0.5_dp*sum(result%v*result%v) - phi_end, 0.5_dp*sum(v0*v0) - phi_start, 1.0e-10_dp, &
+      'redistributed barrier return must conserve total energy' &
+      )
+
+    ! 0.005 J of normal energy cannot climb the 2*(x_crossing - x_return) step to most return positions.
+    x0 = [0.9_dp, 0.2_dp, 0.99_dp]
+    v0 = [0.0_dp, 0.0_dp, 0.1_dp]
+    call advance_particle_step( &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, 0.2_dp, result, &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      )
+    call assert_true(result%status == particle_step_ok, 'slow barrier return status mismatch')
+    call assert_true(result%outer_barrier_return_count == 1_i32, 'slow electron must return from the barrier')
+    call assert_close_dp(result%x(2), x0(2), 1.0e-12_dp, 'unreachable return position must fall back to the crossing')
+    call field_solver%eval_local_phi(mesh, sim, x0, phi_start)
+    call field_solver%eval_local_phi(mesh, sim, result%x, phi_end)
+    call assert_close_dp( &
+      0.5_dp*sum(result%v*result%v) - phi_end, 0.5_dp*sum(v0*v0) - phi_start, 1.0e-10_dp, &
+      'crossing-point barrier return must conserve total energy' &
+      )
+  end subroutine test_species_barrier_cell_uniform_return_conserves_energy
 
   subroutine test_species_barrier_corner_ordinary_open_escapes()
     type(mesh_type) :: mesh

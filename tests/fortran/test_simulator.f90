@@ -1169,7 +1169,7 @@ contains
     zhao_cfg%particle_species(1)%w_particle = 1.0_dp
     zhao_cfg%particle_species(1)%temperature_ev = 12.0_dp
     zhao_cfg%particle_species(1)%has_temperature_ev = .true.
-    zhao_cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
+    zhao_cfg%particle_species(1)%drift_velocity = 0.0_dp
     zhao_cfg%particle_species(1)%pos_low = [5.0e6_dp, 5.0e6_dp, 9.0e5_dp]
     zhao_cfg%particle_species(1)%pos_high = zhao_cfg%particle_species(1)%pos_low
     zhao_cfg%particle_species(1)%surface_charge_closure = 'fixed_current'

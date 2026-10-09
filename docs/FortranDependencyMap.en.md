@@ -8,11 +8,11 @@ Lang: [English](FortranDependencyMap.en.md) | [日本語](FortranDependencyMap.m
 
 ## Overview
 
-- Source files: 111
-- Modules: 78
+- Source files: 110
+- Modules: 77
 - Submodules: 34
 - Programs: 1
-- Internal dependency edges: 421
+- Internal dependency edges: 418
 
 ## Overall Graph
 
@@ -42,21 +42,20 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `src/physics/field_solver/panel` | 3 | 10 |
 | `src/physics/field_solver/periodic` | 5 | 17 |
 | `src/physics/sheath` | 1 | 1 |
-| `src/physics/sheath/zhao` | 1 | 2 |
 | `src/runtime` | 15 | 69 |
 | `src/runtime/configuration` | 7 | 38 |
 | `src/runtime/coupling` | 1 | 1 |
-| `src/runtime/sheath` | 2 | 17 |
+| `src/runtime/sheath` | 2 | 16 |
 | `src/runtime/simulator` | 8 | 41 |
 
 ## Most Depended-on Modules
 
 | Entity | kind | Incoming dependencies |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 73 |
+| `bem_kinds` | `module` | 72 |
 | `bem_types` | `module` | 37 |
 | `bem_string_utils` | `module` | 30 |
-| `bem_constants` | `module` | 21 |
+| `bem_constants` | `module` | 20 |
 | `bem_app_config_types` | `module` | 17 |
 | `bem_panel_geometry` | `module` | 13 |
 | `bem_charge_ledger` | `module` | 11 |
@@ -147,7 +146,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_periodic_zero_mode_eval` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
 | `bem_periodic_zero_mode_plan` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
 | `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
-| `bem_sheath_model_core` | `module` | `src/physics/sheath/zhao/bem_sheath_model_core.f90` | `bem_kinds`, `bem_constants` | Zhao 系シース数値モデルの core 実装。 |
 | `bem_checkpoint_contract` | `module` | `src/runtime/bem_checkpoint_contract.f90` | `bem_kinds`, `bem_filesystem` | BEACH checkpoint metadata and transactional publication shared by output and restart code. |
 | `bem_filesystem` | `module` | `src/runtime/bem_filesystem.f90` | - | Minimal POSIX filesystem operations used by the runtime. |
 | `bem_mesh_identity` | `module` | `src/runtime/bem_mesh_identity.f90` | `bem_kinds`, `bem_types` | Ordered mesh identity for mapping saved element charges. |
@@ -171,7 +169,7 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 | `bem_app_config_particle_runtime_batch` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。 |
 | `bem_app_config_particle_runtime_sampling` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
-| `bem_surface_current_model` | `module` | `src/runtime/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_sheath_model_core`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
+| `bem_surface_current_model` | `module` | `src/runtime/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
 | `bem_zhao_outflow_refresh` | `module` | `src/runtime/sheath/bem_zhao_outflow_refresh.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi` | - |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_external_boundary_contract` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
 | `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
@@ -911,15 +909,6 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - external dependencies: none
 - Source summary: シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。
 
-### `bem_sheath_model_core`
-
-- kind: `module`
-- path: `src/physics/sheath/zhao/bem_sheath_model_core.f90`
-- group: `src/physics/sheath/zhao`
-- Internal dependencies: `bem_kinds`, `bem_constants`
-- external dependencies: `ieee_arithmetic`
-- Source summary: Zhao 系シース数値モデルの core 実装。
-
 ### `bem_checkpoint_contract`
 
 - kind: `module`
@@ -1138,8 +1127,8 @@ Solid edges are `use` dependencies. Dashed edges are parent references from `sub
 - kind: `module`
 - path: `src/runtime/sheath/bem_surface_current_model.f90`
 - group: `src/runtime/sheath`
-- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_sheath_model_core`, `bem_string_utils`
-- external dependencies: `ieee_arithmetic`
+- Internal dependencies: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_string_utils`
+- external dependencies: `ieee_arithmetic`, `sheath_model`
 - Source summary: 外部モデルから species 別の固定表面電流を解決する。
 
 ### `bem_zhao_outflow_refresh`

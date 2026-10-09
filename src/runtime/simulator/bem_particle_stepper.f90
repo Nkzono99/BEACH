@@ -659,6 +659,7 @@ contains
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
     real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, potential_barrier
+    real(dp) :: x_crossing(3), v_crossing(3), phi_return, kinetic_return
     integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc
     logical :: high_side, reflect_open
 
@@ -723,19 +724,8 @@ contains
         barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
       end if
     end if
-    if (use_upper_panel_fourier) then
-      call snapshot%eval_upper_panel_fourier_phi(mesh, x, phi_boundary, field_available)
-      if (.not. field_available) then
-        status = particle_step_invalid_boundary
-        return
-      end if
-    else
-      call snapshot%eval_local_phi(mesh, sim, x, phi_boundary)
-    end if
-    if (.not. ieee_is_finite(phi_boundary)) then
-      status = particle_step_invalid_boundary
-      return
-    end if
+    call evaluate_face_potential(x, phi_boundary)
+    if (status /= boundary_event_ok) return
     if (high_side) then
       outward_v = v(axis)
     else
@@ -756,15 +746,61 @@ contains
 
     reflect_bc = bc_reflect
     if (open_face_redistributes_barrier_return(face_index, boundary_contract)) reflect_bc = bc_redistributed_reflect
-    action_event%face_bc(face_index) = reflect_bc
-    if (high_side) then
-      action_sim%bc_high(axis) = reflect_bc
-    else
-      action_sim%bc_low(axis) = reflect_bc
+    x_crossing = x
+    v_crossing = v
+    call reflect_on_barrier_face(reflect_bc)
+    if (reflect_bc /= bc_redistributed_reflect .or. status /= boundary_event_ok .or. .not. alive) return
+
+    ! 外部の静電場では全エネルギーが保存する。接線速度は保ったまま、戻り位置の局所電位で法線速度を合わせる。
+    call evaluate_face_potential(x, phi_return)
+    if (status /= boundary_event_ok) return
+    kinetic_return = kinetic_normal + q*(phi_boundary - phi_return)
+    if (.not. ieee_is_finite(kinetic_return)) then
+      status = particle_step_invalid_boundary
+      return
     end if
-    call apply_escape_reflect_periodic_event( &
-      action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
-      )
+    if (kinetic_return > 0.0_dp) then
+      v(axis) = sign(sqrt(2.0_dp*kinetic_return/m), v(axis))
+    else
+      ! 戻り位置へ届かない遅い粒子は外部での滞空が短く横へほとんど動かないので、横切り位置へ戻す。
+      x = x_crossing
+      v = v_crossing
+      call reflect_on_barrier_face(bc_reflect)
+    end if
+
+  contains
+
+    !> 障壁を判定する面上の局所電位。面平均ではなく、その位置の値を使う。
+    subroutine evaluate_face_potential(position, phi)
+      real(dp), intent(in) :: position(3)
+      real(dp), intent(out) :: phi
+
+      phi = 0.0_dp
+      if (use_upper_panel_fourier) then
+        call snapshot%eval_upper_panel_fourier_phi(mesh, position, phi, field_available)
+        if (.not. field_available) then
+          status = particle_step_invalid_boundary
+          return
+        end if
+      else
+        call snapshot%eval_local_phi(mesh, sim, position, phi)
+      end if
+      if (.not. ieee_is_finite(phi)) status = particle_step_invalid_boundary
+    end subroutine evaluate_face_potential
+
+    subroutine reflect_on_barrier_face(bc)
+      integer(i32), intent(in) :: bc
+
+      action_event%face_bc(face_index) = bc
+      if (high_side) then
+        action_sim%bc_high(axis) = bc
+      else
+        action_sim%bc_low(axis) = bc
+      end if
+      call apply_escape_reflect_periodic_event( &
+        action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
+        )
+    end subroutine reflect_on_barrier_face
   end subroutine apply_potential_barrier_event
 
   !> eventに含まれるopen面へglobalまたはspecies別のpotential barrierを適用するか返す。

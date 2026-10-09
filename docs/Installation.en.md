@@ -16,12 +16,20 @@ Installing the BEACH Python package also installs `beachx` and builds the Fortra
 | Source retrieval | `git` |
 | Build tool | `make` |
 | Fortran | `gfortran`, Intel Fortran, or another fpm-compatible compiler |
+| Network | The first build lets fpm fetch the dependency libraries (toml-f and sheath-model) from GitHub |
 
 ```bash
 python --version
 git --version
 make --version
 gfortran --version
+```
+
+On HPC systems whose compute nodes cannot reach GitHub, fetch only the dependencies on a login node before building.
+`fpm update` downloads the sources and compiles nothing.
+
+```bash
+fpm update
 ```
 
 ## Install the version described by this site

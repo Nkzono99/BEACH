@@ -130,7 +130,7 @@ contains
         outer_flux = transmission*self%state%photoelectron_emission_current_density_a_m2/qe
         outer_energy_ev = self%window_moments(2)/(self%window_moments(1)*qe)
         call solve_zhao_outflow_closure( &
-          app, outer_flux, outer_energy_ev, self%state%zhao_branch, trial, success, message &
+          app, outer_flux, outer_energy_ev, self%state%zhao_branch, trial, success, message, previous=self%state &
           )
         if (success) then
           self%last_change = max( &

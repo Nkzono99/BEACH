@@ -489,7 +489,6 @@ contains
     end if
   end subroutine write_no_photo_zhao_variant
 
-  !> Copy the Zhao example with a nondrifting ambient electron reservoir.
   !> Copy the Zhao example and replace the first line starting with `key`, which belongs to the electron species.
   subroutine write_first_line_variant(path, key, replacement)
     character(len=*), intent(in) :: path, key, replacement

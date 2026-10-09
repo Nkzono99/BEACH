@@ -20,6 +20,26 @@ The Zhao stationary closure assumes a planar, collisionless, unmagnetized outer 
 cold ions, and photoelectrons when PE is active to solve a Zhao Type A, B, or C zero-current root. The solution provides
 the branch, surface potential $\phi_0$, potential minimum $\phi_m$, ambient-electron density, and species current densities.
 
+The root comes from the external library [sheath-model](https://github.com/Nkzono99/sheath-model), pinned to a commit in
+`fpm.toml`. For a root of the algebraic equations (quasi-neutrality, zero current, and the Type A upper connection),
+sheath-model also checks that $E^2\ge0$ over the whole potential profile, that the profile approaches a neutral
+zero-field upstream state, and that the ion flow is not blocked; it rejects a root that fails. With
+`zhao_branch="auto"`, it returns the first admissible branch in the order C, A, B below 20 degrees of solar elevation
+and A, B, C otherwise. If no admissible root exists, BEACH stops at startup and reports why.
+
+Ions are a cold beam; the ion-species temperature is not used for the root.
+
+### Set the electron drift to zero
+
+With an inward electron drift and reflected slow electrons, Type A and C cannot connect to a neutral zero-field state at
+infinity. Close to upstream, the electron density gains a $u\,h\log(1/h)$ term and $E^2$ becomes negative ($u$ is the
+drift over the electron thermal speed and $h$ the depth below the upstream potential). This failure does not depend on
+the size of $u$: any drift rejects A and C, and only B can remain. With the solar-wind normal speed also given to the
+electrons, a 60-degree elevation rejects A and selects B, and a 10-degree elevation has no admissible root.
+
+The electron thermal speed (about 2000 km/s at 12 eV) far exceeds the solar-wind flow speed, so set the electron drift
+to zero. The ion drift (the solar-wind normal speed) is required. All examples use a zero electron drift.
+
 By default, BEACH does not resolve the root again during the run. The branch, $\phi_0$, $\phi_m$, and current targets
 remain fixed as the surface charge changes between batches. To update the outer root from the observed PE outflow, see
 [Re-solve the outer root from the observed PE outflow](#re-solve-the-outer-root-from-the-observed-pe-outflow).
@@ -107,6 +127,17 @@ reversed; only a particle with enough energy is classified as escape. The tangen
 periodic cell, BEACH redraws the return position uniformly over the z-high plane, because the lateral drift during the
 outer flight, tangential speed times flight time, is of order meters and far exceeds the cell width. Without x/y
 periodicity, the particle returns at its crossing point. The PE launch VDF remains the configured surface half-Maxwellian.
+
+Total energy is conserved in the outer electrostatic field, so the normal kinetic energy is matched to the local
+potential $\phi_r$ at the return position:
+
+$$
+\frac12 m v_{n,r}^{2}=\frac12 m v_{n,c}^{2}+q(\phi_c-\phi_r),
+$$
+
+where $\phi_c$ is the local potential at the crossing point. A slow particle for which the right-hand side is not
+positive cannot reach the return position. Such a particle spends little time outside and barely moves sideways, so it
+returns at its crossing point.
 
 ### Reservoir density
 

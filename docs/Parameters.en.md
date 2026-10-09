@@ -366,7 +366,7 @@ Input constraints:
 | Item | Required condition |
 |---|---|
 | Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
-| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 (0 means no drift) and the ion component is negative; no manual `target_*_current_a` |
+| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Use 0 for electrons: with a drift, Type A and C have no admissible profile ([why](ZhaoStationaryClosure.html#set-the-electron-drift-to-zero)); no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |

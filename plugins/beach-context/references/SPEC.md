@@ -306,11 +306,13 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 未指定または`model="none"`はtargetを生成せず、speciesに記述した手動targetを使います。初期実装の
 `model="zhao_stationary"`は、Zhao A/B/Cの平面・無衝突・非磁化シースについて零電流定常根をrun開始時に解きます。
 `outflow_refresh_batches=N>0`では、z-highで観測したPE流出を外部シースの放出源として、accepted batch $N$個ごとに根を解き直します。
+根は外部ライブラリsheath-model（`fpm.toml`でcommit固定）で解き、プロファイル全域の$E^2\ge0$、中性で電場0の上流への接続、
+イオン流の通過を満たす根だけを採用します。成立する根がなければ起動時に停止し、外部根の更新では前回の根を保ちます。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
 Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
-z-high reservoirからのambient流入（electron driftの内向き成分は0以上、ionは正）、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
+z-high reservoirからのambient流入（electron driftの内向き成分は0以上、ionは正。electronのdriftがあるとType A/Cは成立しないため0を推奨）、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
 fail-closedに検証します。
 非磁化closureなので`sim.b0`はゼロを要求します。Zhao固有の0 V reservoirと速度写像を使うため、genericな
 `reservoir.inflow_model="infinity_barrier"`との併用も拒否します。
@@ -357,7 +359,8 @@ PE放出速度は従来どおり設定した表面half-Maxwellianです。PE、a
 $\phi_m$、Type B/Cで0 V、ionは0 Vです。法線運動エネルギーが不足する粒子は法線速度を反転してreturnへ、
 十分な粒子だけをescapeへ分類します。接線速度は保ち、x/yがともに周期ならreturn位置をz-high面内で一様に
 選び直します。外部シース内の横移動はセル幅よりはるかに大きいためです。一様乱数は粒子eventのcounterから作り、
-OpenMP実行順序に依存しません。x/yが周期でなければ横切り位置へ戻します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
+OpenMP実行順序に依存しません。選び直した位置では、横切り位置との局所電位差だけ法線運動エネルギーを補正して全エネルギーを保ち、
+補正後に届かない低速粒子は横切り位置へ戻します。x/yが周期でなければ横切り位置へ戻します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
 rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支を決めます。
 
 `outflow_refresh_batches=N>0`は、PE有効、`field_boundary.mode="periodic2"`、x/y周期、明示的なsplit `[periodic2]`を

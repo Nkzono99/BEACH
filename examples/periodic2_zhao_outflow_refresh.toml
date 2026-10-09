@@ -56,7 +56,7 @@ temperature_ev = 12.0
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 target_macro_particles_per_batch = 300
-drift_velocity = [0.0, 0.0, -4.0529988897e5]
+drift_velocity = [0.0, 0.0, 0.0]
 surface_charge_closure = "fixed_current"
 
 [particles.species.boundary_inflow]

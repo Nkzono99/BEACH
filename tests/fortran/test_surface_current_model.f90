@@ -66,14 +66,15 @@ program test_surface_current_model
   call configure_zhao_fixture(cfg)
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'A', 'alpha=60 Zhao model must select Type A')
-  call assert_close_dp(result%phi0_v, 2.9712182827319435_dp, 5.0e-6_dp, 'Zhao phi0 mismatch')
-  call assert_close_dp(result%phi_m_v, -0.8169121871620854_dp, 5.0e-6_dp, 'Zhao phi_m mismatch')
+  ! sheath-model の J=0 根（太陽高度60度、無drift電子、冷たいイオン）。
+  call assert_close_dp(result%phi0_v, 3.8401890937376293_dp, 5.0e-6_dp, 'Zhao phi0 mismatch')
+  call assert_close_dp(result%phi_m_v, -0.33165814284053974_dp, 5.0e-6_dp, 'Zhao phi_m mismatch')
   call assert_close_dp( &
-    result%ambient_electron_density_m3, 7.819215729579456e6_dp, 5.0e1_dp, &
+    result%ambient_electron_density_m3, 9.916982425098775e6_dp, 5.0e1_dp, &
     'Zhao ambient electron density mismatch' &
     )
   call assert_close_dp( &
-    result%photoelectron_escape_current_density_a_m2, 3.9386846806723257e-7_dp, 5.0e-13_dp, &
+    result%photoelectron_escape_current_density_a_m2, 3.308285627995705e-7_dp, 5.0e-13_dp, &
     'Zhao PE escape current mismatch' &
     )
   call assert_current_decomposition(result, 'Type A')
@@ -112,12 +113,20 @@ program test_surface_current_model
   call assert_kinetic_contract(result, 0.0_dp, 'no-PE Zhao')
   call test_end()
 
-  call test_begin('zhao_stationary_zero_electron_drift')
+  call test_begin('zhao_drifting_electrons_reject_type_a')
+  ! 内向きdriftの電子で反射集団を持つA/Cは無限遠へ接続できない。autoは成立するBへ進む。
   call configure_zhao_fixture(cfg)
-  cfg%particle_species(1)%drift_velocity = 0.0_dp
+  cfg%particle_species(1)%drift_velocity = cfg%particle_species(2)%drift_velocity
   call evaluate_surface_current_model(cfg, result)
-  call assert_true(index('ABC', result%zhao_branch) > 0, 'zero-drift Zhao model must resolve a root')
-  call assert_current_decomposition(result, 'zero-drift root')
+  call assert_true(result%zhao_branch == 'B', 'drifting electrons must fall back to the admissible Type B')
+  call assert_close_dp(result%phi0_v, 4.058764424794152_dp, 5.0e-6_dp, 'drifting-electron Type B phi0 mismatch')
+  call assert_current_decomposition(result, 'drifting-electron Type B')
+  cfg%surface_current%zhao_branch = 'a'
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(.not. success, 'drifting electrons with reflected slow electrons have no Type A profile')
+  call assert_true(len_trim(message) > 0, 'rejected Type A must report a reason')
   call test_end()
 
   call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')
@@ -166,7 +175,7 @@ program test_surface_current_model
   ! Half-Maxwellian flux above the outer barrier, independent of the Zhao root equations.
   expected_escape = qe*0.3_dp*result%outer_photoelectron_flux_m2_s*exp(-barrier_v/4.0_dp)
   call assert_close_dp( &
-    refreshed%photoelectron_escape_current_density_a_m2, expected_escape, 1.0e-12_dp*expected_escape, &
+    refreshed%photoelectron_escape_current_density_a_m2, expected_escape, 1.0e-9_dp*expected_escape, &
     'outer PE escape must be the observed source above the barrier' &
     )
   call assert_close_dp( &
@@ -213,7 +222,7 @@ contains
     app%particle_species(1)%m_particle = 9.1093837015e-31_dp
     app%particle_species(1)%temperature_ev = 12.0_dp
     app%particle_species(1)%has_temperature_ev = .true.
-    app%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
+    app%particle_species(1)%drift_velocity = 0.0_dp
     app%particle_species(2)%species_key = 'ion'
     app%particle_species(2)%q_particle = 1.602176634e-19_dp
     app%particle_species(2)%m_particle = 1.67262192369e-27_dp

@@ -182,7 +182,9 @@ contains
     fixture_cfg%particle_species(3)%pos_low = [0.0_dp, 0.0_dp, box_height]
     fixture_cfg%particle_species(3)%pos_high = [cell_width, cell_width, box_height]
     fixture_cfg%particle_species(3)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
-    fixture_cfg%particle_species(1:2)%drift_velocity(3) = -inward_speed
+    ! 太陽風のイオンビームだけがdriftする。driftのある電子ではType A/Cのシースが成立しない。
+    fixture_cfg%particle_species(1)%drift_velocity = 0.0_dp
+    fixture_cfg%particle_species(2)%drift_velocity(3) = -inward_speed
 
     allocate (state%macro_residual(3), state%boundary_macro_residual(6, 3))
     state%macro_residual = 0.0_dp
