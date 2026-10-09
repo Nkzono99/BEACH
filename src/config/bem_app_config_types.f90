@@ -28,6 +28,8 @@ module bem_app_config_types
     logical :: has_reference_area_m2 = .false.
     !> zhao_stationary の外部シース源を観測PE流出で解き直す accepted batch 間隔。0 は初期根を固定する。
     integer(i32) :: outflow_refresh_batches = 0_i32
+    !> 電子drift時のA/C根で、上流に接するE^2<0の幅を |phi_m|(A) / |phi_0|(C) の何割まで許すか。0 は厳密判定。
+    real(dp) :: zhao_upstream_band_tolerance = 0.0_dp
   end type surface_current_model_config
 
   !> 1粒子種の注入設定を表す。

@@ -296,6 +296,10 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
     negative_refresh = copy.deepcopy(refresh)
     negative_refresh["surface_current_model"]["outflow_refresh_batches"] = -1
     assert schema_errors(negative_refresh, schema)
+    for value, valid in ((0.2, True), (-0.1, False), (1.0, False)):
+        band = copy.deepcopy(refresh)
+        band["surface_current_model"]["zhao_upstream_band_tolerance"] = value
+        assert (schema_errors(band, schema) == []) is valid
 
     no_photo = load_toml_file(
         ROOT / "examples/periodic2_zhao_no_photo_fixed_current.toml"

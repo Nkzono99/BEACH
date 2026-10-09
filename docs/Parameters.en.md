@@ -360,13 +360,14 @@ closure.
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$; `>=0`, and 0 disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2]; `>0` |
 | `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE outflow observed at z-high; `>=0`, and 0 keeps the initial root |
+| `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 is the exact condition, which rejects drifting A/C. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift) |
 
 Input constraints:
 
 | Item | Required condition |
 |---|---|
 | Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
-| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Use 0 for electrons: with a drift, Type A and C have no admissible profile ([why](ZhaoStationaryClosure.html#set-the-electron-drift-to-zero)); no manual `target_*_current_a` |
+| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Use 0 for electrons: with a drift, Type A and C have no admissible profile ([why](ZhaoStationaryClosure.en.html#electron-drift)); no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |
@@ -378,7 +379,7 @@ map; it produces no PE emission, return, or escape target. Without PE there is n
 refresh is unavailable. `ion_species.number_density_*` is the solar-wind density at infinity; write the same value in
 `electron_species` (a different value is a configuration error). The electron inflow is injected at the upstream electron
 Maxwellian density that the Zhao root solves from quasi-neutrality at infinity
-([reservoir density](ZhaoStationaryClosure.html#reservoir-density)). PE emission-current density is a sampling input; the
+([reservoir density](ZhaoStationaryClosure.en.html#inject-electrons-at-the-upstream-density)). PE emission-current density is a sampling input; the
 closure determines current targets.
 
 With a split `[periodic2]` table, the z-high plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y

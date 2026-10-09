@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added `surface_current_model.zhao_upstream_band_tolerance` (grouped `sheath.zhao.upstream_band_tolerance`). With
+  inward electron drift, Zhao Type A/C roots have negative $E^2$ in a narrow band next to the upstream potential and were
+  always rejected; a positive tolerance accepts them when the band is no wider than that fraction of $|\phi_m|$ (A) or
+  $|\phi_0|$ (C), and records the width as `surface_current_model_upstream_negative_band_V`. The default 0 keeps the exact
+  condition. Requires the sheath-model commit that adds `upstream_band_tolerance`.
 - Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.coupling.outflow_refresh_batches`) for
   `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
   z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the

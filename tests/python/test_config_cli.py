@@ -863,6 +863,17 @@ def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> 
     with pytest.raises(ConfigValidationError, match="photoelectron_source_scale > 0"):
         normalize_config_document(no_photo)
 
+    tolerated = copy.deepcopy(refresh)
+    tolerated["surface_current_model"]["zhao_upstream_band_tolerance"] = 0.2
+    assert normalize_config_document(tolerated)["surface_current_model"][
+        "zhao_upstream_band_tolerance"
+    ] == 0.2
+    for value in (-0.1, 1.0, float("nan"), True):
+        invalid = copy.deepcopy(refresh)
+        invalid["surface_current_model"]["zhao_upstream_band_tolerance"] = value
+        with pytest.raises(ConfigValidationError, match="zhao_upstream_band_tolerance"):
+            normalize_config_document(invalid)
+
     fixed_root = copy.deepcopy(refresh)
     fixed_root["surface_current_model"]["outflow_refresh_batches"] = 0
     fixed_root.pop("periodic2")

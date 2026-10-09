@@ -53,6 +53,11 @@ contains
         table, keys(ikey), cfg%surface_current%outflow_refresh_batches, &
         'surface_current_model.outflow_refresh_batches' &
         )
+    case ('zhao_upstream_band_tolerance')
+      call get_toml_real( &
+        table, keys(ikey), cfg%surface_current%zhao_upstream_band_tolerance, &
+        'surface_current_model.zhao_upstream_band_tolerance' &
+        )
     case default
       error stop 'Unknown key in [surface_current_model]: '//trim(keys(ikey)%key)
     end select

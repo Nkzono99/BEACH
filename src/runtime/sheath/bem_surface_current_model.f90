@@ -23,6 +23,8 @@ module bem_surface_current_model
     real(dp) :: reference_area_m2 = 0.0_dp
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
+    !> 上流に接する E^2<0 の電位幅 [V]。電子drift時に許容幅で受理したA/C根だけが非ゼロ。
+    real(dp) :: upstream_negative_band_v = 0.0_dp
     real(dp) :: ambient_electron_density_m3 = 0.0_dp
     real(dp) :: electron_current_density_a_m2 = 0.0_dp
     real(dp) :: ion_current_density_a_m2 = 0.0_dp
@@ -274,6 +276,7 @@ contains
     input%plasma%ion_mass_kg = app%particle_species(ion_idx)%m_particle
     input%plasma%electron_mass_kg = app%particle_species(electron_idx)%m_particle
     input%plasma%photoelectrons = maxwellian_photoelectrons(source_density_m3, source_temperature_ev)
+    solver%search%upstream_band_tolerance = app%surface_current%zhao_upstream_band_tolerance
     use_guess = .false.
     if (present(previous)) use_guess = previous%active .and. index('ABC', previous%zhao_branch) > 0
     if (use_guess) then
@@ -348,6 +351,7 @@ contains
     result%phi0_v = root%surface_potential_v
     result%phi_m_v = root%surface_potential_v
     if (root%branch == 'A') result%phi_m_v = root%minimum_potential_v
+    result%upstream_negative_band_v = root%upstream_negative_band_v
     result%ambient_electron_density_m3 = root%ambient_electron_density_m3
     call surface_photoelectron_source(app, surface_density_m3, surface_temperature_ev)
     emission_current_density = qe*surface_density_m3*thermal_speed(app, surface_temperature_ev)/(2.0_dp*sqrt(pi))

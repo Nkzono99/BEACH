@@ -179,6 +179,7 @@ contains
     write (u, '(a,es24.16)') 'surface_current_model_reference_area_m2=', current_model%reference_area_m2
     write (u, '(a,es24.16)') 'surface_current_model_phi0_V=', current_model%phi0_v
     write (u, '(a,es24.16)') 'surface_current_model_phi_m_V=', current_model%phi_m_v
+    write (u, '(a,es24.16)') 'surface_current_model_upstream_negative_band_V=', current_model%upstream_negative_band_v
     write (u, '(a,es24.16)') 'surface_current_model_ambient_electron_density_m3=', &
       current_model%ambient_electron_density_m3
     write (u, '(a,es24.16)') 'surface_current_model_electron_current_density_A_m2=', &

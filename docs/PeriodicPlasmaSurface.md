@@ -132,7 +132,8 @@ backend = "cached_kneq0"
 lower_boundary_model = "e_bottom_zero"
 ```
 
-太陽風電子の drift は 0、イオンの drift は太陽風の法線速度（内向き、負の z）にします。電子とイオンの数密度には、
+イオンの drift は太陽風の法線速度（内向き、負の z）にします。電子の drift は 0 にするか、drift を入れる場合は
+`sheath.zhao.upstream_band_tolerance` を正にします（[電子の drift](ZhaoStationaryClosure.html#電子の-drift)）。電子とイオンの数密度には、
 同じ太陽風密度を書きます。完全な設定は [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
 外部根を更新する例は [`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml)、
 光電子なし（Type C）の例は [`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml) です。

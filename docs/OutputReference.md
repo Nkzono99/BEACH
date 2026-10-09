@@ -144,6 +144,7 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_photoelectron_active` | PE channel の有無。false なら PE 関連 receipt は 0 |
 | `surface_current_model_reference_area_m2` | 電流 target の参照面積 |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | 解かれた表面電位と極小電位 |
+| `surface_current_model_upstream_negative_band_V` | 上流に接する $E^2<0$ の電位幅 [V]。電子の drift がある A/C の根を `zhao_upstream_band_tolerance` で受理したときだけ 0 より大きい |
 | `surface_current_model_ambient_electron_density_m3` | 解かれた上流電子 Maxwellian の密度。z-high の電子流入はこの密度で注入する |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | signed electron / ion 電流密度 |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |

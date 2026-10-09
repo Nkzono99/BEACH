@@ -15,10 +15,17 @@ contains
   if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
     error stop 'surface_current_model.outflow_refresh_batches must be >= 0.'
   end if
+  if (.not. (cfg%surface_current%zhao_upstream_band_tolerance >= 0.0_dp .and. &
+             cfg%surface_current%zhao_upstream_band_tolerance < 1.0_dp)) then
+    error stop 'surface_current_model.zhao_upstream_band_tolerance must be >= 0 and < 1.'
+  end if
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
     if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
       error stop 'surface_current_model.outflow_refresh_batches requires model="zhao_stationary".'
+    end if
+    if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
+      error stop 'surface_current_model.zhao_upstream_band_tolerance requires model="zhao_stationary".'
     end if
     return
   case ('zhao_stationary')

@@ -332,6 +332,13 @@
           "minimum": 0,
           "default": 0,
           "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
+        },
+        "zhao_upstream_band_tolerance": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0,
+          "description": "Accepted width of negative E^2 next to upstream for Zhao A/C roots with inward electron drift, as a fraction of |phi_m| (A) or |phi_0| (C). 0 keeps the exact semi-infinite condition."
         }
       }
     },
@@ -3476,6 +3483,13 @@
                     "c"
                   ],
                   "default": "auto"
+                },
+                "upstream_band_tolerance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "exclusiveMaximum": 1,
+                  "default": 0,
+                  "description": "Accepted width of negative E^2 next to upstream for Zhao A/C roots with inward electron drift, as a fraction of |phi_m| (A) or |phi_0| (C). 0 keeps the exact semi-infinite condition."
                 }
               }
             },

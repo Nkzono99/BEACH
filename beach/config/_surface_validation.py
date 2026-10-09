@@ -101,6 +101,17 @@ def _validate_surface_current_model(
             "BEACH constraint error: surface_current_model requires reference_area_m2 "
             "or a finite domain."
         )
+    band_tolerance = model_config.get("zhao_upstream_band_tolerance", 0.0)
+    if (
+        not isinstance(band_tolerance, (int, float))
+        or isinstance(band_tolerance, bool)
+        or not math.isfinite(float(band_tolerance))
+        or not 0.0 <= float(band_tolerance) < 1.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.zhao_upstream_band_tolerance "
+            "must be finite, >= 0 and < 1."
+        )
     refresh_batches = model_config.get("outflow_refresh_batches", 0)
     if (
         not isinstance(refresh_batches, int)

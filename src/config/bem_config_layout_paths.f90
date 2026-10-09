@@ -99,6 +99,8 @@ contains
       legacy = 'surface_current_model.reference_area_m2'
     case ('sheath.coupling.outflow_refresh_batches')
       legacy = 'surface_current_model.outflow_refresh_batches'
+    case ('sheath.zhao.upstream_band_tolerance')
+      legacy = 'surface_current_model.zhao_upstream_band_tolerance'
     case ('output.enabled')
       legacy = 'output.write_files'
     case ('output.dir')

@@ -241,6 +241,7 @@ outflow_refresh_batches = 50
 | `surface_current_model.photoelectron_source_scale` | `sheath.photoelectrons.source_scale` |
 | `surface_current_model.reference_area_m2` | `sheath.reference_area_m2` |
 | `surface_current_model.outflow_refresh_batches` | `sheath.coupling.outflow_refresh_batches` |
+| `surface_current_model.zhao_upstream_band_tolerance` | `sheath.zhao.upstream_band_tolerance` |
 | `output.write_files` | `output.enabled` |
 | `output.dir` | `output.dir` |
 | `output.write_mesh_potential` | `output.final.mesh_potential` |

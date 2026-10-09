@@ -127,6 +127,23 @@ program test_surface_current_model
     )
   call assert_true(.not. success, 'drifting electrons with reflected slow electrons have no Type A profile')
   call assert_true(len_trim(message) > 0, 'rejected Type A must report a reason')
+  ! Accepting a narrow negative-E^2 band next to upstream recovers the algebraic A root
+  ! (reference solved independently in Python: phi0, phi_m, and a 42 mV band).
+  cfg%surface_current%zhao_upstream_band_tolerance = 0.05_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(success, 'tolerated drifting Type A failed: '//trim(message))
+  call assert_true(refreshed%zhao_branch == 'A', 'tolerated drifting root must stay Type A')
+  call assert_close_dp(refreshed%phi0_v, 2.654426813939951_dp, 1.0e-6_dp, 'drifting Type A phi0 mismatch')
+  call assert_close_dp(refreshed%phi_m_v, -1.189723811591865_dp, 1.0e-6_dp, 'drifting Type A phi_m mismatch')
+  call assert_close_dp(refreshed%upstream_negative_band_v, 0.04203_dp, 2.0e-3_dp, 'drifting Type A band mismatch')
+  call assert_current_decomposition(refreshed, 'tolerated drifting Type A')
+  cfg%surface_current%zhao_upstream_band_tolerance = 0.02_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(.not. success, 'a band wider than the tolerance must be rejected')
   call test_end()
 
   call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')

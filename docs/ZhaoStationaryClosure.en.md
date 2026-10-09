@@ -52,7 +52,7 @@ the first root that holds. If no root holds, the run stops at startup with the r
   ($\alpha$ is the solar elevation, $n_{pe,ref}$ the reference density, and $s_{UV}$ a scale factor).
 - The cell is a wall of zero thickness for the outer sheath.
 
-### Why the electron drift is set to zero
+### Electron drift
 
 The analytic model of Zhao et al. itself can include the solar-wind electron drift. BEACH sets the drift to zero because of the
 condition sheath-model uses to accept a root.
@@ -67,9 +67,13 @@ electrons the normal solar-wind velocity at a solar elevation of 60 degrees sele
 
 This breakdown comes from the idealization of a collisionless semi-infinite space in which the reflected upstream electrons are
 an exact mirror image of the incoming distribution. $E^2<0$ occurs only near the upstream potential; in the sheath-model
-validation example (Type A with $u\approx0.2$) it was within a few tens of mV of the upstream potential. BEACH sets the electron
-drift to zero so that it uses roots that sheath-model can accept. The ion drift (the normal solar-wind velocity) is required.
-The error in the electron current caused by the zero drift is described in [Known limitations](#known-limitations).
+validation example (Type A with $u\approx0.2$) it was within a few tens of mV of the upstream potential.
+
+Setting the accepted width of this band with `sheath.zhao.upstream_band_tolerance` lets you use drifting A/C roots. The width
+is a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C); for example, 0.1 accepts roots whose band is at most 10%.
+The actual band width is recorded as `surface_current_model_upstream_negative_band_V` in `summary.txt`. The default 0 is the
+exact condition; then set the electron drift to zero (all examples use zero drift). The error of the zero drift is described in
+[Known limitations](#known-limitations). The ion drift (the normal solar-wind velocity) is required in both cases.
 
 ## How BEACH uses the root
 
@@ -195,8 +199,8 @@ outflow_refresh_batches = 50
 
 - Role species use `charging.closure="fixed_current"`. Electrons and ions enter by boundary inflow through the top face;
   photoelectrons use `photo_raycast` from the top face with reaction charge. The top face is open.
-- Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). The electron drift is zero
-  and the ion drift is negative z.
+- Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). The ion drift is negative z.
+  Set the electron drift to zero, or set `sheath.zhao.upstream_band_tolerance` to a positive value ([Electron drift](#electron-drift)).
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
   Outer-root refresh is not available.
 
@@ -244,6 +248,8 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
   |---|---|---|---|
   | A | 7.05 → 6.04 V | −0.13 → −0.79 V | +6% |
   | C (no photoelectrons) | −4.63 → −7.34 V | — | Unchanged (equal to the ion flux) |
+
+  To include the drift, use `sheath.zhao.upstream_band_tolerance` ([Electron drift](#electron-drift)).
 - **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
   half-Maxwellian defined by only two quantities, flux and mean energy.
 - **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
