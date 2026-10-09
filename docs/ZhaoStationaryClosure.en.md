@@ -232,10 +232,18 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
 ### Known limitations
 
-- **Error of the zero electron drift:** the drift increases the electron flux at first order in the drift. The one-way flux of a
-  drifting Maxwellian through a plane is $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux without drift; for a
-  400 km/s solar wind, $T_e=12$ eV, and a solar elevation of 60 degrees ($u\approx0.17$) this is about 1.33. The zero-drift root
-  underestimates the electron current by this factor, and the wall potential changes accordingly.
+- **Error of the zero electron drift:** at the same potential, the drift increases the electron flux at first order in the drift
+  (the one-way flux of a drifting Maxwellian through a plane is $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux
+  without drift). At a zero-current root the absorbed electron flux is constrained by the ions and the photoelectron escape, so the
+  difference appears mainly in the potentials. For $n=5$ cm⁻³, $T_e=10$ eV, a 400 km/s solar wind at normal incidence
+  ($u=0.21$, flux factor 1.42), and photoelectrons of 4.5 µA/m² at 2.2 eV, the algebraic roots with drift differed from the
+  zero-drift roots as follows. They were solved without the strict upstream condition; $E^2<0$ occurs within about 50 mV (A) and
+  3 mV (C) of the upstream potential.
+
+  | Type | $\phi_0$ (drift 0 → 400 km/s) | $\phi_m$ | Absorbed electron flux |
+  |---|---|---|---|
+  | A | 7.05 → 6.04 V | −0.13 → −0.79 V | +6% |
+  | C (no photoelectrons) | −4.63 → −7.34 V | — | Unchanged (equal to the ion flux) |
 - **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
   half-Maxwellian defined by only two quantities, flux and mean energy.
 - **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
