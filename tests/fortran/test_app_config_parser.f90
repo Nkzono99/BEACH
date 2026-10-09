@@ -249,14 +249,18 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('zhao_upstream_band_tolerance_config')
-  call write_refresh_variant('examples/periodic2_zhao_fixed_current.toml', zhao_refresh_variant_path, &
-                             'zhao_upstream_band_tolerance = 0.2')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.1_dp, 0.0_dp, &
+                       'example upstream band tolerance mismatch')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance =', &
+                                'zhao_upstream_band_tolerance = 0.2')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.2_dp, 0.0_dp, &
                        'upstream band tolerance mismatch')
-  call write_refresh_variant('examples/periodic2_zhao_fixed_current.toml', zhao_refresh_variant_path, &
-                             'zhao_upstream_band_tolerance = 1.0')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance =', &
+                                'zhao_upstream_band_tolerance = 1.0')
   call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance must be >= 0 and < 1')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
@@ -598,15 +602,10 @@ contains
   end subroutine write_fixed_emission_variant
 
   !> Copy a Zhao example and enable the outflow refresh in its surface-current table.
-  subroutine write_refresh_variant(source_path, path, inserted)
+  subroutine write_refresh_variant(source_path, path)
     character(len=*), intent(in) :: source_path, path
-    character(len=*), intent(in), optional :: inserted
     character(len=1024) :: line
-    character(len=128) :: added
     integer :: source_unit, target_unit, ios
-
-    added = 'outflow_refresh_batches = 1'
-    if (present(inserted)) added = inserted
 
     open (newunit=source_unit, file=source_path, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open Zhao refresh variant source'
@@ -615,7 +614,7 @@ contains
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
       write (target_unit, '(A)') trim(line)
-      if (trim(line) == '[surface_current_model]') write (target_unit, '(A)') trim(added)
+      if (trim(line) == '[surface_current_model]') write (target_unit, '(A)') 'outflow_refresh_batches = 1'
     end do
     close (source_unit)
     close (target_unit)

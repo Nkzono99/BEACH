@@ -10,7 +10,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   inward electron drift, Zhao Type A/C roots have negative $E^2$ in a narrow band next to the upstream potential and were
   always rejected; a positive tolerance accepts them when the band is no wider than that fraction of $|\phi_m|$ (A) or
   $|\phi_0|$ (C), and records the width as `surface_current_model_upstream_negative_band_V`. The default 0 keeps the exact
-  condition. Requires the sheath-model commit that adds `upstream_band_tolerance`.
+  condition. Smoothing only the slow upstream electrons (the kinetically unstable cusp of the mirrored drifting
+  distribution) removes the band and moves the wall potentials by tens of mV, far less than neglecting the drift
+  (about 1 V for Type A, 2.7 V for Type C in the documented case).
 - Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.coupling.outflow_refresh_batches`) for
   `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
   z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the
@@ -41,13 +43,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 - `zhao_stationary` now solves its zero-current root with the external sheath-model library (fpm git dependency pinned
-  to `cf55bdc` on branch `fix/ifx-portability`, which also builds with Intel ifx) instead of the in-tree Zhao core,
-  which is removed. sheath-model accepts a root only when the potential profile has $E^2\ge0$ throughout, approaches a
-  neutral zero-field upstream state, and does not block the ion flow. With an inward electron drift, Type A and C have
-  no admissible profile, so roots that the in-tree core accepted are now rejected: the previous examples (electron
-  drift equal to the solar-wind normal speed) move from Type A to Type B at 60 degrees and have no root at 10 degrees.
-  The examples and test fixtures now use a zero electron drift, and the in-tree core's singular `u=0` Type A path is
-  gone. Ions remain a cold beam.
+  to sheath-model `bebe58d`, which also builds with Intel ifx) instead of the in-tree Zhao core, which is removed.
+  sheath-model accepts a root only when the potential profile has $E^2\ge0$ throughout, approaches a neutral zero-field
+  upstream state, and does not block the ion flow. With an inward electron drift, Type A and C have negative $E^2$ in a
+  narrow band next to the upstream potential, so by default roots that the in-tree core accepted are rejected (the
+  previous examples move from Type A to Type B at 60 degrees and have no root at 10 degrees);
+  `zhao_upstream_band_tolerance` accepts them. The examples give solar-wind electrons the ion drift with a tolerance of
+  0.1; test fixtures that check the exact condition use a zero electron drift. The in-tree core's singular `u=0` Type A
+  path is gone. Ions remain a cold beam.
 - `zhao_stationary` now injects the z-high ambient-electron inflow at the upstream electron Maxwellian density
   $n_{e,\infty}$ solved by the Zhao root (the density that keeps infinity quasi-neutral after the wall absorbs fast
   electrons), and requires the electron and ion species to share the solar-wind `number_density_*`. Previously the

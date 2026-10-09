@@ -310,7 +310,7 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 イオン流の通過を満たす根だけを採用します。成立する根がなければ起動時に停止し、外部根の更新では前回の根を保ちます。
 電子が内向きにdriftし反射電子を持つA/Cの根は、上流のごく近くで$E^2<0$になるため既定では採用しません。
 `zhao_upstream_band_tolerance`$=f>0$では、$E^2<0$が上流に接する帯に限られ、その電位幅がAでは$f|\phi_m|$、Cでは$f|\phi_0|$以下の根を採用し、
-幅を`surface_current_model_upstream_negative_band_V`に記録します。
+幅を`surface_current_model_upstream_negative_band_V`に記録します。設定例は電子にイオンと同じdriftを与え、$f=0.1$を使います。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
 Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは

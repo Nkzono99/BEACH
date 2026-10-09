@@ -30,6 +30,8 @@ inflow_model = "source_vdf"
 [surface_current_model]
 model = "zhao_stationary"
 zhao_branch = "auto"
+# 電子にも太陽風の drift を与えるため、上流に接する E^2<0 の帯を |phi_m|(A) / |phi_0|(C) の 10% まで許す。
+zhao_upstream_band_tolerance = 0.1
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_source_scale = 0.0
@@ -43,7 +45,7 @@ temperature_ev = 12.0
 q_particle = -1.602176634e-19
 m_particle = 9.1093837139e-31
 target_macro_particles_per_batch = 300
-drift_velocity = [0.0, 0.0, 0.0]
+drift_velocity = [0.0, 0.0, -4.0529988897e5]
 surface_charge_closure = "fixed_current"
 
 [particles.species.boundary_inflow]

@@ -117,6 +117,9 @@ of the field separately.
 [sheath]
 closure = "zero_current"
 
+[sheath.zhao]
+upstream_band_tolerance = 0.1   # needed for the electron drift
+
 [sheath.species]
 electron = "solar_wind_electron"
 ion = "solar_wind_ion"
@@ -134,8 +137,8 @@ backend = "cached_kneq0"
 lower_boundary_model = "e_bottom_zero"
 ```
 
-Set the ion drift to the normal solar-wind velocity (inward, negative z). Set the electron drift to zero, or, to include it,
-set `sheath.zhao.upstream_band_tolerance` to a positive value ([Electron drift](ZhaoStationaryClosure.en.html#electron-drift)).
+Set both the electron and the ion drift to the normal solar-wind velocity (inward, negative z). To handle the electron drift,
+set `sheath.zhao.upstream_band_tolerance` to 0.1 ([Electron drift and the upstream band](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band)).
 Write the same solar-wind density for electrons and ions. The complete configuration is
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml); the example that refreshes the outer root is
 [`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml), and the example without photoelectrons (Type C) is

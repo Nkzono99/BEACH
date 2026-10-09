@@ -47,33 +47,48 @@ the first root that holds. If no root holds, the run stops at startup with the r
 ## Assumptions
 
 - The sheath is planar, collisionless, unmagnetized, and stationary.
-- Solar-wind electrons are a Maxwellian with zero drift. Ions are a cold beam, and the ion temperature is not used for the root.
+- Solar-wind electrons are a Maxwellian drifting at the same normal solar-wind velocity as the ions. Slow electrons that turn
+  back upstream are reflected as a mirror image of the incoming distribution.
+- Ions are a cold beam, and the ion temperature is not used for the root.
 - Photoelectrons are emitted from the surface as a half-Maxwellian with density $n_{pe,0}=s_{UV}\,n_{pe,ref}\sin\alpha$
   ($\alpha$ is the solar elevation, $n_{pe,ref}$ the reference density, and $s_{UV}$ a scale factor).
 - The cell is a wall of zero thickness for the outer sheath.
 
-### Electron drift
+### Electron drift and the upstream band
 
-The analytic model of Zhao et al. itself can include the solar-wind electron drift. BEACH sets the drift to zero because of the
-condition sheath-model uses to accept a root.
+Give the electrons the same normal solar-wind drift as the ions and set `sheath.zhao.upstream_band_tolerance` to 0.1. The
+examples use this setting.
 
-sheath-model accepts only roots that connect exactly to the neutral, field-free upstream state while keeping $E^2\ge0$ over the
-whole potential profile. With inward-drifting electrons and reflected slow electrons, Type A and Type C do not satisfy this
-condition. Upstream, the distribution of reflected electrons is the mirror image of the drifting incoming distribution, so it has
-a kink at zero velocity. Because of this kink, a term $u\,h\log(1/h)$ appears in the electron density close to upstream; as
-$h\to0$ it exceeds the other terms and makes $E^2<0$ ($u$ is the ratio of the drift to the electron thermal speed and $h$ the depth
-below the upstream potential divided by $T_e$). sheath-model therefore rejects A and C for any drift. For example, giving
-electrons the normal solar-wind velocity at a solar elevation of 60 degrees selects B; at 10 degrees no root holds.
+**The upstream band:** in Type A and Type C with inward-drifting electrons and reflected slow electrons, the upstream
+distribution of reflected electrons is the mirror image of the drifting incoming distribution and has a kink at zero velocity.
+Because of this kink, a term $u\,h\log(1/h)$ appears in the electron density close to upstream; as $h\to0$ it exceeds the other
+terms and makes $E^2<0$ ($u$ is the ratio of the drift to the electron thermal speed and $h$ the depth below the upstream
+potential divided by $T_e$). No solution connects exactly to the neutral, field-free upstream state. $E^2<0$ occurs only in a
+narrow potential band next to the upstream potential. `upstream_band_tolerance` accepts roots whose band is no wider than that
+fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C) and records the width as
+`surface_current_model_upstream_negative_band_V` in `summary.txt`. Roots with a wider band are not used.
 
-This breakdown comes from the idealization of a collisionless semi-infinite space in which the reflected upstream electrons are
-an exact mirror image of the incoming distribution. $E^2<0$ occurs only near the upstream potential; in the sheath-model
-validation example (Type A with $u\approx0.2$) it was within a few tens of mV of the upstream potential.
+**Physical meaning of the band:** the band is where the idealization that slow upstream electrons are an exact mirror image of
+the drifting incoming distribution fails. That distribution has a cusp-shaped dip at $v_z=0$; the integral of the Penrose
+stability criterion diverges logarithmically, so it is kinetically unstable. In reality, relaxation by the instability and
+scattering by surface roughness are expected to smooth the slow-electron distribution.
 
-Setting the accepted width of this band with `sheath.zhao.upstream_band_tolerance` lets you use drifting A/C roots. The width
-is a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C); for example, 0.1 accepts roots whose band is at most 10%.
-The actual band width is recorded as `surface_current_model_upstream_negative_band_V` in `summary.txt`. The default 0 is the
-exact condition; then set the electron drift to zero (all examples use zero drift). The error of the zero drift is described in
-[Known limitations](#known-limitations). The ion drift (the normal solar-wind velocity) is required in both cases.
+**Error estimate:** removing the drift only from incoming electrons slower than $a_s v_{th}$, so that the distribution is smooth,
+and solving again with orbit-consistent densities removes the band and gives $E^2\ge0$ everywhere. For $n=5$ cm⁻³, $T_e=10$ eV,
+a 400 km/s solar wind at normal incidence, and photoelectrons of 4.5 µA/m² at 2.2 eV, the differences from the roots with an
+accepted band were as follows ([validation record](https://github.com/Nkzono99/sheath-model/blob/main/outputs/upstream_relaxation_20261009/REPORT.md)).
+
+| Type | Band | $a_s$ that removes the band | $\phi_0$ difference for $a_s=0.07$–$0.2$ | $\phi_m$ difference | Absorbed electron flux difference |
+|---|---:|---:|---:|---:|---:|
+| A | 52 mV | 0.07 | −23 to −81 mV | −24 to −68 mV | below 0.3% |
+| C (no photoelectrons) | 2.9 mV | 0.02 | −1 to −81 mV ($a_s=0.02$–$0.2$) | — | 0 |
+
+The spread over $a_s$ measures the uncertainty from the treatment of slow electrons. It is much smaller than the effect of
+neglecting the drift (about 1 V for A and 2.7 V for C, [Known limitations](#known-limitations)), so BEACH treats the drift by
+accepting the band. A tolerance of 0.1 accepts both A (band 6.6% of $\lvert\phi_m\rvert$) and C (0.04%) above.
+
+The default 0 is the exact condition, which rejects drifting A/C (for example, at a solar elevation of 60 degrees B is selected,
+and at 10 degrees no root holds). Then set the electron drift to zero. The ion drift is required in both cases.
 
 ## How BEACH uses the root
 
@@ -183,6 +198,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
+upstream_band_tolerance = 0.1
 
 [sheath.species]
 electron = "solar_wind_electron"
@@ -199,8 +215,9 @@ outflow_refresh_batches = 50
 
 - Role species use `charging.closure="fixed_current"`. Electrons and ions enter by boundary inflow through the top face;
   photoelectrons use `photo_raycast` from the top face with reaction charge. The top face is open.
-- Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). The ion drift is negative z.
-  Set the electron drift to zero, or set `sheath.zhao.upstream_band_tolerance` to a positive value ([Electron drift](#electron-drift)).
+- Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). Set both the electron and
+  the ion drift to the normal solar-wind velocity (negative z). With zero electron drift no tolerance is needed
+  ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
   Outer-root refresh is not available.
 
@@ -236,20 +253,21 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
 ### Known limitations
 
-- **Error of the zero electron drift:** at the same potential, the drift increases the electron flux at first order in the drift
+- **Accepting the upstream band:** a root accepted with the tolerance does not follow the idealized electron distribution inside
+  the upstream band. The effect on the wall quantities is tens of mV ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
+- **Error of a zero electron drift:** at the same potential, the drift increases the electron flux at first order in the drift
   (the one-way flux of a drifting Maxwellian through a plane is $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux
-  without drift). At a zero-current root the absorbed electron flux is constrained by the ions and the photoelectron escape, so the
-  difference appears mainly in the potentials. For $n=5$ cm⁻³, $T_e=10$ eV, a 400 km/s solar wind at normal incidence
-  ($u=0.21$, flux factor 1.42), and photoelectrons of 4.5 µA/m² at 2.2 eV, the algebraic roots with drift differed from the
-  zero-drift roots as follows. They were solved without the strict upstream condition; $E^2<0$ occurs within about 50 mV (A) and
-  3 mV (C) of the upstream potential.
+  without drift). At a zero-current root the absorbed electron flux is constrained by the ions and the photoelectron escape, so
+  the difference appears mainly in the potentials. Under the same conditions as above ($u=0.21$, flux factor 1.42), the
+  zero-drift roots differed from the drifting roots as follows.
 
-  | Type | $\phi_0$ (drift 0 → 400 km/s) | $\phi_m$ | Absorbed electron flux |
+  | Type | $\phi_0$ (drift 400 km/s → 0) | $\phi_m$ | Absorbed electron flux |
   |---|---|---|---|
-  | A | 7.05 → 6.04 V | −0.13 → −0.79 V | +6% |
-  | C (no photoelectrons) | −4.63 → −7.34 V | — | Unchanged (equal to the ion flux) |
+  | A | 6.04 → 7.05 V | −0.79 → −0.13 V | −6% |
+  | C (no photoelectrons) | −7.34 → −4.63 V | — | Unchanged (equal to the ion flux) |
 
-  To include the drift, use `sheath.zhao.upstream_band_tolerance` ([Electron drift](#electron-drift)).
+  In a three-layer particle bed (4000 s), zero drift raised all potentials in the cell by about 1 V (A) and 3–4 V (C), while the
+  potential differences between layers changed by 1% or less.
 - **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
   half-Maxwellian defined by only two quantities, flux and mean energy.
 - **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are

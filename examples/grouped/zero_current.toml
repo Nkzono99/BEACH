@@ -65,7 +65,7 @@ temperature_ev = 12.0
 drift_velocity_m_s = [
     0.0,
     0.0,
-    0.0,
+    -405299.88897,
 ]
 
 [particles.species.sampling]
@@ -151,6 +151,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
+upstream_band_tolerance = 0.1
 
 [sheath.species]
 electron = "solar_wind_electron"

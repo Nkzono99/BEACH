@@ -360,14 +360,14 @@ closure.
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$; `>=0`, and 0 disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2]; `>0` |
 | `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE outflow observed at z-high; `>=0`, and 0 keeps the initial root |
-| `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 is the exact condition, which rejects drifting A/C. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift) |
+| `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 is the exact condition, which rejects drifting A/C. Use 0.1 when electrons have the solar-wind drift. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band) |
 
 Input constraints:
 
 | Item | Required condition |
 |---|---|
 | Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
-| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Use 0 for electrons: with a drift, Type A and C have no admissible profile ([why](ZhaoStationaryClosure.en.html#electron-drift)); no manual `target_*_current_a` |
+| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Give electrons the same drift as the ions with `zhao_upstream_band_tolerance=0.1` (not needed with zero electron drift; [why](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band)); no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |
