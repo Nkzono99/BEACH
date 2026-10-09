@@ -1,171 +1,156 @@
 title: Inject particles through a boundary
 
-Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
+Lang: [English](ReservoirInjection.en.md) | [日本語](ReservoirInjection.md)
 
 # Inject particles through a boundary
 
-> **Question:** How do I bring particles corresponding to a density, temperature, or velocity distribution from plasma
-> outside the simulation box across a box boundary?
->
-> **One-sentence answer:** Make a nonperiodic box face `open`, then set that face to `"reservoir"` in the species'
-> `[particles.species.boundary_inflow]` table.
+This procedure injects particles through a box face from a plasma outside the box (the external plasma, or reservoir), with a
+density and temperature or a velocity distribution. Make a non-periodic face open and set that face to `"reservoir"` in the
+species `[particles.species.inflow]`. After reading this page you can build a minimal configuration, choose the distribution and
+the inflow mapping, and check the injected amount in the output. To emit particles from a face inside the box, use
+`plane_source` in [Choose a particle source](ParticleSourcesBoundaries.en.html).
 
-After reading this page, you should be able to create the minimum configuration, choose Maxwell or velocity-grid input,
-choose a boundary distribution or a potential correction from infinity, and confirm the actual injected amount in the
-outputs. If particles should originate on a surface inside the box, first compare this path with `plane_source` in
-[Choose where particles enter](ParticleSourcesBoundaries.en.html).
+## 1. Build a minimal configuration
 
-## 1. Create the minimum configuration
-
-The following is the minimum change that adds electron inflow through z-high to an otherwise valid case. The values
-demonstrate the configuration; they are not reference values for a calibrated plasma environment.
+This is the difference that injects electrons through the top face of an existing case. The values are examples and do not
+represent a particular plasma environment.
 
 ```toml
-[sim]
-batch_duration = 1.0e-6
+[run.batch]
+duration_s = 1.0e-6
 
 [domain]
 box_min = [0.0, 0.0, 0.0]
 box_max = [1.0, 1.0, 1.0]
 periodic_axes = []
 
-[particle_boundary]
+[particles.boundary]
 z_high = "open"
-ordinary_open_model = "escape"
 
 [[particles.species]]
 species_key = "electron"
-velocity_distribution = "maxwellian"
+charge_c = -1.602176634e-19
+mass_kg = 9.1093837139e-31
+
+[particles.species.distribution]
+model = "maxwellian"
 number_density_m3 = 5.0e6
 temperature_ev = 10.0
-drift_velocity = [0.0, 0.0, -4.0e5]
-q_particle = -1.602176634e-19
-m_particle = 9.1093837139e-31
-w_particle = 1.0e5
+drift_velocity_m_s = [0.0, 0.0, -4.0e5]
 
-[particles.species.boundary_inflow]
+[particles.species.sampling]
+weight = 1.0e5
+
+[particles.species.inflow]
 z_high = "reservoir"
 ```
 
-The inward normal of z-high points in the negative z direction, so the negative z drift in this example points into the
-box. You can enable more than one of `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, and `z_high`.
+The inward normal of the top face is $-z$, so a negative z drift points into the box. Several of the six faces can be selected at once.
 
-The configuration must satisfy these conditions:
+- Make the batch duration (`run.batch.duration_s`) positive. The number of injected particles is proportional to it.
+- The inflow face must be non-periodic and open for that species.
+- Particles enter through the whole selected face. A part of a face cannot be selected.
+- A species that uses only boundary inflow does not have `[particles.species.source]`.
 
-- The resolved `sim.batch_duration` is positive.
-- Each inflow face is absent from `domain.periodic_axes`, and its effective outward action, including any species
-  override, is `open`.
-- `boundary_inflow` uses a complete box face. `pos_low`, `pos_high`, and `inject_face` do not select an aperture.
-- For boundary inflow alone, omit `source_mode` and `npcls_per_step`. The defaults create no volume population.
-  See [Input Parameters](Parameters.en.html#particlesspeciesboundary_inflow) for conditions on adding volume generation.
-
-After saving the configuration, check its structure and combinations before the normal run.
+After saving the configuration, check it and run.
 
 ```bash
 beachx lint beach.toml
 beach beach.toml
 ```
 
-A successful lint does not establish that the flux, macro-particle weight, or potential reference is physically
-suitable.
+Passing `lint` does not mean that the flux, weight, and potential reference are physically appropriate.
 
-## 2. Choose Maxwell or velocity-grid input
+## 2. Choose the distribution
 
-| External-plasma information available | Setting |
-| --- | --- |
-| Density, temperature, and drift velocity | `velocity_distribution="maxwellian"` |
-| Measured or separately calculated velocity points and distribution values | `velocity_distribution="grid"` |
+| External plasma information you have | Setting |
+|---|---|
+| Density, temperature, and drift velocity | `distribution.model = "maxwellian"` |
+| Velocity points and distribution values from measurements or another calculation | `distribution.model = "grid"` |
 
-### Maxwell distribution
+### Maxwellian
 
-For a Maxwell distribution, BEACH obtains the one-way flux $\Gamma_\mathrm{in}$ on each face from
-`number_density_m3` or `number_density_cm3`, temperature, and `drift_velocity`. Because the probability of crossing a
-surface is proportional to inward normal speed, normal velocities are sampled from a flux-weighted distribution rather
-than by placing the volume Maxwell distribution directly on the boundary.
-
-The expected macro-particle count in one batch follows the relationship needed for case design:
+From the density (`number_density_m3` or `number_density_cm3`), temperature, and drift velocity, BEACH computes the flux
+$\Gamma_\mathrm{in}$ crossing each face inward. The probability of crossing a face is proportional to the inward normal
+velocity, so normal velocities are sampled from the flux-weighted distribution. The expected number of macro-particles per batch is
 
 $$
-N_\mathrm{macro,expected}
-=\frac{\Gamma_\mathrm{in} A\,\Delta t_\mathrm{batch}}{w},
+N_\mathrm{macro}
+=\frac{\Gamma_\mathrm{in} A\,\Delta t_\mathrm{batch}}{w}
 $$
 
-where $A$ is the selected-face area, $\Delta t_\mathrm{batch}$ is `batch_duration`, and $w$ is `w_particle`.
-Fractional counts carry into the next batch, so individual batch counts need not be equal. See
-[Input Parameters](Parameters.en.html#particlesspeciesboundary_inflow) and [`SPEC.md`](../SPEC.md) for the complete
-flux expression and constraints.
+where $A$ is the face area, $\Delta t_\mathrm{batch}$ the batch duration, and $w$ the weight. Fractions are carried to the next
+batch, so the count per batch is not constant.
 
-Set `w_particle` when the physical macro-particle weight is known. To choose the sample count per batch from
-computational cost instead, set `target_macro_particles_per_batch`; BEACH then resolves the weight without changing the
-physical flux. Do not specify both.
+To set the weight physically, give `sampling.weight`; to set it from the number of samples per batch, give
+`sampling.target_macro_particles_per_batch`. The latter is a target used to resolve the weight and does not change the physical
+flux. The two cannot be given together.
 
 ### Velocity grid
 
-For a velocity grid, remove Maxwell density and temperature keys and supply a CSV and physical flux.
+Instead of the Maxwellian density and temperature, give a CSV file and the physical flux.
 
 ```toml
-velocity_distribution = "grid"
-velocity_grid_path = "inflow_vdf.csv"
-velocity_grid_pdf_kind = "phase_space"
-velocity_grid_sampling = "auto"
+[particles.species.distribution]
+model = "grid"
+grid_path = "inflow_vdf.csv"
+grid_pdf_kind = "phase_space"
 particle_flux_m2_s = 1.0e12
+
+[particles.species.sampling]
+velocity_grid_sampling = "auto"
 ```
 
-The CSV requires `vx_m_s,vy_m_s,vz_m_s,f` columns with nonnegative `f`. State which distribution `f` represents.
+The CSV columns are `vx_m_s,vy_m_s,vz_m_s,f`. `f` is non-negative, and `grid_pdf_kind` states what it represents.
 
-| `velocity_grid_pdf_kind` | Meaning of CSV `f` | BEACH weight |
-| --- | --- | --- |
-| `phase_space` | Phase-space distribution | $\max(v_n,0)f$, including inward normal-speed weighting |
-| `flux_weighted` | Distribution already weighted for particles crossing the boundary | $f$ |
+| `grid_pdf_kind` | `f` in the CSV | Weight used by BEACH |
+|---|---|---|
+| `phase_space` | Phase-space distribution | $\max(v_n,0)f$, multiplied by the inward normal velocity |
+| `flux_weighted` | Distribution already weighted for particles crossing the face | $f$ |
 
-Specify exactly one of `particle_flux_m2_s` and `current_density_a_m2`. Current density is converted to particle flux as
-$|J/q|$, so its sign does not select the velocity direction. Direction comes from the CSV velocities and the selected
-face's inward normal. A relative CSV path is resolved from the process working directory.
+Give the inflow amount with exactly one of `particle_flux_m2_s` and `current_density_a_m2`. A current density is converted to
+a flux by $|J/q|$, so its sign does not set the direction; the direction comes from the CSV velocities and the inward normal of
+the face. A relative CSV path is resolved against the working directory at run time.
 
-## 3. Choose `source_vdf` or `infinity_barrier`
+## 3. Choose the inflow mapping
 
-| Where the external VDF is defined | `reservoir.inflow_model` | Behavior |
-| --- | --- | --- |
-| At the simulation boundary | `"source_vdf"` | Use the configured VDF directly at the boundary; this is the default |
-| At infinity or upstream | `"infinity_barrier"` | Correct flux and normal speed for the potential difference |
+Choose `particles.reservoir.inflow_model` from where the external distribution is defined.
 
-When using `infinity_barrier`, define the external reference potential explicitly.
+| Where the distribution is defined | `inflow_model` | Behavior |
+|---|---|---|
+| On the inflow face | `"source_vdf"` (default) | Use the configured distribution as the distribution on the inflow face |
+| At infinity (upstream) | `"infinity_barrier"` | Select the particles that reach the face and change their normal velocity from the difference between the upstream potential and the mean potential of the inflow face |
 
 ```toml
-[reservoir]
+[particles.reservoir]
 inflow_model = "infinity_barrier"
-phi_infty = 0.0
+phi_infty_v = 0.0
 face_potential_grid_n = 5
 ```
 
-Let $\phi_\infty$ be the upstream potential and $\phi_f$ the inflow-face mean potential at batch start. The normal speed
-at the boundary is
+With upstream potential $\phi_\infty$ and mean inflow-face potential $\phi_f$ at the start of the batch, the normal velocity on
+the inflow face is
 
 $$
 v_{n,f}^2=v_{n,\infty}^2-B,
 \qquad
-B=\frac{2q(\phi_f-\phi_\infty)}{m}.
+B=\frac{2q(\phi_f-\phi_\infty)}{m}
 $$
 
-Here $q$ is the signed particle charge. The same potential difference therefore gives opposite signs of $B$ for an
-electron and a positive ion.
+$q$ is the signed charge, so electrons and positive ions have opposite signs of $B$ for the same potential difference.
 
-| $B$ | Accessibility and change at the boundary |
-| ---: | --- |
-| $B>0$ | Only particles with $v_{n,\infty}\ge\sqrt B$ arrive, and they decelerate toward the face |
-| $B=0$ | Normal speed is unchanged |
-| $B<0$ | Every inward particle is accessible and accelerates toward the face |
+| $B$ | Particles that reach the face and the change of velocity |
+|---:|---|
+| $B>0$ | Only particles with $v_{n,\infty}\ge\sqrt B$ reach the face, and they decelerate on the way |
+| $B=0$ | The normal velocity is unchanged |
+| $B<0$ | Every particle reaches the face, and it accelerates on the way |
 
-Tangential velocity is unchanged. $\phi_f$ is the mean of face samples set by `face_potential_grid_n`, not a local
-potential evaluated separately for each incoming particle.
+The tangential velocity is unchanged. $\phi_f$ is the mean over `face_potential_grid_n` × `face_potential_grid_n` points on the
+inflow face, not a per-particle local potential. To test outgoing particles against the same upstream potential, set the
+treatment of open faces to the potential barrier ([Particles at box boundaries](ParticleEscapeReturn.en.html#potential-barrier-potential_barrier)).
+With the outer-sheath connection, the outer sheath sets the inflow mapping and `infinity_barrier` cannot be used.
 
-Inflow and outflow are separate decisions. To apply a potential barrier to outward particles as well, select
-`ordinary_open_model="potential_barrier"` in `[particle_boundary]`. That model uses the local potential where each
-particle actually crosses the boundary to decide return or escape.
-
-## 4. Confirm injection in the outputs
-
-For `output.dir="outputs/latest"`, inspect the following after the run.
+## 4. Check the injected amount in the output
 
 ```bash
 beachx inspect outputs/latest
@@ -174,48 +159,22 @@ grep -E '^(reservoir_inflow_map|particle_ordinary_open_model|charge_ledger_resid
 head -n 2 outputs/latest/charge_ledger.csv
 ```
 
-In `summary.txt`, `reservoir_inflow_map` is `source_vdf` or `infinity_barrier` according to the selected model.
-Independently, `particle_ordinary_open_model` is `escape` or `potential_barrier`.
+`reservoir_inflow_map` in `summary.txt` is the selected mapping (`source_vdf` or `infinity_barrier`), and
+`particle_ordinary_open_model` is the treatment of open faces. In `charge_ledger.csv`, check the following for each species.
 
-Check at least these species-resolved columns in `charge_ledger.csv`:
+- `injected_count`: macro-particles that entered from outside the box
+- `injected_from_remote_C`: their charge, with the sign of the particle charge
+- `absorbed_count`, `escaped_count`, `discarded_unresolved_count`: where the injected particles went
 
-- `injected_count`: for a boundary-only species such as this example, macro-particles created from outside the box
-- `injected_from_remote_C`: their signed injected charge, whose sign matches `q_particle`
-- `absorbed_count`, `escaped_count`, and `discarded_unresolved_count`: their main tracked outcomes
+If the expected count is much smaller than 1, `injected_count` can be 0 in the first batches until fractions accumulate. When
+samples are too few, revise the weight or the target sample count before changing the physical flux. Changing the batch duration
+also changes the interval between field updates, so compare according to [Choose the batch duration](BatchDurationStability.en.html).
 
-When the expected count is much smaller than one, early batches can have `injected_count=0` until a fractional remainder
-accumulates. If the run produces too few samples, review `w_particle` or `target_macro_particles_per_batch` before
-changing the physical flux. Changing `batch_duration` changes both particle count and the field-update interval, so
-compare cases as described in [Batch Duration and Stability](BatchDurationStability.en.html).
+## 5. Scope
 
-Generated outputs establish run completion only. Evaluate flux, charge conservation, statistical error, and numerical
-and physical validity separately with [Inspect Output Files](OutputGuide.en.html) and
-[Validating Simulation Results](ValidationGuide.en.html).
+- Boundary inflow is a local model that replaces conditions outside the box with particles on the boundary. Orbits outside the box,
+  the field on the way, turning positions, flight times, space charge, and the outer sheath are not solved.
+- A uniform external field has no potential at infinity. When combining it with `infinity_barrier`, define `phi_infty_v` as the
+  reference of the external plasma and check its meaning separately.
 
-## 5. Check the model scope
-
-- `boundary_inflow` is a local map from conditions outside the box to particles at its boundary. It does not solve
-  outside-box trajectories, intermediate $E(z)$, turning positions, flight times, space charge, or a self-consistent
-  external sheath.
-- A uniform external electric field has no finite potential at infinity. When using it with `infinity_barrier`, define
-  `phi_infty` as an effective reservoir reference and validate that interpretation separately.
-- Inflow positions span the complete selected box face. Use `source_mode="plane_source"` for a rectangle placed inside
-  the box.
-- `boundary_inflow` does not override outward boundary actions and does not enable `[outer_plasma]` or `[coupling]`.
-  These removed tables are rejected as input.
-
-The canonical sources for all keys, defaults, exclusions, remainder state, and checkpoint format are
-[Input Parameters](Parameters.en.html) and [`SPEC.md`](../SPEC.md). MPI distribution, RNG state, remainder ownership,
-and implementation responsibilities are separated into the [Developer Architecture](Architecture.en.html).
-
-## 6. Migrate from legacy `reservoir_face`
-
-`source_mode="reservoir_face"` is a deprecated compatibility input for existing cases. Move a new external-plasma
-condition to `[particles.species.boundary_inflow]`, and move a rectangular emission surface inside the box to
-`source_mode="plane_source"`.
-
-The legacy form can define an aperture with `inject_face` and `pos_low` / `pos_high`, whereas `boundary_inflow` uses the
-complete box face. If migration changes the area, compare both `injected_count` and `injected_from_remote_C`, rather
-than only the configured density or flux, to confirm the intended total inflow. BEACH does not silently convert the
-legacy setting to either new form. See [Input Parameters](Parameters.en.html#source_mode--reservoir_face-deprecated) and
-[`SPEC.md`](../SPEC.md) for compatibility behavior and the complete migration constraints.
+All keys and constraints are in [Input parameters](Parameters.en.html#particles).

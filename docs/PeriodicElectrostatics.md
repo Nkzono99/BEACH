@@ -1,182 +1,133 @@
-title: periodic2静電場
+title: periodic2 の静電場
 
 Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.en.md)
 
-# periodic2静電場
+# periodic2 の静電場
 
-`field_boundary.mode="periodic2"` の静電場は、x/y 周期・z 非周期の slab で有限画像、無限周期 `k\ne0`、平面平均
-`k=0` を別々に計算し、各成分を一度ずつ加算します。
+`fields.boundary="periodic2"` は、x/y 方向に無限に繰り返し、z 方向には繰り返さない表面の場を計算します。
+レゴリスのような広い表面の一部をセル 1 つで表すときに使います。BEACH はこの場を 3 つの成分に分け、
+それぞれを一度ずつ足します。このページは、各成分が何を表し、どの設定で計算されるかを説明します。
 
-zero mode の「ゼロ」は x/y の波数 $k_x=k_y=0$ を意味します。この成分は高さに依存する平面平均の電場で、
-下側境界条件と Gauss 則から決まります。電場ソルバーが扱う物理成分の一つです。
+## 何を解くか
 
-## domain topology と場 closure を指定する
+セル内の表面電荷と、その x/y 方向の全ての複製がつくる場です。複製の和を、性質の違う 3 つの成分に分けます。
+
+| 成分 | 物理的な意味 | 計算のしかた |
+|---|---|---|
+| 近くの複製 | セルとその周囲 $N$ 層の複製がつくる、強く変化する局所的な場 | 有限画像として直接の和（Direct または FMM） |
+| 遠くの複製の面内変動成分（$k\ne0$） | 周囲 $N$ 層より外の複製がつくる、x/y 方向に変化する滑らかな場 | 遠方補正（`cached_kneq0`）。有限画像だけなら含めない |
+| 面平均成分（$k=0$） | x/y 方向に平均した場。各高さより下の総電荷で決まる | 三角形の高さ分布から解析的に計算 |
+
+面平均成分は数値的に消してよい成分ではなく、Gauss の法則と下側の境界条件で決まる物理的な成分です。
+
+## 設定
 
 ```toml
 [domain]
 box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 1.0]
+box_max = [1.0e-4, 1.0e-4, 1.0e-3]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
+
+[fields.solver]
+method = "fmm"
+
+[fields.periodic]
+backend = "cached_kneq0"
+image_layers = 1
+lower_boundary_model = "symmetric_vacuum"
 ```
 
-周期性は `[domain]` の topology です。`[field_boundary]` はその cell に適用する `free` / `periodic2` の場 closure を
-選びます。現行 periodic2 は x/y 周期・z 非周期だけを受理し、species や `[particle_boundary]` は周期軸を
-上書きできません。
+周期の軸は `domain.periodic_axes` で決め、場・粒子・照射の光線に共通です。`periodic2` は x/y 周期・z 非周期の組み合わせだけを受け付けます。
 
-## 場を3つの成分に分ける
+### backend を選ぶ
 
-| 成分 | 物理的な意味 | production経路 |
-| --- | --- | --- |
-| primary + near images | primary cell近傍の強い局所場 | Direct/FMMの有限画像和 |
-| far `k\ne0` | x/y方向に変化する無限周期遠方場 | `cached_kneq0` operator |
-| surface `k=0` | 各高さより下の総電荷が作る平面平均場 | triangle-height累積多項式 |
+| `fields.periodic.backend` | 含む成分 | 用途 |
+|---|---|---|
+| `finite_images` | 近くの複製だけ。面平均成分を分けない | 有限画像のモデル、小さな比較 |
+| `cached_kneq0` | 3 成分すべて | FMM での通常の計算 |
+| `panel_spectral_reference` | 3 成分すべて（面内変動成分を Fourier 和で直接計算） | Direct での小さな基準解 |
 
-`cached_kneq0` は surface `k=0` を除いた nonzero mode を返し、場の合成処理が境界条件を反映した physical
-`k=0` を一度だけ加えます。実行構成は [periodic2 有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
+`finite_images` の結果は、画像の層を増やして収束を確かめるまで、無限に繰り返す表面の解として扱えません。
+ソルバと場境界の組み合わせは[場ソルバを選ぶ](FieldSolvers.html)にあります。
 
-## nonzero modeの計算経路を選ぶ
+## 有限画像
 
-| 非零modeの構成 | 用途 | 制約 |
-| --- | --- | --- |
-| finite images | 小規模比較、有限画像model | 画像範囲外は含まない |
-| `panel_spectral_reference` | triangle P0の小規模reference | Direct、mode/quadrature収束が必要 |
-| `cached_kneq0` | FMM productionの無限周期nonzero mode | x/y periodic、z nonperiodic、`exclude_k0` |
+`fields.periodic.image_layers` $=N$ は、セルの周囲 $N$ 層の複製 $(i,j)\in[-N,N]^2$ を直接足します。
 
-`field_periodic_far_correction="auto"` は互換性のため `none` として動作します。無限周期の production 計算では
-`cached_kneq0` を明示します。起動時に高水準設定と typed `[periodic2]` の整合性を検証し、zero-mode ownership
-の矛盾を拒否します。削除済みの `[outer_plasma]` と `[coupling]` は unknown input です。
-`m2l_root_oracle`は削除済みで、設定すると起動時にrejectされます。
+| $N$ | 足すセル |
+|---|---|
+| 0 | セル自身だけ（$1\times1$） |
+| 1 | 周囲 1 層（$3\times3$） |
+| 2 | 周囲 2 層（$5\times5$） |
 
-Ewald2P teacher、root multipoleからlocal展開へのoperator、cacheとFMM stateの接続は
-[periodic2遠方補正](PeriodicFarCorrection.html)に分けています。このページでは、それを場全体のnonzero成分として扱います。
+遠方補正は、この $N$ 層の外側の複製だけを足します。FMM で直接足す層と、遠方補正が差し引く層は一致している必要があり、
+遠方補正の演算子は層の数ごとに作ります。
 
-## 有限画像和が含む範囲を定める
+## 遠くの複製の面内変動成分
 
-primary cellと設定した画像層$N$について
+`cached_kneq0` は、無限に繰り返す複製の和（Ewald 和）から、直接足した $N$ 層の寄与と面平均成分を除いたものを、
+事前に作った演算子で FMM に加えます。面平均成分を除くのは、下の解析的な面平均成分と二重に数えないためです。
+演算子の作り方、cache、精度は[periodic2 遠方補正](PeriodicFarCorrection.html)にあります。
 
-$$
-(i,j)\in[-N,N]^2
-$$
+## 面平均成分（$k=0$）
 
-のsourceを陽に加えます。near fieldは元のkernelで評価できますが、範囲外に続く画像が作る滑らかなfar fieldは
-含まれません。したがって、`field_periodic_far_correction="none"`は有限画像modelです。$N$を増やした結果が
-収束するまでは、無限周期解として扱えません。
-
-FMMのnear image層はfar operatorを作るときに差し引くshellと一致する必要があります。cache fingerprintが画像層を
-identityに含むのはこのためです。
-
-## Ewald2Pで無限周期の遠方場を分離する
-
-`cached_kneq0` は Ewald2P teacher と有限画像 shell の差を operator として適用し、teacher 由来の対称 `k=0` を
-除きます。場の合成処理は選択した physical `k=0` を一度だけ加えます。
-
-$$
-K_\mathrm{surface}
-=\left(K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}\right)
-+K_0^\mathrm{physical}
-$$
-
-括弧内が nonzero backend の責務です。`zero_mode_policy="exclude_k0"` は平均場を捨てる指定ではなく、二重加算を
-防ぐ ownership 規則です。Ewald 分割、operator fit、FMM への注入位置、cache lifecycle は
-[periodic2 遠方補正](PeriodicFarCorrection.html)にまとめています。
-
-## 物理`k=0`を一度だけ加える
-
-triangle $i$の総電荷を$q_i$、面積のうち高さ$z$以下にある割合を$F_i(z)$とすると、平面平均された累積電荷は
+三角形 $i$ の総電荷を $q_i$、その面積のうち高さ $z$ 以下にある割合を $F_i(z)$ とすると、高さ $z$ より下の総電荷は
 
 $$
 C(z)=\sum_iq_iF_i(z)
 $$
 
-です。$F_i$は3頂点の高さの間で区分二次関数になります。geometry planは全頂点の高さをsortしてbreakpointを作り、
-各triangleがそれぞれの区間へ加える二次係数を保存します。水平triangleはsheet chargeとして別に保持します。
-面上評価ではminus trace、plus trace、principal valueを区別します。
-
-batchで$q_i$が変わると、保存済みgeometry係数へ$q_i$を掛けて区間差分を作り、prefix sumで
-
-$$
-C(z)=a_0+a_1z+a_2z^2
-$$
-
-の区間係数とそのprimitiveを更新します。geometry planは再構築しません。
-
-## Gauss則からzero-mode fieldとpotentialを求める
-
-cell面積$A=L_xL_y$、下側far fieldを$E_\mathrm{bottom}$とするとGauss則から
+です。$F_i$ は 3 頂点の高さの間で区分的な 2 次式なので、$C(z)$ も区間ごとの 2 次式になります。セルの面積を
+$A=L_xL_y$、下側の遠方の電場を $E_\mathrm{bottom}$ とすると、Gauss の法則から
 
 $$
 E_0(z)=E_\mathrm{bottom}+\frac{C(z)}{\epsilon_0A}
 $$
 
-です。gauge点$(z_g,\phi_g)$からのpotentialは
+です。基準点 $(z_g,\phi_g)$ からの電位は
 
 $$
 \phi_0(z)=\phi_g-E_\mathrm{bottom}(z-z_g)
 -\frac1{\epsilon_0A}\int_{z_g}^zC(\zeta)\,d\zeta
 $$
 
-です。breakpoint区間を二分探索し、区間内の二次式と三次primitiveを使うため、1点評価は$O(\log N_z)$です。
+です。総電荷が 0 でないセルでは、上方に一定の電場と線形の電位が残ります。
 
-非中性cellではz遠方に一定fieldと線形potentialが残り得ます。zero modeは数値的に消してよい成分ではなく、Gauss則と
-境界条件を満たす物理成分です。
-
-## z方向の境界条件で平均場を閉じる
-
-総表面電荷$Q=\sum_iq_i$について、現行選択は次のとおりです。
+### 下側の境界条件
 
 | `lower_boundary_model` | $E_\mathrm{bottom}$ | $E_\mathrm{top}$ | 意味 |
-| --- | ---: | ---: | --- |
-| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 上下に同じvacuum半空間がある無外場境界条件 |
-| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 下側電束を0に固定するlegacy境界条件 |
+|---|---:|---:|---|
+| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 上下に同じ真空が広がり、外部の電場がない |
+| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 最下層の電荷より下で電場が 0 |
 
-どちらのmodelも、誘電体内部のscreeningやpolarizationは解きません。`symmetric_vacuum`は、追加のinterfaceや
-誘電率を持たない最小の対称境界条件です。`e_bottom_zero`は過去の計算を再現するための設定であり、一般的な
-物理defaultではありません。
+$Q=\sum_iq_i$ はセルの総電荷です。総電荷が 0 なら二つの条件は一致します。どちらも、物体の内部の誘電分極や遮蔽は解きません。
 
-`surface_current_model.model="zhao_stationary"`では、外部シース根の壁電位$\phi_0$をz-high面$(H,\phi_0)$の
-zero-mode gauge点にします。真空中の定数電位なので場とGauss則は変わらず、inner potentialが上流プラズマ0 V基準になります。
-外部のfield profileをBEACH領域へ追加する処理ではありません。総電荷は零電流targetが浮遊条件へ拘束します。詳細は
-[Zhao closure](ZhaoStationaryClosure.html)にまとめています。
+### 電位の基準
 
-### 外部シースの平均場だけで置き換えられるか
+面平均成分の基準点は、外部シースとの接続を使うと上端面 $(z_\mathrm{high},\phi_0)$ になり、電位は上流のプラズマを 0 V とする値になります
+（[外部シースとの接続](ZhaoStationaryClosure.html#上端面の電位を壁電位に合わせる)）。それ以外では、電位は上端面の平均との差として読みます。
 
-粒子層では、総電荷 $Q$ が小さくても、高さごとに正負の電荷が分かれていれば $C(z)$ は大きく変わります。
-この層内の平均場も $k=0$ です。外部の平面シース場だけに置き換えると、表面電荷が作るこの成分を落とし、
-$dE_0/dz=\bar\rho_\mathrm{surface}/\epsilon_0$ を満たさなくなります。
+### 外部シースの平均場で置き換えられない理由
 
-外部定常解を背景として使う場合も、シースの空間電荷と粒子層の表面電荷を区別して足し、境界の電束と電位を
-整合させる必要があります。同じ表面電荷を外部解と BEM の両方で数えてはいけません。
-現行の Zhao closure は、粒子層内の平均場を表面電荷から求め、外部シースの零電流根から電位基準と障壁を受け取ります。
-この分離自体は、batch 内で固定する局所場の時間刻み制限をなくしません。
-[batch 幅の検証](BatchDurationStability.html)も必要です。
+粒子の層の中では、総電荷が小さくても、高さごとに正負の電荷が分かれていれば $C(z)$ は大きく変わります。
+この層内の平均場も面平均成分です。外部シースの平面の場だけで置き換えると、表面電荷がつくるこの成分を落とします。
+外部シースとの接続では、層内の平均場は表面電荷から計算し、外部シースからは電位の基準と障壁だけを受け取ります。
 
-## 粒子衝突では軌道が届く周期画像を調べる
+## 粒子の衝突と周期画像
 
-field targetはprimary periodic cellへwrapして評価しますが、軌道上の衝突・境界位置は物理座標のまま保持します。
-mesh collisionでは、軌道線分が到達し得るperiodic imageを幾何的に探索します。fieldのnear-image layerと
-collisionのimage boundは、それぞれ独立に決まります。[<sup>1</sup>](ParticleEvents.html)
+場はセル内へ戻した位置で評価しますが、粒子の軌道は物理的な座標のまま追跡します。表面との衝突は、
+軌道が届き得る周期画像を幾何的に探して判定します（[粒子の衝突・境界イベント](ParticleEvents.html)）。
 
-## 成分ごとに収束を確認する
+## 収束を確かめる
 
-- finite image modelではimage layerを増やして目的量を収束させる。
-- cached modelではcache miss/hit、thread/MPI構成で同じoperator結果を確認する。
-- Ewald $\alpha$、real/reciprocal layer、proxy/check設定に対するteacher/operator誤差を確認する。
-- primary、near、far、symmetric `k=0` subtraction、physical `k=0`の二重加算がないことをoracleと比較する。
-- Gauss residualと上下の境界条件を確認する。
-- 非中性cellの有限高さpotential差を、そのまま無限遠escape energyと解釈しない。
+- `finite_images` では、`image_layers` を増やして注目する量が変わらないことを確かめる。
+- `cached_kneq0` では、cache を作り直した結果と再利用した結果、スレッド数・MPI 構成を変えた結果が一致することを確かめる（[periodic2 遠方補正](PeriodicFarCorrection.html)）。
+- 総電荷が 0 でないセルでは、有限の高さでの電位差を、そのまま無限遠へ逃げるのに必要なエネルギーと読まない。
 
-FMM内部のEwald式とoperator APIは[FMM内部実装](FMMCore.html)にまとめています。
+## 適用範囲
 
-## Code reference
-
-- periodic FMM plan/state/evaluation: [`bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
-- Ewald teacherとcached root operator: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
-- cached symmetric `k=0` subtraction: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
-- surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90)
-- zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90)
-- 非ゼロ Fourier 参照評価: [`bem_coulomb_fmm_periodic_nonzero_reference.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90)
-- 上部真空域での Fourier 評価: [`bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90)
-- component ownershipと場の合成: [`bem_electrostatic_snapshot.f90`](../src/physics/field_solver/bem_electrostatic_snapshot.f90)
+- 周期は x/y の 2 軸だけです。z 方向は繰り返しません。
+- 物体の内部の誘電分極、抵抗、遮蔽は解きません。

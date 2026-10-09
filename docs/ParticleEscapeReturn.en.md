@@ -1,95 +1,95 @@
-title: Particle escape and local return
+title: Particles at box boundaries
 
-Lang: [日本語](ParticleEscapeReturn.md) | [English](ParticleEscapeReturn.en.md)
+Lang: [English](ParticleEscapeReturn.en.md) | [日本語](ParticleEscapeReturn.md)
 
-# Particle escape and local return
+# Particles at box boundaries
 
-BEACH does not evolve plasma outside the box. `[particle_boundary]` makes each nonperiodic face `open`, `reflect`, or
-`redistributed_reflect`, and open
-faces apply `ordinary_open_model="escape" | "potential_barrier"`. The treatment is shared by boundary-reservoir inflow,
-`plane_source`, `photo_raycast`, `volume_seed`, and deprecated `reservoir_face`. Periodicity belongs to
-`domain.periodic_axes`; particle-boundary tables cannot specify
-`periodic`.
-The fully qualified key is `particle_boundary.ordinary_open_model`.
+When a particle reaches a box face, it wraps to the opposite side on a periodic face and follows the treatment chosen for the
+face on a non-periodic face. The treatment is the same regardless of the source that created the particle. BEACH does not solve
+the plasma outside the box, so the treatment chosen here decides in its place whether a particle that leaves the face comes back.
 
-## 1. `escape`: remove a particle at an open face
+## Choose the treatment of each face
+
+| Treatment | Setting | What happens to the particle |
+|---|---|---|
+| Periodic | `domain.periodic_axes` | Moves to the opposite face with unchanged velocity |
+| Open | `"open"` | Escapes. With `open_model="potential_barrier"`, a potential barrier decides between reflection and escape |
+| Reflect | `"reflect"` | Reverses the normal velocity. Position and tangential velocity are unchanged |
+| Reflect with redistribution | `"redistributed_reflect"` | Reverses the normal velocity and chooses the in-plane position again uniformly |
 
 ```toml
-[particle_boundary]
-x_low = "open"
-x_high = "open"
-y_low = "open"
-y_high = "open"
+[particles.boundary]
 z_low = "open"
 z_high = "open"
-ordinary_open_model = "escape"
+open_model = "escape"      # treatment of open faces; the default
 ```
 
-The particle is removed at the crossing. Its macro charge $qw$ is recorded in the species-resolved
-`escaped_to_infinity` ledger term, while surface charge `q_elem` is unchanged.
+Periodic axes are shared by the field and the particles, so neither `[particles.boundary]` nor per-species settings can change
+them. Omitted non-periodic faces are open. To change the treatment for one species, choose `inherit` (default), `open`,
+`reflect`, or `redistributed_reflect` in `[particles.species.boundary]`.
 
-See [Particle collision and boundary events](ParticleEvents.en.html) for simultaneous face crossings and
-reintegration of the step remainder after reflecting or periodic faces.
+## Escape
 
-## 2. `potential_barrier`: decide reflection at a scalar barrier
+A particle that crosses an open face is removed at the crossing point. Its charge is counted as escaped charge of its species
+(`escaped_to_infinity_C` in `charge_ledger.csv`), and the surface charge does not change.
 
-`potential_barrier` is a reduced model that uses only scalar potential at the crossing.
+## Potential barrier (`potential_barrier`)
+
+Set the upstream potential $\phi_\infty$ of the external plasma (`particles.reservoir.phi_infty_v`), and decide whether a
+particle leaving an open face can reach upstream from the potential $\phi_b$ at its crossing point.
+
+$$
+\Delta U=q(\phi_\infty-\phi_b),\qquad
+K_n=\frac12 m v_n^2
+$$
+
+$v_n>0$ is the outward normal velocity. If $\Delta U>0$ and $K_n<\Delta U$, the normal velocity is reversed and tracking
+continues; otherwise the particle escapes. The tangential velocity is unchanged.
 
 ```toml
-[particle_boundary]
-ordinary_open_model = "potential_barrier"
+[particles.boundary]
+open_model = "potential_barrier"
 
-[reservoir]
-phi_infty = 0.0
+[particles.reservoir]
+phi_infty_v = 0.0
 ```
 
-For crossing-point potential $\phi_b$ and outward normal speed $v_n>0$, the barrier to infinity is
+$\phi_b$ is evaluated with the field frozen at the start of the batch, including any external field. A uniform external field
+has no potential at infinity, so when you use one, set $\phi_\infty$ consistently with that reference. At a corner where several
+open faces are crossed at once the test is undefined and the run stops.
 
-$$
-U_b=q(\phi_\infty-\phi_b).
-$$
-
-If
-
-$$
-\frac12m v_n^2<U_b\quad\text{and}\quad U_b>0,
-$$
-
-the normal velocity is reversed and the step remainder is tracked. Otherwise the particle escapes. Tangential velocity
-is unchanged.
-
-It does not retain an electric field outside the open face, a turning position, flight time, or space charge. A corner that
-crosses multiple open faces stops as `ambiguous_open_corner`.
-
-The crossing potential follows the batch-start fixed field used for particle motion and includes the local potential of
-`sim.e0`. Because a uniform field has no finite potential at infinity, a configuration that combines `sim.e0` with this
-model must use a consistent effective reservoir reference for `reservoir.phi_infty`.
+To filter incoming particles with the same upstream potential, set the inflow mapping to `infinity_barrier`
+([Inject through a boundary](ReservoirInjection.en.html#3-choose-the-inflow-mapping)).
 
 ## Outer-sheath barrier
 
-`surface_current_model.model="zhao_stationary"` applies the electron / PE barrier potentials from the zero-current root of
-the outer sheath at z-high, independently of the ordinary-open model. The outward decision uses the same scalar-energy
-test. A particle below the barrier returns with its normal velocity reversed, and a particle above it escapes; BEACH
-aggregates the two separately.
+With the outer-sheath connection, electrons and photoelectrons leaving through the top face are tested against the barrier given
+by the zero-current root of the outer sheath. The test has the same form as the potential barrier; the barrier potential and the
+choice of the return position differ ([Connecting to the outer sheath](ZhaoStationaryClosure.en.html#particles-entering-and-leaving-through-the-top-face)).
 
-Return reverses normal velocity immediately; this quasistatic approximation retains no outer turning position or flight
-time. In an x/y periodic cell the lateral drift in the outer sheath is taken to exceed the cell width, so the return
-position is redrawn uniformly over the z-high plane. Do not stack a manual `potential_barrier` or closed-PE reflection on
-such a case. See the [Zhao closure](ZhaoStationaryClosure.en.html) for barriers and the potential reference.
+## Reflect and reflect with redistribution
 
-## Return of closed photoelectrons
+Both reverse only the normal velocity and keep the tangential velocity. `reflect` keeps the position. For reflection at a single
+face, `redistributed_reflect` chooses both in-plane coordinates again uniformly within the face span excluding small margins at
+the edges. When a particle reaches several faces at once at a corner or edge, only the axes not belonging to the faces reached
+are chosen again.
 
-For closed PE, set the face matching `inject_face` to `reflect` or `redistributed_reflect` in
-`[particles.species.boundary]` for the negative `photo_raycast` species, and set
-`surface_charge_closure="neutral_return"`. Both actions reverse normal velocity and preserve tangential velocity, but they
-treat the return position differently.
+Reflection of photoelectrons at the top face is used by closed photoelectrons
+([Photoelectron emission and charge closures](PhotoelectronEmission.en.html#closed-photoelectrons-neutral_return)).
+The order of decisions when several faces are reached at once is in [Collision and boundary events](ParticleEvents.en.html).
 
-| Action | Return position |
-| --- | --- |
-| `reflect` | Preserve the tangential position of the boundary event |
-| `redistributed_reflect` | For one face, uniformly redistribute both in-plane coordinates over the box span excluding its end guards |
+## Outputs to check
 
-At a simultaneous edge or corner event, `redistributed_reflect` relocates only axes outside the event mask. See
-[Particle collision and boundary events](ParticleEvents.en.html) for details. Keeping the global face open lets ambient species
-with `inherit` follow the ordinary-open contract. See [Photoelectron emission](PhotoelectronEmission.en.html) for the
-configuration and charge-balance requirements.
+| Output | What to check |
+|---|---|
+| `summary.txt` | `escaped_boundary` (particles that left through a boundary) and `particle_ordinary_open_model` (treatment used for open faces) |
+| `charge_ledger.csv` | `escaped_count` and `escaped_to_infinity_C` per species |
+
+`escaped` in `summary.txt` also includes particles whose fate was not decided within the step limit (`survived_max_step`).
+Read the number that actually left through a boundary from `escaped_boundary`.
+
+## Scope
+
+- The field outside an open face, turning positions, flight times, and space charge are not solved. The potential barrier is an
+  approximation that decides only from the potential difference to upstream.
+- Reflection places a mirror on a box face. It does not represent an external plasma or sheath.

@@ -1,251 +1,236 @@
-title: Understand the Zhao Stationary Closure
+title: Connecting to the outer sheath (Zhao stationary sheath)
 
 Lang: [English](ZhaoStationaryClosure.en.md) | [日本語](ZhaoStationaryClosure.md)
 
-# Understand the Zhao Stationary Closure
+# Connecting to the outer sheath (Zhao stationary sheath)
 
-`surface_current_model.model="zhao_stationary"` assumes a stationary sheath outside the BEACH domain and connects its
-currents and velocity-space barriers to the top of the box. It does not evolve the outer sheath in time. By default,
-BEACH solves the zero-current root once at run startup, then applies the fixed total currents to hit and return
-distributions tracked inside the box. With `outflow_refresh_batches>0`, BEACH periodically re-solves the root with the PE
-outflow observed at the box top as the outer-sheath emission source.
+A BEACH cell is much shorter than the Debye length, so the outer sheath sees the top face (z-high) as the surface itself.
+This model assumes a planar stationary sheath outside the cell, solves its zero-current root, and gives BEACH the currents,
+barriers, and potential reference at the top face. It does not evolve the sheath in time.
 
-This page explains how the root, the 0 V reservoir, and photoelectron (PE) return and escape fit together.
-See the [input-parameter reference](Parameters.en.html) for every key and constraint, and the
-[output-format reference](OutputReference.en.html#zhao_stationary) for the complete receipt list.
+By default the root is solved once at the start of the run. With outer-root refresh
+(`sheath.coupling.outflow_refresh_batches`), the root is re-solved periodically from the photoelectrons observed to leave
+through the top face, so that re-absorption of photoelectrons by the structure inside the cell is fed back to the outer sheath.
+How to assemble a whole case is described in [Set up a periodic surface in plasma](PeriodicPlasmaSurface.en.html).
 
-## Problem solved at startup
+## What is solved
 
-The Zhao stationary closure assumes a planar, collisionless, unmagnetized outer sheath. It uses ambient electrons,
-cold ions, and photoelectrons when PE is active to solve a Zhao Type A, B, or C zero-current root. The solution provides
-the branch, surface potential $\phi_0$, potential minimum $\phi_m$, ambient-electron density, and species current densities.
-
-The root comes from the external library [sheath-model](https://github.com/Nkzono99/sheath-model), pinned to a commit in
-`fpm.toml`. For a root of the algebraic equations (quasi-neutrality, zero current, and the Type A upper connection),
-sheath-model also checks that $E^2\ge0$ over the whole potential profile, that the profile approaches a neutral
-zero-field upstream state, and that the ion flow is not blocked; it rejects a root that fails. With
-`zhao_branch="auto"`, it returns the first admissible branch in the order C, A, B below 20 degrees of solar elevation
-and A, B, C otherwise. If no admissible root exists, BEACH stops at startup and reports why.
-
-Ions are a cold beam; the ion-species temperature is not used for the root.
-
-### Set the electron drift to zero
-
-With an inward electron drift and reflected slow electrons, Type A and C cannot connect to a neutral zero-field state at
-infinity. Close to upstream, the electron density gains a $u\,h\log(1/h)$ term and $E^2$ becomes negative ($u$ is the
-drift over the electron thermal speed and $h$ the depth below the upstream potential). This failure does not depend on
-the size of $u$: any drift rejects A and C, and only B can remain. With the solar-wind normal speed also given to the
-electrons, a 60-degree elevation rejects A and selects B, and a 10-degree elevation has no admissible root.
-
-The electron thermal speed (about 2000 km/s at 12 eV) far exceeds the solar-wind flow speed, so set the electron drift
-to zero. The ion drift (the solar-wind normal speed) is required. All examples use a zero electron drift.
-
-By default, BEACH does not resolve the root again during the run. The branch, $\phi_0$, $\phi_m$, and current targets
-remain fixed as the surface charge changes between batches. To update the outer root from the observed PE outflow, see
-[Re-solve the outer root from the observed PE outflow](#re-solve-the-outer-root-from-the-observed-pe-outflow).
-
-### No PE means Type C
-
-With `photoelectron_source_scale=0.0`, omit the PE species and PE-specific inputs. `zhao_branch="auto"` or `"c"` selects
-Type C and solves
+The model is a one-dimensional sheath formed by the solar wind upstream (potential 0 V) and photoelectrons emitted from the
+surface. It finds the stationary solution with zero net current to the surface (the zero-current root).
 
 $$
-J_e + J_i = 0.
+J_e + J_i + J_{escape} = 0
 $$
 
-The result contains only electron and ion absorption targets and the z-high kinetic map. It creates no PE particles and
-no PE emission, return, or escape targets.
+$J_e$ is the absorbed electron current, $J_i$ the absorbed ion current, and $J_{escape}$ the current of photoelectrons that
+escape; signs are contributions to surface charging. Without photoelectrons the condition is $J_e + J_i = 0$. Roots fall into
+three types by the shape of the potential. Without photoelectrons only Type C exists.
 
-### With PE, close the large channels separately
+| Type | Shape of the potential |
+|---|---|
+| Type A | Has a potential minimum $\phi_m$ between the surface and the upstream plasma |
+| Type B | Decreases monotonically from the surface to upstream (positive surface) |
+| Type C | Increases monotonically from the surface to upstream (negative surface) |
 
-The PE source density follows from solar elevation $\alpha$, reference density $n_{pe,ref}$, and scale $s_{UV}$:
+The root gives the type (branch), the wall potential $\phi_0$, the potential minimum $\phi_m$, the upstream electron density
+$n_{e,\infty}$, and the current of each species. BEACH solves the root with the external library
+[sheath-model](https://github.com/Nkzono99/sheath-model) (the commit is pinned in `fpm.toml`). sheath-model also checks that an
+algebraic root satisfies the following conditions and rejects roots that do not.
 
-$$
-n_{pe,0}=s_{UV}n_{pe,ref}\sin\alpha.
-$$
+- $E^2\ge0$ over the whole potential profile
+- The profile approaches a neutral, field-free state upstream
+- The ion flow is not blocked on its way
 
-The ion-species density is the solar-wind density at infinity ([reservoir density](#reservoir-density)). PE
-`emit_current_density_a_m2` samples the raw particle distribution; the Zhao root determines the fixed current targets.
-Current signs below denote contributions to surface charging.
+`sheath.zhao.branch="auto"` tries C → A → B when the solar elevation is below 20 degrees and A → B → C otherwise, and returns
+the first root that holds. If no root holds, the run stops at startup with the reason.
 
-| Channel | Sign | BEACH treatment |
+## Assumptions
+
+- The sheath is planar, collisionless, unmagnetized, and stationary.
+- Solar-wind electrons are a Maxwellian with zero drift. Ions are a cold beam, and the ion temperature is not used for the root.
+- Photoelectrons are emitted from the surface as a half-Maxwellian with density $n_{pe,0}=s_{UV}\,n_{pe,ref}\sin\alpha$
+  ($\alpha$ is the solar elevation, $n_{pe,ref}$ the reference density, and $s_{UV}$ a scale factor).
+- The cell is a wall of zero thickness for the outer sheath.
+
+### Why the electron drift must be zero
+
+When electrons drift inward and slow electrons are reflected, Type A and Type C cannot connect to the neutral, field-free
+upstream state. A term $u\,h\log(1/h)$ appears in the electron density close to upstream and makes $E^2<0$ ($u$ is the ratio of
+the drift to the electron thermal speed and $h$ the depth below the upstream potential). This breakdown does not depend on the
+size of $u$, so with any drift only Type B holds. For example, giving electrons the normal solar-wind velocity at a solar
+elevation of 60 degrees rejects Type A and selects B; at 10 degrees no root holds.
+
+The electron thermal speed (about 2000 km/s at 12 eV) is much larger than the solar-wind speed, so set the electron drift to zero.
+The ion drift (the normal solar-wind velocity) is required.
+
+## How BEACH uses the root
+
+### Fix the currents to the root
+
+The three role species (electrons, ions, photoelectrons) use the fixed-current charge closure (`fixed_current`).
+In each batch, the tracked distribution is scaled uniformly to the target charge, which is the root current multiplied by the
+batch duration.
+
+| Channel | Sign | Treatment |
 |---|---:|---|
-| Ambient-electron absorption $J_e$ | negative | Surface absorption target |
-| Ion absorption $J_i$ | positive | Surface absorption target |
-| PE emission $J_{emit}$ | positive | Emission-reaction target |
-| PE return $J_{return}$ | nonpositive | Surface reabsorption target |
-| PE escape $J_{escape}$ | positive | External-boundary target, not deposited on the surface |
+| Electron absorption $J_e$ | negative | Target for absorption on the surface |
+| Ion absorption $J_i$ | positive | Target for absorption on the surface |
+| Photoelectron emission $J_{emit}$ | positive | Target for the reaction charge left on the emitter |
+| Photoelectron return $J_{return}$ | ≤ 0 | Target for re-absorption on the surface |
+| Photoelectron escape $J_{escape}$ | positive | Current that leaves the box and is not deposited |
 
-The Zhao root supplies two balances:
+The root satisfies $J_{return}=J_{escape}-J_{emit}$ and $J_e+J_i+J_{escape}=0$, so the surface currents close as
+$J_e+J_i+J_{return}+J_{emit}=0$. Emission and return are scaled separately, and the net photoelectron current, a small
+difference of two large currents, is never used as the denominator of a scale. The total surface charge is therefore
+constrained by the floating condition, and only its distribution over the elements is set by tracking.
 
-$$
-J_{return}=J_{escape}-J_{emit}\le0,
-\qquad
-J_e+J_i+J_{escape}=0.
-$$
+### Match the top-face potential to the wall potential
 
-The PE channels and surface channels therefore close independently:
+With a backend that treats the zero mode of the field separately (`fields.periodic.backend` set to `cached_kneq0` or
+`panel_spectral_reference`), the horizontal mean potential of the top face is matched to the wall potential $\phi_0$.
+Adding a constant in vacuum does not change potential differences in the cell or particle orbits; it makes the potentials
+values referenced to the upstream plasma at 0 V. With a setting that does not separate the zero mode, the potential cannot be
+matched to $\phi_0$ and the run warns at startup.
 
-$$
-J_{return}+J_{emit}-J_{escape}=0,
-\qquad
-J_e+J_i+J_{return}+J_{emit}=0.
-$$
+### Particles entering and leaving through the top face
 
-BEACH rescales emission and return separately instead of dividing by their small net PE current. The signed current
-carried outward by escaping PE particles is $-A J_{escape}$ and is not added to a surface element.
-
-## Map the 0 V reservoir to the current box top
-
-The configured ambient Maxwell VDF represents a reservoir at the plasma potential at infinity, defined as 0 V. At the
-start of each batch, BEACH evaluates the mean z-high potential $\phi_f$.
-
-With an explicit split `[periodic2]` table, BEACH fixes the z-high plane-mean potential to the outer wall potential
-$\phi_0$. The domain is much smaller than the Debye length, so the z-high plane is the wall seen by the outer 1-D sheath.
-Barriers and the inflow map are differences from the upstream 0 V; without this reference, the barrier height would
-depend on the charge arrangement inside BEACH. A constant potential in vacuum does not change trajectories, so the
-reference does not change potential differences inside the box. A field solver without a split zero mode cannot tie the
-z-high potential to $\phi_0$, and BEACH warns at startup.
-
-It selects an
-inflow tail that can reach both the outer access bottleneck and $\phi_f$, then maps the normal speed to the injection face by
+**Inflow:** from the upstream distribution at 0 V, only particles that can pass the outer-sheath barrier and reach the top face
+are selected, and their normal velocity is mapped to the top face by energy conservation.
 
 $$
-\frac12 m v_{n,f}^{2}=\frac12 m v_{n,\infty}^{2}-q(\phi_f-0).
+\frac12 m v_{n,f}^{2}=\frac12 m v_{n,\infty}^{2}-q\phi_f
 $$
 
-Inspect the potential variation across z-high when deciding whether this face-mean approximation is adequate.
+$\phi_f$ is the mean top-face potential at the start of the batch and $v_{n,\infty}$ the upstream normal velocity.
 
-| Branch | Ambient-electron access | Electron / PE outward barrier | Ion |
+**Outflow:** electrons and photoelectrons that cross the top face outward are tested against the outer barrier with the
+potential $\phi_c$ at the crossing point and the normal kinetic energy. Particles that cannot pass are returned with their normal
+velocity reversed; particles that can pass escape.
+
+| Type | Barrier for incoming electrons | Barrier for outgoing electrons and photoelectrons | Ions |
 |---|---:|---:|---:|
 | Type A | $\phi_m$ | $\phi_m$ | 0 V |
 | Type B / C | 0 V | 0 V | 0 V |
 
-For an outward z-high crossing, BEACH uses the local crossing potential rather than the face mean, together with the
-particle's normal kinetic energy. An electron or PE that cannot reach the fixed barrier returns with its normal velocity
-reversed; only a particle with enough energy is classified as escape. The tangential velocity is preserved. In an x/y
-periodic cell, BEACH redraws the return position uniformly over the z-high plane, because the lateral drift during the
-outer flight, tangential speed times flight time, is of order meters and far exceeds the cell width. Without x/y
-periodicity, the particle returns at its crossing point. The PE launch VDF remains the configured surface half-Maxwellian.
+For example, with Type A, $\phi_0\approx6.9$ V, and $\phi_m\approx-0.07$ V, an electron leaving the top face is returned if its
+normal energy is below about 7 eV. In Type C the wall is negative, so every outgoing electron escapes.
 
-Total energy is conserved in the outer electrostatic field, so the normal kinetic energy is matched to the local
-potential $\phi_r$ at the return position:
+In an x/y-periodic cell, the return position is chosen again uniformly on the top face. The lateral distance a particle travels
+in the outer sheath, the flight time times the tangential velocity, is of order meters and much larger than the cell width.
+The normal kinetic energy is corrected with the potential $\phi_r$ at the return position so that the total energy is conserved.
 
 $$
-\frac12 m v_{n,r}^{2}=\frac12 m v_{n,c}^{2}+q(\phi_c-\phi_r),
+\frac12 m v_{n,r}^{2}=\frac12 m v_{n,c}^{2}+q(\phi_c-\phi_r)
 $$
 
-where $\phi_c$ is the local potential at the crossing point. A slow particle for which the right-hand side is not
-positive cannot reach the return position. Such a particle spends little time outside and barely moves sideways, so it
-returns at its crossing point.
+A slow particle for which the right-hand side is zero or negative stays only briefly outside and hardly moves sideways, so it is
+returned at the crossing point. The tangential velocity is unchanged.
 
-### Reservoir density
+### Inject electrons at the upstream density
 
-Write the same solar-wind density at infinity, $n_i$, in both the ambient-electron and the ion species. Different values
-are a configuration error.
-
-Electrons that reach the wall are absorbed and never come back, so the outward half of the electron distribution at
-infinity lacks its fast part. The Zhao root solves for the upstream electron Maxwellian density $n_{e,\infty}$ that keeps
-infinity quasi-neutral with this loss included. For Type C with zero drift,
+Electrons that reach the wall are absorbed and do not come back, so the upstream electron distribution lacks its fast outward
+part. The root solves the density $n_{e,\infty}$ of the electron Maxwellian so that the plasma is quasi-neutral upstream
+including this missing part. For Type C without photoelectrons,
 
 $$
-n_{e,\infty}=\frac{n_i}{1-\frac12\operatorname{erfc}\sqrt{-\phi_0/T_e}},
+n_{e,\infty}=\frac{n_i}{1-\frac12\operatorname{erfc}\sqrt{-\phi_0/T_e}}
 $$
 
-which exceeds $n_i$. In Type A the barrier becomes $\phi_m$, and PE at infinity also enter quasi-neutrality.
+which is larger than the ion density $n_i$. BEACH injects electrons through the top face at this $n_{e,\infty}$ and ions at the
+configured $n_i$. The injected electron flux then matches the electron current of the root, and the electron scale is 1 within
+statistical error. $n_{e,\infty}$ is updated each time the outer root is refreshed.
 
-BEACH injects the z-high electron inflow at this $n_{e,\infty}$ and the ions at the configured $n_i$. The injected flux
-then matches the root's electron current, and the fixed-current electron scale factor stays at 1 within Monte Carlo
-noise. With `outflow_refresh_batches>0`, $n_{e,\infty}$ is updated each time the outer root is re-solved.
+### Refresh the outer root
 
-## Fixed quantities and batch-dependent quantities
+Structure inside the cell changes the emission seen by the outer sheath. Part of the photoelectrons emitted by the surface is
+re-absorbed in the cell, so fewer photoelectrons leave through the top face than are emitted, with a different energy
+distribution. Outer-root refresh feeds this change back to the outer sheath. Every `outflow_refresh_batches` accepted batches:
 
-| Owned by the outer root (fixed during the run when `outflow_refresh_batches=0`) | Re-evaluated or resampled each batch |
-|---|---|
-| Branch, $\phi_0$, $\phi_m$, upstream electron Maxwellian density | Surface charge and field inside the BEACH domain |
-| Signed species current densities and reference area | Mean z-high potential $\phi_f$ and selected inflow tail |
-| Absorption, emission, and escape current targets | Trajectories, hit positions, and local return / escape classification |
-| Branch-dependent access and barrier potentials | Target charge $I\Delta t$ and scaling of the raw distribution |
-
-This separation enforces the stationary total currents, while the elementwise charging pattern remains a Monte Carlo
-result of the trajectories in each batch.
-
-Check whether the fixed-current closure imposes a current split that the tracking does not produce with
-`target_over_tracked` in `fixed_current_history.csv` ([column definitions](OutputReference.html#fixed-current-scale-factors)).
-When the outer root and the in-cell tracking agree, every species stays near 1. Different factors per species change the
-current balance on each element and move the steady state away from the one set by the tracking alone.
-
-## Re-solve the outer root from the observed PE outflow
-
-Grain and pore structure changes the emission seen by the outer sheath. Some PE emitted by the surface are recaptured
-inside the cell, so fewer PE leave through the z-high plane and their energy distribution changes.
-`outflow_refresh_batches=N` ($N>0$) is a weak coupling that returns this change to the outer root.
-
-```toml
-[surface_current_model]
-model = "zhao_stationary"
-outflow_refresh_batches = 50
-```
-
-After every $N$ accepted batches, BEACH:
-
-1. Sums, over the window, the number $N_{out}$ of PE crossing z-high outward, their normal kinetic energy, and the
-   surface emission count $N_{emit}$. It forms the transmission $\eta=N_{out}/N_{emit}$ and mean normal energy $\bar K$.
-2. Replaces the outer-sheath emission source by a half-Maxwellian with flux $\eta\Gamma_{emit}$ and temperature
-   $\bar K$, then solves the zero-current root. $\Gamma_{emit}$ is the configured surface emission flux; the surface
-   emission target is unchanged.
-3. Passes the current targets, access / barrier potentials, and z-high potential reference $\phi_0$ of the new root to the
-   next batch.
-
-The surface return target remains $J_{emit}-J_{escape}$; it combines recapture inside the cell and return from the outer
-sheath. Every batch target satisfies $J_e+J_i+J_{escape}=0$, so the mean cell charge is held by the floating condition.
-Because the mean charge is not integrated as an outer-sheath state variable, neither its Monte Carlo noise nor the stiff
-time scale of the sheath capacitance enters the outer-root update.
+1. Sum the number $N_{out}$ and the normal kinetic energy of photoelectrons crossing the top face outward, and the number
+   $N_{emit}$ emitted by the surface. Compute the transmission $\eta=N_{out}/N_{emit}$ and the mean normal energy $\bar K$.
+2. Replace the photoelectron source of the outer sheath with a half-Maxwellian of flux $\eta\Gamma_{emit}$ and temperature
+   $\bar K$, and solve the zero-current root. $\Gamma_{emit}$ is the surface emission flux set by the configuration; the surface
+   emission target does not change.
+3. Use the currents, barriers, wall potential, and upstream electron density of the new root from the next batch.
 
 | Situation | Behavior |
 |---|---|
-| Explicit `zhao_branch` | Solve only that branch |
-| `zhao_branch="auto"` | Try the last accepted branch first, then the ordinary `auto` order |
-| No root, or zero outflow | Warn and keep the previous outer root |
-| Restart | Reconstruct the root from the saved outer source; discard a partial window and count again from the restart |
+| `sheath.zhao.branch` is explicit | Only that type is solved |
+| `sheath.zhao.branch="auto"` | The previous type is tried first, then the usual order. The previous root is the initial guess |
+| No root is found, or the outflow is zero | Warn and keep the previous root |
+| Restart | Rebuild the root from the saved photoelectron source. A partial sum is discarded and counting restarts at the restart point |
 
-Choose $N$ so that the PE samples in one window determine the mean energy to a few percent while remaining much shorter
-than the surface-charging time. If only the steady state matters, the fixed point does not depend on $N$. The outer state
-during the run is written to `matching_plane_history.csv` and to the `matching_plane_*` keys in `summary.txt`; see the
-[output-format reference](OutputReference.en.html#zhao_stationary) for the column meanings.
+Choose the interval so that the photoelectron samples within it fix the mean energy to a few percent and the interval is much
+shorter than the change of surface charging. If only the steady state matters, the state reached does not depend on the interval.
 
-Outer-sheath transients, planarity, and the half-Maxwellian reduction remain the same approximations as for a fixed root.
-Ambient electrons escaping outward are not fed back to the outer root.
+## Configuration
 
-## Validity domain
+```toml
+[sheath]
+closure = "zero_current"
 
-- BEACH does not solve the outer electric field, space charge, Debye shielding, turning-point distance, or flight time.
-- Reflection at z-high is an adiabatic boundary contraction of the outer return trajectory.
-- The uniform magnetic field must be zero because the closure is unmagnetized.
-- A planar stationary solution does not respond self-consistently to curvature, collisions, outer transients, or plasma
-  and illumination conditions that change during the run. With `outflow_refresh_batches>0`, the only response is the
-  quasi-static outer-root update to the observed PE outflow.
-- A small zero-current residual does not establish convergence of the finite-particle hit and return maps.
+[sheath.zhao]
+branch = "auto"
 
-See the [input-parameter reference](Parameters.en.html) for the complete species, boundary, charge, and temperature
-contract. See [Photoelectron emission and return](PhotoelectronEmission.en.html) for the raycast reaction charge and VDF.
+[sheath.species]
+electron = "solar_wind_electron"
+ion = "solar_wind_ion"
+photoelectron = "photoelectron"
 
-## Run an example
+[sheath.photoelectrons]
+solar_elevation_deg = 60.0
+ref_density_m3 = 6.4e7
 
-The complete PE case is `examples/periodic2_zhao_fixed_current.toml`; the outer-root refresh case is
-`examples/periodic2_zhao_outflow_refresh.toml`.
-
-```bash
-beach examples/periodic2_zhao_fixed_current.toml
+[sheath.coupling]
+outflow_refresh_batches = 50
 ```
 
-Use `examples/periodic2_zhao_no_photo_fixed_current.toml` for the no-PE Type C case. Both examples include the required
-reservoir, open z-high face, and fixed-current species in addition to `[surface_current_model]`.
+- Role species use `charging.closure="fixed_current"`. Electrons and ions enter by boundary inflow through the top face;
+  photoelectrons use `photo_raycast` from the top face with reaction charge. The top face is open.
+- Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). The electron drift is zero
+  and the ion drift is negative z.
+- Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
+  Outer-root refresh is not available.
 
-After completion, inspect `summary.txt` for the model, selected branch, and two budget residuals. Then use
-`charge_ledger.csv` to compare raw, target, and applied charge, hit counts, and `fixed_*_weight_scale`. For a PE case,
-vary ray count, batch width, and RNG seed until the elementwise return distribution converges. A completed run and a
-closed zero-current budget do not by themselves validate the outer-sheath approximation or the spatial distribution.
+All keys and combination constraints are in [Input parameters](Parameters.en.html#sheath). Complete examples are
+[`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml),
+[`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml), and
+[`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml).
 
-The implementation-level definitions are in [SPEC section 7.7](../SPEC.md#77-自動表面電流model) and
-[`bem_surface_current_model.f90`](../src/runtime/sheath/bem_surface_current_model.f90).
+## Outputs to check
+
+| Output | What to check |
+|---|---|
+| `summary.txt` | `surface_current_model_zhao_branch`, `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` (initial root). The two residuals `surface_current_model_pe_budget_residual_current_density_A_m2` and `surface_current_model_surface_budget_residual_current_density_A_m2` are near zero |
+| `fixed_current_history.csv` | `target_over_tracked`. If the outer root and tracking in the cell agree, every species stays near 1 |
+| `charge_ledger.csv` | Tracked, target, and applied charge per species, `fixed_*_weight_scale`, and counts |
+| `matching_plane_history.csv` (outer-root refresh) | `phi_H_V` (the current $\phi_0$), the photoelectron outflow flux and mean normal energy, and `residual` |
+| `top_reference_history.csv` | The mean top-face potential is close to $\phi_0$ (see the known limitations below) |
+
+If the scales differ strongly between species, the balance of currents on each element departs from the state set by
+tracking alone. Column definitions are in [Output formats](OutputReference.en.html#zhao_stationary).
+
+A small zero-current residual does not mean that the tracked spatial distribution of absorption and return has converged.
+Vary the ray count, batch duration, and random seed and confirm that the per-element distribution does not change.
+
+## Scope
+
+- The field, space charge, Debye shielding, distance to turning points, and flight times outside the box are not solved.
+  Reflection at the top face is an approximation that shortens the round trip outside to a reversal at the boundary.
+- The uniform magnetic field must be zero.
+- Because the solution is planar and stationary, it does not follow curvature, collisions, transients of the outer sheath, or
+  illumination and plasma conditions that change during the run. Outer-root refresh follows only the change of photoelectrons
+  leaving through the top face.
+
+### Known limitations
+
+- **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
+  half-Maxwellian defined by only two quantities, flux and mean energy.
+- **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
+  not included in the outer root, which treats every electron reaching the wall as absorbed. The fixed-current closure deposits
+  this part as absorption, so the balance of total currents is kept. The escaping fraction can be read from the departure of the
+  electron scale from 1 in `fixed_current_history.csv`.
+- **Offset of the mean top-face potential:** as the surface charge grows, the mean top-face potential departs from $\phi_0$. The
+  far correction (`cached_kneq0`) does not remove the zero mode completely; the offset is proportional to the charge and creates
+  a spurious vertical field above the particles. Check it by comparing `potential_mean_V` in `top_reference_history.csv` with
+  $\phi_0$ ([accuracy of the far correction](PeriodicFarCorrection.en.html)).

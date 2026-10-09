@@ -120,9 +120,9 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
 | `zhao_stationary` outer-root refresh | decreasing `matching_plane_residual`, dependence on the window `outflow_refresh_batches` and sample count, branch changes, `charge_ledger.csv` scales near 1, agreement of the z-high plane mean with $\phi_0$, and H-height dependence |
 
-Definitions and applicability limits are documented in [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html)
-and [Particle Escape and Return](ParticleEscapeReturn.en.html). See the [Zhao closure](ZhaoStationaryClosure.en.html) for the outer-sheath
-closure model and its scope.
+Definitions and applicability limits are documented in [Set up a periodic surface in plasma](PeriodicPlasmaSurface.en.html)
+and [Particles at box boundaries](ParticleEscapeReturn.en.html). See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html) for the outer-sheath
+model and its scope.
 
 ## 6. Limit the physical conclusion to what was tested
 

@@ -1,60 +1,41 @@
 ---
 name: beach-documentation-writing
-description: Write, revise, and review repository documentation for BEACH, including README files, tutorials, user guides, reference pages, and numerical-method pages. Use for documentation changes that improve clarity, navigation, expected results, canonical ownership, or Japanese/English consistency; prefer a dedicated method-summary skill when available if the task only produces a standalone paper or presentation summary.
+description: Write, restructure, or review BEACH documentation (docs/*.md and *.en.md, README, docs-site/navigation.json, plugin reference copies). Use whenever a code change alters user-visible behavior, configuration keys, outputs, or physics models, or when a page has become long, duplicated, or hard to read.
 ---
 
-# BEACH Documentation Writing
+# BEACH ドキュメントの書き方
 
-Write for the reader's task while preserving BEACH's documented behavior.
+BEACH のドキュメントは、機能を足すたびに段落を継ぎ足すと、同じ説明が複数のページに散り、
+削除した機能の経緯が本文に残って読めなくなる。このスキルは、**どのページに何を書くか**を先に決め、
+**正本を書き換える**ことで、ページ数と長さを保ったまま内容を最新にするための手順である。
 
-If the requested output is a standalone paper paragraph, presentation summary, or method overview rather than a repository documentation change, use `beach-method-summary` when that skill is available. Otherwise, continue with this skill's sources and constraints without editing repository documentation.
+## 手順
 
-## Sources
+1. **変更を分類し、直すページを決める。**
+   [references/page-map.md](references/page-map.md) の「変更から直すページを引く」表で、変更の種類から
+   正本のページを決める。正本以外のページは、要約（2 文以内）とリンクが古くなっていないかだけを確認する。
+   どのページにも収まらない内容なら、新しいページを作る前に page-map.md の構成を見直す。
+2. **正本の該当節を書き換える。** 末尾への追記ではなく、該当節を現在の挙動の説明に置き換える。
+   - 経緯（以前はこうだった、何を削除した）は書かない。CHANGELOG と移行ページ（`GroupedConfiguration.md`）へ。
+   - 設定例は新形式（7 グループ）のキーだけを使う。旧形式のキーは移行ページの対応表にだけ置く。
+   - 他のページの内容を説明し直さない。必要なら 2 文以内で要約してリンクする。
+3. **ページの型に合わせる。** [references/page-types.md](references/page-types.md) の骨組みに沿う。
+   手順のページに内部実装を、モデルのページに全キーの一覧を入れない。
+4. **文体と用語を揃える。** [references/style.md](references/style.md) に従う。用語は
+   [`docs/Glossary.md`](../../../docs/Glossary.md) を正本とする。
+5. **英語版を対訳で揃える。** 日本語版と同じ見出し構成、同じコマンド・設定・警告・リンク先にする。
+6. **確認する。** [references/checklist.md](references/checklist.md) の項目を通す。
 
-Inspect the target document, its Japanese or English counterpart, nearby navigation, `SPEC.md`, and the relevant Fortran implementation before changing behavioral claims.
+## 判断の原則
 
-Read `references/style-guide.md` before drafting or reviewing prose. Apply its document-type rules instead of imposing one narrative style on every page.
+- **1 ページ 1 問い、1 概念 1 正本。** 同じ説明が 2 か所にあれば、正本でない方を要約とリンクに置き換える。
+- **現行の挙動だけを書く。** 実装（Fortran）と `SPEC.md` を正とし、ドキュメントの記述と食い違えば実装に合わせて直す。
+- **読む人が使う順に書く。** 通常の使い方を先に、選択肢・制約・内部実装を後に書く。
+- **長さの上限を守る。** 手順とモデルのページは 200 行程度まで。超えたら、内容を正本のページへ移すか、
+  page-map.md を更新してページを分ける。
+- **結論の強さを区別する。** 実行の完了、数値的な収束、物理的な妥当性を別々に書く。
 
-## Workflow
+## レビューするとき
 
-1. Classify the page as exactly one of: entry page, tutorial, task guide, reference, explanation, or contributor guide.
-   If it mixes page types, split the material or move details to an existing canonical page before polishing prose.
-2. Identify the reader's immediate question and the observable result that answers it.
-3. For a human-facing page, state its question, one-sentence answer, and reader outcome near the opening. Explain the
-   ordinary path first. Put options, deprecated behavior, implementation details, and exhaustive constraints later or
-   move them to reference and internals pages.
-4. Classify existing sections internally as KEEP, SHORTEN, MOVE, or DELETE. Preserve information by linking to its
-   canonical owner; do not keep a dense copy merely to make every page self-contained.
-5. Find duplicated instructions and choose one canonical page. Keep summaries elsewhere short and link to the canonical page.
-6. Revise claims before wording. Preserve uncertainty, model scope, identifiers, commands, and expected outputs.
-7. Match the structure to the page type. Keep reference pages searchable; reserve cognitive rhythm for explanations grounded in physical behavior, numerical evidence, or tradeoffs.
-8. Review the paired `.md` and `.en.md` files. Keep their behavior, commands, warnings, and navigation equivalent even when sentence structure differs.
-9. Inspect the final diff for broken links, unsupported claims, hidden prerequisites, and prose-only narration such as "next we will see."
-
-## Scope Boundary
-
-Entry pages, tutorials, task guides, and explanations help a researcher build a correct mental model or complete one
-task. They are not exhaustive specifications. Do not organize them around Fortran modules, internal arrays, private
-APIs, MPI/OpenMP reduction steps, RNG rollback, or deprecated inputs. Mention those only when they change the user's
-decision, then link to a reference or contributor page.
-
-Reference pages, schemas, `SPEC.md`, migration notes, and API documentation may enumerate every identifier, default,
-unit, constraint, equation, and unsupported combination. Do not copy that enumeration into a human-facing page.
-
-Prefer Japanese concept names in Japanese prose and add exact identifiers only where readers configure, inspect, or
-search for them. For example, write 電荷差分の確定反映（commit） and バッチ中に固定する場（field snapshot）
-at first use instead of using internal English terms as the explanation itself.
-
-## BEACH Constraints
-
-- Treat the Fortran implementation and `SPEC.md` as the source of truth for simulation behavior.
-- Keep code identifiers, TOML keys, commands, file paths, CSV columns, and algorithm names unchanged.
-- State expected outputs concretely when documenting a runnable example.
-- Distinguish a completed run from a numerically or physically validated result.
-- Do not describe `tol_rel` as an early-stop condition in the current implementation.
-- Do not imply that the default insulator-accumulation workflow validates conductor, resistive, or other extension models.
-- Do not present a self-consistent outer-plasma or outer-sheath model as supported. Document the current local `reservoir_face` plus closed-photoelectron workflow with its model limits; removed `[outer_plasma]`, `[coupling]`, and legacy selectors are rejected input.
-
-## Review Output
-
-Follow the repository language policy and review in Japanese. Lead with correctness or navigation problems, cite file and line locations, and separate required fixes from optional polish. When editing files, summarize the reader-visible outcome and the checks performed.
+日本語でレビューする。読む人の誤解や操作の失敗につながる問題（誤った記述、壊れたリンク、正本の重複、
+旧形式のキー）を先に、文体の改善を後に挙げ、ファイルと行を示す。

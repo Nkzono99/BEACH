@@ -181,8 +181,7 @@ operatorが固定target topologyに対するproduction kernelだからです。
 4. `periodic2_cache_fingerprint`、`periodic2_cache_hit`、`periodic2_operator_build_count`を確認する。
 5. nonzero modeだけでなく、選択したphysical `k=0`とGauss residualも別に確認する。
 
-有限画像和の使い方は[有限画像構成](FinitePeriodicConfiguration.html)、無限周期とzero modeの
-設定は[periodic2静電場](PeriodicElectrostatics.html)にあります。
+有限画像和の意味と、無限周期・面平均成分の設定は[periodic2 の静電場](PeriodicElectrostatics.html)にあります。
 
 ## Code reference
 

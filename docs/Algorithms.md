@@ -99,7 +99,7 @@ checkpoint から再開するときも、必要な状態を復元して同じ計
 | 必要な機能 | 専用ページ |
 | --- | --- |
 | batch 当たりの場変化を制限し、短い幅で再試行する | [`batch_duration` をどう決めるか](BatchDurationStability.html) |
-| 外部 1D sheath と準定常に連成する | [観測した PE 流出で外部根を解き直す](ZhaoStationaryClosure.html#観測した-pe-流出で外部根を解き直す) |
+| 外部シースと接続する | [外部シースとの接続](ZhaoStationaryClosure.html) |
 | 周期表面の平均場と非一様場を扱う | [periodic2 静電場](PeriodicElectrostatics.html) |
 | solver を Direct、Treecode、FMM から選ぶ | [電場 solver の選び方](FieldSolvers.html) |
 

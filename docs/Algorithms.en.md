@@ -101,7 +101,7 @@ After understanding the ordinary path, open only the specialized page needed by 
 | Needed feature | Dedicated page |
 | --- | --- |
 | Limit the field change per batch and retry with a shorter interval | [How to choose `batch_duration`](BatchDurationStability.en.html) |
-| Couple a quasistatic outer 1-D sheath | [Re-solve the outer root from the observed PE outflow](ZhaoStationaryClosure.en.html#re-solve-the-outer-root-from-the-observed-pe-outflow) |
+| Connect to the outer sheath | [Connecting to the outer sheath](ZhaoStationaryClosure.en.html) |
 | Treat the mean and nonuniform fields of a periodic surface | [`periodic2` electrostatics](PeriodicElectrostatics.en.html) |
 | Choose Direct, Treecode, or FMM | [Choose a field solver](FieldSolvers.en.html) |
 

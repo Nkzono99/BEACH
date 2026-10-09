@@ -65,11 +65,8 @@ flowchart LR
 連立方程式、P0 panel influence、並列集約、保存量は
 [表面電荷更新の数値仕様](SurfaceChargeNumerics.html)に分離しています。
 
-## 光電子 closure との違い
-
-`surface_charge_closure="neutral_return"` は、表面内を伝導させる material model ではありません。
-closed photoelectron の未帰還分を、同じ batch で観測した帰還先分布へ再配分する source closure です。
-適用条件と閉じる電荷収支は[periodic2 有限画像構成](FinitePeriodicConfiguration.html)を参照してください。
+粒子種の電荷の閉じ方（`charging.closure`）は表面モデルではありません。表面に置く電荷の量を目標に合わせるだけで、
+置いた電荷を表面に沿って動かしません（[光電子の放出と電荷の閉じ方](PhotoelectronEmission.html#光電子の電荷の閉じ方)）。
 
 ## 出力を読む
 
@@ -83,5 +80,5 @@ species ごとの吸収・放出・escape を含む保存則は[出力ファイ�
 
 - 粒子源を選ぶ: [粒子をどこから入れるか](ParticleSourcesBoundaries.html)
 - batch 幅への依存性を調べる: [`batch_duration` をどう決めるか](BatchDurationStability.html)
-- 光電子の反作用電荷と return を調べる: [光電子の放出とライフサイクル](PhotoelectronEmission.html)
+- 光電子の反作用電荷と帰還を調べる: [光電子の放出と電荷の閉じ方](PhotoelectronEmission.html)
 - 全 key と制約を検索する: [入力パラメータ](Parameters.html)

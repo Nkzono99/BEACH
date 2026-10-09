@@ -1,4 +1,4 @@
 interface:
   display_name: "BEACH Documentation Writing"
-  short_description: "Write and review clear BEACH documentation"
-  default_prompt: "Use $beach-documentation-writing to improve this BEACH document for clarity and accuracy."
+  short_description: "Decide which BEACH page owns a change, rewrite it, and keep ja/en in sync"
+  default_prompt: "Use $beach-documentation-writing to update the BEACH documentation for this change."

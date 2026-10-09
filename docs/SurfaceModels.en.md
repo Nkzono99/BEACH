@@ -69,11 +69,9 @@ mesh refinement.
 The linear system, P0-panel influence, parallel reduction, and conserved quantities are separated into
 [surface-charge update numerics](SurfaceChargeNumerics.en.html).
 
-## Difference from a photoelectron closure
-
-`surface_charge_closure="neutral_return"` is not a material model that conducts charge across a surface. It is a source
-closure that assigns unresolved closed-photoelectron return to the destination distribution observed in the same batch.
-See the [finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for its conditions and closed ledger.
+A species charge closure (`charging.closure`) is not a surface model. It only matches the amount of charge deposited on the
+surface to a target and does not move deposited charge along the surface
+([Photoelectron emission and charge closures](PhotoelectronEmission.en.html#photoelectron-charge-closures)).
 
 ## Read the output
 
@@ -87,5 +85,5 @@ See [surface-charge update numerics](SurfaceChargeNumerics.en.html) for equation
 
 - Choose a particle source: [Choose where particles enter](ParticleSourcesBoundaries.en.html)
 - Test sensitivity to batch width: [How to choose `batch_duration`](BatchDurationStability.en.html)
-- Inspect photoelectron reaction charge and return: [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html)
+- Inspect photoelectron reaction charge and return: [Photoelectron emission and charge closures](PhotoelectronEmission.en.html)
 - Search every key and constraint: [Input parameters](Parameters.en.html)

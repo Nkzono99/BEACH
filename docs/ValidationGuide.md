@@ -120,9 +120,9 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
 | `zhao_stationary` の外部根の更新 | `matching_plane_residual`の減少、窓幅`outflow_refresh_batches`と標本数への依存、branch の変化、`charge_ledger.csv`の倍率が1に近いこと、z-high面平均電位と$\phi_0$の一致、H高度依存性 |
 
-各診断の定義と適用範囲は、[有限画像構成](FinitePeriodicConfiguration.html)と
-[粒子のescapeとreturn](ParticleEscapeReturn.html)にあります。外部シース closure の model と適用限界は
-[Zhao closure](ZhaoStationaryClosure.html)を参照してください。
+各診断の定義と適用範囲は、[プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html)と
+[box 境界での粒子の扱い](ParticleEscapeReturn.html)にあります。外部シースのモデルと適用範囲は
+[外部シースとの接続](ZhaoStationaryClosure.html)を参照してください。
 
 ## 6. 物理的な結論の範囲を確認する
 

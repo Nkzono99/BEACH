@@ -186,9 +186,8 @@ because the cached operator is a production kernel for a fixed target topology.
 4. Inspect `periodic2_cache_fingerprint`, `periodic2_cache_hit`, and `periodic2_operator_build_count`.
 5. Check the selected physical `k=0` and Gauss residual separately from the nonzero mode.
 
-See [Finite Periodic Configuration](FinitePeriodicConfiguration.en.html) for
-finite-image use and [periodic2 electrostatics](PeriodicElectrostatics.en.html)
-for the complete infinite-periodic and zero-mode configuration.
+See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the meaning of finite images
+and for the infinite-periodic and zero-mode configuration.
 
 ## Code reference
 

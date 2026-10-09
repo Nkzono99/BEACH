@@ -1,51 +1,42 @@
-title: 光電子の放出とライフサイクル
+title: 光電子の放出と電荷の閉じ方
 
 Lang: [日本語](PhotoelectronEmission.md) | [English](PhotoelectronEmission.en.md)
 
-# 光電子の放出とライフサイクル
+# 光電子の放出と電荷の閉じ方
 
-`source_mode="photo_raycast"` は照射 ray が最初に命中した表面から粒子を放出します。このページは
-raycast、放出量・速度、放出電荷、closed PE の `neutral_return` を説明します。生成後は通常粒子と同じ
-固定場、Boris 更新、衝突判定、box 境界を使います。
+光電子は、照射された表面から放出され、セル内の場で表面へ戻るか、box の外へ出ていきます。
+BEACH は照射の光線を追跡して放出位置を決め（`source.mode="photo_raycast"`）、放出した光電子を他の粒子と同じ場・同じ方法で追跡します。
+このページは、放出量と放出速度の決め方、放出元に残す反作用電荷、光電子の電荷の閉じ方（閉じた光電子、固定電流）を説明します。
 
-## 放出から再吸収までを同じbatchで追う
+## 放出から吸収までの流れ
 
-1. box面上の照射開口からrayを発射する。
-2. box境界条件を適用しながら最初のmesh hitを探す。
-3. 命中要素のplasma側法線から光電子を生成する。
-4. 必要なら放出元要素へ$-qw$を記録する。
-5. 通常粒子として追跡し、box境界へ達した後は共通のescape/return処理へ渡す。
-6. 放出電荷と吸収電荷をbatch末尾に表面へcommitする。
+1. box の面に置いた照射の開口から光線を出す。
+2. 光線が最初に当たる三角形を探す。
+3. 当たった要素から、照射側へ光電子を放出する。
+4. 放出元の要素に反作用電荷を記録する。
+5. 光電子を他の粒子と同じく追跡する。box の面に達したら、その面の扱いに従う（[box 境界での粒子の扱い](ParticleEscapeReturn.html)）。
+6. 放出と吸収の電荷を、バッチ末尾に表面へ確定反映する。
 
-放出と再吸収は同じ batch で起こり得ますが、場は途中で更新しません。正味表面電荷は次 batch から場へ反映されます。
+放出と再吸収は同じバッチの中で起こり得ますが、場はバッチの途中で変えません。正味の表面電荷は次のバッチの場から効きます。
 
-## 照射rayで放出面を決める
+## 照射で放出面を決める
 
-`inject_face`と`pos_low`/`pos_high`がbox面上の矩形開口を定めます。`ray_direction`は開口からbox内へ向く必要があり、
-省略時は面の内向き法線です。開口面積を$A$、内向き法線を$\mathbf n_\mathrm{in}$、正規化したray方向を
-$\hat{\mathbf d}$とすると、rayに垂直な投影面積は
+`source.inject_face` と `source.pos_low` / `source.pos_high` が、box の面上の矩形の開口を決めます。`source.ray_direction` は
+開口から box の内側へ向く必要があり、省略すると面の内向き法線です。開口の面積を $A$、内向き法線を $\mathbf n_\mathrm{in}$、
+光線の方向の単位ベクトルを $\hat{\mathbf d}$ とすると、光線に垂直な投影面積は
 
 $$
 A_\mathrm{proj}=A\left|\hat{\mathbf d}\cdot\mathbf n_\mathrm{in}\right|
 $$
 
-です。rayの始点は開口内で一様sampleします。
+です。光線の始点は開口内で一様に選びます。光線は次の box の面までの区間ごとに最初に当たる三角形を探し、
+非周期の面に達すると放出なしで終わり、周期の面に達すると反対側へ回り込んで続きます。周期の場では周期画像を含めて
+最初の当たりを探し、放出位置をもとのセルへ戻します。`particles.raycast.max_bounces` 回の回り込みで当たらない光線は、粒子を作りません。
 
-rayは現在位置から次のbox面までのsegmentごとに最初のtriangle hitを探します。
+## 光線 1 本の放出電流
 
-| 到達した box 面 | ray の処理 |
-| --- | --- |
-| 非周期面 | box 外へ出て、その ray は放出なしで終了 |
-| `domain.periodic_axes` の面 | 反対側へ wrap して継続 |
-
-`field_boundary.mode="periodic2"` では periodic image を含む最初の hit を探し、放出位置を primary cell へ wrap します。
-hit要素は計算box内にある要素に限定します。`raycast_max_bounce`を越えてもhitしないrayは、粒子を生成しません。
-衝突queryがimage上限、index範囲、DDA停止などの不完全statusを返した場合は、batchを停止します。
-
-## ray 1本へ放出電流を割り当てる
-
-放出電流密度を$J_\mathrm{emit}>0$、実粒子電荷を$q\ne0$、全rank合計のray数を$N_\mathrm{ray}$とすると、
-hitしたrayが生成するmacro粒子重みは
+放出電流密度を $J_\mathrm{emit}>0$、実粒子の電荷を $q$、全 MPI rank の光線数の合計を $N_\mathrm{ray}$、バッチ幅を
+$\Delta t_\mathrm{batch}$ とすると、当たった光線が作るマクロ粒子の重みは
 
 $$
 w_\mathrm{hit}
@@ -53,138 +44,112 @@ w_\mathrm{hit}
 {|q|N_\mathrm{ray}}
 $$
 
-です。missしたrayは粒子を作らないため、遮蔽や見かけ面積はhit率として放出量へ入ります。
-`w_particle`や`target_macro_particles_per_batch`は`photo_raycast`には指定しません。
+です。外れた光線は粒子を作らないので、影や見かけの面積は当たる割合として放出量に入ります。
+`sampling.rays_per_batch` は放出量ではなく標本数で、増やすと $w_\mathrm{hit}$ が小さくなり、放出位置の統計誤差が減ります。
+`sampling.weight` と `sampling.target_macro_particles_per_batch` は使いません。
 
-`rays_per_batch` は物理放出量ではなく ray 積分の sample 数です。増やすと $w_\mathrm{hit}$ が小さくなり、
-照射可視率と放出位置の Monte Carlo noise を減らせます。結果は ray 数に対して収束確認します。
+## 放出速度
 
-## 表面法線から放出状態を作る
+当たった三角形の法線のうち、入射した光線と反対側を向くものを放出の法線 $\mathbf n_s$ とします。放出位置は、
+同じ要素への直後の再衝突を避けるため、当たった点から $\mathbf n_s$ 方向へ $10^{-12}$ m ずらします。
+温度から $\sigma=\sqrt{k_\mathrm{B}T/m}$ を求め、局所的な基底 $(\mathbf n_s,\mathbf t_1,\mathbf t_2)$ で速度を選びます。
 
-triangleの格納法線がray進行方向を向いている場合は反転し、入射rayと反対側を向く放出法線$\mathbf n_s$を作ります。
-位置はhit点から$\mathbf n_s$方向へ$10^{-12}$ mずらし、直後に同じ要素へ再衝突することを避けます。
+- 法線速度: drift `source.normal_drift_speed_m_s` を持つ、束で重み付けした半 Maxwell 分布。
+- 接線の 2 成分: 平均 0、標準偏差 $\sigma$ の Gauss 分布（$6\sigma$ で打ち切り）。
 
-温度から$\sigma=\sqrt{k_\mathrm{B}T/m}$を求め、局所基底
-$(\mathbf n_s,\mathbf t_1,\mathbf t_2)$で速度をsampleします。
+## 反作用電荷
 
-- 法線速度は、drift `normal_drift_speed`を持つflux-weighted half-range Maxwell分布。
-- 接線2成分は平均0、標準偏差$\sigma$のGaussian。
-- Gaussian samplingは$6\sigma$で切る。
-
-法線速度は正なので、生成直後の粒子は照射側へ表面から離れます。その後の再吸収、escape、局所反射は
-tracked orbit と共通の box 境界が決めます。
-
-## 放出・再吸収・escapeの電荷収支を確認する
-
-`deposit_opposite_charge_on_emit=true`なら、放出元要素$i$へ
+`source.deposit_opposite_charge_on_emit=true` なら、放出元の要素 $i$ に
 
 $$
 \Delta q_{i,\mathrm{emit}}=-q w
 $$
 
-を加えます。電子では$q<0$なので表面には正電荷が残ります。この差分は`photo_emission_dq`として衝突堆積と別に集計し、
-MPI all-reduce後に同じbatch commitへ加えます。
+を加えます。電子では $q<0$ なので、表面には正の電荷が残ります。光電子が要素 $j$ に吸収されると、通常の吸収として
+$+qw$ を $j$ に加えます。同じ要素に戻れば相殺し、別の要素に戻れば表面内で電荷が移ります。
 
-放出粒子が要素$j$へ再吸収されると、通常の吸収として$+qw$を$j$へ堆積します。同じ要素へ戻れば放出と吸収が相殺し、
-別の要素へ戻れば表面内の正味電荷移送になります。現行のinsulator modelはその後の表面伝導を行いません。
+## 光電子の電荷の閉じ方
 
-## 生成後は共通のescape / return処理を使う
+セルの高さは Debye 長より小さいので、上端面に達した光電子の多くは、実際には外部のシースで押し戻されます。
+上端面を開放のままにすると、光電子の脱出を過大に数えます。これを補う方法を、粒子種の `charging.closure` で選びます。
 
-ray hit で生成する光電子の重みは常に $w_\mathrm{hit}$ です。放出時に escape 率を掛ける設定はありません。
-表面へ戻れば通常衝突として再吸収し、open 面へ達すれば他の source と同じ
-`particle_boundary.ordinary_open_model` を適用します。
+| `charging.closure` | 光電子の扱い | 使う場面 |
+|---|---|---|
+| 省略 | 追跡のまま。上端面の扱いだけで決まる | 比較の基準 |
+| `neutral_return` | 上端面で反射し、光電子の正味の電流を 0 に合わせる | 表面内の再分配を調べる |
+| `fixed_current` | 放出と帰還の電流を、外から与えた目標に合わせる | 外部の電流モデルと組み合わせる |
 
-### 光電子だけを注入面で閉じる
+周期表面のケースで、どれを選ぶかは[プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html)で比べています。
 
-光電子の表面内再分配を閉じた軌道で評価する場合は、光電子 species へ局所反射を指定します。
+### 閉じた光電子（`neutral_return`）
+
+光電子の粒子種で、照射の面（`source.inject_face`）を反射にし、`neutral_return` を指定します。
 
 ```toml
-[particle_boundary]
-z_high = "open"
-ordinary_open_model = "escape"
-
-[[particles.species]]
-species_key = "photoelectron"
-source_mode = "photo_raycast"
-inject_face = "z_high"
-deposit_opposite_charge_on_emit = true
-surface_charge_closure = "neutral_return"
+[particles.species.charging]
+closure = "neutral_return"
 
 [particles.species.boundary]
 z_high = "reflect"
 ```
 
-この例は z-high 通過時に法線速度だけを反転し、接線速度を保存して残り step を再積分します。
-`[particles.species.boundary]` の既定 `inherit` を使う ambient species は global の open 契約に従います。
-species 境界は 6 面すべてに `inherit`、`open`、`reflect`、`redistributed_reflect` を指定でき、closed PE では
-`inject_face` と同じ面の有効作用が `reflect` または `redistributed_reflect` でなければなりません。
-`domain.periodic_axes` の面は上書きできません。
+反射は法線速度だけを反転し、接線速度と位置を保ちます。`"redistributed_reflect"` にすると、速度は同じに反転し、
+戻る位置だけを面内で一様に選び直します（[Zimmerman et al. (2016)](https://doi.org/10.1002/2016JE005049) の上端での
+光電子の帰還の扱いと同じ考え方です）。
 
-通常の `reflect` は接線位置も維持します。境界から戻る光電子の面内位置を一様化する場合だけ、上のbaseline値を
-次のように置き換えます。
+反射しても、1 粒子あたりの step 上限までに戻らない光電子が残ります。`neutral_return` は、1 バッチの光電子の放出電荷
+$S<0$ と、表面に吸収された（帰還した）電荷 $R<0$ を全 MPI rank で合計し、帰還先に置く電荷を $S/R$ 倍します。
+
+$$
+(-S)+\frac{S}{R}R=0
+$$
+
+放出元の反作用電荷と合わせて、光電子による表面の総電荷の変化はちょうど 0 になります。未帰還の光電子は、
+同じバッチで帰還した光電子と同じ分布で戻ると近似しています。総電荷を 0 にしても、異なる高さの面へ電荷が移ると、
+面平均した鉛直方向の双極子は残ります。
+
+次の場合はバッチを受理せずに停止します。
+
+- 放出があるのに帰還がない。
+- 光電子が開放面から脱出した、または複数の box 面を同時に横切る粒子として捨てられた（soft discard）。
+- 値が有限でない、または符号が合わない。
+- 未帰還の割合が 5% を超えた。
+
+### 固定電流（`fixed_current`）
+
+放出と帰還の電流を、外部のモデルで決めた目標に合わせます。目標は表面帯電への寄与の符号付きで、別々に与えます。
 
 ```toml
-[particles.species.boundary]
-z_high = "redistributed_reflect"
+[particles.species.charging]
+closure = "fixed_current"
+target_emission_current_a = 4.5e-15
+target_absorbed_current_a = -3.7e-15
 ```
 
-`redistributed_reflect` は速度には通常の反射を適用し、単一面では面内2軸の位置だけをbox spanの両端guardを
-除く範囲から一様再標本化します。
-これは [Zimmerman et al. (2016)](https://doi.org/10.1002/2016JE005049) のtop-boundary PE returnで用いられた
-水平位置randomizationを、任意の非周期面と同時face eventへ一般化した選択肢です。自己整合な外部sheathを追加する
-ものではありません。同時eventの規則は[粒子の衝突・境界イベント](ParticleEvents.html)を参照してください。
+BEACH は、放出元の分布と帰還先の分布をそれぞれ一律の倍率で目標に合わせます。二つの大きな電流の差である正味の電流は
+倍率の分母に使わないので、放出と帰還がほとんど打ち消し合う場合にも安定です。上端面は開放にし、
+`neutral_return` と併用しません。外部シースとの接続（[Zhao 定常シース](ZhaoStationaryClosure.html)）を使うと、
+目標は外部シースの零電流根から自動で決まります。
 
-species 境界の反射だけなら軌道を閉じるだけで、`max_step` までに戻らない粒子は未解決のままです。
-`surface_charge_closure="neutral_return"`を加えると、1 batchの光電子放出電荷$S<0$と解決済み吸収電荷$R<0$を
-MPI全体で測り、各帰還先depositを$S/R$倍します。放出元の反作用電荷と合わせた光電子の表面総電荷増分は
-厳密に0になり、未帰還粒子は解決済み帰還先と同じ分布を持つと近似されます。
+倍率が安定でも、要素ごとの分布の統計精度は別の問題です。帰還が 1 件しかなければ、帰還の目標の全量がその要素に置かれます。
 
-rawの`absorbed_on_surface_C`と`discarded_unresolved_C`は置き換えません。補正量、
-`neutral_return_weight_scale`、`neutral_return_unresolved_fraction`を`charge_ledger.csv`へ別に記録します。
-放出があるのに解決済み帰還がない場合、実escape、`soft_discard`、符号不整合は停止します。
-未帰還率が5%を超える場合も、このclosureの固定適用範囲外として補正せず停止します。
+## 確認する出力
 
-完全反射は有限 box の注入面に人工的な鏡を置く試験条件であり、自己整合な sheath や準中性性を解きません。
-`neutral_return` も未帰還軌道を解かず、正味光電子電流を 0 とする統計的 closure です。
-`abs(weight_scale-1)` と未帰還率が十分小さくなるよう `max_step`、`dt`、ray 数、batch 幅を収束させます。
+| 出力 | 見るもの |
+|---|---|
+| `charge_ledger.csv` | 放出・吸収・脱出の電荷と個数。`neutral_return` では `neutral_return_weight_scale` と `neutral_return_unresolved_fraction`、`fixed_current` では `fixed_*_weight_scale` |
+| `fixed_current_history.csv` | `fixed_current` の倍率の時間変化（`target_over_tracked`） |
 
-外部電流モデルと結合する場合は `surface_charge_closure="fixed_current"` を使い、
-`target_emission_current_a` と `target_absorbed_current_a` を signed surface current として別々に指定します。
-BEACH は raycast の放出元分布と軌道の帰還先分布をそれぞれ一様倍率で補正し、二つの大電流の差である net PE
-電流は倍率の分母に使いません。外部から return VDF を注入する構成では top 面を open にし、同じ species または
-別 species の `neutral_return` を併用しません。
+倍率が 1 から大きく離れる計算では、追跡ではなく閉じ方の仮定が電荷の分布を決めています。
 
-`[surface_current_model] model="zhao_stationary"`を使うと、PE emission、escape、returnをZhao零電流定常根から
-独立に計算できます。emissionとreturnは表面channelへ適用し、escapeは表面にdepositしない外部境界targetとして
-記録します。PE net電流を倍率分母に使わないため、大電流同士の相殺が強い場合にも安定です。raw escape統計は
-保持され、target / applied / correctionと比較できます。
+## 収束を確かめる
 
-零電流根、Type A/B/C の障壁、固定量と batch 依存量の区別は
-[Zhao stationary closure](ZhaoStationaryClosure.html)を参照してください。
+- `sampling.rays_per_batch` を増やし、当たる割合、放出電流、帯電の分布が変わらないことを確かめる。
+- 帰還の位置を評価するなら、`particles.tracking.dt_s` を小さくし、`max_steps_per_particle` を増やして変わらないことを確かめる。
+- `neutral_return` では、倍率が 1 に近く、未帰還の割合が小さくなるまで、step 上限と box の高さを見直す。
 
-この安定性は総電流の倍率計算についての性質であり、raw空間mapの統計精度ではありません。return hitが1件なら
-return target全量がその要素へ割り当てられます。固定の最小hit数は設けていないため、ledgerのraw countと
-`fixed_*_weight_scale`に加え、`rays_per_batch`、batch幅、乱数seedを変えた要素別分布の収束を確認してください。
-Zhaoの零電流budgetが閉じても、この収束確認は省略できません。
+## 適用範囲
 
-放出時のVDFはここで指定した表面half-Maxwellianのままです。z-highはopenにし、Type Aでは$\phi_m$、Type B/Cでは
-0 Vを外部barrier電位として、上面通過時の局所電位と法線運動エネルギーからreturn/escapeを分けます。
-この反射は外部turning pointをz-highへ縮約したもので、box外のシース場・空間電荷・return距離や遅延は解きません。
-完全な設定例は
-`examples/periodic2_zhao_fixed_current.toml`です。
-
-統合した場・流入・電位基準は
-[periodic2有限画像構成](FinitePeriodicConfiguration.html)にあります。
-
-通常の open 面との使い分けは[粒子の escape と局所 return](ParticleEscapeReturn.html)にまとめています。
-
-## 光電子放出の収束を確認する
-
-`rays_per_batch`を増やし、hit率、放出電流、帯電分布が収束することを確認します。再吸収位置も評価する場合は、
-`dt`を小さくして結果が変わらないことを確認します。放出、吸収、escapeを含む粒子種別の電荷収支と、
-closed PEの補正量と未解決率は[出力ファイルを調べる](OutputGuide.html)で確認します。
-
-## Code reference
-
-- ray伝播、hit、放出速度と重み: [`bem_injection.f90`](../src/particles/bem_injection.f90)
-- 放出電荷差分とsource生成: [`bem_app_config_runtime.f90`](../src/runtime/configuration/bem_app_config_runtime.f90)
+- 放出速度は、設定した表面の半 Maxwell 分布です。表面の材質や仕事関数の分布は扱いません。
+- 上端面での反射（`neutral_return`）は有限の box の上に鏡を置く近似で、外部のシースや準中性を解きません。
+- 絶縁体の表面では、帰還した電荷はその要素に残り、表面に沿って伝導しません。

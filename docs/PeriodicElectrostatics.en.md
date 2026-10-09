@@ -1,182 +1,141 @@
 title: periodic2 electrostatics
 
-Lang: [日本語](PeriodicElectrostatics.md) | [English](PeriodicElectrostatics.en.md)
+Lang: [English](PeriodicElectrostatics.en.md) | [日本語](PeriodicElectrostatics.md)
 
 # periodic2 electrostatics
 
-For an x/y-periodic, z-nonperiodic slab, `field_boundary.mode="periodic2"` computes finite images, infinite-periodic `k\ne0`, and
-plane-average `k=0` separately and adds each component exactly once.
+`fields.boundary="periodic2"` computes the field of a surface that repeats infinitely in x/y and does not repeat in z. Use it
+when one cell represents part of a wide surface such as regolith. BEACH splits this field into three components and adds each
+once. This page explains what each component represents and which settings compute it.
 
-The zero in zero mode refers to the x/y wave numbers $k_x=k_y=0$. This component is the height-dependent plane-average field,
-determined by the lower boundary condition and Gauss's law. It is one of the physical components handled by the field solver.
+## What is solved
 
-## Specify domain topology and field closure
+The field is that of the surface charge in the cell and all its copies in x/y. The sum over copies is split into three components
+with different character.
+
+| Component | Physical meaning | How it is computed |
+|---|---|---|
+| Near copies | Strongly varying local field of the cell and the $N$ layers of copies around it | Direct sum over finite images (Direct or FMM) |
+| Nonzero mode of far copies ($k\ne0$) | Smooth field varying in x/y from copies beyond the $N$ layers | Far correction (`cached_kneq0`); not included with finite images only |
+| Zero mode ($k=0$) | Field averaged over x/y, set by the total charge below each height | Computed analytically from the height distribution of the triangles |
+
+The zero mode is not a component that may be removed numerically; it is a physical component set by Gauss's law and the lower
+boundary condition.
+
+## Configuration
 
 ```toml
 [domain]
 box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 1.0]
+box_max = [1.0e-4, 1.0e-4, 1.0e-3]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
+
+[fields.solver]
+method = "fmm"
+
+[fields.periodic]
+backend = "cached_kneq0"
+image_layers = 1
+lower_boundary_model = "symmetric_vacuum"
 ```
 
-Periodicity belongs to `[domain]` topology. `[field_boundary]` selects the `free` or `periodic2` field closure applied to that
-cell. The current periodic2 implementation accepts only x/y periodic and z nonperiodic; a species or `[particle_boundary]`
-cannot override periodic axes.
+The periodic axes are set by `domain.periodic_axes` and are shared by the field, the particles, and the illumination rays.
+`periodic2` accepts only the combination of periodic x/y and non-periodic z.
 
-## Decompose the field into three components
+### Choose a backend
 
-| Component | Physical meaning | Production path |
-| --- | --- | --- |
-| Primary and near images | Strong local field near the primary cell | Finite-image Direct/FMM sum |
-| Far `k\ne0` | Infinite-periodic far field varying in x/y | `cached_kneq0` operator |
-| Surface `k=0` | Plane-average field from total charge below each height | Triangle-height cumulative polynomial |
+| `fields.periodic.backend` | Components included | Use |
+|---|---|---|
+| `finite_images` | Near copies only; the zero mode is not separated | Finite-image models and small comparisons |
+| `cached_kneq0` | All three components | Regular calculations with FMM |
+| `panel_spectral_reference` | All three components (the nonzero mode by a direct Fourier sum) | Small reference solutions with Direct |
 
-`cached_kneq0` returns only the nonzero modes; field composition adds the physical boundary-conditioned surface `k=0` exactly
-once. See [Finite-image periodic2 configuration](FinitePeriodicConfiguration.en.html) for a complete run configuration.
+Results with `finite_images` cannot be treated as the solution for an infinitely repeating surface until convergence in the
+number of image layers is confirmed. Combinations of solvers and field boundaries are in [Choose a field solver](FieldSolvers.en.html).
 
-## Select the computation path for nonzero modes
+## Finite images
 
-| Nonzero-mode construction | Use | Constraint |
-| --- | --- | --- |
-| Finite images | Small comparison and finite-image model | Contains nothing outside the image range |
-| `panel_spectral_reference` | Small triangle-P0 reference | Direct and mode/quadrature convergence |
-| `cached_kneq0` | Infinite-periodic nonzero modes for FMM production | x/y periodic, z nonperiodic, and `exclude_k0` |
+`fields.periodic.image_layers` $=N$ adds the $N$ layers of copies $(i,j)\in[-N,N]^2$ around the cell directly.
 
-`field_periodic_far_correction="auto"` has compatibility behavior equivalent to `none`. Infinite-periodic production must
-select `cached_kneq0` explicitly. Startup validation checks high-level settings against typed `[periodic2]` configuration and
-rejects contradictory zero-mode ownership. Removed `[outer_plasma]` and `[coupling]` tables are unknown input.
-`m2l_root_oracle` has been removed and is rejected at startup.
+| $N$ | Cells added |
+|---|---|
+| 0 | The cell only ($1\times1$) |
+| 1 | One surrounding layer ($3\times3$) |
+| 2 | Two surrounding layers ($5\times5$) |
 
-The Ewald2P teacher, root-multipole-to-local operator, cache, and FMM-state connection are documented separately in
-[periodic2 Far Correction](PeriodicFarCorrection.en.html). This page treats that implementation as the nonzero component of the
-complete field.
+The far correction adds only the copies outside these $N$ layers. The layers summed directly by FMM must match the layers the far
+correction subtracts, and the far-correction operator is built for each number of layers.
 
-## Define the range included by a finite-image sum
+## Nonzero mode of far copies
 
-Sources are added explicitly for primary cell and configured image layer $N$,
+`cached_kneq0` takes the sum over infinitely repeating copies (the Ewald sum), removes the contribution of the $N$ directly summed
+layers and the zero mode, and adds the result to FMM with a precomputed operator. The zero mode is removed so that it is not
+counted twice with the analytic zero mode below. How the operator is built, the cache, and the accuracy are in
+[periodic2 far correction](PeriodicFarCorrection.en.html).
 
-$$
-(i,j)\in[-N,N]^2.
-$$
+## Zero mode ($k=0$)
 
-This evaluates near interactions with the original kernel but omits the smooth field of infinitely many images outside the range.
-Therefore `field_periodic_far_correction="none"` is a finite-image model and must not be interpreted as an infinite-periodic
-solution without convergence as $N$ increases.
-
-The near-image layer in FMM must match the shell subtracted when fitting the far operator. The cache fingerprint includes image
-layer for this reason.
-
-## Separate the infinite-periodic far field with Ewald2P
-
-`cached_kneq0` applies the difference between an Ewald2P teacher and finite-image shell as an operator and removes the
-teacher's symmetric `k=0`. Field composition adds the selected physical `k=0` exactly once:
+With total charge $q_i$ of triangle $i$ and the fraction $F_i(z)$ of its area at or below height $z$, the total charge below $z$ is
 
 $$
-K_\mathrm{surface}
-=\left(K_\mathrm{shell}+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}\right)
-+K_0^\mathrm{physical}.
+C(z)=\sum_iq_iF_i(z)
 $$
 
-The expression in parentheses belongs to the nonzero backend. `zero_mode_policy="exclude_k0"` prevents double counting; it
-does not discard the mean field. See [periodic2 Far Correction](PeriodicFarCorrection.en.html) for Ewald splitting, operator
-fitting, the FMM insertion point, and cache lifecycle.
-
-## Add the physical `k=0` component exactly once
-
-For triangle total charge $q_i$, let $F_i(z)$ be the fraction of its area at or below height $z$. Plane-average cumulative charge is
+$F_i$ is piecewise quadratic between the heights of the three vertices, so $C(z)$ is also quadratic in each interval. With cell
+area $A=L_xL_y$ and far field below the surface $E_\mathrm{bottom}$, Gauss's law gives
 
 $$
-C(z)=\sum_iq_iF_i(z).
+E_0(z)=E_\mathrm{bottom}+\frac{C(z)}{\epsilon_0A}
 $$
 
-$F_i$ is piecewise quadratic between the three vertex heights. A geometry plan sorts all vertex heights into breakpoints and
-stores quadratic coefficients contributed by each triangle in each interval. Horizontal triangles are separate sheet charges;
-evaluation on a sheet distinguishes minus trace, plus trace, and principal value.
-
-When $q_i$ changes, stored geometry coefficients are multiplied by charge into interval differences, then a prefix sum forms
-
-$$
-C(z)=a_0+a_1z+a_2z^2
-$$
-
-and its primitive. Geometry plan is not rebuilt.
-
-## Derive zero-mode field and potential from Gauss's law
-
-For cell area $A=L_xL_y$ and lower far field $E_\mathrm{bottom}$, Gauss's law gives
-
-$$
-E_0(z)=E_\mathrm{bottom}+\frac{C(z)}{\epsilon_0A}.
-$$
-
-Potential from gauge point $(z_g,\phi_g)$ is
+The potential from a reference point $(z_g,\phi_g)$ is
 
 $$
 \phi_0(z)=\phi_g-E_\mathrm{bottom}(z-z_g)
--\frac1{\epsilon_0A}\int_{z_g}^zC(\zeta)\,d\zeta.
+-\frac1{\epsilon_0A}\int_{z_g}^zC(\zeta)\,d\zeta
 $$
 
-A binary search locates the breakpoint interval and evaluates its quadratic and cubic primitive, giving $O(\log N_z)$ per point.
+In a cell whose total charge is not zero, a constant field and a linear potential remain above the surface.
 
-A nonneutral cell can retain constant far field and linearly growing potential in z. Zero mode is a physical Gauss-law component,
-not a numerical term that may be deleted.
-
-## Close the mean field with a z-boundary condition
-
-For total surface charge $Q=\sum_iq_i$, current choices are:
+### Lower boundary condition
 
 | `lower_boundary_model` | $E_\mathrm{bottom}$ | $E_\mathrm{top}$ | Meaning |
-| --- | ---: | ---: | --- |
-| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | Equal vacuum half-spaces above and below with no external field |
-| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | Legacy closure fixing lower flux to zero |
+|---|---:|---:|---|
+| `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | The same vacuum extends above and below, with no external field |
+| `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | The field is zero below the lowest charge |
 
-Neither solves dielectric screening or polarization. `symmetric_vacuum` is the minimal symmetric closure without an additional
-interface or permittivity; `e_bottom_zero` exists for legacy reproduction and is not a universal physical default.
+$Q=\sum_iq_i$ is the total charge of the cell. If the total charge is zero, the two conditions coincide. Neither solves dielectric
+polarization or shielding inside objects.
 
-With `surface_current_model.model="zhao_stationary"`, the wall potential $\phi_0$ of the outer-sheath root becomes the
-zero-mode gauge point $(H,\phi_0)$ at z-high. A constant potential in vacuum preserves the field and Gauss's law, and the
-inner potential becomes referenced to the upstream plasma at 0 V; the outer field profile is not added inside BEACH. The
-zero-current targets hold the total charge at the floating condition. See the [Zhao closure](ZhaoStationaryClosure.en.html).
+### Potential reference
 
-### Can the outer sheath field replace the entire mean field?
+With the outer-sheath connection, the reference point of the zero mode is the top face $(z_\mathrm{high},\phi_0)$, and potentials
+are referenced to the upstream plasma at 0 V ([Connecting to the outer sheath](ZhaoStationaryClosure.en.html#match-the-top-face-potential-to-the-wall-potential)).
+Otherwise, read potentials relative to the top-face mean.
 
-In a grain layer, positive and negative charges can occupy different heights, so $C(z)$ can vary substantially even when
-the total charge $Q$ is small. This internal mean field is also part of $k=0$. Replacing it with the planar outer-sheath
-field alone drops this surface-charge contribution and violates $dE_0/dz=\bar\rho_\mathrm{surface}/\epsilon_0$.
+### Why the mean field of the outer sheath cannot replace it
 
-A prescribed stationary background must still distinguish sheath space charge from grain-layer surface charge and match
-the boundary potential and displacement. The outer solution and BEM must not count the same surface charge twice.
-The current Zhao closure obtains the internal mean field from surface charges and takes the potential reference and
-barriers from the zero-current root of the outer sheath. This separation does not remove the time-step restriction caused by freezing
-local fields within a batch; see [batch-duration validation](BatchDurationStability.en.html).
+Inside a particle layer, $C(z)$ changes strongly when positive and negative charge separate by height, even if the total charge is
+small. This mean field inside the layer is also part of the zero mode. Replacing it with the planar field of the outer sheath
+drops this component created by the surface charge. With the outer-sheath connection, the mean field inside the layer is computed
+from the surface charge, and only the potential reference and the barriers are taken from the outer sheath.
 
-## Search periodic images reachable by particle trajectories
+## Particle collisions and periodic images
 
-Field targets are wrapped into the primary periodic cell, while physical trajectory-event positions are retained. Mesh collision
-searches geometric periodic images required by a segment. Field near-image layer and collision image bound are distinct numerical
-concepts and do not share one fixed count. See [Particle collision and boundary events](ParticleEvents.en.html).
+The field is evaluated at the position mapped back into the cell, while particle orbits are tracked in physical coordinates.
+Collisions with surfaces are found by searching geometrically the periodic images an orbit can reach
+([Collision and boundary events](ParticleEvents.en.html)).
 
-## Converge each component separately
+## Check convergence
 
-- Increase image layers and converge the observable for a finite-image model.
-- For cached models, compare cache miss/hit and thread/MPI configurations.
-- Vary Ewald $\alpha$, real/reciprocal layers, and proxy/check settings to bound teacher/operator error.
-- Compare against an oracle to exclude duplicate primary, near, far, symmetric `k=0` subtraction, or physical `k=0` addition.
-- Inspect Gauss residual and lower/upper closure.
-- Do not interpret a finite-height potential difference in a nonneutral cell directly as escape energy to infinity.
+- With `finite_images`, increase `image_layers` and confirm that the quantity of interest does not change.
+- With `cached_kneq0`, confirm that rebuilding and reusing the cache, and changing the thread and MPI layout, give the same result ([periodic2 far correction](PeriodicFarCorrection.en.html)).
+- In a cell whose total charge is not zero, do not read a potential difference at finite height directly as the energy needed to escape to infinity.
 
-See [FMM internals](FMMCore.en.html) for internal Ewald formulas and operator APIs.
+## Scope
 
-## Code reference
-
-- Periodic FMM plan, state, and evaluation: [`bem_coulomb_fmm_core.f90`](../src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90)
-- Ewald teacher and cached root operator: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
-- Cached symmetric `k=0` subtraction: [`bem_coulomb_fmm_eval_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90)
-- Surface zero-mode plan/state: [`bem_periodic_zero_mode_plan.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90)
-- Zero-mode evaluation: [`bem_periodic_zero_mode_eval.f90`](../src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90)
-- Nonzero Fourier reference evaluation: [`bem_coulomb_fmm_periodic_nonzero_reference.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90)
-- Upper-vacuum Fourier evaluation: [`bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90`](../src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90)
-- Component ownership and snapshot composition: [`bem_electrostatic_snapshot.f90`](../src/physics/field_solver/bem_electrostatic_snapshot.f90)
+- Only the two axes x/y are periodic. The z direction does not repeat.
+- Dielectric polarization, resistance, and shielding inside objects are not solved.
