@@ -65,10 +65,11 @@ $h\to0$ it exceeds the other terms and makes $E^2<0$ ($u$ is the ratio of the dr
 below the upstream potential divided by $T_e$). sheath-model therefore rejects A and C for any drift. For example, giving
 electrons the normal solar-wind velocity at a solar elevation of 60 degrees selects B; at 10 degrees no root holds.
 
-This breakdown comes from the idealization that the reflected upstream electrons are an exact mirror image of the incoming
-distribution, and $E^2<0$ occurs only very close to the upstream potential. The electron thermal speed (about 2000 km/s at 12 eV)
-is much larger than the solar-wind speed, so BEACH sets the electron drift to zero and uses roots that sheath-model can accept.
-The ion drift (the normal solar-wind velocity) is required.
+This breakdown comes from the idealization of a collisionless semi-infinite space in which the reflected upstream electrons are
+an exact mirror image of the incoming distribution. $E^2<0$ occurs only near the upstream potential; in the sheath-model
+validation example (Type A with $u\approx0.2$) it was within a few tens of mV of the upstream potential. BEACH sets the electron
+drift to zero so that it uses roots that sheath-model can accept. The ion drift (the normal solar-wind velocity) is required.
+The error in the electron current caused by the zero drift is described in [Known limitations](#known-limitations).
 
 ## How BEACH uses the root
 
@@ -231,6 +232,10 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
 ### Known limitations
 
+- **Error of the zero electron drift:** the drift increases the electron flux at first order in the drift. The one-way flux of a
+  drifting Maxwellian through a plane is $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux without drift; for a
+  400 km/s solar wind, $T_e=12$ eV, and a solar elevation of 60 degrees ($u\approx0.17$) this is about 1.33. The zero-drift root
+  underestimates the electron current by this factor, and the wall potential changes accordingly.
 - **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
   half-Maxwellian defined by only two quantities, flux and mean energy.
 - **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
