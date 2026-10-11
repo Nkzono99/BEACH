@@ -93,6 +93,11 @@ name = "test_periodic2_infinite_operator"
 source-dir = "tests/fortran"
 main = "test_periodic2_infinite_operator.f90"
 
+[[test]]
+name = "test_periodic2_length_scale"
+source-dir = "tests/fortran"
+main = "test_periodic2_length_scale.f90"
+
 [[example]]
 name = "benchmark_periodic2_runtime"
 source-dir = "benchmarks/fortran"

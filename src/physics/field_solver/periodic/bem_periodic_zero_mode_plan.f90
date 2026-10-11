@@ -182,6 +182,10 @@ contains
       state%cumulative_charge_coeff(:, interval) = &
         state%cumulative_charge_coeff(:, interval - 1) + difference(:, interval)
     end do
+    ! Outside the source slab the integrated charge is known exactly. Do not
+    ! extrapolate cancellation residue from the inclined-panel polynomials.
+    state%cumulative_charge_coeff(:, 1) = 0.0_dp
+    state%cumulative_charge_coeff(:, ninterval) = [state%total_charge, 0.0_dp, 0.0_dp]
     state%primitive_at_break(1) = 0.0_dp
     do interval = 1, plan%nbreak - 1
       state%primitive_at_break(interval + 1) = state%primitive_at_break(interval) + &

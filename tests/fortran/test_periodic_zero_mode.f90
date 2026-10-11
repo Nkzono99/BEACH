@@ -25,7 +25,7 @@ program test_periodic_zero_mode
   real(dp) :: heights(3, 9), charges(9), z, tolerance, expected_field, expected_potential
   integer(i32) :: i, j, gauge, offset, trace
 
-  call test_init(3)
+  call test_init(4)
 
   call test_begin('horizontal_sheet_jumps_superposition_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -109,6 +109,27 @@ program test_periodic_zero_mode
     end do
     call eval_periodic_zero_mode(plan, state, gauges(gauge), zero_mode_trace_plus, potential, field)
     call assert_close_dp(potential, 1.25_dp, 1.0e-14_dp, 'arbitrary gauge potential mismatch')
+  end do
+  call test_end()
+
+  call test_begin('thin_inclined_panels_have_constant_vacuum_field')
+  do i = 1, size(charges)
+    z = 1.0e-4_dp + real(i, dp)*1.3e-8_dp
+    heights(:, i) = z + [0.0_dp, 0.3e-8_dp, 0.9e-8_dp]
+    charges(i) = charge*real((-1)**i*i, dp)
+  end do
+  call build_periodic_zero_mode_height_plan(heights, 1.0e-8_dp, plan, status, message)
+  call assert_equal_i32(status, periodic_zero_mode_ok, 'thin-panel plan status')
+  expected_field = sum(charges)/(eps0*1.0e-8_dp)
+  call refresh_periodic_zero_mode_state(plan, charges, 0.0_dp, 2.0e-4_dp, 0.0_dp, state)
+  do i = 1, 3
+    z = real(i + 2, dp)*1.0e-4_dp
+    call eval_periodic_zero_mode(plan, state, z, zero_mode_trace_plus, potential, field)
+    call assert_close_dp(field, expected_field, 8*epsilon(1.0_dp)*abs(expected_field), &
+                         'vacuum Gauss field must use total charge')
+    expected_potential = -expected_field*(z - 2.0e-4_dp)
+    call assert_close_dp(potential, expected_potential, 32*epsilon(1.0_dp)*abs(expected_potential), &
+                         'vacuum potential must remain linear')
   end do
   call test_end()
 

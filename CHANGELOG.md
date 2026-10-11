@@ -34,6 +34,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed
+- The periodic2 `cached_kneq0` operator generator (v9) normalizes the proxy multipole rows before the pseudoinverse QR.
+  In micrometre SI geometry the rows differ by many powers of length, and the absolute rank threshold discarded the higher
+  moments, so the nonzero-mode field leaked a plane-mean component that grew with the surface charge (in a charged
+  three-layer regolith about 6 V at the top of the layers and 1.4 V at the top face; this offset also made fewer
+  photoelectrons escape than the outer Zhao root). v9 reduces the leak about eightfold, and `image_layers = 2` reduces it
+  further to 0.3 V or less. The mean field above all sources now uses the exact total charge. v8 operator caches are rebuilt.
 - `zhao_stationary` now fixes the z-high plane-mean potential to the outer wall potential $\phi_0$ when a split
   `[periodic2]` zero mode is available. Previously the absolute outer barrier $\phi_m$ was compared with a z-high
   potential tied to the bottom of the charged geometry, so tracked PE and electron returns and the inflow energy map used

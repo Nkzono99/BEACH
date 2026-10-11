@@ -118,6 +118,19 @@ A field-only fit cannot determine the constant-potential coefficient of a local 
 from potential residuals at the same check points. This avoids mixing field and potential, which have different units, in one
 least-squares column set.
 
+Multipole rows have different powers of length. Before the pseudoinverse QR factorization, each row and its
+constraint right-hand side are scaled together. This prevents an absolute rank threshold from discarding higher
+moments in micrometre SI geometry. Generator v9 includes this correction and does not reuse v8 or older operator caches.
+
+Scaling does not remove FMM truncation errors. Far from the sources, errors in the difference of the finite-image
+field and the symmetric mean field can exceed the small nonzero modes themselves. Comparison with a weak external
+sheath requires an absolute-error check, such as an upper-vacuum Fourier reference evaluated on the same saved
+charges. Length-scale invariance and cache-reuse tests alone do not establish that accuracy.
+
+The physical mean field retains its height distribution inside the source slab. Above all sources, cumulative charge
+is set exactly to the total charge $Q$, preventing cancellation residue in inclined-panel polynomials from being
+extrapolated into the vacuum. This does not remove the height-dependent mean field.
+
 ## Apply correction after ordinary M2L and before L2L
 
 Each batch `update_state` follows this sequence:

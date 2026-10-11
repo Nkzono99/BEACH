@@ -287,5 +287,9 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
   electron scale from 1 in `fixed_current_history.csv`.
 - **Offset of the mean top-face potential:** as the surface charge grows, the mean top-face potential departs from $\phi_0$. The
   far correction (`cached_kneq0`) does not remove the zero mode completely; the offset is proportional to the charge and creates
-  a spurious vertical field above the particles. Check it by comparing `potential_mean_V` in `top_reference_history.csv` with
-  $\phi_0$ ([accuracy of the far correction](PeriodicFarCorrection.en.html)).
+  a spurious vertical field in and above the particle layers. Because the barrier is tested with the potential at the crossing
+  point, fewer photoelectrons escape than the outer root predicts by the amount of the offset (the photoelectron escape scale in
+  `fixed_current_history.csv` exceeds 1). In a charged three-layer regolith the offset was about 6 V at the top of the layers
+  and about 1.4 V at the top face. Generator v9 with `fields.periodic.image_layers = 2` reduces it to 0.3 V or less in and above
+  the layers and about 0.02 V at the top face (charge updates take about three times longer). Check it by comparing
+  `potential_mean_V` in `top_reference_history.csv` with $\phi_0$ ([accuracy of the far correction](PeriodicFarCorrection.en.html)).

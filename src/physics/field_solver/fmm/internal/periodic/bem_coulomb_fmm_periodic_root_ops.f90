@@ -305,10 +305,10 @@ contains
       real_pos = real_pos + 6_i32
     end do
     if (plan%panel_source) then
-      tag = 'periodic-kneq0-generator-v8|paired-face-collocation-v1|real64|kernel=triangle_p0|'
+      tag = 'periodic-kneq0-generator-v9|scaled-proxy-qr-v1|real64|kernel=triangle_p0|'
       tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     else
-      tag = 'periodic-kneq0-generator-v8|paired-face-collocation-v1|real64|kernel=point_softened|'
+      tag = 'periodic-kneq0-generator-v9|scaled-proxy-qr-v1|real64|kernel=point_softened|'
       tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     end if
     tag = trim(tag)//trim(beach_version)
@@ -580,21 +580,29 @@ contains
     real(dp), intent(in) :: matrix(:, :)
     real(dp), intent(out) :: pinv(:, :)
     integer(i32) :: nrow, ncol, rhs_idx
-    real(dp), allocatable :: matrix_t(:, :), q(:, :), r(:, :), z(:), rhs(:)
+    real(dp), allocatable :: matrix_t(:, :), q(:, :), r(:, :), z(:), rhs(:), row_scale(:)
 
     nrow = int(size(matrix, 1), i32)
     ncol = int(size(matrix, 2), i32)
     if (size(pinv, 1) /= ncol .or. size(pinv, 2) /= nrow) error stop 'build_minimum_norm_pseudoinverse dimension mismatch.'
 
-    allocate (matrix_t(ncol, nrow), q(ncol, nrow), r(nrow, nrow), z(nrow), rhs(nrow))
+    allocate (matrix_t(ncol, nrow), q(ncol, nrow), r(nrow, nrow), z(nrow), rhs(nrow), row_scale(nrow))
     matrix_t = transpose(matrix)
+    ! Multipole rows carry different powers of length. Normalize before QR so
+    ! its rank tolerance does not erase high moments in micrometre SI geometry.
+    ! Rescale the constraint RHS as well to preserve the original inverse map.
+    do rhs_idx = 1_i32, nrow
+      row_scale(rhs_idx) = sqrt(sum(matrix_t(:, rhs_idx)**2))
+      if (row_scale(rhs_idx) <= tiny(1.0_dp)) row_scale(rhs_idx) = 1.0_dp
+      matrix_t(:, rhs_idx) = matrix_t(:, rhs_idx)/row_scale(rhs_idx)
+    end do
     q = 0.0d0
     r = 0.0d0
     call factor_tall_matrix_qr(matrix_t, q, r)
 
     do rhs_idx = 1_i32, nrow
       rhs = 0.0d0
-      rhs(rhs_idx) = 1.0d0
+      rhs(rhs_idx) = 1.0_dp/row_scale(rhs_idx)
       call solve_lower_triangular_transpose_system(r, rhs, z)
       pinv(:, rhs_idx) = matmul(q, z)
     end do

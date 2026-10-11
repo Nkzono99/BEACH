@@ -130,6 +130,8 @@ mesh は primitive cell の base element だけを保持し、場と衝突判定
 cache fingerprint は generator version を含み、物理的 zero mode の評価は高さ breakpoint の
 二分探索により 1 点あたり O(log n) です。
 
+平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
+
 `cached_kneq0` の物理的 $k=0$ は `periodic2.zero_mode_policy="exclude_k0"` と
 `lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
 このzero-mode構築自体は外部プラズマ応答を合成しません。外部シースclosureを選んだ場合、その壁電位は

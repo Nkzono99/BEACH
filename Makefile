@@ -90,6 +90,7 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
+	test_periodic2_length_scale \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
 	test_periodic_nonzero_reference \
