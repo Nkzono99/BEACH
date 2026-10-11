@@ -15,9 +15,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   (about 1 V for Type A, 2.7 V for Type C in the documented case).
 - Added `surface_current_model.outflow_refresh_batches` (grouped `sheath.coupling.outflow_refresh_batches`) for
   `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
-  z-high (window transmission and mean normal energy, reduced to a half-Maxwellian) as the outer emission source, while the
-  surface emission target and the per-batch floating targets stay unchanged. The accepted outer state is written to the
-  `matching_plane_*` summary receipts and `matching_plane_history.csv`, and restarts reconstruct it from the checkpoint.
+  z-high as the outer emission source, while the surface emission target and the per-batch floating targets stay
+  unchanged. The outflow is passed as its normal-kinetic-energy spectrum (24 logarithmic bins per decade from 1 meV to
+  1 keV) scaled to the window transmission, not reduced to a half-Maxwellian with the same mean energy: the outflow from
+  a regolith cell is a body near the emission temperature plus a tail of electrons accelerated in the cell, the tail sets
+  the mean, and the mean-energy half-Maxwellian overcounted escaping electrons and lost the Type A/B roots in long
+  regolith runs. The accepted outer state is written to
+  the `matching_plane_*` summary receipts (the spectrum as `matching_plane_photoelectron_spectrum_m2_s`),
+  `matching_plane_history.csv`, and `matching_plane_spectrum_history.csv`, and restarts reconstruct it from the
+  checkpoint. A checkpoint without the spectrum key resumes with the half-Maxwellian source until the next refresh.
 - Added `fixed_current_history.csv`, written every `output.history_stride` batches when a fixed-current closure is
   active. Each row holds the tracked and target signed charge of one species channel (`absorbed`, `emission`, `escape`)
   summed over the write interval, so the closure's scale factor can be followed in time instead of only as the

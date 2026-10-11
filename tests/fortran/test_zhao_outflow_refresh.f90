@@ -9,6 +9,7 @@ program test_zhao_outflow_refresh
                             particle_inflow_reservoir
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
+  use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, delete_file_if_exists
   implicit none
@@ -16,6 +17,7 @@ program test_zhao_outflow_refresh
   real(dp), parameter :: cell_width = 1.0e-4_dp
   real(dp), parameter :: box_height = 1.0e-3_dp
   character(len=*), parameter :: fixed_history_path = 'test_zhao_outflow_refresh_fixed_history_tmp.csv'
+  character(len=*), parameter :: spectrum_history_path = 'test_zhao_outflow_refresh_spectrum_history_tmp.csv'
   type(mesh_type) :: mesh
   type(app_config) :: cfg
   type(sim_stats) :: stats, resumed_stats
@@ -23,7 +25,11 @@ program test_zhao_outflow_refresh
   type(charge_ledger_type) :: ledger
   type(surface_current_model_result_type) :: static_root
   real(dp) :: emission_flux, predicted_escape_fraction, observed_escape_fraction
-  integer :: fixed_history_unit, read_ios, fixed_history_rows
+  real(dp) :: edges(outflow_spectrum_bins + 1), split_edge, slow_fraction, last_batch_flux
+  real(dp) :: row_time, row_low, row_high, row_flux
+  integer :: fixed_history_unit, read_ios, fixed_history_rows, spectrum_history_unit, split_bin
+  integer(i32) :: row_batch, row_bin, last_row_batch
+  logical :: spectrum_rows_valid
   character(len=512) :: line
 
   call test_init(3)
@@ -58,10 +64,13 @@ program test_zhao_outflow_refresh
   call configure_fixture(mesh, cfg, inject_state, 1_i32)
   call seed_particles_from_config(cfg)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='replace', action='write')
+  open (newunit=spectrum_history_unit, file=spectrum_history_path, status='replace', action='write')
   call run_absorption_insulator( &
-    mesh, cfg, stats, history_stride=1_i32, inject_state=inject_state, fixed_current_history_unit=fixed_history_unit &
+    mesh, cfg, stats, history_stride=1_i32, inject_state=inject_state, fixed_current_history_unit=fixed_history_unit, &
+    matching_plane_spectrum_history_unit=spectrum_history_unit &
     )
   close (fixed_history_unit)
+  close (spectrum_history_unit)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='old', action='read')
   fixed_history_rows = 0
   do
@@ -90,6 +99,44 @@ program test_zhao_outflow_refresh
     'flat-plate outflow mean normal energy must equal the emission temperature' &
     )
   call assert_close_dp(stats%matching_plane_phi_v, static_root%phi0_v, 0.3_dp, 'refreshed phi0 drifted')
+  ! 平板から出たPEの法線エネルギーは放出の半Maxwell分布のまま: K < K_s の割合は 1 - exp(-K_s/T)。
+  call assert_close_dp( &
+    sum(stats%matching_plane_photoelectron_spectrum_m2_s), stats%matching_plane_feedback(1), &
+    1.0e-12_dp*stats%matching_plane_feedback(1), 'outer spectrum must carry the outer source flux' &
+    )
+  edges = outflow_spectrum_edges_ev()
+  split_bin = minloc(abs(edges - 2.2_dp), dim=1)
+  split_edge = edges(split_bin)
+  slow_fraction = sum(stats%matching_plane_photoelectron_spectrum_m2_s(:split_bin - 1))/ &
+                  sum(stats%matching_plane_photoelectron_spectrum_m2_s)
+  call assert_close_dp( &
+    slow_fraction, 1.0_dp - exp(-split_edge/2.2_dp), 0.04_dp, 'flat-plate outflow spectrum must stay half-Maxwellian' &
+    )
+  ! スペクトル history は外部根を更新した各 batch で、正の bin だけを書く。
+  open (newunit=spectrum_history_unit, file=spectrum_history_path, status='old', action='read')
+  last_row_batch = 0_i32
+  last_batch_flux = 0.0_dp
+  spectrum_rows_valid = .true.
+  do
+    read (spectrum_history_unit, '(a)', iostat=read_ios) line
+    if (read_ios /= 0) exit
+    read (line, *, iostat=read_ios) row_batch, row_time, row_bin, row_low, row_high, row_flux
+    spectrum_rows_valid = spectrum_rows_valid .and. read_ios == 0
+    if (read_ios /= 0) cycle
+    spectrum_rows_valid = spectrum_rows_valid .and. row_flux > 0.0_dp .and. row_batch >= last_row_batch .and. &
+                          row_low == edges(row_bin) .and. row_high == edges(row_bin + 1)
+    if (row_batch /= last_row_batch) last_batch_flux = 0.0_dp
+    last_row_batch = row_batch
+    last_batch_flux = last_batch_flux + row_flux
+  end do
+  close (spectrum_history_unit)
+  call delete_file_if_exists(spectrum_history_path)
+  call assert_true(spectrum_rows_valid, 'spectrum history rows must be positive bins in batch order')
+  call assert_equal_i32(last_row_batch, cfg%sim%batch_count, 'spectrum history must end at the last refresh')
+  call assert_close_dp( &
+    last_batch_flux, stats%matching_plane_feedback(1), 1.0e-12_dp*stats%matching_plane_feedback(1), &
+    'last spectrum history rows must carry the outer source flux' &
+    )
   call assert_close_dp( &
     stats%matching_plane_photoelectron_return_flux_m2_s + stats%matching_plane_photoelectron_escape_flux_m2_s, &
     stats%matching_plane_feedback(1), 1.0e-12_dp*stats%matching_plane_feedback(1), &
@@ -110,6 +157,9 @@ program test_zhao_outflow_refresh
     'resume must continue the accepted outer-solve count' &
     )
   call assert_close_dp(resumed_stats%matching_plane_phi_v, stats%matching_plane_phi_v, 0.3_dp, 'resumed phi0 jump')
+  call assert_true( &
+    any(resumed_stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp), 'resume must keep refreshing the spectrum' &
+    )
   call test_end()
 
   call test_summary()

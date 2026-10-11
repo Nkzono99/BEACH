@@ -8,7 +8,8 @@ module bem_surface_current_model
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use sheath_model, only: fixed_entry_equilibrium_input, sheath_equilibrium_result, sheath_solver, &
-                          maxwellian_photoelectrons, SHEATH_OK
+                          maxwellian_photoelectrons, binned_photoelectrons, SHEATH_OK
+  use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -34,9 +35,11 @@ module bem_surface_current_model
     real(dp) :: net_current_density_a_m2 = 0.0_dp
     real(dp) :: photoelectron_budget_residual_current_density_a_m2 = 0.0_dp
     real(dp) :: surface_budget_residual_current_density_a_m2 = 0.0_dp
-    !> 外部Zhaoシースが壁放出として見るPE束 [1/(m2 s)] とhalf-Maxwellian温度 [eV]。
+    !> 外部Zhaoシースが壁放出として見るPE束 [1/(m2 s)] と平均法線エネルギー [eV]。
     real(dp) :: outer_photoelectron_flux_m2_s = 0.0_dp
     real(dp) :: outer_photoelectron_mean_energy_ev = 0.0_dp
+    !> 外部源に使ったH外向きスペクトル [1/(m2 s)]、bin別。全て0は表面放出の半Maxwell源。
+    real(dp) :: outer_photoelectron_spectrum_m2_s(outflow_spectrum_bins) = 0.0_dp
     character(len=32) :: kinetic_contract = 'none'
   end type surface_current_model_result_type
 
@@ -147,7 +150,8 @@ contains
   !! 周期セルは外部シースから見て一様な壁なので、外部の1-D解は壁から出るPEとしてH通過流出だけを見る。
   !! 流出は同じ束と平均法線エネルギーを持つhalf-Maxwellianへ縮約する。previousは同じbranchの初期値に使う。
   subroutine solve_zhao_outflow_closure( &
-    app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message, previous &
+    app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message, previous, &
+    outer_spectrum_m2_s &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
@@ -156,6 +160,8 @@ contains
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
     type(surface_current_model_result_type), intent(in), optional :: previous
+    !> H外向きスペクトル [1/(m2 s)]、bin別。省略時は束と平均法線エネルギーの半Maxwell源とする。
+    real(dp), intent(in), optional :: outer_spectrum_m2_s(outflow_spectrum_bins)
     type(sheath_equilibrium_result) :: root
     character(len=1), allocatable :: order(:)
     character(len=512) :: root_message
@@ -172,15 +178,19 @@ contains
     result%model = 'zhao_stationary'
     outer_density_m3 = 2.0_dp*sqrt(pi)*outer_flux_m2_s/ &
                        thermal_speed(app, outer_mean_energy_ev)
+    if (present(outer_spectrum_m2_s)) then
+      if (.not. all(ieee_is_finite(outer_spectrum_m2_s)) .or. any(outer_spectrum_m2_s < 0.0_dp) .or. &
+          sum(outer_spectrum_m2_s) <= 0.0_dp) then
+        message = 'outer photoelectron spectrum must be finite, nonnegative, and nonzero.'
+        return
+      end if
+    end if
     ! 外部根の更新では表面の太陽高度ではなく、前回のbranchを優先して連続性を保つ。
     call outer_branch_order(app, preferred_branch, 90.0_dp, order)
-    if (present(previous)) then
-      call solve_outer_root( &
-        app, outer_density_m3, outer_mean_energy_ev, order, root, success, root_message, previous=previous &
-        )
-    else
-      call solve_outer_root(app, outer_density_m3, outer_mean_energy_ev, order, root, success, root_message)
-    end if
+    call solve_outer_root( &
+      app, outer_density_m3, outer_mean_energy_ev, order, root, success, root_message, previous=previous, &
+      spectrum_m2_s=outer_spectrum_m2_s &
+      )
     if (.not. success) then
       message = 'outer Zhao zero-current root was not found for the observed photoelectron outflow: '// &
                 trim(root_message)
@@ -189,6 +199,7 @@ contains
     call finish_zhao_closure(app, root, outer_density_m3, outer_mean_energy_ev, result, success, message)
     result%outer_photoelectron_flux_m2_s = outer_flux_m2_s
     result%outer_photoelectron_mean_energy_ev = outer_mean_energy_ev
+    if (present(outer_spectrum_m2_s)) result%outer_photoelectron_spectrum_m2_s = outer_spectrum_m2_s
   end subroutine solve_zhao_outflow_closure
 
   !> 設定の太陽高度・基準密度・倍率から、表面放出するhalf-MaxwellianのMaxwell規格化密度と温度を返す。
@@ -246,7 +257,9 @@ contains
   !!
   !! ionは従来のZhao closureと同じ冷たいビーム、電子は設定の内向きdriftを持つ上流Maxwell分布とする。
   !! 内向きdriftのある電子で反射集団を持つA/Cは無限遠へ接続できず、sheath-modelが棄却する。
-  subroutine solve_outer_root(app, source_density_m3, source_temperature_ev, order, root, success, message, previous)
+  subroutine solve_outer_root( &
+    app, source_density_m3, source_temperature_ev, order, root, success, message, previous, spectrum_m2_s &
+    )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: source_density_m3, source_temperature_ev
     character(len=1), intent(in) :: order(:)
@@ -254,13 +267,16 @@ contains
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
     type(surface_current_model_result_type), intent(in), optional :: previous
+    !> 与えたときは半Maxwell源の代わりに、このH外向きスペクトルをbin光電子源にする。
+    real(dp), intent(in), optional :: spectrum_m2_s(outflow_spectrum_bins)
     type(fixed_entry_equilibrium_input) :: input
     type(sheath_solver) :: solver
     type(sheath_equilibrium_result) :: guesses(1)
     character(len=256) :: attempt_message
     integer(i32) :: electron_idx, ion_idx, status
-    integer :: i
+    integer :: i, first_bin, last_bin
     logical :: use_guess
+    real(dp) :: edges(outflow_spectrum_bins + 1)
 
     success = .false.
     message = ''
@@ -275,7 +291,16 @@ contains
     input%plasma%ion_entry_speed_mps = -app%particle_species(ion_idx)%drift_velocity(3)
     input%plasma%ion_mass_kg = app%particle_species(ion_idx)%m_particle
     input%plasma%electron_mass_kg = app%particle_species(electron_idx)%m_particle
-    input%plasma%photoelectrons = maxwellian_photoelectrons(source_density_m3, source_temperature_ev)
+    if (present(spectrum_m2_s)) then
+      ! 空の端のbinは除き、観測した範囲だけをbin源にする。
+      edges = outflow_spectrum_edges_ev()
+      first_bin = findloc(spectrum_m2_s > 0.0_dp, .true., dim=1)
+      last_bin = findloc(spectrum_m2_s > 0.0_dp, .true., dim=1, back=.true.)
+      input%plasma%photoelectrons = binned_photoelectrons( &
+                                    edges(first_bin:last_bin + 1), spectrum_m2_s(first_bin:last_bin))
+    else
+      input%plasma%photoelectrons = maxwellian_photoelectrons(source_density_m3, source_temperature_ev)
+    end if
     solver%search%upstream_band_tolerance = app%surface_current%zhao_upstream_band_tolerance
     use_guess = .false.
     if (present(previous)) use_guess = previous%active .and. index('ABC', previous%zhao_branch) > 0

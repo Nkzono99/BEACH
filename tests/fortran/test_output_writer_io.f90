@@ -5,7 +5,9 @@ program test_output_writer_io
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, open_matching_plane_history_writer, &
                                write_result_files, write_top_reference_history_snapshot, &
-                               open_fixed_current_history_writer, write_fixed_current_history_rows
+                               open_fixed_current_history_writer, write_fixed_current_history_rows, &
+                               open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows
+  use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
@@ -59,7 +61,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(8)
+  call test_init(9)
 
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
@@ -388,6 +390,10 @@ program test_output_writer_io
   call test_fixed_current_history_rows()
   call test_end()
 
+  call test_begin('matching_plane_spectrum_history_and_summary')
+  call test_matching_plane_spectrum_outputs()
+  call test_end()
+
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
   call cleanup_output_dir(out_dir_no_photo)
@@ -460,6 +466,91 @@ contains
       'PE escape row with no tracked charge must write nan' &
       )
   end subroutine test_fixed_current_history_rows
+
+  !> 外部源スペクトルは更新ごとに正の bin だけを history へ書き、summary へは全 bin を 1 行で書く。
+  subroutine test_matching_plane_spectrum_outputs()
+    logical :: opened, found
+    integer :: unit_id, read_ios, row_count, pos
+    integer(i32) :: row_batch, row_bin
+    real(dp) :: row_time, row_low, row_high, row_flux, edges(outflow_spectrum_bins + 1)
+    real(dp) :: summary_spectrum(outflow_spectrum_bins)
+    character(len=512) :: rows(3)
+    character(len=8192) :: long_line
+
+    call default_app_config(cfg)
+    call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+    cfg%output_dir = out_dir_matching
+    cfg%history_stride = 0_i32
+    cfg%write_mesh_potential = .false.
+    call ensure_output_dir(out_dir_matching)
+    open (newunit=unit_id, file=out_dir_matching//'/matching_plane_spectrum_history.csv', status='replace', &
+          action='write')
+    write (unit_id, '(a)') 'stale'
+    close (unit_id)
+    call open_matching_plane_spectrum_history_writer(cfg, .false., opened, unit_id)
+    call assert_true(.not. opened, 'history_stride=0 must disable the spectrum history')
+    inquire (file=out_dir_matching//'/matching_plane_spectrum_history.csv', exist=exists)
+    call assert_true(.not. exists, 'fresh run must remove a stale disabled spectrum history')
+
+    cfg%history_stride = 5_i32
+    call open_matching_plane_spectrum_history_writer(cfg, .false., opened, unit_id)
+    call assert_true(opened, 'outflow refresh must open the spectrum history')
+    if (.not. opened) return
+    stats = sim_stats()
+    stats%matching_plane_photoelectron_spectrum_m2_s(3) = 1.0e10_dp
+    call write_matching_plane_spectrum_history_rows(unit_id, 1_i32, 2.0_dp, stats)
+    stats%matching_plane_state_valid = .true.
+    stats%matching_plane_photoelectron_spectrum_m2_s(100) = 2.0e10_dp
+    call write_matching_plane_spectrum_history_rows(unit_id, 3_i32, 6.0_dp, stats)
+    close (unit_id)
+
+    open (newunit=unit_id, file=out_dir_matching//'/matching_plane_spectrum_history.csv', status='old', &
+          action='read')
+    row_count = 0
+    do
+      read (unit_id, '(a)', iostat=read_ios) line
+      if (read_ios /= 0) exit
+      row_count = row_count + 1
+      if (row_count <= size(rows)) rows(row_count) = line
+    end do
+    close (unit_id)
+    call assert_equal_i32( &
+      int(row_count, i32), 3_i32, 'header plus one row per positive bin of the valid state expected' &
+      )
+    if (row_count /= 3) return
+    call assert_true( &
+      trim(rows(1)) == 'batch,simulated_time_s,bin,energy_low_eV,energy_high_eV,photoelectron_outward_flux_m2_s', &
+      'spectrum history header mismatch' &
+      )
+    edges = outflow_spectrum_edges_ev()
+    read (rows(3), *) row_batch, row_time, row_bin, row_low, row_high, row_flux
+    call assert_equal_i32(row_batch, 3_i32, 'spectrum history batch mismatch')
+    call assert_equal_i32(row_bin, 100_i32, 'spectrum history bin mismatch')
+    call assert_true( &
+      row_low == edges(100) .and. row_high == edges(101) .and. row_flux == 2.0e10_dp, &
+      'spectrum history row must keep the bin edges and flux' &
+      )
+
+    call write_result_files(out_dir_matching, mesh, stats, cfg)
+    found = .false.
+    open (newunit=unit_id, file=out_dir_matching//'/summary.txt', status='old', action='read')
+    do
+      read (unit_id, '(a)', iostat=read_ios) long_line
+      if (read_ios /= 0) exit
+      pos = index(long_line, '=')
+      if (pos <= 0) cycle
+      if (long_line(:pos - 1) /= 'matching_plane_photoelectron_spectrum_m2_s') cycle
+      read (long_line(pos + 1:), *, iostat=read_ios) summary_spectrum
+      found = read_ios == 0
+      exit
+    end do
+    close (unit_id)
+    call assert_true(found, 'summary must write every spectrum bin on one line')
+    call assert_true( &
+      all(summary_spectrum == stats%matching_plane_photoelectron_spectrum_m2_s), &
+      'summary spectrum must round-trip exactly' &
+      )
+  end subroutine test_matching_plane_spectrum_outputs
 
   subroutine scan_summary_line(summary_path, expected_line, found)
     character(len=*), intent(in) :: summary_path, expected_line
@@ -609,6 +700,7 @@ contains
     call delete_file_if_exists(out_dir//'/top_reference_history.csv')
     call delete_file_if_exists(out_dir//'/matching_plane_history.csv')
     call delete_file_if_exists(out_dir//'/fixed_current_history.csv')
+    call delete_file_if_exists(out_dir//'/matching_plane_spectrum_history.csv')
     call remove_empty_directory(out_dir)
   end subroutine cleanup_output_dir
 

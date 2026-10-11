@@ -368,12 +368,16 @@ rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支
 
 `outflow_refresh_batches=N>0`は、PE有効、`field_boundary.mode="periodic2"`、x/y周期、明示的なsplit `[periodic2]`を
 要求します。$N$個のaccepted batchで、z-highを外向きに横切ったPE数$N_{out}$、その法線運動エネルギー和、表面放出数
-$N_{emit}$をraw weightで合計し、$\eta=N_{out}/N_{emit}$と平均法線エネルギー$\bar K$を得ます。外部根は放出源を束
-$\eta\Gamma_{emit}$、温度$\bar K$のhalf-Maxwellianとして解き直します。表面放出$J_{emit}$は設定から決まる値のままで、
+$N_{emit}$をraw weightで合計し、$\eta=N_{out}/N_{emit}$と平均法線エネルギー$\bar K$を得ます。$N_{out}$は法線運動
+エネルギーのbin（$[0,1\,\mathrm{meV})$と1 meV〜1 keVの1桁24個の対数bin、1 keV以上は最後のbin）別にも数えます。
+外部根は放出源を、全体が$\eta\Gamma_{emit}$になるよう比例配分したこのbinスペクトル（bin内で$d\Gamma/dK$一定）として
+解き直します。流出は放出温度に近い本体とセル内で加速された裾からなり、平均は裾で決まるため、同じ平均の
+half-Maxwellianへは縮約しません。表面放出$J_{emit}$は設定から決まる値のままで、
 $J_{return}=J_{escape}-J_{emit}$はセル内再吸収と外部returnの和です。`zhao_branch`が明示ならそのbranchだけ、
 `"auto"`なら直前に採用したbranchを先に試します。根が得られない窓、または流出0の窓は警告して直前の根を保ちます。
-採用した外部状態は`matching_plane_*`のstatsへ保存し、`matching_plane_history.csv`へ出力します。checkpointからの再開では
-保存した放出源から根を再構成し、途中の窓は再開時点から数え直します。
+採用した外部状態は`matching_plane_*`のstatsへ保存し、`matching_plane_history.csv`へ、放出源のスペクトルは
+`matching_plane_spectrum_history.csv`へ出力します。checkpointからの再開では保存した放出源（スペクトル、無ければ
+half-Maxwellian）から根を再構成し、途中の窓は再開時点から数え直します。
 
 このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、
 `outflow_refresh_batches=0`ではrun中の表面電位に応じてtargetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
@@ -396,7 +400,7 @@ $J_{return}=J_{escape}-J_{emit}$はセル内再吸収と外部returnの和です
 - `mesh_sources.csv`
 - `mesh_potential.csv`（設定時）
 - `charge_history.csv` / `potential_history.csv` / `top_reference_history.csv`（設定時）
-- `matching_plane_history.csv`（`zhao_stationary`の外部根更新かつ履歴出力時）
+- `matching_plane_history.csv` / `matching_plane_spectrum_history.csv`（`zhao_stationary`の外部根更新かつ履歴出力時）
 - `fixed_current_history.csv`（固定電流 closure があり履歴出力時。species・channel 別の追跡電荷と目標電荷）
 - `charge_ledger.csv`（ledger がある場合）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`

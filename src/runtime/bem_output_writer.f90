@@ -21,6 +21,7 @@ module bem_output_writer
   public :: open_matching_plane_history_writer
   public :: write_top_reference_history_snapshot
   public :: write_matching_plane_history_snapshot
+  public :: open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows
   public :: open_fixed_current_history_writer
   public :: write_fixed_current_history_rows
   public :: print_run_summary
@@ -73,6 +74,20 @@ module bem_output_writer
       real(dp), intent(in) :: simulated_time_s
       type(sim_stats), intent(in) :: stats
     end subroutine write_matching_plane_history_snapshot
+
+    module subroutine open_matching_plane_spectrum_history_writer(app, resumed, history_opened, history_unit)
+      type(app_config), intent(in) :: app
+      logical, intent(in) :: resumed
+      logical, intent(out) :: history_opened
+      integer, intent(out) :: history_unit
+    end subroutine open_matching_plane_spectrum_history_writer
+
+    module subroutine write_matching_plane_spectrum_history_rows(unit_id, batch_idx, simulated_time_s, stats)
+      integer, intent(in) :: unit_id
+      integer(i32), intent(in) :: batch_idx
+      real(dp), intent(in) :: simulated_time_s
+      type(sim_stats), intent(in) :: stats
+    end subroutine write_matching_plane_spectrum_history_rows
 
     module subroutine open_fixed_current_history_writer(app, resumed, history_opened, history_unit)
       type(app_config), intent(in) :: app

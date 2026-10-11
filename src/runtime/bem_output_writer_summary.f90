@@ -103,6 +103,8 @@ contains
     stats%matching_plane_feedback(1)
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_mean_normal_energy_eV=', &
     stats%matching_plane_feedback(2)
+  write (u, '(a,*(1x,es24.16))') 'matching_plane_photoelectron_spectrum_m2_s=', &
+    stats%matching_plane_photoelectron_spectrum_m2_s
   write (u, '(a,es24.16)') 'matching_plane_electron_outward_flux_m2_s=', &
     stats%matching_plane_feedback(3)
   write (u, '(a,es24.16)') 'matching_plane_ion_outward_flux_m2_s=', &

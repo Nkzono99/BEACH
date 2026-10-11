@@ -27,6 +27,7 @@ the linked section repeats this information before expanding its columns and dec
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
 | `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
+| `matching_plane_spectrum_history.csv` | Same as `matching_plane_history.csv` | `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` for each positive bin of the [outer source spectrum](#zhao_stationary) | No dedicated attribute; read the CSV directly. Not used for restart |
 | `fixed_current_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `zhao_stationary` or a species with `surface_charge_closure="fixed_current"` | [Tracked and target charge per species and channel](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly. Not used for restart |
 | `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
@@ -167,7 +168,7 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 | Row | Leading `batch`, `simulated_time_s`, then the fifteen state columns below; seventeen columns in total |
 | Time | State after the batch's charge commit and outer-root update; the next batch uses this outer root |
 | Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last state |
-| Restart | The CSV is not used. `summary.txt` stores the last state, and a restart reconstructs the outer root from its emission source |
+| Restart | The CSV is not used. `summary.txt` stores the last state, and a restart reconstructs the outer root from its emission source (spectrum) |
 
 | `summary.txt` receipt | `matching_plane_history.csv` column | Meaning |
 | --- | --- | --- |
@@ -176,7 +177,8 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 | `matching_plane_electron_inward_flux_m2_s`, `matching_plane_ion_inward_flux_m2_s` | `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | Number fluxes of the outer-root electron / ion absorption targets |
 | `matching_plane_electron_access_potential_V`, `matching_plane_photoelectron_barrier_potential_V` | `electron_access_potential_V`, `photoelectron_barrier_potential_V` | $\phi_m$ for Type A; 0 for Type B / C |
 | `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | Always 0 |
-| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | Outer-root emission source: the surface emission for the initial root, then the window-mean observed outflow |
+| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | Flux and mean normal energy of the outer-root emission source: the surface emission for the initial root, then the observed outflow of the window |
+| `matching_plane_photoelectron_spectrum_m2_s` | `matching_plane_spectrum_history.csv` | Flux of the outer-root emission source per normal-kinetic-energy bin; 145 space-separated values on one line. All zero means the source is the surface-emission half-Maxwellian (initial root); otherwise the values sum to `matching_plane_photoelectron_outward_flux_m2_s` |
 | `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | Unused; 0 |
 | `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | The source split into return and escape by the outer-root barrier |
 | `matching_plane_iterations` | `iterations` | Number of accepted outer roots, counting the initial root as 1 |
@@ -184,6 +186,11 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 
 Do not use the state receipts of a summary with `matching_plane_state_valid=F`. The source satisfies
 `photoelectron_outward_flux_m2_s = photoelectron_return_flux_m2_s + photoelectron_escape_flux_m2_s`.
+
+Spectrum bin `j=1` is $[0, 1\,\text{meV})$, and `j=2..145` are logarithmic bins from 1 meV to 1 keV, 24 per decade, with edges
+$10^{-3}\cdot10^{(j-2)/24}$ eV. Energies above 1 keV are counted in the last bin. `matching_plane_spectrum_history.csv` writes one
+row per positive bin of the source adopted at each batch that refreshed the outer root, independent of `output.history_stride`.
+A refresh that found no root and kept the previous one writes nothing.
 
 With an explicit split `[periodic2]` table, the z-high plane-mean potential is fixed to $\phi_0$, so potentials in
 `potential_history.csv` and `mesh_potential.csv` are referenced to the upstream plasma at 0 V. Potential differences
@@ -198,6 +205,7 @@ approximations through $\phi_0$.
 | `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
 | `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
 | `matching_plane_history.csv` | Outer-root refresh with stride enabled | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history` |
+| `matching_plane_spectrum_history.csv` | Outer-root refresh with stride enabled; one block per batch that refreshed the outer root | [Outer source spectrum per bin](#zhao_stationary) | No dedicated attribute; read the CSV directly |
 | `fixed_current_history.csv` | Fixed-current closure with stride enabled | [Eight-column window sums](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly |
 
 The reference in `top_reference_history.csv` is the mean over the box z-high face, not infinity or plasma potential.

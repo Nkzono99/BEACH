@@ -28,11 +28,12 @@ contains
   integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
   integer(i32) :: boundary_status
-  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit
+  integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
   integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
+  logical :: spectrum_history_enabled
   integer(i32) :: fixed_window_batches
   ! 固定電流historyの窓合計。(channel, species)、channelは1=吸収、2=放出、3=脱出。
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
@@ -131,6 +132,13 @@ contains
     matching_history_enabled = matching_hist_unit /= -1
   end if
 
+  spectrum_history_enabled = present(matching_plane_spectrum_history_unit)
+  spectrum_hist_unit = -1
+  if (spectrum_history_enabled) then
+    spectrum_hist_unit = matching_plane_spectrum_history_unit
+    spectrum_history_enabled = spectrum_hist_unit /= -1
+  end if
+
   fixed_history_enabled = present(fixed_current_history_unit)
   fixed_hist_unit = -1
   if (fixed_history_enabled) then
@@ -150,6 +158,7 @@ contains
   if (present(history_stride)) then
     matching_history_enabled = matching_history_enabled .and. history_stride > 0_i32
     fixed_history_enabled = fixed_history_enabled .and. history_stride > 0_i32
+    spectrum_history_enabled = spectrum_history_enabled .and. history_stride > 0_i32
     hist_stride = max(1_i32, history_stride)
   end if
   potential_history_enabled = present(potential_history_unit)
@@ -438,6 +447,10 @@ contains
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
         call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
+      end if
+      ! 外部源は更新時にだけ変わるので、スペクトルは間隔によらず更新した batch で書く。
+      if (spectrum_history_enabled .and. outflow_refreshed) then
+        call write_matching_plane_spectrum_history_rows(spectrum_hist_unit, batch_idx, stats%simulated_time, stats)
       end if
       if (fixed_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
         call write_fixed_current_history_rows( &

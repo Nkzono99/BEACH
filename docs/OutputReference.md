@@ -27,6 +27,7 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
 | `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
+| `matching_plane_spectrum_history.csv` | `matching_plane_history.csv` と同じ | [外部源スペクトル](#zhao_stationary)の正の bin ごとに `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
 | `fixed_current_history.csv` | `output.write_files=true`、`output.history_stride>0`、`zhao_stationary` または `surface_charge_closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
 | `charge_ledger.csv` | `output.write_files=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
@@ -166,7 +167,7 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 15 状態列。全体で 17 列 |
 | 時刻 | その batch の電荷 commit と外部根の更新を終えた後の状態。次の batch はこの外部根を使う |
 | Python | `result.matching_plane_history`。最後の状態は `result.matching_plane_state` |
-| 再開 | CSV 自体は使わない。最後の状態を `summary.txt` に保存し、再開時は放出源から外部根を再構成する |
+| 再開 | CSV 自体は使わない。最後の状態を `summary.txt` に保存し、再開時は放出源（スペクトル）から外部根を再構成する |
 
 | `summary.txt` の receipt | `matching_plane_history.csv` の列 | 意味 |
 | --- | --- | --- |
@@ -175,7 +176,8 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | `matching_plane_electron_inward_flux_m2_s`, `matching_plane_ion_inward_flux_m2_s` | `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | 外部根の electron / ion 吸収 target の数束 |
 | `matching_plane_electron_access_potential_V`, `matching_plane_photoelectron_barrier_potential_V` | `electron_access_potential_V`, `photoelectron_barrier_potential_V` | Type A では $\phi_m$、Type B / C では 0 |
 | `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | 常に 0 |
-| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源。初期根では表面放出、更新後は窓平均の観測流出 |
+| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源の束と平均法線エネルギー。初期根では表面放出、更新後は窓の観測流出 |
+| `matching_plane_photoelectron_spectrum_m2_s` | `matching_plane_spectrum_history.csv` | 外部根の放出源の法線運動エネルギー別の束。145 個の値を空白区切りで 1 行に書く。全て 0 なら放出源は表面放出の半 Maxwell 分布（初期根）、正の値があれば合計が `matching_plane_photoelectron_outward_flux_m2_s` に等しい |
 | `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
 | `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
 | `matching_plane_iterations` | `iterations` | 採用した外部根の数。初期根を 1 と数える |
@@ -183,6 +185,11 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 
 `matching_plane_state_valid=F` の summary にある状態 receipt は使えません。放出源の収支は
 `photoelectron_outward_flux_m2_s = photoelectron_return_flux_m2_s + photoelectron_escape_flux_m2_s` を満たします。
+
+スペクトルの bin `j` は、`j=1` が $[0, 1\,\text{meV})$、`j=2..145` が 1 meV から 1 keV までを 1 桁 24 個に分けた対数 bin で、
+境界は $10^{-3}\cdot10^{(j-2)/24}$ eV です。1 keV 以上は最後の bin に数えます。`matching_plane_spectrum_history.csv` は
+外部根を更新した batch ごとに、その更新で採用した源の正の bin を 1 行ずつ書きます。間隔は `output.history_stride` によりません。
+根が見つからずに直前の根を保った更新では書きません。
 
 明示的な split `[periodic2]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
 `mesh_potential.csv` の電位は上流プラズマ 0 V 基準です。粒子間の電位差は外部根に依存しませんが、
@@ -196,6 +203,7 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
 | `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
 | `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [17 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
+| `matching_plane_spectrum_history.csv` | 外部根の更新があり、stride 有効。外部根を更新した batch ごと | [bin ごとの外部源スペクトル](#zhao_stationary) | 専用属性なし。CSV を直接読む |
 | `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | 専用属性なし。CSV を直接読む |
 
 `top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。

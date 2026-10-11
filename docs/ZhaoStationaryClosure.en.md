@@ -173,22 +173,31 @@ Structure inside the cell changes the emission seen by the outer sheath. Part of
 re-absorbed in the cell, so fewer photoelectrons leave through the top face than are emitted, with a different energy
 distribution. Outer-root refresh feeds this change back to the outer sheath. Every `outflow_refresh_batches` accepted batches:
 
-1. Sum the number $N_{out}$ and the normal kinetic energy of photoelectrons crossing the top face outward, and the number
-   $N_{emit}$ emitted by the surface. Compute the transmission $\eta=N_{out}/N_{emit}$ and the mean normal energy $\bar K$.
-2. Replace the photoelectron source of the outer sheath with a half-Maxwellian of flux $\eta\Gamma_{emit}$ and temperature
-   $\bar K$, and solve the zero-current root. $\Gamma_{emit}$ is the surface emission flux set by the configuration; the surface
-   emission target does not change.
+1. Count the photoelectrons crossing the top face outward in bins of normal kinetic energy $K$. Also sum the number
+   $N_{emit}$ emitted by the surface, and compute the transmission $\eta=N_{out}/N_{emit}$ ($N_{out}$ is the sum over all bins).
+2. Replace the photoelectron source of the outer sheath with the counted spectrum and solve the zero-current root. The bin
+   fluxes are scaled so that their total is $\eta\Gamma_{emit}$, and $d\Gamma/dK$ is constant within a bin. $\Gamma_{emit}$ is the
+   surface emission flux set by the configuration; the surface emission target does not change.
 3. Use the currents, barriers, wall potential, and upstream electron density of the new root from the next batch.
+
+The bins are $[0, 1\,\text{meV})$ and logarithmic bins from 1 meV to 1 keV (24 per decade); energies above 1 keV are counted in
+the last bin. The spectrum is not reduced to a half-Maxwellian with the same mean energy because the spectrum at the top face
+combines a low-energy body close to the emission with a high-energy tail of electrons accelerated by potential differences in the
+cell. In a three-layer regolith the median was about 2 eV, while the tail above 10 eV carried about 14% of the flux and raised
+the mean to 8–12 eV. Because the tail sets the mean, a half-Maxwellian with the same mean overcounts the electrons that escape
+over the barrier and can lose the root (in that case no Type A root was found even with tolerance 0.9, while the spectrum
+itself had a root with φ0 ≈ 1.5 V and an upstream band of about 40 mV).
 
 | Situation | Behavior |
 |---|---|
 | `sheath.zhao.branch` is explicit | Only that type is solved |
 | `sheath.zhao.branch="auto"` | The previous type is tried first, then the usual order. The previous root is the initial guess |
 | No root is found, or the outflow is zero | Warn and keep the previous root |
-| Restart | Rebuild the root from the saved photoelectron source. A partial sum is discarded and counting restarts at the restart point |
+| Restart | Rebuild the root from the saved photoelectron source (spectrum). A partial sum is discarded and counting restarts at the restart point |
 
-Choose the interval so that the photoelectron samples within it fix the mean energy to a few percent and the interval is much
-shorter than the change of surface charging. If only the steady state matters, the state reached does not depend on the interval.
+Choose the interval so that the photoelectron samples within it fix the spectrum near the barrier to a few percent and the
+interval is much shorter than the change of surface charging. If only the steady state matters, the state reached does not
+depend on the interval.
 
 ## Configuration
 
@@ -234,6 +243,7 @@ All keys and combination constraints are in [Input parameters](Parameters.en.htm
 | `fixed_current_history.csv` | `target_over_tracked`. If the outer root and tracking in the cell agree, every species stays near 1 |
 | `charge_ledger.csv` | Tracked, target, and applied charge per species, `fixed_*_weight_scale`, and counts |
 | `matching_plane_history.csv` (outer-root refresh) | `phi_H_V` (the current $\phi_0$), the photoelectron outflow flux and mean normal energy, and `residual` |
+| `matching_plane_spectrum_history.csv` (outer-root refresh) | The outer source spectrum at each batch that refreshed the outer root. Whether acceleration in the cell has moved the lower end of the distribution away from 0 |
 | `top_reference_history.csv` | The mean top-face potential is close to $\phi_0$ (see the known limitations below) |
 
 If the scales differ strongly between species, the balance of currents on each element departs from the state set by
@@ -268,8 +278,9 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
   In a three-layer particle bed (4000 s), zero drift raised all potentials in the cell by about 1 V (A) and 3–4 V (C), while the
   potential differences between layers changed by 1% or less.
-- **Reduced photoelectron source:** outer-root refresh replaces the photoelectrons leaving through the top face with a
-  half-Maxwellian defined by only two quantities, flux and mean energy.
+- **Discretized photoelectron source:** outer-root refresh represents the photoelectrons leaving through the top face only by
+  bins of normal kinetic energy, with a constant distribution within each bin. Tangential velocity and differences across the
+  surface are not passed to the outer sheath. The initial root (until the first refresh) uses the surface-emission half-Maxwellian.
 - **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
   not included in the outer root, which treats every electron reaching the wall as absorbed. The fixed-current closure deposits
   this part as absorption, so the balance of total currents is kept. The escaping fraction can be read from the departure of the

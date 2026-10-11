@@ -9,7 +9,9 @@ program test_surface_current_model
   use bem_surface_current_model, only: &
     surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure, &
     solve_zhao_outflow_closure
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
+  use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev, outflow_spectrum_bin
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
+                          assert_equal_i32
   implicit none
 
   type(app_config) :: cfg
@@ -18,9 +20,12 @@ program test_surface_current_model
   type(surface_current_model_result_type) :: refreshed
   character(len=256) :: message
   real(dp) :: barrier_v, expected_escape
+  real(dp) :: edges(outflow_spectrum_bins + 1), spectrum(outflow_spectrum_bins), tail_spectrum(outflow_spectrum_bins)
+  type(surface_current_model_result_type) :: maxwell_root
+  integer(i32) :: j
   logical :: success
 
-  call test_init(9)
+  call test_init(12)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -211,16 +216,133 @@ program test_surface_current_model
   call assert_close_dp(refreshed%plane_gauge_potential_v, refreshed%phi0_v, 0.0_dp, 'refreshed H gauge mismatch')
   call test_end()
 
+  call test_begin('outflow_spectrum_bins_cover_energy_axis')
+  edges = outflow_spectrum_edges_ev()
+  call assert_close_dp(edges(1), 0.0_dp, 0.0_dp, 'first spectrum edge must be 0 eV')
+  call assert_close_dp(edges(2), 1.0e-3_dp, 1.0e-15_dp, 'second spectrum edge must be 1 meV')
+  call assert_close_dp(edges(outflow_spectrum_bins + 1), 1.0e3_dp, 1.0e-9_dp, 'last spectrum edge must be 1 keV')
+  call assert_true(all(edges(2:) > edges(:outflow_spectrum_bins)), 'spectrum edges must increase')
+  do j = 2_i32, outflow_spectrum_bins
+    call assert_equal_i32( &
+      outflow_spectrum_bin(sqrt(edges(j)*edges(j + 1))), j, 'bin centre must fall in its own bin' &
+      )
+  end do
+  call assert_equal_i32(outflow_spectrum_bin(0.0_dp), 1_i32, 'zero energy must fall in the first bin')
+  call assert_equal_i32(outflow_spectrum_bin(5.0e-4_dp), 1_i32, 'sub-meV energy must fall in the first bin')
+  call assert_equal_i32(outflow_spectrum_bin(-1.0_dp), 1_i32, 'negative energy must fall in the first bin')
+  call assert_equal_i32( &
+    outflow_spectrum_bin(1.0e5_dp), outflow_spectrum_bins, 'energy above 1 keV must fall in the last bin' &
+    )
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_binned_maxwellian_matches_analytic_source')
+  ! 半Maxwell源をbinへ積分した外部源は、解析的な半Maxwell源と同じ根を与える（bin内一定の離散化誤差だけ）。
+  call configure_zhao_fixture(cfg)
+  call evaluate_surface_current_model(cfg, result)
+  call solve_zhao_outflow_closure( &
+    cfg, 0.3_dp*result%outer_photoelectron_flux_m2_s, 4.0_dp, result%zhao_branch, maxwell_root, success, message &
+    )
+  call assert_true(success, 'analytic outer solve failed: '//trim(message))
+  call bin_shifted_half_maxwellian(0.3_dp*result%outer_photoelectron_flux_m2_s, 4.0_dp, 0.0_dp, spectrum)
+  call solve_zhao_outflow_closure( &
+    cfg, 0.3_dp*result%outer_photoelectron_flux_m2_s, 4.0_dp, result%zhao_branch, refreshed, success, message, &
+    outer_spectrum_m2_s=spectrum &
+    )
+  call assert_true(success, 'binned outer solve failed: '//trim(message))
+  call assert_true(refreshed%zhao_branch == maxwell_root%zhao_branch, 'binned outer branch mismatch')
+  call assert_close_dp(refreshed%phi0_v, maxwell_root%phi0_v, 0.02_dp, 'binned phi0 mismatch')
+  call assert_close_dp(refreshed%phi_m_v, maxwell_root%phi_m_v, 0.02_dp, 'binned phi_m mismatch')
+  call assert_close_dp( &
+    refreshed%photoelectron_escape_current_density_a_m2, maxwell_root%photoelectron_escape_current_density_a_m2, &
+    0.01_dp*maxwell_root%photoelectron_escape_current_density_a_m2, 'binned PE escape mismatch' &
+    )
+  call assert_true( &
+    all(refreshed%outer_photoelectron_spectrum_m2_s == spectrum), 'outer spectrum receipt must keep the input' &
+    )
+  call assert_true( &
+    all(maxwell_root%outer_photoelectron_spectrum_m2_s == 0.0_dp), 'analytic source must not publish a spectrum' &
+    )
+  call assert_current_decomposition(refreshed, 'binned outer solve')
+  call test_end()
+
+  call test_begin('zhao_outflow_refresh_keeps_outflow_tail_shape')
+  ! 三層レゴリスの流出に似た、2.2 eV の本体（85%）と加速された 40 eV の裾（15%）。平均 7.87 eV は裾で決まり、
+  ! 同じ平均の半Maxwellへ縮約すると障壁を越える電子を過大に数えて A の根を失う。スペクトルのままなら A の根がある。
+  call configure_zhao_fixture(cfg)
+  cfg%particle_species(1)%temperature_ev = 10.0_dp
+  cfg%particle_species(1)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
+  cfg%particle_species(2)%number_density_m3 = 5.0e6_dp
+  cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
+  cfg%surface_current%zhao_branch = 'a'
+  cfg%surface_current%zhao_upstream_band_tolerance = 0.3_dp
+  call solve_zhao_outflow_closure(cfg, 2.84e12_dp, 7.87_dp, 'A', maxwell_root, success, message)
+  call assert_true(.not. success, 'the mean-energy half-Maxwellian proxy unexpectedly kept a Type A root')
+  call bin_shifted_half_maxwellian(0.85_dp*2.84e12_dp, 2.2_dp, 0.0_dp, spectrum)
+  call bin_shifted_half_maxwellian(0.15_dp*2.84e12_dp, 40.0_dp, 0.0_dp, tail_spectrum)
+  spectrum = spectrum + tail_spectrum
+  call solve_zhao_outflow_closure( &
+    cfg, 2.84e12_dp, 7.87_dp, 'A', refreshed, success, message, outer_spectrum_m2_s=spectrum &
+    )
+  call assert_true(success, 'body-and-tail spectrum lost its Type A root: '//trim(message))
+  call assert_true(refreshed%zhao_branch == 'A', 'body-and-tail root must stay Type A')
+  ! sheath-model を直接使った同じ源の根（φ0 = 1.376 V、上流の帯 41 mV）。
+  call assert_close_dp(refreshed%phi0_v, 1.376_dp, 5.0e-3_dp, 'body-and-tail phi0 mismatch')
+  barrier_v = refreshed%phi0_v - refreshed%phi_m_v
+  ! bin内で一定の dGamma/dK のまま障壁より上を数える。Zhaoの根の式とは独立に、源の分割だけを検証する。
+  expected_escape = 0.0_dp
+  edges = outflow_spectrum_edges_ev()
+  do j = 1_i32, outflow_spectrum_bins
+    if (edges(j) >= barrier_v) then
+      expected_escape = expected_escape + spectrum(j)
+    else if (edges(j + 1) > barrier_v) then
+      expected_escape = expected_escape + spectrum(j)*(edges(j + 1) - barrier_v)/(edges(j + 1) - edges(j))
+    end if
+  end do
+  expected_escape = qe*expected_escape
+  call assert_close_dp( &
+    refreshed%photoelectron_escape_current_density_a_m2, expected_escape, 1.0e-6_dp*expected_escape, &
+    'outer PE escape must be the binned source above the barrier' &
+    )
+  call assert_current_decomposition(refreshed, 'body-and-tail outer solve')
+  call test_end()
+
   call test_begin('zhao_outflow_refresh_rejects_empty_source')
   call configure_zhao_fixture(cfg)
   call solve_zhao_outflow_closure(cfg, 0.0_dp, 2.0_dp, 'A', refreshed, success, message)
   call assert_true(.not. success, 'empty observed outflow must not produce an outer root')
   call assert_true(len_trim(message) > 0, 'empty observed outflow must report a reason')
+  spectrum = 0.0_dp
+  call solve_zhao_outflow_closure( &
+    cfg, 1.0e12_dp, 2.0_dp, 'A', refreshed, success, message, outer_spectrum_m2_s=spectrum &
+    )
+  call assert_true(.not. success, 'an empty outer spectrum must not produce an outer root')
+  spectrum(10) = -1.0_dp
+  spectrum(20) = 2.0e12_dp
+  call solve_zhao_outflow_closure( &
+    cfg, 1.0e12_dp, 2.0_dp, 'A', refreshed, success, message, outer_spectrum_m2_s=spectrum &
+    )
+  call assert_true(.not. success, 'a negative outer spectrum bin must be rejected')
   call test_end()
 
   call test_summary()
 
 contains
+
+  !> 法線エネルギーで K_c だけずらした半Maxwell流束 dGamma/dK ~ exp(-(K-K_c)/T) を出力binへ厳密に積分する。
+  subroutine bin_shifted_half_maxwellian(total_flux, temperature_ev, shift_ev, bins)
+    real(dp), intent(in) :: total_flux, temperature_ev, shift_ev
+    real(dp), intent(out) :: bins(outflow_spectrum_bins)
+    real(dp) :: bin_edges(outflow_spectrum_bins + 1), upper_tail
+    integer(i32) :: k
+
+    bin_edges = outflow_spectrum_edges_ev()
+    do k = 1_i32, outflow_spectrum_bins
+      ! 最後のbinは1 keV以上の裾も数える。
+      upper_tail = 0.0_dp
+      if (k < outflow_spectrum_bins) upper_tail = exp(-max(bin_edges(k + 1) - shift_ev, 0.0_dp)/temperature_ev)
+      bins(k) = total_flux*(exp(-max(bin_edges(k) - shift_ev, 0.0_dp)/temperature_ev) - upper_tail)
+    end do
+  end subroutine bin_shifted_half_maxwellian
 
   subroutine configure_zhao_fixture(app, alpha_deg)
     type(app_config), intent(out) :: app

@@ -1,5 +1,7 @@
 !> バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。
 submodule(bem_simulator) bem_simulator_particles
+  use bem_constants, only: qe
+  use bem_outflow_spectrum, only: outflow_spectrum_bin
   implicit none
 contains
 
@@ -18,7 +20,7 @@ contains
   end procedure prepare_batch_state
 
   module procedure process_particle_batch
-  integer(i32) :: i, step, tid, nth, collision_status, species_idx
+  integer(i32) :: i, step, tid, nth, collision_status, species_idx, spectrum_row
   integer(i64) :: retry_attempted, retry_resolved
   real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
   type(hit_info) :: hit
@@ -64,7 +66,7 @@ contains
   !$omp shared(collision_failure_x,collision_failure_v) &
   !$omp shared(matching_plane_moments_thread) &
   !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result,retry_result) &
-  !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx) &
+  !$omp private(particle_sim,particle_boundary_contract,tid,qdep,species_idx,spectrum_row) &
   !$omp private(collision_status,candidate_inside,used_event_resolver,retry_field_available) &
   !$omp reduction(+:retry_attempted,retry_resolved)
   tid = 1_i32
@@ -162,6 +164,15 @@ contains
         matching_plane_moments_thread(4, species_idx, tid) = &
           matching_plane_moments_thread(4, species_idx, tid) + &
           pcls_batch%w(i)*real(step_result%outer_barrier_escape_count, dp)
+        if (step_result%z_high_outward_event_count > 0) then
+          ! A step rarely crosses outward twice; its crossings share the mean normal energy bin.
+          spectrum_row = 4_i32 + outflow_spectrum_bin( &
+                         step_result%z_high_outward_normal_kinetic_energy_j_sum/ &
+                         (real(step_result%z_high_outward_event_count, dp)*qe))
+          matching_plane_moments_thread(spectrum_row, species_idx, tid) = &
+            matching_plane_moments_thread(spectrum_row, species_idx, tid) + &
+            pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
+        end if
         if (step_result%absorbed) then
           qdep = pcls_batch%q(i)*pcls_batch%w(i)
           dq_thread(step_result%elem_idx, tid) = dq_thread(step_result%elem_idx, tid) + qdep

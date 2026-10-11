@@ -1,6 +1,7 @@
 !> 履歴ファイルの生成・再開とスナップショットの出力。
 submodule(bem_output_writer) bem_output_writer_history
   use bem_string_utils, only: lower_ascii
+  use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   implicit none
 contains
 
@@ -141,6 +142,42 @@ contains
     ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
     ',', stats%matching_plane_residual
   end procedure write_matching_plane_history_snapshot
+
+  !> 外部根の更新が使う H 外向きスペクトルを、matching-plane history と同じ条件と間隔で書く。
+  module procedure open_matching_plane_spectrum_history_writer
+  character(len=1024) :: path
+
+  history_opened = .false.
+  history_unit = -1
+  if (.not. app%write_output) return
+  path = trim(app%output_dir)//'/matching_plane_spectrum_history.csv'
+  if (app%history_stride <= 0_i32 .or. &
+      trim(lower_ascii(app%surface_current%model)) /= 'zhao_stationary' .or. &
+      app%surface_current%outflow_refresh_batches <= 0_i32) then
+    if (.not. resumed) call delete_history_if_exists(path)
+    return
+  end if
+  call ensure_output_dir(app%output_dir)
+  call open_history_file( &
+    path, resumed, 'batch,simulated_time_s,bin,energy_low_eV,energy_high_eV,photoelectron_outward_flux_m2_s', &
+    history_unit, 'Failed to open matching-plane spectrum history file.' &
+    )
+  history_opened = .true.
+  end procedure open_matching_plane_spectrum_history_writer
+
+  !> 現在の外部源のうち流束が正の bin だけを書く。表面放出の半 Maxwell 源（初期根）では何も書かない。
+  module procedure write_matching_plane_spectrum_history_rows
+  real(dp) :: edges(outflow_spectrum_bins + 1)
+  integer(i32) :: j
+
+  if (.not. stats%matching_plane_state_valid) return
+  edges = outflow_spectrum_edges_ev()
+  do j = 1_i32, outflow_spectrum_bins
+    if (stats%matching_plane_photoelectron_spectrum_m2_s(j) <= 0.0_dp) cycle
+    write (unit_id, '(i0,a,es24.16,a,i0,3(a,es24.16))') batch_idx, ',', simulated_time_s, ',', j, &
+      ',', edges(j), ',', edges(j + 1), ',', stats%matching_plane_photoelectron_spectrum_m2_s(j)
+  end do
+  end procedure write_matching_plane_spectrum_history_rows
 
   !> 固定電流closureの追跡電荷と目標電荷を、species別channel別に窓合計で記録する。
   module procedure open_fixed_current_history_writer

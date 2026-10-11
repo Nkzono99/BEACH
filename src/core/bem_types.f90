@@ -1,6 +1,7 @@
 !> シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 module bem_types
   use bem_kinds, only: dp, i32, i64
+  use bem_outflow_spectrum, only: outflow_spectrum_bins
   implicit none
 
   integer(i32), parameter :: bc_open = 0_i32
@@ -90,6 +91,8 @@ module bem_types
     real(dp) :: matching_plane_feedback(4) = 0.0_dp
     real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp
     real(dp) :: matching_plane_photoelectron_escape_flux_m2_s = 0.0_dp
+    !> 外部根の光電子源に使った H 外向きスペクトル [1/(m2 s)]、bin 別。全て 0 は表面放出の半 Maxwell 源。
+    real(dp) :: matching_plane_photoelectron_spectrum_m2_s(outflow_spectrum_bins) = 0.0_dp
     integer(i32) :: matching_plane_iterations = 0_i32
     real(dp) :: matching_plane_residual = 0.0_dp
   end type sim_stats

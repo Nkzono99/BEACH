@@ -1,6 +1,7 @@
 !> シミュレーション実行中に再利用するバッチ作業配列を管理する。
 module bem_simulator_workspace
   use bem_kinds, only: dp, i32, i64
+  use bem_outflow_spectrum, only: outflow_spectrum_bins
   implicit none
   private
 
@@ -37,7 +38,8 @@ module bem_simulator_workspace
     integer(i64), allocatable :: neutral_return_terminal_counts(:)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
-    ! (outward number, outward normal energy [J], barrier return number, barrier escape number)
+    ! (outward number, outward normal energy [J], barrier return number, barrier escape number,
+    !  outward number per normal-energy bin of bem_outflow_spectrum)
     real(dp), allocatable :: matching_plane_moments_thread(:, :, :)
   contains
     procedure :: init => init_simulator_batch_workspace
@@ -84,7 +86,8 @@ contains
       )
     allocate (self%fixed_channel_active(3_i32, nspecies))
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
-    allocate (self%matching_plane_moments_thread(4_i32, nspecies, nthreads))
+    ! 1:4 は H 通過モーメント、5 以降は外向き法線運動エネルギーの bin 別重み。
+    allocate (self%matching_plane_moments_thread(4_i32 + outflow_spectrum_bins, nspecies, nthreads))
 
     self%dq = 0.0_dp
     self%q_before = 0.0_dp

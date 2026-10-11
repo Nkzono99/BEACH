@@ -523,6 +523,30 @@ contains
       command, 'matching-plane photoelectron budget is inconsistent', 'matching PE-budget probe' &
       )
 
+    call write_matching_summary_fixture(out_dir, spectrum_token='1.0')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call assert_restart_probe_fails( &
+      command, 'matching-plane photoelectron spectrum could not be parsed', 'short spectrum probe' &
+      )
+
+    call write_matching_summary_fixture(out_dir, spectrum_token='-1.0 2.0 143*0.0')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call assert_restart_probe_fails( &
+      command, 'matching-plane photoelectron spectrum must be finite and >= 0', 'negative spectrum probe' &
+      )
+
+    call write_matching_summary_fixture(out_dir, spectrum_token='0.5 144*0.0')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call assert_restart_probe_fails( &
+      command, 'matching-plane photoelectron spectrum does not match its outward flux', 'spectrum budget probe' &
+      )
+
+    call write_matching_summary_fixture(out_dir, spectrum_token='0.25 0.75 143*0.0')
+    call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'valid spectrum probe command status mismatch')
+    call assert_equal_i32(int(exit_status, i32), 0_i32, 'valid matching-plane spectrum was rejected')
+
     call write_matching_summary_fixture(out_dir)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
@@ -568,11 +592,13 @@ contains
 
   subroutine write_matching_summary_fixture( &
     dir_path, omit_ion_access, duplicate_residual, ion_access_token, iteration_token, state_token, inconsistent_budget, &
-    mpi_world_size &
+    mpi_world_size, spectrum_token &
     )
     character(len=*), intent(in) :: dir_path
     logical, intent(in), optional :: omit_ion_access, duplicate_residual
     character(len=*), intent(in), optional :: ion_access_token, iteration_token, state_token
+    !> 外部源スペクトルの値。省略時はキーを書かない（スペクトル導入前の checkpoint）。
+    character(len=*), intent(in), optional :: spectrum_token
     logical, intent(in), optional :: inconsistent_budget
     integer(i32), intent(in), optional :: mpi_world_size
     integer :: u, ios
@@ -625,6 +651,7 @@ contains
     write (u, '(a)') 'matching_plane_iterations='//trim(iterations_value)
     write (u, '(a)') 'matching_plane_residual=0.0'
     if (duplicate_key) write (u, '(a)') 'matching_plane_residual=0.0'
+    if (present(spectrum_token)) write (u, '(a)') 'matching_plane_photoelectron_spectrum_m2_s='//spectrum_token
     close (u)
   end subroutine write_matching_summary_fixture
 

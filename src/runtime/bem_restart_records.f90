@@ -14,14 +14,16 @@ contains
 
   integer :: u, ios, pos
   integer(i32) :: mesh_nelem, saved_world_size, summary_schema_version
-  character(len=512) :: line
+  ! The outer photoelectron spectrum is one long line of bin fluxes.
+  character(len=8192) :: line
   character(len=64) :: key
-  character(len=256) :: value
+  character(len=8192) :: value
   logical :: found_mesh, found_processed, found_absorbed, found_escaped
   logical :: found_batches, found_rel, found_world_size
   logical :: found_matching_state, found_matching_displacement, found_matching_phi
   logical :: found_matching_response(2:6), found_matching_feedback(4)
   logical :: found_matching_return, found_matching_escape, found_matching_iterations, found_matching_residual
+  logical :: found_matching_spectrum
 
   stats = sim_stats()
   mesh_nelem = -1_i32
@@ -43,6 +45,7 @@ contains
   found_matching_escape = .false.
   found_matching_iterations = .false.
   found_matching_residual = .false.
+  found_matching_spectrum = .false.
 
   open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
   if (ios /= 0) error stop 'Failed to open summary.txt for resume.'
@@ -153,6 +156,10 @@ contains
     case ('matching_plane_residual')
       call require_unique_summary_key(found_matching_residual, key)
       call read_matching_summary_real(value, key, stats%matching_plane_residual)
+    case ('matching_plane_photoelectron_spectrum_m2_s')
+      call require_unique_summary_key(found_matching_spectrum, key)
+      read (value, *, iostat=ios) stats%matching_plane_photoelectron_spectrum_m2_s
+      if (ios /= 0) error stop 'Resume checkpoint matching-plane photoelectron spectrum could not be parsed.'
     end select
   end do
   close (u)
@@ -487,6 +494,15 @@ contains
           stats%matching_plane_photoelectron_escape_flux_m2_s &
           ) > sqrt(epsilon(1.0_dp))*matching_budget_scale) then
         error stop 'Resume checkpoint matching-plane photoelectron budget is inconsistent.'
+      end if
+      if (.not. all(ieee_is_finite(stats%matching_plane_photoelectron_spectrum_m2_s)) .or. &
+          any(stats%matching_plane_photoelectron_spectrum_m2_s < 0.0_dp)) then
+        error stop 'Resume checkpoint matching-plane photoelectron spectrum must be finite and >= 0.'
+      end if
+      if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp) .and. &
+          abs(sum(stats%matching_plane_photoelectron_spectrum_m2_s) - stats%matching_plane_feedback(1)) > &
+          sqrt(epsilon(1.0_dp))*matching_budget_scale) then
+        error stop 'Resume checkpoint matching-plane photoelectron spectrum does not match its outward flux.'
       end if
     end if
   end subroutine validate_summary_stats

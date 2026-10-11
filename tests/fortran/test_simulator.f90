@@ -4,6 +4,7 @@ program test_simulator
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
+  use bem_outflow_spectrum, only: outflow_spectrum_bins
   use bem_particles, only: init_particles, append_particles
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             build_mesh_from_config
@@ -445,7 +446,7 @@ contains
       'adaptive workspace candidate charge capacity mismatch' &
       )
     call assert_equal_i32( &
-      int(size(workspace%matching_plane_moments_thread, 1), i32), 4_i32, &
+      int(size(workspace%matching_plane_moments_thread, 1), i32), 4_i32 + outflow_spectrum_bins, &
       'workspace matching-plane moment capacity mismatch' &
       )
     call assert_equal_i32( &
