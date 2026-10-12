@@ -182,11 +182,11 @@ distribution. Outer-root refresh feeds this change back to the outer sheath. Eve
 
 The bins are $[0, 1\,\text{meV})$ and logarithmic bins from 1 meV to 1 keV (24 per decade); energies above 1 keV are counted in
 the last bin. The spectrum is not reduced to a half-Maxwellian with the same mean energy because the spectrum at the top face
-combines a low-energy body close to the emission with a high-energy tail of electrons accelerated by potential differences in the
-cell. In a three-layer regolith the median was about 2 eV, while the tail above 10 eV carried about 14% of the flux and raised
-the mean to 8–12 eV. Because the tail sets the mean, a half-Maxwellian with the same mean overcounts the electrons that escape
-over the barrier and can lose the root (in that case no Type A root was found even with tolerance 0.9, while the spectrum
-itself had a root with φ0 ≈ 1.5 V and an upstream band of about 40 mV).
+can combine a low-energy body close to the emission with a high-energy tail of electrons accelerated by potential differences
+in the cell. Because the tail sets the mean, a half-Maxwellian with the same mean miscounts both the electrons that escape over
+the barrier and the slow electrons near the wall, and can lose the root. In a charged three-layer regolith (generator-v10 field)
+the tail above 10 eV carried about 3% of the flux and the mean was about 2.8 eV (with the v8 far-correction error a spurious
+potential hill raised the tail to about 15% and the mean to 6–12 eV, and the mean-energy reduction lost the Type A root).
 
 | Situation | Behavior |
 |---|---|
@@ -289,7 +289,7 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
   far correction (`cached_kneq0`) does not remove the zero mode completely; the offset is proportional to the charge and creates
   a spurious vertical field in and above the particle layers. Because the barrier is tested with the potential at the crossing
   point, fewer photoelectrons escape than the outer root predicts by the amount of the offset (the photoelectron escape scale in
-  `fixed_current_history.csv` exceeds 1). In a charged three-layer regolith the offset was about 6 V at the top of the layers
-  and about 1.4 V at the top face. Generator v9 with `fields.periodic.image_layers = 2` reduces it to 0.3 V or less in and above
-  the layers and about 0.02 V at the top face (charge updates take about three times longer). Check it by comparing
+  `fixed_current_history.csv` exceeds 1). In a charged three-layer regolith, generator v8 left about 6 V at the top of the
+  layers and about 1.4 V at the top face. Generator v10 reduces it to 0.03 V or less in and above the layers and about 0.01 V at
+  the top face with one image layer and expansion order 4 (charge-update time unchanged). Check it by comparing
   `potential_mean_V` in `top_reference_history.csv` with $\phi_0$ ([accuracy of the far correction](PeriodicFarCorrection.en.html)).

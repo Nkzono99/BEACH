@@ -93,22 +93,31 @@ $$
 
 Ewald evaluation occurs only on the cold path that constructs the operator, never during ordinary particle evaluation.
 
-## Fit a root-multipole-to-target-local operator
+## Fit a source-node-multipole-to-target-local operator
 
-With fixed geometry, the far residual is linear in source charge. For root multipole $\mathbf M_\mathrm{root}$ and far local
-coefficients $\mathbf L_t^\mathrm{far}$ at target anchor $t$,
+With fixed geometry, the far residual is linear in source charge. For multipole coefficients $\mathbf M_s$ of source-tree nodes
+$s$ at depth 2 and far local coefficients $\mathbf L_t^\mathrm{far}$ at target anchor $t$ (target-tree depth 2),
 
 $$
-\mathbf L_t^\mathrm{far}=\mathbf A_t\mathbf M_\mathrm{root}.
+\mathbf L_t^\mathrm{far}=\sum_s\mathbf A_{t,s}\mathbf M_s.
 $$
 
-The cold build constructs $\mathbf A_t$ as follows:
+Seen through a single root multipole, a particle layer whose height approaches the distance to the excluded images (about $2L$)
+barely converges, and in a charged three-layer regolith the nonzero modes leaked a plane mean of several volts. Splitting the
+sources into depth-2 nodes, and the targets into smaller anchors, makes the expansions converge at the same order.
+The cold build constructs $\mathbf A_{t,s}$ as follows:
 
-1. Place proxy points around the source root and form the proxy-to-root-multipole matrix.
-2. Place check points for each target anchor and evaluate each proxy source's Ewald residual.
-3. Solve a regularized QR problem for local coefficients reproducing the check-point field.
-4. Compose proxy-to-local with the minimum-norm pseudoinverse of proxy-to-multipole.
-5. Build a fingerprint from geometry and configuration, then publish the operator with a checksum.
+1. For each source node, place proxy points around the node and form the proxy-to-multipole matrix and its minimum-norm
+   pseudoinverse.
+2. Place check points for each target anchor and factor the local-field matrix with regularized QR (shared by all source nodes).
+3. For each source node, evaluate each proxy source's Ewald residual at the check points (including the plane-mean correction
+   below) and solve for the local coefficients.
+4. Compose proxy-to-local with the pseudoinverse.
+5. Build a fingerprint from geometry, source nodes, target anchors, and configuration, then publish the operator with a checksum.
+
+There are (target anchors)×(source nodes) blocks, up to 64×64 in the three-layer regolith, but the run-time addition is only
+small matrix-vector products. The first build is longer (about 27 minutes for the three-layer regolith on one 28-thread process;
+MPI distributes the target anchors over ranks) and is reused from the cache.
 
 `cached_kneq0` stores this linear map in a versioned cache and reuses it only when fingerprint, shape, and checksum all match.
 It applies the proxy-point operator to the triangle-averaged P2M coefficients
@@ -120,12 +129,18 @@ least-squares column set.
 
 Multipole rows have different powers of length. Before the pseudoinverse QR factorization, each row and its
 constraint right-hand side are scaled together. This prevents an absolute rank threshold from discarding higher
-moments in micrometre SI geometry. Generator v9 includes this correction and does not reuse v8 or older operator caches.
+moments in micrometre SI geometry. Generators v9 and later include this correction; v10 adds the plane-mean split and the
+node partition below and does not reuse v9 or older operator caches.
 
-Scaling does not remove FMM truncation errors. Far from the sources, errors in the difference of the finite-image
-field and the symmetric mean field can exceed the small nonzero modes themselves. Comparison with a weak external
-sheath requires an absolute-error check, such as an upper-vacuum Fourier reference evaluated on the same saved
-charges. Length-scale invariance and cache-reuse tests alone do not establish that accuracy.
+Comparison with a weak external sheath requires an absolute-error check; length-scale invariance and cache reuse alone do not
+establish accuracy. With the charges of a charged three-layer regolith (Type A, batch 81000), the errors against a direct
+Fourier sum in the vacuum above the layers are (one image layer, expansion order 4):
+
+| Generator | Plane mean of nonzero modes (top of layers to top face) | Lateral potential error | Lateral field error | Charge update |
+|---|---|---|---|---|
+| v8 (single root multipole) | +6.0 to +1.4 V | 0.5–1.4 V | 2–4×10⁴ V/m | 0.11 s |
+| v9 (row normalization) | −2.0 to +0.17 V | 0.3–1.2 V | 3–5×10⁴ V/m | 0.11 s |
+| v10 (analytic plane mean, depth-2 nodes) | 0.02 V or less | 0.01–0.03 V | about 2×10³ V/m | 0.11 s |
 
 The physical mean field retains its height distribution inside the source slab. Above all sources, cumulative charge
 is set exactly to the total charge $Q$, preventing cancellation residue in inclined-panel polynomials from being
@@ -139,7 +154,7 @@ Each batch `update_state` follows this sequence:
 P2M
   -> M2M
   -> ordinary tree M2L
-  -> L_far(t) += A_t M_root      periodic far correction
+  -> L_far(t) += sum_s A_ts M_s  periodic far correction
   -> L2L
   -> L2P + near Direct
 ```
@@ -148,7 +163,7 @@ For every target anchor node, the implementation performs
 
 $$
 \mathbf L_t\leftarrow\mathbf L_t+
-\mathbf A_t\mathbf M_\mathrm{root}.
+\sum_s\mathbf A_{t,s}\mathbf M_s.
 $$
 
 Ordinary L2L then propagates the corrected locals into leaves, and L2P evaluates them at particle positions. The warm-path cost
@@ -158,15 +173,21 @@ The tree's M2L pair cache and `m2l_deriv` remain unchanged; correction is an add
 
 ## Remove symmetric `k=0` from the cached operator
 
-The full Ewald residual contains a symmetric-vacuum `k=0` term needed to define the fit. Because `lower_boundary_model` selects
-the actual mean field, the FMM-side nonzero kernel is
+The full Ewald residual contains a symmetric-vacuum `k=0` term needed to define the fit. The cell average of the finite image
+shell $K_\mathrm{shell}(N)$ is the infinite-sheet mean field $K_0^\mathrm{sym}$ ($-2\pi|h|/A$ per unit charge at height $h$) plus
+a smooth remainder $s(h)$. $s$ is the closed-form integral of $1/r$ over the image block $[c-(N+\tfrac12)L,\,c+(N+\tfrac12)L]^2$
+minus $K_0^\mathrm{sym}$, analytic even at $h=0$ ($c$ is the centre of the source-tree root). The plane mean of the residual is
+exactly $-s$, so the fit receives only the mean-free $R+s$, and run time subtracts $S(z)=\sum_i q_i s_i(z)$ from a per-source
+height table. The FMM-side nonzero kernel is
 
 $$
 K_{k\ne0}=K_\mathrm{shell}(N)
-+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym},
++\mathcal F\left[R_\mathrm{Ewald}^{\mathrm{full}}+s\right]-K_0^\mathrm{sym}-S,
 $$
 
-and field composition adds the physical mean field exactly once:
+where $\mathcal F$ is the operator fit above. The height table of $S$ uses cubic Hermite interpolation at spacing $L/32$; the
+field is the derivative of the same polynomial, so it is the gradient of the potential. Field composition adds the physical mean
+field exactly once:
 
 $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.

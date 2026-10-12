@@ -39,6 +39,9 @@ program test_periodic2_length_scale
   options%periodic_cache_dir = cache_dir
   options%periodic_generation_tolerance = 1.0e-8_dp
   options%target_box_min = 0.0_dp
+  ! Scaling is independent of the operator partition; the root multipole keeps this case quick.
+  options%periodic_operator_source_depth = 0_i32
+  options%periodic_operator_target_depth = 1_i32
   call test_init(2)
   call test_begin('periodic Coulomb field obeys its physical length scaling')
   do case_idx = 1, 2
@@ -77,11 +80,13 @@ program test_periodic2_length_scale
 
   call test_begin('uniform sheet leaves no plane mean in the nonzero modes')
   ! A uniform sheet has no k/=0 content, so the cached_kneq0 potential must average to zero on every plane.
-  ! Uncharged points stretch the source tree over a particle-bed height, as in a regolith cell: the far
-  ! correction then sees the sheet far from the root multipole centre. One image layer leaves a known leak
-  ! (reported only); two layers, recommended for sheath coupling, must keep it small.
-  call check_uniform_sheet_leak(1_i32, -1.0_dp)
-  call check_uniform_sheet_leak(2_i32, 1.0e-3_dp)
+  ! Uncharged points stretch the source tree over a particle-bed height, as in a regolith cell. A single
+  ! root multipole then left a leak of about 1e-2; the analytic shell mean and the source-node partition of
+  ! the far correction remove it with one image layer.
+  options%leaf_max = 8_i32
+  options%periodic_operator_source_depth = -1_i32
+  options%periodic_operator_target_depth = -1_i32
+  call check_uniform_sheet_leak(1_i32, 2.0e-4_dp)
   call test_end()
   call remove_empty_directory(cache_dir)
   call test_summary()
@@ -94,9 +99,9 @@ contains
   subroutine check_uniform_sheet_leak(image_layers, bound)
     integer(i32), intent(in) :: image_layers
     real(dp), intent(in) :: bound
-    integer(i32), parameter :: nsheet = 8_i32, ncolumn = 8_i32, nplane = 16_i32
+    integer(i32), parameter :: nsheet = 4_i32, ncolumn = 4_i32, nplane = 16_i32
     real(dp), parameter :: cell = 1.0e-4_dp, sheet_charge = 1.0e-12_dp
-    real(dp), parameter :: heights(3) = [0.4_dp, 1.75_dp, 3.15_dp]
+    real(dp), parameter :: heights(3) = [0.4_dp, 1.0_dp, 1.9_dp]
     real(dp) :: sheet_source(3, nsheet*nsheet + ncolumn), sheet_q(nsheet*nsheet + ncolumn)
     real(dp) :: plane_points(3, nplane*nplane), plane_phi(nplane*nplane), scale, leak, worst
     integer(i32) :: i, j, k, n
@@ -116,7 +121,7 @@ contains
     end do
     options%periodic_len = cell
     options%periodic_image_layers = image_layers
-    options%target_box_max = cell*[1.0_dp, 1.0_dp, 3.2_dp]
+    options%target_box_max = cell*[1.0_dp, 1.0_dp, 2.0_dp]
     call build_plan(plan, sheet_source, options)
     cache_path = plan%periodic_cache_path
     call update_state(plan, state, sheet_q)

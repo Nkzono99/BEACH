@@ -132,6 +132,11 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
 
+`cached_kneq0` の遠方補正は、線源の木の深さ 2 の節点ごとの multipole から深さ 2 の target anchor の local 展開への
+operator を当てはめます。有限画像殻の面平均は無限面電荷の平均場と滑らかな残り $s$ の和で、$s$ は閉じた式で
+求めて線源ごとの高さの表から実行時に引き、operator には面平均 0 の残差だけを当てはめます。こうして非零 mode の
+面平均を 0 に保ちます。
+
 `cached_kneq0` の物理的 $k=0$ は `periodic2.zero_mode_policy="exclude_k0"` と
 `lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
 このzero-mode構築自体は外部プラズマ応答を合成しません。外部シースclosureを選んだ場合、その壁電位は

@@ -10,6 +10,7 @@ module bem_coulomb_fmm_eval_ops
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_child_octant, active_tree_node_center, active_tree_node_half_size
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
+  use bem_periodic_shell_mean, only: eval_periodic_shell_mean
   implicit none
   private
 
@@ -245,15 +246,20 @@ contains
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: rt(3)
     real(dp), intent(inout) :: ex, ey, ez
-    real(dp) :: potential_dummy, field_si, field_raw(3)
+    real(dp) :: potential_dummy, field_si, field_raw(3), shell_value, shell_slope
 
     if (.not. plan%periodic_k0_ready) return
     call eval_periodic_zero_mode( &
       plan%periodic_k0_plan, state%periodic_k0_state, rt(plan%periodic_k0_free_axis), &
       zero_mode_trace_plus, potential_dummy, field_si &
       )
+    ! 有限画像殻の面平均は、対称な平均場と滑らかな残り S の和。S の電場 -dS/dz も引く。
+    call eval_periodic_shell_mean( &
+      plan%periodic_shell_mean, state%periodic_shell_mean_state, rt(plan%periodic_k0_free_axis), &
+      shell_value, shell_slope &
+      )
     field_raw = [ex, ey, ez]
-    field_raw(plan%periodic_k0_free_axis) = field_raw(plan%periodic_k0_free_axis) - field_si/k_coulomb
+    field_raw(plan%periodic_k0_free_axis) = field_raw(plan%periodic_k0_free_axis) - field_si/k_coulomb + shell_slope
     ex = field_raw(1)
     ey = field_raw(2)
     ez = field_raw(3)
@@ -264,14 +270,18 @@ contains
     type(fmm_state_type), intent(in) :: state
     real(dp), intent(in) :: rt(3)
     real(dp), intent(inout) :: phi
-    real(dp) :: potential_si, field_dummy
+    real(dp) :: potential_si, field_dummy, shell_value, shell_slope
 
     if (.not. plan%periodic_k0_ready) return
     call eval_periodic_zero_mode( &
       plan%periodic_k0_plan, state%periodic_k0_state, rt(plan%periodic_k0_free_axis), &
       zero_mode_trace_plus, potential_si, field_dummy &
       )
-    phi = phi - potential_si/k_coulomb
+    call eval_periodic_shell_mean( &
+      plan%periodic_shell_mean, state%periodic_shell_mean_state, rt(plan%periodic_k0_free_axis), &
+      shell_value, shell_slope &
+      )
+    phi = phi - potential_si/k_coulomb - shell_value
   end subroutine subtract_cached_periodic_k0_potential
 
   subroutine apply_direct_fallback_field(plan, state, rt, soft2, ex, ey, ez)

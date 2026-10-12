@@ -6,6 +6,7 @@ module bem_coulomb_fmm_state_ops
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
                                         active_tree_level_node
   use bem_periodic_zero_mode_plan, only: refresh_periodic_zero_mode_state
+  use bem_periodic_shell_mean, only: refresh_periodic_shell_mean_state
   implicit none
   private
 
@@ -43,6 +44,7 @@ contains
       call refresh_periodic_zero_mode_state( &
         plan%periodic_k0_plan, src_q, e_bottom, z_gauge, phi_gauge, state%periodic_k0_state &
         )
+      call refresh_periodic_shell_mean_state(plan%periodic_shell_mean, src_q, state%periodic_shell_mean_state)
     end if
     n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
     !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes)
@@ -246,18 +248,27 @@ contains
   subroutine apply_periodic_target_correction(plan, state)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: target_idx, node_idx
+    integer(i32) :: target_idx, node_idx, source_idx, source_node, pair_idx, source_count
     real(dp) :: node_local(plan%ncoef)
     logical :: node_active
 
     if (.not. plan%periodic_root_operator_ready) return
     if (size(state%local, 2) <= 0) return
-    if (plan%periodic_root_target_count <= 0_i32) return
+    if (plan%periodic_root_target_count <= 0_i32 .or. plan%periodic_root_source_count <= 0_i32) return
     if (plan%nnode <= 0_i32 .or. state%multipole_active(1_i32) == 0_i32) return
+    source_count = plan%periodic_root_source_count
+    ! 組は target anchor ごとに source node が連続して並ぶ。anchor 単位で並列化して書き込みの競合を避ける。
     !$omp do schedule(static)
-    do target_idx = 1_i32, plan%periodic_root_target_count
-      node_idx = plan%periodic_root_target_nodes(target_idx)
-      node_local = state%local(:, node_idx) + matmul(plan%periodic_root_operator(:, :, target_idx), state%multipole(:, 1_i32))
+    do target_idx = 1_i32, plan%periodic_root_target_count/source_count
+      pair_idx = (target_idx - 1_i32)*source_count
+      node_idx = plan%periodic_root_target_nodes(pair_idx + 1_i32)
+      node_local = state%local(:, node_idx)
+      do source_idx = 1_i32, source_count
+        source_node = plan%periodic_root_source_nodes(source_idx)
+        if (state%multipole_active(source_node) == 0_i32) cycle
+        node_local = node_local + matmul(plan%periodic_root_operator(:, :, pair_idx + source_idx), &
+                                         state%multipole(:, source_node))
+      end do
       node_active = coefficient_vector_is_active(node_local)
       state%local(:, node_idx) = node_local
       state%local_active(node_idx) = merge(1_i32, 0_i32, node_active)

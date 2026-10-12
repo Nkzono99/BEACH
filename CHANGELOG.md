@@ -17,10 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `zhao_stationary`. Every N accepted batches it re-solves the outer zero-current root with the PE outflow observed at
   z-high as the outer emission source, while the surface emission target and the per-batch floating targets stay
   unchanged. The outflow is passed as its normal-kinetic-energy spectrum (24 logarithmic bins per decade from 1 meV to
-  1 keV) scaled to the window transmission, not reduced to a half-Maxwellian with the same mean energy: the outflow from
-  a regolith cell is a body near the emission temperature plus a tail of electrons accelerated in the cell, the tail sets
-  the mean, and the mean-energy half-Maxwellian overcounted escaping electrons and lost the Type A/B roots in long
-  regolith runs. The accepted outer state is written to
+  1 keV) scaled to the window transmission, not reduced to a half-Maxwellian with the same mean energy: the outflow can
+  be a body near the emission temperature plus a tail of electrons accelerated in the cell, the tail sets the mean, and
+  the mean-energy half-Maxwellian then miscounts escaping and slow electrons and can lose the outer root. The accepted
+  outer state is written to
   the `matching_plane_*` summary receipts (the spectrum as `matching_plane_photoelectron_spectrum_m2_s`),
   `matching_plane_history.csv`, and `matching_plane_spectrum_history.csv`, and restarts reconstruct it from the
   checkpoint. A checkpoint without the spectrum key resumes with the half-Maxwellian source until the next refresh.
@@ -34,12 +34,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Added a config-driven field-kernel runtime benchmark that separates mesh construction, solver initialization, charge refresh, and volume/near-panel P0 field and potential evaluation across solver configurations.
 
 ### Fixed
-- The periodic2 `cached_kneq0` operator generator (v9) normalizes the proxy multipole rows before the pseudoinverse QR.
-  In micrometre SI geometry the rows differ by many powers of length, and the absolute rank threshold discarded the higher
-  moments, so the nonzero-mode field leaked a plane-mean component that grew with the surface charge (in a charged
-  three-layer regolith about 6 V at the top of the layers and 1.4 V at the top face; this offset also made fewer
-  photoelectrons escape than the outer Zhao root). v9 reduces the leak about eightfold, and `image_layers = 2` reduces it
-  further to 0.3 V or less. The mean field above all sources now uses the exact total charge. v8 operator caches are rebuilt.
+- The periodic2 `cached_kneq0` far correction leaked a plane-mean component into the nonzero-mode field that grew with the
+  surface charge (in a charged three-layer regolith about 6 V at the top of the layers and 1.4 V at the top face; the
+  offset also made fewer photoelectrons escape than the outer Zhao root). Operator generator v10 fixes it at unchanged
+  per-update cost: the proxy multipole rows are normalized before the pseudoinverse QR (the absolute rank threshold
+  discarded higher moments in micrometre SI geometry); the exact plane mean of the finite image shell is split off in
+  closed form and subtracted from a per-source height table, so the operator fits only a mean-free residual; and the
+  operator maps the multipoles of depth-2 source-tree nodes to depth-2 target anchors instead of a single root multipole.
+  With one image layer and order 4 the leak drops to 0.03 V or less and the lateral potential error above the layers from
+  0.5–1.4 V to 0.01–0.03 V. The first operator build takes longer (about 27 minutes on one 28-thread process for the
+  regolith cell, split over MPI ranks) and is cached; older operator caches are rebuilt. The mean field above all sources
+  now uses the exact total charge.
 - `zhao_stationary` now fixes the z-high plane-mean potential to the outer wall potential $\phi_0$ when a split
   `[periodic2]` zero mode is available. Previously the absolute outer barrier $\phi_m$ was compared with a z-high
   potential tied to the bottom of the charged geometry, so tracked PE and electron returns and the inflow energy map used

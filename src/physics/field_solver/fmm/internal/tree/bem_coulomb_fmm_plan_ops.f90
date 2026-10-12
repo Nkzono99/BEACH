@@ -10,6 +10,7 @@ module bem_coulomb_fmm_plan_ops
   use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_periodic_zero_mode_plan, only: build_periodic_zero_mode_height_plan, periodic_zero_mode_ok
+  use bem_periodic_shell_mean, only: build_periodic_shell_mean_plan
   use bem_coulomb_fmm_tree_utils, only: octant_index, active_tree_nnode, active_tree_child_count, active_tree_child_idx, &
                                         active_tree_node_center, active_tree_node_radius, append_i32_buffer, &
                                         nodes_well_separated
@@ -159,11 +160,38 @@ contains
     call build_target_topology(plan)
     call build_interactions(plan)
     call precompute_translation_operators(plan)
+    call precompute_periodic_shell_mean(plan)
     call precompute_periodic2_ewald_data(plan)
     call precompute_periodic_root_operator(plan)
     call precompute_m2l_derivatives(plan)
     plan%built = .true.
   end subroutine core_build_plan_common
+
+  !> cached_kneq0 で引く、有限画像殻の面平均の滑らかな残りを線源ごとの高さ表にする。
+  !! 平均をとるセルは線源の木の根の中心に置き、遠方補正の当てはめと同じ定義を使う。
+  subroutine precompute_periodic_shell_mean(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    real(dp), parameter :: spacing_per_period = 32.0_dp
+    real(dp), allocatable :: vertices(:, :, :)
+    integer(i32) :: idx, axes(2), free_axis
+
+    if (.not. use_periodic2_cached_kneq0(plan) .or. .not. plan%periodic_k0_ready .or. plan%nsrc <= 0_i32) return
+    axes = plan%options%periodic_axes
+    free_axis = plan%periodic_k0_free_axis
+    allocate (vertices(3, 3, plan%nsrc))
+    do idx = 1_i32, plan%nsrc
+      if (plan%panel_source) then
+        vertices(:, :, idx) = plan%panel_geometry(idx)%vertex
+      else
+        vertices(:, :, idx) = spread(plan%src_pos(:, idx), 2, 3)
+      end if
+    end do
+    call build_periodic_shell_mean_plan( &
+      axes, free_axis, plan%node_center(axes, 1_i32), plan%options%periodic_len, plan%options%periodic_image_layers, &
+      plan%options%softening, plan%options%target_box_min(free_axis), plan%options%target_box_max(free_axis), &
+      minval(plan%options%periodic_len)/spacing_per_period, vertices, plan%periodic_shell_mean &
+      )
+  end subroutine precompute_periodic_shell_mean
 
   !> FMM 計画に確保した資源を解放する。
   !! @param[inout] plan 解放対象の FMM 計画。

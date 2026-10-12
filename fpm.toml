@@ -94,6 +94,11 @@ source-dir = "tests/fortran"
 main = "test_periodic2_infinite_operator.f90"
 
 [[test]]
+name = "test_periodic_shell_mean"
+source-dir = "tests/fortran"
+main = "test_periodic_shell_mean.f90"
+
+[[test]]
 name = "test_periodic2_length_scale"
 source-dir = "tests/fortran"
 main = "test_periodic2_length_scale.f90"

@@ -3,6 +3,8 @@ module bem_coulomb_fmm_types
   use bem_kinds, only: dp, i32
   use bem_panel_geometry, only: panel_geometry_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
+  use bem_periodic_shell_mean, only: periodic_shell_mean_plan_type, periodic_shell_mean_state_type, &
+                                     reset_periodic_shell_mean_plan, reset_periodic_shell_mean_state
   implicit none
   private
 
@@ -31,6 +33,11 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_ewald_layers = 4_i32
     character(len=256) :: periodic_cache_dir = '.beach_cache/periodic2'
     real(dp) :: periodic_generation_tolerance = 1.0d-8
+    !> cached_kneq0 の遠方補正が使う source 節点と target anchor の木の深さ。負なら節点の大きさから自動で選ぶ
+    !! （source は半対角線が周期長の 0.4 倍以下、target は 0.5 倍以下になる最も浅い深さ）。浅いと作成は速いが、
+    !! 粒子層の高さが周期長に近いとき非零モードに面平均が漏れる。
+    integer(i32) :: periodic_operator_source_depth = -1_i32
+    integer(i32) :: periodic_operator_target_depth = -1_i32
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
   end type fmm_options_type
@@ -126,8 +133,12 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
+    !> 遠方補正の (target anchor, source node) 組の数と、各組の target anchor。
+    !! 組 k の source node は periodic_root_source_nodes(mod(k-1, source_count)+1)。
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32), allocatable :: periodic_root_target_nodes(:)
+    integer(i32) :: periodic_root_source_count = 0_i32
+    integer(i32), allocatable :: periodic_root_source_nodes(:)
     real(dp), allocatable :: periodic_root_operator(:, :, :)
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
@@ -139,6 +150,8 @@ module bem_coulomb_fmm_types
     logical :: periodic_k0_ready = .false.
     integer(i32) :: periodic_k0_free_axis = 0_i32
     type(periodic_zero_mode_plan_type) :: periodic_k0_plan
+    !> 有限画像殻の面平均のうち、対称な平均場を除いた滑らかな残り（cached_kneq0 で実行時に引く）。
+    type(periodic_shell_mean_plan_type) :: periodic_shell_mean
     real(dp), allocatable :: m2l_deriv(:, :)
     real(dp), allocatable :: source_p2m_basis(:, :)
     real(dp), allocatable :: source_shift_monomial(:, :)
@@ -154,6 +167,7 @@ module bem_coulomb_fmm_types
     integer(i32), pointer :: multipole_active(:) => null()
     integer(i32), pointer :: local_active(:) => null()
     type(periodic_zero_mode_state_type) :: periodic_k0_state
+    type(periodic_shell_mean_state_type) :: periodic_shell_mean_state
   end type fmm_state_type
 
 contains
@@ -262,6 +276,8 @@ contains
     call reset_periodic2_ewald_data(plan%periodic_ewald)
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
+    if (allocated(plan%periodic_root_source_nodes)) deallocate (plan%periodic_root_source_nodes)
+    plan%periodic_root_source_count = 0_i32
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
     if (allocated(plan%source_shift_monomial)) deallocate (plan%source_shift_monomial)
@@ -301,6 +317,7 @@ contains
     plan%periodic_k0_plan%nelem = 0_i32
     plan%periodic_k0_plan%nbreak = 0_i32
     plan%periodic_k0_plan%area_xy = 0.0_dp
+    call reset_periodic_shell_mean_plan(plan%periodic_shell_mean)
   end subroutine reset_fmm_plan
 
   !> FMM state のポインタ成分を未関連状態へ初期化する。
@@ -324,6 +341,7 @@ contains
     state%periodic_k0_state%z_gauge = 0.0_dp
     state%periodic_k0_state%phi_gauge = 0.0_dp
     state%periodic_k0_state%total_charge = 0.0_dp
+    call reset_periodic_shell_mean_state(state%periodic_shell_mean_state)
   end subroutine initialize_fmm_state
 
   !> FMM state を初期状態へ戻す。

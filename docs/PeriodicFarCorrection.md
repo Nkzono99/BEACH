@@ -90,22 +90,29 @@ $$
 
 とします。Ewald評価はoperatorを作るcold pathだけで使い、通常の粒子評価では実行しません。
 
-## root multipoleからtarget localへのoperatorをfitする
+## source節点のmultipoleからtarget localへのoperatorをfitする
 
-固定geometryでは、遠方残差はsource電荷に対して線形です。source rootのmultipole係数を
-$\mathbf M_\mathrm{root}$、target anchor node$t$のfar local係数を$\mathbf L_t^\mathrm{far}$とすると、
+固定geometryでは、遠方残差はsource電荷に対して線形です。source treeの深さ2の節点$s$のmultipole係数を
+$\mathbf M_s$、target treeの深さ2のanchor node$t$のfar local係数を$\mathbf L_t^\mathrm{far}$とすると、
 
 $$
-\mathbf L_t^\mathrm{far}=\mathbf A_t\mathbf M_\mathrm{root}
+\mathbf L_t^\mathrm{far}=\sum_s\mathbf A_{t,s}\mathbf M_s
 $$
 
-と書けます。cold buildは次の順に$\mathbf A_t$を作ります。
+と書けます。線源全体を根のmultipole 1個で見ると、粒子層の高さが除いた画像までの距離（約$2L$）に近いため
+展開がほとんど収束せず、帯電した三層レゴリスでは非零モードに数Vの面平均が漏れていました。深さ2の節点に
+分けると節点が小さくなり、評価側のanchorも小さくなるので、同じ展開次数で誤差が大きく下がります。
+cold buildは次の順に$\mathbf A_{t,s}$を作ります。
 
-1. source rootを囲むproxy点を置き、proxy電荷からroot multipoleへの行列を作る。
-2. target anchorごとにcheck点を置き、各proxy sourceのEwald residualを評価する。
-3. check点の電場をlocal展開で再現する係数を正則化QRで解く。
-4. proxy-to-local写像とproxy-to-multipoleの最小norm擬似逆を合成する。
-5. geometryと設定からfingerprintを作り、operatorとchecksumをcacheへ公開する。
+1. source節点ごとに節点を囲むproxy点を置き、proxy電荷からその節点のmultipoleへの行列と最小norm擬似逆を作る。
+2. target anchorごとにcheck点を置き、check点の電場をlocal展開で再現する行列を正則化QRで分解する（source節点で共有）。
+3. source節点ごとに、各proxy sourceのEwald residual（下の面平均の補正を含む）をcheck点で評価し、local係数を解く。
+4. proxy-to-local写像と擬似逆を合成する。
+5. geometry、source節点、target anchor、設定からfingerprintを作り、operatorとchecksumをcacheへ公開する。
+
+組の数はtarget anchor数×source節点数（三層レゴリスで最大64×64）ですが、実行時の追加は小さな行列・vector積だけです。
+初回の作成は長くなり（三層レゴリスで28スレッド1プロセス約27分、MPIではtarget anchorをrankに分ける）、
+cacheに保存して再利用します。
 
 `cached_kneq0`はこの線形写像をversioned cacheへ保存し、fingerprint、shape、checksumが一致するwarm runで
 再利用します。proxy pointから作ったoperatorを、P0 triangle sourceの
@@ -116,12 +123,17 @@ triangle-averaged P2M係数へ適用します。
 
 proxy 行列の各 multipole 行は長さの次数が異なるため、擬似逆の QR 分解前に行を正規化し、
 右辺にも同じ尺度を適用します。これにより µm 単位の形状でも高次 moment が絶対しきい値で失われません。
-生成器 v9 はこの修正を含み、v8 以前の operator cache を再利用しません。
+生成器 v9 以降はこの修正を含みます。v10 は下の面平均の分離と節点への分割を加え、v9 以前の operator cache を再利用しません。
 
-この尺度補正は FMM の打切り誤差をなくすものではありません。電荷源から離れた領域では、
-大きな有限画像場と対称平均場を差し引いた残差の誤差が、本来小さい非零モードを上回ることがあります。
-弱い外部シース場との比較には、同じ保存電荷の上部 Fourier 参照などによる絶対誤差の確認が必要です。
-長さの単位に依存しないことや cache の再利用テストだけでは、その精度を保証できません。
+弱い外部シース場と比べるには、長さの単位に依存しないことやcacheの再利用だけでなく、絶対誤差の確認が必要です。
+帯電した三層レゴリス（A型、81000 batch）の電荷で、層の上の真空域を直接のFourier和と比べた誤差は次のとおりです
+（画像層1、展開次数4）。
+
+| 生成器 | 非零モードの面平均（層の上端〜上端面） | 横方向の電位誤差 | 横方向の電場誤差 | 電荷の更新 |
+|---|---|---|---|---|
+| v8（根のmultipole 1個） | +6.0〜+1.4 V | 0.5〜1.4 V | 2〜4×10⁴ V/m | 0.11 s |
+| v9（行の正規化） | −2.0〜+0.17 V | 0.3〜1.2 V | 3〜5×10⁴ V/m | 0.11 s |
+| v10（面平均の解析的な分離、深さ2の節点） | 0.02 V以下 | 0.01〜0.03 V | 約2×10³ V/m | 0.11 s |
 
 物理的な平均場は電荷源内部の高さ分布を保ち、電荷源より上では累積電荷を厳密に総電荷 $Q$ とします。
 これにより、傾いた三角形の累積多項式を加減算した丸め残差が真空域へ外挿されることを防ぎます。
@@ -135,7 +147,7 @@ batchごとの`update_state`は次の順で進みます。
 P2M
   -> M2M
   -> ordinary tree M2L
-  -> L_far(t) += A_t M_root      periodic far correction
+  -> L_far(t) += sum_s A_ts M_s  periodic far correction
   -> L2L
   -> L2P + near Direct
 ```
@@ -144,7 +156,7 @@ P2M
 
 $$
 \mathbf L_t\leftarrow\mathbf L_t+
-\mathbf A_t\mathbf M_\mathrm{root}
+\sum_s\mathbf A_{t,s}\mathbf M_s
 $$
 
 を行います。その後は通常のL2Lが補正済みlocalをleafへ伝え、L2Pが粒子位置で評価します。したがってhot pathで
@@ -154,15 +166,20 @@ tree の M2L pair cache と `m2l_deriv` は変更せず、補正を ordinary M2L
 
 ## cached operatorから対称`k=0`を除く
 
-Ewald teacher の full residual には fit を定義する対称 vacuum `k=0` が含まれます。実際の平均場は
-`lower_boundary_model` で決まるため、FMM 側の nonzero kernel を
+Ewald teacher の full residual には fit を定義する対称 vacuum `k=0` が含まれます。有限画像殻
+$K_\mathrm{shell}(N)$ をセル上で面平均すると、無限面電荷の平均場 $K_0^\mathrm{sym}$（高さ $h$ の単位電荷あたり
+$-2\pi|h|/A$）と滑らかな残り $s(h)$ の和になります。$s$ は $1/r$ を画像ブロック $[c-(N+\tfrac12)L,\,c+(N+\tfrac12)L]^2$
+上で積分した閉じた式から $K_0^\mathrm{sym}$ を引いたもので、$h=0$ でも解析的です（$c$ は線源の木の根の中心）。
+残差の面平均はちょうど $-s$ なので、fit には面平均 0 の $R+s$ だけを渡し、$s$ は線源ごとの高さの表から
+$S(z)=\sum_i q_i s_i(z)$ として実行時に引きます。FMM 側の nonzero kernel は
 
 $$
 K_{k\ne0}=K_\mathrm{shell}(N)
-+R_\mathrm{Ewald}^{\mathrm{full}}-K_0^\mathrm{sym}
++\mathcal F\left[R_\mathrm{Ewald}^{\mathrm{full}}+s\right]-K_0^\mathrm{sym}-S
 $$
 
-とし、場の合成時に物理的な平均場を一度だけ加えます。
+で（$\mathcal F$ は上の operator による fit）、場の合成時に物理的な平均場を一度だけ加えます。
+$S$ の高さの表は間隔 $L/32$ の 3 次 Hermite 補間で、電場は同じ多項式の微分なので電位の勾配と一致します。
 
 $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}

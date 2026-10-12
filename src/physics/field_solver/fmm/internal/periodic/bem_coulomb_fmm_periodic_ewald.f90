@@ -15,6 +15,7 @@ module bem_coulomb_fmm_periodic_ewald
   public :: add_periodic2_exact_ewald_kneq0_correction_single_source
   public :: add_periodic2_exact_ewald_potential_correction_single_source
   public :: add_periodic2_kneq0_potential_correction_single_source
+  public :: add_periodic2_exact_ewald_field_potential_single_source
 
 contains
 
@@ -176,6 +177,72 @@ contains
     call add_exact_periodic2_reciprocal_space_potential_correction(plan, q, src, target, phi)
     call add_exact_periodic2_k0_potential_correction(plan, q, src, target, phi)
   end subroutine add_periodic2_exact_ewald_potential_correction_single_source
+
+  !> 1 粒子分の periodic2 Ewald 補正の電場と電位を、超越関数を共有して 1 回で加算する。
+  !! 個別の電場・電位ルーチンを続けて呼ぶのと同じ値を返す（operator 作成の teacher 用）。
+  subroutine add_periodic2_exact_ewald_field_potential_single_source(plan, q, src, target, e, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: q
+    real(dp), intent(in) :: src(3), target(3)
+    real(dp), intent(inout) :: e(3), phi
+    integer(i32) :: shift_idx, k_idx
+    real(dp) :: shifted(3), dx(3), r2, rmag, inv_r, ar, screen, gaussian, pref, inv_r3
+    real(dp) :: theta, dz, phase_sin, phase_cos, term_p, term_m, arg
+
+    if (.not. plan%periodic_ewald%ready) return
+    if (abs(q) <= tiny(1.0d0)) return
+
+    do shift_idx = 1_i32, plan%periodic_ewald%screen_count
+      shifted = src
+      shifted(plan%periodic_ewald%axis1) = shifted(plan%periodic_ewald%axis1) + plan%periodic_ewald%screen_shift1(shift_idx)
+      shifted(plan%periodic_ewald%axis2) = shifted(plan%periodic_ewald%axis2) + plan%periodic_ewald%screen_shift2(shift_idx)
+      dx = target - shifted
+      r2 = sum(dx*dx)
+      if (r2 <= tiny(1.0d0)) cycle
+      rmag = sqrt(r2)
+      inv_r = 1.0d0/rmag
+      ar = plan%periodic_ewald%alpha*rmag
+      screen = erfc(ar)
+      gaussian = exp(-(ar*ar))
+      pref = q*(screen*inv_r*inv_r*inv_r + 2.0d0*plan%periodic_ewald%alpha*inv_sqrt_pi*gaussian*inv_r*inv_r)
+      e = e + pref*dx
+      phi = phi + q*screen*inv_r
+    end do
+
+    do shift_idx = 1_i32, plan%periodic_ewald%inner_count
+      shifted = src
+      shifted(plan%periodic_ewald%axis1) = shifted(plan%periodic_ewald%axis1) + plan%periodic_ewald%inner_shift1(shift_idx)
+      shifted(plan%periodic_ewald%axis2) = shifted(plan%periodic_ewald%axis2) + plan%periodic_ewald%inner_shift2(shift_idx)
+      dx = target - shifted
+      r2 = sum(dx*dx) + plan%periodic_ewald%soft2
+      if (r2 <= tiny(1.0d0)) cycle
+      rmag = sqrt(r2)
+      inv_r3 = 1.0d0/(rmag*r2)
+      e = e - q*inv_r3*dx
+      phi = phi - q/rmag
+    end do
+
+    dz = target(plan%periodic_ewald%axis_free) - src(plan%periodic_ewald%axis_free)
+    do k_idx = 1_i32, plan%periodic_ewald%k_count
+      theta = plan%periodic_ewald%k1(k_idx)*(target(plan%periodic_ewald%axis1) - src(plan%periodic_ewald%axis1)) + &
+              plan%periodic_ewald%k2(k_idx)*(target(plan%periodic_ewald%axis2) - src(plan%periodic_ewald%axis2))
+      phase_sin = sin(theta)
+      phase_cos = cos(theta)
+      term_p = exp(plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) + plan%periodic_ewald%alpha*dz)
+      term_m = exp(-plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) - plan%periodic_ewald%alpha*dz)
+      e(plan%periodic_ewald%axis1) = e(plan%periodic_ewald%axis1) + &
+                                     q*plan%periodic_ewald%kpref1(k_idx)*phase_sin*(term_p + term_m)
+      e(plan%periodic_ewald%axis2) = e(plan%periodic_ewald%axis2) + &
+                                     q*plan%periodic_ewald%kpref2(k_idx)*phase_sin*(term_p + term_m)
+      e(plan%periodic_ewald%axis_free) = e(plan%periodic_ewald%axis_free) &
+                                         + q*plan%periodic_ewald%kprefz(k_idx)*phase_cos*(term_m - term_p)
+      phi = phi + q*plan%periodic_ewald%kprefz(k_idx)*phase_cos*(term_p + term_m)/plan%periodic_ewald%kmag(k_idx)
+    end do
+
+    arg = plan%periodic_ewald%alpha*dz
+    e(plan%periodic_ewald%axis_free) = e(plan%periodic_ewald%axis_free) + plan%periodic_ewald%k0_pref*q*erf(arg)
+    phi = phi - plan%periodic_ewald%k0_pref*q*(dz*erf(arg) + exp(-(arg*arg))/(plan%periodic_ewald%alpha*sqrt(pi_dp)))
+  end subroutine add_periodic2_exact_ewald_field_potential_single_source
 
   subroutine add_periodic2_kneq0_potential_correction_single_source(plan, q, src, target, phi)
     type(fmm_plan_type), intent(in) :: plan

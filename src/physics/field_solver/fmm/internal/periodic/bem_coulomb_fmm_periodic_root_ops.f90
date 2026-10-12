@@ -9,8 +9,8 @@ module bem_coulomb_fmm_periodic_root_ops
   use bem_coulomb_fmm_types, only: fmm_plan_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: use_periodic2_cached_kneq0
-  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_correction_single_source, &
-                                            add_periodic2_exact_ewald_potential_correction_single_source
+  use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_field_potential_single_source
+  use bem_periodic_shell_mean, only: periodic_shell_mean_point_excess
   use bem_coulomb_fmm_periodic_cache, only: read_periodic_operator_cache, write_periodic_operator_cache, &
                                             periodic_cache_fingerprint, periodic_cache_ok
   use bem_regularized_qr, only: regularized_qr_type, prepare_regularized_qr, solve_regularized_qr
@@ -19,12 +19,13 @@ module bem_coulomb_fmm_periodic_root_ops
   implicit none
   private
 
-  integer(i32), parameter :: periodic_operator_target_depth = 1_i32
   real(dp), parameter :: periodic_operator_proxy_multiplier = 8.0d0
   real(dp), parameter :: periodic_operator_check_multiplier = 24.0d0
   real(dp), parameter :: periodic_operator_proxy_shell_scale = 1.15d0
   real(dp), parameter :: periodic_operator_check_shell_scale = 0.92d0
-  real(dp), parameter :: periodic_operator_tall_box_ratio = 4.0d0
+  !> 自動で選ぶ深さの基準。節点の半対角線 / 最小周期長。
+  real(dp), parameter :: periodic_operator_source_radius_ratio = 0.4d0
+  real(dp), parameter :: periodic_operator_target_radius_ratio = 0.5d0
   real(dp), parameter :: periodic_operator_lstsq_ridge = 1.0d-12
   real(dp), parameter :: periodic_operator_qr_tol = 1.0d-12
   real(dp), parameter :: periodic_operator_seam_weight_multiplier = 1.0d0
@@ -41,8 +42,10 @@ contains
 
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
+    if (allocated(plan%periodic_root_source_nodes)) deallocate (plan%periodic_root_source_nodes)
     plan%periodic_root_operator_ready = .false.
     plan%periodic_root_target_count = 0_i32
+    plan%periodic_root_source_count = 0_i32
 
     plan%periodic_cache_hit = .false.
     plan%periodic_cache_fingerprint = ''
@@ -59,13 +62,13 @@ contains
     type(mpi_context), intent(in) :: mpi
     integer(i32) :: nproxy, ncheck_bulk, ncheck_face, ncheck_max, ncheck, j, i
     integer(i32) :: target_idx, node_idx, n_target_nodes, anchor_depth, target_count
-    integer(i32) :: rank, rank_count
+    integer(i32) :: rank, rank_count, source_depth, source_count, source_idx, source_node, pair_count
     real(dp) :: source_center(3), source_half(3), proxy_half(3), target_center(3), target_half(3)
-    real(dp), allocatable :: proxy_points(:, :), check_points(:, :), check_weights(:)
-    real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :), proxy_pinv(:, :)
+    real(dp), allocatable :: proxy_points(:, :, :), check_points(:, :), check_weights(:)
+    real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :), proxy_pinv(:, :, :)
     real(dp), allocatable :: field_matrix(:, :), field_rhs(:), coeff(:), potential_rhs(:), flat_operator(:)
-    real(dp) :: e_res(3), phi_res
-    integer(i32), allocatable :: target_nodes(:)
+    real(dp) :: e_res(3), phi_res, shell_excess, shell_excess_slope
+    integer(i32), allocatable :: target_nodes(:), source_nodes(:), pair_targets(:)
     type(regularized_qr_type) :: field_factorization
     logical :: use_target_tree, cache_loaded
     integer :: cache_lock_fd, lock_status, directory_status
@@ -81,11 +84,11 @@ contains
     ncheck_bulk = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
     ncheck_face = max(8_i32, plan%ncoef)
     ncheck_max = ncheck_bulk + 4_i32*ncheck_face
-    source_center = plan%node_center(:, 1_i32)
-    source_half = plan%node_half_size(:, 1_i32)
-    proxy_half = source_half
-    proxy_half = max(proxy_half, 0.25_dp*min(plan%options%periodic_len(1), plan%options%periodic_len(2)))
-    anchor_depth = periodic_root_anchor_depth(plan, use_target_tree)
+    anchor_depth = plan%options%periodic_operator_target_depth
+    if (anchor_depth < 0_i32) then
+      anchor_depth = adaptive_operator_depth(plan, use_target_tree, periodic_operator_target_radius_ratio, 1_i32)
+    end if
+    anchor_depth = min(active_tree_max_depth(plan, use_target_tree), anchor_depth)
     allocate (target_nodes(max(1_i32, n_target_nodes)))
     target_count = 0_i32
     call collect_periodic_root_targets(plan, use_target_tree, 1_i32, anchor_depth, target_nodes, target_count)
@@ -93,14 +96,33 @@ contains
       deallocate (target_nodes)
       return
     end if
+    ! 線源は根の multipole 1 個ではなく、深さ source_depth の節点ごとの multipole で見る。根の展開は、層の高さが
+    ! 除いた画像までの距離に近いと収束が遅く、面平均を含む大きな誤差になる。
+    source_depth = plan%options%periodic_operator_source_depth
+    if (source_depth < 0_i32) then
+      source_depth = adaptive_operator_depth(plan, .false., periodic_operator_source_radius_ratio, 0_i32)
+    end if
+    allocate (source_nodes(max(1_i32, plan%nnode)))
+    source_count = 0_i32
+    call collect_periodic_root_targets(plan, .false., 1_i32, source_depth, source_nodes, source_count)
+    plan%periodic_root_source_count = source_count
+    allocate (plan%periodic_root_source_nodes(source_count))
+    plan%periodic_root_source_nodes = source_nodes(1:source_count)
+    deallocate (source_nodes)
+    ! 組 (target anchor, source node) を anchor ごとに source が連続するように並べる。
+    pair_count = target_count*source_count
+    allocate (pair_targets(pair_count))
+    do target_idx = 1_i32, target_count
+      pair_targets((target_idx - 1_i32)*source_count + 1_i32:target_idx*source_count) = target_nodes(target_idx)
+    end do
 
-    call set_cache_identity(plan, use_target_tree, target_nodes, target_count)
+    call set_cache_identity(plan, use_target_tree, pair_targets, pair_count)
     cache_loaded = .false.
     cache_lock_fd = -1
-    if (mpi_is_root(mpi)) call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+    if (mpi_is_root(mpi)) call try_load_cached_operator(plan, use_target_tree, pair_targets, pair_count, cache_loaded)
     call share_cached_operator(plan, mpi, cache_loaded)
     if (cache_loaded) then
-      deallocate (target_nodes)
+      deallocate (target_nodes, pair_targets)
       return
     end if
 
@@ -109,7 +131,7 @@ contains
       if (directory_status /= filesystem_success) error stop 'Failed to create periodic operator cache directory.'
       call acquire_file_lock(trim(plan%periodic_cache_path)//'.lock', cache_lock_fd, lock_status)
       if (lock_status /= filesystem_success) error stop 'Failed to lock periodic operator cache.'
-      call try_load_cached_operator(plan, use_target_tree, target_nodes, target_count, cache_loaded)
+      call try_load_cached_operator(plan, use_target_tree, pair_targets, pair_count, cache_loaded)
       if (cache_loaded) then
         call release_file_lock(cache_lock_fd, lock_status)
         if (lock_status /= filesystem_success) error stop 'Failed to release periodic operator cache lock.'
@@ -117,28 +139,33 @@ contains
     end if
     call share_cached_operator(plan, mpi, cache_loaded)
     if (cache_loaded) then
-      deallocate (target_nodes)
+      deallocate (target_nodes, pair_targets)
       return
     end if
 
-    allocate (proxy_points(3, nproxy), check_points(3, ncheck_max), check_weights(ncheck_max))
-    call build_root_surface_points( &
-      source_center, proxy_half, nproxy, 0.13_dp, periodic_operator_proxy_shell_scale, proxy_points &
-      )
+    allocate (proxy_points(3, nproxy, source_count), check_points(3, ncheck_max), check_weights(ncheck_max))
     allocate (proxy_to_multipole(plan%ncoef, nproxy), proxy_to_local(plan%ncoef, nproxy))
-    allocate (field_matrix(3_i32*ncheck_max, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef))
-    call build_proxy_multipole_matrix(plan, source_center, proxy_points, proxy_to_multipole)
-    call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv)
+    allocate (field_matrix(3_i32*ncheck_max, plan%ncoef - 1_i32), proxy_pinv(nproxy, plan%ncoef, source_count))
+    do source_idx = 1_i32, source_count
+      source_node = plan%periodic_root_source_nodes(source_idx)
+      source_center = plan%node_center(:, source_node)
+      source_half = plan%node_half_size(:, source_node)
+      ! 平らな節点でも proxy が立体的に囲むよう、深さに応じた下限を置く（根では従来の L/4）。
+      proxy_half = max(source_half, 0.25_dp*minval(plan%options%periodic_len)*0.5_dp**plan%node_depth(source_node))
+      call build_root_surface_points( &
+        source_center, proxy_half, nproxy, 0.13_dp, periodic_operator_proxy_shell_scale, proxy_points(:, :, source_idx) &
+        )
+      call build_proxy_multipole_matrix(plan, source_center, proxy_points(:, :, source_idx), proxy_to_multipole)
+      call build_minimum_norm_pseudoinverse(proxy_to_multipole, proxy_pinv(:, :, source_idx))
+    end do
 
-    plan%periodic_root_target_count = target_count
-    allocate (plan%periodic_root_target_nodes(target_count))
-    plan%periodic_root_target_nodes = target_nodes(1:target_count)
-    deallocate (target_nodes)
-    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count))
+    plan%periodic_root_target_count = pair_count
+    call move_alloc(pair_targets, plan%periodic_root_target_nodes)
+    allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, pair_count))
     plan%periodic_root_operator = 0.0_dp
 
-    do target_idx = rank + 1_i32, plan%periodic_root_target_count, rank_count
-      node_idx = plan%periodic_root_target_nodes(target_idx)
+    do target_idx = rank + 1_i32, target_count, rank_count
+      node_idx = target_nodes(target_idx)
       target_center = active_tree_node_center(plan, use_target_tree, node_idx)
       target_half = active_tree_node_half_size(plan, use_target_tree, node_idx)
       call build_root_surface_points( &
@@ -160,45 +187,57 @@ contains
       plan%periodic_qr_preparation_count = plan%periodic_qr_preparation_count + 1_i32
       plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
 
-      proxy_to_local = 0.0_dp
-      plan%periodic_operator_thread_count = max(plan%periodic_operator_thread_count, 1_i32)
-!$omp parallel default(shared) private(j, i, field_rhs, potential_rhs, coeff, e_res, phi_res)
-      allocate (field_rhs(3_i32*ncheck), potential_rhs(ncheck), coeff(plan%ncoef - 1_i32))
+      do source_idx = 1_i32, source_count
+        proxy_to_local = 0.0_dp
+        plan%periodic_operator_thread_count = max(plan%periodic_operator_thread_count, 1_i32)
+!$omp parallel default(shared) private(j, i, field_rhs, potential_rhs, coeff, e_res, phi_res) &
+!$omp private(shell_excess, shell_excess_slope)
+        allocate (field_rhs(3_i32*ncheck), potential_rhs(ncheck), coeff(plan%ncoef - 1_i32))
 !$omp single
-!$    plan%periodic_operator_thread_count = max( &
-!$                                          plan%periodic_operator_thread_count, int(omp_get_num_threads(), i32) &
-!$                                          )
+!$      plan%periodic_operator_thread_count = max( &
+!$                                            plan%periodic_operator_thread_count, int(omp_get_num_threads(), i32) &
+!$                                            )
 !$omp end single
 !$omp do schedule(static)
-      do j = 1_i32, nproxy
-        field_rhs = 0.0_dp
-        potential_rhs = 0.0_dp
-        do i = 1_i32, ncheck
-          e_res = 0.0_dp
-          phi_res = 0.0_dp
-          call add_periodic2_exact_ewald_correction_single_source( &
-            plan, 1.0_dp, proxy_points(:, j), check_points(:, i), e_res &
+        do j = 1_i32, nproxy
+          field_rhs = 0.0_dp
+          potential_rhs = 0.0_dp
+          do i = 1_i32, ncheck
+            e_res = 0.0_dp
+            phi_res = 0.0_dp
+            call add_periodic2_exact_ewald_field_potential_single_source( &
+              plan, 1.0_dp, proxy_points(:, j, source_idx), check_points(:, i), e_res, phi_res &
+              )
+            ! 残差の面平均（無限面と有限画像殻の差 -s）を解析的に戻し、面平均 0 の残りだけを当てはめる。
+            ! 実行時は s を高さの表から引く。
+            if (plan%periodic_shell_mean%ready) then
+              call periodic_shell_mean_point_excess( &
+                plan%periodic_shell_mean, proxy_points(:, j, source_idx), &
+                check_points(plan%periodic_shell_mean%free_axis, i), shell_excess, shell_excess_slope &
+                )
+              phi_res = phi_res + shell_excess
+              e_res(plan%periodic_shell_mean%free_axis) = e_res(plan%periodic_shell_mean%free_axis) - shell_excess_slope
+            end if
+            potential_rhs(i) = phi_res
+            field_rhs(i) = check_weights(i)*e_res(1)
+            field_rhs(ncheck + i) = check_weights(i)*e_res(2)
+            field_rhs(2_i32*ncheck + i) = check_weights(i)*e_res(3)
+          end do
+          call solve_regularized_qr(field_factorization, field_rhs, coeff)
+          proxy_to_local(2:plan%ncoef, j) = coeff
+          call fit_local_potential_constant( &
+            plan, target_center, check_points(:, 1:ncheck), check_weights(1:ncheck), &
+            potential_rhs, proxy_to_local(:, j) &
             )
-          call add_periodic2_exact_ewald_potential_correction_single_source( &
-            plan, 1.0_dp, proxy_points(:, j), check_points(:, i), phi_res &
-            )
-          potential_rhs(i) = phi_res
-          field_rhs(i) = check_weights(i)*e_res(1)
-          field_rhs(ncheck + i) = check_weights(i)*e_res(2)
-          field_rhs(2_i32*ncheck + i) = check_weights(i)*e_res(3)
         end do
-        call solve_regularized_qr(field_factorization, field_rhs, coeff)
-        proxy_to_local(2:plan%ncoef, j) = coeff
-        call fit_local_potential_constant( &
-          plan, target_center, check_points(:, 1:ncheck), check_weights(1:ncheck), &
-          potential_rhs, proxy_to_local(:, j) &
-          )
-      end do
 !$omp end do
-      deallocate (field_rhs, potential_rhs, coeff)
+        deallocate (field_rhs, potential_rhs, coeff)
 !$omp end parallel
-      plan%periodic_root_operator(:, :, target_idx) = matmul(proxy_to_local, proxy_pinv)
+        plan%periodic_root_operator(:, :, (target_idx - 1_i32)*source_count + source_idx) = &
+          matmul(proxy_to_local, proxy_pinv(:, :, source_idx))
+      end do
     end do
+    deallocate (target_nodes)
 
     allocate (flat_operator(size(plan%periodic_root_operator)))
     flat_operator = reshape(plan%periodic_root_operator, [size(flat_operator)])
@@ -283,15 +322,18 @@ contains
     integer(i32), intent(in) :: target_nodes(:), target_count
     integer(i32), allocatable :: integer_values(:)
     real(dp), allocatable :: real_values(:)
-    integer(i32) :: target_idx, node_idx, real_pos
+    integer(i32) :: target_idx, node_idx, real_pos, source_idx
     character(len=256) :: tag
 
-    allocate (integer_values(8 + target_count), real_values(12 + 6*target_count))
-    integer_values(1:8) = [ &
+    allocate (integer_values(9 + target_count + plan%periodic_root_source_count))
+    allocate (real_values(12 + 6*target_count + 6*plan%periodic_root_source_count))
+    integer_values(1:9) = [ &
       plan%options%order, plan%ncoef, plan%options%periodic_axes, plan%options%periodic_image_layers, &
-      plan%options%periodic_ewald_layers, merge(1_i32, 0_i32, plan%panel_source), target_count &
+      plan%options%periodic_ewald_layers, merge(1_i32, 0_i32, plan%panel_source), target_count, &
+      plan%periodic_root_source_count &
       ]
-    integer_values(9:) = target_nodes(1:target_count)
+    integer_values(10:9 + target_count) = target_nodes(1:target_count)
+    integer_values(10 + target_count:) = plan%periodic_root_source_nodes
     real_values(1:12) = [ &
       plan%options%periodic_len, plan%options%softening, plan%options%periodic_ewald_alpha, &
       plan%options%periodic_generation_tolerance, periodic_operator_seam_weight_multiplier, &
@@ -304,11 +346,17 @@ contains
       real_values(real_pos + 3:real_pos + 5) = active_tree_node_half_size(plan, use_target_tree, node_idx)
       real_pos = real_pos + 6_i32
     end do
+    do source_idx = 1_i32, plan%periodic_root_source_count
+      node_idx = plan%periodic_root_source_nodes(source_idx)
+      real_values(real_pos:real_pos + 2) = plan%node_center(:, node_idx)
+      real_values(real_pos + 3:real_pos + 5) = plan%node_half_size(:, node_idx)
+      real_pos = real_pos + 6_i32
+    end do
     if (plan%panel_source) then
-      tag = 'periodic-kneq0-generator-v9|scaled-proxy-qr-v1|real64|kernel=triangle_p0|'
+      tag = 'periodic-kneq0-generator-v10|scaled-proxy-qr-v1|shell-mean-v1|source-nodes-v1|real64|kernel=triangle_p0|'
       tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     else
-      tag = 'periodic-kneq0-generator-v9|scaled-proxy-qr-v1|real64|kernel=point_softened|'
+      tag = 'periodic-kneq0-generator-v10|scaled-proxy-qr-v1|shell-mean-v1|source-nodes-v1|real64|kernel=point_softened|'
       tag = trim(tag)//'zero=state_subtracted|normalization=core|'
     end if
     tag = trim(tag)//trim(beach_version)
@@ -331,19 +379,30 @@ contains
     if (cache_status /= periodic_cache_ok) error stop 'Failed to publish periodic operator cache.'
   end subroutine publish_cached_operator
 
-  pure integer(i32) function periodic_root_anchor_depth(plan, use_target_tree)
+  !> 節点（その深さより浅い葉を含む）の半対角線が ratio*周期長 以下になる、min_depth 以上で最も浅い深さ。
+  integer(i32) function adaptive_operator_depth(plan, use_target_tree, ratio, min_depth) result(depth)
     type(fmm_plan_type), intent(in) :: plan
     logical, intent(in) :: use_target_tree
-    real(dp) :: target_half(3), periodic_span, target_span_ratio
+    real(dp), intent(in) :: ratio
+    integer(i32), intent(in) :: min_depth
+    integer(i32), allocatable :: nodes(:)
+    integer(i32) :: count, max_depth, k
+    real(dp) :: limit, radius
 
-    periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), periodic_operator_target_depth)
-    target_half = active_tree_node_half_size(plan, use_target_tree, 1_i32)
-    periodic_span = max(minval(plan%options%periodic_len), tiny(1.0d0))
-    target_span_ratio = maxval(2.0d0*target_half)/periodic_span
-    if (target_span_ratio > periodic_operator_tall_box_ratio) then
-      periodic_root_anchor_depth = min(active_tree_max_depth(plan, use_target_tree), periodic_root_anchor_depth + 1_i32)
-    end if
-  end function periodic_root_anchor_depth
+    max_depth = active_tree_max_depth(plan, use_target_tree)
+    limit = ratio*minval(plan%options%periodic_len)
+    allocate (nodes(max(1_i32, active_tree_nnode(plan, use_target_tree))))
+    do depth = min(min_depth, max_depth), max_depth
+      count = 0_i32
+      call collect_periodic_root_targets(plan, use_target_tree, 1_i32, depth, nodes, count)
+      radius = 0.0_dp
+      do k = 1_i32, count
+        radius = max(radius, norm2(active_tree_node_half_size(plan, use_target_tree, nodes(k))))
+      end do
+      if (radius <= limit) return
+    end do
+    depth = max_depth
+  end function adaptive_operator_depth
 
   recursive subroutine collect_periodic_root_targets(plan, use_target_tree, node_idx, anchor_depth, target_nodes, target_count)
     type(fmm_plan_type), intent(in) :: plan
