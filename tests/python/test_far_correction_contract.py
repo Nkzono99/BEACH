@@ -11,6 +11,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FAR_CORRECTION_MODES = frozenset({"auto", "none", "cached_kneq0"})
+GROUPED_BACKENDS = frozenset({"finite_images", "cached_kneq0", "panel_spectral_reference"})
 
 
 def _read(relative_path: str) -> str:
@@ -42,6 +43,15 @@ def test_far_correction_schema_exposes_public_modes_and_default() -> None:
     assert set(far["enum"]) == FAR_CORRECTION_MODES
 
 
+def test_grouped_schema_exposes_the_documented_backends() -> None:
+    schema = json.loads(_read("schemas/beach.schema.json"))
+    backend = schema["$defs"]["groupedConfig"]["properties"]["fields"][
+        "properties"
+    ]["periodic"]["properties"]["backend"]
+
+    assert set(backend["enum"]) == GROUPED_BACKENDS
+
+
 def test_canonical_docs_state_far_correction_semantics() -> None:
     spec = _read("SPEC.md")
     spec_rows = {
@@ -56,18 +66,18 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
     contracts = {
         "docs/PeriodicFarCorrection.md": {
             "rows": {
-                "none": ("有限画像",),
-                "auto": ("`none`", "互換"),
+                "finite_images": ("有限画像",),
                 "cached_kneq0": ("無限周期", "production"),
+                "panel_spectral_reference": ("Fourier", "参照"),
             },
             "removed": "削除",
             "zero_mode": "二重加算",
         },
         "docs/PeriodicFarCorrection.en.md": {
             "rows": {
-                "none": ("finite images",),
-                "auto": ("`none`", "Compatibility"),
+                "finite_images": ("finite images",),
                 "cached_kneq0": ("infinite-periodic", "Production"),
+                "panel_spectral_reference": ("Fourier", "Reference"),
             },
             "removed": "removed",
             "zero_mode": "double counting",
@@ -75,6 +85,7 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
     }
     for path, contract in contracts.items():
         text = _read(path)
+        assert set(contract["rows"]) == GROUPED_BACKENDS
         for mode, fragments in contract["rows"].items():
             row = _line_starting_with(text, f"| `{mode}` |")
             assert all(fragment in row for fragment in fragments), (path, mode)
