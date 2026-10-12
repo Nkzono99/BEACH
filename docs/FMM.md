@@ -158,10 +158,10 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 ## periodic2でFMMを使う
 
 `periodic2` の通常の本番経路は FMM です。無限周期の非零 mode には `cached_kneq0` を使い、
-物理的 zero mode を `[periodic2]` で明示します。`field_periodic_far_correction="none"` は有限画像近似であり、
-無限周期解ではありません。
+物理的 zero mode を `fields.periodic.lower_boundary_model` で明示します。`fields.periodic.backend="finite_images"` は
+有限画像近似であり、無限周期解ではありません。
 
-完全な構成は [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml)を参照してください。
+完全な構成は [`examples/grouped/cached_periodic.toml`](../examples/grouped/cached_periodic.toml)を参照してください。
 成分の選択と検証は[periodic2 静電場](PeriodicElectrostatics.html)、cache の生成と再利用は
 [periodic2 遠方補正](PeriodicFarCorrection.html)を正本とします。
 

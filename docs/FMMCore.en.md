@@ -40,6 +40,8 @@ Current design goals:
 
 ## 2. Low-level developer API
 
+### 2.1 Fortran API
+
 The core provides these main procedures:
 
 ```fortran
@@ -64,7 +66,7 @@ Notes:
 - `build_plan` / `build_panel_plan` are geometry-dependent processing, and `update_state` is charge-dependent processing.
 - `eval_point(s)` assumes `plan` and `state` are ready.
 
-#### 2.2 C ABI / Python integration
+### 2.2 C ABI / Python integration
 
 `src/physics/field_solver/bem_field_kernel_c.f90` exposes this Fortran API as an `iso_c_binding` opaque-handle API.
 `make build-kernel` builds the shared library as `build/libbeach_field_kernel.so`.
@@ -106,7 +108,7 @@ of objects on the Python side and pass the transformed three vertices of every
 triangle to the same ABI.
 The rigid-transform helper path uses NumPy by default and can use an optional Numba backend, but field evaluation itself is done by the Fortran kernel.
 
-#### 2.3 BEACH adapter usage
+### 2.3 BEACH adapter usage
 
 The BEACH field-solver adapter passes all three vertices of each triangle to
 `build_panel_plan`. `src_q(i)` is the total charge on the triangle, and its
@@ -118,7 +120,7 @@ surface density is `src_q(i)/area(i)`.
 
 ## 3. Data structures
 
-#### 3.1 `fmm_options_type`
+### 3.1 `fmm_options_type`
 
 Main internal options:
 
@@ -137,7 +139,7 @@ The BEACH adapter currently uses `order = 4`, while the core itself accepts vari
 `order = 0` is rejected when the plan is built because it cannot represent the far/local electric-field expansion.
 For `periodic2`, `auto` is normalized to `none`; `cached_kneq0` explicitly enables far correction.
 
-#### 3.2 `fmm_plan_type`
+### 3.2 `fmm_plan_type`
 
 This is geometry-dependent immutable data:
 
@@ -154,7 +156,7 @@ This is geometry-dependent immutable data:
 - P2M basis table `source_p2m_basis`
 - compressed translation tables for M2M/L2L
 
-#### 3.3 `fmm_state_type`
+### 3.3 `fmm_state_type`
 
 This is charge-dependent data updated on each refresh:
 
@@ -169,7 +171,7 @@ This is charge-dependent data updated on each refresh:
 
 ## 4. Mathematical definitions
 
-#### 4.1 Source kernels
+### 4.1 Source kernels
 
 The BEACH runtime uses a fixed P0 triangle source kernel. The low-level FMM
 core retains a generic monopole plan through `build_plan` for internal APIs and
@@ -206,7 +208,7 @@ $G_\epsilon(\mathbf r)=1/\sqrt{\lVert\mathbf r\rVert^2+\epsilon^2}$ only where
 needed by low-level tests. This does not restore the removed public source model
 and cannot be configured in `beach.toml`.
 
-#### 4.2 Multi-index
+### 4.2 Multi-index
 
 The core uses a multi-index $\alpha = (\alpha_x, \alpha_y, \alpha_z)$.
 
@@ -222,7 +224,7 @@ $$
 \mathbf{r}^\alpha = r_x^{\alpha_x} r_y^{\alpha_y} r_z^{\alpha_z}
 $$
 
-#### 4.3 P2M
+### 4.3 P2M
 
 For node center $c$, leaf-node multipole coefficients are:
 
@@ -231,7 +233,7 @@ M_\alpha(c) = \sum_{j \in \text{leaf}} q_j
 \frac{(\mathbf{x}_j - \mathbf{c})^\alpha}{\alpha!}
 $$
 
-#### 4.4 M2M
+### 4.4 M2M
 
 Child-node coefficients are translated to the parent center and accumulated.
 With $\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$:
@@ -246,7 +248,7 @@ $$
 The current implementation precomputes, during `build_plan`, the index for $\beta - \alpha$ and the value
 $\mathbf{d}^{\beta-\alpha} / (\beta-\alpha)!$.
 
-#### 4.5 M2L
+### 4.5 M2L
 
 For source-node center $c_s$ and target-node center $c_t$, let $R = c_t - c_s$.
 
@@ -262,7 +264,7 @@ $$
 Here $D^\gamma$ is a multi-index derivative.
 The current implementation precomputes $D^{\alpha+\beta} G(R)$ per pair as `m2l_deriv(:, pair)`.
 
-#### 4.6 L2L
+### 4.6 L2L
 
 The local expansion at parent center $c_{\mathrm{parent}}$ is translated to child center $c_{\mathrm{child}}$.
 With $\mathbf{d} = c_{\mathrm{child}} - c_{\mathrm{parent}}$:
@@ -276,7 +278,7 @@ $$
 
 The shift monomials are also precomputed during `build_plan`.
 
-#### 4.7 L2P
+### 4.7 L2P
 
 Let $c_{\mathrm{leaf}}$ be the center of the target leaf that contains evaluation point $x$, and let
 $\mathbf{dr} = x - c_{\mathrm{leaf}}$.
@@ -291,7 +293,7 @@ Here $e_k$ is the unit multi-index for axis $k$.
 
 `build_plan` performs only geometry-dependent work.
 
-#### 5.1 Source tree
+### 5.1 Source tree
 
 The source-coordinate bounding box is recursively split into eight octants to build the octree.
 The stopping condition is either:
@@ -299,7 +301,7 @@ The stopping condition is either:
 - source count `<= leaf_max`
 - the bounding box is small enough that further subdivision is not useful
 
-#### 5.2 Target topology
+### 5.2 Target topology
 
 There are two target-side modes:
 
@@ -310,7 +312,7 @@ There are two target-side modes:
 
 In `periodic2`, target points are wrapped into the box before target leaf lookup.
 
-#### 5.3 Near/far lists and M2L pair cache
+### 5.3 Near/far lists and M2L pair cache
 
 For each target leaf, the source tree is traversed recursively to build near nodes and far nodes.
 
@@ -331,7 +333,7 @@ In `periodic2`, a minimum-image correction is applied to $\mathbf{d}$.
 
 Then a dual-tree recursion builds the M2L pair cache and prepares index arrays per target node.
 
-#### 5.4 Build-time precomputation
+### 5.4 Build-time precomputation
 
 At the end of `build_plan`, quantities that do not change between refreshes are precomputed:
 
@@ -349,7 +351,7 @@ At the end of `build_plan`, quantities that do not change between refreshes are 
 
 This makes `update_state` close to charge-dependent accumulation only.
 
-#### 5.5 Pseudocode
+### 5.5 Pseudocode
 
 ```text
 build_plan(src_pos, options):
@@ -369,7 +371,7 @@ build_plan(src_pos, options):
 `update_state` corresponds to refresh in the legacy implementation.
 Source coordinates are fixed; only `src_q` changes.
 
-#### 6.1 Processing order
+### 6.1 Processing order
 
 ```text
 update_state(plan, state, src_q):
@@ -384,7 +386,7 @@ update_state(plan, state, src_q):
   mark state ready
 ```
 
-#### 6.2 OpenMP parallelization
+### 6.2 OpenMP parallelization
 
 OpenMP is currently used in:
 
@@ -397,7 +399,7 @@ OpenMP is currently used in:
 
 The loops are written to map roughly one node to one thread, and shared-array updates are independent at node granularity.
 
-#### 6.3 Implementation optimizations
+### 6.3 Implementation optimizations
 
 `update_state` avoids unnecessary work by:
 
@@ -431,26 +433,26 @@ eval_point(r):
   root local already carries periodic root correction when enabled
 ```
 
-#### 7.1 Leaf lookup
+### 7.1 Leaf lookup
 
 - In `periodic2`, the evaluation point is wrapped into the target box before lookup.
 - If a target tree exists, its leaves are used.
 - If no target tree exists, source-tree leaves are used.
 - If lookup fails, or the leaf cannot map to a tree leaf slot, evaluation falls back to direct sum.
 
-#### 7.2 Near direct
+### 7.2 Near direct
 
 Source indices in the near list are evaluated by direct sum.
 In `periodic2`, image shifts in `[-N, N] x [-N, N]` are handled explicitly.
 Fallback uses the same direct kernel.
 
-#### 7.3 Out-of-box fallback
+### 7.3 Out-of-box fallback
 
 When a dual-target tree is used, evaluation points can leave the target box.
 Then there is no target leaf, so evaluation falls back to direct sum over all sources.
 `cached_kneq0` assumes a fixed target topology and rejects evaluation outside the target box.
 
-#### 7.4 Location of root correction
+### 7.4 Location of root correction
 
 The `cached_kneq0` root correction is injected into target-anchor local expansions during `update_state`.
 Therefore normal leaf evaluation in `eval_point(s)` does not recompute the root correction; it just uses the local expansion carried by `state`.
@@ -460,7 +462,7 @@ Therefore normal leaf evaluation in `eval_point(s)` does not recompute the root 
 This section retains formulas and fallback details from the FMM-core viewpoint. Configuration selection, operator fitting,
 cache lifecycle, and `k=0` ownership are separated into [periodic2 Far Correction](PeriodicFarCorrection.en.html).
 
-#### 8.1 `periodic2`
+### 8.1 `periodic2`
 
 `periodic2` means exactly two axes are periodic and the remaining axis is open.
 
@@ -472,14 +474,14 @@ $$
 
 M2L uses the same image-shift set and precomputes each pair derivative as an image sum.
 
-#### 8.2 `periodic2` Ewald (Ewald2P) correction
+### 8.2 `periodic2` Ewald (Ewald2P) correction
 
 `bem_coulomb_fmm_periodic_ewald.f90` implements an Ewald-form correction for the two-periodic, one-open Coulomb field.
-Here `exact` means the finite sum actually evaluated by the code. It is not the theoretical infinite sum; it is a build-time oracle whose real-space and reciprocal-space cutoffs are controlled by `field_periodic_image_layers = N` and `field_periodic_ewald_layers = L`.
+Here `exact` means the finite sum actually evaluated by the code. It is not the theoretical infinite sum; it is a build-time oracle whose real-space and reciprocal-space cutoffs are controlled by `fields.periodic.image_layers = N` and `fields.periodic.ewald_layers = L`.
 
 Ewald2P is a build-time teacher for `cached_kneq0`, not the runtime particle
 kernel. The teacher is applied to proxy monopoles and fitted as a
-root-multipole-to-local operator. Real
+source-node-multipole-to-local operator. Real
 triangles still use the analytic panel kernel in the near field and
 triangle-averaged P2M in the far source representation.
 
@@ -488,7 +490,7 @@ convergence; it is not Debye screening. See
 [the Ewald2P teacher in periodic2 electrostatics](PeriodicElectrostatics.en.md#ewald2p-teacher)
 for the intuitive split and its relation to runtime evaluation.
 
-##### 8.2.1 Notation
+#### 8.2.1 Notation
 
 Let the periodic axes be `a_1, a_2` and the open axis be `f`.
 Define periodic lengths, cell area, image set, and reciprocal-lattice set as:
@@ -519,9 +521,9 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-Below, $\alpha =$ `field_periodic_ewald_alpha`.
+Below, $\alpha =$ `fields.periodic.ewald_alpha`.
 
-##### 8.2.2 Real-space term
+#### 8.2.2 Real-space term
 
 The internal helper implements the screened Coulomb field:
 
@@ -560,7 +562,7 @@ $$
 Terms with `r2 <= tiny(1.0d0)` are skipped, so self-interaction is excluded.
 If the direct fallback contribution $\sum_{(i,j)\in\mathcal I_N}\mathbf E_\epsilon$ is added to `add_periodic2_exact_ewald_correction_single_source`, the direct inner-image part cancels and the outer shell is replaced by the screened form.
 
-##### 8.2.3 Reciprocal-space term
+#### 8.2.3 Reciprocal-space term
 
 For $(m,n)\neq(0,0)$, `add_exact_periodic2_reciprocal_space_correction` defines:
 
@@ -590,7 +592,7 @@ $$
 In code these correspond to `term_p`, `term_m`, and `pair_sum`.
 This term represents the high-frequency reciprocal-lattice components excluding `k=0`.
 
-##### 8.2.4 `k=0` term
+#### 8.2.4 `k=0` term
 
 The zero-mode correction implemented by `add_exact_periodic2_k0_correction` is:
 
@@ -601,7 +603,7 @@ $$
 
 The single-source Ewald teacher keeps this form as the `k=0` electric-field contribution.
 
-##### 8.2.5 Implemented correction
+#### 8.2.5 Implemented correction
 
 Together, the correction added by `add_periodic2_exact_ewald_correction_single_source` for one source is:
 
@@ -614,19 +616,20 @@ $$
 
 This single-source correction is evaluated at proxy/check points to generate the cached operator.
 
-If `field_periodic_ewald_alpha <= 0`, `resolve_periodic2_ewald_alpha` selects:
+If `fields.periodic.ewald_alpha <= 0`, `resolve_periodic2_ewald_alpha` selects:
 
 $$
 \alpha = \frac{1.2}{(N+1)\min(L_1,L_2)}
 $$
 
 automatically. If `min(L_1,L_2) <= 0`, it sets `alpha = 0` and disables operator generation.
-Internally, `kmax = max(1, field_periodic_ewald_layers)` defines the reciprocal-space finite sum.
+Internally, `kmax = max(1, fields.periodic.ewald_layers)` defines the reciprocal-space finite sum.
 
 The `cached_kneq0` cold build evaluates Ewald-residual field and potential at check points and fits a
-root-multipole-to-target-local operator. The constant-potential coefficient, which is not determined by the field fit, is fitted
-separately from the potential residual and stored in the versioned cache. `m2l_root_oracle` has been removed and is rejected.
-Infinite-periodic production runs use `cached_kneq0`.
+source-node-multipole-to-target-anchor-local operator. The plane mean of the finite image shell is split off in closed form, so
+the fit receives only a mean-free residual. The constant-potential coefficient, which is not determined by the field fit, is
+fitted separately from the potential residual and stored in the versioned cache. Infinite-periodic production runs use
+`cached_kneq0` (details in [periodic2 far correction](PeriodicFarCorrection.en.html)).
 
 ## 9. Interpreting computational cost
 
@@ -670,7 +673,7 @@ precomputes only this far difference as a linear map into FMM local expansions.
 
 | Input | Cached operator | Output |
 | --- | --- | --- |
-| root multipole built from current charges | apply a geometry-fixed matrix | far local expansion for each target anchor |
+| source-node multipoles built from current charges | apply a geometry-fixed matrix | far local expansion for each target anchor |
 
 The cache does not contain field samples, particle positions, or charge history.
 It contains a geometry-specific matrix mapping source multipoles to far local

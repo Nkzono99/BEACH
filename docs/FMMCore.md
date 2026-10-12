@@ -489,12 +489,12 @@ M2L でも同じ画像シフト集合を使い、各 pair の derivative を画�
 
 `bem_coulomb_fmm_periodic_ewald.f90`は、2周期・1開放のCoulomb fieldに対するEwald型の補正を
 実装します。ここでいう`exact`は、コードが実際に評価する有限和を指し、理論上の無限和そのものではありません。
-real-spaceとreciprocal-spaceの打切り深さは、`field_periodic_image_layers = N`と
-`field_periodic_ewald_layers = L`で決まります。この有限和をbuild-time oracleとして使います。
+real-spaceとreciprocal-spaceの打切り深さは、`fields.periodic.image_layers = N`と
+`fields.periodic.ewald_layers = L`で決まります。この有限和をbuild-time oracleとして使います。
 
 Ewald2Pはruntime particle kernelではなく、`cached_kneq0`を作るための
 build-time teacherです。teacherはproxy monopoleに適用されます。
-その結果を、root multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
+その結果を、source節点のmultipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
 $\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
@@ -531,7 +531,7 @@ R_{ij} = \lVert\mathbf R_{ij}\rVert,\qquad
 z = (\mathbf r - \mathbf s)\cdot \mathbf e_f
 $$
 
-を導入します。以下では $\alpha =$ `field_periodic_ewald_alpha` とします。
+を導入します。以下では $\alpha =$ `fields.periodic.ewald_alpha` とします。
 
 #### 8.2.2 実空間項
 
@@ -630,19 +630,19 @@ $$
 
 です。このsingle-source補正をproxy/check点で評価し、cached operatorを生成します。
 
-`field_periodic_ewald_alpha` が `<= 0` の場合、`resolve_periodic2_ewald_alpha` は
+`fields.periodic.ewald_alpha` が `<= 0` の場合、`resolve_periodic2_ewald_alpha` は
 
 $$
 \alpha = \frac{1.2}{(N+1)\min(L_1,L_2)}
 $$
 
 を自動選択します。`min(L_1,L_2)\le 0` なら `alpha = 0` としてoperator生成を無効化します。
-また内部では `kmax = max(1, field_periodic_ewald_layers)` として逆空間の有限和を作ります。
+また内部では `kmax = max(1, fields.periodic.ewald_layers)` として逆空間の有限和を作ります。
 
-`cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、root multipoleから
-target localへのoperatorをfitします。電場fitで決まらない定数potential係数はpotential residualから
-別にfitし、versioned cacheへ保存します。`m2l_root_oracle` は削除済みで、指定時はrejectします。
-無限周期のproduction計算には`cached_kneq0`を使います。
+`cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、source節点のmultipoleから
+target anchorのlocal展開へのoperatorをfitします。有限画像殻の面平均は閉じた式で分離し、fitには面平均0の残差だけを
+渡します。電場fitで決まらない定数potential係数はpotential residualから別にfitし、versioned cacheへ保存します。
+無限周期のproduction計算には`cached_kneq0`を使います（詳細は[periodic2 遠方補正](PeriodicFarCorrection.html)）。
 
 ## 9. 計算量の見方
 
@@ -686,7 +686,7 @@ target localへのoperatorをfitします。電場fitで決まらない定数pot
 
 | 入力 | cached operator | 出力 |
 | --- | --- | --- |
-| 現在の電荷から作ったroot multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
+| 現在の電荷から作ったsource節点のmultipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
 
 cacheが保存するのは、固定geometryに対してsource multipoleを遠方local展開へ写す行列です。
 電場値、粒子位置、電荷履歴は保存しません。このため、batchごとに電荷が変わっても同じ行列を再利用できます。

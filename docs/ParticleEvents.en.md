@@ -109,7 +109,7 @@ index, then second image index. If the image count on one axis or its Cartesian 
 work and report no hit; it returns `collision_query_image_limit`.
 
 This image range is determined by which mesh images a particle trajectory segment can hit. It is unrelated to
-`field_periodic_image_layers`, which controls the field sum. See
+`fields.periodic.image_layers`, which controls the field sum. See
 [periodic2 electrostatics](PeriodicElectrostatics.en.html) for field images.
 
 ## Apply the action of each box face

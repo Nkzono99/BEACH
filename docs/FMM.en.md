@@ -157,10 +157,10 @@ cold-cache and warm-cache runs separately. See [Runtime profiling](Execution.en.
 ## Use FMM with periodic2
 
 FMM is the normal production path for `periodic2`. Use `cached_kneq0` for infinite-periodic nonzero modes and specify the
-physical zero mode under `[periodic2]`. `field_periodic_far_correction="none"` is a finite-image approximation, not an
-infinite-periodic solution.
+physical zero mode with `fields.periodic.lower_boundary_model`. `fields.periodic.backend="finite_images"` is a finite-image
+approximation, not an infinite-periodic solution.
 
-See [`examples/periodic2_cached_panel.toml`](../examples/periodic2_cached_panel.toml) for a complete configuration.
+See [`examples/grouped/cached_periodic.toml`](../examples/grouped/cached_periodic.toml) for a complete configuration.
 [periodic2 electrostatics](PeriodicElectrostatics.en.html) is canonical for component selection and validation, while
 [periodic2 Far Correction](PeriodicFarCorrection.en.html) owns cache generation and reuse.
 

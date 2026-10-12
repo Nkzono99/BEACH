@@ -59,33 +59,21 @@ the first root that holds. If no root holds, the run stops at startup with the r
 Give the electrons the same normal solar-wind drift as the ions and set `sheath.zhao.upstream_band_tolerance` to 0.1. The
 examples use this setting.
 
-**The upstream band:** in Type A and Type C with inward-drifting electrons and reflected slow electrons, the upstream
-distribution of reflected electrons is the mirror image of the drifting incoming distribution and has a kink at zero velocity.
-Because of this kink, a term $u\,h\log(1/h)$ appears in the electron density close to upstream; as $h\to0$ it exceeds the other
-terms and makes $E^2<0$ ($u$ is the ratio of the drift to the electron thermal speed and $h$ the depth below the upstream
-potential divided by $T_e$). No solution connects exactly to the neutral, field-free upstream state. $E^2<0$ occurs only in a
-narrow potential band next to the upstream potential. `upstream_band_tolerance` accepts roots whose band is no wider than that
-fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C) and records the width as
-`surface_current_model_upstream_negative_band_V` in `summary.txt`. Roots with a wider band are not used.
+In Type A and Type C with inward-drifting electrons and reflected slow electrons, the upstream distribution of reflected
+electrons is the mirror image of the drifting incoming distribution and has a kink at zero velocity. This makes $E^2<0$ in a
+narrow potential band next to the upstream potential, so no solution connects exactly to the neutral, field-free upstream state.
+`upstream_band_tolerance` accepts roots whose band is no wider than that fraction of $\lvert\phi_m\rvert$ (A) or
+$\lvert\phi_0\rvert$ (C) and records the width as `surface_current_model_upstream_negative_band_V` in `summary.txt`. Roots
+with a wider band are not used.
 
-**Physical meaning of the band:** the band is where the idealization that slow upstream electrons are an exact mirror image of
-the drifting incoming distribution fails. That distribution has a cusp-shaped dip at $v_z=0$; the integral of the Penrose
-stability criterion diverges logarithmically, so it is kinetically unstable. In reality, relaxation by the instability and
-scattering by surface roughness are expected to smooth the slow-electron distribution.
-
-**Error estimate:** removing the drift only from incoming electrons slower than $a_s v_{th}$, so that the distribution is smooth,
-and solving again with orbit-consistent densities removes the band and gives $E^2\ge0$ everywhere. For $n=5$ cm⁻³, $T_e=10$ eV,
-a 400 km/s solar wind at normal incidence, and photoelectrons of 4.5 µA/m² at 2.2 eV, the differences from the roots with an
-accepted band were as follows ([validation record](https://github.com/Nkzono99/sheath-model/blob/main/outputs/upstream_relaxation_20261009/REPORT.md)).
-
-| Type | Band | $a_s$ that removes the band | $\phi_0$ difference for $a_s=0.07$–$0.2$ | $\phi_m$ difference | Absorbed electron flux difference |
-|---|---:|---:|---:|---:|---:|
-| A | 52 mV | 0.07 | −23 to −81 mV | −24 to −68 mV | below 0.3% |
-| C (no photoelectrons) | 2.9 mV | 0.02 | −1 to −81 mV ($a_s=0.02$–$0.2$) | — | 0 |
-
-The spread over $a_s$ measures the uncertainty from the treatment of slow electrons. It is much smaller than the effect of
-neglecting the drift (about 1 V for A and 2.7 V for C, [Known limitations](#known-limitations)), so BEACH treats the drift by
-accepting the band. A tolerance of 0.1 accepts both A (band 6.6% of $\lvert\phi_m\rvert$) and C (0.04%) above.
+The band is where the idealization that slow electrons are an exact mirror image of the incoming distribution fails. This cusped
+distribution is kinetically unstable and is expected to be smoothed by relaxation and surface scattering. Compared with
+orbit-consistent solutions in which only the slow incoming electrons lose their drift, the roots with an accepted band differ
+by tens of mV in the wall potentials and by less than 0.3% in the absorbed electron flux ($n=5$ cm⁻³, $T_e=10$ eV, 400 km/s
+solar wind, photoelectrons of 4.5 µA/m² at 2.2 eV;
+[validation record](https://github.com/Nkzono99/sheath-model/blob/main/outputs/upstream_relaxation_20261009/REPORT.md)).
+This is much smaller than the effect of neglecting the drift (about 1 V for A and 2.7 V for C), so BEACH treats the drift by
+accepting the band.
 
 The default 0 is the exact condition, which rejects drifting A/C (for example, at a solar elevation of 60 degrees B is selected,
 and at 10 degrees no root holds). Then set the electron drift to zero. The ion drift is required in both cases.
@@ -184,9 +172,7 @@ The bins are $[0, 1\,\text{meV})$ and logarithmic bins from 1 meV to 1 keV (24 p
 the last bin. The spectrum is not reduced to a half-Maxwellian with the same mean energy because the spectrum at the top face
 can combine a low-energy body close to the emission with a high-energy tail of electrons accelerated by potential differences
 in the cell. Because the tail sets the mean, a half-Maxwellian with the same mean miscounts both the electrons that escape over
-the barrier and the slow electrons near the wall, and can lose the root. In a charged three-layer regolith (generator-v10 field)
-the tail above 10 eV carried about 3% of the flux and the mean was about 2.8 eV (with the v8 far-correction error a spurious
-potential hill raised the tail to about 15% and the mean to 6–12 eV, and the mean-energy reduction lost the Type A root).
+the barrier and the slow electrons near the wall, and can lose the root.
 
 | Situation | Behavior |
 |---|---|
@@ -240,11 +226,11 @@ All keys and combination constraints are in [Input parameters](Parameters.en.htm
 | Output | What to check |
 |---|---|
 | `summary.txt` | `surface_current_model_zhao_branch`, `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` (initial root). The two residuals `surface_current_model_pe_budget_residual_current_density_A_m2` and `surface_current_model_surface_budget_residual_current_density_A_m2` are near zero |
-| `fixed_current_history.csv` | `target_over_tracked`. If the outer root and tracking in the cell agree, every species stays near 1 |
+| `fixed_current_history.csv` | `target_over_tracked`. If the outer root and tracking in the cell agree, every species stays near 1. If the photoelectron `escape` departs from 1, suspect a difference between the top-face potential and $\phi_0$ |
 | `charge_ledger.csv` | Tracked, target, and applied charge per species, `fixed_*_weight_scale`, and counts |
 | `matching_plane_history.csv` (outer-root refresh) | `phi_H_V` (the current $\phi_0$), the photoelectron outflow flux and mean normal energy, and `residual` |
-| `matching_plane_spectrum_history.csv` (outer-root refresh) | The outer source spectrum at each batch that refreshed the outer root. Whether acceleration in the cell has moved the lower end of the distribution away from 0 |
-| `top_reference_history.csv` | The mean top-face potential is close to $\phi_0$ (see the known limitations below) |
+| `matching_plane_spectrum_history.csv` (outer-root refresh) | The outer source spectrum at each batch that refreshed the outer root. The fraction of the tail accelerated in the cell |
+| `top_reference_history.csv` | `potential_mean_V` equals $\phi_0$. An offset is a field error and shifts the barrier test ([accuracy of the far correction](PeriodicFarCorrection.en.html)) |
 
 If the scales differ strongly between species, the balance of currents on each element departs from the state set by
 tracking alone. Column definitions are in [Output formats](OutputReference.en.html#zhao_stationary).
@@ -265,31 +251,19 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
 - **Accepting the upstream band:** a root accepted with the tolerance does not follow the idealized electron distribution inside
   the upstream band. The effect on the wall quantities is tens of mV ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
-- **Error of a zero electron drift:** at the same potential, the drift increases the electron flux at first order in the drift
-  (the one-way flux of a drifting Maxwellian through a plane is $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux
-  without drift). At a zero-current root the absorbed electron flux is constrained by the ions and the photoelectron escape, so
-  the difference appears mainly in the potentials. Under the same conditions as above ($u=0.21$, flux factor 1.42), the
-  zero-drift roots differed from the drifting roots as follows.
-
-  | Type | $\phi_0$ (drift 400 km/s → 0) | $\phi_m$ | Absorbed electron flux |
-  |---|---|---|---|
-  | A | 6.04 → 7.05 V | −0.79 → −0.13 V | −6% |
-  | C (no photoelectrons) | −7.34 → −4.63 V | — | Unchanged (equal to the ion flux) |
-
-  In a three-layer particle bed (4000 s), zero drift raised all potentials in the cell by about 1 V (A) and 3–4 V (C), while the
-  potential differences between layers changed by 1% or less.
+- **Error of a zero electron drift:** the one-way flux of a drifting Maxwellian through a plane is
+  $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux without drift. At a zero-current root the absorbed electron flux
+  is constrained by the ions and the photoelectron escape, so the difference appears mainly in the potentials. Under the
+  conditions above ($u=0.21$), zero drift changed $\phi_0$ from 6.04 to 7.05 V (A) and from −7.34 to −4.63 V (C). In a
+  three-layer particle bed, all potentials in the cell rose by about 1 V (A) and 3–4 V (C), while the potential differences
+  between layers changed by 1% or less.
 - **Discretized photoelectron source:** outer-root refresh represents the photoelectrons leaving through the top face only by
   bins of normal kinetic energy, with a constant distribution within each bin. Tangential velocity and differences across the
   surface are not passed to the outer sheath. The initial root (until the first refresh) uses the surface-emission half-Maxwellian.
-- **Escaping electrons are not fed back:** solar-wind electrons that are turned back in the cell and leave through the top face are
-  not included in the outer root, which treats every electron reaching the wall as absorbed. The fixed-current closure deposits
-  this part as absorption, so the balance of total currents is kept. The escaping fraction can be read from the departure of the
-  electron scale from 1 in `fixed_current_history.csv`.
-- **Offset of the mean top-face potential:** as the surface charge grows, the mean top-face potential departs from $\phi_0$. The
-  far correction (`cached_kneq0`) does not remove the zero mode completely; the offset is proportional to the charge and creates
-  a spurious vertical field in and above the particle layers. Because the barrier is tested with the potential at the crossing
-  point, fewer photoelectrons escape than the outer root predicts by the amount of the offset (the photoelectron escape scale in
-  `fixed_current_history.csv` exceeds 1). In a charged three-layer regolith, generator v8 left about 6 V at the top of the
-  layers and about 1.4 V at the top face. Generator v10 reduces it to 0.03 V or less in and above the layers and about 0.01 V at
-  the top face with one image layer and expansion order 4 (charge-update time unchanged). Check it by comparing
-  `potential_mean_V` in `top_reference_history.csv` with $\phi_0$ ([accuracy of the far correction](PeriodicFarCorrection.en.html)).
+- **Reflected solar-wind particles are not fed back:** solar-wind electrons and ions that are turned back in the cell and leave
+  through the top face are not included in the outer root, which treats every electron and ion reaching the wall as absorbed.
+  The fixed-current closure deposits this part as absorption, so the balance of total currents is kept. The escaping fraction can
+  be read from the departure of the electron and ion scales from 1 in `fixed_current_history.csv`. In Type C without
+  photoelectrons, faces that ions reach but electrons hardly reach can charge positively up to near the ion kinetic energy (about
+  0.84 kV for 400 km/s protons) and reflect ions (about 3% after 10⁵ s in a three-layer particle bed). Surface conduction and
+  secondary electron emission are not modeled.

@@ -101,7 +101,7 @@ Monte Carloノイズと時間離散化の影響は分けて確認します。
 | 粒子追跡長 | `sim.max_step`を増やす | 未解決粒子による打切り |
 | 表面mesh | 三角形を細分化する | 電荷・電位の空間離散化 |
 | 場ソルバ | 小規模ケースでDirectと比較する | Treecode/FMM近似 |
-| 有限周期画像 | `field_periodic_image_layers`を増やす | 画像和の打切り |
+| 有限周期画像 | `fields.periodic.image_layers`を増やす | 画像和の打切り |
 | outer model | grid点数や表面samplingを増やす | 外部profileとgeometry sampling |
 
 meshを固定したまま経路積分や画像層だけを収束させても、mesh離散化誤差まで評価したことにはなりません。
@@ -113,7 +113,7 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 
 | 構成 | 追加で確認するもの |
 | --- | --- |
-| 有限画像の`periodic2` | `field_periodic_image_layers`依存性。有限画像の結果を無限周期へ外挿しない |
+| 有限画像の`periodic2` | `fields.periodic.image_layers`依存性。有限画像の結果を無限周期へ外挿しない |
 | `cached_kneq0` | cache fingerprint、cold/warm結果の一致、zero mode、Gauss residual |
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`reservoir.phi_infty`、法線運動エネルギーによる反射・流出判定 |

@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-13
+
 ### Added
 - Added `surface_current_model.zhao_upstream_band_tolerance` (grouped `sheath.zhao.upstream_band_tolerance`). With
   inward electron drift, Zhao Type A/C roots have negative $E^2$ in a narrow band next to the upstream potential and were

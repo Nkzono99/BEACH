@@ -108,7 +108,7 @@ $$
 比較して一意に選びます。1軸のimage数または2軸の直積が4096を超えるqueryは、
 `collision_query_image_limit`で停止します。
 
-ここで列挙するimage範囲は粒子の軌道線分がmeshへ当たり得る範囲です。電場の`field_periodic_image_layers`とは
+ここで列挙するimage範囲は粒子の軌道線分がmeshへ当たり得る範囲です。電場の`fields.periodic.image_layers`とは
 目的も決め方も異なります。[periodic2場計算](PeriodicElectrostatics.html)では、場の画像和を独立に定義します。
 
 ## box面ごとの作用を適用する

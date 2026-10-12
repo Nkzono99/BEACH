@@ -85,7 +85,7 @@ Check these constraints early:
 
 The normal `periodic2` path uses FMM. Direct is limited to the validation split
 reference `triangle_p0 + panel_spectral_reference + exclude_k0`. Distinguish the
-finite-image approximation `field_periodic_far_correction="none"` from
+finite-image approximation `fields.periodic.backend="finite_images"` from
 `"cached_kneq0"`, which supplies the infinite-periodic nonzero modes. The canonical
 compatibility table is in
 [Field evaluation](FieldSolvers.en.html#solver-and-field-boundary-compatibility).

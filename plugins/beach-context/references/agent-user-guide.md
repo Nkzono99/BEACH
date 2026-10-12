@@ -84,7 +84,7 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 
 `periodic2` の通常経路は FMM です。Direct は
 `triangle_p0 + panel_spectral_reference + exclude_k0` の検証用 split reference に限られます。
-有限画像近似の `field_periodic_far_correction="none"` と、無限周期の非零モードを扱う
+有限画像近似の `fields.periodic.backend="finite_images"` と、無限周期の非零モードを扱う
 `"cached_kneq0"` を区別してください。詳細な互換表は
 [場の評価](FieldSolvers.html#solverと場境界の互換表)を正本とします。
 

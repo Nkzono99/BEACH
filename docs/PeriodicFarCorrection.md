@@ -10,35 +10,36 @@ Lang: [日本語](PeriodicFarCorrection.md) | [English](PeriodicFarCorrection.en
 ## 有限画像モデルと無限周期近似を選ぶ
 
 ```toml
-[sim]
-field_solver = "fmm"
-field_periodic_image_layers = 1
-field_periodic_far_correction = "cached_kneq0"
-field_periodic_cache_dir = ".beach_cache/periodic2"
-field_periodic_generation_tolerance = 1.0e-8
-
 [domain]
-box_origin = [0.0, 0.0, 0.0]
-box_size = [1.0, 1.0, 1.0]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0e-4, 1.0e-4, 3.2e-4]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
+
+[fields.solver]
+method = "fmm"
+
+[fields.periodic]
+backend = "cached_kneq0"
+image_layers = 1
+cache_dir = ".beach_cache/periodic2"
+generation_tolerance = 1.0e-8
 ```
 
-`[domain]` が固定 target topology と周期軸を所有し、`[field_boundary]` が periodic2 場を選びます。
-現行 `cached_kneq0` は x/y 周期・z 非周期の domain box 内 target だけを受理します。
+`[domain]` が固定 target topology と周期軸を所有し、`fields.boundary` が periodic2 場を選びます。
+`cached_kneq0` は x/y 周期・z 非周期の domain box 内 target だけを受理します。
 
-| `field_periodic_far_correction` | 計算内容 | 用途 |
+| `fields.periodic.backend` | 計算内容 | 用途 |
 | --- | --- | --- |
-| `none` | primary + 有限画像だけ | 有限画像model、収束比較 |
-| `auto` | 現行では`none`へ正規化 | 互換性のみ |
+| `finite_images` | primary + 有限画像だけ | 有限画像model、収束比較 |
 | `cached_kneq0` | versioned operatorを生成・再利用 | 無限周期nonzero modeのproduction経路 |
+| `panel_spectral_reference` | 非零modeを直接のFourier和で評価（direct solver） | 小規模な検証の参照 |
 
 `cached_kneq0` は z 方向の平均場 `k=0` を決めません。[periodic2 静電場](PeriodicElectrostatics.html)の
 場の合成処理が physical `k=0` を一度だけ加えます。このoperator自体は外部plasma/sheathを解かず、外部シース closure の
 電位基準はzero-mode構築とは別の層で与えます。
-`m2l_root_oracle`は削除済みで、設定すると`cached_kneq0`を案内して起動時にrejectされます。
 
 ## 有限画像shellを通常のFMMで評価する
 
@@ -57,7 +58,7 @@ $$
 をsourceへ加えます。near listは固定 P0 triangle kernelでDirect評価し、well-separatedなnode pairは
 各画像shiftを含めたM2L derivativeで評価します。この部分を$K_\mathrm{shell}(N)$と書きます。
 
-`field_periodic_far_correction="none"`では$K_\mathrm{shell}(N)$が全結果です。画像層の外側は暗黙に近似されるのではなく、
+`fields.periodic.backend="finite_images"`では$K_\mathrm{shell}(N)$が全結果です。画像層の外側は暗黙に近似されるのではなく、
 寄与しません。
 
 ## Ewald2Pをruntime kernelではなくteacherとして使う
@@ -79,7 +80,7 @@ $$
 | `k=0` | 平面平均場。物理的なz境界条件と分離して扱う |
 
 $\alpha$はreal/reciprocal計算量の配分parameterで、Debye遮蔽ではありません。実装上のteacherは設定した
-`field_periodic_ewald_layers`で打ち切った高精度有限和です。理論上の無限和を毎回直接評価するわけではありません。
+`fields.periodic.ewald_layers`で打ち切った高精度有限和です。理論上の無限和を毎回直接評価するわけではありません。
 
 teacherから有限画像分を引いた滑らかな残差を
 
@@ -123,17 +124,7 @@ triangle-averaged P2M係数へ適用します。
 
 proxy 行列の各 multipole 行は長さの次数が異なるため、擬似逆の QR 分解前に行を正規化し、
 右辺にも同じ尺度を適用します。これにより µm 単位の形状でも高次 moment が絶対しきい値で失われません。
-生成器 v9 以降はこの修正を含みます。v10 は下の面平均の分離と節点への分割を加え、v9 以前の operator cache を再利用しません。
-
-弱い外部シース場と比べるには、長さの単位に依存しないことやcacheの再利用だけでなく、絶対誤差の確認が必要です。
-帯電した三層レゴリス（A型、81000 batch）の電荷で、層の上の真空域を直接のFourier和と比べた誤差は次のとおりです
-（画像層1、展開次数4）。
-
-| 生成器 | 非零モードの面平均（層の上端〜上端面） | 横方向の電位誤差 | 横方向の電場誤差 | 電荷の更新 |
-|---|---|---|---|---|
-| v8（根のmultipole 1個） | +6.0〜+1.4 V | 0.5〜1.4 V | 2〜4×10⁴ V/m | 0.11 s |
-| v9（行の正規化） | −2.0〜+0.17 V | 0.3〜1.2 V | 3〜5×10⁴ V/m | 0.11 s |
-| v10（面平均の解析的な分離、深さ2の節点） | 0.02 V以下 | 0.01〜0.03 V | 約2×10³ V/m | 0.11 s |
+cache の fingerprint は生成器の版を含むので、生成方法を変えた版は古い cache を再利用しません。
 
 物理的な平均場は電荷源内部の高さ分布を保ち、電荷源より上では累積電荷を厳密に総電荷 $Q$ とします。
 これにより、傾いた三角形の累積多項式を加減算した丸め残差が真空域へ外挿されることを防ぎます。
@@ -205,11 +196,17 @@ operatorが固定target topologyに対するproduction kernelだからです。
 
 ## 収束とcache診断を確認する
 
-1. `field_periodic_image_layers`を増やし、near shellとoperatorの分割に依存しないことを確認する。
-2. `field_periodic_ewald_layers`と必要なら`field_periodic_ewald_alpha`を変え、teacherの打切りを確認する。
+1. `fields.periodic.image_layers`を増やし、near shellとoperatorの分割に依存しないことを確認する。
+2. `fields.periodic.ewald_layers`と必要なら`fields.periodic.ewald_alpha`を変え、teacherの打切りを確認する。
 3. cold buildとwarm cacheで電場・電位・主要観測量が丸め誤差範囲で一致することを確認する。
 4. `periodic2_cache_fingerprint`、`periodic2_cache_hit`、`periodic2_operator_build_count`を確認する。
 5. nonzero modeだけでなく、選択したphysical `k=0`とGauss residualも別に確認する。
+6. 非零modeの面平均が0であることを確認する。外部シースと接続する場合は、`top_reference_history.csv`の上端面の
+   平均電位が外部根の $\phi_0$ に一致する。`make test-fortran-far-correction`は一様面電荷で同じ性質を検査する。
+
+長さの単位に依存しないことやcacheの再利用だけでは、弱い外部シース場と比べられる精度は保証されません。帯電した
+三層レゴリスの電荷（画像層1、展開次数4）で、層の上の真空域を直接のFourier和と比べると、非零modeの面平均は0.02 V以下、
+横方向の電位誤差は0.01〜0.03 V、電場誤差は約2×10³ V/mでした。
 
 有限画像和の意味と、無限周期・面平均成分の設定は[periodic2 の静電場](PeriodicElectrostatics.html)にあります。
 
@@ -217,6 +214,7 @@ operatorが固定target topologyに対するproduction kernelだからです。
 
 - mode選択とperiodic helper: [`bem_coulomb_fmm_periodic.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90)
 - Ewald2P teacher: [`bem_coulomb_fmm_periodic_ewald.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90)
-- root operator生成: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
+- operator生成（source節点とtarget anchorの組）: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
+- 有限画像殻の面平均の滑らかな残り $s$ と高さの表: [`bem_periodic_shell_mean.f90`](../src/physics/field_solver/periodic/bem_periodic_shell_mean.f90)
 - cache I/O: [`bem_coulomb_fmm_periodic_cache.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90)
 - stateへのoperator適用: [`bem_coulomb_fmm_state_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90)

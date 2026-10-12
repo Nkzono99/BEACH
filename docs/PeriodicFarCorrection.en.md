@@ -11,35 +11,36 @@ teacher, `cached_kneq0`, cache, and connection to FMM state.
 ## Select a finite-image model or an infinite-periodic approximation
 
 ```toml
-[sim]
-field_solver = "fmm"
-field_periodic_image_layers = 1
-field_periodic_far_correction = "cached_kneq0"
-field_periodic_cache_dir = ".beach_cache/periodic2"
-field_periodic_generation_tolerance = 1.0e-8
-
 [domain]
-box_origin = [0.0, 0.0, 0.0]
-box_size = [1.0, 1.0, 1.0]
+box_min = [0.0, 0.0, 0.0]
+box_max = [1.0e-4, 1.0e-4, 3.2e-4]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
+
+[fields.solver]
+method = "fmm"
+
+[fields.periodic]
+backend = "cached_kneq0"
+image_layers = 1
+cache_dir = ".beach_cache/periodic2"
+generation_tolerance = 1.0e-8
 ```
 
-`[domain]` owns the fixed target topology and periodic axes; `[field_boundary]` selects the periodic2 field. The current
-`cached_kneq0` path accepts only targets inside an x/y-periodic, z-nonperiodic domain box.
+`[domain]` owns the fixed target topology and periodic axes; `fields.boundary` selects the periodic2 field. `cached_kneq0`
+accepts only targets inside an x/y-periodic, z-nonperiodic domain box.
 
-| `field_periodic_far_correction` | Computation | Use |
+| `fields.periodic.backend` | Computation | Use |
 | --- | --- | --- |
-| `none` | Primary cell and finite images only | Finite-image model and convergence comparisons |
-| `auto` | Currently normalized to `none` | Compatibility only |
+| `finite_images` | Primary cell and finite images only | Finite-image model and convergence comparisons |
 | `cached_kneq0` | Build and reuse a versioned operator | Production infinite-periodic nonzero modes |
+| `panel_spectral_reference` | Nonzero modes by a direct Fourier sum (direct solver) | Reference for small validation cases |
 
 `cached_kneq0` does not determine the z-directed plane-average `k=0` field. Field composition adds the physical `k=0` exactly
 once as described in [periodic2 electrostatics](PeriodicElectrostatics.en.html). The operator itself does not solve the
 outer plasma/sheath; the outer-sheath closure supplies its potential reference in a layer separate from zero-mode construction.
-`m2l_root_oracle` has been removed and is rejected at startup with guidance to use `cached_kneq0`.
 
 ## Evaluate the finite image shell with ordinary FMM
 
@@ -58,7 +59,7 @@ $$
 Near lists use the fixed P0 triangle kernel directly. Well-separated node pairs use M2L derivatives summed over
 the same image shifts. Denote this part by $K_\mathrm{shell}(N)$.
 
-With `field_periodic_far_correction="none"`, $K_\mathrm{shell}(N)$ is the complete result. Images outside the range are omitted,
+With `fields.periodic.backend="finite_images"`, $K_\mathrm{shell}(N)$ is the complete result. Images outside the range are omitted,
 not approximated implicitly.
 
 ## Use Ewald2P as a teacher, not a runtime kernel
@@ -81,7 +82,7 @@ directions while retaining the open coordinate in real space.
 | `k=0` | Plane-average field, treated separately from the physical z-boundary condition |
 
 $\alpha$ distributes work between real and reciprocal sums; it is not Debye screening. The implemented teacher is a
-high-accuracy finite sum truncated at `field_periodic_ewald_layers`. It does not directly evaluate the theoretical infinite sum
+high-accuracy finite sum truncated at `fields.periodic.ewald_layers`. It does not directly evaluate the theoretical infinite sum
 for every target.
 
 Define the smooth residual after subtracting the finite shell as
@@ -129,18 +130,8 @@ least-squares column set.
 
 Multipole rows have different powers of length. Before the pseudoinverse QR factorization, each row and its
 constraint right-hand side are scaled together. This prevents an absolute rank threshold from discarding higher
-moments in micrometre SI geometry. Generators v9 and later include this correction; v10 adds the plane-mean split and the
-node partition below and does not reuse v9 or older operator caches.
-
-Comparison with a weak external sheath requires an absolute-error check; length-scale invariance and cache reuse alone do not
-establish accuracy. With the charges of a charged three-layer regolith (Type A, batch 81000), the errors against a direct
-Fourier sum in the vacuum above the layers are (one image layer, expansion order 4):
-
-| Generator | Plane mean of nonzero modes (top of layers to top face) | Lateral potential error | Lateral field error | Charge update |
-|---|---|---|---|---|
-| v8 (single root multipole) | +6.0 to +1.4 V | 0.5–1.4 V | 2–4×10⁴ V/m | 0.11 s |
-| v9 (row normalization) | −2.0 to +0.17 V | 0.3–1.2 V | 3–5×10⁴ V/m | 0.11 s |
-| v10 (analytic plane mean, depth-2 nodes) | 0.02 V or less | 0.01–0.03 V | about 2×10³ V/m | 0.11 s |
+moments in micrometre SI geometry. The cache fingerprint includes the generator version, so a version with a changed
+construction does not reuse older caches.
 
 The physical mean field retains its height distribution inside the source slab. Above all sources, cumulative charge
 is set exactly to the total charge $Q$, preventing cancellation residue in inclined-panel polynomials from being
@@ -214,11 +205,19 @@ because the cached operator is a production kernel for a fixed target topology.
 
 ## Check convergence and cache diagnostics
 
-1. Increase `field_periodic_image_layers` and verify that the split between near shell and operator does not change results.
-2. Vary `field_periodic_ewald_layers` and, when needed, `field_periodic_ewald_alpha` to check teacher truncation.
+1. Increase `fields.periodic.image_layers` and verify that the split between near shell and operator does not change results.
+2. Vary `fields.periodic.ewald_layers` and, when needed, `fields.periodic.ewald_alpha` to check teacher truncation.
 3. Require cold-build and warm-cache fields, potentials, and primary observables to agree to roundoff.
 4. Inspect `periodic2_cache_fingerprint`, `periodic2_cache_hit`, and `periodic2_operator_build_count`.
 5. Check the selected physical `k=0` and Gauss residual separately from the nonzero mode.
+6. Check that the nonzero modes have zero plane mean. With an outer-sheath closure, the mean top-face potential in
+   `top_reference_history.csv` equals the outer-root $\phi_0$. `make test-fortran-far-correction` checks the same property for a
+   uniform sheet.
+
+Length-scale invariance and cache reuse alone do not establish an accuracy that can be compared with a weak external sheath
+field. With the charges of a charged three-layer regolith (one image layer, expansion order 4), a direct Fourier sum in the vacuum
+above the layers gives a plane mean of the nonzero modes of 0.02 V or less, a lateral potential error of 0.01–0.03 V, and a
+field error of about 2×10³ V/m.
 
 See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the meaning of finite images
 and for the infinite-periodic and zero-mode configuration.
@@ -227,6 +226,7 @@ and for the infinite-periodic and zero-mode configuration.
 
 - Mode selection and periodic helpers: [`bem_coulomb_fmm_periodic.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90)
 - Ewald2P teacher: [`bem_coulomb_fmm_periodic_ewald.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90)
-- Root-operator construction: [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
+- Operator construction (source-node and target-anchor pairs): [`bem_coulomb_fmm_periodic_root_ops.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
+- Smooth remainder $s$ of the image-shell plane mean and its height table: [`bem_periodic_shell_mean.f90`](../src/physics/field_solver/periodic/bem_periodic_shell_mean.f90)
 - Cache I/O: [`bem_coulomb_fmm_periodic_cache.f90`](../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90)
 - Operator application to state: [`bem_coulomb_fmm_state_ops.f90`](../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90)

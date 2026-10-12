@@ -101,7 +101,7 @@ and require the changes to fall below the previously declared tolerances.
 | tracking length | increase `sim.max_step` | truncation from unresolved particles |
 | surface mesh | refine the triangles | spatial discretization of charge and potential |
 | field solver | compare with Direct on a small case | Treecode or FMM approximation |
-| finite periodic images | increase `field_periodic_image_layers` | image-sum truncation |
+| finite periodic images | increase `fields.periodic.image_layers` | image-sum truncation |
 | outer model | increase grid points or surface samples | outer profile and geometry sampling |
 
 Converging a path integral or image shell while holding the mesh fixed does not quantify mesh-discretization error.
@@ -113,7 +113,7 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 
 | Configuration | Additional checks |
 | --- | --- |
-| finite-image `periodic2` | dependence on `field_periodic_image_layers`; do not extrapolate a finite-image result to infinite periodicity |
+| finite-image `periodic2` | dependence on `fields.periodic.image_layers`; do not extrapolate a finite-image result to infinite periodicity |
 | `cached_kneq0` | cache fingerprint, cold/warm agreement, zero mode, and Gauss residual |
 | `infinity_barrier` | mean reservoir-face potential, image-layer dependence, and warnings for in-plane potential variation |
 | `potential_barrier` | open-face crossing potential, `reservoir.phi_infty`, and the normal-kinetic-energy reflection/escape decision |
