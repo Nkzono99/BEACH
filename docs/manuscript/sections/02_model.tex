@@ -66,8 +66,8 @@ $\delta t$ は \code{sim.dt}、$h$ は解決後の \code{sim.batch_duration} に
  \node[box,below=of c] (o) {表面電荷 $\vect q^{\,n+1}$ と履歴・電荷台帳を保存};
  \foreach \a/\b in {q/e,e/s,s/p,p/d,d/c,c/o}{\draw[arr] (\a)--(\b);}
 \end{tikzpicture}
-\caption{基本の表面帯電サイクル。外部シース連成を使う場合は、候補バッチの内側で
-同じ初期状態から軌道計算を反復する。}
+\caption{基本の表面帯電サイクル。外部シースを接続する場合は、吸収・放出の電荷差分を外部根の電流目標に合わせ、
+外部根の更新があれば受理後に根を解き直す。}
 \label{fig:batch}
 \end{figure}
 同じバッチ中の粒子は同じ場を参照する。先に吸収された粒子の電荷が、後続粒子へ即時に作用することはない。

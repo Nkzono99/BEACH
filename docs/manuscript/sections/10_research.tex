@@ -60,7 +60,7 @@ BEACH には固定位置の力、移動指標、保存電荷を固定した鉛�
 BEACH を用いた手法節には、表面 geometry、P0 要素、場境界と solver、
 species の分布と重み、$\delta t$ と $h$、追跡上限、表面 model、外部 closure を記載する。
 periodic2 なら nonzero mode と物理的 zero mode の closure を、
-matching-plane なら応答 backend、branch、$H$、固定点残差を示す。
+外部シースなら branch、$\phi_0$ と $\phi_m$、場の下限 $E_{\mathrm{floor}}$、外部根の更新間隔、固定電流の倍率を示す。
 これらは結果の再現と、モデルの適用性の判断に必要な情報である。
 
 本実装の適用限界には、内側体積空間電荷の省略、材料分極・伝導の省略、

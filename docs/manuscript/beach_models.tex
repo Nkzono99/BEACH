@@ -26,7 +26,7 @@
 \usepackage[unicode,colorlinks=true,linkcolor=blue!45!black,
   citecolor=green!35!black,urlcolor=blue!45!black]{hyperref}
 \hypersetup{pdftitle={BEACH の物理モデルと数値アルゴリズム},
-  pdfsubject={表面帯電、境界要素法、粒子追跡、周期場、準定常シース}}
+  pdfsubject={表面帯電、境界要素法、粒子追跡、周期場、外部シースの定常接続}}
 \titleformat{\chapter}[display]{\sffamily\bfseries\huge}
   {第\thechapter 章}{12pt}{\Huge}
 \titleformat{\section}{\sffamily\bfseries\Large}{\thesection}{0.8em}{}
@@ -56,7 +56,7 @@
 \title{BEACH の物理モデルと数値アルゴリズム\\[0.6em]
   \Large 表面帯電・境界要素法・粒子追跡の技術解説}
 \author{技術原稿（著者・所属は確定時に記入）}
-\date{2026 年 10 月 6 日\\\small 実装に基づく初稿}
+\date{2026 年 10 月 13 日\\\small 実装に基づく初稿（第 8 章改訂）}
 
 \begin{document}
 \pagestyle{plain}
@@ -77,6 +77,8 @@
 インストール済み context plugin の説明よりローカルの新しい実装を優先している。
 設定例と粒子源の説明は 2026 年 10 月 6 日に改訂し、境界流入だけの場合は
 \code{source_mode} と \code{npcls_per_step} を省略する書き方に揃えた。
+第\ref{ch:sheath}章は 2026 年 10 月 13 日の実装（commit \code{7e56bb5}、sheath-model \code{b4a2521}）に合わせて改訂し、
+削除された整合面の準定常連成を外し、定常 closure、イオン流体、上流の帯と場の下限、外部根の更新を記述した。
 
 本書は新たなシミュレーション結果を報告する研究論文ではない。
 性能、実環境との一致、研究上の新規性を実測したとは主張しない。
@@ -91,11 +93,11 @@ BEACH は三角形表面要素に蓄積した電荷から静電場を評価し�
 粒子は予測中点電場を用いた Boris 速度更新と台形位置更新によって進め、軌道線分上の最初の表面衝突または
 計算箱境界イベントを処理する。場はバッチ中に固定し、電荷差分をバッチ末尾に確定反映する。
 通常の絶縁体電荷蓄積に加え、自由空間での浮遊導体再配分、光電子の照射 ray による放出、
-2 軸周期静電場、準定常外部シースとの整合面連成が実装されている。
+2 軸周期静電場、外部の定常シースの零電流根を上端面に接続する closure が実装されている。
 一方、BEACH 領域内の体積プラズマ空間電荷、誘電分極、表面伝導、外部シースの時間依存輸送は解かない。
 本書は、このモデル分担と数値誤差の所在を明確にし、研究利用に必要な収束確認と比較検証を整理する。
 
-\noindent\textbf{キーワード：}表面帯電、境界要素法、テスト粒子、Boris 法、高速多重極法、光電子、準定常シース
+\noindent\textbf{キーワード：}表面帯電、境界要素法、テスト粒子、Boris 法、高速多重極法、光電子、外部シース
 
 \section*{Abstract}
 BEACH evaluates electrostatic fields from charge accumulated on triangular surface elements and updates
@@ -106,7 +108,7 @@ Particle positions and velocities are stored at the same time. A predicted midpo
 rotation, and trapezoidal position update define each candidate step, followed by the first surface or
 box-boundary event. Fields remain fixed during each batch, and charge increments are committed at its end.
 Implemented extensions include floating conductors in free space, ray-based photoelectron emission,
-two-dimensional periodic electrostatics, and quasistatic coupling to an outer sheath at a matching plane.
+two-dimensional periodic electrostatics, and a top-face closure that connects the zero-current root of a stationary outer sheath.
 The inner domain does not solve volume plasma space charge, dielectric polarization, surface conduction,
 or time-dependent outer transport. This technical manuscript documents the model partition, numerical
 approximations, and verification procedures needed for research use. It reports no newly generated

@@ -16,7 +16,7 @@ abstracts, a table of contents, equations, a computation-cycle diagram, and refe
 5. Same-time Boris updates, collisions, box boundaries, and periodic images
 6. Reservoir inflow, velocity distributions, and ray-based photoelectron emission
 7. Charge budgets, return closure, floating conductors, and batch stability
-8. Stationary Zhao and matching-plane fixed points/implicit zero mode
+8. Stationary outer-sheath closure (zero-current root, ion fluid, upstream band and field floor, top-face mapping, outer-root refresh)
 9. Verification, convergence, Monte Carlo errors, and reproducibility
 10. Interpreting `examples/beach.toml`, force/detachment analysis, and research use
 
@@ -72,6 +72,8 @@ The manuscript describes the local working tree inspected on October 5, 2026, ba
 Each chapter lists its specification and implementation sources. No new simulation or benchmark was run.
 The configuration examples and particle-source explanation were revised on October 6, 2026, to omit `source_mode`
 and `npcls_per_step` for boundary inflow alone.
+Chapter 8 was revised on October 13, 2026, against the implementation (commit `7e56bb5`, sheath-model `b4a2521`), removing the
+deleted matching-plane quasistatic coupling.
 Update the text against the implementation before citing it in research results.
 
 DOIs, authors, titles, and publication details were checked using Crossref and publisher/institutional

@@ -18,7 +18,7 @@ FMM & \src{src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90}、\src{doc
 衝突 & \src{src/physics/bem_collision.f90}、\src{docs/ParticleEvents.md} \\
 流入・光電子 & \src{src/particles/injection/bem_injection_flux.f90}、\src{src/particles/injection/bem_photoelectron_injection.f90} \\
 導体 & \src{src/physics/bem_surface_models_conductor.f90}、\src{docs/SurfaceChargeNumerics.md} \\
-外部シース & \src{src/physics/sheath/zhao/bem_sheath_model_core.f90}、\src{docs/MatchingPlaneReference.md} \\
+外部シース & \src{src/runtime/sheath/bem_surface_current_model.f90}、\src{src/runtime/sheath/bem_zhao_outflow_refresh.f90}、\src{docs/ZhaoStationaryClosure.md}、\src{docs/ZhaoUpstreamBand.md}、sheath-model（\src{fpm.toml} で commit を固定） \\
 検証 & \src{docs/ValidationGuide.md}、\src{docs/PhysicsReleaseVerification.md} \\
 \bottomrule
 \end{longtable}
@@ -34,7 +34,8 @@ Stubbs ら (2006) & 静電的なダスト輸送を考える研究動機。BEACH 
 Horányi ら (2015) & 月ダスト観測に衝突放出の機構があること \\
 Zimmerman ら (2016) & 粒子スケール電荷差と境界帰還の背景。材料伝導の実装を意味しない \\
 Zhao ら (2020) & 平面光電子シースの Type A/B/C と kinetic 比較の背景 \\
-Sana--Mishra (2023) & 単調・非単調構造と候補のエネルギー比較の背景 \\
+Sana--Mishra (2023) & 単調・非単調構造が複数の候補になることの背景 \\
+Sana--Mishra (2026) & 外部根のイオン流体の圧力項（sheath-model の実装が参照する式 (17)）。書誌情報は確定時に \src{references.bib} へ追加する \\
 Graglia (1993) & 三角形上の Green 関数積分の先行研究。公開 source が P1 であるとはしない \\
 Barnes--Hut (1986) & source tree による遠方群の近似 \\
 Greengard--Rokhlin (1987) & 多重極・局所展開による高速化の理論的系譜 \\
