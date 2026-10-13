@@ -45,20 +45,36 @@ sheath-model は、代数的な根が次の条件を満たすかも検査し、�
 
 - シースは平面、無衝突、非磁化、定常。
 - 太陽風電子は、イオンと同じ太陽風の法線速度で drift した Maxwell 分布。上流へ戻る遅い電子は、入射分布の鏡像として反射する。
-- イオンは冷たいビームで、イオンの温度は根に使わない。
+- イオンは上流で密度 $n_i$、法線速度 $u_i$、温度 $T_i$ を持ち、流束を保つ流体として輸送する
+  （Sana & Mishra 2026）。圧力項の係数は `sheath.zhao.ion_pressure_factor`（1 は等温、3 は 1 次元断熱）で、
+  入口は超音速 $m_i u_i^2/e > f\,T_i$ でなければならない。太陽風では入口エネルギー（400 km/s の陽子で約 0.86 keV）が
+  $T_i$ よりはるかに大きいので、$T_i\le12$ eV で根の変化は 0.1 mV 以下であり、上流の帯の幅も変わらない。
+  BEACH が注入するイオンの温度と同じ値を根に使う。
 - 光電子は表面から半 Maxwell 分布で放出され、その密度は $n_{pe,0}=s_{UV}\,n_{pe,ref}\sin\alpha$
   （$\alpha$ は太陽高度、$n_{pe,ref}$ は基準密度、$s_{UV}$ は倍率）。
 - セルは外部シースから見て厚さ 0 の壁。
 
 ### 電子の drift と上流の帯
 
-電子にもイオンと同じ太陽風の法線速度の drift を与え、`sheath.zhao.upstream_band_tolerance` を 0.1 にします。設定例はこの形です。
+電子にもイオンと同じ太陽風の法線速度の drift を与え、`sheath.zhao.upstream_field_floor_v_m` を太陽風の運動電場
+$\lvert\mathbf{u}\times\mathbf{B}\rvert$ の目安 2 mV/m（400 km/s、5 nT）にします。設定例はこの形です。
 
 電子が内向きに drift し、遅い電子が反射される Type A と Type C では、上流での反射電子の分布が drift した入射分布の
 鏡像になり、速度 0 で折れ曲がります。このため上流電位に接する狭い電位の帯で $E^2<0$ になり、上流の中性・電場 0 の
-状態へ厳密につながる解はありません。`upstream_band_tolerance` は、帯の幅が A では $\lvert\phi_m\rvert$、C では
-$\lvert\phi_0\rvert$ のその割合以下の根を受理し、幅を `summary.txt` の `surface_current_model_upstream_negative_band_V` に
-記録します。帯が許容幅より広い根は採用しません。
+状態へ厳密につながる解はありません。根の方程式（上流 0 V での準中性、零電流、A の接続条件）は積分条件なので帯があっても
+解けますが、電位分布は帯の手前で $E=0$ になって止まり、残りの数十 mV を 1D 静電モデルだけでは埋められません。
+
+**場の下限 `upstream_field_floor_v_m`:** 帯の内側で欠けている場 $\sqrt{-\min E^2}$ は、上流プラズマが外から供給しなければ
+ならない電場です。この不足が指定した外部の場のレベル以下なら根を受理します。これは上流境界を「$E=0$ の無限遠」から
+「場が外部レベルまで落ちた点」に置き換えることに相当します。太陽風は運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert\approx2$ mV/m
+を持ち、磁場や揺らぎもこの桁で効くので、1D 静電シースにこれ以下の場を決める資格はありません。設定例の条件
+（$n=8.7$ cm⁻³、$T_e=12$ eV、405 km/s、太陽高度 60 度）では A の不足は 0.63 mV/m、光電子なしの C では 0.03 mV/m で、
+どちらも運動電場より小さいです。不足は `summary.txt` の `surface_current_model_upstream_field_deficit_V_m`、帯の幅は
+`surface_current_model_upstream_negative_band_V` に記録します。
+
+**幅の許容 `upstream_band_tolerance`:** 同じ帯を電位幅で受理する判定で、A では $\lvert\phi_m\rvert$、C では $\lvert\phi_0\rvert$
+のその割合以下の根を受理します。両方を指定すれば両方を満たす根だけを受理し、両方 0（既定）なら drift のある A/C を棄却します。
+どちらの判定でも受理する根は同じ代数根なので、壁側の量は変わりません。
 
 帯は、遅い電子が入射分布の完全な鏡像であるという理想化が成り立たない範囲です。この尖った分布は運動論的に不安定で、
 現実には緩和や表面での散乱で滑らかになると考えられます。遅い入射電子の drift だけを除いて滑らかにした軌道整合の解と比べると、
@@ -161,7 +177,7 @@ bin は $[0, 1\,\text{meV})$ と、1 meV から 1 keV までの対数 bin（1 �
 | 状況 | 動作 |
 |---|---|
 | `sheath.zhao.branch` を明示 | その型だけを解く |
-| `sheath.zhao.branch="auto"` | 直前の型を先に試し、解けなければ通常の順に探す。前回の根を初期値に使う |
+| `sheath.zhao.branch="auto"` | 直前の型を先に試し、解けなければ A → B → C の順に探す（太陽高度による並べ替えは初期根だけ）。前回の根を初期値に使う |
 | 根が見つからない、または流出が 0 | 警告し、直前の根を保つ |
 | 再開 | 保存した光電子源（スペクトル）から根を作り直す。途中まで合計した分は捨て、再開時点から数え直す |
 
@@ -176,7 +192,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
-upstream_band_tolerance = 0.1
+upstream_field_floor_v_m = 0.002
 
 [sheath.species]
 electron = "solar_wind_electron"
@@ -194,9 +210,16 @@ outflow_refresh_batches = 50
 - 役割を持つ粒子種は `charging.closure="fixed_current"`。電子とイオンは上端面から境界流入、光電子は上端面からの
   `photo_raycast` で反作用電荷あり。上端面は開放。
 - 電子とイオンの数密度には同じ太陽風密度を書く（違えば設定エラー）。電子とイオンの drift は、どちらも太陽風の法線速度
-  （負の z）にする。電子の drift を 0 にするなら、許容幅は不要（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
+  （負の z）にする。電子の drift を 0 にするなら、場の下限は不要（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
 - 光電子なし（Type C）は `sheath.photoelectrons.source_scale=0.0` とし、光電子の粒子種と関連キーを省く。
   外部根の更新は使えない。
+- 光電子の `emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出は ray 仰角の sin を掛けた値になる。
+  外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と一致させるには、`emit_current_density_a_m2` を垂直入射の値
+  $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$（設定例では 2.54 µA/m²）にし、`ray_direction` の仰角を `solar_elevation_deg` に
+  合わせる。5% 以上ずれると起動時に警告する。固定電流の放出倍率が差を吸収するので収支は閉じるが、放出の生の粒子数が
+  目標と離れた状態で統計が組まれる。
+- イオンの温度は粒子種の `temperature_ev` から外部根にも渡る。圧力係数を変えるときだけ `sheath.zhao.ion_pressure_factor`
+  を書く。
 
 全キーと組み合わせの制約は[入力パラメータ](Parameters.html#surface_current_model-外部シースclosure)にあります。完全な例は
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
@@ -230,8 +253,8 @@ outflow_refresh_batches = 50
 
 ### 既知の制約
 
-- **上流の帯を受理する近似:** 許容幅で受理した根は、上流の帯の内側では理想化した電子分布に従いません。壁の量への影響は
-  数十 mV です（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
+- **上流の帯を受理する近似:** 場の下限または許容幅で受理した根は、上流の帯の内側では理想化した電子分布に従いません。
+  壁の量への影響は数十 mV です（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
 - **電子の drift を 0 にした場合の誤差:** drift した Maxwell 分布が面を一方向に横切る束は、drift 0 の
   $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ 倍です。零電流の根では電子の吸収束がイオンと光電子の脱出に拘束されるので、
   この差は主に電位に現れます。上の条件（$u=0.21$）で drift を 0 にすると、$\phi_0$ は A で 6.04 → 7.05 V、C で −7.34 → −4.63 V

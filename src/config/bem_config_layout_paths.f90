@@ -101,6 +101,10 @@ contains
       legacy = 'surface_current_model.outflow_refresh_batches'
     case ('sheath.zhao.upstream_band_tolerance')
       legacy = 'surface_current_model.zhao_upstream_band_tolerance'
+    case ('sheath.zhao.upstream_field_floor_v_m')
+      legacy = 'surface_current_model.zhao_upstream_field_floor_v_m'
+    case ('sheath.zhao.ion_pressure_factor')
+      legacy = 'surface_current_model.zhao_ion_pressure_factor'
     case ('output.enabled')
       legacy = 'output.write_files'
     case ('output.dir')

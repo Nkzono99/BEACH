@@ -249,6 +249,8 @@ sampling configuration and charging closure.
 | `surface_current_model.reference_area_m2` | `sheath.reference_area_m2` |
 | `surface_current_model.outflow_refresh_batches` | `sheath.coupling.outflow_refresh_batches` |
 | `surface_current_model.zhao_upstream_band_tolerance` | `sheath.zhao.upstream_band_tolerance` |
+| `surface_current_model.zhao_upstream_field_floor_v_m` | `sheath.zhao.upstream_field_floor_v_m` |
+| `surface_current_model.zhao_ion_pressure_factor` | `sheath.zhao.ion_pressure_factor` |
 | `output.write_files` | `output.enabled` |
 | `output.dir` | `output.dir` |
 | `output.write_mesh_potential` | `output.final.mesh_potential` |

@@ -49,22 +49,42 @@ the first root that holds. If no root holds, the run stops at startup with the r
 - The sheath is planar, collisionless, unmagnetized, and stationary.
 - Solar-wind electrons are a Maxwellian drifting at the same normal solar-wind velocity as the ions. Slow electrons that turn
   back upstream are reflected as a mirror image of the incoming distribution.
-- Ions are a cold beam, and the ion temperature is not used for the root.
+- Ions have upstream density $n_i$, normal speed $u_i$, and temperature $T_i$, and are transported as a flux-conserving fluid
+  (Sana & Mishra 2026). The pressure coefficient is `sheath.zhao.ion_pressure_factor` (1 isothermal, 3 one-dimensional
+  adiabatic), and the entry must be supersonic, $m_i u_i^2/e > f\,T_i$. In the solar wind the entry energy (about 0.86 keV for
+  400 km/s protons) is far above $T_i$, so for $T_i\le12$ eV the root changes by less than 0.1 mV and the upstream band is
+  unchanged. The root uses the same ion temperature that BEACH injects.
 - Photoelectrons are emitted from the surface as a half-Maxwellian with density $n_{pe,0}=s_{UV}\,n_{pe,ref}\sin\alpha$
   ($\alpha$ is the solar elevation, $n_{pe,ref}$ the reference density, and $s_{UV}$ a scale factor).
 - The cell is a wall of zero thickness for the outer sheath.
 
 ### Electron drift and the upstream band
 
-Give the electrons the same normal solar-wind drift as the ions and set `sheath.zhao.upstream_band_tolerance` to 0.1. The
-examples use this setting.
+Give the electrons the same normal solar-wind drift as the ions and set `sheath.zhao.upstream_field_floor_v_m` to the
+solar-wind motional field $\lvert\mathbf{u}\times\mathbf{B}\rvert$, about 2 mV/m for 400 km/s and 5 nT. The examples use this
+setting.
 
 In Type A and Type C with inward-drifting electrons and reflected slow electrons, the upstream distribution of reflected
 electrons is the mirror image of the drifting incoming distribution and has a kink at zero velocity. This makes $E^2<0$ in a
 narrow potential band next to the upstream potential, so no solution connects exactly to the neutral, field-free upstream state.
-`upstream_band_tolerance` accepts roots whose band is no wider than that fraction of $\lvert\phi_m\rvert$ (A) or
-$\lvert\phi_0\rvert$ (C) and records the width as `surface_current_model_upstream_negative_band_V` in `summary.txt`. Roots
-with a wider band are not used.
+The root equations (neutrality at 0 V upstream, zero current, and the A connection) are integral conditions and remain solvable,
+but the potential profile stops with $E=0$ at the edge of the band, and the remaining tens of mV cannot be bridged by the 1-D
+electrostatic model alone.
+
+**Field floor `upstream_field_floor_v_m`:** the missing field $\sqrt{-\min E^2}$ inside the band is the electric field the
+upstream plasma has to supply from outside. A root is accepted when this deficit does not exceed the given external field
+level. This replaces the upstream boundary "infinity with $E=0$" by "the point where the field has fallen to the external
+level". The solar wind carries the motional field $\lvert\mathbf{u}\times\mathbf{B}\rvert\approx2$ mV/m, and its magnetic field
+and fluctuations act at the same level, so the 1-D electrostatic sheath cannot claim fields below it. Under the example
+conditions ($n=8.7$ cm⁻³, $T_e=12$ eV, 405 km/s, solar elevation 60 degrees) the deficit is 0.63 mV/m for A and 0.03 mV/m
+for C without photoelectrons, both below the motional field. The deficit is written as
+`surface_current_model_upstream_field_deficit_V_m` and the band width as `surface_current_model_upstream_negative_band_V` in
+`summary.txt`.
+
+**Width tolerance `upstream_band_tolerance`:** the same band judged by its potential width; roots whose band is no wider than
+that fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C) are accepted. When both are given a root must satisfy
+both; with both 0 (the default) drifting A/C are rejected. Either criterion accepts the same algebraic root, so the wall-side
+quantities do not depend on the choice.
 
 The band is where the idealization that slow electrons are an exact mirror image of the incoming distribution fails. This cusped
 distribution is kinetically unstable and is expected to be smoothed by relaxation and surface scattering. Compared with
@@ -177,7 +197,7 @@ the barrier and the slow electrons near the wall, and can lose the root.
 | Situation | Behavior |
 |---|---|
 | `sheath.zhao.branch` is explicit | Only that type is solved |
-| `sheath.zhao.branch="auto"` | The previous type is tried first, then the usual order. The previous root is the initial guess |
+| `sheath.zhao.branch="auto"` | The previous type is tried first, then A → B → C (the solar-elevation ordering applies only to the initial root). The previous root is the initial guess |
 | No root is found, or the outflow is zero | Warn and keep the previous root |
 | Restart | Rebuild the root from the saved photoelectron source (spectrum). A partial sum is discarded and counting restarts at the restart point |
 
@@ -193,7 +213,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
-upstream_band_tolerance = 0.1
+upstream_field_floor_v_m = 0.002
 
 [sheath.species]
 electron = "solar_wind_electron"
@@ -211,10 +231,18 @@ outflow_refresh_batches = 50
 - Role species use `charging.closure="fixed_current"`. Electrons and ions enter by boundary inflow through the top face;
   photoelectrons use `photo_raycast` from the top face with reaction charge. The top face is open.
 - Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). Set both the electron and
-  the ion drift to the normal solar-wind velocity (negative z). With zero electron drift no tolerance is needed
+  the ion drift to the normal solar-wind velocity (negative z). With zero electron drift no field floor is needed
   ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
   Outer-root refresh is not available.
+- The photoelectron `emit_current_density_a_m2` is per unit area normal to the ray, so the surface emission is that value times
+  the sine of the ray elevation. To match the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, set
+  `emit_current_density_a_m2` to the normal-incidence value $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$ (2.54 µA/m² in the
+  examples) and the elevation of `ray_direction` to `solar_elevation_deg`. A mismatch above 5% warns at startup. The
+  fixed-current emission scale absorbs the difference, so the budget still closes, but the raw emitted particle count is then
+  far from the target.
+- The ion temperature of the species `temperature_ev` also enters the outer root. Write `sheath.zhao.ion_pressure_factor`
+  only to change the pressure coefficient.
 
 All keys and combination constraints are in [Input parameters](Parameters.en.html#surface_current_model-external-sheath-closure). Complete examples are
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml),
@@ -249,8 +277,8 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
 
 ### Known limitations
 
-- **Accepting the upstream band:** a root accepted with the tolerance does not follow the idealized electron distribution inside
-  the upstream band. The effect on the wall quantities is tens of mV ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
+- **Accepting the upstream band:** a root accepted with the field floor or the width tolerance does not follow the idealized
+  electron distribution inside the upstream band. The effect on the wall quantities is tens of mV ([Electron drift and the upstream band](#electron-drift-and-the-upstream-band)).
 - **Error of a zero electron drift:** the one-way flux of a drifting Maxwellian through a plane is
   $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ times the flux without drift. At a zero-current root the absorbed electron flux
   is constrained by the ions and the photoelectron escape, so the difference appears mainly in the potentials. Under the

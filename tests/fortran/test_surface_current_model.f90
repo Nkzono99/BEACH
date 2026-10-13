@@ -19,13 +19,13 @@ program test_surface_current_model
   type(surface_closure_contract_type) :: closure
   type(surface_current_model_result_type) :: refreshed
   character(len=256) :: message
-  real(dp) :: barrier_v, expected_escape
+  real(dp) :: barrier_v, expected_escape, cold_phi_m
   real(dp) :: edges(outflow_spectrum_bins + 1), spectrum(outflow_spectrum_bins), tail_spectrum(outflow_spectrum_bins)
   type(surface_current_model_result_type) :: maxwell_root
   integer(i32) :: j
   logical :: success
 
-  call test_init(12)
+  call test_init(13)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -92,6 +92,22 @@ program test_surface_current_model
   call assert_kinetic_contract(result, result%phi_m_v, 'Type A')
   call test_end()
 
+  call test_begin('zhao_warm_ions_use_species_temperature_and_pressure_factor')
+  ! 太陽風では入口エネルギー (約 1 keV) が T_i よりはるかに大きく、流体圧力項は根をほとんど動かさない。
+  ! それでも温度と係数は sheath-model へ渡り、収支は閉じたままでなければならない。
+  call configure_zhao_fixture(cfg)
+  call evaluate_surface_current_model(cfg, result)
+  cold_phi_m = result%phi_m_v
+  cfg%particle_species(2)%temperature_ev = 10.0_dp
+  cfg%surface_current%zhao_ion_pressure_factor = 3.0_dp
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%active .and. result%zhao_branch == 'A', 'warm-ion Zhao root must stay Type A')
+  call assert_true(result%phi_m_v /= cold_phi_m, 'warm ions must enter the outer root')
+  call assert_close_dp(result%phi_m_v, cold_phi_m, 1.0e-3_dp, 'warm ions at 1 keV entry must shift phi_m by < 1 mV')
+  call assert_current_decomposition(result, 'warm-ion Type A')
+  call assert_kinetic_contract(result, result%phi_m_v, 'warm-ion Type A')
+  call test_end()
+
   call test_begin('zhao_stationary_without_photoelectrons')
   call configure_zhao_fixture(cfg)
   cfg%n_particle_species = 2_i32
@@ -144,6 +160,23 @@ program test_surface_current_model
   call assert_close_dp(refreshed%phi_m_v, -1.189723811591865_dp, 1.0e-6_dp, 'drifting Type A phi_m mismatch')
   call assert_close_dp(refreshed%upstream_negative_band_v, 0.04203_dp, 2.0e-3_dp, 'drifting Type A band mismatch')
   call assert_current_decomposition(refreshed, 'tolerated drifting Type A')
+  ! 場の下限でも同じ根を受理する。帯の内側の場の不足は mV/m の桁で、太陽風の運動電場 |u x B| と同程度。
+  cfg%surface_current%zhao_upstream_band_tolerance = 0.0_dp
+  cfg%surface_current%zhao_upstream_field_floor_v_m = 0.1_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(success, 'field-floor drifting Type A failed: '//trim(message))
+  call assert_close_dp(refreshed%phi0_v, 2.654426813939951_dp, 1.0e-6_dp, &
+                       'field-floor Type A phi0 must match the width-tolerated root')
+  call assert_true(refreshed%upstream_field_deficit_v_m > 1.0e-4_dp .and. refreshed%upstream_field_deficit_v_m < 0.1_dp, &
+                   'field deficit inside the upstream band must be of order mV/m')
+  cfg%surface_current%zhao_upstream_field_floor_v_m = 1.0e-5_dp
+  call solve_zhao_outflow_closure( &
+    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
+    )
+  call assert_true(.not. success, 'a field deficit above the floor must be rejected')
+  cfg%surface_current%zhao_upstream_field_floor_v_m = 0.0_dp
   cfg%surface_current%zhao_upstream_band_tolerance = 0.02_dp
   call solve_zhao_outflow_closure( &
     cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
@@ -367,6 +400,9 @@ contains
     app%particle_species(2)%m_particle = 1.67262192369e-27_dp
     app%particle_species(2)%number_density_m3 = 8.7e6_dp
     app%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -inward_speed]
+    ! 既知の根は冷たいイオンで解いたもの。温かいイオンは別のテストで調べる。
+    app%particle_species(2)%temperature_ev = 0.0_dp
+    app%particle_species(2)%has_temperature_ev = .true.
     app%particle_species(3)%species_key = 'photoelectron'
     app%particle_species(3)%q_particle = -1.602176634e-19_dp
     app%particle_species(3)%m_particle = 9.1093837015e-31_dp

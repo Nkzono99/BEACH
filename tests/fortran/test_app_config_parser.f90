@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(29)
+  call test_init(31)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -251,17 +251,52 @@ program test_app_config_parser
   call test_begin('zhao_upstream_band_tolerance_config')
   call default_app_config(cfg)
   call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
-  call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.1_dp, 0.0_dp, &
-                       'example upstream band tolerance mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance =', &
+  call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.0_dp, 0.0_dp, &
+                       'example must leave the width tolerance off')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
                                 'zhao_upstream_band_tolerance = 0.2')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.2_dp, 0.0_dp, &
                        'upstream band tolerance mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance =', &
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
                                 'zhao_upstream_band_tolerance = 1.0')
   call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance must be >= 0 and < 1')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('zhao_upstream_field_floor_config')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 2.0e-3_dp, 0.0_dp, &
+                       'example upstream field floor mismatch')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
+                                'zhao_upstream_field_floor_v_m = 5.0e-3')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 5.0e-3_dp, 0.0_dp, 'upstream field floor mismatch')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
+                                'zhao_upstream_field_floor_v_m = -1.0e-3')
+  call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m must be finite and >= 0')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('zhao_ion_pressure_factor_config')
+  call default_app_config(cfg)
+  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call assert_close_dp(cfg%surface_current%zhao_ion_pressure_factor, 1.0_dp, 0.0_dp, &
+                       'default ion pressure factor must be isothermal')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
+                                'zhao_ion_pressure_factor = 3.0')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_close_dp(cfg%surface_current%zhao_ion_pressure_factor, 3.0_dp, 0.0_dp, 'ion pressure factor mismatch')
+  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
+                                'zhao_ion_pressure_factor = 0.0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'zhao_ion_pressure_factor must be finite and > 0')
+  ! 太陽風イオン (約 0.86 keV) は温かくても超音速。入口エネルギーを下回る温度は上流へ接続しない。
+  call write_first_line_variant(zhao_refresh_variant_path, 'temperature_ev = 0.1', 'temperature_ev = 2000.0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'Zhao ion entry must be supersonic')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 

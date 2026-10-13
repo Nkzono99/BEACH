@@ -58,6 +58,16 @@ contains
         table, keys(ikey), cfg%surface_current%zhao_upstream_band_tolerance, &
         'surface_current_model.zhao_upstream_band_tolerance' &
         )
+    case ('zhao_upstream_field_floor_v_m')
+      call get_toml_real( &
+        table, keys(ikey), cfg%surface_current%zhao_upstream_field_floor_v_m, &
+        'surface_current_model.zhao_upstream_field_floor_v_m' &
+        )
+    case ('zhao_ion_pressure_factor')
+      call get_toml_real( &
+        table, keys(ikey), cfg%surface_current%zhao_ion_pressure_factor, &
+        'surface_current_model.zhao_ion_pressure_factor' &
+        )
     case default
       error stop 'Unknown key in [surface_current_model]: '//trim(keys(ikey)%key)
     end select

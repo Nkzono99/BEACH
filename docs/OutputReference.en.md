@@ -146,7 +146,8 @@ This section defines how to read its receipts.
 | `surface_current_model_photoelectron_active` | Whether PE channels exist. PE receipts are zero when false |
 | `surface_current_model_reference_area_m2` | Reference area for current targets |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | Resolved surface and minimum potentials |
-| `surface_current_model_upstream_negative_band_V` | Potential width [V] of negative $E^2$ next to upstream; nonzero only when a drifting A/C root was accepted by `zhao_upstream_band_tolerance` |
+| `surface_current_model_upstream_negative_band_V` | Potential width [V] of negative $E^2$ next to upstream; nonzero only when a drifting A/C root was accepted by `zhao_upstream_band_tolerance` or `zhao_upstream_field_floor_v_m` |
+| `surface_current_model_upstream_field_deficit_V_m` | Field deficit $\sqrt{-\min E^2}$ [V/m] inside that band: the external field the upstream plasma must supply, compared with `zhao_upstream_field_floor_v_m` |
 | `surface_current_model_ambient_electron_density_m3` | Resolved upstream electron Maxwellian density. The z-high electron inflow is injected at this density |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | Signed electron and ion current densities |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | Signed PE current densities. Emission and escape are positive; return is negative |

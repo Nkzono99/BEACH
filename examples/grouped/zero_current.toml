@@ -107,7 +107,7 @@ mass_kg = 9.1093837139e-31
 
 [particles.species.source]
 mode = "photo_raycast"
-emit_current_density_a_m2 = 0.0001
+emit_current_density_a_m2 = 2.5446172838e-6
 deposit_opposite_charge_on_emit = true
 normal_drift_speed_m_s = 0.0
 inject_face = "z_high"
@@ -122,9 +122,9 @@ pos_high = [
     0.001,
 ]
 ray_direction = [
+    0.5,
     0.0,
-    0.0,
-    -1.0,
+    -0.8660254037844386,
 ]
 
 [particles.species.sampling]
@@ -151,7 +151,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
-upstream_band_tolerance = 0.1
+upstream_field_floor_v_m = 0.002
 
 [sheath.species]
 electron = "solar_wind_electron"

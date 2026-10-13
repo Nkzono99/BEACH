@@ -339,6 +339,18 @@
           "exclusiveMaximum": 1,
           "default": 0,
           "description": "Accepted width of negative E^2 next to upstream for Zhao A/C roots with inward electron drift, as a fraction of |phi_m| (A) or |phi_0| (C). 0 keeps the exact semi-infinite condition."
+        },
+        "zhao_upstream_field_floor_v_m": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "External field level [V/m] at which the outer sheath hands over to the upstream plasma. Drifting Zhao A/C roots are accepted when the field deficit sqrt(-min E^2) inside the upstream band does not exceed it; the solar-wind motional field |u x B| is the natural scale. 0 disables this criterion."
+        },
+        "zhao_ion_pressure_factor": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1,
+          "description": "Pressure coefficient of the warm-ion fluid in the Zhao root (Sana & Mishra 2026): 1 isothermal, 3 adiabatic one-dimensional. The ion temperature is the ion species temperature; the entry must stay supersonic, m_i u^2/e > factor*T_i."
         }
       }
     },
@@ -3490,6 +3502,18 @@
                   "exclusiveMaximum": 1,
                   "default": 0,
                   "description": "Accepted width of negative E^2 next to upstream for Zhao A/C roots with inward electron drift, as a fraction of |phi_m| (A) or |phi_0| (C). 0 keeps the exact semi-infinite condition."
+                },
+                "upstream_field_floor_v_m": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "External field level [V/m] at which the outer sheath hands over to the upstream plasma. Drifting Zhao A/C roots are accepted when the field deficit sqrt(-min E^2) inside the upstream band does not exceed it; the solar-wind motional field |u x B| is the natural scale. 0 disables this criterion."
+                },
+                "ion_pressure_factor": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 1,
+                  "description": "Pressure coefficient of the warm-ion fluid in the Zhao root (Sana & Mishra 2026): 1 isothermal, 3 adiabatic one-dimensional. The ion temperature is the ion species temperature; the entry must stay supersonic, m_i u^2/e > factor*T_i."
                 }
               }
             },

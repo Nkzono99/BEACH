@@ -317,13 +317,13 @@ PE の emission と return は別 channel のまま扱い、net current を倍�
 イオン流の通過を満たす根だけを採用します。成立する根がなければ起動時に停止し、外部根の更新では前回の根を保ちます。
 電子が内向きにdriftし反射電子を持つA/Cの根は、上流のごく近くで$E^2<0$になるため既定では採用しません。
 `zhao_upstream_band_tolerance`$=f>0$では、$E^2<0$が上流に接する帯に限られ、その電位幅がAでは$f|\phi_m|$、Cでは$f|\phi_0|$以下の根を採用し、
-幅を`surface_current_model_upstream_negative_band_V`に記録します。設定例は電子にイオンと同じdriftを与え、$f=0.1$を使います。
+幅を`surface_current_model_upstream_negative_band_V`に記録します。`zhao_upstream_field_floor_v_m`$=E_{floor}>0$では、帯の内側の場の不足$\sqrt{-\min E^2}$が$E_{floor}$以下の根を採用し、不足を`surface_current_model_upstream_field_deficit_V_m`に記録します。これは上流境界を「場が外部レベルまで落ちた点」に置くことに相当し、太陽風の運動電場$|\mathbf{u}\times\mathbf{B}|$が目安です。両方を指定すれば両方を満たす根だけを採用します。設定例は電子にイオンと同じdriftを与え、$E_{floor}$で受理します。
 新しい電流modelは同じdispatch resultへspecies別の吸収・放出targetと診断値を返すことで追加します。
 
-Zhao modelはambient electronとcold ionを参照し、PE有効時はphotoelectronも明示的に参照します。各speciesは
+Zhao modelはambient electronとionを参照し、PE有効時はphotoelectronも明示的に参照します。ionの温度と`zhao_ion_pressure_factor`は外部根のイオン流体（Sana & Mishra 2026）に渡します。各speciesは
 `surface_charge_closure="fixed_current"`を要求し、手動targetとの併用を禁止します。単価電荷、electron/PEの同一質量、
-z-high reservoirからのambient流入（electron driftの内向き成分は0以上、ionは正。electronのdriftがあるとType A/Cは成立しないため0を推奨）、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、$T_i\le0.1T_e$を
-fail-closedに検証します。
+z-high reservoirからのambient流入（electron driftの内向き成分は0以上、ionは正。electronのdriftがあるとType A/Cは成立しないため0を推奨）、負電荷`photo_raycast`の放出反作用、PEのopenなz-high境界、イオン入口の超音速条件（$m_i u_z^2/e>$`zhao_ion_pressure_factor`$\cdot T_i$）を
+fail-closedに検証します。PEの`emit_current_density_a_m2`（レイ垂直面基準）× ray仰角のsinが外部源から5%以上、またはray仰角が太陽高度から1度以上ずれる設定は警告します。
 非磁化closureなので`sim.b0`はゼロを要求します。Zhao固有の0 V reservoirと速度写像を使うため、genericな
 `reservoir.inflow_model="infinity_barrier"`との併用も拒否します。
 電流密度から電流へ変換する面積は`reference_area_m2`、省略時はdomainのx-y面積です。

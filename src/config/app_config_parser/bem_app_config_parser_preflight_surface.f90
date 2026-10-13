@@ -1,6 +1,8 @@
 !> lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
-  use bem_constants, only: qe
+  use, intrinsic :: iso_fortran_env, only: error_unit
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use bem_constants, only: qe, k_boltzmann, pi
   use bem_config_helpers, only: resolve_particle_boundaries, species_number_density_m3, species_temperature_k
   use bem_app_config_types, only: particle_inflow_reservoir
   implicit none
@@ -9,7 +11,7 @@ contains
   module procedure validate_surface_current_model_config
   integer :: electron_idx, ion_idx, photo_idx
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
-  real(dp) :: electron_temperature, ion_temperature
+  real(dp) :: electron_temperature, ion_temperature, ion_entry_energy_ev, ion_pressure_energy_ev
   logical :: photoelectron_active
 
   if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
@@ -19,6 +21,14 @@ contains
              cfg%surface_current%zhao_upstream_band_tolerance < 1.0_dp)) then
     error stop 'surface_current_model.zhao_upstream_band_tolerance must be >= 0 and < 1.'
   end if
+  if (.not. (cfg%surface_current%zhao_upstream_field_floor_v_m >= 0.0_dp) .or. &
+      .not. ieee_is_finite(cfg%surface_current%zhao_upstream_field_floor_v_m)) then
+    error stop 'surface_current_model.zhao_upstream_field_floor_v_m must be finite and >= 0.'
+  end if
+  if (.not. (cfg%surface_current%zhao_ion_pressure_factor > 0.0_dp) .or. &
+      .not. ieee_is_finite(cfg%surface_current%zhao_ion_pressure_factor)) then
+    error stop 'surface_current_model.zhao_ion_pressure_factor must be finite and > 0.'
+  end if
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
     if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
@@ -26,6 +36,12 @@ contains
     end if
     if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
       error stop 'surface_current_model.zhao_upstream_band_tolerance requires model="zhao_stationary".'
+    end if
+    if (cfg%surface_current%zhao_upstream_field_floor_v_m /= 0.0_dp) then
+      error stop 'surface_current_model.zhao_upstream_field_floor_v_m requires model="zhao_stationary".'
+    end if
+    if (cfg%surface_current%zhao_ion_pressure_factor /= 1.0_dp) then
+      error stop 'surface_current_model.zhao_ion_pressure_factor requires model="zhao_stationary".'
     end if
     return
   case ('zhao_stationary')
@@ -141,13 +157,62 @@ contains
       error stop 'Zhao photoelectron temperature must be positive.'
     end if
   end if
-  if (ion_temperature > 0.1_dp*electron_temperature) then
-    error stop 'Zhao stationary current model requires cold ions with T_i <= 0.1 T_e.'
+  ! 外部根のイオン流体 (Sana & Mishra 2026) は、入口が音速より速い場合だけ上流へ接続する。
+  ion_entry_energy_ev = 0.5_dp*cfg%particle_species(ion_idx)%m_particle* &
+                        cfg%particle_species(ion_idx)%drift_velocity(3)**2/qe
+  ion_pressure_energy_ev = cfg%surface_current%zhao_ion_pressure_factor*ion_temperature*k_boltzmann/qe
+  if (.not. ieee_is_finite(ion_temperature) .or. ion_temperature < 0.0_dp) then
+    error stop 'Zhao ion temperature must be finite and nonnegative.'
   end if
+  if (.not. (2.0_dp*ion_entry_energy_ev > ion_pressure_energy_ev)) then
+    error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed zhao_ion_pressure_factor*T_i.'
+  end if
+  if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
   if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
     call validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)
   end if
   end procedure validate_surface_current_model_config
+
+  !> 表面放出の生の束と照射幾何が、外部シースへ渡す放出源 $e\,s\,n_{ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と
+  !! 一致しないときに警告する。固定電流の倍率が差を吸収するので停止はしない。
+  !! `emit_current_density_a_m2` はレイ垂直面基準なので、表面放出の面密度は ray 仰角の sin を掛けた値になる。
+  subroutine warn_photoelectron_source_mismatch(cfg, photo_idx)
+    type(app_config), intent(in) :: cfg
+    integer, intent(in) :: photo_idx
+    real(dp), parameter :: current_tolerance = 0.05_dp, elevation_tolerance_deg = 1.0_dp
+    real(dp) :: ray(3), ray_norm, ray_sin, ray_elevation_deg, thermal_speed, outer_current, surface_current
+
+    ray = cfg%particle_species(photo_idx)%ray_direction
+    ray_norm = sqrt(sum(ray*ray))
+    if (.not. ieee_is_finite(ray_norm) .or. ray_norm <= 0.0_dp) then
+      ! 省略時は inject_face の内向き法線（垂直入射）が validate 段で入る。
+      ray_sin = 1.0_dp
+    else
+      ray_sin = abs(ray(3))/ray_norm
+    end if
+    ray_elevation_deg = asin(min(1.0_dp, ray_sin))*180.0_dp/pi
+    thermal_speed = sqrt(2.0_dp*k_boltzmann*species_temperature_k(cfg%particle_species(photo_idx))/ &
+                         cfg%particle_species(photo_idx)%m_particle)
+    outer_current = qe*cfg%surface_current%photoelectron_source_scale*cfg%surface_current%photoelectron_ref_density_m3* &
+                    sin(cfg%surface_current%solar_elevation_deg*pi/180.0_dp)*thermal_speed/(2.0_dp*sqrt(pi))
+    surface_current = cfg%particle_species(photo_idx)%emit_current_density_a_m2*ray_sin
+    if (.not. all(ieee_is_finite([outer_current, surface_current])) .or. outer_current <= 0.0_dp) return
+    if (abs(surface_current - outer_current) > current_tolerance*outer_current) then
+      write (error_unit, '(a,es12.4,a,es12.4,a)') &
+        'WARNING: photo_raycast surface emission ', surface_current, &
+        ' A/m^2 (emit_current_density_a_m2 x sin of the ray elevation) differs from the outer Zhao photoelectron source ', &
+        outer_current, ' A/m^2 (e s n_ref sin(alpha) v_th/(2 sqrt(pi))); the fixed_current emission scale absorbs '// &
+        'the difference, so set emit_current_density_a_m2 to the normal-incidence value and the ray to the solar elevation.'
+      flush (error_unit)
+    end if
+    if (abs(ray_elevation_deg - cfg%surface_current%solar_elevation_deg) > elevation_tolerance_deg) then
+      write (error_unit, '(a,f6.1,a,f6.1,a)') &
+        'WARNING: photo_raycast ray elevation ', ray_elevation_deg, &
+        ' deg differs from surface_current_model.solar_elevation_deg ', cfg%surface_current%solar_elevation_deg, &
+        ' deg; the illumination inside the cell and the outer photoelectron source assume different sun directions.'
+      flush (error_unit)
+    end if
+  end subroutine warn_photoelectron_source_mismatch
 
   !> 観測PE流出による外部根の更新は、z-high面の平均電位を外部の壁電位へ固定できる周期セルに限る。
   subroutine validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)

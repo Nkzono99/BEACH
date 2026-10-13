@@ -115,7 +115,7 @@ closure = "zero_current"
 
 [sheath.zhao]
 branch = "auto"
-upstream_band_tolerance = 0.1
+upstream_field_floor_v_m = 0.002
 
 [sheath.species]
 electron = "solar_wind_electron"

@@ -353,24 +353,26 @@ closure.
 | `model` | string | `"none"` | `none` / `zhao_stationary` |
 | `zhao_branch` | string | `"auto"` | `auto` / `a` / `b` / `c`; without PE only `auto` / `c` |
 | `electron_species` | string | unset | Ambient-electron `species_key`; required, 1–64 characters |
-| `ion_species` | string | unset | Cold-ion `species_key`; required, 1–64 characters |
+| `ion_species` | string | unset | Solar-wind ion `species_key`; required, 1–64 characters. Its temperature also enters the ion fluid of the outer root |
 | `photoelectron_species` | string | required with PE | PE `species_key`; 1–64 characters |
 | `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ for the surface emission; $0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | required with PE | PE reference density $n_{pe,ref}$ [m^-3]; `>0` |
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$; `>=0`, and 0 disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2]; `>0` |
 | `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE outflow observed at z-high; `>=0`, and 0 keeps the initial root |
-| `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 is the exact condition, which rejects drifting A/C. Use 0.1 when electrons have the solar-wind drift. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band) |
+| `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 disables this criterion, and with `zhao_upstream_field_floor_v_m` also 0 drifting A/C are rejected. The examples accept by the field floor instead of the width. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band) |
+| `zhao_upstream_field_floor_v_m` | float | `0.0` | Places the upstream boundary where the field has fallen to this external level [V/m]. For A/C roots with electron drift, accepts the root when the field deficit $\sqrt{-\min E^2}$ inside the upstream band does not exceed it. The solar-wind motional field $\lvert\mathbf{u}\times\mathbf{B}\rvert$ (about 2 mV/m for 400 km/s and 5 nT) is the natural scale. `>=0`; 0 disables this criterion, and with `zhao_upstream_band_tolerance` also 0 drifting A/C are rejected. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band) |
+| `zhao_ion_pressure_factor` | float | `1.0` | Pressure coefficient of the ion fluid in the outer root (Sana & Mishra 2026): 1 isothermal, 3 one-dimensional adiabatic. The ion temperature is that of `ion_species`; `>0`. For the solar wind (entry energy about 1 keV) it changes the root by less than 0.1 mV. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#assumptions) |
 
 Input constraints:
 
 | Item | Required condition |
 |---|---|
 | Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
-| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Give electrons the same drift as the ions with `zhao_upstream_band_tolerance=0.1` (not needed with zero electron drift; [why](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band)); no manual `target_*_current_a` |
+| Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Give electrons the same drift as the ions with `zhao_upstream_field_floor_v_m=2.0e-3` (not needed with zero electron drift; [why](ZhaoStationaryClosure.en.html#electron-drift-and-the-upstream-band)); no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
-| With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open` |
-| Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\le0.1T_e$ |
+| With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open`. Startup warns (without stopping) when `emit_current_density_a_m2` (per ray-normal area) times the sine of the ray elevation differs by more than 5% from the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, or when the ray elevation differs from $\alpha$ by more than 1 degree |
+| Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\ge0$ with a supersonic ion entry $m_i u_z^2/e >$ `zhao_ion_pressure_factor` $\cdot T_i$ |
 | External field | `sim.b0=[0,0,0]`; `reservoir.inflow_model="infinity_barrier"` is forbidden |
 | Outer-root refresh | `outflow_refresh_batches>0` requires PE, `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table |
 

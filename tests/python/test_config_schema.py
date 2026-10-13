@@ -300,6 +300,14 @@ def test_schema_accepts_zhao_stationary_surface_current_model() -> None:
         band = copy.deepcopy(refresh)
         band["surface_current_model"]["zhao_upstream_band_tolerance"] = value
         assert (schema_errors(band, schema) == []) is valid
+    for value, valid in ((2.0e-3, True), (0.0, True), (-1.0e-3, False)):
+        floor = copy.deepcopy(refresh)
+        floor["surface_current_model"]["zhao_upstream_field_floor_v_m"] = value
+        assert (schema_errors(floor, schema) == []) is valid
+    for value, valid in ((3.0, True), (0.0, False), (-1.0, False)):
+        pressure = copy.deepcopy(refresh)
+        pressure["surface_current_model"]["zhao_ion_pressure_factor"] = value
+        assert (schema_errors(pressure, schema) == []) is valid
 
     no_photo = load_toml_file(
         ROOT / "examples/periodic2_zhao_no_photo_fixed_current.toml"

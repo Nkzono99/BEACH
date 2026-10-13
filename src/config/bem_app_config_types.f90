@@ -30,6 +30,11 @@ module bem_app_config_types
     integer(i32) :: outflow_refresh_batches = 0_i32
     !> 電子drift時のA/C根で、上流に接するE^2<0の幅を |phi_m|(A) / |phi_0|(C) の何割まで許すか。0 は厳密判定。
     real(dp) :: zhao_upstream_band_tolerance = 0.0_dp
+    !> 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子drift時のA/C根で、帯の内側の場の不足
+    !! sqrt(-min E^2) がこれ以下なら受理する。0 はこの判定を使わない。
+    real(dp) :: zhao_upstream_field_floor_v_m = 0.0_dp
+    !> 外部根のイオン流体の圧力係数 (Sana & Mishra 2026, Eq. 17)。1 は等温。イオン温度は ion species の温度を使う。
+    real(dp) :: zhao_ion_pressure_factor = 1.0_dp
   end type surface_current_model_config
 
   !> 1粒子種の注入設定を表す。

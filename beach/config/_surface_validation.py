@@ -112,6 +112,17 @@ def _validate_surface_current_model(
             "BEACH constraint error: surface_current_model.zhao_upstream_band_tolerance "
             "must be finite, >= 0 and < 1."
         )
+    field_floor = model_config.get("zhao_upstream_field_floor_v_m", 0.0)
+    if (
+        not isinstance(field_floor, (int, float))
+        or isinstance(field_floor, bool)
+        or not math.isfinite(float(field_floor))
+        or float(field_floor) < 0.0
+    ):
+        raise ConfigValidationError(
+            "BEACH constraint error: surface_current_model.zhao_upstream_field_floor_v_m "
+            "must be finite and >= 0."
+        )
     refresh_batches = model_config.get("outflow_refresh_batches", 0)
     if (
         not isinstance(refresh_batches, int)
@@ -288,13 +299,36 @@ def _validate_surface_current_model(
             raise ConfigValidationError(
                 "BEACH constraint error: Zhao photoelectron temperature must be positive."
             )
+    if not math.isfinite(ion_temperature_k) or ion_temperature_k < 0.0:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao ion temperature must be finite and nonnegative."
+        )
+    # The warm-ion fluid of the outer root connects upstream only for a supersonic entry.
+    pressure_factor = model_config.get("zhao_ion_pressure_factor", 1.0)
     if (
-        not math.isfinite(ion_temperature_k)
-        or ion_temperature_k > 0.1 * electron_temperature_k
+        not isinstance(pressure_factor, (int, float))
+        or isinstance(pressure_factor, bool)
+        or not math.isfinite(float(pressure_factor))
+        or float(pressure_factor) <= 0.0
     ):
         raise ConfigValidationError(
-            "BEACH constraint error: Zhao stationary current requires cold ions "
-            "with T_i <= 0.1 T_e."
+            "BEACH constraint error: surface_current_model.zhao_ion_pressure_factor "
+            "must be finite and > 0."
+        )
+    try:
+        ion_mass_kg = float(ion.get("m_particle", 9.10938356e-31))
+        ion_drift_z = float(ion.get("drift_velocity", [0.0, 0.0, -8.0e5])[2])
+    except (TypeError, ValueError, IndexError):
+        ion_mass_kg = math.nan
+        ion_drift_z = math.nan
+    ion_entry_energy_ev = 0.5 * ion_mass_kg * ion_drift_z * ion_drift_z / 1.602176634e-19
+    ion_pressure_energy_ev = (
+        float(pressure_factor) * ion_temperature_k * 1.380649e-23 / 1.602176634e-19
+    )
+    if not 2.0 * ion_entry_energy_ev > ion_pressure_energy_ev:
+        raise ConfigValidationError(
+            "BEACH constraint error: Zhao ion entry must be supersonic; m_i u_z^2/e must "
+            "exceed zhao_ion_pressure_factor*T_i."
         )
 
 

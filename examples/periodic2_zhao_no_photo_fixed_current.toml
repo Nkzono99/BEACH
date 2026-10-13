@@ -31,7 +31,7 @@ inflow_model = "source_vdf"
 model = "zhao_stationary"
 zhao_branch = "auto"
 # 電子にも太陽風の drift を与えるため、上流に接する E^2<0 の帯を |phi_m|(A) / |phi_0|(C) の 10% まで許す。
-zhao_upstream_band_tolerance = 0.1
+zhao_upstream_field_floor_v_m = 2.0e-3
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_source_scale = 0.0

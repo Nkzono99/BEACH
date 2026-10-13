@@ -32,7 +32,7 @@ inflow_model = "source_vdf"
 model = "zhao_stationary"
 zhao_branch = "auto"
 # 電子にも太陽風の drift を与えるため、上流に接する E^2<0 の帯を |phi_m|(A) / |phi_0|(C) の 10% まで許す。
-zhao_upstream_band_tolerance = 0.1
+zhao_upstream_field_floor_v_m = 2.0e-3
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"
 photoelectron_species = "photoelectron"
@@ -71,7 +71,9 @@ z_high = "reservoir"
 species_key = "photoelectron"
 source_mode = "photo_raycast"
 # 放出VDFはこのMaxwell分布を使い、Zhaoがescape/return barrierと固定電流targetを与える。
-emit_current_density_a_m2 = 1.0e-4
+# レイ垂直面基準の値。e n_ref v_th/(2 sqrt(pi)) に等しくし、ray_direction を太陽高度 60 度に合わせると
+# 表面放出 J sin(60°) が外部シースの光電子源と一致し、固定電流の放出倍率が 1 になる。
+emit_current_density_a_m2 = 2.5446172838e-6
 rays_per_batch = 300
 deposit_opposite_charge_on_emit = true
 surface_charge_closure = "fixed_current"
@@ -82,7 +84,7 @@ normal_drift_speed = 0.0
 inject_face = "z_high"
 pos_low = [0.0, 0.0, 1.0e-3]
 pos_high = [1.0e-4, 1.0e-4, 1.0e-3]
-ray_direction = [0.0, 0.0, -1.0]
+ray_direction = [0.5, 0.0, -0.8660254037844386]
 
 [mesh]
 mode = "template"

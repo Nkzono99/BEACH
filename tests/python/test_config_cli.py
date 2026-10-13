@@ -801,10 +801,15 @@ def test_zhao_stationary_model_supplies_fixed_current_targets() -> None:
         for item in normalized["particles"]["species"]
     )
 
-    hot_ions = copy.deepcopy(normalized)
-    hot_ions["particles"]["species"][1]["temperature_ev"] = 2.0
-    with pytest.raises(ConfigValidationError, match="cold ions"):
-        normalize_config_document(hot_ions)
+    warm_ions = copy.deepcopy(normalized)
+    warm_ions["particles"]["species"][1]["temperature_ev"] = 10.0
+    assert normalize_config_document(warm_ions)["particles"]["species"][1][
+        "temperature_ev"
+    ] == 10.0
+    subsonic_ions = copy.deepcopy(normalized)
+    subsonic_ions["particles"]["species"][1]["temperature_ev"] = 2.0e3
+    with pytest.raises(ConfigValidationError, match="supersonic"):
+        normalize_config_document(subsonic_ions)
 
     malformed_drift = copy.deepcopy(normalized)
     malformed_drift["particles"]["species"][0]["drift_velocity"] = [0.0, 0.0]
@@ -874,6 +879,29 @@ def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> 
         with pytest.raises(ConfigValidationError, match="zhao_upstream_band_tolerance"):
             normalize_config_document(invalid)
 
+    field_floor = copy.deepcopy(refresh)
+    field_floor["surface_current_model"]["zhao_upstream_field_floor_v_m"] = 2.0e-3
+    assert normalize_config_document(field_floor)["surface_current_model"][
+        "zhao_upstream_field_floor_v_m"
+    ] == 2.0e-3
+    for value in (-1.0e-3, float("nan"), True):
+        invalid = copy.deepcopy(refresh)
+        invalid["surface_current_model"]["zhao_upstream_field_floor_v_m"] = value
+        with pytest.raises(ConfigValidationError, match="zhao_upstream_field_floor_v_m"):
+            normalize_config_document(invalid)
+
+    warm_ions = copy.deepcopy(refresh)
+    warm_ions["surface_current_model"]["zhao_ion_pressure_factor"] = 3.0
+    warm_ions["particles"]["species"][1]["temperature_ev"] = 10.0
+    assert normalize_config_document(warm_ions)["surface_current_model"][
+        "zhao_ion_pressure_factor"
+    ] == 3.0
+    for value in (0.0, -1.0, float("nan"), True):
+        invalid = copy.deepcopy(refresh)
+        invalid["surface_current_model"]["zhao_ion_pressure_factor"] = value
+        with pytest.raises(ConfigValidationError, match="zhao_ion_pressure_factor"):
+            normalize_config_document(invalid)
+
     fixed_root = copy.deepcopy(refresh)
     fixed_root["surface_current_model"]["outflow_refresh_batches"] = 0
     fixed_root.pop("periodic2")
@@ -890,7 +918,7 @@ def test_zhao_outflow_refresh_requires_a_photoelectron_split_periodic_cell() -> 
         (1, "m_particle", -1.0, "m_particle.*minimum"),
         (0, "temperature_ev", 0.0, "electron temperature must be positive"),
         (2, "temperature_ev", 0.0, "photoelectron temperature must be positive"),
-        (1, "temperature_ev", 2.0, "cold ions"),
+        (1, "temperature_ev", 2.0e3, "supersonic"),
         (0, "drift_velocity", [0.0, 0.0, 1.0e3], "inward z-high"),
         (1, "drift_velocity", [0.0, 0.0, 0.0], "inward z-high"),
         (0, "drift_velocity", [float("nan"), 0.0, -4.0e5], "drift_velocity.*finite"),

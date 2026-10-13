@@ -5,6 +5,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Added `surface_current_model.zhao_upstream_field_floor_v_m` (grouped `sheath.zhao.upstream_field_floor_v_m`, default 0).
+  It accepts drifting Zhao A/C roots when the field deficit $\sqrt{-\min E^2}$ inside the upstream negative-$E^2$ band
+  does not exceed this external field level, which places the upstream boundary where the sheath field has fallen to
+  the level the solar wind itself carries (the motional field $|\mathbf{u}\times\mathbf{B}|$, about 2 mV/m). The deficit
+  is written as `surface_current_model_upstream_field_deficit_V_m`. `zhao_upstream_band_tolerance` remains available;
+  when both are set a root must satisfy both. The sheath-model dependency is pinned to `b4a2521`, which adds `upstream_field_floor_v_m`.
+- Added `surface_current_model.zhao_ion_pressure_factor` (grouped `sheath.zhao.ion_pressure_factor`, default 1). The
+  `zhao_stationary` outer root now passes the ion species temperature and this pressure coefficient to the warm-ion fluid of
+  sheath-model (Sana & Mishra 2026) instead of a cold beam. Preflight replaces the `T_i <= 0.1 T_e` stop with the supersonic
+  entry condition `m_i u_z^2/e > factor*T_i`. For solar-wind entries (about 1 keV) the root moves by less than 0.1 mV and the
+  upstream negative band is unchanged; each root solve costs 40–400 ms.
+- `zhao_stationary` preflight warns when the photo_raycast surface emission (`emit_current_density_a_m2` times the sine of
+  the ray elevation) differs by more than 5% from the outer photoelectron source, or when the ray elevation differs from
+  `solar_elevation_deg` by more than 1 degree. The fixed-current scale absorbed such mismatches silently.
+
+### Changed
+- The Zhao examples emit photoelectrons at the normal-incidence value of the outer source (2.5446e-6 A/m²) along a ray at the
+  configured 60-degree solar elevation, so the fixed-current emission scale is 1 instead of about 0.02. They now accept the
+  drifting root with `zhao_upstream_field_floor_v_m = 2.0e-3` instead of `zhao_upstream_band_tolerance = 0.1`.
+- Documented that the outer-root refresh retries branches in A → B → C order after the previous branch; the
+  solar-elevation ordering applies only to the initial root.
+
+### Fixed
+- `bem_surface_current_model` no longer uses `findloc`, which GCC 8 gfortran rejects, so the gfortran build of the outer-root
+  spectrum source works again.
+
 ## [2.0.0] - 2026-10-13
 
 ### Added

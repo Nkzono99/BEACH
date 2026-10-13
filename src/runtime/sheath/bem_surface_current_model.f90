@@ -24,8 +24,10 @@ module bem_surface_current_model
     real(dp) :: reference_area_m2 = 0.0_dp
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
-    !> 上流に接する E^2<0 の電位幅 [V]。電子drift時に許容幅で受理したA/C根だけが非ゼロ。
+    !> 上流に接する E^2<0 の電位幅 [V] と、その内側の場の不足 sqrt(-min E^2) [V/m]。
+    !! 電子drift時に許容幅または場の下限で受理したA/C根だけが非ゼロ。
     real(dp) :: upstream_negative_band_v = 0.0_dp
+    real(dp) :: upstream_field_deficit_v_m = 0.0_dp
     real(dp) :: ambient_electron_density_m3 = 0.0_dp
     real(dp) :: electron_current_density_a_m2 = 0.0_dp
     real(dp) :: ion_current_density_a_m2 = 0.0_dp
@@ -255,8 +257,10 @@ contains
 
   !> sheath-modelで指定順にbranchを試し、プロファイル全域の成立条件を満たす最初の零電流根を返す。
   !!
-  !! ionは従来のZhao closureと同じ冷たいビーム、電子は設定の内向きdriftを持つ上流Maxwell分布とする。
-  !! 内向きdriftのある電子で反射集団を持つA/Cは無限遠へ接続できず、sheath-modelが棄却する。
+  !! ionは ion species の温度と設定の圧力係数を持つ上流接続の流体ビーム (Sana & Mishra 2026)、
+  !! 電子は設定の内向きdriftを持つ上流Maxwell分布とする。太陽風では T_i が入口エネルギーより
+  !! はるかに小さく、根への影響は 0.1 mV 以下である。内向きdriftのある電子で反射集団を持つA/Cは
+  !! 無限遠へ接続できず、upstream_band_tolerance と upstream_field_floor_v_m が共に 0 なら sheath-model が棄却する。
   subroutine solve_outer_root( &
     app, source_density_m3, source_temperature_ev, order, root, success, message, previous, spectrum_m2_s &
     )
@@ -285,8 +289,8 @@ contains
     input%plasma%ion_density_m3 = species_number_density_m3(app%particle_species(ion_idx))
     input%plasma%electron_temperature_ev = &
       species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
-    input%plasma%ion_temperature_ev = 0.0_dp
-    input%plasma%ion_pressure_factor = 1.0_dp
+    input%plasma%ion_temperature_ev = species_temperature_k(app%particle_species(ion_idx))*k_boltzmann/qe
+    input%plasma%ion_pressure_factor = app%surface_current%zhao_ion_pressure_factor
     input%plasma%electron_drift_mps = -app%particle_species(electron_idx)%drift_velocity(3)
     input%plasma%ion_entry_speed_mps = -app%particle_species(ion_idx)%drift_velocity(3)
     input%plasma%ion_mass_kg = app%particle_species(ion_idx)%m_particle
@@ -294,14 +298,21 @@ contains
     if (present(spectrum_m2_s)) then
       ! 空の端のbinは除き、観測した範囲だけをbin源にする。
       edges = outflow_spectrum_edges_ev()
-      first_bin = findloc(spectrum_m2_s > 0.0_dp, .true., dim=1)
-      last_bin = findloc(spectrum_m2_s > 0.0_dp, .true., dim=1, back=.true.)
+      first_bin = 1
+      do while (spectrum_m2_s(first_bin) <= 0.0_dp)
+        first_bin = first_bin + 1
+      end do
+      last_bin = outflow_spectrum_bins
+      do while (spectrum_m2_s(last_bin) <= 0.0_dp)
+        last_bin = last_bin - 1
+      end do
       input%plasma%photoelectrons = binned_photoelectrons( &
                                     edges(first_bin:last_bin + 1), spectrum_m2_s(first_bin:last_bin))
     else
       input%plasma%photoelectrons = maxwellian_photoelectrons(source_density_m3, source_temperature_ev)
     end if
     solver%search%upstream_band_tolerance = app%surface_current%zhao_upstream_band_tolerance
+    solver%search%upstream_field_floor_v_m = app%surface_current%zhao_upstream_field_floor_v_m
     use_guess = .false.
     if (present(previous)) use_guess = previous%active .and. index('ABC', previous%zhao_branch) > 0
     if (use_guess) then
@@ -377,6 +388,7 @@ contains
     result%phi_m_v = root%surface_potential_v
     if (root%branch == 'A') result%phi_m_v = root%minimum_potential_v
     result%upstream_negative_band_v = root%upstream_negative_band_v
+    result%upstream_field_deficit_v_m = root%upstream_field_deficit_v_m
     result%ambient_electron_density_m3 = root%ambient_electron_density_m3
     call surface_photoelectron_source(app, surface_density_m3, surface_temperature_ev)
     emission_current_density = qe*surface_density_m3*thermal_speed(app, surface_temperature_ev)/(2.0_dp*sqrt(pi))
