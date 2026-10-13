@@ -44,7 +44,7 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | 粒子源や表面モデルを選ぶ | [粒子をどこから入れるか](ParticleSourcesBoundaries.html) → [表面はどう帯電するか](SurfaceModels.html) |
 | open 境界と return を構成する | [境界から粒子を流入させる](ReservoirInjection.html) → [粒子の escape と return](ParticleEscapeReturn.html) |
 | 光電子を扱う | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
-| 太陽風と光電子の中の周期表面を扱う | [プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html) → [外部シースとの接続](ZhaoStationaryClosure.html) |
+| 太陽風と光電子の中の周期表面を扱う | [プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html) → [外部シースとの接続](ZhaoStationaryClosure.html) → [電子の drift と上流の帯](ZhaoUpstreamBand.html) |
 | 場ソルバや周期境界を選ぶ | [場の評価](FieldSolvers.html) → [periodic2 静電場](PeriodicElectrostatics.html) |
 | 出力を可視化する | [後処理チュートリアル](PostprocessTutorial.html) → [Python API](PythonPostprocessAPI.html) |
 | ソースを変更する | [アーキテクチャ](Architecture.html) → [開発とテスト](Workflow.html) |

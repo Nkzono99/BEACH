@@ -351,8 +351,8 @@ face_potential_grid_n = 3
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$。`>=0`、0 は PE なし |
 | `reference_area_m2` | float | domainのx-y面積 | 電流密度を総電流へ変換する面積 [m^2]。`>0` |
 | `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE 流出から解き直す。`>=0`、0 は初期根を固定 |
-| `zhao_upstream_band_tolerance` | float | `0.0` | 電子の drift がある A/C の根で、上流に接する $E^2<0$ の幅を A は $\lvert\phi_m\rvert$、C は $\lvert\phi_0\rvert$ の何割まで許すか。`0<=x<1`、0 はこの判定を使わない。`zhao_upstream_field_floor_v_m` と両方 0 なら drift のある A/C を棄却。設定例は幅ではなく場の下限で受理する。[外部シースとの接続](ZhaoStationaryClosure.html#電子の-drift-と上流の帯) |
-| `zhao_upstream_field_floor_v_m` | float | `0.0` | 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子の drift がある A/C の根で、上流の帯の内側の場の不足 $\sqrt{-\min E^2}$ がこれ以下なら受理する。太陽風の運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert$（400 km/s、5 nT で約 2 mV/m）が目安。`>=0`、0 はこの判定を使わない。`zhao_upstream_band_tolerance` と両方 0 なら drift のある A/C を棄却。[外部シースとの接続](ZhaoStationaryClosure.html#電子の-drift-と上流の帯) |
+| `zhao_upstream_band_tolerance` | float | `0.0` | 電子の drift がある A/C の根で、上流に接する $E^2<0$ の幅を A は $\lvert\phi_m\rvert$、C は $\lvert\phi_0\rvert$ の何割まで許すか。`0<=x<1`、0 はこの判定を使わない。`zhao_upstream_field_floor_v_m` と両方 0 なら drift のある A/C を棄却。設定例は幅ではなく場の下限で受理する。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
+| `zhao_upstream_field_floor_v_m` | float | `0.0` | 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子の drift がある A/C の根で、上流の帯の内側の場の不足 $\sqrt{-\min E^2}$ がこれ以下なら受理する。太陽風の運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert$（400 km/s、5 nT で約 2 mV/m）が目安。`>=0`、0 はこの判定を使わない。`zhao_upstream_band_tolerance` と両方 0 なら drift のある A/C を棄却。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
 | `zhao_ion_pressure_factor` | float | `1.0` | 外部根のイオン流体（Sana & Mishra 2026）の圧力係数。1 は等温、3 は 1 次元断熱。イオン温度は `ion_species` の温度。`>0`。太陽風（入口エネルギー約 1 keV）では根への影響は 0.1 mV 以下。[外部シースとの接続](ZhaoStationaryClosure.html#仮定) |
 
 入力制約:
@@ -360,7 +360,7 @@ face_potential_grid_n = 3
 | 項目 | 必要条件 |
 |---|---|
 | role species | enabled、相互に異なる、`surface_charge_closure="fixed_current"` |
-| ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下、ion は負。electron にもイオンと同じ drift を与え、`zhao_upstream_field_floor_v_m=2.0e-3` とする（drift 0 なら不要。[理由](ZhaoStationaryClosure.html#電子の-drift-と上流の帯)）。手動 `target_*_current_a` は指定不可 |
+| ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下、ion は負。electron にもイオンと同じ drift を与え、`zhao_upstream_field_floor_v_m=2.0e-3` とする（drift 0 なら不要。[理由](ZhaoUpstreamBand.html)）。手動 `target_*_current_a` は指定不可 |
 | PE なし | `photoelectron_source_scale=0.0`、PE 固有キーは省略、`zhao_branch="auto"` または `"c"` |
 | PE あり | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`、有効な z-high 境界は `open`。`emit_current_density_a_m2`（レイ垂直面基準）× ray 仰角の sin が外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ から 5% 以上、または ray の仰角が $\alpha$ から 1 度以上ずれると起動時に警告（停止しない） |
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\ge0$ かつイオンの入口が超音速 $m_i u_z^2/e >$ `zhao_ion_pressure_factor` $\cdot T_i$ |

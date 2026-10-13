@@ -20,6 +20,7 @@
     { "source": { "root": "SurfaceModels.md", "en": "SurfaceModels.en.md" }, "slug": "surface-models", "order": 130, "description": { "root": "絶縁体と浮遊導体で表面電荷を保持・再配分する方法。", "en": "How insulators and floating conductors retain or redistribute surface charge." } },
     { "source": { "root": "PhotoelectronEmission.md", "en": "PhotoelectronEmission.en.md" }, "slug": "photoelectron-emission", "order": 135, "description": { "root": "光線追跡による放出、反作用電荷、光電子の電荷の閉じ方。", "en": "Ray-cast emission, reaction charge, and photoelectron charge closures." } },
     { "source": { "root": "ZhaoStationaryClosure.md", "en": "ZhaoStationaryClosure.en.md" }, "slug": "zhao-stationary-closure", "order": 137, "description": { "root": "外部シースの零電流根から、上端の電流・障壁・電位基準を与える。", "en": "Top-face currents, barriers, and potential reference from the outer-sheath zero-current root." } },
+    { "source": { "root": "ZhaoUpstreamBand.md", "en": "ZhaoUpstreamBand.en.md" }, "slug": "zhao-upstream-band", "order": 138, "description": { "root": "電子の drift がつくる上流の帯と、場の下限による受理。", "en": "The upstream band made by electron drift and acceptance by a field floor." } },
     { "source": { "root": "ParticleEscapeReturn.md", "en": "ParticleEscapeReturn.en.md" }, "slug": "particle-escape-return", "order": 140, "description": { "root": "box の面に達した粒子の脱出、電位障壁、反射。", "en": "Escape, potential barriers, and reflection of particles at box faces." } },
     { "source": { "root": "PeriodicElectrostatics.md", "en": "PeriodicElectrostatics.en.md" }, "slug": "periodic-electrostatics", "order": 145, "description": { "root": "periodic2 の有限画像、面内変動成分、面平均成分。", "en": "Finite images, the nonzero mode, and the zero mode in periodic2." } },
     { "source": { "root": "BatchDurationStability.md", "en": "BatchDurationStability.en.md" }, "slug": "batch-duration-stability", "order": 160, "description": { "root": "比較計算からbatch_durationを選び、adaptive進行を確認する。", "en": "Choose batch_duration from comparison runs and inspect adaptive progression." } },
@@ -83,6 +84,7 @@
         { "type": "page", "slug": "photoelectron-emission", "label": { "root": "光電子の放出と電荷の閉じ方", "en": "Photoelectron emission and charge closures" } },
         { "type": "page", "slug": "particle-escape-return", "label": { "root": "box 境界での粒子の扱い", "en": "Particles at box boundaries" } },
         { "type": "page", "slug": "zhao-stationary-closure", "label": { "root": "外部シースとの接続", "en": "Connecting to the outer sheath" } },
+        { "type": "page", "slug": "zhao-upstream-band", "label": { "root": "電子の drift と上流の帯", "en": "Electron drift and the upstream band" } },
         { "type": "page", "slug": "periodic-electrostatics", "label": { "root": "periodic2 の静電場", "en": "periodic2 electrostatics" } },
         { "type": "page", "slug": "batch-duration-stability", "label": { "root": "batch_durationをどう決めるか", "en": "How to choose batch_duration" } }
       ]

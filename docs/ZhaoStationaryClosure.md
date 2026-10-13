@@ -4,13 +4,22 @@ Lang: [日本語](ZhaoStationaryClosure.md) | [English](ZhaoStationaryClosure.en
 
 # 外部シースとの接続（Zhao 定常シース）
 
-BEACH のセルの高さは Debye 長よりはるかに小さいので、外部のシースから見ると、上端面（z-high 面）は表面そのものです。
-このモデルは、セルの外に平面の定常シースを仮定してその零電流根を解き、上端面での電流・障壁・電位基準を BEACH に与えます。
-シースを時間発展させるモデルではありません。
+太陽風と紫外線にさらされた周期表面のセルで、上端面（z-high 面）の外にあるシースと整合した帯電を計算したいときに
+読むページです。BEACH はセルの外に平面の定常シースを仮定してその零電流根を解き、根から上端面での 4 つの条件
+（電流、電位基準、流入分布、流出障壁）を決めます。読み終えると、根が与える量と BEACH がそれをどう使うか、設定で何を
+揃えるか、出力の何を見れば整合を確認できるかが分かります。
 
-既定では計算の開始時に根を一度だけ解きます。外部根の更新（`sheath.coupling.outflow_refresh_batches`）を使うと、
-上端面を出ていく光電子の観測値から根を定期的に解き直し、セル内の凹凸による光電子の再吸収を外部シースへ反映します。
+セルの高さは Debye 長（太陽風で約 10 m）よりはるかに小さいので、外部のシースから見ると上端面は表面そのものです。
+シースを時間発展させるモデルではなく、既定では計算の開始時に根を一度だけ解きます。外部根の更新
+（`sheath.coupling.outflow_refresh_batches`）を使うと、上端面を出ていく光電子の観測値から根を定期的に解き直します。
 ケース全体の組み立て方は[プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html)にあります。
+
+| 根が与えるもの | 上端面での使い方 | 節 |
+|---|---|---|
+| 粒子種ごとの電流 $J_e$、$J_i$、$J_{emit}$、$J_{return}$、$J_{escape}$ | 各バッチの吸収・放出・脱出の目標電荷 | [電流を根の値に固定する](#電流を根の値に固定する) |
+| 壁電位 $\phi_0$ | 上端面の平均電位の基準（上流のプラズマを 0 V） | [上端面の電位を壁電位に合わせる](#上端面の電位を壁電位に合わせる) |
+| 障壁 $\phi_m$（Type A）または 0 V | 入る粒子の選別と、出る粒子の反射・脱出の判定 | [上端面での粒子の出入り](#上端面での粒子の出入り) |
+| 上流電子密度 $n_{e,\infty}$ | 上端面から入れる電子の密度 | [上流電子密度で電子を入れる](#上流電子密度で電子を入れる) |
 
 ## 何を解くか
 
@@ -39,51 +48,21 @@ sheath-model は、代数的な根が次の条件を満たすかも検査し、�
 - イオンの流れが途中で遮られない
 
 `sheath.zhao.branch="auto"` は、太陽高度が 20 度未満なら C → A → B、それ以外は A → B → C の順に試し、成り立つ最初の根を返します。
-成り立つ根がなければ、起動時に理由を表示して停止します。
+`"a"`、`"b"`、`"c"` を書くとその型だけを解きます。成り立つ根がなければ、起動時に理由を表示して停止します。
 
 ## 仮定
 
 - シースは平面、無衝突、非磁化、定常。
 - 太陽風電子は、イオンと同じ太陽風の法線速度で drift した Maxwell 分布。上流へ戻る遅い電子は、入射分布の鏡像として反射する。
-- イオンは上流で密度 $n_i$、法線速度 $u_i$、温度 $T_i$ を持ち、流束を保つ流体として輸送する
-  （Sana & Mishra 2026）。圧力項の係数は `sheath.zhao.ion_pressure_factor`（1 は等温、3 は 1 次元断熱）で、
-  入口は超音速 $m_i u_i^2/e > f\,T_i$ でなければならない。太陽風では入口エネルギー（400 km/s の陽子で約 0.86 keV）が
-  $T_i$ よりはるかに大きいので、$T_i\le12$ eV で根の変化は 0.1 mV 以下であり、上流の帯の幅も変わらない。
-  BEACH が注入するイオンの温度と同じ値を根に使う。
+  この仮定は上流に接する幅数十 mV の帯で厳密には成り立たないので、帯の内側で欠ける場が太陽風の運動電場
+  $\lvert\mathbf{u}\times\mathbf{B}\rvert$（約 2 mV/m）以下の根を受理する（[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。
+- イオンは上流で密度 $n_i$、法線速度 $u_i$、温度 $T_i$ を持ち、流束を保つ流体として輸送する（Sana & Mishra 2026）。
+  圧力項の係数は `sheath.zhao.ion_pressure_factor`（1 は等温、3 は 1 次元断熱）で、入口は超音速 $m_i u_i^2/e > f\,T_i$ でなければ
+  ならない。太陽風では入口エネルギー（400 km/s の陽子で約 0.86 keV）が $T_i$ よりはるかに大きく、$T_i\le12$ eV で根の変化は
+  0.1 mV 以下である。根には BEACH が注入するイオンと同じ温度を使う。
 - 光電子は表面から半 Maxwell 分布で放出され、その密度は $n_{pe,0}=s_{UV}\,n_{pe,ref}\sin\alpha$
   （$\alpha$ は太陽高度、$n_{pe,ref}$ は基準密度、$s_{UV}$ は倍率）。
 - セルは外部シースから見て厚さ 0 の壁。
-
-### 電子の drift と上流の帯
-
-電子にもイオンと同じ太陽風の法線速度の drift を与え、`sheath.zhao.upstream_field_floor_v_m` を太陽風の運動電場
-$\lvert\mathbf{u}\times\mathbf{B}\rvert$ の目安 2 mV/m（400 km/s、5 nT）にします。設定例はこの形です。
-
-電子が内向きに drift し、遅い電子が反射される Type A と Type C では、上流での反射電子の分布が drift した入射分布の
-鏡像になり、速度 0 で折れ曲がります。このため上流電位に接する狭い電位の帯で $E^2<0$ になり、上流の中性・電場 0 の
-状態へ厳密につながる解はありません。根の方程式（上流 0 V での準中性、零電流、A の接続条件）は積分条件なので帯があっても
-解けますが、電位分布は帯の手前で $E=0$ になって止まり、残りの数十 mV を 1D 静電モデルだけでは埋められません。
-
-**場の下限 `upstream_field_floor_v_m`:** 帯の内側で欠けている場 $\sqrt{-\min E^2}$ は、上流プラズマが外から供給しなければ
-ならない電場です。この不足が指定した外部の場のレベル以下なら根を受理します。これは上流境界を「$E=0$ の無限遠」から
-「場が外部レベルまで落ちた点」に置き換えることに相当します。太陽風は運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert\approx2$ mV/m
-を持ち、磁場や揺らぎもこの桁で効くので、1D 静電シースにこれ以下の場を決める資格はありません。設定例の条件
-（$n=8.7$ cm⁻³、$T_e=12$ eV、405 km/s、太陽高度 60 度）では A の不足は 0.63 mV/m、光電子なしの C では 0.03 mV/m で、
-どちらも運動電場より小さいです。不足は `summary.txt` の `surface_current_model_upstream_field_deficit_V_m`、帯の幅は
-`surface_current_model_upstream_negative_band_V` に記録します。
-
-**幅の許容 `upstream_band_tolerance`:** 同じ帯を電位幅で受理する判定で、A では $\lvert\phi_m\rvert$、C では $\lvert\phi_0\rvert$
-のその割合以下の根を受理します。両方を指定すれば両方を満たす根だけを受理し、両方 0（既定）なら drift のある A/C を棄却します。
-どちらの判定でも受理する根は同じ代数根なので、壁側の量は変わりません。
-
-帯は、遅い電子が入射分布の完全な鏡像であるという理想化が成り立たない範囲です。この尖った分布は運動論的に不安定で、
-現実には緩和や表面での散乱で滑らかになると考えられます。遅い入射電子の drift だけを除いて滑らかにした軌道整合の解と比べると、
-帯を受理した根との差は壁電位で数十 mV、電子の吸収束で 0.3% 未満でした（$n=5$ cm⁻³、$T_e=10$ eV、太陽風 400 km/s、
-光電子 4.5 µA/m²・2.2 eV。[検証記録](https://github.com/Nkzono99/sheath-model/blob/main/outputs/upstream_relaxation_20261009/REPORT.md)）。
-drift を無視したときの差（A で約 1 V、C で約 2.7 V）よりずっと小さいので、BEACH は帯を許容する方法で drift を扱います。
-
-既定の 0 は厳密な判定で、drift のある A/C を棄却します（例えば太陽高度 60 度では B が選ばれ、10 度では成り立つ根がありません）。
-このときは電子の drift を 0 にします。イオンの drift はどちらの場合も必要です。
 
 ## BEACH での扱い
 
@@ -106,8 +85,8 @@ $J_e+J_i+J_{return}+J_{emit}=0$ で閉じます。放出と帰還は別々の倍
 
 ### 上端面の電位を壁電位に合わせる
 
-場の面平均成分を分けて扱う backend（`fields.periodic.backend` が `cached_kneq0` または `panel_spectral_reference`）では、上端面の水平平均電位を
-壁電位 $\phi_0$ に合わせます。真空中で定数を足すだけなので、セル内の電位差と粒子の軌道は変わらず、
+場の面平均成分を分けて扱う backend（`fields.periodic.backend` が `cached_kneq0` または `panel_spectral_reference`）では、
+上端面の水平平均電位を壁電位 $\phi_0$ に合わせます。真空中で定数を足すだけなので、セル内の電位差と粒子の軌道は変わらず、
 電位の値が上流のプラズマ 0 V を基準にした値になります。面平均成分を分けない設定では $\phi_0$ に合わせられず、
 起動時に警告します。
 
@@ -181,8 +160,10 @@ bin は $[0, 1\,\text{meV})$ と、1 meV から 1 keV までの対数 bin（1 �
 | 根が見つからない、または流出が 0 | 警告し、直前の根を保つ |
 | 再開 | 保存した光電子源（スペクトル）から根を作り直す。途中まで合計した分は捨て、再開時点から数え直す |
 
-更新の間隔は、間隔内の光電子の標本で障壁付近のスペクトルが数 % で決まり、かつ表面の帯電の変化より十分短くなるように選びます。
-定常状態だけが目的なら、到達する状態は間隔によりません。
+更新のたびに使う光電子の標本が少ないと、根は統計雑音で揺れます。設定例（光線 300 本/バッチ、更新間隔 2 バッチ、
+平板）では、更新ごとの $\phi_0$ が 2.34〜2.94 V の範囲で揺れ、標準偏差は 0.17 V でした。発散や型の切り替わりはなく、
+揺れは窓内の標本数で決まるので、`outflow_refresh_batches` を長くするか光線数を増やして抑えます。間隔は、表面の
+帯電の変化より十分短く選びます。定常状態だけが目的なら、到達する状態は間隔によりません。
 
 ## 設定
 
@@ -210,16 +191,16 @@ outflow_refresh_batches = 50
 - 役割を持つ粒子種は `charging.closure="fixed_current"`。電子とイオンは上端面から境界流入、光電子は上端面からの
   `photo_raycast` で反作用電荷あり。上端面は開放。
 - 電子とイオンの数密度には同じ太陽風密度を書く（違えば設定エラー）。電子とイオンの drift は、どちらも太陽風の法線速度
-  （負の z）にする。電子の drift を 0 にするなら、場の下限は不要（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
+  （負の z）にする。電子の drift を 0 にするなら `upstream_field_floor_v_m` は不要だが、$\phi_0$ が約 1 V ずれる
+  （[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。
+- イオンの温度は粒子種の `temperature_ev` から外部根にも渡る。`sheath.zhao.ion_pressure_factor` は圧力係数を変えるときだけ書く。
 - 光電子なし（Type C）は `sheath.photoelectrons.source_scale=0.0` とし、光電子の粒子種と関連キーを省く。
   外部根の更新は使えない。
-- 光電子の `emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出は ray 仰角の sin を掛けた値になる。
+- 光電子の `emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出はそれに ray 仰角の sin を掛けた値になる。
   外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と一致させるには、`emit_current_density_a_m2` を垂直入射の値
   $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$（設定例では 2.54 µA/m²）にし、`ray_direction` の仰角を `solar_elevation_deg` に
   合わせる。5% 以上ずれると起動時に警告する。固定電流の放出倍率が差を吸収するので収支は閉じるが、放出の生の粒子数が
-  目標と離れた状態で統計が組まれる。
-- イオンの温度は粒子種の `temperature_ev` から外部根にも渡る。圧力係数を変えるときだけ `sheath.zhao.ion_pressure_factor`
-  を書く。
+  目標から離れた状態で統計が組まれる。
 
 全キーと組み合わせの制約は[入力パラメータ](Parameters.html#surface_current_model-外部シースclosure)にあります。完全な例は
 [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
@@ -230,10 +211,10 @@ outflow_refresh_batches = 50
 
 | 出力 | 見るもの |
 |---|---|
-| `summary.txt` | `surface_current_model_zhao_branch`、`surface_current_model_phi0_V`、`surface_current_model_phi_m_V`（初期根）。二つの残差 `surface_current_model_pe_budget_residual_current_density_A_m2` と `surface_current_model_surface_budget_residual_current_density_A_m2` が 0 に近い |
+| `summary.txt` | `surface_current_model_zhao_branch`、`surface_current_model_phi0_V`、`surface_current_model_phi_m_V`（初期根）。二つの残差 `surface_current_model_pe_budget_residual_current_density_A_m2` と `surface_current_model_surface_budget_residual_current_density_A_m2` が 0 に近い。電子に drift があるなら `surface_current_model_upstream_field_deficit_V_m` が `upstream_field_floor_v_m` 以下 |
 | `fixed_current_history.csv` | `target_over_tracked`。外部根とセル内の追跡が整合していれば、どの粒子種も 1 の近く。光電子の `escape` が 1 から外れるときは、上端面の電位と $\phi_0$ の差を疑う |
 | `charge_ledger.csv` | 粒子種ごとの追跡・目標・適用の電荷、`fixed_*_weight_scale`、個数 |
-| `matching_plane_history.csv`（外部根の更新） | `phi_H_V`（現在の $\phi_0$）、光電子の流出束と平均法線エネルギー、`residual` |
+| `matching_plane_history.csv`（外部根の更新） | `phi_H_V`（現在の $\phi_0$）、光電子の流出束と平均法線エネルギー。`residual` は流出の束と平均エネルギーの変化で、$\phi_0$ の揺れは `phi_H_V` を直接見る |
 | `matching_plane_spectrum_history.csv`（外部根の更新） | 外部根を更新した batch ごとの外部源スペクトル。セル内で加速された裾の割合 |
 | `top_reference_history.csv` | `potential_mean_V` が $\phi_0$ に一致すること。ずれは場の誤差で、障壁の判定をずらす（[遠方補正の精度](PeriodicFarCorrection.html)） |
 
@@ -253,12 +234,8 @@ outflow_refresh_batches = 50
 
 ### 既知の制約
 
-- **上流の帯を受理する近似:** 場の下限または許容幅で受理した根は、上流の帯の内側では理想化した電子分布に従いません。
-  壁の量への影響は数十 mV です（[電子の drift と上流の帯](#電子の-drift-と上流の帯)）。
-- **電子の drift を 0 にした場合の誤差:** drift した Maxwell 分布が面を一方向に横切る束は、drift 0 の
-  $e^{-u^2}+\sqrt\pi\,u\,(1+\operatorname{erf}u)$ 倍です。零電流の根では電子の吸収束がイオンと光電子の脱出に拘束されるので、
-  この差は主に電位に現れます。上の条件（$u=0.21$）で drift を 0 にすると、$\phi_0$ は A で 6.04 → 7.05 V、C で −7.34 → −4.63 V
-  になりました。三層の粒子層では、セル内の電位が全体に A で約 1 V、C で 3〜4 V 上がり、層の間の電位差の変化は 1% 以下でした。
+- **上流の帯:** 電子に drift を与えた A/C の根は、上流に接する幅数十 mV の帯の内側で理想化した電子分布に従いません。
+  壁の量への影響は数十 mV です（[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。
 - **光電子源の離散化:** 外部根の更新では、上端面を出る光電子を法線運動エネルギーの bin だけで表し、bin の中の分布は一定とします。
   接線方向の速度と、表面上の位置による違いは外部シースに渡しません。初期根（最初の更新まで）は表面放出の半 Maxwell 分布で解きます。
 - **跳ね返された太陽風粒子を戻さない:** セル内で跳ね返されて上端面から出ていく太陽風の電子とイオンは、外部根に入れていません。

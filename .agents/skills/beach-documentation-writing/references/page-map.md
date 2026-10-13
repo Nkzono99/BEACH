@@ -45,6 +45,7 @@
 | `PhotoelectronEmission.md` | `photoelectron-emission` | モデル | 光電子をどう放出し、その電荷をどう閉じるか | 光線追跡による放出、反作用電荷、`neutral_return`、`fixed_current` |
 | `ParticleEscapeReturn.md` | `particle-escape-return` | モデル | box の面に達した粒子をどう扱うか | `open`（脱出）、`reflect`、`redistributed_reflect`、`potential_barrier` |
 | `ZhaoStationaryClosure.md` | `zhao-stationary-closure` | モデル | 外部シースの定常解を上端へどう接続するか | 零電流根、上端への写像、固定電流、外部根の更新、既知の制約 |
+| `ZhaoUpstreamBand.md` | `zhao-upstream-band` | モデル | 電子に drift を与えると A/C 根が棄却される理由と、場の下限を何にするか | 上流の帯の由来、電位分布の打ち切り、場の下限と幅の許容、現実の機構 |
 | `PeriodicElectrostatics.md` | `periodic-electrostatics` | モデル | x/y 周期の場をどう組み立てるか | 3 成分（有限画像、面内変動、面平均）、下側境界、有限画像の意味 |
 
 ## リファレンス

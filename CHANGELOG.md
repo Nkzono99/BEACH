@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `solar_elevation_deg` by more than 1 degree. The fixed-current scale absorbed such mismatches silently.
 
 ### Changed
+- Restructured [Connecting to the outer sheath](docs/ZhaoStationaryClosure.md) around the four conditions the root gives the
+  top face, and moved the electron-drift discussion to a new page, [Electron drift and the upstream band](docs/ZhaoUpstreamBand.md):
+  why the band appears, what happens to the potential profile, the two acceptance criteria with measured deficits, and the
+  physics that fills the band in a real plasma.
 - The Zhao examples emit photoelectrons at the normal-incidence value of the outer source (2.5446e-6 A/m²) along a ray at the
   configured 60-degree solar elevation, so the fixed-current emission scale is 1 instead of about 0.02. They now accept the
   drifting root with `zhao_upstream_field_floor_v_m = 2.0e-3` instead of `zhao_upstream_band_tolerance = 0.1`.

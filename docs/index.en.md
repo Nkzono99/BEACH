@@ -44,7 +44,7 @@ attached.
 | Select particle sources or surface models | [Choose where particles enter](ParticleSourcesBoundaries.en.html) → [How surfaces charge](SurfaceModels.en.html) |
 | Configure open boundaries and return | [Inject particles through a boundary](ReservoirInjection.en.html) → [Particle escape and return](ParticleEscapeReturn.en.html) |
 | Include photoelectrons | [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) |
-| Model a periodic surface in solar wind and photoelectrons | [Set up a periodic surface in plasma](PeriodicPlasmaSurface.en.html) → [Connecting to the outer sheath](ZhaoStationaryClosure.en.html) |
+| Model a periodic surface in solar wind and photoelectrons | [Set up a periodic surface in plasma](PeriodicPlasmaSurface.en.html) → [Connecting to the outer sheath](ZhaoStationaryClosure.en.html) → [Electron drift and the upstream band](ZhaoUpstreamBand.en.html) |
 | Select field solvers or periodic boundaries | [Field evaluation](FieldSolvers.en.html) → [periodic2 electrostatics](PeriodicElectrostatics.en.html) |
 | Visualize output | [Post-processing tutorial](PostprocessTutorial.en.html) → [Python API](PythonPostprocessAPI.en.html) |
 | Change the source code | [Architecture](Architecture.en.html) → [Development and testing](Workflow.en.html) |

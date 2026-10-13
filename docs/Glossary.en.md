@@ -61,6 +61,9 @@ configuration or an output. Configuration keys use the grouped (seven-group) nam
 | outflow refresh | 外部根の更新 | `sheath.coupling.outflow_refresh_batches` | Re-solving the sheath root periodically from the photoelectrons observed to leave through the top face |
 | top face (z-high) | 上端面 | `z_high` | Upper face of the box, where the outer sheath is connected |
 | potential barrier | 電位障壁 | `particles.boundary.open_model = "potential_barrier"` | Test that classifies a particle leaving an open face as reflected or escaped from its potential difference to the upstream plasma |
+| upstream band | 上流の帯 | `surface_current_model_upstream_negative_band_V` | Potential width next to upstream where $E^2<0$ for A / C roots with electron drift |
+| field floor | 場の下限 | `sheath.zhao.upstream_field_floor_v_m` | Field level at which the outer sheath hands over to the upstream plasma; roots whose deficit inside the band is at most this are accepted |
+| field deficit | 場の不足 | `surface_current_model_upstream_field_deficit_V_m` | Field missing inside the band, $\sqrt{-\min E^2}$, which the upstream plasma supplies from outside |
 
 ## Periodic fields
 

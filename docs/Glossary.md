@@ -61,6 +61,9 @@ BEACH のドキュメントで使う用語と、対応する英語、設定キ�
 | 外部根の更新 | outflow refresh | `sheath.coupling.outflow_refresh_batches` | 上端面を出る光電子の観測値から、外部シースの根を定期的に解き直すこと |
 | 上端面 | top face（z-high） | `z_high` | box の上側の面。外部シースと接続する面 |
 | 電位障壁 | potential barrier | `particles.boundary.open_model = "potential_barrier"` | 開放面を出る粒子を、上流電位との差で反射か脱出かに分ける判定 |
+| 上流の帯 | upstream band | `surface_current_model_upstream_negative_band_V` | 電子に drift を与えた A / C の根で、上流電位に接して $E^2<0$ になる電位の幅 |
+| 場の下限 | field floor | `sheath.zhao.upstream_field_floor_v_m` | 外部シースが上流プラズマへ引き渡す場のレベル。帯の内側の場の不足がこれ以下の根を受理する |
+| 場の不足 | field deficit | `surface_current_model_upstream_field_deficit_V_m` | 帯の内側で欠けている場 $\sqrt{-\min E^2}$。上流プラズマが外から供給する電場 |
 
 ## 周期場
 

@@ -118,7 +118,7 @@ meshを固定したまま経路積分や画像層だけを収束させても、m
 | `infinity_barrier` | reservoir面の平均電位、画像層依存性、面内電位ばらつきの警告 |
 | `potential_barrier` | open面の通過点電位と`reservoir.phi_infty`、法線運動エネルギーによる反射・流出判定 |
 | 光電子 | 放出・帰還・流出の電荷収支、ray samplingと時間刻みへの収束 |
-| `zhao_stationary` の外部根の更新 | `matching_plane_residual`の減少、窓幅`outflow_refresh_batches`と標本数への依存、branch の変化、`charge_ledger.csv`の倍率が1に近いこと、z-high面平均電位と$\phi_0$の一致、H高度依存性 |
+| `zhao_stationary` の外部根の更新 | `matching_plane_residual`の減少、窓幅`outflow_refresh_batches`と標本数への依存、branch の変化、`charge_ledger.csv`の倍率が1に近いこと、z-high面平均電位と$\phi_0$の一致、`matching_plane_history.csv`の`phi_H_V`の揺れが標本数で決まる幅に収まること、電子にdriftがあれば`surface_current_model_upstream_field_deficit_V_m`が`upstream_field_floor_v_m`以下であること、H高度依存性 |
 
 各診断の定義と適用範囲は、[プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html)と
 [box 境界での粒子の扱い](ParticleEscapeReturn.html)にあります。外部シースのモデルと適用範囲は
