@@ -13,19 +13,17 @@
        {\lVert\vect x-\vect y\rVert^3}\dd S_{\vect y}.
        \label{eq:panel_field}
 \end{align}
-BEACH の公開 source kernel は \code{triangle_p0} に固定されている。
-要素電荷は既知の蓄積量として与えられるため、絶縁体の通常経路では、
-境界電位から全 $q_i$ を毎回逆算する連立方程式は解かない。
-浮遊導体の等電位化だけが、追加の境界条件を連立方程式へ課す経路である。
+要素電荷は粒子の吸収・放出から蓄積量として決まるため、絶縁体では、
+境界電位から全 $q_i$ を逆算する連立方程式は解かない。
+浮遊導体の等電位化（第\ref{ch:update}章）だけが、追加の境界条件を連立方程式として課す。
 
 P0 は要素ごとの一定密度近似であり、真の表面電荷密度の連続性や細部を完全には表さない。
 面の積分を正確に評価しても、三角形形状と密度の離散化誤差は残る。
-面上の一定・線形 source に関する解析積分の系譜は Graglia の研究に見られる\citep{Graglia1993}。
 
 \section{辺の対数項と立体角}
-解析 kernel の構造を一つの三角形について示す。評価点 $\vect x$ の面からの符号付き高さを
-$d$、平面への投影を $\vect x_\parallel$、辺 $e$ の面内外向き法線を $\vect\nu_e$ とする。
-辺の長さを $\ell_e$、両端までの距離を $r_{e,1},r_{e,2}$ とおくと、
+一つの三角形について解析積分の構造を示す\citep{Wilton1984}。評価点 $\vect x$ の面からの符号付き高さを
+$d=(\vect x-\vect a_1)\cdot\vect n$、平面への投影を $\vect x_\parallel$、辺 $e$ の面内外向き単位法線を $\vect\nu_e$、
+辺 $e$ 上の一点を $\vect a_e$ とする。辺の長さを $\ell_e$、評価点から両端までの距離を $r_{e,1},r_{e,2}$ とおくと、
 \begin{equation}
  L_e=\log\frac{r_{e,1}+r_{e,2}+\ell_e}
                    {r_{e,1}+r_{e,2}-\ell_e},\qquad
@@ -38,17 +36,20 @@ $d$、平面への投影を $\vect x_\parallel$、辺 $e$ の面内外向き法�
  \phi_i&=\kc\frac{q_i}{A_i}I_\phi,\qquad
  \vect E_i=\kc\frac{q_i}{A_i}\vect I_E
 \end{align}
-を評価する。$\Omega$ は実装の法線規約に従う符号付き立体角であり、
-\src{bem_panel_kernel.f90} では三頂点の相対ベクトルの三重積と内積から
-\code{atan2} で計算する。
-上式は面外での構造を表し、面上では専用の自己項と trace を使う。
+となる。$\Omega$ は評価点が法線 $\vect n$ の側にあるとき正となる符号付き立体角であり、
+頂点への相対ベクトル $\vect r_k=\vect a_k-\vect x$（$r_k=\lVert\vect r_k\rVert$）から
+\begin{equation}
+ \Omega=-2\operatorname{atan2}\Bigl(\vect r_1\cdot(\vect r_2\times\vect r_3),\;
+ r_1r_2r_3+(\vect r_1\cdot\vect r_2)r_3+(\vect r_2\cdot\vect r_3)r_1+(\vect r_3\cdot\vect r_1)r_2\Bigr)
+\end{equation}
+で計算する\citep{VanOosterom1983}。
+評価点が面上にあるときは、次節の自己項と片側極限を用いる。
 
 重心に点電荷を置く近似と異なり、三角形の広がりを近傍でも保持する。
-公開入力に経験的な softening 長を導入して特異性を置き換えるモデルではない。
-鋭い辺や頂点の近傍では、電場の特異な振る舞いと数値評価規約を区別する必要がある。
+特異性を経験的な softening 長で置き換えることはしない。
 
 \section{自己電位と片側電場}
-要素内の通常の評価点では、面上の電位は連続であり、面積を持つ三角形の自己電位も有限である。
+要素内の評価点では、面上の電位は連続であり、面積を持つ三角形の自己電位も有限である。
 法線電場は表面電荷によって跳ぶ。
 \begin{equation}
  \vect E_i^{\pm}
@@ -57,25 +58,6 @@ $d$、平面への投影を $\vect x_\parallel$、辺 $e$ の面内外向き法�
  \vect n_i\cdot(\vect E_i^+-\vect E_i^-)=\frac{\sigma_i}{\eps}.
  \label{eq:jump}
 \end{equation}
-$\mathrm{PV}$ は両側極限の平均としての principal-value trace である。
-どちらを真空・プラズマ側として採用するかは \code{surface_side} と法線の向きで決める。
-\code{normal_plus}、\code{normal_minus}、整合した閉曲面の \code{outward_closed} は、
-幾何の向きとセットで解釈する。
-
-衝突判定は両側から行われるため、衝突の表裏と電場の片側 trace は同じ概念ではない。
-また、面上ちょうどの Direct と FMM には trace 規約の差があるため、
-通常の solver 一致試験は面から離した点、または規約を揃えた自己項で行う。
-
-\section{内部の長さ正規化と SI 単位}
-代表長 $L$ に対して $\vect x=L\widehat{\vect x}$ と変換した場合、
-要素総電荷 $q_i$ を保持したまま、電位は $L^{-1}$、電場は $L^{-2}$ の係数で SI へ戻る。
-\begin{equation}
- \phi=\frac{\kc}{L}\widehat\phi,\qquad
- \vect E=\frac{\kc}{L^2}\widehat{\vect E}.
-\end{equation}
-正規化は数値尺度を整える処理であり、物理的な遮蔽や mesh 細分化を代替しない。
-高次 moment は長さの次数が異なるため、周期 operator の生成でも尺度の揃え方が精度に影響する。
-
-\basisdoc{\src{docs/DirectSolver.md}、\src{src/mesh/panel/bem_panel_geometry.f90}、
-\src{src/physics/field_solver/panel/bem_panel_kernel.f90}、
-\src{src/physics/field_solver/panel/bem_panel_self_terms.f90}。}
+$\mathrm{PV}$ は両側極限の平均としての principal value である。
+面上の電場には、粒子が存在する側の片側極限を用いる。閉じた物体では外向き法線の側をとる。
+衝突は面の両側から検出する（第\ref{ch:particles}章）ので、衝突の表裏と電場の片側極限の選択は独立である。

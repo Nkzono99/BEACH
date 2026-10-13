@@ -31,12 +31,13 @@ BEACH を使う研究では、帯電機構の検証と、ダスト観測の起�
 \section{シースモデルと三次元局所計算}
 Zhao らは平面光電子シースの解析解と kinetic PIC 計算を比較し、非単調な Type A と
 単調な Type B、Type C の電位構造を扱った\citep{Zhao2020}。
-BEACH の Zhao 系 closure は、この平面定常モデルを背景として利用する。
-ただし、論文の全領域 PIC を BEACH 内で再現する機能ではない。
+第\ref{ch:sheath}章の外部シース closure は、この平面定常モデルを箱の外の領域に用いる。
+全領域を PIC で解くものではない。
 
 Sana と Mishra は、太陽光と太陽風の分布を考慮した単調・非単調シース構造を解析した\citep{SanaMishra2023}。
-複数の電位構造が候補となることは、closure の branch を明示して検証する理由になる。
-同じ著者らの 2026 年の解析は、BEACH が外部根のイオン輸送に使う圧力項を含む流体モデルの出典である。
+複数の電位構造が候補となることは、closure の型を明示して検証する理由になる。
+同じ著者らは、太陽風イオンの有限温度を圧力項としてイオン流体に加え、シース構造への影響を調べた\citep{SanaMishra2026}。
+第\ref{ch:sheath}章の外部シースのイオン輸送は、この流体モデルに従う。
 
 三次元の粒子・地形スケールと、より大きい外部シーススケールを両方 kinetic に解くと、
 空間解像度、飛行時間、粒子数の要件が同時に増える。
@@ -45,8 +46,9 @@ BEACH は局所の三次元表面電荷と軌道に計算を集中し、必要�
 
 \section{採用手法の系譜}
 三角形上の Green 関数とその勾配の解析積分は、panel 型の場計算の基礎となる。
-Graglia は三角形上の線形形状関数を含む積分を整理した\citep{Graglia1993}。
-BEACH の通常 source は要素内一定密度の P0 であり、同論文の線形要素をそのまま採用したものではない。
+Wilton らは多角形上の一様・線形 source の電位積分を閉じた形で与え\citep{Wilton1984}、
+Graglia は線形形状関数と Green 関数の勾配を含む積分を整理した\citep{Graglia1993}。
+BEACH は要素内一定密度（P0）の source を用い、立体角は Van Oosterom と Strackee の公式で評価する\citep{VanOosterom1983}。
 
 遠方群を階層的にまとめる treecode は Barnes--Hut の考え方に連なる\citep{BarnesHut1986}。
 FMM は source の多重極展開と target の局所展開を用いて長距離相互作用を高速化する手法である\citep{GreengardRokhlin1987}。
@@ -54,9 +56,6 @@ BEACH は近傍で三角形積分を保ち、遠方に三角形の面積平均 m
 このため、三角形を重心の点電荷に置き換えるモデルとは近傍精度も高次 moment も異なる。
 
 2 軸周期系の Ewald 分割については Lindbo と Tornberg の定式化が参考になる\citep{LindboTornberg2012}。
-BEACH の通常評価は同論文の FFT ベース solver ではなく、Ewald 参照から生成した遠方 operator と
-FMM、さらに独立した物理的零モードを合成する。
-粒子更新には Boris 法、三角形交差には Möller--Trumbore 法を利用する\citep{Qin2013,MollerTrumbore1997}。
-
-\basisdoc{\src{SPEC.md}、\src{docs/SurfaceModels.md}、\src{docs/FMMCore.md}、
-\src{docs/ZhaoStationaryClosure.md}、\src{docs/ZhaoUpstreamBand.md}。}
+BEACH は同論文の FFT 型の解法ではなく、Ewald 和を参照として生成した遠方作用素を FMM に組み込み、
+Gauss 則で閉じる零モードを別に加える。
+粒子更新には Boris 法、軌道線分と三角形の交差には Möller--Trumbore 法を用いる\citep{Qin2013,MollerTrumbore1997}。

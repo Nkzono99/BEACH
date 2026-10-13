@@ -47,16 +47,12 @@
 \newcommand{\dd}{\mathop{}\!\mathrm{d}}
 \newcommand{\eps}{\epsilon_0}
 \newcommand{\kc}{k_{\mathrm c}}
-\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
-\newcommand{\src}[1]{{\small\nolinkurl{#1}}}
-\newcommand{\basisdoc}[1]{\par\smallskip\noindent
-  {\small\raggedright\textbf{実装・仕様の根拠：}#1\par}\medskip}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 
 \title{BEACH の物理モデルと数値アルゴリズム\\[0.6em]
   \Large 表面帯電・境界要素法・粒子追跡の技術解説}
 \author{技術原稿（著者・所属は確定時に記入）}
-\date{2026 年 10 月 13 日\\\small 実装に基づく初稿（第 8 章改訂）}
+\date{2026 年 10 月 13 日}
 
 \begin{document}
 \pagestyle{plain}
@@ -65,23 +61,13 @@
 \chapter*{本書の位置づけ}
 \addcontentsline{toc}{chapter}{本書の位置づけ}
 本書は BEACH（BEM + Accumulated CHarge）が採用するモデルとアルゴリズムを、
-研究背景、支配方程式、離散化、計算手順、適用限界の順にまとめた日本語の技術原稿である。
-想定読者は、プラズマと表面の相互作用を研究し、BEACH の計算結果を論文で説明したい研究者である。
-設定キーの網羅的な説明は既存の入力リファレンスに委ね、物理量がどの近似を経て計算されるかを重視する。
+研究背景、支配方程式、離散化、計算手順、適用限界の順にまとめた技術原稿である。
+想定読者は、プラズマと表面の相互作用を研究し、BEACH による計算を論文で説明する研究者である。
+入力形式や操作手順は扱わず、プラズマ物理と数値計算の一般的な知識を前提に、
+物理量がどの近似を経て計算されるかを記述する。
 
-対象は 2026 年 10 月 5 日に確認したローカル作業ツリーである。
-基点の Git commit は \code{57561eb2fe795d84e06e5b6abaf29ff15c1d8070} であり、
-確認時点では周期場の長さ尺度と零モードに関する未コミットの変更を含んでいた。
-したがって、この原稿を当該 commit のみに対する仕様、あるいは公開リリースの保証と解釈してはならない。
-機能の記述には現行 \src{SPEC.md}、対応する説明文書、Fortran 実装を用いた。
-インストール済み context plugin の説明よりローカルの新しい実装を優先している。
-設定例と粒子源の説明は 2026 年 10 月 6 日に改訂し、境界流入だけの場合は
-\code{source_mode} と \code{npcls_per_step} を省略する書き方に揃えた。
-第\ref{ch:sheath}章は 2026 年 10 月 13 日の実装（commit \code{7e56bb5}、sheath-model \code{b4a2521}）に合わせて改訂し、
-削除された整合面の準定常連成を外し、定常 closure、イオン流体、上流の帯と場の下限、外部根の更新を記述した。
-
-本書は新たなシミュレーション結果を報告する研究論文ではない。
-性能、実環境との一致、研究上の新規性を実測したとは主張しない。
+本書は新たな研究成果を報告する論文ではない。第\ref{ch:sheath}章の数値例は、手法の性質を示すための試験計算である。
+性能や実環境との一致を実測したとは主張しない。
 第\ref{ch:validation}章に、研究ケースごとに必要な検証を示す。
 文献は理論の由来と比較対象を示すものであり、BEACH 全体を先行論文と同一のモデルと認定するものではない。
 
@@ -126,8 +112,6 @@ simulation results and makes no claim of general experimental validation or meas
 \input{sections/08_sheath}
 \input{sections/09_validation}
 \input{sections/10_research}
-\appendix
-\input{sections/appendix_sources}
 \backmatter
 \bibliographystyle{plainnat}
 \bibliography{references}

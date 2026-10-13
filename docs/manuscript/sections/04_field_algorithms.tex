@@ -1,17 +1,13 @@
 \chapter{場の高速化と二軸周期境界}
 \label{ch:field}
 
-\section{Direct、treecode、FMM の役割}
-$N$ source に対する $M$ 点の Direct 評価は $O(MN)$ の panel 和である。
-同じ P0 source のまま遠方近似を導入しないため、小規模の基準計算として利用できる。
-全要素重心の電位履歴を Direct で評価すると $O(N^2)$ になり、
-粒子追跡とは別に出力が計算時間を支配する可能性がある。
+\section{Direct、treecode、FMM}
+$N$ 個の source に対する $M$ 点の Direct 評価は $O(MN)$ の panel 和である。
+遠方近似を含まないので、小規模な計算では他の手法の基準になる。
 
-treecode は source の octree を評価点ごとに走査し、十分に遠い node を一つの monopole で置き換える。
-FMM は target 側にも局所展開を作り、遠方群の寄与を多くの評価点で共有する。
-これらの手法の基礎は Barnes--Hut および Greengard--Rokhlin にある\citep{BarnesHut1986,GreengardRokhlin1987}。
-BEACH の \code{auto} は要素数から Direct または FMM を選ぶ。
-treecode の通常の対応場は自由空間であり、周期場では Direct/FMM と周期 split の互換性を確認する。
+treecode は source の octree を評価点ごとに走査し、十分に遠い node を一つの monopole で置き換える\citep{BarnesHut1986}。
+FMM は target 側にも局所展開を作り、遠方群の寄与を多くの評価点で共有する\citep{GreengardRokhlin1987}。
+どちらも近傍は第\ref{ch:electrostatics}章の解析 panel 積分で評価する。
 
 \section{treecode の遠方判定と電荷相殺}
 node 内の総電荷、絶対電荷和、電荷中心を
@@ -20,20 +16,16 @@ node 内の総電荷、絶対電荷和、電荷中心を
  \vect c_{Q,n}=\frac{\sum_{i\in n}q_i\vect c_i}{Q_n}
 \end{equation}
 とする。$Q_n$ が極小のときは幾何中心を用いる。
-node 半径 $R_n$ は全三角形頂点を覆い、評価点との距離 $d_n$ に対して
+node 半径 $R_n$ は全三角形の頂点を覆うようにとり、評価点との距離 $d_n$ に対して
 \begin{equation}
  R_n<\theta(d_n-R_n)
 \end{equation}
-を遠方候補の条件とする。重心だけを用いて半径を過小評価すると、
-評価点に近い大きな panel を誤って monopole にまとめる可能性がある。
+を遠方の条件とする。重心だけから半径を決めると、評価点に近い大きな panel を誤って monopole にまとめるためである。
 
-さらに、正負電荷の相殺による電荷中心の不安定化を避けるため、
-\begin{equation}
- |S_n-|Q_n||\le64\epsilon_{\mathrm{mach}}\max(S_n,|Q_n|)
-\end{equation}
-を満たす node だけを受理する。実質的に異符号電荷が混在する node では子へ降りる。
-近傍と leaf は解析 panel 和で評価する。
-この規則は相殺時の精度を守る一方、細かく正負電荷が混在する分布では高速化効果を弱める。
+さらに、正負の電荷が相殺する node では電荷中心が不安定になるので、
+node 内の電荷が同符号（丸め誤差の範囲で $S_n=|Q_n|$）のときだけ遠方近似を受理し、
+異符号の電荷が混在する node では子へ降りる。
+この規則は相殺時の精度を守る一方、細かく正負が混在する分布では高速化の効果を弱める。
 
 \section{Cartesian FMM の展開}
 多重指数 $\alpha=(\alpha_x,\alpha_y,\alpha_z)$ を用い、
@@ -47,7 +39,6 @@ $\alpha!=\alpha_x!\alpha_y!\alpha_z!$ とする。
  \label{eq:panel_moment}
 \end{equation}
 と定義する。重心点の monomial ではなく、三角形上の厳密な面積平均を用いる。
-総電荷 $q_i$ には面積を再び掛けない。
 
 FMM の手順は、leaf の moment を作る P2M、親へ集約する M2M、
 遠方 source を target の局所展開へ移す M2L、子へ伝える L2L、
@@ -75,55 +66,63 @@ $\vect R=\vect c_t-\vect c_s$ に対して M2L は
 \end{equation}
 で評価する。
 
-固定 geometry の木、相互作用 pair、平行移動係数を初期化時に作り、
-電荷に依存する moment と local だけをバッチごとに更新する。
-現行 simulator の展開次数は $p=4$ 固定である。
-低水準 FMM test が次数を変えられることと、\code{beach.toml} に公開次数キーがあることは異なる。
-研究ケースでは \code{tree_theta}、leaf size、Direct 基準との差を確認する。
-一定次数で良好な木分割を仮定した FMM の計算量の議論を、任意のケースの実測速度として引用しない。
+木、相互作用 pair、平行移動の係数は geometry だけで決まるので初期化時に一度だけ作り、
+バッチごとには電荷に依存する moment と局所展開だけを更新する。
+展開次数は $p=4$ とし、精度は開き角 $\theta$ と leaf の要素数で調整する。
 
-\section{周期場の非零モードと零モード}
-\code{periodic2} は $x,y$ 周期、$z$ 非周期の slab を対象とする。
-mesh は primitive cell の base triangle を保持し、場と衝突は必要な画像を扱う。
-粒子の周期 wrap を指定することと、静電場を無限周期にすることは別である。
-
-cell の横面積を $A_{\mathrm c}=L_xL_y$ とすると、場を
+\section{二軸周期場の分割}
+$x,y$ 方向に周期 $L_x,L_y$、$z$ 方向に非周期の slab を考える。
+表面 mesh は一つの周期セルの三角形だけを持ち、場の評価と衝突判定で周期画像を扱う。
+セルの横面積を $A_{\mathrm c}=L_xL_y$ とし、電位と電場の評価作用素を $K$ と書くと、
 \begin{equation}
  K_{\mathrm s}=
- \underbrace{K_{\mathrm{shell}}+R_{\mathrm{Ewald}}^{\mathrm{full}}
-                 -K_0^{\mathrm{sym}}}_{k\ne0\ \text{の backend}}
- +K_0^{\mathrm{physical}}
+ \underbrace{K_{\mathrm{shell}}(N)
+   +\mathcal F\bigl[R_{\mathrm{Ewald}}+s\bigr]-K_0^{\mathrm{sym}}-S}_{k\ne0}
+ +K_0^{\mathrm{phys}}
  \label{eq:periodic_split}
 \end{equation}
-へ分ける。$K$ は電位と電場の評価作用素を表す。
-有限画像だけの設定では、指定した shell の外側を含まない。
-\code{field_periodic_far_correction="none"}、および現行の \code{auto} は有限画像モデルである。
-無限周期 nonzero mode の production 経路は \code{cached_kneq0} を明示する。
-\code{panel_spectral_reference} は小規模な P0 参照経路として用いる。
+へ分ける。$K_{\mathrm{shell}}(N)$ はセル自身と、各周期軸に $N$ 層までの画像の直接評価であり、
+近傍は panel 積分、それ以外は画像の平行移動を含めた M2L で評価する。
+$R_{\mathrm{Ewald}}=K_{\mathrm{Ewald}}-K_{\mathrm{shell}}(N)$ はその外側の画像からの滑らかな残差、
+$\mathcal F$ は次節の作用素による近似である。
 
-\section{Ewald 参照から生成する遠方 operator}
-Ewald 分割は
+$K_{\mathrm{shell}}(N)$ をセル上で面平均すると、無限面電荷の平均場 $K_0^{\mathrm{sym}}$
+（$\kc$ を除いた単位で、高さ $h$ の単位電荷あたり $-2\pi|h|/A_{\mathrm c}$）と滑らかな残り $s(h)$ の和になる。
+$s$ は $1/r$ を画像ブロック上で積分した閉じた式から $K_0^{\mathrm{sym}}$ を引いたもので、$h=0$ でも解析的である。
+残差 $R_{\mathrm{Ewald}}$ の面平均はちょうど $-s$ なので、作用素には面平均が 0 の $R_{\mathrm{Ewald}}+s$ だけを近似させ、
+$s$ は source ごとの高さの関数として $S(z)=\sum_iq_is_i(z)$ を実行時に引く。
+これにより $k\ne0$ 部分は面平均を持たず、面平均成分は Gauss 則で閉じる $K_0^{\mathrm{phys}}$ として一度だけ加わる。
+
+\section{Ewald 和から生成する遠方作用素}
+参照の 2 軸周期 Coulomb 和は、kernel を
 \begin{equation}
  \frac1r=\frac{\operatorname{erfc}(a r)}r
             +\frac{\operatorname{erf}(a r)}r
 \end{equation}
-によって実空間と逆空間の収束を分担する\citep{LindboTornberg2012}。
-$a$ は数値計算上の分割 parameter であり、Debye 遮蔽長の逆数ではない。
-BEACH の teacher は実・逆空間を有限層で打ち切った Ewald2P 参照である。
+に分け、第 1 項を実空間の画像和、第 2 項を周期 2 軸の逆空間和として評価し、
+非周期軸は実座標のまま残す\citep{LindboTornberg2012}。
+$a$ は実空間と逆空間の計算量を配分する数値 parameter であり、Debye 遮蔽長の逆数ではない。
+参照は十分な層数で打ち切った有限和とし、作用素の生成時にだけ評価する。
 
-初回生成では source の proxy 点と target の check 点を置き、
-teacher から有限画像分を引いた残差を再現する operator を正則化 QR で求める。
-root multipole を $\vect M_{\mathrm{root}}$ とすると、target anchor $t$ の補正は
+geometry を固定すれば遠方残差は電荷に対して線形である。
+source 木の深さ 2 の節点 $s$ の多重極係数を $\vect M_s$、target 木の深さ 2 の節点 $t$ の遠方局所係数を
+$\vect L_t^{\mathrm{far}}$ とすると、
 \begin{equation}
- \vect L_t^{\mathrm{far}}=\mathsf A_t\vect M_{\mathrm{root}}
+ \vect L_t^{\mathrm{far}}=\sum_s\mathsf A_{t,s}\vect M_s
 \end{equation}
-である。電場 fit では決まらない電位の定数係数を、電位残差から別に fit する。
-生成した operator を geometry・設定の fingerprint と checksum 付きで保存し、後の run で再利用する。
-通常のバッチでは ordinary M2L の後、L2L の前に補正を加えるため、粒子ごとに Ewald 和を再計算しない。
+と書ける。source 全体を根の多重極一つで表すと、source の高さ方向の広がりが、除いた最も近い画像までの距離
+（$N=1$ で周期長の約 2 倍）に近い場合に展開がほとんど収束しないので、深さ 2 の節点に分けて展開の収束を確保する。
+$\mathsf A_{t,s}$ は、source 節点を囲む代理点の電荷から多重極への写像（最小ノルムの擬似逆）と、
+target 節点の周囲に置いた検査点で残差の電場を局所展開で再現する正則化 QR の最小二乗解を合成して求める。
+擬似逆を求める前に、長さの次数が異なる多重極の行を正規化する。
+電場の fit では決まらない局所展開の定数項は、同じ検査点の電位の残差から別に求める。
 
-確認した作業ツリーには、高次 moment 行の長さ尺度を揃える生成器修正が含まれる。
-それでも、大きな有限画像場と零モードを差し引いて小さな非零場を得る領域では、残差誤差が支配し得る。
-cache の再利用と単位尺度の一致だけで、弱い外部場に対する絶対精度を保証できない。
+作用素は geometry だけで決まるので一度生成すれば再利用できる。
+バッチごとの計算では、通常の M2L の後、L2L の前に $\vect L_t\leftarrow\vect L_t+\sum_s\mathsf A_{t,s}\vect M_s$ を加え、
+その後は通常の L2L と L2P で評価する。粒子の評価ごとに Ewald 和を計算することはない。
+
+大きな有限画像場と零モードを差し引いて小さな非零場を得る条件では、作用素の fit 残差が誤差を支配し得る。
+弱い外部場と比較する研究では、非零場の絶対誤差を Fourier 和などの独立な参照で確認する。
 
 \section{Gauss 則で閉じる物理的零モード}
 三角形 $i$ のうち高さ $z$ 以下の面積割合を $F_i(z)$ とおくと、累積電荷は
@@ -131,7 +130,7 @@ cache の再利用と単位尺度の一致だけで、弱い外部場に対す�
  C(z)=\sum_iq_iF_i(z)
 \end{equation}
 である。傾いた三角形の $F_i$ は頂点高さの間で区分二次、水平三角形は sheet の跳びになる。
-BEACH はこの幾何係数を前計算し、電荷変更時に係数と積分 primitive を更新する。
+$F_i$ は geometry だけで決まるので区分多項式の係数を前計算し、電荷の更新ごとに $C(z)$ とその積分を組み立てる。
 下側遠方電場 $E_{\mathrm b}$ と gauge $(z_g,\phi_g)$ を指定すると
 \begin{align}
  E_{0,z}(z)&=E_{\mathrm b}+\frac{C(z)}{\eps A_{\mathrm c}},
@@ -148,12 +147,9 @@ BEACH はこの幾何係数を前計算し、電荷変更時に係数と積分 p
  \end{cases}
 \end{equation}
 である。どちらも材料内部の誘電分極や遮蔽を解くモデルではない。
-電荷源より上では $C(z)=Q$ を用い、多項式の丸め残差を上部真空へ外挿しない。
 
 非中性 cell の遠方には一定電場と線形電位が残り得る。
 また $Q=0$ でも、高さによって正負の電荷が分離すれば $C(z)$ は零とは限らない。
 零モードを単に消すと、この高さ分布と Gauss 則を失う。
-外部シースを接続する場合も、表面電荷の零モードと外部空間電荷の役割を分け、二重加算を避ける。
-
-\basisdoc{\src{docs/Treecode.md}、\src{docs/FMM.md}、\src{docs/FMMCore.md}、
-\src{docs/PeriodicElectrostatics.md}、\src{docs/PeriodicFarCorrection.md}。}
+外部シースを接続する場合は、gauge を上端面の電位の基準に用い、
+表面電荷の零モードと外部空間電荷の役割を分けて二重に数えない（第\ref{ch:sheath}章）。

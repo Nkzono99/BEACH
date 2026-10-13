@@ -113,9 +113,7 @@ event前後の速さを保存します。速さが非正または非有限とな
 ただし、chordの交差fractionを残り時間のfractionにも使うため、加速または磁場旋回中の真の交差時刻を
 解いているわけではありません。これは軌道線分eventモデルの時間離散化近似であり、境界作用や
 potential-barrier判定を使う計算でも`dt`、`dt/2`、必要なら`dt/4`で結果の収束を確認する必要があります。
-
-z-high outer interfaceでは、Boris更新の両端と整合する二次軌道をcoupling経路で構成し、交差時刻を
-再評価します。[<sup>2</sup>](ParticleEvents.html)
+外部シースを接続した上端面の通過も同じ chord の交差で判定します。[<sup>2</sup>](ParticleEvents.html)
 
 ## Boris更新が保つ性質
 

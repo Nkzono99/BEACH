@@ -8,8 +8,7 @@
  \vect x_{\mathrm{mid}}=\vect x^n+\frac{\delta t}{2}\vect v^n,
  \qquad \vect E_{\mathrm{mid}}=\vect E(\vect x_{\mathrm{mid}})
 \end{equation}
-で電場を一回評価する。箱が有効なら、この場の評価点だけを周期軸で wrap、その他の軸で clamp する。
-候補軌道の座標は境界の発生順を比較するために物理座標のまま保つ。
+で電場を一回評価する。周期軸では、場の評価点だけを基本セルへ写す。
 
 速度更新は電場半 step、磁場回転、電場半 step である。
 \begin{align}
@@ -27,14 +26,15 @@
 ただし数値的な旋回角は $2\arctan(\omega_c\delta t/2)$ であり、
 速さを保存しても大きな step の旋回位相まで正確とは限らない。
 
-Boris 法の保存性に関する研究\citep{Qin2013}と、BEACH の場標本化・位置更新は分けて考える。
-現行の滑らかな静電場の regression test は位置・速度の二次収束を確認する。
-これは衝突、境界作用、バッチ間の場更新を含む全系の二次精度を保証しない。
+標準の Boris 法は位相空間体積を保存する\citep{Qin2013}が、
+本更新は電場の標本点と位置の更新が異なるので、その性質をそのまま引き継ぐとは限らない。
+滑らかな静電場では位置・速度とも 2 次精度である。
+ただし衝突、境界作用、バッチ間の場の更新を含む全体の精度は、別に確認する必要がある。
 
 \section{三角形との最初の交点}
 候補軌道の chord を
 \begin{equation}
- \vect x(\lambda)=\vect x^n+lambda(\vect x^{n+1}-\vect x^n),
+ \vect x(\lambda)=\vect x^n+\lambda(\vect x^{n+1}-\vect x^n),
  \qquad 0\le\lambda\le1
 \end{equation}
 とする。三角形の頂点 $\vect a,\vect b,\vect c$ に対して
@@ -43,54 +43,46 @@ Boris 法の保存性に関する研究\citep{Qin2013}と、BEACH の場標本�
 \end{equation}
 を Möller--Trumbore 法で解き\citep{MollerTrumbore1997}、
 $u\ge0$、$v\ge0$、$u+v\le1$、$0\le\lambda\le1$ を満たす交点の最小 $\lambda$ を採用する。
-近平行・退化の判定は辺長と線分長に対して尺度を揃える。
 法線の符号による back-face 除去は行わず、両側から衝突を検出する。
 
 候補の絞り込みには三角形の AABB を用いる。
-小規模 mesh では線形探索、大きい mesh では一様 grid と三次元 DDA によって通過 cell を走査する。
-grid の cell に登録された候補三角形の精密交差だけを評価するため、
-この grid は静電場の体積 mesh や PIC の電荷割当格子ではない。
+小規模な mesh では全要素を線形に調べ、大きい mesh では一様格子と三次元 DDA\citep{AmanatidesWoo1987}によって
+chord が通る cell を順にたどり、その cell に登録された三角形だけを精密に判定する。
 
 \section{計算箱の作用と event の発生順}
-mesh hit と box 面通過の fraction を比較し、先に起こるものだけを処理する。
-丸め誤差の範囲で同時なら mesh 吸収を優先する。
+mesh との交点と箱の面の通過の $\lambda$ を比較し、先に起こるものだけを処理する。
+丸め誤差の範囲で同時なら mesh への吸収を優先する。
 \begin{center}
 \begin{tabularx}{\textwidth}{lY}
 \toprule
-作用 & 生存粒子への処理 \\
+箱の面の作用 & 生存粒子への処理 \\
 \midrule
-\code{open} & escape、または指定した scalar 障壁で return/escape を判定 \\
-\code{reflect} & 法線速度を反転し、残り時間を再積分 \\
-\code{redistributed_reflect} & 反射に加え、面内の位置を一様に再配置 \\
-\code{periodic} & 反対面へ移し、速度を保って残り時間を再積分 \\
+開放 & escape、または外部の電位障壁で帰還か escape かを判定 \\
+鏡面反射 & 法線速度を反転し、残り時間を再積分 \\
+再配置反射 & 反射に加え、面内の位置を一様に選び直す \\
+周期 & 反対面へ移し、速度を保って残り時間を再積分 \\
 \bottomrule
 \end{tabularx}
 \end{center}
-再分布反射は、外部を移動して帰還する粒子の面内位置を縮約する選択肢である。
+再配置反射は、外部を移動して帰還する粒子の面内位置を縮約する選択肢である。
 光電子の上部境界で水平位置を randomize する Zimmerman らの設定に着想を持つ\citep{Zimmerman2016}。
-外部軌道の飛行時間や自己無撞着シースを再現する機能とは異なる。
+外部軌道の飛行時間や自己無撞着シースを再現するものではない。
 
-通常 event の速度は chord 方向を使い、その速さを離散仕事
+event での速度は chord 方向を使い、その速さを離散仕事
 \begin{equation}
  |\vect v_{\mathrm{event}}|^2=|\vect v^n|^2+
  2\frac qm\vect E_{\mathrm{mid}}\cdot
        (\vect x_{\mathrm{event}}-\vect x^n)
 \end{equation}
-に整合させる。chord の fraction を残り時間の fraction にも使うため、
+に整合させる。chord の $\lambda$ を残り時間の割合にも使うため、
 強い加速・旋回時の真の交差時刻を解いているわけではない。
-整合面の $z$ 上端では、coupling 経路が Boris 両端と整合する二次軌道で交差時刻を再評価する。
+外部シースを接続した上端面の通過も同じ chord の交差で判定する。
 
 \section{周期画像と未解決軌道}
-周期場の near-image 層数と、衝突で調べる画像範囲は独立に決める。
-衝突では物理座標の chord の AABB と canonical mesh の AABB が重なる画像を列挙し、
-命中した画像を base 要素へ対応づけて電荷を堆積する。
-場評価点を wrap するだけでは、境界の手前で周期画像の表面へ衝突する event を検出できない。
+周期場の画像の層数と、衝突で調べる画像の範囲は独立に決める。
+衝突では、chord の AABB と基本セルの mesh の AABB が重なる画像を列挙し、
+命中した画像を基本セルの要素へ対応づけて電荷を堆積する。
+場の評価点を基本セルへ写すだけでは、セル境界の手前で周期画像の表面へ衝突する event を検出できない。
 
-\code{max_step} に達した粒子は未解決として記録する。
-不完全な衝突照会を正常な非衝突として扱わない。
-一部の周期境界イベントには \code{soft_discard} の選択肢もあるが、失った粒子数と絶対電荷を診断し、
-適用範囲を評価する必要がある。未解決量が大きい計算を吸収電流の収束結果とみなさない。
-
-\basisdoc{\src{src/physics/bem_pusher.f90}、\src{src/physics/bem_collision.f90}、
-\src{src/runtime/simulator/bem_particle_stepper.f90}、\src{docs/BorisPusher.md}、
-\src{docs/ParticleEvents.md}。}
+追跡上限に達した粒子は未解決として集計し、吸収や escape と区別する。
+未解決の割合が大きい計算は、吸収電流が収束した結果とみなさない。

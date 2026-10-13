@@ -115,9 +115,8 @@ with the chord crossing and preserves event speed for any pure magnetic field. A
 speed fails closed. However, BEACH also uses the chord crossing fraction as the remaining-time fraction; it does not solve the
 exact physical crossing time under acceleration or magnetic rotation. This is a time-discretization approximation of the
 trajectory-chord event model, so runs that use boundary actions or the potential-barrier decision must check convergence with
-`dt`, `dt/2`, and, when needed, `dt/4`. At the z-high outer interface, the
-applicable coupling path refines crossing time from a quadratic trajectory consistent with the Boris endpoints. See
-[Particle collision and boundary events](ParticleEvents.en.html).
+`dt`, `dt/2`, and, when needed, `dt/4`. Crossings of the top face connected to the outer sheath use the same chord
+crossing. See [Particle collision and boundary events](ParticleEvents.en.html).
 
 ## Properties of the Boris update
 
