@@ -4,7 +4,7 @@ Lang: [English](ConfigurationRecipes.en.md) | [日本語](ConfigurationRecipes.m
 
 # Case Design Workflow
 
-The grouped layout is the current authoring format. See [configuration groups and migration](GroupedConfiguration.en.html) for new keys and conversion examples. The flat notation below remains supported during 1.x and is scheduled for removal at 2.0.
+Configuration files accept only the seven-group layout (`run / domain / mesh / particles / fields / sheath / output`). See `examples/` for complete input files.
 
 
 This page turns the tested official tutorial into a research case: choose geometry, sources, and boundaries, then set
@@ -136,7 +136,7 @@ with `field_boundary.mode` and the outward particle action on nonperiodic faces 
 `domain.periodic_axes` is the only public setting for periodic topology. Neither `[particle_boundary]` nor a species
 override can add, remove, or replace a periodic axis. Because `periodic2` currently requires periodic x/y and
 nonperiodic z, start a new periodic case from the complete
-[`examples/periodic2_basic/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic/beach.toml)
+[`examples/periodic2_basic.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic.toml)
 and [periodic2 electrostatics](PeriodicElectrostatics.en.html). See
 [Particle escape and return](ParticleEscapeReturn.en.html) for particle-boundary behavior.
 

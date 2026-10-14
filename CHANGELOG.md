@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- 公開 TOML 入力を `run / domain / mesh / particles / fields / sheath / output` の grouped 7 グループ形式に統一。Fortran と Python は flat 入力を明確なエラーで拒否する。
+- grouped examples を `examples/` 直下へ移動。direct/FMM、入門・単一電子・形状見本の参照構成も grouped に変換して維持。
+
+### Removed
+
+- `beachx config migrate`、flat 入力の公開 schema (`legacyConfig`)、旧形式 fixture、重複した flat examples。
+- `docs/GroupedConfiguration*.md` と plugin 内の移行ページ、ナビゲーションと移行リンク。
+
 ### Added
 - Added [docs/adr/0002-irradiation-cell-scope.md](docs/adr/0002-irradiation-cell-scope.md): BEACH supports one
   product configuration, the `periodic2` irradiation cell with the outer 1-D sheath, and keeps the free-space direct / FMM

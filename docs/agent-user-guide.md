@@ -51,7 +51,7 @@ make run CONFIG=examples/beach.toml
 | 入門の帯電更新 | `examples/tutorial_insulator.toml` | [10 分チュートリアル](Tutorial.html) |
 | 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](ConfigurationRecipes.html) |
 | 外部 plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir 注入](ReservoirInjection.html) |
-| 閉じた光電子再分配 | `examples/periodic2_closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
+| 閉じた光電子再分配 | `examples/closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
 | free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
 | 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
 | 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](PostprocessTutorial.html) |

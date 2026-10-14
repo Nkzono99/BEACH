@@ -4,6 +4,7 @@ import copy
 import math
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -138,7 +139,7 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
             item.pop("source_mode")
             item.pop("npcls_per_step")
     assert reloaded == config
-    assert schema_errors(reloaded, schema) == []
+    assert schema_errors(tomllib.loads(path.read_text()), schema) == []
 
 
 def test_generate_closepack_config_script_writes_expected_file(tmp_path: Path) -> None:

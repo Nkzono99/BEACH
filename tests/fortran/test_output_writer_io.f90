@@ -336,7 +336,7 @@ program test_output_writer_io
   call test_begin('no_photo_surface_current_receipt')
   call default_app_config(cfg)
   stats = sim_stats()
-  call load_app_config('examples/periodic2_zhao_no_photo_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current_no_photo.toml', cfg)
   cfg%output_dir = out_dir_no_photo
   call write_result_files(out_dir_no_photo, mesh, stats, cfg)
   call scan_no_photo_surface_current_receipt( &
@@ -351,7 +351,7 @@ program test_output_writer_io
   call test_begin('outflow_refresh_history_and_receipts')
   call default_app_config(cfg)
   stats = sim_stats()
-  call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+  call load_app_config('examples/zero_current_refresh.toml', cfg)
   cfg%output_dir = out_dir_matching
   cfg%history_stride = 0_i32
   cfg%write_mesh_potential = .false.
@@ -410,7 +410,7 @@ contains
     character(len=512) :: rows(5)
 
     call default_app_config(cfg)
-    call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+    call load_app_config('examples/zero_current_refresh.toml', cfg)
     cfg%output_dir = out_dir_matching
     cfg%history_stride = 0_i32
     call ensure_output_dir(out_dir_matching)
@@ -477,7 +477,7 @@ contains
     character(len=8192) :: long_line
 
     call default_app_config(cfg)
-    call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+    call load_app_config('examples/zero_current_refresh.toml', cfg)
     cfg%output_dir = out_dir_matching
     cfg%history_stride = 0_i32
     cfg%write_mesh_potential = .false.

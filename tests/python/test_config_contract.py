@@ -18,7 +18,7 @@ import tomli_w
 
 from beach.cli.lint import run_lint
 from beach.config import default_config
-from beach.config._layout import to_runtime_layout
+from beach.config._layout import to_grouped_layout, to_runtime_layout
 from beach.config._toml import load_toml_file
 
 
@@ -39,30 +39,32 @@ def _periodic2_cell() -> dict:
 def _cases() -> list:
     cases = [pytest.param(default_config(), True, id="tutorial")]
     for name in (
-        "periodic2_zhao_fixed_current",
-        "periodic2_zhao_no_photo_fixed_current",
-        "periodic2_zhao_outflow_refresh",
+        "zero_current",
+        "zero_current_no_photo",
+        "zero_current_refresh",
     ):
-        config = load_toml_file(ROOT / "examples" / f"{name}.toml")
+        config = to_runtime_layout(load_toml_file(ROOT / "examples" / f"{name}.toml"))
         cases.append(pytest.param(config, True, id=name))
     for table_path in (
-        ("sim",), ("domain",), ("mesh",), ("output",), ("particles",),
-        ("field_boundary",), ("particle_boundary",),
+        ("run",), ("domain",), ("mesh",), ("output",), ("particles",),
+        ("fields",), ("particles", "boundary"),
         ("particles", "species", 0), ("mesh", "templates", 0),
     ):
-        config = default_config()
+        config = to_grouped_layout(default_config())
         table = config
         for component in table_path:
             table = table[component]
         table["unrecognized_key"] = 1
         label = ".".join(str(component) for component in table_path)
         cases.append(pytest.param(config, False, id=f"unknown-{label}"))
+    config = to_grouped_layout(default_config())
+    config["particles"]["tracking"]["dtt"] = 1.0e-8
+    cases.append(pytest.param(config, False, id="dtt-1e-08"))
     for key, value, accepted in (
         ("dt", -1.0, False),
         ("dt", float("nan"), False),
         ("dt", float("inf"), False),
         ("dt", True, False),
-        ("dtt", 1.0e-8, False),
         ("batch_count", 0, False),
         ("max_step", 0, False),
         ("rng_seed", 2**32 + 123, False),
@@ -184,7 +186,7 @@ def _cases() -> list:
     config["particles"]["species"][0]["target_absorbed_current_a"] = -1.0e-9
     cases.append(pytest.param(config, False, id="target-current-with-explicit-closure"))
 
-    periodic = load_toml_file(ROOT / "examples/periodic2_closed_photoelectron.toml")
+    periodic = to_runtime_layout(load_toml_file(ROOT / "examples/closed_photoelectron.toml"))
     periodic["periodic2"] = {"lower_boundary_model": "symmetric_vacuum"}
     cases.append(pytest.param(copy.deepcopy(periodic), False, id="partial-periodic-wrong-solver"))
     periodic["sim"]["field_solver"] = "direct"
@@ -218,7 +220,7 @@ def _write_config(config: dict, directory: Path) -> Path:
     config = copy.deepcopy(config)
     config["output"]["dir"] = str(directory / "simulation-output")
     path = directory / "beach.toml"
-    path.write_text(tomli_w.dumps(config), encoding="utf-8")
+    path.write_text(tomli_w.dumps(to_grouped_layout(config)), encoding="utf-8")
     return path
 
 
@@ -267,29 +269,30 @@ def test_native_check_requires_one_path(native_checker: Path, tmp_path: Path) ->
     assert "usage: beach --check-config beach.toml" in result.stderr
 
 
-@pytest.mark.parametrize("grouped", [False, True], ids=["flat", "grouped"])
 @pytest.mark.parametrize("removed", ["reservoir_face", "plane_source", "source_normal"])
 def test_removed_particle_source_inputs_are_rejected(
-    grouped: bool, removed: str, native_checker: Path, tmp_path: Path,
+    removed: str, native_checker: Path, tmp_path: Path,
 ) -> None:
-    from beach.config._layout import to_grouped_layout
+    config = to_grouped_layout(default_config())
+    config["particles"]["species"][0]["source"]["normal" if removed == "source_normal" else "mode"] = (
+        [0.0, 0.0, -1.0] if removed == "source_normal" else removed
+    )
+    _assert_rejected_by_lint_and_native(config, native_checker, tmp_path)
 
-    config = default_config()
-    if grouped:
-        config = to_grouped_layout(config)
-        source = config["particles"]["species"][0]["source"]
-        source["normal" if removed == "source_normal" else "mode"] = (
-            [0.0, 0.0, -1.0] if removed == "source_normal" else removed
-        )
-        config["output"]["dir"] = str(tmp_path / "simulation-output")
-        path = tmp_path / "beach.toml"
-        path.write_text(tomli_w.dumps(config), encoding="utf-8")
-    else:
-        species = config["particles"]["species"][0]
-        species["source_normal" if removed == "source_normal" else "source_mode"] = (
-            [0.0, 0.0, -1.0] if removed == "source_normal" else removed
-        )
-        path = _write_config(config, tmp_path)
+
+@pytest.mark.parametrize("value", ["escape", "potential_barrier"])
+def test_removed_ordinary_open_key_is_rejected(
+    value: str, native_checker: Path, tmp_path: Path,
+) -> None:
+    config = to_grouped_layout(default_config())
+    config["particles"]["boundary"]["open_model"] = value
+    _assert_rejected_by_lint_and_native(config, native_checker, tmp_path)
+
+
+def _assert_rejected_by_lint_and_native(config, native_checker, tmp_path):
+    config["output"]["dir"] = str(tmp_path / "simulation-output")
+    path = tmp_path / "beach.toml"
+    path.write_text(tomli_w.dumps(config), encoding="utf-8")
     with pytest.raises(SystemExit):
         run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
     native = subprocess.run(
@@ -298,31 +301,3 @@ def test_removed_particle_source_inputs_are_rejected(
     )
     assert native.returncode != 0
     assert not (tmp_path / "simulation-output").exists()
-
-
-@pytest.mark.parametrize("grouped", [False, True], ids=["flat", "grouped"])
-@pytest.mark.parametrize("value", ["escape", "potential_barrier"])
-def test_removed_ordinary_open_key_is_rejected(
-    grouped: bool, value: str, native_checker: Path, tmp_path: Path,
-) -> None:
-    from beach.config._layout import to_grouped_layout
-
-    config = default_config()
-    if grouped:
-        config = to_grouped_layout(config)
-        key = "open_model"
-        config["particles"]["boundary"][key] = value
-    else:
-        key = "ordinary_open_model"
-        config["particle_boundary"][key] = value
-    path = tmp_path / "beach.toml"
-    path.write_text(tomli_w.dumps(config), encoding="utf-8")
-
-    with pytest.raises(SystemExit):
-        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
-    native = subprocess.run(
-        [str(native_checker), "--check-config", str(path)], cwd=tmp_path,
-        text=True, capture_output=True, timeout=20,
-    )
-    assert native.returncode != 0
-    assert key in native.stdout + native.stderr

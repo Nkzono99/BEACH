@@ -4,7 +4,7 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 
 # ケース設計の流れ
 
-新しく記述する設定には7グループ形式を使ってください。[設定グループと移行](GroupedConfiguration.html)に新しいキーと変換例をまとめています。以下の旧形式は1.xの間読み取れます。読み取り互換は2.0で削除する予定です。
+設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。完全な入力例は `examples/` を参照してください。
 
 
 このページは、動作確認済みの公式チュートリアルを研究用ケースへ変更するときの判断順を示します。
@@ -136,7 +136,7 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 
 周期 topology を指定する公開キーは `domain.periodic_axes` だけです。`particle_boundary` や species 別境界で
 周期軸を追加、削除、上書きはできません。`periodic2` は x/y 周期・z 非周期に限定されるため、新しく使う場合は
-完全例 [`examples/periodic2_basic/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic/beach.toml)
+完全例 [`examples/periodic2_basic.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic.toml)
 と [periodic2 静電場](PeriodicElectrostatics.html)から始めてください。粒子の escape と return は
 [粒子の escape と return](ParticleEscapeReturn.html)にまとめています。
 

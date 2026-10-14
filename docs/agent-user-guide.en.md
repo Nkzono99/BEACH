@@ -52,7 +52,7 @@ validity. Inspect outputs and convergence of the quantity of interest after the 
 | Beginner charging update | `examples/tutorial_insulator.toml` | [Ten-minute tutorial](Tutorial.en.html) |
 | One-particle developer smoke | `examples/smoke_single_electron.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
 | External plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir injection](ReservoirInjection.en.html) |
-| Closed photoelectron redistribution | `examples/periodic2_closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
+| Closed photoelectron redistribution | `examples/closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
 | Free-space field evaluation | `field_boundary.mode="free"` | [Field evaluation](FieldSolvers.en.html) |
 | Two-axis-periodic field evaluation | `field_boundary.mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
 | Output analysis | `beachx inspect` / `Beach(...)` | [Post-processing tutorial](PostprocessTutorial.en.html) |

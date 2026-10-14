@@ -16,7 +16,7 @@ Use this skill when a user asks to review, validate, sanity-check, or explain a 
 Prefer sources in this order:
 
 1. User-provided `beach.toml` or generated snippet.
-2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic/beach.toml`.
+2. Bundled references: `../../references/fortran_parameter_file.md`, `../../references/config_workflow.md`, `../../references/SPEC.md`, `../../references/schemas/beach.schema.json`, `../../references/examples/beach.toml`, `../../references/examples/periodic2_basic.toml`.
 3. Bundled docs: `../../docs/simulator-context.md`, `../../docs/known-failure-modes.md`, `../../docs/usage-workflows.md`, `../../docs/skills-guide.md`.
 4. Repo primary docs/source only when the full checkout is available and may be newer.
 

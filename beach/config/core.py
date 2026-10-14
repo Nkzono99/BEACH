@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ._layout import TOP_LEVEL_ORDER, to_grouped_layout, to_runtime_layout
+from ._layout import TOP_LEVEL_ORDER, is_grouped, to_grouped_layout, to_runtime_layout
 
 from ._authoring import (
     _resolve_domain_high_level,
@@ -38,7 +39,6 @@ from ._shared import (
 )
 from ._shared import (
     _is_array_of_tables,
-    _validate_legacy_keys,
     _validate_high_level_fragment,
 )
 from ._toml import load_toml_file, render_toml_document
@@ -139,8 +139,10 @@ def _validate_config_document(
 ) -> dict[str, Any]:
     if schema is None:
         schema, _ = load_schema()
+    # Reject flat input before schema diagnostics or internal conversion.
+    if not is_grouped(config):
+        to_runtime_layout(config)
     document = prepare_schema_document(config, schema)
-    _validate_legacy_keys(document)
     phase = "authoring" if normalize else "normalized"
     input_errors = validation_errors(document, schema)
     reject_basic_schema_errors(input_errors, phase=phase)
@@ -151,15 +153,15 @@ def _validate_config_document(
     else:
         resolved = runtime_document
     # Authoring arithmetic can create new invalid values.
-    resolved = prepare_schema_document(resolved, schema)
-    resolved_errors = validation_errors(resolved, schema)
+    resolved_grouped = prepare_schema_document(to_grouped_layout(resolved), schema)
+    resolved_errors = validation_errors(resolved_grouped, schema)
     reject_basic_schema_errors(resolved_errors, phase="normalized")
     if input_errors:
         raise ConfigSchemaError(input_errors, phase=phase)
     if resolved_errors:
         raise ConfigSchemaError(resolved_errors, phase="normalized")
     if additional_schema is not None:
-        for candidate, candidate_phase in ((document, phase), (resolved, "normalized")):
+        for candidate, candidate_phase in ((document, phase), (resolved_grouped, "normalized")):
             errors = validation_errors(candidate, additional_schema)
             if errors:
                 raise ConfigSchemaError(errors, phase=candidate_phase)
@@ -187,9 +189,9 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
 
 
 def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Resolve high-level spatial notation into runtime beach.toml values."""
+    """Resolve high-level spatial notation in an internal runtime dictionary."""
 
-    resolved = to_runtime_layout(config)
+    resolved = copy.deepcopy(dict(config))
     sim = resolved.get("sim")
     if isinstance(sim, Mapping):
         resolved["sim"] = _resolve_sim_high_level(dict(sim))

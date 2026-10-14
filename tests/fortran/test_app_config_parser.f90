@@ -53,9 +53,9 @@ program test_app_config_parser
   call assert_true(cfg%resume_output, 'restart table presence enables resume')
   call test_end()
 
-  call test_begin('grouped_input_rejects_mixed_flat_input')
-  call write_grouped_config(input_contract_path, '[sim]'//new_line('a')//'dt = 1.0e-9')
-  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout table: sim')
+  call test_begin('flat_input_is_rejected')
+  call write_flat_config(input_contract_path)
+  call assert_config_rejected(input_contract_path, 'flat beach.toml layout is not supported')
   call test_end()
 
   call test_begin('grouped_input_rejects_missing_source_mode')
@@ -126,7 +126,8 @@ program test_app_config_parser
 
   call test_begin('config_rejects_nonfinite_array_element')
   call write_input_contract_config( &
-    input_contract_path, '1.0e6', 'drift_velocity = [0.0, 0.0, nan]', 'outputs/test' &
+    input_contract_path, '1.0e6', &
+    '[particles.species.distribution]'//new_line('a')//'drift_velocity_m_s = [0.0, 0.0, nan]', 'outputs/test' &
     )
   call assert_config_rejected(input_contract_path, 'drift_velocity must contain finite values')
   call delete_file_if_exists(input_contract_path)
@@ -153,7 +154,8 @@ program test_app_config_parser
   call test_begin('disabled_species_skip_semantic_preflight')
   call write_input_contract_config( &
     input_contract_path, '1.0e6', '[[particles.species]]'//new_line('a')// &
-    'enabled = false'//new_line('a')//'m_particle = -1.0'//new_line('a')//'source_mode = "unused"', &
+    'enabled = false'//new_line('a')//'mass_kg = -1.0'//new_line('a')// &
+    '[particles.species.source]'//new_line('a')//'mode = "unused"', &
     'outputs/test' &
     )
   call default_app_config(cfg)
@@ -186,7 +188,7 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('parses_soft_discard_count_grace')
-  call write_sim_variant(sim_variant_path, 'multiple_box_events_soft_discard_count_grace = 7')
+  call write_sim_variant(sim_variant_path, 'discard_count_grace = 7')
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_equal_i32( &
@@ -197,7 +199,7 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('parses_soft_discard_fraction_limit')
-  call write_sim_variant(sim_variant_path, 'multiple_box_events_soft_discard_fraction_limit = 2.5e-5')
+  call write_sim_variant(sim_variant_path, 'discard_fraction_limit = 2.5e-5')
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_close_dp( &
@@ -208,7 +210,7 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('split_periodic_accepts_upper_fourier_retry')
-  call write_sim_variant(sim_variant_path, 'multiple_box_events_retry_backend = "upper_panel_fourier"')
+  call write_sim_variant(sim_variant_path, 'retry_backend = "upper_panel_fourier"')
   call default_app_config(cfg)
   call load_app_config(sim_variant_path, cfg)
   call assert_true( &
@@ -219,7 +221,7 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('zhao_rejects_magnetized_closure')
-  call write_zhao_variant(zhao_magnetized_path, 'b0 = [0.0, 0.0, 1.0e-9]', .false.)
+  call write_zhao_variant(zhao_magnetized_path, 'magnetic_t = [0.0, 0.0, 1.0e-9]', .false.)
   call assert_config_rejected(zhao_magnetized_path, 'requires sim.b0=[0,0,0]')
   call delete_file_if_exists(zhao_magnetized_path)
   call test_end()
@@ -232,7 +234,7 @@ program test_app_config_parser
 
   call test_begin('zhao_fixed_current_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
   call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'Zhao current model mismatch')
   call assert_true(trim(cfg%surface_current%zhao_branch) == 'auto', 'Zhao branch mismatch')
   call assert_true( &
@@ -247,7 +249,7 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('zhao_accepts_zero_electron_drift')
-  call write_first_line_variant(zhao_refresh_variant_path, 'drift_velocity =', 'drift_velocity = [0.0, 0.0, 0.0]')
+  call write_first_line_variant(zhao_refresh_variant_path, 'drift_velocity_m_s =', 'drift_velocity_m_s = [0.0, 0.0, 0.0]')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp( &
@@ -264,72 +266,72 @@ program test_app_config_parser
 
   call test_begin('zhao_outflow_refresh_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_outflow_refresh.toml', cfg)
+  call load_app_config('examples/zero_current_refresh.toml', cfg)
   call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'refresh Zhao model mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 2_i32, 'outflow refresh interval mismatch')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'fixed Zhao root must not refresh')
   call test_end()
 
   ! 上端面の平均電位を壁電位 phi0 に固定できない場では、流入の写像と外部障壁が約 0 V の面で判定される。
   call test_begin('zhao_requires_split_zero_mode')
-  call write_first_line_variant(zhao_refresh_variant_path, 'nonzero_mode_backend =', &
-                                'nonzero_mode_backend = "finite_images"')
-  call assert_config_rejected(zhao_refresh_variant_path, 'requires a split periodic2 nonzero-mode backend')
+  call write_first_line_variant(zhao_refresh_variant_path, 'backend =', &
+                                'backend = "finite_images"')
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
   call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', '# lower boundary omitted')
   call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
   call delete_file_if_exists(zhao_refresh_variant_path)
-  call write_refresh_variant('examples/periodic2_zhao_no_photo_fixed_current.toml', zhao_refresh_variant_path)
+  call write_refresh_variant('examples/zero_current_no_photo.toml', zhao_refresh_variant_path)
   call assert_config_rejected(zhao_refresh_variant_path, 'requires photoelectron_source_scale > 0')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('zhao_upstream_band_tolerance_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.0_dp, 0.0_dp, &
                        'example must leave the width tolerance off')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_upstream_band_tolerance = 0.2')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'upstream_band_tolerance = 0.2')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_band_tolerance, 0.2_dp, 0.0_dp, &
                        'upstream band tolerance mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_upstream_band_tolerance = 1.0')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'upstream_band_tolerance = 1.0')
   call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance must be >= 0 and < 1')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('zhao_upstream_field_floor_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 2.0e-3_dp, 0.0_dp, &
                        'example upstream field floor mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_upstream_field_floor_v_m = 5.0e-3')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'upstream_field_floor_v_m = 5.0e-3')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 5.0e-3_dp, 0.0_dp, 'upstream field floor mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_upstream_field_floor_v_m = -1.0e-3')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'upstream_field_floor_v_m = -1.0e-3')
   call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m must be finite and >= 0')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('zhao_ion_pressure_factor_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
   call assert_close_dp(cfg%surface_current%zhao_ion_pressure_factor, 1.0_dp, 0.0_dp, &
                        'default ion pressure factor must be isothermal')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_ion_pressure_factor = 3.0')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'ion_pressure_factor = 3.0')
   call default_app_config(cfg)
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_close_dp(cfg%surface_current%zhao_ion_pressure_factor, 3.0_dp, 0.0_dp, 'ion pressure factor mismatch')
-  call write_first_line_variant(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m =', &
-                                'zhao_ion_pressure_factor = 0.0')
+  call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
+                                'ion_pressure_factor = 0.0')
   call assert_config_rejected(zhao_refresh_variant_path, 'zhao_ion_pressure_factor must be finite and > 0')
   ! 太陽風イオン (約 0.86 keV) は温かくても超音速。入口エネルギーを下回る温度は上流へ接続しない。
   call write_first_line_variant(zhao_refresh_variant_path, 'temperature_ev = 0.1', 'temperature_ev = 2000.0')
@@ -339,7 +341,7 @@ program test_app_config_parser
 
   call test_begin('zhao_no_photo_fixed_current_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_zhao_no_photo_fixed_current.toml', cfg)
+  call load_app_config('examples/zero_current_no_photo.toml', cfg)
   call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'no-PE Zhao current model mismatch')
   call assert_close_dp( &
     cfg%surface_current%photoelectron_source_scale, 0.0_dp, 0.0_dp, 'no-PE Zhao source scale mismatch' &
@@ -375,7 +377,7 @@ program test_app_config_parser
     cfg%particle_species(1)%target_absorbed_current_a, -2.0_dp, 1.0e-15_dp, &
     'fixed absorbed target mismatch' &
     )
-  call write_fixed_absorbed_variant('batch_duration_step = 2.0', '-2.0')
+  call write_fixed_absorbed_variant('duration_steps = 2.0', '-2.0')
   call default_app_config(cfg)
   call load_app_config(fixed_current_variant_path, cfg)
   call assert_true(cfg%sim%batch_duration > 0.0_dp, 'fixed-current step duration was not resolved')
@@ -405,7 +407,7 @@ program test_app_config_parser
 
   call test_begin('closed_photoelectron_config')
   call default_app_config(cfg)
-  call load_app_config('examples/periodic2_closed_photoelectron.toml', cfg)
+  call load_app_config('examples/closed_photoelectron.toml', cfg)
   call assert_equal_i32(cfg%n_particle_species, 3_i32, 'closed case species count mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'closed case must use source VDF inflow')
   call assert_true(trim(cfg%particle_species(1)%source_mode) == 'volume_seed', 'electron source mode mismatch')
@@ -517,37 +519,48 @@ contains
     close (unit)
   end subroutine write_periodic_grouped_config
 
+  !> 旧flat入力そのものを拒否する公開契約のfixture。
+  subroutine write_flat_config(path)
+    character(len=*), intent(in) :: path
+    integer :: unit
+    open (newunit=unit, file=path, status='replace', action='write')
+    write (unit, '(a)') '[sim]'
+    write (unit, '(a)') 'dt = 1.0e-9'
+    write (unit, '(a)') '[[particles.species]]'
+    write (unit, '(a)') 'npcls_per_step = 1'
+    close (unit)
+  end subroutine write_flat_config
+
   subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed)
     character(len=*), intent(in) :: path, density, species_extra, output_directory
     character(len=*), intent(in), optional :: integer_seed
     integer :: unit
 
     open (newunit=unit, file=path, status='replace', action='write')
-    write (unit, '(a)') '[sim]'
-    write (unit, '(a)') 'dt = 1.0e-9'
-    write (unit, '(a)') 'batch_duration = 1.0e-6'
+    write (unit, '(a)') '[run]'
     if (present(integer_seed)) write (unit, '(a)') 'rng_seed = '//integer_seed
+    write (unit, '(a)') '[run.batch]'
+    write (unit, '(a)') 'duration_s = 1.0e-6'
+    write (unit, '(a)') '[particles.tracking]'
+    write (unit, '(a)') 'dt_s = 1.0e-9'
     write (unit, '(a)') '[domain]'
     write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
     write (unit, '(a)') '[[particles.species]]'
-    write (unit, '(a)') 'source_mode = "volume_seed"'
-    write (unit, '(a)') 'npcls_per_step = 0'
+    if (index(species_extra, 'species_key') == 1) write (unit, '(a)') species_extra
+    write (unit, '(a)') '[particles.species.sampling]'
+    write (unit, '(a)') 'weight = 1.0e6'
+    write (unit, '(a)') '[particles.species.inflow]'
+    write (unit, '(a)') 'z_high = "reservoir"'
+    if (index(species_extra, '[particles.species.distribution]') /= 1) then
+      write (unit, '(a)') '[particles.species.distribution]'
+    end if
+    if (index(species_extra, '[particles.species.distribution]') == 1) write (unit, '(a)') species_extra
     write (unit, '(a)') 'number_density_m3 = '//trim(density)
     write (unit, '(a)') 'temperature_ev = 1.0'
-    write (unit, '(a)') 'w_particle = 1.0e6'
-    ! 追加行が新しい species table を開く場合、流入面は先に species 1 へ付ける。
-    if (index(species_extra, '[[') == 1) then
-      write (unit, '(a)') '[particles.species.boundary_inflow]'
-      write (unit, '(a)') 'z_high = "reservoir"'
-      write (unit, '(a)') species_extra
-    else
-      if (len_trim(species_extra) > 0) write (unit, '(a)') species_extra
-      write (unit, '(a)') '[particles.species.boundary_inflow]'
-      write (unit, '(a)') 'z_high = "reservoir"'
-    end if
+    if (index(species_extra, '[[') == 1) write (unit, '(a)') species_extra
     write (unit, '(a)') '[output]'
-    write (unit, '(a)') 'write_files = false'
+    write (unit, '(a)') 'enabled = false'
     write (unit, '(a)') 'dir = "'//output_directory//'"'
     close (unit)
   end subroutine write_input_contract_config
@@ -561,7 +574,7 @@ contains
 
     inserted_sim = len_trim(sim_line) == 0
     replaced_reservoir = .not. replace_reservoir
-    open (newunit=source_unit, file='examples/periodic2_zhao_fixed_current.toml', &
+    open (newunit=source_unit, file='examples/zero_current.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open Zhao example fixture'
     open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
@@ -573,11 +586,12 @@ contains
         write (output_unit, '(a)') 'inflow_model = "infinity_barrier"'
         replaced_reservoir = .true.
       else
+        if (.not. inserted_sim .and. trim(line) == '[sheath]') then
+          write (output_unit, '(a)') '[fields.external]'
+          write (output_unit, '(a)') trim(sim_line)
+          inserted_sim = .true.
+        end if
         write (output_unit, '(a)') trim(line)
-      end if
-      if (.not. inserted_sim .and. trim(line) == '[sim]') then
-        write (output_unit, '(a)') trim(sim_line)
-        inserted_sim = .true.
       end if
     end do
     close (source_unit)
@@ -594,7 +608,7 @@ contains
     logical :: replaced_branch
 
     replaced_branch = .false.
-    open (newunit=source_unit, file='examples/periodic2_zhao_no_photo_fixed_current.toml', &
+    open (newunit=source_unit, file='examples/zero_current_no_photo.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open no-PE Zhao example fixture'
     open (newunit=output_unit, file=trim(path), status='replace', action='write', iostat=ios)
@@ -602,8 +616,8 @@ contains
     do
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (trim(line) == 'zhao_branch = "auto"') then
-        write (output_unit, '(a)') 'zhao_branch = "'//trim(zhao_branch)//'"'
+      if (trim(line) == 'branch = "auto"') then
+        write (output_unit, '(a)') 'branch = "'//trim(zhao_branch)//'"'
         replaced_branch = .true.
       else
         write (output_unit, '(a)') trim(line)
@@ -621,17 +635,24 @@ contains
     character(len=*), intent(in) :: path, key, replacement
     character(len=1024) :: line
     integer :: source_unit, target_unit, ios
-    logical :: replaced
+    logical :: replaced, skipping_array
 
     replaced = .false.
-    open (newunit=source_unit, file='examples/periodic2_zhao_fixed_current.toml', status='old', action='read', &
+    skipping_array = .false.
+    open (newunit=source_unit, file='examples/zero_current.toml', status='old', action='read', &
           iostat=ios)
     if (ios /= 0) error stop 'failed to open Zhao variant source'
     open (newunit=target_unit, file=path, status='replace', action='write')
     do
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
+      if (skipping_array) then
+        if (index(line, ']') > 0) skipping_array = .false.
+        cycle
+      end if
+      if (replacement == 'backend = "finite_images"' .and. index(line, 'lower_boundary_model =') == 1) cycle
       if (.not. replaced .and. index(line, key) == 1) then
+        skipping_array = index(line, '[') > 0 .and. index(line, ']') == 0
         write (target_unit, '(A)') replacement
         replaced = .true.
       else
@@ -643,13 +664,13 @@ contains
     if (.not. replaced) error stop 'Zhao variant found no line to replace'
   end subroutine write_first_line_variant
 
-  !> Copy the split-periodic Zhao example and append one [sim] setting.
+  !> Copy the split-periodic Zhao example and append one tracking event setting.
   subroutine write_sim_variant(path, sim_extra)
     character(len=*), intent(in) :: path, sim_extra
     character(len=1024) :: line
     integer :: source_unit, target_unit, ios
 
-    open (newunit=source_unit, file='examples/periodic2_zhao_outflow_refresh.toml', status='old', action='read', &
+    open (newunit=source_unit, file='examples/zero_current_refresh.toml', status='old', action='read', &
           iostat=ios)
     if (ios /= 0) error stop 'failed to open split-periodic config fixture'
     open (newunit=target_unit, file=path, status='replace', action='write')
@@ -657,8 +678,9 @@ contains
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
       write (target_unit, '(A)') trim(line)
-      if (trim(line) == '[sim]') write (target_unit, '(A)') trim(sim_extra)
     end do
+    write (target_unit, '(A)') '[particles.tracking.events]'
+    write (target_unit, '(A)') trim(sim_extra)
     close (source_unit)
     close (target_unit)
   end subroutine write_sim_variant
@@ -669,14 +691,18 @@ contains
 
     open (newunit=output_unit, file=fixed_current_variant_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to create fixed-current config fixture'
-    write (output_unit, '(a)') '[sim]'
+    write (output_unit, '(a)') '[run.batch]'
     write (output_unit, '(a)') trim(duration_entry)
     write (output_unit, '(a)') ''
     write (output_unit, '(a)') '[particles]'
     write (output_unit, '(a)') '[[particles.species]]'
-    write (output_unit, '(a)') 'npcls_per_step = 1'
-    write (output_unit, '(a)') 'q_particle = -1.0'
-    write (output_unit, '(a)') 'surface_charge_closure = "fixed_current"'
+    write (output_unit, '(a)') 'charge_c = -1.0'
+    write (output_unit, '(a)') '[particles.species.source]'
+    write (output_unit, '(a)') 'mode = "volume_seed"'
+    write (output_unit, '(a)') '[particles.species.sampling]'
+    write (output_unit, '(a)') 'volume_macro_particles_per_batch = 1'
+    write (output_unit, '(a)') '[particles.species.charging]'
+    write (output_unit, '(a)') 'closure = "fixed_current"'
     if (len_trim(target_current) > 0) then
       write (output_unit, '(a)') 'target_absorbed_current_a = '//trim(target_current)
     end if
@@ -690,7 +716,7 @@ contains
     logical :: replaced
 
     replaced = .false.
-    open (newunit=source_unit, file='examples/periodic2_closed_photoelectron.toml', &
+    open (newunit=source_unit, file='examples/closed_photoelectron.toml', &
           status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open closed-photoelectron config fixture'
     open (newunit=output_unit, file=fixed_current_variant_path, status='replace', action='write', iostat=ios)
@@ -698,8 +724,8 @@ contains
     do
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
-      if (.not. replaced .and. trim(line) == 'surface_charge_closure = "neutral_return"') then
-        write (output_unit, '(a)') 'surface_charge_closure = "fixed_current"'
+      if (.not. replaced .and. trim(line) == 'closure = "neutral_return"') then
+        write (output_unit, '(a)') 'closure = "fixed_current"'
         write (output_unit, '(a)') 'target_emission_current_a = '//trim(target_current)
         replaced = .true.
       else
@@ -711,7 +737,7 @@ contains
     if (.not. replaced) error stop 'failed to specialize fixed-emission config fixture'
   end subroutine write_fixed_emission_variant
 
-  !> Copy a Zhao example and enable the outflow refresh in its surface-current table.
+  !> Copy a Zhao example and enable the outflow refresh in its coupling table.
   subroutine write_refresh_variant(source_path, path)
     character(len=*), intent(in) :: source_path, path
     character(len=1024) :: line
@@ -724,9 +750,10 @@ contains
       read (source_unit, '(A)', iostat=ios) line
       if (ios /= 0) exit
       write (target_unit, '(A)') trim(line)
-      if (trim(line) == '[surface_current_model]') write (target_unit, '(A)') 'outflow_refresh_batches = 1'
     end do
     close (source_unit)
+    write (target_unit, '(A)') '[sheath.coupling]'
+    write (target_unit, '(A)') 'outflow_refresh_batches = 1'
     close (target_unit)
   end subroutine write_refresh_variant
 

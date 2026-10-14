@@ -4,7 +4,7 @@ Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
 
 # 入力パラメータリファレンス
 
-新しく記述する設定には7グループ形式を使ってください。[設定グループと移行](GroupedConfiguration.html)に新しいキーと変換例をまとめています。以下の旧形式は1.xの間読み取れます。読み取り互換は2.0で削除する予定です。
+設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。完全な入力例は `examples/` を参照してください。
 
 
 `beach.toml` のキーを調べるための一覧です。型、既定値、単位、必須条件と排他条件を記載します。
@@ -375,8 +375,8 @@ split `[periodic2]` では z-high 面の水平平均電位を外部シースの�
 [Zhao closure](ZhaoStationaryClosure.html)を参照してください。`model="none"` では `model` 以外を指定しません。
 廃止済みの `[outer_plasma]` / `[coupling]` と matching-plane 連成は未対応です。
 
-計算例は `examples/periodic2_zhao_fixed_current.toml`、外部根を更新する例は
-`examples/periodic2_zhao_outflow_refresh.toml` です。
+計算例は `examples/zero_current.toml`、外部根を更新する例は
+`examples/zero_current_refresh.toml` です。
 
 ### `[periodic2]`: 非零モード・零モード・下側境界
 
@@ -401,7 +401,7 @@ split `[periodic2]` では z-high 面の水平平均電位を外部シースの�
 ### periodic2の組合せ制約
 
 periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="periodic2"`が必要です。
-`examples/periodic2_closed_photoelectron.toml`は、x/y周期、境界reservoir、閉じた光電子を組み合わせた基準例です。
+`examples/closed_photoelectron.toml`は、x/y周期、境界reservoir、閉じた光電子を組み合わせた基準例です。
 同じ周期条件をfield、collision、`photo_raycast`に適用します。
 
 | `nonzero_mode_backend` | 意味 |
@@ -846,20 +846,8 @@ group 使用時は、template の `center`、直接 placement キー、`size_mod
 |---|---|
 | 未知キー | すべてエラー |
 | `[particles]` | `[[particles.species]]` のコンテナとしてのみ使用。直下に `key = value` は書かない |
-| 旧キー | 旧名は未知キーとして扱う |
 | 型 | schema と Fortran パーサの両方で検証 |
 | 列挙値・値域・無効な機能への指定 | `beachx lint` が詳細を診断。Fortran は実行に必要な最小条件を確認 |
-
-次の旧 `sim` キーは schema、Python、Fortran のすべてで未知キーとして拒否します。暗黙の移行は行いません。
-
-| 拒否する旧キー | 現行の指定先 |
-| --- | --- |
-| `sim.box_min` / `sim.box_max` / `sim.box_origin` / `sim.box_size` | `domain` 内の同名キー |
-| `sim.bc_x_low` / `sim.bc_x_high` / `sim.bc_y_low` / `sim.bc_y_high` / `sim.bc_z_low` / `sim.bc_z_high` | 周期性は `domain.periodic_axes`、粒子の面作用は `particle_boundary` |
-| `sim.use_box` | 公開フラグを削除。領域の指定は `domain` に書く |
-| `sim.field_bc_mode` | `field_boundary.mode` |
-| `sim.phi_infty` | `reservoir.phi_infty` |
-| `sim.injection_face_phi_grid_n` | `reservoir.face_potential_grid_n` |
 
 実行前には次を推奨します。
 

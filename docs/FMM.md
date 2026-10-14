@@ -161,7 +161,7 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 物理的 zero mode を `fields.periodic.lower_boundary_model` で明示します。`fields.periodic.backend="finite_images"` は
 有限画像近似であり、無限周期解ではありません。
 
-完全な構成は [`examples/grouped/cached_periodic.toml`](../examples/grouped/cached_periodic.toml)を参照してください。
+完全な構成は [`examples/cached_periodic.toml`](../examples/cached_periodic.toml)を参照してください。
 成分の選択と検証は[periodic2 静電場](PeriodicElectrostatics.html)、cache の生成と再利用は
 [periodic2 遠方補正](PeriodicFarCorrection.html)を正本とします。
 

@@ -396,10 +396,18 @@ def _load_toml(path: Path) -> dict[str, object]:
     import tomllib
 
     with path.open("rb") as stream:
-        return tomllib.load(stream)
+        document = tomllib.load(stream)
+    from beach.config._layout import is_grouped, to_runtime_layout
+    if is_grouped(document):
+        document = to_runtime_layout(document)
+        document.setdefault("output", {}).setdefault("resume", False)
+    return document
 
 
 def _write_toml(path: Path, data: dict[str, object]) -> None:
+    from beach.config._layout import to_grouped_layout
+    if 'sim' in data and 'domain' in data:
+        data = to_grouped_layout(data)
     path.write_text(tomli_w.dumps(data), encoding="utf-8")
 
 
@@ -433,6 +441,10 @@ def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
 
     manifest = tool.stage_validation(archive_run, validation_root, binary)
 
+    import tomllib
+    grouped_input = tomllib.loads((validation_root / "input/full/finite_configured.toml").read_text())
+    assert 'sim' not in grouped_input
+    assert grouped_input['fields']['periodic']['backend'] == 'finite_images'
     finite = _load_toml(validation_root / "input/full/finite_configured.toml")
     infinite = _load_toml(validation_root / "input/full/infinite_physical.toml")
     finite_140 = _load_toml(

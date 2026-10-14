@@ -26,41 +26,8 @@ TOP_LEVEL_CONFIG_ORDER = (
 
 SCHEMA_DIRECTIVE = f"#:schema {BEACH_SCHEMA_URL}"
 
-_RESERVED_TOP_LEVEL_KEYS = frozenset(
-    {"schema_version", "title", "use_presets", "override", "base_case"}
-)
-
 _FACE_SOURCE_MODES = frozenset({"photo_raycast"})
 
-
-
-_REMOVED_SIM_KEYS = frozenset(
-    {
-        "reservoir_potential_model",
-        "field_bc_mode",
-        "phi_infty",
-        "injection_face_phi_grid_n",
-        "use_box",
-        "box_min",
-        "box_max",
-        "box_origin",
-        "box_size",
-        "bc_x_low",
-        "bc_x_high",
-        "bc_y_low",
-        "bc_y_high",
-        "bc_z_low",
-        "bc_z_high",
-        "sheath_alpha_deg",
-        "sheath_photoelectron_ref_density_cm3",
-        "sheath_electron_drift_mode",
-        "sheath_ion_drift_mode",
-        "sheath_injection_model",
-        "sheath_reference_coordinate",
-        "multiple_box_events_soft_discard_count_limit",
-        "softening",
-    }
-)
 
 class ConfigError(ValueError):
     """Base error for BEACH config handling."""
@@ -68,24 +35,6 @@ class ConfigError(ValueError):
 
 class ConfigValidationError(ConfigError):
     """Raised when ``beach.toml`` violates known BEACH constraints."""
-
-
-def _validate_legacy_keys(document: Mapping[str, Any]) -> None:
-    """Keep migration diagnostics; the schema owns the set of accepted keys."""
-
-    forbidden = sorted(set(document) & _RESERVED_TOP_LEVEL_KEYS)
-    if forbidden:
-        raise ConfigError(
-            "config error: reserved top-level key(s) are not allowed: "
-            + ", ".join(forbidden)
-        )
-    sim = document.get("sim")
-    if isinstance(sim, Mapping):
-        removed = sorted(set(sim) & _REMOVED_SIM_KEYS)
-        if removed:
-            raise ConfigValidationError(
-                "BEACH constraint error: removed sim key(s): " + ", ".join(removed) + "."
-            )
 
 
 def _validate_high_level_fragment(

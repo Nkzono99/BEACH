@@ -1,4 +1,4 @@
-"""Compare the public schema keys with the Fortran TOML dispatch tables.
+"""Compare internal schema definitions with the Fortran reader dispatch tables.
 
 This is a declaration check, not a substitute for the executable config contract
 tests: values, defaults, and physical combinations are checked by those tests.
@@ -9,9 +9,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
-
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from beach.config._layout import reader_schema
+
+
 TABLES = (
     (None, "apply_toml_document"),
     ("sim", "apply_sim_toml_table"),
@@ -55,16 +59,14 @@ def dispatched_keys(source: str, procedure: str) -> set[str]:
 
 def main() -> None:
     schema = json.loads((ROOT / "schemas/beach.schema.json").read_text())
-    legacy = schema["$defs"].get("legacyConfig", schema)
+    reader = reader_schema(schema)
     source = "\n".join(path.read_text() for path in sorted(
         (ROOT / "src/config/app_config_parser").glob("*.f90")
     ))
     failures = []
     for definition, procedure in TABLES:
         if definition is None:
-            rule = legacy
-        elif definition == "periodic2":
-            rule = legacy["properties"][definition]
+            rule = reader
         else:
             rule = schema["$defs"][definition]
         expected = set(rule["properties"])

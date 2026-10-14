@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from beach.config._layout import READER_DEFINITIONS
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -12,7 +14,7 @@ def _read(path: str) -> str:
 
 def _schema() -> dict[str, object]:
     schema = json.loads(_read("schemas/beach.schema.json"))
-    return {**schema["$defs"].get("legacyConfig", schema), "$defs": schema["$defs"]}
+    return schema
 
 
 def _markdown_sections(
@@ -80,7 +82,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         "mesh": schema["$defs"]["mesh"]["properties"],
         "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
         "mesh.templates": schema["$defs"]["template"]["properties"],
-        "periodic2": schema["properties"]["periodic2"]["properties"],
+        "periodic2": schema["$defs"]["periodic2"]["properties"],
         "output": schema["$defs"]["output"]["properties"],
     }
     structural_markers = {
@@ -135,7 +137,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         text = _read(path)
         inventory, separator, _ = text.partition(detail_heading)
         assert separator, path
-        for table in schema["properties"]:
+        for table in READER_DEFINITIONS:
             assert f"`[{table}]`" in inventory, (path, table)
 
         object_sections = {
@@ -204,12 +206,12 @@ def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
     assert "direct" in schema["$defs"]["sim"]["properties"]["field_solver"]["enum"]
     assert (
         "panel_spectral_reference"
-        in schema["properties"]["periodic2"]["properties"][
+        in schema["$defs"]["periodic2"]["properties"][
             "nonzero_mode_backend"
         ]["enum"]
     )
     assert (
-        schema["properties"]["periodic2"]["properties"]["zero_mode_policy"][
+        schema["$defs"]["periodic2"]["properties"]["zero_mode_policy"][
             "const"
         ]
         == "exclude_k0"

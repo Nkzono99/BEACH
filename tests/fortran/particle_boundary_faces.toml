@@ -1,17 +1,41 @@
-[sim]
-dt = 1.0e-9
+[run]
 batch_count = 1
-max_step = 1
 
 [domain]
-box_min = [0.0, 0.0, 0.0]
-box_max = [1.0, 1.0, 1.0]
+box_min = [
+    0.0,
+    0.0,
+    0.0,
+]
+box_max = [
+    1.0,
+    1.0,
+    1.0,
+]
 periodic_axes = []
 
-[field_boundary]
-mode = "free"
+[mesh]
+mode = "template"
 
-[particle_boundary]
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+surface_side = "normal_plus"
+center = [
+    0.5,
+    0.5,
+    0.5,
+]
+size_x = 0.5
+size_y = 0.5
+nx = 1
+ny = 1
+
+[particles.tracking]
+dt_s = 1e-09
+max_steps_per_particle = 1
+
+[particles.boundary]
 x_low = "open"
 x_high = "reflect"
 y_low = "reflect"
@@ -19,12 +43,17 @@ y_high = "open"
 z_low = "open"
 z_high = "redistributed_reflect"
 
-[particles]
 [[particles.species]]
-source_mode = "volume_seed"
-npcls_per_step = 1
-q_particle = -1.0
-m_particle = 1.0
+charge_c = -1.0
+mass_kg = 1.0
+
+[particles.species.source]
+mode = "volume_seed"
+
+[particles.species.sampling]
+volume_macro_particles_per_batch = 1
+
+[particles.species.distribution]
 temperature_k = 0.0
 
 [particles.species.boundary]
@@ -35,20 +64,12 @@ y_high = "reflect"
 z_low = "reflect"
 z_high = "inherit"
 
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
-kind = "plane"
-enabled = true
-surface_side = "normal_plus"
-center = [0.5, 0.5, 0.5]
-size_x = 0.5
-size_y = 0.5
-nx = 1
-ny = 1
+[fields]
+boundary = "free"
 
 [output]
-write_files = true
-checkpoint_stride = 2
+enabled = true
 dir = "test_particle_boundary_faces_output"
+
+[output.checkpoint]
+stride_batches = 2

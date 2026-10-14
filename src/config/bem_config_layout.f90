@@ -1,10 +1,10 @@
 !> 7グループの入力を既存の内部TOMLへ変換する。物理検証と既定値は既存readerが所有する。
-!! 公開済みのflat入力は1.xで維持し、2.0で読み取り互換を削除する。
+!! 公開入力は7グループ形式のみ。変換先のキーは内部readerの実装である。
 module bem_config_layout
   use bem_kinds, only: i32
   use bem_string_utils, only: lower_ascii
   use bem_config_toml, only: stop_config_error, require_toml_success, get_toml_int
-  use bem_config_layout_paths, only: legacy_layout_path, grouped_layout_table
+  use bem_config_layout_paths, only: reader_layout_path, grouped_layout_table
   use tomlf, only: toml_table, toml_array, toml_keyval, toml_value, toml_key, get_value, set_value, &
                    new_table, add_table, toml_len => len
   use tomlf_type, only: new_array
@@ -13,12 +13,15 @@ module bem_config_layout
   public :: normalize_config_layout
 contains
 
-  !> 新形式なら正規化したdocumentを返す。旧形式なら元documentを維持する。
+  !> 7グループの公開入力を内部reader用のdocumentへ正規化する。
   subroutine normalize_config_layout(document)
     type(toml_table), allocatable, intent(inout) :: document
     type(toml_table), allocatable :: normalized
 
-    if (.not. has_grouped_keys(document, '')) return
+    if (.not. is_grouped_layout(document, '')) then
+      call stop_config_error('flat beach.toml layout is not supported; use the grouped layout '// &
+                             '(run/domain/mesh/particles/fields/sheath/output)')
+    end if
     allocate (normalized)
     call new_table(normalized)
     call translate_table(document, '', normalized, .false.)
@@ -26,7 +29,7 @@ contains
     call move_alloc(normalized, document)
   end subroutine normalize_config_layout
 
-  recursive logical function has_grouped_keys(table, prefix) result(found)
+  recursive logical function is_grouped_layout(table, prefix) result(found)
     type(toml_table), intent(inout) :: table
     character(len=*), intent(in) :: prefix
     type(toml_key), allocatable :: keys(:)
@@ -53,7 +56,7 @@ contains
       select type (node)
       type is (toml_table)
         if (path == 'particles' .or. path == 'mesh' .or. path == 'output') then
-          if (has_grouped_keys(node, path)) then
+          if (is_grouped_layout(node, path)) then
             found = .true.
             return
           end if
@@ -64,7 +67,7 @@ contains
           call node%get(j, item)
           select type (item)
           type is (toml_table)
-            if (has_grouped_keys(item, path)) then
+            if (is_grouped_layout(item, path)) then
               found = .true.
               return
             end if
@@ -72,7 +75,7 @@ contains
         end do
       end select
     end do
-  end function has_grouped_keys
+  end function is_grouped_layout
 
   recursive subroutine translate_table(table, prefix, target, species_context)
     type(toml_table), intent(inout) :: table
@@ -81,7 +84,7 @@ contains
     logical, intent(in) :: species_context
     type(toml_key), allocatable :: keys(:)
     class(toml_value), pointer :: node
-    character(len=:), allocatable :: path, legacy, text
+    character(len=:), allocatable :: path, reader_path, text
     integer :: i, stat
 
     if (.not. grouped_layout_table(prefix)) call stop_config_error('Unknown or mixed-layout table: '//prefix)
@@ -95,7 +98,7 @@ contains
     do i = 1, size(keys)
       path = joined_path(prefix, lower_ascii(keys(i)%key))
       call table%get(keys(i)%key, node)
-      legacy = legacy_layout_path(path)
+      reader_path = reader_layout_path(path)
       if (path == 'particles.species') then
         select type (node)
         type is (toml_array)
@@ -113,9 +116,9 @@ contains
         call require_toml_success(stat, path)
         if (.not. allocated(text)) call stop_config_error(path//' must be a string')
         call translate_choice(path, lower_ascii(trim(text)), target)
-      else if (len(legacy) > 0) then
-        if (species_context) legacy = legacy(len('particles.species.') + 1:)
-        call put_node(target, legacy, node)
+      else if (len(reader_path) > 0) then
+        if (species_context) reader_path = reader_path(len('particles.species.') + 1:)
+        call put_node(target, reader_path, node)
       else
         select type (node)
         type is (toml_table)

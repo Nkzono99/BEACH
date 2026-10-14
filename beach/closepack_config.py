@@ -225,7 +225,7 @@ def build_closepack_config(
     """Build a BEACH config with a close-packed floor + sphere stack."""
 
     spec.validate()
-    config = to_runtime_layout(base_config if base_config is not None else default_base_config())
+    config = copy.deepcopy(dict(base_config if base_config is not None else default_base_config()))
     _ensure_table(config, "sim")
     domain = _ensure_table(config, "domain")
     particles = _ensure_table(config, "particles")

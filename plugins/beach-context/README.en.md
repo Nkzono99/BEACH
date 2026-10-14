@@ -62,7 +62,7 @@ See [docs/skills-guide.en.md](docs/skills-guide.en.md) for detailed skill select
 - `python_postprocess_api.md`
 - `fortran_fmm_core.md`, `batch_duration_stability.md`
 - `schemas/beach.schema.json`
-- `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
+- `examples/beach.toml`, `examples/periodic2_basic.toml`
 
 For pre-run checks, prefer `beachx lint beach.toml`; for pre-run estimates, use `beachx estimate-workload`; for output inspection, use `beachx inspect outputs/latest`.
 

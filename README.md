@@ -12,7 +12,7 @@ BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM�
 次のバッチの電場へ反映します。
 
 設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループです。
-[設定例と旧TOMLからの移行](docs/GroupedConfiguration.md)を参照してください。
+[設定例](docs/ConfigurationRecipes.md)を参照してください。
 
 現行版の中心は絶縁体表面の帯電です。体積プラズマを PIC として解くコードではありません。
 外部シースは、必要な場合だけ計算領域上端へ Zhao 零電流根の電流・障壁として接続し、計算領域から出る光電子流出に

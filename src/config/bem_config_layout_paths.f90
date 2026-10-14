@@ -2,225 +2,225 @@
 module bem_config_layout_paths
   implicit none
   private
-  public :: legacy_layout_path, grouped_layout_table
+  public :: reader_layout_path, grouped_layout_table
 contains
   !> Return the existing reader path for one grouped setting.
-  function legacy_layout_path(path) result(legacy)
+  function reader_layout_path(path) result(reader_path)
     character(len=*), intent(in) :: path
-    character(len=:), allocatable :: legacy
+    character(len=:), allocatable :: reader_path
     select case (path)
     case ('particles.tracking.dt_s')
-      legacy = 'sim.dt'
+      reader_path = 'sim.dt'
     case ('particles.tracking.max_steps_per_particle')
-      legacy = 'sim.max_step'
+      reader_path = 'sim.max_step'
     case ('run.rng_seed')
-      legacy = 'sim.rng_seed'
+      reader_path = 'sim.rng_seed'
     case ('run.batch_count')
-      legacy = 'sim.batch_count'
+      reader_path = 'sim.batch_count'
     case ('run.batch.duration_s')
-      legacy = 'sim.batch_duration'
+      reader_path = 'sim.batch_duration'
     case ('run.batch.duration_steps')
-      legacy = 'sim.batch_duration_step'
+      reader_path = 'sim.batch_duration_step'
     case ('output.diagnostics.charge_rel_change_threshold')
-      legacy = 'sim.tol_rel'
+      reader_path = 'sim.tol_rel'
     case ('output.diagnostics.charge_floor_c')
-      legacy = 'sim.q_floor'
+      reader_path = 'sim.q_floor'
     case ('fields.solver.method')
-      legacy = 'sim.field_solver'
+      reader_path = 'sim.field_solver'
     case ('fields.solver.normalization')
-      legacy = 'sim.field_normalization'
+      reader_path = 'sim.field_normalization'
     case ('fields.solver.length_scale_m')
-      legacy = 'sim.field_length_scale'
+      reader_path = 'sim.field_length_scale'
     case ('fields.solver.tree.theta')
-      legacy = 'sim.tree_theta'
+      reader_path = 'sim.tree_theta'
     case ('fields.solver.tree.leaf_max')
-      legacy = 'sim.tree_leaf_max'
+      reader_path = 'sim.tree_leaf_max'
     case ('fields.solver.auto_fmm_min_elements')
-      legacy = 'sim.tree_min_nelem'
+      reader_path = 'sim.tree_min_nelem'
     case ('fields.periodic.image_layers')
-      legacy = 'sim.field_periodic_image_layers'
+      reader_path = 'sim.field_periodic_image_layers'
     case ('fields.periodic.backend')
-      legacy = 'sim.field_periodic_far_correction'
+      reader_path = 'sim.field_periodic_far_correction'
     case ('fields.periodic.ewald_alpha')
-      legacy = 'sim.field_periodic_ewald_alpha'
+      reader_path = 'sim.field_periodic_ewald_alpha'
     case ('fields.periodic.ewald_layers')
-      legacy = 'sim.field_periodic_ewald_layers'
+      reader_path = 'sim.field_periodic_ewald_layers'
     case ('fields.periodic.cache_dir')
-      legacy = 'sim.field_periodic_cache_dir'
+      reader_path = 'sim.field_periodic_cache_dir'
     case ('fields.periodic.generation_tolerance')
-      legacy = 'sim.field_periodic_generation_tolerance'
+      reader_path = 'sim.field_periodic_generation_tolerance'
     case ('fields.external.electric_v_m')
-      legacy = 'sim.e0'
+      reader_path = 'sim.e0'
     case ('fields.external.electric_magnitude_v_m')
-      legacy = 'sim.e0_abs'
+      reader_path = 'sim.e0_abs'
     case ('fields.external.electric_azimuth_deg')
-      legacy = 'sim.e0_phi_xy_deg'
+      reader_path = 'sim.e0_phi_xy_deg'
     case ('fields.external.electric_elevation_deg')
-      legacy = 'sim.e0_phi_z_deg'
+      reader_path = 'sim.e0_phi_z_deg'
     case ('fields.external.magnetic_t')
-      legacy = 'sim.b0'
+      reader_path = 'sim.b0'
     case ('particles.tracking.events.policy')
-      legacy = 'sim.multiple_box_events_policy'
+      reader_path = 'sim.multiple_box_events_policy'
     case ('particles.tracking.events.retry_backend')
-      legacy = 'sim.multiple_box_events_retry_backend'
+      reader_path = 'sim.multiple_box_events_retry_backend'
     case ('particles.tracking.events.discard_count_grace')
-      legacy = 'sim.multiple_box_events_soft_discard_count_grace'
+      reader_path = 'sim.multiple_box_events_soft_discard_count_grace'
     case ('particles.tracking.events.discard_fraction_limit')
-      legacy = 'sim.multiple_box_events_soft_discard_fraction_limit'
+      reader_path = 'sim.multiple_box_events_soft_discard_fraction_limit'
     case ('particles.tracking.events.discard_charge_warning_c')
-      legacy = 'sim.multiple_box_events_soft_discard_abs_charge_limit'
+      reader_path = 'sim.multiple_box_events_soft_discard_abs_charge_limit'
     case ('particles.raycast.max_bounces')
-      legacy = 'sim.raycast_max_bounce'
+      reader_path = 'sim.raycast_max_bounce'
     case ('fields.periodic.lower_boundary_model')
-      legacy = 'periodic2.lower_boundary_model'
+      reader_path = 'periodic2.lower_boundary_model'
     case ('fields.periodic.reference.mode_layers')
-      legacy = 'periodic2.reference_mode_layers'
+      reader_path = 'periodic2.reference_mode_layers'
     case ('fields.periodic.reference.panel_quadrature_order')
-      legacy = 'periodic2.panel_quadrature_order'
+      reader_path = 'periodic2.panel_quadrature_order'
     case ('run.batch.adaptive.max_nonzero_mode_potential_step_v')
-      legacy = 'periodic2.max_nonzero_mode_potential_step'
+      reader_path = 'periodic2.max_nonzero_mode_potential_step'
     case ('sheath.closure')
-      legacy = 'surface_current_model.model'
+      reader_path = 'surface_current_model.model'
     case ('sheath.zhao.branch')
-      legacy = 'surface_current_model.zhao_branch'
+      reader_path = 'surface_current_model.zhao_branch'
     case ('sheath.species.electron')
-      legacy = 'surface_current_model.electron_species'
+      reader_path = 'surface_current_model.electron_species'
     case ('sheath.species.ion')
-      legacy = 'surface_current_model.ion_species'
+      reader_path = 'surface_current_model.ion_species'
     case ('sheath.species.photoelectron')
-      legacy = 'surface_current_model.photoelectron_species'
+      reader_path = 'surface_current_model.photoelectron_species'
     case ('sheath.photoelectrons.solar_elevation_deg')
-      legacy = 'surface_current_model.solar_elevation_deg'
+      reader_path = 'surface_current_model.solar_elevation_deg'
     case ('sheath.photoelectrons.ref_density_m3')
-      legacy = 'surface_current_model.photoelectron_ref_density_m3'
+      reader_path = 'surface_current_model.photoelectron_ref_density_m3'
     case ('sheath.photoelectrons.source_scale')
-      legacy = 'surface_current_model.photoelectron_source_scale'
+      reader_path = 'surface_current_model.photoelectron_source_scale'
     case ('sheath.reference_area_m2')
-      legacy = 'surface_current_model.reference_area_m2'
+      reader_path = 'surface_current_model.reference_area_m2'
     case ('sheath.coupling.outflow_refresh_batches')
-      legacy = 'surface_current_model.outflow_refresh_batches'
+      reader_path = 'surface_current_model.outflow_refresh_batches'
     case ('sheath.zhao.upstream_band_tolerance')
-      legacy = 'surface_current_model.zhao_upstream_band_tolerance'
+      reader_path = 'surface_current_model.zhao_upstream_band_tolerance'
     case ('sheath.zhao.upstream_field_floor_v_m')
-      legacy = 'surface_current_model.zhao_upstream_field_floor_v_m'
+      reader_path = 'surface_current_model.zhao_upstream_field_floor_v_m'
     case ('sheath.zhao.ion_pressure_factor')
-      legacy = 'surface_current_model.zhao_ion_pressure_factor'
+      reader_path = 'surface_current_model.zhao_ion_pressure_factor'
     case ('output.enabled')
-      legacy = 'output.write_files'
+      reader_path = 'output.write_files'
     case ('output.dir')
-      legacy = 'output.dir'
+      reader_path = 'output.dir'
     case ('output.final.mesh_potential')
-      legacy = 'output.write_mesh_potential'
+      reader_path = 'output.write_mesh_potential'
     case ('output.history.potential')
-      legacy = 'output.write_potential_history'
+      reader_path = 'output.write_potential_history'
     case ('output.history.stride_batches')
-      legacy = 'output.history_stride'
+      reader_path = 'output.history_stride'
     case ('output.checkpoint.stride_batches')
-      legacy = 'output.checkpoint_stride'
+      reader_path = 'output.checkpoint_stride'
     case ('run.restart.from')
-      legacy = 'output.restart_from'
+      reader_path = 'output.restart_from'
     case ('fields.boundary')
-      legacy = 'field_boundary.mode'
+      reader_path = 'field_boundary.mode'
     case ('particles.boundary.x_low')
-      legacy = 'particle_boundary.x_low'
+      reader_path = 'particle_boundary.x_low'
     case ('particles.boundary.x_high')
-      legacy = 'particle_boundary.x_high'
+      reader_path = 'particle_boundary.x_high'
     case ('particles.boundary.y_low')
-      legacy = 'particle_boundary.y_low'
+      reader_path = 'particle_boundary.y_low'
     case ('particles.boundary.y_high')
-      legacy = 'particle_boundary.y_high'
+      reader_path = 'particle_boundary.y_high'
     case ('particles.boundary.z_low')
-      legacy = 'particle_boundary.z_low'
+      reader_path = 'particle_boundary.z_low'
     case ('particles.boundary.z_high')
-      legacy = 'particle_boundary.z_high'
+      reader_path = 'particle_boundary.z_high'
     case ('particles.reservoir.inflow_model')
-      legacy = 'reservoir.inflow_model'
+      reader_path = 'reservoir.inflow_model'
     case ('particles.reservoir.phi_infty_v')
-      legacy = 'reservoir.phi_infty'
+      reader_path = 'reservoir.phi_infty'
     case ('particles.reservoir.face_potential_grid_n')
-      legacy = 'reservoir.face_potential_grid_n'
+      reader_path = 'reservoir.face_potential_grid_n'
     case ('mesh.obj.path')
-      legacy = 'mesh.obj_path'
+      reader_path = 'mesh.obj_path'
     case ('mesh.obj.scale')
-      legacy = 'mesh.obj_scale'
+      reader_path = 'mesh.obj_scale'
     case ('mesh.obj.rotation')
-      legacy = 'mesh.obj_rotation'
+      reader_path = 'mesh.obj_rotation'
     case ('mesh.obj.offset')
-      legacy = 'mesh.obj_offset'
+      reader_path = 'mesh.obj_offset'
     case ('mesh.obj.surface_model')
-      legacy = 'mesh.surface_model'
+      reader_path = 'mesh.surface_model'
     case ('mesh.obj.surface_side')
-      legacy = 'mesh.surface_side'
+      reader_path = 'mesh.surface_side'
     case ('domain')
-      legacy = 'domain'
+      reader_path = 'domain'
     case ('mesh.mode')
-      legacy = 'mesh.mode'
+      reader_path = 'mesh.mode'
     case ('mesh.groups')
-      legacy = 'mesh.groups'
+      reader_path = 'mesh.groups'
     case ('mesh.templates')
-      legacy = 'mesh.templates'
+      reader_path = 'mesh.templates'
     case ('particles.species.species_key')
-      legacy = 'particles.species.species_key'
+      reader_path = 'particles.species.species_key'
     case ('particles.species.enabled')
-      legacy = 'particles.species.enabled'
+      reader_path = 'particles.species.enabled'
     case ('particles.species.charge_c')
-      legacy = 'particles.species.q_particle'
+      reader_path = 'particles.species.q_particle'
     case ('particles.species.mass_kg')
-      legacy = 'particles.species.m_particle'
+      reader_path = 'particles.species.m_particle'
     case ('particles.species.distribution.number_density_cm3')
-      legacy = 'particles.species.number_density_cm3'
+      reader_path = 'particles.species.number_density_cm3'
     case ('particles.species.distribution.number_density_m3')
-      legacy = 'particles.species.number_density_m3'
+      reader_path = 'particles.species.number_density_m3'
     case ('particles.species.distribution.temperature_ev')
-      legacy = 'particles.species.temperature_ev'
+      reader_path = 'particles.species.temperature_ev'
     case ('particles.species.distribution.temperature_k')
-      legacy = 'particles.species.temperature_k'
+      reader_path = 'particles.species.temperature_k'
     case ('particles.species.distribution.drift_velocity_m_s')
-      legacy = 'particles.species.drift_velocity'
+      reader_path = 'particles.species.drift_velocity'
     case ('particles.species.source.mode')
-      legacy = 'particles.species.source_mode'
+      reader_path = 'particles.species.source_mode'
     case ('particles.species.source.pos_low')
-      legacy = 'particles.species.pos_low'
+      reader_path = 'particles.species.pos_low'
     case ('particles.species.source.pos_high')
-      legacy = 'particles.species.pos_high'
+      reader_path = 'particles.species.pos_high'
     case ('particles.species.source.inject_face')
-      legacy = 'particles.species.inject_face'
+      reader_path = 'particles.species.inject_face'
     case ('particles.species.source.ray_direction')
-      legacy = 'particles.species.ray_direction'
+      reader_path = 'particles.species.ray_direction'
     case ('particles.species.source.region_mode')
-      legacy = 'particles.species.inject_region_mode'
+      reader_path = 'particles.species.inject_region_mode'
     case ('particles.species.source.uv_low')
-      legacy = 'particles.species.uv_low'
+      reader_path = 'particles.species.uv_low'
     case ('particles.species.source.uv_high')
-      legacy = 'particles.species.uv_high'
+      reader_path = 'particles.species.uv_high'
     case ('particles.species.source.emit_current_density_a_m2')
-      legacy = 'particles.species.emit_current_density_a_m2'
+      reader_path = 'particles.species.emit_current_density_a_m2'
     case ('particles.species.source.deposit_opposite_charge_on_emit')
-      legacy = 'particles.species.deposit_opposite_charge_on_emit'
+      reader_path = 'particles.species.deposit_opposite_charge_on_emit'
     case ('particles.species.source.normal_drift_speed_m_s')
-      legacy = 'particles.species.normal_drift_speed'
+      reader_path = 'particles.species.normal_drift_speed'
     case ('particles.species.sampling.volume_macro_particles_per_batch')
-      legacy = 'particles.species.npcls_per_step'
+      reader_path = 'particles.species.npcls_per_step'
     case ('particles.species.sampling.weight')
-      legacy = 'particles.species.w_particle'
+      reader_path = 'particles.species.w_particle'
     case ('particles.species.sampling.target_macro_particles_per_batch')
-      legacy = 'particles.species.target_macro_particles_per_batch'
+      reader_path = 'particles.species.target_macro_particles_per_batch'
     case ('particles.species.sampling.rays_per_batch')
-      legacy = 'particles.species.rays_per_batch'
+      reader_path = 'particles.species.rays_per_batch'
     case ('particles.species.charging.closure')
-      legacy = 'particles.species.surface_charge_closure'
+      reader_path = 'particles.species.surface_charge_closure'
     case ('particles.species.charging.target_absorbed_current_a')
-      legacy = 'particles.species.target_absorbed_current_a'
+      reader_path = 'particles.species.target_absorbed_current_a'
     case ('particles.species.charging.target_emission_current_a')
-      legacy = 'particles.species.target_emission_current_a'
+      reader_path = 'particles.species.target_emission_current_a'
     case ('particles.species.boundary')
-      legacy = 'particles.species.boundary'
+      reader_path = 'particles.species.boundary'
     case ('particles.species.inflow')
-      legacy = 'particles.species.boundary_inflow'
+      reader_path = 'particles.species.boundary_inflow'
     case default
-      legacy = ''
+      reader_path = ''
     end select
-  end function legacy_layout_path
+  end function reader_layout_path
 
   !> Recognize structural tables, rejecting unknown empty groups.
   logical function grouped_layout_table(path) result(known)

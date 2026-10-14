@@ -62,7 +62,7 @@ codex plugin marketplace add /path/to/BEACH
 - `python_postprocess_api.md`
 - `fortran_fmm_core.md`, `batch_duration_stability.md`
 - `schemas/beach.schema.json`
-- `examples/beach.toml`, `examples/periodic2_basic/beach.toml`
+- `examples/beach.toml`, `examples/periodic2_basic.toml`
 
 設定ファイルの事前検査には `beachx lint beach.toml`、実行前の軽量確認には `beachx estimate-workload`、出力確認には `beachx inspect outputs/latest` を優先します。
 

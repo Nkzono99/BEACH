@@ -1,9 +1,15 @@
-[sim]
-batch_duration = 1.0e-2
+[run.batch]
+duration_s = 0.01
 
-[particles]
 [[particles.species]]
-npcls_per_step = 1
-q_particle = -1.0
-surface_charge_closure = "fixed_current"
+charge_c = -1.0
+
+[particles.species.sampling]
+volume_macro_particles_per_batch = 1
+
+[particles.species.charging]
+closure = "fixed_current"
 target_absorbed_current_a = -2.0
+
+[particles.species.source]
+mode = "volume_seed"

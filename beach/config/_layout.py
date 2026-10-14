@@ -1,7 +1,5 @@
-"""Translate the grouped authoring layout to the existing runtime contract.
+"""Map grouped public input to internal reader paths and render runtime dictionaries.
 
-Released flat input remains supported during BEACH 1.x; remove that input reader
-at 2.0. Runtime dictionaries are unchanged so all physical validation stays shared.
 The Fortran routing table and editor schema are generated from these paths.
 """
 from __future__ import annotations
@@ -122,6 +120,22 @@ CHOICES = {
 }
 
 
+READER_DEFINITIONS = {
+    "sim": "sim", "domain": "domain", "mesh": "mesh", "particles": "particles",
+    "field_boundary": "fieldBoundary", "particle_boundary": "particleBoundary",
+    "reservoir": "reservoir", "surface_current_model": "surfaceCurrentModel",
+    "periodic2": "periodic2", "output": "output",
+}
+
+
+def reader_schema(schema: Mapping[str, Any]) -> dict[str, Any]:
+    """Build internal reader rules for schema generation and key-contract checks."""
+    return {"type": "object", "additionalProperties": False,
+            "properties": {key: {"$ref": f"#/$defs/{name}"}
+                           for key, name in READER_DEFINITIONS.items()},
+            "$defs": schema["$defs"]}
+
+
 def is_grouped(config: Mapping[str, Any]) -> bool:
     """Recognize a grouped document, including partial boundary-only documents."""
     def has(table, keys):
@@ -162,7 +176,10 @@ def _leaves(document, prefix="", preserved=()):
 def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
     """Normalize grouped input without changing physical values or units."""
     if not is_grouped(config):
-        return copy.deepcopy(dict(config))
+        raise ConfigValidationError(
+            "flat beach.toml layout is not supported; use the grouped layout "
+            "(run/domain/mesh/particles/fields/sheath/output)"
+        )
     reverse = {new: old for old, new in PATHS.items()}
     reverse.update(PRESERVED)
     result = {}
@@ -218,11 +235,7 @@ def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def to_grouped_layout(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Render one old runtime/authoring document using the grouped input layout."""
-    # Use the same identifier rules as loading (paths and species names keep case).
-    from .schema import load_schema, prepare_schema_document
-    schema, _ = load_schema()
-    config = prepare_schema_document(config, schema)
+    """Render an internal runtime dictionary using the grouped public input layout."""
     if is_grouped(config):
         return copy.deepcopy(dict(config))
     result = {}
@@ -254,9 +267,9 @@ def to_grouped_layout(config: Mapping[str, Any]) -> dict[str, Any]:
             if value:
                 result.setdefault("run", {}).setdefault("restart", {})
         elif path == "output.restart_from" and not config.get("output", {}).get("resume", False):
-            # An inactive legacy path must not turn a fresh run into a resume.
+            # An inactive internal restart path must not turn a fresh run into a resume.
             if value:
-                raise ConfigValidationError("set output.resume=true before migrating restart_from")
+                raise ConfigValidationError("set output.resume=true before rendering restart_from")
         elif path == "sim.field_periodic_far_correction":
             continue  # Select the effective typed backend below.
         elif path in paths:
@@ -271,13 +284,13 @@ def to_grouped_layout(config: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(periodic, Mapping) or far == "cached_kneq0":
         backend = periodic.get("nonzero_mode_backend", "panel_spectral_reference") if periodic is not None else far
         _put(result, "fields.periodic.backend", backend)
-        # Preserve the effective lower boundary of released untyped cached input.
+        # Materialize the effective lower boundary of internal cached settings.
         lower = periodic.get("lower_boundary_model", "e_bottom_zero") if periodic is not None else "e_bottom_zero"
         if "lower_boundary_model" not in result["fields"]["periodic"]:
             _put(result, "fields.periodic.lower_boundary_model", lower)
     elif "field_periodic_far_correction" in config.get("sim", {}):
         _put(result, "fields.periodic.backend", "finite_images")
-    # Old source mode defaults also apply to volume samples with no explicit mode.
+    # Internal source mode defaults also apply to volume samples with no explicit mode.
     for item in result.get("particles", {}).get("species", []):
         if "source" in item or item.get("sampling", {}).get("volume_macro_particles_per_batch", 0) > 0:
             item.setdefault("source", {}).setdefault("mode", "volume_seed")

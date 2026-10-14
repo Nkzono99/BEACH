@@ -16,7 +16,7 @@
 | Python post-processing API | `../../../docs/PythonPostprocessAPI.md` |
 | user guide | `../../../docs/agent-user-guide.md` |
 | schema | `../../../schemas/beach.schema.json` |
-| examples | `../../../examples/beach.toml`, `../../../examples/periodic2_basic/beach.toml` |
+| examples | `../../../examples/beach.toml`, `../../../examples/periodic2_basic.toml` |
 
 ## 注意
 

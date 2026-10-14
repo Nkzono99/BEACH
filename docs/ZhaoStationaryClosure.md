@@ -208,9 +208,9 @@ outflow_refresh_batches = 50
   目標から離れた状態で統計が組まれる。
 
 全キーと組み合わせの制約は[入力パラメータ](Parameters.html#surface_current_model-外部シースclosure)にあります。完全な例は
-[`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
-[`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml)、
-[`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml) です。
+[`examples/zero_current.toml`](../examples/zero_current.toml)、
+[`zero_current_refresh.toml`](../examples/zero_current_refresh.toml)、
+[`zero_current_no_photo.toml`](../examples/zero_current_no_photo.toml) です。
 
 ## 確認する出力
 

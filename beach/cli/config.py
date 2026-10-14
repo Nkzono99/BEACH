@@ -15,8 +15,6 @@ from beach.config import (
     semantic_diff,
 )
 from beach.config._toml import load_toml_file
-from beach.config._layout import to_grouped_layout
-from beach.config import normalize_config_document
 
 from ._shared import configure_entry_parser
 
@@ -51,10 +49,6 @@ def _configure_group_parser(parser: argparse.ArgumentParser) -> None:
     )
     _add_init_subparser(config_subparsers)
     _add_diff_subparser(config_subparsers)
-    parser = config_subparsers.add_parser("migrate", help="convert released flat input to grouped TOML")
-    parser.add_argument("config_path", type=Path, help="existing beach.toml")
-    parser.add_argument("output", type=Path, help="destination grouped TOML")
-    configure_entry_parser(parser, run_migrate)
 
 
 def _add_init_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -103,24 +97,6 @@ def run_init(args: argparse.Namespace) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="utf-8")
     print(f"saved={destination}")
-
-
-def run_migrate(args: argparse.Namespace) -> None:
-    """Validate and convert an input without changing its authoring geometry."""
-    if args.output.exists():
-        raise SystemExit(f"config file already exists: {args.output}")
-    load_config_file(args.config_path)
-    document = to_grouped_layout(load_toml_file(args.config_path))
-    # Preserve relative response paths when the destination changes directory.
-    model = document.get("sheath", {}).get("table", {})
-    table_path = model.get("path")
-    if table_path and not Path(table_path).is_absolute():
-        model["path"] = str((args.config_path.parent / table_path).resolve())
-    normalize_config_document(document)
-    text = dump_beach_toml(document, source_config=args.config_path)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(text, encoding="utf-8")
-    print(f"saved={args.output}")
 
 
 def run_diff(args: argparse.Namespace) -> None:

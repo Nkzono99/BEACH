@@ -14,7 +14,7 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 ## Source Order
 
 1. User's scientific objective, existing config, constraints, and target output.
-2. Bundled references: `../../references/config_workflow.md`, `../../references/fortran_parameter_file.md`, `../../references/SPEC.md`, `../../references/examples/periodic2_basic/beach.toml`, `../../references/examples/beach.toml`.
+2. Bundled references: `../../references/config_workflow.md`, `../../references/fortran_parameter_file.md`, `../../references/SPEC.md`, `../../references/examples/periodic2_basic.toml`, `../../references/examples/beach.toml`.
 3. Bundled docs: `../../docs/simulator-context.md`, `../../docs/usage-workflows.md`, `../../docs/known-failure-modes.md`.
 4. Repo docs/source only when the full checkout is available and may be newer.
 

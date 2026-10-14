@@ -1273,11 +1273,23 @@ def _case_config(
     resume: bool,
     restart_from: Path | None,
 ) -> dict[str, Any]:
+    # The fixed 1.3.0 archive is persisted evidence, not simulator input.
+    # Materialize its box and boundary fields as internal reader paths before
+    # generating the current grouped input. Keep this adapter only while this
+    # archive reproduction workflow remains supported.
     config = copy.deepcopy(dict(archive))
-    sim = config.setdefault("sim", {})
-    output = config.setdefault("output", {})
-    if not isinstance(sim, dict) or not isinstance(output, dict):
-        raise ValidationError("[sim] and [output] must be TOML tables")
+    sim = config["sim"]
+    output = config["output"]
+    config["domain"] = {"box_min": sim.pop("box_min"), "box_max": sim.pop("box_max"),
+                        "periodic_axes": ["x", "y"]}
+    sim.pop("use_box", None)
+    config["field_boundary"] = {"mode": sim.pop("field_bc_mode")}
+    config["particle_boundary"] = {face: sim.pop("bc_" + face) for face in ("z_low", "z_high")}
+    for face in ("x_low", "x_high", "y_low", "y_high"):
+        sim.pop("bc_" + face)
+    for template in config.get("mesh", {}).get("templates", []):
+        # Archived spheres used the outward orientation now stated explicitly.
+        template.setdefault("surface_side", "outward_closed")
     sim["batch_count"] = int(batch_count)
     sim["field_periodic_image_layers"] = 1
     if periodic_model == "infinite_physical":
@@ -1873,7 +1885,8 @@ def stage_validation(
             resume=resume,
             restart_from=restart_from,
         )
-        _write_toml(config_path, config)
+        from beach.config._layout import to_grouped_layout
+        _write_toml(config_path, to_grouped_layout(config))
         spec = _case_spec(
             root,
             name=name,
@@ -1967,7 +1980,9 @@ def stage_validation(
 
 
 def _normalize_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    normalized = copy.deepcopy(dict(config))
+    from beach.config._layout import to_grouped_layout, to_runtime_layout
+    normalized = to_runtime_layout(to_grouped_layout(config))
+    normalized.setdefault("output", {}).setdefault("resume", False)
     sim = normalized.setdefault("sim", {})
     if isinstance(sim, dict):
         sim.setdefault("field_periodic_ewald_layers", DEFAULT_EWALD_LAYERS)
@@ -2307,7 +2322,8 @@ def verify_inputs(
         if not isinstance(value, dict):
             raise ValidationError(f"case {name} metadata must be an object")
         path = Path(str(value["config_path"]))
-        actual = _load_toml(path)
+        from beach.config._layout import to_runtime_layout
+        actual = to_runtime_layout(_load_toml(path))
         restart_value = value.get("restart_from")
         expected = _case_config(
             archive_config,
@@ -3267,7 +3283,8 @@ def verify_run(
     if any("fallback" in value.lower() for value in summary.values()):
         raise ValidationError("summary reports a forbidden fallback")
     config_path = Path(str(case["config_path"]))
-    case_config = _load_toml(config_path)
+    from beach.config._layout import to_runtime_layout
+    case_config = to_runtime_layout(_load_toml(config_path))
     output_config = case_config.get("output", {})
     if not isinstance(output_config, dict):
         raise ValidationError(f"output configuration is invalid for {name}")
@@ -8030,33 +8047,29 @@ def _oracle_panel_result(
 
 
 def _oracle_panel_config_data() -> dict[str, Any]:
-    return {
+    from beach.config._layout import to_grouped_layout
+
+    return to_grouped_layout({
         "sim": {
             "field_solver": "fmm",
-            "field_bc_mode": "periodic2",
-            "bc_x_low": "periodic",
-            "bc_x_high": "periodic",
-            "bc_y_low": "periodic",
-            "bc_y_high": "periodic",
-            "bc_z_low": "open",
-            "bc_z_high": "open",
-            "box_min": [0.0, 0.0, -1.0],
-            "box_max": [2.0, 2.0, 1.0],
             "tree_theta": 0.2,
             "tree_leaf_max": 16,
-            "tree_order": 4,
             "field_periodic_image_layers": 1,
-            "field_periodic_far_correction": "none",
+            "field_periodic_far_correction": "cached_kneq0",
             "field_periodic_ewald_layers": 4,
             "field_periodic_generation_tolerance": 1.0e-8,
             "e0": [0.0, 0.0, 0.0],
         },
+        "domain": {"box_min": [0.0, 0.0, -1.0], "box_max": [2.0, 2.0, 1.0],
+                   "periodic_axes": ["x", "y"]},
+        "field_boundary": {"mode": "periodic2"},
+        "particle_boundary": {"z_low": "open", "z_high": "open"},
         "periodic2": {
             "nonzero_mode_backend": "cached_kneq0",
             "zero_mode_policy": "exclude_k0",
             "lower_boundary_model": "e_bottom_zero",
         },
-    }
+    })
 
 
 def _oracle_panel_config(path: Path) -> None:
@@ -8687,7 +8700,8 @@ def _run_periodic_plane_kernel_oracle(
     canonical_cache_identities: dict[str, dict[str, Any]] = {}
     cache_evaluations: list[dict[str, Any]] = []
     observed_effective_field_contract: dict[str, str] | None = None
-    oracle_sim = _load_toml(config_path).get("sim", {})
+    from beach.config._layout import to_runtime_layout
+    oracle_sim = to_runtime_layout(_load_toml(config_path)).get("sim", {})
     if not isinstance(oracle_sim, Mapping):
         raise ValidationError("periodic plane-oracle sim config is invalid")
     cache_groups = ORACLE_CACHE_EVALUATION_GROUPS

@@ -160,12 +160,10 @@ z-high面の電位基準として別の層で与えます。
 
 ### 5.3 領域・粒子境界・reservoir
 
-公開 TOML の新しいauthoring形式は `run / domain / mesh / particles / fields / sheath / output` の7グループです。
-FortranとPythonは同じ入口で既存の内部物理設定へ正規化します。詳細は
-[設定グループと移行](docs/GroupedConfiguration.md)を参照してください。
-公開済み1.6のflat入力は1.xの間読み取れます。読み取り互換の削除は2.0を予定しています。
-新旧混在はエラーとし、再開・粒子源・周期場backendに暗黙の優先順位を作りません。
-以下の例と内部パラメータ参照はflat入力の契約を記録しています。
+公開 TOML は `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。
+Fortran と Python はこの形式を内部の reader パスへ正規化します。flat 入力と新旧混在はエラーです。
+再開・粒子源・周期場 backend に暗黙の優先順位を作りません。
+以下の内部パラメータ参照は reader の設定名を記録しています。
 
 公開 TOML は topology、場、外向き粒子作用、外部 reservoir 条件、species 別流入を分離します。
 

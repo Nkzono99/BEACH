@@ -4,7 +4,7 @@ Lang: [English](Configuration.en.md) | [日本語](Configuration.md)
 
 # Create and Validate `beach.toml`
 
-The grouped layout is the current authoring format. See [configuration groups and migration](GroupedConfiguration.en.html) for new keys and conversion examples. The flat notation below remains supported during 1.x and is scheduled for removal at 2.0.
+Configuration files accept only the seven-group layout (`run / domain / mesh / particles / fields / sheath / output`). See `examples/` for complete input files.
 
 
 This document describes the directly edited `beach.toml` file and the `beachx config` helper commands.

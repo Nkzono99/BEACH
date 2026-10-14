@@ -1,0 +1,90 @@
+#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/schemas/beach.schema.json
+
+[run]
+batch_count = 20
+rng_seed = 12345
+
+[domain]
+box_min = [
+    0.0,
+    0.0,
+    0.0,
+]
+box_max = [
+    1.0,
+    1.0,
+    1.0,
+]
+periodic_axes = []
+
+[mesh]
+mode = "template"
+
+[[mesh.templates]]
+kind = "plane"
+enabled = true
+surface_model = "insulator"
+surface_side = "normal_plus"
+size_x = 0.8
+size_y = 0.8
+nx = 12
+ny = 12
+center = [
+    0.5,
+    0.5,
+    0.2,
+]
+
+[particles.tracking]
+dt_s = 5e-08
+max_steps_per_particle = 80
+
+[particles.boundary]
+z_low = "open"
+z_high = "open"
+
+[[particles.species]]
+charge_c = -1.602176634e-19
+mass_kg = 9.10938356e-31
+
+[particles.species.source]
+mode = "volume_seed"
+pos_low = [
+    0.15,
+    0.15,
+    0.8,
+]
+pos_high = [
+    0.85,
+    0.85,
+    0.8,
+]
+
+[particles.species.sampling]
+weight = 200000.0
+volume_macro_particles_per_batch = 200
+
+[particles.species.distribution]
+drift_velocity_m_s = [
+    0.0,
+    0.0,
+    -1000000.0,
+]
+temperature_k = 0.0
+
+[fields]
+boundary = "free"
+
+[fields.solver]
+method = "direct"
+
+[output]
+enabled = true
+dir = "outputs/tutorial"
+
+[output.history]
+stride_batches = 1
+potential = true
+
+[output.final]
+mesh_potential = true

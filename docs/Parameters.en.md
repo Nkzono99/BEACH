@@ -4,7 +4,7 @@ Lang: [English](Parameters.en.md) | [日本語](Parameters.md)
 
 # Input Parameters Reference
 
-The grouped layout is the current authoring format. See [configuration groups and migration](GroupedConfiguration.en.html) for new keys and conversion examples. The flat notation below remains supported during 1.x and is scheduled for removal at 2.0.
+Configuration files accept only the seven-group layout (`run / domain / mesh / particles / fields / sheath / output`). See `examples/` for complete input files.
 
 
 Look up `beach.toml` keys, types, defaults, units, and required or mutually exclusive conditions here.
@@ -390,8 +390,8 @@ transient outer sheath. See the [Zhao Closure](ZhaoStationaryClosure.en.html) fo
 and output definitions. With `model="none"`, specify no key other than `model`. The removed `[outer_plasma]` /
 `[coupling]` tables and matching-plane coupling are unsupported.
 
-The complete case is `examples/periodic2_zhao_fixed_current.toml`; the outer-root refresh case is
-`examples/periodic2_zhao_outflow_refresh.toml`.
+The complete case is `examples/zero_current.toml`; the outer-root refresh case is
+`examples/zero_current_refresh.toml`.
 
 ### `[periodic2]`: Nonzero Mode, Zero Mode, and Lower Boundary
 
@@ -417,7 +417,7 @@ for acceptance, rollback, and convergence checks.
 ### Combined periodic2 Constraints
 
 Periodic2 requires `[domain]`, `periodic_axes=["x","y"]`, and `field_boundary.mode="periodic2"`.
-`examples/periodic2_closed_photoelectron.toml` is the reference combination of x/y periodicity, a boundary reservoir, and
+`examples/closed_photoelectron.toml` is the reference combination of x/y periodicity, a boundary reservoir, and
 closed photoelectrons. The same periodicity applies to field evaluation, collision, and `photo_raycast`.
 
 | `nonzero_mode_backend` | Meaning |
@@ -869,20 +869,8 @@ Run `beachx lint` from [Create and Validate `beach.toml`](Configuration.en.html)
 |---|---|
 | Unknown keys | All are errors |
 | `[particles]` | Used only as the container for `[[particles.species]]`. Do not write `key = value` directly under it |
-| Old keys | Old names are treated as unknown keys |
 | Type | Validated by both the schema and the Fortran parser |
 | Enums, ranges, and settings for inactive features | `beachx lint` provides detailed diagnostics; Fortran checks minimum prerequisites for execution |
-
-The following old `sim` keys are rejected as unknown keys by the schema, Python, and Fortran. They are not migrated implicitly.
-
-| Rejected old keys | Current location |
-| --- | --- |
-| `sim.box_min` / `sim.box_max` / `sim.box_origin` / `sim.box_size` | Same-named keys under `domain` |
-| `sim.bc_x_low` / `sim.bc_x_high` / `sim.bc_y_low` / `sim.bc_y_high` / `sim.bc_z_low` / `sim.bc_z_high` | Periodicity in `domain.periodic_axes`; particle face actions in `particle_boundary` |
-| `sim.use_box` | Public flag removed; specify the domain under `domain` |
-| `sim.field_bc_mode` | `field_boundary.mode` |
-| `sim.phi_infty` | `reservoir.phi_infty` |
-| `sim.injection_face_phi_grid_n` | `reservoir.face_potential_grid_n` |
 
 Before running, this is recommended.
 

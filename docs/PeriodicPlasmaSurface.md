@@ -14,7 +14,7 @@ Lang: [日本語](PeriodicPlasmaSurface.md) | [English](PeriodicPlasmaSurface.en
 
 ## 共通の構成
 
-どの方式も、次の構成から始めます。完全な設定は [`examples/grouped/closed_photoelectron.toml`](../examples/grouped/closed_photoelectron.toml) です。
+どの方式も、次の構成から始めます。完全な設定は [`examples/closed_photoelectron.toml`](../examples/closed_photoelectron.toml) です。
 
 ```toml
 [domain]
@@ -133,9 +133,9 @@ lower_boundary_model = "e_bottom_zero"
 
 電子とイオンの drift は、どちらも太陽風の法線速度（内向き、負の z）にします。電子の drift を扱うため、
 `sheath.zhao.upstream_field_floor_v_m` を運動電場の目安 2 mV/m にします（[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。電子とイオンの数密度には、
-同じ太陽風密度を書きます。完全な設定は [`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml)、
-外部根を更新する例は [`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml)、
-光電子なし（Type C）の例は [`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml) です。
+同じ太陽風密度を書きます。完全な設定は [`examples/zero_current.toml`](../examples/zero_current.toml)、
+外部根を更新する例は [`zero_current_refresh.toml`](../examples/zero_current_refresh.toml)、
+光電子なし（Type C）の例は [`zero_current_no_photo.toml`](../examples/zero_current_no_photo.toml) です。
 モデルの仮定と既知の制約は[外部シースとの接続](ZhaoStationaryClosure.html)にあります。
 
 ## 結果を確認する

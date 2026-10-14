@@ -6,7 +6,6 @@
     { "source": { "root": "ConfigurationRecipes.md", "en": "ConfigurationRecipes.en.md" }, "slug": "configuration-recipes", "order": 40, "description": { "root": "物理的な目的から形状、粒子源、境界、solverを選ぶ。", "en": "Choose geometry, sources, boundaries, and a solver from the physical goal." } },
     { "source": { "root": "ParticleSourcesBoundaries.md", "en": "ParticleSourcesBoundaries.en.md" }, "slug": "particle-sources-boundaries", "order": 45, "description": { "root": "生成位置と供給方法から粒子源を選ぶ。", "en": "Choose a particle source from its creation location and supply mechanism." } },
     { "source": { "root": "Configuration.md", "en": "Configuration.en.md" }, "slug": "configuration", "order": 50, "description": { "root": "beach.tomlを生成、編集、検証する。", "en": "Create, edit, and validate beach.toml." } },
-    { "source": { "root": "GroupedConfiguration.md", "en": "GroupedConfiguration.en.md" }, "slug": "configuration-groups", "order": 52, "description": { "root": "7グループの入力と旧TOMLからの移行例。", "en": "Seven configuration groups and flat TOML migration examples." } },
     { "source": { "root": "ReservoirInjection.md", "en": "ReservoirInjection.en.md" }, "slug": "reservoir-injection", "order": 55, "description": { "root": "外部reservoirからbox境界へ粒子を流入させる。", "en": "Inject particles through a box boundary from an external reservoir." } },
     { "source": { "root": "PeriodicPlasmaSurface.md", "en": "PeriodicPlasmaSurface.en.md" }, "slug": "periodic-plasma-surface", "order": 57, "description": { "root": "太陽風と光電子の中の周期表面で、上端の閉じ方を選ぶ。", "en": "Choose how to close the top of a periodic surface cell in solar wind and photoelectrons." } },
     { "source": { "root": "FieldSolvers.md", "en": "FieldSolvers.en.md" }, "slug": "field-solvers", "order": 60, "description": { "root": "Direct、Treecode、FMMをケース規模と精度から選ぶ。", "en": "Choose Direct, Treecode, or FMM from case size and accuracy needs." } },
@@ -62,7 +61,6 @@
         { "type": "page", "slug": "periodic-plasma-surface", "label": { "root": "プラズマ中の周期表面", "en": "Periodic surface in plasma" } },
         { "type": "page", "slug": "field-solvers", "label": { "root": "場solverを選ぶ", "en": "Choose a field solver" } },
         { "type": "page", "slug": "configuration", "label": { "root": "設定を作成・検証する", "en": "Create and validate configuration" } },
-        { "type": "page", "slug": "configuration-groups", "label": { "root": "設定グループと移行", "en": "Configuration groups and migration" } },
         { "type": "page", "slug": "execution", "label": { "root": "実行・HPC・再開", "en": "Run, HPC, and resume" } }
       ]
     },

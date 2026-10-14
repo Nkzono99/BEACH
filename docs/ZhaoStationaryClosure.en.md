@@ -226,9 +226,9 @@ outflow_refresh_batches = 50
   far from the target.
 
 All keys and combination constraints are in [Input parameters](Parameters.en.html#surface_current_model-external-sheath-closure). Complete examples are
-[`examples/grouped/zero_current.toml`](../examples/grouped/zero_current.toml),
-[`zero_current_refresh.toml`](../examples/grouped/zero_current_refresh.toml), and
-[`zero_current_no_photo.toml`](../examples/grouped/zero_current_no_photo.toml).
+[`examples/zero_current.toml`](../examples/zero_current.toml),
+[`zero_current_refresh.toml`](../examples/zero_current_refresh.toml), and
+[`zero_current_no_photo.toml`](../examples/zero_current_no_photo.toml).
 
 ## Outputs to check
 

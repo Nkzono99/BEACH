@@ -108,7 +108,7 @@ def _split_count_for_rank(total_count: int, rank: int, n_ranks: int) -> int:
 def load_toml(path: Path) -> dict[str, Any]:
     """Load a TOML configuration through the shared BEACH config reader."""
 
-    return load_toml_file(path)
+    return to_runtime_layout(load_toml_file(path))
 
 
 def _dot(a: list[float], b: list[float]) -> float:
@@ -646,7 +646,6 @@ def read_summary_batches(path: Path) -> int:
 def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
     """Return checkpoint batch count when config requests a restart."""
 
-    config = to_runtime_layout(config)
     output_raw = config.get("output", {})
     if not isinstance(output_raw, dict):
         return 0
@@ -698,10 +697,6 @@ def estimate_workload(
         If configuration values are inconsistent or invalid.
     """
 
-    try:
-        config = to_runtime_layout(config)
-    except ConfigError as exc:
-        raise SystemExit(str(exc)) from exc
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
         raise SystemExit("[sim] section must be a table.")

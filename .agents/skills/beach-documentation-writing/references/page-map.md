@@ -53,7 +53,6 @@
 | ファイル | slug | 型 | 正本として持つもの |
 |---|---|---|---|
 | `Parameters.md` | `parameters` | リファレンス | 新形式の全キー（型、単位、既定値、制約） |
-| `GroupedConfiguration.md` | `configuration-groups` | リファレンス | 旧形式からの移行: 旧キーと新キーの対応表、非推奨・削除済みの入力とサポート期間 |
 | `OutputReference.md` | `output-reference` | リファレンス | 全出力ファイル、列、`summary.txt` の key、checkpoint の契約 |
 | `Glossary.md` | `glossary` | リファレンス | 用語（日本語、英語、識別子） |
 | `PythonPostprocessAPI.md` | `python-postprocess-api` | リファレンス | Python API |
@@ -82,7 +81,7 @@
 
 | 変更 | 正本 | あわせて確認するもの |
 |---|---|---|
-| 設定キーの追加・変更 | `Parameters.md` | 挙動を説明するモデルのページ、旧キーがあれば `GroupedConfiguration.md` の対応表、schema |
+| 設定キーの追加・変更 | `Parameters.md` | 挙動を説明するモデルのページ、schema |
 | 出力ファイル・列・`summary.txt` の key | `OutputReference.md` | `schemas/beach.output-manifest.json`、最初に見るべきものなら `OutputGuide.md` |
 | 物理モデルの追加・変更 | そのモデルのページ | `Parameters.md`、`ValidationGuide.md` のモデル別診断表、関係する手順のページ |
 | 周期表面の上端の扱い（光電子、障壁、外部シース） | 該当するモデルのページ | `PeriodicPlasmaSurface.md` の比較表と設定差分 |
@@ -90,7 +89,7 @@
 | 場ソルバ・周期場 | `FieldSolvers.md` / `PeriodicElectrostatics.md` | 内部実装のページ |
 | 実行・再開の手順 | `Execution.md` | `OutputReference.md` の checkpoint、`Troubleshooting.md` |
 | 新しい失敗の形 | `Troubleshooting.md` | 原因を説明する正本 |
-| 入力の削除・非推奨化 | `GroupedConfiguration.md` | CHANGELOG。他のページからは記述を消す |
+| 入力の削除・非推奨化 | CHANGELOG | 他のページからは記述を消す |
 | ソースの配置・責務 | `Architecture.md` | `Workflow.md` のテスト対応 |
 | 用語の追加・変更 | `Glossary.md` | 使っている全ページ |
 
@@ -101,5 +100,4 @@
   `plugins/beach-context/references/fortran_parameter_file.md` ← `docs/Parameters.md`、
   `fortran_fmm_core.md` ← `docs/FMMCore.md`、`agent-user-guide.md` ← `docs/agent-user-guide.md`、
   `python_postprocess_api.md` ← `docs/PythonPostprocessAPI.md`、`SPEC.md` ← `SPEC.md`。
-  `GroupedConfiguration*.md` も同じ内容に保つ。
 - `README.md` / `README.en.md`: 入口から外れたページへのリンク。

@@ -10,16 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from ._shared import ConfigValidationError
-from ._layout import is_grouped
-
-
-def _layout_schema(config: Mapping[str, Any], schema: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Select the authoring layout while retaining shared local references."""
-    definitions = schema.get("$defs", {})
-    name = "groupedConfig" if is_grouped(config) else "legacyConfig"
-    if name in definitions:
-        return {**definitions[name], "$defs": definitions}
-    return schema
 
 
 DEFAULT_SCHEMA_RESOURCE = "schemas/beach.schema.json"
@@ -85,7 +75,7 @@ def prepare_schema_document(
                 return normalized
         return value
 
-    return copy_value(config, _layout_schema(config, schema), ())
+    return copy_value(config, schema, ())
 
 
 def load_schema(path: Path | None = None) -> tuple[dict[str, Any], str]:
@@ -156,7 +146,7 @@ def validation_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> l
         and not isinstance(value, bool) and -(2**31) <= value < 2**31
     )
     validator = validators.extend(Draft7Validator, type_checker=integer_types)(
-        _layout_schema(config, schema)
+        schema
     )
     errors = sorted(
         validator.iter_errors(config),

@@ -79,10 +79,20 @@ def load_config_for_output(
     *,
     config_path: str | Path | None,
 ) -> Mapping[str, object] | None:
-    """Load an explicit or auto-discovered config for one output directory."""
+    """Load a config for output reconstruction using internal reader paths.
+
+    Pre-grouped configs remain readable alongside archived 1.x output data;
+    retain that persisted-output contract while those archives are supported.
+    Simulator input loading rejects flat configs separately.
+    """
 
     path = resolve_config_path(output_dir, config_path=config_path)
-    return None if path is None else load_toml(path)
+    if path is None:
+        return None
+    from beach.config._layout import is_grouped, to_runtime_layout
+
+    config = load_toml(path)
+    return to_runtime_layout(config) if is_grouped(config) else config
 
 
 @dataclass(frozen=True)
@@ -129,7 +139,7 @@ class RunContext:
 
     @cached_property
     def config(self) -> Mapping[str, object] | None:
-        return None if self.config_path is None else load_toml(self.config_path)
+        return load_config_for_output(self.output_dir, config_path=self.config_path)
 
     @cached_property
     def sim(self) -> Mapping[str, object] | None:

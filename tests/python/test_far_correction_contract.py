@@ -108,8 +108,8 @@ def test_bundled_plugin_references_match_canonical_sources() -> None:
         "plugins/beach-context/references/examples/beach.toml": (
             "examples/beach.toml"
         ),
-        "plugins/beach-context/references/examples/periodic2_basic/beach.toml": (
-            "examples/periodic2_basic/beach.toml"
+        "plugins/beach-context/references/examples/periodic2_basic.toml": (
+            "examples/periodic2_basic.toml"
         ),
         "plugins/beach-context/references/agent-user-guide.md": (
             "docs/agent-user-guide.md"
@@ -118,6 +118,9 @@ def test_bundled_plugin_references_match_canonical_sources() -> None:
             "docs/PythonPostprocessAPI.md"
         ),
     }
+
+    for source in REPO_ROOT.joinpath("examples").glob("*.toml"):
+        mirrors[f"plugins/beach-context/references/examples/{source.name}"] = f"examples/{source.name}"
 
     for mirror_path, canonical_path in mirrors.items():
         mirror = (REPO_ROOT / mirror_path).read_bytes()
