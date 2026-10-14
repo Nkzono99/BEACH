@@ -1,0 +1,31 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \fill[BeachOrange!10] (6,0.35) rectangle (10,4.7);
+  \draw[beach axis] (0.3,2.3)--(10.6,2.3) node[right] {$\phi\ \to\ 0$};
+  \draw[beach axis] (0.3,0.35)--(0.3,4.8) node[above] {$E^2(\phi)$};
+  \node[left] at (0.3,2.3) {$0$};
+  \draw[BeachBlue,thick] (0.5,4.15) .. controls (2.6,3.6) and (4.8,2.9) .. (6,2.3)
+    .. controls (7,1.8) and (7.6,1) .. (8,1)
+    .. controls (8.8,1) and (9.6,1.8) .. (10,2.3);
+  \node[beach dot] at (6,2.3) {};
+  \node[beach dot] at (10,2.3) {};
+  \draw[dotted] (8,1)--(8,2.3);
+  \draw[dotted] (6,2.3)--(6,0.1) (10,2.3)--(10,0.1);
+  \node[below] at (6,0.1) {$\phi_b<0$};
+  \node[below] at (10,0.1) {$0$};
+  \draw[<->] (6,0.55)--node[above] {上流の帯} (10,0.55);
+  \node[beach note] at (3.1,1.35) {$E^2\ge0$：実数の場};
+  \node[beach note] at (8,4.25) {$E^2<0$：実数の $z(\phi)$ がない};
+  \node[beach box,text width=35mm,fill=BeachOrange!5] at (12.5,1.15)
+    {場の不足\\$\sqrt{-\min E^2}$};
+  \draw[beach arrow] (8.1,1.55)--(10.65,1.15);
+  \node[beach note,text width=135mm] at (7,-1.05)
+    {受理条件：$\sqrt{-\min E^2}\le E_{\mathrm{floor}}$。場の下限は根の受理判定に使い、代数根の値を変えない。};
+\end{tikzpicture}
+\caption[上流の帯と場の不足の定義]{電子 drift を含む Type A、C の上流付近で生じる帯の模式図。
+横軸は壁からの距離ではなく電位であり、曲線の大きさと幅は数値解を表していない。
+式\eqref{eq:sagdeev}の $E^2$ が負になる区間では、理想化した 1 次元静電解を実数の空間軌道として接続できない。
+場の不足を外部場のレベルと比較し、根を使うかどうかを決める。}
+\label{fig:upstream_band}
+\end{figure}

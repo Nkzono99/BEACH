@@ -1,0 +1,34 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \foreach \shift/\name in {0/A,5/B,10/C} {
+    \begin{scope}[xshift=\shift cm]
+      \node[beach heading] at (1.9,5.3) {Type \name};
+      \fill[black!8] (-0.15,0.25) rectangle (0,4.8);
+      \draw[beach axis] (0,0.25)--(4.2,0.25) node[right] {$z$};
+      \draw[beach axis] (0,0.25)--(0,4.9) node[above] {$\phi$};
+      \draw[black!45,dashed] (0,2.5)--(4,2.5);
+      \node[left] at (0,2.5) {$0$};
+      \node[below] at (0,0.25) {壁};
+      \node[below] at (3.3,0.25) {上流へ};
+    \end{scope}
+  }
+  \draw[BeachBlue,thick] (0,3.75) .. controls (0.45,1.9) and (0.8,0.85) .. (1.4,0.85)
+    .. controls (2.05,0.85) and (2.25,2.5) .. (3.8,2.5);
+  \draw[BeachBlue,dotted] (0,0.85)--(1.4,0.85);
+  \node[left] at (0,0.85) {$\phi_m$};
+  \node[left] at (0,3.75) {$\phi_0$};
+  \node[beach dot] at (1.4,0.85) {};
+  \draw[BeachTeal,thick,dashed] (5,4.1) .. controls (5.8,3.15) and (6.4,2.5) .. (8.8,2.5);
+  \node[left] at (5,4.1) {$\phi_0$};
+  \draw[BeachOrange,thick,dash dot] (10,0.85) .. controls (10.8,1.8) and (11.5,2.5) .. (13.8,2.5);
+  \node[left] at (10,0.85) {$\phi_0$};
+  \node[beach note] at (1.9,-0.65) {非単調、負の極小を持つ};
+  \node[beach note] at (6.9,-0.65) {正の壁から単調に低下};
+  \node[beach note] at (11.9,-0.65) {負の壁から単調に上昇};
+\end{tikzpicture}
+\caption[外部シースの Type A、B、C]{外部シースの電位形状による Type A、B、C の分類。曲線は形の違いだけを示す模式図で、
+壁電位、距離、勾配は数値解を表していない。Type A は正の壁電位を持つ例を描いた。
+電子 drift による上流の帯はこの分類図に含めず、図\ref{fig:sm_upstream_band}で示す。}
+\label{fig:sheath_types}
+\end{figure}

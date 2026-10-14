@@ -1,0 +1,27 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \node[beach heading] at (3,5.8) {source 側：上向きに集約};
+  \node[beach heading] at (11.2,5.8) {target 側：下向きに共有};
+  \node[beach box,fill=BeachBlue!8] (mp) at (3,4.6) {親の多重極 $\vect M$};
+  \node[beach box,fill=BeachBlue!8] (ml) at (3,2.5) {leaf の多重極 $\vect M_s$};
+  \node[beach box] (panels) at (3,0.4) {三角形上の電荷 $q_i$};
+  \node[beach box,fill=BeachTeal!8] (lp) at (11.2,4.6) {親の局所展開 $\vect L_t$};
+  \node[beach box,fill=BeachTeal!8] (ll) at (11.2,2.5) {leaf の局所展開 $\vect L$};
+  \node[beach box] (points) at (11.2,0.4) {複数の評価点 $\vect x$};
+  \draw[beach arrow,BeachBlue] (panels)--node[left] {P2M} (ml);
+  \draw[beach arrow,BeachBlue] (ml)--node[left] {M2M} (mp);
+  \draw[beach arrow,BeachTeal] (lp)--node[right] {L2L} (ll);
+  \draw[beach arrow,BeachTeal] (ll)--node[right] {L2P} (points);
+  \draw[beach arrow] (mp)--node[above,align=center] {M2L\\十分に離れた群} (lp);
+  \draw[beach arrow,BeachOrange,dashed] (panels.south)--++(0,-0.85)
+    -| (points.south);
+  \node[fill=white,inner sep=2pt] at (7.1,-0.45) {近傍：解析 panel の Direct 和};
+  \node[beach note,text width=135mm] at (7.1,-1.65)
+    {treecode は各評価点から source 木を走査し、遠方群を monopole に置換する。\\
+     FMM は多重極から局所展開へ変換し、群の寄与を target 内で共有する。};
+\end{tikzpicture}
+\caption[FMM の展開係数の集約と共有]{FMM の上向き・相互作用・下向きの流れ。矢印は展開係数の変換であり、粒子の移動ではない。
+木の一枝と一つの遠方 pair を模式的に示す。近傍の解析 panel 和は遠方展開とは別に加える。}
+\label{fig:fmm_translations}
+\end{figure}

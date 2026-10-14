@@ -1,0 +1,486 @@
+\chapter{外部シースの物理モデル}
+\label{ch:sheath_model}
+
+第\ref{ch:sheath}章の closure は、計算箱の外にある平面・定常のシースを解き、その解から上端面の条件を作る。
+本章では、この外部シースのモデルを BEACH との結合から切り離して説明する。
+対象は、太陽風のイオンと電子、表面から放出される光電子がつくる 1 次元・無衝突のシースである。
+最初に仮定と粒子の軌道を定め、各粒子集団の密度と流束を電位の関数として導く。
+次に Poisson 方程式の第一積分から電位構造を Type A、B、C に分け、零電流の閉じ方、物理解の条件、数値アルゴリズムを示す。
+最後に、太陽風と月面の典型条件で解いた数値例により、電位構造と粒子集団を可視化する。
+
+\section{対象と仮定}
+\label{sec:sm_assumptions}
+座標 $z$ を表面（壁、$z=0$）から上流へ向けてとり、上流 $z\to\infty$ の電位を 0、壁の電位を $\phi_0$ とする。
+電場は $E=E_z=-\dd\phi/\dd z$ で、$E>0$ は壁から上流へ向かう。温度 $T_e$、$T_i$、$T_{\mathrm{pe}}$ は eV 単位で表し、
+電位を温度で割った量（例えば $\phi/T_e$）は無次元である。$e>0$ は素電荷である。モデルは次を仮定する。
+
+\begin{enumerate}
+\item \textbf{平面・1 次元：}壁の曲率半径と凹凸の尺度が Debye 長より十分大きく、量は $z$ だけに依存する。
+  接線方向の速度は保存するので、法線速度 $v_z$ の分布だけを扱う。
+\item \textbf{定常：}照射とプラズマ条件の変化は、粒子がシースを横切る時間（電子で数 $\mu$s）より十分遅い。
+\item \textbf{無衝突・非磁化：}平均自由行程と Larmor 半径は Debye 長より十分長い。粒子はシース内でエネルギーを保存する。
+\item \textbf{半無限の上流：}$z\to\infty$ でプラズマは準中性になり、電場は 0 に近づく。上流の入射分布は固定した物理条件であり、
+  解の途中で入射速度や電子の drift を変更しない。
+\item \textbf{吸収する壁：}壁に達した太陽風の電子とイオン、および壁へ戻った光電子はすべて吸収される。
+  二次電子放出、後方散乱、表面伝導は含めない。
+\item \textbf{三つの粒子集団：}単一価のイオンは流体として、太陽風電子と光電子は運動論的に扱う。
+\end{enumerate}
+
+表\ref{tab:sm_scales}に、本章の数値例（表\ref{tab:sm_example_inputs}）での尺度を示す。
+シースの厚さは Debye 長の数倍（数十 m）であり、Larmor 半径と平均自由行程はそれより桁違いに長い。
+イオンの入射エネルギーは電子温度の約 70 倍で、イオンは壁の電位でほとんど減速されない。
+
+\begin{table}[htbp]
+\centering
+\caption{数値例の条件での尺度。$n_{i\infty}=8.7\,\mathrm{cm^{-3}}$、$T_e=12$ eV、$T_{\mathrm{pe}}=2.2$ eV、磁場 5 nT とした。}
+\label{tab:sm_scales}
+\begin{tabular}{lr}
+\toprule
+量 & 値 \\
+\midrule
+太陽風電子の Debye 長 $\lambda_{D,e}=\sqrt{\eps T_e/(e\,n_{i\infty})}$ & 8.7 m \\
+光電子の Debye 長 $\sqrt{\eps T_{\mathrm{pe}}/(e\,n_{\mathrm{pe,ref}})}$（$n_{\mathrm{pe,ref}}=64\,\mathrm{cm^{-3}}$） & 1.4 m \\
+電子の Larmor 半径（12 eV、5 nT） & 約 2 km \\
+光電子の Larmor 半径（2.2 eV、5 nT） & 約 1 km \\
+イオンの入射エネルギー $K=m_iu_i^2/(2e)$（$u_i=405$ km/s） & 0.86 keV \\
+電子が 10 m を横切る時間 & 約 5 $\mu$s \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+この形のシースは、光を受ける板と希薄プラズマの運動論的な解析\citep{GuernseyFu1970}、宇宙の表面上の光電子シースとダスト浮上の解析\citep{Nitter1998}、
+月面の PIC 計算\citep{PoppeHoranyi2010}で調べられてきた。本モデルの粒子集団と三つの型は Zhao らの定式化に従い\citep{Zhao2020}、
+イオンの有限温度は Sana と Mishra の流体モデルに従う\citep{SanaMishra2026}。
+
+\section{軌道と粒子集団}
+\label{sec:sm_orbits}
+
+\subsection{エネルギー保存と速度領域}
+定常・無衝突の 1 次元 Vlasov 方程式
+\begin{equation}
+ v_z\frac{\partial f}{\partial z}+\frac{q}{m}E\frac{\partial f}{\partial v_z}=0
+\end{equation}
+の解は、法線方向の全エネルギー $W=\tfrac12 mv_z^2+q\phi(z)$ と軌道の種類だけの関数である（Liouville の定理）。
+したがって、上流で入射する分布と壁で放出する分布を与えれば、各位置の分布は境界の分布をエネルギー保存で写したものになる。
+写せない速度、つまり境界から到達できない速度の分布は 0 である。壁は吸収するので、壁から上流へ向かう太陽風電子はなく、
+上流から入射する光電子もない。
+
+電子（$q=-e$）は $W=-e\phi(z)$ の点で折り返す。電子にとっての障壁は経路上の最小電位
+\begin{equation}
+ \phi_{\min}=\min_{z\ge0}\phi(z)=
+ \begin{cases}\phi_m&\text{(Type A、内部の極小)}\\0&\text{(Type B)}\\\phi_0&\text{(Type C)}\end{cases}
+\end{equation}
+である。上流での法線エネルギーが $eT_ea^2$（$a$ は後述の規格化速さ）の太陽風電子は、$a\ge b\equiv\sqrt{-\phi_{\min}/T_e}$ なら壁に達して吸収され、
+$a<b$ なら障壁の手前で反射して上流へ戻る。壁での法線エネルギーが $eK$ の光電子は、$K\ge B_{\mathrm{pe}}\equiv\phi_0-\phi_{\min}$ なら上流へ脱出し、
+それ以下なら折り返して壁へ戻る。反射する太陽風電子は極小より上流側だけを、捕捉される光電子は極小より壁側だけを往復する。
+このため、Type A の電荷密度は同じ電位でも極小の両側で異なる（表\ref{tab:sm_populations}）。
+図\ref{fig:sm_populations}に、Type A の数値解で電子のエネルギー図と軌道の分類を示す。
+
+\begin{table}[htbp]
+\centering
+\caption{区間ごとに存在する電子の集団。「通過」は壁へ向かう一方向、「反射」「捕捉」は往復する集団である。}
+\label{tab:sm_populations}
+\begin{tabular}{lll}
+\toprule
+区間 & 太陽風電子 & 光電子 \\
+\midrule
+Type A の下側（壁から極小まで） & 通過 & 脱出、捕捉 \\
+Type A の上側（極小から上流まで） & 通過、反射 & 脱出 \\
+Type B（全域） & 通過 & 脱出、捕捉 \\
+Type C（全域） & 通過、反射 & 脱出（障壁 0） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\input{figures/sheath_model_populations}
+
+\subsection{太陽風電子}
+上流で壁へ向かう太陽風電子は、法線方向に速さ $v_d$ で drift した Maxwell 分布である。
+$v_{te}=\sqrt{2eT_e/m_e}$、$u=v_d/v_{te}$、上流での法線の速さを $a=|v_z|/v_{te}$ とすると、上流の入射分布は
+\begin{equation}
+ f_\infty(v_z)=\frac{N_e}{\sqrt\pi\,v_{te}}\exp\left[-(a-u)^2\right],\qquad v_z<0
+ \label{eq:sm_e_upstream}
+\end{equation}
+である。$N_e$ は入射分布の規格化であり、上流の実際の電子密度ではない。上流の太陽風電子は入射電子と反射して戻る電子の和であり、壁で吸収された高速電子は戻らないからである。
+位置 $z$ での速さを $w=|v_z|/v_{te}$、$\psi=\phi/T_e$、$\psi_{\min}=\phi_{\min}/T_e$ とすると、エネルギー保存 $w^2=a^2+\psi$ と Liouville の定理から
+\begin{equation}
+ f(z,v_z)=\frac{N_e}{\sqrt\pi\,v_{te}}\exp\left[-\left(\sqrt{w^2-\psi}-u\right)^2\right]
+\end{equation}
+を得る。壁へ到達する通過電子は $w\ge w_c\equiv\sqrt{\psi-\psi_{\min}}$ の内向きの速度を、反射電子は $0\le w<w_c$ の両方向を占める。
+密度はこの分布の速度積分
+\begin{align}
+ n_{e,\mathrm{pass}}&=\frac{N_e}{\sqrt\pi}\int_{w_c}^{\infty}e^{-(\sqrt{w^2-\psi}-u)^2}\dd w,&
+ n_{e,\mathrm{refl}}&=\frac{2N_e}{\sqrt\pi}\int_{0}^{w_c}e^{-(\sqrt{w^2-\psi}-u)^2}\dd w
+ \label{eq:sm_e_density}
+\end{align}
+であり、反射電子は Type A の上側と Type C だけにある。drift が 0 のとき、積分は閉じた形
+\begin{equation}
+ n_{e,\mathrm{pass}}=\frac{N_e}2e^{\psi}\operatorname{erfc}\sqrt{\psi-\psi_{\min}},\qquad
+ n_{e,\mathrm{refl}}=N_e\,e^{\psi}\operatorname{erf}\sqrt{\psi-\psi_{\min}}
+ \label{eq:sm_e_density_zero}
+\end{equation}
+になる。障壁ですべての電子が反射されるなら密度は Boltzmann 分布 $N_ee^{\psi}$ になるが、
+吸収壁では障壁を越えた電子が戻らないので、外向きの高速成分が欠けて密度はそれより小さい。
+
+流束は通過電子だけが担う。$w\,\dd w=a\,\dd a$ と変数変換すると
+\begin{equation}
+ \Gamma_e=\frac{N_ev_{te}}{2\sqrt\pi}\left[e^{-(b-u)^2}+\sqrt\pi\,u\operatorname{erfc}(b-u)\right]
+ \label{eq:sm_e_flux}
+\end{equation}
+となり、位置によらない（連続の式）。上流 $\psi=0$ での密度は
+\begin{equation}
+ n_e(0)=\frac{N_e}2\left[1+2\operatorname{erf}u+\operatorname{erf}(b-u)\right]\quad\text{(A、C)},\qquad
+ n_e(0)=\frac{N_e}2\left(1+\operatorname{erf}u\right)\quad\text{(B)}
+ \label{eq:sm_e_upstream_density}
+\end{equation}
+である。光電子がなく drift が 0 の Type C では、上流の準中性から
+\begin{equation}
+ N_e=\frac{n_{i\infty}}{1-\tfrac12\operatorname{erfc}\sqrt{-\phi_0/T_e}}
+ \label{eq:upstream_density}
+\end{equation}
+となり、$N_e$ は上流のイオン密度 $n_{i\infty}$ より大きい。
+
+\subsection{光電子}
+壁は温度 $T_{\mathrm{pe}}$ の半 Maxwell 分布で光電子を放出する。$v_{tp}=\sqrt{2eT_{\mathrm{pe}}/m_e}$、規格化を $N_{\mathrm{pe}}$ とすると、
+壁での外向き分布は $f_w(v_z)=N_{\mathrm{pe}}\exp(-v_z^2/v_{tp}^2)/(\sqrt\pi v_{tp})$（$v_z>0$）、放出束は
+$\Gamma_{\mathrm{emit}}=N_{\mathrm{pe}}v_{tp}/(2\sqrt\pi)$ である。障壁 $B_{\mathrm{pe}}$ を越える割合が脱出し、
+\begin{equation}
+ \Gamma_{\mathrm{esc}}=\Gamma_{\mathrm{emit}}\,e^{-B_{\mathrm{pe}}/T_{\mathrm{pe}}},\qquad
+ \Gamma_{\mathrm{ret}}=\Gamma_{\mathrm{emit}}-\Gamma_{\mathrm{esc}}
+ \label{eq:sm_pe_flux}
+\end{equation}
+となる。$\chi=(\phi-\phi_{\min})/T_{\mathrm{pe}}$ とすると、脱出する光電子と捕捉される光電子（往路と復路の両方）の密度は
+\begin{equation}
+ n_{\mathrm{pe,esc}}=\frac{N_{\mathrm{pe}}}2e^{(\phi-\phi_0)/T_{\mathrm{pe}}}\operatorname{erfc}\sqrt\chi,\qquad
+ n_{\mathrm{pe,capt}}=N_{\mathrm{pe}}\,e^{(\phi-\phi_0)/T_{\mathrm{pe}}}\operatorname{erf}\sqrt\chi
+ \label{eq:sm_pe_density}
+\end{equation}
+であり、捕捉された光電子は Type A の下側と Type B だけにある。Type C は障壁が 0 なので、放出した光電子はすべて脱出する。
+
+光電子源は、法線エネルギー $K$ の bin $[K_j,K_{j+1})$ ごとの外向き数流束 $\Gamma_j$ でも与えられる。
+bin の中では $g_j=\dd\Gamma/\dd K=\Gamma_j/(K_{j+1}-K_j)$ を一定とする。電位 $\phi$ の点での法線エネルギーは
+$K-q$（$q=\phi_0-\phi$）、速さは $v_*\sqrt{K-q}$（$v_*=\sqrt{2e/m_e}$）なので、$\dd n=g\,\dd K/(v_*\sqrt{K-q})$ を積分して
+\begin{align}
+ n_{\mathrm{pe,esc}}&=\sum_j\frac{2g_j}{v_*}\left[\sqrt{K_{j+1}-q}-\sqrt{\max(K_j,B_{\mathrm{pe}},q)-q}\right]_+,\nonumber\\
+ n_{\mathrm{pe,capt}}&=\sum_j\frac{4g_j}{v_*}\left[\sqrt{\min(K_{j+1},B_{\mathrm{pe}})-q}-\sqrt{\max(K_j,q)-q}\right]_+
+ \label{eq:sm_pe_bins}
+\end{align}
+を得る。$[\,\cdot\,]_+$ は上限が下限以下のとき 0 とする意味である。脱出束は $\Gamma_{\mathrm{esc}}=\sum_jg_j\,[K_{j+1}-\max(K_j,B_{\mathrm{pe}})]_+$ で、
+同じ $g_j$ を密度、流束、Poisson 方程式の積分のすべてに使う。bin の分布を Maxwell 分布へ当てはめる操作はない。
+第\ref{ch:sheath}章の外部根の更新は、この形で上端面を出た光電子のスペクトルを渡す。
+
+\subsection{太陽風イオン}
+イオンは上流で密度 $n_{i\infty}$、法線速度 $u_i$（壁向きを正）、温度 $T_i$ を持つ流体である。
+連続の式 $n_iv=n_{i\infty}u_i$ と、圧力 $p=e fT_in_i$（係数 $f$ は一定、1 は等温、3 は 1 次元断熱）を含む運動方程式
+$m_in_iv\,\dd v/\dd z=-\dd p/\dd z-en_i\,\dd\phi/\dd z$ を積分すると、入射エネルギー $K=m_iu_i^2/(2e)$、$a=fT_i$、
+密度比 $r=n_i/n_{i\infty}$ に対して
+\begin{equation}
+ K\left(\frac1{r^2}-1\right)+a\log r+\phi=0
+ \label{eq:ion_fluid}
+\end{equation}
+が成り立つ\citep{SanaMishra2026}。$f$ は同論文の断熱指数 $\psi$ に当たる。上流につながる枝は超音速の根 $2K>a$ から連続する根であり、
+$a=0$ では冷たいビーム $r=(1-\phi/K)^{-1/2}$ に戻る。イオンが到達できる最大電位は
+\begin{equation}
+ \phi_{\mathrm{crit}}=K-\frac a2-\frac a2\log\frac{2K}{a}\qquad(a=0\text{ では }K)
+ \label{eq:sm_ion_crit}
+\end{equation}
+で、経路上の電位がこれを超えるとイオンの流れは途中で止まる。流束は $\Gamma_i=n_{i\infty}u_i$ で一定である。
+太陽風では $K$（405 km/s の陽子で約 0.86 keV）が $T_i$ よりはるかに大きく、$T_i\le12$ eV、$f=1,3$ で根の変化は 0.1 mV 以下である。
+このモデルはイオンの速度分布そのものは定めない。
+
+\section{Poisson 方程式と電位構造}
+\label{sec:sm_poisson}
+
+\subsection{第一積分}
+電荷密度を $\rho=e(n_i-n_{e,\mathrm{pass}}-n_{e,\mathrm{refl}}-n_{\mathrm{pe,esc}}-n_{\mathrm{pe,capt}})$ とする。
+電位が単調な区間では存在する粒子集団が決まっているので、$\rho$ は $\phi$ だけの関数である。
+Poisson 方程式 $\dd^2\phi/\dd z^2=-\rho/\eps$ に $\dd\phi/\dd z$ を掛けると $\tfrac12\,\dd(E^2)/\dd z=-(\rho/\eps)\,\dd\phi/\dd z$ となり、
+電位について積分できる。上流で $E=0$ の単調な区間（Type B、C）では
+\begin{equation}
+ E^2(\phi)=\frac2\eps\int_\phi^0\rho(\psi)\,\dd\psi
+ \label{eq:sagdeev}
+\end{equation}
+である。これは $\phi$ を位置、$z$ を時間とみなした質点のエネルギー保存（Sagdeev の擬ポテンシャル）と同じ形をしている。
+Type A では極小 $\phi_m$ で $E=0$ なので、下側と上側の区間 $s$ ごとに
+\begin{equation}
+ E_s^2(\phi)=-\frac2\eps\int_{\phi_m}^{\phi}\rho_s(\psi)\,\dd\psi,\qquad s\in\{\text{下側},\text{上側}\}
+ \label{eq:sm_typeA_first}
+\end{equation}
+となる。上側は上流でも $E=0$ でなければならないので、接続条件
+\begin{equation}
+ \int_{\phi_m}^{0}\rho_{\text{上側}}(\psi)\,\dd\psi=0
+ \label{eq:sm_connection}
+\end{equation}
+が加わる。極小が存在するには $\dd^2\phi/\dd z^2>0$、つまり極小で $\rho(\phi_m)<0$ が必要である。
+壁の電場は $E_0=\pm\sqrt{E^2(\phi_0)}$ で、符号は Type A と B で正、Type C で負である。
+
+図\ref{fig:sm_first_integral}に、Type A の数値解での $\rho(\phi)$ と $E^2(\phi)$ を示す。
+下側では捕捉された光電子が負の電荷を担い、$E^2$ は壁へ向かって単調に増える。
+上側の電荷密度は極小の近くで負、上流の近くで正になり、二つの面積が打ち消すことが式\eqref{eq:sm_connection}である。
+
+\input{figures/sheath_model_first_integral}
+
+\subsection{三つの型}
+電位の形により解は三つに分かれる\citep{Zhao2020}。Type A は $\phi_m<\min(\phi_0,0)$ の内部極小を持つ非単調な構造、
+Type B は正の壁から 0 へ単調に下がる構造、Type C は負の壁から 0 へ単調に上がる構造である
+（図\ref{fig:sheath_types}）。Type A の壁電位は正とは限らず、負の壁電位を持つ Type A もある。
+光電子がなければ壁を正にする機構がなく、Type C だけが成り立つ。
+同じ条件で複数の型が候補になり得ることは Sana と Mishra が示しており\citep{SanaMishra2023}、
+本モデルは型の間の安定性による選択をしない。
+
+\input{figures/sheath_types}
+
+\subsection{電位分布の再構成}
+空間分布は第一積分から
+\begin{equation}
+ z(\phi)=\int_\phi^{\phi_0}\frac{\dd\psi}{|E(\psi)|}
+ \label{eq:sm_z_of_phi}
+\end{equation}
+で得る。Type A では下側の積分で極小の位置 $z_m$ を求め、上側を $z_m$ から積分する。
+極小の近くでは $E^2\approx-2\rho(\phi_m)(\phi-\phi_m)/\eps$ なので $\phi-\phi_m\propto(z-z_m)^2$ となり、被積分関数の特異点は積分できる。
+上流の近くでは $\rho\approx\rho'(0)\phi$ から $E^2\approx-\rho'(0)\phi^2/\eps$ となり、$\phi$ は長さ $L=\sqrt{\eps/(-\rho'(0))}$ で指数関数的に 0 に近づく。
+上流までの距離は無限なので、分布は $|\phi|$ が小さな閾値に達した点で打ち切る。
+
+\section{閉じる条件}
+\label{sec:sm_closure}
+未知数は壁電位 $\phi_0$、Type A の極小 $\phi_m$、太陽風電子の規格化 $N_e$ である。零電流の closure は次の条件で根を決める。
+\begin{enumerate}
+\item \textbf{上流の準中性：}
+ \begin{equation}
+  n_{i\infty}=n_e(0)+n_{\mathrm{pe}}(0),\qquad
+  n_{\mathrm{pe}}(0)=\frac{N_{\mathrm{pe}}}2e^{-\phi_0/T_{\mathrm{pe}}}\operatorname{erfc}\sqrt{-\phi_{\min}/T_{\mathrm{pe}}}
+  \label{eq:sm_neutrality}
+ \end{equation}
+ （bin の光電子源では式\eqref{eq:sm_pe_bins}を $\phi=0$ で使う）。
+\item \textbf{壁への零電流：}電子の吸収 $J_e=-e\Gamma_e$、イオンの吸収 $J_i=e\Gamma_i$、光電子の正味の放出 $J_{\mathrm{escape}}=e\Gamma_{\mathrm{esc}}$ に対して
+ \begin{equation}
+  J_e+J_i+J_{\mathrm{escape}}=0
+  \label{eq:zero_current}
+ \end{equation}
+ である。壁へ戻る光電子は放出と相殺するので、正味には脱出分だけが残る。
+\item \textbf{Type A の接続：}式\eqref{eq:sm_connection}。
+\end{enumerate}
+Type B、C の未知数は 2 つ、Type A は 3 つで、方程式の数と一致する。$N_e$ は準中性と電流の両方に線形に入る。
+これらは電位空間の代数方程式と積分条件であり、$z$ 方向の積分を含まない。
+太陽高度 $\alpha$ で照射とプラズマ流を与える場合は、Zhao らに従って
+\begin{equation}
+ N_{\mathrm{pe}}=n_{\mathrm{pe,ref}}\sin\alpha,\qquad u_i=v_{\mathrm{sw}}\sin\alpha
+ \label{eq:sm_illumination}
+\end{equation}
+とする。$n_{\mathrm{pe,ref}}$ は垂直照射での光電子の規格化、$v_{\mathrm{sw}}$ は太陽風の速さである。
+電子の drift は、太陽風の法線速度 $v_d=v_{\mathrm{sw}}\sin\alpha$ と $v_d=0$ を物理条件として明示的に選ぶ（\ref{sec:sm_band}節）。
+
+零電流のほかに二つの閉じ方がある（表\ref{tab:sm_closures}）。境界電場を指定する closure は、式\eqref{eq:zero_current}の代わりに
+$E^2(\phi_0)=E_H^2$ と電場の符号を課し、電流を結果として返す。$N_e$ は準中性で決まるので、$E_H$ を変えると $N_e$ も変わる。
+$E_H=0$ は平坦な解だけでなく、非平坦な Type B、C の根も含む。静的な評価は、与えた電位で準中性から $N_e$ を求め、
+符号付きの $E^2(\phi_0)$、Type A の接続の残差、各電流を返す。外側の時間発展や結合方程式は呼び出し側が解き、
+その結果を物理解の判定にかける。
+
+\begin{table}[htbp]
+\centering\small
+\caption{外部シースの閉じ方と未知数。いずれも同じ密度、流束、第一積分、物理解の判定を使う。}
+\label{tab:sm_closures}
+\begin{tabularx}{\textwidth}{p{27mm}YY}
+\toprule
+閉じ方 & 固定する量 & 決める量 \\
+\midrule
+零電流 & 上流のイオン、電子温度と drift、光電子源 & $\phi_0$、$\phi_m$、$N_e$、各電流 \\
+境界電場の指定 & 上記と $E_H$ & $\phi_0$、$\phi_m$、$N_e$、正味の電流 \\
+静的な評価 & 上記と $\phi_0$（と $\phi_m$） & $N_e$、符号付きの $E^2(\phi_0)$、接続の残差、各電流 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{物理解の条件}
+\label{sec:sm_admissibility}
+代数方程式の根であることと、上流から壁まで実数の電位分布がつながることは別の条件である。根は次をすべて満たすときだけ受理する。
+\begin{enumerate}
+\item \textbf{イオンの到達：}経路上の最大電位 $\max(\phi_0,0)$ が式\eqref{eq:sm_ion_crit}の $\phi_{\mathrm{crit}}$ 以下である。
+\item \textbf{実数の電場：}全区間で $E^2(\phi)\ge0$ であり、Type A では極小で $\rho<0$、接続条件\eqref{eq:sm_connection}が満たされる。
+\item \textbf{上流での漸近：}上流の近くでも $E^2\ge0$ が保たれる。
+\end{enumerate}
+
+\subsection{上流の漸近条件}
+上流の近くで $\rho$ が $\phi$ について滑らかなら、$E^2\approx-\rho'(0)\phi^2/\eps\ge0$ から $\dd\rho/\dd\phi\le0$ が必要である。
+冷たいイオンと Boltzmann 電子では、これは Bohm の条件 $u_i\ge\sqrt{eT_e/m_i}$ に一致する\citep{Riemann1991}。
+本モデルでは入射速度を Bohm 速度へ補正せず、指定した入射状態でこの条件が成り立つかを判定する。
+
+上流の分布が速度 0 で切れている場合、$\rho$ は滑らかでない。Type B（$\phi>0$）では通過電子の下限速度 $\sqrt\psi$ と
+捕捉光電子のために $\rho/e=C\sqrt\phi+O(\phi)$ となり、Maxwell の光電子源では
+\begin{equation}
+ C=\frac{N_ee^{-u^2}}{\sqrt{\pi T_e}}-\frac{N_{\mathrm{pe}}e^{-\phi_0/T_{\mathrm{pe}}}}{\sqrt{\pi T_{\mathrm{pe}}}}
+ \label{eq:sm_b_coefficient}
+\end{equation}
+である。式\eqref{eq:sagdeev}から $E^2\approx-4eC\phi^{3/2}/(3\eps)$ なので、$C\le0$ が必要である。
+bin の光電子源では第 2 項を $2(2g_-{-}g_+)/v_*$ に置き換える。$g_\mp$ は $K=\phi_0$ の左右の bin の値で、
+戻る軌道と脱出する軌道が別の側の値を使う。この条件は有限個の点での検査では見逃し得るので、係数で判定する。
+
+\subsection{電子 drift と上流の帯}
+\label{sec:sm_band}
+上流で壁へ向かう電子の分布を、規格化した速さ $a$ の関数 $g(a)=N_ee^{-(a-u)^2}/\sqrt\pi$ と書く。
+Type A の上側と Type C で上流から深さ $h=-\phi/T_e$ の点では、遅い電子は両方向に存在するので、密度の変化は
+\begin{equation}
+ n_e(h)-n_e(0)=2\int_0^{\infty}\left[g\!\left(\sqrt{w^2+h}\right)-g(w)\right]\dd w+O(h)
+ \approx g'(0)\,\frac h2\log\frac1h+O(h)
+ \label{eq:hlogh}
+\end{equation}
+となる。drift のない Maxwell 分布は $g'(0)=0$ でこの項を持たないが、drift のある分布は $g'(0)=2u\,g(0)>0$ なので、
+上流に近づくほど電子の過剰が $h\log(1/h)$ で現れる。イオンと光電子の密度は $\phi$ について滑らかなのでこれを打ち消せず、
+上流電位に接する帯 $\phi_b<\phi<0$ で $E^2<0$ になる。$E^2<0$ の区間には実数の $z(\phi)$ がないので、
+厳密な半無限の上流条件のもとでは、drift のある Type A、C の根は物理解にならない。
+この上流分布は $v_z=0$ に尖った極小を持ち、Penrose の条件\citep{Penrose1960}では drift の大きさによらず運動論的に不安定である。
+実際には緩和や散乱で滑らかになると考えられ、遅い入射電子の drift だけを除いて $g'(0)=0$ にすると帯は消える。
+
+帯の内側で $E^2$ が負になる量から、場の不足
+\begin{equation}
+ E_{\mathrm{def}}=\sqrt{-\min_{\phi_b<\phi<0}E^2(\phi)}
+ \label{eq:sm_deficit}
+\end{equation}
+を定める。これは、静電シースが上流へつながるために外から供給されなければならない電場である。
+drift のある根は、帯の電位幅が $|\phi_m|$（A）または $|\phi_0|$（C）の指定した割合以下であるか、
+$E_{\mathrm{def}}$ が指定した外部の場のレベル $E_{\mathrm{floor}}$ 以下であるときに受理できる。
+後者は、上流境界を $E=0$ の無限遠ではなく、場が外部のレベルまで下がった点に置くことに当たる。
+どちらの判定も根の方程式を変えないので、受理した根の壁側の量は判定の仕方によらない。
+帯より外側だけを物理的な電位分布として使い、分布の再構成も帯の手前で打ち切る。
+図\ref{fig:sm_upstream_band}に、drift の有無による上流付近の $E^2$ の違いを示す。BEACH での判定の選び方は\ref{sec:upstream_band}節で述べる。
+
+\input{figures/sheath_model_upstream_band}
+
+\section{数値アルゴリズム}
+\label{sec:sm_algorithm}
+図\ref{fig:sm_algorithm}に、一つの型について零電流根を求める手順を示す。
+
+\subsection{規格化と未知数の変換}
+電位は光電子温度 $T_{\mathrm{pe}}$（bin の光電子源では $T_e$ 以下の最大の 2 の冪）で、密度は上流のイオン密度で規格化する。
+2 の冪を使うのは、規格化の往復で bin の端の値が丸め誤差で動かないようにするためである。
+未知数は符号と順序を保つ対数変数に変換する。Type A は $(\log[(\phi_0-\phi_m)/T],\ \log[-\phi_m/T],\ \log[N_e/n_{i\infty}])$、
+Type B、C は $(\log[|\phi_0|/T],\ \log[N_e/n_{i\infty}])$ を使い、$\phi_m<\min(\phi_0,0)$ や $N_e>0$ を反復の途中でも保つ。
+Type A の接続の残差は $n_{i\infty}(-\phi_m/T)^{3/2}$ で割る。浅い極小では積分区間とその中の電荷密度がともに小さくなり、
+規格化しなければ極小が浅いだけで残差が収束したように見えるからである。
+
+\subsection{根の探索}
+根は保護付き Newton 法で求める。Jacobian は中心差分（定義域の端では片側差分）で作り、Newton 方向に沿って
+残差の最大ノルムが減るまで歩幅を半分にする。減らせなければ減衰係数を増やしながら Levenberg--Marquardt 方向を試す。
+定義域外の試行点は評価せずに退け、元の方程式の残差がすべて $10^{-10}$ 以下になったときだけ収束とみなす。
+歩幅が小さくなったことや、最小二乗の停留点に達したことは収束と扱わない。
+
+初期値は、呼び出し側が与えた前回の根、近い条件の根を記録した解の表からの予測、既定の多点初期値の順に試す。Type B、C では既定の初期値の前に、次の一変数の探索も行う。
+既定の初期値は、温度と密度で無次元化した電位の候補の組であり、$N_e$ は準中性が $N_e$ について線形であることから決める。
+$N_e$ を電流の式で消去すると $\phi_0$ だけの方程式になるので、対数と線形の格子で符号変化を探し、二分法で根を求める。
+近い条件の根から目標の条件まで物理条件を少しずつ動かす継続法も使え、擬弧長の継続では単純な折り返しを越えられる。
+複数の根を列挙するときは、見つけた根から反発する deflation で新しい根を探し、元の方程式と物理解の判定に合格したものだけを残す。
+型を指定しない場合は、太陽高度が $20^\circ$ 未満なら C、A、B、それ以外は A、B、C の順に試し、最初に受理した根を返す。
+いずれも有限個の初期値と反復による探索であり、根が見つからないことは物理解の不存在を意味しない。
+
+\input{figures/sheath_model_algorithm}
+
+\subsection{物理解の判定の離散化}
+収束した根について、まずイオンの到達と Type A の接続を確かめる。次に各区間で等間隔の 129 点の電位で $E^2$ を評価し、
+規格化した $E^2$ の尺度の $10^{-8}$ 倍を超える負の値があれば棄却する。Type B の漸近条件は式\eqref{eq:sm_b_coefficient}の係数で判定し、
+丸め誤差に $128$ 倍の機械精度の余裕を与える。drift のある Type A、C では、上流へ向けて
+$\phi=-\phi_{\mathrm{ref}}2^{-j}$（$j=1,\dots,48$）の点を加えて帯を見つけ、二分法で帯の縁 $\phi_b$ を決めて、
+その幅と場の不足を受理の条件と比べる。下側の区間には帯を許さない。
+有限個の点での判定なので、任意の条件に対する存在定理ではない。
+
+\subsection{速度積分と電位積分}
+drift が 0 の電子密度は式\eqref{eq:sm_e_density_zero}の閉じた形で計算し、$e^{\psi}\operatorname{erfc}$ の積は
+スケールした相補誤差関数 $e^{x^2}\operatorname{erfc}x$ で評価して桁あふれを避ける。drift があるときは、速度積分の区間を
+$w=w_{\mathrm{lo}}+(w_{\mathrm{hi}}-w_{\mathrm{lo}})t^2$ で変換し、端点の平方根特異性を除いて複合 Gauss--Legendre 求積で積分する。
+速度の上限は drift または切断速度から熱速度の 10 倍先で打ち切る。
+
+第一積分の電位積分は $\phi=\phi_{\mathrm{lo}}+(\phi_{\mathrm{hi}}-\phi_{\mathrm{lo}})\sin^2(\pi t/2)$ で両端に点を集めた
+複合 Gauss--Legendre 求積で行う。bin の光電子源の密度の電位積分は $3/2$ 乗の差として解析的に求め、平方根の差は有理化し、
+$3/2$ 乗の差は bin 幅と電位の区間で因数分解して評価する。狭い bin や隣り合う浮動小数点数の電位で、
+近い数の引き算による桁落ちを避けるためである。
+
+\subsection{電位分布の再構成}
+Type B、C では、上流から壁へ $\phi=\phi_0(1-t)^2$ で点を取り、電荷密度の台形積分で $E^2$ を、$1/|E|$ の台形積分で $z$ を求める。
+Type A では極小のすぐ外側から両方向へ点を取り、最初の区間だけ極小近くの 2 次の漸近形で距離を与えてから積分する。
+上流側は $|\phi|$ が $10^{-3}T_{\mathrm{pe}}$（帯がある場合は帯の縁の少し外側）に達した点で止め、その先に人工的な 0 V の区間を付け足さない。
+密度、流束、速度分布は、再構成した電位から式\eqref{eq:sm_e_density}--\eqref{eq:sm_pe_bins}で直接評価する。
+このため、表示用の格子の粗さは流束の値に入らない。
+
+\section{数値例}
+\label{sec:sm_examples}
+本節の図は、表\ref{tab:sm_example_inputs}の条件で外部シースモデルを解いた数値解である。電子の drift は図\ref{fig:sm_upstream_band}を除いて 0 とし、
+零電流で閉じた。BEACH の表面帯電計算は含まない。
+
+\begin{table}[htbp]
+\centering
+\caption{数値例の条件。太陽高度 $\alpha$ は図ごとに示す。}
+\label{tab:sm_example_inputs}
+\begin{tabular}{lr}
+\toprule
+量 & 値 \\
+\midrule
+上流のイオン密度 $n_{i\infty}$（陽子） & 8.7 cm$^{-3}$ \\
+太陽風電子の温度 $T_e$ & 12 eV \\
+イオン温度 $T_i$ & 0（冷たいビーム） \\
+光電子の温度 $T_{\mathrm{pe}}$ & 2.2 eV \\
+垂直照射での光電子の規格化 $n_{\mathrm{pe,ref}}$ & 64 cm$^{-3}$ \\
+太陽風の速さ $v_{\mathrm{sw}}$ & 468 km/s \\
+法線速度と光電子源 & 式\eqref{eq:sm_illumination} \\
+電子の drift & 0（図\ref{fig:sm_upstream_band}では $v_{\mathrm{sw}}\sin\alpha$） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{三つの型の電位構造}
+図\ref{fig:sm_profiles}は、同じプラズマ条件で太陽高度を変え、Type A、B、C をそれぞれ指定して解いた電位と電場である。
+$\alpha=60^\circ$ の Type A は壁電位 3.84 V、壁から 14.9 m に $-0.33$ V の極小を持つ。壁の電場は 1.6 V/m で、極小より上流では向きが反転する。
+$\alpha=20^\circ$ の Type B は 1.62 V の壁から光電子の Debye 長程度で減衰し、$\alpha=10^\circ$ の Type C は $-4.24$ V の壁から
+太陽風電子の Debye 長程度でゆっくり 0 V に近づく。Type A の上側の電場は 0.01 V/m 程度で、壁近くの電場より 2 桁小さい。
+
+\input{figures/sheath_model_profiles}
+
+\subsection{粒子集団と速度分布}
+図\ref{fig:sm_densities}は、Type A の粒子集団ごとの密度である。壁の近くでは捕捉された光電子が約 50 cm$^{-3}$ あり、
+イオン密度の約 6 倍の負電荷が壁の正電位を遮蔽する。捕捉光電子は極小で 0 になり、その上流側は反射した太陽風電子に置き換わる。
+上流では通過電子 4.0 cm$^{-3}$、反射電子 1.8 cm$^{-3}$、脱出した光電子 2.8 cm$^{-3}$ の和がイオン密度 8.7 cm$^{-3}$ と釣り合う。
+このとき規格化 $N_e=9.9$ cm$^{-3}$ は実際の上流の太陽風電子密度 5.9 cm$^{-3}$ と異なる。
+壁への数流束は太陽風電子 $5.6\times10^{12}$、イオン $3.5\times10^{12}$、脱出光電子 $2.1\times10^{12}\,\mathrm{m^{-2}\,s^{-1}}$ で、
+$\Gamma_e=\Gamma_i+\Gamma_{\mathrm{esc}}$ が成り立つ。放出した光電子の 85\% は障壁で戻され、脱出は 15\% である。
+Type B（$\alpha=20^\circ$）では脱出が 48\%、Type C では障壁がないので 100\% になる。
+
+\input{figures/sheath_model_densities}
+
+図\ref{fig:sm_vdf}は、同じ解の電子の法線速度分布である。分布は境界の Maxwell 分布をエネルギー保存で写したもので、
+壁では太陽風電子は障壁を越えた高速の内向き成分だけ、光電子は外向きの成分だけを持つ。
+下側では捕捉光電子が低速の両方向を占め、上側では反射電子が同じ速度領域を占める。
+分布の切れ目は表\ref{tab:sm_populations}の集団の境界に対応する。
+
+\input{figures/sheath_model_vdf}
+
+\subsection{太陽高度への応答}
+図\ref{fig:sm_alpha_sweep}は、太陽高度を $1^\circ$ から $89^\circ$ まで変えたときの零電流根である。
+高度が下がると光電子の放出 $N_{\mathrm{pe}}\propto\sin\alpha$ とイオンの流束 $\propto\sin\alpha$ がともに減り、壁電位が下がる。
+この条件では、Type C は $\alpha=5$--$11^\circ$、Type A と B は $\alpha\ge12^\circ$ と $\alpha\ge11^\circ$ で見つかった。
+Type A の極小は高度が下がると深くなり、$\alpha=12^\circ$ では $\phi_0=-1.73$ V、$\phi_m=-1.79$ V と壁電位に近づいて Type C へ移る。
+同じ高度で A と B が両方見つかる範囲では、B の壁電位が A より高い。
+$\alpha\le4^\circ$ で根が見つからないのは、イオンの法線速度 $u_i=v_{\mathrm{sw}}\sin\alpha$ が Bohm 速度の目安
+$\sqrt{eT_e/m_i}\approx34$ km/s を下回り、上流の漸近条件を満たせないためと考えられる。
+下段の数流束は、太陽風電子の吸収がイオンの吸収と光電子の脱出の和と釣り合うことを示す。
+
+\input{figures/sheath_model_alpha_sweep}
+
+\subsection{型の分布}
+図\ref{fig:sm_type_map}は、太陽高度と光電子源の強さの平面で、零電流の物理解が見つかった型である。
+光電子源が弱いか太陽高度が低いと Type C だけが見つかり、壁は負に帯電する。光電子源が強くなると、
+B と C が同時に見つかる狭い帯を経て、A と B が同時に見つかる広い領域に移る。この計算の範囲では、A だけ、または B だけが見つかる点はなかった。
+$\alpha\le4^\circ$ では光電子源の強さによらず根が見つからず、境界は前節の Bohm 速度の目安と一致する。
+複数の型が見つかる条件では、本モデルはどれが実現するかを決めない。
+研究で外部シースを使うときは、型を明示して結果の依存性を確かめる必要がある。
+
+\input{figures/sheath_model_type_map}
+
+\section{適用範囲}
+\label{sec:sm_limits}
+本モデルは平面・定常・無衝突・非磁化のシースであり、曲率、時間変化、衝突、磁場による旋回、波動や不安定性による緩和を含まない。
+壁は完全に吸収し、二次電子放出、後方散乱、表面伝導を含まない。イオンは一定係数の圧力を持つ流体で、イオンの速度分布は定めない。
+上流は半無限で準中性とし、presheath や上流の加速機構とは結合しない。
+入射状態と電子の drift は固定した物理条件であり、根が見つからないときにそれらを自動で変更しない。
+
+代数的な根の収束、物理的な電位分布の存在、動的な安定性は別の概念である。本モデルは前の二つを判定するが、
+複数の根の中から安定なものを選ぶ判定は含まない。根の探索と物理解の判定はどちらも有限の計算であり、
+見つからないことは解の不存在の証明ではない。drift のある電子で受理した根は、上流の帯の内側で理想化した分布に従わない。
+これらが結論を左右するケースでは、独立の運動論的計算や PIC と比較する。

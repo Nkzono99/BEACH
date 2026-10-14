@@ -23,6 +23,8 @@ $v_n=\vect v\cdot\vect n_{\mathrm{in}}$ とすると、境界流入束は
  \mathbb E[N_{\mathrm{macro}}]=\frac{\Gamma A_f h}{w}.
 \end{equation}
 整数化の端数を後のバッチへ持ち越すことで、長時間の流入量を表す。
+図\ref{fig:flux_distribution}は、drift が零の場合に体積分布と流束分布がどのように異なるかを示す。
+\input{figures/flux_distribution}
 
 \section{粒子源と任意の速度分布}
 粒子は、計算箱の外部境界からの流入、内部の面源、体積内の標本として生成できる。
@@ -54,6 +56,10 @@ Maxwell 分布の標本化は平均から $\pm6s$ で打ち切る。
 \section{照射 ray による光電子放出}
 箱の面上の開口から照射 ray を発射し、最初に命中した要素から光電子を放出する。
 遮蔽と可視面積が命中率に反映されるため、全表面へ同じ放出量を一律に置くモデルではない。
+図\ref{fig:photoemission}に、照射による可視面の選択と、電子の放出・帰還の電荷収支を示す。
+
+\input{figures/photoemission}
+
 開口面積 $A_{\mathrm{ap}}$、単位 ray 方向 $\widehat{\vect d}$ に対する投影面積は
 \begin{equation}
  A_{\mathrm{proj}}=A_{\mathrm{ap}}

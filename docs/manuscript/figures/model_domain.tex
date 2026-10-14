@@ -1,0 +1,36 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \fill[BeachBlue!7] (0,4.2) rectangle (7.8,5.5);
+  \node[beach heading] at (3.9,5.05) {外部プラズマの reservoir};
+  \node at (3.9,4.55) {密度・速度分布・流入束};
+  \draw[dashed] (0,0) rectangle (7.8,4.2);
+  \node at (3.9,3.8) {BEACH の粒子追跡領域};
+  \fill[black!8] (0,0) -- (0,0.7) -- (2,0.7) -- (3.1,1.35)
+    -- (4.3,0.7) -- (6.5,0.7) -- (7.8,1.1) -- (7.8,0) -- cycle;
+  \draw (0,0.7) -- (2,0.7) -- (3.1,1.35) -- (4.3,0.7) -- (6.5,0.7) -- (7.8,1.1);
+  \foreach \x in {0,1,2,4.3,5.4,6.5} {\draw[black!35] (\x,0.7) -- (\x+0.55,0);}
+  \draw[black!35] (2,0.7)--(3.1,0)--(3.1,1.35)--(4.3,0);
+  \node[anchor=west] at (0.1,-0.4) {固定形状の三角形表面：$q_i$, $\sigma_i=q_i/A_i$};
+  \draw[beach arrow,BeachBlue] (1.2,4.35) .. controls (1,2.7) and (1.6,1.7) .. (2.3,0.88);
+  \node[fill=white,inner sep=1pt] at (1.1,2.8) {電子 $-$};
+  \draw[beach arrow,BeachTeal,dashed] (6.3,4.35) -- (5.7,0.72);
+  \node[fill=white,inner sep=1pt] at (6.3,2.9) {イオン $+$};
+  \draw[beach arrow,BeachOrange] (3.2,1.4) .. controls (3.8,3.5) and (4.8,3.7) .. (5.25,0.73);
+  \node[fill=white,inner sep=1pt] at (4,2.8) {光電子};
+  \node[beach box,fill=BeachBlue!5,text width=51mm] (field) at (11.05,4.6)
+    {場の source\\表面電荷 $\vect q$ と外場};
+  \node[beach box,text width=51mm] (motion) at (11.05,2.8)
+    {粒子の運動\\$q_p/m_p$ と $\vect E,\vect B_0$};
+  \node[beach box,fill=BeachOrange!6,text width=51mm] (charge) at (11.05,1)
+    {表面へ移す電荷\\吸収 $+q_pw_p$、放出 $-q_pw_p$};
+  \draw[beach arrow] (field)--(motion);
+  \draw[beach arrow] (motion)--(charge);
+  \node[beach note,text width=52mm] at (11.05,-0.25)
+    {追跡中の粒子の体積電荷は\\場の source に加えない};
+\end{tikzpicture}
+\caption[表面場、粒子追跡、電荷移送のモデル分担]{表面場、粒子追跡、電荷移送のモデル分担。軌道と凹凸は模式図である。
+粒子の運動には実粒子の $q_p/m_p$、電荷収支には重みを含む $q_pw_p$ を使う。
+外部シースを接続する場合の上端面条件は図\ref{fig:sheath_mapping}に示す。}
+\label{fig:model_domain}
+\end{figure}

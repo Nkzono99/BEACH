@@ -1,0 +1,34 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \node[beach heading] at (3.1,5.5) {(a) $x,y$ の周期画像：上から見た図};
+  \fill[BeachOrange!8] (0,0) rectangle (6,5);
+  \fill[BeachBlue!8] (1.2,1) rectangle (4.8,4);
+  \foreach \i in {0,...,5} {\draw[black!25] (\i*1.2,0)--(\i*1.2,5);}
+  \foreach \j in {0,...,5} {\draw[black!25] (0,\j)--(6,\j);}
+  \draw[BeachBlue,thick,dashed] (1.2,1) rectangle (4.8,4);
+  \filldraw[fill=white,line width=1.1pt] (2.4,2) rectangle (3.6,3);
+  \foreach \i in {1,2,3} {\foreach \j in {1,2,3} {
+    \draw[BeachInk] (\i*1.2+0.25,\j+0.2)--(\i*1.2+0.85,\j+0.25)
+      --(\i*1.2+0.5,\j+0.75)--cycle;
+  }}
+  \node[fill=white,inner sep=1pt] at (3,2.45) {基本セル};
+  \node[fill=white,inner sep=1pt] at (3,3.8) {有限 shell ($N=1$)};
+  \node[fill=white,inner sep=1pt] at (3,0.35) {外側は Ewald 残差};
+  \draw[beach axis] (0,-0.4)--(6,-0.4) node[right] {$x$};
+  \draw[beach axis] (-0.35,0)--(-0.35,5) node[above] {$y$};
+  \node[beach heading] at (10.9,5.5) {(b) 面平均を分けて評価};
+  \node[beach box,text width=60mm,fill=BeachBlue!6] (nz) at (10.9,4.1)
+    {$k\ne0$：面内の変動\\有限 shell ＋ 遠方作用素\\$-K_0^{\mathrm{sym}}-S$ で平均を除く};
+  \node[beach box,text width=60mm,fill=BeachTeal!6] (zero) at (10.9,2.1)
+    {$k=0$：高さ方向の面平均\\$C(z)=\sum_iq_iF_i(z)$\\$E_{0,z}=E_{\mathrm b}+C(z)/(\eps A_{\mathrm c})$};
+  \node[beach box,text width=60mm] (total) at (10.9,0.25)
+    {二つを加えて周期表面場を得る};
+  \draw[beach arrow] (nz.east)--++(0.55,0) |- (total.east);
+  \draw[beach arrow] (zero)--(total);
+\end{tikzpicture}
+\caption[周期画像と零モードの分担]{有限画像と遠方残差、および非零モードと零モードの分担。左は $N=1$ の画像集合の模式図で、
+外側の画像は無限に続く。右の省略した遠方作用素の内訳は式\eqref{eq:periodic_split}に示す。
+$z$ は非周期であり、面平均場を一度だけ加えることが重要である。}
+\label{fig:periodic_split}
+\end{figure}

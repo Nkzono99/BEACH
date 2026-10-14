@@ -3,7 +3,7 @@ XELATEX ?= xelatex
 BIBTEX ?= bibtex
 DOCUMENT := beach_models
 BUILD := build
-SOURCES := $(DOCUMENT).tex references.bib $(wildcard sections/*.tex)
+SOURCES := $(DOCUMENT).tex references.bib $(wildcard sections/*.tex figures/*.tex)
 
 .DELETE_ON_ERROR:
 .PHONY: all clean
@@ -18,5 +18,5 @@ $(BUILD)/$(DOCUMENT).pdf: $(SOURCES)
 
 clean:
 	rm -f $(BUILD)/$(DOCUMENT).aux $(BUILD)/$(DOCUMENT).bbl $(BUILD)/$(DOCUMENT).blg
-	rm -f $(BUILD)/$(DOCUMENT).log $(BUILD)/$(DOCUMENT).out $(BUILD)/$(DOCUMENT).toc
+	rm -f $(BUILD)/$(DOCUMENT).log $(BUILD)/$(DOCUMENT).out $(BUILD)/$(DOCUMENT).toc $(BUILD)/$(DOCUMENT).lof
 	rm -f $(BUILD)/$(DOCUMENT).pdf

@@ -1,0 +1,37 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \node[beach box,text width=65mm,fill=BeachBlue!6] (outer) at (3.75,6.2)
+    {外部：平面・定常シースの零電流根\\上流 $\phi=0$、体積空間電荷を含む};
+  \node[beach box,text width=52mm,fill=BeachTeal!6] (conditions) at (11.2,5.45)
+    {根から渡す条件\\電流 $J_e,J_i,J_{\mathrm{emit}},J_{\mathrm{return}}$\\壁電位 $\phi_0$、障壁、$N_e$};
+  \draw[beach arrow] (outer.east)-|(conditions.north);
+  \draw[BeachTeal,thick] (0,3.8)--(7.5,3.8);
+  \node[above,align=center] at (3.75,3.85) {上端面 $z=H$\\$\langle\phi\rangle_{xy}=\phi_0$};
+  \draw[dashed] (0,0)--(0,3.8) (7.5,0)--(7.5,3.8);
+  \fill[black!8] (0,0)--(0,0.6)--(2.1,0.6)--(3,1.25)
+    --(4.1,0.6)--(7.5,0.6)--(7.5,0)--cycle;
+  \draw (0,0.6)--(2.1,0.6)--(3,1.25)--(4.1,0.6)--(7.5,0.6);
+  \draw[beach arrow,BeachBlue] (1,3.7)--(2.3,0.76);
+  \node[fill=white,inner sep=1pt] at (1.15,2.65) {流入};
+  \draw[beach arrow,BeachOrange] (3.1,1.3) .. controls (3.2,2.4) and (4.3,2.8) .. (4.4,3.7);
+  \node[fill=white,inner sep=1pt] at (4,3.1) {流出};
+  \draw[beach arrow,BeachBlue,dashed] (6.5,3.7) .. controls (6.5,2.3) and (6,1.2) .. (5.6,0.65);
+  \node[fill=white,inner sep=1pt] at (6.55,2.8) {帰還};
+  \node[beach box,text width=52mm] (map) at (11.2,3.5)
+    {境界での写像\\流入速度：エネルギー保存\\流出：障壁で帰還か escape か判定};
+  \draw[beach arrow] (conditions)--(map);
+  \draw[beach arrow,BeachTeal] (map.west)--(7.5,3.5);
+  \node[beach box,text width=52mm,fill=BeachOrange!6] (spectrum) at (11.2,1.2)
+    {上端面の光電子\\スペクトルと透過率\\受理した $N$ バッチ分を集計};
+  \draw[beach arrow,BeachOrange] (7.5,1.2)--(spectrum.west);
+  \draw[beach arrow,BeachOrange,dashed] (spectrum.east)--++(0.65,0)
+    |- node[pos=0.75,above] {根を更新} (outer.north);
+  \node[beach heading] at (3.75,-0.35) {内側：三次元の表面場と粒子軌道};
+  \node[beach note] at (3.75,-1) {$H\ll\lambda_D$、外部の応答は帯電より速いと仮定};
+\end{tikzpicture}
+\caption[外部シースと上端面の接続]{外部シースを上端面の条件へ縮約する接続。両領域の長さ尺度は同じ縮尺ではない。
+内側では体積空間電荷を場に加えず、外部の飛行時間や折り返し位置は追わない。
+破線の帰還は境界での反射・再配置を示す。光電子の流出統計による根の更新は次のバッチから反映する。}
+\label{fig:sheath_mapping}
+\end{figure}

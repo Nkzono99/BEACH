@@ -1,0 +1,29 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram,x=1.85cm,y=4.3cm]
+  \draw[beach axis] (0,0)--(4.2,0) node[right] {$u=v_n/s$};
+  \draw[beach axis] (0,0)--(0,0.9);
+  \node[rotate=90] at (-0.55,0.45) {規格化密度 $p(u)$};
+  \foreach \x in {0,1,2,3,4} {
+    \draw (\x,0)--(\x,-0.015) node[below] {$\x$};
+  }
+  \foreach \y in {0.2,0.4,0.6,0.8} {
+    \draw (0,\y)--(-0.04,\y) node[left] {$\y$};
+  }
+  \draw[BeachBlue,thick,domain=0:4,samples=100,smooth]
+    plot (\x,{sqrt(2/pi)*exp(-\x*\x/2)});
+  \draw[BeachOrange,thick,dashed,domain=0:4,samples=100,smooth]
+    plot (\x,{\x*exp(-\x*\x/2)});
+  \node[beach note,anchor=west] at (4.5,0.7) {体積分布の $v_n>0$ 部分};
+  \draw[BeachBlue,thick] (4.5,0.61)--(4.95,0.61);
+  \node[anchor=west] at (5.05,0.61) {$p_{\mathrm{vol}}=\sqrt{2/\pi}\,e^{-u^2/2}$};
+  \node[beach note,anchor=west] at (4.5,0.43) {面を横切る流束分布};
+  \draw[BeachOrange,thick,dashed] (4.5,0.34)--(4.95,0.34);
+  \node[anchor=west] at (5.05,0.34) {$p_{\mathrm{flux}}=u\,e^{-u^2/2}$};
+  \node[beach note,anchor=west] at (4.5,0.1) {$s=\sqrt{k_{\mathrm B}T/m}$、法線 drift は 0};
+\end{tikzpicture}
+\caption[体積分布と境界流束分布の違い]{drift のない Maxwell 分布から導いた、正の法線速度の二つの規格化分布。
+横軸 $u$ と縦軸 $p(u)$ は無次元で、各曲線の $u\ge0$ の積分は 1 である。
+流束の標本には $v_n$ による重みが必要であり、低速極限で流束密度は零になる。数値実験の histogram ではなく解析式の図示である。}
+\label{fig:flux_distribution}
+\end{figure}

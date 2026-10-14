@@ -1,0 +1,18 @@
+{
+ "sheath_model_commit": "26569c184a2cb65ecc3db9865cf7b3930fca0603",
+ "base_inputs": {
+  "sun_elevation_deg": 60.0,
+  "ion_density_m3": 8700000.0,
+  "photoelectron_reference_density_m3": 64000000.0,
+  "electron_temperature_ev": 12.0,
+  "ion_temperature_ev": 0.0,
+  "ion_pressure_factor": 1.0,
+  "photoelectron_temperature_ev": 2.2,
+  "solar_wind_speed_mps": 468000.0,
+  "ion_mass_kg": 1.67262192369e-27,
+  "electron_mass_kg": 9.1093837015e-31,
+  "electron_drift_mode": "zero",
+  "ion_drift_mode": "normal"
+ },
+ "field_floor_v_m": 0.002
+}

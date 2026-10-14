@@ -1,0 +1,18 @@
+% Shared vector-figure styles; diagrams are typeset by the manuscript's XeLaTeX run.
+\definecolor{BeachBlue}{HTML}{0077BB}
+\definecolor{BeachTeal}{HTML}{009988}
+\definecolor{BeachOrange}{HTML}{EE7733}
+\definecolor{BeachInk}{HTML}{25313B}
+\definecolor{BeachCyan}{HTML}{33BBEE}
+\definecolor{BeachRed}{HTML}{CC3311}
+\definecolor{BeachMagenta}{HTML}{EE3377}
+\tikzset{
+  beach diagram/.style={font=\small\sffamily,draw=BeachInk,line width=0.7pt},
+  beach arrow/.style={-{Latex[length=2mm]},line width=0.9pt},
+  beach axis/.style={-{Latex[length=1.6mm]},line width=0.6pt},
+  beach box/.style={draw=BeachInk,rounded corners=1.5mm,fill=black!3,
+    align=center,minimum height=9mm,text width=32mm},
+  beach heading/.style={font=\small\sffamily\bfseries,align=center},
+  beach dot/.style={circle,fill=BeachInk,inner sep=1.5pt},
+  beach note/.style={align=center,font=\small\sffamily}
+}

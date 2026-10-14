@@ -69,6 +69,8 @@ $\vect R=\vect c_t-\vect c_s$ に対して M2L は
 木、相互作用 pair、平行移動の係数は geometry だけで決まるので初期化時に一度だけ作り、
 バッチごとには電荷に依存する moment と局所展開だけを更新する。
 展開次数は $p=4$ とし、精度は開き角 $\theta$ と leaf の要素数で調整する。
+図\ref{fig:fmm_translations}に、展開の集約と共有、近傍 Direct 和の関係を示す。
+\input{figures/fmm_translations}
 
 \section{二軸周期場の分割}
 $x,y$ 方向に周期 $L_x,L_y$、$z$ 方向に非周期の slab を考える。
@@ -92,6 +94,8 @@ $s$ は $1/r$ を画像ブロック上で積分した閉じた式から $K_0^{\m
 残差 $R_{\mathrm{Ewald}}$ の面平均はちょうど $-s$ なので、作用素には面平均が 0 の $R_{\mathrm{Ewald}}+s$ だけを近似させ、
 $s$ は source ごとの高さの関数として $S(z)=\sum_iq_is_i(z)$ を実行時に引く。
 これにより $k\ne0$ 部分は面平均を持たず、面平均成分は Gauss 則で閉じる $K_0^{\mathrm{phys}}$ として一度だけ加わる。
+図\ref{fig:periodic_split}は、画像の範囲による分割と、面平均による分割を区別して示す。
+\input{figures/periodic_split}
 
 \section{Ewald 和から生成する遠方作用素}
 参照の 2 軸周期 Coulomb 和は、kernel を

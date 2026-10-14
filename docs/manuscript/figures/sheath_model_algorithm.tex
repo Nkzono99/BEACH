@@ -1,0 +1,32 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram,node distance=4mm and 6mm,
+    flowstep/.style={beach box,text width=46mm,minimum height=10mm,font=\scriptsize\sffamily},
+    gate/.style={beach box,text width=46mm,minimum height=10mm,font=\scriptsize\sffamily,fill=BeachOrange!8},
+    side/.style={beach box,text width=40mm,minimum height=10mm,font=\scriptsize\sffamily,fill=BeachBlue!6}]
+  \node[flowstep] (in) {物理条件を固定\\$n_i,u_i,T_i,T_e,u,$ 光電子源、型};
+  \node[flowstep,below=of in] (enc) {未知数を対数変数へ変換\\符号と順序 $\phi_m<\min(\phi_0,0)$ を保証};
+  \node[flowstep,below=of enc] (seed) {初期値の候補を並べる\\前回の根 → 解の表 → 既定の多点初期値};
+  \node[flowstep,below=of seed] (newton) {保護付き Newton 法\\後退で残差を減らせなければ LM 法};
+  \node[gate,below=of newton] (res) {元の方程式の残差 $\le 10^{-10}$ か};
+  \node[gate,below=of res] (adm) {物理解の判定\\イオン到達、接続、$E^2\ge0$、上流漸近};
+  \node[flowstep,below=of adm,fill=BeachTeal!8] (out) {根を受理し、$z(\phi)$ を再構成\\電流、密度、場の不足を返す};
+  \node[side,left=8mm of newton] (scalar) {B、C の一変数探索\\$N_e$ を電流式で消去し、\\$\phi_0$ の格子で符号変化を二分};
+  \node[side,right=8mm of res] (next) {次の初期値へ\\（候補列挙では収束済みの根を\\deflation で避ける）};
+  \node[side,right=8mm of adm] (rej) {棄却の理由を記録\\非収束と物理的棄却を区別};
+  \foreach \a/\b in {in/enc,enc/seed,seed/newton,newton/res,adm/out}
+    \draw[beach arrow] (\a)--(\b);
+  \draw[beach arrow] (res)--node[right,font=\scriptsize] {是}(adm);
+  \draw[beach arrow] (seed.west) -| (scalar.north);
+  \draw[beach arrow] (scalar.south) |- (adm.west);
+  \draw[beach arrow] (res)--node[above,font=\scriptsize] {否}(next);
+  \draw[beach arrow] (adm)--node[above,font=\scriptsize] {否}(rej);
+  \draw[beach arrow] (rej)--(next);
+  \draw[beach arrow] (next.north) |- (newton.east);
+\end{tikzpicture}
+\caption[零電流根の求解手順]{一つの型について零電流根を求める手順。橙の箱が受理の判定である。
+代数方程式が収束したことと、半無限の物理的な電位分布が存在することを別々に判定する。
+型を指定しない場合はこの手順を型の順に繰り返し、最初に受理した根を返す。
+有限個の初期値と反復で探すため、見つからないことは解の不存在を意味しない。}
+\label{fig:sm_algorithm}
+\end{figure}

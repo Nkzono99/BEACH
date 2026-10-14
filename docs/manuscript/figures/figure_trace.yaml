@@ -1,0 +1,147 @@
+# All paths are relative to docs/manuscript. Unless noted, these are original explanatory
+# vectors and analytic illustrations, not newly measured simulation results. The sheath_model_*
+# figures of Chapter 8 are numerical solutions of the outer-sheath model: tools/sheath_model_data.py
+# writes figures/data/sheath_model/ (provenance.json records the sheath-model commit and inputs), and
+# tools/sheath_model_figures.py converts those files into the TikZ sources.
+figure_table_trace:
+  - artifact_id: fig:model_domain
+    source_data: {dataset_id: model-definition, file: sections/02_model.tex}
+    transformation: {manual_derivation: "状態量と計算領域・テスト粒子と表面電荷の自己無撞着性：source、運動、電荷移送を模式化。作図：figures/model_domain.tex"}
+    caption_claim: "軌道には q_p/m_p、表面へ移す電荷には q_p w_p を使い、追跡中の体積電荷は場に加えない。"
+    supported_manuscript_claims:
+      - {claim: "場の source、粒子の運動、表面への電荷移送を分担する。", locator: "第2章・状態量と計算領域"}
+    limitations: ["形状と軌道は模式的で、距離や電場の数値を示さない。"]
+  - artifact_id: fig:panel_geometry
+    source_data: {dataset_id: panel-definition, file: sections/03_electrostatics.tex}
+    transformation: {manual_derivation: "辺の対数項と立体角の x、x_parallel、d、Omega を配置し、式 eq:jump の片側極限を併記。作図：figures/panel_geometry.tex"}
+    caption_claim: "有限 panel の幾何を積分に用い、電位は連続だが法線電場は sigma_i/epsilon_0 跳ぶ。"
+    supported_manuscript_claims:
+      - {claim: "有限三角形の幾何と面を横切る電場の跳びを並べて示す。", locator: "第3章・自己電位と片側電場"}
+    limitations: ["投影による模式図で、数値的な立体角や電場成分は示さない。"]
+  - artifact_id: fig:fmm_translations
+    source_data: {dataset_id: fmm-definition, file: sections/04_field_algorithms.tex}
+    transformation: {manual_derivation: "Cartesian FMM の展開に記載された P2M、M2M、M2L、L2L、L2P と近傍 Direct 和を有向図へ変換。作図：figures/fmm_translations.tex"}
+    caption_claim: "source の集約と target の局所展開共有に、近傍の解析 panel 和を別に加える。"
+    supported_manuscript_claims:
+      - {claim: "展開の集約と共有、近傍 Direct 和を組み合わせる。", locator: "第4章・Cartesian FMM の展開"}
+    limitations: ["木の一枝と一つの遠方 pair だけを示し、完全な相互作用リストではない。"]
+  - artifact_id: fig:periodic_split
+    source_data: {dataset_id: periodic-definition, file: sections/04_field_algorithms.tex}
+    transformation: {manual_derivation: "式 eq:periodic_split の画像分割を N=1 の平面セル図に、面平均の分割を二つの box に対応。作図：figures/periodic_split.tex"}
+    caption_claim: "有限画像と遠方残差を組み合わせ、面平均場は Gauss 則で一度だけ加える。"
+    supported_manuscript_claims:
+      - {claim: "画像の範囲による分割と面平均による分割は異なる。", locator: "第4章・二軸周期場の分割"}
+    limitations: ["画像は無限に続き、遠方作用素の内訳は本文の式に委ねる。"]
+  - artifact_id: fig:particle_step
+    source_data: {dataset_id: particle-step-definition, file: sections/05_particles.tex}
+    transformation: {manual_derivation: "予測中点と式 eq:trapezoid を手順図に、mesh と箱の lambda 比較を候補 chord 上へ配置。作図：figures/particle_step.tex"}
+    caption_claim: "予測中点で場を一回評価し、候補 chord 上の最初の event まで進める。"
+    supported_manuscript_claims:
+      - {claim: "場の評価点と候補 chord 上での event 選択を区別する。", locator: "第5章・計算箱の作用と event の発生順"}
+    limitations: ["真の曲線軌道と交差時刻の精度は示さない。"]
+  - artifact_id: fig:flux_distribution
+    source_data: {dataset_id: analytic-maxwell-flux, file: sections/06_sources.tex}
+    transformation: {manual_derivation: "式 eq:flux に法線 drift 0 の Maxwell 分布を代入し u=v_n/s で規格化。p_vol=sqrt(2/pi) exp(-u^2/2)、p_flux=u exp(-u^2/2) を 0<=u<=4 で描く。作図：figures/flux_distribution.tex"}
+    caption_claim: "流束標本の分布には法線速度の重みが必要で、低速極限の密度は零になる。"
+    supported_manuscript_claims:
+      - {claim: "drift が零の場合の体積分布と流束分布は異なる。", locator: "第6章・境界を横切る速度分布"}
+    limitations: ["法線 drift が零の解析例で、simulation histogram ではない。"]
+  - artifact_id: fig:photoemission
+    source_data: {dataset_id: photoemission-definition, file: sections/06_sources.tex}
+    transformation: {manual_derivation: "照射 ray による光電子放出の最初の命中を断面図へ変換し、q<0 を放出 -qw と再吸収 +qw に代入。作図：figures/photoemission.tex"}
+    caption_claim: "照射で可視面を選び、電子の放出は正、再吸収は負の表面電荷差分を与える。"
+    supported_manuscript_claims:
+      - {claim: "可視面の選択と電子の放出・帰還の電荷収支を扱う。", locator: "第6章・照射 ray による光電子放出"}
+    limitations: ["断面模式図であり、3次元の命中率や escape 率は評価していない。"]
+  - artifact_id: fig:batch_stability
+    source_data: {dataset_id: analytic-scalar-relaxation, file: sections/07_surface_update.tex}
+    transformation: {manual_derivation: "式 eq:mean_batch を eta=0、固有値 -1/tau のスカラー系へ線形化。e_n/e_0=(1-h/tau)^n を h/tau=0.4,1.4,2.2、n=0,...,8 で計算。作図：figures/batch_stability.tex"}
+    caption_claim: "同じ固定点でもバッチ幅により単調減衰、交互減衰、増大が起きる。"
+    supported_manuscript_claims:
+      - {claim: "単一の線形緩和ではバッチ幅によって収束の形が変わる。", locator: "第7章・バッチ幅の安定性"}
+    limitations: ["標本誤差、複素固有値、非正規結合を含まない解析例である。"]
+  - artifact_id: fig:sheath_types
+    source_data: {dataset_id: sheath-type-definition, file: sections/08_sheath_model.tex}
+    transformation: {manual_derivation: "零電流根と Type A、B、C に記載された極小と単調性を、定量尺度を持たない曲線へ変換。作図：figures/sheath_types.tex"}
+    caption_claim: "A は負の極小、B は正の壁から低下、C は負の壁から上昇する電位形状を持つ。"
+    supported_manuscript_claims:
+      - {claim: "三つの型を電位形状で分類する。", locator: "第8章・三つの型"}
+    limitations: ["距離・電位・勾配は数値解ではなく、上流の帯は別図に示す。"]
+  - artifact_id: fig:upstream_band
+    source_data: {dataset_id: upstream-band-definition, file: sections/08_sheath.tex}  # Chapter 9
+    transformation: {manual_derivation: "式 eq:sagdeev の形式的 E^2 が phi_b<phi<0 で負になる状況を模式化し、sqrt(-min E^2) と E_floor の比較を併記。作図：figures/upstream_band.tex"}
+    caption_claim: "負の E^2 の区間には実数の空間接続がなく、場の不足は根の受理判定に使う。"
+    supported_manuscript_claims:
+      - {claim: "電位を横軸にして上流の帯と場の不足を定義する。", locator: "第9章・電子 drift と上流の帯"}
+    limitations: ["帯の幅や場の不足の数値は示さず、曲線は模式的である。"]
+  - artifact_id: fig:sheath_mapping
+    source_data: {dataset_id: sheath-mapping-definition, file: sections/08_sheath.tex}  # Chapter 9
+    transformation: {manual_derivation: "上端面への写像の4条件と式 eq:inflow_map、eq:return_map、および外部根の更新のスペクトル帰還を有向図へ変換。作図：figures/sheath_mapping.tex"}
+    caption_claim: "外部根を境界条件へ縮約し、流出光電子の統計による根の更新を次のバッチへ渡す。"
+    supported_manuscript_claims:
+      - {claim: "外部根から渡す条件と光電子統計による根の更新を接続する。", locator: "第9章・上端面への写像"}
+    limitations: ["内外の長さ尺度は同じ縮尺ではなく、外部飛行時間や折り返し位置は追わない。"]
+  - artifact_id: fig:sm_populations
+    source_data: {dataset_id: sheath-model-profile-A, file: figures/data/sheath_model/profile_A.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 alpha=60 deg、電子 drift 0、零電流の Type A の phi(z) から U=-e phi を描き、説明用の全エネルギー W=1.15, 0.2, 0.62, -0.9 eV の折り返し点を同じ phi(z) の線形補間で求めた。作図：figures/sheath_model_populations.tex"}
+    caption_claim: "太陽風電子は W>-e phi_m で壁に達し、光電子は K>phi_0-phi_m で脱出する。反射電子は上側、捕捉光電子は下側だけにある。"
+    supported_manuscript_claims:
+      - {claim: "障壁と二つの閾値が各区間の粒子集団を決める。", locator: "第8章・エネルギー保存と速度領域"}
+    limitations: ["U(z) は数値解だが、水平線の W は説明用に選んだ値である。"]
+  - artifact_id: fig:sm_first_integral
+    source_data: {dataset_id: sheath-model-first-integral-A, file: figures/data/sheath_model/first_integral_A.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 Type A（alpha=60 deg）の根で、区間ごとの rho(phi) を公開 API の密度から評価し、E^2 を式 eq:sm_typeA_first の適応求積で独立に計算した。作図：figures/sheath_model_first_integral.tex"}
+    caption_claim: "E^2 は極小で 0 から始まり、上側では上流で 0 に戻る。上側の電荷密度の正負の面積が打ち消す。"
+    supported_manuscript_claims:
+      - {claim: "接続条件 eq:sm_connection と区間ごとの電荷密度の違い。", locator: "第8章・第一積分"}
+    limitations: ["一つの条件の数値例である。"]
+  - artifact_id: fig:sm_upstream_band
+    source_data: {dataset_id: sheath-model-upstream-band, file: figures/data/sheath_model/upstream_band.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 alpha=60 deg の Type A を電子 drift 0 と drift v_sw sin(alpha)（E_floor=2 mV/m で受理）で解き、上側の E^2(phi)=(2/eps0) int_phi^0 rho を適応求積で計算。帯と場の不足は upstream_band.json。作図：figures/sheath_model_upstream_band.tex"}
+    caption_claim: "drift のある電子では上流に接する帯で E^2<0 になり、その最小値の大きさが場の不足である。"
+    supported_manuscript_claims:
+      - {claim: "h log(1/h) 項による上流の帯と場の不足の定義。", locator: "第8章・電子 drift と上流の帯"}
+      - {claim: "表 tab:band_deficit の 1 行目（42 mV、0.63 mV/m）。", locator: "第9章・電子 drift と上流の帯"}
+    limitations: ["E^2 の求積は上流で E=0 を仮定する。帯の内側は理想化した分布に従わない範囲である。"]
+  - artifact_id: fig:sm_algorithm
+    source_data: {dataset_id: sheath-model-algorithm, file: sections/08_sheath_model.tex}
+    transformation: {manual_derivation: "数値アルゴリズムの節の探索順序、収束判定、物理解の判定を有向図へ変換。作図：figures/sheath_model_algorithm.tex"}
+    caption_claim: "代数方程式の収束と物理的な電位分布の存在を別々に判定する。"
+    supported_manuscript_claims:
+      - {claim: "一つの型の零電流根の求解手順。", locator: "第8章・数値アルゴリズム"}
+    limitations: ["継続法、解の表の構築、候補列挙の詳細は本文に委ねる。"]
+  - artifact_id: fig:sm_profiles
+    source_data: {dataset_id: sheath-model-profiles, file: "figures/data/sheath_model/profile_[ABC].csv, examples.json"}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 Type A（alpha=60）、B（20）、C（10 deg）を個別に指定して解き、z(phi) を再構成。0.1 m 程度に間引いた節点をそのまま描いた。作図：figures/sheath_model_profiles.tex"}
+    caption_claim: "A は内部に負の極小を持ち、B は光電子の Debye 長、C は太陽風電子の Debye 長程度で 0 V に近づく。"
+    supported_manuscript_claims:
+      - {claim: "三つの型の電位と電場の数値例（phi_0、phi_m、z_m、E_0）。", locator: "第8章・三つの型の電位構造"}
+    limitations: ["電子 drift 0 の例。|phi|=10^-3 T_pe で打ち切り、その先は描かない。"]
+  - artifact_id: fig:sm_densities
+    source_data: {dataset_id: sheath-model-profile-A, file: figures/data/sheath_model/profile_A.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 Type A（alpha=60 deg）の再構成した電位から、集団ごとの密度を式 eq:sm_e_density、eq:sm_pe_density で評価。作図：figures/sheath_model_densities.tex"}
+    caption_claim: "反射電子は上側だけ、捕捉光電子は下側だけに存在し、上流では電子と脱出光電子の和がイオン密度と釣り合う。"
+    supported_manuscript_claims:
+      - {claim: "壁の捕捉光電子約 50 cm^-3、上流の 4.0、1.8、2.8 cm^-3、N_e=9.9 cm^-3。", locator: "第8章・粒子集団と速度分布"}
+    limitations: ["イオンは冷たい流体で、速度分布は描かない。"]
+  - artifact_id: fig:sm_vdf
+    source_data: {dataset_id: sheath-model-vdf-A, file: figures/data/sheath_model/vdf_A.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 Type A（alpha=60 deg）の z=0、z_m/2、40 m で、公開 API の速度分布（境界分布のエネルギー保存による写像）を 1601 点で評価し、v_te/n_i で規格化。作図：figures/sheath_model_vdf.tex"}
+    caption_claim: "壁では太陽風電子は内向き、光電子は外向きだけを持ち、捕捉・反射の集団が低速の両方向を占める。"
+    supported_manuscript_claims:
+      - {claim: "分布の切れ目が集団の境界に対応する。", locator: "第8章・粒子集団と速度分布"}
+    limitations: ["法線速度の 1 次元分布で、接線速度は積分済みである。"]
+  - artifact_id: fig:sm_alpha_sweep
+    source_data: {dataset_id: sheath-model-alpha-sweep, file: figures/data/sheath_model/alpha_sweep.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 alpha=1..89 deg（1 deg 刻み）で A、B、C を個別に指定し、直前の高度の根を初期値に加えて解いた。流束は式 eq:sm_e_flux、eq:sm_pe_flux と n_i u_i。作図：figures/sheath_model_alpha_sweep.tex"}
+    caption_claim: "高度が下がると壁電位が下がり、C は 5-11 deg、A は 12 deg 以上、B は 11 deg 以上で見つかる。"
+    supported_manuscript_claims:
+      - {claim: "太陽高度に対する型の存在範囲と Gamma_e=Gamma_i+Gamma_esc。", locator: "第8章・太陽高度への応答"}
+    limitations: ["有限の探索であり、曲線の切れ目は不存在の証明ではない。"]
+  - artifact_id: fig:sm_type_map
+    source_data: {dataset_id: sheath-model-type-map, file: figures/data/sheath_model/type_map.csv}
+    transformation: {numerical: "数値解：tools/sheath_model_data.py で外部シースモデル（Python 実装、provenance.json の commit）を解き、tools/sheath_model_figures.py で TikZ に変換。 alpha 1..89 deg の 89 点と n_pe,ref/n_i 0.5..16 の対数 49 点の各格子点で、A、B、C を既定の初期値だけから個別に解き、見つかった型のビット和を色にした。作図：figures/sheath_model_type_map.tex"}
+    caption_claim: "弱い光電子源や低い高度では C だけ、B+C の狭い帯を経て A+B の領域に移る。alpha<=4 deg では根が見つからない。"
+    supported_manuscript_claims:
+      - {claim: "型の分布と複数の型が同時に見つかる領域。", locator: "第8章・型の分布"}
+    limitations: ["有限の探索であり、「なし」は不存在の証明ではない。安定性による選択はしていない。"]

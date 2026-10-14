@@ -1,0 +1,36 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram,x=0.43cm,y=0.45cm]
+  \foreach \offset/\ratio/\r/\title in {0/0.4/0.6/単調に減衰,12/1.4/-0.4/交互に減衰,24/2.2/-1.2/交互に増大} {
+    \begin{scope}[xshift=\offset*0.43cm]
+      \node[beach heading] at (4,6.2) {\title};
+      \node at (4,5.1) {$h/\tau=\ratio$};
+      \draw[black!18] (0,-4.5) rectangle (8,4.5);
+      \draw[beach axis] (0,0)--(8.5,0) node[right] {$n$};
+      \draw[beach axis] (0,-4.5)--(0,4.7);
+      \foreach \y in {-4,-2,2,4} {
+        \draw (0,\y)--(-0.12,\y) node[left] {$\y$};
+      }
+      \foreach \n in {2,4,6,8} {
+        \draw (\n,0)--(\n,-0.14);
+        \node[below] at (\n,-4.6) {$\n$};
+      }
+      \foreach \n in {0,...,7} {
+        \pgfmathsetmacro{\ya}{pow(\r,\n)}
+        \pgfmathsetmacro{\yb}{pow(\r,\n+1)}
+        \draw[BeachBlue,thick] (\n,\ya)--(\n+1,\yb);
+      }
+      \foreach \n in {0,...,8} {
+        \pgfmathsetmacro{\yn}{pow(\r,\n)}
+        \fill[BeachBlue] (\n,\yn) circle[radius=1.4pt];
+      }
+    \end{scope}
+  }
+  \node[rotate=90] at (-2.2,0) {固定点からのずれ $e_n/e_0$};
+  \node[beach note] at (16,-6.2) {$e_{n+1}=(1-h/\tau)e_n$、$e_n/e_0=(1-h/\tau)^n$};
+\end{tikzpicture}
+\caption[単一線形緩和モデルのバッチ幅と安定性]{実負の固有値 $-1/\tau$ を一つだけ持つ線形モデルの、バッチ幅による安定性の違い。
+各点は図中の漸化式から直接計算した値で、BEACH の帯電履歴ではない。
+全 panel の縦軸尺度は共通である。標本誤差、複素固有値、非正規結合は含めていない。}
+\label{fig:batch_stability}
+\end{figure}

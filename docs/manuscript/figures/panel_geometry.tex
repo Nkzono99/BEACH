@@ -1,0 +1,36 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \node[beach heading] at (3.3,5.1) {(a) 有限三角形の幾何};
+  \filldraw[fill=BeachBlue!10] (0.5,0.7)--(6.2,1.1)--(2.2,2.6)--cycle;
+  \node[below left] at (0.5,0.7) {$\vect a_1$};
+  \node[below right] at (6.2,1.1) {$\vect a_2$};
+  \node[left] at (2.2,2.6) {$\vect a_3$};
+  \node at (3.8,1.25) {$T_i,\ \sigma_i$};
+  \coordinate (x) at (2.8,4.3);
+  \coordinate (xp) at (2.8,1.6);
+  \draw[BeachBlue,dotted] (x)--(0.5,0.7) (x)--(6.2,1.1) (x)--(2.2,2.6);
+  \draw[dashed] (x)--node[right] {$d$} (xp);
+  \node[beach dot,label=above:{$\vect x$}] at (x) {};
+  \node[beach dot,label=below left:{$\vect x_\parallel$}] at (xp) {};
+  \draw[BeachBlue] (2.35,3.62) .. controls (2.7,3.35) and (3.05,3.35) .. (3.55,3.62);
+  \node[BeachBlue] at (3.7,3.4) {$\Omega$};
+  \draw[beach arrow,BeachTeal] (5,1.6)--node[right] {$\vect n_i$} (5,3.25);
+  \node[beach note] at (3.3,-0.45) {面の広がりを積分で保持};
+  \node[beach heading] at (11,5.1) {(b) 面を横切る片側極限};
+  \filldraw[fill=BeachBlue!10] (8,2.1) rectangle (14,2.3);
+  \node[below] at (13.4,2.1) {$\sigma_i$};
+  \draw[beach arrow,BeachTeal] (8.6,2.3)--(8.6,3.7);
+  \node[above] at (8.6,3.7) {$\vect n_i$};
+  \node[beach note] at (11.4,4.15) {$\vect E_i^+=\vect E_i^{\mathrm{PV}}+\dfrac{\sigma_i}{2\eps}\vect n_i$};
+  \node[beach note] at (11.4,0.8) {$\vect E_i^-=\vect E_i^{\mathrm{PV}}-\dfrac{\sigma_i}{2\eps}\vect n_i$};
+  \node[beach dot] at (10.3,2.7) {};
+  \node[beach dot] at (10.3,1.7) {};
+  \draw[dotted] (10.3,2.7)--(10.3,1.7);
+  \node[beach note] at (11,-0.45) {電位は連続、法線電場は $\sigma_i/\eps$ 跳ぶ};
+\end{tikzpicture}
+\caption[P0 三角形の評価幾何と電場の跳び]{P0 三角形の評価幾何と電場の跳び。左の破線は面への投影、点線は頂点への視線を示す。
+右は要素内部の点での局所的な断面模式図であり、$\mathrm{PV}$ は両側極限の平均である。
+有限 panel の主値には接線成分もあり得るため、電場全体を法線方向の矢印で置き換えていない。}
+\label{fig:panel_geometry}
+\end{figure}

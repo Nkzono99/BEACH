@@ -15,6 +15,8 @@
 質量 $m_p$、macro weight $w_p$ を持つ。軌道は電荷質量比 $q_p/m_p$ で決まり、
 表面へ移す電荷は $q_p w_p$ である。
 粒子種ごとに、電荷・質量、速度分布、粒子源、境界での作用を指定する。
+図\ref{fig:model_domain}に、場の source、粒子の運動、表面への電荷移送の分担を示す。
+\input{figures/model_domain}
 
 \section{テスト粒子と表面電荷の自己無撞着性}
 粒子の運動方程式は、非相対論的 Lorentz 力
@@ -50,6 +52,7 @@ $-\vect E_0\cdot\vect x$ を一度だけ加える。
 一つのバッチで複数の粒子種の軌道を順に追っても、その飛行時間を足して帯電時間にはしない。
 
 \section{一バッチの結合手順}
+図\ref{fig:batch}の順序で、場の構成から電荷差分の確定までを一バッチとして進める。
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}[node distance=6mm,
@@ -65,7 +68,7 @@ $-\vect E_0\cdot\vect x$ を一度だけ加える。
  \node[box,below=of c] (o) {表面電荷 $\vect q^{\,n+1}$ を確定};
  \foreach \a/\b in {q/e,e/s,s/p,p/d,d/c,c/o}{\draw[arr] (\a)--(\b);}
 \end{tikzpicture}
-\caption{基本の表面帯電サイクル。外部シースを接続する場合は、吸収・放出の電荷差分を外部根の電流目標に合わせ、
+\caption[基本の表面帯電サイクル]{基本の表面帯電サイクル。外部シースを接続する場合は、吸収・放出の電荷差分を外部根の電流目標に合わせ、
 外部根の更新があれば受理後に根を解き直す。}
 \label{fig:batch}
 \end{figure}

@@ -9,84 +9,36 @@ BEACH の場は表面電荷に由来し、内側の体積プラズマ空間電�
 これは空間尺度（$H\ll\lambda_D$）と時間尺度（外部シースの応答が表面の帯電時間より速い）の仮定であり、
 シースを接続すれば任意の局所 geometry が妥当になるわけではない。
 
-外部の解が上端面に与えるものは次の 4 つである。
+外部のシースは第\ref{ch:sheath_model}章のモデルで解き、その零電流根から上端面に次の 4 つを与える。
 粒子種ごとの電流（各バッチの吸収・放出・脱出の目標電荷）、壁電位 $\phi_0$（上端面の平均電位の基準）、
-障壁電位（入る粒子の選別と出る粒子の反射・脱出の判定）、上流電子密度 $n_{e,\infty}$（上端面から入れる電子の密度）である。
+障壁電位（入る粒子の選別と出る粒子の反射・脱出の判定）、太陽風電子の規格化 $N_e$（上端面から入れる電子の密度）である。
 
-\section{零電流根と Type A、B、C}
-上流（電位 0 V）の太陽風と、表面から放出される光電子がつくる 1 次元の無衝突・非磁化・定常シースを考える。
-単一価 ion、ambient electron、photoelectron の電荷密度を $\rho(\phi)=e n_i-e n_e-e n_{\mathrm{pe}}$ とし、
-Poisson 方程式に $\dd\phi/\dd z$ を掛けて上流で $E=0$ とすると第一積分
-\begin{equation}
- \frac{E^2(\phi)}{2}=-\frac1\eps\int_0^\phi\rho(\psi)\,\dd\psi
- \label{eq:sagdeev}
-\end{equation}
-を得る。密度は上流の分布を電位による到達・反射の速度領域で積分して求めるため、
-単純な Boltzmann 密度では全ての型を表せない。解は電位の形で 3 つに分かれる。
-Type A は表面と上流の間に負の電位極小 $\phi_m$ を持つ非単調な構造、Type B は正の表面から 0 へ単調に下がる構造、
-Type C は負の表面から 0 へ単調に上がる構造である\citep{Zhao2020}。光電子がなければ Type C だけが成り立つ。
+\section{外部根の条件と型の選択}
+外部根は、第\ref{ch:sheath_model}章の零電流の closure（式\eqref{eq:sm_neutrality}、\eqref{eq:zero_current}、\eqref{eq:sm_connection}）の根である。
+BEACH は計算の開始時にこの根を一度解き、外部根を更新する場合（\ref{sec:sheath_refresh}節）は光電子源を置き換えて解き直す。
+根は型、壁電位 $\phi_0$、極小 $\phi_m$（Type A）、規格化 $N_e$、粒子種ごとの電流を与え、物理解の判定（\ref{sec:sm_admissibility}節）に合格した根だけを使う。
 
-未知数は壁電位 $\phi_0$、電位極小 $\phi_m$（A のみ）、上流電子 Maxwell 分布の規格化密度 $n_{e,\infty}$ で、条件は
-上流 $\phi=0$ での準中性 $\rho(0)=0$、表面への零電流
-\begin{equation}
- J_e+J_i+J_{\mathrm{escape}}=0,
- \label{eq:zero_current}
-\end{equation}
-および Type A の接続条件 $E^2(0)=0$ である。$J_e<0$ は電子の吸収、$J_i>0$ はイオンの吸収、
-$J_{\mathrm{escape}}>0$ は外へ逃げる光電子の表面寄与である。
-これらはすべて $\phi$ 空間の代数方程式または積分条件であり、$z$ 方向の積分を含まない。
+外部根に渡す物理条件は、箱の中の粒子種と揃える。太陽風電子は、イオンと同じ太陽風の法線速度で drift した Maxwell 分布とする。
+イオンの温度には箱の中に注入するイオンと同じ値を用い、流体の圧力係数 $f$（式\eqref{eq:ion_fluid}）は既定で等温の 1 とする。
+光電子の規格化は、式\eqref{eq:sm_illumination}に倍率 $s_{UV}$ を掛けた $N_{\mathrm{pe}}=s_{UV}\,n_{\mathrm{pe,ref}}\sin\alpha$ である。
 
-代数的な根に対しては、電位分布の全域で $E^2\ge0$、上流で中性かつ電場 0 に近づくこと、
-イオンの流れが途中で遮られないことを検査し、満たさない根を棄却する。
 型を指定しない場合は、太陽高度が 20 度未満なら C、A、B、それ以外は A、B、C の順に試し、成り立つ最初の根を採る。
-Sana と Mishra が示したように複数の電位構造が候補になり得るため\citep{SanaMishra2023}、
-研究では型を明示して結果の依存性を確認する。
-
-\section{構成粒子のモデル}
-太陽風電子は、イオンと同じ太陽風の法線速度 $u$ で drift した Maxwell 分布である。
-上流へ戻る遅い電子は入射分布の鏡像として反射する。
-イオンは上流で密度 $n_i$、法線速度 $u_i$、温度 $T_i$ を持ち、流束を保つ流体として輸送する。
-圧力項の係数 $f$（1 は等温、3 は 1 次元断熱）を用いると、
-入口エネルギー $K=m_i u_i^2/(2e)$、$a=fT_i$、密度比 $r=n_i/n_{i,\infty}$ に対して連続式と運動方程式の積分
-\begin{equation}
- K\left(\frac1{r^2}-1\right)+a\log r+\phi=0
- \label{eq:ion_fluid}
-\end{equation}
-が成り立つ\citep{SanaMishra2026}。$f$ は同論文の断熱指数 $\psi$ に当たる。
-入口は超音速 $2K>a$ でなければならず、$a=0$ で冷たいビームに戻る。
-太陽風では $K$（400 km/s の陽子で約 0.86 keV）が $T_i$ よりはるかに大きく、$T_i\le12$ eV、$f=1,3$ で根の変化は 0.1 mV 以下である。
-根のイオン温度には、箱内に注入するイオンと同じ値を用いる。
-
-光電子は表面から温度 $T_{\mathrm{pe}}$ の半 Maxwell 分布で放出され、その Maxwell 規格化密度は
-$n_{\mathrm{pe},0}=s_{UV}\,n_{\mathrm{pe,ref}}\sin\alpha$（$\alpha$ は太陽高度、$n_{\mathrm{pe,ref}}$ は基準密度、$s_{UV}$ は倍率）である。
-放出束は $\Gamma_{\mathrm{emit}}=n_{\mathrm{pe},0}v_{th}/(2\sqrt\pi)$、$v_{th}=\sqrt{2eT_{\mathrm{pe}}/m_e}$ となる。
-壁に届いた電子は吸収されて戻らないので、上流の電子分布は外向きの高速成分が欠けている。
-根はこの欠けを含めて上流で準中性になるように $n_{e,\infty}$ を決める。光電子なしの Type C では
-\begin{equation}
- n_{e,\infty}=\frac{n_i}{1-\tfrac12\operatorname{erfc}\sqrt{-\phi_0/T_e}}
- \label{eq:upstream_density}
-\end{equation}
-でイオン密度より大きい。
+第\ref{ch:sheath_model}章の数値例のように、同じ条件で複数の型が見つかることがある\citep{SanaMishra2023}。
+この順序は安定性による選択ではないので、研究では型を明示して結果の依存性を確認する。
 
 \section{電子 drift と上流の帯}
 \label{sec:upstream_band}
-上流で表面へ向かう電子の分布を、表面系の内向き法線速度 $a$ で $g(a)$ と書く。
-鏡像反射と Liouville の定理から、上流電位から深さ $h=-\phi/T_e$ の点の電子密度は
-\begin{equation}
- n_e(h)-n_e(0)=\int_0^\infty\bigl[g(\sqrt{w^2+h})-g(w)\bigr]\dd w
- \approx g(0)\,O(h)+g'(0)\,\frac h2\log\frac1h
- \label{eq:hlogh}
-\end{equation}
-である。drift のない Maxwell 分布は $g'(0)=0$ でこの項を持たないが、drift のある分布は $g'(0)=2u\,g(0)>0$ なので、
-上流に近づくほど電子の過剰が $h\log(1/h)$ で現れる。イオンと光電子の密度は $\phi$ について正則なので打ち消せず、
-Type A と C では上流電位に接する狭い帯で式\eqref{eq:sagdeev}の右辺が負になる。
+第\ref{ch:sheath_model}章の\ref{sec:sm_band}節で示したように、電子が太陽風の法線速度で drift すると、
+上流の遅い電子による $h\log(1/h)$ 項（式\eqref{eq:hlogh}）のために、Type A と C では上流電位に接する狭い帯で $E^2$ が負になる
+（図\ref{fig:sm_upstream_band}）。
 根の条件は積分条件なので帯があっても解けるが、$E^2<0$ の区間には実数の $z(\phi)$ がない。
 電位分布は帯の縁 $\phi_b$（表\ref{tab:band_deficit}の 1 行目の条件で約 $-42$ mV、上端面から約 $3\lambda_D$）で傾き 0 になって止まり、
 残りの数十 mV を 1 次元静電モデルだけでは埋められない。
+図\ref{fig:upstream_band}は、電位を横軸にして、この帯と場の不足の定義を示す。
+\input{figures/upstream_band}
 
-帯の内側で欠けている場 $\sqrt{-\min E^2}$ は、シースが上流へつながるために外から供給されなければならない電場である。
-そこで外部の場のレベル $E_{\mathrm{floor}}$ を与え、不足が $E_{\mathrm{floor}}$ 以下の根を受理する。これは上流境界を「$E=0$ の無限遠」から「場が外部レベルまで落ちた点」に
-置き換えることに相当する。太陽風は運動電場 $\lvert\vect u\times\vect B\rvert$（400 km/s、5 nT で約 2 mV/m）を持ち、
+BEACH は、帯の内側の場の不足 $E_{\mathrm{def}}$（式\eqref{eq:sm_deficit}）が外部の場のレベル $E_{\mathrm{floor}}$ 以下の根を受理する。
+これは上流境界を「$E=0$ の無限遠」から「場が外部レベルまで落ちた点」に置き換えることに相当する。太陽風は運動電場 $\lvert\vect u\times\vect B\rvert$（400 km/s、5 nT で約 2 mV/m）を持ち、
 磁場による旋回混合、密度揺らぎ、運動論的不安定性もこの桁の場で効くので、1 次元静電シースにこれ以下の場を決める資格はない。
 求めた不足を表\ref{tab:band_deficit}に示す。この判定は根の値を変えず、根を使うかどうかだけを決める。
 帯の電位幅を $\lvert\phi_m\rvert$（A）または $\lvert\phi_0\rvert$（C）と比べて判定しても、受理する根は同じ代数根であり、壁側の量は変わらない。
@@ -134,7 +86,7 @@ escape 電流は外へ運ばれる電子電荷に対応し、表面へ deposit �
  \frac12 m v_{n,f}^2=\frac12 m v_{n,\infty}^2-q\phi_f
  \label{eq:inflow_map}
 \end{equation}
-$\phi_f$ はバッチ開始時の上端面の平均電位である。電子は $n_{e,\infty}$（式\eqref{eq:upstream_density}）で、
+$\phi_f$ はバッチ開始時の上端面の平均電位である。電子は規格化 $N_e$（光電子なしの Type C では式\eqref{eq:upstream_density}）の分布から、
 イオンは上流の $n_i$ で入れる。流束は上流の分布を同じ下限で切った一方向の束であり、特性曲線に沿って保存するので、
 入れた電子の束は根の電子電流と一致し、電子の倍率は統計誤差の範囲で 1 になる。
 
@@ -147,14 +99,17 @@ $x,y$ 周期のセルでは、外部での横移動（飛行時間と接線速�
  \label{eq:return_map}
 \end{equation}
 右辺が 0 以下になる遅い粒子は横切った位置へ戻す。外部での折り返し点までの距離と飛行時間は追わない。
+図\ref{fig:sheath_mapping}に、外部根から渡す条件と、次節の光電子統計による根の更新を示す。
+\input{figures/sheath_mapping}
 
 \section{外部根の更新}
+\label{sec:sheath_refresh}
 セル内の凹凸は、外部シースから見た表面の放出を変える。表面から出た光電子の一部はセル内で再吸収されるので、
 上端面を出る光電子は放出より少なく、エネルギー分布も変わる。そこで、受理したバッチ $N$ 個ごとに、
 上端面を外向きに横切った光電子を法線運動エネルギー $\mathcal E$ の bin
 （$[0,1\,\mathrm{meV})$ と 1 meV から 1 keV までの対数 bin、1 桁に 24 個）で数え、透過率 $\eta=N_{\mathrm{out}}/N_{\mathrm{emit}}$ を求める。
 外部シースの光電子源をこのスペクトル（全体の束を $\eta\Gamma_{\mathrm{emit}}$ に比例配分、bin 内で $\dd\Gamma/\dd\mathcal E$ 一定）に
-置き換えて零電流根を解き直し、新しい電流・障壁・壁電位・$n_{e,\infty}$ を次のバッチから使う。
+置き換えて零電流根を解き直し、新しい電流・障壁・壁電位・$N_e$ を次のバッチから使う。
 表面の放出の目標 $\Gamma_{\mathrm{emit}}$ は変えない。スペクトルを平均エネルギーだけの半 Maxwell 分布に縮約しないのは、
 上端面のスペクトルが放出に近い本体とセル内で加速された裾を合わせた形になり、同じ平均の半 Maxwell 分布では
 障壁を越える電子と壁の近くの遅い電子の両方を誤って数えて根を失うことがあるためである。

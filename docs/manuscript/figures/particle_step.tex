@@ -1,0 +1,38 @@
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[beach diagram]
+  \node[beach heading] at (3.4,5.6) {(a) 場の標本点と速度更新};
+  \node[beach dot,label=above:{$\vect x^n$}] (start) at (0.5,4.3) {};
+  \node[beach dot,label=above:{$\vect x_{\mathrm{mid}}$}] (mid) at (3.4,4.3) {};
+  \draw[beach arrow,BeachBlue] (start)--node[below] {$\delta t\,\vect v^n/2$} (mid);
+  \node[beach box,text width=24mm,fill=BeachBlue!5] at (5.5,4.3)
+    {$\vect E_{\mathrm{mid}}$\\一回評価};
+  \node[beach box,text width=16mm] (e1) at (1,2.4) {電場\\半 step};
+  \node[beach box,text width=16mm,fill=BeachTeal!7] (b) at (3.4,2.4) {磁場\\回転};
+  \node[beach box,text width=16mm] (e2) at (5.8,2.4) {電場\\半 step};
+  \draw[beach arrow] (e1)--node[above] {$\vect v^-$} (b);
+  \draw[beach arrow] (b)--node[above] {$\vect v^+$} (e2);
+  \node[beach note] at (3.4,1)
+    {$\vect x^{n+1}=\vect x^n+\dfrac{\delta t}{2}(\vect v^n+\vect v^{n+1})$};
+  \node[beach note] at (3.4,0.1) {予測中点は更新後の chord の中点とは限らない};
+  \node[beach heading] at (11.35,5.6) {(b) 候補 chord 上の最初の event};
+  \draw[dashed] (8.2,0.6) rectangle (13.8,4.8);
+  \node[anchor=north east] at (13.7,4.7) {計算箱};
+  \filldraw[fill=BeachTeal!10] (10.4,1.7)--(10.4,3.2)--(11.25,1.7)--cycle;
+  \filldraw[fill=black!7] (12.15,0.9)--(12.15,2.3)--(12.8,0.9)--cycle;
+  \draw[BeachOrange,dashed] (10.4,2.84)--(14.4,0.7);
+  \draw[beach arrow,BeachBlue] (8.6,3.8)--(10.4,2.84);
+  \node[beach dot,label=above:{$\vect x^n$}] at (8.6,3.8) {};
+  \node[beach dot] at (10.4,2.84) {};
+  \node[beach note] at (10.05,3.75) {吸収};
+  \node[beach dot] at (13.8,1.02) {};
+  \node[anchor=north] at (13.1,0.55) {$\lambda_{\mathrm{box}}$};
+  \node[BeachBlue] at (10.2,1.25) {$\lambda_{\mathrm{mesh}}$};
+  \node[anchor=north east] at (14.6,0.1) {$\vect x^{n+1}$};
+  \node[beach note] at (11.35,-0.45) {$\lambda_{\mathrm{mesh}}<\lambda_{\mathrm{box}}$：先に吸収};
+\end{tikzpicture}
+\caption[同時刻 Boris 更新と最初の幾何 event]{同時刻 Boris 更新と幾何 event の模式図。左では予測中点で電場を標本化し、更新後の速度から候補位置を作る。
+右の橙色破線は候補 chord のうち最初の吸収より後の部分であり、粒子をそこまで進めない。
+真の曲線軌道と交差時刻の近似は $\delta t$ の収束で確認する。}
+\label{fig:particle_step}
+\end{figure}

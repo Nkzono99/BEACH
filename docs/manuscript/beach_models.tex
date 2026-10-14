@@ -21,12 +21,13 @@
 \usepackage{graphicx,xcolor}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
+\input{figures/styles}
 \usepackage[numbers,sort&compress]{natbib}
 \usepackage{titlesec}
 \usepackage[unicode,colorlinks=true,linkcolor=blue!45!black,
   citecolor=green!35!black,urlcolor=blue!45!black]{hyperref}
 \hypersetup{pdftitle={BEACH の物理モデルと数値アルゴリズム},
-  pdfsubject={表面帯電、境界要素法、粒子追跡、周期場、外部シースの定常接続}}
+  pdfsubject={表面帯電、境界要素法、粒子追跡、周期場、光電子シース、外部シースの定常接続}}
 \titleformat{\chapter}[display]{\sffamily\bfseries\huge}
   {第\thechapter 章}{12pt}{\Huge}
 \titleformat{\section}{\sffamily\bfseries\Large}{\thesection}{0.8em}{}
@@ -66,7 +67,7 @@
 入力形式や操作手順は扱わず、プラズマ物理と数値計算の一般的な知識を前提に、
 物理量がどの近似を経て計算されるかを記述する。
 
-本書は新たな研究成果を報告する論文ではない。第\ref{ch:sheath}章の数値例は、手法の性質を示すための試験計算である。
+本書は新たな研究成果を報告する論文ではない。第\ref{ch:sheath_model}章と第\ref{ch:sheath}章の数値例は、手法の性質を示すための試験計算である。
 性能や実環境との一致を実測したとは主張しない。
 第\ref{ch:validation}章に、研究ケースごとに必要な検証を示す。
 文献は理論の由来と比較対象を示すものであり、BEACH 全体を先行論文と同一のモデルと認定するものではない。
@@ -80,6 +81,7 @@ BEACH は三角形表面要素に蓄積した電荷から静電場を評価し�
 計算箱境界イベントを処理する。場はバッチ中に固定し、電荷差分をバッチ末尾に確定反映する。
 通常の絶縁体電荷蓄積に加え、自由空間での浮遊導体再配分、光電子の照射 ray による放出、
 2 軸周期静電場、外部の定常シースの零電流根を上端面に接続する closure が実装されている。
+外部シースは、太陽風と光電子がつくる平面・無衝突のシースを、軌道に沿って写した速度分布と Poisson 方程式の第一積分で解くモデルである。
 一方、BEACH 領域内の体積プラズマ空間電荷、誘電分極、表面伝導、外部シースの時間依存輸送は解かない。
 本書は、このモデル分担と数値誤差の所在を明確にし、研究利用に必要な収束確認と比較検証を整理する。
 
@@ -95,12 +97,15 @@ rotation, and trapezoidal position update define each candidate step, followed b
 box-boundary event. Fields remain fixed during each batch, and charge increments are committed at its end.
 Implemented extensions include floating conductors in free space, ray-based photoelectron emission,
 two-dimensional periodic electrostatics, and a top-face closure that connects the zero-current root of a stationary outer sheath.
+The outer sheath is a planar, collisionless photoelectron sheath solved from orbit-mapped velocity distributions
+and the first integral of Poisson's equation.
 The inner domain does not solve volume plasma space charge, dielectric polarization, surface conduction,
 or time-dependent outer transport. This technical manuscript documents the model partition, numerical
 approximations, and verification procedures needed for research use. It reports no newly generated
 simulation results and makes no claim of general experimental validation or measured performance.
 
 \tableofcontents
+\listoffigures
 \mainmatter
 \input{sections/01_background}
 \input{sections/02_model}
@@ -109,6 +114,7 @@ simulation results and makes no claim of general experimental validation or meas
 \input{sections/05_particles}
 \input{sections/06_sources}
 \input{sections/07_surface_update}
+\input{sections/08_sheath_model}
 \input{sections/08_sheath}
 \input{sections/09_validation}
 \input{sections/10_research}
