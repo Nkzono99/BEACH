@@ -9,7 +9,7 @@ module bem_particle_stepper
   use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, external_open_escape, external_open_potential_barrier
+    external_boundary_contract_type
   implicit none
   private
 
@@ -302,15 +302,6 @@ contains
     type(external_boundary_contract_type) :: active_boundary_contract
 
     active_boundary_contract = external_boundary_contract_type()
-    select case (trim(sim%open_boundary_model))
-    case ('escape')
-      active_boundary_contract%ordinary_open_model = external_open_escape
-    case ('potential_barrier')
-      active_boundary_contract%ordinary_open_model = external_open_potential_barrier
-    case default
-      result%status = particle_step_invalid_boundary
-      return
-    end select
     if (present(boundary_contract)) active_boundary_contract = boundary_contract
     x_start = x0
     v_start = v0
@@ -382,7 +373,7 @@ contains
       z_high_outward_event = btest(event%face_mask, 5_i32) .and. &
                              event%face_bc(6_i32) == bc_open .and. v_event(3) > 0.0_dp
       z_high_barrier_event = z_high_outward_event .and. &
-                             open_face_uses_potential_barrier(6_i32, active_boundary_contract)
+                             open_face_uses_kinetic_barrier(6_i32, active_boundary_contract)
       if (z_high_outward_event) then
         result%z_high_outward_event_count = result%z_high_outward_event_count + 1_i32
         result%z_high_outward_normal_kinetic_energy_j_sum = &
@@ -402,8 +393,8 @@ contains
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       alive = .true.
       escaped = .false.
-      if (event_uses_potential_barrier(event, active_boundary_contract)) then
-        call apply_potential_barrier_event( &
+      if (event_uses_kinetic_barrier(event, active_boundary_contract)) then
+        call apply_kinetic_barrier_event( &
           mesh, sim, snapshot, event, active_boundary_contract, q, m, x_event, v_event, alive, escaped, boundary_status, &
           redistribution_uniform, use_upper_panel_fourier, field_available &
           )
@@ -637,8 +628,8 @@ contains
     end if
   end subroutine evaluate_boundary_state
 
-  !> 単一barrier-open面のpotential-barrier式をevent位置とevent時速度で評価する。
-  subroutine apply_potential_barrier_event( &
+  !> 種別 kinetic 障壁を event 位置と event 時速度で評価する。
+  subroutine apply_kinetic_barrier_event( &
     mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform, &
     use_upper_panel_fourier, field_available &
     )
@@ -658,7 +649,7 @@ contains
 
     type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
-    real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, potential_barrier
+    real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, barrier_energy_j
     real(dp) :: x_crossing(3), v_crossing(3), phi_return, kinetic_return
     integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc
     logical :: high_side, reflect_open
@@ -671,7 +662,7 @@ contains
     high_side = .false.
     do axis = 1_i32, 3_i32
       if (btest(event%face_mask, 2_i32*axis - 2_i32) .and. event%face_bc(2_i32*axis - 1_i32) == bc_open) then
-        if (open_face_uses_potential_barrier(2_i32*axis - 1_i32, boundary_contract)) then
+        if (open_face_uses_kinetic_barrier(2_i32*axis - 1_i32, boundary_contract)) then
           barrier_open_count = barrier_open_count + 1_i32
           face_index = 2_i32*axis - 1_i32
           high_side = .false.
@@ -680,7 +671,7 @@ contains
         end if
       end if
       if (btest(event%face_mask, 2_i32*axis - 1_i32) .and. event%face_bc(2_i32*axis) == bc_open) then
-        if (open_face_uses_potential_barrier(2_i32*axis, boundary_contract)) then
+        if (open_face_uses_kinetic_barrier(2_i32*axis, boundary_contract)) then
           barrier_open_count = barrier_open_count + 1_i32
           face_index = 2_i32*axis
           high_side = .true.
@@ -700,29 +691,17 @@ contains
     end if
 
     action_sim = sim
-    action_sim%open_boundary_model = 'escape'
     action_event = event
-    if (barrier_open_count == 0_i32) then
-      call apply_escape_reflect_periodic_event( &
-        action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
-        )
-      return
-    end if
     if (.not. ieee_is_finite(q) .or. .not. ieee_is_finite(m) .or. m <= 0.0_dp) then
       status = particle_step_invalid_boundary
       return
     end if
 
     axis = (face_index + 1_i32)/2_i32
-    barrier_potential_v = sim%phi_infty
     if (high_side) then
-      if (boundary_contract%barrier_override_high(axis)) then
-        barrier_potential_v = boundary_contract%barrier_potential_high_v(axis)
-      end if
+      barrier_potential_v = boundary_contract%barrier_potential_high_v(axis)
     else
-      if (boundary_contract%barrier_override_low(axis)) then
-        barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
-      end if
+      barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
     end if
     call evaluate_face_potential(x, phi_boundary)
     if (status /= boundary_event_ok) return
@@ -732,12 +711,12 @@ contains
       outward_v = -v(axis)
     end if
     kinetic_normal = 0.5_dp*m*outward_v*outward_v
-    potential_barrier = q*(barrier_potential_v - phi_boundary)
-    if (.not. ieee_is_finite(kinetic_normal) .or. .not. ieee_is_finite(potential_barrier)) then
+    barrier_energy_j = q*(barrier_potential_v - phi_boundary)
+    if (.not. ieee_is_finite(kinetic_normal) .or. .not. ieee_is_finite(barrier_energy_j)) then
       status = particle_step_invalid_boundary
       return
     end if
-    reflect_open = outward_v > 0.0_dp .and. potential_barrier > 0.0_dp .and. kinetic_normal < potential_barrier
+    reflect_open = outward_v > 0.0_dp .and. barrier_energy_j > 0.0_dp .and. kinetic_normal < barrier_energy_j
     if (.not. reflect_open) then
       alive = .false.
       escaped = .true.
@@ -801,10 +780,10 @@ contains
         action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
         )
     end subroutine reflect_on_barrier_face
-  end subroutine apply_potential_barrier_event
+  end subroutine apply_kinetic_barrier_event
 
-  !> eventに含まれるopen面へglobalまたはspecies別のpotential barrierを適用するか返す。
-  pure logical function event_uses_potential_barrier(event, boundary_contract) result(uses_barrier)
+  !> eventに含まれるopen面へspecies別のkinetic barrierを適用するか返す。
+  pure logical function event_uses_kinetic_barrier(event, boundary_contract) result(uses_barrier)
     type(boundary_event_type), intent(in) :: event
     type(external_boundary_contract_type), intent(in) :: boundary_contract
     integer(i32) :: face
@@ -812,25 +791,24 @@ contains
     uses_barrier = .false.
     do face = 1_i32, 6_i32
       if (.not. btest(event%face_mask, face - 1_i32) .or. event%face_bc(face) /= bc_open) cycle
-      uses_barrier = open_face_uses_potential_barrier(face, boundary_contract)
+      uses_barrier = open_face_uses_kinetic_barrier(face, boundary_contract)
       if (uses_barrier) return
     end do
-  end function event_uses_potential_barrier
+  end function event_uses_kinetic_barrier
 
-  !> face bit順のopen面がglobalまたはspecies別barrierの対象かを返す。
-  pure logical function open_face_uses_potential_barrier(face, boundary_contract) result(uses_barrier)
+  !> face bit順のopen面がspecies別kinetic barrierの対象かを返す。
+  pure logical function open_face_uses_kinetic_barrier(face, boundary_contract) result(uses_barrier)
     integer(i32), intent(in) :: face
     type(external_boundary_contract_type), intent(in) :: boundary_contract
     integer(i32) :: axis
 
     axis = (face + 1_i32)/2_i32
-    uses_barrier = boundary_contract%ordinary_open_model == external_open_potential_barrier
     if (mod(face, 2_i32) == 1_i32) then
-      uses_barrier = uses_barrier .or. boundary_contract%barrier_override_low(axis)
+      uses_barrier = boundary_contract%barrier_override_low(axis)
     else
-      uses_barrier = uses_barrier .or. boundary_contract%barrier_override_high(axis)
+      uses_barrier = boundary_contract%barrier_override_high(axis)
     end if
-  end function open_face_uses_potential_barrier
+  end function open_face_uses_kinetic_barrier
 
   !> 外部障壁で戻る粒子を、障壁面に平行な座標について面内一様へ戻すかを返す。
   pure logical function open_face_redistributes_barrier_return(face, boundary_contract) result(redistributes)
@@ -862,7 +840,7 @@ contains
       if (.not. btest(event%face_mask, face - 1_i32)) cycle
       has_open = has_open .or. event%face_bc(face) == bc_open
       if (event%face_bc(face) == bc_open) then
-        has_ordinary_open = has_ordinary_open .or. .not. open_face_uses_potential_barrier(face, boundary_contract)
+        has_ordinary_open = has_ordinary_open .or. .not. open_face_uses_kinetic_barrier(face, boundary_contract)
         has_redistributed_barrier = has_redistributed_barrier .or. &
                                     open_face_redistributes_barrier_return(face, boundary_contract)
       end if
@@ -870,7 +848,7 @@ contains
                                   event%face_bc(face) == bc_redistributed_reflect
     end do
     requires = (has_redistributed_reflect .or. has_redistributed_barrier) .and. .not. has_ordinary_open .and. &
-               (.not. has_open .or. event_uses_potential_barrier(event, boundary_contract))
+               (.not. has_open .or. event_uses_kinetic_barrier(event, boundary_contract))
   end function event_requires_redistribution_counter
 
   !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する。

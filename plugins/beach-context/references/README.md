@@ -62,7 +62,7 @@ beachx inspect outputs/tutorial
 
 | 名前 | 役割 |
 | --- | --- |
-| `beach` | Fortran シミュレーション本体。`--check-config` は開発・診断用の設定検証 |
+| `beach` | Fortran シミュレーション本体。`--check-config` は設定の preflight で、`beachx lint` がこれを呼ぶ |
 | `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
 | `beach` Python package | 出力の読込と独自解析 |
 

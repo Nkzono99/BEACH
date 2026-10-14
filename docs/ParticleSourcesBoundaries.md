@@ -8,9 +8,8 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 領域内に粒子を置く方法は `source_mode`、領域外から box 境界を横切らせる方法は
 `[particles.species.boundary_inflow]` が担当します。
 
-> **選び方の要点:** 指定個数を置くなら `volume_seed`、内部の矩形面から連続供給するなら
-> `plane_source`、外部 plasma reservoir から入れるなら `boundary_inflow`、照射面から光電子を
-> 放出するなら `photo_raycast` を使います。
+> **選び方の要点:** 指定個数を置くなら `volume_seed`、外部 plasma reservoir から入れるなら
+> `boundary_inflow`、照射面から光電子を放出するなら `photo_raycast` を使います。
 
 読了後には、粒子源を一つ選び、詳細設定を読むべき専用ページまたはリファレンスへ進めます。
 
@@ -19,7 +18,6 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 | 目的 | 選ぶ設定 | 粒子数を決める量 | 生成位置 |
 | --- | --- | --- | --- |
 | 初期粒子や軌道試験を指定個数で作る | `source_mode="volume_seed"` | `npcls_per_step` | `pos_low` と `pos_high` の間 |
-| box 内部の面から一方向に供給する | `source_mode="plane_source"` | 流束 × 面積 × `batch_duration` | axis-aligned な矩形面 |
 | box 外の plasma から流入させる | `boundary_inflow` | reservoir 流束 × box 面積 × `batch_duration` | 非周期の box 面 |
 | 光が当たった表面から放出する | `source_mode="photo_raycast"` | 電流密度、投影面積、`batch_duration` | ray が最初に命中した表面 |
 
@@ -36,25 +34,11 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 その batch に物理秒を割り当てることはできません。公式の
 [10 分チュートリアル](Tutorial.html)は、この方法で batch 間の表面帯電 feedback を見せます。
 
-## 内部の面から供給する: `plane_source`
-
-`plane_source` は、box 内部の矩形面から `source_normal` 方向へ粒子を供給します。
-`pos_low` と `pos_high` は一つの座標だけが同じ値となり、残る二方向が面積を持つようにします。
-
-```toml
-source_mode = "plane_source"
-pos_low = [0.2, 0.2, 0.7]
-pos_high = [0.8, 0.8, 0.7]
-source_normal = [0.0, 0.0, -1.0]
-```
-
-粒子数は流束、矩形面積、`batch_duration` から決まります。この面は外部 plasma との境界ではないため、
-`reservoir.phi_infty` を使う無限遠からの電位補正は適用しません。
-
 ## 外部 reservoir から入れる: `boundary_inflow`
 
 `boundary_inflow` は、非周期の box 面全体を横切る外部 plasma 流入です。選択した面は、粒子が外向きに
-到達したときの作用を別途 `open` にします。
+到達したときの作用を別途 `open` にします。通常の開放面では外向き粒子が脱出し、
+[外部シースでの帰還](ParticleEscapeReturn.html#外部シースの障壁)は Zhao の kinetic 障壁が判定します。
 
 ```toml
 [[particles.species]]
@@ -64,7 +48,7 @@ source_normal = [0.0, 0.0, -1.0]
 z_high = "reservoir"
 ```
 
-Maxwell 分布または速度 grid、面ごとの流束と端数、無限遠の plasma 電位から境界までの補正は
+Maxwell 分布、面ごとの流束と端数、無限遠の plasma 電位から境界までの補正は
 [境界から粒子を流入させる](ReservoirInjection.html)で説明します。このモデルは box 外の軌道や
 自己無撞着な外部 sheath を解きません。外部 sheath 応答そのものが必要なら
 [Zhao closure](ZhaoStationaryClosure.html)を検討してください。
@@ -88,14 +72,6 @@ Maxwell 分布または速度 grid、面ごとの流束と端数、無限遠の 
 
 box 境界を出る粒子の扱いは[粒子の escape と return](ParticleEscapeReturn.html)、粒子 event の
 判定順は[粒子の衝突・境界 event](ParticleEvents.html)を参照してください。
-
-## 旧 `reservoir_face` を読む場合
-
-`source_mode="reservoir_face"` は既存ケースのための deprecated 入力です。新しい外部 plasma ケースには
-`boundary_inflow`、内部の矩形面には `plane_source` を使います。旧開口を box 面全体の流入へ変更すると
-面積と総流入量が変わるため、BEACH は暗黙変換しません。
-
-全 key、併用制約、MPI と checkpoint の仕様は[入力パラメータ](Parameters.html)に集約しています。
 
 ## 次に読むページ
 

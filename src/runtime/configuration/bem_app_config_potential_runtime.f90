@@ -15,10 +15,10 @@ module bem_app_config_potential_runtime
 
 contains
 
-  !> reservoir_face 開口面の平均電位を `N x N` 格子平均で評価する。
+  !> 境界 reservoir 流入面の平均電位を `N x N` 格子平均で評価する。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ。
   !! @param[in] sim シミュレーション設定。
-  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[in] spec 境界流入面の粒子種設定。
   !! @param[inout] snapshot refresh 済み静電 snapshot。
   !! @param[out] phi_face 注入開口面の平均電位 [V]。
   !! @param[out] phi_std 評価格子上の電位の母標準偏差 [V]（省略可）。
@@ -123,7 +123,6 @@ contains
 
     real(dp) :: inward_normal(3), normal_drift, characteristic_energy, variation_energy, ratio, phi_scale
 
-    if (trim(lower_ascii(spec%velocity_distribution)) /= 'maxwellian') return
     phi_scale = max(1.0_dp, abs(phi_mean), abs(phi_min), abs(phi_max))
     if (phi_std <= 256.0_dp*epsilon(1.0_dp)*phi_scale) return
 

@@ -28,7 +28,6 @@ mode = "periodic2"
 [particle_boundary]
 z_low = "open"
 z_high = "open"
-ordinary_open_model = "escape"
 
 [reservoir]
 inflow_model = "source_vdf"

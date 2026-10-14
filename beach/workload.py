@@ -52,12 +52,6 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "target_macro_particles_per_batch": 0,
     "pos_low": [-0.4, -0.4, 0.2],
     "pos_high": [0.4, 0.4, 0.5],
-    "velocity_distribution": "maxwellian",
-    "velocity_grid_path": "",
-    "velocity_grid_pdf_kind": "phase_space",
-    "velocity_grid_sampling": "auto",
-    "particle_flux_m2_s": 0.0,
-    "current_density_a_m2": 0.0,
     "drift_velocity": [0.0, 0.0, -8.0e5],
     "emit_current_density_a_m2": 0.0,
     "rays_per_batch": 0,
@@ -65,7 +59,6 @@ DEFAULT_SPECIES: dict[str, Any] = {
     "normal_drift_speed": 0.0,
     "ray_direction": [0.0, 0.0, 0.0],
     "inject_face": "",
-    "source_normal": [0.0, 0.0, 0.0],
     "boundary_inflow": {},
 }
 
@@ -225,33 +218,6 @@ def _validate_external_e_field(
         ]
 
 
-def _grid_particle_flux_m2_s(spec: dict[str, Any]) -> float:
-    has_flux = bool(spec.get("_has_particle_flux_m2_s", False))
-    has_current = bool(spec.get("_has_current_density_a_m2", False))
-    if has_flux and has_current:
-        raise SystemExit(
-            "Specify either particle_flux_m2_s or current_density_a_m2, not both."
-        )
-    if not has_flux and not has_current:
-        raise SystemExit(
-            'velocity_distribution="grid" requires particle_flux_m2_s or current_density_a_m2.'
-        )
-    if has_flux:
-        particle_flux = float(spec.get("particle_flux_m2_s", 0.0))
-        if (not math.isfinite(particle_flux)) or particle_flux <= 0.0:
-            raise SystemExit("particle_flux_m2_s must be finite and > 0.")
-        return particle_flux
-
-    current_density = float(spec.get("current_density_a_m2", 0.0))
-    q_particle = float(spec.get("q_particle", DEFAULT_SPECIES["q_particle"]))
-    if (not math.isfinite(current_density)) or abs(current_density) <= 0.0:
-        raise SystemExit("current_density_a_m2 must be finite and non-zero.")
-    if (not math.isfinite(q_particle)) or abs(q_particle) <= 0.0:
-        raise SystemExit("q_particle must be finite and non-zero for reservoir_face.")
-    particle_flux = abs(current_density / q_particle)
-    if (not math.isfinite(particle_flux)) or particle_flux <= 0.0:
-        raise SystemExit("current_density_a_m2 produced invalid particle flux.")
-    return particle_flux
 
 
 def _compute_inflow_flux(
@@ -278,91 +244,6 @@ def _compute_face_area(
     return (pos_high[axis_t1] - pos_low[axis_t1]) * (
         pos_high[axis_t2] - pos_low[axis_t2]
     )
-
-
-def _parse_reservoir_species_geometry(
-    sim_cfg: dict[str, Any],
-    spec: dict[str, Any],
-) -> tuple[str, list[float], list[float], float]:
-    inject_face = str(spec.get("inject_face", "")).strip().lower()
-    _inward_normal_for_face(inject_face)
-    pos_low = [float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])]
-    pos_high = [float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])]
-    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
-    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
-    axis_n, boundary_value = _axis_and_boundary_for_face(inject_face, box_min, box_max)
-    if (
-        abs(pos_low[axis_n] - boundary_value) > 1.0e-12
-        or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
-    ):
-        raise SystemExit(
-            "reservoir_face pos_low/pos_high must lie on the selected box face."
-        )
-    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
-    if pos_high[axis_t1] < pos_low[axis_t1] or pos_high[axis_t2] < pos_low[axis_t2]:
-        raise SystemExit(
-            "reservoir_face tangential bounds must satisfy pos_high >= pos_low."
-        )
-    area = _compute_face_area(inject_face, pos_low, pos_high)
-    if area <= 0.0:
-        raise SystemExit("reservoir_face opening area must be positive")
-    return inject_face, pos_low, pos_high, area
-
-
-def _parse_plane_source_geometry(
-    sim_cfg: dict[str, Any],
-    spec: dict[str, Any],
-) -> tuple[list[float], list[float], list[float], float]:
-    pos_low = [float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])]
-    pos_high = [float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])]
-    source_normal = [
-        float(x) for x in spec.get("source_normal", DEFAULT_SPECIES["source_normal"])
-    ]
-    if len(pos_low) != 3 or len(pos_high) != 3 or len(source_normal) != 3:
-        raise SystemExit(
-            "plane_source pos_low, pos_high, and source_normal must be 3-vectors."
-        )
-    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
-    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
-    zero_axes = [
-        axis
-        for axis in range(3)
-        if math.isclose(pos_low[axis], pos_high[axis], rel_tol=0.0, abs_tol=1.0e-12)
-    ]
-    if len(zero_axes) != 1:
-        raise SystemExit(
-            "plane_source must be an axis-aligned zero-thickness rectangle."
-        )
-    normal_axis = zero_axes[0]
-    area = 1.0
-    for axis in range(3):
-        if axis == normal_axis:
-            if not (box_min[axis] < pos_low[axis] < box_max[axis]):
-                raise SystemExit(
-                    "plane_source must lie strictly inside the box along its normal axis."
-                )
-            continue
-        if not (
-            box_min[axis] <= pos_low[axis] < pos_high[axis] <= box_max[axis]
-        ):
-            raise SystemExit(
-                "plane_source must have positive in-box extent along both tangential axes."
-            )
-        area *= pos_high[axis] - pos_low[axis]
-    for axis, component in enumerate(source_normal):
-        invalid_component = (
-            abs(component) <= 1.0e-12
-            if axis == normal_axis
-            else abs(component) > 1.0e-12
-        )
-        if invalid_component:
-            raise SystemExit(
-                "plane_source source_normal must be a non-zero vector along "
-                "the plane normal axis."
-            )
-    normal_scale = abs(source_normal[normal_axis])
-    source_normal = [component / normal_scale for component in source_normal]
-    return pos_low, pos_high, source_normal, area
 
 
 def _parse_boundary_inflow_surfaces(
@@ -431,35 +312,6 @@ def _reservoir_injection_surfaces(
         )
     if boundary_surfaces and str(spec.get("inject_face", "")).strip():
         raise SystemExit("inject_face is not used by boundary_inflow.")
-    if boundary_surfaces and bool(spec.get("_has_source_normal", False)):
-        raise SystemExit(
-            'source_normal is only valid for source_mode="plane_source".'
-        )
-    if source_mode == "reservoir_face":
-        inject_face, pos_low, pos_high, area = _parse_reservoir_species_geometry(
-            sim_cfg, spec
-        )
-        return [
-            {
-                "face": inject_face,
-                "pos_low": pos_low,
-                "pos_high": pos_high,
-                "normal": _inward_normal_for_face(inject_face),
-                "area": area,
-            }
-        ]
-    if source_mode == "plane_source":
-        pos_low, pos_high, source_normal, area = _parse_plane_source_geometry(
-            sim_cfg, spec
-        )
-        return [
-            {
-                "pos_low": pos_low,
-                "pos_high": pos_high,
-                "normal": source_normal,
-                "area": area,
-            }
-        ]
     return boundary_surfaces
 
 
@@ -499,7 +351,7 @@ def _validate_reservoir_species(
         w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
         if w_particle <= 0.0:
             raise SystemExit(
-                "particles.species.w_particle must be > 0 for reservoir_face"
+                "particles.species.w_particle must be > 0 for boundary_inflow"
             )
     if has_target_macro:
         target_macro = int(spec.get("target_macro_particles_per_batch", 0))
@@ -517,10 +369,7 @@ def _validate_reservoir_species(
                 raise SystemExit(
                     "target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled."
                 )
-            mode1 = str(spec1.get("source_mode", "volume_seed")).strip().lower()
-            has_reservoir1 = mode1 in {"reservoir_face", "plane_source"} or bool(
-                spec1.get("boundary_inflow")
-            )
+            has_reservoir1 = bool(spec1.get("boundary_inflow"))
             if not has_reservoir1:
                 raise SystemExit(
                     "target_macro_particles_per_batch=-1 requires particles.species[1] "
@@ -533,101 +382,9 @@ def _validate_reservoir_species(
                 )
             w_particle = float(params1["w_particle"])
 
-    velocity_distribution = (
-        str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
-    )
-    velocity_grid_pdf_kind = (
-        str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
-    )
-    velocity_grid_sampling = (
-        str(spec.get("velocity_grid_sampling", "auto")).strip().lower()
-    )
-    if velocity_distribution not in ("maxwellian", "grid"):
-        raise SystemExit(
-            'particles.species.velocity_distribution must be "maxwellian" or "grid".'
-        )
-    if velocity_grid_pdf_kind not in ("phase_space", "flux_weighted"):
-        raise SystemExit(
-            'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
-        )
-    if velocity_grid_sampling not in ("auto", "rectilinear", "discrete"):
-        raise SystemExit(
-            'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
-        )
-
     m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
     if m_particle <= 0.0:
         raise SystemExit("m_particle must be > 0.")
-
-    if velocity_distribution == "grid":
-        if surfaces and spec.get("boundary_inflow") and int(
-            spec.get("npcls_per_step", 0)
-        ) > 0:
-            raise SystemExit(
-                "grid boundary_inflow cannot be combined with positive "
-                "volume_seed npcls_per_step."
-            )
-        if not str(spec.get("velocity_grid_path", "")).strip():
-            raise SystemExit(
-                'velocity_distribution="grid" requires velocity_grid_path.'
-            )
-        if bool(spec.get("_has_number_density_cm3", False)) or bool(
-            spec.get("_has_number_density_m3", False)
-        ):
-            raise SystemExit(
-                'velocity_distribution="grid" uses particle_flux_m2_s/current_density_a_m2, not number_density.'
-            )
-        if bool(spec.get("_has_temperature_k", False)) or bool(
-            spec.get("_has_temperature_ev", False)
-        ):
-            raise SystemExit(
-                'temperature_ev/temperature_k are not used with velocity_distribution="grid".'
-            )
-        particle_flux_m2_s = _grid_particle_flux_m2_s(spec)
-        area = sum(float(surface["area"]) for surface in surfaces)
-        surface_rates = [
-            particle_flux_m2_s * float(surface["area"]) for surface in surfaces
-        ]
-        rate_per_s = sum(surface_rates)
-        if has_target_macro and target_macro != -1:
-            w_particle = (
-                rate_per_s * resolved_batch_duration / float(target_macro)
-            )
-            if (not math.isfinite(w_particle)) or w_particle <= 0.0:
-                raise SystemExit(
-                    "target_macro_particles_per_batch produced invalid w_particle."
-                )
-        return {
-            "surfaces": surfaces,
-            "area": area,
-            "w_particle": w_particle,
-            "drift_velocity": [
-                float(x)
-                for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
-            ],
-            "m_particle": m_particle,
-            "temperature_k": 0.0,
-            "number_density_m3": 0.0,
-            "gamma_in": particle_flux_m2_s,
-            "rate_per_s": rate_per_s,
-            "surface_rates": surface_rates,
-            "is_boundary_inflow": bool(spec.get("boundary_inflow")),
-        }
-
-    if str(spec.get("velocity_grid_path", "")).strip():
-        raise SystemExit(
-            'velocity_grid_path is only valid with velocity_distribution="grid".'
-        )
-    if str(spec.get("velocity_grid_sampling", "auto")).strip().lower() != "auto":
-        raise SystemExit(
-            'velocity_grid_sampling is only valid with velocity_distribution="grid".'
-        )
-    if bool(spec.get("_has_particle_flux_m2_s", False)) or bool(
-        spec.get("_has_current_density_a_m2", False)
-    ):
-        raise SystemExit(
-            'particle_flux_m2_s/current_density_a_m2 are only valid with velocity_distribution="grid".'
-        )
 
     has_cm3 = bool(spec.get("_has_number_density_cm3", False))
     has_m3 = bool(spec.get("_has_number_density_m3", False))
@@ -693,9 +450,7 @@ def _validate_reservoir_species(
         "temperature_k": temperature_k,
         "number_density_m3": number_density_m3,
         "gamma_in": rate_per_s / area,
-        "rate_per_s": rate_per_s,
         "surface_rates": surface_rates,
-        "is_boundary_inflow": bool(spec.get("boundary_inflow")),
     }
 
 
@@ -708,17 +463,6 @@ def _validate_photo_raycast_species(
             'particles.species.source_mode="photo_raycast" requires a [domain] box.'
         )
 
-    if (
-        str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
-        != "maxwellian"
-        or str(spec.get("velocity_grid_path", "")).strip()
-        or str(spec.get("velocity_grid_sampling", "auto")).strip().lower() != "auto"
-        or bool(spec.get("_has_particle_flux_m2_s", False))
-        or bool(spec.get("_has_current_density_a_m2", False))
-    ):
-        raise SystemExit(
-            'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
-        )
 
     if abs(float(spec.get("emit_current_density_a_m2", 0.0))) <= 0.0:
         raise SystemExit("photo_raycast requires emit_current_density_a_m2 > 0.")
@@ -1035,27 +779,6 @@ def estimate_workload(
         spec["source_mode"] = (
             str(spec.get("source_mode", "volume_seed")).strip().lower()
         )
-        spec["velocity_distribution"] = (
-            str(spec.get("velocity_distribution", "maxwellian")).strip().lower()
-        )
-        spec["velocity_grid_pdf_kind"] = (
-            str(spec.get("velocity_grid_pdf_kind", "phase_space")).strip().lower()
-        )
-        spec["velocity_grid_sampling"] = (
-            str(spec.get("velocity_grid_sampling", "auto")).strip().lower()
-        )
-        if spec["velocity_distribution"] not in ("maxwellian", "grid"):
-            raise SystemExit(
-                'particles.species.velocity_distribution must be "maxwellian" or "grid".'
-            )
-        if spec["velocity_grid_pdf_kind"] not in ("phase_space", "flux_weighted"):
-            raise SystemExit(
-                'particles.species.velocity_grid_pdf_kind must be "phase_space" or "flux_weighted".'
-            )
-        if spec["velocity_grid_sampling"] not in ("auto", "rectilinear", "discrete"):
-            raise SystemExit(
-                'particles.species.velocity_grid_sampling must be "auto", "rectilinear", or "discrete".'
-            )
         spec["_has_number_density_cm3"] = "number_density_cm3" in raw
         spec["_has_number_density_m3"] = "number_density_m3" in raw
         spec["_has_temperature_k"] = "temperature_k" in raw
@@ -1064,10 +787,7 @@ def estimate_workload(
         spec["_has_target_macro_particles_per_batch"] = (
             "target_macro_particles_per_batch" in raw
         )
-        spec["_has_particle_flux_m2_s"] = "particle_flux_m2_s" in raw
-        spec["_has_current_density_a_m2"] = "current_density_a_m2" in raw
         spec["_has_ray_direction"] = "ray_direction" in raw
-        spec["_has_source_normal"] = "source_normal" in raw
         spec["_has_deposit_opposite_charge_on_emit"] = (
             "deposit_opposite_charge_on_emit" in raw
         )
@@ -1098,36 +818,14 @@ def estimate_workload(
             continue
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
         has_boundary_inflow = bool(spec.get("boundary_inflow"))
-        has_reservoir_injection = source_mode in {
-            "reservoir_face",
-            "plane_source",
-        } or has_boundary_inflow
+        has_reservoir_injection = has_boundary_inflow
         if source_mode == "volume_seed":
-            if (
-                not has_reservoir_injection
-                and (
-                    str(spec.get("velocity_distribution", "maxwellian"))
-                    .strip()
-                    .lower()
-                    != "maxwellian"
-                    or str(spec.get("velocity_grid_path", "")).strip()
-                    or str(spec.get("velocity_grid_sampling", "auto"))
-                    .strip()
-                    .lower()
-                    != "auto"
-                    or bool(spec.get("_has_particle_flux_m2_s", False))
-                    or bool(spec.get("_has_current_density_a_m2", False))
-                )
-            ):
-                raise SystemExit(
-                    'velocity_distribution="grid" and flux keys are only valid for reservoir_face.'
-                )
             if (
                 not has_reservoir_injection
                 and bool(spec.get("_has_target_macro_particles_per_batch", False))
             ):
                 raise SystemExit(
-                    "target_macro_particles_per_batch is only valid for reservoir_face."
+                    "target_macro_particles_per_batch is only valid for boundary_inflow."
                 )
             if (
                 abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
@@ -1142,8 +840,6 @@ def estimate_workload(
             if n_macro < 0:
                 raise SystemExit("particles.species.npcls_per_step must be >= 0")
             per_batch_volume_particles += n_macro
-        elif source_mode in {"reservoir_face", "plane_source"}:
-            has_dynamic_source_species = True
         elif source_mode == "photo_raycast":
             has_dynamic_source_species = True
         else:
@@ -1167,10 +863,7 @@ def estimate_workload(
         if not bool(spec.get("enabled", True)):
             continue
         source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
-        has_reservoir_injection = source_mode in {
-            "reservoir_face",
-            "plane_source",
-        } or bool(spec.get("boundary_inflow"))
+        has_reservoir_injection = bool(spec.get("boundary_inflow"))
         if has_reservoir_injection:
             reservoir_params_by_species[s_idx] = _validate_reservoir_species(
                 sim_cfg,
@@ -1208,7 +901,7 @@ def estimate_workload(
                 "z_high": 5,
             }
             for species_idx, params in enumerate(reservoir_params_by_species):
-                if params is None or not params["is_boundary_inflow"]:
+                if params is None:
                     continue
                 boundary_residuals[species_idx] = [
                     float(restart_boundary[face_index[surface["face"]]][species_idx])
@@ -1249,41 +942,26 @@ def estimate_workload(
             if reservoir_params is not None:
                 n_reservoir_global = 0
                 n_reservoir_local = 0
-                if reservoir_params["is_boundary_inflow"]:
-                    for face_idx, rate_per_s in enumerate(
-                        reservoir_params["surface_rates"]
-                    ):
-                        n_macro_expected = (
-                            rate_per_s
-                            * resolved_batch_duration
-                            / reservoir_params["w_particle"]
-                        )
-                        macro_budget = (
-                            boundary_residuals[s_idx][face_idx] + n_macro_expected
-                        )
-                        if macro_budget < 0.0:
-                            macro_budget = 0.0
-                        n_face_global = math.floor(macro_budget)
-                        boundary_residuals[s_idx][face_idx] = (
-                            macro_budget - n_face_global
-                        )
-                        n_reservoir_global += n_face_global
-                        n_reservoir_local += _split_count_for_rank(
-                            int(n_face_global), mpi_rank, mpi_ranks
-                        )
-                else:
+                for face_idx, rate_per_s in enumerate(
+                    reservoir_params["surface_rates"]
+                ):
                     n_macro_expected = (
-                        reservoir_params["rate_per_s"]
+                        rate_per_s
                         * resolved_batch_duration
                         / reservoir_params["w_particle"]
                     )
-                    macro_budget = residuals[s_idx] + n_macro_expected
+                    macro_budget = (
+                        boundary_residuals[s_idx][face_idx] + n_macro_expected
+                    )
                     if macro_budget < 0.0:
                         macro_budget = 0.0
-                    n_reservoir_global = math.floor(macro_budget)
-                    residuals[s_idx] = macro_budget - n_reservoir_global
-                    n_reservoir_local = _split_count_for_rank(
-                        int(n_reservoir_global), mpi_rank, mpi_ranks
+                    n_face_global = math.floor(macro_budget)
+                    boundary_residuals[s_idx][face_idx] = (
+                        macro_budget - n_face_global
+                    )
+                    n_reservoir_global += n_face_global
+                    n_reservoir_local += _split_count_for_rank(
+                        int(n_face_global), mpi_rank, mpi_ranks
                     )
                 local_reservoir_particles += n_reservoir_local
                 global_reservoir_particles += int(n_reservoir_global)
@@ -1304,8 +982,6 @@ def estimate_workload(
 
             if source_mode not in {
                 "volume_seed",
-                "reservoir_face",
-                "plane_source",
                 "photo_raycast",
             }:
                 raise SystemExit(

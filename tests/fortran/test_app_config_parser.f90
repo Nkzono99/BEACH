@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(31)
+  call test_init(36)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -66,6 +66,37 @@ program test_app_config_parser
   call test_begin('grouped_input_rejects_unknown_empty_table')
   call write_grouped_config(input_contract_path, '[fields.unknown]')
   call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout table: fields.unknown')
+  call test_end()
+
+  call test_begin('preflight_rejects_duplicate_species_key')
+  call write_grouped_config(input_contract_path, '[[particles.species]]'//new_line('a')//'species_key = "electron"')
+  call assert_config_rejected(input_contract_path, 'species_key values must be unique')
+  call test_end()
+
+  call test_begin('preflight_rejects_inflow_through_reflecting_face')
+  call write_grouped_config(input_contract_path, '[particles.species.boundary]'//new_line('a')//'z_high = "reflect"')
+  call assert_config_rejected(input_contract_path, 'requires an open particle boundary action')
+  call test_end()
+
+  call test_begin('preflight_rejects_absorbed_target_with_the_wrong_sign')
+  call write_grouped_config( &
+    input_contract_path, &
+    '[particles.species.charging]'//new_line('a')//'closure = "fixed_current"'//new_line('a')// &
+    'target_absorbed_current_a = 1.0e-9' &
+    )
+  call assert_config_rejected(input_contract_path, 'same sign as q_particle')
+  call test_end()
+
+  call test_begin('preflight_rejects_target_current_with_explicit_closure')
+  call write_grouped_config( &
+    input_contract_path, '[particles.species.charging]'//new_line('a')//'target_absorbed_current_a = -1.0e-9' &
+    )
+  call assert_config_rejected(input_contract_path, 'require surface_charge_closure="fixed_current"')
+  call test_end()
+
+  call test_begin('preflight_rejects_particle_boundary_on_a_periodic_face')
+  call write_periodic_grouped_config(input_contract_path, '[particles.boundary]'//new_line('a')//'x_low = "reflect"')
+  call assert_config_rejected(input_contract_path, 'cannot override a periodic domain face')
   call delete_file_if_exists(input_contract_path)
   call test_end()
 
@@ -141,7 +172,6 @@ program test_app_config_parser
     'default periodic far correction mismatch' &
     )
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
-  call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'default open model mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'default outer-root refresh mismatch')
   call assert_equal_i32( &
@@ -242,9 +272,16 @@ program test_app_config_parser
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'fixed Zhao root must not refresh')
   call test_end()
 
-  call test_begin('zhao_outflow_refresh_requires_split_zero_mode')
-  call write_refresh_variant('examples/periodic2_zhao_fixed_current.toml', zhao_refresh_variant_path)
+  ! 上端面の平均電位を壁電位 phi0 に固定できない場では、流入の写像と外部障壁が約 0 V の面で判定される。
+  call test_begin('zhao_requires_split_zero_mode')
+  call write_first_line_variant(zhao_refresh_variant_path, 'nonzero_mode_backend =', &
+                                'nonzero_mode_backend = "finite_images"')
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires a split periodic2 nonzero-mode backend')
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', '# lower boundary omitted')
   call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call write_refresh_variant('examples/periodic2_zhao_no_photo_fixed_current.toml', zhao_refresh_variant_path)
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires photoelectron_source_scale > 0')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -371,7 +408,6 @@ program test_app_config_parser
   call load_app_config('examples/periodic2_closed_photoelectron.toml', cfg)
   call assert_equal_i32(cfg%n_particle_species, 3_i32, 'closed case species count mismatch')
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'closed case must use source VDF inflow')
-  call assert_true(trim(cfg%sim%open_boundary_model) == 'escape', 'closed case must use ordinary escape')
   call assert_true(trim(cfg%particle_species(1)%source_mode) == 'volume_seed', 'electron source mode mismatch')
   call assert_equal_i32( &
     cfg%particle_species(1)%boundary_inflow_high(3), particle_inflow_reservoir, &
@@ -449,6 +485,38 @@ contains
     close (unit)
   end subroutine write_grouped_config
 
+  !> 2 軸周期セルの最小構成。`extra` は末尾に追加する。
+  subroutine write_periodic_grouped_config(path, extra)
+    character(len=*), intent(in) :: path, extra
+    integer :: unit
+    open (newunit=unit, file=path, status='replace', action='write')
+    write (unit, '(a)') '[run]'
+    write (unit, '(a)') 'batch_count = 2'
+    write (unit, '(a)') '[run.batch]'
+    write (unit, '(a)') 'duration_s = 1.0e-6'
+    write (unit, '(a)') '[domain]'
+    write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (unit, '(a)') 'periodic_axes = ["x", "y"]'
+    write (unit, '(a)') '[[particles.species]]'
+    write (unit, '(a)') '[particles.species.source]'
+    write (unit, '(a)') 'mode = "volume_seed"'
+    write (unit, '(a)') '[particles.species.sampling]'
+    write (unit, '(a)') 'volume_macro_particles_per_batch = 10'
+    write (unit, '(a)') '[[mesh.templates]]'
+    write (unit, '(a)') 'kind = "plane"'
+    write (unit, '(a)') 'surface_side = "normal_plus"'
+    write (unit, '(a)') 'center = [0.5, 0.5, 0.2]'
+    write (unit, '(a)') '[fields]'
+    write (unit, '(a)') 'boundary = "periodic2"'
+    write (unit, '(a)') '[fields.solver]'
+    write (unit, '(a)') 'method = "fmm"'
+    write (unit, '(a)') '[output]'
+    write (unit, '(a)') 'enabled = false'
+    if (len_trim(extra) > 0) write (unit, '(a)') extra
+    close (unit)
+  end subroutine write_periodic_grouped_config
+
   subroutine write_input_contract_config(path, density, species_extra, output_directory, integer_seed)
     character(len=*), intent(in) :: path, density, species_extra, output_directory
     character(len=*), intent(in), optional :: integer_seed
@@ -463,14 +531,21 @@ contains
     write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
     write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
     write (unit, '(a)') '[[particles.species]]'
-    write (unit, '(a)') 'source_mode = "reservoir_face"'
+    write (unit, '(a)') 'source_mode = "volume_seed"'
+    write (unit, '(a)') 'npcls_per_step = 0'
     write (unit, '(a)') 'number_density_m3 = '//trim(density)
     write (unit, '(a)') 'temperature_ev = 1.0'
     write (unit, '(a)') 'w_particle = 1.0e6'
-    write (unit, '(a)') 'inject_face = "z_high"'
-    write (unit, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
-    write (unit, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
-    if (len_trim(species_extra) > 0) write (unit, '(a)') species_extra
+    ! 追加行が新しい species table を開く場合、流入面は先に species 1 へ付ける。
+    if (index(species_extra, '[[') == 1) then
+      write (unit, '(a)') '[particles.species.boundary_inflow]'
+      write (unit, '(a)') 'z_high = "reservoir"'
+      write (unit, '(a)') species_extra
+    else
+      if (len_trim(species_extra) > 0) write (unit, '(a)') species_extra
+      write (unit, '(a)') '[particles.species.boundary_inflow]'
+      write (unit, '(a)') 'z_high = "reservoir"'
+    end if
     write (unit, '(a)') '[output]'
     write (unit, '(a)') 'write_files = false'
     write (unit, '(a)') 'dir = "'//output_directory//'"'

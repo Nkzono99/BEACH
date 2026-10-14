@@ -36,8 +36,8 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentPa
 
     parser = subparsers.add_parser(
         COMMAND_NAME,
-        help="create and validate beach.toml",
-        description="Create, validate, and diff direct BEACH config files.",
+        help="create and diff beach.toml",
+        description="Create and diff BEACH config files.",
     )
     _configure_group_parser(parser)
     return parser
@@ -50,7 +50,6 @@ def _configure_group_parser(parser: argparse.ArgumentParser) -> None:
         required=True,
     )
     _add_init_subparser(config_subparsers)
-    _add_validate_subparser(config_subparsers)
     _add_diff_subparser(config_subparsers)
     parser = config_subparsers.add_parser("migrate", help="convert released flat input to grouped TOML")
     parser.add_argument("config_path", type=Path, help="existing beach.toml")
@@ -76,21 +75,6 @@ def _add_init_subparser(subparsers: argparse._SubParsersAction) -> None:
         help="overwrite the destination if it already exists",
     )
     configure_entry_parser(parser, run_init)
-
-
-def _add_validate_subparser(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser(
-        "validate",
-        help="validate a beach.toml config",
-    )
-    parser.add_argument(
-        "config_path",
-        nargs="?",
-        default=Path(CONFIG_FILENAME),
-        type=Path,
-        help=f"input config file (default: ./{CONFIG_FILENAME})",
-    )
-    configure_entry_parser(parser, run_validate)
 
 
 def _add_diff_subparser(subparsers: argparse._SubParsersAction) -> None:
@@ -119,22 +103,6 @@ def run_init(args: argparse.Namespace) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(text, encoding="utf-8")
     print(f"saved={destination}")
-
-
-def run_validate(args: argparse.Namespace) -> None:
-    """Validate one direct config file."""
-
-    try:
-        load_config_file(args.config_path)
-    except FileNotFoundError as exc:
-        raise SystemExit(f"config file not found: {args.config_path}") from exc
-    except ConfigError as exc:
-        raise SystemExit(str(exc)) from exc
-    except ValueError as exc:
-        raise SystemExit(f"TOML parse error: {exc}") from exc
-
-    print(f"config={args.config_path}")
-    print("status=ok")
 
 
 def run_migrate(args: argparse.Namespace) -> None:

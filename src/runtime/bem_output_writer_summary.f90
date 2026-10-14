@@ -12,8 +12,6 @@ submodule(bem_output_writer) bem_output_writer_summary
     external_boundary_ok, &
     external_inflow_none, &
     external_inflow_scalar_barrier, &
-    external_open_escape, &
-    external_open_potential_barrier, &
     resolve_external_boundary_contract
   use bem_mesh_identity, only: mesh_fingerprint
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
@@ -40,7 +38,7 @@ contains
   real(dp) :: resolved_tree_theta
 
   call resolve_external_boundary_contract( &
-    cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
+    cfg%sim%reservoir_potential_model, &
     resolved_boundary, boundary_status, boundary_message &
     )
   if (boundary_status /= external_boundary_ok) then
@@ -159,8 +157,6 @@ contains
   write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
-  write (u, '(a,a)') 'particle_ordinary_open_model=', &
-    trim(external_open_model_name(resolved_boundary%ordinary_open_model))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
   if (current_model%active) then
     write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
@@ -315,21 +311,6 @@ contains
       error stop 'write_summary_file: unknown resolved external inflow map.'
     end select
   end function external_inflow_map_name
-
-  !> 解決済みの通常 open 境界モデルを summary 用の安定した語彙へ変換する。
-  function external_open_model_name(open_model) result(name)
-    integer(i32), intent(in) :: open_model
-    character(len=32) :: name
-
-    select case (open_model)
-    case (external_open_escape)
-      name = 'escape'
-    case (external_open_potential_barrier)
-      name = 'potential_barrier'
-    case default
-      error stop 'write_summary_file: unknown resolved ordinary open model.'
-    end select
-  end function external_open_model_name
 
   !> 処理済みmacro particleに対する累積soft-discard率を返す。
   module procedure soft_discard_fraction

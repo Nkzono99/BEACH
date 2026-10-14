@@ -42,7 +42,7 @@ Collect or ask for missing critical fields when possible:
 - First meaningful error log, not only the final wrapper abort line.
 - Expected behavior and actual behavior.
 - Output directory listing and relevant `summary.txt` lines.
-- Whether the case uses `reservoir_face`, `photo_raycast`, `periodic2`, FMM/treecode, resume, MPI, or Python post-processing.
+- Whether the case uses `boundary_inflow`, `photo_raycast`, `periodic2`, FMM/treecode, resume, MPI, or Python post-processing.
 
 ## Privacy and Size
 

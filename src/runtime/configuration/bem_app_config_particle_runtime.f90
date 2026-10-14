@@ -2,14 +2,14 @@
 module bem_app_config_particle_runtime
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
-  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state, bc_periodic
+  use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
-    compute_macro_particles_from_flux, sample_reservoir_face_particles, sample_reservoir_velocity_grid_particles, &
+    compute_macro_particles_from_flux, sample_reservoir_face_particles, &
     sample_photo_raycast_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_external_boundary_contract, only: &
@@ -71,17 +71,12 @@ module bem_app_config_particle_runtime
     end subroutine init_particle_batch_from_config
 
     module subroutine sample_species_state( &
-      sim, spec, n, x, v, barrier_normal_energy, vmin_normal, apply_barrier_energy_shift, &
-      temperature_k_override, drift_velocity_override &
+      spec, n, x, v, temperature_k_override, drift_velocity_override &
       )
-      type(sim_config), intent(in) :: sim
       type(particle_species_spec), intent(in) :: spec
       integer(i32), intent(in) :: n
       real(dp), intent(out) :: x(:, :)
       real(dp), intent(out) :: v(:, :)
-      real(dp), intent(in), optional :: barrier_normal_energy
-      real(dp), intent(in), optional :: vmin_normal
-      logical, intent(in), optional :: apply_barrier_energy_shift
       real(dp), intent(in), optional :: temperature_k_override
       real(dp), intent(in), optional :: drift_velocity_override(3)
     end subroutine sample_species_state
@@ -183,8 +178,6 @@ contains
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       has_enabled_reservoir = has_enabled_reservoir .or. &
-                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
-                              trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source' .or. &
                               has_boundary_inflow(cfg%particle_species(s))
     end do
     plan%use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
@@ -275,21 +268,8 @@ contains
         plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
         plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
         if (has_boundary_inflow(cfg%particle_species(s))) then
-          if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
-            plan%effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
-          else
-            plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
-          end if
-        end if
-      case ('reservoir_face', 'plane_source')
-        if (trim(lower_ascii(cfg%particle_species(s)%velocity_distribution)) == 'grid') then
-          plan%effective_particle_flux_m2_s(s) = cfg%particle_species(s)%particle_flux_m2_s
-        else
           plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
         end if
-        plan%effective_weight(s) = cfg%particle_species(s)%w_particle
-        plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
-        plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
       case ('photo_raycast')
         plan%photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
         plan%photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
@@ -301,26 +281,6 @@ contains
 
     plan%ready = .true.
   end subroutine build_particle_source_plan
-
-  !> reservoir/plane sourceの初期位置を、設定されたbox境界条件に従って有効領域へ正規化する。
-  pure subroutine normalize_reservoir_positions(sim, x)
-    type(sim_config), intent(in) :: sim
-    real(dp), intent(inout) :: x(:, :)
-    integer(i32) :: axis
-    real(dp) :: span
-
-    if (.not. sim%use_box) return
-    do axis = 1_i32, 3_i32
-      if (.not. ieee_is_finite(sim%box_min(axis)) .or. .not. ieee_is_finite(sim%box_max(axis))) cycle
-      span = sim%box_max(axis) - sim%box_min(axis)
-      if (.not. ieee_is_finite(span) .or. span <= 0.0_dp) cycle
-      if (sim%bc_low(axis) == bc_periodic .and. sim%bc_high(axis) == bc_periodic) then
-        x(axis, :) = sim%box_min(axis) + modulo(x(axis, :) - sim%box_min(axis), span)
-      else
-        x(axis, :) = min(max(x(axis, :), sim%box_min(axis)), sim%box_max(axis))
-      end if
-    end do
-  end subroutine normalize_reservoir_positions
 
   !> speciesに外部 reservoir 流入を指定したbox面があるかを返す。
   pure logical function has_boundary_inflow(spec) result(has_inflow)
@@ -342,7 +302,7 @@ contains
     end if
   end function boundary_inflow_face_enabled
 
-  !> box全面を開口とする一時的な legacy reservoir spec を構築する。
+  !> box 全面の境界流入をサンプリングする面座標を構築する。
   pure subroutine make_boundary_inflow_spec(sim, source_spec, face, inflow_spec)
     type(sim_config), intent(in) :: sim
     type(particle_species_spec), intent(in) :: source_spec
@@ -352,7 +312,6 @@ contains
     logical :: high_side
 
     inflow_spec = source_spec
-    inflow_spec%source_mode = 'reservoir_face'
     call boundary_face_name(face, inflow_spec%inject_face)
     inflow_spec%pos_low = sim%box_min
     inflow_spec%pos_high = sim%box_max
@@ -368,36 +327,6 @@ contains
     inflow_spec%boundary_inflow_low = 0_i32
     inflow_spec%boundary_inflow_high = 0_i32
   end subroutine make_boundary_inflow_spec
-
-  !> plane_sourceの内部面をlegacy face samplerの仮想box境界へ写像する。
-  pure subroutine configure_plane_source_box(spec, box_min, box_max)
-    type(particle_species_spec), intent(in) :: spec
-    real(dp), intent(inout) :: box_min(3), box_max(3)
-    integer(i32) :: axis
-
-    select case (trim(lower_ascii(spec%inject_face)))
-    case ('x_low')
-      axis = 1_i32
-      box_min(axis) = spec%pos_low(axis)
-    case ('x_high')
-      axis = 1_i32
-      box_max(axis) = spec%pos_low(axis)
-    case ('y_low')
-      axis = 2_i32
-      box_min(axis) = spec%pos_low(axis)
-    case ('y_high')
-      axis = 2_i32
-      box_max(axis) = spec%pos_low(axis)
-    case ('z_low')
-      axis = 3_i32
-      box_min(axis) = spec%pos_low(axis)
-    case ('z_high')
-      axis = 3_i32
-      box_max(axis) = spec%pos_low(axis)
-    case default
-      error stop 'plane_source has invalid derived face.'
-    end select
-  end subroutine configure_plane_source_box
 
   !> face bit順の面名を返す。
   pure subroutine boundary_face_name(face, name)
@@ -422,31 +351,9 @@ contains
     end select
   end subroutine boundary_face_name
 
-  !> 面名をboundary bit順のindexへ変換する。
-  pure integer(i32) function injection_face_index(face_name) result(face)
-    character(len=*), intent(in) :: face_name
-
-    select case (trim(lower_ascii(face_name)))
-    case ('x_low')
-      face = 1_i32
-    case ('x_high')
-      face = 2_i32
-    case ('y_low')
-      face = 3_i32
-    case ('y_high')
-      face = 4_i32
-    case ('z_low')
-      face = 5_i32
-    case ('z_high')
-      face = 6_i32
-    case default
-      face = 0_i32
-    end select
-  end function injection_face_index
-
-  !> reservoir_face 用に、物理流量と残差から今バッチのマクロ粒子数を決める。
+  !> 境界流入用に、物理流量と残差から今バッチのマクロ粒子数を決める。
   !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
-  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[in] spec 境界流入面の粒子種設定。
   !! @param[inout] residual 前バッチから繰り越した端数。
   !! @param[out] count 今バッチで生成するマクロ粒子数。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
@@ -471,7 +378,7 @@ contains
     real(dp), intent(in), optional :: particle_flux_override
     logical, intent(in), optional :: use_particle_flux_override
 
-    real(dp) :: number_density_m3, effective_batch_duration, particle_flux_m2_s, w_particle, temperature_k_local
+    real(dp) :: number_density_m3, effective_batch_duration, w_particle, temperature_k_local
     real(dp) :: drift_velocity_local(3)
     logical :: direct_flux
 
@@ -484,13 +391,14 @@ contains
     drift_velocity_local = spec%drift_velocity
     if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
     effective_batch_duration = sim%batch_duration
-    direct_flux = trim(lower_ascii(spec%velocity_distribution)) == 'grid'
-    if (present(use_particle_flux_override)) direct_flux = direct_flux .or. use_particle_flux_override
+    direct_flux = .false.
+    if (present(use_particle_flux_override) .and. present(particle_flux_override)) then
+      direct_flux = use_particle_flux_override
+    end if
     if (direct_flux) then
-      particle_flux_m2_s = spec%particle_flux_m2_s
-      if (present(particle_flux_override)) particle_flux_m2_s = particle_flux_override
       call compute_macro_particles_from_flux( &
-        particle_flux_m2_s, spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, count &
+        particle_flux_override, spec%inject_face, spec%pos_low, spec%pos_high, effective_batch_duration, w_particle, residual, &
+        count &
         )
       return
     end if

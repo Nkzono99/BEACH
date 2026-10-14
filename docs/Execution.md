@@ -55,7 +55,7 @@ MPI build、launcher、compiler module は利用する環境に合わせてく�
 
 ## 実行前に負荷を見積もる
 
-`boundary_inflow`、`plane_source`、deprecatedな`reservoir_face`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
+`boundary_inflow`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
 見積もりを推奨します。
 
 ```bash

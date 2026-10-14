@@ -117,10 +117,9 @@ program test_output_writer_io
   call default_app_config(cfg)
   stats = sim_stats()
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
-  cfg%sim%open_boundary_model = 'potential_barrier'
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call assert_resolved_boundary_summary( &
-    out_dir_disabled//'/summary.txt', 'infinity_barrier', 'potential_barrier' &
+    out_dir_disabled//'/summary.txt', 'infinity_barrier' &
     )
 
   call test_end()
@@ -607,25 +606,22 @@ contains
     close (summary_unit)
   end subroutine scan_no_photo_surface_current_receipt
 
-  subroutine assert_resolved_boundary_summary(path, inflow_map, open_model)
-    character(len=*), intent(in) :: path, inflow_map, open_model
-    logical :: saw_inflow, saw_open
+  subroutine assert_resolved_boundary_summary(path, inflow_map)
+    character(len=*), intent(in) :: path, inflow_map
+    logical :: saw_inflow
     integer :: unit, read_status
     character(len=512) :: summary_line
 
     saw_inflow = .false.
-    saw_open = .false.
     open (newunit=unit, file=path, status='old', action='read', iostat=read_status)
     if (read_status /= 0) error stop 'failed to open resolved local boundary summary fixture'
     do
       read (unit, '(A)', iostat=read_status) summary_line
       if (read_status /= 0) exit
       saw_inflow = saw_inflow .or. trim(summary_line) == 'reservoir_inflow_map='//trim(inflow_map)
-      saw_open = saw_open .or. trim(summary_line) == 'particle_ordinary_open_model='//trim(open_model)
     end do
     close (unit)
     call assert_true(saw_inflow, 'summary should record the resolved reservoir inflow map')
-    call assert_true(saw_open, 'summary should record the resolved ordinary open model')
   end subroutine assert_resolved_boundary_summary
 
   subroutine scan_top_reference_summary_fields(path, saw_available, saw_definition, saw_last_batch, saw_mean)

@@ -149,7 +149,7 @@ program test_injection_sampling
   call assert_close_dp(area, 32.0d0, 1.0d-12, 'face area (y_high) mismatch')
   call test_end()
 
-  call test_begin('reservoir_face_basic')
+  call test_begin('boundary_reservoir_basic')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.5d0, -0.25d0], [-1.0d0, 0.5d0, 0.25d0], [2.0d0, 0.0d0, 0.0d0], &
@@ -166,7 +166,7 @@ program test_injection_sampling
   call assert_true(all(v(1, :) >= 0.0d0), 'reservoir normal velocities should be inward')
   call test_end()
 
-  call test_begin('reservoir_face_launch_has_no_untracked_jitter')
+  call test_begin('boundary_reservoir_launch_has_no_untracked_jitter')
   jitter_dt = 1.0d-3
   call seed_rng([2718_i32])
   call sample_reservoir_face_particles( &
@@ -195,7 +195,7 @@ program test_injection_sampling
   call assert_true(all(v(1, 1:4) > 0.0_dp), 'jitter-compatible launch velocities should point inward')
   call test_end()
 
-  call test_begin('reservoir_face_barrier_shift')
+  call test_begin('boundary_reservoir_barrier_shift')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
@@ -207,7 +207,7 @@ program test_injection_sampling
   end do
   call test_end()
 
-  call test_begin('reservoir_face_barrier_cutoff')
+  call test_begin('boundary_reservoir_barrier_cutoff')
   call sample_reservoir_face_particles( &
     [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
     [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &

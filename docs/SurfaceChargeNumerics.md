@@ -49,16 +49,17 @@ $$
 \sum_j A_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed}
 $$
 
-を課します。単位総電荷を持つ source triangle $T_j$ の P0 potential coefficient は
+を課します。$A_{ij}$ は、conductor 要素 $j$ に単位総電荷を置き他の電荷を 0 にしたときに、その batch の場 snapshot が
+要素 $i$ の重心 $\mathbf c_i$ に返す電位を `k_coulomb` で割った量です。free-space では解析 P0 panel potential
 
 $$
 A_{ij}=\frac{1}{A_j}\int_{T_j}
 \frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}
 $$
 
-です。$\mathbf c_i$ は target 要素重心、$A_j$ は source 要素面積です。自己項を含む解析 panel potential を
-principal-value 側規約で評価し、$\phi_i^\mathrm{fixed}$ は non-conductor 電荷と一様外場が作る電位を
-`k_coulomb` で割った量です。
+に一致し、`periodic2` では周期 image と zero mode を含みます ($A_j$ は source 要素面積)。電位は電荷に対して affine
+なので、電荷 0 の基準電位を引いて線形部だけを残します。$\phi_i^\mathrm{fixed}$ は、現在の全電荷で評価した
+snapshot の電位から $\sum_j A_{ij}q_j$ を引いた量で、non-conductor 電荷、一様外場、ゲージ定数を含みます。
 
 各 group には総電荷保存も課します。
 
@@ -66,9 +67,10 @@ $$
 \sum_{i\in g}q_i=Q_g^\mathrm{before}
 $$
 
-この dense square system を部分 pivot 付き Gauss 消去で解き、conductor 要素だけを置換します。object 間の
-電荷と non-conductor 要素は変更しません。現行 model は要素重心 collocation と P0 triangle influence を使い、
-`field_boundary.mode="free"` だけを受理します。
+この dense square system は幾何と場の境界条件だけで決まるので、初期化時に conductor 要素数回の snapshot 評価で組み、
+部分 pivot 付き LU 分解を保持します。batch ごとには snapshot の電位から右辺を作って解き、conductor 要素だけを
+置換します。object 間の電荷と non-conductor 要素は変更しません。adaptive nonzero-mode step では、候補電荷を
+再配分してから電位ステップを判定します。初期化コストは conductor 要素数に比例した回数の場 refresh です。
 
 ## OpenMP、MPI、再開
 

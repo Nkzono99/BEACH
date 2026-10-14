@@ -10,7 +10,6 @@ from .core import (
     normalize_config_document,
     normalize_high_level_config,
     semantic_diff,
-    validate_runtime_config,
 )
 
 __all__ = [
@@ -23,5 +22,4 @@ __all__ = [
     "normalize_config_document",
     "normalize_high_level_config",
     "semantic_diff",
-    "validate_runtime_config",
 ]

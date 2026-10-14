@@ -143,11 +143,6 @@ contains
       call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(3), 'particle_boundary.z_low', .false.)
     case ('z_high')
       call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(3), 'particle_boundary.z_high', .false.)
-    case ('ordinary_open_model')
-      call get_toml_string( &
-        table, keys(ikey), particles%ordinary_open_model, 'particle_boundary.ordinary_open_model' &
-        )
-      particles%ordinary_open_model = lower_ascii(trim(particles%ordinary_open_model))
     case default
       error stop 'Unknown key in [particle_boundary]: '//trim(keys(ikey)%key)
     end select

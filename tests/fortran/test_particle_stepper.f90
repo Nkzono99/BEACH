@@ -11,12 +11,11 @@ program test_particle_stepper
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   advance_particle_step_upper_panel_fourier, &
                                   resolve_particle_boundary_candidate, particle_step_result, &
-                                  particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events, &
-                                  particle_step_ambiguous_open_corner
+                                  particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(33)
+  call test_init(30)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -74,10 +73,6 @@ program test_particle_stepper
   call test_pure_b_reflect_preserves_energy()
   call test_end()
 
-  call test_begin('pure_b_barrier_preserves_energy')
-  call test_pure_b_barrier_preserves_energy()
-  call test_end()
-
   call test_begin('strong_b_boundary_velocity_follows_outward_chord')
   call test_strong_b_boundary_velocity_follows_outward_chord()
   call test_end()
@@ -118,10 +113,6 @@ program test_particle_stepper
   call test_upper_fourier_retry_rejects_barrier_below_mesh_top()
   call test_end()
 
-  call test_begin('potential_barrier_uses_crossing_potential')
-  call test_potential_barrier_uses_crossing_potential()
-  call test_end()
-
   call test_begin('species_barrier_override_is_face_local')
   call test_species_barrier_override_is_face_local()
   call test_end()
@@ -140,10 +131,6 @@ program test_particle_stepper
 
   call test_begin('species_barrier_corner_redistribution_requires_counter')
   call test_species_barrier_corner_redistribution_requires_counter()
-  call test_end()
-
-  call test_begin('advance_potential_barrier_single_face_only')
-  call test_advance_potential_barrier_single_face_only()
   call test_end()
 
   call test_begin('advance_invalid_boundary_status_namespace')
@@ -632,25 +619,6 @@ contains
     call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'pure-B reflected speed must be conserved')
   end subroutine test_pure_b_reflect_preserves_energy
 
-  subroutine test_pure_b_barrier_preserves_energy()
-    type(mesh_type) :: mesh
-    type(sim_config) :: sim
-    type(electrostatic_snapshot_type) :: field_solver
-    type(particle_step_result) :: result
-
-    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
-    sim%open_boundary_model = 'potential_barrier'
-    sim%phi_infty = 0.15_dp
-    call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
-      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
-      )
-
-    call assert_true(result%status == particle_step_ok, 'pure-B barrier step status mismatch')
-    call assert_true(result%escaped_boundary, 'chord-event normal energy should clear the pure-B barrier')
-    call assert_close_dp(sum(result%v*result%v), 1.0_dp, 2.0e-14_dp, 'pure-B barrier decision must conserve speed')
-  end subroutine test_pure_b_barrier_preserves_energy
-
   subroutine test_strong_b_boundary_velocity_follows_outward_chord()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
@@ -861,18 +829,19 @@ contains
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
     type(particle_step_result) :: result
+    type(external_boundary_contract_type) :: contract
     real(dp) :: x0(3), v0(3)
     logical :: field_available
 
     call init_upper_retry_stepper(mesh, sim, field_solver, 0.4_dp)
     sim%bc_high(1) = bc_open
-    sim%open_boundary_model = 'potential_barrier'
-    sim%phi_infty = 10.0_dp
+    contract%barrier_override_high(1) = .true.
+    contract%barrier_potential_high_v(1) = 10.0_dp
     x0 = [0.9_dp, 0.5_dp, 0.3_dp]
     v0 = [2.0_dp, 0.0_dp, 1.0_dp]
     call advance_particle_step_upper_panel_fourier( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, result, field_available &
+      x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, result, field_available, boundary_contract=contract &
       )
 
     call assert_true(.not. field_available, 'barrier potential at z<=H must make the retry unavailable')
@@ -880,40 +849,6 @@ contains
     call assert_allclose_1d(result%x, x0, 0.0_dp, 'unavailable retry must preserve initial position')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'unavailable retry must preserve initial velocity')
   end subroutine test_upper_fourier_retry_rejects_barrier_below_mesh_top
-
-  subroutine test_potential_barrier_uses_crossing_potential()
-    type(mesh_type) :: mesh
-    type(sim_config) :: sim
-    type(electrostatic_snapshot_type) :: field_solver
-    type(particle_step_result) :: result
-
-    call init_x_plane_mesh(mesh, 10.0_dp)
-    sim = sim_config()
-    sim%field_solver = 'direct'
-    sim%field_normalization = 'si'
-    sim%use_box = .true.
-    sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    sim%e0 = [4.0_dp, 0.0_dp, 0.0_dp]
-    sim%open_boundary_model = 'potential_barrier'
-    sim%phi_infty = -2.0_dp
-    call field_solver%init(mesh, sim)
-    call field_solver%refresh(mesh)
-
-    call resolve_particle_boundary_candidate( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.25_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, 0.2_dp, &
-      [0.25_dp, 0.2_dp, 1.1_dp], [0.0_dp, 0.0_dp, 1.0_dp], result=result &
-      )
-    call assert_true(result%escaped_boundary, 'x=0.25 crossing potential should allow escape')
-
-    call resolve_particle_boundary_candidate( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.75_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], 1.0_dp, 1.0_dp, 0.2_dp, &
-      [0.75_dp, 0.2_dp, 1.1_dp], [0.0_dp, 0.0_dp, 1.0_dp], result=result &
-      )
-    call assert_true(.not. result%escaped_boundary, 'x=0.75 crossing potential should cause return')
-  end subroutine test_potential_barrier_uses_crossing_potential
 
   subroutine test_species_barrier_override_is_face_local()
     type(mesh_type) :: mesh
@@ -923,6 +858,7 @@ contains
     type(particle_step_result) :: result
 
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
+    sim%phi_infty = -100.0_dp
     contract = external_boundary_contract_type()
     contract%barrier_override_high(3) = .true.
     contract%barrier_potential_high_v(3) = -1.0_dp
@@ -1133,34 +1069,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'counter-backed barrier redistribution status mismatch')
     call assert_true(.not. result%escaped_boundary, 'counter-backed barrier return should survive')
   end subroutine test_species_barrier_corner_redistribution_requires_counter
-
-  subroutine test_advance_potential_barrier_single_face_only()
-    type(mesh_type) :: mesh
-    type(sim_config) :: sim
-    type(electrostatic_snapshot_type) :: field_solver
-    type(particle_step_result) :: result
-
-    call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
-    sim%open_boundary_model = 'potential_barrier'
-    sim%phi_infty = 10.0_dp
-    call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
-      )
-    call assert_true(result%status == particle_step_ok, 'single-face potential barrier status mismatch')
-    call assert_true(.not. result%escaped_boundary, 'large single-face barrier should reflect')
-    call assert_close_dp(result%x(1), 0.2_dp, 1.0e-12_dp, 'potential barrier reflected remainder mismatch')
-
-    sim%bc_high(2) = bc_open
-    call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.8_dp, 0.2_dp], [1.0_dp, 1.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
-      )
-    call assert_true( &
-      result%status == particle_step_ambiguous_open_corner, &
-      'simultaneous multi-open potential barrier should fail closed' &
-      )
-  end subroutine test_advance_potential_barrier_single_face_only
 
   subroutine test_advance_invalid_boundary_status_namespace()
     type(mesh_type) :: mesh

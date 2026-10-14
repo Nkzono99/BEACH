@@ -1,38 +1,39 @@
-"""Check lint diagnostics and load lint-approved TOML in Fortran.
+"""Check that ``beachx lint`` returns the Fortran preflight verdict.
 
-``make test-config-contract`` supplies the freshly built executable. Ordinary
-Python-only runs skip native loading instead of selecting a stale binary.
+The JSON Schema owns key names, types, and ranges; the Fortran preflight owns
+combinations and derived values. ``make test-config-contract`` supplies the
+freshly built executable. Ordinary Python-only runs skip these cases instead of
+selecting a stale binary.
 """
 
 from __future__ import annotations
 
-from beach.config._layout import to_runtime_layout
-
 import argparse
 import copy
-import os
 from pathlib import Path
 import subprocess
 
 import pytest
+import tomli_w
 
-from beach.cli.config import run_validate
 from beach.cli.lint import run_lint
-from beach.config import ConfigError, default_config, dump_beach_toml, load_config_file
+from beach.config import default_config
+from beach.config._layout import to_runtime_layout
 from beach.config._toml import load_toml_file
 
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(scope="module")
-def native_checker() -> Path:
-    executable = os.environ.get("BEACH_CONFIG_CHECK_EXE")
-    if not executable:
-        pytest.skip("run make test-config-contract for native config loading")
-    path = Path(executable).resolve()
-    assert path.is_file(), f"missing Fortran checker: {path}"
-    return path
+def _periodic2_cell() -> dict:
+    config = default_config()
+    config["domain"]["periodic_axes"] = ["x", "y"]
+    config["field_boundary"]["mode"] = "periodic2"
+    config["sim"].update(
+        field_solver="fmm", field_periodic_image_layers=1,
+        field_periodic_far_correction="none",
+    )
+    return config
 
 
 def _cases() -> list:
@@ -68,6 +69,7 @@ def _cases() -> list:
         ("rng_seed", -(2**32) + 123, False),
         ("tree_theta", -1.0, True),  # inactive for direct evaluation
         ("field_solver", "DIRECT", True),
+        ("e0_phi_z_deg", 90.0, False),  # requires e0_abs
     ):
         config = default_config()
         config["sim"][key] = value
@@ -78,12 +80,20 @@ def _cases() -> list:
     cases.append(pytest.param(config, False, id="active-tree-theta"))
 
     config = default_config()
+    config["sim"].update(e0=[0.0, 0.0, -1.0], e0_abs=1.0)
+    cases.append(pytest.param(config, False, id="e0-vector-and-magnitude"))
+
+    config = default_config()
     config["output"].update(resume=True, write_files=False)
     cases.append(pytest.param(config, False, id="resume-without-file-output"))
 
     config = default_config()
     config["mesh"]["templates"][0]["kind"] = "unknown"
     cases.append(pytest.param(config, False, id="unsupported-template-kind"))
+
+    config = default_config()
+    config["mesh"]["mode"] = "auto"
+    cases.append(pytest.param(config, False, id="auto-mesh-without-surface-side"))
 
     for name_length, accepted in ((64, True), (65, False)):
         config = default_config()
@@ -114,12 +124,19 @@ def _cases() -> list:
     for species_override in (False, True):
         config = default_config()
         del config["domain"]
-        config["particle_boundary"] = {"ordinary_open_model": "escape"}
+        config["particle_boundary"] = {}
         if species_override:
             config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
         else:
             config["particle_boundary"]["z_high"] = "reflect"
         cases.append(pytest.param(config, False, id=f"boundary-without-domain-{species_override}"))
+
+    config = _periodic2_cell()
+    config["particle_boundary"]["x_low"] = "reflect"
+    cases.append(pytest.param(config, False, id="global-override-of-periodic-face"))
+    config = _periodic2_cell()
+    config["particles"]["species"][0]["boundary"] = {"x_high": "open"}
+    cases.append(pytest.param(config, False, id="species-override-of-periodic-face"))
 
     config = default_config()
     config["particles"]["species"][0]["q_particle"] = 0.0
@@ -150,6 +167,22 @@ def _cases() -> list:
         config = copy.deepcopy(reservoir)
         config["particles"]["species"][0]["number_density_cm3"] = density
         cases.append(pytest.param(config, False, id=f"reservoir-density-{density}"))
+    config = copy.deepcopy(reservoir)
+    config["particles"]["species"][0]["number_density_m3"] = 1.0e6
+    cases.append(pytest.param(config, False, id="reservoir-two-density-forms"))
+    config = copy.deepcopy(reservoir)
+    config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
+    cases.append(pytest.param(config, False, id="reservoir-inflow-through-reflecting-face"))
+
+    for target, accepted in ((-1.0e-9, True), (1.0e-9, False)):
+        config = copy.deepcopy(reservoir)
+        config["particles"]["species"][0].update(
+            surface_charge_closure="fixed_current", target_absorbed_current_a=target,
+        )
+        cases.append(pytest.param(config, accepted, id=f"fixed-current-absorbed-{target}"))
+    config = copy.deepcopy(reservoir)
+    config["particles"]["species"][0]["target_absorbed_current_a"] = -1.0e-9
+    cases.append(pytest.param(config, False, id="target-current-with-explicit-closure"))
 
     periodic = load_toml_file(ROOT / "examples/periodic2_closed_photoelectron.toml")
     periodic["periodic2"] = {"lower_boundary_model": "symmetric_vacuum"}
@@ -164,46 +197,65 @@ def _cases() -> list:
         "nonzero_mode_backend": "cached_kneq0",
         "max_nonzero_mode_potential_step": 1.0e-2,
     }
-    cases.append(pytest.param(periodic, True, id="partial-periodic-cached"))
+    cases.append(pytest.param(copy.deepcopy(periodic), True, id="partial-periodic-cached"))
+    config = copy.deepcopy(periodic)
+    config["particles"]["species"][-1]["boundary"]["z_high"] = "open"
+    cases.append(pytest.param(config, False, id="neutral-return-without-reflecting-face"))
+
+    config = _periodic2_cell()
+    config["sim"].update(batch_duration=1.0e-6, field_periodic_far_correction="cached_kneq0")
+    config["periodic2"] = {
+        "nonzero_mode_backend": "cached_kneq0",
+        "zero_mode_policy": "exclude_k0",
+        "lower_boundary_model": "e_bottom_zero",
+        "max_nonzero_mode_potential_step": 1.0e-2,
+    }
+    cases.append(pytest.param(config, False, id="adaptive-step-with-volume-seed"))
     return cases
 
 
-@pytest.mark.parametrize("config,accepted", _cases())
-def test_lint_then_native_configuration(
-    config: dict, accepted: bool, request: pytest.FixtureRequest, tmp_path: Path,
-) -> None:
+def _write_config(config: dict, directory: Path) -> Path:
     config = copy.deepcopy(config)
-    output = tmp_path / "simulation-output"
-    config["output"]["dir"] = str(output)
-    path = tmp_path / "beach.toml"
-    # Invalid cases exercise the released flat reader directly; authoring export
-    # deliberately refuses keys with no grouped equivalent.
-    import tomli_w
+    config["output"]["dir"] = str(directory / "simulation-output")
+    path = directory / "beach.toml"
     path.write_text(tomli_w.dumps(config), encoding="utf-8")
+    return path
 
-    for check in (
-        lambda: load_config_file(path),
-        lambda: run_validate(argparse.Namespace(config_path=path)),
-        lambda: run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20)),
-    ):
-        if accepted:
-            check()
-        else:
-            with pytest.raises((ConfigError, SystemExit)):
-                check()
 
-    # Lint owns detailed input diagnostics. Native loading is required only for
-    # approved configurations; native guards have focused Fortran tests.
-    if not accepted:
-        return
-    native_checker = request.getfixturevalue("native_checker")
-    result = subprocess.run(
-        [str(native_checker), "--check-config", str(path)],
-        cwd=tmp_path, text=True, capture_output=True, timeout=20,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "status=ok" in result.stdout
-    assert not output.exists(), "configuration checks must not start a simulation"
+@pytest.mark.parametrize("config,accepted", _cases())
+def test_lint_returns_the_preflight_verdict(
+    config: dict, accepted: bool, native_checker: Path, tmp_path: Path,
+) -> None:
+    path = _write_config(config, tmp_path)
+    args = argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker)
+    if accepted:
+        run_lint(args)
+    else:
+        with pytest.raises(SystemExit):
+            run_lint(args)
+    assert not (tmp_path / "simulation-output").exists(), "configuration checks must not start a simulation"
+
+
+def test_lint_reports_the_fortran_diagnostic(native_checker: Path, tmp_path: Path) -> None:
+    config = _periodic2_cell()
+    config["particle_boundary"]["x_low"] = "reflect"
+    path = _write_config(config, tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
+    message = str(excinfo.value)
+    assert "preflight check failed" in message
+    assert "cannot override a periodic domain face" in message
+    assert "Backtrace" not in message
+
+
+def test_lint_requires_the_beach_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write_config(default_config(), tmp_path)
+    monkeypatch.delenv("BEACH_CONFIG_CHECK_EXE", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(SystemExit, match="beach executable not found"):
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=None))
 
 
 def test_native_check_requires_one_path(native_checker: Path, tmp_path: Path) -> None:
@@ -213,3 +265,64 @@ def test_native_check_requires_one_path(native_checker: Path, tmp_path: Path) ->
     )
     assert result.returncode != 0
     assert "usage: beach --check-config beach.toml" in result.stderr
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["flat", "grouped"])
+@pytest.mark.parametrize("removed", ["reservoir_face", "plane_source", "source_normal"])
+def test_removed_particle_source_inputs_are_rejected(
+    grouped: bool, removed: str, native_checker: Path, tmp_path: Path,
+) -> None:
+    from beach.config._layout import to_grouped_layout
+
+    config = default_config()
+    if grouped:
+        config = to_grouped_layout(config)
+        source = config["particles"]["species"][0]["source"]
+        source["normal" if removed == "source_normal" else "mode"] = (
+            [0.0, 0.0, -1.0] if removed == "source_normal" else removed
+        )
+        config["output"]["dir"] = str(tmp_path / "simulation-output")
+        path = tmp_path / "beach.toml"
+        path.write_text(tomli_w.dumps(config), encoding="utf-8")
+    else:
+        species = config["particles"]["species"][0]
+        species["source_normal" if removed == "source_normal" else "source_mode"] = (
+            [0.0, 0.0, -1.0] if removed == "source_normal" else removed
+        )
+        path = _write_config(config, tmp_path)
+    with pytest.raises(SystemExit):
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
+    native = subprocess.run(
+        [str(native_checker), "--check-config", str(path)], cwd=tmp_path,
+        text=True, capture_output=True, timeout=20,
+    )
+    assert native.returncode != 0
+    assert not (tmp_path / "simulation-output").exists()
+
+
+@pytest.mark.parametrize("grouped", [False, True], ids=["flat", "grouped"])
+@pytest.mark.parametrize("value", ["escape", "potential_barrier"])
+def test_removed_ordinary_open_key_is_rejected(
+    grouped: bool, value: str, native_checker: Path, tmp_path: Path,
+) -> None:
+    from beach.config._layout import to_grouped_layout
+
+    config = default_config()
+    if grouped:
+        config = to_grouped_layout(config)
+        key = "open_model"
+        config["particles"]["boundary"][key] = value
+    else:
+        key = "ordinary_open_model"
+        config["particle_boundary"][key] = value
+    path = tmp_path / "beach.toml"
+    path.write_text(tomli_w.dumps(config), encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
+    native = subprocess.run(
+        [str(native_checker), "--check-config", str(path)], cwd=tmp_path,
+        text=True, capture_output=True, timeout=20,
+    )
+    assert native.returncode != 0
+    assert key in native.stdout + native.stderr

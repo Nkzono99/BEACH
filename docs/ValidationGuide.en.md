@@ -116,7 +116,6 @@ In addition to the common checks, inspect diagnostics specific to the active mod
 | finite-image `periodic2` | dependence on `fields.periodic.image_layers`; do not extrapolate a finite-image result to infinite periodicity |
 | `cached_kneq0` | cache fingerprint, cold/warm agreement, zero mode, and Gauss residual |
 | `infinity_barrier` | mean reservoir-face potential, image-layer dependence, and warnings for in-plane potential variation |
-| `potential_barrier` | open-face crossing potential, `reservoir.phi_infty`, and the normal-kinetic-energy reflection/escape decision |
 | photoelectrons | emission, return, and escape charge balance; convergence with ray sampling and time step |
 | `zhao_stationary` outer-root refresh | decreasing `matching_plane_residual`, dependence on the window `outflow_refresh_batches` and sample count, branch changes, `charge_ledger.csv` scales near 1, agreement of the z-high plane mean with $\phi_0$, a fluctuation of `phi_H_V` in `matching_plane_history.csv` within the width set by the sample count, `surface_current_model_upstream_field_deficit_V_m` at most `upstream_field_floor_v_m` when electrons drift, and H-height dependence |
 

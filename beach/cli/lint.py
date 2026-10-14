@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Sequence
 
@@ -18,6 +21,8 @@ from beach.config.schema import load_schema as _load_schema
 from ._shared import configure_entry_parser
 
 COMMAND_NAME = "lint"
+NATIVE_CHECKER_ENV = "BEACH_CONFIG_CHECK_EXE"
+NATIVE_CHECKER_NAME = "beach"
 
 
 def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
@@ -33,8 +38,11 @@ def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentPa
 
     parser = subparsers.add_parser(
         COMMAND_NAME,
-        help="lint beach.toml with schema and BEACH semantic checks",
-        description="Validate a BEACH config with TOML parsing, JSON Schema, and semantic checks.",
+        help="lint beach.toml with the JSON Schema and the Fortran preflight",
+        description=(
+            "Validate a BEACH config with TOML parsing, the packaged JSON Schema, "
+            "and the Fortran preflight (beach --check-config)."
+        ),
     )
     _configure_parser(parser)
     return parser
@@ -59,7 +67,61 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default=20,
         help="maximum schema errors to print (default: 20)",
     )
+    parser.add_argument(
+        "--beach",
+        type=Path,
+        help=(
+            "beach executable for the preflight check "
+            f"(default: ${NATIVE_CHECKER_ENV}, then `{NATIVE_CHECKER_NAME}` on PATH)"
+        ),
+    )
     configure_entry_parser(parser, run_lint)
+
+
+def resolve_native_checker(explicit: Path | None = None) -> Path:
+    """Locate the ``beach`` executable that owns the semantic configuration checks."""
+
+    if explicit is not None:
+        path = explicit
+    elif os.environ.get(NATIVE_CHECKER_ENV):
+        path = Path(os.environ[NATIVE_CHECKER_ENV])
+    else:
+        found = shutil.which(NATIVE_CHECKER_NAME)
+        if found is None:
+            raise SystemExit(
+                f"{NATIVE_CHECKER_NAME} executable not found: install BEACH, "
+                f"set {NATIVE_CHECKER_ENV}, or pass --beach"
+            )
+        path = Path(found)
+    if not path.is_file():
+        raise SystemExit(f"{NATIVE_CHECKER_NAME} executable not found: {path}")
+    return path
+
+
+def run_native_check(checker: Path, config_path: Path) -> None:
+    """Run ``beach --check-config`` and relay its diagnostics on failure."""
+
+    result = subprocess.run(
+        [str(checker), "--check-config", str(config_path)],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0 and "status=ok" in result.stdout:
+        return
+    diagnostics = [
+        line
+        for line in result.stderr.splitlines()
+        if line.strip()
+        and not line.startswith("#")
+        and not line.startswith("Error termination")
+        and not line.startswith("ERROR STOP 1")
+    ]
+    if not diagnostics:
+        diagnostics = [f"exit code {result.returncode}"]
+    raise SystemExit(
+        "\n".join([f"preflight check failed: {config_path}", f"beach={checker}", *diagnostics])
+    )
 
 
 def run_lint(args: argparse.Namespace) -> None:
@@ -98,9 +160,13 @@ def run_lint(args: argparse.Namespace) -> None:
     except ValueError as exc:
         raise SystemExit(f"TOML parse error: {exc}") from exc
 
+    checker = resolve_native_checker(getattr(args, "beach", None))
+    run_native_check(checker, args.config_path)
+
     print(f"config={args.config_path}")
     print(f"schema={schema_label}")
-    print("checks=toml,schema,semantic")
+    print(f"beach={checker}")
+    print("checks=toml,schema,preflight")
     print("status=ok")
 
 

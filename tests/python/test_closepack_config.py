@@ -59,12 +59,9 @@ def test_build_closepack_config_updates_geometry_and_injection_without_mutating_
     base["output"]["history_stride"] = 77
     base["mesh"]["obj_path"] = "obsolete.obj"
     reservoir_species = base["particles"]["species"][0]
-    reservoir_species["source_mode"] = "reservoir_face"
+    reservoir_species["source_mode"] = "volume_seed"
     reservoir_species.pop("npcls_per_step")
-    reservoir_species.pop("boundary_inflow")
-    reservoir_species["inject_face"] = "z_high"
-    reservoir_species["pos_low"] = [0.0, 0.0, 100.0]
-    reservoir_species["pos_high"] = [1.0, 1.0, 100.0]
+    reservoir_species["boundary_inflow"] = {"z_high": "reservoir"}
     base_before = copy.deepcopy(base)
 
     spec = ClosePackSpec(
@@ -109,10 +106,9 @@ def test_build_closepack_config_updates_geometry_and_injection_without_mutating_
         [1.0 + 1.5 * pitch, -2.0 + pitch, spec.floor_z]
     )
     generated_reservoir = config["particles"]["species"][0]
-    assert generated_reservoir["pos_low"] == pytest.approx(
-        [1.0, -2.0, expected_top]
-    )
-    assert generated_reservoir["pos_high"] == pytest.approx(expected_box_max)
+    # boundary inflow injects through the box face itself, so it carries no pos_low/pos_high to refit.
+    assert generated_reservoir["boundary_inflow"] == {"z_high": "reservoir"}
+    assert "pos_low" not in generated_reservoir and "pos_high" not in generated_reservoir
     boundary_species = config["particles"]["species"][1]
     assert boundary_species == base["particles"]["species"][1]
     assert boundary_species["source_mode"] == "volume_seed"

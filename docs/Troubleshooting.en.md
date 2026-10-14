@@ -50,7 +50,7 @@ code `0`.
 beachx lint beach.toml
 ```
 
-**Expected:** The TOML, JSON Schema, and BEACH semantic checks pass, ending with `status=ok`.
+**Expected:** The TOML, JSON Schema, and Fortran preflight checks pass, ending with `status=ok`.
 
 **Safe action:** Fix the first reported unknown key, type, range, or mutual-exclusion error, then run lint again.
 Use [Common configuration mistakes](Configuration.en.html#4-common-mistakes) and
@@ -70,8 +70,8 @@ tail -n 50 beach-run.log
 **Expected:** The command reports `exit_code=0`, and the log ends with run statistics and `results written to ...`.
 
 **Safe action:** Fix the first `ERROR STOP` message or the diagnostic immediately before it.
-Fortran physics validation can be stricter than the Python schema, so lint success alone does not guarantee that a model
-combination is runnable. Make the configuration satisfy the documented compatibility and prerequisite rules; do not
+Lint already checks the configuration combinations, so a runtime stop comes from external file contents, mesh
+construction, or the numerical state. Make the configuration satisfy the documented compatibility and prerequisite rules; do not
 loosen a tolerance solely to suppress the failure.
 
 ## The output directory is missing or `beachx inspect` cannot read it

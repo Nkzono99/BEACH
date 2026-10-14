@@ -49,7 +49,6 @@ contains
   if (authoring%particle_boundary%present) then
     cfg%particle_boundary_low = authoring%particle_boundary%low
     cfg%particle_boundary_high = authoring%particle_boundary%high
-    cfg%sim%open_boundary_model = lower_ascii(trim(authoring%particle_boundary%ordinary_open_model))
   end if
 
   if (.not. authoring%reservoir%present) return

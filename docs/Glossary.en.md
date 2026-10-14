@@ -26,7 +26,7 @@ configuration or an output. Configuration keys use the grouped (seven-group) nam
 | species | 粒子種 | `particles.species[].species_key` | Particles sharing charge, mass, distribution, and source |
 | macro-particle | マクロ粒子 | — | Computational particle that represents many physical particles |
 | weight | 重み | `sampling.weight` | Number of physical particles represented by one macro-particle |
-| particle source | 粒子源 | `source.mode` | How particles are created (`volume_seed`, `plane_source`, `photo_raycast`) |
+| particle source | 粒子源 | `source.mode` | How particles are created (`volume_seed`, `photo_raycast`) |
 | boundary inflow | 境界流入 | `particles.species[].inflow` | Injecting particles from an external plasma through a non-periodic box face |
 | reservoir | 外部プラズマ（reservoir） | `particles.reservoir` | Plasma with a known distribution assumed to exist outside the box |
 | inflow mapping | 流入の写像 | `particles.reservoir.inflow_model` | How the reservoir distribution is turned into the distribution on the inflow face (`source_vdf`, `infinity_barrier`) |
@@ -60,7 +60,7 @@ configuration or an output. Configuration keys use the grouped (seven-group) nam
 | upstream electron density ($n_{e,\infty}$) | 上流電子密度 | — | Density of the upstream electron Maxwellian given by the sheath root |
 | outflow refresh | 外部根の更新 | `sheath.coupling.outflow_refresh_batches` | Re-solving the sheath root periodically from the photoelectrons observed to leave through the top face |
 | top face (z-high) | 上端面 | `z_high` | Upper face of the box, where the outer sheath is connected |
-| potential barrier | 電位障壁 | `particles.boundary.open_model = "potential_barrier"` | Test that classifies a particle leaving an open face as reflected or escaped from its potential difference to the upstream plasma |
+| potential barrier | 電位障壁 | `infinity_barrier`, `zhao_barrier_v1` | Potential-energy threshold for reservoir inflow or outer-sheath return and escape |
 | upstream band | 上流の帯 | `surface_current_model_upstream_negative_band_V` | Potential width next to upstream where $E^2<0$ for A / C roots with electron drift |
 | field floor | 場の下限 | `sheath.zhao.upstream_field_floor_v_m` | Field level at which the outer sheath hands over to the upstream plasma; roots whose deficit inside the band is at most this are accepted |
 | field deficit | 場の不足 | `surface_current_model_upstream_field_deficit_V_m` | Field missing inside the band, $\sqrt{-\min E^2}$, which the upstream plasma supplies from outside |

@@ -69,8 +69,8 @@ target_macro_particles_per_batch = 2048
 z_high = "reservoir"
 ```
 
-`source` を置くときは `mode` が必須です。`volume_seed`、`plane_source`、`photo_raycast` の物理モデルは従来と同じです。
-旧 `reservoir_face` は移行時に境界流入へ置き換えません。有限の供給面や障壁モデルが同じとは限らないためです。
+`source` を置くときは `mode` が必須です。粒子源は `volume_seed` と `photo_raycast` を選べます。
+外部プラズマからの供給は `[particles.species.inflow]` で指定します。
 `volume_macro_particles_per_batch` は実際に毎batch発生させる数です。
 `target_macro_particles_per_batch` は重みを決める目標値で、実現数の保証ではありません。
 `-1` による先頭種の重みの共有も維持します。
@@ -172,7 +172,7 @@ outflow_refresh_batches = 50
 
 周期場backendは `cached_kneq0`、`panel_spectral_reference`、`finite_images` の3つです。
 前の2つは非零モードと零モードを分離し、`exclude_k0` を内部で導出します。
-外部根の更新には split backend（`cached_kneq0` または `panel_spectral_reference`）を使います。
+`sheath.closure="zero_current"` には split backend（`cached_kneq0` または `panel_spectral_reference`）が必須です。上端面の平均電位を外部根の壁電位 $\phi_0$ に固定するためです。
 `finite_images` は従来の `none/auto` の有限image計算に対応し、無限周期解を表しません。
 このbackendには分離モデルのlower boundary/referenceを指定できません。
 `domain.periodic_axes` と場の境界closureは別の設定です。周期軸だけから `fields.boundary` を推測しません。
@@ -258,7 +258,6 @@ outflow_refresh_batches = 50
 | `particle_boundary.y_high` | `particles.boundary.y_high` |
 | `particle_boundary.z_low` | `particles.boundary.z_low` |
 | `particle_boundary.z_high` | `particles.boundary.z_high` |
-| `particle_boundary.ordinary_open_model` | `particles.boundary.open_model` |
 | `reservoir.inflow_model` | `particles.reservoir.inflow_model` |
 | `reservoir.phi_infty` | `particles.reservoir.phi_infty_v` |
 | `reservoir.face_potential_grid_n` | `particles.reservoir.face_potential_grid_n` |
@@ -272,20 +271,14 @@ outflow_refresh_batches = 50
 | `particles.species[].enabled` | `particles.species[].enabled` |
 | `particles.species[].q_particle` | `particles.species[].charge_c` |
 | `particles.species[].m_particle` | `particles.species[].mass_kg` |
-| `particles.species[].velocity_distribution` | `particles.species[].distribution.model` |
 | `particles.species[].number_density_cm3` | `particles.species[].distribution.number_density_cm3` |
 | `particles.species[].number_density_m3` | `particles.species[].distribution.number_density_m3` |
 | `particles.species[].temperature_ev` | `particles.species[].distribution.temperature_ev` |
 | `particles.species[].temperature_k` | `particles.species[].distribution.temperature_k` |
 | `particles.species[].drift_velocity` | `particles.species[].distribution.drift_velocity_m_s` |
-| `particles.species[].velocity_grid_path` | `particles.species[].distribution.grid_path` |
-| `particles.species[].velocity_grid_pdf_kind` | `particles.species[].distribution.grid_pdf_kind` |
-| `particles.species[].particle_flux_m2_s` | `particles.species[].distribution.particle_flux_m2_s` |
-| `particles.species[].current_density_a_m2` | `particles.species[].distribution.current_density_a_m2` |
 | `particles.species[].source_mode` | `particles.species[].source.mode` |
 | `particles.species[].pos_low` | `particles.species[].source.pos_low` |
 | `particles.species[].pos_high` | `particles.species[].source.pos_high` |
-| `particles.species[].source_normal` | `particles.species[].source.normal` |
 | `particles.species[].inject_face` | `particles.species[].source.inject_face` |
 | `particles.species[].ray_direction` | `particles.species[].source.ray_direction` |
 | `particles.species[].inject_region_mode` | `particles.species[].source.region_mode` |
@@ -298,7 +291,6 @@ outflow_refresh_batches = 50
 | `particles.species[].w_particle` | `particles.species[].sampling.weight` |
 | `particles.species[].target_macro_particles_per_batch` | `particles.species[].sampling.target_macro_particles_per_batch` |
 | `particles.species[].rays_per_batch` | `particles.species[].sampling.rays_per_batch` |
-| `particles.species[].velocity_grid_sampling` | `particles.species[].sampling.velocity_grid_sampling` |
 | `particles.species[].surface_charge_closure` | `particles.species[].charging.closure` |
 | `particles.species[].target_absorbed_current_a` | `particles.species[].charging.target_absorbed_current_a` |
 | `particles.species[].target_emission_current_a` | `particles.species[].charging.target_emission_current_a` |

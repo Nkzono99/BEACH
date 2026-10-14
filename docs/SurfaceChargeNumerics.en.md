@@ -49,16 +49,19 @@ $$
 \sum_j A_{ij}q_j-V_{g(i)}=-\phi_i^\mathrm{fixed}.
 $$
 
-For source triangle $T_j$ carrying unit total charge, the P0 potential coefficient is
+$A_{ij}$ is the potential that the field snapshot of the batch returns at the centroid $\mathbf c_i$ of element $i$ when
+conductor element $j$ carries unit total charge and every other charge is zero, divided by `k_coulomb`. In free space it
+equals the analytic P0 panel potential
 
 $$
 A_{ij}=\frac{1}{A_j}\int_{T_j}
-\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y}.
+\frac{1}{|\mathbf c_i-\mathbf y|}\,dA_{\mathbf y},
 $$
 
-Here $\mathbf c_i$ is the target-element centroid and $A_j$ is source-element area. The analytic panel potential includes
-the self term under the principal-value side convention. $\phi_i^\mathrm{fixed}$ is potential from nonconductor charge and
-the uniform external field divided by `k_coulomb`.
+and in `periodic2` it includes the periodic images and the zero mode ($A_j$ is the source-element area). The potential is
+affine in the charges, so the zero-charge baseline is subtracted to keep the linear part. $\phi_i^\mathrm{fixed}$ is the
+snapshot potential of the current charges minus $\sum_j A_{ij}q_j$; it contains the nonconductor charge, the uniform
+external field, and the gauge constant.
 
 Every group also conserves total charge:
 
@@ -66,9 +69,12 @@ $$
 \sum_{i\in g}q_i=Q_g^\mathrm{before}.
 $$
 
-The dense square system is solved by Gaussian elimination with partial pivoting, and only conductor elements are replaced.
-Charge does not move between objects and nonconductor elements are unchanged. The current model uses centroid collocation
-and P0-triangle influence and accepts only `field_boundary.mode="free"`.
+The dense square system depends only on the geometry and the field boundary condition, so it is assembled once at
+initialization from one snapshot evaluation per conductor element and kept as an LU factorization with partial pivoting.
+Each batch builds the right-hand side from the snapshot potential, solves, and replaces only the conductor elements.
+Charge does not move between objects and nonconductor elements are unchanged. With the adaptive nonzero-mode step, the
+candidate charge is redistributed before the potential step is judged. The initialization cost is one field refresh per
+conductor element.
 
 ## OpenMP, MPI, and restart
 

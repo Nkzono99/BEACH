@@ -51,7 +51,6 @@ make run CONFIG=examples/beach.toml
 | 入門の帯電更新 | `examples/tutorial_insulator.toml` | [10 分チュートリアル](Tutorial.html) |
 | 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](ConfigurationRecipes.html) |
 | 外部 plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir 注入](ReservoirInjection.html) |
-| 内部の矩形面source | `source_mode="plane_source"` | [粒子をどこから入れるか](ParticleSourcesBoundaries.html) |
 | 閉じた光電子再分配 | `examples/periodic2_closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
 | free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
 | 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
@@ -69,14 +68,13 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 1. 近い `examples/*.toml` をコピーする。
 2. [設定レシピ](ConfigurationRecipes.html) で必要な table を選ぶ。
 3. [入力パラメータ](Parameters.html) で単位、既定値、排他条件を確認する。
-4. `beachx lint beach.toml` を実行し、Fortran 実行時にも parser の診断を確認する。
+4. `beachx lint beach.toml` を実行する。lint は schema 検査の後に Fortran の preflight (`beach --check-config`) を呼ぶ。
 
 特に次の制約を先に確認してください。
 
 | 機能 | 必須条件 |
 |---|---|
 | `boundary_inflow` | `[domain]`のbox、解決後の`sim.batch_duration>0`、非周期面、外部VDF |
-| `plane_source` | `[domain]`のbox、正の`batch_duration`、内部矩形の`pos_low/high`と`source_normal` |
 | `photo_raycast` | `[domain]` の box、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
 | closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect` または `redistributed_reflect`、`surface_charge_closure="neutral_return"` |
 | `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[periodic2]` の zero-mode 設定 |

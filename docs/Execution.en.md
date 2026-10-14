@@ -54,7 +54,7 @@ ownership or reduction should see [runtime architecture](Architecture.en.html).
 
 ## Estimate the workload
 
-For `boundary_inflow`, `plane_source`, deprecated `reservoir_face`, and `photo_raycast`, particle counts per batch are
+For `boundary_inflow` and `photo_raycast`, particle counts per batch are
 dynamic, so estimate the workload first.
 
 ```bash

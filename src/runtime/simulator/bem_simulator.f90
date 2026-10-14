@@ -16,7 +16,7 @@ module bem_simulator
                                   particle_step_multiple_box_events, particle_step_ambiguous_open_corner
   use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
                            collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
-  use bem_surface_models, only: apply_surface_model_charge_relaxation
+  use bem_surface_models, only: floating_conductor_solver_type
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
   use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
@@ -102,18 +102,21 @@ module bem_simulator
       integer(i64), intent(out) :: retry_counts(2)
     end subroutine process_particle_batch
 
-    module subroutine commit_batch_charge(mesh, q_floor, external_e, field_bc_mode, workspace, rel, mpi)
+    module subroutine commit_batch_charge(mesh, sim, snapshot, conductor, workspace, rel, mpi)
       type(mesh_type), intent(inout) :: mesh
-      real(dp), intent(in) :: q_floor
-      real(dp), intent(in) :: external_e(3)
-      character(len=*), intent(in) :: field_bc_mode
+      type(sim_config), intent(in) :: sim
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
+      type(floating_conductor_solver_type), intent(in) :: conductor
       type(simulator_batch_workspace_type), intent(inout) :: workspace
       real(dp), intent(out) :: rel
       type(mpi_context), intent(in) :: mpi
     end subroutine commit_batch_charge
 
-    module subroutine prepare_adaptive_charge_candidate(mesh, workspace, mpi)
-      type(mesh_type), intent(in) :: mesh
+    module subroutine prepare_adaptive_charge_candidate(mesh, sim, snapshot, conductor, workspace, mpi)
+      type(mesh_type), intent(inout) :: mesh
+      type(sim_config), intent(in) :: sim
+      type(electrostatic_snapshot_type), intent(inout) :: snapshot
+      type(floating_conductor_solver_type), intent(in) :: conductor
       type(simulator_batch_workspace_type), intent(inout) :: workspace
       type(mpi_context), intent(in) :: mpi
     end subroutine prepare_adaptive_charge_candidate

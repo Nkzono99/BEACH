@@ -49,7 +49,7 @@ checkout を `--no-build-isolation` でインストールする場合、また�
 beachx lint beach.toml
 ```
 
-**期待:** TOML、JSON Schema、BEACH 制約を通過し、最後に `status=ok` が表示されます。
+**期待:** TOML、JSON Schema、Fortran の preflight を通過し、最後に `status=ok` が表示されます。
 
 **安全な対処:** 最初に表示された未知キー、型、値域、または排他条件のエラーを 1 件ずつ修正します。
 [設定のよくある失敗](Configuration.html#4-よくある失敗)と[入力パラメータ](Parameters.html)でキーの所属、型、単位を確認します。
@@ -68,7 +68,7 @@ tail -n 50 beach-run.log
 **期待:** `exit_code=0` になり、ログの最後に実行統計と `results written to ...` が表示されます。
 
 **安全な対処:** `ERROR STOP` またはその直前の最初の診断から修正します。
-Fortran の物理制約検査は Python schema より厳しい場合があるため、lint 成功だけで実行可能とは限りません。
+lint は設定の組合せまで検査するので、実行時の停止は外部ファイルの内容、mesh の構築、数値状態に原因があります。
 互換表や必須条件に合わせて設定を修正し、エラー回避のためだけに許容値を緩めないでください。
 
 ## 出力ディレクトリがない、または `beachx inspect` が読めない

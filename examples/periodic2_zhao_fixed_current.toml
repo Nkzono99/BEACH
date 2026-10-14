@@ -11,7 +11,9 @@ max_step = 100000
 rng_seed = 12345
 field_solver = "fmm"
 field_periodic_image_layers = 1
-field_periodic_far_correction = "none"
+field_periodic_far_correction = "cached_kneq0"
+field_periodic_ewald_layers = 4
+field_periodic_cache_dir = ".beach_cache/periodic2"
 
 [domain]
 box_min = [0.0, 0.0, 0.0]
@@ -28,10 +30,17 @@ z_high = "open"
 [reservoir]
 inflow_model = "source_vdf"
 
+# 零モードを分ける周期場で、上端面の水平平均電位を外部根の壁電位 phi0 に固定する（必須）。
+[periodic2]
+nonzero_mode_backend = "cached_kneq0"
+zero_mode_policy = "exclude_k0"
+lower_boundary_model = "e_bottom_zero"
+
 [surface_current_model]
 model = "zhao_stationary"
 zhao_branch = "auto"
-# 電子にも太陽風の drift を与えるため、上流に接する E^2<0 の帯を |phi_m|(A) / |phi_0|(C) の 10% まで許す。
+# 電子にもイオンと同じ太陽風の drift を与える。上流に接する E^2<0 の帯で欠ける場が、太陽風の運動電場
+# |u x B|（400 km/s、5 nT で約 2 mV/m）以下の根を受理する。
 zhao_upstream_field_floor_v_m = 2.0e-3
 electron_species = "solar_wind_electron"
 ion_species = "solar_wind_ion"

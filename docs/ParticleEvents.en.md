@@ -25,7 +25,7 @@ re-integrating the remainder.
 | Earliest event | Committed action |
 | --- | --- |
 | mesh | Return hit position and element index; absorb the particle |
-| open face | Apply `particle_boundary.ordinary_open_model` at the event position |
+| open face | Escape at the event position (apply the species kinetic barrier with the outer sheath) |
 | reflect face | Reverse normal velocity and advance the remainder from just inside the box |
 | `redistributed_reflect` face | Reverse normal velocity, uniformly redistribute in-plane position, and advance the remainder |
 | periodic face | Move just inside the opposite face, retain velocity, and advance the remainder |
@@ -122,7 +122,7 @@ fraction are combined into one mask.
 
 ### Open, `reflect`, `redistributed_reflect`, and periodic faces
 
-With `particle_boundary.ordinary_open_model="escape"`, any open face in the mask removes the particle and increments
+For ordinary open faces, any open face in the mask removes the particle and increments
 `escaped_boundary`. Both reflection actions reverse the corresponding velocity components; periodic faces move the particle to the
 opposite side without changing velocity. A survivor's event-axis coordinate is placed at an inward guard scaled to the box.
 
@@ -144,9 +144,9 @@ globally or per species. See [Photoelectron emission and lifecycle](Photoelectro
 
 Reflection and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
 
-### Potential barrier
+### Outer-sheath kinetic barrier
 
-`particle_boundary.ordinary_open_model="potential_barrier"` compares outward normal kinetic energy at a single open face,
+The Zhao `zhao_barrier_v1` contract compares outward normal kinetic energy at a single open face with a per-species barrier,
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2,
@@ -155,11 +155,11 @@ $$
 against
 
 $$
-\Delta U=q\left(\phi_\infty-\phi_\mathrm{boundary}\right).
+\Delta U=q\left(\phi_\mathrm{barrier}-\phi_\mathrm{boundary}\right).
 $$
 
-The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$; otherwise it escapes. This is a reduced
-single-face model. A corner involving multiple simultaneous open faces is not generalized and returns
+The particle reflects when $v_\mathrm{out}>0$, $\Delta U>0$, and $K_n<\Delta U$; otherwise it escapes. The outer root supplies $\phi_\mathrm{barrier}$ for each species.
+Crossing an ordinary open face at the same time takes escape precedence. Multiple simultaneous barrier faces return
 `particle_step_ambiguous_open_corner`.
 
 Reservoir inflow correction and closed PE are outside this page's scope. See
@@ -181,7 +181,7 @@ Thus an outward chord crossing cannot be processed with an inward partial-step B
 preserves the event-speed norm. A non-positive or non-finite reconstructed speed, or a zero-length chord, fails closed as an
 unresolved event. BEACH also uses the chord crossing fraction as the remaining-time fraction, but this is not the exact
 physical crossing time under acceleration or magnetic rotation. Check the effect of this time-discretization approximation
-on boundary actions and potential-barrier decisions with `dt`, `dt/2`, and, when needed, `dt/4`. After applying the surviving
+on boundary actions and kinetic-barrier decisions with `dt`, `dt/2`, and, when needed, `dt/4`. After applying the surviving
 action, BEACH uses a guard derived from
 the box coordinates and span to place reflected or periodic event-axis coordinates inside the face. This avoids a subnormal
 one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
@@ -201,7 +201,7 @@ With `multiple_box_events_retry_backend="upper_panel_fourier"`, a `cached_kneq0`
 step from its original position and velocity. The retry expands triangle-P0 charge through
 `periodic2.reference_mode_layers` and factorizes the nonzero Fourier field into its exponentially decaying form above the
 maximum z coordinate of every mesh vertex. Each evaluation adds the same periodic zero mode and `sim.e0` exactly once. If
-any retry field sample is outside this upper-vacuum domain, the replay fails. A potential-barrier event evaluates its
+any retry field sample is outside this upper-vacuum domain, the replay fails. A kinetic-barrier event evaluates its
 boundary potential with the same expansion and potential gauge, and its sample must satisfy the same domain. If that
 sample is outside the domain, or if the replay still cannot complete the events, BEACH retains
 the original `multiple_box_events` status and applies the configured policy. This is not an outer-plasma or sheath model,
@@ -244,7 +244,7 @@ A collision query is `ok` only when all required candidates were examined.
 | `collision_query_grid_stalled` | 4 | Invalid grid geometry or DDA failed to progress |
 | `particle_step_invalid_boundary` | 1001 | Invalid particle, box, or event geometry |
 | `particle_step_multiple_box_events` | 1002 | A ninth box event was needed in one step |
-| `particle_step_ambiguous_open_corner` | 1003 | Multiple open faces occurred at a potential-barrier event |
+| `particle_step_ambiguous_open_corner` | 1003 | Multiple barrier faces occurred at a kinetic-barrier event |
 
 The former name `particle_step_unsupported_barrier_corner` remains as a compatibility alias for code 1003.
 

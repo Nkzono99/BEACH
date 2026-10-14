@@ -74,7 +74,7 @@ Python が型付き属性へ変換する key は [`io.py`](../beach/fortran_resu
 | `simulated_time_s`, `last_rel_change` | 受理済みの模擬時間と最終相対変化。`last_rel_change` は早期停止条件ではない |
 | `checkpoint_schema_version`, `checkpoint_stride` | checkpoint の形式世代と解決済み出力間隔 |
 | `mesh_fingerprint` | 保存電荷を要素へ対応付けるための ordered mesh 識別子 |
-| `reservoir_inflow_map`, `particle_ordinary_open_model` | reservoir と通常 open 面の解決済み境界モデル |
+| `reservoir_inflow_map` | 解決済み reservoir 流入モデル |
 
 build receipt は次の 5 key です。
 

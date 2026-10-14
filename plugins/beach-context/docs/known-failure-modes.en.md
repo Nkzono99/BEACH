@@ -11,7 +11,7 @@
 - Unknown sections or keys are errors in the Fortran TOML parser.
 - `"$schema"` before the first section is not accepted by the Fortran parser; use `#:schema ...` comments.
 - `batch_duration` and `batch_duration_step` are mutually exclusive.
-- `reservoir_face` and `photo_raycast` require resolved `batch_duration > 0`.
+- `boundary_inflow` and `photo_raycast` require resolved `batch_duration > 0`.
 - `temperature_k` and `temperature_ev` are mutually exclusive.
 - `e0` and the `e0_abs` angle form are mutually exclusive.
 - `field_bc_mode = "periodic2"` requires a consistent two-axis periodic box boundary setup and is designed for FMM mode.

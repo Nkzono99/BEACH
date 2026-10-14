@@ -43,7 +43,6 @@ module bem_app_config_authoring_types
     logical :: present = .false.
     integer(i32) :: low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     integer(i32) :: high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
-    character(len=32) :: ordinary_open_model = 'escape'
   end type particle_boundary_authoring_spec
 
   !> 局所 reservoir inflow の公開 authoring 設定。

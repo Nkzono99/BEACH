@@ -72,7 +72,7 @@ def _resolve_species_high_level(
     if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
         raise ConfigError(
             "high-level config error: inject_region_mode is only supported for "
-            'source_mode="reservoir_face" or "photo_raycast".'
+            'source_mode="photo_raycast".'
         )
     if not isinstance(mode, str):
         raise ConfigError(

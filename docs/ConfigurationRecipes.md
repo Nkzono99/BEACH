@@ -83,7 +83,7 @@ surface_side = "outward_closed"
 | 目的 | `surface_model` | 現行モデルの範囲 |
 | --- | --- | --- |
 | 命中位置へ電荷を蓄積する | `insulator` | 表面内伝導、bulk 漏洩、誘電分極を解かない |
-| 物体の総電荷を保って等電位化する | `conductor` | 自由空間中の浮遊導体。`field_boundary.mode="free"` のみ |
+| 物体の総電荷を保って等電位化する | `conductor` | 浮遊導体。free-space と `periodic2` の両方で使える |
 
 チュートリアルは `insulator` です。導体へ変える場合は対象の template、または OBJ 用の `[mesh]` で
 次の 1 行を変更します。
@@ -104,9 +104,7 @@ surface_model = "conductor"
 | `source_mode` | 新しいケースでの用途 | 物理的な供給量 | macro sampling の調整 |
 | --- | --- | --- | --- |
 | `volume_seed` | box 内へ指定個数を置く軌道試験や初期粒子 | 面流束には対応しない | `npcls_per_step` |
-| `plane_source` | box 内部の矩形面から一方向に供給 | 流束 × 面積 × `batch_duration` | `w_particle` または `target_macro_particles_per_batch` |
 | `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `batch_duration` | `rays_per_batch` と ray の命中率 |
-| `reservoir_face` | deprecated な既存設定を読むための互換入力のみ | 新規ケースでは使用しない | 新規ケースでは使用しない |
 
 チュートリアルの `volume_seed` を維持して供給量や領域だけ変えるなら、既存 species entry の次の値だけを
 調整します。
@@ -177,7 +175,7 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 | 粒子源 | 統計精度を上げるときの変更 | 固定する物理条件 |
 | --- | --- | --- |
 | `volume_seed` | `npcls_per_step` を増やし、`w_particle` を同じ比率で減らす | 1 batch の実粒子数 `npcls_per_step × w_particle` |
-| `plane_source` / `boundary_inflow` | `target_macro_particles_per_batch` を増やす、または固定 `w_particle` を減らす。両方は指定しない | 分布、密度または流束、面積、`batch_duration` |
+| `boundary_inflow` | `target_macro_particles_per_batch` を増やす、または固定 `w_particle` を減らす。両方は指定しない | 分布、密度または流束、面積、`batch_duration` |
 | `photo_raycast` | `rays_per_batch` を増やす | 光電流密度、照射方向、形状、`batch_duration` |
 
 `npcls_per_step` は名前に反して **1 batch 当たり**の生成数です。例えば入門ケースの

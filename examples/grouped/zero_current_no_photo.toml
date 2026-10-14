@@ -108,7 +108,10 @@ method = "fmm"
 
 [fields.periodic]
 image_layers = 1
-backend = "finite_images"
+ewald_layers = 4
+cache_dir = ".beach_cache/periodic2"
+lower_boundary_model = "e_bottom_zero"
+backend = "cached_kneq0"
 
 [sheath]
 closure = "zero_current"

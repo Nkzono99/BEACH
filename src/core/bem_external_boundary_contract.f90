@@ -1,4 +1,4 @@
-!> 局所 reservoir 流入と通常 open 面の処理を実行時契約へ正規化する。
+!> 局所 reservoir 流入と種別 kinetic 障壁を実行時契約へ正規化する。
 module bem_external_boundary_contract
   use bem_kinds, only: dp, i32
   use bem_string_utils, only: lower_ascii
@@ -11,12 +11,8 @@ module bem_external_boundary_contract
   integer(i32), parameter, public :: external_inflow_none = 0_i32
   integer(i32), parameter, public :: external_inflow_scalar_barrier = 1_i32
 
-  integer(i32), parameter, public :: external_open_escape = 0_i32
-  integer(i32), parameter, public :: external_open_potential_barrier = 1_i32
-
   type, public :: external_boundary_contract_type
     integer(i32) :: inflow_map = external_inflow_none
-    integer(i32) :: ordinary_open_model = external_open_escape
     logical :: barrier_override_low(3) = .false.
     logical :: barrier_override_high(3) = .false.
     real(dp) :: barrier_potential_low_v(3) = 0.0_dp
@@ -29,33 +25,21 @@ module bem_external_boundary_contract
 
 contains
 
-  !> 局所流入補正と通常 open 面モデルを一意な組へ解決する。
+  !> 局所流入補正を解決し、種別 kinetic 障壁を初期化する。
   subroutine resolve_external_boundary_contract( &
-    reservoir_potential_model, open_boundary_model, contract, status, message &
+    reservoir_potential_model, contract, status, message &
     )
     character(len=*), intent(in) :: reservoir_potential_model
-    character(len=*), intent(in) :: open_boundary_model
     type(external_boundary_contract_type), intent(out) :: contract
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
 
-    character(len=32) :: reservoir, open_model
+    character(len=32) :: reservoir
 
     contract = external_boundary_contract_type()
     status = external_boundary_ok
     message = ''
     reservoir = lower_ascii(trim(reservoir_potential_model))
-    open_model = lower_ascii(trim(open_boundary_model))
-
-    select case (trim(open_model))
-    case ('escape')
-      contract%ordinary_open_model = external_open_escape
-    case ('potential_barrier')
-      contract%ordinary_open_model = external_open_potential_barrier
-    case default
-      call reject('Unknown sim.open_boundary_model.', status, message)
-      return
-    end select
 
     select case (trim(reservoir))
     case ('none')

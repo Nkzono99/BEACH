@@ -25,7 +25,7 @@ mesh hitとbox面の差が$64\epsilon_\mathrm{mach}\max(1,|t|)$以内ならmesh�
 | 最初の衝突・境界イベント | 確定する処理 |
 | --- | --- |
 | mesh | hit位置と要素indexを返し、粒子を吸収 |
-| open face | 境界との交差位置で `particle_boundary.ordinary_open_model` を適用 |
+| open face | 境界との交差位置で脱出（外部シースでは種別 kinetic 障壁を適用） |
 | reflect face | 法線速度を反転し、box内側から残り時間を進める |
 | `redistributed_reflect` face | 法線速度を反転し、面内位置を一様再配置して残り時間を進める |
 | periodic face | 反対側faceの内側へ移し、速度を変えず残り時間を進める |
@@ -121,7 +121,7 @@ $$
 
 ### open、reflect、redistributed_reflect、periodic
 
-`particle_boundary.ordinary_open_model="escape"` では、mask に open face が 1 つでもあれば粒子を消滅させ、
+通常の開放面では、mask に open face が 1 つでもあれば粒子を消滅させ、
 `escaped_boundary` へ数えます。reflect系の face は該当する速度成分を反転し、periodic face は速度を変えずに
 反対側へ移します。生存粒子のevent軸座標はbox scaleに応じた内側guardへ置きます。
 
@@ -144,9 +144,9 @@ global 設定でも species 設定でも上書きできません。closed PE の
 cornerでreflect系とperiodicが組み合わさっても、face maskへまとめてから各軸へ作用するため、軸の走査順序に
 依存しない結果になります。
 
-### potential barrier
+### 外部シースの kinetic 障壁
 
-`particle_boundary.ordinary_open_model="potential_barrier"` は、単一 open face から外向きに出る粒子について法線運動エネルギー
+Zhao の `zhao_barrier_v1` 契約は、種別ごとの障壁を持つ単一 open face で法線運動エネルギー
 
 $$
 K_n=\frac{1}{2}m v_\mathrm{out}^2
@@ -155,12 +155,12 @@ $$
 と電位障壁
 
 $$
-\Delta U=q\left(\phi_\infty-\phi_\mathrm{boundary}\right)
+\Delta U=q\left(\phi_\mathrm{barrier}-\phi_\mathrm{boundary}\right)
 $$
 
 を比較します。$v_\mathrm{out}>0$、$\Delta U>0$かつ$K_n<\Delta U$ならreflectし、それ以外はescapeします。
-これは単一faceのreduced modelです。複数open faceが同時に関係するcornerは一般化せず、
-`particle_step_ambiguous_open_corner`で停止します。
+障壁電位 $\phi_\mathrm{barrier}$ は外部根から粒子種ごとに与えます。通常の open 面を同時に横切る場合は脱出が優先します。
+複数の障壁面を同時に横切る場合は `particle_step_ambiguous_open_corner` を返します。
 
 reservoir 粒子の流入補正と closed PE はこのページの対象外です。[reservoir 注入](ReservoirInjection.html)と
 [粒子の escape と局所 return](ParticleEscapeReturn.html)を参照してください。
@@ -178,7 +178,7 @@ $$
 これにより、強い磁場で部分stepのBoris速度だけが内向きへ反転していても、外向きchord crossingへ内向き速度を
 適用しません。純磁場ではevent速度のノルムを保存します。非正・非有限の速さ、または零長chordは
 未解決eventとしてfail closedです。chord交差fractionは残り時間のfractionにも使いますが、加速または
-磁場旋回中の真の交差時刻ではありません。この時間離散化近似が境界作用やpotential-barrier判定へ与える影響は、
+磁場旋回中の真の交差時刻ではありません。この時間離散化近似が境界作用やkinetic-barrier判定へ与える影響は、
 `dt`、`dt/2`、必要なら`dt/4`で収束を確認します。粒子が生存する境界作用を適用した後、
 reflect系/periodic後のevent軸座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
 なる1 ULP offsetを避け、残り軌道による次のevent fractionが0へunderflowする境界chatterを防ぎます。
@@ -198,7 +198,7 @@ $$
 出た 1 step だけを元の位置・速度から再試行します。再試行の非零モード場は triangle P0 電荷を
 `periodic2.reference_mode_layers` まで Fourier 展開し、全 mesh 頂点の最大 z より上で成立する指数減衰形へ
 因子化します。各評価では同じ periodic zero mode と `sim.e0` を 1 回だけ加えます。再試行中の場評価点が
-1 点でもこの上部真空域に入らない場合は失敗とします。potential-barrier event の境界電位も同じ展開と
+1 点でもこの上部真空域に入らない場合は失敗とします。kinetic-barrier event の境界電位も同じ展開と
 potential gauge で評価し、その評価点にも同じ成立域を要求します。成立域外の場合、または再試行後も
 event を完了できない場合は、元の
 `multiple_box_events` を保持して policy へ渡します。これは外部プラズマやシースを追加するモデルではなく、
@@ -240,7 +240,7 @@ collision queryは、必要な候補をすべて調べた場合だけ`ok`です�
 | `collision_query_grid_stalled` | 4 | grid geometry不正またはDDAが進行しない |
 | `particle_step_invalid_boundary` | 1001 | particle、box、衝突・境界geometryが不正 |
 | `particle_step_multiple_box_events` | 1002 | 1 stepで9回目のbox境界イベントが必要 |
-| `particle_step_ambiguous_open_corner` | 1003 | potential barrier で複数 open face が同時に発生 |
+| `particle_step_ambiguous_open_corner` | 1003 | 種別 kinetic 障壁の複数面を同時に横切る |
 
 旧名`particle_step_unsupported_barrier_corner`は、code 1003の互換aliasとして残します。
 

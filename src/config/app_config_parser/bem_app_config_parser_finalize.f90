@@ -47,9 +47,100 @@ contains
   call validate_active_physics_config(cfg%sim, field_config, cfg%periodic2, panel_config, status, message)
   if (status /= physics_config_ok) call stop_config_error(message)
   if (config_uses_surface_model(cfg, 'dielectric')) error stop 'dielectric surface model is not implemented.'
-  if (trim(cfg%sim%field_bc_mode) /= 'free' .and. config_uses_surface_model(cfg, 'conductor')) then
-    error stop 'surface_model="conductor" currently requires field_boundary.mode="free".'
-  end if
+  call validate_field_parameters(cfg)
+  call validate_adaptive_batch_config(cfg)
+  call validate_mesh_config(cfg)
   end procedure validate_field_config
+
+  !> solver 固有パラメータは、その solver が有効なときだけ検査する。
+  subroutine validate_field_parameters(cfg)
+    type(app_config), intent(in) :: cfg
+
+    if (trim(cfg%sim%field_solver) /= 'direct') then
+      if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0_dp .or. cfg%sim%tree_theta > 1.0_dp) then
+        error stop 'sim.tree_theta must satisfy 0 < theta <= 1 for tree-capable solvers.'
+      end if
+      if (cfg%sim%tree_leaf_max < 1_i32) error stop 'sim.tree_leaf_max must be >= 1 for tree-capable solvers.'
+      if (cfg%sim%tree_min_nelem < 1_i32) error stop 'sim.tree_min_nelem must be >= 1 for tree-capable solvers.'
+    end if
+    if (trim(cfg%sim%field_bc_mode) /= 'periodic2') return
+    if (cfg%sim%field_periodic_image_layers < 0_i32) then
+      error stop 'sim.field_periodic_image_layers must be >= 0 for periodic2.'
+    end if
+    if (trim(cfg%sim%field_periodic_far_correction) /= 'cached_kneq0') return
+    if (cfg%sim%field_periodic_image_layers < 1_i32) then
+      error stop 'sim.field_periodic_image_layers must be >= 1 for cached_kneq0.'
+    end if
+    if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
+      error stop 'sim.field_periodic_ewald_layers must be >= 1 for cached_kneq0.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0_dp) then
+      error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0 for cached_kneq0.'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
+        cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
+      error stop 'sim.field_periodic_generation_tolerance must be finite and > 0 for cached_kneq0.'
+    end if
+    if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
+      error stop 'sim.field_periodic_cache_dir must be a non-empty string for cached_kneq0.'
+    end if
+  end subroutine validate_field_parameters
+
+  !> adaptive nonzero-mode step は、棄却した trial を巻き戻せる時間スケール付き粒子源だけを許す。
+  subroutine validate_adaptive_batch_config(cfg)
+    type(app_config), intent(in) :: cfg
+    integer :: s
+    logical :: flux_driven
+
+    if (cfg%periodic2%max_nonzero_mode_potential_step <= 0.0_dp) return
+    if (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)) /= 'cached_kneq0') then
+      error stop 'periodic2.max_nonzero_mode_potential_step requires nonzero_mode_backend="cached_kneq0".'
+    end if
+    if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
+      error stop 'periodic2.max_nonzero_mode_potential_step requires a finite positive sim.batch_duration '// &
+        'or resolved batch_duration_step.'
+    end if
+    do s = 1, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      flux_driven = any(cfg%particle_species(s)%boundary_inflow_low == particle_inflow_reservoir) .or. &
+                    any(cfg%particle_species(s)%boundary_inflow_high == particle_inflow_reservoir)
+      if (trim(cfg%particle_species(s)%source_mode) == 'volume_seed' .and. cfg%particle_species(s)%npcls_per_step > 0_i32) then
+        error stop 'periodic2.max_nonzero_mode_potential_step requires time-scaled reservoir or photo_raycast sources.'
+      end if
+      if (flux_driven .and. .not. cfg%particle_species(s)%has_target_macro_particles_per_batch) then
+        error stop 'adaptive reservoir injection requires target_macro_particles_per_batch instead of fixed w_particle.'
+      end if
+    end do
+  end subroutine validate_adaptive_batch_config
+
+  !> mesh の構築前に決まる幾何条件を検査する。
+  subroutine validate_mesh_config(cfg)
+    type(app_config), intent(in) :: cfg
+    integer :: i
+
+    select case (trim(cfg%mesh_mode))
+    case ('obj', 'auto')
+      if (trim(cfg%mesh_surface_side_policy) == 'not_specified') then
+        error stop 'mesh.surface_side is required for mesh.mode="obj" or "auto".'
+      end if
+    case ('template')
+      continue
+    case default
+      error stop 'mesh.mode must be "auto", "obj", or "template".'
+    end select
+    do i = 1, cfg%n_templates
+      if (.not. cfg%templates(i)%enabled) cycle
+      select case (trim(lower_ascii(cfg%templates(i)%kind)))
+      case ('plate_hole', 'plane_hole')
+        if (cfg%templates(i)%radius >= 0.5_dp*min(cfg%templates(i)%size_x, cfg%templates(i)%size_y)) then
+          error stop 'mesh.templates plate_hole radius must be smaller than half of min(size_x, size_y).'
+        end if
+      case ('annulus')
+        if (cfg%templates(i)%inner_radius >= cfg%templates(i)%radius) then
+          error stop 'mesh.templates annulus inner_radius must be smaller than radius.'
+        end if
+      end select
+    end do
+  end subroutine validate_mesh_config
 
 end submodule bem_app_config_parser_finalize

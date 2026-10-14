@@ -14,7 +14,7 @@ program test_boundary
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
-  call test_init(28)
+  call test_init(25)
 
   cfg = sim_config()
   cfg%use_box = .true.
@@ -98,67 +98,6 @@ program test_boundary
   call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
   call assert_true(.not. alive, 'degenerate box should stop the particle')
   call assert_true(escaped_boundary, 'degenerate box should mark escaped_boundary')
-  call test_end()
-
-  call test_begin('open_potential_barrier_reflects')
-  cfg = sim_config()
-  cfg%use_box = .true.
-  cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
-  cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
-  cfg%bc_high(1) = bc_open
-  cfg%open_boundary_model = 'potential_barrier'
-  cfg%phi_infty = 10.0d0
-  x = [1.1d0, 0.5d0, 0.5d0]
-  v = [1.0d0, 2.0d0, 3.0d0]
-  alive = .true.
-  call apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, q_particle=1.0d0, m_particle=1.0d0, phi_boundary=0.0d0, &
-    potential_axis=1_i32, potential_high_side=.true. &
-    )
-  expected = [0.9d0, 0.5d0, 0.5d0]
-  call assert_true(alive, 'potential barrier should reflect slow outward particles')
-  call assert_true(.not. escaped_boundary, 'reflected potential barrier particle should not mark escaped')
-  call assert_allclose_1d(x, expected, 1.0d-10, 'potential barrier reflection position mismatch')
-  call assert_close_dp(v(1), -1.0d0, 1.0d-12, 'potential barrier reflection velocity mismatch')
-  call assert_close_dp(v(2), 2.0d0, 1.0d-12, 'potential barrier should preserve tangential velocity')
-  call test_end()
-
-  call test_begin('open_potential_barrier_escapes')
-  cfg = sim_config()
-  cfg%use_box = .true.
-  cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
-  cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
-  cfg%bc_high(1) = bc_open
-  cfg%open_boundary_model = 'potential_barrier'
-  cfg%phi_infty = 0.25d0
-  x = [1.1d0, 0.5d0, 0.5d0]
-  v = [1.0d0, 2.0d0, 3.0d0]
-  alive = .true.
-  call apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, q_particle=1.0d0, m_particle=1.0d0, phi_boundary=0.0d0, &
-    potential_axis=1_i32, potential_high_side=.true. &
-    )
-  call assert_true(.not. alive, 'small potential barrier should allow escape')
-  call assert_true(escaped_boundary, 'escaped potential barrier particle should mark escaped')
-  call test_end()
-
-  call test_begin('open_potential_barrier_requires_matching_face')
-  cfg = sim_config()
-  cfg%use_box = .true.
-  cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
-  cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
-  cfg%bc_high(1) = bc_open
-  cfg%open_boundary_model = 'potential_barrier'
-  cfg%phi_infty = 10.0d0
-  x = [1.1d0, 0.5d0, 0.5d0]
-  v = [1.0d0, 2.0d0, 3.0d0]
-  alive = .true.
-  call apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, q_particle=1.0d0, m_particle=1.0d0, phi_boundary=0.0d0, &
-    potential_axis=2_i32, potential_high_side=.true. &
-    )
-  call assert_true(.not. alive, 'potential barrier should not use a different face potential')
-  call assert_true(escaped_boundary, 'mismatched potential face should escape')
   call test_end()
 
   call test_begin('first_boundary_event_single_face')
@@ -656,24 +595,6 @@ contains
     call assert_true(all(event_v == v_before), 'invalid action must preserve velocity')
     call assert_true(event_alive, 'invalid action must preserve alive state')
 
-    event_cfg%bc_high(1) = bc_reflect
-    event_cfg%open_boundary_model = 'potential_barrier'
-    call apply_escape_reflect_periodic_event( &
-      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
-      )
-    call assert_equal_i32(status, boundary_event_invalid_geometry, 'potential-barrier action should be owned by stepper')
-    call assert_true(all(event_x == x_before), 'rejected barrier action must preserve position')
-    call assert_true(all(event_v == v_before), 'rejected barrier action must preserve velocity')
-    call assert_true(event_alive, 'rejected barrier action must preserve alive state')
-
-    event_cfg%open_boundary_model = 'unknown'
-    call apply_escape_reflect_periodic_event( &
-      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
-      )
-    call assert_equal_i32(status, boundary_event_invalid_geometry, 'unknown open model should be invalid')
-    call assert_true(all(event_x == x_before), 'unknown open model must preserve position')
-    call assert_true(all(event_v == v_before), 'unknown open model must preserve velocity')
-    call assert_true(event_alive, 'unknown open model must preserve alive state')
   end subroutine test_boundary_event_invalid_action_is_transactional
 
 end program test_boundary

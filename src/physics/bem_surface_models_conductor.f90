@@ -1,20 +1,96 @@
 !> `bem_surface_models` の浮遊導体電荷再配分を実装する submodule。
 submodule(bem_surface_models) bem_surface_models_conductor
   use bem_constants, only: k_coulomb
-  use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
-  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   implicit none
 contains
 
-  !> conductor 要素を列挙し、mesh_id ごとの総電荷を保って等電位化する。
-  module procedure relax_floating_conductor_charges
-  integer(i32), allocatable :: conductor_elems(:), conductor_mesh_ids(:), elem_group(:)
-  integer(i32) :: ngroup
+  module procedure init_floating_conductor_solver
+  real(dp), allocatable :: saved_charge(:), baseline(:), scaled_potential(:), system(:, :)
+  integer(i32) :: col, row, group_idx, nsys
 
-  allocate (conductor_elems(ncond), elem_group(ncond), conductor_mesh_ids(ncond))
-  call collect_conductor_elements(mesh, conductor_elems, conductor_mesh_ids, elem_group, ngroup)
-  call solve_floating_conductor_charges(mesh, external_e, conductor_elems, elem_group, ngroup)
+  self%ncond = int(count(mesh%elem_surface_model == surface_model_conductor), kind=i32)
+  self%ngroup = 0_i32
+  if (self%ncond <= 0_i32) return
+
+  allocate (self%elems(self%ncond), self%group(self%ncond), self%group_mesh_id(self%ncond))
+  call collect_conductor_elements(mesh, self%elems, self%group_mesh_id, self%group, self%ngroup)
+
+  ! 影響行列: 単位電荷を conductor 要素に 1 つずつ置き、他を 0 にした snapshot の電位から
+  ! 電荷 0 の基準電位 (外場、ゲージ定数) を引く。電位は電荷に対して affine なのでこれで線形部だけが残る。
+  allocate (saved_charge(mesh%nelem), baseline(self%ncond), scaled_potential(self%ncond))
+  allocate (self%influence(self%ncond, self%ncond))
+  saved_charge = mesh%q_elem
+  mesh%q_elem = 0.0_dp
+  call conductor_centroid_potentials(self, mesh, sim, snapshot, baseline)
+  do col = 1, self%ncond
+    mesh%q_elem = 0.0_dp
+    mesh%q_elem(self%elems(col)) = 1.0_dp
+    call conductor_centroid_potentials(self, mesh, sim, snapshot, scaled_potential)
+    self%influence(:, col) = scaled_potential - baseline
+  end do
+  mesh%q_elem = saved_charge
+  call snapshot%refresh(mesh)
+  if (.not. all(ieee_is_finite(self%influence))) then
+    error stop 'floating conductor influence matrix is not finite.'
+  end if
+
+  ! 等電位条件 (row 1..ncond) と group 総電荷保存 (row ncond+g) を並べた正方系。
+  nsys = self%ncond + self%ngroup
+  allocate (system(nsys, nsys))
+  system = 0.0_dp
+  do row = 1, self%ncond
+    system(row, 1:self%ncond) = self%influence(row, :)
+    system(row, self%ncond + self%group(row)) = -1.0_dp
+  end do
+  do group_idx = 1, self%ngroup
+    row = self%ncond + group_idx
+    do col = 1, self%ncond
+      if (self%group(col) == group_idx) system(row, col) = 1.0_dp
+    end do
+  end do
+  call factor_square_system(system, self%factors, self%pivot)
+  end procedure init_floating_conductor_solver
+
+  module procedure relax_floating_conductor_charges
+  real(dp), allocatable :: scaled_potential(:), rhs(:), solution(:)
+  integer(i32) :: row, nsys
+
+  if (self%ncond <= 0_i32) return
+  nsys = self%ncond + self%ngroup
+  allocate (scaled_potential(self%ncond), rhs(nsys), solution(nsys))
+
+  call conductor_centroid_potentials(self, mesh, sim, snapshot, scaled_potential)
+  ! 固定項 = 全電荷の電位 - conductor 電荷の線形寄与。非 conductor 電荷、外場、ゲージ定数を含む。
+  rhs = 0.0_dp
+  rhs(1:self%ncond) = -(scaled_potential - matmul(self%influence, mesh%q_elem(self%elems)))
+  do row = 1, self%ncond
+    rhs(self%ncond + self%group(row)) = rhs(self%ncond + self%group(row)) + mesh%q_elem(self%elems(row))
+  end do
+  call solve_factored_system(self%factors, self%pivot, rhs, solution)
+  if (.not. all(ieee_is_finite(solution))) then
+    error stop 'floating conductor relaxation produced a non-finite charge.'
+  end if
+  do row = 1, self%ncond
+    mesh%q_elem(self%elems(row)) = solution(row)
+  end do
   end procedure relax_floating_conductor_charges
+
+  !> 現在の `mesh%q_elem` で snapshot を refresh し、conductor 要素重心の電位を `k_coulomb` で割って返す。
+  subroutine conductor_centroid_potentials(self, mesh, sim, snapshot, scaled_potential)
+    class(floating_conductor_solver_type), intent(in) :: self
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    real(dp), intent(out) :: scaled_potential(:)
+    real(dp) :: potential
+    integer(i32) :: row
+
+    call snapshot%refresh(mesh)
+    do row = 1, self%ncond
+      call snapshot%eval_local_phi(mesh, sim, mesh%centers(:, self%elems(row)), potential)
+      scaled_potential(row) = potential/k_coulomb
+    end do
+  end subroutine conductor_centroid_potentials
 
   !> conductor 要素番号と、対応する conductor object group を列挙する。
   subroutine collect_conductor_elements(mesh, conductor_elems, conductor_mesh_ids, elem_group, ngroup)
@@ -56,86 +132,6 @@ contains
     group_idx = ngroup
   end function find_or_append_mesh_id
 
-  !> conductor 要素の電荷と object 電位を同時に解く。
-  subroutine solve_floating_conductor_charges(mesh, external_e, conductor_elems, elem_group, ngroup)
-    type(mesh_type), intent(inout) :: mesh
-    real(dp), intent(in) :: external_e(3)
-    integer(i32), intent(in) :: conductor_elems(:)
-    integer(i32), intent(in) :: elem_group(:)
-    integer(i32), intent(in) :: ngroup
-
-    real(dp), allocatable :: matrix(:, :), rhs(:), solution(:), total_charge(:)
-    type(panel_geometry_type), allocatable :: panel_geometry(:)
-    integer(i32) :: ncond, nsys, row, col, group_idx, elem_i, elem_j, status
-
-    ncond = int(size(conductor_elems), kind=i32)
-    nsys = ncond + ngroup
-    allocate (matrix(nsys, nsys), rhs(nsys), solution(nsys), total_charge(ngroup), panel_geometry(mesh%nelem))
-    matrix = 0.0d0
-    rhs = 0.0d0
-    total_charge = 0.0d0
-    do elem_j = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, elem_j), mesh%v1(:, elem_j), mesh%v2(:, elem_j), panel_geometry(elem_j), status &
-        )
-      if (status /= panel_geometry_ok) then
-        error stop 'floating conductor received invalid triangle geometry.'
-      end if
-    end do
-
-    do row = 1, ncond
-      elem_i = conductor_elems(row)
-      group_idx = elem_group(row)
-      do col = 1, ncond
-        elem_j = conductor_elems(col)
-        matrix(row, col) = potential_coeff(panel_geometry(elem_j), mesh%centers(:, elem_i))
-      end do
-      matrix(row, ncond + group_idx) = -1.0d0
-      rhs(row) = -fixed_scaled_potential(mesh, panel_geometry, elem_i, external_e)
-      total_charge(group_idx) = total_charge(group_idx) + mesh%q_elem(elem_i)
-    end do
-
-    do group_idx = 1, ngroup
-      row = ncond + group_idx
-      rhs(row) = total_charge(group_idx)
-      do col = 1, ncond
-        if (elem_group(col) == group_idx) matrix(row, col) = 1.0d0
-      end do
-    end do
-
-    call solve_square_system(matrix, rhs, solution)
-    do row = 1, ncond
-      mesh%q_elem(conductor_elems(row)) = solution(row)
-    end do
-  end subroutine solve_floating_conductor_charges
-
-  !> P0 triangle j の単位電荷が要素 i の重心に作る、k_coulomb で割った電位係数。
-  real(dp) function potential_coeff(geometry, target) result(coeff)
-    type(panel_geometry_type), intent(in) :: geometry
-    real(dp), intent(in) :: target(3)
-    real(dp) :: potential, field(3)
-
-    call panel_potential_field( &
-      geometry, 1.0_dp, target, panel_side_principal_value, potential, field &
-      )
-    coeff = potential/k_coulomb
-  end function potential_coeff
-
-  !> conductor 以外の既存電荷と一様外部電場が作る、k_coulomb で割った電位。
-  real(dp) function fixed_scaled_potential(mesh, panel_geometry, elem_i, external_e) result(phi)
-    type(mesh_type), intent(in) :: mesh
-    type(panel_geometry_type), intent(in) :: panel_geometry(:)
-    integer(i32), intent(in) :: elem_i
-    real(dp), intent(in) :: external_e(3)
-    integer(i32) :: elem_j
-
-    phi = -dot_product(external_e, mesh%centers(:, elem_i))/k_coulomb
-    do elem_j = 1, mesh%nelem
-      if (mesh%elem_surface_model(elem_j) == surface_model_conductor) cycle
-      phi = phi + mesh%q_elem(elem_j)*potential_coeff(panel_geometry(elem_j), mesh%centers(:, elem_i))
-    end do
-  end function fixed_scaled_potential
-
   !> elem_mesh_id が未割当の古い mesh でも安全に mesh_id を返す。
   integer(i32) function element_mesh_id(mesh, elem_idx) result(mesh_id)
     type(mesh_type), intent(in) :: mesh
@@ -148,57 +144,72 @@ contains
     end if
   end function element_mesh_id
 
-  !> 部分ピボット付き Gauss 消去で正方線形系を解く。
-  subroutine solve_square_system(matrix, rhs, solution)
+  !> 部分ピボット付き Gauss 消去で正方行列を LU 分解する。`factors` は L (対角 1) と U を同じ配列に持つ。
+  subroutine factor_square_system(matrix, factors, pivot)
     real(dp), intent(in) :: matrix(:, :)
-    real(dp), intent(in) :: rhs(:)
-    real(dp), intent(out) :: solution(:)
+    real(dp), allocatable, intent(out) :: factors(:, :)
+    integer(i32), allocatable, intent(out) :: pivot(:)
 
-    real(dp), allocatable :: work(:, :), rhs_work(:), row_tmp(:)
-    real(dp) :: factor, pivot_abs, best_abs, tmp_val
-    integer(i32) :: n, row, col, pivot, elim
+    real(dp), allocatable :: row_tmp(:)
+    real(dp) :: pivot_abs, best_abs
+    integer(i32) :: n, row, col, best
 
     n = int(size(matrix, 1), kind=i32)
-    if (size(matrix, 2) /= n .or. size(rhs) /= n .or. size(solution) /= n) then
-      error stop 'surface model linear system dimension mismatch.'
-    end if
-
-    allocate (work(n, n), rhs_work(n), row_tmp(n))
-    work = matrix
-    rhs_work = rhs
-
+    if (size(matrix, 2) /= n) error stop 'surface model linear system must be square.'
+    allocate (factors(n, n), pivot(n), row_tmp(n))
+    factors = matrix
     do col = 1, n
-      pivot = col
-      best_abs = abs(work(col, col))
+      best = col
+      best_abs = abs(factors(col, col))
       do row = col + 1, n
-        pivot_abs = abs(work(row, col))
+        pivot_abs = abs(factors(row, col))
         if (pivot_abs > best_abs) then
           best_abs = pivot_abs
-          pivot = row
+          best = row
         end if
       end do
       if (best_abs <= 1.0d-30) error stop 'surface model conductor system is singular.'
-      if (pivot /= col) then
-        row_tmp = work(col, :)
-        work(col, :) = work(pivot, :)
-        work(pivot, :) = row_tmp
-        tmp_val = rhs_work(col)
-        rhs_work(col) = rhs_work(pivot)
-        rhs_work(pivot) = tmp_val
+      pivot(col) = best
+      if (best /= col) then
+        row_tmp = factors(col, :)
+        factors(col, :) = factors(best, :)
+        factors(best, :) = row_tmp
       end if
-      do elim = col + 1, n
-        factor = work(elim, col)/work(col, col)
-        work(elim, col:n) = work(elim, col:n) - factor*work(col, col:n)
-        rhs_work(elim) = rhs_work(elim) - factor*rhs_work(col)
+      do row = col + 1, n
+        factors(row, col) = factors(row, col)/factors(col, col)
+        factors(row, col + 1:n) = factors(row, col + 1:n) - factors(row, col)*factors(col, col + 1:n)
       end do
     end do
+  end subroutine factor_square_system
 
-    solution = 0.0d0
-    do row = n, 1, -1
-      tmp_val = rhs_work(row)
-      if (row < n) tmp_val = tmp_val - sum(work(row, row + 1:n)*solution(row + 1:n))
-      solution(row) = tmp_val/work(row, row)
+  !> LU 分解済みの系を解く。
+  subroutine solve_factored_system(factors, pivot, rhs, solution)
+    real(dp), intent(in) :: factors(:, :)
+    integer(i32), intent(in) :: pivot(:)
+    real(dp), intent(in) :: rhs(:)
+    real(dp), intent(out) :: solution(:)
+
+    real(dp) :: tmp_val
+    integer(i32) :: n, row, col
+
+    n = int(size(factors, 1), kind=i32)
+    if (size(rhs) /= n .or. size(solution) /= n) error stop 'surface model linear system dimension mismatch.'
+    solution = rhs
+    do col = 1, n
+      if (pivot(col) /= col) then
+        tmp_val = solution(col)
+        solution(col) = solution(pivot(col))
+        solution(pivot(col)) = tmp_val
+      end if
+      do row = col + 1, n
+        solution(row) = solution(row) - factors(row, col)*solution(col)
+      end do
     end do
-  end subroutine solve_square_system
+    do row = n, 1, -1
+      tmp_val = solution(row)
+      if (row < n) tmp_val = tmp_val - sum(factors(row, row + 1:n)*solution(row + 1:n))
+      solution(row) = tmp_val/factors(row, row)
+    end do
+  end subroutine solve_factored_system
 
 end submodule bem_surface_models_conductor

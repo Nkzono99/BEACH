@@ -763,7 +763,6 @@ Since v1.0.0, the unified `beachx` CLI is recommended.
 | `beachx kernel-forces <output_dir>` | Output per-object resultant-force CSV using the Fortran field kernel |
 | `beachx object-detachment <output_dir>` | Analyze a frozen-source wrench, detachment path, work, and speed while retaining periodic images |
 | `beachx lint <config.toml>` | Check TOML / JSON Schema / BEACH constraints |
-| `beachx config validate <config.toml>` | Validate a configuration file |
 | `beachx model close-pack` | Generate a close-packed model |
 
 The ordinary `beachx inspect` summary prints `potential_min` / `potential_max`

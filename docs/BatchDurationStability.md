@@ -31,7 +31,7 @@ $$
 です。2 つのキーは同時に指定できません。`sim.dt` は粒子を前進させる時間刻みであり、
 表面電荷をまとめて反映する `batch_duration` とは役割が異なります。
 
-`boundary_inflow`、`plane_source`、`reservoir_face`、`photo_raycast`、および
+`boundary_inflow`、`photo_raycast`、および
 `surface_charge_closure="fixed_current"` は、正の解決済み `batch_duration` を必要とします。
 完全な入力条件は[入力パラメータリファレンス](Parameters.html)で確認してください。
 
@@ -128,8 +128,8 @@ done
 
 - `[periodic2].nonzero_mode_backend = "cached_kneq0"`
 - 正の `sim.batch_duration`、または正の値へ解決される `sim.batch_duration_step`
-- time-scaled な `boundary_inflow`、`plane_source`、`reservoir_face`、`photo_raycast`
-- reservoir 流入と `plane_source` では、固定 `w_particle` ではなく `target_macro_particles_per_batch`
+- time-scaled な `boundary_inflow`、`photo_raycast`
+- reservoir 流入では、固定 `w_particle` ではなく `target_macro_particles_per_batch`
 
 正の `npcls_per_step` を持つ `volume_seed` はこの経路で使えません。
 

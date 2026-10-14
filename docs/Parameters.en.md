@@ -37,7 +37,7 @@ applicability conditions below each table.
 | Format | TOML. Multi-line arrays are supported |
 | Unknown keys | Unknown section names and key names are errors |
 | schema | `schemas/beach.schema.json` |
-| Python validation | `beachx lint beach.toml` / `beachx config validate beach.toml` check the packaged schema and semantic constraints |
+| Validation | `beachx lint beach.toml` checks keys, types, and ranges with the packaged schema, then combinations and derived values with `beach --check-config`. The Fortran preflight owns the combination constraints |
 | Fortran validation | For development and diagnostics, `beach --check-config beach.toml` checks loading, normalization, and minimum model prerequisites; the path is required. It does not replace lint before running |
 | Basic values | Reals and array components must be finite; integer fields do not accept reals or booleans |
 | Integer storage range | Signed 32-bit `-2147483648..2147483647`; out-of-range values are rejected before conversion. Lint checks field-specific ranges |
@@ -85,7 +85,7 @@ For the first run, use the [Ten-Minute Tutorial](Tutorial.en.html) and
 configuration. This beginner case tracks 200 macro-electrons per batch for 20 surface-charge updates and uses
 `field_solver="direct"` with `field_boundary.mode="free"`.
 
-Add boundary-reservoir inflow, `plane_source`, periodic boundaries, closed photoelectrons, and an infinite-periodic correction later from
+Add boundary-reservoir inflow, periodic boundaries, closed photoelectrons, and an infinite-periodic correction later from
 [Design a Simulation Case](ConfigurationRecipes.en.html), after the beginner case
 runs successfully.
 
@@ -135,7 +135,7 @@ Paths such as `sim.dt` and `domain.periodic_axes` mean “table name.key” in t
 | `[periodic2]` | root | conditional | Nonzero mode, zero mode, and lower-boundary model for split periodic2 |
 | `[output]` | root | optional | Output directory, history, checkpoint resume |
 
-`[sim]` and `[domain]` are required when using `boundary_inflow`, `plane_source`, `reservoir_face`, or `photo_raycast`.
+`[sim]` and `[domain]` are required when using `boundary_inflow` or `photo_raycast`.
 At least one `[[particles.species]]` entry is required.
 
 ---
@@ -156,7 +156,7 @@ At least one `[[particles.species]]` entry is required.
 | `max_step` | int | `400` | Maximum pushes per particle. `>=1` |
 
 Specifying both `batch_duration` and `batch_duration_step` is an error. For
-`boundary_inflow` / `plane_source` / `reservoir_face` / `photo_raycast`, the resolved `batch_duration > 0` is required.
+`boundary_inflow` / `photo_raycast`, the resolved `batch_duration > 0` is required.
 See [Case design](ConfigurationRecipes.en.html#7-set-time-scales-and-particle-sampling) to choose steps, tracking limits,
 and particle counts together.
 
@@ -305,7 +305,6 @@ Follow the
 [particle_boundary]
 z_low = "open"
 z_high = "open"
-ordinary_open_model = "escape"
 ```
 
 | Key | Type | Default | Description |
@@ -313,11 +312,10 @@ ordinary_open_model = "escape"
 | `x_low`, `x_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic x faces |
 | `y_low`, `y_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic y faces |
 | `z_low`, `z_high` | string | follow domain | `open` / `reflect` / `redistributed_reflect` on nonperiodic z faces |
-| `ordinary_open_model` | string | `"escape"` | `escape` / `potential_barrier` on effective open faces |
 
 An omitted face inherits domain topology and is `open` when nonperiodic. Periodic faces cannot be overridden.
-See [Particle Events](ParticleEvents.en.html#open-reflect-redistributed_reflect-and-periodic-faces) for reflection,
-redistributed reflection, and potential-barrier definitions.
+See [Particle Events](ParticleEvents.en.html#open-reflect-redistributed_reflect-and-periodic-faces) for reflection
+and redistributed reflection definitions.
 
 ### `[reservoir]`: External Reservoir Conditions
 
@@ -374,7 +372,8 @@ Input constraints:
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open`. Startup warns (without stopping) when `emit_current_density_a_m2` (per ray-normal area) times the sine of the ray elevation differs by more than 5% from the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, or when the ray elevation differs from $\alpha$ by more than 1 degree |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\ge0$ with a supersonic ion entry $m_i u_z^2/e >$ `zhao_ion_pressure_factor` $\cdot T_i$ |
 | External field | `sim.b0=[0,0,0]`; `reservoir.inflow_model="infinity_barrier"` is forbidden |
-| Outer-root refresh | `outflow_refresh_batches>0` requires PE, `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table |
+| Field | `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table (`nonzero_mode_backend` set to `cached_kneq0` or `panel_spectral_reference`, `zero_mode_policy="exclude_k0"`), so that the top-face mean potential can be fixed to the wall potential $\phi_0$ |
+| Outer-root refresh | `outflow_refresh_batches>0` requires PE |
 
 Without PE, Type C produces only electron/ion absorption targets satisfying $J_e+J_i=0$ and the z-high kinetic-barrier
 map; it produces no PE emission, return, or escape target. Without PE there is no PE outflow at H, so the outer-root
@@ -409,8 +408,8 @@ Use `field_solver="fmm"` for production and reserve `field_solver="direct"` for 
 | `reference_mode_layers` | int | `4` | Fourier-mode cutoff. `>=1` |
 | `panel_quadrature_order` | int | `12` | Panel-area quadrature order. `>=2` |
 
-The adaptive potential limit supports `boundary_inflow`, `plane_source`, `reservoir_face`, and `photo_raycast`. The first
-three require `target_macro_particles_per_batch` and forbid fixed `w_particle`; a positive `volume_seed` is also forbidden.
+The adaptive potential limit supports `boundary_inflow` and `photo_raycast`. Boundary inflow
+requires `target_macro_particles_per_batch` and forbids fixed `w_particle`; a positive `volume_seed` is also forbidden.
 `sim.batch_count` counts accepted batches; `simulated_time_s` sums accepted widths. See
 [How to choose `batch_duration`](BatchDurationStability.en.html)
 for acceptance, rollback, and convergence checks.
@@ -440,7 +439,7 @@ used depend on `source_mode`.
 |---|---|---:|---|
 | `species_key` | string | `"species_<1-based index>"` | Stable ID. 1–64 characters and unique across species |
 | `enabled` | bool | `true` | Enable the species |
-| `source_mode` | string | `"volume_seed"` | `volume_seed` / `plane_source` / `photo_raycast` / deprecated `reservoir_face` |
+| `source_mode` | string | `"volume_seed"` | `volume_seed` / `photo_raycast` |
 | `q_particle` | float | `-1.602176634e-19` | Particle charge [C]. Nonzero for an enabled species |
 | `m_particle` | float | `9.10938356e-31` | Particle mass [kg]. `>0` |
 | `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | Lower position bounds [m] |
@@ -448,16 +447,14 @@ used depend on `source_mode`.
 | `drift_velocity` | float[3] | `[0,0,-8e5]` | Drift velocity [m/s] |
 | `temperature_k` | float | `2.0e4` | Temperature [K]. `>=0` |
 | `temperature_ev` | float | unspecified | Temperature [eV]. `>=0`; mutually exclusive with `temperature_k` |
-| `velocity_distribution` | string | `"maxwellian"` | `maxwellian` / `grid` |
-| `inject_face` | string | unspecified | Illumination-aperture face for `photo_raycast`. Also required by deprecated `reservoir_face` |
-| `source_normal` | float[3] | unspecified | One-way `plane_source` normal. A nonzero axis-aligned vector |
+| `inject_face` | string | unspecified | Illumination-aperture face for `photo_raycast` |
 | `boundary` | table | unspecified | Per-species six-face overrides in `[particles.species.boundary]` |
 | `boundary_inflow` | table | unspecified | Per-species reservoir inflow faces in `[particles.species.boundary_inflow]` |
 | `surface_charge_closure` | string | `"explicit"` | Surface-source charge closure. `explicit` / `fixed_current` / `neutral_return` |
 | `target_absorbed_current_a` | float | unspecified | Signed absorbed target current [A] for `fixed_current`; zero or the same sign as `q_particle` |
 | `target_emission_current_a` | float | unspecified | Signed emission-reaction target current [A] for `fixed_current`; zero or the sign opposite `q_particle` |
 
-Common keys for flux-driven sources (`boundary_inflow`, `plane_source`, and legacy `reservoir_face`):
+Keys for flux-driven boundary inflow (`boundary_inflow`):
 
 | Key | Type | Default | Description and constraints |
 |---|---|---:|---|
@@ -465,16 +462,10 @@ Common keys for flux-driven sources (`boundary_inflow`, `plane_source`, and lega
 | `number_density_m3` | float | unspecified | Upstream Maxwellian density [m^-3]. `>0`; mutually exclusive with `number_density_cm3` |
 | `w_particle` | float | exactly one of this and `target_macro_particles_per_batch` required | Macro-particle weight. `>0` |
 | `target_macro_particles_per_batch` | int | exactly one of this and `w_particle` required | Macro-particle target. `>0`, or `-1` on species 2+ to share species 1 weight |
-| `velocity_grid_path` | string | unspecified | Nonempty CSV path for `velocity_distribution="grid"`; columns `vx_m_s,vy_m_s,vz_m_s,f` |
-| `velocity_grid_pdf_kind` | string | `"phase_space"` | `phase_space` / `flux_weighted` |
-| `velocity_grid_sampling` | string | `"auto"` | `auto` / `rectilinear` / `discrete` |
-| `particle_flux_m2_s` | float | unspecified | Incoming grid-distribution particle flux [m^-2 s^-1]. `>0`; mutually exclusive with `current_density_a_m2` |
-| `current_density_a_m2` | float | unspecified | Incoming grid-distribution current density [A/m^2]. Nonzero and mutually exclusive with `particle_flux_m2_s` |
 
 Specify exactly one of `w_particle` and `target_macro_particles_per_batch`.
-For a Maxwell distribution, specify exactly one density form and a temperature. For a grid distribution, specify the CSV
-and exactly one flux form. See [Inject Particles Through a Boundary](ReservoirInjection.en.html#2-choose-the-distribution)
-for distribution and CSV-sampling semantics.
+Specify exactly one density form and a temperature; the inflow velocities follow a drifting Maxwellian.
+See [Inject Particles Through a Boundary](ReservoirInjection.en.html#2-choose-the-distribution) for the distribution.
 
 #### `[particles.species.boundary]`: Per-Species Overrides
 
@@ -492,7 +483,7 @@ z_high = "reflect"
 | `z_low`, `z_high` | string | `"inherit"` | `inherit` / `open` / `reflect` / `redistributed_reflect` |
 
 `inherit` uses the global action from `[particle_boundary]`. A periodic face cannot be overridden.
-`inject_face` selects generation for `photo_raycast` and legacy `reservoir_face`; the species boundary controls the
+`inject_face` selects generation for `photo_raycast`; the species boundary controls the
 trajectory after generation. `boundary_inflow` creates particles from outside and does not override outward actions.
 
 | `surface_charge_closure` | Effect | Required conditions |
@@ -546,39 +537,6 @@ To add volume generation with a Maxwell distribution, specify `source_mode="volu
 `npcls_per_step`. Only a resolved `source_mode` of `volume_seed` can be combined with inflow; on multiple faces,
 `target_macro_particles_per_batch` is the total
 across all inflow faces. See [Inject Particles Through a Boundary](ReservoirInjection.en.html) for flux and barrier details.
-
-#### `source_mode = "plane_source"`
-
-`plane_source` generates flux along `source_normal` from an axis-aligned rectangle inside the box.
-
-| Condition | Details |
-|---|---|
-| Domain | `[domain]` is required |
-| Time | `sim.batch_duration > 0` is required |
-| Rectangle | `pos_low` / `pos_high` are equal on exactly one axis and have positive extent on the other two |
-| Placement | The normal coordinate lies strictly between box faces; tangential ranges stay inside and may reach box bounds |
-| Direction | `source_normal` is nonzero along the zero-thickness axis. It is normalized internally; positive or negative unit input is recommended |
-| External correction | `[reservoir]` settings `infinity_barrier`, `phi_infty`, and `face_potential_grid_n` do not apply |
-
-Use the common flux-driven-source keys above for its flux and velocity distribution.
-
-#### `source_mode = "reservoir_face"` (deprecated)
-
-Use the common flux-driven-source keys above. Additional compatibility constraints:
-
-| Condition | Details |
-|---|---|
-| Domain | `[domain]` is required |
-| Time | `sim.batch_duration > 0` is required |
-| Injection face | `inject_face` is required |
-| Injection range | `pos_low` / `pos_high` must lie on the specified face |
-| Weight | `w_particle` and `target_macro_particles_per_batch` cannot both be specified |
-| Weight sharing | `target_macro_particles_per_batch=-1` is allowed only for species 2 and later. It shares species 1 `w_particle` |
-
-For new cases, use `boundary_inflow` for an external plasma and `plane_source` for an internal rectangle. BEACH does not
-silently convert the legacy mode. See
-[Inject Particles Through a Boundary](ParticleSourcesBoundaries.en.html#when-reading-legacy-reservoir_face) for CSV and
-weighting contracts.
 
 #### `source_mode = "photo_raycast"`
 
@@ -799,9 +757,8 @@ polarization. Dielectric polarization, permittivity interface conditions, and in
 
 `conductor` constraints:
 
-- Redistribute charge with direct Coulomb coefficients under `field_boundary.mode="free"`.
-- Do not combine it with `field_boundary.mode="periodic2"`.
-- Large conductor element counts increase per-batch dense-solve cost.
+- Equalizes the potential returned by the field snapshot of the batch; available in free space and in `periodic2`.
+- The influence matrix is assembled at initialization with one field refresh per conductor element. Large conductor element counts increase the initialization and dense-solve cost.
 
 ---
 
@@ -866,7 +823,7 @@ These keys convert box-relative values to physical coordinates and dimensions.
 |---|---|---:|---|
 | `domain.box_origin` | float[3] | unspecified | Sets `box_min`; pair with `box_size`; mutually exclusive with `box_min` / `box_max` |
 | `domain.box_size` | float[3] | unspecified | Sets `box_max=box_origin+box_size`; every component `>0` |
-| `inject_region_mode` | string | `"absolute"` | `absolute` / `face_fraction`; `face_fraction` only for `reservoir_face` / `photo_raycast` |
+| `inject_region_mode` | string | `"absolute"` | `absolute` / `face_fraction`; `face_fraction` only for `photo_raycast` |
 | `uv_low`, `uv_high` | float[2] | unspecified | Both required for `face_fraction`; components in `[0,1]`; mutually exclusive with `pos_low` / `pos_high` |
 | Template `placement_mode` | string | `"absolute"` | `absolute` / `box_anchor` |
 | Template `anchor` | string | unspecified | Box center or one of six face centers for `box_anchor` |

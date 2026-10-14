@@ -31,7 +31,7 @@ color: green
 - `dt`, `batch_count`, `batch_duration`, `batch_duration_step`, `max_step`, `tol_rel` を確認する。
 - `source_mode` ごとの要求値を確認する。
   - `volume_seed`: `npcls_per_step`、初期領域、macro 粒子数。
-  - `reservoir_face`: density、temperature、`inject_face`、領域、drift、`batch_duration`。
+  - `boundary_inflow`: density、temperature、非周期の open box 面、drift、正の `batch_duration`。
   - `photo_raycast`: ray/current、source face、hit 条件、opposite-charge deposition。
 - `mesh.kind` ごとに必要 parameter と幾何の向きを確認する。
 - `field_solver` ごとに有効な solver parameter を確認する。

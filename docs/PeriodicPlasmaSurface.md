@@ -57,15 +57,15 @@ deposit_opposite_charge_on_emit = true
 |---|---|---|---|---|
 | 1. 開放 | 上端に達した粒子はすべて脱出する | 追跡のまま | なし（上端面の平均との差で読む） | 比較の基準 |
 | 2. 閉じた光電子 | 光電子だけ上端で反射し、光電子の正味の電流を 0 に合わせる | 太陽風の分だけ変わる | なし（同上） | 表面内の再分配を調べる |
-| 3. スカラー障壁 | 上流電位と上端面の電位の差で、流入する粒子と出ていく粒子をふるい分ける | 追跡のまま | 上流電位 `phi_infty_v` | 単一の障壁による比較 |
+| 3. 流入のスカラー補正 | 上流電位と上端面の平均電位の差で流入を補正する。外向き粒子は脱出する | 追跡のまま | 上流電位 `phi_infty_v` | 単一の障壁による比較 |
 | 4. 外部シース | 外部シースの零電流根から、電流・障壁・電位基準を与える | 浮遊条件で 0 に拘束 | 上流のプラズマを 0 V | 外部シースと整合した帯電 |
 
-方式は 1 つだけ選びます。閉じた光電子とスカラー障壁を同じ計算で重ねず、外部シースでは
+方式は 1 つだけ選びます。閉じた光電子と流入のスカラー補正を同じ計算で重ねず、外部シースでは
 `particles.reservoir.inflow_model="infinity_barrier"` を使えません。
 
 ### 1. 開放
 
-共通の構成のままです。上端面の開放面に達した粒子は脱出します（`particles.boundary.open_model="escape"`、既定値）。
+共通の構成のままです。上端面の開放面に達した粒子は脱出します。
 セルの高さは Debye 長より小さいので、上端に達した光電子の多くは、実際には外部のシースで表面へ押し戻されます。
 開放は、他の方式と比べる基準としてだけ使います。
 
@@ -88,22 +88,18 @@ z_high = "reflect"          # 戻る位置を面内で一様にするなら "red
 総電荷の変化は拘束しません。仕組みと停止条件は
 [光電子の放出と電荷の閉じ方](PhotoelectronEmission.html#閉じた光電子neutral_return)にあります。
 
-### 3. スカラー障壁
+### 3. 流入のスカラー補正
 
-外部プラズマの上流電位を決め、流入と流出の両方を、その電位との差で判定します。
+外部プラズマの上流電位を決め、流入を上端面の平均電位との差で補正します。外向き粒子は脱出します。
 
 ```toml
 [particles.reservoir]
 inflow_model = "infinity_barrier"
 phi_infty_v = 0.0
 face_potential_grid_n = 5
-
-[particles.boundary]
-open_model = "potential_barrier"
 ```
 
-流入は上端面の平均電位で、流出は粒子が横切った点の電位で判定します
-（[流入の写像](ReservoirInjection.html#3-流入の写像を選ぶ)、[電位障壁](ParticleEscapeReturn.html#電位障壁potential_barrier)）。
+流入の計算は[流入の写像](ReservoirInjection.html#3-流入の写像を選ぶ)を参照してください。
 上端面の電位は BEACH 内の電荷だけで決まり、外部シースの電位降下を含みません。
 
 ### 4. 外部シース（Zhao 定常シース）
@@ -149,7 +145,7 @@ lower_boundary_model = "e_bottom_zero"
 | すべて | `charge_ledger.csv` の `charge_ledger_residual_C`、未解決粒子の電荷 | 残差が丸め誤差程度で、未解決粒子の電荷が結論に効かない |
 | すべて | `top_reference_history.csv` の `potential_mean_V` と `potential_std_V` | 方式 1〜3 では各要素の電位からこの平均を引いて読む。ばらつきが大きいと、上端面を 1 つの面として扱う近似が弱い |
 | 2 | `charge_ledger.csv` の `neutral_return_weight_scale`、`neutral_return_unresolved_fraction` | 倍率が 1 に近く、未帰還の割合が小さい（5% を超えると停止） |
-| 3 | `summary.txt` の `reservoir_inflow_map`、`particle_ordinary_open_model` | 選んだ写像と判定が使われている |
+| 3 | `summary.txt` の `reservoir_inflow_map` | 選んだ流入の写像が使われている |
 | 4 | `summary.txt` の `surface_current_model_zhao_branch`、`surface_current_model_phi0_V` | 想定した branch と壁電位になっている |
 | 4 | `fixed_current_history.csv` の `target_over_tracked` | 各粒子種の倍率が 1 の近くにある |
 | 4（外部根の更新） | `matching_plane_history.csv` の `phi_H_V` と光電子の流出 | 壁電位と流出が落ち着いている |

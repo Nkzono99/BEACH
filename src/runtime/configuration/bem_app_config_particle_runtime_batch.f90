@@ -14,7 +14,7 @@ contains
   !! @param[in] cfg 粒子種とシミュレーション条件を含むアプリ設定。
   !! @param[in] batch_idx 生成対象のバッチ番号（1始まり）。
   !! @param[out] pcls 生成したバッチ粒子群。
-  !! @param[inout] state reservoir_face 注入の残差状態（必要時のみ）。
+  !! @param[inout] state 境界 reservoir 流入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（電位補正時に必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
   !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
@@ -30,9 +30,9 @@ contains
   integer(i32) :: source_begin, source_end, face_begin, face_end
   integer(i32) :: boundary_status
   integer(i32) :: photo_collision_status, photo_collision_ray, photo_collision_bounce
-  integer(i32), allocatable :: counts_max(:), counts_actual(:), source_counts(:), global_counts(:), &
+  integer(i32), allocatable :: counts_max(:), counts_actual(:), source_counts(:), &
                                boundary_counts(:, :), boundary_global_counts(:, :)
-  real(dp), allocatable :: vmin_normal(:), barrier_normal(:), boundary_vmin(:, :), boundary_barrier(:, :), &
+  real(dp), allocatable :: boundary_vmin(:, :), boundary_barrier(:, :), &
                            batch_density_m3(:), batch_weight(:)
   logical :: use_collective_reservoir_count
   type(sampled_species_type), allocatable :: sampled(:)
@@ -53,7 +53,7 @@ contains
     error stop 'Requested batch index is out of range.'
   end if
   call resolve_external_boundary_contract( &
-    cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
+    cfg%sim%reservoir_potential_model, &
     active_boundary_contract, boundary_status, boundary_message &
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
@@ -105,21 +105,16 @@ contains
   end if
 
   allocate ( &
-    counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), source_counts(cfg%n_particle_species), &
-    global_counts(cfg%n_particle_species) &
+    counts_max(cfg%n_particle_species), counts_actual(cfg%n_particle_species), source_counts(cfg%n_particle_species) &
     )
   allocate (boundary_counts(6, cfg%n_particle_species), boundary_global_counts(6, cfg%n_particle_species))
-  allocate (vmin_normal(cfg%n_particle_species), barrier_normal(cfg%n_particle_species))
   allocate (boundary_vmin(6, cfg%n_particle_species), boundary_barrier(6, cfg%n_particle_species))
   allocate (batch_density_m3(cfg%n_particle_species), batch_weight(cfg%n_particle_species))
   counts_max = 0_i32
   counts_actual = 0_i32
   source_counts = 0_i32
-  global_counts = 0_i32
   boundary_counts = 0_i32
   boundary_global_counts = 0_i32
-  vmin_normal = 0.0d0
-  barrier_normal = 0.0d0
   boundary_vmin = 0.0_dp
   boundary_barrier = 0.0_dp
   batch_density_m3 = active_source_plan%effective_density_m3
@@ -137,46 +132,6 @@ contains
     case ('volume_seed')
       global_count = cfg%particle_species(s)%npcls_per_step
       source_counts(s) = mpi_split_count(global_count, local_rank, n_ranks)
-    case ('reservoir_face', 'plane_source')
-      if (.not. present(state)) then
-        error stop 'flux-driven source requires injection_state in init_particle_batch_from_config.'
-      end if
-      face_density_m3 = batch_density_m3(s)
-      if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face') then
-        call reservoir_face_velocity_correction( &
-          cfg, cfg%particle_species(s), correction_vmin_normal, barrier_normal(s), mesh, snapshot, &
-          warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
-          boundary_contract=active_boundary_contract &
-          )
-        vmin_normal(s) = max(vmin_normal(s), correction_vmin_normal)
-        if (active_source_plan%kinetic_inflow_active(s) .and. &
-            injection_face_index(cfg%particle_species(s)%inject_face) == active_source_plan%kinetic_inflow_face(s)) then
-          call external_kinetic_face_velocity_correction( &
-            cfg, cfg%particle_species(s), active_source_plan%kinetic_reservoir_potential_v(s), &
-            active_source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
-            mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
-            (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
-            )
-          vmin_normal(s) = max(vmin_normal(s), kinetic_vmin_normal)
-          barrier_normal(s) = kinetic_barrier_normal
-          if (active_source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
-            face_density_m3 = active_source_plan%kinetic_reservoir_density_m3(s)
-          end if
-        end if
-      end if
-      if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
-        call compute_macro_particles_for_species( &
-          cfg%sim, cfg%particle_species(s), state%macro_residual(s), global_counts(s), vmin_normal=vmin_normal(s), &
-          number_density_override=face_density_m3, particle_flux_override=effective_particle_flux_m2_s(s), &
-          use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
-          temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s), &
-          w_particle_override=batch_weight(s) &
-          )
-      end if
-      if (.not. use_collective_reservoir_count) then
-        source_counts(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
-      end if
     case ('photo_raycast')
       global_count = cfg%particle_species(s)%rays_per_batch
       source_counts(s) = mpi_split_count(global_count, local_rank, n_ranks)
@@ -228,14 +183,8 @@ contains
     end if
   end do
   if (use_collective_reservoir_count) then
-    call mpi_bcast_i32_array(mpi, global_counts, 0_i32)
-    call mpi_bcast_real_dp_array(mpi, state%macro_residual, 0_i32)
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
-      if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'reservoir_face' .or. &
-          trim(lower_ascii(cfg%particle_species(s)%source_mode)) == 'plane_source') then
-        source_counts(s) = mpi_split_count(global_counts(s), local_rank, n_ranks)
-      end if
       if (.not. has_boundary_inflow(cfg%particle_species(s))) cycle
       call mpi_bcast_i32_array(mpi, boundary_global_counts(:, s), 0_i32)
       call mpi_bcast_real_dp_array(mpi, state%boundary_macro_residual(:, s), 0_i32)
@@ -257,11 +206,10 @@ contains
       source_end = source_counts(s)
       if (source_end >= source_begin) then
         select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
-        case ('volume_seed', 'reservoir_face', 'plane_source')
+        case ('volume_seed')
           call sample_species_state( &
-            cfg%sim, cfg%particle_species(s), source_counts(s), &
+            cfg%particle_species(s), source_counts(s), &
             x_species(:, source_begin:source_end), v_species(:, source_begin:source_end), &
-            barrier_normal_energy=barrier_normal(s), vmin_normal=vmin_normal(s), &
             temperature_k_override=effective_temperature_k(s), drift_velocity_override=effective_drift_velocity(:, s) &
             )
           counts_actual(s) = source_counts(s)
@@ -315,11 +263,12 @@ contains
         face_begin = counts_actual(s) + 1_i32
         face_end = face_begin + boundary_counts(face, s) - 1_i32
         call make_boundary_inflow_spec(cfg%sim, cfg%particle_species(s), face, face_spec)
-        call sample_species_state( &
-          cfg%sim, face_spec, boundary_counts(face, s), x_species(:, face_begin:face_end), &
-          v_species(:, face_begin:face_end), barrier_normal_energy=boundary_barrier(face, s), &
-          vmin_normal=boundary_vmin(face, s), temperature_k_override=effective_temperature_k(s), &
-          drift_velocity_override=effective_drift_velocity(:, s) &
+        call sample_reservoir_face_particles( &
+          cfg%sim%box_min, cfg%sim%box_max, face_spec%inject_face, face_spec%pos_low, face_spec%pos_high, &
+          effective_drift_velocity(:, s), face_spec%m_particle, effective_temperature_k(s), cfg%sim%batch_duration, &
+          x_species(:, face_begin:face_end), v_species(:, face_begin:face_end), &
+          barrier_normal_energy=boundary_barrier(face, s), vmin_normal=boundary_vmin(face, s), &
+          position_jitter_dt=cfg%sim%dt &
           )
         w_species(face_begin:face_end) = batch_weight(s)
         counts_actual(s) = face_end

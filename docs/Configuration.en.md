@@ -54,31 +54,24 @@ or `photo_raycast`.
 
 ### 2.2 `lint`
 
-Run TOML parsing, the packaged JSON Schema, coordinate and placement combination checks, and known BEACH constraints together.
-Success prints `checks=toml,schema,semantic` and `status=ok`.
+Run TOML parsing, the packaged JSON Schema (keys, types, enumerations, ranges), and the coordinate and placement
+normalization, then run the Fortran preflight (combination constraints and derived values) through `beach --check-config`.
+Success prints `checks=toml,schema,preflight` and `status=ok`. When the preflight rejects the input, lint prints the Fortran diagnostic unchanged.
 
 ```bash
 beachx lint beach.toml
 beachx lint run.toml --schema schemas/beach.schema.json
+beachx lint run.toml --beach /path/to/beach
 ```
 
 `--schema` adds constraints to the packaged BEACH schema. The supplied schema applies before and after normalization;
 it cannot disable or relax the normal BEACH validation rules.
+The `beach` executable is found through `--beach`, the `BEACH_CONFIG_CHECK_EXE` environment variable, and `PATH`, in that order; lint fails when none is available.
 
-### 2.3 `validate`
+### 2.3 `beach --check-config`
 
-Read `beach.toml` using the same packaged schema, coordinate and placement normalization, and semantic checks as `lint`.
-Success prints the configuration path and `status=ok`. Use `lint` to add schema constraints or set the error display limit.
-
-```bash
-beachx config validate
-beachx config validate run.toml
-```
-
-### 2.4 `beach --check-config`
-
-For development and diagnostics, check only Fortran configuration loading, normalization, and minimum prerequisites for execution.
-The configuration path is required. Ordinary use proceeds from `beachx lint` to `beach`; running this command as well is optional.
+The Fortran preflight that `lint` calls. It applies the same defaults, loading, and normalization as a run, then the
+combination constraints and derived values. The configuration path is required. Ordinary use only needs `beachx lint`.
 
 ```bash
 beach --check-config beach.toml
@@ -92,15 +85,11 @@ checks=toml,semantic
 status=ok
 ```
 
-Here `status=ok` means only that loading, normalization, and the remaining model-prerequisite checks passed.
-`beachx lint` owns detailed diagnostics for enums, ranges, and settings supplied to inactive features, so this command
-does not replace the required lint step before running.
-
 The check does not start a simulation or create result files. It does not validate the contents of external OBJ files,
 response tables, or checkpoints, or the numerical and physical validity of a run. Continue with the normal
 `beach beach.toml` command to check external-file loading and model initialization.
 
-### 2.5 `diff`
+### 2.4 `diff`
 
 Semantically compare two configs. By default, coordinate and placement helpers are converted to physical coordinates and sizes
 before comparison.
@@ -144,6 +133,6 @@ the affected keys are listed in [Input Parameters Reference](Parameters.en.html#
 ### 4.3 Checking Before Running
 
 Run `beachx lint beach.toml` before a simulation, then start `beach beach.toml` after it succeeds.
-Use `beach --check-config beach.toml` for development or diagnostics when examining Fortran configuration loading separately.
+Lint calls `beach --check-config` after the schema check, so the combination diagnostics also come from lint.
 Numbers must be finite, and integer fields must use
 integers. The Fortran reader reports strings exceeding their destination length as errors instead of truncating them.

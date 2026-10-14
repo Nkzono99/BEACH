@@ -58,15 +58,15 @@ deposit_opposite_charge_on_emit = true
 |---|---|---|---|---|
 | 1. Open | Every particle that reaches the top escapes | As tracked | None (read relative to the top-face mean) | Baseline for comparison |
 | 2. Closed photoelectrons | Only photoelectrons are reflected at the top, and the net photoelectron current is matched to zero | Changes only by the solar wind | None (same as above) | Study redistribution within the surface |
-| 3. Scalar barrier | Incoming and outgoing particles are filtered by the potential difference between the upstream plasma and the top face | As tracked | Upstream potential `phi_infty_v` | Comparison with a single barrier |
+| 3. Scalar inflow correction | Inflow is corrected by the difference between upstream and mean top-face potential; outgoing particles escape | As tracked | Upstream potential `phi_infty_v` | Comparison with a single barrier |
 | 4. Outer sheath | The zero-current root of the outer sheath sets the currents, barriers, and potential reference | Constrained to zero by the floating condition | Upstream plasma at 0 V | Charging consistent with the outer sheath |
 
-Choose one approach. Do not combine closed photoelectrons with the scalar barrier in one run, and
+Choose one approach. Do not combine closed photoelectrons with scalar inflow correction in one run, and
 `particles.reservoir.inflow_model="infinity_barrier"` cannot be used with the outer sheath.
 
 ### 1. Open
 
-Keep the common setup. Particles that reach the open top face escape (`particles.boundary.open_model="escape"`, the default).
+Keep the common setup. Particles that reach the open top face escape.
 Because the cell is shorter than the Debye length, many photoelectrons that reach the top would in reality be pushed back
 to the surface by the outer sheath. Use the open top only as a baseline for the other approaches.
 
@@ -89,22 +89,18 @@ The charge of returned photoelectrons is matched to the emitted charge of the sa
 current is zero. The change of total charge by the solar wind is not constrained. The mechanism and the stop conditions are in
 [Photoelectron emission and charge closures](PhotoelectronEmission.en.html#closed-photoelectrons-neutral_return).
 
-### 3. Scalar barrier
+### 3. Scalar inflow correction
 
-Set the upstream potential of the external plasma, and test both inflow and outflow against it.
+Set the upstream potential of the external plasma and correct inflow using the mean top-face potential. Outgoing particles escape.
 
 ```toml
 [particles.reservoir]
 inflow_model = "infinity_barrier"
 phi_infty_v = 0.0
 face_potential_grid_n = 5
-
-[particles.boundary]
-open_model = "potential_barrier"
 ```
 
-Inflow is tested with the mean potential of the top face, and outflow with the potential at the crossing point
-([inflow mapping](ReservoirInjection.en.html#3-choose-the-inflow-mapping), [potential barrier](ParticleEscapeReturn.en.html#potential-barrier-potential_barrier)).
+See [inflow mapping](ReservoirInjection.en.html#3-choose-the-inflow-mapping) for the calculation.
 The potential of the top face is set only by the charge inside BEACH and does not include the potential drop of the outer sheath.
 
 ### 4. Outer sheath (Zhao stationary sheath)
@@ -152,7 +148,7 @@ The model assumptions and known limitations are in [Connecting to the outer shea
 | All | `charge_ledger_residual_C` in `charge_ledger.csv` and the charge of unresolved particles | The residual is at round-off level and the unresolved charge does not affect the conclusion |
 | All | `potential_mean_V` and `potential_std_V` in `top_reference_history.csv` | For approaches 1–3, read each element potential relative to this mean. A large spread weakens the treatment of the top face as one plane |
 | 2 | `neutral_return_weight_scale` and `neutral_return_unresolved_fraction` in `charge_ledger.csv` | The scale is near 1 and the unreturned fraction is small (the run stops above 5%) |
-| 3 | `reservoir_inflow_map` and `particle_ordinary_open_model` in `summary.txt` | The selected mapping and test are in use |
+| 3 | `reservoir_inflow_map` in `summary.txt` | The selected inflow mapping is in use |
 | 4 | `surface_current_model_zhao_branch` and `surface_current_model_phi0_V` in `summary.txt` | The branch and wall potential are as expected |
 | 4 | `target_over_tracked` in `fixed_current_history.csv` | The scale of each species stays near 1 |
 | 4 (outer-root refresh) | `phi_H_V` and the photoelectron outflow in `matching_plane_history.csv` | The wall potential and the outflow have settled |

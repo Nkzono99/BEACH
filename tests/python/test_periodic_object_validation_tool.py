@@ -267,16 +267,18 @@ field_periodic_far_correction = "none"
 
 [particles]
 [[particles.species]]
-source_mode = "reservoir_face"
+source_mode = "volume_seed"
+npcls_per_step = 0
 number_density_cm3 = 5.0
 temperature_ev = 10.0
 q_particle = -1.602176634e-19
 m_particle = 9.10938356e-31
 target_macro_particles_per_batch = 5000
-inject_face = "z_high"
 pos_low = [0.0, 0.0, 0.0009899494936611664]
 pos_high = [9.899494936611664e-05, 9.899494936611664e-05, 0.0009899494936611664]
 drift_velocity = [0.0, 0.0, -4.0e5]
+[particles.species.boundary_inflow]
+z_high = "reservoir"
 
 [mesh]
 mode = "template"

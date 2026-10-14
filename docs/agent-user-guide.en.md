@@ -52,7 +52,6 @@ validity. Inspect outputs and convergence of the quantity of interest after the 
 | Beginner charging update | `examples/tutorial_insulator.toml` | [Ten-minute tutorial](Tutorial.en.html) |
 | One-particle developer smoke | `examples/smoke_single_electron.toml` | [Configuration recipes](ConfigurationRecipes.en.html) |
 | External plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir injection](ReservoirInjection.en.html) |
-| Internal rectangular source | `source_mode="plane_source"` | [Choose where particles enter](ParticleSourcesBoundaries.en.html) |
 | Closed photoelectron redistribution | `examples/periodic2_closed_photoelectron.toml` | [Photoelectron emission](PhotoelectronEmission.en.html) |
 | Free-space field evaluation | `field_boundary.mode="free"` | [Field evaluation](FieldSolvers.en.html) |
 | Two-axis-periodic field evaluation | `field_boundary.mode="periodic2"` | [Periodic electrostatics](PeriodicElectrostatics.en.html) |
@@ -70,14 +69,13 @@ Use this four-stage workflow:
 1. Copy the nearest `examples/*.toml`.
 2. Select the required tables using [Configuration recipes](ConfigurationRecipes.en.html).
 3. Check units, defaults, and exclusions in [Input parameters](Parameters.en.html).
-4. Run `beachx lint beach.toml`, then check the Fortran parser diagnostics at runtime.
+4. Run `beachx lint beach.toml`. Lint runs the schema check and then the Fortran preflight (`beach --check-config`).
 
 Check these constraints early:
 
 | Feature | Required conditions |
 |---|---|
 | `boundary_inflow` | a `[domain]` box, resolved `sim.batch_duration>0`, a nonperiodic face, and an external VDF |
-| `plane_source` | a `[domain]` box, positive `batch_duration`, internal rectangular `pos_low/high`, and `source_normal` |
 | `photo_raycast` | a `[domain]` box, resolved `sim.batch_duration>0`, positive current density, and `rays_per_batch>=1` |
 | closed PE | negative charge, `deposit_opposite_charge_on_emit=true`, `reflect` or `redistributed_reflect` on `inject_face` in `[particles.species.boundary]`, and `surface_charge_closure="neutral_return"` |
 | `periodic2` | a `[domain]` box, exactly two entries in `domain.periodic_axes`, and a `[periodic2]` zero-mode policy |

@@ -8,9 +8,8 @@ This page helps you choose a particle source from its creation location and phys
 creates particles inside the domain. `[particles.species.boundary_inflow]` brings particles across a box boundary from
 outside; it has a separate role.
 
-> **Decision rule:** use `volume_seed` for a specified count, `plane_source` for continuous supply from an internal
-> rectangle, `boundary_inflow` for an external plasma reservoir, and `photo_raycast` for emission from illuminated
-> surfaces.
+> **Decision rule:** use `volume_seed` for a specified count, `boundary_inflow` for an external plasma reservoir,
+> and `photo_raycast` for emission from illuminated surfaces.
 
 After reading this page, you should be able to choose one path and continue to the relevant detailed guide or reference.
 
@@ -19,7 +18,6 @@ After reading this page, you should be able to choose one path and continue to t
 | Goal | Setting | What determines particle count | Creation location |
 | --- | --- | --- | --- |
 | Create a specified initial population or orbit test | `source_mode="volume_seed"` | `npcls_per_step` | Between `pos_low` and `pos_high` |
-| Supply particles one way from an internal surface | `source_mode="plane_source"` | Flux × area × `batch_duration` | Axis-aligned rectangle |
 | Bring particles in from plasma outside the box | `boundary_inflow` | Reservoir flux × box area × `batch_duration` | Nonperiodic box face |
 | Emit from a surface reached by light | `source_mode="photo_raycast"` | Current density, projected area, `batch_duration` | First surface hit by a ray |
 
@@ -36,25 +34,11 @@ It does not derive count from a physical surface flux. A run can therefore use t
 but no physical duration in seconds is assigned to that batch. The official
 [10-minute tutorial](Tutorial.en.html) uses this path to demonstrate inter-batch surface-charging feedback.
 
-## Supply particles from an internal surface: `plane_source`
-
-`plane_source` supplies particles along `source_normal` from a rectangle inside the box. `pos_low` and `pos_high`
-must share one coordinate and span a positive area in the other two directions.
-
-```toml
-source_mode = "plane_source"
-pos_low = [0.2, 0.2, 0.7]
-pos_high = [0.8, 0.8, 0.7]
-source_normal = [0.0, 0.0, -1.0]
-```
-
-Flux, rectangle area, and `batch_duration` determine the particle count. Because the rectangle is not an outer plasma
-boundary, it does not use the potential correction from infinity defined by `reservoir.phi_infty`.
-
 ## Enter from an external reservoir: `boundary_inflow`
 
 `boundary_inflow` represents plasma entering through an entire nonperiodic box face. Separately configure the outward
-action on every selected face as `open`.
+action on every selected face as `open`. Outgoing particles escape at an ordinary open face;
+[outer-sheath return](ParticleEscapeReturn.en.html#outer-sheath-barrier) is determined by the Zhao kinetic barrier.
 
 ```toml
 [[particles.species]]
@@ -64,7 +48,7 @@ action on every selected face as `open`.
 z_high = "reservoir"
 ```
 
-See [inflow through a simulation boundary](ReservoirInjection.en.html) for Maxwell or velocity-grid distributions,
+See [inflow through a simulation boundary](ReservoirInjection.en.html) for the Maxwell distribution,
 per-face flux and remainder, and correction from an upstream plasma potential to the boundary. This model does not solve
 trajectories or a self-consistent sheath outside the box. If the case needs an outer sheath response itself, consider
 the [Zhao closure](ZhaoStationaryClosure.en.html).
@@ -88,15 +72,6 @@ Every creation path enters the same particle tracker.
 
 See [particle escape and return](ParticleEscapeReturn.en.html) for outward box boundaries and
 [particle collision and boundary events](ParticleEvents.en.html) for event ordering.
-
-## When reading legacy `reservoir_face`
-
-`source_mode="reservoir_face"` is a deprecated compatibility input. Use `boundary_inflow` for a new external-plasma
-case and `plane_source` for an internal rectangle. Moving a legacy aperture to a complete box face changes area and total
-inflow, so BEACH does not convert it silently.
-
-The [input parameter reference](Parameters.en.html) is the canonical list of keys, combinations, MPI behavior, and
-checkpoint behavior.
 
 ## Where to go next
 

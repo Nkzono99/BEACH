@@ -64,7 +64,6 @@ max_steps_per_particle = 100000
 [particles.boundary]
 z_low = "open"
 z_high = "open"
-open_model = "escape"
 
 [particles.reservoir]
 inflow_model = "source_vdf"

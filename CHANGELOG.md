@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+- Added [docs/adr/0002-irradiation-cell-scope.md](docs/adr/0002-irradiation-cell-scope.md): BEACH supports one
+  product configuration, the `periodic2` irradiation cell with the outer 1-D sheath, and keeps the free-space direct / FMM
+  cases and the tutorial as validation references. The record lists the features removed for that scope and the phases
+  (one validation source, feature removal, grouped-only input, `[[mesh.parts]]`, and collecting the cell assumptions).
+  `SPEC.md` 2.1 states the supported configuration.
+- The Fortran preflight now owns every configuration combination that the Python validators used to check: exclusive
+  `batch_duration` / `batch_duration_step`, exclusive `e0` / `e0_abs`, `[particle_boundary]` and species boundary overrides
+  require a `[domain]` and cannot touch a periodic face, boundary inflow needs an open face and a `volume_seed` species,
+  unique `species_key`, nonzero `q_particle`, exactly one density form, the `fixed_current` target signs and
+  `neutral_return` prerequisites, tree and `cached_kneq0` parameter ranges when their solver is active,
+  the adaptive nonzero-mode step prerequisites, `mesh.surface_side` for OBJ meshes, template hole radii, and the
+  photoelectron settings when `photoelectron_source_scale = 0`.
 - Added `surface_current_model.zhao_upstream_field_floor_v_m` (grouped `sheath.zhao.upstream_field_floor_v_m`, default 0).
   It accepts drifting Zhao A/C roots when the field deficit $\sqrt{-\min E^2}$ inside the upstream negative-$E^2$ band
   does not exceed this external field level, which places the upstream boundary where the sheath field has fallen to
@@ -22,6 +34,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `solar_elevation_deg` by more than 1 degree. The fixed-current scale absorbed such mismatches silently.
 
 ### Changed
+- `surface_model="conductor"` now works with `field_boundary.mode="periodic2"`. The floating-conductor solver builds its
+  influence matrix from the field snapshot (periodic images and zero mode included) once at initialization, keeps the LU
+  factorization, and takes the fixed potential from the snapshot each batch; the adaptive nonzero-mode step judges the
+  redistributed candidate charge. The `commit_batch_charge` / `prepare_adaptive_charge_candidate` interfaces take the
+  snapshot and the `floating_conductor_solver_type` instead of `external_e` / `field_bc_mode`, and
+  `apply_surface_model_charge_relaxation` is removed.
+- `beachx lint` runs the packaged JSON Schema and then `beach --check-config`, and prints the Fortran diagnostic when the
+  preflight rejects the input (`checks=toml,schema,preflight`). The `beach` executable is found through `--beach`,
+  `BEACH_CONFIG_CHECK_EXE`, then `PATH`; lint fails without one. The Python semantic validators
+  (`beach/config/_*_validation.py`), `validate_runtime_config`, and `beachx config validate` are removed, so the schema
+  owns keys, types, enumerations, and ranges and the Fortran preflight owns combinations and derived values.
+  `tests/python/test_config_contract.py` checks that lint returns the preflight verdict for each representative case.
+- `surface_current_model.model="zhao_stationary"` (grouped `sheath.closure="zero_current"`) now requires a periodic2 box with
+  x/y periodic axes and an explicit split `[periodic2]` table (`cached_kneq0` or `panel_spectral_reference`, `exclude_k0`);
+  other field settings are a configuration error instead of a startup warning. Without the split zero mode the top-face mean
+  potential could not be fixed to the wall potential $\phi_0$, so the inflow map and the outer barrier used a top face near
+  0 V. In an 8x8 flat plate the mean plate potential stayed near 0 V instead of $\phi_0$, the Type C electron scale was 0.53,
+  and the Type A photoelectron return and escape scales were 1.99 and 0.30. With the split zero mode the plate stayed within
+  0.1 mV of $\phi_0$ and all scales were 1 within the statistical error. The fixed-root Zhao examples
+  (`periodic2_zhao_fixed_current.toml`, `periodic2_zhao_no_photo_fixed_current.toml`, and their grouped versions) now use
+  `cached_kneq0`, and the stale comment about a 10% band tolerance in the Zhao examples now describes the field floor.
 - Restructured [Connecting to the outer sheath](docs/ZhaoStationaryClosure.md) around the four conditions the root gives the
   top face, and moved the electron-drift discussion to a new page, [Electron drift and the upstream band](docs/ZhaoUpstreamBand.md):
   why the band appears, what happens to the potential profile, the two acceptance criteria with measured deficits, and the
@@ -31,6 +64,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   drifting root with `zhao_upstream_field_floor_v_m = 2.0e-3` instead of `zhao_upstream_band_tolerance = 0.1`.
 - Documented that the outer-root refresh retries branches in A → B → C order after the previous branch; the
   solar-elevation ordering applies only to the initial root.
+
+### Removed
+- Removed `particle_boundary.ordinary_open_model` (grouped `particles.boundary.open_model`) and the ordinary-open
+  `potential_barrier` model, including its `particle_ordinary_open_model` summary receipt. Ordinary open faces now
+  always escape. Reservoir `source_vdf` / `infinity_barrier` inflow, `phi_infty`, `face_potential_grid_n`, and the
+  Zhao `zhao_barrier_v1` per-species kinetic barriers remain available.
+- Removed particle source modes `reservoir_face` and `plane_source`, along with `source_normal` (grouped
+  `particles.species.source.normal`). Use boundary reservoir inflow for external-plasma supply; partial boundary
+  apertures and internal plane sources are no longer supported. Removed inputs are rejected without aliases.
+- Removed the `velocity_distribution = "grid"` CSV velocity distribution: `velocity_grid_path`, `velocity_grid_pdf_kind`,
+  `velocity_grid_sampling`, `particle_flux_m2_s`, `current_density_a_m2` (grouped `distribution.model`, `distribution.grid_*`,
+  `distribution.particle_flux_m2_s`, `distribution.current_density_a_m2`, `sampling.velocity_grid_sampling`),
+  `bem_injection_velocity_grid`, `test_external_field_velocity_grid`, and `examples/velocity_grid.csv`. Flux-driven sources
+  use the drifting Maxwellian from the species density, temperature, and drift velocity.
 
 ### Fixed
 - `bem_surface_current_model` no longer uses `findloc`, which GCC 8 gfortran rejects, so the gfortran build of the outer-root

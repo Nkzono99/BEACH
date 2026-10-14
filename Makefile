@@ -64,7 +64,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_external_boundary_contract \
 	test_restart \
 	test_reservoir_injection \
-	test_external_field_velocity_grid \
 	test_dynamics_basic \
 	test_particle_stepper \
 	test_dynamics_field_solver \

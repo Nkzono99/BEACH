@@ -13,7 +13,24 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 
 ## 2. スコープ
 
-### 2.1 実装済み
+### 2.1 サポートする構成
+
+BEACH がサポートする製品構成は、2 軸周期セルに外部 1-D シースを接続した照射実験の 1 種類です。
+判断の経緯は [docs/adr/0002-irradiation-cell-scope.md](docs/adr/0002-irradiation-cell-scope.md) にあります。
+
+| 要素 | 製品構成 |
+| --- | --- |
+| 領域 | `[domain]` box、`periodic_axes = ["x", "y"]` |
+| 場 | `periodic2`、FMM、`cached_kneq0`、split zero mode (`exclude_k0`)。direct は `panel_spectral_reference` の検証用 |
+| 表面 | insulator accumulation、`mesh_id` ごとの浮遊 conductor 再配分 |
+| 粒子境界 | z は `open`。`reflect` / `redistributed_reflect` は closed photoelectron 用 |
+| 粒子源 | `volume_seed`、boundary reservoir 流入、`photo_raycast` |
+| closure | `explicit`、`fixed_current`、`neutral_return`、`zhao_stationary` と outflow refresh |
+
+参照構成として、free-space の direct / FMM と入門ケース (free + direct + `volume_seed` + plane template) の
+ビルドとテストを維持します。参照構成に新しい機能は加えません。それ以外の組合せは lint と Fortran が拒否します。
+
+### 2.2 実装済み
 
 - template / OBJ の三角形メッシュ
 - 三角形上の一定面密度を使う `triangle_p0` 静電場
@@ -23,41 +40,40 @@ BEACH は、三角形境界要素上の電荷蓄積とテスト粒子追跡を�
 - Boris 法による粒子更新
 - 線分と三角形の最初の交差判定
 - insulator accumulation
-- free-space に限った mesh 単位の浮遊 conductor 再配分
-- open / reflect / redistributed_reflect / periodic の box 境界
-- `volume_seed` / `plane_source` / `photo_raycast` と deprecated `reservoir_face`
+- mesh 単位の浮遊 conductor 再配分 (free-space と periodic2 の snapshot 電位で等電位化)
+- open (脱出) / reflect / redistributed_reflect / periodic の box 境界と Zhao の種別 kinetic 障壁
+- `volume_seed` / `photo_raycast`
 - species 別の simulation boundary reservoir 流入
-- 境界 reservoir の流入補正
+- 境界 reservoir の流入補正 (`source_vdf` / `infinity_barrier`)
 - closed photoelectron の局所反射と neutral-return closure
 - 外部 1-D シースの Zhao 零電流根による表面電流 closure と、観測 PE 流出による外部根の準定常更新
 - checkpoint 再開
 
-### 2.2 未実装・予約
+### 2.3 未実装・予約
 
 - BEACH 内で解く full-VDF / 1D PIC / time-dependent outer-sheath solver と外部領域の粒子 transport
 - 表面導電・拡散モデル
-- periodic2 と conductor の併用
 - 誘電体分極・誘電境界条件
 - 反射や二次電子放出を含む一般化衝突モデル
 
-### 2.3 設定入力の検証
+### 2.4 設定入力の検証
 
 公開設定は `beach.toml` です。未知の table/key、基本型の不一致、非有限の実数・配列成分、
 Fortran の格納先の長さを超える文字列は読み込み時に拒否します。文字列を暗黙に切り詰めません。
 整数は符号付き 32 bit の `-2147483648..2147483647` に制限し、範囲外は変換前に拒否します。
-無効化した species も基本値の検査対象です。列挙値、各項目固有の値域、無効な機能に指定したキーなどの
-詳細な入力診断は `beachx lint` が担当します。Fortran は正規化・参照解決と実行に必要な最小条件を確認します。
+無効化した species も基本値の検査対象です。
 
-通常運用では `beachx lint beach.toml` に成功してから `beach beach.toml` を実行します。
-開発・診断用の `beach --check-config beach.toml` は通常実行と同じ既定値・読取・正規化と、
-残されたモデル成立条件の検査を適用します。成功時は終了コード 0 と `status=ok`、検出した入力エラーには
-非ゼロの終了コードを返します。この成功は `lint` の成功を意味せず、必須の実行前 lint を代替しません。
+検証の正本は 2 つです。キー名、型、列挙値、値域は `schemas/beach.schema.json` が持ちます。
+組合せの制約と派生値は Fortran の preflight が持ち、Python には同じ制約を書きません。
+`beachx lint beach.toml` は TOML の読込、schema の検査、座標・配置の正規化の後に `beach --check-config` を実行し、
+Fortran の診断をそのまま表示します。通常運用では `beachx lint` に成功してから `beach beach.toml` を実行します。
+
+`beach --check-config beach.toml` は通常実行と同じ既定値・読取・正規化と preflight を適用します。
+成功時は終了コード 0 と `status=ok`、検出した入力エラーには非ゼロの終了コードを返します。
 MPI 初期化、mesh 構築、外部データの内容読込、simulation、結果・checkpoint 出力は行いません。
 
-Python の `load_config_file`、`normalize_config_document`、`validate_runtime_config`、
-`beachx config validate`、`beachx lint` は共通の schema・基本値・意味的検証経路を使います。
-Fortran 実行系が物理モデルと派生値の正本です。lint に成功する現行の設定例を Fortran でも読み込めることを
-contract test で確認します。不正入力に対する両系の採否一致は契約に含めません。
+Python の `load_config_file`、`normalize_config_document` は schema と authoring の正規化だけを行います。
+contract test は、代表ケースごとに `beachx lint` が Fortran の採否をそのまま返すことを確認します。
 `beachx lint --schema` は同梱契約に制約を追加し、正規化前後に検査します。同梱契約を緩める指定には使えません。
 
 ## 3. データモデル
@@ -84,7 +100,7 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 ## 4. 1 batch の計算手順
 
 1. 現在の要素電荷から静電 snapshot を構築する
-2. boundary reservoir inflow、`plane_source`、`reservoir_face`、`volume_seed`、`photo_raycast` の粒子を生成する
+2. boundary reservoir inflow、`volume_seed`、`photo_raycast` の粒子を生成する
 3. 各粒子を最大 `max_step` 回まで進める
 4. mesh hit、box escape、max-step survivor を分類する
 5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する
@@ -165,7 +181,6 @@ mode = "periodic2"
 [particle_boundary]
 z_low = "open"
 z_high = "open"
-ordinary_open_model = "escape" # または "potential_barrier"
 
 [reservoir]
 inflow_model = "source_vdf" # または "infinity_barrier"
@@ -183,16 +198,14 @@ z_high = "reservoir"
 - `boundary_inflow`: 非周期 box 面全体から外部 reservoir VDF を流入させる
 - `source_vdf`: 指定した boundary VDF を補正せず境界から注入する
 - `infinity_barrier`: `phi_infty` と流入面平均電位の scalar barrier で法線 VDF を補正する
-- `escape`: open 面到達で粒子を消滅する
-- `potential_barrier`: event 位置の局所電位と法線運動エネルギーから反射／escape を判定する
+- 通常の open 面到達で粒子を消滅する。Zhao の種別 kinetic 障壁がある面では外部根の電位で帰還／脱出を判定する
 
 `boundary_inflow` は外向き粒子作用を上書きしません。周期面への reservoir 流入、および有効な外向き作用が
 `open` でない流入面は拒否します。
 境界流入だけの species では `source_mode` と `npcls_per_step` を省略します。省略値はそれぞれ
 `volume_seed` と `0` で、体積生成は行いません。Maxwell 分布で体積生成を追加する場合だけ
 `source_mode="volume_seed"` と正の `npcls_per_step` を明示します。
-同じ species では解決後の `source_mode="volume_seed"` とだけ併用でき、`plane_source`、`photo_raycast`、
-`reservoir_face` との併用は fail closed です。
+同じ species では解決後の `source_mode="volume_seed"` とだけ併用でき、`photo_raycast` との併用は拒否します。
 
 外部プラズマ profile、外部領域の particle transport、delayed return queue は現行スコープ外です。
 削除済みの `[outer_plasma]`、`[coupling]`、`[external_boundary]` は unknown input として拒否します。
@@ -231,20 +244,7 @@ species 別の6面値は `inherit | open | reflect | redistributed_reflect` で�
 
 `boundary_inflow` を持つ species では `npcls_per_step=0` を許容します。
 
-### 7.2 `plane_source`
-
-`pos_low` と `pos_high` で box 内部の axis-aligned 矩形面を定義し、`source_normal` 方向へ一方向 flux を
-生成します。矩形面はちょうど 1 軸で zero thickness、残る 2 軸で正の面積を持ちます。法線座標は
-box 境界より厳密に内側で、接線範囲は box 内に置きます。
-`source_normal` は zero-thickness 軸に沿う非ゼロベクトルで、実装内部で単位ベクトルへ正規化します。
-
-Maxwell reservoir または速度 grid の flux、面積、batch duration から macro 粒子数を決めます。
-`reservoir.inflow_model`、`phi_infty`、`face_potential_grid_n` は内部平面へ適用しません。
-任意の内部面では外部 plasma 側と上流基準電位の対応が一意でないため、流入側の potential/barrier 補正は
-新しい設定では simulation boundary に結び付いた `boundary_inflow` が所有します。非推奨の
-`reservoir_face` は既存 case の数値挙動を保つため、従来の補正を互換動作として維持します。
-
-### 7.3 species 別 boundary reservoir 流入
+### 7.2 species 別 boundary reservoir 流入
 
 `[particles.species.boundary_inflow]` の 6 面キーへ `reservoir` を指定し、非周期 box 面全体から流入させます。
 複数面を指定でき、macro 粒子の端数は species と face の組ごとに batch 間で繰り越します。
@@ -256,13 +256,7 @@ macro weight を自動解決します。
 `reservoir.inflow_model="infinity_barrier"` では各流入面の `N x N` 電位標本を使い、
 `reservoir.phi_infty` とのエネルギー差から法線速度 cutoff と到達速度を同じ写像で補正します。
 
-### 7.4 `reservoir_face`（deprecated）
-
-既存 case の `inject_face` と `pos_low` / `pos_high` による box 面開口の挙動を維持します。
-`boundary_inflow` または `plane_source` へ暗黙変換しません。外部 plasma 条件の新規 case は
-`boundary_inflow`、内部矩形面は `plane_source` を使います。
-
-### 7.5 `photo_raycast`
+### 7.3 `photo_raycast`
 
 指定方向へ `rays_per_batch` 本を飛ばし、各 ray の最初の mesh hit からだけ放出します。
 `deposit_opposite_charge_on_emit=true` では放出元へ逆符号電荷を加えます。
@@ -281,7 +275,7 @@ closed PE は次の組合せです。
 未解決率 `U/S` が 0.05 を超える、`R=0`、実 escape、soft discard、terminal 分類不整合のいずれかでは
 補正せず fail closed とします。
 
-### 7.6 species 別 fixed-current closure
+### 7.4 species 別 fixed-current closure
 
 `surface_charge_closure="fixed_current"` は、species の吸収 channel と `photo_raycast` の放出反作用 channel を
 独立に補正します。signed target charge は accepted trial の batch 幅 $\Delta t$ に対して
@@ -361,8 +355,9 @@ Zhaoの定常電位は`zhao_barrier_v1` kinetic contractとしてz-highへも適
 bottleneckとして使います。各batchのz-high面平均電位を$\phi_f$とすると、流入tailは外部bottleneckと
 $\phi_f$の両方へ到達できる粒子から生成し、法線速度を0 Vから$\phi_f$までエネルギー保存で写像します。
 周期k=0成分を持つ明示的なsplit `[periodic2]`では、z-high面の水平平均電位を根の壁電位$\phi_0$へ固定します。
-障壁と流入写像は上流0 Vからの電位差であり、z-high面は外部1-Dシースから見た壁だからです。split zero modeを
-持たない場ソルバーではこの基準を設定できず、起動時に警告します。
+障壁と流入写像は上流0 Vからの電位差であり、z-high面は外部1-Dシースから見た壁だからです。このため
+`zhao_stationary`は`field_boundary.mode="periodic2"`、x/y周期、明示的なsplit `[periodic2]`（`cached_kneq0`または
+`panel_spectral_reference`、`exclude_k0`）を要求し、split zero modeを持たない場ソルバーは設定エラーにします。
 
 PE放出速度は従来どおり設定した表面half-Maxwellianです。PE、ambient electron、ionがopenなz-highを外向きに
 横切るとき、粒子位置の局所電位から残りのZhao barrierを評価します。electron/PEのbarrier電位はType Aで
@@ -373,8 +368,8 @@ OpenMP実行順序に依存しません。選び直した位置では、横切�
 補正後に届かない低速粒子は横切り位置へ戻します。x/yが周期でなければ横切り位置へ戻します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
 rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支を決めます。
 
-`outflow_refresh_batches=N>0`は、PE有効、`field_boundary.mode="periodic2"`、x/y周期、明示的なsplit `[periodic2]`を
-要求します。$N$個のaccepted batchで、z-highを外向きに横切ったPE数$N_{out}$、その法線運動エネルギー和、表面放出数
+`outflow_refresh_batches=N>0`は、上の場の条件に加えてPE有効を要求します。
+$N$個のaccepted batchで、z-highを外向きに横切ったPE数$N_{out}$、その法線運動エネルギー和、表面放出数
 $N_{emit}$をraw weightで合計し、$\eta=N_{out}/N_{emit}$と平均法線エネルギー$\bar K$を得ます。$N_{out}$は法線運動
 エネルギーのbin（$[0,1\,\mathrm{meV})$と1 meV〜1 keVの1桁24個の対数bin、1 keV以上は最後のbin）別にも数えます。
 外部根は放出源を、全体が$\eta\Gamma_{emit}$になるよう比例配分したこのbinスペクトル（bin内で$d\Gamma/dK$一定）として

@@ -25,9 +25,9 @@ contains
   if (.not. all(ieee_is_finite(mesh%q_elem))) then
     error stop 'batch surface-charge update produced a non-finite charge.'
   end if
-  call apply_surface_model_charge_relaxation(mesh, external_e, field_bc_mode=field_bc_mode)
-  if (.not. all(ieee_is_finite(mesh%q_elem))) then
-    error stop 'surface-model charge relaxation produced a non-finite charge.'
+  ! adaptive candidate は prepare 側で既に等電位化済み。
+  if (conductor%active() .and. .not. workspace%charge_candidate_ready) then
+    call conductor%relax(mesh, sim, snapshot)
   end if
   call validate_finite_charge_addition( &
     mesh%q_elem, -workspace%q_before, 'batch surface-charge difference' &
@@ -38,11 +38,12 @@ contains
   end if
   norm_dq = stable_l2_norm(workspace%dq)
   norm_q = stable_l2_norm(mesh%q_elem)
-  rel = finite_nonnegative_ratio(norm_dq, max(norm_q, q_floor))
+  rel = finite_nonnegative_ratio(norm_dq, max(norm_q, sim%q_floor))
   workspace%charge_candidate_ready = .false.
   end procedure commit_batch_charge
 
   module procedure prepare_adaptive_charge_candidate
+  real(dp), allocatable :: committed_charge(:)
   workspace%dq = sum(workspace%dq_thread, dim=2) + sum(workspace%photo_emission_dq, dim=2)
   call mpi_allreduce_sum_real_dp_array(mpi, workspace%dq)
   call validate_finite_charge_addition( &
@@ -51,6 +52,15 @@ contains
   workspace%candidate_charge = mesh%q_elem + workspace%dq
   if (.not. all(ieee_is_finite(workspace%candidate_charge))) then
     error stop 'adaptive candidate charge is not finite.'
+  end if
+  if (conductor%active()) then
+    ! 電位ステップの判定は再配分後の候補電荷で行う。snapshot は確定電荷の状態へ戻す。
+    committed_charge = mesh%q_elem
+    mesh%q_elem = workspace%candidate_charge
+    call conductor%relax(mesh, sim, snapshot)
+    workspace%candidate_charge = mesh%q_elem
+    mesh%q_elem = committed_charge
+    call snapshot%refresh(mesh)
   end if
   workspace%charge_candidate_ready = .true.
   end procedure prepare_adaptive_charge_candidate

@@ -90,6 +90,7 @@ contains
       spec%has_number_density_cm3 = .true.
     case ('number_density_m3')
       call get_toml_real(table, keys(ikey), spec%number_density_m3, 'particles.species.number_density_m3')
+      spec%has_number_density_m3 = .true.
     case ('q_particle')
       call get_toml_real(table, keys(ikey), spec%q_particle, 'particles.species.q_particle')
     case ('m_particle')
@@ -109,22 +110,6 @@ contains
     case ('pos_high')
       call get_toml_real_array(table, keys(ikey), spec%pos_high, 'particles.species.pos_high')
       auth%has_pos_high = .true.
-    case ('velocity_distribution')
-      call get_toml_string(table, keys(ikey), spec%velocity_distribution, 'particles.species.velocity_distribution')
-      spec%velocity_distribution = lower_ascii(trim(spec%velocity_distribution))
-    case ('velocity_grid_path')
-      call get_toml_string(table, keys(ikey), spec%velocity_grid_path, 'particles.species.velocity_grid_path')
-    case ('velocity_grid_pdf_kind')
-      call get_toml_string(table, keys(ikey), spec%velocity_grid_pdf_kind, 'particles.species.velocity_grid_pdf_kind')
-      spec%velocity_grid_pdf_kind = lower_ascii(trim(spec%velocity_grid_pdf_kind))
-    case ('velocity_grid_sampling')
-      call get_toml_string(table, keys(ikey), spec%velocity_grid_sampling, 'particles.species.velocity_grid_sampling')
-      spec%velocity_grid_sampling = lower_ascii(trim(spec%velocity_grid_sampling))
-    case ('particle_flux_m2_s')
-      call get_toml_real(table, keys(ikey), spec%particle_flux_m2_s, 'particles.species.particle_flux_m2_s')
-    case ('current_density_a_m2')
-      call get_toml_real(table, keys(ikey), spec%current_density_a_m2, 'particles.species.current_density_a_m2')
-      spec%has_current_density_a_m2 = .true.
     case ('drift_velocity')
       call get_toml_real_array(table, keys(ikey), spec%drift_velocity, 'particles.species.drift_velocity')
     case ('temperature_k')
@@ -146,8 +131,6 @@ contains
     case ('ray_direction')
       call get_toml_real_array(table, keys(ikey), spec%ray_direction, 'particles.species.ray_direction')
       spec%has_ray_direction = .true.
-    case ('source_normal')
-      call get_toml_real_array(table, keys(ikey), spec%source_normal, 'particles.species.source_normal')
     case ('inject_face')
       call get_toml_string(table, keys(ikey), spec%inject_face, 'particles.species.inject_face')
       spec%inject_face = lower_ascii(trim(spec%inject_face))

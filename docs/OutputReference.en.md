@@ -75,7 +75,7 @@ keys converted to typed Python attributes.
 | `simulated_time_s`, `last_rel_change` | Accepted simulated time and final relative change. `last_rel_change` is not an early-stop condition |
 | `checkpoint_schema_version`, `checkpoint_stride` | Checkpoint format generation and resolved output interval |
 | `mesh_fingerprint` | Ordered mesh identity used to map saved charges to elements |
-| `reservoir_inflow_map`, `particle_ordinary_open_model` | Resolved reservoir and ordinary-open boundary models |
+| `reservoir_inflow_map` | Resolved reservoir inflow model |
 
 The build receipt consists of these five keys.
 

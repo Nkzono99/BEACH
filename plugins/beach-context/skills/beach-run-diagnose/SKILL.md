@@ -48,7 +48,7 @@ Prefer:
 - Missing compiler or `fpm`: install/build prerequisite problem.
 - `pip install beach-bem` build failure: Fortran toolchain, `make install`, or `INSTALL_PROFILE` issue.
 - `Unknown key` / `Unknown section`: `beach.toml` key mismatch with Fortran parser.
-- `batch_duration` errors: mutually exclusive or missing resolved positive duration for `reservoir_face` / `photo_raycast`.
+- `batch_duration` errors: mutually exclusive or missing resolved positive duration for `boundary_inflow` / `photo_raycast`.
 - Empty or tiny absorption: injection direction, injection region, mesh placement, boundary condition, or `max_step`.
 - Large `survived_max_step`: particles remain alive until `sim.max_step`.
 - Missing output file: output flag/cadence, early termination, wrong `output.dir`, or looking at stale directory.

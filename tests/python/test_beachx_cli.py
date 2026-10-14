@@ -87,7 +87,6 @@ def test_beachx_config_help_lists_available_subcommands(
     assert excinfo.value.code == 0
     captured = capsys.readouterr()
     assert "init" in captured.out
-    assert "validate" in captured.out
     assert "diff" in captured.out
 
 

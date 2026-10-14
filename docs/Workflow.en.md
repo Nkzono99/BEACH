@@ -75,7 +75,7 @@ crosses subsystem boundaries. Direct tests alone are not sufficient when a chang
 | Documentation, navigation, or Japanese/English parity | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`; after a site-structure change, run `python tools/sync_starlight_docs.py` and then `npm --prefix docs-site run check` |
 | TOML, schema, parser, or defaults | `test_app_config_parser`, `test_physics_config_types`, `tests/python/test_config_schema.py`, `tests/python/test_config_cli.py`, `make test-config-contract` | `make test-l2` and `make schema-check` |
 | Mesh templates, OBJ import, or panel geometry | `test_templates_importers_runtime`, `test_panel_geometry_near`, `test_panel_kernel` | `make test-l1`; use `make test-l3` when panel FMM is affected |
-| Particle sources, reservoirs, or photoelectron injection | `test_injection_sampling`, `test_reservoir_injection`, `test_external_field_velocity_grid` | `make test-l1` |
+| Particle sources, reservoirs, or photoelectron injection | `test_injection_sampling`, `test_reservoir_injection` | `make test-l1` |
 | Boris update, collision, box boundary, or particle events | `test_particle_stepper`, `test_boundary`, `test_dynamics_basic` | `make test-l1`; also use `make test-mpi` when the MPI or OpenMP path changes |
 | Surface model, charge closure, or charge ledger | `test_surface_models`, `test_surface_current_model`, `test_charge_ledger`, `test_simulator` | `make test-l1`; include `test_zhao_outflow_refresh` for outer-root refresh work |
 | Field snapshot, Direct, or Treecode | `test_electrostatic_snapshot`, `test_dynamics_field_solver`, `test_panel_kernel` | `make test-l1` |
@@ -123,8 +123,8 @@ Before handoff, run `make fmt-check-fortran` after a Fortran change, `ruff check
 
 ## Check the configuration contract
 
-Ordinary operation requires `beachx lint` before running. `beach --check-config` is for development and diagnostics;
-users do not need to run both validation commands each time.
+Ordinary operation requires `beachx lint` before running. Lint calls `beach --check-config` after the schema check,
+so users do not run the Fortran preflight separately.
 
 `schemas/beach.schema.json` is the structural source of truth. After editing it, synchronize the distributed copies and
 run the shared configuration cases.
@@ -139,18 +139,17 @@ make test-config-contract
 `schema-check` checks JSON syntax, byte-for-byte agreement among all three files, and agreement between the schema and
 Fortran readers on the key sets of all 16 public tables. Key comparison checks declarations; executable tests check
 value ranges and combinations.
-`test-config-contract` builds the current Fortran `beach`. It checks Python loader, validate, and lint diagnostics using
-representative cases and requires current examples passing lint to load with `beach --check-config` as well.
-It does not require identical acceptance of invalid inputs. The native check also fails if it creates simulation output.
+`test-config-contract` builds the current Fortran `beach` and checks, for each representative case, that `beachx lint`
+returns the verdict of the Fortran preflight. The gate also fails if the preflight alone creates simulation output.
 This gate is part of L2. Running the ordinary Python suite alone does not check Fortran loading.
 
-Identical acceptance of every input and exhaustive detection of invalid combinations are not guaranteed. Choose additional
-validation based on frequency in research use, impact on results, and maintenance cost. Fortran prioritizes basic conditions
-such as storage ranges and finiteness, plus prerequisites of the selected physical model. Add representative cases for known
-bugs to prevent regressions. Keep detailed diagnostics for enums, ranges, and settings supplied to inactive features in lint.
-Success from `--check-config`
-means only that loading, normalization, and the remaining model-prerequisite checks passed; it does not replace lint before running.
-Put new constraints required for execution in the appropriate Fortran preflight domain, and update the necessary Python checks
+Validation has two layers. `schemas/beach.schema.json` owns key names, types, enumerations, and ranges, and the Python
+lint checks them. The Fortran preflight by domain (`_preflight_sim` / `_preflight_particles` / `_preflight_surface` /
+`_finalize`) owns combination constraints and derived values. The same constraint is not written in Python.
+Put a new combination constraint in the Fortran preflight and add a representative case to
+`tests/python/test_config_contract.py`, plus a rejection case in `test_app_config_parser` when useful.
+Exhaustive detection of invalid combinations is not guaranteed. Choose additional validation from frequency in research use,
+impact on results, and maintenance cost.
 and shared cases. The parser owns key reading, authoring owns coordinate and placement notation, and runtime configuration
 owns mesh and particle construction.
 

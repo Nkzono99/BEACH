@@ -7,8 +7,7 @@ Lang: [English](ReservoirInjection.en.md) | [日本語](ReservoirInjection.md)
 This procedure injects particles through a box face from a plasma outside the box (the external plasma, or reservoir), with a
 density and temperature or a velocity distribution. Make a non-periodic face open and set that face to `"reservoir"` in the
 species `[particles.species.inflow]`. After reading this page you can build a minimal configuration, choose the distribution and
-the inflow mapping, and check the injected amount in the output. To emit particles from a face inside the box, use
-`plane_source` in [Choose a particle source](ParticleSourcesBoundaries.en.html).
+the inflow mapping, and check the injected amount in the output.
 
 ## 1. Build a minimal configuration
 
@@ -33,7 +32,6 @@ charge_c = -1.602176634e-19
 mass_kg = 9.1093837139e-31
 
 [particles.species.distribution]
-model = "maxwellian"
 number_density_m3 = 5.0e6
 temperature_ev = 10.0
 drift_velocity_m_s = [0.0, 0.0, -4.0e5]
@@ -63,10 +61,7 @@ Passing `lint` does not mean that the flux, weight, and potential reference are 
 
 ## 2. Choose the distribution
 
-| External plasma information you have | Setting |
-|---|---|
-| Density, temperature, and drift velocity | `distribution.model = "maxwellian"` |
-| Velocity points and distribution values from measurements or another calculation | `distribution.model = "grid"` |
+The inflow distribution is a drifting Maxwellian set by the density, temperature, and drift velocity of the external plasma.
 
 ### Maxwellian
 
@@ -85,32 +80,6 @@ batch, so the count per batch is not constant.
 To set the weight physically, give `sampling.weight`; to set it from the number of samples per batch, give
 `sampling.target_macro_particles_per_batch`. The latter is a target used to resolve the weight and does not change the physical
 flux. The two cannot be given together.
-
-### Velocity grid
-
-Instead of the Maxwellian density and temperature, give a CSV file and the physical flux.
-
-```toml
-[particles.species.distribution]
-model = "grid"
-grid_path = "inflow_vdf.csv"
-grid_pdf_kind = "phase_space"
-particle_flux_m2_s = 1.0e12
-
-[particles.species.sampling]
-velocity_grid_sampling = "auto"
-```
-
-The CSV columns are `vx_m_s,vy_m_s,vz_m_s,f`. `f` is non-negative, and `grid_pdf_kind` states what it represents.
-
-| `grid_pdf_kind` | `f` in the CSV | Weight used by BEACH |
-|---|---|---|
-| `phase_space` | Phase-space distribution | $\max(v_n,0)f$, multiplied by the inward normal velocity |
-| `flux_weighted` | Distribution already weighted for particles crossing the face | $f$ |
-
-Give the inflow amount with exactly one of `particle_flux_m2_s` and `current_density_a_m2`. A current density is converted to
-a flux by $|J/q|$, so its sign does not set the direction; the direction comes from the CSV velocities and the inward normal of
-the face. A relative CSV path is resolved against the working directory at run time.
 
 ## 3. Choose the inflow mapping
 
@@ -146,21 +115,19 @@ $q$ is the signed charge, so electrons and positive ions have opposite signs of 
 | $B<0$ | Every particle reaches the face, and it accelerates on the way |
 
 The tangential velocity is unchanged. $\phi_f$ is the mean over `face_potential_grid_n` × `face_potential_grid_n` points on the
-inflow face, not a per-particle local potential. To test outgoing particles against the same upstream potential, set the
-treatment of open faces to the potential barrier ([Particles at box boundaries](ParticleEscapeReturn.en.html#potential-barrier-potential_barrier)).
+inflow face, not a per-particle local potential.
 With the outer-sheath connection, the outer sheath sets the inflow mapping and `infinity_barrier` cannot be used.
 
 ## 4. Check the injected amount in the output
 
 ```bash
 beachx inspect outputs/latest
-grep -E '^(reservoir_inflow_map|particle_ordinary_open_model|charge_ledger_residual_C)=' \
+grep -E '^(reservoir_inflow_map|charge_ledger_residual_C)=' \
   outputs/latest/summary.txt
 head -n 2 outputs/latest/charge_ledger.csv
 ```
 
-`reservoir_inflow_map` in `summary.txt` is the selected mapping (`source_vdf` or `infinity_barrier`), and
-`particle_ordinary_open_model` is the treatment of open faces. In `charge_ledger.csv`, check the following for each species.
+`reservoir_inflow_map` in `summary.txt` is the selected mapping (`source_vdf` or `infinity_barrier`). In `charge_ledger.csv`, check the following for each species.
 
 - `injected_count`: macro-particles that entered from outside the box
 - `injected_from_remote_C`: their charge, with the sign of the particle charge

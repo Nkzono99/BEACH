@@ -1,16 +1,15 @@
 !> テンプレート生成・OBJ取込・app_config実行時変換の連携を検証するテスト。
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, &
-                       bc_open, bc_periodic
+  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_app_config, only: &
     app_config, default_app_config, species_from_defaults, &
-    build_mesh_from_config, seed_particles_from_config, init_particle_batch_from_config, &
-    sample_species_state
+    build_mesh_from_config, seed_particles_from_config, init_particle_batch_from_config
+  use bem_app_config_types, only: particle_inflow_reservoir
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -22,7 +21,6 @@ program test_templates_importers_runtime
   type(injection_state) :: state
   type(electrostatic_snapshot_type) :: snapshot
   real(dp), allocatable :: photo_emission_dq(:), photo_source_charge(:)
-  real(dp) :: reservoir_x(3, 128), reservoir_v(3, 128)
   real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1)
   real(dp) :: expected_photo_counter, observed_photo_counter
   real(dp), allocatable :: outward_dot(:)
@@ -33,7 +31,7 @@ program test_templates_importers_runtime
 
   character(len=*), parameter :: crlf_obj_path = 'test_templates_runtime_crlf.obj'
 
-  call test_init(12)
+  call test_init(11)
 
   call test_begin('uneven_species_batch_order_and_empty_batch')
   call test_uneven_species_batch()
@@ -69,65 +67,6 @@ program test_templates_importers_runtime
 
   call make_sphere(mesh, n_lon=8_i32, n_lat=4_i32)
   call assert_template_mesh(mesh, 48_i32, 'sphere')
-  call test_end()
-
-  call test_begin('reservoir_runtime_ignores_legacy_jitter_dt')
-  call default_app_config(cfg)
-  cfg%sim%dt = 0.5_dp
-  cfg%sim%use_box = .true.
-  cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-  cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-  cfg%sim%bc_low = [bc_periodic, bc_periodic, bc_open]
-  cfg%sim%bc_high = [bc_periodic, bc_periodic, bc_open]
-  cfg%particle_species(1) = species_from_defaults()
-  cfg%particle_species(1)%source_mode = 'reservoir_face'
-  cfg%particle_species(1)%inject_face = 'z_high'
-  cfg%particle_species(1)%pos_low = [0.99_dp, 0.5_dp, 1.0_dp]
-  cfg%particle_species(1)%pos_high = cfg%particle_species(1)%pos_low
-  cfg%particle_species(1)%drift_velocity = [4.0_dp, 0.0_dp, -1.0_dp]
-  cfg%particle_species(1)%temperature_k = 0.0_dp
-  cfg%particle_species(1)%m_particle = 1.0_dp
-  call seed_particles_from_config(cfg)
-  call sample_species_state( &
-    cfg%sim, cfg%particle_species(1), 64_i32, reservoir_x(:, 1:64), reservoir_v(:, 1:64) &
-    )
-  cfg%sim%dt = 1.0_dp
-  call seed_particles_from_config(cfg)
-  call sample_species_state( &
-    cfg%sim, cfg%particle_species(1), 64_i32, reservoir_x(:, 65:128), reservoir_v(:, 65:128) &
-    )
-  call assert_true( &
-    all(reservoir_x(:, 1:64) == reservoir_x(:, 65:128)), &
-    'legacy jitter dt must not change reservoir launch positions' &
-    )
-  call assert_true( &
-    all(reservoir_v(:, 1:64) == reservoir_v(:, 65:128)), &
-    'legacy jitter dt must not change reservoir launch velocities' &
-    )
-  call assert_true( &
-    all(reservoir_x(1, :) == cfg%particle_species(1)%pos_low(1)), &
-    'reservoir launch must retain the sampled aperture x coordinate' &
-    )
-  call assert_true( &
-    all(reservoir_x(2, :) == cfg%particle_species(1)%pos_low(2)), &
-    'reservoir launch must retain the sampled aperture y coordinate' &
-    )
-  call assert_true( &
-    all(reservoir_x(3, :) >= cfg%sim%box_min(3) .and. reservoir_x(3, :) < cfg%sim%box_max(3)), &
-    'reservoir launch must remain strictly inside the normal box extent' &
-    )
-  call assert_true( &
-    all(cfg%sim%box_max(3) - reservoir_x(3, :) <= 8.0_dp*epsilon(1.0_dp)), &
-    'reservoir launch must remain within a few ulps of the source face' &
-    )
-  call assert_true( &
-    all(reservoir_x(3, :) == reservoir_x(3, 1)), &
-    'reservoir launch must remain on one normal plane' &
-    )
-  call assert_true( &
-    all(reservoir_v(3, :) < 0.0_dp), &
-    'z-high reservoir launch velocities must point inward' &
-    )
   call test_end()
 
   call test_begin('obj_import')
@@ -336,15 +275,14 @@ program test_templates_importers_runtime
   cfg%particle_species(1)%temperature_k = 0.0d0
 
   cfg%particle_species(2) = species_from_defaults()
-  cfg%particle_species(2)%source_mode = 'reservoir_face'
+  cfg%particle_species(2)%source_mode = 'volume_seed'
+  cfg%particle_species(2)%npcls_per_step = 0_i32
   cfg%particle_species(2)%number_density_cm3 = 0.0d0
   cfg%particle_species(2)%temperature_k = 0.0d0
   cfg%particle_species(2)%q_particle = 1.0d0
   cfg%particle_species(2)%m_particle = 1.0d0
   cfg%particle_species(2)%w_particle = 10.0d0
-  cfg%particle_species(2)%inject_face = 'z_low'
-  cfg%particle_species(2)%pos_low = [0.0d0, 0.0d0, 0.0d0]
-  cfg%particle_species(2)%pos_high = [1.0d0, 1.0d0, 0.0d0]
+  cfg%particle_species(2)%boundary_inflow_low(3) = particle_inflow_reservoir
   cfg%particle_species(2)%drift_velocity = [0.0d0, 0.0d0, 1.0d0]
 
   cfg%particle_species(3) = species_from_defaults()
@@ -362,7 +300,8 @@ program test_templates_importers_runtime
   cfg%particle_species(3)%pos_low = [0.0d0, 0.0d0, 1.0d0]
   cfg%particle_species(3)%pos_high = [0.1d0, 0.1d0, 1.0d0]
 
-  allocate (state%macro_residual(3))
+  allocate (state%macro_residual(3), state%boundary_macro_residual(6, 3))
+  state%boundary_macro_residual = 0.0_dp
   state%macro_residual = 0.0d0
   allocate (photo_emission_dq(mesh%nelem), photo_source_charge(mesh%nelem))
   call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
@@ -402,7 +341,7 @@ program test_templates_importers_runtime
   call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
   call assert_allclose_1d(photo_source_charge, photo_emission_dq, 1.0d-12, &
                           'source provenance does not reproduce the emitted countercharge distribution')
-  call assert_close_dp(state%macro_residual(2), 0.0_dp, 0.0_dp, 'zero-density reservoir residual mismatch')
+  call assert_close_dp(state%boundary_macro_residual(5, 2), 0.0_dp, 0.0_dp, 'zero-density reservoir residual mismatch')
   call test_end()
 
   call delete_file_if_exists(obj_path)

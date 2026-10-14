@@ -133,8 +133,6 @@ contains
       legacy = 'particle_boundary.z_low'
     case ('particles.boundary.z_high')
       legacy = 'particle_boundary.z_high'
-    case ('particles.boundary.open_model')
-      legacy = 'particle_boundary.ordinary_open_model'
     case ('particles.reservoir.inflow_model')
       legacy = 'reservoir.inflow_model'
     case ('particles.reservoir.phi_infty_v')
@@ -169,8 +167,6 @@ contains
       legacy = 'particles.species.q_particle'
     case ('particles.species.mass_kg')
       legacy = 'particles.species.m_particle'
-    case ('particles.species.distribution.model')
-      legacy = 'particles.species.velocity_distribution'
     case ('particles.species.distribution.number_density_cm3')
       legacy = 'particles.species.number_density_cm3'
     case ('particles.species.distribution.number_density_m3')
@@ -181,22 +177,12 @@ contains
       legacy = 'particles.species.temperature_k'
     case ('particles.species.distribution.drift_velocity_m_s')
       legacy = 'particles.species.drift_velocity'
-    case ('particles.species.distribution.grid_path')
-      legacy = 'particles.species.velocity_grid_path'
-    case ('particles.species.distribution.grid_pdf_kind')
-      legacy = 'particles.species.velocity_grid_pdf_kind'
-    case ('particles.species.distribution.particle_flux_m2_s')
-      legacy = 'particles.species.particle_flux_m2_s'
-    case ('particles.species.distribution.current_density_a_m2')
-      legacy = 'particles.species.current_density_a_m2'
     case ('particles.species.source.mode')
       legacy = 'particles.species.source_mode'
     case ('particles.species.source.pos_low')
       legacy = 'particles.species.pos_low'
     case ('particles.species.source.pos_high')
       legacy = 'particles.species.pos_high'
-    case ('particles.species.source.normal')
-      legacy = 'particles.species.source_normal'
     case ('particles.species.source.inject_face')
       legacy = 'particles.species.inject_face'
     case ('particles.species.source.ray_direction')
@@ -221,8 +207,6 @@ contains
       legacy = 'particles.species.target_macro_particles_per_batch'
     case ('particles.species.sampling.rays_per_batch')
       legacy = 'particles.species.rays_per_batch'
-    case ('particles.species.sampling.velocity_grid_sampling')
-      legacy = 'particles.species.velocity_grid_sampling'
     case ('particles.species.charging.closure')
       legacy = 'particles.species.surface_charge_closure'
     case ('particles.species.charging.target_absorbed_current_a')

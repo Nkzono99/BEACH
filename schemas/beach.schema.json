@@ -119,13 +119,6 @@
         },
         "z_high": {
           "$ref": "#/$defs/particleBoundaryAction"
-        },
-        "ordinary_open_model": {
-          "enum": [
-            "escape",
-            "potential_barrier"
-          ],
-          "default": "escape"
         }
       }
     },
@@ -558,115 +551,28 @@
           ]
         },
         {
-          "if": {
-            "properties": {
-              "velocity_distribution": {
-                "const": "grid"
-              }
-            },
-            "required": [
-              "velocity_distribution"
-            ]
-          },
-          "then": {
-            "required": [
-              "velocity_grid_path"
-            ],
-            "oneOf": [
-              {
-                "required": [
-                  "particle_flux_m2_s"
-                ],
-                "not": {
-                  "required": [
-                    "current_density_a_m2"
-                  ]
-                }
-              },
-              {
-                "required": [
-                  "current_density_a_m2"
-                ],
-                "not": {
-                  "required": [
-                    "particle_flux_m2_s"
-                  ]
-                }
-              }
-            ],
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "number_density_cm3"
-                  ]
-                },
-                {
-                  "required": [
-                    "number_density_m3"
-                  ]
-                },
-                {
-                  "required": [
-                    "temperature_k"
-                  ]
-                },
-                {
-                  "required": [
-                    "temperature_ev"
-                  ]
-                }
-              ]
-            }
-          },
-          "else": {
-            "properties": {
-              "velocity_distribution": {
-                "const": "maxwellian"
-              }
-            },
-            "oneOf": [
-              {
-                "required": [
-                  "number_density_cm3"
-                ],
-                "not": {
-                  "required": [
-                    "number_density_m3"
-                  ]
-                }
-              },
-              {
+          "oneOf": [
+            {
+              "required": [
+                "number_density_cm3"
+              ],
+              "not": {
                 "required": [
                   "number_density_m3"
-                ],
-                "not": {
-                  "required": [
-                    "number_density_cm3"
-                  ]
-                }
+                ]
               }
-            ],
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "velocity_grid_path"
-                  ]
-                },
-                {
-                  "required": [
-                    "particle_flux_m2_s"
-                  ]
-                },
-                {
-                  "required": [
-                    "current_density_a_m2"
-                  ]
-                }
-              ]
+            },
+            {
+              "required": [
+                "number_density_m3"
+              ],
+              "not": {
+                "required": [
+                  "number_density_cm3"
+                ]
+              }
             }
-          }
+          ]
         }
       ]
     },
@@ -1048,8 +954,6 @@
           "type": "string",
           "enum": [
             "volume_seed",
-            "reservoir_face",
-            "plane_source",
             "photo_raycast"
           ],
           "default": "volume_seed",
@@ -1057,11 +961,11 @@
         },
         "number_density_cm3": {
           "type": "number",
-          "description": "Reservoir density [cm^-3] for reservoir_face, plane_source, or boundary_inflow."
+          "description": "Reservoir density [cm^-3] for boundary_inflow."
         },
         "number_density_m3": {
           "type": "number",
-          "description": "Reservoir density [m^-3] for reservoir_face, plane_source, or boundary_inflow."
+          "description": "Reservoir density [m^-3] for boundary_inflow."
         },
         "q_particle": {
           "type": "number",
@@ -1110,53 +1014,6 @@
           ],
           "description": "Upper bound of position range [m]."
         },
-        "source_normal": {
-          "$ref": "#/$defs/vec3",
-          "description": "Non-zero axis-aligned normal for plane_source injection; normalized internally."
-        },
-        "velocity_distribution": {
-          "type": "string",
-          "enum": [
-            "maxwellian",
-            "grid"
-          ],
-          "default": "maxwellian",
-          "description": "Velocity distribution model. grid is available for flux-driven reservoir injection."
-        },
-        "velocity_grid_path": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 256,
-          "description": "CSV file with columns vx_m_s,vy_m_s,vz_m_s,f for velocity_distribution=grid. Complete rectilinear grids are sampled with trilinear interpolation; other inputs fall back to discrete row sampling."
-        },
-        "velocity_grid_pdf_kind": {
-          "type": "string",
-          "enum": [
-            "phase_space",
-            "flux_weighted"
-          ],
-          "default": "phase_space",
-          "description": "Interpretation of f in velocity_grid_path. phase_space samples v_n f(v); flux_weighted treats f as the incoming flux-weighted distribution."
-        },
-        "velocity_grid_sampling": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "rectilinear",
-            "discrete"
-          ],
-          "default": "auto",
-          "description": "Sampling mode for velocity_distribution=grid. auto tries rectilinear trilinear interpolation and falls back to discrete rows; rectilinear requires a complete rectilinear grid; discrete samples CSV rows directly."
-        },
-        "particle_flux_m2_s": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "description": "Incoming particle flux [1/m^2/s] for velocity_distribution=grid."
-        },
-        "current_density_a_m2": {
-          "type": "number",
-          "description": "Incoming current density [A/m^2] for velocity_distribution=grid. Mutually exclusive with particle_flux_m2_s."
-        },
         "drift_velocity": {
           "$ref": "#/$defs/vec3",
           "default": [
@@ -1202,7 +1059,7 @@
         },
         "inject_face": {
           "$ref": "#/$defs/injectFace",
-          "description": "Injection face. Required for reservoir_face and photo_raycast."
+          "description": "Illumination-aperture face for photo_raycast."
         },
         "boundary": {
           "$ref": "#/$defs/speciesParticleBoundary",
@@ -1330,10 +1187,7 @@
             ],
             "properties": {
               "source_mode": {
-                "enum": [
-                  "reservoir_face",
-                  "photo_raycast"
-                ]
+                "const": "photo_raycast"
               }
             }
           }
@@ -1459,11 +1313,6 @@
             ]
           },
           "then": {
-            "properties": {
-              "velocity_distribution": {
-                "const": "maxwellian"
-              }
-            },
             "not": {
               "anyOf": [
                 {
@@ -1489,21 +1338,6 @@
                 {
                   "required": [
                     "deposit_opposite_charge_on_emit"
-                  ]
-                },
-                {
-                  "required": [
-                    "velocity_grid_path"
-                  ]
-                },
-                {
-                  "required": [
-                    "particle_flux_m2_s"
-                  ]
-                },
-                {
-                  "required": [
-                    "current_density_a_m2"
                   ]
                 }
               ]
@@ -1541,280 +1375,6 @@
         },
         {
           "if": {
-            "properties": {
-              "source_mode": {
-                "const": "reservoir_face"
-              }
-            },
-            "required": [
-              "source_mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "inject_face"
-            ],
-            "allOf": [
-              {
-                "not": {
-                  "required": [
-                    "npcls_per_step"
-                  ]
-                }
-              },
-              {
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "emit_current_density_a_m2"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "rays_per_batch"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "ray_direction"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "deposit_opposite_charge_on_emit"
-                      ]
-                    }
-                  ]
-                }
-              },
-              {
-                "oneOf": [
-                  {
-                    "required": [
-                      "w_particle"
-                    ],
-                    "not": {
-                      "required": [
-                        "target_macro_particles_per_batch"
-                      ]
-                    }
-                  },
-                  {
-                    "required": [
-                      "target_macro_particles_per_batch"
-                    ],
-                    "not": {
-                      "required": [
-                        "w_particle"
-                      ]
-                    }
-                  }
-                ]
-              },
-              {
-                "if": {
-                  "properties": {
-                    "velocity_distribution": {
-                      "const": "grid"
-                    }
-                  },
-                  "required": [
-                    "velocity_distribution"
-                  ]
-                },
-                "then": {
-                  "required": [
-                    "velocity_grid_path"
-                  ],
-                  "oneOf": [
-                    {
-                      "required": [
-                        "particle_flux_m2_s"
-                      ],
-                      "not": {
-                        "required": [
-                          "current_density_a_m2"
-                        ]
-                      }
-                    },
-                    {
-                      "required": [
-                        "current_density_a_m2"
-                      ],
-                      "not": {
-                        "required": [
-                          "particle_flux_m2_s"
-                        ]
-                      },
-                      "properties": {
-                        "current_density_a_m2": {
-                          "anyOf": [
-                            {
-                              "exclusiveMaximum": 0
-                            },
-                            {
-                              "exclusiveMinimum": 0
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  ],
-                  "not": {
-                    "anyOf": [
-                      {
-                        "required": [
-                          "number_density_cm3"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "number_density_m3"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "temperature_k"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "temperature_ev"
-                        ]
-                      }
-                    ]
-                  }
-                },
-                "else": {
-                  "properties": {
-                    "velocity_distribution": {
-                      "const": "maxwellian"
-                    }
-                  },
-                  "oneOf": [
-                    {
-                      "required": [
-                        "number_density_cm3"
-                      ],
-                      "not": {
-                        "required": [
-                          "number_density_m3"
-                        ]
-                      },
-                      "properties": {
-                        "number_density_cm3": {
-                          "exclusiveMinimum": 0
-                        }
-                      }
-                    },
-                    {
-                      "required": [
-                        "number_density_m3"
-                      ],
-                      "not": {
-                        "required": [
-                          "number_density_cm3"
-                        ]
-                      },
-                      "properties": {
-                        "number_density_m3": {
-                          "exclusiveMinimum": 0
-                        }
-                      }
-                    }
-                  ],
-                  "not": {
-                    "anyOf": [
-                      {
-                        "required": [
-                          "velocity_grid_path"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "particle_flux_m2_s"
-                        ]
-                      },
-                      {
-                        "required": [
-                          "current_density_a_m2"
-                        ]
-                      }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "source_mode": {
-                "const": "plane_source"
-              }
-            },
-            "required": [
-              "source_mode"
-            ]
-          },
-          "then": {
-            "allOf": [
-              {
-                "$ref": "#/$defs/reservoirInjectionPhysics"
-              },
-              {
-                "required": [
-                  "pos_low",
-                  "pos_high",
-                  "source_normal"
-                ],
-                "not": {
-                  "anyOf": [
-                    {
-                      "required": [
-                        "npcls_per_step"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "inject_face"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "boundary_inflow"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "emit_current_density_a_m2"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "rays_per_batch"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "ray_direction"
-                      ]
-                    },
-                    {
-                      "required": [
-                        "deposit_opposite_charge_on_emit"
-                      ]
-                    }
-                  ]
-                }
-              }
-            ]
-          }
-        },
-        {
-          "if": {
             "required": [
               "boundary_inflow"
             ],
@@ -1830,11 +1390,6 @@
                 {
                   "required": [
                     "inject_face"
-                  ]
-                },
-                {
-                  "required": [
-                    "source_normal"
                   ]
                 },
                 {
@@ -1862,47 +1417,11 @@
             "allOf": [
               {
                 "$ref": "#/$defs/reservoirInjectionPhysics"
-              },
-              {
-                "if": {
-                  "properties": {
-                    "velocity_distribution": {
-                      "const": "grid"
-                    }
-                  },
-                  "required": [
-                    "velocity_distribution"
-                  ]
-                },
-                "then": {
-                  "properties": {
-                    "npcls_per_step": {
-                      "maximum": 0
-                    }
-                  }
-                }
               }
             ],
             "properties": {
               "source_mode": {
                 "const": "volume_seed"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "source_normal"
-            ]
-          },
-          "then": {
-            "required": [
-              "source_mode"
-            ],
-            "properties": {
-              "source_mode": {
-                "const": "plane_source"
               }
             }
           }
@@ -1950,28 +1469,10 @@
                   "required": [
                     "number_density_m3"
                   ]
-                },
-                {
-                  "required": [
-                    "velocity_grid_path"
-                  ]
-                },
-                {
-                  "required": [
-                    "particle_flux_m2_s"
-                  ]
-                },
-                {
-                  "required": [
-                    "current_density_a_m2"
-                  ]
                 }
               ]
             },
             "properties": {
-              "velocity_distribution": {
-                "const": "maxwellian"
-              },
               "emit_current_density_a_m2": {
                 "exclusiveMinimum": 0
               },
@@ -2020,7 +1521,7 @@
             "conductor"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to OBJ mesh elements. conductor uses floating equipotential charge redistribution for field_boundary.mode=free; dielectric polarization is not implemented."
+          "description": "Surface response model assigned to OBJ mesh elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",
@@ -2230,7 +1731,7 @@
             "conductor"
           ],
           "default": "insulator",
-          "description": "Surface response model assigned to template elements. conductor uses floating equipotential charge redistribution for field_boundary.mode=free; dielectric polarization is not implemented."
+          "description": "Surface response model assigned to template elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
         },
         "surface_side": {
           "$ref": "#/$defs/surfaceSide",
@@ -2757,8 +2258,6 @@
                           "properties": {
                             "source_mode": {
                               "enum": [
-                                "reservoir_face",
-                                "plane_source",
                                 "photo_raycast"
                               ]
                             }
@@ -3106,13 +2605,6 @@
                 },
                 "z_high": {
                   "$ref": "#/$defs/particleBoundaryAction"
-                },
-                "open_model": {
-                  "enum": [
-                    "escape",
-                    "potential_barrier"
-                  ],
-                  "default": "escape"
                 }
               }
             },
@@ -3634,7 +3126,7 @@
                     "conductor"
                   ],
                   "default": "insulator",
-                  "description": "Surface response model assigned to OBJ mesh elements. conductor uses floating equipotential charge redistribution for field_boundary.mode=free; dielectric polarization is not implemented."
+                  "description": "Surface response model assigned to OBJ mesh elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
                 },
                 "surface_side": {
                   "$ref": "#/$defs/surfaceSide",
@@ -3712,22 +3204,13 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "model": {
-              "type": "string",
-              "enum": [
-                "maxwellian",
-                "grid"
-              ],
-              "default": "maxwellian",
-              "description": "Velocity distribution model. grid is available for flux-driven reservoir injection."
-            },
             "number_density_cm3": {
               "type": "number",
-              "description": "Reservoir density [cm^-3] for reservoir_face, plane_source, or boundary_inflow."
+              "description": "Reservoir density [cm^-3] for boundary_inflow."
             },
             "number_density_m3": {
               "type": "number",
-              "description": "Reservoir density [m^-3] for reservoir_face, plane_source, or boundary_inflow."
+              "description": "Reservoir density [m^-3] for boundary_inflow."
             },
             "temperature_ev": {
               "type": "number",
@@ -3748,30 +3231,6 @@
                 -800000
               ],
               "description": "Drift velocity [m/s]."
-            },
-            "grid_path": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 256,
-              "description": "CSV file with columns vx_m_s,vy_m_s,vz_m_s,f for velocity_distribution=grid. Complete rectilinear grids are sampled with trilinear interpolation; other inputs fall back to discrete row sampling."
-            },
-            "grid_pdf_kind": {
-              "type": "string",
-              "enum": [
-                "phase_space",
-                "flux_weighted"
-              ],
-              "default": "phase_space",
-              "description": "Interpretation of f in velocity_grid_path. phase_space samples v_n f(v); flux_weighted treats f as the incoming flux-weighted distribution."
-            },
-            "particle_flux_m2_s": {
-              "type": "number",
-              "exclusiveMinimum": 0,
-              "description": "Incoming particle flux [1/m^2/s] for velocity_distribution=grid."
-            },
-            "current_density_a_m2": {
-              "type": "number",
-              "description": "Incoming current density [A/m^2] for velocity_distribution=grid. Mutually exclusive with particle_flux_m2_s."
             }
           },
           "allOf": [
@@ -3801,8 +3260,6 @@
               "type": "string",
               "enum": [
                 "volume_seed",
-                "reservoir_face",
-                "plane_source",
                 "photo_raycast"
               ],
               "default": "volume_seed",
@@ -3826,13 +3283,9 @@
               ],
               "description": "Upper bound of position range [m]."
             },
-            "normal": {
-              "$ref": "#/$defs/vec3",
-              "description": "Non-zero axis-aligned normal for plane_source injection; normalized internally."
-            },
             "inject_face": {
               "$ref": "#/$defs/injectFace",
-              "description": "Injection face. Required for reservoir_face and photo_raycast."
+              "description": "Illumination-aperture face for photo_raycast."
             },
             "ray_direction": {
               "$ref": "#/$defs/vec3",
@@ -3906,16 +3359,6 @@
               "type": "integer",
               "minimum": 1,
               "description": "Ray count per batch for photo_raycast."
-            },
-            "velocity_grid_sampling": {
-              "type": "string",
-              "enum": [
-                "auto",
-                "rectilinear",
-                "discrete"
-              ],
-              "default": "auto",
-              "description": "Sampling mode for velocity_distribution=grid. auto tries rectilinear trilinear interpolation and falls back to discrete rows; rectilinear requires a complete rectilinear grid; discrete samples CSV rows directly."
             }
           }
         },

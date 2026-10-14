@@ -71,10 +71,9 @@ target_macro_particles_per_batch = 2048
 z_high = "reservoir"
 ```
 
-A declared `source` requires `mode`. `volume_seed`, `plane_source`, and `photo_raycast`
-retain their physical models. Migration keeps deprecated `reservoir_face` as an
-explicit source; its finite aperture and barrier are not necessarily equivalent to
-boundary inflow. `volume_macro_particles_per_batch` is an actual per-batch count.
+A declared `source` requires `mode`. Choose `volume_seed` or `photo_raycast` for a source.
+Specify external-plasma supply in `[particles.species.inflow]`.
+`volume_macro_particles_per_batch` is an actual per-batch count.
 `target_macro_particles_per_batch` sets particle weight and does not guarantee an
 exact realized count. The existing `-1` option to share the first species weight remains.
 
@@ -177,7 +176,8 @@ PE outflow.
 
 Periodic backends are `cached_kneq0`, `panel_spectral_reference`, and `finite_images`.
 The first two split nonzero and zero modes and derive `exclude_k0` internally.
-Use a split backend (`cached_kneq0` or `panel_spectral_reference`) for the outer-root refresh.
+`sheath.closure="zero_current"` requires a split backend (`cached_kneq0` or `panel_spectral_reference`), which fixes the
+top-face mean potential to the wall potential $\phi_0$ of the outer root.
 `finite_images` names the old `none/auto` finite image computation; it is not an
 infinite periodic solution and cannot accept split lower-boundary/reference settings.
 Periodic topology does not implicitly select `fields.boundary`.
@@ -265,7 +265,6 @@ sampling configuration and charging closure.
 | `particle_boundary.y_high` | `particles.boundary.y_high` |
 | `particle_boundary.z_low` | `particles.boundary.z_low` |
 | `particle_boundary.z_high` | `particles.boundary.z_high` |
-| `particle_boundary.ordinary_open_model` | `particles.boundary.open_model` |
 | `reservoir.inflow_model` | `particles.reservoir.inflow_model` |
 | `reservoir.phi_infty` | `particles.reservoir.phi_infty_v` |
 | `reservoir.face_potential_grid_n` | `particles.reservoir.face_potential_grid_n` |
@@ -279,20 +278,14 @@ sampling configuration and charging closure.
 | `particles.species[].enabled` | `particles.species[].enabled` |
 | `particles.species[].q_particle` | `particles.species[].charge_c` |
 | `particles.species[].m_particle` | `particles.species[].mass_kg` |
-| `particles.species[].velocity_distribution` | `particles.species[].distribution.model` |
 | `particles.species[].number_density_cm3` | `particles.species[].distribution.number_density_cm3` |
 | `particles.species[].number_density_m3` | `particles.species[].distribution.number_density_m3` |
 | `particles.species[].temperature_ev` | `particles.species[].distribution.temperature_ev` |
 | `particles.species[].temperature_k` | `particles.species[].distribution.temperature_k` |
 | `particles.species[].drift_velocity` | `particles.species[].distribution.drift_velocity_m_s` |
-| `particles.species[].velocity_grid_path` | `particles.species[].distribution.grid_path` |
-| `particles.species[].velocity_grid_pdf_kind` | `particles.species[].distribution.grid_pdf_kind` |
-| `particles.species[].particle_flux_m2_s` | `particles.species[].distribution.particle_flux_m2_s` |
-| `particles.species[].current_density_a_m2` | `particles.species[].distribution.current_density_a_m2` |
 | `particles.species[].source_mode` | `particles.species[].source.mode` |
 | `particles.species[].pos_low` | `particles.species[].source.pos_low` |
 | `particles.species[].pos_high` | `particles.species[].source.pos_high` |
-| `particles.species[].source_normal` | `particles.species[].source.normal` |
 | `particles.species[].inject_face` | `particles.species[].source.inject_face` |
 | `particles.species[].ray_direction` | `particles.species[].source.ray_direction` |
 | `particles.species[].inject_region_mode` | `particles.species[].source.region_mode` |
@@ -305,7 +298,6 @@ sampling configuration and charging closure.
 | `particles.species[].w_particle` | `particles.species[].sampling.weight` |
 | `particles.species[].target_macro_particles_per_batch` | `particles.species[].sampling.target_macro_particles_per_batch` |
 | `particles.species[].rays_per_batch` | `particles.species[].sampling.rays_per_batch` |
-| `particles.species[].velocity_grid_sampling` | `particles.species[].sampling.velocity_grid_sampling` |
 | `particles.species[].surface_charge_closure` | `particles.species[].charging.closure` |
 | `particles.species[].target_absorbed_current_a` | `particles.species[].charging.target_absorbed_current_a` |
 | `particles.species[].target_emission_current_a` | `particles.species[].charging.target_emission_current_a` |

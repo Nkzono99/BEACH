@@ -167,7 +167,7 @@ def test_schema_accepts_species_reflection_actions_and_rejects_unknown_value() -
     assert schema_errors(invalid, schema)
 
 
-def test_schema_accepts_boundary_inflow_and_plane_source_contracts() -> None:
+def test_schema_accepts_boundary_inflow_contracts() -> None:
     schema, _ = load_schema()
     config = {
         "sim": {"batch_duration": 1.0},
@@ -194,22 +194,6 @@ def test_schema_accepts_boundary_inflow_and_plane_source_contracts() -> None:
     invalid_value["particles"]["species"][0]["boundary_inflow"]["z_high"] = "open"
     assert schema_errors(invalid_value, schema)
 
-    plane = copy.deepcopy(config)
-    species = plane["particles"]["species"][0]
-    species["source_mode"] = "plane_source"
-    species.pop("npcls_per_step")
-    species.pop("boundary_inflow")
-    species["pos_low"] = [0.1, 0.1, 0.5]
-    species["pos_high"] = [0.9, 0.9, 0.5]
-    species["source_normal"] = [0.0, 0.0, -1.0]
-    assert schema_errors(plane, schema) == []
-
-    mixed = copy.deepcopy(plane)
-    mixed["particles"]["species"][0]["boundary_inflow"] = {
-        "z_high": "reservoir"
-    }
-    assert schema_errors(mixed, schema)
-
     photo_mixed = copy.deepcopy(config)
     photo_species = photo_mixed["particles"]["species"][0]
     photo_species["source_mode"] = "photo_raycast"
@@ -232,7 +216,7 @@ def test_schema_constrains_neutral_return_to_closed_negative_photoelectrons() ->
     assert schema_errors(invalid_enum, schema)
 
     nonphoto = copy.deepcopy(config)
-    nonphoto["particles"]["species"][-1]["source_mode"] = "reservoir_face"
+    nonphoto["particles"]["species"][-1]["source_mode"] = "volume_seed"
     assert schema_errors(nonphoto, schema)
 
     positive = copy.deepcopy(config)

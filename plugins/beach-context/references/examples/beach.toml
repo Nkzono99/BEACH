@@ -96,7 +96,6 @@ y_low = "reflect"
 y_high = "reflect"
 z_low = "open"
 z_high = "open"
-open_model = "escape"
 
 [particles.reservoir]
 inflow_model = "infinity_barrier"

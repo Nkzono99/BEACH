@@ -7,7 +7,6 @@ Lang: [日本語](ReservoirInjection.md) | [English](ReservoirInjection.en.md)
 box の外にあるプラズマ（外部プラズマ、reservoir）から、密度・温度または速度分布に対応する粒子を box の面から入れる手順です。
 非周期の面を開放にし、粒子種の `[particles.species.inflow]` でその面を `"reservoir"` にします。
 このページを読むと、最小の設定を作り、分布と流入の写像を選び、実際に入った量を出力で確かめられます。
-box の内側の面から粒子を出したい場合は、[粒子源を選ぶ](ParticleSourcesBoundaries.html)の `plane_source` を使います。
 
 ## 1. 最小の設定を作る
 
@@ -31,7 +30,6 @@ charge_c = -1.602176634e-19
 mass_kg = 9.1093837139e-31
 
 [particles.species.distribution]
-model = "maxwellian"
 number_density_m3 = 5.0e6
 temperature_ev = 10.0
 drift_velocity_m_s = [0.0, 0.0, -4.0e5]
@@ -61,10 +59,7 @@ beach beach.toml
 
 ## 2. 分布を選ぶ
 
-| 手元にある外部プラズマの情報 | 選ぶ設定 |
-|---|---|
-| 密度、温度、drift 速度 | `distribution.model = "maxwellian"` |
-| 計測や別の計算による速度点と分布の値 | `distribution.model = "grid"` |
+流入分布は、外部プラズマの密度、温度、drift 速度で決まる drift Maxwell 分布です。
 
 ### Maxwell 分布
 
@@ -83,31 +78,6 @@ $$
 重みを物理的に決めたい場合は `sampling.weight`、1 バッチの標本数から決めたい場合は
 `sampling.target_macro_particles_per_batch` を指定します。後者は重みを決めるための目標で、物理的な束は変えません。
 両方は指定できません。
-
-### 速度 grid
-
-Maxwell 分布用の密度と温度の代わりに、CSV と物理的な束を指定します。
-
-```toml
-[particles.species.distribution]
-model = "grid"
-grid_path = "inflow_vdf.csv"
-grid_pdf_kind = "phase_space"
-particle_flux_m2_s = 1.0e12
-
-[particles.species.sampling]
-velocity_grid_sampling = "auto"
-```
-
-CSV の列は `vx_m_s,vy_m_s,vz_m_s,f` です。`f` は非負で、何を表すかを `grid_pdf_kind` で指定します。
-
-| `grid_pdf_kind` | CSV の `f` | BEACH の重み |
-|---|---|---|
-| `phase_space` | 位相空間の分布 | 内向き法線速度を掛けた $\max(v_n,0)f$ |
-| `flux_weighted` | 面を横切る粒子について重み付け済みの分布 | $f$ |
-
-流入量は `particle_flux_m2_s` か `current_density_a_m2` の一方だけで指定します。電流密度は $|J/q|$ で束に直すので、
-符号で向きは決まりません。向きは CSV の速度と面の内向き法線で決まります。CSV の相対パスは、実行時の作業ディレクトリが基準です。
 
 ## 3. 流入の写像を選ぶ
 
@@ -142,20 +112,18 @@ $$
 | $B<0$ | すべての粒子が届き、流入面までに加速する |
 
 接線速度は変えません。$\phi_f$ は流入面上の `face_potential_grid_n` × `face_potential_grid_n` 点の平均で、粒子ごとの局所電位ではありません。
-出ていく粒子も同じ上流電位で判定するには、開放面の扱いを電位障壁にします（[box 境界での粒子の扱い](ParticleEscapeReturn.html#電位障壁potential_barrier)）。
 外部シースとの接続を使う場合は、流入の写像を外部シースが決めるので、`infinity_barrier` は使えません。
 
 ## 4. 入った量を出力で確かめる
 
 ```bash
 beachx inspect outputs/latest
-grep -E '^(reservoir_inflow_map|particle_ordinary_open_model|charge_ledger_residual_C)=' \
+grep -E '^(reservoir_inflow_map|charge_ledger_residual_C)=' \
   outputs/latest/summary.txt
 head -n 2 outputs/latest/charge_ledger.csv
 ```
 
-`summary.txt` の `reservoir_inflow_map` は選んだ写像（`source_vdf` または `infinity_barrier`）、
-`particle_ordinary_open_model` は開放面の扱いです。`charge_ledger.csv` では、粒子種ごとに次を確かめます。
+`summary.txt` の `reservoir_inflow_map` は選んだ写像（`source_vdf` または `infinity_barrier`）です。`charge_ledger.csv` では、粒子種ごとに次を確かめます。
 
 - `injected_count`: box の外から入ったマクロ粒子数
 - `injected_from_remote_C`: その電荷。符号は粒子の電荷と同じ

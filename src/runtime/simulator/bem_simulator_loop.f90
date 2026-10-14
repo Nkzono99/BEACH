@@ -49,6 +49,7 @@ contains
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
+  type(floating_conductor_solver_type) :: conductor_solver
   type(electrostatic_diagnostics_type) :: committed_snapshot_diagnostics
   type(periodic_zero_mode_state_type) :: committed_zero_state
   type(charge_ledger_type) :: batch_ledger
@@ -77,7 +78,7 @@ contains
   end if
 
   call resolve_external_boundary_contract( &
-    app%sim%reservoir_potential_model, app%sim%open_boundary_model, &
+    app%sim%reservoir_potential_model, &
     boundary_contract, boundary_status, boundary_message &
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
@@ -188,6 +189,7 @@ contains
   call perf_region_begin(perf_region_field_solver_init, t0)
   call derive_field_panel_config(app%sim, field_config, panel_config)
   call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
+  call conductor_solver%init(mesh, app%sim, snapshot)
   call perf_region_end(perf_region_field_solver_init, t0)
   call outflow_refresh%initialize(app, mesh, stats, surface_closure)
   call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .true.)
@@ -244,9 +246,7 @@ contains
       do species_idx = 1_i32, trial_app%n_particle_species
         if (.not. trial_app%particle_species(species_idx)%enabled) cycle
         if (.not. trial_app%particle_species(species_idx)%has_target_macro_particles_per_batch) cycle
-        if (trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'reservoir_face' .and. &
-            trim(lower_ascii(trial_app%particle_species(species_idx)%source_mode)) /= 'plane_source' .and. &
-            .not. any(trial_app%particle_species(species_idx)%boundary_inflow_low /= 0_i32) .and. &
+        if (.not. any(trial_app%particle_species(species_idx)%boundary_inflow_low /= 0_i32) .and. &
             .not. any(trial_app%particle_species(species_idx)%boundary_inflow_high /= 0_i32)) cycle
         trial_app%particle_species(species_idx)%w_particle = &
           app%particle_species(species_idx)%w_particle*duration_ratio
@@ -337,7 +337,7 @@ contains
         )
 
       if (adaptive_nonzero_mode) then
-        call prepare_adaptive_charge_candidate(mesh, workspace, mpi_ctx)
+        call prepare_adaptive_charge_candidate(mesh, app%sim, snapshot, conductor_solver, workspace, mpi_ctx)
         adaptive_metric_values = 0.0_dp
         if (mpi_is_root(mpi_ctx)) then
           call snapshot%measure_kneq0_potential_step( &
@@ -421,9 +421,7 @@ contains
     end if
 
     call perf_region_begin(perf_region_commit_charge, t0)
-    call commit_batch_charge( &
-      mesh, app%sim%q_floor, app%sim%e0, app%sim%field_bc_mode, workspace, rel, mpi_ctx &
-      )
+    call commit_batch_charge(mesh, app%sim, snapshot, conductor_solver, workspace, rel, mpi_ctx)
     call perf_region_end(perf_region_commit_charge, t0)
     call outflow_refresh%commit_batch( &
       app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &

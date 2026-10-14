@@ -32,7 +32,7 @@ $$
 The two keys are mutually exclusive. `sim.dt` is the particle-push time step, while `batch_duration` controls how long
 surface-charge changes are accumulated before they are applied.
 
-`boundary_inflow`, `plane_source`, `reservoir_face`, `photo_raycast`, and
+`boundary_inflow`, `photo_raycast`, and
 `surface_charge_closure="fixed_current"` require a positive resolved `batch_duration`.
 See the [Input parameter reference](Parameters.en.html) for the complete input contract.
 
@@ -130,8 +130,8 @@ This path is an advanced option for an existing periodic2 case and requires all 
 
 - `[periodic2].nonzero_mode_backend = "cached_kneq0"`
 - a positive `sim.batch_duration`, or a `sim.batch_duration_step` that resolves to a positive value
-- time-scaled `boundary_inflow`, `plane_source`, `reservoir_face`, or `photo_raycast`
-- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow and `plane_source`
+- time-scaled `boundary_inflow` or `photo_raycast`
+- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow
 
 A `volume_seed` with positive `npcls_per_step` cannot be used on this path.
 

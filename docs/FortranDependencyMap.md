@@ -8,11 +8,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 
 ## 概要
 
-- ソースファイル数: 110
-- モジュール数: 77
+- ソースファイル数: 111
+- モジュール数: 78
 - submodule 数: 34
 - program 数: 1
-- 内部依存エッジ数: 418
+- 内部依存エッジ数: 429
 
 ## 全体グラフ
 
@@ -26,36 +26,36 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | --- | ---: | ---: |
 | `app` | 1 | 14 |
 | `src/config` | 11 | 30 |
-| `src/config/app_config_parser` | 10 | 24 |
-| `src/core` | 7 | 5 |
+| `src/config/app_config_parser` | 10 | 25 |
+| `src/core` | 8 | 7 |
 | `src/mesh` | 3 | 11 |
 | `src/mesh/panel` | 3 | 7 |
-| `src/particles` | 2 | 7 |
-| `src/particles/injection` | 5 | 22 |
+| `src/particles` | 2 | 6 |
+| `src/particles/injection` | 4 | 19 |
 | `src/physics` | 5 | 13 |
 | `src/physics/field_solver` | 8 | 34 |
 | `src/physics/field_solver/fmm/api` | 4 | 8 |
-| `src/physics/field_solver/fmm/internal/common` | 2 | 5 |
-| `src/physics/field_solver/fmm/internal/periodic` | 5 | 19 |
-| `src/physics/field_solver/fmm/internal/runtime` | 2 | 14 |
-| `src/physics/field_solver/fmm/internal/tree` | 2 | 12 |
+| `src/physics/field_solver/fmm/internal/common` | 2 | 6 |
+| `src/physics/field_solver/fmm/internal/periodic` | 5 | 20 |
+| `src/physics/field_solver/fmm/internal/runtime` | 2 | 16 |
+| `src/physics/field_solver/fmm/internal/tree` | 2 | 13 |
 | `src/physics/field_solver/panel` | 3 | 10 |
-| `src/physics/field_solver/periodic` | 5 | 17 |
+| `src/physics/field_solver/periodic` | 6 | 18 |
 | `src/physics/sheath` | 1 | 1 |
-| `src/runtime` | 15 | 69 |
+| `src/runtime` | 15 | 70 |
 | `src/runtime/configuration` | 7 | 38 |
 | `src/runtime/coupling` | 1 | 1 |
-| `src/runtime/sheath` | 2 | 16 |
-| `src/runtime/simulator` | 8 | 41 |
+| `src/runtime/sheath` | 2 | 18 |
+| `src/runtime/simulator` | 8 | 44 |
 
 ## 被依存の多いモジュール
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 72 |
+| `bem_kinds` | `module` | 73 |
 | `bem_types` | `module` | 37 |
-| `bem_string_utils` | `module` | 30 |
-| `bem_constants` | `module` | 20 |
+| `bem_string_utils` | `module` | 29 |
+| `bem_constants` | `module` | 21 |
 | `bem_app_config_types` | `module` | 17 |
 | `bem_panel_geometry` | `module` | 13 |
 | `bem_charge_ledger` | `module` | 11 |
@@ -81,7 +81,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_app_config_authoring_sources` | `submodule` | `src/config/bem_app_config_authoring_sources.f90` | `bem_app_config_authoring`, `bem_string_utils` | 粒子源の face_fraction 入力を注入面上の実座標へ変換する。 |
 | `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_layout`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
 | `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser` | 設定の正規化と領域別 preflight の実行順を管理する。 |
-| `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_app_config_types` | lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。 |
+| `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_app_config_types`, `bem_config_helpers` | lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。 |
 | `bem_app_config_parser_preflight_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90` | `bem_app_config_parser` | lint 済み設定の基本的な計算条件を確認し、時間と外部場を確定する。 |
 | `bem_app_config_parser_preflight_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。 |
 | `bem_app_config_parser_read_mesh` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_read_mesh.f90` | `bem_app_config_parser` | メッシュの TOML 読み取りと、モード・表面モデルの preflight。 |
@@ -93,8 +93,9 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_external_boundary_contract` | `module` | `src/core/bem_external_boundary_contract.f90` | `bem_kinds`, `bem_string_utils` | 局所 reservoir 流入と通常 open 面の処理を実行時契約へ正規化する。 |
 | `bem_kinds` | `module` | `src/core/bem_kinds.f90` | - | 倍精度実数と32bit整数のkind定義を集約する基盤モジュール。 |
 | `bem_mpi` | `module` | `src/core/bem_mpi.F90` | `bem_kinds` | MPIの初期化・集約を抽象化し、非MPIビルドでは単一ランク動作へフォールバックする。 |
+| `bem_outflow_spectrum` | `module` | `src/core/bem_outflow_spectrum.f90` | `bem_kinds` | - |
 | `bem_string_utils` | `module` | `src/core/bem_string_utils.f90` | - | ASCII 文字列操作ユーティリティ。 |
-| `bem_types` | `module` | `src/core/bem_types.f90` | `bem_kinds` | シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。 |
+| `bem_types` | `module` | `src/core/bem_types.f90` | `bem_kinds`, `bem_outflow_spectrum` | シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。 |
 | `bem_version` | `module` | `src/core/bem_version.F90` | - | BEACH build metadata stamped by build.sh. |
 | `bem_importers` | `module` | `src/mesh/bem_importers.f90` | `bem_kinds`, `bem_types`, `bem_mesh` | OBJメッシュを走査・解析し、内部 `mesh_type` へ変換するインポートモジュール。 |
 | `bem_mesh` | `module` | `src/mesh/bem_mesh.f90` | `bem_kinds`, `bem_types`, `bem_string_utils`, `bem_panel_geometry`, `bem_triangle_quadrature` | 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。 |
@@ -102,12 +103,11 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_panel_geometry` | `module` | `src/mesh/panel/bem_panel_geometry.f90` | `bem_kinds` | Ordered triangle geometry and exact Cartesian surface moments. |
 | `bem_panel_surface_sides` | `module` | `src/mesh/panel/bem_panel_surface_sides.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | Resolve physical vacuum sides without changing ordered triangle winding. |
 | `bem_triangle_quadrature` | `module` | `src/mesh/panel/bem_triangle_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry` | Triangle cubature rules and Gauss-Duffy quadrature plans. |
-| `bem_injection` | `module` | `src/particles/bem_injection.f90` | `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_injection_velocity_grid`, `bem_photoelectron_injection` | 粒子注入APIを責務別internal moduleから再公開する互換facade。 |
+| `bem_injection` | `module` | `src/particles/bem_injection.f90` | `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_photoelectron_injection` | 粒子注入APIを責務別internal moduleから再公開する互換facade。 |
 | `bem_particles` | `module` | `src/particles/bem_particles.f90` | `bem_kinds`, `bem_types` | 粒子SoAデータ構造の初期化を提供するモジュール。 |
 | `bem_injection_flux` | `module` | `src/particles/injection/bem_injection_flux.f90` | `bem_kinds`, `bem_constants`, `bem_injection_geometry`, `bem_injection_random` | Maxwell reservoirの流束、macro粒子数、面速度sampling。 |
 | `bem_injection_geometry` | `module` | `src/particles/injection/bem_injection_geometry.f90` | `bem_kinds`, `bem_string_utils` | box面注入で共有する面軸と開口geometryの解決。 |
 | `bem_injection_random` | `module` | `src/particles/injection/bem_injection_random.f90` | `bem_kinds`, `bem_constants`, `bem_particles`, `bem_types` | 粒子注入で共有する乱数初期化と基本分布sampling。 |
-| `bem_injection_velocity_grid` | `module` | `src/particles/injection/bem_injection_velocity_grid.f90` | `bem_kinds`, `bem_string_utils`, `bem_injection_geometry` | CSV速度grid reservoirの読込、補間、sampling。 |
 | `bem_photoelectron_injection` | `module` | `src/particles/injection/bem_photoelectron_injection.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_boundary`, `bem_collision`, `bem_string_utils`, `bem_injection_flux`, `bem_injection_geometry`, `bem_injection_random` | 光線追跡による光電子放出位置と速度のsampling。 |
 | `bem_boundary` | `module` | `src/physics/bem_boundary.f90` | `bem_kinds`, `bem_types` | シミュレーションボックス境界（流出/反射/面内再配置反射/周期）を適用するモジュール。 |
 | `bem_collision` | `module` | `src/physics/bem_collision.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | 粒子軌道セグメントと三角形要素の交差判定を提供する衝突検出モジュール。 |
@@ -127,21 +127,22 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_coulomb_fmm_core_eval` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_eval.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_eval_ops` | `bem_coulomb_fmm_core` の評価 API ラッパ。 |
 | `bem_coulomb_fmm_core_state` | `submodule` | `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core_state.f90` | `bem_coulomb_fmm_core`, `bem_coulomb_fmm_state_ops` | `bem_coulomb_fmm_core` の state 更新 API ラッパ。 |
 | `bem_coulomb_fmm_basis` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_basis.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の multi-index と微分テーブル計算。 |
-| `bem_coulomb_fmm_types` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90` | `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan` | Coulomb FMM コアで共有する型定義。 |
+| `bem_coulomb_fmm_types` | `module` | `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90` | `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean` | Coulomb FMM コアで共有する型定義。 |
 | `bem_coulomb_fmm_periodic` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90` | `bem_kinds`, `bem_coulomb_fmm_types` | Coulomb FMM の periodic2 境界処理。 |
 | `bem_coulomb_fmm_periodic_cache` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90` | `bem_filesystem`, `bem_kinds` | Versioned stream codec for cached periodic root operators. |
 | `bem_coulomb_fmm_periodic_ewald` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | periodic2 cached operator生成用のEwald teacher。 |
-| `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
+| `bem_coulomb_fmm_periodic_root_ops` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90` | `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_periodic_shell_mean`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils` | periodic2 root operator の前計算。 |
 | `bem_regularized_qr` | `module` | `src/physics/field_solver/fmm/internal/periodic/bem_regularized_qr.f90` | `bem_kinds` | Reusable column-scaled QR factorization for ridge-regularized least squares. |
-| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval` | Coulomb FMM 電場評価。 |
-| `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan` | Coulomb FMM state 更新と upward/downward pass。 |
-| `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
+| `bem_coulomb_fmm_eval_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`, `bem_periodic_shell_mean` | Coulomb FMM 電場評価。 |
+| `bem_coulomb_fmm_state_ops` | `module` | `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90` | `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean` | Coulomb FMM state 更新と upward/downward pass。 |
+| `bem_coulomb_fmm_plan_ops` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean`, `bem_coulomb_fmm_tree_utils` | Coulomb FMM plan 構築と tree トポロジ前計算。 |
 | `bem_coulomb_fmm_tree_utils` | `module` | `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_tree_utils.f90` | `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_periodic` | Coulomb FMM tree 構造の共通ユーティリティ。 |
 | `bem_panel_kernel` | `module` | `src/physics/field_solver/panel/bem_panel_kernel.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_self_terms` | Analytic free-space P0 triangle potential, field, principal value, and jump. |
 | `bem_panel_quadrature` | `module` | `src/physics/field_solver/panel/bem_panel_quadrature.f90` | `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_triangle_quadrature` | Independent Coulomb potential/field correctness oracles for triangle panels. |
 | `bem_panel_self_terms` | `module` | `src/physics/field_solver/panel/bem_panel_self_terms.f90` | `bem_kinds`, `bem_panel_geometry` | On-surface P0 triangle potential and principal-value field integrals. |
 | `bem_coulomb_fmm_periodic_nonzero_reference` | `module` | `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_reference.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_panel_geometry`, `bem_triangle_quadrature` | - |
 | `bem_coulomb_fmm_periodic_nonzero_upper_vacuum` | `module` | `src/physics/field_solver/periodic/bem_coulomb_fmm_periodic_nonzero_upper_vacuum.f90` | `bem_kinds`, `bem_constants`, `bem_types` | 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。 |
+| `bem_periodic_shell_mean` | `module` | `src/physics/field_solver/periodic/bem_periodic_shell_mean.f90` | `bem_kinds` | - |
 | `bem_periodic_zero_mode_c` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_c.f90` | `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan` | C ABI wrapper for the physical periodic zero mode. |
 | `bem_periodic_zero_mode_eval` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
 | `bem_periodic_zero_mode_plan` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
@@ -156,7 +157,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `integer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
 | `pure` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
 | `bem_output_writer_files` | `submodule` | `src/runtime/bem_output_writer_files.f90` | `bem_output_writer`, `bem_types`, `bem_string_utils` | メッシュ・電荷・電位・台帳のCSV出力。 |
-| `bem_output_writer_history` | `submodule` | `src/runtime/bem_output_writer_history.f90` | `bem_output_writer`, `bem_string_utils` | 履歴ファイルの生成・再開とスナップショットの出力。 |
+| `bem_output_writer_history` | `submodule` | `src/runtime/bem_output_writer_history.f90` | `bem_output_writer`, `bem_string_utils`, `bem_outflow_spectrum` | 履歴ファイルの生成・再開とスナップショットの出力。 |
 | `bem_output_writer_summary` | `submodule` | `src/runtime/bem_output_writer_summary.f90` | `bem_output_writer`, `bem_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_string_utils` | 実行サマリと再構築用メタデータの出力。 |
 | `bem_restart_contract` | `submodule` | `src/runtime/bem_restart_contract.f90` | `bem_restart`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_checkpoint_contract` | 再開時のスキーマ・メッシュ整合性の検証。 |
 | `bem_restart_injection` | `submodule` | `src/runtime/bem_restart_injection.f90` | `bem_restart`, `bem_kinds`, `bem_mpi` | 再開に必要な乱数状態・マクロ粒子端数の保存と復元。 |
@@ -169,15 +170,15 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 | `bem_app_config_particle_runtime_batch` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。 |
 | `bem_app_config_particle_runtime_sampling` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
-| `bem_surface_current_model` | `module` | `src/runtime/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
-| `bem_zhao_outflow_refresh` | `module` | `src/runtime/sheath/bem_zhao_outflow_refresh.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi` | - |
+| `bem_surface_current_model` | `module` | `src/runtime/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_outflow_spectrum`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
+| `bem_zhao_outflow_refresh` | `module` | `src/runtime/sheath/bem_zhao_outflow_refresh.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum` | - |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_boundary`, `bem_external_boundary_contract` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
 | `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
-| `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
+| `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds`, `bem_outflow_spectrum` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
 | `bem_simulator_charge` | `submodule` | `src/runtime/simulator/bem_simulator_charge.f90` | `bem_simulator`, `bem_charge_ledger` | 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。 |
 | `bem_simulator_io` | `submodule` | `src/runtime/simulator/bem_simulator_io.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_output_writer` | `bem_simulator` の進捗表示と履歴出力を実装する submodule。 |
 | `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_zhao_outflow_refresh`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
-| `bem_simulator_particles` | `submodule` | `src/runtime/simulator/bem_simulator_particles.f90` | `bem_simulator` | バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。 |
+| `bem_simulator_particles` | `submodule` | `src/runtime/simulator/bem_simulator_particles.f90` | `bem_simulator`, `bem_constants`, `bem_outflow_spectrum` | バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。 |
 | `bem_simulator_stats` | `submodule` | `src/runtime/simulator/bem_simulator_stats.f90` | `bem_simulator` | `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。 |
 
 ## 詳細
@@ -316,7 +317,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - path: `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90`
 - group: `src/config/app_config_parser`
 - parent: `bem_app_config_parser`
-- 内部依存: `bem_app_config_parser`, `bem_app_config_types`
+- 内部依存: `bem_app_config_parser`, `bem_app_config_types`, `bem_config_helpers`
 - external dependencies: なし
 - 概要: lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。
 
@@ -337,7 +338,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - group: `src/config/app_config_parser`
 - parent: `bem_app_config_parser`
 - 内部依存: `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types`
-- external dependencies: なし
+- external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - 概要: lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。
 
 ### `bem_app_config_parser_read_mesh`
@@ -426,6 +427,14 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - external dependencies: `mpi`
 - 概要: MPIの初期化・集約を抽象化し、非MPIビルドでは単一ランク動作へフォールバックする。
 
+### `bem_outflow_spectrum`
+
+- kind: `module`
+- path: `src/core/bem_outflow_spectrum.f90`
+- group: `src/core`
+- 内部依存: `bem_kinds`
+- external dependencies: なし
+
 ### `bem_string_utils`
 
 - kind: `module`
@@ -440,7 +449,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/core/bem_types.f90`
 - group: `src/core`
-- 内部依存: `bem_kinds`
+- 内部依存: `bem_kinds`, `bem_outflow_spectrum`
 - external dependencies: なし
 - 概要: シミュレーション設定・統計・メッシュ・粒子・衝突情報の主要データ型を定義する。
 
@@ -512,7 +521,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/particles/bem_injection.f90`
 - group: `src/particles`
-- 内部依存: `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_injection_velocity_grid`, `bem_photoelectron_injection`
+- 内部依存: `bem_injection_random`, `bem_injection_geometry`, `bem_injection_flux`, `bem_photoelectron_injection`
 - external dependencies: なし
 - 概要: 粒子注入APIを責務別internal moduleから再公開する互換facade。
 
@@ -551,15 +560,6 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_particles`, `bem_types`
 - external dependencies: なし
 - 概要: 粒子注入で共有する乱数初期化と基本分布sampling。
-
-### `bem_injection_velocity_grid`
-
-- kind: `module`
-- path: `src/particles/injection/bem_injection_velocity_grid.f90`
-- group: `src/particles/injection`
-- 内部依存: `bem_kinds`, `bem_string_utils`, `bem_injection_geometry`
-- external dependencies: `ieee_arithmetic`
-- 概要: CSV速度grid reservoirの読込、補間、sampling。
 
 ### `bem_photoelectron_injection`
 
@@ -746,7 +746,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/common/bem_coulomb_fmm_types.f90`
 - group: `src/physics/field_solver/fmm/internal/common`
-- 内部依存: `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`
+- 内部依存: `bem_kinds`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean`
 - external dependencies: なし
 - 概要: Coulomb FMM コアで共有する型定義。
 
@@ -782,7 +782,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/periodic`
-- 内部依存: `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils`
+- 内部依存: `bem_version`, `bem_kinds`, `bem_mpi`, `bem_filesystem`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_periodic_shell_mean`, `bem_coulomb_fmm_periodic_cache`, `bem_regularized_qr`, `bem_coulomb_fmm_tree_utils`
 - external dependencies: なし
 - 概要: periodic2 root operator の前計算。
 
@@ -800,7 +800,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_eval_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/runtime`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_panel_geometry`, `bem_panel_kernel`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_eval`, `bem_periodic_shell_mean`
 - external dependencies: なし
 - 概要: Coulomb FMM 電場評価。
 
@@ -809,7 +809,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/runtime`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_tree_utils`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean`
 - external dependencies: なし
 - 概要: Coulomb FMM state 更新と upward/downward pass。
 
@@ -818,7 +818,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/physics/field_solver/fmm/internal/tree/bem_coulomb_fmm_plan_ops.f90`
 - group: `src/physics/field_solver/fmm/internal/tree`
-- 内部依存: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_coulomb_fmm_tree_utils`
+- 内部依存: `bem_kinds`, `bem_coulomb_fmm_types`, `bem_coulomb_fmm_basis`, `bem_coulomb_fmm_periodic`, `bem_coulomb_fmm_periodic_ewald`, `bem_coulomb_fmm_periodic_root_ops`, `bem_panel_geometry`, `bem_periodic_zero_mode_plan`, `bem_periodic_shell_mean`, `bem_coulomb_fmm_tree_utils`
 - external dependencies: なし
 - 概要: Coulomb FMM plan 構築と tree トポロジ前計算。
 
@@ -874,6 +874,14 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - 内部依存: `bem_kinds`, `bem_constants`, `bem_types`
 - external dependencies: `ieee_arithmetic`
 - 概要: 上部真空領域で周期 k/=0 panel Fourier 和をsource/target因子へ分離する。
+
+### `bem_periodic_shell_mean`
+
+- kind: `module`
+- path: `src/physics/field_solver/periodic/bem_periodic_shell_mean.f90`
+- group: `src/physics/field_solver/periodic`
+- 内部依存: `bem_kinds`
+- external dependencies: なし
 
 ### `bem_periodic_zero_mode_c`
 
@@ -1004,7 +1012,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - path: `src/runtime/bem_output_writer_history.f90`
 - group: `src/runtime`
 - parent: `bem_output_writer`
-- 内部依存: `bem_output_writer`, `bem_string_utils`
+- 内部依存: `bem_output_writer`, `bem_string_utils`, `bem_outflow_spectrum`
 - external dependencies: なし
 - 概要: 履歴ファイルの生成・再開とスナップショットの出力。
 
@@ -1127,7 +1135,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/sheath/bem_surface_current_model.f90`
 - group: `src/runtime/sheath`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_string_utils`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_types`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_outflow_spectrum`, `bem_string_utils`
 - external dependencies: `ieee_arithmetic`, `sheath_model`
 - 概要: 外部モデルから species 別の固定表面電流を解決する。
 
@@ -1136,7 +1144,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/sheath/bem_zhao_outflow_refresh.f90`
 - group: `src/runtime/sheath`
-- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi`
+- 内部依存: `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum`
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 
 ### `bem_particle_stepper`
@@ -1162,7 +1170,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator_workspace.f90`
 - group: `src/runtime/simulator`
-- 内部依存: `bem_kinds`
+- 内部依存: `bem_kinds`, `bem_outflow_spectrum`
 - external dependencies: なし
 - 概要: シミュレーション実行中に再利用するバッチ作業配列を管理する。
 
@@ -1202,7 +1210,7 @@ Lang: [日本語](FortranDependencyMap.md) | [English](FortranDependencyMap.en.m
 - path: `src/runtime/simulator/bem_simulator_particles.f90`
 - group: `src/runtime/simulator`
 - parent: `bem_simulator`
-- 内部依存: `bem_simulator`
+- 内部依存: `bem_simulator`, `bem_constants`, `bem_outflow_spectrum`
 - external dependencies: なし
 - 概要: バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。
 

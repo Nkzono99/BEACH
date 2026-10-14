@@ -55,11 +55,29 @@ contains
   if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
     error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
   end if
+  if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
+      cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
+    error stop 'surface_current_model.photoelectron_source_scale must be finite and >= 0.'
+  end if
   photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
   if (.not. photoelectron_active .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
     error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+  end if
+  if (photoelectron_active) then
+    if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
+        cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. cfg%surface_current%solar_elevation_deg > 90.0_dp) then
+      error stop 'surface_current_model.solar_elevation_deg must satisfy 0 < elevation <= 90.'
+    end if
+    if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
+        cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
+      error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
+    end if
+  else if (len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
+           cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
+           cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
+    error stop 'photoelectron_source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
   end if
   if (.not. cfg%surface_current%has_reference_area_m2 .and. &
       (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2)))) then
@@ -168,8 +186,9 @@ contains
     error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed zhao_ion_pressure_factor*T_i.'
   end if
   if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
-  if (cfg%surface_current%outflow_refresh_batches > 0_i32) then
-    call validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)
+  call validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
+  if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. .not. photoelectron_active) then
+    error stop 'surface_current_model.outflow_refresh_batches requires photoelectron_source_scale > 0.'
   end if
   end procedure validate_surface_current_model_config
 
@@ -214,33 +233,36 @@ contains
     end if
   end subroutine warn_photoelectron_source_mismatch
 
-  !> 観測PE流出による外部根の更新は、z-high面の平均電位を外部の壁電位へ固定できる周期セルに限る。
-  subroutine validate_zhao_outflow_refresh_config(cfg, photoelectron_active, periodic2_split_explicit)
+  !> 外部根は上端面の水平平均電位が壁電位 phi0 であることを前提に、流入の写像と外部障壁の判定を組む。
+  !! この電位を固定できるのは、零モードを分けて持つ周期セルだけである。
+  subroutine validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
     type(app_config), intent(in) :: cfg
-    logical, intent(in) :: photoelectron_active, periodic2_split_explicit
+    logical, intent(in) :: periodic2_split_explicit
+    character(len=*), parameter :: prefix = 'surface_current_model="zhao_stationary" '
+    character(len=*), parameter :: reason = &
+                                   ' The z-high mean potential is tied to the outer wall potential phi0 '// &
+                                   'through the periodic zero mode.'
 
-    if (.not. photoelectron_active) then
-      error stop 'surface_current_model.outflow_refresh_batches requires photoelectron_source_scale > 0.'
-    end if
     if (trim(lower_ascii(cfg%sim%field_bc_mode)) /= 'periodic2' .or. .not. cfg%sim%use_box) then
-      error stop 'surface_current_model.outflow_refresh_batches requires a periodic2 [domain] box.'
+      error stop prefix//'requires a periodic2 [domain] box.'//reason
     end if
     if (any(cfg%sim%bc_low(1:2) /= bc_periodic) .or. any(cfg%sim%bc_high(1:2) /= bc_periodic)) then
-      error stop 'surface_current_model.outflow_refresh_batches requires x/y periodic axes.'
+      error stop prefix//'requires x/y periodic axes.'//reason
     end if
     if (.not. periodic2_split_explicit) then
-      error stop 'surface_current_model.outflow_refresh_batches requires an explicit split-zero-mode [periodic2] table.'
+      error stop prefix//'requires an explicit split-zero-mode [periodic2] table.'//reason
     end if
     select case (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)))
     case ('cached_kneq0', 'panel_spectral_reference')
       continue
     case default
-      error stop 'surface_current_model.outflow_refresh_batches requires a split periodic2 nonzero-mode backend.'
+      error stop prefix//'requires a split periodic2 nonzero-mode backend '// &
+        '("cached_kneq0" or "panel_spectral_reference").'//reason
     end select
     if (trim(lower_ascii(cfg%periodic2%zero_mode_policy)) /= 'exclude_k0') then
-      error stop 'surface_current_model.outflow_refresh_batches requires periodic2.zero_mode_policy="exclude_k0".'
+      error stop prefix//'requires periodic2.zero_mode_policy="exclude_k0".'//reason
     end if
-  end subroutine validate_zhao_outflow_refresh_config
+  end subroutine validate_zhao_wall_gauge_config
 
   integer function find_species_index(cfg, species_key) result(species_idx)
     type(app_config), intent(in) :: cfg
@@ -276,8 +298,7 @@ contains
   logical function is_z_high_reservoir(spec) result(enabled)
     type(particle_species_spec), intent(in) :: spec
 
-    enabled = spec%boundary_inflow_high(3) == particle_inflow_reservoir .or. &
-              (trim(spec%source_mode) == 'reservoir_face' .and. trim(lower_ascii(spec%inject_face)) == 'z_high')
+    enabled = spec%boundary_inflow_high(3) == particle_inflow_reservoir
   end function is_z_high_reservoir
 
 end submodule bem_app_config_parser_preflight_surface

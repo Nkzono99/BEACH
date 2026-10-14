@@ -43,7 +43,7 @@ beachx inspect outputs/tutorial
 ```
 
 実行前には `beachx lint` を実行し、`status=ok` を確認してください。
-入力値や組合せの詳しい診断は lint が担当し、シミュレーターは lint 済みの設定を前提にします。
+lint は同梱 schema でキー・型・値域を検査し、続けて `beach --check-config` で組合せと派生値を検査します。
 この公式入門ケースは、毎 batch 200 個のマクロ電子を 20 batch 入射し、蓄積した負電荷が
 後続電子を反射し始めるところまでを確認します。設定の意味、期待出力、図の読み方は
 [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) にまとめています。
@@ -66,7 +66,7 @@ beachx inspect outputs/tutorial
 
 | 名前 | 役割 |
 | --- | --- |
-| `beach` | Fortran シミュレーション本体。`--check-config` は開発・診断用の読込確認で、lint の代替にはならない |
+| `beach` | Fortran シミュレーション本体。`--check-config` は設定の preflight で、`beachx lint` がこれを呼ぶ |
 | `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
 | `beach` Python package | 出力の読込と独自解析 |
 

@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from typing import Any
 
 CONFIG_FILENAME = "beach.toml"
@@ -31,16 +30,13 @@ _RESERVED_TOP_LEVEL_KEYS = frozenset(
     {"schema_version", "title", "use_presets", "override", "base_case"}
 )
 
-_FACE_SOURCE_MODES = frozenset({"reservoir_face", "photo_raycast"})
+_FACE_SOURCE_MODES = frozenset({"photo_raycast"})
 
-_RESERVOIR_SOURCE_MODES = frozenset({"reservoir_face", "plane_source"})
 
-_FACE_KEYS = frozenset({"x_low", "x_high", "y_low", "y_high", "z_low", "z_high"})
 
 _REMOVED_SIM_KEYS = frozenset(
     {
         "reservoir_potential_model",
-        "open_boundary_model",
         "field_bc_mode",
         "phi_infty",
         "injection_face_phi_grid_n",
@@ -127,45 +123,8 @@ def _validate_high_level_fragment(
             ):
                 raise ConfigError(
                     f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
-                    'but source_mode must be "reservoir_face" or "photo_raycast".'
+                    'but source_mode must be "photo_raycast".'
                 )
-
-
-def _optional_runtime_table(
-    document: Mapping[str, Any], key: str
-) -> Mapping[str, Any] | None:
-    value = document.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, Mapping):
-        raise ConfigValidationError(f"BEACH constraint error: [{key}] must be a table.")
-    return value
-
-
-def _maybe_vec3(value: object, *, name: str) -> list[float] | None:
-    if value is None:
-        return None
-    if (
-        not isinstance(value, Sequence)
-        or isinstance(value, (str, bytes))
-        or len(value) != 3
-    ):
-        raise ConfigValidationError(
-            f"BEACH constraint error: {name} must be a 3-element array."
-        )
-    out: list[float] = []
-    for item in value:
-        if not isinstance(item, (int, float)) or isinstance(item, bool):
-            raise ConfigValidationError(
-                f"BEACH constraint error: {name} must contain only numeric values."
-            )
-        numeric = float(item)
-        if not math.isfinite(numeric):
-            raise ConfigValidationError(
-                f"BEACH constraint error: {name} must contain only finite values."
-            )
-        out.append(numeric)
-    return out
 
 
 def _is_array_of_tables(value: object) -> bool:

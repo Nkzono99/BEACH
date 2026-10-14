@@ -721,7 +721,6 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 | `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
 | `beachx object-detachment <output_dir>` | 周期画像を保持した凍結 source の wrench・離脱経路・仕事・速度解析 |
 | `beachx lint <config.toml>` | TOML / JSON Schema / BEACH 制約の設定検査 |
-| `beachx config validate <config.toml>` | 設定ファイルのバリデーション |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
 `beachx inspect`は、`mesh_potential.csv`がある場合に、その事前計算済み配列から

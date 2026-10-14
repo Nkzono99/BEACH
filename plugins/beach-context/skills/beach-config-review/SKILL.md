@@ -33,7 +33,7 @@ For workload questions, use schema/TOML inspection and `beachx estimate-workload
 - Check batch controls: `dt`, `batch_count`, `batch_duration` vs `batch_duration_step`, `max_step`, and `tol_rel` expectations.
 - Check source modes:
   - `volume_seed`: total `npcls_per_step > 0`, no `target_macro_particles_per_batch`.
-  - `reservoir_face`: density, temperature, `inject_face`, region, drift direction, and `batch_duration > 0`.
+  - `boundary_inflow`: density, temperature, nonperiodic open box faces, drift direction, and `batch_duration > 0`.
   - `photo_raycast`: rays/current settings, source face, hit expectations, and opposite-charge deposition setting.
 - Check mutually exclusive forms: `temperature_k` vs `temperature_ev`, `e0` vs `e0_abs` angle form.
 - Check box and boundary consistency, especially `field_bc_mode = "periodic2"` with exactly two periodic axes.

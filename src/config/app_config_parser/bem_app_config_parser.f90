@@ -51,23 +51,11 @@ module bem_app_config_parser
       type(app_config), intent(inout) :: cfg
     end subroutine resolve_external_e_field
 
-    !> `reservoir_face` 粒子種の入力値を検証し、必要なら `w_particle` を解決する。
-    module subroutine validate_reservoir_species(cfg, species_idx)
-      type(app_config), intent(inout) :: cfg
-      integer, intent(in) :: species_idx
-    end subroutine validate_reservoir_species
-
     !> box境界に結び付いた reservoir 流入設定を検証し、必要なら重みを解決する。
     module subroutine validate_boundary_inflow_species(cfg, species_idx)
       type(app_config), intent(inout) :: cfg
       integer, intent(in) :: species_idx
     end subroutine validate_boundary_inflow_species
-
-    !> `plane_source` 粒子種の物理量と内部矩形面を検証し、必要なら重みを解決する。
-    module subroutine validate_plane_source_species(cfg, species_idx)
-      type(app_config), intent(inout) :: cfg
-      integer, intent(in) :: species_idx
-    end subroutine validate_plane_source_species
 
     !> `photo_raycast` 粒子種の入力値を検証し、発射方向などを正規化する。
     module subroutine validate_photo_raycast_species(cfg, species_idx)

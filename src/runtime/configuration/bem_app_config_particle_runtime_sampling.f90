@@ -3,101 +3,19 @@ submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_sampl
   implicit none
 contains
 
-  !> 1粒子種ぶんの位置・速度サンプルをまとめて生成する。
-  !! @param[in] sim ボックス境界・バッチ時間などのシミュレーション設定。
-  !! @param[in] spec 1粒子種の注入設定。
-  !! @param[in] n 生成粒子数。
-  !! @param[out] x 生成した位置配列 `x(3,n)` [m]。
-  !! @param[out] v 生成した速度配列 `v(3,n)` [m/s]。
-  !! @param[in] barrier_normal_energy reservoir_face 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
-  !! @param[in] vmin_normal reservoir_face 法線速度の下限 [m/s]。
-  !! @param[in] apply_barrier_energy_shift reservoir_face 法線速度へ障壁エネルギー変換を適用するか。
+  !> volume_seed 粒子種の位置・速度を生成する。
   module procedure sample_species_state
-  logical :: apply_shift
-  real(dp) :: temperature_k_local, drift_velocity_local(3), source_box_min(3), source_box_max(3)
+  real(dp) :: temperature_k_local, drift_velocity_local(3)
 
   if (n <= 0_i32) return
-  apply_shift = .true.
-  if (present(apply_barrier_energy_shift)) apply_shift = apply_barrier_energy_shift
   temperature_k_local = species_temperature_k(spec)
   if (present(temperature_k_override)) temperature_k_local = temperature_k_override
   drift_velocity_local = spec%drift_velocity
   if (present(drift_velocity_override)) drift_velocity_local = drift_velocity_override
-  source_box_min = sim%box_min
-  source_box_max = sim%box_max
-  if (trim(lower_ascii(spec%source_mode)) == 'plane_source') then
-    call configure_plane_source_box(spec, source_box_min, source_box_max)
-  end if
-  select case (trim(lower_ascii(spec%source_mode)))
-  case ('volume_seed')
-    call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
-    call sample_shifted_maxwell_velocities( &
-      drift_velocity_local, spec%m_particle, v, temperature_k=temperature_k_local &
-      )
-  case ('reservoir_face', 'plane_source')
-    if (trim(lower_ascii(spec%velocity_distribution)) == 'grid') then
-      if (present(barrier_normal_energy) .and. present(vmin_normal)) then
-        call sample_reservoir_velocity_grid_particles( &
-          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
-          spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
-          apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
-          )
-      else if (present(barrier_normal_energy)) then
-        call sample_reservoir_velocity_grid_particles( &
-          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
-          spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
-          barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
-          velocity_grid_sampling=spec%velocity_grid_sampling &
-          )
-      else if (present(vmin_normal)) then
-        call sample_reservoir_velocity_grid_particles( &
-          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
-          spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, &
-          vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift, &
-          velocity_grid_sampling=spec%velocity_grid_sampling &
-          )
-      else
-        call sample_reservoir_velocity_grid_particles( &
-          source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, &
-          spec%velocity_grid_path, spec%velocity_grid_pdf_kind, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
-          apply_barrier_energy_shift=apply_shift, velocity_grid_sampling=spec%velocity_grid_sampling &
-          )
-      end if
-    else if (present(barrier_normal_energy) .and. present(vmin_normal)) then
-      call sample_reservoir_face_particles( &
-        source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
-        spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
-        barrier_normal_energy=barrier_normal_energy, vmin_normal=vmin_normal, position_jitter_dt=sim%dt, &
-        apply_barrier_energy_shift=apply_shift &
-        )
-    else if (present(barrier_normal_energy)) then
-      call sample_reservoir_face_particles( &
-        source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
-        spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
-        barrier_normal_energy=barrier_normal_energy, position_jitter_dt=sim%dt, &
-        apply_barrier_energy_shift=apply_shift &
-        )
-    else if (present(vmin_normal)) then
-      call sample_reservoir_face_particles( &
-        source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
-        spec%m_particle, temperature_k_local, sim%batch_duration, x, v, &
-        vmin_normal=vmin_normal, position_jitter_dt=sim%dt, apply_barrier_energy_shift=apply_shift &
-        )
-    else
-      call sample_reservoir_face_particles( &
-        source_box_min, source_box_max, spec%inject_face, spec%pos_low, spec%pos_high, drift_velocity_local, &
-        spec%m_particle, temperature_k_local, sim%batch_duration, x, v, position_jitter_dt=sim%dt, &
-        apply_barrier_energy_shift=apply_shift &
-        )
-    end if
-  case ('photo_raycast')
-    error stop 'sample_species_state does not support photo_raycast. Use sample_photo_species_state.'
-  case default
-    error stop 'Unknown particles.species.source_mode.'
-  end select
-  if (trim(lower_ascii(spec%source_mode)) == 'reservoir_face' .or. &
-      trim(lower_ascii(spec%source_mode)) == 'plane_source') call normalize_reservoir_positions(sim, x)
+  call sample_uniform_positions(spec%pos_low, spec%pos_high, x)
+  call sample_shifted_maxwell_velocities( &
+    drift_velocity_local, spec%m_particle, v, temperature_k=temperature_k_local &
+    )
   end procedure sample_species_state
 
   !> photo_raycast 粒子種のレイキャスト放出を実行する。
@@ -170,10 +88,9 @@ contains
   end if
   end procedure sample_photo_species_state
 
-  !> reservoir_face の target 個数からシース補正込み重みを解決する。
-  !> reservoir_face 注入に対する法線速度補正パラメータを計算する。
+  !> 境界 reservoir 流入に対する法線速度補正パラメータを計算する。
   !! @param[in] cfg シミュレーション・結合設定を含むアプリ設定。
-  !! @param[in] spec reservoir_face 粒子種設定。
+  !! @param[in] spec 境界流入面の粒子種設定。
   !! @param[out] vmin_normal 無限遠法線速度の下限 [m/s]。
   !! @param[out] barrier_normal 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（補正時に必要）。
@@ -195,7 +112,7 @@ contains
     active_boundary_contract = boundary_contract
   else
     call resolve_external_boundary_contract( &
-      cfg%sim%reservoir_potential_model, cfg%sim%open_boundary_model, &
+      cfg%sim%reservoir_potential_model, &
       active_boundary_contract, boundary_status, boundary_message &
       )
     if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)

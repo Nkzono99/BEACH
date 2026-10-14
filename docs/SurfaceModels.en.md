@@ -9,7 +9,7 @@ change produced within a batch exactly once, then uses the selected `surface_mod
 next batch.
 
 > **Ordinary choice:** use `surface_model="insulator"` for local charging of an insulating surface. Choose
-> `conductor` only when a floating conductor in free space should become equipotential.
+> `conductor` only when a floating conductor should become equipotential.
 
 After reading this page, you should be able to distinguish the two implemented models and identify material effects that
 are absent from the result.
@@ -36,7 +36,7 @@ final at batch end and first appears in the next batch's field. Test sensitivity
 | `surface_model` | Treatment at batch end | Suitable target | Main limit |
 | --- | --- | --- | --- |
 | `insulator` | Retain charge on the hit element | Local charging of an insulator | Does not solve surface conduction or bulk leakage |
-| `conductor` | Conserve total charge per `mesh_id` and redistribute element charge to become equipotential | Floating conductor in free space | `field_boundary.mode="free"` only |
+| `conductor` | Conserve total charge per `mesh_id` and redistribute element charge to become equipotential | Floating conductor in free space or in the periodic cell | Does not solve the time response of surface conduction and cannot impose a grounded potential |
 
 `dielectric` is not implemented. Inputs `surface_model="dielectric"` and `epsilon_r` are rejected and are not aliases
 for the insulator calculation.
@@ -62,8 +62,10 @@ real material.
 redistributes charge so element-centroid potentials are equal while preserving the object's total charge. It is not a
 grounded, fixed-potential boundary.
 
-The current implementation accepts only a free-space field and cannot be combined with periodic fields or an outer-sheath
-closure. For research use, verify convergence of object potential and surface-charge distribution under
+The equipotential condition uses the field snapshot of the batch, so the model works in free space and in `periodic2`
+(including the periodic images and the zero mode). With an outer-sheath closure, the z-high potential reference set by the
+closure enters the conductor potential only as a constant shift and does not change the redistribution. For research use,
+verify convergence of object potential and surface-charge distribution under
 mesh refinement.
 
 The linear system, P0-panel influence, parallel reduction, and conserved quantities are separated into

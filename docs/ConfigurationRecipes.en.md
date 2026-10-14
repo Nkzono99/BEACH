@@ -83,7 +83,7 @@ multiple built-in shapes.
 | Goal | `surface_model` | Scope of the current model |
 | --- | --- | --- |
 | Retain charge at the hit location | `insulator` | Does not solve surface conduction, bulk leakage, or dielectric polarization |
-| Conserve object charge and equalize its potential | `conductor` | Floating conductor in free space; requires `field_boundary.mode="free"` |
+| Conserve object charge and equalize its potential | `conductor` | Floating conductor; available in free space and `periodic2` |
 
 The tutorial uses `insulator`. To change a target to a conductor, change this one line in that template or in `[mesh]`
 for OBJ input:
@@ -104,9 +104,7 @@ minimum configuration from the dedicated guide so that keys specific to the old 
 | `source_mode` | Use in a new case | Physical supply | Macro-sampling control |
 | --- | --- | --- | --- |
 | `volume_seed` | Place a specified count inside the box for initial populations or orbit tests | Does not represent a surface flux | `npcls_per_step` |
-| `plane_source` | Supply particles one way from an internal rectangle | Flux × area × `batch_duration` | `w_particle` or `target_macro_particles_per_batch` |
 | `photo_raycast` | Emit from the first surface hit by illumination rays | Current density × projected area × `batch_duration` | `rays_per_batch` and ray hit rate |
-| `reservoir_face` | Compatibility input for deprecated existing configurations only | Do not use for a new case | Do not use for a new case |
 
 To keep the tutorial `volume_seed` path but change its supply and region, adjust only these values in the existing
 species entry:
@@ -177,7 +175,7 @@ How to increase sampling depends on the selected source.
 | Source | Change to improve statistics | Physical conditions to hold fixed |
 | --- | --- | --- |
 | `volume_seed` | Increase `npcls_per_step` and decrease `w_particle` by the same factor | Physical particles per batch, `npcls_per_step × w_particle` |
-| `plane_source` / `boundary_inflow` | Increase `target_macro_particles_per_batch`, or decrease fixed `w_particle`; do not specify both | Distribution, density or flux, area, and `batch_duration` |
+| `boundary_inflow` | Increase `target_macro_particles_per_batch`, or decrease fixed `w_particle`; do not specify both | Distribution, density or flux, area, and `batch_duration` |
 | `photo_raycast` | Increase `rays_per_batch` | Photoelectric current density, illumination direction, geometry, and `batch_duration` |
 
 Despite its name, `npcls_per_step` is a count **per batch**. For example, changing the tutorial's

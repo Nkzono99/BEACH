@@ -46,6 +46,7 @@ module bem_app_config_types
     real(dp) :: number_density_cm3 = 0.0d0
     real(dp) :: number_density_m3 = 0.0d0
     logical :: has_number_density_cm3 = .false.
+    logical :: has_number_density_m3 = .false.
     real(dp) :: q_particle = -1.602176634d-19
     real(dp) :: m_particle = 9.10938356d-31
     real(dp) :: w_particle = 1.0d0
@@ -54,13 +55,6 @@ module bem_app_config_types
     logical :: has_target_macro_particles_per_batch = .false.
     real(dp) :: pos_low(3) = [-0.4d0, -0.4d0, 0.2d0]
     real(dp) :: pos_high(3) = [0.4d0, 0.4d0, 0.5d0]
-    character(len=16) :: velocity_distribution = 'maxwellian'
-    character(len=256) :: velocity_grid_path = ''
-    character(len=16) :: velocity_grid_pdf_kind = 'phase_space'
-    character(len=16) :: velocity_grid_sampling = 'auto'
-    real(dp) :: particle_flux_m2_s = 0.0d0
-    real(dp) :: current_density_a_m2 = 0.0d0
-    logical :: has_current_density_a_m2 = .false.
     real(dp) :: drift_velocity(3) = [0.0d0, 0.0d0, -8.0d5]
     real(dp) :: temperature_k = 2.0d4
     real(dp) :: temperature_ev = -1.0d0
@@ -71,7 +65,6 @@ module bem_app_config_types
     real(dp) :: normal_drift_speed = 0.0d0
     real(dp) :: ray_direction(3) = [0.0d0, 0.0d0, 0.0d0]
     logical :: has_ray_direction = .false.
-    real(dp) :: source_normal(3) = [0.0d0, 0.0d0, -1.0d0]
     character(len=16) :: inject_face = ''
     integer(i32) :: boundary_low(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     integer(i32) :: boundary_high(3) = [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
@@ -174,10 +167,6 @@ contains
           error stop 'particles.species.npcls_per_step must be >= 0.'
         end if
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
-      case ('reservoir_face')
-        has_dynamic_source = .true.
-      case ('plane_source')
-        has_dynamic_source = .true.
       case ('photo_raycast')
         has_dynamic_source = .true.
       case default
@@ -246,7 +235,6 @@ contains
     cfg%sim%b0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%reservoir_potential_model = 'none'
     cfg%sim%phi_infty = 0.0d0
-    cfg%sim%open_boundary_model = 'escape'
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
     cfg%n_templates = 1_i32

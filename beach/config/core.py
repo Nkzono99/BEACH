@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -15,9 +14,6 @@ from ._authoring import (
     _resolve_sim_high_level,
     _resolve_species_high_level,
     _resolved_box_bounds,
-)
-from ._runtime_validation import (
-    _validate_runtime_semantics,
 )
 from ._shared import (
     BEACH_SCHEMA_URL as BEACH_SCHEMA_URL,
@@ -136,12 +132,6 @@ def normalize_config_document(config: Mapping[str, Any]) -> dict[str, Any]:
     return _validate_config_document(config, normalize=True)
 
 
-def validate_runtime_config(config: Mapping[str, Any]) -> None:
-    """Validate a runtime document without changing the caller's mapping."""
-
-    _validate_config_document(config, normalize=False)
-
-
 def _validate_config_document(
     config: Mapping[str, Any], *, normalize: bool,
     schema: Mapping[str, Any] | None = None, config_path: Path | None = None,
@@ -164,7 +154,6 @@ def _validate_config_document(
     resolved = prepare_schema_document(resolved, schema)
     resolved_errors = validation_errors(resolved, schema)
     reject_basic_schema_errors(resolved_errors, phase="normalized")
-    _validate_runtime_semantics(resolved)
     if input_errors:
         raise ConfigSchemaError(input_errors, phase=phase)
     if resolved_errors:

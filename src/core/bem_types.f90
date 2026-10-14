@@ -51,7 +51,6 @@ module bem_types
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
-    character(len=32) :: open_boundary_model = 'escape'
     character(len=32) :: multiple_box_events_policy = 'abort'
     character(len=32) :: multiple_box_events_retry_backend = 'none'
     integer(i32) :: multiple_box_events_soft_discard_count_grace = 1000_i32

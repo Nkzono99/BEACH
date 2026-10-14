@@ -26,7 +26,7 @@ BEACH のドキュメントで使う用語と、対応する英語、設定キ�
 | 粒子種 | species | `particles.species[].species_key` | 電荷・質量・分布・粒子源を共有する粒子の集まり |
 | マクロ粒子 | macro-particle | — | 実粒子の集まりを代表する計算粒子 |
 | 重み | weight | `sampling.weight` | 1 マクロ粒子が代表する実粒子数 |
-| 粒子源 | particle source | `source.mode` | 粒子を生成する方法（`volume_seed`、`plane_source`、`photo_raycast`） |
+| 粒子源 | particle source | `source.mode` | 粒子を生成する方法（`volume_seed`、`photo_raycast`） |
 | 境界流入 | boundary inflow | `particles.species[].inflow` | box 外の外部プラズマから、非周期の box 面を通して粒子を入れること |
 | 外部プラズマ（reservoir） | reservoir | `particles.reservoir` | box 外にあると仮定する、分布が既知のプラズマ |
 | 流入の写像 | inflow mapping | `particles.reservoir.inflow_model` | 外部プラズマの分布を、流入面での分布に置き換える方法（`source_vdf`、`infinity_barrier`） |
@@ -60,7 +60,7 @@ BEACH のドキュメントで使う用語と、対応する英語、設定キ�
 | 上流電子密度 | upstream electron density（$n_{e,\infty}$） | — | 外部シースの根が与える、無限遠の電子 Maxwell 分布の密度 |
 | 外部根の更新 | outflow refresh | `sheath.coupling.outflow_refresh_batches` | 上端面を出る光電子の観測値から、外部シースの根を定期的に解き直すこと |
 | 上端面 | top face（z-high） | `z_high` | box の上側の面。外部シースと接続する面 |
-| 電位障壁 | potential barrier | `particles.boundary.open_model = "potential_barrier"` | 開放面を出る粒子を、上流電位との差で反射か脱出かに分ける判定 |
+| 電位障壁 | potential barrier | `infinity_barrier`, `zhao_barrier_v1` | reservoir 流入、または外部シースでの帰還・脱出を分ける位置エネルギーのしきい値 |
 | 上流の帯 | upstream band | `surface_current_model_upstream_negative_band_V` | 電子に drift を与えた A / C の根で、上流電位に接して $E^2<0$ になる電位の幅 |
 | 場の下限 | field floor | `sheath.zhao.upstream_field_floor_v_m` | 外部シースが上流プラズマへ引き渡す場のレベル。帯の内側の場の不足がこれ以下の根を受理する |
 | 場の不足 | field deficit | `surface_current_model_upstream_field_deficit_V_m` | 帯の内側で欠けている場 $\sqrt{-\min E^2}$。上流プラズマが外から供給する電場 |

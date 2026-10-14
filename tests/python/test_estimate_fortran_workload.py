@@ -66,13 +66,12 @@ def _boundary_inflow_species(**overrides: object) -> dict[str, object]:
 
 def _reservoir_species(**overrides: object) -> dict[str, object]:
     species: dict[str, object] = {
-        "source_mode": "reservoir_face",
+        "source_mode": "volume_seed",
+        "npcls_per_step": 0,
+        "boundary_inflow": {"z_high": "reservoir"},
         "number_density_m3": 100.0,
         "temperature_k": 0.0,
         "m_particle": 1.0,
-        "inject_face": "z_high",
-        "pos_low": [0.0, 0.0, 1.0],
-        "pos_high": [1.0, 1.0, 1.0],
         "drift_velocity": [0.0, 0.0, -1.0],
     }
     species.update(overrides)
@@ -87,21 +86,6 @@ def _photo_raycast_species(**overrides: object) -> dict[str, object]:
         "q_particle": -1.0,
         "m_particle": 1.0,
         "temperature_k": 0.0,
-        "inject_face": "z_high",
-        "pos_low": [0.0, 0.0, 1.0],
-        "pos_high": [1.0, 1.0, 1.0],
-    }
-    species.update(overrides)
-    return species
-
-
-def _velocity_grid_species(**overrides: object) -> dict[str, object]:
-    species: dict[str, object] = {
-        "source_mode": "reservoir_face",
-        "velocity_distribution": "grid",
-        "velocity_grid_path": "vgrid.csv",
-        "q_particle": -1.0,
-        "m_particle": 1.0,
         "inject_face": "z_high",
         "pos_low": [0.0, 0.0, 1.0],
         "pos_high": [1.0, 1.0, 1.0],
@@ -171,35 +155,6 @@ def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() 
     assert rank3["species_per_batch"] == [[1]]
 
 
-def test_estimate_workload_supports_internal_plane_source() -> None:
-    config = {
-        "sim": {"batch_count": 1, "batch_duration": 1.0},
-        "domain": {
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "plane_source",
-                    "number_density_m3": 100.0,
-                    "temperature_k": 0.0,
-                    "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 10,
-                    "pos_low": [0.25, 0.25, 0.5],
-                    "pos_high": [0.75, 0.75, 0.5],
-                    "source_normal": [0.0, 0.0, 2.0],
-                    "drift_velocity": [0.0, 0.0, 2.0],
-                }
-            ]
-        },
-    }
-
-    result = estimate_workload(config, threads=1)
-
-    assert result["species_per_batch"] == [[10]]
-
-
 def test_estimate_workload_rejects_boundary_inflow_on_periodic_face() -> None:
     config = {
         "sim": {"batch_count": 1, "batch_duration": 1.0},
@@ -234,11 +189,12 @@ def test_estimate_workload_normalizes_high_level_face_region_without_mutation() 
         "particles": {
             "species": [
                 {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 10.0,
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "q_particle": -1.0,
                     "temperature_k": 0.0,
                     "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 8,
+                    "rays_per_batch": 8,
                     "inject_face": "z_low",
                     "inject_region_mode": "face_fraction",
                     "uv_low": [0.25, 0.25],
@@ -259,11 +215,12 @@ def test_estimate_workload_normalizes_high_level_face_region_without_mutation() 
         "particles": {
             "species": [
                 {
-                    "source_mode": "reservoir_face",
-                    "number_density_m3": 10.0,
+                    "source_mode": "photo_raycast",
+                    "emit_current_density_a_m2": 1.0e-3,
+                    "q_particle": -1.0,
                     "temperature_k": 0.0,
                     "m_particle": 1.0,
-                    "target_macro_particles_per_batch": 8,
+                    "rays_per_batch": 8,
                     "inject_face": "z_low",
                     "pos_low": [0.5, 1.0, 0.0],
                     "pos_high": [1.5, 3.0, 0.0],
@@ -289,9 +246,7 @@ def _fractional_reservoir_config() -> dict[str, object]:
                 _reservoir_species(
                     number_density_m3=1.0,
                     w_particle=4.0,
-                    inject_face="z_low",
-                    pos_low=[0.0, 0.0, 0.0],
-                    pos_high=[1.0, 1.0, 0.0],
+                    boundary_inflow={"z_low": "reservoir"},
                     drift_velocity=[0.0, 0.0, 1.0],
                 )
             ]
@@ -559,7 +514,7 @@ def test_estimate_workload_rejects_target_for_volume_seed() -> None:
         },
     }
 
-    with pytest.raises(SystemExit, match="only valid for reservoir_face"):
+    with pytest.raises(SystemExit, match="only valid for boundary_inflow"):
         estimate_workload(config=config, threads=1)
 
 
@@ -728,15 +683,17 @@ def test_estimate_workload_global_fractional_sequence_is_mpi_size_independent(
     assert sum(result["local_reservoir_particles"] for result in results) == 1
 
 
-def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupted() -> (
+def test_estimate_workload_resumed_global_reservoir_sequence_matches_uninterrupted(tmp_path: Path) -> (
     None
 ):
     config = _fractional_reservoir_config()
     uninterrupted = estimate_workload(config=config, threads=1, mpi_ranks=4, mpi_rank=0)
+    residual_path = tmp_path / "macro_residuals.csv"
+    residual_path.write_text("species_idx,face,residual\n1,5,0.5\n", encoding="utf-8")
     resumed = estimate_workload(
         config=config,
         threads=1,
-        initial_residuals=[0.5],
+        initial_residuals=read_macro_residuals(residual_path, 1),
         mpi_ranks=4,
         mpi_rank=0,
         completed_batches=2,
@@ -792,70 +749,6 @@ def test_read_macro_residuals_preserves_boundary_face_rows_for_estimate(
 
     assert result["species_per_batch"] == [[1], [1]]
     assert result["final_residuals"] == [0.25]
-
-
-def test_estimate_workload_supports_velocity_grid_particle_flux() -> None:
-    config = {
-        "sim": _box_sim(
-            batch_count=2,
-            batch_duration=1.0,
-            e0_abs=5.0,
-            e0_phi_z_deg=90.0,
-        ),
-        "particles": {
-            "species": [
-                _velocity_grid_species(
-                    particle_flux_m2_s=10.0,
-                    target_macro_particles_per_batch=5,
-                )
-            ]
-        },
-    }
-
-    result = estimate_workload(config=config, threads=2)
-
-    assert result["species_per_batch"] == [[5], [5]]
-    assert result["batch_totals"] == [5, 5]
-
-
-def test_estimate_workload_supports_velocity_grid_current_density() -> None:
-    config = {
-        "sim": _box_sim(batch_duration=1.0),
-        "particles": {
-            "species": [
-                _velocity_grid_species(
-                    current_density_a_m2=8.0,
-                    q_particle=-2.0,
-                    target_macro_particles_per_batch=4,
-                )
-            ]
-        },
-    }
-
-    result = estimate_workload(config=config, threads=2)
-
-    assert result["species_per_batch"] == [[4]]
-
-
-def test_estimate_workload_rejects_velocity_grid_flux_and_current_together() -> None:
-    config = {
-        "sim": _box_sim(batch_duration=1.0),
-        "particles": {
-            "species": [
-                _velocity_grid_species(
-                    particle_flux_m2_s=10.0,
-                    current_density_a_m2=8.0,
-                    q_particle=-2.0,
-                    target_macro_particles_per_batch=4,
-                )
-            ]
-        },
-    }
-
-    with pytest.raises(
-        SystemExit, match="either particle_flux_m2_s or current_density_a_m2"
-    ):
-        estimate_workload(config=config, threads=1)
 
 
 def test_estimate_workload_rejects_mixed_external_e_field_forms() -> None:

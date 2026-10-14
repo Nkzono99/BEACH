@@ -47,4 +47,4 @@ run.plot_potential()
 beachx estimate-workload beach.toml --threads 8
 ```
 
-For `reservoir_face` and `photo_raycast`, `batch_duration` / `batch_duration_step`, macro-particle count, mesh element count, and history output strongly affect compute cost and output size.
+For `boundary_inflow` and `photo_raycast`, `batch_duration` / `batch_duration_step`, macro-particle count, mesh element count, and history output strongly affect compute cost and output size.

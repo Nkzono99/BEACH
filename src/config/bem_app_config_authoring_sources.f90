@@ -20,10 +20,10 @@ contains
   mode = lower_ascii(trim(auth%inject_region_mode))
   source_mode = lower_ascii(trim(cfg%particle_species(species_idx)%source_mode))
   select case (trim(source_mode))
-  case ('reservoir_face', 'photo_raycast')
+  case ('photo_raycast')
     continue
   case default
-    error stop 'inject_region_mode is only supported for reservoir_face or photo_raycast species.'
+    error stop 'inject_region_mode is only supported for photo_raycast species.'
   end select
 
   select case (trim(mode))

@@ -1,4 +1,4 @@
-!> 境界 reservoir・内部plane source・legacy reservoir_face注入を検証するテスト。
+!> 境界 reservoir 流入を検証するテスト。
 program test_reservoir_injection
   use bem_kinds, only: dp, i32
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
@@ -22,7 +22,6 @@ program test_reservoir_injection
   character(len=*), parameter :: cfg_fixed_path = 'test_reservoir_injection_fixed_tmp.toml'
   character(len=*), parameter :: cfg_auto_path = 'test_reservoir_injection_auto_tmp.toml'
   character(len=*), parameter :: cfg_boundary_path = 'test_boundary_inflow_tmp.toml'
-  character(len=*), parameter :: cfg_plane_path = 'test_plane_source_tmp.toml'
   integer(i32) :: n_macro, i, n1, n2
   integer(i32) :: sum1, sum2
   real(dp) :: residual
@@ -30,7 +29,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(10)
+  call test_init(9)
 
   call test_begin('particle_source_plan_equivalence')
   call test_particle_source_plan_equivalence()
@@ -48,21 +47,17 @@ program test_reservoir_injection
   call test_boundary_inflow_full_faces_and_volume_source()
   call test_end()
 
-  call test_begin('plane_source_internal_face')
-  call test_plane_source_internal_face()
-  call test_end()
-
   call write_fixed_duration_fixture(cfg_fixed_path)
 
   call test_begin('fixed_duration_config')
   call default_app_config(cfg_fixed)
   call load_app_config(cfg_fixed_path, cfg_fixed)
 
-  call assert_true(trim(cfg_fixed%particle_species(1)%source_mode) == 'reservoir_face', 'source_mode mismatch')
+  call assert_true(trim(cfg_fixed%particle_species(1)%source_mode) == 'volume_seed', 'source_mode mismatch')
   call assert_close_dp(cfg_fixed%sim%batch_duration, 1.0d0, 1.0d-12, 'batch_duration mismatch')
   call assert_close_dp(cfg_fixed%particle_species(1)%number_density_cm3, 5.0d0, 1.0d-12, 'density mismatch')
   call assert_close_dp(cfg_fixed%particle_species(1)%temperature_ev, 10.0d0, 1.0d-12, 'temperature_ev mismatch')
-  call assert_true(trim(cfg_fixed%particle_species(1)%inject_face) == 'z_low', 'inject_face mismatch')
+  call assert_true(cfg_fixed%particle_species(1)%boundary_inflow_low(3) == particle_inflow_reservoir, 'boundary inflow mismatch')
   call assert_equal_i32(particles_per_batch_from_config(cfg_fixed), 0_i32, 'reservoir static particle count should be zero')
   call test_end()
 
@@ -100,8 +95,8 @@ program test_reservoir_injection
   call load_app_config(cfg_auto_path, cfg_auto)
 
   call assert_close_dp(cfg_auto%sim%batch_duration, 3.0d0, 1.0d-12, 'batch_duration_step resolution mismatch')
-  call assert_true(trim(cfg_auto%particle_species(1)%source_mode) == 'reservoir_face', 'species-1 mode mismatch')
-  call assert_true(trim(cfg_auto%particle_species(2)%source_mode) == 'reservoir_face', 'species-2 mode mismatch')
+  call assert_true(trim(cfg_auto%particle_species(1)%source_mode) == 'volume_seed', 'species-1 mode mismatch')
+  call assert_true(trim(cfg_auto%particle_species(2)%source_mode) == 'volume_seed', 'species-2 mode mismatch')
 
   inward_normal = [0.0d0, 0.0d0, -1.0d0]
   gamma1 = compute_inflow_flux_from_drifting_maxwellian( &
@@ -141,7 +136,6 @@ program test_reservoir_injection
   call delete_file_if_exists(cfg_fixed_path)
   call delete_file_if_exists(cfg_auto_path)
   call delete_file_if_exists(cfg_boundary_path)
-  call delete_file_if_exists(cfg_plane_path)
 
   call test_summary()
 
@@ -210,43 +204,6 @@ contains
     call assert_true(all(abs(state%boundary_macro_residual) < 1.0e-14_dp), 'boundary residuals should stay zero')
   end subroutine test_boundary_inflow_full_faces_and_volume_source
 
-  subroutine test_plane_source_internal_face()
-    type(app_config) :: plane_cfg
-    type(particles_soa) :: particles
-    type(injection_state) :: state
-
-    call write_plane_source_fixture(cfg_plane_path)
-    call default_app_config(plane_cfg)
-    call load_app_config(cfg_plane_path, plane_cfg)
-
-    call assert_true(trim(plane_cfg%particle_species(1)%source_mode) == 'plane_source', 'plane source mode mismatch')
-    call assert_true(trim(plane_cfg%particle_species(1)%inject_face) == 'x_low', 'positive source normal face mismatch')
-    call assert_close_dp(plane_cfg%particle_species(1)%source_normal(1), 1.0_dp, 1.0e-14_dp, &
-                         'source normal must be normalized')
-
-    allocate (state%macro_residual(1))
-    state%macro_residual = 0.0_dp
-    call seed_particles_from_config(plane_cfg)
-    call init_particle_batch_from_config(plane_cfg, 1_i32, particles, state=state)
-
-    call assert_equal_i32(particles%n, 8_i32, 'plane source flux count mismatch')
-    call assert_close_dp(sum(particles%q*particles%w), 24.0_dp, 1.0e-14_dp, 'plane source charge budget mismatch')
-    call assert_true( &
-      all(particles%x(1, :) == nearest(0.5_dp, 1.0_dp)), &
-      'plane source positions must start one representable step inward without teleportation' &
-      )
-    call assert_true( &
-      all(particles%x(2, :) >= 0.0_dp .and. particles%x(2, :) <= 2.0_dp), &
-      'plane source y positions must stay on the configured rectangle' &
-      )
-    call assert_true( &
-      all(particles%x(3, :) >= 0.0_dp .and. particles%x(3, :) <= 3.0_dp), &
-      'plane source z positions must stay on the configured rectangle' &
-      )
-    call assert_true(all(particles%v(1, :) > 0.0_dp), 'plane source velocity must follow source_normal')
-    call assert_true(all(abs(particles%v(2:3, :)) < 1.0e-14_dp), 'cold plane source tangential velocity mismatch')
-  end subroutine test_plane_source_internal_face
-
   subroutine test_particle_source_plan_equivalence()
     type(app_config) :: plan_cfg
     type(particle_source_plan_type) :: source_plan
@@ -280,19 +237,21 @@ contains
     plan_cfg%particle_species(2)%enabled = .false.
 
     plan_cfg%particle_species(3) = species_from_defaults()
-    plan_cfg%particle_species(3)%source_mode = 'reservoir_face'
+    plan_cfg%particle_species(3)%source_mode = 'volume_seed'
+    plan_cfg%particle_species(3)%npcls_per_step = 0_i32
     plan_cfg%particle_species(3)%number_density_m3 = 4.0_dp
     plan_cfg%particle_species(3)%temperature_k = 0.0_dp
     plan_cfg%particle_species(3)%q_particle = 1.0_dp
     plan_cfg%particle_species(3)%m_particle = 1.0_dp
     plan_cfg%particle_species(3)%w_particle = 1.0_dp
     plan_cfg%particle_species(3)%has_w_particle = .true.
-    plan_cfg%particle_species(3)%inject_face = 'z_low'
-    plan_cfg%particle_species(3)%pos_low = [0.0_dp, 0.0_dp, 0.0_dp]
-    plan_cfg%particle_species(3)%pos_high = [1.0_dp, 1.0_dp, 0.0_dp]
+    plan_cfg%particle_species(3)%boundary_inflow_low(3) = particle_inflow_reservoir
     plan_cfg%particle_species(3)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
 
-    allocate (state_without_plan%macro_residual(3), state_with_plan%macro_residual(3))
+    allocate (state_without_plan%macro_residual(3), state_with_plan%macro_residual(3), &
+              state_without_plan%boundary_macro_residual(6, 3), state_with_plan%boundary_macro_residual(6, 3))
+    state_without_plan%boundary_macro_residual = 0.0_dp
+    state_with_plan%boundary_macro_residual = 0.0_dp
     state_without_plan%macro_residual = 0.0_dp
     state_with_plan%macro_residual = 0.0_dp
     call random_seed(size=rng_size)
@@ -326,6 +285,10 @@ contains
     call assert_true( &
       all(state_with_plan%macro_residual == state_without_plan%macro_residual), 'source plan residual mismatch' &
       )
+    call assert_true( &
+      all(state_with_plan%boundary_macro_residual == state_without_plan%boundary_macro_residual), &
+      'source plan boundary residual mismatch' &
+      )
     call assert_true(all(rng_with_plan == rng_without_plan), 'source plan must preserve the post-batch random state')
   end subroutine test_particle_source_plan_equivalence
 
@@ -350,7 +313,7 @@ contains
     stats_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     stats_cfg%sim%e0 = [1.0_dp, 0.0_dp, 0.0_dp]
     stats_cfg%sim%injection_face_phi_grid_n = 2_i32
-    stats_cfg%particle_species(1)%source_mode = 'reservoir_face'
+    stats_cfg%particle_species(1)%boundary_inflow_high(3) = particle_inflow_reservoir
     stats_cfg%particle_species(1)%species_key = 'face_variation_warning_test'
     stats_cfg%particle_species(1)%q_particle = 1.0_dp
     stats_cfg%particle_species(1)%m_particle = 1.0_dp
@@ -488,42 +451,7 @@ contains
     close (u)
   end subroutine write_boundary_inflow_fixture
 
-  subroutine write_plane_source_fixture(path)
-    character(len=*), intent(in) :: path
-    integer :: u, ios
-
-    open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'failed to open plane source config fixture'
-
-    write (u, '(a)') '[sim]'
-    write (u, '(a)') 'dt = 1.0e-12'
-    write (u, '(a)') 'batch_count = 1'
-    write (u, '(a)') 'batch_duration = 1.0'
-    write (u, '(a)') 'rng_seed = 13579'
-    write (u, '(a)') ''
-    write (u, '(a)') '[domain]'
-    write (u, '(a)') 'box_min = [0.0, 0.0, 0.0]'
-    write (u, '(a)') 'box_max = [2.0, 2.0, 3.0]'
-    write (u, '(a)') 'periodic_axes = []'
-    write (u, '(a)') ''
-    write (u, '(a)') '[field_boundary]'
-    write (u, '(a)') 'mode = "free"'
-    write (u, '(a)') ''
-    write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'source_mode = "plane_source"'
-    write (u, '(a)') 'number_density_m3 = 2.0'
-    write (u, '(a)') 'temperature_k = 0.0'
-    write (u, '(a)') 'q_particle = 1.0'
-    write (u, '(a)') 'm_particle = 1.0'
-    write (u, '(a)') 'w_particle = 3.0'
-    write (u, '(a)') 'pos_low = [0.5, 0.0, 0.0]'
-    write (u, '(a)') 'pos_high = [0.5, 2.0, 3.0]'
-    write (u, '(a)') 'source_normal = [2.0, 0.0, 0.0]'
-    write (u, '(a)') 'drift_velocity = [2.0, 0.0, 0.0]'
-    close (u)
-  end subroutine write_plane_source_fixture
-
-  !> テスト専用の固定 `batch_duration` reservoir_face 設定ファイルを書き出す。
+  !> テスト専用の固定 `batch_duration` 境界流入設定ファイルを書き出す。
   !! @param[in] path 書き出し先TOMLファイルパス。
   subroutine write_fixed_duration_fixture(path)
     character(len=*), intent(in) :: path
@@ -540,16 +468,16 @@ contains
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
     write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'source_mode = "volume_seed"'
+    write (u, '(a)') 'npcls_per_step = 0'
     write (u, '(a)') 'number_density_cm3 = 5.0'
     write (u, '(a)') 'temperature_ev = 10.0'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'
     write (u, '(a)') 'w_particle = 100.0'
-    write (u, '(a)') 'inject_face = "z_low"'
-    write (u, '(a)') 'pos_low = [0.0, 0.0, 0.0]'
-    write (u, '(a)') 'pos_high = [1.0, 1.0, 0.0]'
     write (u, '(a)') 'drift_velocity = [0.0, 0.0, 1.0]'
+    write (u, '(a)') '[particles.species.boundary_inflow]'
+    write (u, '(a)') 'z_low = "reservoir"'
 
     close (u)
   end subroutine write_fixed_duration_fixture
@@ -572,28 +500,28 @@ contains
     write (u, '(a)') 'box_max = [1.0, 1.0, 1.0]'
     write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'source_mode = "volume_seed"'
+    write (u, '(a)') 'npcls_per_step = 0'
     write (u, '(a)') 'number_density_m3 = 1000.0'
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'q_particle = -1.0'
     write (u, '(a)') 'm_particle = 1.0'
     write (u, '(a)') 'target_macro_particles_per_batch = 300'
-    write (u, '(a)') 'inject_face = "z_high"'
-    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
-    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
     write (u, '(a)') 'drift_velocity = [0.0, 0.0, -1.0]'
+    write (u, '(a)') '[particles.species.boundary_inflow]'
+    write (u, '(a)') 'z_high = "reservoir"'
     write (u, '(a)') ''
     write (u, '(a)') '[[particles.species]]'
-    write (u, '(a)') 'source_mode = "reservoir_face"'
+    write (u, '(a)') 'source_mode = "volume_seed"'
+    write (u, '(a)') 'npcls_per_step = 0'
     write (u, '(a)') 'number_density_m3 = 250.0'
     write (u, '(a)') 'temperature_k = 0.0'
     write (u, '(a)') 'q_particle = 1.0'
     write (u, '(a)') 'm_particle = 1.0'
     write (u, '(a)') 'target_macro_particles_per_batch = -1'
-    write (u, '(a)') 'inject_face = "z_high"'
-    write (u, '(a)') 'pos_low = [0.0, 0.0, 1.0]'
-    write (u, '(a)') 'pos_high = [1.0, 1.0, 1.0]'
     write (u, '(a)') 'drift_velocity = [0.0, 0.0, -1.0]'
+    write (u, '(a)') '[particles.species.boundary_inflow]'
+    write (u, '(a)') 'z_high = "reservoir"'
 
     close (u)
   end subroutine write_auto_duration_fixture

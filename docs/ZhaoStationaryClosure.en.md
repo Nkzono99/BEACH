@@ -94,11 +94,17 @@ constrained by the floating condition, and only its distribution over the elemen
 
 ### Match the top-face potential to the wall potential
 
-With a backend that treats the zero mode of the field separately (`fields.periodic.backend` set to `cached_kneq0` or
-`panel_spectral_reference`), the horizontal mean potential of the top face is matched to the wall potential $\phi_0$.
-Adding a constant in vacuum does not change potential differences in the cell or particle orbits; it makes the potentials
-values referenced to the upstream plasma at 0 V. With a setting that does not separate the zero mode, the potential cannot be
-matched to $\phi_0$ and the run warns at startup.
+The horizontal mean potential of the top face is matched to the wall potential $\phi_0$. Adding a constant in vacuum does not
+change potential differences in the cell or particle orbits; it makes the potentials values referenced to the upstream plasma
+at 0 V. The inflow map and the outer-barrier decision assume this potential, so a periodic cell that treats the zero mode of
+the field separately (`fields.boundary="periodic2"`, x/y periodic axes, and `fields.periodic.backend` set to `cached_kneq0` or
+`panel_spectral_reference`) is required. A setting that does not separate the zero mode is a configuration error.
+
+Without the separate zero mode the top-face potential stays near 0 V, inflowing electrons are not decelerated, and
+photoelectrons are judged against a barrier that is too shallow. In an 8x8 flat plate over 20 batches, the separated setting
+kept the mean plate potential within 0.1 mV of the root $\phi_0$ (2.654 V for Type A, −9.422 V for Type C), and the
+fixed-current scales of all channels were 1 within the statistical error. Without it the mean plate potential stayed near
+0 V, the electron scale was 0.53 (Type C), and the photoelectron return and escape scales were 1.99 and 0.30 (Type A).
 
 ### Particles entering and leaving through the top face
 
