@@ -50,6 +50,15 @@ The repository root `AGENTS.md` contains project-local instructions for BEACH de
 
 The `plugins/beach-context/skills/` directory contains user-facing plugin skills. After installing the plugin from `/plugins` and restarting Codex, these skills are available from other working directories such as `~`.
 
+## runops Integration
+
+`beach-bem` publishes the `beach` adapter for [runops](https://github.com/Nkzono99/runops) 2.x
+through the `runops.adapters` entry point (`beach.runops_adapter:Adapter`). When `beach-bem` is
+installed in a runops project's `.venv`, `runo init beach` and `runo update` find the adapter and
+copy the skills and references from `plugins/beach-context` (shipped in the wheel as
+`beach.agent_context`) into the project's `.agents/skills/` and `.claude/skills/`. No plugin
+installation or restart is needed.
+
 ## Placement Policy
 
 BEACH-specific physics, configuration specifications, output specifications, known failure modes, and learning paths live in this simulator repo plugin. Cross-cutting Fortran, fpm, Slurm, and Codex operation workflows should live in repo-root `AGENTS.md` or shared plugins.

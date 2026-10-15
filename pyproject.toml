@@ -38,12 +38,26 @@ beach-plot-potential-slices = "beach.cli.legacy:slices_main"
 beach-estimate-workload = "beach.cli.legacy:workload_main"
 beach-plot-performance-profile = "beach.cli.legacy:profile_main"
 
+[project.entry-points."runops.adapters"]
+beach = "beach.runops_adapter:Adapter"
+
 [tool.setuptools]
-packages = ["beach", "beach.fortran_results", "beach.cli", "beach.config"]
+packages = [
+    "beach",
+    "beach.fortran_results",
+    "beach.cli",
+    "beach.config",
+    "beach.agent_context",
+]
+
+[tool.setuptools.package-dir]
+# Data-only package: agent skills/references deployed by runops (beach/runops_adapter.py).
+"beach.agent_context" = "plugins/beach-context"
 
 [tool.setuptools.package-data]
 "beach" = ["include/*.h"]
 "beach.config" = ["schemas/*.json"]
+"beach.agent_context" = ["skills/*/*", "references/*", "references/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

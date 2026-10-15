@@ -120,6 +120,12 @@ def test_wheel_metadata_exposes_runtime_resources_and_cli_entry_points() -> None
     assert (ROOT / "beach/include/beach_field_kernel.h").is_file()
     assert (ROOT / "beach/config/schemas/beach.schema.json").is_file()
 
+    assert "beach.agent_context" in setuptools["packages"]
+    assert setuptools["package-dir"]["beach.agent_context"] == "plugins/beach-context"
+    assert "skills/*/*" in package_data["beach.agent_context"]
+    assert (ROOT / "plugins/beach-context/skills/beach-config-review/SKILL.md").is_file()
+    assert project["entry-points"]["runops.adapters"]["beach"] == "beach.runops_adapter:Adapter"
+
     scripts = project["scripts"]
     assert {
         "beachx",

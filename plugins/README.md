@@ -60,6 +60,14 @@ repo root の `AGENTS.md` は BEACH 開発者向けの project-local 指示で�
 Claude Code では [beach-context-claude](beach-context-claude/README.md) の `agents/` と `commands/` を
 参照してください。必要なものだけを `.claude/agents/` または `.claude/commands/` に配置して使う想定です。
 
+## runops 連携
+
+`beach-bem` は [runops](https://github.com/Nkzono99/runops) 2.x 向けの `beach` adapter を
+`runops.adapters` entry point（`beach.runops_adapter:Adapter`）で公開します。runops project の
+`.venv` に `beach-bem` が入っていれば、`runo init beach` と `runo update` が adapter を見つけ、
+`plugins/beach-context` の skill と reference（wheel では `beach.agent_context`）を project の
+`.agents/skills/` と `.claude/skills/` へ展開します。plugin の install や再起動は不要です。
+
 ## 配置方針
 
 BEACH 固有の物理、設定仕様、出力仕様、既知の失敗モード、学習導線は simulator repo 内の plugin に置きます。Fortran/fpm/Slurm/Codex 運用の横断的な手順は、repo root の `AGENTS.md` や共通 plugin に寄せます。
