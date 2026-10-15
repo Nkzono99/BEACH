@@ -1,7 +1,6 @@
 !> lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
   use, intrinsic :: iso_fortran_env, only: error_unit
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_constants, only: qe, k_boltzmann, pi
   use bem_config_helpers, only: resolve_particle_boundaries, species_number_density_m3, species_temperature_k
   use bem_app_config_types, only: particle_inflow_reservoir
