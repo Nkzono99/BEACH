@@ -122,10 +122,10 @@ contains
     return
   case (external_inflow_scalar_barrier)
     if (.not. present(mesh)) then
-      error stop 'sim.reservoir_potential_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
+      error stop 'particles.reservoir.inflow_model="infinity_barrier" requires mesh in init_particle_batch_from_config.'
     end if
     if (.not. present(snapshot)) then
-      error stop 'sim.reservoir_potential_model="infinity_barrier" requires a refreshed electrostatic snapshot.'
+      error stop 'particles.reservoir.inflow_model="infinity_barrier" requires a refreshed electrostatic snapshot.'
     end if
     call compute_face_average_potential(mesh, cfg%sim, spec, snapshot, phi_face, phi_std, phi_min, phi_max)
     if (emit_warning) then

@@ -4,7 +4,7 @@ module bem_app_config_parser
   use bem_types, only: bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_app_config_types, only: &
     app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
-    particle_inflow_reservoir, species_from_defaults
+    particle_inflow_reservoir, species_from_defaults, species_config_path
   use bem_physics_config_types, only: &
     field_physics_config, panel_kernel_config, normalize_legacy_physics_config, derive_field_panel_config, &
     validate_active_physics_config, physics_config_ok
@@ -116,18 +116,21 @@ module bem_app_config_parser
       type(app_config_authoring), intent(inout) :: authoring
     end subroutine read_particle_species_array
 
-    module subroutine apply_particles_species_toml_table(spec, table, auth)
+    module subroutine apply_particles_species_toml_table(spec, table, auth, species_path)
+      character(len=*), intent(in) :: species_path
       type(particle_species_spec), intent(inout) :: spec
       type(config_toml_table), intent(inout) :: table
       type(particle_authoring_spec), intent(inout) :: auth
     end subroutine apply_particles_species_toml_table
 
-    module subroutine apply_species_boundary_toml_table(spec, table)
+    module subroutine apply_species_boundary_toml_table(spec, table, species_path)
+      character(len=*), intent(in) :: species_path
       type(particle_species_spec), intent(inout) :: spec
       type(config_toml_table), intent(inout) :: table
     end subroutine apply_species_boundary_toml_table
 
-    module subroutine apply_species_boundary_inflow_toml_table(spec, table)
+    module subroutine apply_species_boundary_inflow_toml_table(spec, table, species_path)
+      character(len=*), intent(in) :: species_path
       type(particle_species_spec), intent(inout) :: spec
       type(config_toml_table), intent(inout) :: table
     end subroutine apply_species_boundary_inflow_toml_table
@@ -282,28 +285,28 @@ contains
       call require_toml_success(stat, '['//trim(keys(ikey)%key)//']')
       select case (trim(key_name))
       case ('sim')
-        if (.not. associated(section)) error stop 'TOML section [sim] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [run], [particles.tracking], or [fields] must be a table.'
         call apply_sim_toml_table(cfg, section)
       case ('domain')
         if (.not. associated(section)) error stop 'TOML section [domain] must be a table.'
         call apply_domain_toml_table(section, authoring%domain)
       case ('field_boundary')
-        if (.not. associated(section)) error stop 'TOML section [field_boundary] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [fields] must be a table.'
         call apply_field_boundary_toml_table(section, authoring%field_boundary)
       case ('particle_boundary')
-        if (.not. associated(section)) error stop 'TOML section [particle_boundary] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [particles.boundary] must be a table.'
         call apply_particle_boundary_toml_table(section, authoring%particle_boundary)
       case ('reservoir')
-        if (.not. associated(section)) error stop 'TOML section [reservoir] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [particles.reservoir] must be a table.'
         call apply_reservoir_toml_table(section, authoring%reservoir)
       case ('surface_current_model')
-        if (.not. associated(section)) error stop 'TOML section [surface_current_model] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [sheath] must be a table.'
         call apply_surface_current_model_toml_table(cfg, section)
       case ('particles')
         if (.not. associated(section)) error stop 'TOML section [particles] must be a table.'
         call apply_particles_toml_table(cfg, section, authoring)
       case ('periodic2')
-        if (.not. associated(section)) error stop 'TOML section [periodic2] must be a table.'
+        if (.not. associated(section)) error stop 'TOML section [fields.periodic] must be a table.'
         call apply_periodic2_toml_table(section, authoring)
       case ('mesh')
         if (.not. associated(section)) error stop 'TOML section [mesh] must be a table.'

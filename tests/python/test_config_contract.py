@@ -246,7 +246,7 @@ def test_lint_reports_the_fortran_diagnostic(native_checker: Path, tmp_path: Pat
         run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
     message = str(excinfo.value)
     assert "preflight check failed" in message
-    assert "cannot override a periodic domain face" in message
+    assert "particles.boundary.x_low cannot override a periodic domain face" in message
     assert "Backtrace" not in message
 
 
@@ -301,3 +301,21 @@ def _assert_rejected_by_lint_and_native(config, native_checker, tmp_path):
     )
     assert native.returncode != 0
     assert not (tmp_path / "simulation-output").exists()
+
+
+@pytest.mark.parametrize("charge", [0.0, "invalid"])
+def test_native_species_diagnostic_uses_public_key_and_index(
+    charge: float | str, native_checker: Path, tmp_path: Path,
+) -> None:
+    config = default_config()
+    second = copy.deepcopy(config["particles"]["species"][0])
+    second["q_particle"] = charge
+    config["particles"]["species"].append(second)
+    path = _write_config(config, tmp_path)
+    native = subprocess.run(
+        [str(native_checker), "--check-config", str(path)], cwd=tmp_path,
+        text=True, capture_output=True, timeout=20,
+    )
+    assert native.returncode != 0
+    assert "particles.species[2].charge_c" in native.stderr
+    assert "q_particle" not in native.stderr

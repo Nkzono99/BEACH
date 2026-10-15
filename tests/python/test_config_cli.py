@@ -703,7 +703,7 @@ def test_lint_cli_reports_preflight_error(tmp_path: Path, native_checker: Path) 
         beachx_main(["lint", str(config_path), "--beach", str(native_checker)])
 
     assert "preflight check failed" in str(excinfo.value)
-    assert "npcls_per_step > 0" in str(excinfo.value)
+    assert "sampling.volume_macro_particles_per_batch > 0" in str(excinfo.value)
 
 
 def test_config_cli_rejects_removed_migrate_command(capsys) -> None:

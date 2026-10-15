@@ -140,7 +140,7 @@ contains
       case ('auto', 'c')
         order = ['C']
       case default
-        error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+        error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
       end select
     end if
     call solve_outer_root(app, source_density_m3, source_temperature_ev, order, root, success, message)

@@ -12,7 +12,8 @@ contains
 
   if (.not. auth%has_inject_region_mode) then
     if (auth%has_uv_low .or. auth%has_uv_high) then
-      error stop 'particles.species uv_low/uv_high require inject_region_mode="face_fraction".'
+      error stop species_config_path(species_idx)//'.source.uv_low/'//species_config_path(species_idx)// &
+        '.source.uv_high require '//species_config_path(species_idx)//'.source.region_mode="face_fraction".'
     end if
     return
   end if
@@ -23,27 +24,33 @@ contains
   case ('photo_raycast')
     continue
   case default
-    error stop 'inject_region_mode is only supported for photo_raycast species.'
+    error stop species_config_path(species_idx)//'.source.region_mode is only supported for photo_raycast species.'
   end select
 
   select case (trim(mode))
   case ('absolute')
     if (auth%has_uv_low .or. auth%has_uv_high) then
-      error stop 'inject_region_mode="absolute" cannot use uv_low/uv_high.'
+      error stop species_config_path(species_idx)//'.source.region_mode="absolute" cannot use '// &
+        species_config_path(species_idx)//'.source.uv_low/'//species_config_path(species_idx)//'.source.uv_high.'
     end if
   case ('face_fraction')
     if (auth%has_pos_low .or. auth%has_pos_high) then
-      error stop 'inject_region_mode="face_fraction" cannot be combined with pos_low/pos_high.'
+      error stop species_config_path(species_idx)// &
+        '.source.region_mode="face_fraction" cannot be combined with '//species_config_path(species_idx)// &
+        '.source.pos_low/'//species_config_path(species_idx)//'.source.pos_high.'
     end if
     if (.not. auth%has_uv_low .or. .not. auth%has_uv_high) then
-      error stop 'inject_region_mode="face_fraction" requires uv_low and uv_high.'
+      error stop species_config_path(species_idx)//'.source.region_mode="face_fraction" requires '// &
+        species_config_path(species_idx)//'.source.uv_low and '//species_config_path(species_idx)//'.source.uv_high.'
     end if
     if (any(auth%uv_low < 0.0d0) .or. any(auth%uv_low > 1.0d0) .or. &
         any(auth%uv_high < 0.0d0) .or. any(auth%uv_high > 1.0d0)) then
-      error stop 'uv_low/uv_high must be inside [0, 1].'
+      error stop species_config_path(species_idx)//'.source.uv_low/'//species_config_path(species_idx)// &
+        '.source.uv_high must be inside [0, 1].'
     end if
     if (any(auth%uv_low > auth%uv_high)) then
-      error stop 'uv_low must be <= uv_high component-wise.'
+      error stop species_config_path(species_idx)//'.source.uv_low must be <= '// &
+        species_config_path(species_idx)//'.source.uv_high component-wise.'
     end if
     call resolve_face_fraction_region( &
       cfg%particle_species(species_idx)%inject_face, auth%uv_low, auth%uv_high, &
@@ -51,7 +58,7 @@ contains
       cfg%particle_species(species_idx)%pos_high &
       )
   case default
-    error stop 'Unsupported inject_region_mode.'
+    error stop 'Unsupported '//species_config_path(species_idx)//'.source.region_mode.'
   end select
   end procedure normalize_species_high_level
 
@@ -99,7 +106,7 @@ contains
       coord2 = 2
       boundary = box_max(3)
     case default
-      error stop 'Invalid inject_face for face_fraction.'
+      error stop 'Invalid injection face for face_fraction.'
     end select
 
     pos_low = box_min

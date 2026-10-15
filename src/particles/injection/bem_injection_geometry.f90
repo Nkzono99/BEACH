@@ -44,7 +44,7 @@ contains
       axis_t1 = 1
       axis_t2 = 2
     case default
-      error stop "unknown inject_face"
+      error stop "unknown injection face"
     end select
   end subroutine resolve_face_axes
 
@@ -92,7 +92,7 @@ contains
       boundary_local = box_max(3)
       normal_local(3) = -1.0_dp
     case default
-      error stop "unknown inject_face"
+      error stop "unknown injection face"
     end select
 
     if (present(axis_n)) axis_n = axis_local

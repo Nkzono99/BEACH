@@ -9,12 +9,12 @@ contains
   real(dp) :: batch_duration
 
   if (cfg%sim%has_batch_duration .and. cfg%sim%has_batch_duration_step) then
-    error stop 'sim.batch_duration and sim.batch_duration_step cannot be specified together.'
+    error stop 'run.batch.duration_s and run.batch.duration_steps cannot be specified together.'
   end if
   if (cfg%sim%has_batch_duration_step) then
     batch_duration = cfg%sim%dt*cfg%sim%batch_duration_step
     if (.not. ieee_is_finite(batch_duration) .or. batch_duration <= 0.0d0) then
-      error stop 'sim.batch_duration_step produced invalid sim.batch_duration.'
+      error stop 'run.batch.duration_steps produced invalid run.batch.duration_s.'
     end if
     cfg%sim%batch_duration = batch_duration
     cfg%sim%has_batch_duration = .true.
@@ -27,10 +27,12 @@ contains
   real(dp) :: phi_xy, phi_z
 
   if (cfg%sim%has_e0_vector .and. (cfg%sim%has_e0_abs .or. cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg)) then
-    error stop 'sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg.'
+    error stop 'fields.external.electric_v_m cannot be combined with '// &
+      'fields.external.electric_magnitude_v_m/fields.external.electric_azimuth_deg/fields.external.electric_elevation_deg.'
   end if
   if ((cfg%sim%has_e0_phi_xy_deg .or. cfg%sim%has_e0_phi_z_deg) .and. .not. cfg%sim%has_e0_abs) then
-    error stop 'sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.'
+    error stop 'fields.external.electric_azimuth_deg/fields.external.electric_elevation_deg require '// &
+      'fields.external.electric_magnitude_v_m.'
   end if
   if (cfg%sim%has_e0_vector) return
   if (.not. cfg%sim%has_e0_abs) then
@@ -66,7 +68,7 @@ contains
                )
     physical_rate = physical_rate + gamma_in*area
   end do
-  call resolve_flux_driven_weight(cfg, spec, physical_rate, 'boundary_inflow')
+  call resolve_flux_driven_weight(cfg, spec, physical_rate, species_idx)
   cfg%particle_species(species_idx) = spec
   end procedure validate_boundary_inflow_species
 
@@ -87,7 +89,7 @@ contains
   if (spec%has_ray_direction) then
     direction_norm = sqrt(sum(spec%ray_direction*spec%ray_direction))
     if (.not. ieee_is_finite(direction_norm) .or. direction_norm <= 0.0d0) then
-      error stop 'ray_direction norm must be > 0.'
+      error stop species_config_path(species_idx)//'.source.ray_direction norm must be > 0.'
     end if
     spec%ray_direction = spec%ray_direction/direction_norm
   else
@@ -95,7 +97,8 @@ contains
   end if
   inward_dot = dot_product(spec%ray_direction, inward_normal)
   if (.not. ieee_is_finite(inward_dot) .or. inward_dot <= 0.0d0) then
-    error stop 'ray_direction must point inward from inject_face.'
+    error stop species_config_path(species_idx)//'.source.ray_direction must point inward from '// &
+      species_config_path(species_idx)//'.source.inject_face.'
   end if
 
   cfg%particle_species(species_idx) = spec
@@ -108,33 +111,38 @@ contains
 
     if (spec%has_target_macro_particles_per_batch .and. spec%target_macro_particles_per_batch /= -1_i32) then
       if (spec%target_macro_particles_per_batch <= 0_i32) then
-        error stop 'target_macro_particles_per_batch must be positive for weight division.'
+        error stop species_config_path(species_idx)// &
+          '.sampling.target_macro_particles_per_batch must be positive for weight division.'
       end if
     end if
     if (spec%has_target_macro_particles_per_batch .and. spec%target_macro_particles_per_batch == -1_i32) then
-      if (species_idx == 1) error stop 'particles.species[1].target_macro_particles_per_batch cannot be -1.'
+      if (species_idx == 1) error stop 'particles.species[1].sampling.target_macro_particles_per_batch cannot be -1.'
       if (.not. cfg%particle_species(1)%enabled .or. .not. cfg%particle_species(1)%has_w_particle .or. &
           .not. ieee_is_finite(cfg%particle_species(1)%w_particle) .or. cfg%particle_species(1)%w_particle <= 0.0_dp) then
-        error stop 'target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle.'
+        error stop species_config_path(species_idx)// &
+          '.sampling.target_macro_particles_per_batch=-1 requires a positive particles.species[1].sampling.weight.'
       end if
     end if
 
     if (spec%has_number_density_cm3 .and. spec%has_number_density_m3) then
-      error stop 'Specify either number_density_cm3 or number_density_m3, not both.'
+      error stop 'Specify either '//species_config_path(species_idx)//'.distribution.number_density_cm3 or '// &
+        species_config_path(species_idx)//'.distribution.number_density_m3, not both.'
     end if
     if (.not. ieee_is_finite(species_number_density_m3(spec)) .or. species_number_density_m3(spec) <= 0.0_dp) then
-      error stop 'number_density must be finite and > 0.'
+      error stop species_config_path(species_idx)// &
+        '.distribution must resolve to a finite number density > 0.'
     end if
     if (.not. ieee_is_finite(species_temperature_k(spec)) .or. species_temperature_k(spec) < 0.0_dp) then
-      error stop 'temperature must be finite and >= 0.'
+      error stop species_config_path(species_idx)// &
+        '.distribution must resolve to a finite temperature >= 0.'
     end if
   end subroutine validate_flux_driven_parameters
 
-  subroutine resolve_flux_driven_weight(cfg, spec, physical_rate, context)
+  subroutine resolve_flux_driven_weight(cfg, spec, physical_rate, species_idx)
     type(app_config), intent(in) :: cfg
     type(particle_species_spec), intent(inout) :: spec
     real(dp), intent(in) :: physical_rate
-    character(len=*), intent(in) :: context
+    integer, intent(in) :: species_idx
 
     if (.not. spec%has_target_macro_particles_per_batch) return
     if (spec%target_macro_particles_per_batch == -1_i32) then
@@ -143,7 +151,9 @@ contains
       spec%w_particle = physical_rate*cfg%sim%batch_duration/real(spec%target_macro_particles_per_batch, dp)
     end if
     if (.not. ieee_is_finite(spec%w_particle) .or. spec%w_particle <= 0.0_dp) then
-      call stop_config_error(trim(context)//' target_macro_particles_per_batch produced invalid w_particle.')
+      call stop_config_error(species_config_path(species_idx)// &
+                             '.sampling.target_macro_particles_per_batch produced invalid '// &
+                             species_config_path(species_idx)//'.sampling.weight.')
     end if
     spec%has_w_particle = .true.
   end subroutine resolve_flux_driven_weight

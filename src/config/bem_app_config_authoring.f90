@@ -1,7 +1,7 @@
 !> Authoring overlay の公開入口。配列管理と領域別変換の入口を持つ。
 module bem_app_config_authoring
   use bem_kinds, only: dp, i32
-  use bem_app_config_types, only: app_config
+  use bem_app_config_types, only: app_config, species_config_path
   use bem_app_config_authoring_types, only: &
     app_config_authoring, domain_authoring_spec, field_boundary_authoring_spec, &
     particle_boundary_authoring_spec, reservoir_authoring_spec, periodic2_authoring_spec, &

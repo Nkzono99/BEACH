@@ -80,17 +80,17 @@ contains
     real(dp) :: sigma, cutoff
 
     if (size(v, 1) /= 3) error stop "v first dimension must be 3"
-    if (m_particle <= 0.0_dp) error stop "m_particle must be > 0"
+    if (m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
 
     if (.not. present(temperature_k) .and. .not. present(thermal_speed)) then
-      error stop "either temperature_k or thermal_speed must be provided"
+      error stop "either temperature [K] or thermal_speed must be provided"
     end if
 
     if (present(thermal_speed)) then
       if (thermal_speed < 0.0_dp) error stop "thermal_speed must be >= 0"
       sigma = thermal_speed
     else
-      if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
+      if (temperature_k < 0.0_dp) error stop "temperature [K] must be >= 0"
       sigma = sqrt(k_boltzmann*temperature_k/m_particle)
     end if
     cutoff = default_velocity_sigma_cutoff

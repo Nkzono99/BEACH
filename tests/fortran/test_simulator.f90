@@ -1445,20 +1445,20 @@ contains
       end if
       saw_processed = saw_processed .or. index(child_line, ' processed=') > 0
       saw_fraction = saw_fraction .or. index(child_line, ' fraction=') > 0
-      saw_fraction_limit = saw_fraction_limit .or. index(child_line, ' fraction_limit=') > 0
+      saw_fraction_limit = saw_fraction_limit .or. index(child_line, ' particles.tracking.events.discard_fraction_limit=') > 0
       saw_abs_charge = saw_abs_charge .or. index(child_line, 'abs_charge_C=') > 0
       saw_abs_charge_limit = saw_abs_charge_limit .or. &
                              (index(child_line, 'abs_charge_limit_C=') > 0 .or. &
-                              index(child_line, 'warning_threshold_C=') > 0)
+                              index(child_line, 'discard_charge_warning_c=') > 0)
       if (index(child_line, 'multiple_box_events soft discard accepted:') > 0) then
         accepted_summary_count = accepted_summary_count + 1_i32
       end if
       if (charge_limit_probe) then
         saw_expected_count = saw_expected_count .or. index(child_line, ' count=1 ') > 0
-        saw_expected_grace = saw_expected_grace .or. index(child_line, ' count_grace=100 ') > 0
+        saw_expected_grace = saw_expected_grace .or. index(child_line, ' particles.tracking.events.discard_count_grace=100 ') > 0
       else
         saw_expected_count = saw_expected_count .or. index(child_line, ' count=2 ') > 0
-        saw_expected_grace = saw_expected_grace .or. index(child_line, ' count_grace=1 ') > 0
+        saw_expected_grace = saw_expected_grace .or. index(child_line, ' particles.tracking.events.discard_count_grace=1 ') > 0
       end if
     end do
     close (child_unit)
@@ -1507,9 +1507,10 @@ contains
       if (child_ios /= 0) exit
       saw_context = saw_context .or. &
                     (index(child_line, 'soft-discard cumulative fraction limit exceeded: batch=5') > 0 .and. &
-                     index(child_line, ' count=2 ') > 0 .and. index(child_line, ' count_grace=1 ') > 0 .and. &
+                     index(child_line, ' count=2 ') > 0 .and. &
+                     index(child_line, ' particles.tracking.events.discard_count_grace=1 ') > 0 .and. &
                      index(child_line, ' processed=100 ') > 0 .and. index(child_line, ' fraction=') > 0 .and. &
-                     index(child_line, ' fraction_limit=') > 0)
+                     index(child_line, ' particles.tracking.events.discard_fraction_limit=') > 0)
       saw_accepted = saw_accepted .or. index(child_line, 'multiple_box_events soft discard accepted:') > 0
     end do
     close (child_unit)

@@ -71,8 +71,8 @@ def _validate_high_level_fragment(
                 or source_mode not in _FACE_SOURCE_MODES
             ):
                 raise ConfigError(
-                    f"{context} error: particles.species[{index}] uses inject_region_mode/uv_* "
-                    'but source_mode must be "photo_raycast".'
+                    f"{context} error: particles.species[{index}] uses source.region_mode/source.uv_* "
+                    f'but particles.species[{index}].source.mode must be "photo_raycast".'
                 )
 
 

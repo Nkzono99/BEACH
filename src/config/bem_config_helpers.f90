@@ -37,7 +37,7 @@ contains
     case ('z_high')
       axis = 3; boundary_value = box_max(3)
     case default
-      error stop 'Unknown particles.species.inject_face.'
+      error stop 'Unknown particle source injection face.'
     end select
   end subroutine resolve_inject_face
 
@@ -61,7 +61,7 @@ contains
     case ('z_high')
       inward_normal(3) = -1.0d0
     case default
-      error stop 'Unknown particles.species.inject_face.'
+      error stop 'Unknown particle source injection face.'
     end select
   end subroutine resolve_inward_normal
 

@@ -15,35 +15,35 @@ contains
     select case (trim(k))
     case ('nonzero_mode_backend')
       call get_toml_string( &
-        table, keys(ikey), authoring%periodic2%nonzero_mode_backend, 'periodic2.nonzero_mode_backend' &
+        table, keys(ikey), authoring%periodic2%nonzero_mode_backend, 'fields.periodic.backend' &
         )
       authoring%periodic2%nonzero_mode_backend = lower_ascii(trim(authoring%periodic2%nonzero_mode_backend))
       authoring%periodic2%has_nonzero_mode_backend = .true.
     case ('zero_mode_policy')
-      call get_toml_string(table, keys(ikey), authoring%periodic2%zero_mode_policy, 'periodic2.zero_mode_policy')
+      call get_toml_string(table, keys(ikey), authoring%periodic2%zero_mode_policy, 'fields.periodic.backend')
       authoring%periodic2%zero_mode_policy = lower_ascii(trim(authoring%periodic2%zero_mode_policy))
       authoring%periodic2%has_zero_mode_policy = .true.
     case ('lower_boundary_model')
       call get_toml_string( &
-        table, keys(ikey), authoring%periodic2%lower_boundary_model, 'periodic2.lower_boundary_model' &
+        table, keys(ikey), authoring%periodic2%lower_boundary_model, 'fields.periodic.lower_boundary_model' &
         )
       authoring%periodic2%lower_boundary_model = lower_ascii(trim(authoring%periodic2%lower_boundary_model))
       authoring%periodic2%has_lower_boundary_model = .true.
     case ('reference_mode_layers')
       call get_toml_int( &
-        table, keys(ikey), authoring%periodic2%reference_mode_layers, 'periodic2.reference_mode_layers' &
+        table, keys(ikey), authoring%periodic2%reference_mode_layers, 'fields.periodic.reference.mode_layers' &
         )
     case ('panel_quadrature_order')
       call get_toml_int( &
-        table, keys(ikey), authoring%periodic2%panel_quadrature_order, 'periodic2.panel_quadrature_order' &
+        table, keys(ikey), authoring%periodic2%panel_quadrature_order, 'fields.periodic.reference.panel_quadrature_order' &
         )
     case ('max_nonzero_mode_potential_step')
       call get_toml_real( &
         table, keys(ikey), authoring%periodic2%max_nonzero_mode_potential_step, &
-        'periodic2.max_nonzero_mode_potential_step' &
+        'run.batch.adaptive.max_nonzero_mode_potential_step_v' &
         )
     case default
-      error stop 'Unknown key in [periodic2]: '//trim(keys(ikey)%key)
+      error stop 'Unknown key in [fields.periodic]: '//trim(keys(ikey)%key)
     end select
   end do
   end procedure apply_periodic2_toml_table
@@ -113,10 +113,10 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('mode')
-      call get_toml_string(table, keys(ikey), field%mode, 'field_boundary.mode')
+      call get_toml_string(table, keys(ikey), field%mode, 'fields.boundary')
       field%mode = lower_ascii(trim(field%mode))
     case default
-      error stop 'Unknown key in [field_boundary]: '//trim(keys(ikey)%key)
+      error stop 'Unknown key in [fields]: '//trim(keys(ikey)%key)
     end select
   end do
   end procedure apply_field_boundary_toml_table
@@ -132,19 +132,19 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('x_low')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(1), 'particle_boundary.x_low', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(1), 'particles.boundary.x_low', .false.)
     case ('x_high')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(1), 'particle_boundary.x_high', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(1), 'particles.boundary.x_high', .false.)
     case ('y_low')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(2), 'particle_boundary.y_low', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(2), 'particles.boundary.y_low', .false.)
     case ('y_high')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(2), 'particle_boundary.y_high', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(2), 'particles.boundary.y_high', .false.)
     case ('z_low')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(3), 'particle_boundary.z_low', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%low(3), 'particles.boundary.z_low', .false.)
     case ('z_high')
-      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(3), 'particle_boundary.z_high', .false.)
+      call get_toml_particle_boundary_mode(table, keys(ikey), particles%high(3), 'particles.boundary.z_high', .false.)
     case default
-      error stop 'Unknown key in [particle_boundary]: '//trim(keys(ikey)%key)
+      error stop 'Unknown key in [particles.boundary]: '//trim(keys(ikey)%key)
     end select
   end do
   end procedure apply_particle_boundary_toml_table
@@ -160,16 +160,16 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('inflow_model')
-      call get_toml_string(table, keys(ikey), reservoir%inflow_model, 'reservoir.inflow_model')
+      call get_toml_string(table, keys(ikey), reservoir%inflow_model, 'particles.reservoir.inflow_model')
       reservoir%inflow_model = lower_ascii(trim(reservoir%inflow_model))
     case ('phi_infty')
-      call get_toml_real(table, keys(ikey), reservoir%phi_infty, 'reservoir.phi_infty')
+      call get_toml_real(table, keys(ikey), reservoir%phi_infty, 'particles.reservoir.phi_infty_v')
     case ('face_potential_grid_n')
       call get_toml_int( &
-        table, keys(ikey), reservoir%face_potential_grid_n, 'reservoir.face_potential_grid_n' &
+        table, keys(ikey), reservoir%face_potential_grid_n, 'particles.reservoir.face_potential_grid_n' &
         )
     case default
-      error stop 'Unknown key in [reservoir]: '//trim(keys(ikey)%key)
+      error stop 'Unknown key in [particles.reservoir]: '//trim(keys(ikey)%key)
     end select
   end do
   end procedure apply_reservoir_toml_table
@@ -184,101 +184,101 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('dt')
-      call get_toml_real(table, keys(ikey), cfg%sim%dt, 'sim.dt')
+      call get_toml_real(table, keys(ikey), cfg%sim%dt, 'particles.tracking.dt_s')
     case ('rng_seed')
-      call get_toml_int(table, keys(ikey), cfg%sim%rng_seed, 'sim.rng_seed')
+      call get_toml_int(table, keys(ikey), cfg%sim%rng_seed, 'run.rng_seed')
     case ('batch_count')
-      call get_toml_int(table, keys(ikey), cfg%sim%batch_count, 'sim.batch_count')
+      call get_toml_int(table, keys(ikey), cfg%sim%batch_count, 'run.batch_count')
     case ('batch_duration')
-      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'sim.batch_duration')
+      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'run.batch.duration_s')
       cfg%sim%has_batch_duration = .true.
     case ('batch_duration_step')
-      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration_step, 'sim.batch_duration_step')
+      call get_toml_real(table, keys(ikey), cfg%sim%batch_duration_step, 'run.batch.duration_steps')
       cfg%sim%has_batch_duration_step = .true.
     case ('max_step')
-      call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'sim.max_step')
+      call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'particles.tracking.max_steps_per_particle')
     case ('tol_rel')
-      call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'sim.tol_rel')
+      call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'output.diagnostics.charge_rel_change_threshold')
     case ('q_floor')
-      call get_toml_real(table, keys(ikey), cfg%sim%q_floor, 'sim.q_floor')
+      call get_toml_real(table, keys(ikey), cfg%sim%q_floor, 'output.diagnostics.charge_floor_c')
     case ('field_solver')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_solver, 'sim.field_solver')
+      call get_toml_string(table, keys(ikey), cfg%sim%field_solver, 'fields.solver.method')
       cfg%sim%field_solver = lower_ascii(trim(cfg%sim%field_solver))
     case ('field_normalization')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_normalization, 'sim.field_normalization')
+      call get_toml_string(table, keys(ikey), cfg%sim%field_normalization, 'fields.solver.normalization')
       cfg%sim%field_normalization = lower_ascii(trim(cfg%sim%field_normalization))
     case ('field_length_scale')
-      call get_toml_real(table, keys(ikey), cfg%sim%field_length_scale, 'sim.field_length_scale')
+      call get_toml_real(table, keys(ikey), cfg%sim%field_length_scale, 'fields.solver.length_scale_m')
     case ('field_periodic_image_layers')
-      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_image_layers, 'sim.field_periodic_image_layers')
+      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_image_layers, 'fields.periodic.image_layers')
     case ('field_periodic_far_correction')
       call get_toml_string( &
-        table, keys(ikey), cfg%sim%field_periodic_far_correction, 'sim.field_periodic_far_correction' &
+        table, keys(ikey), cfg%sim%field_periodic_far_correction, 'fields.periodic.backend' &
         )
       cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
     case ('field_periodic_ewald_alpha')
-      call get_toml_real(table, keys(ikey), cfg%sim%field_periodic_ewald_alpha, 'sim.field_periodic_ewald_alpha')
+      call get_toml_real(table, keys(ikey), cfg%sim%field_periodic_ewald_alpha, 'fields.periodic.ewald_alpha')
     case ('field_periodic_ewald_layers')
-      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_ewald_layers, 'sim.field_periodic_ewald_layers')
+      call get_toml_int(table, keys(ikey), cfg%sim%field_periodic_ewald_layers, 'fields.periodic.ewald_layers')
     case ('field_periodic_cache_dir')
-      call get_toml_string(table, keys(ikey), cfg%sim%field_periodic_cache_dir, 'sim.field_periodic_cache_dir')
+      call get_toml_string(table, keys(ikey), cfg%sim%field_periodic_cache_dir, 'fields.periodic.cache_dir')
     case ('field_periodic_generation_tolerance')
       call get_toml_real( &
         table, keys(ikey), cfg%sim%field_periodic_generation_tolerance, &
-        'sim.field_periodic_generation_tolerance' &
+        'fields.periodic.generation_tolerance' &
         )
     case ('tree_theta')
-      call get_toml_real(table, keys(ikey), cfg%sim%tree_theta, 'sim.tree_theta')
+      call get_toml_real(table, keys(ikey), cfg%sim%tree_theta, 'fields.solver.tree.theta')
       cfg%sim%has_tree_theta = .true.
     case ('tree_leaf_max')
-      call get_toml_int(table, keys(ikey), cfg%sim%tree_leaf_max, 'sim.tree_leaf_max')
+      call get_toml_int(table, keys(ikey), cfg%sim%tree_leaf_max, 'fields.solver.tree.leaf_max')
       cfg%sim%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
-      call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'sim.tree_min_nelem')
+      call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'fields.solver.auto_fmm_min_elements')
     case ('e0')
-      call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'sim.e0')
+      call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'fields.external.electric_v_m')
       cfg%sim%has_e0_vector = .true.
     case ('e0_abs')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'sim.e0_abs')
+      call get_toml_real(table, keys(ikey), cfg%sim%e0_abs, 'fields.external.electric_magnitude_v_m')
       cfg%sim%has_e0_abs = .true.
     case ('e0_phi_xy_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_xy_deg, 'sim.e0_phi_xy_deg')
+      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_xy_deg, 'fields.external.electric_azimuth_deg')
       cfg%sim%has_e0_phi_xy_deg = .true.
     case ('e0_phi_z_deg')
-      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'sim.e0_phi_z_deg')
+      call get_toml_real(table, keys(ikey), cfg%sim%e0_phi_z_deg, 'fields.external.electric_elevation_deg')
       cfg%sim%has_e0_phi_z_deg = .true.
     case ('b0')
-      call get_toml_real_array(table, keys(ikey), cfg%sim%b0, 'sim.b0')
+      call get_toml_real_array(table, keys(ikey), cfg%sim%b0, 'fields.external.magnetic_t')
     case ('multiple_box_events_policy')
       call get_toml_string( &
-        table, keys(ikey), cfg%sim%multiple_box_events_policy, 'sim.multiple_box_events_policy' &
+        table, keys(ikey), cfg%sim%multiple_box_events_policy, 'particles.tracking.events.policy' &
         )
       cfg%sim%multiple_box_events_policy = lower_ascii(trim(cfg%sim%multiple_box_events_policy))
     case ('multiple_box_events_retry_backend')
       call get_toml_string( &
         table, keys(ikey), cfg%sim%multiple_box_events_retry_backend, &
-        'sim.multiple_box_events_retry_backend' &
+        'particles.tracking.events.retry_backend' &
         )
       cfg%sim%multiple_box_events_retry_backend = lower_ascii(trim(cfg%sim%multiple_box_events_retry_backend))
     case ('multiple_box_events_soft_discard_count_grace')
       call get_toml_int( &
         table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_count_grace, &
-        'sim.multiple_box_events_soft_discard_count_grace' &
+        'particles.tracking.events.discard_count_grace' &
         )
     case ('multiple_box_events_soft_discard_fraction_limit')
       call get_toml_real( &
         table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_fraction_limit, &
-        'sim.multiple_box_events_soft_discard_fraction_limit' &
+        'particles.tracking.events.discard_fraction_limit' &
         )
     case ('multiple_box_events_soft_discard_abs_charge_limit')
       call get_toml_real( &
         table, keys(ikey), cfg%sim%multiple_box_events_soft_discard_abs_charge_limit, &
-        'sim.multiple_box_events_soft_discard_abs_charge_limit' &
+        'particles.tracking.events.discard_charge_warning_c' &
         )
     case ('raycast_max_bounce')
-      call get_toml_int(table, keys(ikey), cfg%sim%raycast_max_bounce, 'sim.raycast_max_bounce')
+      call get_toml_int(table, keys(ikey), cfg%sim%raycast_max_bounce, 'particles.raycast.max_bounces')
     case default
-      error stop 'Unknown key in [sim]: '//trim(keys(ikey)%key)
+      error stop 'Unknown key in [run], [particles.tracking], or [fields]: '//trim(keys(ikey)%key)
     end select
   end do
   end procedure apply_sim_toml_table
@@ -293,21 +293,21 @@ contains
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
     case ('write_files')
-      call get_toml_logical(table, keys(ikey), cfg%write_output, 'output.write_files')
+      call get_toml_logical(table, keys(ikey), cfg%write_output, 'output.enabled')
     case ('write_mesh_potential')
-      call get_toml_logical(table, keys(ikey), cfg%write_mesh_potential, 'output.write_mesh_potential')
+      call get_toml_logical(table, keys(ikey), cfg%write_mesh_potential, 'output.final.mesh_potential')
     case ('write_potential_history')
-      call get_toml_logical(table, keys(ikey), cfg%write_potential_history, 'output.write_potential_history')
+      call get_toml_logical(table, keys(ikey), cfg%write_potential_history, 'output.history.potential')
     case ('dir')
       call get_toml_string(table, keys(ikey), cfg%output_dir, 'output.dir')
     case ('history_stride')
-      call get_toml_int(table, keys(ikey), cfg%history_stride, 'output.history_stride')
+      call get_toml_int(table, keys(ikey), cfg%history_stride, 'output.history.stride_batches')
     case ('checkpoint_stride')
-      call get_toml_int(table, keys(ikey), cfg%checkpoint_stride, 'output.checkpoint_stride')
+      call get_toml_int(table, keys(ikey), cfg%checkpoint_stride, 'output.checkpoint.stride_batches')
     case ('resume')
-      call get_toml_logical(table, keys(ikey), cfg%resume_output, 'output.resume')
+      call get_toml_logical(table, keys(ikey), cfg%resume_output, 'run.restart')
     case ('restart_from')
-      call get_toml_string(table, keys(ikey), cfg%output_restart_from, 'output.restart_from')
+      call get_toml_string(table, keys(ikey), cfg%output_restart_from, 'run.restart.from')
     case default
       error stop 'Unknown key in [output]: '//trim(keys(ikey)%key)
     end select

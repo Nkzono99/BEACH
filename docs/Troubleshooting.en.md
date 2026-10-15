@@ -56,6 +56,8 @@ beachx lint beach.toml
 Use [Common configuration mistakes](Configuration.en.html#4-common-mistakes) and
 [Input parameters](Parameters.en.html) to check the key's table, type, and unit.
 
+Diagnostic keys use the same public names as the input TOML. For example, `run.batch.duration_s and run.batch.duration_steps cannot be specified together.` reports duplicate batch durations, and `particles.species[2].charge_c` identifies the charge of the second species.
+
 ## Lint passes but `beach` stops during execution
 
 **Check:** Save standard output and standard error, then inspect the exit code and final diagnostics.

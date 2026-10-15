@@ -47,7 +47,7 @@ contains
     case ('infinity_barrier')
       contract%inflow_map = external_inflow_scalar_barrier
     case default
-      call reject('Unknown sim.reservoir_potential_model.', status, message)
+      call reject('Unknown particles.reservoir.inflow_model.', status, message)
       return
     end select
   end subroutine resolve_external_boundary_contract

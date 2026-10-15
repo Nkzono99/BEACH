@@ -762,7 +762,7 @@ contains
     if (trim(field_bc_mode) /= 'periodic2') return
 
     if (.not. sim%use_box) then
-      error stop 'sim.field_bc_mode="periodic2" requires sim.use_box=true.'
+      error stop 'fields.boundary="periodic2" requires a finite [domain].'
     end if
 
     n_periodic = 0_i32
@@ -776,7 +776,7 @@ contains
       end if
     end do
     if (n_periodic /= 2_i32) then
-      error stop 'sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
+      error stop 'fields.boundary="periodic2" requires exactly two periodic axes.'
     end if
 
     do axis = 1_i32, 2_i32

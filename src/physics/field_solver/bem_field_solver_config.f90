@@ -66,10 +66,10 @@ contains
     continue
   case ('periodic2')
     if (trim(requested_mode) /= 'fmm') then
-      error stop 'sim.field_bc_mode must be "free" unless sim.field_solver="fmm".'
+      error stop 'fields.boundary must be "free" unless fields.solver.method="fmm".'
     end if
     if (.not. sim%use_box) then
-      error stop 'sim.field_bc_mode="periodic2" requires sim.use_box=true.'
+      error stop 'fields.boundary="periodic2" requires a finite [domain].'
     end if
     n_periodic = 0_i32
     do axis = 1_i32, 3_i32
@@ -82,7 +82,7 @@ contains
       end if
     end do
     if (n_periodic /= 2_i32) then
-      error stop 'sim.field_bc_mode="periodic2" requires exactly two periodic axes.'
+      error stop 'fields.boundary="periodic2" requires exactly two periodic axes.'
     end if
     do axis = 1_i32, 2_i32
       span = sim%box_max(self%periodic_axes(axis)) - sim%box_min(self%periodic_axes(axis))
@@ -105,14 +105,14 @@ contains
     end select
     self%use_periodic2 = .true.
   case default
-    error stop 'Unknown sim.field_bc_mode in field solver init.'
+    error stop 'Unknown fields.boundary in field solver init.'
   end select
 
   self%mode = resolve_field_solver_mode(mesh%nelem, sim)
 
   if (trim(self%mode) == 'fmm' .and. sim%use_box) then
     if (any(sim%box_max <= sim%box_min)) then
-      error stop 'sim.use_box=true requires positive box extents for fmm dual-target.'
+      error stop 'A finite [domain] requires positive box extents for fmm dual-target.'
     end if
     self%target_box_min = sim%box_min
     self%target_box_max = sim%box_max
@@ -171,9 +171,9 @@ contains
     case ('length')
       length_scale = sim%field_length_scale
     case ('box')
-      if (.not. sim%use_box) error stop 'sim.field_normalization="box" requires sim.use_box=true.'
+      if (.not. sim%use_box) error stop 'fields.solver.normalization="box" requires a finite [domain].'
       span = sim%box_max - sim%box_min
-      if (any(span <= 0.0d0)) error stop 'sim.field_normalization="box" requires positive sim.box extents.'
+      if (any(span <= 0.0d0)) error stop 'fields.solver.normalization="box" requires positive domain box extents.'
       length_scale = maxval(span)
     case ('mesh')
       if (mesh%nelem <= 0_i32) then
@@ -185,7 +185,7 @@ contains
         length_scale = maxval(span)
       end if
     case default
-      error stop 'Unknown sim.field_normalization in field solver init.'
+      error stop 'Unknown fields.solver.normalization in field solver init.'
     end select
 
     if (length_scale <= 0.0d0) error stop 'Resolved field normalization length must be > 0.'
@@ -261,7 +261,7 @@ contains
       mode = 'direct'
     end if
   case default
-    error stop 'Unknown sim.field_solver in field solver mode resolution.'
+    error stop 'Unknown fields.solver.method in field solver mode resolution.'
   end select
   end procedure resolve_field_solver_mode
 

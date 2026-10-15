@@ -17,14 +17,14 @@ def _resolve_sim_high_level(sim: dict[str, Any]) -> dict[str, Any]:
     box_size = sim.pop("box_size", None)
     if (box_origin is None) != (box_size is None):
         raise ConfigError(
-            "high-level config error: sim.box_origin and sim.box_size must be specified together."
+            "high-level config error: domain.box_origin and domain.box_size must be specified together."
         )
     if box_origin is not None and box_size is not None:
-        origin = _coerce_numeric_sequence(box_origin, length=3, name="sim.box_origin")
-        size = _coerce_numeric_sequence(box_size, length=3, name="sim.box_size")
+        origin = _coerce_numeric_sequence(box_origin, length=3, name="domain.box_origin")
+        size = _coerce_numeric_sequence(box_size, length=3, name="domain.box_size")
         if any(component <= 0.0 for component in size):
             raise ConfigError(
-                "high-level config error: sim.box_size components must be > 0."
+                "high-level config error: domain.box_size components must be > 0."
             )
         sim["box_min"] = origin
         sim["box_max"] = [origin[i] + size[i] for i in range(3)]
@@ -56,9 +56,11 @@ def _resolve_domain_high_level(domain: dict[str, Any]) -> dict[str, Any]:
 def _resolve_species_high_level(
     species: dict[str, Any],
     *,
+    species_idx: int,
     box_min: list[float] | None,
     box_max: list[float] | None,
 ) -> dict[str, Any]:
+    source_path = f"particles.species[{species_idx}].source"
     mode = species.pop("inject_region_mode", None)
     uv_low = species.pop("uv_low", None)
     uv_high = species.pop("uv_high", None)
@@ -66,54 +68,54 @@ def _resolve_species_high_level(
     if mode is None:
         if uv_low is not None or uv_high is not None:
             raise ConfigError(
-                'high-level config error: uv_low/uv_high require inject_region_mode="face_fraction".'
+                f'high-level config error: {source_path}.uv_low/{source_path}.uv_high require {source_path}.region_mode="face_fraction".'
             )
         return species
     if not isinstance(source_mode, str) or source_mode not in _FACE_SOURCE_MODES:
         raise ConfigError(
-            "high-level config error: inject_region_mode is only supported for "
-            'source_mode="photo_raycast".'
+            f"high-level config error: {source_path}.region_mode is only supported for "
+            f'{source_path}.mode="photo_raycast".'
         )
     if not isinstance(mode, str):
         raise ConfigError(
-            "high-level config error: inject_region_mode must be a string."
+            f"high-level config error: {source_path}.region_mode must be a string."
         )
     if mode == "absolute":
         if uv_low is not None or uv_high is not None:
             raise ConfigError(
-                'high-level config error: inject_region_mode="absolute" cannot use uv_low/uv_high.'
+                f'high-level config error: {source_path}.region_mode="absolute" cannot use {source_path}.uv_low/{source_path}.uv_high.'
             )
         return species
     if mode != "face_fraction":
         raise ConfigError(
-            f"high-level config error: unsupported inject_region_mode={mode!r}."
+            f"high-level config error: unsupported {source_path}.region_mode={mode!r}."
         )
     if "pos_low" in species or "pos_high" in species:
         raise ConfigError(
-            "high-level config error: face_fraction injection cannot be combined with pos_low/pos_high."
+            f"high-level config error: face_fraction injection cannot be combined with {source_path}.pos_low/{source_path}.pos_high."
         )
     if box_min is None or box_max is None:
         raise ConfigError(
-            'high-level config error: inject_region_mode="face_fraction" requires domain.box_min/box_max.'
+            f'high-level config error: {source_path}.region_mode="face_fraction" requires domain.box_min/box_max.'
         )
     if uv_low is None or uv_high is None:
         raise ConfigError(
-            "high-level config error: face_fraction injection requires uv_low and uv_high."
+            f"high-level config error: face_fraction injection requires {source_path}.uv_low and {source_path}.uv_high."
         )
-    uv_low_vec = _coerce_numeric_sequence(uv_low, length=2, name="uv_low")
-    uv_high_vec = _coerce_numeric_sequence(uv_high, length=2, name="uv_high")
+    uv_low_vec = _coerce_numeric_sequence(uv_low, length=2, name=f"{source_path}.uv_low")
+    uv_high_vec = _coerce_numeric_sequence(uv_high, length=2, name=f"{source_path}.uv_high")
     if any(value < 0.0 or value > 1.0 for value in [*uv_low_vec, *uv_high_vec]):
         raise ConfigError(
-            "high-level config error: uv_low/uv_high must be inside [0, 1]."
+            f"high-level config error: {source_path}.uv_low/{source_path}.uv_high must be inside [0, 1]."
         )
     if any(uv_low_vec[i] > uv_high_vec[i] for i in range(2)):
         raise ConfigError(
-            "high-level config error: uv_low must be <= uv_high component-wise."
+            f"high-level config error: {source_path}.uv_low must be <= {source_path}.uv_high component-wise."
         )
     inject_face = species.get("inject_face")
     if not isinstance(inject_face, str) or inject_face == "":
         raise ConfigError(
-            "high-level config error: face_fraction injection requires inject_face."
+            f"high-level config error: face_fraction injection requires {source_path}.inject_face."
         )
     pos_low, pos_high = _resolve_face_fraction_region(
         inject_face=inject_face,
@@ -570,7 +572,7 @@ def _resolved_box_bounds(
             return None, None
         box_min = sim.get("box_min")
         box_max = sim.get("box_max")
-        name_prefix = "sim"
+        name_prefix = "domain"
     if box_min is None or box_max is None:
         return None, None
     return (

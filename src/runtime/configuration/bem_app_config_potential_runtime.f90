@@ -56,7 +56,7 @@ contains
     real(dp), intent(out) :: phi_mean, phi_std, phi_min, phi_max
 
     if (.not. sim%use_box) then
-      error stop 'z-high box potential statistics require sim.use_box=true.'
+      error stop 'z-high box potential statistics require a finite [domain].'
     end if
     call compute_rectangular_face_potential_statistics( &
       mesh, sim, snapshot, 'z_high', sim%box_min, sim%box_max, &
@@ -203,7 +203,7 @@ contains
       boundary_value = box_max(3)
       inward_normal(3) = -1.0d0
     case default
-      error stop 'Unknown particles.species.inject_face.'
+      error stop 'Unknown particle source injection face.'
     end select
   end subroutine resolve_face_sampling_geometry
 

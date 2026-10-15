@@ -54,6 +54,8 @@ beachx lint beach.toml
 **安全な対処:** 最初に表示された未知キー、型、値域、または排他条件のエラーを 1 件ずつ修正します。
 [設定のよくある失敗](Configuration.html#4-よくある失敗)と[入力パラメータ](Parameters.html)でキーの所属、型、単位を確認します。
 
+診断のキーは入力 TOML と同じ公開名です。例えば `run.batch.duration_s and run.batch.duration_steps cannot be specified together.` はバッチ幅の二重指定、`particles.species[2].charge_c` は 2 番目の粒子種の電荷を指します。
+
 ## lint は通るが `beach` が途中で停止する
 
 **確認コマンド:** 標準出力と標準エラーを保存し、終了コードと最後の診断を確認します。

@@ -21,7 +21,7 @@ contains
     end if
     do j = 1, i - 1
       if (trim(cfg%particle_species(j)%species_key) == trim(cfg%particle_species(i)%species_key)) then
-        call stop_config_error('particles.species.species_key values must be unique: '// &
+        call stop_config_error(species_config_path(i)//'.species_key values must be unique: '// &
                                trim(cfg%particle_species(i)%species_key))
       end if
     end do
@@ -34,22 +34,22 @@ contains
                           any(cfg%particle_species(i)%boundary_inflow_high /= particle_inflow_none)
 
     if (.not. ieee_is_finite(cfg%particle_species(i)%q_particle) .or. cfg%particle_species(i)%q_particle == 0.0_dp) then
-      error stop 'particles.species.q_particle must be finite and non-zero for an enabled species.'
+      error stop species_config_path(i)//'.charge_c must be finite and non-zero for an enabled species.'
     end if
     if (.not. cfg%sim%use_box .and. &
         (any(cfg%particle_species(i)%boundary_low /= particle_bc_inherit) .or. &
          any(cfg%particle_species(i)%boundary_high /= particle_bc_inherit))) then
-      error stop 'particles.species.boundary requires a finite [domain].'
+      error stop species_config_path(i)//'.boundary requires a finite [domain].'
     end if
     do axis = 1, 3
       if (cfg%sim%bc_low(axis) /= bc_periodic) cycle
       if (cfg%particle_species(i)%boundary_low(axis) /= particle_bc_inherit .or. &
           cfg%particle_species(i)%boundary_high(axis) /= particle_bc_inherit) then
-        error stop 'particles.species.boundary cannot override a periodic domain face.'
+        error stop species_config_path(i)//'.boundary cannot override a periodic domain face.'
       end if
       if (cfg%particle_species(i)%boundary_inflow_low(axis) /= particle_inflow_none .or. &
           cfg%particle_species(i)%boundary_inflow_high(axis) /= particle_inflow_none) then
-        error stop 'particles.species.boundary_inflow cannot inject through a periodic domain face.'
+        error stop species_config_path(i)//'.inflow cannot inject through a periodic domain face.'
       end if
     end do
     call resolve_particle_boundaries( &
@@ -61,18 +61,19 @@ contains
            effective_low(axis) /= bc_open) .or. &
           (cfg%particle_species(i)%boundary_inflow_high(axis) /= particle_inflow_none .and. &
            effective_high(axis) /= bc_open)) then
-        error stop 'particles.species.boundary_inflow requires an open particle boundary action on the inflow face.'
+        error stop species_config_path(i)//'.inflow requires an open particle boundary action on the inflow face.'
       end if
     end do
     if (has_boundary_inflow .and. trim(cfg%particle_species(i)%source_mode) /= 'volume_seed') then
-      call stop_config_error('particles.species.boundary_inflow cannot be combined with source_mode="'// &
+      call stop_config_error(species_config_path(i)//'.inflow cannot be combined with '// &
+                             species_config_path(i)//'.source.mode="'// &
                              trim(cfg%particle_species(i)%source_mode)//'".')
     end if
 
     ! 位置は box/face 相対指定の展開結果なので、入力値の有限性だけでは保証できない。
     if (.not. all(ieee_is_finite(cfg%particle_species(i)%pos_low)) .or. &
         .not. all(ieee_is_finite(cfg%particle_species(i)%pos_high))) then
-      error stop 'particles.species.pos_low/pos_high must contain finite values.'
+      error stop species_config_path(i)//'.source.pos_low/'//species_config_path(i)//'.source.pos_high must contain finite values.'
     end if
     select case (trim(cfg%particle_species(i)%source_mode))
     case ('volume_seed')
@@ -85,14 +86,15 @@ contains
       end if
       if (cfg%particle_species(i)%has_surface_charge_closure .or. &
           trim(cfg%particle_species(i)%surface_charge_closure) /= 'explicit') then
-        call stop_config_error('secondary_emission species must omit charging.closure and remain fully tracked.')
+        call stop_config_error('secondary_emission species must omit '//species_config_path(i)// &
+                               '.charging.closure and remain fully tracked.')
       end if
       if (cfg%particle_species(i)%q_particle >= 0.0_dp .or. cfg%particle_species(i)%m_particle <= 0.0_dp .or. &
           species_temperature_k(cfg%particle_species(i)) < 0.0_dp) then
         call stop_config_error('secondary_emission requires negative charge, positive mass, and nonnegative temperature.')
       end if
     case default
-      call stop_config_error('Unknown particles.species.source.mode.')
+      call stop_config_error('Unknown '//species_config_path(i)//'.source.mode.')
     end select
     call validate_surface_charge_closure(cfg, i, effective_low, effective_high)
   end do
@@ -103,14 +105,18 @@ contains
       select case (trim(spec%secondary_emission_model))
       case ('whipple')
         if (spec%secondary_emission_yield_max <= 0.0_dp .or. spec%secondary_emission_energy_max_ev <= 0.0_dp) then
-          call stop_config_error('whipple SEE requires yield_max > 0 and energy_max_ev > 0.')
+          call stop_config_error('whipple SEE requires '//species_config_path(i)// &
+                                 '.surface_interaction.secondary_emission.yield_max > 0 and '// &
+                                 species_config_path(i)//'.surface_interaction.secondary_emission.energy_max_ev > 0.')
         end if
       case ('constant')
         if (spec%secondary_emission_const_yield < 0.0_dp) then
-          call stop_config_error('constant SEE requires const_yield >= 0.')
+          call stop_config_error('constant SEE requires '//species_config_path(i)// &
+                                 '.surface_interaction.secondary_emission.const_yield >= 0.')
         end if
       case default
-        call stop_config_error('secondary emission model must be "whipple" or "constant".')
+        call stop_config_error(species_config_path(i)// &
+                               '.surface_interaction.secondary_emission.model must be "whipple" or "constant".')
       end select
       spec%secondary_emission_target_idx = 0_i32
       do j = 1, cfg%n_particle_species
@@ -122,7 +128,9 @@ contains
         exit
       end do
       if (spec%secondary_emission_target_idx == 0_i32) then
-        call stop_config_error('SEE target_species must name an enabled secondary_emission species.')
+        call stop_config_error(species_config_path(i)// &
+                               '.surface_interaction.secondary_emission.target_species must name an enabled '// &
+                               'secondary_emission species.')
       end if
     end associate
   end do
@@ -141,11 +149,11 @@ contains
       select case (trim(spec%surface_charge_closure))
       case ('explicit')
         if (spec%has_target_absorbed_current_a .or. spec%has_target_emission_current_a) then
-          error stop 'target surface currents require surface_charge_closure="fixed_current".'
+          error stop 'target surface currents require '//species_config_path(species_idx)//'.charging.closure="fixed_current".'
         end if
       case ('fixed_current')
         if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
-          error stop 'sim.batch_duration must be > 0 for fixed_current.'
+          error stop 'run.batch.duration_s must be > 0 for fixed_current.'
         end if
         automatic_current_species = trim(lower_ascii(cfg%surface_current%model)) == 'zhao_stationary' .and. &
                                     (trim(spec%species_key) == trim(cfg%surface_current%electron_species) .or. &
@@ -158,15 +166,18 @@ contains
         if (spec%has_target_absorbed_current_a) then
           if (.not. ieee_is_finite(spec%target_absorbed_current_a) .or. &
               spec%target_absorbed_current_a*spec%q_particle < 0.0_dp) then
-            error stop 'target_absorbed_current_a must be finite and have the same sign as q_particle.'
+            error stop species_config_path(species_idx)// &
+              '.charging.target_absorbed_current_a must be finite and have the same sign as '// &
+              species_config_path(species_idx)//'.charge_c.'
           end if
         end if
         if (spec%has_target_emission_current_a) then
           if (trim(spec%source_mode) /= 'photo_raycast' .or. .not. spec%deposit_opposite_charge_on_emit .or. &
               .not. ieee_is_finite(spec%target_emission_current_a) .or. &
               spec%target_emission_current_a*spec%q_particle > 0.0_dp) then
-            error stop 'target_emission_current_a requires photo_raycast, an opposite-charge emission deposit, '// &
-              'and current sign opposite to q_particle.'
+            error stop species_config_path(species_idx)// &
+              '.charging.target_emission_current_a requires photo_raycast, an opposite-charge emission deposit, '// &
+              'and current sign opposite to '//species_config_path(species_idx)//'.charge_c.'
           end if
         end if
       case ('neutral_return')
@@ -175,11 +186,12 @@ contains
         if (trim(spec%source_mode) /= 'photo_raycast' .or. spec%q_particle >= 0.0_dp .or. &
             .not. spec%deposit_opposite_charge_on_emit .or. &
             (inject_action /= bc_reflect .and. inject_action /= bc_redistributed_reflect)) then
-          error stop 'neutral_return requires a negative photo_raycast species, deposit_opposite_charge_on_emit=true, '// &
-            'and a reflecting action on inject_face.'
+          error stop 'neutral_return requires a negative photo_raycast species, '// &
+            species_config_path(species_idx)//'.source.deposit_opposite_charge_on_emit=true, '// &
+            'and a reflecting action on '//species_config_path(species_idx)//'.source.inject_face.'
         end if
       case default
-        error stop 'particles.species.surface_charge_closure must be "explicit", "fixed_current", or "neutral_return".'
+        error stop species_config_path(species_idx)//'.charging.closure must be "explicit", "fixed_current", or "neutral_return".'
       end select
     end associate
   end subroutine validate_surface_charge_closure

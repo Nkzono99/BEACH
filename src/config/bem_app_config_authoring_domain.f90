@@ -59,7 +59,7 @@ contains
   case ('infinity_barrier')
     cfg%sim%reservoir_potential_model = 'infinity_barrier'
   case default
-    error stop 'reservoir.inflow_model is not supported.'
+    error stop 'particles.reservoir.inflow_model is not supported.'
   end select
   cfg%sim%phi_infty = authoring%reservoir%phi_infty
   cfg%sim%injection_face_phi_grid_n = authoring%reservoir%face_potential_grid_n

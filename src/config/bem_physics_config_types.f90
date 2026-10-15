@@ -156,7 +156,7 @@ contains
     if (.not. ieee_is_finite(periodic2%max_nonzero_mode_potential_step) .or. &
         periodic2%max_nonzero_mode_potential_step < 0.0_dp) then
       call reject(physics_config_invalid_combination, &
-                  'periodic2.max_nonzero_mode_potential_step must be finite and >= 0.', status, message)
+                  'run.batch.adaptive.max_nonzero_mode_potential_step_v must be finite and >= 0.', status, message)
       return
     end if
 
@@ -191,7 +191,7 @@ contains
       if (trim(lower_ascii(periodic2%zero_mode_policy)) /= 'legacy_not_decomposed') then
         call reject( &
           physics_config_invalid_combination, &
-          'legacy_finite_images requires zero_mode_policy=legacy_not_decomposed.', status, message &
+          'fields.periodic.backend="finite_images" requires an undecomposed zero mode.', status, message &
           )
         return
       end if
@@ -234,7 +234,7 @@ contains
           periodic2%max_nonzero_mode_potential_step /= 0.0_dp) then
         call reject( &
           physics_config_invalid_combination, &
-          'panel_spectral_reference does not support max_nonzero_mode_potential_step.', status, message &
+          'panel_spectral_reference does not support run.batch.adaptive.max_nonzero_mode_potential_step_v.', status, message &
           )
       end if
       return

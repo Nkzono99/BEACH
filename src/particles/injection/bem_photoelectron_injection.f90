@@ -84,33 +84,33 @@ contains
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "photo_raycast particle arrays must have first dimension 3"
     if (size(x, 2) < rays_per_batch .or. size(v, 2) < rays_per_batch) then
-      error stop "photo_raycast x/v arrays are smaller than rays_per_batch"
+      error stop "photo_raycast x/v arrays are smaller than ray count per batch"
     end if
-    if (size(w) < rays_per_batch) error stop "photo_raycast w array is smaller than rays_per_batch"
+    if (size(w) < rays_per_batch) error stop "photo_raycast w array is smaller than ray count per batch"
     if (present(emit_elem_idx)) then
-      if (size(emit_elem_idx) < rays_per_batch) error stop "photo_raycast emit_elem_idx is smaller than rays_per_batch"
+      if (size(emit_elem_idx) < rays_per_batch) error stop "photo_raycast emit_elem_idx is smaller than ray count per batch"
       emit_elem_idx = -1_i32
     end if
-    if (rays_per_batch <= 0_i32) error stop "rays_per_batch must be > 0"
+    if (rays_per_batch <= 0_i32) error stop "ray count per batch must be > 0"
     total_rays = rays_per_batch
     if (present(global_rays_per_batch)) total_rays = global_rays_per_batch
     if (total_rays <= 0_i32) error stop "global_rays_per_batch must be > 0"
-    if (.not. sim%use_box) error stop "photo_raycast requires sim.use_box = true"
-    if (sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires sim.batch_duration > 0"
-    if (m_particle <= 0.0_dp) error stop "m_particle must be > 0"
-    if (temperature_k < 0.0_dp) error stop "temperature_k must be >= 0"
-    if (emit_current_density_a_m2 <= 0.0_dp) error stop "emit_current_density_a_m2 must be > 0"
-    if (abs(q_particle) <= 0.0_dp) error stop "q_particle must be non-zero"
+    if (.not. sim%use_box) error stop "photo_raycast requires a finite [domain]"
+    if (sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires run.batch.duration_s > 0"
+    if (m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
+    if (temperature_k < 0.0_dp) error stop "temperature [K] must be >= 0"
+    if (emit_current_density_a_m2 <= 0.0_dp) error stop "emission current density [A/m^2] must be > 0"
+    if (abs(q_particle) <= 0.0_dp) error stop "particle charge [C] must be non-zero"
 
     call resolve_face_geometry(sim%box_min, sim%box_max, inject_face, axis_n, boundary_value, inward_normal)
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
 
     launch_dir = ray_direction
     launch_dir_norm = sqrt(sum(launch_dir*launch_dir))
-    if (launch_dir_norm <= 0.0_dp) error stop "ray_direction norm must be > 0"
+    if (launch_dir_norm <= 0.0_dp) error stop "ray direction norm must be > 0"
     launch_dir = launch_dir/launch_dir_norm
     inward_dot = dot_product(launch_dir, inward_normal)
-    if (inward_dot <= 0.0_dp) error stop "ray_direction must point inward from inject_face"
+    if (inward_dot <= 0.0_dp) error stop "ray direction must point inward from injection face"
 
     launch_area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
     if (launch_area <= 0.0_dp) error stop "photo_raycast opening area must be positive"

@@ -206,9 +206,9 @@ def normalize_high_level_config(config: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(species, list):
             resolved_species = [
                 _resolve_species_high_level(
-                    dict(item), box_min=box_min, box_max=box_max
+                    dict(item), species_idx=index, box_min=box_min, box_max=box_max
                 )
-                for item in species
+                for index, item in enumerate(species, start=1)
             ]
             particles_dict = dict(particles)
             particles_dict["species"] = resolved_species

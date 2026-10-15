@@ -15,74 +15,74 @@ contains
   logical :: photoelectron_active, secondary_active
 
   if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
-    error stop 'surface_current_model.outflow_refresh_batches must be >= 0.'
+    error stop 'sheath.coupling.outflow_refresh_batches must be >= 0.'
   end if
   if (.not. (cfg%surface_current%zhao_upstream_band_tolerance >= 0.0_dp .and. &
              cfg%surface_current%zhao_upstream_band_tolerance < 1.0_dp)) then
-    error stop 'surface_current_model.zhao_upstream_band_tolerance must be >= 0 and < 1.'
+    error stop 'sheath.zhao.upstream_band_tolerance must be >= 0 and < 1.'
   end if
   if (.not. (cfg%surface_current%zhao_upstream_field_floor_v_m >= 0.0_dp) .or. &
       .not. ieee_is_finite(cfg%surface_current%zhao_upstream_field_floor_v_m)) then
-    error stop 'surface_current_model.zhao_upstream_field_floor_v_m must be finite and >= 0.'
+    error stop 'sheath.zhao.upstream_field_floor_v_m must be finite and >= 0.'
   end if
   if (.not. (cfg%surface_current%zhao_ion_pressure_factor > 0.0_dp) .or. &
       .not. ieee_is_finite(cfg%surface_current%zhao_ion_pressure_factor)) then
-    error stop 'surface_current_model.zhao_ion_pressure_factor must be finite and > 0.'
+    error stop 'sheath.zhao.ion_pressure_factor must be finite and > 0.'
   end if
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
     if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
-      error stop 'surface_current_model.outflow_refresh_batches requires model="zhao_stationary".'
+      error stop 'sheath.coupling.outflow_refresh_batches requires sheath.closure="zero_current".'
     end if
     if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
-      error stop 'surface_current_model.zhao_upstream_band_tolerance requires model="zhao_stationary".'
+      error stop 'sheath.zhao.upstream_band_tolerance requires sheath.closure="zero_current".'
     end if
     if (cfg%surface_current%zhao_upstream_field_floor_v_m /= 0.0_dp) then
-      error stop 'surface_current_model.zhao_upstream_field_floor_v_m requires model="zhao_stationary".'
+      error stop 'sheath.zhao.upstream_field_floor_v_m requires sheath.closure="zero_current".'
     end if
     if (cfg%surface_current%zhao_ion_pressure_factor /= 1.0_dp) then
-      error stop 'surface_current_model.zhao_ion_pressure_factor requires model="zhao_stationary".'
+      error stop 'sheath.zhao.ion_pressure_factor requires sheath.closure="zero_current".'
     end if
     return
   case ('zhao_stationary')
     continue
   case default
-    error stop 'surface_current_model.model must be "none" or "zhao_stationary".'
+    error stop 'sheath.closure must be "none" or "zero_current".'
   end select
   if (any(cfg%sim%b0 /= 0.0_dp)) then
-    error stop 'surface_current_model="zhao_stationary" requires sim.b0=[0,0,0] for its unmagnetized sheath closure.'
+    error stop 'sheath.closure="zero_current" requires fields.external.magnetic_t=[0,0,0] for its unmagnetized sheath closure.'
   end if
   if (trim(lower_ascii(cfg%sim%reservoir_potential_model)) /= 'none') then
     error stop 'Zhao kinetic inflow cannot be combined with the generic reservoir potential model.'
   end if
   if (.not. ieee_is_finite(cfg%surface_current%photoelectron_source_scale) .or. &
       cfg%surface_current%photoelectron_source_scale < 0.0_dp) then
-    error stop 'surface_current_model.photoelectron_source_scale must be finite and >= 0.'
+    error stop 'sheath.photoelectrons.source_scale must be finite and >= 0.'
   end if
   photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
   secondary_active = len_trim(cfg%surface_current%secondary_electron_species) > 0
   if (.not. photoelectron_active .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
-    error stop 'photoelectron_source_scale=0 requires surface_current_model.zhao_branch="auto" or "c".'
+    error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
   end if
   if (photoelectron_active) then
     if (.not. ieee_is_finite(cfg%surface_current%solar_elevation_deg) .or. &
         cfg%surface_current%solar_elevation_deg <= 0.0_dp .or. cfg%surface_current%solar_elevation_deg > 90.0_dp) then
-      error stop 'surface_current_model.solar_elevation_deg must satisfy 0 < elevation <= 90.'
+      error stop 'sheath.photoelectrons.solar_elevation_deg must satisfy 0 < elevation <= 90.'
     end if
     if (.not. ieee_is_finite(cfg%surface_current%photoelectron_ref_density_m3) .or. &
         cfg%surface_current%photoelectron_ref_density_m3 <= 0.0_dp) then
-      error stop 'surface_current_model.photoelectron_ref_density_m3 must be finite and > 0.'
+      error stop 'sheath.photoelectrons.ref_density_m3 must be finite and > 0.'
     end if
   else if (len_trim(cfg%surface_current%photoelectron_species) > 0 .or. &
            cfg%surface_current%solar_elevation_deg /= 0.0_dp .or. &
            cfg%surface_current%photoelectron_ref_density_m3 /= 0.0_dp) then
-    error stop 'photoelectron_source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
+    error stop 'sheath.photoelectrons.source_scale=0 requires omitting all photoelectron-specific Zhao settings.'
   end if
   if (.not. cfg%surface_current%has_reference_area_m2 .and. &
       (.not. cfg%sim%use_box .or. any(cfg%sim%box_max(1:2) <= cfg%sim%box_min(1:2)))) then
-    error stop 'surface_current_model requires reference_area_m2 or a finite x-y domain area.'
+    error stop 'sheath requires sheath.reference_area_m2 or a finite x-y domain area.'
   end if
 
   electron_idx = find_species_index(cfg, cfg%surface_current%electron_species)
@@ -91,7 +91,7 @@ contains
   if (photoelectron_active) photo_idx = find_species_index(cfg, cfg%surface_current%photoelectron_species)
   if (electron_idx == ion_idx .or. &
       (photoelectron_active .and. (electron_idx == photo_idx .or. ion_idx == photo_idx))) then
-    error stop 'surface_current_model species references must be distinct.'
+    error stop 'sheath species references must be distinct.'
   end if
   call validate_automatic_current_species(cfg, electron_idx, 'electron')
   call validate_automatic_current_species(cfg, ion_idx, 'ion')
@@ -141,7 +141,7 @@ contains
   end if
   if (photoelectron_active) then
     if (trim(lower_ascii(cfg%particle_species(photo_idx)%inject_face)) /= 'z_high') then
-      error stop 'Zhao photoelectron species requires inject_face="z_high".'
+      error stop species_config_path(photo_idx)//'.source.inject_face must be "z_high" for Zhao photoelectrons.'
     end if
   end if
   call resolve_particle_boundaries( &
@@ -199,12 +199,12 @@ contains
     error stop 'Zhao ion temperature must be finite and nonnegative.'
   end if
   if (.not. (2.0_dp*ion_entry_energy_ev > ion_pressure_energy_ev)) then
-    error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed zhao_ion_pressure_factor*T_i.'
+    error stop 'Zhao ion entry must be supersonic: m_i u_z^2/e must exceed sheath.zhao.ion_pressure_factor*T_i.'
   end if
   if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
   call validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
   if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. .not. (photoelectron_active .or. secondary_active)) then
-    error stop 'surface_current_model.outflow_refresh_batches requires a surface-emitted electron group.'
+    error stop 'sheath.coupling.outflow_refresh_batches requires a surface-emitted electron group.'
   end if
   end procedure validate_surface_current_model_config
 
@@ -235,15 +235,17 @@ contains
     if (abs(surface_current - outer_current) > current_tolerance*outer_current) then
       write (error_unit, '(a,es12.4,a,es12.4,a)') &
         'WARNING: photo_raycast surface emission ', surface_current, &
-        ' A/m^2 (emit_current_density_a_m2 x sin of the ray elevation) differs from the outer Zhao photoelectron source ', &
+        ' A/m^2 ('//species_config_path(photo_idx)// &
+        '.source.emit_current_density_a_m2 x sin of the ray elevation) differs from the outer Zhao photoelectron source ', &
         outer_current, ' A/m^2 (e s n_ref sin(alpha) v_th/(2 sqrt(pi))); the fixed_current emission scale absorbs '// &
-        'the difference, so set emit_current_density_a_m2 to the normal-incidence value and the ray to the solar elevation.'
+        'the difference, so set '//species_config_path(photo_idx)// &
+        '.source.emit_current_density_a_m2 to the normal-incidence value and the ray to the solar elevation.'
       flush (error_unit)
     end if
     if (abs(ray_elevation_deg - cfg%surface_current%solar_elevation_deg) > elevation_tolerance_deg) then
       write (error_unit, '(a,f6.1,a,f6.1,a)') &
         'WARNING: photo_raycast ray elevation ', ray_elevation_deg, &
-        ' deg differs from surface_current_model.solar_elevation_deg ', cfg%surface_current%solar_elevation_deg, &
+        ' deg differs from sheath.photoelectrons.solar_elevation_deg ', cfg%surface_current%solar_elevation_deg, &
         ' deg; the illumination inside the cell and the outer photoelectron source assume different sun directions.'
       flush (error_unit)
     end if
@@ -254,7 +256,7 @@ contains
   subroutine validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
     type(app_config), intent(in) :: cfg
     logical, intent(in) :: periodic2_split_explicit
-    character(len=*), parameter :: prefix = 'surface_current_model="zhao_stationary" '
+    character(len=*), parameter :: prefix = 'sheath.closure="zero_current" '
     character(len=*), parameter :: reason = &
                                    ' The z-high mean potential is tied to the outer wall potential phi0 '// &
                                    'through the periodic zero mode.'
@@ -266,7 +268,7 @@ contains
       error stop prefix//'requires x/y periodic axes.'//reason
     end if
     if (.not. periodic2_split_explicit) then
-      error stop prefix//'requires an explicit split-zero-mode [periodic2] table.'//reason
+      error stop prefix//'requires an explicit split-zero-mode [fields.periodic] table.'//reason
     end if
     select case (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)))
     case ('cached_kneq0', 'panel_spectral_reference')
@@ -276,7 +278,7 @@ contains
         '("cached_kneq0" or "panel_spectral_reference").'//reason
     end select
     if (trim(lower_ascii(cfg%periodic2%zero_mode_policy)) /= 'exclude_k0') then
-      error stop prefix//'requires periodic2.zero_mode_policy="exclude_k0".'//reason
+      error stop prefix//'requires the split zero mode selected by fields.periodic.backend.'//reason
     end if
   end subroutine validate_zhao_wall_gauge_config
 
@@ -292,7 +294,7 @@ contains
       species_idx = idx
       return
     end do
-    call stop_config_error('surface_current_model references an unknown or disabled species: '//trim(species_key))
+    call stop_config_error('sheath references an unknown or disabled species: '//trim(species_key))
   end function find_species_index
 
   subroutine validate_automatic_current_species(cfg, species_idx, role)
@@ -302,12 +304,12 @@ contains
 
     if (trim(cfg%particle_species(species_idx)%surface_charge_closure) /= 'fixed_current') then
       call stop_config_error( &
-        'surface_current_model '//trim(role)//' species requires surface_charge_closure="fixed_current".' &
+        'sheath.species.'//trim(role)//' requires '//species_config_path(species_idx)//'.charging.closure="fixed_current".' &
         )
     end if
     if (cfg%particle_species(species_idx)%has_target_absorbed_current_a .or. &
         cfg%particle_species(species_idx)%has_target_emission_current_a) then
-      error stop 'surface_current_model species cannot also specify manual target currents.'
+      error stop 'sheath species cannot also specify manual target currents.'
     end if
   end subroutine validate_automatic_current_species
 

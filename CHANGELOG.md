@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- Fortran の設定エラー・警告を grouped 公開キー名と公開選択値へ統一し、粒子種の添字付き診断と reader 名の混入を検査する回帰テストを追加。
+
 - 入力パラメータリファレンスと日英の利用者向け文書・plugin の設定例を grouped 7 グループの公開キー名へ統一。公開 schema から文書のキー網羅と見出し階層を検査する。
 
 - 公開 TOML 入力を `run / domain / mesh / particles / fields / sheath / output` の grouped 7 グループ形式に統一。Fortran と Python は flat 入力を明確なエラーで拒否する。

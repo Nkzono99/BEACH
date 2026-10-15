@@ -155,6 +155,16 @@ module bem_app_config_types
 
 contains
 
+  !> 診断に使う公開 species 配列の添字付きパスを返す。
+  function species_config_path(species_idx) result(path)
+    integer, intent(in) :: species_idx
+    character(len=:), allocatable :: path
+    character(len=32) :: index_text
+
+    write (index_text, '(i0)') species_idx
+    path = 'particles.species['//trim(index_text)//']'
+  end function species_config_path
+
   !> 有効な粒子種の `npcls_per_step` を合計し、1バッチあたりの粒子数を返す。
   !! 1つ以上の粒子種が有効で、かつ合計が正でない場合は停止する。
   !! @param[in] cfg 粒子種設定を含むアプリ設定。
@@ -175,7 +185,7 @@ contains
       select case (trim(cfg%particle_species(s)%source_mode))
       case ('volume_seed')
         if (cfg%particle_species(s)%npcls_per_step < 0_i32) then
-          error stop 'particles.species.npcls_per_step must be >= 0.'
+          error stop species_config_path(int(s))//'.sampling.volume_macro_particles_per_batch must be >= 0.'
         end if
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
       case ('photo_raycast')
@@ -183,7 +193,7 @@ contains
       case ('secondary_emission')
         cycle
       case default
-        error stop 'Unknown particles.species.source_mode.'
+        error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
       end select
       has_dynamic_source = has_dynamic_source .or. &
                            any(cfg%particle_species(s)%boundary_inflow_low == particle_inflow_reservoir) .or. &
@@ -191,7 +201,7 @@ contains
     end do
 
     if (batch_n <= 0_i32 .and. .not. has_dynamic_source) then
-      error stop 'At least one enabled [[particles.species]] entry must have npcls_per_step > 0.'
+      error stop 'At least one enabled [[particles.species]] entry must have sampling.volume_macro_particles_per_batch > 0.'
     end if
   end function particles_per_batch_from_config
 

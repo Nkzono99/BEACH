@@ -70,7 +70,7 @@ program test_app_config_parser
 
   call test_begin('preflight_rejects_duplicate_species_key')
   call write_grouped_config(input_contract_path, '[[particles.species]]'//new_line('a')//'species_key = "electron"')
-  call assert_config_rejected(input_contract_path, 'species_key values must be unique')
+  call assert_config_rejected(input_contract_path, 'particles.species[2].species_key values must be unique')
   call test_end()
 
   call test_begin('preflight_rejects_inflow_through_reflecting_face')
@@ -84,14 +84,14 @@ program test_app_config_parser
     '[particles.species.charging]'//new_line('a')//'closure = "fixed_current"'//new_line('a')// &
     'target_absorbed_current_a = 1.0e-9' &
     )
-  call assert_config_rejected(input_contract_path, 'same sign as q_particle')
+  call assert_config_rejected(input_contract_path, 'same sign as particles.species[1].charge_c')
   call test_end()
 
   call test_begin('preflight_rejects_target_current_with_explicit_closure')
   call write_grouped_config( &
     input_contract_path, '[particles.species.charging]'//new_line('a')//'target_absorbed_current_a = -1.0e-9' &
     )
-  call assert_config_rejected(input_contract_path, 'require surface_charge_closure="fixed_current"')
+  call assert_config_rejected(input_contract_path, 'require particles.species[1].charging.closure="fixed_current"')
   call test_end()
 
   call test_begin('preflight_rejects_particle_boundary_on_a_periodic_face')
@@ -129,7 +129,8 @@ program test_app_config_parser
     input_contract_path, '1.0e6', &
     '[particles.species.distribution]'//new_line('a')//'drift_velocity_m_s = [0.0, 0.0, nan]', 'outputs/test' &
     )
-  call assert_config_rejected(input_contract_path, 'drift_velocity must contain finite values')
+  call assert_config_rejected(input_contract_path, &
+                              'particles.species[1].distribution.drift_velocity_m_s must contain finite values')
   call delete_file_if_exists(input_contract_path)
   call test_end()
 
@@ -222,7 +223,7 @@ program test_app_config_parser
 
   call test_begin('zhao_rejects_magnetized_closure')
   call write_zhao_variant(zhao_magnetized_path, 'magnetic_t = [0.0, 0.0, 1.0e-9]', .false.)
-  call assert_config_rejected(zhao_magnetized_path, 'requires sim.b0=[0,0,0]')
+  call assert_config_rejected(zhao_magnetized_path, 'sheath.closure="zero_current" requires fields.external.magnetic_t=[0,0,0]')
   call delete_file_if_exists(zhao_magnetized_path)
   call test_end()
 
@@ -300,7 +301,7 @@ program test_app_config_parser
                        'upstream band tolerance mismatch')
   call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
                                 'upstream_band_tolerance = 1.0')
-  call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_band_tolerance must be >= 0 and < 1')
+  call assert_config_rejected(zhao_refresh_variant_path, 'sheath.zhao.upstream_band_tolerance must be >= 0 and < 1')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -316,7 +317,7 @@ program test_app_config_parser
   call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 5.0e-3_dp, 0.0_dp, 'upstream field floor mismatch')
   call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
                                 'upstream_field_floor_v_m = -1.0e-3')
-  call assert_config_rejected(zhao_refresh_variant_path, 'zhao_upstream_field_floor_v_m must be finite and >= 0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'sheath.zhao.upstream_field_floor_v_m must be finite and >= 0')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -332,7 +333,7 @@ program test_app_config_parser
   call assert_close_dp(cfg%surface_current%zhao_ion_pressure_factor, 3.0_dp, 0.0_dp, 'ion pressure factor mismatch')
   call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
                                 'ion_pressure_factor = 0.0')
-  call assert_config_rejected(zhao_refresh_variant_path, 'zhao_ion_pressure_factor must be finite and > 0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'sheath.zhao.ion_pressure_factor must be finite and > 0')
   ! 太陽風イオン (約 0.86 keV) は温かくても超音速。入口エネルギーを下回る温度は上流へ接続しない。
   call write_first_line_variant(zhao_refresh_variant_path, 'temperature_ev = 0.1', 'temperature_ev = 2000.0')
   call assert_config_rejected(zhao_refresh_variant_path, 'Zhao ion entry must be supersonic')
@@ -361,7 +362,7 @@ program test_app_config_parser
 
   call test_begin('zhao_no_photo_rejects_non_c_branch')
   call write_no_photo_zhao_variant(zhao_no_photo_branch_path, 'a')
-  call assert_config_rejected(zhao_no_photo_branch_path, 'zhao_branch="auto" or "c"')
+  call assert_config_rejected(zhao_no_photo_branch_path, 'sheath.zhao.branch="auto" or "c"')
   call delete_file_if_exists(zhao_no_photo_branch_path)
   call test_end()
 
@@ -472,10 +473,10 @@ program test_app_config_parser
   call assert_config_rejected(input_contract_path, 'must omit sampling')
   call write_secondary_variant(input_contract_path, &
                                '[particles.species.charging]'//new_line('a')//'closure = "fixed_current"')
-  call assert_config_rejected(input_contract_path, 'must omit charging.closure')
+  call assert_config_rejected(input_contract_path, 'must omit particles.species[4].charging.closure')
   call write_secondary_variant(input_contract_path, &
                                '[particles.species.charging]'//new_line('a')//'closure = "neutral_return"')
-  call assert_config_rejected(input_contract_path, 'must omit charging.closure')
+  call assert_config_rejected(input_contract_path, 'must omit particles.species[4].charging.closure')
   call test_end()
 
   call test_begin('secondary_yield_requires_valid_parameters_and_enabled_target')

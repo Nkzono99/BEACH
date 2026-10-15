@@ -180,7 +180,7 @@ contains
   bfield = app%sim%b0
   final_batch_idx = app%sim%batch_count
   if (stats%batches < 0_i32 .or. stats%batches > final_batch_idx) then
-    error stop 'checkpoint batch count is outside sim.batch_count.'
+    error stop 'checkpoint batch count is outside run.batch_count.'
   end if
   if (.not. adaptive_nonzero_mode .and. stats%batches > 0_i32 .and. stats%simulated_time == 0.0_dp) then
     stats%simulated_time = real(stats%batches, dp)*app%sim%batch_duration
@@ -671,7 +671,7 @@ contains
       write (error_unit, '(a,i0,a,es13.5,a,es13.5)') &
         'WARNING: multiple_box_events soft-discard cumulative absolute-charge threshold crossed: batch=', &
         batch_idx, ' abs_charge_C=', projected_abs_charge, &
-        ' warning_threshold_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     if (.not. fraction_exceeded) return
@@ -679,11 +679,11 @@ contains
     if (mpi_is_root(mpi)) then
       write (error_unit, '(a,i0,a,i0,a,i0,a,i0,a,es13.5,a,es13.5,a,es13.5,a,es13.5)') &
         'multiple_box_events soft-discard cumulative fraction limit exceeded: batch=', batch_idx, &
-        ' count=', projected_count, ' count_grace=', count_grace, &
+        ' count=', projected_count, ' particles.tracking.events.discard_count_grace=', count_grace, &
         ' processed=', projected_processed, ' fraction=', projected_fraction, &
-        ' fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
+        ' particles.tracking.events.discard_fraction_limit=', sim%multiple_box_events_soft_discard_fraction_limit, &
         ' abs_charge_C=', projected_abs_charge, &
-        ' abs_charge_warning_threshold_C=', sim%multiple_box_events_soft_discard_abs_charge_limit
+        ' particles.tracking.events.discard_charge_warning_c=', sim%multiple_box_events_soft_discard_abs_charge_limit
       flush (error_unit)
     end if
     error stop 'multiple_box_events soft-discard cumulative fraction limit exceeded.'

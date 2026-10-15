@@ -58,31 +58,31 @@ contains
 
     if (trim(cfg%sim%field_solver) /= 'direct') then
       if (.not. ieee_is_finite(cfg%sim%tree_theta) .or. cfg%sim%tree_theta <= 0.0_dp .or. cfg%sim%tree_theta > 1.0_dp) then
-        error stop 'sim.tree_theta must satisfy 0 < theta <= 1 for tree-capable solvers.'
+        error stop 'fields.solver.tree.theta must satisfy 0 < theta <= 1 for tree-capable solvers.'
       end if
-      if (cfg%sim%tree_leaf_max < 1_i32) error stop 'sim.tree_leaf_max must be >= 1 for tree-capable solvers.'
-      if (cfg%sim%tree_min_nelem < 1_i32) error stop 'sim.tree_min_nelem must be >= 1 for tree-capable solvers.'
+      if (cfg%sim%tree_leaf_max < 1_i32) error stop 'fields.solver.tree.leaf_max must be >= 1 for tree-capable solvers.'
+      if (cfg%sim%tree_min_nelem < 1_i32) error stop 'fields.solver.auto_fmm_min_elements must be >= 1 for tree-capable solvers.'
     end if
     if (trim(cfg%sim%field_bc_mode) /= 'periodic2') return
     if (cfg%sim%field_periodic_image_layers < 0_i32) then
-      error stop 'sim.field_periodic_image_layers must be >= 0 for periodic2.'
+      error stop 'fields.periodic.image_layers must be >= 0 for periodic2.'
     end if
     if (trim(cfg%sim%field_periodic_far_correction) /= 'cached_kneq0') return
     if (cfg%sim%field_periodic_image_layers < 1_i32) then
-      error stop 'sim.field_periodic_image_layers must be >= 1 for cached_kneq0.'
+      error stop 'fields.periodic.image_layers must be >= 1 for cached_kneq0.'
     end if
     if (cfg%sim%field_periodic_ewald_layers < 1_i32) then
-      error stop 'sim.field_periodic_ewald_layers must be >= 1 for cached_kneq0.'
+      error stop 'fields.periodic.ewald_layers must be >= 1 for cached_kneq0.'
     end if
     if (.not. ieee_is_finite(cfg%sim%field_periodic_ewald_alpha) .or. cfg%sim%field_periodic_ewald_alpha < 0.0_dp) then
-      error stop 'sim.field_periodic_ewald_alpha must be finite and >= 0 for cached_kneq0.'
+      error stop 'fields.periodic.ewald_alpha must be finite and >= 0 for cached_kneq0.'
     end if
     if (.not. ieee_is_finite(cfg%sim%field_periodic_generation_tolerance) .or. &
         cfg%sim%field_periodic_generation_tolerance <= 0.0_dp) then
-      error stop 'sim.field_periodic_generation_tolerance must be finite and > 0 for cached_kneq0.'
+      error stop 'fields.periodic.generation_tolerance must be finite and > 0 for cached_kneq0.'
     end if
     if (len_trim(cfg%sim%field_periodic_cache_dir) == 0) then
-      error stop 'sim.field_periodic_cache_dir must be a non-empty string for cached_kneq0.'
+      error stop 'fields.periodic.cache_dir must be a non-empty string for cached_kneq0.'
     end if
   end subroutine validate_field_parameters
 
@@ -94,21 +94,22 @@ contains
 
     if (cfg%periodic2%max_nonzero_mode_potential_step <= 0.0_dp) return
     if (trim(lower_ascii(cfg%periodic2%nonzero_mode_backend)) /= 'cached_kneq0') then
-      error stop 'periodic2.max_nonzero_mode_potential_step requires nonzero_mode_backend="cached_kneq0".'
+      error stop 'run.batch.adaptive.max_nonzero_mode_potential_step_v requires fields.periodic.backend="cached_kneq0".'
     end if
     if (.not. ieee_is_finite(cfg%sim%batch_duration) .or. cfg%sim%batch_duration <= 0.0_dp) then
-      error stop 'periodic2.max_nonzero_mode_potential_step requires a finite positive sim.batch_duration '// &
-        'or resolved batch_duration_step.'
+      error stop 'run.batch.adaptive.max_nonzero_mode_potential_step_v requires a finite positive run.batch.duration_s '// &
+        'or resolved run.batch.duration_steps.'
     end if
     do s = 1, cfg%n_particle_species
       if (.not. cfg%particle_species(s)%enabled) cycle
       flux_driven = any(cfg%particle_species(s)%boundary_inflow_low == particle_inflow_reservoir) .or. &
                     any(cfg%particle_species(s)%boundary_inflow_high == particle_inflow_reservoir)
       if (trim(cfg%particle_species(s)%source_mode) == 'volume_seed' .and. cfg%particle_species(s)%npcls_per_step > 0_i32) then
-        error stop 'periodic2.max_nonzero_mode_potential_step requires time-scaled reservoir or photo_raycast sources.'
+        error stop 'run.batch.adaptive.max_nonzero_mode_potential_step_v requires time-scaled reservoir or photo_raycast sources.'
       end if
       if (flux_driven .and. .not. cfg%particle_species(s)%has_target_macro_particles_per_batch) then
-        error stop 'adaptive reservoir injection requires target_macro_particles_per_batch instead of fixed w_particle.'
+        error stop 'adaptive reservoir injection requires '//species_config_path(int(s))// &
+          '.sampling.target_macro_particles_per_batch instead of fixed '//species_config_path(int(s))//'.sampling.weight.'
       end if
     end do
   end subroutine validate_adaptive_batch_config
@@ -121,7 +122,7 @@ contains
     select case (trim(cfg%mesh_mode))
     case ('obj', 'auto')
       if (trim(cfg%mesh_surface_side_policy) == 'not_specified') then
-        error stop 'mesh.surface_side is required for mesh.mode="obj" or "auto".'
+        error stop 'mesh.obj.surface_side is required for mesh.mode="obj" or "auto".'
       end if
     case ('template')
       continue

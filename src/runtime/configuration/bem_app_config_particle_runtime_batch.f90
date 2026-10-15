@@ -1,6 +1,7 @@
 !> 粒子源計画に従うMPI粒子数配分、サンプリング、バッチ組み立て。
 submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_batch
   use bem_particles, only: allocate_particles
+  use bem_app_config_types, only: species_config_path
   implicit none
 
   ! Each species owns only its requested capacity; ray hits can fill fewer entries.
@@ -48,7 +49,7 @@ contains
   if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
   if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
   if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
-  if (cfg%sim%batch_count <= 0_i32) error stop 'sim.batch_count must be > 0.'
+  if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
   if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
     error stop 'Requested batch index is out of range.'
   end if
@@ -80,7 +81,7 @@ contains
     if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
     if (any([(has_boundary_inflow(cfg%particle_species(s)), s=1, cfg%n_particle_species)])) then
       if (.not. allocated(state%boundary_macro_residual)) then
-        error stop 'boundary_inflow requires boundary_macro_residual in injection_state.'
+        error stop 'inflow requires boundary_macro_residual in injection_state.'
       end if
       if (size(state%boundary_macro_residual, 1) < 6 .or. &
           size(state%boundary_macro_residual, 2) < cfg%n_particle_species) then
@@ -138,11 +139,11 @@ contains
     case ('secondary_emission')
       source_counts(s) = 0_i32
     case default
-      error stop 'Unknown particles.species.source_mode.'
+      error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
     end select
     if (has_boundary_inflow(cfg%particle_species(s))) then
       if (.not. present(state)) then
-        error stop 'boundary_inflow requires injection_state in init_particle_batch_from_config.'
+        error stop 'inflow requires injection_state in init_particle_batch_from_config.'
       end if
       do face = 1, 6
         if (.not. boundary_inflow_face_enabled(cfg%particle_species(s), face)) cycle
@@ -257,7 +258,7 @@ contains
             end if
           end if
         case default
-          error stop 'Unknown particles.species.source_mode.'
+          error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
         end select
       end if
       do face = 1, 6

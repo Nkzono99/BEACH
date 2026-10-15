@@ -250,7 +250,7 @@ contains
     call write_charges_file(out_dir, mesh)
     if (cfg%write_mesh_potential) then
       if (.not. present(mesh_potential_v)) then
-        error stop 'write_result_files: mesh_potential_v is required when write_mesh_potential is enabled.'
+        error stop 'write_result_files: mesh_potential_v is required when output.final.mesh_potential is enabled.'
       end if
       call write_mesh_potential_file(out_dir, mesh, mesh_potential_v)
     end if

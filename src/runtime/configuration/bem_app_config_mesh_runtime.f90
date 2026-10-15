@@ -66,7 +66,7 @@ contains
     end if
     if (loaded_obj) then
       call resolve_panel_surface_sides(mesh, cfg%mesh_surface_side_policy, status, message)
-      if (status /= panel_surface_side_ok) error stop 'mesh.surface_side: '//trim(message)
+      if (status /= panel_surface_side_ok) error stop 'mesh.obj.surface_side: '//trim(message)
     else
       mesh_id = 0_i32
       do i = 1, cfg%n_templates
