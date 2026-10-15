@@ -7,17 +7,9 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/beach-bem)](https://pypi.org/project/beach-bem/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 
-BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM）で評価し、その場の中を動く
-荷電粒子を追跡する表面帯電シミュレータです。粒子が表面へ吸収されるたびに電荷を蓄積し、
-次のバッチの電場へ反映します。
-
-設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループです。
-[設定例](docs/ConfigurationRecipes.md)を参照してください。
-
-現行版の中心は絶縁体表面の帯電です。体積プラズマを PIC として解くコードではありません。
-外部シースは、必要な場合だけ計算領域上端へ Zhao 零電流根の電流・障壁として接続し、計算領域から出る光電子流出に
-合わせて外部根を準定常に解き直せます。詳細は [Zhao closure](docs/ZhaoStationaryClosure.md) を参照してください。
-詳しい適用範囲と更新順は [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) を参照してください。
+BEACH は、三角形メッシュで表した物体表面の帯電を計算するシミュレータです。
+表面電荷が作る電場を境界要素法（BEM）で評価し、その場の中で荷電粒子を追跡します。
+表面に到達した粒子の電荷を蓄積し、次のバッチの電場へ反映することで、帯電の時間発展を求めます。
 
 <div align="center">
   <img src="https://nkzono99.github.io/BEACH/images/potential_history.gif" alt="帯電シミュレーションの電位変化" width="80%">
@@ -25,11 +17,19 @@ BEACH は、三角形表面上の電荷が作る電場を境界要素法（BEM�
   <sub>3D model: <a href="https://www.turbosquid.com/ja/3d-models/rubber-duck-pbr-game-ready-model-2001526">Rubber Duck PBR Game Ready</a> (TurboSquid)</sub>
 </div>
 
-## 最初の実行
+## 特長
+
+- 表面電荷の電場を direct 法または高速多重極法（FMM）で評価
+- Boris 法による荷電粒子追跡と、表面での電荷蓄積
+- x・y 方向の周期セルと、外部シースモデルとの接続
+- 光電子放出、二次電子放出、浮遊導体
+- OBJ ファイルと組み込み形状を組み合わせたメッシュ入力
+- MPI・OpenMP による並列計算と、checkpoint からの再開
+- 設定検査、出力の確認・可視化を行う Python ツール `beachx`
+
+## インストールと最初の実行
 
 Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラが必要です。
-HPC のログインノードではシミュレーションを直接実行せず、各サイトのジョブスケジューラから
-計算ノードへ投入してください。以下の `beach` は、ローカル環境または計算ノードの割当内で実行します。
 
 ```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
@@ -42,13 +42,8 @@ OMP_NUM_THREADS=1 beach beach.toml
 beachx inspect outputs/tutorial
 ```
 
-実行前には `beachx lint` を実行し、`status=ok` を確認してください。
-lint は同梱 schema でキー・型・値域を検査し、続けて `beach --check-config` で組合せと派生値を検査します。
-この公式入門ケースは、毎 batch 200 個のマクロ電子を 20 batch 入射し、蓄積した負電荷が
-後続電子を反射し始めるところまでを確認します。設定の意味、期待出力、図の読み方は
-[10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) にまとめています。
-このサイトは `main` branch の挙動を説明します。PyPI の安定版は同じ入門設定をまだ含まない場合があるため、
-上の最初の実行では GitHub 版を使用します。
+`beachx lint` は設定ファイルのキー・値・組合せを実行前に検査します。
+各手順の意味と出力の読み方は [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) で説明しています。
 
 ## 目的別の入口
 
@@ -66,9 +61,9 @@ lint は同梱 schema でキー・型・値域を検査し、続けて `beach --
 
 | 名前 | 役割 |
 | --- | --- |
-| `beach` | Fortran シミュレーション本体。`--check-config` は設定の preflight で、`beachx lint` がこれを呼ぶ |
+| `beach` | シミュレーション本体（Fortran） |
 | `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
-| `beach` Python package | 出力の読込と独自解析 |
+| `beach` Python パッケージ | 出力の読み込みと解析 |
 
 コマンドの全オプションは `beach --help`、`beachx --help` および `beachx <command> --help` で確認できます。
 
@@ -80,5 +75,8 @@ python -m pip install -e . --no-build-isolation
 make check
 ```
 
-変更範囲に応じたテスト tier、MPI/OpenMP、KUDPC での実行方法は
-[開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。
+テストの種類と実行方法は [開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。
+
+## ライセンス
+
+[Apache License 2.0](LICENSE)
