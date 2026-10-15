@@ -1287,7 +1287,7 @@ def _case_config(
     config["particle_boundary"] = {face: sim.pop("bc_" + face) for face in ("z_low", "z_high")}
     for face in ("x_low", "x_high", "y_low", "y_high"):
         sim.pop("bc_" + face)
-    for template in config.get("mesh", {}).get("templates", []):
+    for template in config.get("mesh", {}).get("parts", []):
         # Archived spheres used the outward orientation now stated explicitly.
         template.setdefault("surface_side", "outward_closed")
     sim["batch_count"] = int(batch_count)

@@ -6,6 +6,7 @@ contains
   module procedure finalize_loaded_config
 
   call lower_boundary_authoring(cfg, authoring)
+  call validate_mesh_part_keys(cfg, authoring)
   call normalize_high_level_config(cfg, authoring)
   call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   call apply_physics_authoring(cfg, authoring)
@@ -46,7 +47,6 @@ contains
   call derive_field_panel_config(cfg%sim, field_config, panel_config)
   call validate_active_physics_config(cfg%sim, field_config, cfg%periodic2, panel_config, status, message)
   if (status /= physics_config_ok) call stop_config_error(message)
-  if (config_uses_surface_model(cfg, 'dielectric')) error stop 'dielectric surface model is not implemented.'
   call validate_field_parameters(cfg)
   call validate_adaptive_batch_config(cfg)
   call validate_mesh_config(cfg)
@@ -114,31 +114,61 @@ contains
     end do
   end subroutine validate_adaptive_batch_config
 
+  !> kind と公開キーの組合せは authoring の座標変換前に一度だけ検査する。
+  subroutine validate_mesh_part_keys(cfg, authoring)
+    type(app_config), intent(in) :: cfg
+    type(app_config_authoring), intent(in) :: authoring
+    integer :: i
+    character(len=:), allocatable :: path
+
+    do i = 1, cfg%n_mesh_parts
+      path = mesh_part_config_path(i)
+      select case (trim(cfg%mesh_parts(i)%kind))
+      case ('obj')
+        if (len_trim(authoring%mesh_parts(i)%template_only_key) > 0) then
+          error stop path//'.'//trim(authoring%mesh_parts(i)%template_only_key)//' is only valid for template kinds.'
+        end if
+        if (len_trim(cfg%mesh_parts(i)%path) == 0) error stop path//'.path is required for kind="obj".'
+      case ('plane', 'plate_hole', 'plane_hole', 'disk', 'annulus', 'box', 'cylinder', 'sphere')
+        if (len_trim(authoring%mesh_parts(i)%obj_only_key) > 0) then
+          error stop path//'.'//trim(authoring%mesh_parts(i)%obj_only_key)//' is only valid for kind="obj".'
+        end if
+      case ('')
+        error stop path//'.kind is required.'
+      case default
+        error stop path//'.kind is unknown.'
+      end select
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
+      select case (trim(cfg%mesh_parts(i)%surface_side_policy))
+      case ('normal_plus', 'normal_minus', 'outward_closed')
+        continue
+      case default
+        error stop path//'.surface_side must be normal_plus, normal_minus, or outward_closed.'
+      end select
+      select case (trim(cfg%mesh_parts(i)%surface_model))
+      case ('insulator', 'conductor')
+        continue
+      case default
+        error stop path//'.surface_model must be insulator or conductor.'
+      end select
+    end do
+  end subroutine validate_mesh_part_keys
+
   !> mesh の構築前に決まる幾何条件を検査する。
   subroutine validate_mesh_config(cfg)
     type(app_config), intent(in) :: cfg
     integer :: i
 
-    select case (trim(cfg%mesh_mode))
-    case ('obj', 'auto')
-      if (trim(cfg%mesh_surface_side_policy) == 'not_specified') then
-        error stop 'mesh.obj.surface_side is required for mesh.mode="obj" or "auto".'
-      end if
-    case ('template')
-      continue
-    case default
-      error stop 'mesh.mode must be "auto", "obj", or "template".'
-    end select
-    do i = 1, cfg%n_templates
-      if (.not. cfg%templates(i)%enabled) cycle
-      select case (trim(lower_ascii(cfg%templates(i)%kind)))
+    do i = 1, cfg%n_mesh_parts
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
+      select case (trim(lower_ascii(cfg%mesh_parts(i)%kind)))
       case ('plate_hole', 'plane_hole')
-        if (cfg%templates(i)%radius >= 0.5_dp*min(cfg%templates(i)%size_x, cfg%templates(i)%size_y)) then
-          error stop 'mesh.templates plate_hole radius must be smaller than half of min(size_x, size_y).'
+        if (cfg%mesh_parts(i)%radius >= 0.5_dp*min(cfg%mesh_parts(i)%size_x, cfg%mesh_parts(i)%size_y)) then
+          error stop mesh_part_config_path(i)//'.radius must be smaller than half of min(size_x, size_y).'
         end if
       case ('annulus')
-        if (cfg%templates(i)%inner_radius >= cfg%templates(i)%radius) then
-          error stop 'mesh.templates annulus inner_radius must be smaller than radius.'
+        if (cfg%mesh_parts(i)%inner_radius >= cfg%mesh_parts(i)%radius) then
+          error stop mesh_part_config_path(i)//'.inner_radius must be smaller than radius.'
         end if
       end select
     end do

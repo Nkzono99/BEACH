@@ -43,7 +43,7 @@ these relationships.
 | `sampling.weight` | `2e5` | Represent 200,000 electrons with each macro-electron so feedback appears in a short run |
 | `source.pos_low` / `source.pos_high` | rectangle at z = `0.8 m` | Sample injection positions across a broad region above the plane |
 | `distribution.drift_velocity_m_s` | `[0, 0, -1e6] m/s` | Direct electrons toward the plane |
-| `mesh.templates` | 12 × 12 cells | Divide the plane into 288 triangles |
+| `mesh.parts` | 12 × 12 cells | Divide the plane into 288 triangles |
 | `output.history.stride_batches` / `output.history.potential` | `1` / `true` | Save charge and potential after every batch |
 
 Every particle in one batch uses the same field fixed at the start of that batch. Absorbed charge is committed once at the

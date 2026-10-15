@@ -17,6 +17,17 @@ contains
   subroutine normalize_config_layout(document)
     type(toml_table), allocatable, intent(inout) :: document
     type(toml_table), allocatable :: normalized
+    type(toml_key), allocatable :: keys(:)
+    integer :: i
+
+    call document%get_keys(keys)
+    do i = 1, size(keys)
+      select case (lower_ascii(keys(i)%key))
+      case ('sim', 'field_boundary', 'particle_boundary', 'surface_current_model', 'periodic2')
+        call stop_config_error('flat beach.toml layout is not supported; use the grouped layout '// &
+                               '(run/domain/mesh/particles/fields/sheath/output)')
+      end select
+    end do
 
     if (.not. is_grouped_layout(document, '')) then
       call stop_config_error('flat beach.toml layout is not supported; use the grouped layout '// &
@@ -43,7 +54,7 @@ contains
       name = lower_ascii(keys(i)%key)
       path = joined_path(prefix, name)
       select case (path)
-      case ('run', 'fields', 'sheath', 'mesh.obj', 'output.enabled', 'output.history', &
+      case ('run', 'fields', 'sheath', 'mesh', 'output.enabled', 'output.history', &
             'output.final', 'output.checkpoint', 'output.diagnostics', 'particles.boundary', &
             'particles.reservoir', 'particles.tracking', 'particles.raycast', 'particles.secondary_emission', &
             'particles.species.charge_c', 'particles.species.mass_kg', 'particles.species.distribution', &

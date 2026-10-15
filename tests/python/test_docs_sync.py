@@ -245,7 +245,7 @@ def test_configuration_recipes_cover_supported_meshes_and_particle_sources() -> 
     schema = json.loads(
         (ROOT / "schemas" / "beach.schema.json").read_text(encoding="utf-8")
     )
-    mesh_kinds = schema["$defs"]["groupedConfig"]["properties"]["mesh"]["properties"]["templates"]["items"]
+    mesh_kinds = schema["$defs"]["groupedConfig"]["properties"]["mesh"]["properties"]["parts"]["items"]
     template = schema["$defs"][mesh_kinds["$ref"].rsplit("/", 1)[-1]]
     mesh_kinds = template["properties"]["kind"]["enum"]
     source_modes = schema["$defs"]["groupedSpecies"]["properties"]["source"]["properties"]["mode"]["enum"]

@@ -35,12 +35,13 @@ criteria first limits mesh resolution, particle count, and solver accuracy to wh
 
 ## 2. Choose the geometry
 
-Use built-in shapes with `mode="template"` for simple geometry. Use a triangular OBJ for measured or CAD-derived
-geometry. When separate objects, especially separate conductors, need distinct identities, use separate templates so
+Use built-in template shapes for simple geometry and triangular OBJ files for measured or CAD-derived geometry.
+List both in `[[mesh.parts]]`. When separate objects, especially separate conductors, need distinct identities, use separate parts so
 that they receive separate `mesh_id` values.
 
 | `kind` | Shape | Main dimensions | Main resolution keys |
 | --- | --- | --- | --- |
+| `obj` | OBJ file | `path`, `scale`, `rotation`, `offset` | Faces in the file |
 | `plane` | XY rectangle | `size_x`, `size_y` | `nx`, `ny` |
 | `plate_hole`, `plane_hole` | Rectangle with a circular hole; the latter is an alias | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
 | `disk` | Disk | `radius` | `n_theta`, `n_r` |
@@ -49,10 +50,10 @@ that they receive separate `mesh_id` values.
 | `cylinder` | z-axis cylinder | `radius`, `height`, `cap` | `n_theta`, `n_z` |
 | `sphere` | Sphere | `radius` | `n_lon`, `n_lat` |
 
-For example, to replace the tutorial plane with a sphere, replace only the existing `[[mesh.templates]]` block:
+For example, to replace the tutorial plane with a sphere, replace only the existing `[[mesh.parts]]` block:
 
 ```toml
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "sphere"
 enabled = true
 surface_side = "outward_closed"
@@ -62,15 +63,14 @@ n_lon = 24
 n_lat = 12
 ```
 
-For OBJ input, remove the existing `[[mesh.templates]]` block and replace `[mesh]` with:
+Write OBJ input as another `[[mesh.parts]]` block. Append it to mix it with templates.
 
 ```toml
-[mesh]
-mode = "obj"
-
-[mesh.obj]
-path = "mesh/object.obj" # replace with the actual OBJ path
+[[mesh.parts]]
+kind = "obj"
+path = "examples/tetrahedron.obj"
 surface_side = "outward_closed"
+surface_model = "insulator"
 ```
 
 Use `outward_closed` only for a consistently oriented, closed two-manifold. For an open surface, select `normal_plus`
@@ -90,7 +90,7 @@ The tutorial uses `insulator`. To change a target to a conductor, change this on
 for OBJ input:
 
 ```toml
-[mesh.obj]
+# Change this in the existing mesh.parts entry
 surface_model = "conductor"
 ```
 

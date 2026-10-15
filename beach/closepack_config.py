@@ -62,7 +62,6 @@ DEFAULT_BASE_CONFIG: dict[str, Any] = {
         ]
     },
     "mesh": {
-        "mode": "template",
     },
     "output": {
         "write_files": True,
@@ -267,9 +266,7 @@ def build_closepack_config(
             raise ValueError("particles.species entries must be TOML tables.")
         _fit_species_face_to_box(species, box_min=box_min, box_max=box_max)
 
-    mesh.pop("obj_path", None)
-    mesh["mode"] = "template"
-    mesh["templates"] = [
+    mesh["parts"] = [
         _build_floor_plane_template(spec=spec, box_min=box_min, width_x=width_x, width_y=width_y),
         *generate_closepack_sphere_templates(spec, box_min=box_min),
     ]

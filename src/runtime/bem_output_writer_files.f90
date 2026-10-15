@@ -120,10 +120,9 @@ contains
   !! @param[in] cfg 元の入力設定。
   module procedure write_mesh_sources_file
   character(len=1024) :: path
-  character(len=16) :: mode_key, source_kind, template_kind
+  character(len=16) :: source_kind, template_kind
   character(len=16) :: surface_model
   real(dp) :: epsilon_r
-  logical :: has_obj
   integer :: u, ios, i, mesh_id
   integer(i32) :: elem_count
 
@@ -132,39 +131,18 @@ contains
   if (ios /= 0) error stop 'Failed to open mesh_sources.csv.'
   write (u, '(a)') 'mesh_id,source_kind,template_kind,surface_model,epsilon_r,elem_count'
 
-  mode_key = trim(lower_ascii(cfg%mesh_mode))
-  if (mode_key == 'obj') then
-    source_kind = 'obj'
-  else if (mode_key == 'template') then
-    source_kind = 'template'
-  else
-    inquire (file=trim(cfg%obj_path), exist=has_obj)
-    if (has_obj) then
-      source_kind = 'obj'
-    else
-      source_kind = 'template'
-    end if
-  end if
-
-  if (source_kind == 'obj') then
-    surface_model = mesh_surface_model_name(mesh, 1)
-    epsilon_r = mesh_epsilon_r(mesh, 1)
-    write (u, '(i0,a,a,a,a,a,a,a,es16.8,a,i0)') &
-      1, ',', 'obj', ',', 'obj', ',', trim(surface_model), ',', epsilon_r, ',', mesh%nelem
-    close (u)
-    return
-  end if
-
   mesh_id = 0
-  do i = 1, size(cfg%templates)
-    if (.not. cfg%templates(i)%enabled) cycle
+  do i = 1, cfg%n_mesh_parts
+    if (.not. cfg%mesh_parts(i)%enabled) cycle
     mesh_id = mesh_id + 1
-    template_kind = trim(lower_ascii(cfg%templates(i)%kind))
+    template_kind = trim(lower_ascii(cfg%mesh_parts(i)%kind))
+    source_kind = 'template'
+    if (template_kind == 'obj') source_kind = 'obj'
     surface_model = mesh_surface_model_name(mesh, mesh_id)
     epsilon_r = mesh_epsilon_r(mesh, mesh_id)
     elem_count = int(count(mesh%elem_mesh_id == mesh_id), kind=i32)
     write (u, '(i0,a,a,a,a,a,a,a,es16.8,a,i0)') &
-      mesh_id, ',', 'template', ',', trim(template_kind), ',', trim(surface_model), ',', epsilon_r, ',', elem_count
+      mesh_id, ',', trim(source_kind), ',', trim(template_kind), ',', trim(surface_model), ',', epsilon_r, ',', elem_count
   end do
   close (u)
   end procedure write_mesh_sources_file

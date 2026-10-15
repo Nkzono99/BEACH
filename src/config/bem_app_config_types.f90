@@ -87,10 +87,14 @@ module bem_app_config_types
     logical :: has_target_emission_current_a = .false.
   end type particle_species_spec
 
-  !> 1つのテンプレート形状の有効化フラグと幾何パラメータを保持する。
+  !> OBJ または template 1 要素の表面と幾何パラメータを保持する。
   type :: template_spec
     logical :: enabled = .false.
-    character(len=16) :: kind = 'plane'
+    character(len=16) :: kind = ''
+    character(len=256) :: path = ''
+    real(dp) :: scale = 1.0_dp
+    real(dp) :: rotation(3) = 0.0_dp
+    real(dp) :: offset(3) = 0.0_dp
     character(len=16) :: surface_model = 'insulator'
     character(len=32) :: surface_side_policy = 'not_specified'
     real(dp) :: epsilon_r = 1.0d0
@@ -118,16 +122,8 @@ module bem_app_config_types
 
   !> 実行条件・メッシュ入力・粒子注入・出力設定を一元管理する。
   type :: app_config
-    character(len=16) :: mesh_mode = 'template'
-    character(len=256) :: obj_path = 'examples/simple_plate.obj'
-    character(len=16) :: mesh_surface_model = 'insulator'
-    character(len=32) :: mesh_surface_side_policy = 'not_specified'
-    real(dp) :: mesh_epsilon_r = 1.0d0
-    real(dp) :: obj_scale = 1.0d0
-    real(dp) :: obj_rotation(3) = [0.0d0, 0.0d0, 0.0d0]
-    real(dp) :: obj_offset(3) = [0.0d0, 0.0d0, 0.0d0]
-    integer(i32) :: n_templates = 0_i32
-    type(template_spec), allocatable :: templates(:)
+    integer(i32) :: n_mesh_parts = 0_i32
+    type(template_spec), allocatable :: mesh_parts(:)
 
     integer(i32) :: n_particle_species = 0_i32
     type(particle_species_spec), allocatable :: particle_species(:)
@@ -154,6 +150,16 @@ module bem_app_config_types
   end type app_config
 
 contains
+
+  !> 診断に使う公開 mesh 配列の添字付きパスを返す。
+  function mesh_part_config_path(part_idx) result(path)
+    integer, intent(in) :: part_idx
+    character(len=:), allocatable :: path
+    character(len=32) :: index_text
+
+    write (index_text, '(i0)') part_idx
+    path = 'mesh.parts['//trim(index_text)//']'
+  end function mesh_part_config_path
 
   !> 診断に使う公開 species 配列の添字付きパスを返す。
   function species_config_path(species_idx) result(path)
@@ -210,14 +216,7 @@ contains
   subroutine default_app_config(cfg)
     type(app_config), intent(out) :: cfg
 
-    cfg%mesh_mode = 'template'
-    cfg%obj_path = 'examples/simple_plate.obj'
-    cfg%mesh_surface_model = 'insulator'
-    cfg%mesh_epsilon_r = 1.0d0
-    cfg%obj_scale = 1.0d0
-    cfg%obj_rotation = [0.0d0, 0.0d0, 0.0d0]
-    cfg%obj_offset = [0.0d0, 0.0d0, 0.0d0]
-    cfg%n_templates = 0_i32
+    cfg%n_mesh_parts = 0_i32
     cfg%n_particle_species = 0_i32
     cfg%write_output = .true.
     cfg%write_mesh_potential = .false.
@@ -228,7 +227,7 @@ contains
     cfg%checkpoint_stride = 0_i32
     cfg%resume_output = .false.
     cfg%sim = sim_config()
-    allocate (cfg%templates(max_templates))
+    allocate (cfg%mesh_parts(max_templates))
     allocate (cfg%particle_species(max_particle_species))
     cfg%particle_species = particle_species_spec()
     cfg%sim%dt = 1.0d-9
@@ -260,16 +259,16 @@ contains
     cfg%sim%phi_infty = 0.0d0
     cfg%sim%injection_face_phi_grid_n = 3_i32
     cfg%sim%raycast_max_bounce = 16_i32
-    cfg%n_templates = 1_i32
+    cfg%n_mesh_parts = 1_i32
 
-    cfg%templates(1)%enabled = .true.
-    cfg%templates(1)%kind = 'plane'
-    cfg%templates(1)%size_x = 1.0d0
-    cfg%templates(1)%size_y = 1.0d0
-    cfg%templates(1)%nx = 1
-    cfg%templates(1)%ny = 1
-    cfg%templates(1)%center = [0.0d0, 0.0d0, 0.0d0]
-    cfg%templates(1)%surface_side_policy = 'normal_plus'
+    cfg%mesh_parts(1)%enabled = .true.
+    cfg%mesh_parts(1)%kind = 'plane'
+    cfg%mesh_parts(1)%size_x = 1.0d0
+    cfg%mesh_parts(1)%size_y = 1.0d0
+    cfg%mesh_parts(1)%nx = 1
+    cfg%mesh_parts(1)%ny = 1
+    cfg%mesh_parts(1)%center = [0.0d0, 0.0d0, 0.0d0]
+    cfg%mesh_parts(1)%surface_side_policy = 'normal_plus'
     call normalize_legacy_physics_config(cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
   end subroutine default_app_config
 

@@ -1530,74 +1530,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "mode": {
-          "type": "string",
-          "enum": [
-            "auto",
-            "obj",
-            "template"
-          ],
-          "default": "template",
-          "description": "Mesh input method. auto selects obj if obj_path exists, otherwise template."
-        },
-        "obj_path": {
-          "type": "string",
-          "maxLength": 256,
-          "default": "examples/simple_plate.obj",
-          "description": "Path to OBJ mesh file."
-        },
-        "surface_model": {
-          "type": "string",
-          "enum": [
-            "insulator",
-            "conductor"
-          ],
-          "default": "insulator",
-          "description": "Surface response model assigned to OBJ mesh elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
-        },
-        "surface_side": {
-          "$ref": "#/$defs/surfaceSide",
-          "description": "Vacuum side for OBJ panels. Required by the implicit triangle_p0 panel kernel."
-        },
-        "obj_scale": {
-          "type": "number",
-          "default": 1,
-          "description": "OBJ読み込み後に適用する一様スケーリング係数"
-        },
-        "obj_rotation": {
+        "parts": {
           "type": "array",
           "items": {
-            "type": "number"
+            "$ref": "#/$defs/meshPart"
           },
-          "minItems": 3,
-          "maxItems": 3,
-          "default": [
-            0,
-            0,
-            0
-          ],
-          "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
-        },
-        "obj_offset": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "default": [
-            0,
-            0,
-            0
-          ],
-          "description": "OBJ読み込み後に適用する平行移動 [m]"
-        },
-        "templates": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/template"
-          },
-          "description": "List of procedural mesh templates."
+          "description": "Ordered OBJ and template parts; enabled parts receive consecutive mesh_id values starting at 1."
         },
         "groups": {
           "type": "object",
@@ -1610,29 +1548,7 @@
           },
           "description": "High-level named mesh groups that provide a common origin and scale for templates."
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "mode": {
-                "enum": [
-                  "auto",
-                  "obj"
-                ]
-              }
-            },
-            "required": [
-              "mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "surface_side"
-            ]
-          }
-        }
-      ]
+      }
     },
     "meshGroup": {
       "type": "object",
@@ -1728,356 +1644,6 @@
                 ]
               }
             ]
-          }
-        }
-      ]
-    },
-    "template": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable this template."
-        },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "plane",
-            "plate_hole",
-            "plane_hole",
-            "disk",
-            "annulus",
-            "box",
-            "cylinder",
-            "sphere"
-          ],
-          "default": "plane",
-          "description": "Template shape type."
-        },
-        "surface_model": {
-          "type": "string",
-          "enum": [
-            "insulator",
-            "conductor"
-          ],
-          "default": "insulator",
-          "description": "Surface response model assigned to template elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
-        },
-        "surface_side": {
-          "$ref": "#/$defs/surfaceSide",
-          "description": "Vacuum side for this template. Required when enabled by the implicit triangle_p0 panel kernel."
-        },
-        "center": {
-          "$ref": "#/$defs/vec3",
-          "default": [
-            0,
-            0,
-            0
-          ],
-          "description": "Template center position [m]."
-        },
-        "size_x": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "default": 1,
-          "description": "X-direction size [m] for plane/plate_hole."
-        },
-        "size_y": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "default": 1,
-          "description": "Y-direction size [m] for plane/plate_hole."
-        },
-        "size": {
-          "$ref": "#/$defs/positiveVec3",
-          "default": [
-            1,
-            1,
-            1
-          ],
-          "description": "Box dimensions [x, y, z] [m]."
-        },
-        "nx": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1,
-          "description": "X-direction subdivision count for plane/box."
-        },
-        "ny": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1,
-          "description": "Y-direction subdivision count for plane/box."
-        },
-        "nz": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1,
-          "description": "Z-direction subdivision count for box."
-        },
-        "radius": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "default": 0.5,
-          "description": "Radius [m] for disk/annulus/plate_hole/cylinder/sphere."
-        },
-        "inner_radius": {
-          "type": "number",
-          "minimum": 0,
-          "default": 0.25,
-          "description": "Inner radius [m] for annulus."
-        },
-        "height": {
-          "type": "number",
-          "exclusiveMinimum": 0,
-          "default": 1,
-          "description": "Height [m] for cylinder."
-        },
-        "n_theta": {
-          "type": "integer",
-          "minimum": 3,
-          "default": 24,
-          "description": "Azimuthal subdivision count for disk/annulus/plate_hole/cylinder."
-        },
-        "n_r": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 4,
-          "description": "Radial subdivision count for disk/annulus/plate_hole."
-        },
-        "n_z": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 1,
-          "description": "Axial subdivision count for cylinder."
-        },
-        "cap": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable both end caps for cylinder."
-        },
-        "cap_top": {
-          "type": "boolean",
-          "description": "Enable top end cap for cylinder (overrides cap)."
-        },
-        "cap_bottom": {
-          "type": "boolean",
-          "description": "Enable bottom end cap for cylinder (overrides cap)."
-        },
-        "n_lon": {
-          "type": "integer",
-          "minimum": 3,
-          "default": 24,
-          "description": "Longitudinal subdivision count for sphere."
-        },
-        "n_lat": {
-          "type": "integer",
-          "minimum": 2,
-          "default": 12,
-          "description": "Latitudinal subdivision count for sphere."
-        },
-        "placement_mode": {
-          "$ref": "#/$defs/placementMode",
-          "default": "absolute",
-          "description": "High-level template placement mode."
-        },
-        "anchor": {
-          "$ref": "#/$defs/boxAnchor",
-          "description": "Box anchor used when placement_mode=\"box_anchor\"."
-        },
-        "offset": {
-          "$ref": "#/$defs/vec3",
-          "description": "Offset [m] added to the anchored template center."
-        },
-        "offset_frac": {
-          "$ref": "#/$defs/vec3",
-          "description": "Box-size-relative offset added to the anchored template center."
-        },
-        "size_mode": {
-          "type": "string",
-          "enum": [
-            "absolute",
-            "box_fraction"
-          ],
-          "default": "absolute",
-          "description": "High-level template sizing mode."
-        },
-        "size_frac": {
-          "$ref": "#/$defs/sizeFraction",
-          "description": "Box-relative size used when size_mode=\"box_fraction\"."
-        },
-        "group": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "High-level mesh group name. Grouped templates use center_local and group scale/origin."
-        },
-        "center_local": {
-          "$ref": "#/$defs/vec3",
-          "description": "Template center in group-local coordinates."
-        }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "enabled": {
-                "const": false
-              }
-            },
-            "required": [
-              "enabled"
-            ]
-          },
-          "then": {},
-          "else": {
-            "required": [
-              "surface_side"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "placement_mode": {
-                "const": "box_anchor"
-              }
-            },
-            "required": [
-              "placement_mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "anchor"
-            ],
-            "not": {
-              "required": [
-                "center"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "placement_mode": {
-                "const": "absolute"
-              }
-            },
-            "required": [
-              "placement_mode"
-            ]
-          },
-          "then": {
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "anchor"
-                  ]
-                },
-                {
-                  "required": [
-                    "offset"
-                  ]
-                },
-                {
-                  "required": [
-                    "offset_frac"
-                  ]
-                }
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "size_mode": {
-                "const": "box_fraction"
-              }
-            },
-            "required": [
-              "size_mode"
-            ]
-          },
-          "then": {
-            "required": [
-              "size_frac"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "size_mode": {
-                "const": "absolute"
-              }
-            },
-            "required": [
-              "size_mode"
-            ]
-          },
-          "then": {
-            "not": {
-              "required": [
-                "size_frac"
-              ]
-            }
-          }
-        },
-        {
-          "if": {
-            "required": [
-              "group"
-            ]
-          },
-          "then": {
-            "required": [
-              "center_local"
-            ],
-            "not": {
-              "anyOf": [
-                {
-                  "required": [
-                    "center"
-                  ]
-                },
-                {
-                  "required": [
-                    "placement_mode"
-                  ]
-                },
-                {
-                  "required": [
-                    "anchor"
-                  ]
-                },
-                {
-                  "required": [
-                    "offset"
-                  ]
-                },
-                {
-                  "required": [
-                    "offset_frac"
-                  ]
-                },
-                {
-                  "required": [
-                    "size_mode"
-                  ]
-                },
-                {
-                  "required": [
-                    "size_frac"
-                  ]
-                }
-              ]
-            }
           }
         }
       ]
@@ -2975,78 +2541,14 @@
             }
           ]
         },
+        "domain": {
+          "$ref": "#/$defs/domain",
+          "description": "Finite box geometry and periodic topology."
+        },
         "mesh": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "obj": {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "path": {
-                  "type": "string",
-                  "maxLength": 256,
-                  "default": "examples/simple_plate.obj",
-                  "description": "Path to OBJ mesh file."
-                },
-                "scale": {
-                  "type": "number",
-                  "default": 1,
-                  "description": "OBJ読み込み後に適用する一様スケーリング係数"
-                },
-                "rotation": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "default": [
-                    0,
-                    0,
-                    0
-                  ],
-                  "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
-                },
-                "offset": {
-                  "type": "array",
-                  "items": {
-                    "type": "number"
-                  },
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "default": [
-                    0,
-                    0,
-                    0
-                  ],
-                  "description": "OBJ読み込み後に適用する平行移動 [m]"
-                },
-                "surface_model": {
-                  "type": "string",
-                  "enum": [
-                    "insulator",
-                    "conductor"
-                  ],
-                  "default": "insulator",
-                  "description": "Surface response model assigned to OBJ mesh elements. conductor redistributes charge per mesh_id so the object becomes equipotential, in free space and periodic2; dielectric polarization is not implemented."
-                },
-                "surface_side": {
-                  "$ref": "#/$defs/surfaceSide",
-                  "description": "Vacuum side for OBJ panels. Required by the implicit triangle_p0 panel kernel."
-                }
-              }
-            },
-            "mode": {
-              "type": "string",
-              "enum": [
-                "auto",
-                "obj",
-                "template"
-              ],
-              "default": "template",
-              "description": "Mesh input method. auto selects obj if obj_path exists, otherwise template."
-            },
             "groups": {
               "type": "object",
               "propertyNames": {
@@ -3058,48 +2560,15 @@
               },
               "description": "High-level named mesh groups that provide a common origin and scale for templates."
             },
-            "templates": {
+            "parts": {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/template"
+                "$ref": "#/$defs/meshPart"
               },
-              "description": "List of procedural mesh templates."
+              "description": "Ordered OBJ and template parts; enabled parts receive consecutive mesh_id values starting at 1."
             }
           },
-          "description": "Surface geometry, OBJ input, groups, and templates.",
-          "allOf": [
-            {
-              "if": {
-                "properties": {
-                  "mode": {
-                    "enum": [
-                      "auto",
-                      "obj"
-                    ]
-                  }
-                },
-                "required": [
-                  "mode"
-                ]
-              },
-              "then": {
-                "required": [
-                  "obj"
-                ],
-                "properties": {
-                  "obj": {
-                    "required": [
-                      "surface_side"
-                    ]
-                  }
-                }
-              }
-            }
-          ]
-        },
-        "domain": {
-          "$ref": "#/$defs/domain",
-          "description": "Finite box geometry and periodic topology."
+          "description": "Surface geometry, OBJ input, groups, and templates."
         }
       },
       "required": [
@@ -4574,6 +4043,227 @@
           "description": "Maximum accepted change of the cached k!=0 potential at panel centroids [V]. When set, batch_duration is the maximum trial duration and rejected trials are retraced at successive factors of 1/2."
         }
       }
+    },
+    "meshPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable this mesh part."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "obj",
+            "plane",
+            "plate_hole",
+            "plane_hole",
+            "disk",
+            "annulus",
+            "box",
+            "cylinder",
+            "sphere"
+          ],
+          "description": "OBJ input or procedural shape kind."
+        },
+        "surface_model": {
+          "type": "string",
+          "enum": [
+            "insulator",
+            "conductor"
+          ],
+          "default": "insulator",
+          "description": "Surface response for this part. Each enabled part is one mesh_id and one floating conductor group."
+        },
+        "surface_side": {
+          "$ref": "#/$defs/surfaceSide",
+          "description": "Vacuum side for this template. Required when enabled by the implicit triangle_p0 panel kernel."
+        },
+        "center": {
+          "$ref": "#/$defs/vec3",
+          "default": [
+            0,
+            0,
+            0
+          ],
+          "description": "Template center position [m]."
+        },
+        "size_x": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1,
+          "description": "X-direction size [m] for plane/plate_hole."
+        },
+        "size_y": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1,
+          "description": "Y-direction size [m] for plane/plate_hole."
+        },
+        "size": {
+          "$ref": "#/$defs/positiveVec3",
+          "default": [
+            1,
+            1,
+            1
+          ],
+          "description": "Box dimensions [x, y, z] [m]."
+        },
+        "nx": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "X-direction subdivision count for plane/box."
+        },
+        "ny": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Y-direction subdivision count for plane/box."
+        },
+        "nz": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Z-direction subdivision count for box."
+        },
+        "radius": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 0.5,
+          "description": "Radius [m] for disk/annulus/plate_hole/cylinder/sphere."
+        },
+        "inner_radius": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.25,
+          "description": "Inner radius [m] for annulus."
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1,
+          "description": "Height [m] for cylinder."
+        },
+        "n_theta": {
+          "type": "integer",
+          "minimum": 3,
+          "default": 24,
+          "description": "Azimuthal subdivision count for disk/annulus/plate_hole/cylinder."
+        },
+        "n_r": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 4,
+          "description": "Radial subdivision count for disk/annulus/plate_hole."
+        },
+        "n_z": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Axial subdivision count for cylinder."
+        },
+        "cap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable both end caps for cylinder."
+        },
+        "cap_top": {
+          "type": "boolean",
+          "description": "Enable top end cap for cylinder (overrides cap)."
+        },
+        "cap_bottom": {
+          "type": "boolean",
+          "description": "Enable bottom end cap for cylinder (overrides cap)."
+        },
+        "n_lon": {
+          "type": "integer",
+          "minimum": 3,
+          "default": 24,
+          "description": "Longitudinal subdivision count for sphere."
+        },
+        "n_lat": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 12,
+          "description": "Latitudinal subdivision count for sphere."
+        },
+        "placement_mode": {
+          "$ref": "#/$defs/placementMode",
+          "default": "absolute",
+          "description": "High-level template placement mode."
+        },
+        "anchor": {
+          "$ref": "#/$defs/boxAnchor",
+          "description": "Box anchor used when placement_mode=\"box_anchor\"."
+        },
+        "offset": {
+          "$ref": "#/$defs/vec3",
+          "description": "OBJ translation [m], or offset of an anchored template center.",
+          "default": [
+            0,
+            0,
+            0
+          ]
+        },
+        "offset_frac": {
+          "$ref": "#/$defs/vec3",
+          "description": "Box-size-relative offset added to the anchored template center."
+        },
+        "size_mode": {
+          "type": "string",
+          "enum": [
+            "absolute",
+            "box_fraction"
+          ],
+          "default": "absolute",
+          "description": "High-level template sizing mode."
+        },
+        "size_frac": {
+          "$ref": "#/$defs/sizeFraction",
+          "description": "Box-relative size used when size_mode=\"box_fraction\"."
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "High-level mesh group name. Grouped templates use center_local and group scale/origin."
+        },
+        "center_local": {
+          "$ref": "#/$defs/vec3",
+          "description": "Template center in group-local coordinates."
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Path to OBJ mesh file.",
+          "minLength": 1
+        },
+        "scale": {
+          "type": "number",
+          "default": 1,
+          "description": "OBJ読み込み後に適用する一様スケーリング係数"
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3,
+          "default": [
+            0,
+            0,
+            0
+          ],
+          "description": "OBJ読み込み後に適用する回転角 [度]。x→y→z 外因性回転 (Rz·Ry·Rx)"
+        }
+      },
+      "required": [
+        "kind"
+      ]
     }
   }
 }

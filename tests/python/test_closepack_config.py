@@ -58,7 +58,7 @@ def test_build_closepack_config_updates_geometry_and_injection_without_mutating_
     base["sim"]["dt"] = 3.5e-8
     base["sim"]["field_solver"] = "fmm"
     base["output"]["history_stride"] = 77
-    base["mesh"]["obj_path"] = "obsolete.obj"
+    base["mesh"]["parts"] = [{"kind": "obj", "path": "replaced.obj"}]
     reservoir_species = base["particles"]["species"][0]
     reservoir_species["source_mode"] = "volume_seed"
     reservoir_species.pop("npcls_per_step")
@@ -95,10 +95,9 @@ def test_build_closepack_config_updates_geometry_and_injection_without_mutating_
     assert config["sim"]["field_solver"] == "fmm"
     assert config["field_boundary"] == base["field_boundary"]
     assert config["output"]["history_stride"] == 77
-    assert config["mesh"]["mode"] == "template"
-    assert "obj_path" not in config["mesh"]
-    assert len(config["mesh"]["templates"]) == 1 + 2 * 4 * 3 * 2
-    floor = config["mesh"]["templates"][0]
+    assert all(part["kind"] != "obj" for part in config["mesh"]["parts"])
+    assert len(config["mesh"]["parts"]) == 1 + 2 * 4 * 3 * 2
+    floor = config["mesh"]["parts"][0]
     assert floor["kind"] == "plane"
     assert floor["surface_side"] == "normal_plus"
     assert floor["size_x"] == pytest.approx(3.0 * pitch)
@@ -179,4 +178,4 @@ def test_generate_closepack_config_script_writes_expected_file(tmp_path: Path) -
     assert generated["sim"]["dt"] == 9.9e-8
     assert generated["output"]["dir"] == "outputs/exp_closepack_generated"
     assert generated["output"]["history_stride"] == 13
-    assert len(generated["mesh"]["templates"]) == 7
+    assert len(generated["mesh"]["parts"]) == 7

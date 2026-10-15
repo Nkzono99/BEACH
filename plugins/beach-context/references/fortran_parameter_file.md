@@ -100,9 +100,8 @@ beach.toml
 │   └── [run.restart]
 ├── [domain]
 ├── [mesh]
-│   ├── [mesh.obj]
 │   ├── [mesh.groups.<name>]
-│   └── [[mesh.templates]]
+│   └── [[mesh.parts]]
 ├── [particles]
 │   ├── [particles.tracking]
 │   │   └── [particles.tracking.events]
@@ -144,10 +143,9 @@ beach.toml
 | `[run.batch.adaptive]` | `[run.batch]` | 任意、`cached_kneq0` 専用 | 非零モード電位変化の上限 |
 | `[run.restart]` | `[run]` | 再開時に指定 | checkpoint の読み込み元 |
 | `[domain]` | root | box 使用時 | box geometry と周期軸 |
-| `[mesh]` | root | 任意 | OBJ または組み込み template の選択 |
-| `[mesh.obj]` | `[mesh]` | OBJ 使用時 | OBJ のファイル・表面・配置 |
+| `[mesh]` | root | 任意 | OBJ と template の要素リスト |
 | `[mesh.groups.<name>]` | `[mesh]` | 0 件以上 | 複数 template で共有する配置と scale |
-| `[[mesh.templates]]` | `[mesh]` | 0 件以上 | `mesh.mode="template"` で使う組み込み形状 |
+| `[[mesh.parts]]` | `[mesh]` | 0 件以上 | OBJ または組み込み形状 |
 | `[particles]` | root | 必須 | 粒子種・追跡・境界・SEE 世代制御 |
 | `[particles.tracking]` | `[particles]` | 任意 | 粒子の時間刻みと追跡長 |
 | `[particles.tracking.events]` | `[particles.tracking]` | 任意 | 境界イベントの再試行と破棄 |
@@ -252,42 +250,17 @@ beach.toml
 
 ### `[mesh]`
 
+`parts` は 0 件以上の table 配列で、OBJ と組み込み template をリスト順に混在させられます。
+`groups` は template kind 専用の共通配置と scale を定義します。
+有効な要素をリスト順に 1 から連番の `mesh_id` へ割り当て、disabled 要素は番号を消費しません。
+1 つの OBJ 要素の全三角形は、ファイル内で形状が分離していても同じ番号を持ちます。
+`surface_model="conductor"` の要素は `mesh_id` ごとに 1 つの浮遊導体 group になります。独立導体は別々の parts に分けます。
+有効な要素が 0 件の設定からは mesh を構築できません。
+
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
-| `mode` | string | `"template"` | `auto` / `obj` / `template` |
-
-#### `[mesh.obj]`
-
-| キー | 型 | 既定値 | 説明・条件 |
-|---|---|---:|---|
-| `path` | string | `"examples/simple_plate.obj"` | OBJ ファイルパス |
-| `surface_model` | string | `"insulator"` | OBJ 全体の表面モデル |
-| `surface_side` | string | `mode="obj"`または`"auto"`で必須 | OBJ panelの真空側: `normal_plus` / `normal_minus` / `outward_closed` |
-| `scale` | float | `1.0` | OBJ 読み込み後の一様スケール |
-| `rotation` | float[3] | `[0,0,0]` | OBJ 読み込み後の回転角 [deg] |
-| `offset` | float[3] | `[0,0,0]` | OBJ 読み込み後の平行移動 [m] |
-
-`mode="auto"` では、`mesh.obj.path` が存在すれば OBJ、なければ template を使います。どちらを選んでも
-設定が妥当になるよう、`auto`でもOBJ用の`surface_side`を必ず指定します。
-OBJ 変換順序は `scale -> rotate -> offset` です。
-
-```text
-v_new = R(mesh.obj.rotation) * (v_old * mesh.obj.scale) + mesh.obj.offset
-```
-
-OBJ 入力では、ファイル全体を `mesh_id=1` として読みます。
-1 つの OBJ 内に離れた `conductor` 部品があっても同じ浮遊導体として扱われます。
-独立導体として扱う場合は、template 入力などで `mesh_id` を分けてください。
-
-OBJ の対応範囲:
-
-| 項目 | 対応 |
-|---|---|
-| 改行 | LF / CRLF |
-| 面行 | `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` |
-| 多角形 | 四角形以上はファン三角形分割 |
-
----
+| `parts` | table 配列 | `[]` | OBJ と template の順序付きリスト |
+| `groups` | 名前付き table | なし | template 共通の原点と scale |
 
 #### `[mesh.groups.<name>]`
 
@@ -301,12 +274,12 @@ OBJ の対応範囲:
 | `scale_from` | string | 未指定 | box 幅の参照名。`scale_factor` と組で指定 |
 | `scale_factor` | float | 未指定 | `scale_from` に掛ける正値。`>0` |
 
-#### `[[mesh.templates]]`
+#### `[[mesh.parts]]`
 
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
-| `enabled` | bool | `true` | template を有効化 |
-| `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
+| `enabled` | bool | `true` | この要素を有効化 |
+| `kind` | string | `"plane"` | `obj` / `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` |
 | `surface_side` | string | `enabled=true` で必須 | panel の真空側: `normal_plus` / `normal_minus` / `outward_closed` |
 | `center` | float[3] | `[0,0,0]` | 形状中心 [m] |
@@ -319,14 +292,15 @@ OBJ の対応範囲:
 | `group` | string | 未指定 | `[mesh.groups.<name>]` の name。空文字不可 |
 | `center_local` | float[3] | 未指定 | group 使用時に必須。`center=group_origin+group_scale*center_local` |
 
-`[[mesh.templates]]` を書いた場合、実際に使うテンプレート数は定義件数で決まります。
-
-無効化された template は mesh に追加されず、`mesh_id` も消費しません。
+共通キーは `kind`、`enabled`、`surface_model`、`surface_side` です。表の `center` から `center_local` までは、`offset` を除いて template kind 専用です。
+`obj` に形状・group・placement キーを指定した場合、および template kind に `path` / `scale` / `rotation` を指定した場合は preflight エラーです。
+`offset` は OBJ では平行移動、template では従来どおり anchor からの差を表します。
 
 `kind` の概要:
 
 | `kind` | 生成形状 | 基準面・軸 |
 |---|---|---|
+| `obj` | OBJ の三角形 | 要素ごとの scale・rotation・offset |
 | `plane` | 長方形平面 | XY 平面、`z=center[3]` |
 | `plate_hole`, `plane_hole` | 中央に円形穴を持つ長方形平面 | XY 平面、穴中心は `center` |
 | `disk` | 円板 | XY 平面、中心は `center` |
@@ -334,6 +308,19 @@ OBJ の対応範囲:
 | `box` | 閉じた直方体表面 | 各軸に平行な 6 面 |
 | `cylinder` | 円柱側面と任意の上下キャップ | z 軸方向 |
 | `sphere` | 球面 | 中心は `center` |
+
+##### `kind = "obj"`
+
+| キー | 型 | 既定値 | 説明・条件 |
+|---|---|---:|---|
+| `path` | string | 必須 | OBJ パス。相対パスは実行時のカレントディレクトリから解決 |
+| `scale` | float | `1.0` | 一様スケール |
+| `rotation` | float[3] | `[0,0,0]` | x→y→z の外因性回転 [deg] |
+| `offset` | float[3] | `[0,0,0]` | 平行移動 [m] |
+
+変換は `v_new = R(rotation) * (v_old * scale) + offset` で、この要素だけに適用します。
+LF / CRLF、面行 `f v` / `f v/vt` / `f v/vt/vn` / `f v//vn` に対応し、多角形はファン三角形分割します。
+平面と導体の四面体 OBJ の混在例は [`examples/mixed_parts.toml`](../examples/mixed_parts.toml) です。
 
 ##### `kind = "plane"`
 
@@ -790,7 +777,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`fields.boundary="period
 | 対象表面 | `insulator` / `conductor` の共通 source 離散化 |
 | Treecode | 厳密 panel near + monopole far |
 | FMM | 厳密 panel near + 厳密 triangle P2M |
-| 面の向き | OBJ は `mesh.obj.surface_side`、template は各 `mesh.templates.surface_side` を指定 |
+| 面の向き | 各要素の `mesh.parts[i].surface_side` を指定 |
 
 `outward_closed` は、法線の向きが整合した閉じた two-manifold だけに使用できます。
 
@@ -905,7 +892,7 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 
 ## 座標・配置の補助パラメータ
 
-`domain.box_origin` / `domain.box_size`、`particles.species.source.region_mode`、`[mesh.groups.<name>]`、`[[mesh.templates]]` の配置キーは box 基準の値を実座標・実寸へ変換します。各 table の型・既定値は上の表を参照してください。
+`domain.box_origin` / `domain.box_size`、`particles.species.source.region_mode`、`[mesh.groups.<name>]`、`[[mesh.parts]]` の配置キーは box 基準の値を実座標・実寸へ変換します。各 table の型・既定値は上の表を参照してください。
 
 group 使用時は、template の `center`、直接 placement キー、`size_mode`、`size_frac` を併用できません。
 

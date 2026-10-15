@@ -3508,3 +3508,21 @@ def test_secondary_emission_reader_rejects_invalid_emitted_charge(tmp_path: Path
     )
     with pytest.raises(ValueError, match="emitted_charge_c must be finite and nonpositive"):
         load_fortran_result(tmp_path)
+
+
+@pytest.mark.parametrize("archived", [False, True])
+def test_saved_config_mesh_parts_and_archived_templates_remain_readable(tmp_path: Path, archived: bool) -> None:
+    import tomli_w
+    from beach.config import default_config
+    from beach.config._layout import to_grouped_layout
+    from beach.fortran_results.context import load_config_for_output
+
+    config = to_grouped_layout(default_config())
+    if archived:
+        config["mesh"]["templates"] = config["mesh"].pop("parts")
+        config["mesh"]["mode"] = "template"
+    path = tmp_path / "beach.toml"
+    path.write_text(tomli_w.dumps(config), encoding="utf-8")
+    loaded = load_config_for_output(tmp_path, config_path=path)
+    assert loaded["mesh"] == config["mesh"]
+    assert loaded["sim"]["dt"] == default_config()["sim"]["dt"]

@@ -45,7 +45,7 @@ beachx lint beach.toml
 | `sampling.weight` | `2e5` | 1 マクロ電子を実電子 200,000 個分として、場の変化を短い実行で見せる |
 | `source.pos_low` / `source.pos_high` | z = `0.8 m` の矩形 | 平面上方の広い領域から入射位置を標本化する |
 | `distribution.drift_velocity_m_s` | `[0, 0, -1e6] m/s` | 電子を平面へ向ける |
-| `mesh.templates` | 12 × 12 cells | 平面を 288 個の三角形要素へ分割する |
+| `mesh.parts` | 12 × 12 cells | 平面を 288 個の三角形要素へ分割する |
 | `output.history.stride_batches` / `output.history.potential` | `1` / `true` | 各 batch の電荷・電位分布を保存する |
 
 1 batch 内の全電子は、batch 開始時の同じ電場を使います。吸収電荷は batch 末尾に一度だけ

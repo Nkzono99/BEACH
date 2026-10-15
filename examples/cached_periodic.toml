@@ -20,10 +20,7 @@ periodic_axes = [
     "y",
 ]
 
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
+[[mesh.parts]]
 enabled = true
 kind = "plane"
 surface_model = "insulator"

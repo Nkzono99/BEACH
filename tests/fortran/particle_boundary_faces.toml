@@ -15,9 +15,8 @@ box_max = [
 periodic_axes = []
 
 [mesh]
-mode = "template"
 
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "plane"
 enabled = true
 surface_side = "normal_plus"

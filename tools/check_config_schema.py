@@ -31,7 +31,7 @@ TABLES = (
     ("speciesBoundaryInflow", "apply_species_boundary_inflow_toml_table"),
     ("mesh", "apply_mesh_toml_table"),
     ("meshGroup", "apply_mesh_group_toml_table"),
-    ("template", "apply_template_toml_table"),
+    ("meshPart", "apply_template_toml_table"),
     ("output", "apply_output_toml_table"),
 )
 

@@ -223,6 +223,8 @@ __marimo__/
 **/*.i90
 **/*.mod
 **/*.obj
+!examples/*.obj
+!plugins/beach-context/references/examples/*.obj
 
 outputs/
 .beach_cache/

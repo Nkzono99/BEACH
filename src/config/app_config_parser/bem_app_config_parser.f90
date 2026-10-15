@@ -3,7 +3,8 @@ module bem_app_config_parser
   use bem_kinds, only: dp, i32
   use bem_types, only: bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_app_config_types, only: &
-    app_config, particle_species_spec, template_spec, max_templates, max_particle_species, particle_bc_inherit, &
+    app_config, particle_species_spec, template_spec, mesh_part_config_path, &
+    max_templates, max_particle_species, particle_bc_inherit, &
     particle_inflow_reservoir, species_from_defaults, species_config_path
   use bem_physics_config_types, only: &
     field_physics_config, panel_kernel_config, normalize_legacy_physics_config, derive_field_panel_config, &
@@ -164,7 +165,8 @@ module bem_app_config_parser
       type(app_config_authoring), intent(inout) :: authoring
     end subroutine read_template_array
 
-    module subroutine apply_template_toml_table(spec, table, auth)
+    module subroutine apply_template_toml_table(spec, table, auth, part_idx)
+      integer, intent(in) :: part_idx
       type(template_spec), intent(inout) :: spec
       type(config_toml_table), intent(inout) :: table
       type(template_authoring_spec), intent(inout) :: auth
@@ -230,7 +232,7 @@ contains
   end function has_suffix
 
   !> TOML 文書を `toml-f` で解釈して設定へ反映する。
-  !! 現在は `sim` / `mesh` / `output` / `[[mesh.templates]]` / `[[particles.species]]` を扱う。
+  !! 現在は `sim` / `mesh` / `output` / `[[mesh.parts]]` / `[[particles.species]]` を扱う。
   !! @param[in] path 読み込むTOMLファイルパス。
   !! @param[inout] cfg 読み込み結果で更新するアプリ設定。
   subroutine load_toml_config(path, cfg)
@@ -241,16 +243,16 @@ contains
     type(toml_error), allocatable :: parse_error
     type(app_config_authoring) :: authoring
 
-    if (.not. allocated(cfg%templates)) then
-      allocate (cfg%templates(max_templates))
-      cfg%n_templates = 0_i32
+    if (.not. allocated(cfg%mesh_parts)) then
+      allocate (cfg%mesh_parts(max_templates))
+      cfg%n_mesh_parts = 0_i32
     end if
     if (.not. allocated(cfg%particle_species)) then
       allocate (cfg%particle_species(max_particle_species))
       cfg%particle_species = particle_species_spec()
       cfg%n_particle_species = 0_i32
     end if
-    call init_app_config_authoring(authoring, size(cfg%templates), size(cfg%particle_species))
+    call init_app_config_authoring(authoring, size(cfg%mesh_parts), size(cfg%particle_species))
 
     open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'Could not open TOML file.'
@@ -261,6 +263,7 @@ contains
     end if
     if (.not. allocated(document)) error stop 'Failed to parse TOML config.'
 
+    cfg%n_mesh_parts = 0_i32
     call normalize_config_layout(document)
     call apply_toml_document(cfg, document, authoring)
     call document%destroy
@@ -324,26 +327,12 @@ contains
   logical function config_uses_surface_model(cfg, surface_model) result(uses_surface_model)
     type(app_config), intent(in) :: cfg
     character(len=*), intent(in) :: surface_model
-    character(len=16) :: mode
-    logical :: has_obj
     integer :: i
 
     uses_surface_model = .false.
-    mode = trim(cfg%mesh_mode)
-    select case (mode)
-    case ('obj')
-      uses_surface_model = trim(cfg%mesh_surface_model) == surface_model
-      return
-    case ('auto')
-      inquire (file=trim(cfg%obj_path), exist=has_obj)
-      if (has_obj) then
-        uses_surface_model = trim(cfg%mesh_surface_model) == surface_model
-        return
-      end if
-    end select
-    do i = 1, cfg%n_templates
-      if (.not. cfg%templates(i)%enabled) cycle
-      if (trim(cfg%templates(i)%surface_model) == surface_model) then
+    do i = 1, cfg%n_mesh_parts
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
+      if (trim(cfg%mesh_parts(i)%surface_model) == surface_model) then
         uses_surface_model = .true.
         return
       end if

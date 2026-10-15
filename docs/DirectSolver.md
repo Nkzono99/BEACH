@@ -50,7 +50,7 @@ $$
 $$
 
 となります。この符号を決めるため、各要素に`normal_plus`または`normal_minus`のvacuum sideが必要です。
-OBJ入力では`mesh.obj.surface_side`、templateでは各`[[mesh.templates]].surface_side`で指定します。
+各要素の `mesh.parts[i].surface_side` で指定します。
 `outward_closed`は、向きが整合した閉じたtwo-manifoldにだけ使用できます。
 
 現行要件は次のとおりです。

@@ -102,9 +102,8 @@ beach.toml
 │   └── [run.restart]
 ├── [domain]
 ├── [mesh]
-│   ├── [mesh.obj]
 │   ├── [mesh.groups.<name>]
-│   └── [[mesh.templates]]
+│   └── [[mesh.parts]]
 ├── [particles]
 │   ├── [particles.tracking]
 │   │   └── [particles.tracking.events]
@@ -146,10 +145,9 @@ beach.toml
 | `[run.batch.adaptive]` | `[run.batch]` | optional; `cached_kneq0` only | Nonzero-mode potential-change limit |
 | `[run.restart]` | `[run]` | present for restart | Checkpoint input source |
 | `[domain]` | root | with a box | Box geometry and periodic axes |
-| `[mesh]` | root | optional | Selection of OBJ or built-in templates |
-| `[mesh.obj]` | `[mesh]` | with OBJ input | OBJ file, surface, and placement |
+| `[mesh]` | root | optional | Ordered OBJ and template parts |
 | `[mesh.groups.<name>]` | `[mesh]` | zero or more | Placement and scale shared by templates |
-| `[[mesh.templates]]` | `[mesh]` | zero or more | Built-in shapes for `mesh.mode="template"` |
+| `[[mesh.parts]]` | `[mesh]` | zero or more | OBJ or built-in shapes |
 | `[particles]` | root | required | Species, tracking, boundaries, SEE generation control |
 | `[particles.tracking]` | `[particles]` | optional | Particle time step and tracking limit |
 | `[particles.tracking.events]` | `[particles.tracking]` | optional | Boundary-event retries and discards |
@@ -256,43 +254,17 @@ With `fields.boundary="periodic2"`, `periodic_axes=["x","y"]` is required.
 
 ### `[mesh]`
 
+`parts` is an array of zero or more tables. OBJ and procedural templates can be mixed in list order.
+`groups` defines shared placement and scale for template kinds only.
+Enabled parts receive consecutive `mesh_id` values starting at 1. Disabled parts consume no ID.
+All triangles from one OBJ part share its ID, even when the file contains disconnected objects.
+Each ID with `surface_model="conductor"` defines one floating conductor group; use separate parts for independent conductors.
+A configuration with no enabled parts cannot construct a mesh.
+
 | Key | Type | Default | Description / conditions |
 |---|---|---:|---|
-| `mode` | string | `"template"` | `auto` / `obj` / `template` |
-
-#### `[mesh.obj]`
-
-| Key | Type | Default | Description / conditions |
-|---|---|---:|---|
-| `path` | string | `"examples/simple_plate.obj"` | OBJ file path |
-| `surface_model` | string | `"insulator"` | Surface model for the whole OBJ |
-| `surface_side` | string | required with `mode="obj"` or `"auto"` | Vacuum side of OBJ panels: `normal_plus` / `normal_minus` / `outward_closed` |
-| `scale` | float | `1.0` | Uniform scale after loading the OBJ |
-| `rotation` | float[3] | `[0,0,0]` | Rotation angle after loading the OBJ [deg] |
-| `offset` | float[3] | `[0,0,0]` | Translation after loading the OBJ [m] |
-
-With `mode="auto"`, an OBJ is used if `mesh.obj.path` exists; otherwise a template is
-used. `surface_side` is still required so either branch has a complete OBJ
-contract. The OBJ transformation order is `scale -> rotate -> offset`.
-
-```text
-v_new = R(mesh.obj.rotation) * (v_old * mesh.obj.scale) + mesh.obj.offset
-```
-
-For OBJ input, the whole file is read as `mesh_id=1`. Even if one OBJ contains
-separate `conductor` parts, they are treated as the same floating conductor. To
-treat them as independent conductors, split `mesh_id` values with template input
-or another method.
-
-Supported OBJ input:
-
-| Item | Supported |
-|---|---|
-| Newlines | LF / CRLF |
-| Face lines | `f v`, `f v/vt`, `f v/vt/vn`, `f v//vn` |
-| Polygons | Quadrilaterals and larger polygons are fan-triangulated |
-
----
+| `parts` | array of tables | `[]` | Ordered OBJ and template parts |
+| `groups` | named tables | none | Shared template origin and scale |
 
 #### `[mesh.groups.<name>]`
 
@@ -306,12 +278,12 @@ Supported OBJ input:
 | `scale_from` | string | unspecified | Box-size reference; specify together with `scale_factor` |
 | `scale_factor` | float | unspecified | Positive multiplier for `scale_from`. `>0` |
 
-#### `[[mesh.templates]]`
+#### `[[mesh.parts]]`
 
 | Key | Type | Default | Description / conditions |
 |---|---|---:|---|
-| `enabled` | bool | `true` | Enable the template |
-| `kind` | string | `"plane"` | `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
+| `enabled` | bool | `true` | Enable this part |
+| `kind` | string | `"plane"` | `obj` / `plane` / `plate_hole` / `plane_hole` / `disk` / `annulus` / `box` / `cylinder` / `sphere` |
 | `surface_model` | string | `"insulator"` | `insulator` / `conductor` |
 | `surface_side` | string | required when `enabled=true` | Vacuum side of the panel: `normal_plus` / `normal_minus` / `outward_closed` |
 | `center` | float[3] | `[0,0,0]` | Shape center [m] |
@@ -324,14 +296,15 @@ Supported OBJ input:
 | `group` | string | unspecified | Name in `[mesh.groups.<name>]`; nonempty |
 | `center_local` | float[3] | unspecified | Required with `group`; `center=group_origin+group_scale*center_local` |
 
-When `[[mesh.templates]]` entries are written, the number of templates actually
-used is determined by the number of definitions. Disabled templates are not added
-to the mesh and do not consume a `mesh_id`.
+Common keys are `kind`, `enabled`, `surface_model`, and `surface_side`. Keys from `center` through `center_local` in the table are template-only except for `offset`.
+Preflight rejects geometry, group, and placement keys on `obj`, and `path` / `scale` / `rotation` on template kinds.
+For OBJ, `offset` means translation; for templates it retains its anchored-placement meaning.
 
-Overview of `kind`:
+Kind overview:
 
 | `kind` | Generated shape | Reference plane / axis |
 |---|---|---|
+| `obj` | Imported OBJ triangles | Per-part scale, rotation, and offset |
 | `plane` | Rectangular plane | XY plane, `z=center[3]` |
 | `plate_hole`, `plane_hole` | Rectangular plane with a circular center hole | XY plane, hole center is `center` |
 | `disk` | Disk | XY plane, center is `center` |
@@ -339,6 +312,19 @@ Overview of `kind`:
 | `box` | Closed rectangular-box surface | Six faces parallel to the axes |
 | `cylinder` | Cylinder side surface and optional top/bottom caps | z-axis direction |
 | `sphere` | Sphere surface | Center is `center` |
+
+##### `kind = "obj"`
+
+| Key | Type | Default | Description / conditions |
+|---|---|---:|---|
+| `path` | string | required | OBJ path; relative paths resolve from the current working directory |
+| `scale` | float | `1.0` | Uniform scale |
+| `rotation` | float[3] | `[0,0,0]` | Extrinsic x, then y, then z rotation [deg] |
+| `offset` | float[3] | `[0,0,0]` | Translation [m] |
+
+The transform is `v_new = R(rotation) * (v_old * scale) + offset` and applies only to this part.
+The importer accepts LF / CRLF, `f v`, `f v/vt`, `f v/vt/vn`, and `f v//vn`; polygons are fan-triangulated.
+See [`examples/mixed_parts.toml`](../examples/mixed_parts.toml) for a plane with a conductor tetrahedron OBJ.
 
 ##### `kind = "plane"`
 
@@ -807,7 +793,7 @@ Direct `fields.external.electric_v_m` input is mutually exclusive with the `fiel
 | Surface models | Common source discretization for `insulator` and `conductor` |
 | Treecode | exact panel near + monopole far |
 | FMM | exact panel near + exact triangle P2M |
-| Surface side | `mesh.obj.surface_side` for OBJ; `surface_side` on every enabled template |
+| Surface side | `mesh.parts[i].surface_side` on every enabled part |
 
 Use `outward_closed` only for consistently oriented, closed two-manifold components.
 
@@ -928,7 +914,7 @@ These settings diagnose charge changes. The run ends at `run.batch_count`; chang
 
 ## Coordinate and Placement Helper Parameters
 
-The placement keys in `domain`, `particles.species.source`, `[mesh.groups.<name>]`, and `[[mesh.templates]]` convert box-relative values to physical coordinates and dimensions. Types and defaults are listed with each table above.
+The placement keys in `domain`, `particles.species.source`, `[mesh.groups.<name>]`, and `[[mesh.parts]]` convert box-relative values to physical coordinates and dimensions. Types and defaults are listed with each table above.
 
 With `group`, a template cannot also use `center`, direct-placement keys, `size_mode`, or `size_frac`.
 

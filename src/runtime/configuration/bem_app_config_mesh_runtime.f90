@@ -7,77 +7,39 @@ module bem_app_config_mesh_runtime
   use bem_mesh, only: init_mesh
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_importers, only: load_obj_mesh
-  use bem_app_config_types, only: app_config, template_spec
+  use bem_app_config_types, only: app_config, template_spec, mesh_part_config_path
   use bem_string_utils, only: lower_ascii
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
 
 contains
 
-  !> `mesh_mode` と OBJ ファイル有無に応じてメッシュ生成方法を選ぶ。
-  !! @param[in] cfg メッシュ入力設定を含むアプリ設定。
-  !! @param[out] mesh 構築した三角形メッシュ。
+  !> 有効な OBJ と template をリスト順に連結する。
   subroutine build_mesh_from_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
-    logical :: has_obj, loaded_obj, need_transform
 
-    loaded_obj = .false.
-    select case (trim(lower_ascii(cfg%mesh_mode)))
-    case ('obj')
-      call load_obj_mesh(trim(cfg%obj_path), mesh)
-      call apply_uniform_surface_model(mesh, surface_model_id_from_name(cfg%mesh_surface_model))
-      call apply_uniform_epsilon_r(mesh, cfg%mesh_epsilon_r)
-      loaded_obj = .true.
-    case ('template')
-      call build_template_mesh(cfg, mesh)
-    case default
-      inquire (file=trim(cfg%obj_path), exist=has_obj)
-      if (has_obj) then
-        call load_obj_mesh(trim(cfg%obj_path), mesh)
-        call apply_uniform_surface_model(mesh, surface_model_id_from_name(cfg%mesh_surface_model))
-        call apply_uniform_epsilon_r(mesh, cfg%mesh_epsilon_r)
-        loaded_obj = .true.
-      else
-        call build_template_mesh(cfg, mesh)
-      end if
-    end select
-
-    if (loaded_obj) then
-      need_transform = (cfg%obj_scale /= 1.0d0) .or. &
-                       any(cfg%obj_rotation /= 0.0d0) .or. &
-                       any(cfg%obj_offset /= 0.0d0)
-      if (need_transform) then
-        call apply_obj_transform(mesh, cfg%obj_scale, cfg%obj_rotation, cfg%obj_offset)
-      end if
-    end if
-    call apply_panel_surface_config(cfg, mesh, loaded_obj)
+    call build_parts_mesh(cfg, mesh)
+    call apply_panel_surface_config(cfg, mesh)
   end subroutine build_mesh_from_config
 
-  subroutine apply_panel_surface_config(cfg, mesh, loaded_obj)
+  subroutine apply_panel_surface_config(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(inout) :: mesh
-    logical, intent(in) :: loaded_obj
     integer(i32) :: i, mesh_id, status
     character(len=256) :: message
 
     if (any(mesh%panel_area <= 0.0_dp)) then
       error stop 'triangle_p0 requires finite, non-degenerate triangles.'
     end if
-    if (loaded_obj) then
-      call resolve_panel_surface_sides(mesh, cfg%mesh_surface_side_policy, status, message)
-      if (status /= panel_surface_side_ok) error stop 'mesh.obj.surface_side: '//trim(message)
-    else
-      mesh_id = 0_i32
-      do i = 1, cfg%n_templates
-        if (.not. cfg%templates(i)%enabled) cycle
-        mesh_id = mesh_id + 1_i32
-        call resolve_panel_surface_sides( &
-          mesh, cfg%templates(i)%surface_side_policy, status, message, mesh_id=mesh_id &
-          )
-        if (status /= panel_surface_side_ok) error stop 'mesh.templates.surface_side: '//trim(message)
-      end do
-    end if
+    mesh_id = 0_i32
+    do i = 1, cfg%n_mesh_parts
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
+      mesh_id = mesh_id + 1_i32
+      call resolve_panel_surface_sides( &
+        mesh, cfg%mesh_parts(i)%surface_side_policy, status, message, mesh_id=mesh_id &
+        )
+      if (status /= panel_surface_side_ok) error stop mesh_part_config_path(int(i))//'.surface_side: '//trim(message)
+    end do
     if (any(abs(mesh%elem_vacuum_sign) /= 1_i32)) then
       error stop 'triangle_p0 requires a resolved vacuum side for every element.'
     end if
@@ -151,29 +113,10 @@ contains
     end if
   end subroutine apply_obj_transform
 
-  !> 全要素に同じ表面モデルIDを付与する。
-  subroutine apply_uniform_surface_model(mesh, surface_model_id)
-    type(mesh_type), intent(inout) :: mesh
-    integer(i32), intent(in) :: surface_model_id
-
-    if (.not. allocated(mesh%elem_surface_model)) return
-    mesh%elem_surface_model = surface_model_id
-  end subroutine apply_uniform_surface_model
-
-  !> 全要素に同じ相対誘電率を付与する。
-  subroutine apply_uniform_epsilon_r(mesh, epsilon_r)
-    type(mesh_type), intent(inout) :: mesh
-    real(dp), intent(in) :: epsilon_r
-
-    if (.not. ieee_is_finite(epsilon_r) .or. epsilon_r < 1.0d0) error stop 'epsilon_r must be finite and >= 1.'
-    if (.not. allocated(mesh%elem_epsilon_r)) return
-    mesh%elem_epsilon_r = epsilon_r
-  end subroutine apply_uniform_epsilon_r
-
-  !> 有効なテンプレートを連結し、1つのメッシュへまとめる。
-  !! @param[in] cfg テンプレート設定を含むアプリ設定。
+  !> 有効な OBJ と template を連結し、1つのメッシュへまとめる。
+  !! @param[in] cfg parts 設定を含むアプリ設定。
   !! @param[out] mesh 連結後の三角形メッシュ。
-  subroutine build_template_mesh(cfg, mesh)
+  subroutine build_parts_mesh(cfg, mesh)
     type(app_config), intent(in) :: cfg
     type(mesh_type), intent(out) :: mesh
     type(mesh_type) :: part
@@ -185,16 +128,15 @@ contains
 
     allocate (v0(3, 0), v1(3, 0), v2(3, 0), elem_mesh_id(0), elem_surface_model(0), elem_epsilon_r(0))
     mesh_id = 0_i32
-    if (.not. allocated(cfg%templates)) then
-      error stop 'Template storage is not allocated in configuration.'
-    end if
-    if (cfg%n_templates > int(size(cfg%templates), i32)) then
-      error stop 'Template count exceeds allocated storage.'
-    end if
-    do i = 1, cfg%n_templates
-      if (.not. cfg%templates(i)%enabled) cycle
+    do i = 1, cfg%n_mesh_parts
+      if (.not. cfg%mesh_parts(i)%enabled) cycle
       mesh_id = mesh_id + 1_i32
-      call build_one_template(cfg%templates(i), part)
+      if (trim(cfg%mesh_parts(i)%kind) == 'obj') then
+        call load_obj_mesh(trim(cfg%mesh_parts(i)%path), part)
+        call apply_obj_transform(part, cfg%mesh_parts(i)%scale, cfg%mesh_parts(i)%rotation, cfg%mesh_parts(i)%offset)
+      else
+        call build_one_template(cfg%mesh_parts(i), part)
+      end if
       call append_triangles(v0, v1, v2, part%v0, part%v1, part%v2)
       if (allocated(part_mesh_id)) deallocate (part_mesh_id)
       allocate (part_mesh_id(part%nelem))
@@ -202,22 +144,22 @@ contains
       call append_mesh_ids(elem_mesh_id, part_mesh_id)
       if (allocated(part_surface_model)) deallocate (part_surface_model)
       allocate (part_surface_model(part%nelem))
-      part_surface_model = surface_model_id_from_name(cfg%templates(i)%surface_model)
+      part_surface_model = surface_model_id_from_name(cfg%mesh_parts(i)%surface_model)
       call append_mesh_ids(elem_surface_model, part_surface_model)
       if (allocated(part_epsilon_r)) deallocate (part_epsilon_r)
       allocate (part_epsilon_r(part%nelem))
-      part_epsilon_r = cfg%templates(i)%epsilon_r
+      part_epsilon_r = cfg%mesh_parts(i)%epsilon_r
       call append_real_values(elem_epsilon_r, part_epsilon_r)
     end do
 
     if (size(v0, 2) == 0) then
-      error stop 'No enabled template found in configuration.'
+      error stop 'No enabled mesh.parts found in configuration.'
     end if
     call init_mesh( &
       mesh, v0, v1, v2, elem_mesh_id0=elem_mesh_id, elem_surface_model0=elem_surface_model, &
       elem_epsilon_r0=elem_epsilon_r &
       )
-  end subroutine build_template_mesh
+  end subroutine build_parts_mesh
 
   !> テンプレート種別に応じて形状生成ルーチンへディスパッチする。
   !! @param[in] spec 1テンプレート分の形状設定。

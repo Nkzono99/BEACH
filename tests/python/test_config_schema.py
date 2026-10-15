@@ -151,21 +151,12 @@ def test_schema_checks_zhao_closure_and_refresh_keys():
     assert schema_errors(no_photo, schema)
 
 
-def test_schema_requires_surface_side_only_for_enabled_templates():
+def test_schema_requires_kind_and_describes_all_part_key_types():
     schema, _ = load_schema()
     config = _example('beach.toml')
-    config['mesh']['templates'].append({'enabled': False})
-    assert schema_errors(config, schema) == []
-    config['mesh']['templates'][-1]['enabled'] = True
+    config['mesh']['parts'].append({'enabled': False})
     assert schema_errors(config, schema)
-
-
-def test_schema_requires_obj_surface_side_for_explicit_auto_or_obj_mode():
-    schema, _ = load_schema()
-    config = _example('tutorial_insulator.toml')
-    for mode in ('auto', 'obj'):
-        config['mesh']['mode'] = mode
-        assert schema_errors(config, schema)
-        config['mesh']['obj'] = {'surface_side': 'normal_plus'}
-        assert schema_errors(config, schema) == []
-        del config['mesh']['obj']
+    config['mesh']['parts'][-1]['kind'] = 'obj'
+    assert schema_errors(config, schema) == []
+    config['mesh']['parts'][-1]['rotation'] = [0, 1]
+    assert schema_errors(config, schema)

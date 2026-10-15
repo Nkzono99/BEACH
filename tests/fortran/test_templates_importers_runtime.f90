@@ -1,7 +1,7 @@
 !> テンプレート生成・OBJ取込・app_config実行時変換の連携を検証するテスト。
 program test_templates_importers_runtime
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor
+  use bem_types, only: mesh_type, particles_soa, injection_state, surface_model_conductor, surface_model_insulator
   use bem_templates, only: make_plane, make_plate_hole, make_disk, make_annulus, make_box, make_cylinder, make_sphere
   use bem_mesh, only: init_mesh
   use bem_importers, only: load_obj_mesh
@@ -110,13 +110,14 @@ program test_templates_importers_runtime
   call test_begin('obj_transform')
   call write_obj_fixture(obj_path)
   call default_app_config(cfg)
-  cfg%mesh_mode = 'obj'
-  cfg%obj_path = obj_path
-  cfg%mesh_surface_side_policy = 'normal_plus'
-  cfg%mesh_surface_model = 'conductor'
-  cfg%obj_scale = 2.0d0
-  cfg%obj_offset = [10.0d0, 0.0d0, 0.0d0]
-  cfg%obj_rotation = [90.0d0, 0.0d0, 90.0d0]
+
+  cfg%mesh_parts(1)%kind = 'obj'
+  cfg%mesh_parts(1)%path = obj_path
+  cfg%mesh_parts(1)%surface_side_policy = 'normal_plus'
+  cfg%mesh_parts(1)%surface_model = 'conductor'
+  cfg%mesh_parts(1)%scale = 2.0d0
+  cfg%mesh_parts(1)%offset = [10.0d0, 0.0d0, 0.0d0]
+  cfg%mesh_parts(1)%rotation = [90.0d0, 0.0d0, 90.0d0]
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32(mesh%nelem, 3_i32, 'transform should preserve element count')
   call assert_allclose_1d(mesh%v0(:, 1), [10.0_dp, 0.0_dp, 0.0_dp], 1.0e-10_dp, 'transformed v0 mismatch')
@@ -127,35 +128,47 @@ program test_templates_importers_runtime
   call assert_true(all(mesh%elem_vacuum_sign == 1_i32), 'OBJ normal_plus surface side mismatch')
   call test_end()
 
-  call test_begin('mesh_mode_auto')
-  call delete_file_if_exists(missing_obj_path)
+  call test_begin('mixed_parts_order_transforms_and_surfaces')
   call default_app_config(cfg)
-  cfg%mesh_mode = 'auto'
-  cfg%obj_path = missing_obj_path
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'plane'
-  cfg%templates(1)%nx = 1_i32
-  cfg%templates(1)%ny = 1_i32
-  cfg%templates(1)%size_x = 1.0d0
-  cfg%templates(1)%size_y = 1.0d0
-  cfg%templates(1)%center = [0.0d0, 0.0d0, 0.1d0]
+  cfg%n_mesh_parts = 4_i32
+  cfg%mesh_parts(1)%kind = 'plane'
+  cfg%mesh_parts(1)%center = [0.0_dp, 0.0_dp, -1.0_dp]
+  cfg%mesh_parts(1)%surface_side_policy = 'normal_minus'
+  cfg%mesh_parts(2)%enabled = .false.
+  cfg%mesh_parts(2)%kind = 'obj'
+  cfg%mesh_parts(2)%path = missing_obj_path
+  cfg%mesh_parts(3)%enabled = .true.
+  cfg%mesh_parts(3)%kind = 'obj'
+  cfg%mesh_parts(3)%path = obj_path
+  cfg%mesh_parts(3)%surface_model = 'conductor'
+  cfg%mesh_parts(3)%surface_side_policy = 'normal_plus'
+  cfg%mesh_parts(3)%scale = 2.0_dp
+  cfg%mesh_parts(3)%rotation = [90.0_dp, 0.0_dp, 90.0_dp]
+  cfg%mesh_parts(3)%offset = [10.0_dp, 0.0_dp, 0.0_dp]
+  cfg%mesh_parts(4)%enabled = .true.
+  cfg%mesh_parts(4)%kind = 'plane'
+  cfg%mesh_parts(4)%center = [0.0_dp, 0.0_dp, 3.0_dp]
+  cfg%mesh_parts(4)%surface_side_policy = 'normal_plus'
   call build_mesh_from_config(cfg, mesh)
-  call assert_equal_i32(mesh%nelem, 2_i32, 'mesh_mode=auto should fallback to template mesh')
-  call assert_true(all(mesh%elem_mesh_id == 1_i32), 'auto fallback template mesh_id mismatch')
-  call assert_true( &
-    all(abs(mesh%v0(3, :) - 0.1_dp) < 1.0e-15_dp) .and. &
-    all(abs(mesh%v1(3, :) - 0.1_dp) < 1.0e-15_dp) .and. &
-    all(abs(mesh%v2(3, :) - 0.1_dp) < 1.0e-15_dp), &
-    'auto fallback must use the configured template center' &
-    )
+  call assert_equal_i32(mesh%nelem, 7_i32, 'two planes plus OBJ')
+  call assert_true(all(mesh%elem_mesh_id == [1_i32, 1_i32, 2_i32, 2_i32, 2_i32, 3_i32, 3_i32]), &
+                   'enabled parts consume mesh_id in list order')
+  call assert_allclose_1d(mesh%v0(:, 1), [-0.5_dp, -0.5_dp, -1.0_dp], 1.0e-12_dp, 'first plane unchanged')
+  call assert_allclose_1d(mesh%v2(:, 3), [10.0_dp, 2.0_dp, 2.0_dp], 1.0e-12_dp, 'OBJ transform only')
+  call assert_allclose_1d(mesh%v0(:, 6), [-0.5_dp, -0.5_dp, 3.0_dp], 1.0e-12_dp, 'last plane unchanged')
+  call assert_true(all(mesh%elem_surface_model(3:5) == surface_model_conductor), 'OBJ conductor group')
+  call assert_true(all(mesh%elem_surface_model([1, 2, 6, 7]) == surface_model_insulator), 'template insulators')
+  call assert_true(all(mesh%elem_vacuum_sign(1:2) == -1_i32), 'first part side preserved')
+  call assert_true(all(mesh%elem_vacuum_sign(3:7) == 1_i32), 'later part sides')
+  call assert_true(all(mesh%elem_epsilon_r == 1.0_dp), 'part epsilon defaults')
   call test_end()
 
   call test_begin('triangle_panel_surface_side_runtime')
   call default_app_config(cfg)
-  cfg%mesh_mode = 'template'
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'plane'
-  cfg%templates(1)%surface_side_policy = 'normal_minus'
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'plane'
+  cfg%mesh_parts(1)%surface_side_policy = 'normal_minus'
   call build_mesh_from_config(cfg, mesh)
   call assert_true(all(mesh%elem_vacuum_sign == -1_i32), 'template vacuum side mismatch')
   call assert_true(all(abs(mesh%vacuum_normals + mesh%normals) < 1.0e-15_dp), 'template vacuum normal mismatch')
@@ -163,18 +176,18 @@ program test_templates_importers_runtime
 
   call test_begin('triangle_panel_surface_side_preserves_prior_templates')
   call default_app_config(cfg)
-  cfg%mesh_mode = 'template'
-  cfg%n_templates = 2_i32
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'plane'
-  cfg%templates(1)%surface_side_policy = 'normal_plus'
-  cfg%templates(2)%enabled = .true.
-  cfg%templates(2)%kind = 'sphere'
-  cfg%templates(2)%surface_side_policy = 'outward_closed'
-  cfg%templates(2)%radius = 0.2_dp
-  cfg%templates(2)%center = [0.0_dp, 0.0_dp, 1.0_dp]
-  cfg%templates(2)%n_lon = 8_i32
-  cfg%templates(2)%n_lat = 4_i32
+
+  cfg%n_mesh_parts = 2_i32
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'plane'
+  cfg%mesh_parts(1)%surface_side_policy = 'normal_plus'
+  cfg%mesh_parts(2)%enabled = .true.
+  cfg%mesh_parts(2)%kind = 'sphere'
+  cfg%mesh_parts(2)%surface_side_policy = 'outward_closed'
+  cfg%mesh_parts(2)%radius = 0.2_dp
+  cfg%mesh_parts(2)%center = [0.0_dp, 0.0_dp, 1.0_dp]
+  cfg%mesh_parts(2)%n_lon = 8_i32
+  cfg%mesh_parts(2)%n_lat = 4_i32
   call build_mesh_from_config(cfg, mesh)
   call assert_equal_i32( &
     int(count(mesh%elem_mesh_id == 1_i32), i32), 2_i32, &
@@ -194,7 +207,7 @@ program test_templates_importers_runtime
     'later template must preserve the first template vacuum normals' &
     )
   outward_dot = sum( &
-                mesh%vacuum_normals*(mesh%centers - spread(cfg%templates(2)%center, 2, mesh%nelem)), dim=1 &
+                mesh%vacuum_normals*(mesh%centers - spread(cfg%mesh_parts(2)%center, 2, mesh%nelem)), dim=1 &
                 )
   call assert_true( &
     all(mesh%elem_mesh_id /= 2_i32 .or. outward_dot > 0.0_dp), &
@@ -202,45 +215,45 @@ program test_templates_importers_runtime
     )
   call test_end()
 
-  call test_begin('mesh_mode_template')
+  call test_begin('template_parts')
   call default_app_config(cfg)
-  cfg%mesh_mode = 'template'
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'plate_hole'
-  cfg%templates(1)%surface_model = 'conductor'
-  cfg%templates(1)%size_x = 1.0d0
-  cfg%templates(1)%size_y = 1.0d0
-  cfg%templates(1)%radius = 0.2d0
-  cfg%templates(1)%n_theta = 12_i32
-  cfg%templates(1)%n_r = 1_i32
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'plate_hole'
+  cfg%mesh_parts(1)%surface_model = 'conductor'
+  cfg%mesh_parts(1)%size_x = 1.0d0
+  cfg%mesh_parts(1)%size_y = 1.0d0
+  cfg%mesh_parts(1)%radius = 0.2d0
+  cfg%mesh_parts(1)%n_theta = 12_i32
+  cfg%mesh_parts(1)%n_r = 1_i32
   call build_mesh_from_config(cfg, mesh)
-  call assert_equal_i32(mesh%nelem, 28_i32, 'mesh_mode=template plate_hole element count mismatch')
+  call assert_equal_i32(mesh%nelem, 28_i32, 'template parts plate_hole element count mismatch')
   call assert_true(all(mesh%elem_surface_model == surface_model_conductor), 'template surface_model mismatch')
 
   call default_app_config(cfg)
-  cfg%mesh_mode = 'template'
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'annulus'
-  cfg%templates(1)%radius = 0.5d0
-  cfg%templates(1)%inner_radius = 0.1d0
-  cfg%templates(1)%n_theta = 8_i32
-  cfg%templates(1)%n_r = 1_i32
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'annulus'
+  cfg%mesh_parts(1)%radius = 0.5d0
+  cfg%mesh_parts(1)%inner_radius = 0.1d0
+  cfg%mesh_parts(1)%n_theta = 8_i32
+  cfg%mesh_parts(1)%n_r = 1_i32
   call build_mesh_from_config(cfg, mesh)
-  call assert_equal_i32(mesh%nelem, 16_i32, 'mesh_mode=template annulus element count mismatch')
+  call assert_equal_i32(mesh%nelem, 16_i32, 'template parts annulus element count mismatch')
 
   call default_app_config(cfg)
-  cfg%mesh_mode = 'template'
-  cfg%templates(1)%enabled = .true.
-  cfg%templates(1)%kind = 'cylinder'
-  cfg%templates(1)%n_theta = 8_i32
-  cfg%templates(1)%n_z = 1_i32
-  cfg%templates(1)%cap = .false.
-  cfg%templates(1)%cap_top = .true.
-  cfg%templates(1)%has_cap_top = .true.
-  cfg%templates(1)%cap_bottom = .false.
-  cfg%templates(1)%has_cap_bottom = .true.
+
+  cfg%mesh_parts(1)%enabled = .true.
+  cfg%mesh_parts(1)%kind = 'cylinder'
+  cfg%mesh_parts(1)%n_theta = 8_i32
+  cfg%mesh_parts(1)%n_z = 1_i32
+  cfg%mesh_parts(1)%cap = .false.
+  cfg%mesh_parts(1)%cap_top = .true.
+  cfg%mesh_parts(1)%has_cap_top = .true.
+  cfg%mesh_parts(1)%cap_bottom = .false.
+  cfg%mesh_parts(1)%has_cap_bottom = .true.
   call build_mesh_from_config(cfg, mesh)
-  call assert_equal_i32(mesh%nelem, 24_i32, 'mesh_mode=template cylinder cap_top/cap_bottom mismatch')
+  call assert_equal_i32(mesh%nelem, 24_i32, 'template parts cylinder cap_top/cap_bottom mismatch')
   call test_end()
 
   call test_begin('photo_batch')

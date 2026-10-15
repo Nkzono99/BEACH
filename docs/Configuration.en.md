@@ -19,6 +19,8 @@ For SEE, start with [`zero_current_secondary.toml`](../examples/zero_current_sec
 Add emission settings to the incident species and a `source.mode="secondary_emission"` target;
 see [Secondary electron emission](SecondaryElectronEmission.en.html) for constraints.
 
+Define each surface in `[[mesh.parts]]` using a required `kind`; OBJ and templates may be mixed. Group placement applies to template kinds only.
+
 ## 1. Basic Flow
 
 ```bash

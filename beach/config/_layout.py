@@ -76,13 +76,7 @@ PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'particle_boundary.z_high': 'particles.boundary.z_high',
  'reservoir.inflow_model': 'particles.reservoir.inflow_model',
  'reservoir.phi_infty': 'particles.reservoir.phi_infty_v',
- 'reservoir.face_potential_grid_n': 'particles.reservoir.face_potential_grid_n',
- 'mesh.obj_path': 'mesh.obj.path',
- 'mesh.obj_scale': 'mesh.obj.scale',
- 'mesh.obj_rotation': 'mesh.obj.rotation',
- 'mesh.obj_offset': 'mesh.obj.offset',
- 'mesh.surface_model': 'mesh.obj.surface_model',
- 'mesh.surface_side': 'mesh.obj.surface_side'}
+ 'reservoir.face_potential_grid_n': 'particles.reservoir.face_potential_grid_n'}
 
 SPECIES_PATHS = {'species_key': 'species_key',
  'enabled': 'enabled',
@@ -126,8 +120,7 @@ SPECIES_PATHS.update({f'secondary_emission_{key}': f'surface_interaction.seconda
                       for key in SECONDARY_EMISSION_RULES})
 
 TOP_LEVEL_ORDER = ("run", "domain", "mesh", "particles", "fields", "sheath", "output")
-PRESERVED = {"domain": "domain", "mesh.mode": "mesh.mode",
-             "mesh.groups": "mesh.groups", "mesh.templates": "mesh.templates"}
+PRESERVED = {"domain": "domain", "mesh.groups": "mesh.groups", "mesh.parts": "mesh.parts"}
 CHOICES = {
     "sheath.closure": {"none": "none", "zero_current": "zhao_stationary"},
 }
@@ -153,6 +146,8 @@ def is_grouped(config: Mapping[str, Any]) -> bool:
     """Recognize a grouped document, including partial boundary-only documents."""
     def has(table, keys):
         return isinstance(table, Mapping) and bool({str(k).lower() for k in table} & keys)
+    if has(config, {"sim", "field_boundary", "particle_boundary", "surface_current_model", "periodic2"}):
+        return False
     if has(config, {"run", "fields", "sheath"}):
         return True
     lowered = {str(k).lower(): v for k, v in config.items()}
@@ -164,7 +159,7 @@ def is_grouped(config: Mapping[str, Any]) -> bool:
         if isinstance(species, list) and any(has(item, {"charge_c", "mass_kg", "distribution",
                 "source", "sampling", "inflow", "charging", "surface_interaction"}) for item in species):
             return True
-    return has(lowered.get("mesh"), {"obj"}) or has(lowered.get("output"),
+    return "mesh" in lowered or has(lowered.get("output"),
             {"enabled", "history", "final", "checkpoint", "diagnostics"})
 
 

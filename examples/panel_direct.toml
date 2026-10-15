@@ -4,10 +4,7 @@
 [run]
 batch_count = 1
 
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
+[[mesh.parts]]
 enabled = true
 kind = "plane"
 surface_model = "insulator"

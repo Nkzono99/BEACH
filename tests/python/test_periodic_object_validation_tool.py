@@ -281,8 +281,7 @@ drift_velocity = [0.0, 0.0, -4.0e5]
 z_high = "reservoir"
 
 [mesh]
-mode = "template"
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "sphere"
 enabled = true
 radius = 3.5e-05
@@ -646,7 +645,7 @@ def test_stage_writes_explicit_finite_periodic_image_layer_to_every_case(
         ),
         (
             "input/full/finite_configured.toml",
-            lambda data: data["mesh"]["templates"][0].__setitem__("radius", 9.0e-5),
+            lambda data: data["mesh"]["parts"][0].__setitem__("radius", 9.0e-5),
         ),
     ],
 )

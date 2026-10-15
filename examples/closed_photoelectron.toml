@@ -24,10 +24,7 @@ periodic_axes = [
     "y",
 ]
 
-[mesh]
-mode = "template"
-
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "plane"
 enabled = true
 surface_model = "insulator"
@@ -42,7 +39,7 @@ center = [
     2e-06,
 ]
 
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "sphere"
 enabled = true
 surface_model = "insulator"

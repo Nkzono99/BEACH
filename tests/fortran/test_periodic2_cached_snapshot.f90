@@ -276,7 +276,6 @@ contains
     adaptive_mesh%vacuum_normals = adaptive_mesh%normals
 
     call default_app_config(adaptive_cfg)
-    adaptive_cfg%mesh_mode = 'obj'
     adaptive_cfg%sim = sim
     adaptive_cfg%sim%rng_seed = 1207_i32
     adaptive_cfg%sim%batch_count = 1_i32

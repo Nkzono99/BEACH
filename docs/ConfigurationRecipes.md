@@ -35,12 +35,13 @@ beachx lint case.toml
 
 ## 2. 形状を選ぶ
 
-簡単な形状は `mode="template"` の組み込み形状を使います。実測形状や CAD 由来形状は三角形面を持つ
-OBJ を使います。複数の独立した物体、特に独立した導体を区別したい場合は、別々の template として
+簡単な形状は組み込み template、実測形状や CAD 由来形状は三角形面を持つ OBJ を使い、
+どちらも `[[mesh.parts]]` に並べます。複数の独立した物体、特に独立した導体は別々の parts として
 `mesh_id` を分けます。
 
 | `kind` | 形状 | 主な寸法 | 主な分割数 |
 | --- | --- | --- | --- |
+| `obj` | OBJ ファイル | `path`, `scale`, `rotation`, `offset` | ファイル内の面 |
 | `plane` | XY 長方形平面 | `size_x`, `size_y` | `nx`, `ny` |
 | `plate_hole`, `plane_hole` | 円形穴付き長方形平面（後者は別名） | `size_x`, `size_y`, `radius` | `n_theta`, `n_r` |
 | `disk` | 円板 | `radius` | `n_theta`, `n_r` |
@@ -49,11 +50,11 @@ OBJ を使います。複数の独立した物体、特に独立した導体を�
 | `cylinder` | z 軸方向の円柱 | `radius`, `height`, `cap` | `n_theta`, `n_z` |
 | `sphere` | 球面 | `radius` | `n_lon`, `n_lat` |
 
-たとえば、チュートリアルの平面を球へ置き換える場合は、既存の `[[mesh.templates]]` block だけを
+たとえば、チュートリアルの平面を球へ置き換える場合は、既存の `[[mesh.parts]]` block だけを
 次のように置き換えます。
 
 ```toml
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "sphere"
 enabled = true
 surface_side = "outward_closed"
@@ -63,15 +64,14 @@ n_lon = 24
 n_lat = 12
 ```
 
-OBJ へ切り替える場合は既存の `[[mesh.templates]]` block を削除し、`[mesh]` を次へ置き換えます。
+OBJ 要素も同じ `[[mesh.parts]]` block に書きます。template と混在させるには、末尾に追加します。
 
 ```toml
-[mesh]
-mode = "obj"
-
-[mesh.obj]
-path = "mesh/object.obj" # 実際の OBJ path に置き換える
+[[mesh.parts]]
+kind = "obj"
+path = "examples/tetrahedron.obj"
 surface_side = "outward_closed"
+surface_model = "insulator"
 ```
 
 `outward_closed` は、面の向きが整合した閉じた two-manifold にだけ使えます。開いた面では、OBJ の面法線と
@@ -86,11 +86,11 @@ surface_side = "outward_closed"
 | 命中位置へ電荷を蓄積する | `insulator` | 表面内伝導、bulk 漏洩、誘電分極を解かない |
 | 物体の総電荷を保って等電位化する | `conductor` | 浮遊導体。free-space と `periodic2` の両方で使える |
 
-チュートリアルは `insulator` です。導体へ変える場合は対象の template、または OBJ 用の `[mesh.obj]` で
+チュートリアルは `insulator` です。導体へ変える場合は対象の `[[mesh.parts]]` で
 次の 1 行を変更します。
 
 ```toml
-[mesh.obj]
+# 対象の既存 mesh.parts 内で変更
 surface_model = "conductor"
 ```
 

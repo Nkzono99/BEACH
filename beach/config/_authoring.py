@@ -137,7 +137,7 @@ def _resolve_mesh_high_level(
 ) -> dict[str, Any]:
     groups_raw = mesh.pop("groups", {})
     group_definitions = _normalize_group_definitions(groups_raw)
-    templates = mesh.get("templates")
+    templates = mesh.get("parts")
     if not isinstance(templates, list):
         return mesh
 
@@ -145,9 +145,12 @@ def _resolve_mesh_high_level(
     for template in templates:
         if not isinstance(template, Mapping):
             raise ConfigError(
-                "high-level config error: mesh.templates entries must be tables."
+                "high-level config error: mesh.parts entries must be tables."
             )
         template_dict = dict(template)
+        if str(template_dict.get("kind", "")).lower() == "obj":
+            resolved_templates.append(template_dict)
+            continue
         if "group" in template_dict:
             resolved_templates.append(
                 _resolve_grouped_template(
@@ -165,7 +168,7 @@ def _resolve_mesh_high_level(
                     box_max=box_max,
                 )
             )
-    mesh["templates"] = resolved_templates
+    mesh["parts"] = resolved_templates
     return mesh
 
 
@@ -184,10 +187,6 @@ def _resolve_direct_template(
         if anchor is not None or offset is not None or offset_frac is not None:
             raise ConfigError(
                 'high-level config error: placement_mode="absolute" cannot use anchor/offset/offset_frac.'
-            )
-        if "center" not in template:
-            raise ConfigError(
-                "high-level config error: direct mesh template requires center."
             )
     elif placement_mode == "box_anchor":
         if "center" in template:

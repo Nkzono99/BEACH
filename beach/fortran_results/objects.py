@@ -94,7 +94,8 @@ def _object_specs_from_config(
     mesh_cfg = config.get("mesh")
     if not isinstance(mesh_cfg, Mapping):
         return None
-    templates = mesh_cfg.get("templates")
+    # Saved run configs before mesh.parts remain readable (persistent output contract).
+    templates = mesh_cfg.get("parts", mesh_cfg.get("templates"))
     if not isinstance(templates, list):
         return None
 

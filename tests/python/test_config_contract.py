@@ -48,7 +48,7 @@ def _cases() -> list:
     for table_path in (
         ("run",), ("domain",), ("mesh",), ("output",), ("particles",),
         ("fields",), ("particles", "boundary"),
-        ("particles", "species", 0), ("mesh", "templates", 0),
+        ("particles", "species", 0), ("mesh", "parts", 0),
     ):
         config = to_grouped_layout(default_config())
         table = config
@@ -90,12 +90,8 @@ def _cases() -> list:
     cases.append(pytest.param(config, False, id="resume-without-file-output"))
 
     config = default_config()
-    config["mesh"]["templates"][0]["kind"] = "unknown"
+    config["mesh"]["parts"][0]["kind"] = "unknown"
     cases.append(pytest.param(config, False, id="unsupported-template-kind"))
-
-    config = default_config()
-    config["mesh"]["mode"] = "auto"
-    cases.append(pytest.param(config, False, id="auto-mesh-without-surface-side"))
 
     for name_length, accepted in ((64, True), (65, False)):
         config = default_config()
@@ -213,6 +209,13 @@ def _cases() -> list:
         "max_nonzero_mode_potential_step": 1.0e-2,
     }
     cases.append(pytest.param(config, False, id="adaptive-step-with-volume-seed"))
+    for label, mesh in (
+        ("absent", {}), ("empty", {"parts": []}),
+        ("disabled", {"parts": [{"kind": "plane", "enabled": False}]}),
+    ):
+        config = default_config()
+        config["mesh"] = mesh
+        cases.append(pytest.param(config, True, id=f"no-enabled-mesh-{label}"))
     return cases
 
 
@@ -319,3 +322,51 @@ def test_native_species_diagnostic_uses_public_key_and_index(
     assert native.returncode != 0
     assert "particles.species[2].charge_c" in native.stderr
     assert "q_particle" not in native.stderr
+
+
+@pytest.mark.parametrize("part, diagnostic", [
+    ({"kind": "obj", "path": "unused.obj", "group": "g"}, "group"),
+    ({"kind": "obj", "path": "unused.obj", "placement_mode": "absolute"}, "placement_mode"),
+    ({"kind": "obj", "path": "unused.obj", "center": [0, 0, 0]}, "center"),
+    ({"kind": "plane", "path": "unused.obj"}, "path"),
+    ({"kind": "plane", "scale": 1.0}, "scale"),
+    ({"kind": "plane", "rotation": [0, 0, 0]}, "rotation"),
+    ({"kind": "obj"}, "path"),
+    ({"enabled": False}, "kind"),
+])
+def test_mesh_part_combinations_are_owned_by_preflight(part, diagnostic, native_checker, tmp_path):
+    config = default_config()
+    part = {**part, "surface_side": "normal_plus"}
+    if part.get("kind") == "plane":
+        part["center"] = [0, 0, 0]
+    config["mesh"]["parts"] = [part]
+    path = _write_config(config, tmp_path)
+    native = subprocess.run([str(native_checker), "--check-config", str(path)],
+                            text=True, capture_output=True, timeout=20)
+    assert native.returncode != 0
+    assert f"mesh.parts[1].{diagnostic}" in native.stdout + native.stderr
+    with pytest.raises(SystemExit) as caught:
+        run_lint(argparse.Namespace(config_path=path, schema=None, max_errors=20, beach=native_checker))
+    assert "mesh.parts" in str(caught.value)
+
+
+@pytest.mark.parametrize("mesh_only", [False, True])
+@pytest.mark.parametrize("legacy_mesh", [
+    {"mode": "template"}, {"obj": {"path": "unused.obj"}},
+    {"templates": [{"kind": "plane"}]},
+])
+def test_removed_mesh_keys_are_unknown_in_schema_and_fortran(legacy_mesh, mesh_only, native_checker, tmp_path):
+    from beach.config.schema import load_schema, validation_errors
+
+    config = to_grouped_layout(default_config())
+    config["mesh"] = legacy_mesh
+    if mesh_only:
+        config = {"mesh": legacy_mesh}
+    schema, _ = load_schema()
+    assert validation_errors(config, schema)
+    path = tmp_path / "removed-mesh.toml"
+    path.write_text(tomli_w.dumps(config))
+    native = subprocess.run([str(native_checker), "--check-config", str(path)],
+                            text=True, capture_output=True, timeout=20)
+    assert native.returncode != 0
+    assert "Unknown or mixed-layout" in native.stdout + native.stderr

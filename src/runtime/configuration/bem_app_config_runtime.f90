@@ -2,7 +2,7 @@
 module bem_app_config_runtime
   use bem_app_config_mesh_runtime, only: &
     build_mesh_from_config, apply_panel_surface_config, apply_obj_transform, &
-    apply_uniform_surface_model, apply_uniform_epsilon_r, build_template_mesh, build_one_template, &
+    build_parts_mesh, build_one_template, &
     append_triangles, append_mesh_ids, append_real_values, surface_model_id_from_name
   use bem_app_config_particle_runtime, only: &
     particle_source_plan_type, seed_particles_from_config, &

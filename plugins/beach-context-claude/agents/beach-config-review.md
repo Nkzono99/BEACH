@@ -33,7 +33,7 @@ color: green
   - `volume_seed`: `sampling.volume_macro_particles_per_batch`、初期領域、macro 粒子数。
   - `inflow`: density、temperature、非周期の open box 面、drift、正の `run.batch.duration_s`。
   - `photo_raycast`: ray/current、source face、hit 条件、opposite-charge deposition。
-- `mesh.templates.kind` ごとに必要 parameter と幾何の向きを確認する。
+- `mesh.parts.kind` ごとに必要 parameter と幾何の向きを確認する。
 - `fields.solver.method` ごとに有効な solver parameter を確認する。
 - `fields.boundary = "periodic2"` では周期軸、box boundary、FMM 設定の整合性を見る。
 - output size risk を見る: `output.history.stride_batches`, `output.history.potential`, `output.final.mesh_potential`, mesh size, batch count。

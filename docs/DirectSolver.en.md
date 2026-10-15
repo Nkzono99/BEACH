@@ -49,8 +49,7 @@ $$
 \pm\frac{\sigma_i}{2\epsilon_0}\mathbf{n}_i.
 $$
 
-Therefore, each element needs a `normal_plus` or `normal_minus` vacuum side. Set `mesh.obj.surface_side` for OBJ input or
-`surface_side` on every `[[mesh.templates]]` entry. `outward_closed` is valid only for consistently oriented closed
+Therefore, each element needs a `normal_plus` or `normal_minus` vacuum side. Set `mesh.parts[i].surface_side` on each enabled part. `outward_closed` is valid only for consistently oriented closed
 two-manifolds.
 
 Current requirements are:

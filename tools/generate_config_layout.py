@@ -170,7 +170,7 @@ def fortran_paths():
     paths.update(PRESERVED)
     paths.update({f'particles.species.{new}':f'particles.species.{old}'
                   for old,new in SPECIES_PATHS.items()})
-    preserved={'domain','mesh.groups','mesh.templates','particles.species.boundary','particles.species.inflow'}
+    preserved={'domain','mesh.groups','mesh.parts','particles.species.boundary','particles.species.inflow'}
     containers={'', 'run.restart','particles.species'}
     for path in paths:
         parts=path.split('.')

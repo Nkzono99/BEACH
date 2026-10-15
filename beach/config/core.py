@@ -85,8 +85,7 @@ def default_config() -> dict[str, Any]:
             ]
         },
         "mesh": {
-            "mode": "template",
-            "templates": [
+            "parts": [
                 {
                     "kind": "plane",
                     "enabled": True,
@@ -172,7 +171,7 @@ def _strip_id_fields(config: dict[str, Any]) -> None:
     """Remove direct-config-only ``id`` keys before writing the final config."""
     _ARRAY_OF_TABLE_PATHS = (
         ("particles", "species"),
-        ("mesh", "templates"),
+        ("mesh", "parts"),
     )
     for path in _ARRAY_OF_TABLE_PATHS:
         table = config

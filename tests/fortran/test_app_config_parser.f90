@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(39)
+  call test_init(40)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -51,6 +51,26 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config(input_contract_path, cfg)
   call assert_true(cfg%resume_output, 'restart table presence enables resume')
+  call test_end()
+
+  call test_begin('mesh_parts_public_contract')
+  call write_grouped_config(input_contract_path, &
+                            '[[mesh.parts]]'//new_line('a')//'kind="obj"'//new_line('a')//'path="fixture.obj"'//new_line('a')// &
+                            'surface_side="normal_plus"'//new_line('a')//'group="g"')
+  call assert_config_rejected(input_contract_path, 'mesh.parts[1].group is only valid for template kinds')
+  call write_grouped_config(input_contract_path, &
+                            '[[mesh.parts]]'//new_line('a')//'kind="plane"'//new_line('a')//'path="fixture.obj"')
+  call assert_config_rejected(input_contract_path, 'mesh.parts[1].path is only valid for kind="obj"')
+  call write_grouped_config(input_contract_path, '[[mesh.parts]]'//new_line('a')//'kind="obj"')
+  call assert_config_rejected(input_contract_path, 'mesh.parts[1].path is required')
+  call write_grouped_config(input_contract_path, '[[mesh.parts]]'//new_line('a')//'enabled=false')
+  call assert_config_rejected(input_contract_path, 'mesh.parts[1].kind is required')
+  call write_grouped_config(input_contract_path, '[mesh]'//new_line('a')//'mode="template"')
+  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout key: mesh.mode')
+  call write_grouped_config(input_contract_path, '[mesh.obj]'//new_line('a')//'path="fixture.obj"')
+  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout table: mesh.obj')
+  call write_grouped_config(input_contract_path, '[[mesh.templates]]'//new_line('a')//'kind="plane"')
+  call assert_config_rejected(input_contract_path, 'Unknown or mixed-layout key: mesh.templates')
   call test_end()
 
   call test_begin('flat_input_is_rejected')
@@ -539,7 +559,7 @@ contains
     write (unit, '(a)') 'mode = "volume_seed"'
     write (unit, '(a)') '[particles.species.sampling]'
     write (unit, '(a)') 'volume_macro_particles_per_batch = 10'
-    write (unit, '(a)') '[[mesh.templates]]'
+    write (unit, '(a)') '[[mesh.parts]]'
     write (unit, '(a)') 'kind = "plane"'
     write (unit, '(a)') 'surface_side = "normal_plus"'
     write (unit, '(a)') 'center = [0.5, 0.5, 0.2]'

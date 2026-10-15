@@ -14,6 +14,8 @@ LAYOUT_FILES = {"bem_config_layout.f90", "bem_config_layout_paths.f90"}
 TOKENS = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|![^\n]*")
 READER_TABLES = ("sim.", "field_boundary.", "particle_boundary.",
                  "surface_current_model.", "periodic2.", "reservoir.")
+REMOVED_MESH_NAMES = {"mesh.mode", "mesh.obj", "mesh.templates", "mesh.obj_path",
+                      "mesh.obj_scale", "mesh.obj_rotation", "mesh.obj_offset"}
 TABLE_NAMES = {reader for reader, public in PATHS.items()
                if reader != public and reader.startswith(READER_TABLES)}
 SPECIES_NAMES = {reader for reader, public in SPECIES_PATHS.items() if reader != public}
@@ -27,7 +29,7 @@ def _alternatives(names: set[str]) -> str:
 
 # Grouped paths can retain a reader leaf (e.g. distribution.number_density_m3).
 # Bare names, renamed leaves, and ungrouped species paths are still violations.
-READER_PATTERN = re.compile(r"(?<![\w.])(?:" + _alternatives(TABLE_NAMES | SPECIES_NAMES) + r")(?!\w)")
+READER_PATTERN = re.compile(r"(?<![\w.])(?:" + _alternatives(TABLE_NAMES | SPECIES_NAMES | REMOVED_MESH_NAMES) + r")(?!\w)")
 SPECIES_PATTERN = re.compile(
     r"(?<![\w.])particles\.species(?:\[[^]\n]+\])?\.(?P<key>"
     + _alternatives(SPECIES_NAMES) + r")(?!\w)"
@@ -79,6 +81,8 @@ def test_fortran_diagnostics_use_public_config_paths() -> None:
 
 @pytest.mark.parametrize("source, expected", [
     ("error stop 'sim.batch_duration must be finite'", ["sim.batch_duration"]),
+    ("error stop 'mesh.templates.surface_side is invalid'", ["mesh.templates"]),
+    ("error stop 'mesh.parts[2].path is required'", []),
     ('error stop "particles.species.q_particle must be nonzero"', ["q_particle"]),
     ("call require_toml_success(stat, 'sim.batch_duration')", ["sim.batch_duration"]),
     ("error stop 'bad ''q_particle'' ! value' ! sim.dt", ["q_particle"]),

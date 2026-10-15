@@ -81,7 +81,7 @@ def load_config_for_output(
 ) -> Mapping[str, object] | None:
     """Load a config for output reconstruction using internal reader paths.
 
-    Pre-grouped configs remain readable alongside archived 1.x output data;
+    Pre-grouped and pre-parts configs remain readable alongside archived output data;
     retain that persisted-output contract while those archives are supported.
     Simulator input loading rejects flat configs separately.
     """
@@ -92,7 +92,15 @@ def load_config_for_output(
     from beach.config._layout import is_grouped, to_runtime_layout
 
     config = load_toml(path)
-    return to_runtime_layout(config) if is_grouped(config) else config
+    if not is_grouped(config):
+        return config
+    # Keep archived mesh tables verbatim while 1.x and pre-parts runs are supported.
+    # Mesh is already read directly by the output helpers, independently of input validation.
+    mesh = config.pop("mesh", None)
+    runtime = to_runtime_layout(config) if is_grouped(config) else config
+    if mesh is not None:
+        runtime["mesh"] = mesh
+    return runtime
 
 
 @dataclass(frozen=True)

@@ -12,19 +12,19 @@ contains
   real(dp) :: origin(3), scale
   integer :: group_idx
 
-  auth = authoring%templates(template_idx)
+  auth = authoring%mesh_parts(template_idx)
   if (auth%has_group) then
     group_idx = find_group_index(authoring, auth%group)
-    if (group_idx <= 0) error stop 'mesh template references an undefined group.'
+    if (group_idx <= 0) error stop mesh_part_config_path(template_idx)//'.group references an undefined group.'
     group = authoring%groups(group_idx)
-    if (.not. auth%has_center_local) error stop 'grouped mesh template requires center_local.'
+    if (.not. auth%has_center_local) error stop mesh_part_config_path(template_idx)//'.center_local is required with group.'
     if (auth%has_center .or. auth%has_placement_mode .or. auth%has_anchor .or. auth%has_offset .or. &
         auth%has_offset_frac .or. auth%has_size_mode .or. auth%has_size_frac) then
-      error stop 'grouped mesh template cannot define center/placement/size high-level keys.'
+      error stop mesh_part_config_path(template_idx)//' with group cannot define center/placement/size high-level keys.'
     end if
     origin = resolve_group_origin(cfg, group)
     scale = resolve_group_scale(cfg, group)
-    cfg%templates(template_idx)%center = origin + scale*auth%center_local
+    cfg%mesh_parts(template_idx)%center = origin + scale*auth%center_local
     call scale_template_lengths(cfg, template_idx, auth, scale)
     return
   end if
@@ -61,16 +61,18 @@ contains
     select case (trim(placement_mode))
     case ('absolute')
       if (auth%has_anchor .or. auth%has_offset .or. auth%has_offset_frac) then
-        error stop 'placement_mode="absolute" cannot use anchor/offset/offset_frac.'
+        error stop mesh_part_config_path(template_idx)//'.placement_mode="absolute" cannot use anchor/offset/offset_frac.'
       end if
     case ('box_anchor')
-      if (auth%has_center) error stop 'placement_mode="box_anchor" cannot be combined with center.'
-      cfg%templates(template_idx)%center = resolve_anchor_position( &
-                                           cfg, auth%has_anchor, auth%anchor, auth%has_offset, auth%offset, &
-                                           auth%has_offset_frac, auth%offset_frac &
-                                           )
+      if (auth%has_center) then
+        error stop mesh_part_config_path(template_idx)//'.placement_mode="box_anchor" cannot be combined with center.'
+      end if
+      cfg%mesh_parts(template_idx)%center = resolve_anchor_position( &
+                                            cfg, auth%has_anchor, auth%anchor, auth%has_offset, auth%offset, &
+                                            auth%has_offset_frac, auth%offset_frac &
+                                            )
     case default
-      error stop 'Unsupported mesh template placement_mode.'
+      error stop mesh_part_config_path(template_idx)//'.placement_mode is unsupported.'
     end select
   end subroutine normalize_direct_template_placement
 
@@ -87,41 +89,42 @@ contains
     if (auth%has_size_mode) size_mode = lower_ascii(trim(auth%size_mode))
     select case (trim(size_mode))
     case ('absolute')
-      if (auth%has_size_frac) error stop 'size_frac requires size_mode="box_fraction".'
+      if (auth%has_size_frac) error stop mesh_part_config_path(template_idx)//'.size_frac requires size_mode="box_fraction".'
     case ('box_fraction')
-      if (.not. auth%has_size_frac) error stop 'size_mode="box_fraction" requires size_frac.'
-      box_size = require_box_size(cfg, 'size_frac')
-      kind = lower_ascii(trim(cfg%templates(template_idx)%kind))
+      if (.not. auth%has_size_frac) error stop mesh_part_config_path(template_idx)//'.size_mode="box_fraction" requires size_frac.'
+      box_size = require_box_size(cfg, mesh_part_config_path(template_idx)//'.size_frac')
+      kind = lower_ascii(trim(cfg%mesh_parts(template_idx)%kind))
       select case (trim(kind))
       case ('plane', 'plane_hole', 'plate_hole')
-        call require_size_frac_len(auth, 2_i32)
-        cfg%templates(template_idx)%size_x = auth%size_frac(1)*box_size(1)
-        cfg%templates(template_idx)%size_y = auth%size_frac(2)*box_size(2)
+        call require_size_frac_len(template_idx, auth, 2_i32)
+        cfg%mesh_parts(template_idx)%size_x = auth%size_frac(1)*box_size(1)
+        cfg%mesh_parts(template_idx)%size_y = auth%size_frac(2)*box_size(2)
       case ('box')
-        call require_size_frac_len(auth, 3_i32)
-        cfg%templates(template_idx)%size = auth%size_frac*box_size
+        call require_size_frac_len(template_idx, auth, 3_i32)
+        cfg%mesh_parts(template_idx)%size = auth%size_frac*box_size
       case ('sphere')
-        call require_size_frac_len(auth, 1_i32)
-        cfg%templates(template_idx)%radius = auth%size_frac(1)*minval(box_size)
+        call require_size_frac_len(template_idx, auth, 1_i32)
+        cfg%mesh_parts(template_idx)%radius = auth%size_frac(1)*minval(box_size)
       case ('cylinder')
-        call require_size_frac_len(auth, 2_i32)
-        cfg%templates(template_idx)%radius = auth%size_frac(1)*min(box_size(1), box_size(2))
-        cfg%templates(template_idx)%height = auth%size_frac(2)*box_size(3)
+        call require_size_frac_len(template_idx, auth, 2_i32)
+        cfg%mesh_parts(template_idx)%radius = auth%size_frac(1)*min(box_size(1), box_size(2))
+        cfg%mesh_parts(template_idx)%height = auth%size_frac(2)*box_size(3)
       case default
-        error stop 'size_mode="box_fraction" is not supported for this mesh template kind.'
+        error stop mesh_part_config_path(template_idx)//'.size_mode="box_fraction" is not supported for this mesh template kind.'
       end select
     case default
-      error stop 'Unsupported mesh template size_mode.'
+      error stop mesh_part_config_path(template_idx)//'.size_mode is unsupported.'
     end select
   end subroutine normalize_direct_template_size
 
   !> size_frac の成分数を確認する。
-  subroutine require_size_frac_len(auth, expected_len)
+  subroutine require_size_frac_len(template_idx, auth, expected_len)
+    integer, intent(in) :: template_idx
     type(template_authoring_spec), intent(in) :: auth
     integer(i32), intent(in) :: expected_len
 
     if (auth%size_frac_len /= expected_len) then
-      error stop 'mesh template size_frac has an invalid number of components for its kind.'
+      error stop mesh_part_config_path(template_idx)//'.size_frac has an invalid number of components for its kind.'
     end if
   end subroutine require_size_frac_len
 
@@ -289,14 +292,14 @@ contains
     type(template_authoring_spec), intent(in) :: auth
     real(dp), intent(in) :: scale
 
-    if (auth%has_size_x) cfg%templates(template_idx)%size_x = scale*cfg%templates(template_idx)%size_x
-    if (auth%has_size_y) cfg%templates(template_idx)%size_y = scale*cfg%templates(template_idx)%size_y
-    if (auth%has_size) cfg%templates(template_idx)%size = scale*cfg%templates(template_idx)%size
-    if (auth%has_radius) cfg%templates(template_idx)%radius = scale*cfg%templates(template_idx)%radius
+    if (auth%has_size_x) cfg%mesh_parts(template_idx)%size_x = scale*cfg%mesh_parts(template_idx)%size_x
+    if (auth%has_size_y) cfg%mesh_parts(template_idx)%size_y = scale*cfg%mesh_parts(template_idx)%size_y
+    if (auth%has_size) cfg%mesh_parts(template_idx)%size = scale*cfg%mesh_parts(template_idx)%size
+    if (auth%has_radius) cfg%mesh_parts(template_idx)%radius = scale*cfg%mesh_parts(template_idx)%radius
     if (auth%has_inner_radius) then
-      cfg%templates(template_idx)%inner_radius = scale*cfg%templates(template_idx)%inner_radius
+      cfg%mesh_parts(template_idx)%inner_radius = scale*cfg%mesh_parts(template_idx)%inner_radius
     end if
-    if (auth%has_height) cfg%templates(template_idx)%height = scale*cfg%templates(template_idx)%height
+    if (auth%has_height) cfg%mesh_parts(template_idx)%height = scale*cfg%mesh_parts(template_idx)%height
   end subroutine scale_template_lengths
 
 end submodule bem_app_config_authoring_geometry

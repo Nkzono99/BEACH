@@ -143,26 +143,12 @@ contains
       reader_path = 'reservoir.phi_infty'
     case ('particles.reservoir.face_potential_grid_n')
       reader_path = 'reservoir.face_potential_grid_n'
-    case ('mesh.obj.path')
-      reader_path = 'mesh.obj_path'
-    case ('mesh.obj.scale')
-      reader_path = 'mesh.obj_scale'
-    case ('mesh.obj.rotation')
-      reader_path = 'mesh.obj_rotation'
-    case ('mesh.obj.offset')
-      reader_path = 'mesh.obj_offset'
-    case ('mesh.obj.surface_model')
-      reader_path = 'mesh.surface_model'
-    case ('mesh.obj.surface_side')
-      reader_path = 'mesh.surface_side'
     case ('domain')
       reader_path = 'domain'
-    case ('mesh.mode')
-      reader_path = 'mesh.mode'
     case ('mesh.groups')
       reader_path = 'mesh.groups'
-    case ('mesh.templates')
-      reader_path = 'mesh.templates'
+    case ('mesh.parts')
+      reader_path = 'mesh.parts'
     case ('particles.species.species_key')
       reader_path = 'particles.species.species_key'
     case ('particles.species.enabled')
@@ -257,8 +243,6 @@ contains
     case ('fields.solver.tree')
       known = .true.
     case ('mesh')
-      known = .true.
-    case ('mesh.obj')
       known = .true.
     case ('output')
       known = .true.

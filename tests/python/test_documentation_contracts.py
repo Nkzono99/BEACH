@@ -87,7 +87,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
     groups = ("run", "domain", "mesh", "particles", "fields", "sheath", "output")
 
     def table_marker(path):
-        return f"[[{path}]]" if path in {"particles.species", "mesh.templates"} else f"[{path}]"
+        return f"[[{path}]]" if path in {"particles.species", "mesh.parts"} else f"[{path}]"
 
     for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
         text = _read(path)
@@ -121,7 +121,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
                 level = 3 + table.count(".")
             content = _markdown_sections(
                 detail, "#" * level + f" `{marker}`",
-                include_subsections=table == "mesh.templates",
+                include_subsections=table == "mesh.parts",
             )
             rows = [line for line in content.splitlines() if line.startswith("|")]
             # Check the key column, not mentions in another parameter's explanation.

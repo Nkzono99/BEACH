@@ -83,6 +83,8 @@ module bem_app_config_authoring_types
   end type mesh_group_authoring_spec
 
   type :: template_authoring_spec
+    character(len=32) :: template_only_key = ''
+    character(len=32) :: obj_only_key = ''
     logical :: has_group = .false.
     character(len=64) :: group = ''
     logical :: has_center_local = .false.
@@ -118,7 +120,7 @@ module bem_app_config_authoring_types
     integer(i32) :: n_groups = 0_i32
     type(mesh_group_authoring_spec), allocatable :: groups(:)
     type(particle_authoring_spec), allocatable :: particle_species(:)
-    type(template_authoring_spec), allocatable :: templates(:)
+    type(template_authoring_spec), allocatable :: mesh_parts(:)
   end type app_config_authoring
 
   public :: app_config_authoring

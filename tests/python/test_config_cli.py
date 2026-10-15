@@ -44,9 +44,8 @@ periodic_axes = [
 ]
 
 [mesh]
-mode = "template"
 
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "plane"
 enabled = true
 surface_side = "normal_plus"
@@ -118,7 +117,7 @@ def test_load_config_file_accepts_direct_beach_toml(tmp_path: Path) -> None:
 
     assert result["field_boundary"]["mode"] == "periodic2"
     assert result["particles"]["species"][0]["npcls_per_step"] == 10
-    assert result["mesh"]["templates"][0]["kind"] == "plane"
+    assert result["mesh"]["parts"][0]["kind"] == "plane"
 
 
 def test_declared_enum_normalization_preserves_leading_spaces() -> None:
@@ -234,9 +233,8 @@ periodic_axes = [
 ]
 
 [mesh]
-mode = "template"
 
-[[mesh.templates]]
+[[mesh.parts]]
 kind = "plane"
 enabled = true
 surface_side = "normal_plus"
@@ -311,7 +309,7 @@ stride_batches = 1
     species = result["particles"]["species"][0]
     assert species["pos_low"] == [1.5, 4.0, 9.0]
     assert species["pos_high"] == [2.5, 6.0, 9.0]
-    template = result["mesh"]["templates"][0]
+    template = result["mesh"]["parts"][0]
     assert template["center"] == [2.0, 4.0, 6.0]
     assert template["size_x"] == pytest.approx(1.0)
     assert template["size_y"] == pytest.approx(1.0)
@@ -344,7 +342,6 @@ periodic_axes = [
 ]
 
 [mesh]
-mode = "template"
 
 [mesh.groups.cavity_unit]
 placement_mode = "box_anchor"
@@ -352,7 +349,7 @@ anchor = "box_center"
 scale_from = "box_x"
 scale_factor = 0.5
 
-[[mesh.templates]]
+[[mesh.parts]]
 group = "cavity_unit"
 kind = "sphere"
 surface_side = "outward_closed"
@@ -440,12 +437,12 @@ rng_seed = 1
 
 def test_config_rejects_unimplemented_dielectric_inputs() -> None:
     config = default_config()
-    config["mesh"]["templates"][0]["surface_model"] = "dielectric"
+    config["mesh"]["parts"][0]["surface_model"] = "dielectric"
     with pytest.raises(ConfigValidationError, match="surface_model.*dielectric"):
         normalize_config_document(to_grouped_layout(config))
 
     config = default_config()
-    config["mesh"]["templates"][0]["epsilon_r"] = 3.9
+    config["mesh"]["parts"][0]["epsilon_r"] = 3.9
     with pytest.raises(ConfigValidationError, match="epsilon_r"):
         normalize_config_document(to_grouped_layout(config))
 
@@ -500,7 +497,7 @@ def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> N
     )
     config_path.write_text(text, encoding="utf-8")
 
-    with pytest.raises(ConfigValidationError, match="mesh.templates\\[0\\].size_x"):
+    with pytest.raises(ConfigValidationError, match="mesh.parts\\[0\\].size_x"):
         load_config_file(config_path)
 
 

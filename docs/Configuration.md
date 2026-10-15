@@ -19,6 +19,8 @@ SEE を含む設定は [`zero_current_secondary.toml`](../examples/zero_current_
 入射種の放出設定と `source.mode="secondary_emission"` の放出先を組にします。
 制約は [二次電子放出](SecondaryElectronEmission.html)を参照してください。
 
+表面は `[[mesh.parts]]` ごとに必須の `kind` で定義し、OBJ と template を混在させられます。group 配置は template kind 専用です。
+
 ## 1. 基本フロー
 
 ```bash

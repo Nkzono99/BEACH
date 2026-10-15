@@ -1,7 +1,7 @@
 !> Authoring overlay の公開入口。配列管理と領域別変換の入口を持つ。
 module bem_app_config_authoring
   use bem_kinds, only: dp, i32
-  use bem_app_config_types, only: app_config, species_config_path
+  use bem_app_config_types, only: app_config, species_config_path, mesh_part_config_path
   use bem_app_config_authoring_types, only: &
     app_config_authoring, domain_authoring_spec, field_boundary_authoring_spec, &
     particle_boundary_authoring_spec, reservoir_authoring_spec, periodic2_authoring_spec, &
@@ -77,10 +77,10 @@ contains
     integer, intent(in) :: particle_capacity
 
     allocate (authoring%groups(default_group_capacity))
-    allocate (authoring%templates(max(1, template_capacity)))
+    allocate (authoring%mesh_parts(max(1, template_capacity)))
     allocate (authoring%particle_species(max(1, particle_capacity)))
     authoring%groups = mesh_group_authoring_spec()
-    authoring%templates = template_authoring_spec()
+    authoring%mesh_parts = template_authoring_spec()
     authoring%particle_species = particle_authoring_spec()
     authoring%n_groups = 0_i32
   end subroutine init_app_config_authoring
@@ -115,8 +115,8 @@ contains
     integer :: old_capacity, new_capacity
 
     if (required_size <= 0) return
-    if (allocated(authoring%templates)) then
-      old_capacity = size(authoring%templates)
+    if (allocated(authoring%mesh_parts)) then
+      old_capacity = size(authoring%mesh_parts)
     else
       old_capacity = 0
     end if
@@ -125,8 +125,8 @@ contains
     new_capacity = max(required_size, max(1, 2*old_capacity))
     allocate (grown(new_capacity))
     grown = template_authoring_spec()
-    if (old_capacity > 0) grown(1:old_capacity) = authoring%templates(1:old_capacity)
-    call move_alloc(grown, authoring%templates)
+    if (old_capacity > 0) grown(1:old_capacity) = authoring%mesh_parts(1:old_capacity)
+    call move_alloc(grown, authoring%mesh_parts)
   end subroutine ensure_authoring_template_capacity
 
   !> mesh group authoring 配列容量を確保する。
@@ -161,7 +161,8 @@ contains
       call normalize_species_high_level(cfg, i, authoring%particle_species(i))
     end do
 
-    do i = 1, cfg%n_templates
+    do i = 1, cfg%n_mesh_parts
+      if (trim(cfg%mesh_parts(i)%kind) == 'obj') cycle
       call normalize_template_high_level(cfg, i, authoring)
     end do
   end subroutine normalize_high_level_config
