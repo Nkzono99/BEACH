@@ -36,15 +36,15 @@ these relationships.
 
 | Setting | Value | Role in this case |
 | --- | --- | --- |
-| `sim.batch_count` | `20` | Repeat charge commit and field refresh 20 times |
-| `sim.dt` / `sim.max_step` | `5e-8 s` / `80` | Integrate each electron trajectory |
-| `sim.field_solver` / `field_boundary.mode` | `direct` / `free` | Evaluate the finite plane's free-space field with Direct BEM |
-| `npcls_per_step` | `200` | Create 200 macro-electrons in every batch |
-| `w_particle` | `2e5` | Represent 200,000 electrons with each macro-electron so feedback appears in a short run |
-| `pos_low` / `pos_high` | rectangle at z = `0.8 m` | Sample injection positions across a broad region above the plane |
-| `drift_velocity` | `[0, 0, -1e6] m/s` | Direct electrons toward the plane |
+| `run.batch_count` | `20` | Repeat charge commit and field refresh 20 times |
+| `particles.tracking.dt_s` / `particles.tracking.max_steps_per_particle` | `5e-8 s` / `80` | Integrate each electron trajectory |
+| `fields.solver.method` / `fields.boundary` | `direct` / `free` | Evaluate the finite plane's free-space field with Direct BEM |
+| `sampling.volume_macro_particles_per_batch` | `200` | Create 200 macro-electrons in every batch |
+| `sampling.weight` | `2e5` | Represent 200,000 electrons with each macro-electron so feedback appears in a short run |
+| `source.pos_low` / `source.pos_high` | rectangle at z = `0.8 m` | Sample injection positions across a broad region above the plane |
+| `distribution.drift_velocity_m_s` | `[0, 0, -1e6] m/s` | Direct electrons toward the plane |
 | `mesh.templates` | 12 × 12 cells | Divide the plane into 288 triangles |
-| `history_stride` / `write_potential_history` | `1` / `true` | Save charge and potential after every batch |
+| `output.history.stride_batches` / `output.history.potential` | `1` / `true` | Save charge and potential after every batch |
 
 Every particle in one batch uses the same field fixed at the start of that batch. Absorbed charge is committed once at the
 batch end and changes the field first used by the next batch. This sequence is central to BEACH.
@@ -90,7 +90,7 @@ which agrees with `charge_sum`. The `charge_C` column in `charges.csv` is total 
 that charge divided by triangle area, in C/m².
 
 For this finite free-space surface, the Coulomb-potential convention approaches 0 V in the far field. No matching plane or
-`reservoir.phi_infty` is connected, so do not reinterpret this potential as an outer-plasma potential.
+`particles.reservoir.phi_infty_v` is connected, so do not reinterpret this potential as an outer-plasma potential.
 
 ## 4. View charge history and final potential
 
@@ -129,8 +129,8 @@ steps in the [Post-processing Tutorial](PostprocessTutorial.en.html) when you ne
 This run demonstrates that particle generation, orbit integration, collision and escape, element-wise charge commit, field
 refresh, and history output are coupled across batches.
 
-However, `w_particle` is a teaching value selected to expose feedback quickly, and a `volume_seed` with
-`batch_duration=0` has no physical inflow rate in seconds. `last_rel_change` and `tol_rel` are not automatic stopping
+However, `sampling.weight` is a teaching value selected to expose feedback quickly, and a `volume_seed` with
+`run.batch.duration_s=0` has no physical inflow rate in seconds. `last_rel_change` and `output.diagnostics.charge_rel_change_threshold` are not automatic stopping
 conditions. Do not interpret these 20 batches as a steady charging state or as 20 seconds in a particular environment.
 
 ## 6. Continue

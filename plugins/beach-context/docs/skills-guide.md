@@ -20,4 +20,4 @@ repo 全体を読める開発 checkout では root docs と source を優先し�
 - code identifier、TOML key、file path、command、CSV column は翻訳しない。
 - 不明な既定値や未文書化挙動は推測で断定しない。
 - Fortran 実装と `SPEC.md` を simulation behavior の source of truth とする。
-- `tol_rel` は監視出力であり、現行実装では早期終了条件ではない。
+- `output.diagnostics.charge_rel_change_threshold` は監視出力であり、現行実装では早期終了条件ではない。

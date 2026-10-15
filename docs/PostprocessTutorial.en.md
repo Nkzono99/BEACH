@@ -52,7 +52,7 @@ images establish post-processing success; they do not establish numerical conver
 
 ## 2. View changes between batches with `beachx animate`
 
-The official tutorial uses `history_stride=1`, so it has 20 charge snapshots. Render the surface-charge-density GIF,
+The official tutorial uses `output.history.stride_batches=1`, so it has 20 charge snapshots. Render the surface-charge-density GIF,
 which works with the standard distribution alone.
 
 ```bash
@@ -67,7 +67,7 @@ On success, the command reports `saved_gif=outputs/tutorial/charge_history.gif`,
 
 `animate` uses the snapshots stored in `charge_history.csv`. Potential mode also requires the native field kernel to
 reconstruct potential from those charges and the field-reconstruction information. For another run without history,
-set `output.history_stride` to a positive value and rerun the simulation.
+set `output.history.stride_batches` to a positive value and rerun the simulation.
 
 ## 3. Select plots and stored batches with the Python API
 

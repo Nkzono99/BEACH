@@ -208,16 +208,16 @@ outflow_refresh_batches = 50
 - 電子とイオンの数密度には同じ太陽風密度を書く（違えば設定エラー）。電子とイオンの drift は、どちらも太陽風の法線速度
   （負の z）にする。電子の drift を 0 にするなら `upstream_field_floor_v_m` は不要だが、$\phi_0$ が約 1 V ずれる
   （[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。
-- イオンの温度は粒子種の `temperature_ev` から外部根にも渡る。`sheath.zhao.ion_pressure_factor` は圧力係数を変えるときだけ書く。
+- イオンの温度は粒子種の `distribution.temperature_ev` から外部根にも渡る。`sheath.zhao.ion_pressure_factor` は圧力係数を変えるときだけ書く。
 - 光電子なし（Type C）は `sheath.photoelectrons.source_scale=0.0` とし、光電子の粒子種と関連キーを省く。
   SEE があれば外部根を更新できる。
-- 光電子の `emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出はそれに ray 仰角の sin を掛けた値になる。
-  外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と一致させるには、`emit_current_density_a_m2` を垂直入射の値
-  $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$（設定例では 2.54 µA/m²）にし、`ray_direction` の仰角を `solar_elevation_deg` に
+- 光電子の `source.emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出はそれに ray 仰角の sin を掛けた値になる。
+  外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と一致させるには、`source.emit_current_density_a_m2` を垂直入射の値
+  $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$（設定例では 2.54 µA/m²）にし、`source.ray_direction` の仰角を `solar_elevation_deg` に
   合わせる。5% 以上ずれると起動時に警告する。固定電流の放出倍率が差を吸収するので収支は閉じるが、放出の生の粒子数が
   目標から離れた状態で統計が組まれる。
 
-全キーと組み合わせの制約は[入力パラメータ](Parameters.html#surface_current_model-外部シースclosure)にあります。完全な例は
+全キーと組み合わせの制約は[入力パラメータ](Parameters.html#sheath)にあります。完全な例は
 [`examples/zero_current.toml`](../examples/zero_current.toml)、
 [`zero_current_refresh.toml`](../examples/zero_current_refresh.toml)、
 [`zero_current_no_photo.toml`](../examples/zero_current_no_photo.toml) です。

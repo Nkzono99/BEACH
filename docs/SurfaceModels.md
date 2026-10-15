@@ -28,7 +28,7 @@ flowchart LR
 
 同じ batch の後続粒子は、その batch で先に吸収された粒子の電荷を見ません。電荷差分は batch 末尾に
 確定し、新しい場へ現れるのは次の batch です。この遅れへの感度は
-[`batch_duration` をどう決めるか](BatchDurationStability.html)で確認します。
+[`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)で確認します。
 
 ## モデルを選ぶ
 
@@ -75,7 +75,7 @@ flowchart LR
 ## 出力を読む
 
 `charges.csv` の `charge_C` は各三角形の総電荷 [C] です。表面電荷密度が必要なら要素面積で割ります。
-`tol_rel` は batch 前後の変化を監視する出力であり、現行実装の自動停止条件ではありません。
+`output.diagnostics.charge_rel_change_threshold` は batch 前後の変化を監視する出力であり、現行実装の自動停止条件ではありません。
 
 species ごとの吸収・放出・escape を含む保存則は[出力ファイルを調べる](OutputGuide.html)、式と実装上の
 更新順は[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)で確認できます。
@@ -83,6 +83,6 @@ species ごとの吸収・放出・escape を含む保存則は[出力ファイ�
 ## 次に読むページ
 
 - 粒子源を選ぶ: [粒子をどこから入れるか](ParticleSourcesBoundaries.html)
-- batch 幅への依存性を調べる: [`batch_duration` をどう決めるか](BatchDurationStability.html)
+- batch 幅への依存性を調べる: [`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)
 - 光電子の反作用電荷と帰還を調べる: [光電子の放出と電荷の閉じ方](PhotoelectronEmission.html)
 - 全 key と制約を検索する: [入力パラメータ](Parameters.html)

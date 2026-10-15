@@ -180,7 +180,7 @@ production simulation の job 設計、thread / rank 構成、負荷見積もり
 | 数値手法または物理 model | 適用範囲、fail-closed 条件、Direct / oracle 比較、数値収束、`ValidationGuide.md` / `.en.md` |
 
 すべての文書変更で、日本語版と英語版の command、identifier、制約、警告、期待する結果を対応させます。
-`sim.tol_rel` は現行実装では監視・出力値であり、早期停止条件として説明しません。実行成功、test 通過、
+`output.diagnostics.charge_rel_change_threshold` は現行実装では監視・出力値であり、早期停止条件として説明しません。実行成功、test 通過、
 数値収束、物理妥当性は別々に報告してください。
 
 正本の責務分担は[開発者向けアーキテクチャ](Architecture.html#正本の責務を区別する)、user case の妥当性確認は

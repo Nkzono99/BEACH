@@ -61,7 +61,7 @@ flowchart TD
    `mesh%q_elem`. The snapshot stays fixed while particles in the same trial are tracked. Charge from an accepted commit
    first enters the field at the refresh for the next batch.
 5. `build_particle_source_plan` and `prepare_batch_state` create the trial `particles_soa` from source settings and
-   `batch_duration`. [`bem_app_config_particle_runtime.f90`](../src/runtime/configuration/bem_app_config_particle_runtime.f90) constructs
+   `run.batch.duration_s`. [`bem_app_config_particle_runtime.f90`](../src/runtime/configuration/bem_app_config_particle_runtime.f90) constructs
    particles from resolved configuration, and `src/particles/` implements distribution sampling.
 6. `process_particle_batch` uses [`bem_particle_stepper.f90`](../src/runtime/simulator/bem_particle_stepper.f90) to build a
    predicted-midpoint field sample, Boris update, and candidate trajectory. `bem_collision.f90` and `bem_boundary.f90`
@@ -81,7 +81,7 @@ reference for the next batch. The main loop calls it once after commit without c
 
 Adaptive batch duration replays steps 5--7 from the same batch-start state. Candidate charge, particle outcomes, RNG, and
 macro-particle residuals from a rejected trial do not become accepted state. See
-[`batch_duration` theory](BatchDurationTheory.en.html) for acceptance and rollback rules.
+[`run.batch.duration_s` theory](BatchDurationTheory.en.html) for acceptance and rollback rules.
 
 ## Identify the owner of major state
 

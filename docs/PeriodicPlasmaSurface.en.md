@@ -33,13 +33,13 @@ method = "fmm"
 z_low = "open"
 z_high = "open"
 
-[[particles.species]]          # solar-wind electrons (ions have the same form)
+[[particles.species]] # solar-wind electrons (ions have the same form)
 species_key = "solar_wind_electron"
 
 [particles.species.inflow]
 z_high = "reservoir"
 
-[[particles.species]]          # photoelectrons
+[[particles.species]] # photoelectrons
 species_key = "photoelectron"
 
 [particles.species.source]

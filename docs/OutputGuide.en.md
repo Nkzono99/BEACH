@@ -36,7 +36,7 @@ charge_sum=-1.192019e-10
 The minimum pass conditions are:
 
 - Both `beach` and `beachx inspect` exit with code `0`.
-- `batches=20` agrees with `sim.batch_count=20` in `beach.toml`.
+- `batches=20` agrees with `run.batch_count=20` in `beach.toml`.
 - `processed_particles=4000` agrees with 200 particles per batch × 20 batches.
 - `outputs/tutorial/summary.txt` and `outputs/tutorial/charges.csv` exist.
 
@@ -44,7 +44,7 @@ The minimum pass conditions are:
 `rng_seed=12345` and one OpenMP thread. If the thread count or RNG implementation differs, do not assume that
 random-sequence-dependent values must equal the reference.
 
-This check establishes run completion only. `last_rel_change` and `tol_rel` are not automatic stop conditions.
+This check establishes run completion only. `last_rel_change` and `output.diagnostics.charge_rel_change_threshold` are not automatic stop conditions.
 Assess numerical convergence and physical validity separately with
 [Validating Simulation Results](ValidationGuide.en.html). If the command fails or a minimum condition is not met,
 continue with [Troubleshooting](Troubleshooting.en.html).
@@ -173,7 +173,7 @@ reconstruction conditions.
 
 ## Files used for resume
 
-Do not manually combine checkpoint files. Set the read source with `output.restart_from`. To advance the official
+Do not manually combine checkpoint files. Set the read source with `run.restart.from`. To advance the official
 20-batch result to batch 21, follow
 [Resume once from a checkpoint](Execution.en.html#resume-once-from-a-checkpoint).
 
@@ -197,7 +197,7 @@ The ordinary official case does not require the following details. Select only t
 
 ### Adaptive-batch diagnostics
 
-For `periodic2.max_nonzero_mode_potential_step > 0`, inspect its receipt and trials excluded from histories in the
+For `run.batch.adaptive.max_nonzero_mode_potential_step_v > 0`, inspect its receipt and trials excluded from histories in the
 [adaptive-batch reference](OutputReference.en.html#adaptive-batch-diagnostics).
 
 ## Continue

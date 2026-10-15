@@ -202,7 +202,7 @@ Lang: [日本語](Fixture.md) | [English](Fixture.en.md)
 
 # Fixture title
 
-[local](Parameters.md#sim) and [English](Parameters.en.md)
+[local](Parameters.md#run) and [English](Parameters.en.md)
 [SPEC](../SPEC.md#fixture), [source](../src/example.f90), [ADR](adr/0001-example.md),
 ![image](images/example.png), and [module](../module/example.html).
 The repository path `docs/OutputGuide.md` stays plain text.
@@ -230,7 +230,7 @@ end program example
     assert target == content_root / "fixture.md"
     assert "Lang:" not in content
     assert "\n# Fixture title\n" not in content
-    assert "[local](/BEACH/parameters.html#sim)" in content
+    assert "[local](/BEACH/parameters.html#run)" in content
     assert "[English](/BEACH/en/parameters.html)" in content
     assert f"[SPEC]({module.GITHUB_BLOB_ROOT}/SPEC.md#fixture)" in content
     assert f"[source]({module.GITHUB_BLOB_ROOT}/src/example.f90)" in content
@@ -245,15 +245,17 @@ def test_configuration_recipes_cover_supported_meshes_and_particle_sources() -> 
     schema = json.loads(
         (ROOT / "schemas" / "beach.schema.json").read_text(encoding="utf-8")
     )
-    mesh_kinds = schema["$defs"]["template"]["properties"]["kind"]["enum"]
-    source_modes = schema["$defs"]["species"]["properties"]["source_mode"]["enum"]
+    mesh_kinds = schema["$defs"]["groupedConfig"]["properties"]["mesh"]["properties"]["templates"]["items"]
+    template = schema["$defs"][mesh_kinds["$ref"].rsplit("/", 1)[-1]]
+    mesh_kinds = template["properties"]["kind"]["enum"]
+    source_modes = schema["$defs"]["groupedSpecies"]["properties"]["source"]["properties"]["mode"]["enum"]
 
     for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
         text = _read_doc(name)
         mesh_table = text.split("| `kind` |", maxsplit=1)[1].split(
             "\n\n", maxsplit=1
         )[0]
-        source_table = text.split("| `source_mode` |", maxsplit=1)[1].split(
+        source_table = text.split("| `source.mode` |", maxsplit=1)[1].split(
             "\n\n", maxsplit=1
         )[0]
 

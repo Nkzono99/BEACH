@@ -55,7 +55,7 @@ MPI build、launcher、compiler module は利用する環境に合わせてく�
 
 ## 実行前に負荷を見積もる
 
-`boundary_inflow`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
+`inflow`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
 見積もりを推奨します。
 
 ```bash
@@ -86,7 +86,7 @@ beachx profile outputs/tutorial/performance_profile.csv \
 
 ## checkpointから一度再開する
 
-正常終了時の最終出力は、`checkpoint_stride=0` でも checkpoint として再開できます。
+正常終了時の最終出力は、`output.checkpoint.stride_batches=0` でも checkpoint として再開できます。
 最初の再開確認では、元の `outputs/tutorial` を残し、続きを別のディレクトリへ書く方法を推奨します。
 
 ### 公式入門ケースを 1 バッチ延長する
@@ -106,21 +106,22 @@ grep '^batches=' outputs/tutorial/summary.txt
 cp beach.toml resume.toml
 ```
 
-`resume.toml` の既存の `[sim]` と `[output]` にある該当値を変更します。
+`resume.toml` の既存の `[run]` と `[output]` にある該当値を変更します。
 次は公式入門ケースを 20 batch から 21 batch へ延長する完全な例です。
 
 ```toml
-[sim]
+[run]
 batch_count = 21
 
 [output]
-write_files = true
+enabled = true
 dir = "outputs/resumed"
-resume = true
-restart_from = "outputs/tutorial"
+
+[run.restart]
+from = "outputs/tutorial"
 ```
 
-`resume.toml` の他の設定は変更しません。`restart_from` は checkpoint の読み込み元、`dir` は新しい出力先です。
+`resume.toml` の他の設定は変更しません。`run.restart.from` は checkpoint の読み込み元、`dir` は新しい出力先です。
 チュートリアルと同じ作業ディレクトリで、入力検査、実行、出力確認を順に行います。
 
 ```bash
@@ -139,7 +140,7 @@ batches=21 ...
 
 別のケースでも、完了済みバッチ数が `B` なら `batch_count` を整数 `B+1` に変更し、
 `resuming_from_batches=B` と `batches=B+1` を確認します。
-`sim.batch_count` は追加バッチ数ではなく、累積の到達バッチ数です。
+`run.batch_count` は追加バッチ数ではなく、累積の到達バッチ数です。
 
 ### 長時間実行の定期 checkpoint
 
@@ -148,7 +149,9 @@ accepted batch 数で定期 checkpoint を有効にできます。
 ```toml
 [output]
 dir = "outputs/tutorial"
-checkpoint_stride = 1000
+
+[output.checkpoint]
+stride_batches = 1000
 ```
 
 この例は 1000 accepted batch ごとに再開状態を二重 slot へ保存します。`0` は定期保存を無効にしますが、
@@ -156,14 +159,15 @@ checkpoint_stride = 1000
 
 ### 同じ出力先へ続ける場合と MPI 再開
 
-元の出力ディレクトリへ続けて書く場合は、`restart_from` を省略し、`dir` を checkpoint のディレクトリにします。
+元の出力ディレクトリへ続けて書く場合は、`run.restart.from` を省略し、`dir` を checkpoint のディレクトリにします。
 元の最終出力をそのまま比較に残したい場合は、上の別ディレクトリ手順を使ってください。
 
 ```toml
 [output]
-write_files = true
+enabled = true
 dir = "outputs/tutorial"
-resume = true
+
+[run.restart]
 ```
 
 一般に、checkpoint が `batches=100` で新しい `batch_count=150` なら 50 バッチを追加します。
@@ -179,9 +183,9 @@ restart 前後で同じ team size を使う必要はなく、再開後の実 tea
 ## 実行後に確認すること
 
 - processの終了codeが0である
-- `summary.txt`の`batches`が`sim.batch_count`と一致する
+- `summary.txt`の`batches`が`run.batch_count`と一致する
 - `absorbed`、`escaped_boundary`、`survived_max_step`の内訳を確認する
-- `tol_rel`を自動停止条件として扱わない
+- `output.diagnostics.charge_rel_change_threshold`を自動停止条件として扱わない
 
 ファイルの意味は[出力ファイルを調べる](OutputGuide.html)、図の作成は
 [後処理チュートリアル](PostprocessTutorial.html)、結果の判定は

@@ -14,7 +14,7 @@ after the step.
 | Input | $\mathbf{x}^n,\mathbf{v}^n$ |
 | Field sample | Predicted position $\mathbf{x}_\mathrm{mid}$ |
 | Output candidate | $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ |
-| Magnetic field | Uniform `sim.b0` |
+| Magnetic field | Uniform `fields.external.magnetic_t` |
 
 ## Sample the field at a predicted midpoint
 
@@ -32,7 +32,7 @@ $$
 \mathbf{E}_\mathrm{snapshot}(\mathbf{x}_\mathrm{mid}).
 $$
 
-The snapshot composes the element-charge field, `sim.e0`, and any selected periodic zero mode or outer profile exactly once.
+The snapshot composes the element-charge field, `fields.external.electric_v_m`, and any selected periodic zero mode or outer profile exactly once.
 Particles in one batch share the snapshot formed from element charge at the start of that batch. See
 [Field evaluation](FieldSolvers.en.html) for its construction.
 
@@ -48,7 +48,7 @@ box-boundary crossing.
 
 ## Advance velocity with Boris
 
-For particle charge $q$, mass $m$, and $\mathbf{B}=\texttt{sim.b0}$, first apply a half electric acceleration:
+For particle charge $q$, mass $m$, and $\mathbf{B}=\texttt{fields.external.magnetic_t}$, first apply a half electric acceleration:
 
 $$
 \mathbf{v}^-=
@@ -115,7 +115,7 @@ with the chord crossing and preserves event speed for any pure magnetic field. A
 speed fails closed. However, BEACH also uses the chord crossing fraction as the remaining-time fraction; it does not solve the
 exact physical crossing time under acceleration or magnetic rotation. This is a time-discretization approximation of the
 trajectory-chord event model, so runs that use boundary actions or the potential-barrier decision must check convergence with
-`dt`, `dt/2`, and, when needed, `dt/4`. Crossings of the top face connected to the outer sheath use the same chord
+`particles.tracking.dt_s`, `particles.tracking.dt_s/2`, and, when needed, `particles.tracking.dt_s/4`. Crossings of the top face connected to the outer sheath use the same chord
 crossing. See [Particle collision and boundary events](ParticleEvents.en.html).
 
 ## Properties of the Boris update
@@ -128,9 +128,9 @@ crossing. See [Particle collision and boundary events](ParticleEvents.en.html).
 | Mesh collision or open-boundary escape | Irreversible process that ends tracking at the collision or boundary point |
 | Self-consistent field changing between batches | Snapshot fixed within a batch and refreshed after charge commit |
 
-## Choose `dt` from trajectories and charging results
+## Choose `particles.tracking.dt_s` from trajectories and charging results
 
-`dt` must resolve particle rotation, spatial field variation, and collision geometry:
+`particles.tracking.dt_s` must resolve particle rotation, spatial field variation, and collision geometry:
 
 - cyclotron angle $|q|\lVert\mathbf{B}\rVert\Delta t/m$
 - transit time over the spatial electric-field variation scale
@@ -138,9 +138,9 @@ crossing. See [Particle collision and boundary events](ParticleEvents.en.html).
 - transit time through a rapidly changing outer-interface profile
 
 Triangle intersections use the straight trajectory segment within a step. When an orbit bends strongly in one step or passes
-fine geometry, reduce the time step until collision positions converge. Compare `dt`, `dt/2`, and when needed `dt/4` using
-trajectories, hit elements, absorption and escape statistics, and post-batch element charge. Keeping `max_step` fixed halves the
-maximum physical tracking time when `dt` is halved, so adjust `max_step` when comparing the same time horizon.
+fine geometry, reduce the time step until collision positions converge. Compare `particles.tracking.dt_s`, `particles.tracking.dt_s/2`, and when needed `particles.tracking.dt_s/4` using
+trajectories, hit elements, absorption and escape statistics, and post-batch element charge. Keeping `particles.tracking.max_steps_per_particle` fixed halves the
+maximum physical tracking time when `particles.tracking.dt_s` is halved, so adjust `particles.tracking.max_steps_per_particle` when comparing the same time horizon.
 
 ## Code reference
 

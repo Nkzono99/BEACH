@@ -29,7 +29,7 @@ flowchart LR
 
 Later particles in the same batch do not see the charge of particles absorbed earlier in that batch. The change becomes
 final at batch end and first appears in the next batch's field. Test sensitivity to this lag by following
-[how to choose `batch_duration`](BatchDurationStability.en.html).
+[how to choose `run.batch.duration_s`](BatchDurationStability.en.html).
 
 ## Choose a model
 
@@ -80,7 +80,7 @@ surface to a target and does not move deposited charge along the surface
 ## Read the output
 
 `charge_C` in `charges.csv` is total charge [C] on each triangle. Divide it by element area to obtain surface-charge
-density. `tol_rel` monitors the pre/post-batch change; it is not an automatic stopping condition in the current implementation.
+density. `output.diagnostics.charge_rel_change_threshold` monitors the pre/post-batch change; it is not an automatic stopping condition in the current implementation.
 
 See [inspect output files](OutputGuide.en.html) for the species-resolved ledger including absorption, emission, and escape.
 See [surface-charge update numerics](SurfaceChargeNumerics.en.html) for equations and implementation ordering.
@@ -88,6 +88,6 @@ See [surface-charge update numerics](SurfaceChargeNumerics.en.html) for equation
 ## Where to go next
 
 - Choose a particle source: [Choose where particles enter](ParticleSourcesBoundaries.en.html)
-- Test sensitivity to batch width: [How to choose `batch_duration`](BatchDurationStability.en.html)
+- Test sensitivity to batch width: [How to choose `run.batch.duration_s`](BatchDurationStability.en.html)
 - Inspect photoelectron reaction charge and return: [Photoelectron emission and charge closures](PhotoelectronEmission.en.html)
 - Search every key and constraint: [Input parameters](Parameters.en.html)

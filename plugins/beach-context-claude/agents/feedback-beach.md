@@ -37,7 +37,7 @@ GitHub Issue として読める最小再現情報と title/body/label 案を作�
 - first meaningful error log。
 - expected behavior / actual behavior。
 - output directory listing and relevant `summary.txt` lines。
-- use of `boundary_inflow`, `photo_raycast`, `periodic2`, FMM/treecode, resume, MPI, Python post-processing。
+- use of `inflow`, `photo_raycast`, `periodic2`, FMM/treecode, resume, MPI, Python post-processing。
 
 ## 出力形式
 

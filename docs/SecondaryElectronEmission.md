@@ -48,6 +48,8 @@ $$
 
 ## 設定
 
+世代上限は `particles.secondary_emission.max_generations`（既定 `3`、0 以上）で指定し、一次粒子を世代 0 とします。
+
 既存の入射種へ、次の差分を加えます。
 
 ```toml

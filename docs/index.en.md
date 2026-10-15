@@ -33,7 +33,7 @@ validity. Before using a result for research, follow [Validating simulation resu
 | An optional quasistatic boundary response at the top of the region | A time-dependent outer sheath or complete velocity-distribution solver |
 
 See [The BEACH computation cycle](Algorithms.en.html) for the ordinary surface-charge update and the difference among
-`dt`, `batch_duration`, and `batch_count`. See the [Zhao closure](ZhaoStationaryClosure.en.html) for the division of work when an outer sheath is
+`particles.tracking.dt_s`, `run.batch.duration_s`, and `batch_count`. See the [Zhao closure](ZhaoStationaryClosure.en.html) for the division of work when an outer sheath is
 attached.
 
 ## Choose a path
@@ -69,7 +69,7 @@ Treat successful execution, numerical convergence, and physical validity as sepa
 ### Understand the models
 
 These pages explain the ordinary computation cycle, surface charging, particle sources, photoelectrons, open boundaries,
-the Zhao stationary sheath, periodic2, matching planes, and `batch_duration`. Read the ordinary path first and open an
+the Zhao stationary sheath, periodic2, matching planes, and `run.batch.duration_s`. Read the ordinary path first and open an
 advanced model only when needed.
 
 ### Reference

@@ -13,7 +13,7 @@ BEACH は、現在の表面電荷から場を計算し、その場の中で粒�
 > 一つの batch を計算している間、電場は変化しません。その batch で生じた電荷差分は
 > batch 末尾で表面電荷へ確定反映され、次の batch の場から有効になります。
 
-読了後には、`sim.dt`、`sim.batch_duration`、`sim.batch_count` の役割を区別し、出力履歴が
+読了後には、`particles.tracking.dt_s`、`run.batch.duration_s`、`run.batch_count` の役割を区別し、出力履歴が
 どの更新段階を表すか判断できるようになります。
 
 ## BEACH が直接計算する範囲
@@ -41,7 +41,7 @@ flowchart TD
     q --> field --> source --> track --> event --> delta --> update --> q
 ```
 
-通常の構成では、この一周が一つの batch です。設定した `sim.batch_count` に達すると、最終メッシュ、
+通常の構成では、この一周が一つの batch です。設定した `run.batch_count` に達すると、最終メッシュ、
 統計、履歴、checkpoint を出力して終了します。
 
 ## 一つの batch で起きること
@@ -50,7 +50,7 @@ flowchart TD
    どれを使っても、以後の粒子追跡が参照する場はこの時点で決まります。
 2. **粒子を生成する。** 初期粒子、内部または領域外から入る粒子、表面から放出する粒子など、
    設定した供給方法に従って生成します。
-3. **粒子を追跡する。** 一つの粒子を `sim.dt` ずつ前進させ、候補軌道と三角形・box 境界との
+3. **粒子を追跡する。** 一つの粒子を `particles.tracking.dt_s` ずつ前進させ、候補軌道と三角形・box 境界との
    最初の交差を探します。
 4. **粒子の行き先を処理する。** 表面への吸収、境界の通過または反射、計算領域からの脱出、
    設定した表面放出を処理し、各粒子の結果を確定します。
@@ -68,20 +68,20 @@ flowchart TD
 一つの batch で電荷を変えすぎると、固定した場という近似が粗くなります。
 
 したがって、粒子軌道の時間刻みだけでなく、batch 当たりの電荷変化も独立に確認します。研究ケースでは
-`sim.batch_duration` やマクロ粒子数を変え、電位・電荷・電流の結果が変わらない範囲を調べてください。
-具体的な比較方法は [`batch_duration` をどう決めるか](BatchDurationStability.html)にまとめています。
+`run.batch.duration_s` やマクロ粒子数を変え、電位・電荷・電流の結果が変わらない範囲を調べてください。
+具体的な比較方法は [`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)にまとめています。
 
 ## 3 種類の時間・回数を区別する
 
 | 設定 | 変えるもの | 主に確認する出力 |
 | --- | --- | --- |
-| `sim.dt` | 一回の粒子前進と event 時刻の細かさ | 衝突位置、軌道、escape / survivor |
-| `sim.batch_duration` | 時間比例の流入量と、表面電荷を更新する物理時間幅 | batch 当たりの注入数、電荷・電位・電流 |
-| `sim.batch_count` | 計算サイクルを繰り返す回数 | 到達した物理時間、履歴の長さ、定常性 |
+| `particles.tracking.dt_s` | 一回の粒子前進と event 時刻の細かさ | 衝突位置、軌道、escape / survivor |
+| `run.batch.duration_s` | 時間比例の流入量と、表面電荷を更新する物理時間幅 | batch 当たりの注入数、電荷・電位・電流 |
+| `run.batch_count` | 計算サイクルを繰り返す回数 | 到達した物理時間、履歴の長さ、定常性 |
 
-`sim.batch_duration=0` の `volume_seed` のように、粒子数を batch ごとに直接与えるケースには物理秒を
-割り当てません。逆に境界流入など時間比例の粒子源では、流束と `sim.batch_duration` から粒子数を決めます。
-`tol_rel` は表面電荷変化の監視値であり、現行実装の自動停止条件ではありません。
+`run.batch.duration_s=0` の `volume_seed` のように、粒子数を batch ごとに直接与えるケースには物理秒を
+割り当てません。逆に境界流入など時間比例の粒子源では、流束と `run.batch.duration_s` から粒子数を決めます。
+`output.diagnostics.charge_rel_change_threshold` は表面電荷変化の監視値であり、現行実装の自動停止条件ではありません。
 
 ## batch 間で引き継ぐもの
 
@@ -98,7 +98,7 @@ checkpoint から再開するときも、必要な状態を復元して同じ計
 
 | 必要な機能 | 専用ページ |
 | --- | --- |
-| batch 当たりの場変化を制限し、短い幅で再試行する | [`batch_duration` をどう決めるか](BatchDurationStability.html) |
+| batch 当たりの場変化を制限し、短い幅で再試行する | [`run.batch.duration_s` をどう決めるか](BatchDurationStability.html) |
 | 外部シースと接続する | [外部シースとの接続](ZhaoStationaryClosure.html) |
 | 周期表面の平均場と非一様場を扱う | [periodic2 静電場](PeriodicElectrostatics.html) |
 | solver を Direct、Treecode、FMM から選ぶ | [電場 solver の選び方](FieldSolvers.html) |

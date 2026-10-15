@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- 入力パラメータリファレンスと日英の利用者向け文書・plugin の設定例を grouped 7 グループの公開キー名へ統一。公開 schema から文書のキー網羅と見出し階層を検査する。
+
 - 公開 TOML 入力を `run / domain / mesh / particles / fields / sheath / output` の grouped 7 グループ形式に統一。Fortran と Python は flat 入力を明確なエラーで拒否する。
 - grouped examples を `examples/` 直下へ移動。direct/FMM、入門・単一電子・形状見本の参照構成も grouped に変換して維持。
 

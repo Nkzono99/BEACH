@@ -82,7 +82,7 @@ ls -l outputs/latest/summary.txt outputs/latest/charges.csv
 beachx inspect outputs/latest
 ```
 
-**期待:** `write_files=true` で、`dir` の下に `summary.txt` と `charges.csv` があり、`beachx inspect` が終了コード `0` になります。
+**期待:** `output.enabled=true` で、`dir` の下に `summary.txt` と `charges.csv` があり、`beachx inspect` が終了コード `0` になります。
 
 **安全な対処:** 相対パスの `output.dir` は `beach` を起動した作業ディレクトリから確認します。
 先に `beach` の終了コードとログを修正し、空の `summary.txt` や `charges.csv` を手作業で作らないでください。
@@ -97,11 +97,11 @@ grep -E '^(processed_particles|absorbed|escaped|escaped_boundary|survived_max_st
   outputs/latest/summary.txt
 ```
 
-**期待:** `batches` が `sim.batch_count` と一致し、粒子数の内訳を source、吸収、境界 escape、
+**期待:** `batches` が `run.batch_count` と一致し、粒子数の内訳を source、吸収、境界 escape、
 `survived_max_step`、および未解決の soft discard から説明できます。
 `survived_max_step` には全ケース共通の合格値はありません。
 
-**安全な対処:** `survived_max_step` が目的量に影響する場合は、`dt`、`max_step`、box サイズ、注入速度を
+**安全な対処:** `survived_max_step` が目的量に影響する場合は、`particles.tracking.dt_s`、`particles.tracking.max_steps_per_particle`、box サイズ、注入速度を
 1 項目ずつ変えて依存性を確認します。未解決粒子を後から吸収または escape として数え直さないでください。
 受理判定は[計算結果の妥当性確認](ValidationGuide.html)に従います。
 
@@ -115,21 +115,21 @@ ls -lh outputs/latest/*history.csv
 wc -l outputs/latest/*history.csv
 ```
 
-**期待:** `history_stride > 0` なら `charge_history.csv` が生成されます。
-`potential_history.csv` は `write_potential_history=true` かつ `history_stride > 0` のときだけ生成されます。
+**期待:** `output.history.stride_batches > 0` なら `charge_history.csv` が生成されます。
+`potential_history.csv` は `output.history.potential=true` かつ `output.history.stride_batches > 0` のときだけ生成されます。
 
-**安全な対処:** 空な場合は `history_stride`、`batch_count`、実際の `output.dir` を確認します。
-大きすぎる場合は `history_stride` を増やし、電位履歴が必要なケースだけ `write_potential_history` を有効にします。
+**安全な対処:** 空な場合は `output.history.stride_batches`、`batch_count`、実際の `output.dir` を確認します。
+大きすぎる場合は `output.history.stride_batches` を増やし、電位履歴が必要なケースだけ `output.history.potential` を有効にします。
 
 ## checkpointから再開できない
 
-**確認コマンド:** まず `restart_from` が指すディレクトリの直下を確認します。
-`restart_from` を省略した同一ディレクトリ再開では `output.dir` を確認します。
+**確認コマンド:** まず `run.restart.from` が指すディレクトリの直下を確認します。
+`run.restart.from` を省略した同一ディレクトリ再開では `output.dir` を確認します。
 次は serial 出力 `outputs/latest` の例です。
 
 ```bash
 checkpoint_dir=outputs/latest
-grep -A 12 '^\[sim\]' resume.toml
+grep -A 12 -E '^\[run(\.restart)?\]' resume.toml
 grep -A 12 '^\[output\]' resume.toml
 ls -l "$checkpoint_dir/summary.txt" \
   "$checkpoint_dir/charges.csv" \
@@ -147,16 +147,16 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - manifest が宣言する `macro_residuals.csv` と `charge_ledger.csv` がある
 - ordered mesh fingerprint が一致する。モデル・粒子種の変更は設定ファイルと summary の値で確認する
 - MPI 再開では保存時の `mpi_world_size` と現在の rank 数が一致する
-- `resume.toml` で `output.write_files=true`、`output.resume=true` である。`output.restart_from` を指定した場合は
+- `resume.toml` で `output.enabled=true` とし、`[run.restart]` を書いている。`run.restart.from` を指定した場合は
   確認中の checkpoint を指し、`output.dir` は意図した新しい出力先である。省略した場合は `output.dir` 自体が再開元である
-- 新しい `sim.batch_count` が保存済み `batches` 以上である。1 バッチ以上進めるならより大きい
+- 新しい `run.batch_count` が保存済み `batches` 以上である。1 バッチ以上進めるならより大きい
 
 **安全な対処:**
 
-- `restart_from` は checkpoint の読み込み元だけを指定し、新しい結果は別の `output.dir` へ書いて元出力を保存します。
+- `run.restart.from` は checkpoint の読み込み元だけを指定し、新しい結果は別の `output.dir` へ書いて元出力を保存します。
 - 元の物理・数値設定を変えて再開する場合は warning を記録し、出力先を分けて変更前後の連続性を確認します。
 - 異なる世代のファイルを手作業で混ぜたり、`checkpoint_complete.txt` を書き換えたりしません。
-- `resume=false` にして同じ `output.dir` へ新規実行することを、再開エラーの回避策にしません。
+- `[run.restart]` を省略して同じ `output.dir` へ新規実行することを、再開エラーの回避策にしません。
 - 定期 slot がある場合、BEACH は直下の最終出力と `checkpoints/slot0`、`slot1` から完全で最新の候補を自動選択します。
 
 修正後は[実行と再開](Execution.html#checkpointから一度再開する)の手順で別出力先へ再開し、次を確認します。
@@ -169,7 +169,7 @@ beachx inspect outputs/resumed
 ```
 
 `resuming_from_batches` が使用した checkpoint の `batches` と一致し、新しい出力の `batches` が
-`resume.toml` の `sim.batch_count` と一致すれば復旧完了です。
+`resume.toml` の `run.batch_count` と一致すれば復旧完了です。
 必須ファイルと自動選択の正本は[再開に使うファイル](OutputReference.html#再開に使うファイル)です。
 
 ## 表面モデルまたは periodic 構成が拒否される

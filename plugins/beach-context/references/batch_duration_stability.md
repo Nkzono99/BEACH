@@ -1,15 +1,15 @@
-title: batch_duration の安定性と定常値の理論
+title: `run.batch.duration_s` の安定性と定常値の理論
 
-# `batch_duration` の安定性と定常値の理論
+# `run.batch.duration_s` の安定性と定常値の理論
 
-この文書は、BEACH のバッチループにおける `sim.batch_duration`（または `sim.batch_duration_step` から決まる 1 バッチの物理時間）と、収束した壁面電荷分布の正当性・安定性の関係を理論的に整理したものです。
-現行実装では、`batch_duration_step` を使う場合は `sim.batch_duration = sim.dt * sim.batch_duration_step` と解釈され、`boundary_inflow`では 1 バッチの物理流入量からマクロ粒子数または重みが決まります。
+この文書は、BEACH のバッチループにおける `run.batch.duration_s`（または `run.batch.duration_steps` から決まる 1 バッチの物理時間）と、収束した壁面電荷分布の正当性・安定性の関係を理論的に整理したものです。
+現行実装では、`run.batch.duration_steps` を使う場合は `run.batch.duration_s = particles.tracking.dt_s * run.batch.duration_steps` と解釈され、`inflow`では 1 バッチの物理流入量からマクロ粒子数または重みが決まります。
 
 実装上の入口は次のとおりです。
 
 - バッチ計算手順: [`SPEC.md` §4](https://github.com/Nkzono99/BEACH/blob/main/SPEC.md)
-- パラメータ定義: [`docs/fortran_parameter_file.md`](fortran_parameter_file.html) の `sim.batch_duration` / `sim.batch_duration_step`
-- 注入での使用: `src/particles/bem_injection.f90`（`boundary_inflow` / `photo_raycast`）
+- パラメータ定義: [`docs/fortran_parameter_file.md`](fortran_parameter_file.html) の `run.batch.duration_s` / `run.batch.duration_steps`
+- 注入での使用: `src/particles/bem_injection.f90`（`inflow` / `photo_raycast`）
 - バッチ生成・重み解決: `src/config/bem_app_config_runtime.f90`
 
 ## 1. 連続時間モデルへの還元
@@ -30,11 +30,11 @@ $$
 
 と表せます。ここで
 
-- $\Delta t_b = $ `sim.batch_duration`
+- $\Delta t_b = $ `run.batch.duration_s`
 - $\mathbf A$ は要素面積ベクトル
 - $\boldsymbol\eta^n$ はバッチ内 Monte Carlo サンプリング誤差
 
-です。実装上も、バッチ内で粒子は同じ場 $E(\mathbf q^n)$ を見て進み、バッチ末尾で電荷差分がまとめて壁面へ反映されます。したがって、`batch_duration` はこの explicit 更新の時間刻みに相当します。
+です。実装上も、バッチ内で粒子は同じ場 $E(\mathbf q^n)$ を見て進み、バッチ末尾で電荷差分がまとめて壁面へ反映されます。したがって、`run.batch.duration_s` はこの explicit 更新の時間刻みに相当します。
 
 ## 2. 定常値の正当性
 
@@ -54,7 +54,7 @@ $$
 
 で与えられます。したがって、**平均モデルの不動点自体は $\Delta t_b$ に依存しません**。
 
-この意味で、反復が安定に収束しており、かつ Monte Carlo 誤差が十分に平均化されているなら、`batch_duration` を変えても目指している連続時間の定常解は同じです。
+この意味で、反復が安定に収束しており、かつ Monte Carlo 誤差が十分に平均化されているなら、`run.batch.duration_s` を変えても目指している連続時間の定常解は同じです。
 
 ただし、ここで言えるのはあくまで **平均モデルの固定点** についてです。実際の計算では
 
@@ -62,9 +62,9 @@ $$
 - 収束判定に用いる監視量の揺らぎ
 - 有限バッチ数で打ち切ることによる残差
 
-が入るため、観測される収束値には弱い `batch_duration` 依存が残りえます。したがって、厳密には
+が入るため、観測される収束値には弱い `run.batch.duration_s` 依存が残りえます。したがって、厳密には
 
-> 反復の平均的な固定点は `batch_duration` に依存しないが、有限サンプル・有限時間の実計算では小さな step-size dependence が観測されうる
+> 反復の平均的な固定点は `run.batch.duration_s` に依存しないが、有限サンプル・有限時間の実計算では小さな step-size dependence が観測されうる
 
 と書くのが安全です。
 
@@ -124,9 +124,9 @@ $$
 
 を考えると、定常分散は $\xi^n$ の分散に依存します。ここで重要なのは、**$\mathrm{Var}(\xi^n)$ の $\Delta t_b$ 依存性が、注入の正規化方式に依存する** ということです。BEACH の流束駆動sourceと境界流入には 2 つの方式があります。
 
-### 4.1 `w_particle` 固定の場合
+### 4.1 `sampling.weight` 固定の場合
 
-`w_particle` を直接指定し、物理流入数だけが $\Delta t_b$ に比例して増減する方式では、1 バッチあたりの期待マクロ粒子数は
+`sampling.weight` を直接指定し、物理流入数だけが $\Delta t_b$ に比例して増減する方式では、1 バッチあたりの期待マクロ粒子数は
 
 $$
 N_\text{macro} \;\propto\; \Delta t_b
@@ -138,11 +138,11 @@ $$
 \mathrm{Var}(\xi^n) \;\approx\; \alpha\, \Delta t_b
 $$
 
-と置けます。$\Delta t_b \ll \tau$ の極限では定常分散は `batch_duration` に強くは依存しません。
+と置けます。$\Delta t_b \ll \tau$ の極限では定常分散は `run.batch.duration_s` に強くは依存しません。
 
-### 4.2 `target_macro_particles_per_batch` 固定の場合
+### 4.2 `sampling.target_macro_particles_per_batch` 固定の場合
 
-一方、`target_macro_particles_per_batch` から `w_particle` を解く方式では、`src/config/bem_app_config_runtime.f90:644` のとおり
+一方、`sampling.target_macro_particles_per_batch` から `sampling.weight` を解く方式では、`src/config/bem_app_config_runtime.f90:644` のとおり
 
 $$
 w_\text{particle} \;\propto\; \frac{\Gamma\, A\, \Delta t_b}{N_\text{target}}
@@ -154,13 +154,13 @@ $$
 
 理論整理としては
 
-- `batch_duration` は主に **deterministic な安定性** のつまみ
-- 統計ノイズの主な制御つまみは **`w_particle` または `target_macro_particles_per_batch`**
+- `run.batch.duration_s` は主に **deterministic な安定性** のつまみ
+- 統計ノイズの主な制御つまみは **`sampling.weight` または `sampling.target_macro_particles_per_batch`**
 
 と分離して考えるのがよいです。特に
 
-> 「`batch_duration` を小さくすれば必ずノイズが下がる」  
-> 「`batch_duration` を大きくしてもノイズはほとんど変わらない」
+> 「`run.batch.duration_s` を小さくすれば必ずノイズが下がる」
+> 「`run.batch.duration_s` を大きくしてもノイズはほとんど変わらない」
 
 のいずれも一般論としては言い切れません。そこは注入の正規化方式に依存します。
 
@@ -194,7 +194,7 @@ $$
 
 です。電子プラズマの微視的な速い時間スケールであり、系がどこまで急峻に応答しうるかを見る基準にはなります。
 
-ただし、$\omega_{pe}^{-1}$ をそのまま $\tau_{\min}$ の上界とみなすのは強すぎます。むしろこれは **速い側の物理基準** であり、実際に `batch_duration` を制限する有効時定数は、幾何や入射律速を含んだ $\tau_\text{charge}$ 側で決まることが少なくありません。
+ただし、$\omega_{pe}^{-1}$ をそのまま $\tau_{\min}$ の上界とみなすのは強すぎます。むしろこれは **速い側の物理基準** であり、実際に `run.batch.duration_s` を制限する有効時定数は、幾何や入射律速を含んだ $\tau_\text{charge}$ 側で決まることが少なくありません。
 
 ### 5.3 実用上の選び方
 
@@ -212,30 +212,30 @@ $$
 ## 6. 実用的な使い方
 
 1. まず物理スケールとして $\omega_{pe}^{-1}$ と $\tau_\text{charge}$ の両方を概算する。
-2. 初期の `batch_duration` は、振動を避けたいなら保守的に小さめから始める。
-3. `batch_duration` を 1/2 倍と 2 倍に振って、電荷履歴や監視量の振る舞いを比較する（**step-size sensitivity check**）。
-4. 収束値がほぼ一致し、かつ振動や発散傾向が見えなければ、その `batch_duration` は実用上十分と判断できる。
-5. ノイズが大きい場合は、まず `w_particle` または `target_macro_particles_per_batch` を調整する。`batch_duration` の変更だけでノイズを解決しようとしない。
+2. 初期の `run.batch.duration_s` は、振動を避けたいなら保守的に小さめから始める。
+3. `run.batch.duration_s` を 1/2 倍と 2 倍に振って、電荷履歴や監視量の振る舞いを比較する（**step-size sensitivity check**）。
+4. 収束値がほぼ一致し、かつ振動や発散傾向が見えなければ、その `run.batch.duration_s` は実用上十分と判断できる。
+5. ノイズが大きい場合は、まず `sampling.weight` または `sampling.target_macro_particles_per_batch` を調整する。`run.batch.duration_s` の変更だけでノイズを解決しようとしない。
 6. `charge_history.csv` の `last_rel_change` の振動や要素電荷時系列のジッタは有用な診断量だが、これは厳密な Richardson 外挿（誤差の冪乗則を仮定する手法）というより、**step-size sensitivity check** と呼ぶのが適切である。
 
 ## 7. まとめ
 
 | 項目 | 結論 |
 |---|---|
-| 定常値の正当性 | 平均更新の固定点は `batch_duration` に依存しない |
+| 定常値の正当性 | 平均更新の固定点は `run.batch.duration_s` に依存しない |
 | 厳密な安定条件 | $\rho(I + \Delta t_b\, M) < 1$ |
 | $2\tau$, $\tau$ 条件 | 実負優勢モードを仮定した explicit Euler の近似目安 |
 | $\omega_{pe}^{-1}$ の位置づけ | 微視的な速い基準であり、一般にそのまま安定上界ではない |
-| ノイズと `batch_duration` | 依存性は注入の正規化方式に依存する |
-| ノイズ低減の主手段 | `w_particle` または `target_macro_particles_per_batch` の調整 |
-| 実務上の確認方法 | `batch_duration` を振った step-size sensitivity check |
+| ノイズと `run.batch.duration_s` | 依存性は注入の正規化方式に依存する |
+| ノイズ低減の主手段 | `sampling.weight` または `sampling.target_macro_particles_per_batch` の調整 |
+| 実務上の確認方法 | `run.batch.duration_s` を振った step-size sensitivity check |
 
-「平均モデルの定常値が `batch_duration` の取り方に依存しない」ことは理論的にきれいに言えます。
+「平均モデルの定常値が `run.batch.duration_s` の取り方に依存しない」ことは理論的にきれいに言えます。
 一般的な安定条件 $\rho(I + \Delta t_b M) < 1$ も古典的な安定性解析からそのまま従います。
 残る不確かさは $\tau_{\min}$ の値そのもので、ここだけはケース依存の物理見積もりと数値実験の両輪で詰める必要があります。
 
 ## 関連文書
 
-- [Fortran パラメータファイル仕様](fortran_parameter_file.html) — `sim.batch_duration` / `sim.batch_duration_step` の指定方法
+- [Fortran パラメータファイル仕様](fortran_parameter_file.html) — `run.batch.duration_s` / `run.batch.duration_steps` の指定方法
 - [Fortran 中心ワークフロー](fortran_workflow.html) — バッチループの実行制御
 - `SPEC.md` — 1 バッチの計算手順と停止条件

@@ -6,7 +6,6 @@ Lang: [日本語](ConfigurationRecipes.md) | [English](ConfigurationRecipes.en.m
 
 設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。完全な入力例は `examples/` を参照してください。
 
-
 このページは、動作確認済みの公式チュートリアルを研究用ケースへ変更するときの判断順を示します。
 形状・粒子源・境界を選び、時間刻みと粒子数を決めて、比較できる計算結果を作ります。
 各キーの型、既定値、組合せ制約は[入力パラメータリファレンス](Parameters.html)で調べられます。
@@ -31,7 +30,7 @@ beachx lint case.toml
 - どの保存則、基準解、収束幅を満たせば結果を採用するか
 
 公式チュートリアルは batch 間の帯電 feedback を学ぶ教材です。そこで使う粒子重みや
-`batch_duration=0` を、そのまま特定の実環境の時間発展とは解釈できません。先に合格条件を決めると、
+`run.batch.duration_s=0` を、そのまま特定の実環境の時間発展とは解釈できません。先に合格条件を決めると、
 後の mesh 分割、粒子数、solver 精度を必要な範囲へ絞れます。
 
 ## 2. 形状を選ぶ
@@ -69,13 +68,15 @@ OBJ へ切り替える場合は既存の `[[mesh.templates]]` block を削除し
 ```toml
 [mesh]
 mode = "obj"
-obj_path = "mesh/object.obj" # 実際の OBJ path に置き換える
+
+[mesh.obj]
+path = "mesh/object.obj" # 実際の OBJ path に置き換える
 surface_side = "outward_closed"
 ```
 
 `outward_closed` は、面の向きが整合した閉じた two-manifold にだけ使えます。開いた面では、OBJ の面法線と
 真空側に応じて `normal_plus` または `normal_minus` を選びます。配置変換、要素数、各形状の制約は
-[組み込み形状と OBJ のリファレンス](Parameters.html#mesh-メッシュ入力)、複数形状の実例は
+[組み込み形状と OBJ のリファレンス](Parameters.html#mesh)、複数形状の実例は
 [`examples/beach.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/beach.toml)を参照してください。
 
 ## 3. 表面 model を選ぶ
@@ -85,10 +86,11 @@ surface_side = "outward_closed"
 | 命中位置へ電荷を蓄積する | `insulator` | 表面内伝導、bulk 漏洩、誘電分極を解かない |
 | 物体の総電荷を保って等電位化する | `conductor` | 浮遊導体。free-space と `periodic2` の両方で使える |
 
-チュートリアルは `insulator` です。導体へ変える場合は対象の template、または OBJ 用の `[mesh]` で
+チュートリアルは `insulator` です。導体へ変える場合は対象の template、または OBJ 用の `[mesh.obj]` で
 次の 1 行を変更します。
 
 ```toml
+[mesh.obj]
 surface_model = "conductor"
 ```
 
@@ -98,28 +100,33 @@ surface_model = "conductor"
 
 ## 4. 粒子源を選ぶ
 
-粒子をどこから供給するかで経路を選びます。`source_mode` を変更するときは、旧 mode 専用キーを残さず、
+粒子をどこから供給するかで経路を選びます。`source.mode` を変更するときは、旧 mode 専用キーを残さず、
 その species entry を専用ページの最小設定へ置き換えます。
 
-| `source_mode` | 新しいケースでの用途 | 物理的な供給量 | macro sampling の調整 |
+| `source.mode` | 新しいケースでの用途 | 物理的な供給量 | macro sampling の調整 |
 | --- | --- | --- | --- |
-| `volume_seed` | box 内へ指定個数を置く軌道試験や初期粒子 | 面流束には対応しない | `npcls_per_step` |
-| `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `batch_duration` | `rays_per_batch` と ray の命中率 |
+| `volume_seed` | box 内へ指定個数を置く軌道試験や初期粒子 | 面流束には対応しない | `sampling.volume_macro_particles_per_batch` |
+| `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `run.batch.duration_s` | `sampling.rays_per_batch` と ray の命中率 |
 | `secondary_emission` | 吸収時に入射種から生成。同一バッチで追跡 | [二次電子放出](SecondaryElectronEmission.html) |
 
 チュートリアルの `volume_seed` を維持して供給量や領域だけ変えるなら、既存 species entry の次の値だけを
 調整します。
 
 ```toml
-npcls_per_step = 500
+[particles.species.sampling]
+volume_macro_particles_per_batch = 500
+
+[particles.species.source]
 pos_low = [0.2, 0.2, 0.8]
 pos_high = [0.8, 0.8, 0.8]
-drift_velocity = [0.0, 0.0, -1.0e6]
+
+[particles.species.distribution]
+drift_velocity_m_s = [0.0, 0.0, -1.0e6]
 ```
 
-外部 plasma から非周期の box 面全体を通す流入は `source_mode` ではなく
-`[particles.species.boundary_inflow]` です。境界流入だけの species では、物理パラメータと流入面を指定し、
-`source_mode` と `npcls_per_step` は省略します。選択の詳細は
+外部 plasma から非周期の box 面全体を通す流入は `source.mode` ではなく
+`[particles.species.inflow]` です。境界流入だけの species では、物理パラメータと流入面を指定し、
+`source.mode` と `sampling.volume_macro_particles_per_batch` は省略します。選択の詳細は
 [粒子をどこから入れるか](ParticleSourcesBoundaries.html)、境界流入は
 [境界から粒子を流入させる](ReservoirInjection.html)、光電子は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
@@ -127,15 +134,15 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 ## 5. box・場境界・粒子境界を決める
 
 まず `[domain]` の box が mesh と到達しうる全粒子軌道を含むようにします。次に場の closure を
-`field_boundary.mode`、非周期面を出る粒子の作用を `[particle_boundary]` で選びます。
+`fields.boundary`、非周期面を出る粒子の作用を `[particles.boundary]` で選びます。
 
 | 判断 | 選択 |
 | --- | --- |
-| 有限物体の自由空間場 | `periodic_axes=[]`, `field_boundary.mode="free"` |
-| x/y に無限反復する場 | `periodic_axes=["x", "y"]`, `field_boundary.mode="periodic2"` |
+| 有限物体の自由空間場 | `periodic_axes=[]`, `fields.boundary="free"` |
+| x/y に無限反復する場 | `periodic_axes=["x", "y"]`, `fields.boundary="periodic2"` |
 | 非周期面を出た粒子 | `open`, `reflect`, `redistributed_reflect` |
 
-周期 topology を指定する公開キーは `domain.periodic_axes` だけです。`particle_boundary` や species 別境界で
+周期 topology を指定する公開キーは `domain.periodic_axes` だけです。`particles.boundary` や species 別境界で
 周期軸を追加、削除、上書きはできません。`periodic2` は x/y 周期・z 非周期に限定されるため、新しく使う場合は
 完全例 [`examples/periodic2_basic.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/periodic2_basic.toml)
 と [periodic2 静電場](PeriodicElectrostatics.html)から始めてください。粒子の escape と return は
@@ -143,14 +150,14 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 
 ## 6. solver を選ぶ
 
-| `sim.field_solver` | 選ぶ場面 | 確認方法 |
+| `fields.solver.method` | 選ぶ場面 | 確認方法 |
 | --- | --- | --- |
 | `direct` | 小規模計算と基準解 | 近似 solver の比較基準にする |
 | `treecode` | 中規模の自由空間計算 | opening 条件を変えて観測量を比較する |
-| `fmm` | 大規模計算、多数の評価点、通常の `periodic2` | `tree_theta` と `tree_leaf_max` を変えて Direct と比較する |
+| `fmm` | 大規模計算、多数の評価点、通常の `periodic2` | `fields.solver.tree.theta` と `fields.solver.tree.leaf_max` を変えて Direct と比較する |
 | `auto` | 自由空間で要素数に応じ自動選択 | 出力で実際に選ばれた solver を確認する |
 
-チュートリアルの基準計算は `field_solver="direct"` のまま残します。高速 solver を採用する前に、同じ mesh と
+チュートリアルの基準計算は `fields.solver.method="direct"` のまま残します。高速 solver を採用する前に、同じ mesh と
 粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
 [場の評価方法](FieldSolvers.html)、FMM の設定と精度調整は [FMM を使う](FMM.html)を参照してください。
 
@@ -160,42 +167,43 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 ## 7. 時間と粒子数を決める
 
 先に密度、温度、流束などの物理条件を決め、その条件を何個のマクロ粒子で表現するかを決めます。
-マクロ粒子の重み `w_particle` は、一つの計算粒子が代表する実粒子数です。
+マクロ粒子の重み `sampling.weight` は、一つの計算粒子が代表する実粒子数です。
 
 | 決めるもの | 設定 | 選び方 |
 | --- | --- | --- |
-| 粒子軌道の刻み | `sim.dt` | 半分にして衝突位置や吸収率の変化を調べる |
-| 一粒子を追跡する長さ | `sim.max_step` | 未解決粒子 `survived_max_step` の影響が十分小さくなるまで増やす |
-| 表面電荷を更新する幅 | `sim.batch_duration` | 流束源では正の秒数を指定し、半分の幅でも結果を比較する |
-| 計算する期間 | `sim.batch_count` | 固定幅なら `batch_duration × batch_count` が物理終了時刻になる |
+| 粒子軌道の刻み | `particles.tracking.dt_s` | 半分にして衝突位置や吸収率の変化を調べる |
+| 一粒子を追跡する長さ | `particles.tracking.max_steps_per_particle` | 未解決粒子 `survived_max_step` の影響が十分小さくなるまで増やす |
+| 表面電荷を更新する幅 | `run.batch.duration_s` | 流束源では正の秒数を指定し、半分の幅でも結果を比較する |
+| 計算する期間 | `run.batch_count` | 固定幅なら `run.batch.duration_s × batch_count` が物理終了時刻になる |
 
-軌道刻みを半分にする比較では、`max_step` を 2 倍にして追跡可能な時間も揃えます。
-`batch_duration_step` を使う場合は `batch_duration = dt × batch_duration_step` なので、
-`dt` だけを変えると電荷更新幅も変わります。まず秒単位の `batch_duration` で両者を独立に指定すると、
+軌道刻みを半分にする比較では、`particles.tracking.max_steps_per_particle` を 2 倍にして追跡可能な時間も揃えます。
+`run.batch.duration_steps` を使う場合は `run.batch.duration_s = particles.tracking.dt_s × run.batch.duration_steps` なので、
+`particles.tracking.dt_s` だけを変えると電荷更新幅も変わります。まず秒単位の `run.batch.duration_s` で両者を独立に指定すると、
 どちらの影響を比較しているか明確になります。この二つの幅の指定は排他です。
 
 粒子数の調整方法は、選んだ粒子源で異なります。
 
 | 粒子源 | 統計精度を上げるときの変更 | 固定する物理条件 |
 | --- | --- | --- |
-| `volume_seed` | `npcls_per_step` を増やし、`w_particle` を同じ比率で減らす | 1 batch の実粒子数 `npcls_per_step × w_particle` |
-| `boundary_inflow` | `target_macro_particles_per_batch` を増やす、または固定 `w_particle` を減らす。両方は指定しない | 分布、密度または流束、面積、`batch_duration` |
-| `photo_raycast` | `rays_per_batch` を増やす | 光電流密度、照射方向、形状、`batch_duration` |
+| `volume_seed` | `sampling.volume_macro_particles_per_batch` を増やし、`sampling.weight` を同じ比率で減らす | 1 batch の実粒子数 `sampling.volume_macro_particles_per_batch × sampling.weight` |
+| `inflow` | `sampling.target_macro_particles_per_batch` を増やす、または固定 `sampling.weight` を減らす。両方は指定しない | 分布、密度または流束、面積、`run.batch.duration_s` |
+| `photo_raycast` | `sampling.rays_per_batch` を増やす | 光電流密度、照射方向、形状、`run.batch.duration_s` |
 
-`npcls_per_step` は名前に反して **1 batch 当たり**の生成数です。例えば入門ケースの
-`npcls_per_step=200, w_particle=2.0e5` を `400, 1.0e5` にすると、投入する実粒子数を保って
+`sampling.volume_macro_particles_per_batch` は **1 batch 当たり**の生成数です。例えば入門ケースの
+`sampling.volume_macro_particles_per_batch=200, sampling.weight=2.0e5` を `400, 1.0e5` にすると、投入する実粒子数を保って
 標本数を 2 倍にできます。粒子数だけを増やすと、投入電荷も増えて別の物理条件になります。
 光電子のマクロ粒子数は ray の命中率にも依存します。
 
-物理秒を割り当てない入門ケースでは `batch_duration=0` のまま batch ごとの結果を比較します。
+物理秒を割り当てない入門ケースでは `run.batch.duration_s=0` のまま batch ごとの結果を比較します。
 流束を指定する研究ケースの時間幅比較と適応進行は
-[`batch_duration` をどう決めるか](BatchDurationStability.html)を参照してください。
+[`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)を参照してください。
 
 ## 8. 出力先を分けて実行する
 
 最後に、既存の `[output]` で `dir` だけを変更し、基準結果を上書きしない出力先へ分けます。
 
 ```toml
+[output]
 dir = "outputs/case"
 ```
 
@@ -210,7 +218,7 @@ beachx inspect outputs/case
 ローカル実行、MPI、checkpoint と再開は[実行・再開する](Execution.html)を参照してください。
 
 最小の合格条件は、`lint` が `status=ok`、実行が終了 code 0、`inspect` の `batches` が
-`sim.batch_count` と一致し、`summary.txt` と `charges.csv` が存在することです。これは完走した証拠であり、
+`run.batch_count` と一致し、`summary.txt` と `charges.csv` が存在することです。これは完走した証拠であり、
 物理的に正しい証拠ではありません。各出力の読み方は[出力ファイルを調べる](OutputGuide.html)を参照してください。
 
 ## 9. 妥当性を確認する
@@ -220,7 +228,7 @@ beachx inspect outputs/case
 - `processed_particles = absorbed + escaped` が成り立ち、`escaped` の内訳である `escaped_boundary`、
   `survived_max_step`、`multiple_box_events_soft_discarded` を説明でき、表面・放出を含む電荷 ledger が閉じる
 - mesh を細分化しても結論が変わらない
-- `dt`、`max_step`、`batch_duration`、batch 数、粒子数を変えても結論が許容幅内にある
+- `particles.tracking.dt_s`、`particles.tracking.max_steps_per_particle`、`run.batch.duration_s`、batch 数、粒子数を変えても結論が許容幅内にある
 - Treecode や FMM の小規模結果が Direct の基準結果と一致する
 - 乱数 seed または反復実行を変えた統計変動が許容幅内にある
 - 採用する結論が、選んだ表面 model、境界、粒子源の適用範囲を超えない

@@ -85,7 +85,7 @@ ls -l outputs/latest/summary.txt outputs/latest/charges.csv
 beachx inspect outputs/latest
 ```
 
-**Expected:** `write_files=true`; `summary.txt` and `charges.csv` exist under `dir`; and `beachx inspect` exits with
+**Expected:** `output.enabled=true`; `summary.txt` and `charges.csv` exist under `dir`; and `beachx inspect` exits with
 code `0`.
 
 **Safe action:** Resolve a relative `output.dir` from the working directory where `beach` was launched.
@@ -101,11 +101,11 @@ grep -E '^(processed_particles|absorbed|escaped|escaped_boundary|survived_max_st
   outputs/latest/summary.txt
 ```
 
-**Expected:** `batches` equals `sim.batch_count`, and the particle counts can be explained from the source, absorption,
+**Expected:** `batches` equals `run.batch_count`, and the particle counts can be explained from the source, absorption,
 boundary escape, `survived_max_step`, and unresolved soft discards. There is no universal pass value for
 `survived_max_step` across all cases.
 
-**Safe action:** If `survived_max_step` affects the quantity of interest, vary `dt`, `max_step`, box size, and injection
+**Safe action:** If `survived_max_step` affects the quantity of interest, vary `particles.tracking.dt_s`, `particles.tracking.max_steps_per_particle`, box size, and injection
 velocity one at a time and check dependence. Do not relabel unresolved particles as absorbed or escaped after the run.
 Use [Validating Simulation Results](ValidationGuide.en.html) for acceptance.
 
@@ -119,21 +119,21 @@ ls -lh outputs/latest/*history.csv
 wc -l outputs/latest/*history.csv
 ```
 
-**Expected:** `history_stride > 0` creates `charge_history.csv`.
-`potential_history.csv` is created only with `write_potential_history=true` and `history_stride > 0`.
+**Expected:** `output.history.stride_batches > 0` creates `charge_history.csv`.
+`potential_history.csv` is created only with `output.history.potential=true` and `output.history.stride_batches > 0`.
 
-**Safe action:** For missing history, check `history_stride`, `batch_count`, and the actual `output.dir`.
-For oversized history, increase `history_stride` and enable `write_potential_history` only for cases that require
+**Safe action:** For missing history, check `output.history.stride_batches`, `batch_count`, and the actual `output.dir`.
+For oversized history, increase `output.history.stride_batches` and enable `output.history.potential` only for cases that require
 potential history.
 
 ## Cannot resume from a checkpoint
 
-**Check:** First inspect the directory named by `restart_from`. For a same-directory resume without `restart_from`,
+**Check:** First inspect the directory named by `run.restart.from`. For a same-directory resume without `run.restart.from`,
 inspect `output.dir` itself. The commands below use a serial `outputs/latest` example.
 
 ```bash
 checkpoint_dir=outputs/latest
-grep -A 12 '^\[sim\]' resume.toml
+grep -A 12 -E '^\[run(\.restart)?\]' resume.toml
 grep -A 12 '^\[output\]' resume.toml
 ls -l "$checkpoint_dir/summary.txt" \
   "$checkpoint_dir/charges.csv" \
@@ -152,17 +152,17 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - `macro_residuals.csv` and `charge_ledger.csv` exist when declared by the manifest.
 - The ordered-mesh fingerprint matches. Compare configuration files and explicit summary values when changing model or species settings.
 - For an MPI resume, the saved `mpi_world_size` matches the current rank count.
-- In `resume.toml`, `output.write_files=true` and `output.resume=true`. When set, `output.restart_from` names the
+- In `resume.toml`, `output.enabled=true` and a `[run.restart]` table is present. When set, `run.restart.from` names the
   checkpoint being inspected and `output.dir` is the intended new destination; when omitted, `output.dir` itself is
   the checkpoint source.
-- The new `sim.batch_count` is at least the saved `batches`; use a larger target to advance by one or more batches.
+- The new `run.batch_count` is at least the saved `batches`; use a larger target to advance by one or more batches.
 
 **Safe action:**
 
-- Use `restart_from` only as the checkpoint input and write new results to a separate `output.dir` to preserve the source.
+- Use `run.restart.from` only as the checkpoint input and write new results to a separate `output.dir` to preserve the source.
 - When resuming with changed physical or numerical settings, retain the warning, use a separate output directory, and check continuity across the change.
 - Do not manually combine files from different generations or rewrite `checkpoint_complete.txt`.
-- Do not use `resume=false` with the same `output.dir` as a workaround for a restart error.
+- Do not omit `[run.restart]` to start a new run in the same `output.dir` as a workaround for a restart error.
 - When periodic slots exist, BEACH automatically selects the newest complete candidate among the final output,
   `checkpoints/slot0`, and `slot1`.
 
@@ -177,7 +177,7 @@ beachx inspect outputs/resumed
 ```
 
 Recovery is complete when `resuming_from_batches` equals the selected checkpoint's `batches` and the new output's
-`batches` equals `sim.batch_count` in `resume.toml`.
+`batches` equals `run.batch_count` in `resume.toml`.
 [Files used for resume](OutputReference.en.html#files-used-for-resume) is the source of truth for required files and automatic
 selection.
 

@@ -13,7 +13,7 @@ BEACHは1つの粒子stepを、候補軌道の構築と、その軌道上で最�
 | 入力 | $\mathbf{x}^n,\mathbf{v}^n$ |
 | 電場標本 | 予測位置$\mathbf{x}_\mathrm{mid}$ |
 | 出力候補 | $\mathbf{x}^{n+1},\mathbf{v}^{n+1}$ |
-| 磁場 | 一様な`sim.b0` |
+| 磁場 | 一様な`fields.external.magnetic_t` |
 
 ## 予測中点で電場を評価する
 
@@ -31,7 +31,7 @@ $$
 \mathbf{E}(\mathbf{x}_\mathrm{mid}).
 $$
 
-電場評価では、要素電荷が作る場、`sim.e0`、選択したperiodic zero mode、outer profileを一度ずつ合成します。
+電場評価では、要素電荷が作る場、`fields.external.electric_v_m`、選択したperiodic zero mode、outer profileを一度ずつ合成します。
 同じbatchの粒子は、batch開始時の要素電荷から構成した同じ電場・電位の空間分布を使います。[<sup>1</sup>](FieldSolvers.html)
 
 `use_box=true`では、場の評価位置だけをsolverの有効領域へ写します。
@@ -46,7 +46,7 @@ $$
 
 ## Boris法で速度を進める
 
-$q$を粒子電荷、$m$を質量、$\mathbf{B}=\texttt{sim.b0}$として、電場による半step加速を行います。
+$q$を粒子電荷、$m$を質量、$\mathbf{B}=\texttt{fields.external.magnetic_t}$として、電場による半step加速を行います。
 
 $$
 \mathbf{v}^-=
@@ -112,7 +112,7 @@ $$
 event前後の速さを保存します。速さが非正または非有限となる退化eventはfail closedです。
 ただし、chordの交差fractionを残り時間のfractionにも使うため、加速または磁場旋回中の真の交差時刻を
 解いているわけではありません。これは軌道線分eventモデルの時間離散化近似であり、境界作用や
-potential-barrier判定を使う計算でも`dt`、`dt/2`、必要なら`dt/4`で結果の収束を確認する必要があります。
+potential-barrier判定を使う計算でも`particles.tracking.dt_s`、`particles.tracking.dt_s/2`、必要なら`particles.tracking.dt_s/4`で結果の収束を確認する必要があります。
 外部シースを接続した上端面の通過も同じ chord の交差で判定します。[<sup>2</sup>](ParticleEvents.html)
 
 ## Boris更新が保つ性質
@@ -125,9 +125,9 @@ potential-barrier判定を使う計算でも`dt`、`dt/2`、必要なら`dt/4`�
 | 三角形メッシュへの衝突、開放境界からの離脱 | 衝突・境界位置で追跡を終える非可逆過程 |
 | batch間で変わる自己無撞着場 | batch内では場の構成を固定し、commit後に次の場へ更新 |
 
-## 軌道と帯電結果から`dt`を決める
+## 軌道と帯電結果から`particles.tracking.dt_s`を決める
 
-`dt`は粒子の回転、場の空間変化、衝突対象の幾何を解像できる大きさにします。
+`particles.tracking.dt_s`は粒子の回転、場の空間変化、衝突対象の幾何を解像できる大きさにします。
 
 - cyclotron角$|q|\lVert\mathbf{B}\rVert\Delta t/m$
 - 電場が空間的に変化する長さを粒子が通過する時間
@@ -135,11 +135,11 @@ potential-barrier判定を使う計算でも`dt`、`dt/2`、必要なら`dt/4`�
 - 外部interface profileが急に変わる領域の通過時間
 
 三角形との交差はstep内の軌道線分で判定します。1 step中に軌道が強く曲がる場合や細かい形状を通過する場合は、
-時間刻みを小さくして衝突位置を収束させます。`dt`、`dt/2`、必要なら`dt/4`で、軌道、命中要素、
+時間刻みを小さくして衝突位置を収束させます。`particles.tracking.dt_s`、`particles.tracking.dt_s/2`、必要なら`particles.tracking.dt_s/4`で、軌道、命中要素、
 吸収・escape統計、batch後の要素電荷を比較してください。
 
-`max_step`を変えずに`dt`を半分にすると、追跡できる物理時間も半分になります。同じ物理時間まで比較する場合は、
-`max_step`も調整します。
+`particles.tracking.max_steps_per_particle`を変えずに`particles.tracking.dt_s`を半分にすると、追跡できる物理時間も半分になります。同じ物理時間まで比較する場合は、
+`particles.tracking.max_steps_per_particle`も調整します。
 
 ## Code reference
 

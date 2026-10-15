@@ -15,9 +15,11 @@ Direct solverは、各評価点で全source要素の寄与を加算します。`
 | 幾何plan | 不要。評価時に現在の`q_elem`を読む |
 
 ```toml
-[sim]
-field_solver = "direct"
-field_bc_mode = "free"
+[fields]
+boundary = "free"
+
+[fields.solver]
+method = "direct"
 ```
 
 <a id="triangle-p0"></a>
@@ -48,7 +50,7 @@ $$
 $$
 
 となります。この符号を決めるため、各要素に`normal_plus`または`normal_minus`のvacuum sideが必要です。
-OBJ入力では`[mesh].surface_side`、templateでは各`[[mesh.templates]].surface_side`で指定します。
+OBJ入力では`mesh.obj.surface_side`、templateでは各`[[mesh.templates]].surface_side`で指定します。
 `outward_closed`は、向きが整合した閉じたtwo-manifoldにだけ使用できます。
 
 現行要件は次のとおりです。
@@ -56,8 +58,6 @@ OBJ入力では`[mesh].surface_side`、templateでは各`[[mesh.templates]].surf
 - 有限で面積が正の三角形
 - 全要素でvacuum sideが解決済み
 - solverは`direct`、`treecode`、`fmm`、または`direct`/`fmm`を選ぶ`auto`
-
-旧`[field]` tableと`sim.softening`は削除済みです。残した設定はunknown table / keyとして停止します。
 
 設定例は[`examples/panel_direct.toml`](../examples/panel_direct.toml)にあります。
 
@@ -73,7 +73,7 @@ triangle P0自己電位をそのまま含み、別の経験的自己係数は加
 
 ## commit済み電荷を直接評価する
 
-内部座標は`field_normalization`で正規化され、電場と電位はSIへ戻されます。[<sup>1</sup>](FieldSolvers.html#長さの正規化)
+内部座標は`fields.solver.normalization`で正規化され、電場と電位はSIへ戻されます。[<sup>1</sup>](FieldSolvers.html#長さの正規化)
 
 Directは固定geometryのtreeや展開係数を持たず、各評価で現在の`mesh%q_elem`を直接読みます。batch中は
 参照する要素電荷を固定し、batch末尾にcommitした電荷を次batchの場へ反映する更新順序は他のsolverと同じです。

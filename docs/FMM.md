@@ -19,35 +19,35 @@ Lang: [日本語](FMM.md) | [English](FMM.en.md)
 | 要素数が多く、1 batch で多数の粒子 step を評価する | FMM を候補にし、release build で Direct と実測比較する |
 | 無限 2 軸周期場を本番計算で使う | FMM と `cached_kneq0` を使う |
 | 小規模ケース、基準解、近似誤差の確認 | Direct を使う |
-| free-space で要素数による自動選択を使いたい | `field_solver="auto"` を使い、解決された solver を出力で確認する |
+| free-space で要素数による自動選択を使いたい | `fields.solver.method="auto"` を使い、解決された solver を出力で確認する |
 
 FMM の有利・不利は要素数だけでなく、粒子数、追跡 step 数、評価点の分布にも依存します。
 Treecode を含む solver 全体の選択は[場の評価](FieldSolvers.html)を参照してください。
 
 ## 最小設定で自由空間FMMを使う
 
-既に lint が通るケースの `[sim]`、`[domain]`、`[field_boundary]`、`[output]` を次のように設定します。
+既に lint が通るケースの `[fields.solver]`、`[domain]`、`[fields]`、`[output]` を次のように設定します。
 box の値は例なので、実際の計算領域を使ってください。
 
 ```toml
-[sim]
-field_solver = "fmm"
+[fields.solver]
+method = "fmm"
 
 [domain]
 box_min = [-0.5, -0.5, -0.1]
 box_max = [ 0.5,  0.5,  1.0]
 periodic_axes = []
 
-[field_boundary]
-mode = "free"
+[fields]
+boundary = "free"
 
 [output]
-write_files = true
+enabled = true
 dir = "outputs/fmm"
 ```
 
 完全なケースは [`examples/panel_fmm.toml`](../examples/panel_fmm.toml) にあります。この example は
-短い確認用に `write_files=false` なので、結果を調べる場合は上の `[output]` 設定へ変更してください。
+短い確認用に `output.enabled=false` なので、結果を調べる場合は上の `[output]` 設定へ変更してください。
 入力検査、実行、solver の確認を順に行います。
 
 ```bash
@@ -73,8 +73,8 @@ FMM の速度上の利点が失われます。`cached_kneq0` を使う periodic2
 
 ## 精度を調整する
 
-最初は `tree_theta` と `tree_leaf_max` を省略し、要素数から解決される値を基準にします。
-この自動調整は、明示的に `field_solver="fmm"` を選んだ場合にも適用されます。解決値は次で確認できます。
+最初は `fields.solver.tree.theta` と `fields.solver.tree.leaf_max` を省略し、要素数から解決される値を基準にします。
+この自動調整は、明示的に `fields.solver.method="fmm"` を選んだ場合にも適用されます。解決値は次で確認できます。
 
 ```bash
 grep -E '^field_reconstruction_(tree_theta|tree_leaf_max|fmm_expansion_order)=' \
@@ -83,18 +83,18 @@ grep -E '^field_reconstruction_(tree_theta|tree_leaf_max|fmm_expansion_order)=' 
 
 | 設定 | 調整時の見方 |
 | --- | --- |
-| `tree_theta` | 小さくすると遠方近似の採用条件が厳しくなり、一般に高精度・低速になる。`0 < theta <= 1` |
-| `tree_leaf_max` | 木の深さと近傍 Direct 計算量のバランスを変える。`1` 以上で複数値を比較する |
-| `field_normalization` | 内部座標の数値スケールだけを変える。物理単位や FMM 近似の合格条件には使わない |
+| `fields.solver.tree.theta` | 小さくすると遠方近似の採用条件が厳しくなり、一般に高精度・低速になる。`0 < theta <= 1` |
+| `fields.solver.tree.leaf_max` | 木の深さと近傍 Direct 計算量のバランスを変える。`1` 以上で複数値を比較する |
+| `fields.solver.normalization` | 内部座標の数値スケールだけを変える。物理単位や FMM 近似の合格条件には使わない |
 
 現行 simulator の展開次数は 4 固定で、入力から変更できません。次の順で調整します。
 
 1. 自動解決値で基準実行する。
-2. `tree_theta` を小さくした実行を追加する。
-3. `tree_leaf_max` も変え、目的の観測量が安定する範囲を探す。
+2. `fields.solver.tree.theta` を小さくした実行を追加する。
+3. `fields.solver.tree.leaf_max` も変え、目的の観測量が安定する範囲を探す。
 4. Direct との差が許容範囲内で、かつ実測時間が短い組合せを採用する。
 
-要素数別の自動解決値と全キーの型・既定値は[入力パラメータ](Parameters.html#場ソルバ)を参照してください。
+要素数別の自動解決値と全キーの型・既定値は[入力パラメータ](Parameters.html#fieldssolver)を参照してください。
 
 <a id="source-kernel"></a>
 
@@ -104,14 +104,14 @@ Direct と FMM は、どちらも要素電荷を同じ triangle P0 source とし
 主に FMM の近似誤差を表します。mesh 離散化誤差は、別に mesh を細分化して確認してください。
 
 自由空間の縮小ケースを複製し、solver と出力先だけを分けます。最初の solver 誤差比較では
-`sim.batch_count=1` とし、初期表面電荷が同じ状態から得た要素電荷を使います。
+`run.batch_count=1` とし、初期表面電荷が同じ状態から得た要素電荷を使います。
 
-| 設定ファイル | `sim.field_solver` | `output.dir` |
+| 設定ファイル | `fields.solver.method` | `output.dir` |
 | --- | --- | --- |
 | `direct.toml` | `"direct"` | `"outputs/direct"` |
 | `fmm.toml` | `"fmm"` | `"outputs/fmm"` |
 
-mesh、粒子、乱数 seed、thread 数、`dt`、`field_normalization`、出力条件は一致させます。
+mesh、粒子、乱数 seed、thread 数、`particles.tracking.dt_s`、`fields.solver.normalization`、出力条件は一致させます。
 
 ```bash
 beachx lint direct.toml
@@ -151,7 +151,7 @@ beachx profile outputs/fmm/performance_profile.csv \
 batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `particle_batch` で確認できます。
 小ケースでは初期化の固定費が Direct を上回る場合があります。
 
-`write_potential_history` などの出力条件も計算量を変えるため、比較間で一致させます。periodic2 の
+`output.history.potential` などの出力条件も計算量を変えるため、比較間で一致させます。periodic2 の
 `cached_kneq0` は cold cache と warm cache を分けて測定してください。計測項目の定義は
 [実行時の性能計測](Execution.html#性能計測)を参照してください。
 
@@ -171,7 +171,7 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 - simulator の展開次数は 4 固定で、次数収束は入力から実行できない。
 - 対応する場境界は `free` と `periodic2`。完全な互換表は[場の評価](FieldSolvers.html#solverと場境界の互換表)に従う。
 - mesh geometry は実行中に固定される。電荷だけが batch ごとに更新される。
-- `field_normalization` を変更しても、出力される電場と電位は SI 単位へ戻される。
+- `fields.solver.normalization` を変更しても、出力される電場と電位は SI 単位へ戻される。
 - FMM 自体は外部 plasma / sheath を解かない。外部シース closure の電位基準は FMM の外側で周期 k=0 成分へ与える。
 
 FMM の数式、内部 API、geometry と電荷状態の分離、範囲外 fallback、OpenMP 実装を調べる開発者は

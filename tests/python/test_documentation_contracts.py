@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
-
-from beach.config._layout import READER_DEFINITIONS, SPECIES_PATHS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,137 +63,80 @@ def _markdown_sections(
 
 def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
     schema = _schema()
-    documented_objects = {
-        "sim": schema["$defs"]["sim"]["properties"],
-        "domain": schema["$defs"]["domain"]["properties"],
-        "field_boundary": schema["$defs"]["fieldBoundary"]["properties"],
-        "particle_boundary": schema["$defs"]["particleBoundary"]["properties"],
-        "reservoir": schema["$defs"]["reservoir"]["properties"],
-        "surface_current_model": schema["$defs"]["surfaceCurrentModel"][
-            "properties"
-        ],
-        "particles": schema["$defs"]["particles"]["properties"],
-        "species": schema["$defs"]["species"]["properties"],
-        "species.sampling": schema["$defs"]["groupedSpecies"]["properties"][
-            "sampling"
-        ]["properties"],
-        "species.boundary": schema["$defs"]["speciesParticleBoundary"]["properties"],
-        "species.boundary_inflow": schema["$defs"]["speciesBoundaryInflow"][
-            "properties"
-        ],
-        "mesh": schema["$defs"]["mesh"]["properties"],
-        "mesh.groups": schema["$defs"]["meshGroup"]["properties"],
-        "mesh.templates": schema["$defs"]["template"]["properties"],
-        "periodic2": schema["$defs"]["periodic2"]["properties"],
-        "output": schema["$defs"]["output"]["properties"],
-    }
-    structural_markers = {
-        ("particles", "species"): "`[[particles.species]]`",
-        ("mesh", "groups"): "`[mesh.groups.<name>]`",
-        ("mesh", "templates"): "`[[mesh.templates]]`",
-    }
-    object_headings = {
-        "particles": "### `[particles]`",
-        "sim": "### `[sim]`",
-        "domain": "### `[domain]`",
-        "field_boundary": "### `[field_boundary]`",
-        "particle_boundary": "### `[particle_boundary]`",
-        "reservoir": "### `[reservoir]`",
-        "surface_current_model": "### `[surface_current_model]`",
-        "species": "### `[[particles.species]]`",
-        "species.sampling": "### `[[particles.species]]`",
-        "species.boundary": "#### `[particles.species.boundary]`",
-        "species.boundary_inflow": "#### `[particles.species.boundary_inflow]`",
-        "mesh": "### `[mesh]`",
-        "mesh.templates": "#### `[[mesh.templates]]`",
-        "periodic2": "### `[periodic2]`",
-        "output": "### `[output]`",
-    }
-    hierarchy_markers = (
-        "├── [sim]",
-        "├── [domain]",
-        "├── [field_boundary]",
-        "├── [particle_boundary]",
-        "├── [reservoir]",
-        "├── [surface_current_model]",
-        "├── [particles]",
-        "│   └── [[particles.species]]",
-        "│       ├── [particles.species.boundary_inflow]",
-        "│       └── [particles.species.boundary]",
-        "├── [mesh]",
-        "│   ├── [mesh.groups.<name>]",
-        "│   └── [[mesh.templates]]",
-        "├── [periodic2]",
-        "└── [output]",
-    )
-    for path, detail_heading, helper_heading in (
-        (
-            "docs/Parameters.md",
-            "## パラメータ詳細リファレンス",
-            "## 座標・配置の補助パラメータ",
-        ),
-        (
-            "docs/Parameters.en.md",
-            "## Detailed Parameter Reference",
-            "## Coordinate and Placement Helper Parameters",
-        ),
-    ):
+    definitions = schema["$defs"]
+
+    def resolve(node):
+        while "$ref" in node:
+            node = definitions[node["$ref"].rsplit("/", 1)[-1]]
+        return node
+
+    def public_tables(node, path=""):
+        node = resolve(node)
+        if node.get("type") == "array":
+            node = resolve(node["items"])
+        if node.get("type") != "object":
+            return
+        if path:
+            yield path, node
+        for key, child in node.get("properties", {}).items():
+            yield from public_tables(child, f"{path}.{key}" if path else key)
+        if isinstance(node.get("additionalProperties"), dict):
+            yield from public_tables(node["additionalProperties"], path + ".<name>")
+
+    objects = dict(public_tables(definitions["groupedConfig"]))
+    groups = ("run", "domain", "mesh", "particles", "fields", "sheath", "output")
+
+    def table_marker(path):
+        return f"[[{path}]]" if path in {"particles.species", "mesh.templates"} else f"[{path}]"
+
+    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
         text = _read(path)
-        inventory, separator, _ = text.partition(detail_heading)
+        detail_heading = (
+            "## Detailed Parameter Reference" if path.endswith(".en.md")
+            else "## パラメータ詳細リファレンス"
+        )
+        inventory, separator, detail = text.partition(detail_heading)
         assert separator, path
-        for table in READER_DEFINITIONS:
-            assert f"`[{table}]`" in inventory, (path, table)
+        headings = [
+            match.group(1)
+            for match in re.finditer(r"^### `\[([a-z]+)\]`", detail, re.MULTILINE)
+        ]
+        assert headings == list(groups), path
+        for index, group in enumerate(groups):
+            branch = "└──" if index == len(groups) - 1 else "├──"
+            assert f"{branch} [{group}]" in inventory, (path, group)
 
-        object_sections = {
-            object_name: _markdown_sections(
-                text,
-                heading,
-                include_subsections=object_name != "mesh",
+        for table, node in objects.items():
+            # mesh.groups is a named-table container; each entry owns the keys.
+            if table == "mesh.groups":
+                continue
+            marker = table_marker(table)
+            assert f"`{marker}`" in inventory, (path, table)
+            assert "── " + marker in inventory, (path, table)
+            if table.startswith("particles.species"):
+                level = 3 + table.removeprefix("particles.species").count(".")
+            elif table == "mesh.groups.<name>":
+                level = 4
+            else:
+                level = 3 + table.count(".")
+            content = _markdown_sections(
+                detail, "#" * level + f" `{marker}`",
+                include_subsections=table == "mesh.templates",
             )
-            for object_name, heading in object_headings.items()
-        }
-        helper_section = _markdown_sections(text, helper_heading)
-        helper_row_prefixes = {
-            "domain": ("| `domain.",),
-            "species": ("| `inject_region_mode`", "| `uv_low`"),
-            "mesh.groups": ("| group ", "| Group "),
-            "mesh.templates": ("| template ", "| Template "),
-        }
-        for object_name, prefixes in helper_row_prefixes.items():
-            rows = "\n".join(
-                line
-                for line in helper_section.splitlines()
-                if line.startswith(prefixes)
-            )
-            assert rows, (path, object_name)
-            object_sections[object_name] = "\n".join(
-                (object_sections.get(object_name, ""), rows)
-            )
-
-        for object_name, properties in documented_objects.items():
-            parameter_rows = [
-                line
-                for line in object_sections.get(object_name, "").splitlines()
-                if line.startswith("|") and line.count("|") >= 5
-            ]
-            for key in properties:
-                structural_marker = structural_markers.get((object_name, key))
-                if structural_marker is not None:
-                    assert structural_marker in text, (path, object_name, key)
-                    continue
-                markers = (
-                    f"`{key}`",
-                    f".{key}`",
-                    f"`{key}=",
-                    f".{key}=",
-                )
-                if object_name == "species" and key in SPECIES_PATHS:
-                    markers += (f"`{SPECIES_PATHS[key]}`",)
-                assert any(
-                    marker in row for marker in markers for row in parameter_rows
-                ), (path, object_name, key)
-        for marker in hierarchy_markers:
-            assert marker in text, (path, marker)
+            rows = [line for line in content.splitlines() if line.startswith("|")]
+            # Check the key column, not mentions in another parameter's explanation.
+            documented_keys = {
+                key
+                for row in rows if row.count("|") >= 5
+                for key in re.findall(r"`([^`]+)`", row.split("|")[1])
+            }
+            for key in node.get("properties", {}):
+                child = f"{table}.{key}"
+                if child in objects:
+                    child_marker = table_marker(child + ".<name>" if child == "mesh.groups" else child)
+                    assert f"`{child_marker}`" in detail, (path, table, key)
+                else:
+                    assert key in documented_keys, (path, table, key)
 
 
 def test_parameter_reference_uses_single_remote_editor_schema_directive() -> None:
@@ -210,19 +152,9 @@ def test_parameter_reference_uses_single_remote_editor_schema_directive() -> Non
 
 def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
     schema = _schema()
-    assert "direct" in schema["$defs"]["sim"]["properties"]["field_solver"]["enum"]
-    assert (
-        "panel_spectral_reference"
-        in schema["$defs"]["periodic2"]["properties"][
-            "nonzero_mode_backend"
-        ]["enum"]
-    )
-    assert (
-        schema["$defs"]["periodic2"]["properties"]["zero_mode_policy"][
-            "const"
-        ]
-        == "exclude_k0"
-    )
+    fields = schema["$defs"]["groupedConfig"]["properties"]["fields"]["properties"]
+    assert "direct" in fields["solver"]["properties"]["method"]["enum"]
+    assert "panel_spectral_reference" in fields["periodic"]["properties"]["backend"]["enum"]
 
     for path in ("docs/FieldSolvers.md", "docs/FieldSolvers.en.md"):
         text = _read(path)
@@ -230,7 +162,7 @@ def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
             line for line in text.splitlines() if line.startswith("| `direct` |")
         )
         assert "panel_spectral_reference" in direct_row, path
-        assert "exclude_k0" in direct_row, path
+        assert "fields.periodic.lower_boundary_model" in direct_row, path
         assert "`triangle_p0`" in text, path
 
 

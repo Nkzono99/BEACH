@@ -6,7 +6,6 @@ Lang: [English](Configuration.en.md) | [日本語](Configuration.md)
 
 Configuration files accept only the seven-group layout (`run / domain / mesh / particles / fields / sheath / output`). See `examples/` for complete input files.
 
-
 This document describes the directly edited `beach.toml` file and the `beachx config` helper commands.
 See [Design a Simulation Case](ConfigurationRecipes.en.html) for choosing meshes, particle sources, boundary conditions,
 and the rest of the physical setup.
@@ -34,7 +33,7 @@ beach beach.toml
 
 Run `beachx lint` before a simulation and confirm `status=ok` before starting `beach`.
 
-Write `box_origin` / `box_size`, `inject_region_mode`, `mesh.groups`, and related keys directly in TOML. See
+Write `box_origin` / `box_size`, `source.region_mode`, `mesh.groups`, and related keys directly in TOML. See
 [Coordinate and placement helper parameters](Parameters.en.html#coordinate-and-placement-helper-parameters) for the coordinates
 or dimensions they calculate and any explicit values they replace.
 
@@ -54,7 +53,7 @@ The generated file is identical to
 [`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml).
 It is the official beginner case that launches 200 `volume_seed` macro-electrons per batch toward an insulating plane
 and follows the charge distribution and its feedback for 20 batches. It uses the easier-to-interpret
-`field_solver="direct"` and `[field_boundary] mode="free"`. It does not include periodic boundaries, an ion species,
+`fields.solver.method="direct"` and `[fields] boundary="free"`. It does not include periodic boundaries, an ion species,
 or `photo_raycast`.
 
 ### 2.2 `lint`

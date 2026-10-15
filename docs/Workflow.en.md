@@ -185,7 +185,7 @@ When a public contract changes, update its canonical description and consumers i
 | Numerical method or physical model | Scope, fail-closed conditions, Direct or oracle comparison, numerical convergence, and `ValidationGuide.md` / `.en.md` |
 
 For every documentation change, keep commands, identifiers, constraints, warnings, and expected results equivalent in
-Japanese and English. In the current implementation, `sim.tol_rel` is a monitoring and output value, not an early-stop
+Japanese and English. In the current implementation, `output.diagnostics.charge_rel_change_threshold` is a monitoring and output value, not an early-stop
 condition. Report execution success, test completion, numerical convergence, and physical validity separately.
 
 See [Canonical ownership](Architecture.en.html#distinguish-canonical-ownership) for the responsibility of each source,

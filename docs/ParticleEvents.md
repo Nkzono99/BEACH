@@ -113,7 +113,7 @@ $$
 
 ## box面ごとの作用を適用する
 
-`domain.periodic_axes` に含む軸の両面は periodic です。非周期面は `[particle_boundary]` の
+`domain.periodic_axes` に含む軸の両面は periodic です。非周期面は `[particles.boundary]` の
 `x_low`、`x_high`、`y_low`、`y_high`、`z_low`、`z_high` で `open`、`reflect`、
 `redistributed_reflect` のいずれかを選びます。
 粒子境界へ `periodic` は指定できません。候補軌道線分が複数 face へ同時に達する corner/edge では、
@@ -131,13 +131,13 @@ edge / cornerの同時eventでmaskに`redistributed_reflect`が含まれる場�
 一様再標本化します。event軸は再標本化せず、対応する面の内側guardへ置きます。このためcornerでは
 再配置する軸はなく、edgeでは残る1軸だけを再配置します。
 
-面内標本は共有乱数streamではなく、`sim.rng_seed`とbatch、rank、particle、step、event、axisのcounterから
+面内標本は共有乱数streamではなく、`run.rng_seed`とbatch、rank、particle、step、event、axisのcounterから
 生成します。同じMPI layoutとseedではOpenMP scheduleに依存せず再現できますが、rank分割を変えた同一軌道の
 一致は保証しません。
 
 `[particles.species.boundary]` は同じ 6 面を species ごとに `inherit`、`open`、`reflect`、
 `redistributed_reflect` で上書きします。
-`inherit` は global の `[particle_boundary]` を使います。`domain.periodic_axes` の面は topology なので、
+`inherit` は global の `[particles.boundary]` を使います。`domain.periodic_axes` の面は topology なので、
 global 設定でも species 設定でも上書きできません。closed PE の組合せは
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)にあります。
 
@@ -179,7 +179,7 @@ $$
 適用しません。純磁場ではevent速度のノルムを保存します。非正・非有限の速さ、または零長chordは
 未解決eventとしてfail closedです。chord交差fractionは残り時間のfractionにも使いますが、加速または
 磁場旋回中の真の交差時刻ではありません。この時間離散化近似が境界作用やkinetic-barrier判定へ与える影響は、
-`dt`、`dt/2`、必要なら`dt/4`で収束を確認します。粒子が生存する境界作用を適用した後、
+`particles.tracking.dt_s`、`particles.tracking.dt_s/2`、必要なら`particles.tracking.dt_s/4`で収束を確認します。粒子が生存する境界作用を適用した後、
 reflect系/periodic後のevent軸座標はbox座標とspanに応じたguard幅だけ面内へ置きます。原点側でsubnormalに
 なる1 ULP offsetを避け、残り軌道による次のevent fractionが0へunderflowする境界chatterを防ぎます。
 
@@ -191,23 +191,23 @@ $$
 比較し、最初に起きるものを調べます。場も再評価するため、反射前のfield sampleは使い回しません。
 
 1 回の local continuation では box 境界イベントを最大 8 回処理します。9 回目が必要なら
-`particle_step_multiple_box_events` を返し、未完成 state を commit しません。これは大きすぎる `dt`、
+`particle_step_multiple_box_events` を返し、未完成 state を commit しません。これは大きすぎる `particles.tracking.dt_s`、
 狭い box、または高速粒子を検出する安全上限です。guard 幅を変えてもこの上限は変わりません。
 
-`multiple_box_events_retry_backend="upper_panel_fourier"` を指定した `cached_kneq0` 構成では、この status が
+`particles.tracking.events.retry_backend="upper_panel_fourier"` を指定した `cached_kneq0` 構成では、この status が
 出た 1 step だけを元の位置・速度から再試行します。再試行の非零モード場は triangle P0 電荷を
-`periodic2.reference_mode_layers` まで Fourier 展開し、全 mesh 頂点の最大 z より上で成立する指数減衰形へ
-因子化します。各評価では同じ periodic zero mode と `sim.e0` を 1 回だけ加えます。再試行中の場評価点が
+`fields.periodic.reference.mode_layers` まで Fourier 展開し、全 mesh 頂点の最大 z より上で成立する指数減衰形へ
+因子化します。各評価では同じ periodic zero mode と `fields.external.electric_v_m` を 1 回だけ加えます。再試行中の場評価点が
 1 点でもこの上部真空域に入らない場合は失敗とします。kinetic-barrier event の境界電位も同じ展開と
 potential gauge で評価し、その評価点にも同じ成立域を要求します。成立域外の場合、または再試行後も
 event を完了できない場合は、元の
 `multiple_box_events` を保持して policy へ渡します。これは外部プラズマやシースを追加するモデルではなく、
 通常粒子の FMM backend も変更しません。
 幾何応答は snapshot 初期化時に 1 回だけ構築し、現在の面電荷との積は再試行の電場・電位評価時だけ計算します。
-モード数と幾何応答メモリは `reference_mode_layers` の 2 乗で増えるため、この値は seam 誤差と再試行結果の
+モード数と幾何応答メモリは `fields.periodic.reference.mode_layers` の 2 乗で増えるため、この値は seam 誤差と再試行結果の
 収束を確認して選びます。
 
-既定の`multiple_box_events_policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
+既定の`particles.tracking.events.policy="abort"`はこの時点でRUNをfail closedにします。有限画像和の定性的な
 感度確認など、明示的に`"soft_discard"`を選んだ場合だけ、該当macro particleを消滅させます。標準エラーには
 batch ごとの全 rank 合計件数と絶対 macro charge だけを記録します。累積 discard 件数を $D$、accepted batch で
 処理した累積 macro particle 数を $P$、累積絶対 macro charge を $Q$ とすると、commit 前の停止条件は
@@ -216,9 +216,9 @@ $$
 \left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right)
 $$
 
-です。$G$ は `multiple_box_events_soft_discard_count_grace` で、累積件数の単独上限ではありません。
-$f_{\mathrm{limit}}$ は `multiple_box_events_soft_discard_fraction_limit` です。各比較で等値は許容します。
-`multiple_box_events_soft_discard_abs_charge_limit` は停止条件ではなく、累積絶対電荷が初めて超えたときの
+です。$G$ は `particles.tracking.events.discard_count_grace` で、累積件数の単独上限ではありません。
+$f_{\mathrm{limit}}$ は `particles.tracking.events.discard_fraction_limit` です。各比較で等値は許容します。
+`particles.tracking.events.discard_charge_warning_c` は停止条件ではなく、累積絶対電荷が初めて超えたときの
 警告閾値です。`summary.txt` と checkpoint には
 `multiple_box_events_soft_discarded`、`multiple_box_events_soft_discarded_abs_charge_C`、および $D/P$ から
 導出した `multiple_box_events_soft_discard_fraction` を残し、charge ledger にも discard 電荷を記録します。
@@ -254,11 +254,11 @@ batch/rank/particle/step/status を報告します。photo raycast も species/r
 
 ## 衝突位置と帯電結果を収束させる
 
-1. `dt`を半分にして軌道線分が衝突する要素と位置が安定するか確認する。
+1. `particles.tracking.dt_s`を半分にして軌道線分が衝突する要素と位置が安定するか確認する。
 2. 薄い面、edge/corner近傍、三角形とほぼ平行な軌道線分を含む小ケースを作る。
 3. reflect後とperiodic wrap後の残り時間内にmeshへ当たる軌道を確認する。
 4. periodic seamで`pos`と`pos_wrapped`が意図した要素へ対応するか確認する。
-5. `multiple_box_events`が出る場合、まず`dt`を小さくする。`upper_panel_fourier`を使う場合は解決率と成立域、
+5. `multiple_box_events`が出る場合、まず`particles.tracking.dt_s`を小さくする。`upper_panel_fourier`を使う場合は解決率と成立域、
    soft discardを使う場合はdiscard率と絶対電荷が結論を左右しないことを確認する。
 6. mesh refinementで最初のhitと最終的な表面電荷分布が収束するか確認する。
 

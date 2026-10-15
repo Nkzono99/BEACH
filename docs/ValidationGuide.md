@@ -36,7 +36,7 @@ beachx inspect outputs/latest
 | 確認先 | 判定 |
 | --- | --- |
 | processの終了code | `0` |
-| `summary.txt` | `batches == sim.batch_count` |
+| `summary.txt` | `batches == run.batch_count` |
 | `charges.csv` | 最終的な要素電荷が保存されている |
 | 必要な履歴 | 設定したstrideで欠落なく保存されている |
 | restartした計算 | mesh fingerprint が一致し、再開前後の設定変更を記録している |
@@ -51,11 +51,11 @@ beachx inspect outputs/latest
 | --- | --- |
 | `absorbed` | 表面に到達して吸収された粒子 |
 | `escaped_boundary` | box境界またはouter modelから流出した粒子 |
-| `survived_max_step` | `sim.max_step`までに吸収・流出が確定しなかった粒子 |
+| `survived_max_step` | `particles.tracking.max_steps_per_particle`までに吸収・流出が確定しなかった粒子 |
 
 `survived_max_step` は物理的な吸収・境界脱出が未確定の粒子です。集計上は `escaped` の内訳に含まれるため、
 物理的な流出量には `escaped_boundary` を使います。未解決量が結論に影響するなら、
-`sim.max_step`、`sim.dt`、boxの大きさを見直し、十分に小さくなることを確認します。
+`particles.tracking.max_steps_per_particle`、`particles.tracking.dt_s`、boxの大きさを見直し、十分に小さくなることを確認します。
 
 次に`charge_ledger.csv`と`summary.txt`の電荷収支を確認します。
 
@@ -72,23 +72,23 @@ beachx inspect outputs/latest
 - 系統的な増加・減少が残っていないか
 - batchごとの振動や突発的な変化がないか
 - 時間平均に対するばらつきが、先に決めた許容差より小さいか
-- `sim.batch_count`を増やしても平均値や結論が変わらないか
+- `run.batch_count`を増やしても平均値や結論が変わらないか
 
-`last_rel_change`と`sim.tol_rel`は監視用です。現行実装では早期停止条件ではなく、
-`last_rel_change < tol_rel`だけで定常状態とは判定しません。
+`last_rel_change`と`output.diagnostics.charge_rel_change_threshold`は監視用です。現行実装では早期停止条件ではなく、
+`last_rel_change < output.diagnostics.charge_rel_change_threshold`だけで定常状態とは判定しません。
 
 Monte Carloノイズと時間離散化の影響は分けて確認します。
 
 | 変更するもの | 主に確認できる影響 |
 | --- | --- |
-| `sim.rng_seed` | 乱数に起因するばらつき |
+| `run.rng_seed` | 乱数に起因するばらつき |
 | 物理的な供給量を保ってマクロ粒子数・重みを変更 | Monte Carloノイズ |
-| `sim.batch_count` | 計算時間が十分か |
-| `sim.batch_duration`または`sim.batch_duration_step` | batch末尾の表面電荷更新の安定性 |
+| `run.batch_count` | 計算時間が十分か |
+| `run.batch.duration_s`または`run.batch.duration_steps` | batch末尾の表面電荷更新の安定性 |
 
 粒子数と重みの変更は[ケース設計](ConfigurationRecipes.html#7-時間と粒子数を決める)に従います。
-`batch_duration` は基準値の 0.5 倍と 2 倍を目安に比較し、batch 数を調整して同じ物理時刻まで計算します。詳しい考え方は
-[`batch_duration`の安定性と定常値](BatchDurationStability.html)にまとめています。
+`run.batch.duration_s` は基準値の 0.5 倍と 2 倍を目安に比較し、batch 数を調整して同じ物理時刻まで計算します。詳しい考え方は
+[`run.batch.duration_s`の安定性と定常値](BatchDurationStability.html)にまとめています。
 
 ## 4. 数値解像度への依存性を確認する
 
@@ -97,8 +97,8 @@ Monte Carloノイズと時間離散化の影響は分けて確認します。
 
 | 収束軸 | 比較例 | 確認する誤差 |
 | --- | --- | --- |
-| 粒子時間刻み | `sim.dt` を 1/2、`sim.max_step` を 2 倍にし、`batch_duration` は固定 | 軌道、衝突位置、吸収・流出量 |
-| 粒子追跡長 | `sim.max_step`を増やす | 未解決粒子による打切り |
+| 粒子時間刻み | `particles.tracking.dt_s` を 1/2、`particles.tracking.max_steps_per_particle` を 2 倍にし、`run.batch.duration_s` は固定 | 軌道、衝突位置、吸収・流出量 |
+| 粒子追跡長 | `particles.tracking.max_steps_per_particle`を増やす | 未解決粒子による打切り |
 | 表面mesh | 三角形を細分化する | 電荷・電位の空間離散化 |
 | 場ソルバ | 小規模ケースでDirectと比較する | Treecode/FMM近似 |
 | 有限周期画像 | `fields.periodic.image_layers`を増やす | 画像和の打切り |

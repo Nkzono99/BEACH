@@ -36,7 +36,7 @@ At minimum, check the following:
 | Location | Acceptance condition |
 | --- | --- |
 | process exit status | `0` |
-| `summary.txt` | `batches == sim.batch_count` |
+| `summary.txt` | `batches == run.batch_count` |
 | `charges.csv` | final element charges are present |
 | required histories | records are complete at the configured stride |
 | restarted run | mesh fingerprint matches; configuration changes across restart are recorded |
@@ -51,11 +51,11 @@ Confirm that particle counts in `summary.txt` are consistent with the configured
 | --- | --- |
 | `absorbed` | particles absorbed at a surface |
 | `escaped_boundary` | particles leaving through the box boundary or outer model |
-| `survived_max_step` | particles whose absorption or escape was unresolved at `sim.max_step` |
+| `survived_max_step` | particles whose absorption or escape was unresolved at `particles.tracking.max_steps_per_particle` |
 
 `survived_max_step` counts particles whose physical absorption or boundary escape is unresolved. It is included in the
 aggregate `escaped` count; use `escaped_boundary` for physical escape. If the unresolved count affects the conclusion, revise
-`sim.max_step`, `sim.dt`, or the box dimensions and show that the unresolved population becomes negligible.
+`particles.tracking.max_steps_per_particle`, `particles.tracking.dt_s`, or the box dimensions and show that the unresolved population becomes negligible.
 
 Then inspect the charge balance in `charge_ledger.csv` and `summary.txt`:
 
@@ -72,23 +72,23 @@ used in the conclusion. Inspect an evaluation interval rather than only its last
 - no remaining systematic increase or decrease;
 - no unexplained batch-to-batch oscillation or excursion;
 - scatter around the interval mean is below the declared tolerance;
-- increasing `sim.batch_count` does not change the mean or conclusion.
+- increasing `run.batch_count` does not change the mean or conclusion.
 
-`last_rel_change` and `sim.tol_rel` are monitoring values. In the current implementation they do not stop a run early,
-and `last_rel_change < tol_rel` alone does not establish a steady state.
+`last_rel_change` and `output.diagnostics.charge_rel_change_threshold` are monitoring values. In the current implementation they do not stop a run early,
+and `last_rel_change < output.diagnostics.charge_rel_change_threshold` alone does not establish a steady state.
 
 Separate Monte Carlo variation from time-discretization effects.
 
 | Quantity varied | Main effect tested |
 | --- | --- |
-| `sim.rng_seed` | random-sampling variation |
+| `run.rng_seed` | random-sampling variation |
 | macro-particle count and weight, while preserving the physical supply | Monte Carlo noise |
-| `sim.batch_count` | adequacy of the simulated duration |
-| `sim.batch_duration` or `sim.batch_duration_step` | stability of the end-of-batch surface-charge update |
+| `run.batch_count` | adequacy of the simulated duration |
+| `run.batch.duration_s` or `run.batch.duration_steps` | stability of the end-of-batch surface-charge update |
 
 Follow [Case design](ConfigurationRecipes.en.html#7-set-time-scales-and-particle-sampling) when changing particle counts
-and weights. Compare `batch_duration` at 0.5x and 2x the baseline, adjusting batch counts to reach the same physical time. See
-[`batch_duration` Stability and Steady Values](BatchDurationStability.en.html) for the underlying interpretation.
+and weights. Compare `run.batch.duration_s` at 0.5x and 2x the baseline, adjusting batch counts to reach the same physical time. See
+[`run.batch.duration_s` Stability and Steady Values](BatchDurationStability.en.html) for the underlying interpretation.
 
 ## 4. Check numerical-resolution dependence
 
@@ -97,8 +97,8 @@ and require the changes to fall below the previously declared tolerances.
 
 | Convergence axis | Example comparison | Error being tested |
 | --- | --- | --- |
-| particle time step | halve `sim.dt`, double `sim.max_step`, and hold `batch_duration` fixed | orbit, collision location, absorption, and escape |
-| tracking length | increase `sim.max_step` | truncation from unresolved particles |
+| particle time step | halve `particles.tracking.dt_s`, double `particles.tracking.max_steps_per_particle`, and hold `run.batch.duration_s` fixed | orbit, collision location, absorption, and escape |
+| tracking length | increase `particles.tracking.max_steps_per_particle` | truncation from unresolved particles |
 | surface mesh | refine the triangles | spatial discretization of charge and potential |
 | field solver | compare with Direct on a small case | Treecode or FMM approximation |
 | finite periodic images | increase `fields.periodic.image_layers` | image-sum truncation |

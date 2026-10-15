@@ -1,13 +1,13 @@
-title: `batch_duration` の理論的背景
+title: `run.batch.duration_s` の理論的背景
 
 Lang: [日本語](BatchDurationTheory.md) | [English](BatchDurationTheory.en.md)
 
-# `batch_duration` の理論的背景
+# `run.batch.duration_s` の理論的背景
 
-このページは、`batch_duration` が帯電更新の安定性と観測される定常値にどう影響するかを説明します。
-値を決める実行手順は [`batch_duration` をどう決めるか](BatchDurationStability.html)を参照してください。
+このページは、`run.batch.duration_s` が帯電更新の安定性と観測される定常値にどう影響するかを説明します。
+値を決める実行手順は [`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)を参照してください。
 
-一文で言えば、`batch_duration` は平均帯電モデルの陽的な更新幅です。安定に収束する平均モデルの
+一文で言えば、`run.batch.duration_s` は平均帯電モデルの陽的な更新幅です。安定に収束する平均モデルの
 固定点は幅に依存しませんが、離散更新の安定性、有限時間誤差、Monte Carlo 誤差は幅に依存します。
 
 ## 平均帯電モデル
@@ -35,7 +35,7 @@ $$
 =\mathbf q^n+\Delta t_b\,\mathbf F(\mathbf q^n)+\boldsymbol\eta^n
 $$
 
-とみなせます。$\Delta t_b$ は `batch_duration`、$\boldsymbol\eta^n$ は有限個の macro 粒子から生じる
+とみなせます。$\Delta t_b$ は `run.batch.duration_s`、$\boldsymbol\eta^n$ は有限個の macro 粒子から生じる
 Monte Carlo 誤差です。
 
 ## 固定点が幅に依存しない条件
@@ -48,7 +48,7 @@ $$
 
 を満たします。全要素の面積が正なら、これは $\mathbf J(\mathbf q^\ast)=\mathbf 0$ と同じ条件です。
 $\Delta t_b>0$ は固定点の式に現れないため、平均モデルが同じ固定点へ安定に収束する限り、
-固定点自体は `batch_duration` に依存しません。
+固定点自体は `run.batch.duration_s` に依存しません。
 
 実際の run では、有限標本の $\boldsymbol\eta^n$、有限の物理終了時刻、非線形応答が残ります。
 したがって「理論上の固定点が同じ」であっても、観測した最終電荷が時間幅に依存しないとは限りません。
@@ -103,7 +103,7 @@ $$
 
 は別の時間 scale です。前者は速いプラズマ応答、後者は表面電荷が変わる遅い応答の目安になります。
 実際の上限は geometry、電位、流入分布、表面応答にも依存するため、どちらか一方をそのまま
-`batch_duration` の上限にはできません。
+`run.batch.duration_s` の上限にはできません。
 
 ## Monte Carlo 誤差との結合
 
@@ -123,7 +123,7 @@ $$
 \le \Phi_{\max}
 $$
 
-を満たす幅を受理します。$\Phi_{\max}$ が `max_nonzero_mode_potential_step` です。
+を満たす幅を受理します。$\Phi_{\max}$ が `run.batch.adaptive.max_nonzero_mode_potential_step_v` です。
 
 この条件は、batch 中に固定した $k\ne0$ 場が 1 回の更新で大きく変わりすぎないための trust bound です。
 局所打切り誤差の推定器ではなく、大域精度の次数も与えません。$k=0$ 更新や、応答表・粒子 sampling の
@@ -143,7 +143,7 @@ $$
 
 ## 関連文書
 
-- [`batch_duration` をどう決めるか](BatchDurationStability.html) — 固定幅比較と adaptive 設定
+- [`run.batch.duration_s` をどう決めるか](BatchDurationStability.html) — 固定幅比較と adaptive 設定
 - [BEACH の計算サイクル](Algorithms.html) — batch 中に場を固定する更新順序
 - [入力パラメータリファレンス](Parameters.html) — 設定契約
 - [結果を検証する](ValidationGuide.html) — 数値収束と物理妥当性

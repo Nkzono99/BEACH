@@ -38,15 +38,15 @@ thread-localな要素電荷差分へ加え、batch末尾にcommitします。
 
 ## step数上限
 
-粒子は吸収またはescapeするまで最大`sim.max_step`回進めます。上限に達しても分類されなかった粒子は
+粒子は吸収またはescapeするまで最大`particles.tracking.max_steps_per_particle`回進めます。上限に達しても分類されなかった粒子は
 `survived_max_step`として記録し、暗黙に吸収やescapeへ数えません。
 
-`sim.dt`は1回の粒子更新幅、`sim.max_step * sim.dt`は1粒子を追跡できる最大時間です。
-一方、`batch_duration`は粒子供給量と表面電荷更新を結ぶ時間幅で、粒子step幅とは別です。
+`particles.tracking.dt_s`は1回の粒子更新幅、`particles.tracking.max_steps_per_particle * particles.tracking.dt_s`は1粒子を追跡できる最大時間です。
+一方、`run.batch.duration_s`は粒子供給量と表面電荷更新を結ぶ時間幅で、粒子step幅とは別です。
 
 ## 最初に確認するもの
 
-- `sim.dt`を半分にして軌道、命中要素、吸収数が安定するか
+- `particles.tracking.dt_s`を半分にして軌道、命中要素、吸収数が安定するか
 - `survived_max_step`が結論に影響する割合になっていないか
 - periodic seam、corner、reflect後の残り時間を跨ぐ軌道が意図どおりか
 - 粒子の吸収・escape・未解決数と電荷収支が一致するか

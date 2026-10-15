@@ -52,7 +52,7 @@ beachx inspect outputs/tutorial \
 
 ## 2. `beachx animate` で batch 間の変化を見る
 
-公式入門ケースは `history_stride=1` なので、20 個の電荷 snapshot があります。標準配布だけで使える
+公式入門ケースは `output.history.stride_batches=1` なので、20 個の電荷 snapshot があります。標準配布だけで使える
 表面電荷密度の GIF を作ります。
 
 ```bash
@@ -66,7 +66,7 @@ beachx animate outputs/tutorial \
 `rendered_frames=20` が表示されます。
 
 `animate` は `charge_history.csv` の保存済み snapshot を使います。`potential` mode では、その電荷と
-場の再構成情報に加えて native field kernel が必要です。履歴がない別の run は、`output.history_stride` を
+場の再構成情報に加えて native field kernel が必要です。履歴がない別の run は、`output.history.stride_batches` を
 正にして simulation を再実行する必要があります。
 
 ## 3. Python API で図と保存 batch を選ぶ

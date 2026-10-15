@@ -37,5 +37,5 @@ periodic far correctionの数値検証は`make test-fortran-far-correction`で�
 MPIによる同時生成は`test_periodic2_operator_cache_mpi`で検証します。速度比較はdebug buildで行う正しさの検証とは分け、
 release profileの`make test-fortran-benchmark`で実行します。
 
-実運用caseでは、少なくともmesh、`sim.dt`、FMM order/tolerance、outer grid、height samplingを変えてください。
+実運用caseでは、少なくともmesh、`particles.tracking.dt_s`、FMM order/tolerance、outer grid、height samplingを変えてください。
 そのうえで、表面電位、吸収/escape flux、電荷収支、主要な結論が収束することを確認します。

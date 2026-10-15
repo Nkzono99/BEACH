@@ -17,9 +17,11 @@ Treecodeはsourceをoctreeへまとめ、遠方のsource群を1つのmonopoleと
 | 電位 | 電場と同じtree走査、near/far判定で評価 |
 
 ```toml
-[sim]
-field_solver = "treecode"
-field_bc_mode = "free"
+[fields]
+boundary = "free"
+
+[fields.solver]
+method = "treecode"
 ```
 
 ## 固定geometryからoctreeを一度作る
@@ -28,10 +30,10 @@ field_bc_mode = "free"
 
 1. node内のsource重心を囲むaxis-aligned bounding boxを求める。
 2. box中心で8つのoctantに分ける。
-3. source数が`tree_leaf_max`以下になるまで再帰する。
+3. source数が`fields.solver.tree.leaf_max`以下になるまで再帰する。
 
 重心が数値的に同じ位置へ集中している場合や、分割後も全sourceが同じoctantへ残る場合は、それ以上
-分割できません。この場合は`tree_leaf_max`を超えていても、そのnodeをleafにします。mesh geometryが
+分割できません。この場合は`fields.solver.tree.leaf_max`を超えていても、そのnodeをleafにします。mesh geometryが
 固定されている間は、木のtopologyを再利用します。
 
 分割位置には重心を使いますが、MACのnode半径はnode内の全三角形頂点を覆うように広げます。
@@ -62,7 +64,7 @@ $$
 ## 距離に応じてnodeをまとめる
 
 leafでは全sourceをDirectに評価します。内部nodeでは、node半径$R$、node中心から評価点までの距離$d$、
-`tree_theta`を使い、
+`fields.solver.tree.theta`を使い、
 
 $$
 R < \theta(d-R)
@@ -96,13 +98,13 @@ $$
 
 | key | 役割 | 制約 |
 | --- | --- | --- |
-| `tree_theta` | 遠方nodeを受理する幾何条件 | $0 < \theta \le 1$ |
-| `tree_leaf_max` | leafに保持するsource数の目安 | 1以上 |
-| `tree_min_nelem` | `field_solver="auto"`の切替しきい値 | 1以上 |
+| `fields.solver.tree.theta` | 遠方nodeを受理する幾何条件 | $0 < \theta \le 1$ |
+| `fields.solver.tree.leaf_max` | leafに保持するsource数の目安 | 1以上 |
+| `fields.solver.auto_fmm_min_elements` | `fields.solver.method="auto"`の切替しきい値 | 1以上 |
 
-`tree_theta`と`tree_leaf_max`を入力に明示しない場合、明示`treecode`を含めて要素数から次の値を選びます。
+`fields.solver.tree.theta`と`fields.solver.tree.leaf_max`を入力に明示しない場合、明示`treecode`を含めて要素数から次の値を選びます。
 
-| `nelem` | `tree_theta` | `tree_leaf_max` |
+| `nelem` | `fields.solver.tree.theta` | `fields.solver.tree.leaf_max` |
 | ---: | ---: | ---: |
 | `< 1500` | 0.40 | 12 |
 | `1500`–`9999` | 0.50 | 16 |
@@ -127,8 +129,8 @@ mixed-sign nodeの割合に依存します。
 まず同じ正規化とmeshを使うDirect結果と比較します。
 
 1. 場が強い領域、表面近傍、遠方、電荷相殺領域に評価点を置く。
-2. `tree_theta`を小さくして結果がDirectへ近づくことを確認する。
-3. `tree_leaf_max`を変え、結果と実行時間の感度を測る。
+2. `fields.solver.tree.theta`を小さくして結果がDirectへ近づくことを確認する。
+3. `fields.solver.tree.leaf_max`を変え、結果と実行時間の感度を測る。
 4. 一点の場だけでなく、粒子の命中要素とbatch後の`q_elem`も比較する。
 5. release buildで本計算に近い粒子数とstep数を使って速度を測る。
 

@@ -47,4 +47,4 @@ run.plot_potential()
 beachx estimate-workload beach.toml --threads 8
 ```
 
-`boundary_inflow` や `photo_raycast` では `batch_duration` / `batch_duration_step`、macro particle 数、mesh 要素数、history 出力が計算量と出力量を強く左右します。
+`inflow` や `photo_raycast` では `run.batch.duration_s` / `run.batch.duration_steps`、macro particle 数、mesh 要素数、history 出力が計算量と出力量を強く左右します。

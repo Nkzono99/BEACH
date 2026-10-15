@@ -232,7 +232,7 @@ When `periodic2` is specified, the native field kernel is constructed with
 that two-axis periodic configuration for the force and torque evaluation.
 
 When `periodic2=None` (default), BEACH searches for `beach.toml` near the output directory. If
-`field_boundary.mode="periodic2"`, it builds periodic settings from `domain.periodic_axes` and `domain.box_min` /
+`fields.boundary="periodic2"`, it builds periodic settings from `domain.periodic_axes` and `domain.box_min` /
 `domain.box_max`. Functions such as `compute_potential_mesh` use the same automatic detection.
 
 ### 5.2 `CoulombInteraction` Type
@@ -427,13 +427,15 @@ fig.savefig("field_lines.png", dpi=150)
 
 The common `periodic2` parameter is available for potential reconstruction, Coulomb force calculation, electric-field calculation, and field-line tracing.
 
+The saved-output receipt method `receipt.as_legacy_sim_mapping()` returns internal reader settings under the 1.x output contract; these names are not public TOML input keys.
+
 ### 8.1 Automatic Detection (`periodic2=None`)
 
 With the default `None`, BEACH first restores the resolved field boundary,
 periodic axes, lengths, and origins from the output's
 `field_reconstruction_*` receipt. For a legacy output without the receipt, it
 searches for `beach.toml` near the output directory. When
-`field_boundary.mode="periodic2"`, it resolves the periodic geometry from
+`fields.boundary="periodic2"`, it resolves the periodic geometry from
 `domain.periodic_axes` and `domain.box_min` / `domain.box_max`. If no
 configuration file is found for a legacy output, high-level total-field
 reconstruction stops instead of silently falling back to free space.
@@ -521,14 +523,14 @@ Automatic construction maps resolved `direct` to exact direct and resolved
 `fmm` to FMM; resolved `treecode` fails closed. The receipt's FMM expansion
 order is the default, and only an explicit `order=` overrides it. With resolved
 `direct`, `eval_e()`, `eval_phi()`, and `force_on_charges()` all use exact direct
-and compose uniform `sim.e0` exactly once.
+and compose uniform `fields.external.electric_v_m` exactly once.
 For a cached plan, `eval_e()` and `eval_phi()` return the `cached_kneq0`
-$k\ne0$ component plus `sim.e0`, not the simulator total field
+$k\ne0$ component plus `fields.external.electric_v_m`, not the simulator total field
 with its physical zero mode. `FieldKernel` is the low-level API for handling
 that component explicitly. `eval_e_direct()` and
 `eval_phi_direct()` are **non-periodic exact-direct** diagnostics over the same
 source geometry and charges. The direct methods reject periodic plans and do
-not add uniform `sim.e0`. They are intended for small FMM accuracy or primary
+not add uniform `fields.external.electric_v_m`. They are intended for small FMM accuracy or primary
 free-space subtraction oracles, not as an infinite-periodic replacement.
 
 ### 10.2 `calc_object_forces_kernel(result, ...)`
@@ -610,8 +612,8 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 
 | Value | Field definition |
 |---|---|
-| `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `far_correction="none"`, or cached periodic |
-| `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode selected by `[periodic2].lower_boundary_model`. Cache generation or reuse must succeed |
+| `"configured"` | Uses the run's `beach.toml` unchanged. The result can therefore be free space, a finite shell with `fields.periodic.backend="finite_images"`, or cached periodic |
+| `"infinite_physical"` | For an x/y-periodic run, combines cached `k != 0` with the physical `k = 0` mode selected by `fields.periodic.lower_boundary_model`. Cache generation or reuse must succeed |
 
 A complete `beach.toml` with `domain.box_min` and `domain.box_max` is required.
 

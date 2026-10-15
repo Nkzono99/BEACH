@@ -224,18 +224,18 @@ outflow_refresh_batches = 50
 - Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). Set both the electron and
   the ion drift to the normal solar-wind velocity (negative z). With zero electron drift `upstream_field_floor_v_m` is not
   needed, but $\phi_0$ shifts by about 1 V ([Electron drift and the upstream band](ZhaoUpstreamBand.en.html)).
-- The ion temperature of the species `temperature_ev` also enters the outer root. Write `sheath.zhao.ion_pressure_factor` only to
+- The ion temperature of the species `distribution.temperature_ev` also enters the outer root. Write `sheath.zhao.ion_pressure_factor` only to
   change the pressure coefficient.
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
   With SEE, outer-root refresh is available.
-- The photoelectron `emit_current_density_a_m2` is per unit area normal to the ray, so the surface emission is that value times
+- The photoelectron `source.emit_current_density_a_m2` is per unit area normal to the ray, so the surface emission is that value times
   the sine of the ray elevation. To match the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, set
-  `emit_current_density_a_m2` to the normal-incidence value $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$ (2.54 µA/m² in the
-  examples) and the elevation of `ray_direction` to `solar_elevation_deg`. A mismatch above 5% warns at startup. The
+  `source.emit_current_density_a_m2` to the normal-incidence value $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$ (2.54 µA/m² in the
+  examples) and the elevation of `source.ray_direction` to `solar_elevation_deg`. A mismatch above 5% warns at startup. The
   fixed-current emission scale absorbs the difference, so the budget still closes, but the raw emitted particle count is then
   far from the target.
 
-All keys and combination constraints are in [Input parameters](Parameters.en.html#surface_current_model-external-sheath-closure). Complete examples are
+All keys and combination constraints are in [Input parameters](Parameters.en.html#sheath). Complete examples are
 [`examples/zero_current.toml`](../examples/zero_current.toml),
 [`zero_current_refresh.toml`](../examples/zero_current_refresh.toml), and
 [`zero_current_no_photo.toml`](../examples/zero_current_no_photo.toml).

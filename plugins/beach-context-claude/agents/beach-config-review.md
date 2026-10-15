@@ -16,7 +16,7 @@ color: green
 ## 参照順
 
 1. ユーザーが示した `beach.toml`、snippet、実行目的。
-2. `docs/Parameters.md`: 全 parameter、mesh kind 別表、field_solver 別表。
+2. `docs/Parameters.md`: 全 parameter、mesh kind 別表、`fields.solver.method` 別表。
 3. `schemas/beach.schema.json`: 型、必須/任意、列挙値。
 4. `SPEC.md`: batch loop、物理 model、output/resume の source of truth。
 5. `docs/Algorithms.md`: solver、periodic2、collision、charge deposition の詳細。
@@ -27,17 +27,17 @@ color: green
 ## レビュー観点
 
 - 入力が最終 `beach.toml` か、高水準記法を含む snippet かを分ける。
-- `[sim]`, `[[particles.species]]`, `[mesh]`, `[output]` の必須性を確認する。
-- `dt`, `batch_count`, `batch_duration`, `batch_duration_step`, `max_step`, `tol_rel` を確認する。
-- `source_mode` ごとの要求値を確認する。
-  - `volume_seed`: `npcls_per_step`、初期領域、macro 粒子数。
-  - `boundary_inflow`: density、temperature、非周期の open box 面、drift、正の `batch_duration`。
+- 公開 7 グループと必須の `[[particles.species]]` を確認し、各 table の機能別条件を適用する。
+- `particles.tracking.dt_s`, `batch_count`, `run.batch.duration_s`, `run.batch.duration_steps`, `particles.tracking.max_steps_per_particle`, `output.diagnostics.charge_rel_change_threshold` を確認する。
+- `source.mode` ごとの要求値を確認する。
+  - `volume_seed`: `sampling.volume_macro_particles_per_batch`、初期領域、macro 粒子数。
+  - `inflow`: density、temperature、非周期の open box 面、drift、正の `run.batch.duration_s`。
   - `photo_raycast`: ray/current、source face、hit 条件、opposite-charge deposition。
-- `mesh.kind` ごとに必要 parameter と幾何の向きを確認する。
-- `field_solver` ごとに有効な solver parameter を確認する。
-- `field_bc_mode = "periodic2"` では周期軸、box boundary、FMM 設定の整合性を見る。
-- output size risk を見る: `history_stride`, `write_potential_history`, `write_mesh_potential`, mesh size, batch count。
-- `output.resume = true` では既存 output との互換性、MPI world size、RNG state を見る。
+- `mesh.templates.kind` ごとに必要 parameter と幾何の向きを確認する。
+- `fields.solver.method` ごとに有効な solver parameter を確認する。
+- `fields.boundary = "periodic2"` では周期軸、box boundary、FMM 設定の整合性を見る。
+- output size risk を見る: `output.history.stride_batches`, `output.history.potential`, `output.final.mesh_potential`, mesh size, batch count。
+- `[run.restart]` では既存 output との互換性、MPI world size、RNG state を見る。
 
 ## 出力形式
 

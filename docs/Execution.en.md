@@ -54,7 +54,7 @@ ownership or reduction should see [runtime architecture](Architecture.en.html).
 
 ## Estimate the workload
 
-For `boundary_inflow` and `photo_raycast`, particle counts per batch are
+For `inflow` and `photo_raycast`, particle counts per batch are
 dynamic, so estimate the workload first.
 
 ```bash
@@ -85,7 +85,7 @@ initialization, field updates, particle tracking, charge updates, MPI, and outpu
 
 ## Resume once from a checkpoint
 
-A normally completed final output remains restartable even with `checkpoint_stride=0`.
+A normally completed final output remains restartable even with `output.checkpoint.stride_batches=0`.
 For the first resume check, preserve the original `outputs/tutorial` directory and write the continuation to a separate
 directory.
 
@@ -106,21 +106,22 @@ Keep the original configuration and create a resume configuration:
 cp beach.toml resume.toml
 ```
 
-Change the corresponding existing values under `[sim]` and `[output]` in `resume.toml`.
+Change the corresponding existing values under `[run]` and `[output]` in `resume.toml`.
 This complete example extends the official tutorial from 20 batches to 21:
 
 ```toml
-[sim]
+[run]
 batch_count = 21
 
 [output]
-write_files = true
+enabled = true
 dir = "outputs/resumed"
-resume = true
-restart_from = "outputs/tutorial"
+
+[run.restart]
+from = "outputs/tutorial"
 ```
 
-Leave the other settings in `resume.toml` unchanged. `restart_from` is the checkpoint input, while `dir` is the new
+Leave the other settings in `resume.toml` unchanged. `run.restart.from` is the checkpoint input, while `dir` is the new
 output directory. From the same tutorial working directory, validate the input, run it, and inspect the new output:
 
 ```bash
@@ -139,7 +140,7 @@ batches=21 ...
 
 For another case with completed count `B`, set `batch_count` to the integer `B+1` and check for
 `resuming_from_batches=B` and `batches=B+1`.
-`sim.batch_count` is the cumulative target, not the number of additional batches.
+`run.batch_count` is the cumulative target, not the number of additional batches.
 
 ### Periodic checkpoints for a long run
 
@@ -148,7 +149,9 @@ Enable periodic checkpoints by accepted-batch count:
 ```toml
 [output]
 dir = "outputs/tutorial"
-checkpoint_stride = 1000
+
+[output.checkpoint]
+stride_batches = 1000
 ```
 
 This saves restart state to two alternating slots every 1000 accepted batches. `0` disables periodic saves while
@@ -156,14 +159,15 @@ preserving the final checkpoint written after normal completion.
 
 ### Continue in the same directory and resume MPI runs
 
-To continue writing into the checkpoint directory, omit `restart_from` and set `dir` to that directory.
+To continue writing into the checkpoint directory, omit `run.restart.from` and set `dir` to that directory.
 Use the separate-directory procedure above when you want to preserve the original final output for comparison.
 
 ```toml
 [output]
-write_files = true
+enabled = true
 dir = "outputs/tutorial"
-resume = true
+
+[run.restart]
 ```
 
 In general, a checkpoint at `batches=100` with a new `batch_count=150` runs 50 additional batches.
@@ -179,9 +183,9 @@ MPI world size, and the cumulative `batch_count`.
 ## Checks after execution
 
 - The process exit code is zero.
-- `batches` in `summary.txt` equals `sim.batch_count`.
+- `batches` in `summary.txt` equals `run.batch_count`.
 - Review `absorbed`, `escaped_boundary`, and `survived_max_step`.
-- Do not treat `tol_rel` as an automatic stopping condition.
+- Do not treat `output.diagnostics.charge_rel_change_threshold` as an automatic stopping condition.
 
 Continue with [Inspect Output Files](OutputGuide.en.html), the
 [Post-processing tutorial](PostprocessTutorial.en.html), and

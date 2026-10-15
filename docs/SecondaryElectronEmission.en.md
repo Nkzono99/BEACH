@@ -51,6 +51,8 @@ SEE enters at the first refresh.
 
 ## Configuration
 
+The generation limit is `particles.secondary_emission.max_generations` (default `3`, nonnegative); primaries are generation 0.
+
 Add this difference to an existing incident species:
 
 ```toml

@@ -35,7 +35,7 @@ charge_sum=-1.192019e-10
 最小合格条件は次のとおりです。
 
 - `beach` と `beachx inspect` の終了コードが `0`
-- `batches=20` が `beach.toml` の `sim.batch_count=20` と一致する
+- `batches=20` が `beach.toml` の `run.batch_count=20` と一致する
 - `processed_particles=4000` が 1 batch あたり 200 粒子 × 20 batch と一致する
 - `outputs/tutorial/summary.txt` と `outputs/tutorial/charges.csv` が存在する
 
@@ -43,7 +43,7 @@ charge_sum=-1.192019e-10
 1 OpenMP thread での参照値です。thread 数や乱数実装が異なる場合は、乱数列に依存する値まで
 同一であるとは仮定しません。
 
-この判定が示すのは実行完了だけです。`last_rel_change` と `tol_rel` は自動停止条件ではなく、
+この判定が示すのは実行完了だけです。`last_rel_change` と `output.diagnostics.charge_rel_change_threshold` は自動停止条件ではなく、
 数値収束や物理的妥当性は[計算結果の妥当性確認](ValidationGuide.html)で別に判定します。
 コマンドが失敗する、または最小条件を満たさない場合は
 [トラブルシューティング](Troubleshooting.html)へ進んでください。
@@ -171,7 +171,7 @@ beachx animate outputs/tutorial \
 
 ## 再開に使うファイル
 
-再開するときは checkpoint 内のファイルを手作業で結合せず、`output.restart_from` に読み込み元を指定します。
+再開するときは checkpoint 内のファイルを手作業で結合せず、`run.restart.from` に読み込み元を指定します。
 20 batch の公式結果から 21 batch 目へ進む操作は
 [checkpoint から一度再開する](Execution.html#checkpointから一度再開する)に従ってください。
 
@@ -195,7 +195,7 @@ beachx animate outputs/tutorial \
 
 ### 適応 batch の診断
 
-`periodic2.max_nonzero_mode_potential_step > 0` の receipt と、履歴に含まれない棄却 trial は
+`run.batch.adaptive.max_nonzero_mode_potential_step_v > 0` の receipt と、履歴に含まれない棄却 trial は
 [適応 batch の診断リファレンス](OutputReference.html#適応-batch-の診断)で確認します。
 
 ## 次へ進む

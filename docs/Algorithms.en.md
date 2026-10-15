@@ -13,8 +13,8 @@ of particles that reach a surface. The repetition unit is a batch.
 > The field does not change while one batch is being computed. Charge changes produced in that batch are applied to
 > the surface at the end of the batch and first affect the field of the next batch.
 
-After reading this page, you should be able to distinguish the roles of `sim.dt`, `sim.batch_duration`, and
-`sim.batch_count`, and identify which update stage an output history represents.
+After reading this page, you should be able to distinguish the roles of `particles.tracking.dt_s`, `run.batch.duration_s`, and
+`run.batch_count`, and identify which update stage an output history represents.
 
 ## What BEACH computes directly
 
@@ -42,7 +42,7 @@ flowchart TD
     q --> field --> source --> track --> event --> delta --> update --> q
 ```
 
-In an ordinary configuration, one pass through this cycle is one batch. After `sim.batch_count` batches, BEACH writes
+In an ordinary configuration, one pass through this cycle is one batch. After `run.batch_count` batches, BEACH writes
 the final mesh, statistics, histories, and checkpoint and then exits.
 
 ## What happens in one batch
@@ -51,7 +51,7 @@ the final mesh, statistics, histories, and checkpoint and then exits.
    run uses Direct, Treecode, or FMM, the field used by the subsequent particle tracking is fixed at this point.
 2. **Generate particles.** BEACH follows the configured supply method to create initial particles, particles entering
    from inside or outside the region, and particles emitted from a surface.
-3. **Track particles.** Each particle advances in increments of `sim.dt`. BEACH searches the candidate trajectory for
+3. **Track particles.** Each particle advances in increments of `particles.tracking.dt_s`. BEACH searches the candidate trajectory for
    the first intersection with a triangle or box boundary.
 4. **Handle each particle's destination.** BEACH resolves surface absorption, passage or reflection at a boundary,
    escape from the computational region, and configured surface emission, then classifies the outcome.
@@ -69,20 +69,20 @@ Using one field for every particle in a batch separates particle tracking from t
 is that a batch that changes charge too much makes the frozen-field approximation coarse.
 
 A research case must therefore test the charge change per batch separately from the particle trajectory time step.
-Vary `sim.batch_duration` or the macro-particle count and check whether potential, charge, and current remain unchanged
-at the required accuracy. See [how to choose `batch_duration`](BatchDurationStability.en.html) for the comparison procedure.
+Vary `run.batch.duration_s` or the macro-particle count and check whether potential, charge, and current remain unchanged
+at the required accuracy. See [how to choose `run.batch.duration_s`](BatchDurationStability.en.html) for the comparison procedure.
 
 ## Distinguish three time and count controls
 
 | Setting | What it changes | Outputs to examine first |
 | --- | --- | --- |
-| `sim.dt` | Resolution of one particle advance and event time | Collision position, trajectory, escape / survivor counts |
-| `sim.batch_duration` | Time-proportional inflow and the physical interval between surface-charge updates | Injection per batch, charge, potential, and current |
-| `sim.batch_count` | Number of computation cycles | Reached physical time, history length, and stationarity |
+| `particles.tracking.dt_s` | Resolution of one particle advance and event time | Collision position, trajectory, escape / survivor counts |
+| `run.batch.duration_s` | Time-proportional inflow and the physical interval between surface-charge updates | Injection per batch, charge, potential, and current |
+| `run.batch_count` | Number of computation cycles | Reached physical time, history length, and stationarity |
 
-A case such as a `volume_seed` with `sim.batch_duration=0`, which specifies a direct particle count per batch, has no
+A case such as a `volume_seed` with `run.batch.duration_s=0`, which specifies a direct particle count per batch, has no
 assigned physical duration in seconds. Time-proportional sources such as boundary inflow instead derive their particle
-count from flux and `sim.batch_duration`. `tol_rel` monitors surface-charge change; it is not an automatic stopping
+count from flux and `run.batch.duration_s`. `output.diagnostics.charge_rel_change_threshold` monitors surface-charge change; it is not an automatic stopping
 condition in the current implementation.
 
 ## State carried between batches
@@ -100,7 +100,7 @@ After understanding the ordinary path, open only the specialized page needed by 
 
 | Needed feature | Dedicated page |
 | --- | --- |
-| Limit the field change per batch and retry with a shorter interval | [How to choose `batch_duration`](BatchDurationStability.en.html) |
+| Limit the field change per batch and retry with a shorter interval | [How to choose `run.batch.duration_s`](BatchDurationStability.en.html) |
 | Connect to the outer sheath | [Connecting to the outer sheath](ZhaoStationaryClosure.en.html) |
 | Treat the mean and nonuniform fields of a periodic surface | [`periodic2` electrostatics](PeriodicElectrostatics.en.html) |
 | Choose Direct, Treecode, or FMM | [Choose a field solver](FieldSolvers.en.html) |

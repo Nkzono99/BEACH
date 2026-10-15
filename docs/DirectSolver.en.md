@@ -16,9 +16,11 @@ measure Treecode and FMM approximation error.
 | Geometry plan | None; evaluation reads the current `q_elem` |
 
 ```toml
-[sim]
-field_solver = "direct"
-field_bc_mode = "free"
+[fields]
+boundary = "free"
+
+[fields.solver]
+method = "direct"
 ```
 
 <a id="triangle-p0"></a>
@@ -47,7 +49,7 @@ $$
 \pm\frac{\sigma_i}{2\epsilon_0}\mathbf{n}_i.
 $$
 
-Therefore, each element needs a `normal_plus` or `normal_minus` vacuum side. Set `[mesh].surface_side` for OBJ input or
+Therefore, each element needs a `normal_plus` or `normal_minus` vacuum side. Set `mesh.obj.surface_side` for OBJ input or
 `surface_side` on every `[[mesh.templates]]` entry. `outward_closed` is valid only for consistently oriented closed
 two-manifolds.
 
@@ -56,9 +58,6 @@ Current requirements are:
 - finite triangles with positive area
 - a resolved vacuum side for every element
 - `direct`, `treecode`, `fmm`, or `auto`, which selects between `direct` and `fmm`
-
-The former `[field]` table and `sim.softening` key have been removed. Leaving either in a configuration fails as an unknown
-table or key.
 
 See [`examples/panel_direct.toml`](../examples/panel_direct.toml) for a complete configuration.
 
@@ -74,7 +73,7 @@ cost separately from field evaluations at particle positions.
 
 ## Evaluate committed charge directly
 
-Coordinates are normalized according to `field_normalization`, and fields and potentials are converted back to SI. See
+Coordinates are normalized according to `fields.solver.normalization`, and fields and potentials are converted back to SI. See
 [Field evaluation](FieldSolvers.en.html#length-normalization) for the equations and options.
 
 Direct holds no geometry tree or expansion coefficients and reads the current `mesh%q_elem` at evaluation. The snapshot remains

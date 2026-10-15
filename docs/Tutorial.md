@@ -38,15 +38,15 @@ beachx lint beach.toml
 
 | 設定 | 値 | このケースでの役割 |
 | --- | --- | --- |
-| `sim.batch_count` | `20` | 電荷差分の確定反映（commit）と場の再計算を 20 回繰り返す |
-| `sim.dt` / `sim.max_step` | `5e-8 s` / `80` | 各電子の軌道を時間積分する |
-| `sim.field_solver` / `field_boundary.mode` | `direct` / `free` | 有限平面の自由空間場を Direct BEM で評価する |
-| `npcls_per_step` | `200` | 各 batch に 200 個のマクロ電子を生成する |
-| `w_particle` | `2e5` | 1 マクロ電子を実電子 200,000 個分として、場の変化を短い実行で見せる |
-| `pos_low` / `pos_high` | z = `0.8 m` の矩形 | 平面上方の広い領域から入射位置を標本化する |
-| `drift_velocity` | `[0, 0, -1e6] m/s` | 電子を平面へ向ける |
+| `run.batch_count` | `20` | 電荷差分の確定反映（commit）と場の再計算を 20 回繰り返す |
+| `particles.tracking.dt_s` / `particles.tracking.max_steps_per_particle` | `5e-8 s` / `80` | 各電子の軌道を時間積分する |
+| `fields.solver.method` / `fields.boundary` | `direct` / `free` | 有限平面の自由空間場を Direct BEM で評価する |
+| `sampling.volume_macro_particles_per_batch` | `200` | 各 batch に 200 個のマクロ電子を生成する |
+| `sampling.weight` | `2e5` | 1 マクロ電子を実電子 200,000 個分として、場の変化を短い実行で見せる |
+| `source.pos_low` / `source.pos_high` | z = `0.8 m` の矩形 | 平面上方の広い領域から入射位置を標本化する |
+| `distribution.drift_velocity_m_s` | `[0, 0, -1e6] m/s` | 電子を平面へ向ける |
 | `mesh.templates` | 12 × 12 cells | 平面を 288 個の三角形要素へ分割する |
-| `history_stride` / `write_potential_history` | `1` / `true` | 各 batch の電荷・電位分布を保存する |
+| `output.history.stride_batches` / `output.history.potential` | `1` / `true` | 各 batch の電荷・電位分布を保存する |
 
 1 batch 内の全電子は、batch 開始時の同じ電場を使います。吸収電荷は batch 末尾に一度だけ
 確定反映され、次の batch の電場へ反映されます。この順序が BEACH の中心です。
@@ -92,7 +92,7 @@ $$
 図の色はそれを要素面積で割った表面電荷密度 [C/m²] です。
 
 この free-space の有限表面では Coulomb 電位を遠方で 0 V とする規約を使います。matching plane や
-`reservoir.phi_infty` は接続していないため、この例の電位を外部プラズマ電位と読み替えないでください。
+`particles.reservoir.phi_infty_v` は接続していないため、この例の電位を外部プラズマ電位と読み替えないでください。
 
 ## 4. 電荷履歴と最終電位を見る
 
@@ -131,8 +131,8 @@ fig.savefig("outputs/tutorial/potential.png", dpi=150)
 この実行で確認できるのは、粒子生成、軌道積分、衝突と escape、要素別電荷の確定反映、場の再計算、
 履歴出力が batch 間で結合していることです。
 
-一方、`w_particle` は後続 batch への影響を短時間で見せる教材値で、`batch_duration=0` の `volume_seed` には
-物理的な秒単位の流入率を割り当てていません。`last_rel_change` と `tol_rel` も自動停止条件ではありません。
+一方、`sampling.weight` は後続 batch への影響を短時間で見せる教材値で、`run.batch.duration_s=0` の `volume_seed` には
+物理的な秒単位の流入率を割り当てていません。`last_rel_change` と `output.diagnostics.charge_rel_change_threshold` も自動停止条件ではありません。
 したがって、この 20 batch を定常帯電や特定環境の 20 秒として解釈しません。
 
 ## 6. 次へ進む

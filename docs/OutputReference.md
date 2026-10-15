@@ -18,31 +18,31 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 
 | ファイル | 生成条件 | 形式と用途 | Python reader / 再開 |
 | --- | --- | --- | --- |
-| `summary.txt` | `output.write_files=true` | `key=value` receipt。[完了判定と主要 key](#構成固有の値を探す) | `FortranRunResult` の各属性。再開に必須 |
-| `charges.csv` | `output.write_files=true` | `elem_idx`, `charge_C`。要素ごとの最終 signed charge | `result.charges`。再開に必須 |
-| `mesh_triangles.csv` | `output.write_files=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`。再開には不使用 |
-| `mesh_sources.csv` | OBJ または template mesh で `output.write_files=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`。再開には不使用 |
-| `mesh_potential.csv` | `output.write_files=true` かつ `output.write_mesh_potential=true` | `elem_idx`, `potential_V`。[電位の構成](#mesh-電位) | `result.mesh_potential_v`。再開には不使用 |
-| `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
-| `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
-| `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
-| `matching_plane_history.csv` | `output.write_files=true`、`output.history_stride>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [19 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
+| `summary.txt` | `output.enabled=true` | `key=value` receipt。[完了判定と主要 key](#構成固有の値を探す) | `FortranRunResult` の各属性。再開に必須 |
+| `charges.csv` | `output.enabled=true` | `elem_idx`, `charge_C`。要素ごとの最終 signed charge | `result.charges`。再開に必須 |
+| `mesh_triangles.csv` | `output.enabled=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`。再開には不使用 |
+| `mesh_sources.csv` | OBJ または template mesh で `output.enabled=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`。再開には不使用 |
+| `mesh_potential.csv` | `output.enabled=true` かつ `output.final.mesh_potential=true` | `elem_idx`, `potential_V`。[電位の構成](#mesh-電位) | `result.mesh_potential_v`。再開には不使用 |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
+| `matching_plane_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [19 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
 | `matching_plane_spectrum_history.csv` | `matching_plane_history.csv` と同じ | [外部源スペクトル](#zhao_stationary)の正の bin ごとに `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
-| `fixed_current_history.csv` | `output.write_files=true`、`output.history_stride>0`、`zhao_stationary` または `surface_charge_closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
+| `fixed_current_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、`zhao_stationary` または `charging.closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
 | `secondary_emission_history.csv` | 出力有効、SEE 有効な入射種あり。受理バッチごと | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`。再開には不使用 |
-| `charge_ledger.csv` | `output.write_files=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
-| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
-| `macro_residuals.csv` | `output.write_files=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
-| `checkpoint_complete.txt` | `output.write_files=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
-| `checkpoint_latest.txt` | `output.write_files=true` かつ `output.checkpoint_stride>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
-| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.write_files=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`。再開には不使用 |
+| `charge_ledger.csv` | `output.enabled=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.enabled=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
+| `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
+| `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
+| `checkpoint_latest.txt` | `output.enabled=true` かつ `output.checkpoint.stride_batches>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
+| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`。再開には不使用 |
 
 Python reader の必須入力は `summary.txt` と `charges.csv` です。他のファイルは設定または runtime state に
 応じて省略されます。
 
 ## 構成固有の値を探す
 
-`summary.txt` は `output.write_files=true` で生成される `key=value` ファイルです。
+`summary.txt` は `output.enabled=true` で生成される `key=value` ファイルです。
 
 `load_fortran_result(...)` は主要値を `FortranRunResult` の属性へ変換し、型付きでない receipt は
 `beach.summary.load_summary_file(...)` から読めます。
@@ -53,8 +53,8 @@ Python reader の必須入力は `summary.txt` と `charges.csv` です。他の
 
 | 確認対象 | 条件 | この条件が保証しないこと |
 | --- | --- | --- |
-| 要求した batch の完了 | `summary.txt` の `batches == sim.batch_count` | 数値収束や物理的妥当性 |
-| schema v8 以降の checkpoint 完全性 | `checkpoint_complete.txt` が `state=complete` で、manifest と必須ファイルが整合する | `sim.batch_count` までの実行完了 |
+| 要求した batch の完了 | `summary.txt` の `batches == run.batch_count` | 数値収束や物理的妥当性 |
+| schema v8 以降の checkpoint 完全性 | `checkpoint_complete.txt` が `state=complete` で、manifest と必須ファイルが整合する | `run.batch_count` までの実行完了 |
 | Python reader での読込成功 | `summary.txt` と `charges.csv` が reader 契約を満たす | checkpoint 完全性や物理的妥当性 |
 
 `checkpoint_complete.txt` は書き込み transaction の完了を示す manifest です。途中の periodic checkpoint も
@@ -132,7 +132,7 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 
 ### `zhao_stationary`
 
-`[surface_current_model]` で選ぶ物理モデル、Type A/B/C、適用限界は
+`[sheath]` で選ぶ物理モデル、Type A/B/C、適用限界は
 [Zhao stationary closure](ZhaoStationaryClosure.html)を参照してください。
 この節は receipt の読み方だけを定義します。
 
@@ -146,8 +146,8 @@ periodic field の key は次のとおりです。物理的な意味と solver �
 | `surface_current_model_photoelectron_active` | PE channel の有無。false なら PE 関連 receipt は 0 |
 | `surface_current_model_reference_area_m2` | 電流 target の参照面積 |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | 解かれた表面電位と極小電位 |
-| `surface_current_model_upstream_negative_band_V` | 上流に接する $E^2<0$ の電位幅 [V]。電子の drift がある A/C の根を `zhao_upstream_band_tolerance` または `zhao_upstream_field_floor_v_m` で受理したときだけ 0 より大きい |
-| `surface_current_model_upstream_field_deficit_V_m` | その帯の内側の場の不足 $\sqrt{-\min E^2}$ [V/m]。上流プラズマが供給しなければならない外部の場で、`zhao_upstream_field_floor_v_m` と比べる |
+| `surface_current_model_upstream_negative_band_V` | 上流に接する $E^2<0$ の電位幅 [V]。電子の drift がある A/C の根を `sheath.zhao.upstream_band_tolerance` または `sheath.zhao.upstream_field_floor_v_m` で受理したときだけ 0 より大きい |
+| `surface_current_model_upstream_field_deficit_V_m` | その帯の内側の場の不足 $\sqrt{-\min E^2}$ [V/m]。上流プラズマが供給しなければならない外部の場で、`sheath.zhao.upstream_field_floor_v_m` と比べる |
 | `surface_current_model_ambient_electron_density_m3` | 解かれた上流電子 Maxwellian の密度。z-high の電子流入はこの密度で注入する |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | signed electron / ion 電流密度 |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |
@@ -165,7 +165,7 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 
 | 項目 | `matching_plane_history.csv` の契約 |
 | --- | --- |
-| 生成条件 | `output.write_files=true`、`output.history_stride>0`、`surface_current_model.model=zhao_stationary`、`outflow_refresh_batches>0` |
+| 生成条件 | `output.enabled=true`、`output.history.stride_batches>0`、`sheath.closure="zero_current"`、`outflow_refresh_batches>0` |
 | 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 17 状態列。全体で 19 列 |
 | 時刻 | その batch の電荷 commit と外部根の更新を終えた後の状態。次の batch はこの外部根を使う |
 | Python | `result.matching_plane_history`。最後の状態は `result.matching_plane_state` |
@@ -192,10 +192,10 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 
 スペクトルの bin `j` は、`j=1` が $[0, 1\,\text{meV})$、`j=2..145` が 1 meV から 1 keV までを 1 桁 24 個に分けた対数 bin で、
 境界は $10^{-3}\cdot10^{(j-2)/24}$ eV です。1 keV 以上は最後の bin に数えます。`matching_plane_spectrum_history.csv` は
-外部根を更新した batch ごとに、その更新で採用した源の正の bin を 1 行ずつ書きます。間隔は `output.history_stride` によりません。
+外部根を更新した batch ごとに、その更新で採用した源の正の bin を 1 行ずつ書きます。間隔は `output.history.stride_batches` によりません。
 根が見つからずに直前の根を保った更新では書きません。
 
-明示的な split `[periodic2]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
+明示的な split `[fields.periodic]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
 `mesh_potential.csv` の電位は上流プラズマ 0 V 基準です。粒子間の電位差は外部根に依存しませんが、
 絶対値は $\phi_0$ を通じて外部モデルの branch と近似に依存します。
 
@@ -212,7 +212,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 | `emitted_charge_c` | 放出粒子が運ぶ signed 電荷 [C]、負。反作用電荷は逆符号 |
 | `mean_yield` | モデル収率の和／命中数。世代上限の命中も含み、命中なしは 0 |
 | `generation_capped_count` | 世代上限で抑えた放出予定マクロ個数。その反作用電荷は置かない |
-| `secondary_incident_species_<index>`, `secondary_emission_max_generations` | 有効な入射種と世代上限 |
+| `secondary_incident_species_<index>`, `particles.secondary_emission.max_generations` | 有効な入射種と世代上限 |
 | `secondary_emission_hits`, `secondary_emission_count`, `secondary_emitted_charge_C` | summary の累積命中数・放出個数・signed 放出電荷 |
 | `secondary_yield_sum`, `secondary_mean_yield`, `secondary_generation_capped_count` | summary の累積収率和・命中平均収率・抑えた個数 |
 
@@ -223,9 +223,9 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 
 | ファイル | 生成条件 | 列と解釈 | Python |
 | --- | --- | --- | --- |
-| `charge_history.csv` | `output.write_files=true` かつ `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
-| `potential_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
-| `top_reference_history.csv` | `output.write_files=true`、`output.write_potential_history=true`、`output.history_stride>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
 | `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [19 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
 | `matching_plane_spectrum_history.csv` | 外部根の更新があり、stride 有効。外部根を更新した batch ごと | [bin ごとの外部源スペクトル](#zhao_stationary) | 専用属性なし。CSV を直接読む |
 | `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | 専用属性なし。CSV を直接読む |
@@ -246,7 +246,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 | 列 | 意味 |
 | --- | --- |
 | `batch`, `simulated_time_s` | 窓の最後の accepted batch と、その後の模擬時刻 |
-| `window_batches` | 窓に含まれる accepted batch 数。通常は `history_stride`、run の最初と再開直後は短い |
+| `window_batches` | 窓に含まれる accepted batch 数。通常は `output.history.stride_batches`、run の最初と再開直後は短い |
 | `species_idx` | 1 始まりの species index |
 | `channel` | `absorbed`、`emission`、`escape`。窓内で target を適用した channel だけを書く |
 | `tracked_charge_C` | 粒子追跡で得た signed charge の窓合計 [C]。emission は表面へ残る電荷 |
@@ -262,7 +262,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 
 | 項目 | `mesh_potential.csv` の契約 |
 | --- | --- |
-| 生成条件 | `output.write_files=true` かつ `output.write_mesh_potential=true` |
+| 生成条件 | `output.enabled=true` かつ `output.final.mesh_potential=true` |
 | 列 | `elem_idx`, `potential_V` |
 | 解釈 | 各要素重心の電位 [V] |
 | Python | `result.mesh_potential_v` |
@@ -278,7 +278,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 
 | 項目 | `charge_ledger.csv` の契約 |
 | --- | --- |
-| 生成条件 | `output.write_files=true` かつ charge ledger state あり |
+| 生成条件 | `output.enabled=true` かつ charge ledger state あり |
 | 1 行 | 1 species の signed charge、補正、weight、粒子数。全 25 列を下表に示す |
 | Python | `result.charge_ledger` の `ChargeLedgerEntry` |
 | 再開 | `summary.txt` に ledger metadata がある場合は必須 |
@@ -351,7 +351,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 
 ## 適応 batch の診断
 
-`periodic2.max_nonzero_mode_potential_step > 0` の場合、次の receipt を `summary.txt` に記録します。
+`run.batch.adaptive.max_nonzero_mode_potential_step_v > 0` の場合、次の receipt を `summary.txt` に記録します。
 
 | receipt | 内容 |
 | --- | --- |
@@ -366,11 +366,11 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 
 ## 再開に使うファイル
 
-`output.checkpoint_stride > 0` では、accepted batch の commit 後に次の構造を更新します。
-`output.checkpoint_stride=0` でも、正常終了時の最終 checkpoint は出力されます。
+`output.checkpoint.stride_batches > 0` では、accepted batch の commit 後に次の構造を更新します。
+`output.checkpoint.stride_batches=0` でも、正常終了時の最終 checkpoint は出力されます。
 
 この節の「完全」は**再開用ファイル一式の transaction が完全**という意味です。要求した実行の完了は
-`summary.txt` の `batches == sim.batch_count` で別に判定します。
+`summary.txt` の `batches == run.batch_count` で別に判定します。
 
 ```text
 <output.dir>/
@@ -398,12 +398,12 @@ PE の設定放出量は PE だけの値です。新しい履歴は 19 列です
 | 段階 | 契約 |
 | --- | --- |
 | 更新 | 非 active slot を書き終えてから `checkpoint_latest.txt` を原子的に切り替える。保持は最大 2 世代 |
-| 探索 | `output.restart_from` 直下の最終出力と `slot0` / `slot1` を検査する |
+| 探索 | `run.restart.from` 直下の最終出力と `slot0` / `slot1` を検査する |
 | 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
 | index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
 | 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。モデル・粒子種の設定変更はハッシュで照合しない |
 
-`output.restart_from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
+`run.restart.from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 
 ### Schema 世代
 

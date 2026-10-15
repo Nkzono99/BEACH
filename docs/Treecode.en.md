@@ -17,9 +17,11 @@ speed. It targets fewer source evaluations than Direct for medium free-boundary 
 | Potential | Uses the same tree traversal and near/far classification as the field |
 
 ```toml
-[sim]
-field_solver = "treecode"
-field_bc_mode = "free"
+[fields]
+boundary = "free"
+
+[fields.solver]
+method = "treecode"
 ```
 
 ## Build the octree once from fixed geometry
@@ -28,7 +30,7 @@ At initialization, triangle centroids are used as source positions and an octree
 
 1. Find the axis-aligned bounding box of the source centroids in a node.
 2. Split at the box center into eight octants.
-3. Recurse until a node contains at most `tree_leaf_max` sources.
+3. Recurse until a node contains at most `fields.solver.tree.leaf_max` sources.
 
 If the centroids are numerically coincident, or splitting leaves every source in one octant, the node remains a leaf even when
 it exceeds the nominal limit. Tree topology is reused while the mesh geometry remains fixed.
@@ -62,7 +64,7 @@ charge committed at the end of a batch is used by the next refresh.
 ## Group nodes according to distance
 
 All sources in a leaf are evaluated directly. For an internal node, the node radius $R$, distance $d$ from its center to the
-target, and `tree_theta` define the far candidate condition
+target, and `fields.solver.tree.theta` define the far candidate condition
 
 $$
 R < \theta(d-R).
@@ -95,14 +97,14 @@ distribution, measure runtime as well as error against Direct, and compare FMM w
 
 | Key | Role | Constraint |
 | --- | --- | --- |
-| `tree_theta` | Geometric acceptance of a far node | $0 < \theta \le 1$ |
-| `tree_leaf_max` | Nominal number of sources in a leaf | at least 1 |
-| `tree_min_nelem` | Switching threshold for `field_solver="auto"` | at least 1 |
+| `fields.solver.tree.theta` | Geometric acceptance of a far node | $0 < \theta \le 1$ |
+| `fields.solver.tree.leaf_max` | Nominal number of sources in a leaf | at least 1 |
+| `fields.solver.auto_fmm_min_elements` | Switching threshold for `fields.solver.method="auto"` | at least 1 |
 
-When `tree_theta` and `tree_leaf_max` are not explicitly present in the input, element-count values are selected even for an
+When `fields.solver.tree.theta` and `fields.solver.tree.leaf_max` are not explicitly present in the input, element-count values are selected even for an
 explicit `treecode` mode.
 
-| `nelem` | `tree_theta` | `tree_leaf_max` |
+| `nelem` | `fields.solver.tree.theta` | `fields.solver.tree.leaf_max` |
 | ---: | ---: | ---: |
 | `< 1500` | 0.40 | 12 |
 | `1500`–`9999` | 0.50 | 16 |
@@ -128,8 +130,8 @@ imbalance, $\theta$, leaf size, and the fraction of mixed-sign nodes.
 Compare against Direct with the same normalization and mesh.
 
 1. Sample strong-field regions, near-surface points, far points, and charge-cancellation regions.
-2. Reduce `tree_theta` and verify convergence toward Direct.
-3. Vary `tree_leaf_max` and measure both result and runtime sensitivity.
+2. Reduce `fields.solver.tree.theta` and verify convergence toward Direct.
+3. Vary `fields.solver.tree.leaf_max` and measure both result and runtime sensitivity.
 4. Compare particle impact elements and post-batch `q_elem`, not only fields at isolated points.
 5. Measure performance in a release build with representative particle and step counts.
 

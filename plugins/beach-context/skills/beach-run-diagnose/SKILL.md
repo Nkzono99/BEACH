@@ -36,9 +36,9 @@ Prefer:
    - `beachx lint beach.toml` checks direct `beach.toml` files with schema and semantic validation.
    - The Fortran runtime reads `beach.toml`.
    - Unknown TOML sections/keys are runtime parser errors.
-   - `tol_rel` is not an early-stop condition.
-   - `history_stride <= 0` means no `charge_history.csv`.
-   - `output.write_mesh_potential = false` means no `mesh_potential.csv`.
+   - `output.diagnostics.charge_rel_change_threshold` is not an early-stop condition.
+   - `output.history.stride_batches <= 0` means no `charge_history.csv`.
+   - `output.final.mesh_potential = false` means no `mesh_potential.csv`.
    - Resume needs compatible `summary.txt`, `charges.csv`, and RNG state files.
 4. Propose the smallest confirmation command.
 5. If code changes are needed, scope them to the failing phase and avoid unrelated interfaces.
@@ -48,9 +48,9 @@ Prefer:
 - Missing compiler or `fpm`: install/build prerequisite problem.
 - `pip install beach-bem` build failure: Fortran toolchain, `make install`, or `INSTALL_PROFILE` issue.
 - `Unknown key` / `Unknown section`: `beach.toml` key mismatch with Fortran parser.
-- `batch_duration` errors: mutually exclusive or missing resolved positive duration for `boundary_inflow` / `photo_raycast`.
-- Empty or tiny absorption: injection direction, injection region, mesh placement, boundary condition, or `max_step`.
-- Large `survived_max_step`: particles remain alive until `sim.max_step`.
+- `run.batch.duration_s` errors: mutually exclusive or missing resolved positive duration for `inflow` / `photo_raycast`.
+- Empty or tiny absorption: injection direction, injection region, mesh placement, boundary condition, or `particles.tracking.max_steps_per_particle`.
+- Large `survived_max_step`: particles remain alive until `particles.tracking.max_steps_per_particle`.
 - Missing output file: output flag/cadence, early termination, wrong `output.dir`, or looking at stale directory.
 - Resume failure: missing/stale files, changed mesh/config, or MPI world-size mismatch.
 - Python analysis mismatch: Python direct reconstruction does not fully reproduce Fortran FMM/periodic far correction.

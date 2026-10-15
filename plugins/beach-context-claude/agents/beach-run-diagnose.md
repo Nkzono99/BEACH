@@ -35,11 +35,11 @@ color: red
 2. 最初の意味あるエラーを抽出する。MPI/fpm/Python wrapper の最後の abort だけを根拠にしない。
 3. 症状を BEACH の仕様に対応付ける。
    - unknown key/section は Fortran parser の error。
-   - `batch_duration` と `batch_duration_step` は排他的。
-   - `temperature_k` と `temperature_ev` は排他的。
-   - `tol_rel` は早期停止条件ではなく monitoring/output。
-   - `history_stride <= 0` では `charge_history.csv` は出ない。
-   - `output.write_mesh_potential = false` では `mesh_potential.csv` は出ない。
+   - `run.batch.duration_s` と `run.batch.duration_steps` は排他的。
+   - `distribution.temperature_k` と `distribution.temperature_ev` は排他的。
+   - `output.diagnostics.charge_rel_change_threshold` は早期停止条件ではなく monitoring/output。
+   - `output.history.stride_batches <= 0` では `charge_history.csv` は出ない。
+   - `output.final.mesh_potential = false` では `mesh_potential.csv` は出ない。
    - resume は `summary.txt`, `charges.csv`, `rng_state.txt` と互換な config が必要。
 4. 最小の確認 command または確認ファイルを提示する。
 5. code change が必要な場合は、原因フェーズに scope を限定する。

@@ -13,11 +13,11 @@ BEACH は、境界要素法による電場評価と粒子追跡を組み合わ�
 電荷蓄積を計算します。現行の基準構成は次のとおりです。
 
 - 外部領域のプラズマ場や粒子輸送は解かない
-- 周囲粒子は `[particles.species.boundary_inflow]` で非周期box面から注入する
-- 光電子は `photo_raycast`、`inject_face` と同じ species 面の反射、`neutral_return` で閉じる
+- 周囲粒子は `[particles.species.inflow]` で非周期box面から注入する
+- 光電子は `photo_raycast`、`source.inject_face` と同じ species 面の反射、`neutral_return` で閉じる
 - mesh hit は吸収し、表面電荷差分を batch ごとに commit する
-- `sim.batch_count` まで実行し、`sim.max_step` を粒子ごとの上限とする
-- `sim.tol_rel` は監視値であり、早期停止条件ではない
+- `run.batch_count` まで実行し、`particles.tracking.max_steps_per_particle` を粒子ごとの上限とする
+- `output.diagnostics.charge_rel_change_threshold` は監視値であり、早期停止条件ではない
 
 実装挙動の正本は [`SPEC.md`](../SPEC.md)、設定キーの正本は
 [入力パラメータ](Parameters.html) です。削除済みの `[outer_plasma]`、
@@ -50,15 +50,15 @@ make run CONFIG=examples/beach.toml
 |---|---|---|
 | 入門の帯電更新 | `examples/tutorial_insulator.toml` | [10 分チュートリアル](Tutorial.html) |
 | 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](ConfigurationRecipes.html) |
-| 外部 plasma reservoir | `[particles.species.boundary_inflow]` | [Reservoir 注入](ReservoirInjection.html) |
+| 外部 plasma reservoir | `[particles.species.inflow]` | [Reservoir 注入](ReservoirInjection.html) |
 | 閉じた光電子再分配 | `examples/closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
-| free-space の場評価 | `field_boundary.mode="free"` | [場の評価](FieldSolvers.html) |
-| 2 軸周期の場評価 | `field_boundary.mode="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
+| free-space の場評価 | `fields.boundary="free"` | [場の評価](FieldSolvers.html) |
+| 2 軸周期の場評価 | `fields.boundary="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
 | 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](PostprocessTutorial.html) |
-| checkpoint から再開 | `output.resume=true` | [実行と再開](Execution.html) |
+| checkpoint から再開 | `[run.restart]` | [実行と再開](Execution.html) |
 
 境界 reservoir + closed PE の例は外部シースを自己無撞着に解くモデルではありません。
-box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、ray 数は目的量に
+box 高さ、周期画像、`particles.tracking.dt_s`、`particles.tracking.max_steps_per_particle`、`run.batch.duration_s`、粒子数、ray 数は目的量に
 対して収束確認が必要です。
 
 ## 設定を編集するとき
@@ -74,11 +74,11 @@ box 高さ、周期画像、`dt`、`max_step`、`batch_duration`、粒子数、r
 
 | 機能 | 必須条件 |
 |---|---|
-| `boundary_inflow` | `[domain]`のbox、解決後の`sim.batch_duration>0`、非周期面、外部VDF |
-| `photo_raycast` | `[domain]` の box、解決後の `sim.batch_duration>0`、正の電流密度、`rays_per_batch>=1` |
-| closed PE | 負電荷、`deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `inject_face` と同じ面が `reflect` または `redistributed_reflect`、`surface_charge_closure="neutral_return"` |
-| `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[periodic2]` の zero-mode 設定 |
-| resume | `output.write_files=true`、必要な checkpoint、同じ MPI size |
+| `inflow` | `[domain]`のbox、解決後の`run.batch.duration_s>0`、非周期面、外部VDF |
+| `photo_raycast` | `[domain]` の box、解決後の `run.batch.duration_s>0`、正の電流密度、`sampling.rays_per_batch>=1` |
+| closed PE | 負電荷、`source.deposit_opposite_charge_on_emit=true`、`[particles.species.boundary]` で `source.inject_face` と同じ面が `reflect` または `redistributed_reflect`、`charging.closure="neutral_return"` |
+| `periodic2` | `[domain]` の box、`domain.periodic_axes` がちょうど 2 軸、`[fields.periodic]` の zero-mode 設定 |
+| resume | `output.enabled=true`、必要な checkpoint、同じ MPI size |
 
 `periodic2` の通常経路は FMM です。Direct は
 `triangle_p0 + panel_spectral_reference + exclude_k0` の検証用 split reference に限られます。
@@ -148,7 +148,7 @@ CLI の全オプションは `beachx <command> --help`、Python API は
 - Fortran の挙動と `SPEC.md` の記述が一致している
 - 公開設定を変えた場合、schema、parser、例、日英ドキュメント、テストを更新した
 - field、collision、boundary、injection、resume の変更には対応する回帰テストがある
-- `tol_rel` を早期停止として説明していない
+- `output.diagnostics.charge_rel_change_threshold` を早期停止として説明していない
 - 実行完了と数値・物理妥当性を混同していない
 - 日英ページでコマンド、識別子、警告、リンク先の責務が対応している
 

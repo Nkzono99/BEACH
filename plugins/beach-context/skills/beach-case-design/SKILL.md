@@ -23,14 +23,14 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - Design a direct `beach.toml`. Use high-level notation only when it makes geometry or injection intent clearer.
 - Identify the physical objective: reservoir plasma, photoelectron emission, object charging, periodic slab, mobility, force/torque, or workload test.
 - Separate physical controls from numerical controls:
-  - physical: species charge/mass, density, temperature, drift velocity, injection face, external `e0`/`b0`, mesh/object geometry, photo current.
-  - numerical: `dt`, `batch_duration`, `batch_count`, `max_step`, macro-particle target, solver mode, tree/FMM controls, history cadence.
-- Treat the P0 triangle panel as the fixed element source. Do not propose the removed `[field]` table or `sim.softening`.
+  - physical: species charge/mass, density, temperature, drift velocity, injection face, external `fields.external.electric_v_m`/`fields.external.magnetic_t`, mesh/object geometry, photo current.
+  - numerical: `particles.tracking.dt_s`, `run.batch.duration_s`, `batch_count`, `particles.tracking.max_steps_per_particle`, macro-particle target, solver mode, tree/FMM controls, history cadence.
+- Treat the P0 triangle panel as the fixed element source.
 - Preserve comparable diagnostics across sweep cases: output flags, history cadence, seed policy, mesh resolution, and solver settings.
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.
 - Keep v1 scope clear: absorption and insulator accumulation are standard; conductor/resistive/secondary-emission models are extension points unless the repo now documents them.
-- Treat `surface_current_model.model="zhao_stationary"` as the implemented reduced outer-sheath closure:
+- Treat `sheath.closure="zero_current"` as the implemented reduced outer-sheath closure:
   the Zhao zero-current root sets species currents and z-high barriers, and `outflow_refresh_batches>0`
   re-solves the root from the observed PE outflow (a quasi-static weak coupling for periodic regolith cells).
 - Keep full-VDF, 1D PIC, time-dependent outer-sheath solvers, and external particle

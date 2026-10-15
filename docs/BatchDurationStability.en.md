@@ -1,8 +1,8 @@
-title: How to choose `batch_duration`
+title: How to choose `run.batch.duration_s`
 
 Lang: [English](BatchDurationStability.en.md) | [日本語](BatchDurationStability.md)
 
-# How to choose `batch_duration`
+# How to choose `run.batch.duration_s`
 
 This page answers how large the physical time represented by one batch may be.
 A single run cannot establish a safe value. The basic method is to compare fixed widths at 1/2, 1, and 2 times a
@@ -11,43 +11,43 @@ reference value and find a range that does not change the result at the same phy
 After reading this page, you can run a fixed-width comparison and decide whether to retain that width or use adaptive
 `cached_kneq0` progression.
 
-> `sim.tol_rel` is a monitoring and output value. The current implementation does not use it for early stopping;
-> the run continues to the accepted batch count set by `sim.batch_count`.
+> `output.diagnostics.charge_rel_change_threshold` is a monitoring and output value. The current implementation does not use it for early stopping;
+> the run continues to the accepted batch count set by `run.batch_count`.
 
 ## Choose the path first
 
 | Goal | Path |
 | --- | --- |
 | Check time-width sensitivity for a general case | Compare fixed widths at 1/2, 1, and 2 times |
-| Bound the local-potential change of one `cached_kneq0` batch | Use `max_nonzero_mode_potential_step` |
+| Bound the local-potential change of one `cached_kneq0` batch | Use `run.batch.adaptive.max_nonzero_mode_potential_step_v` |
 | Check overall stability or global accuracy including $k=0$ | Run a fixed-width comparison; adaptive progression alone is insufficient |
 
-`sim.batch_duration` is the physical time of one batch and the time width over which surface charge is updated.
-When `sim.batch_duration_step` is used, the resolved width is
+`run.batch.duration_s` is the physical time of one batch and the time width over which surface charge is updated.
+When `run.batch.duration_steps` is used, the resolved width is
 
 $$
-\texttt{batch\_duration}=\texttt{dt}\times\texttt{batch\_duration\_step}.
+\texttt{run.batch.duration\_s}=\texttt{particles.tracking.dt\_s}\times\texttt{run.batch.duration\_steps}.
 $$
 
-The two keys are mutually exclusive. `sim.dt` is the particle-push time step, while `batch_duration` controls how long
+The two keys are mutually exclusive. `particles.tracking.dt_s` is the particle-push time step, while `run.batch.duration_s` controls how long
 surface-charge changes are accumulated before they are applied.
 
-`boundary_inflow`, `photo_raycast`, and
-`surface_charge_closure="fixed_current"` require a positive resolved `batch_duration`.
+`inflow`, `photo_raycast`, and
+`charging.closure="fixed_current"` require a positive resolved `run.batch.duration_s`.
 See the [Input parameter reference](Parameters.en.html) for the complete input contract.
 
 ## Compare fixed widths
 
 ### Hold the comparison conditions fixed
 
-- Set `write_files=true` and `history_stride > 0` to save `summary.txt` and `charge_history.csv`.
+- Set `output.enabled=true` and `output.history.stride_batches > 0` to save `summary.txt` and `charge_history.csv`.
 - Keep the mesh, particle distributions, RNG seed, OpenMP thread count, and MPI rank count fixed.
 - Give each run a separate `output.dir`.
 - Change `batch_count` together with the width so that the runs are compared near the same `simulated_time_s`.
 
 For a reference width $h$ and reference batch count $N$, use:
 
-| Run | `batch_duration` | `batch_count` | `output.dir` |
+| Run | `run.batch.duration_s` | `batch_count` | `output.dir` |
 | --- | ---: | ---: | --- |
 | half | $h/2$ | $2N$ | `outputs/batch-half` |
 | reference | $h$ | $N$ | `outputs/batch-reference` |
@@ -56,11 +56,11 @@ For a reference width $h$ and reference batch count $N$, use:
 Choose an even $N$. For example, with $h=1.0\times10^{-7}$ s and $N=100$, the half, reference, and double settings are
 `(5.0e-8, 200)`, `(1.0e-7, 100)`, and `(2.0e-7, 50)`, respectively.
 These numbers demonstrate the edit and are not recommended physical defaults.
-When using `batch_duration_step`, keep `dt` fixed and scale the step value by the same factors of 1/2, 1, and 2.
+When using `run.batch.duration_steps`, keep `particles.tracking.dt_s` fixed and scale the step value by the same factors of 1/2, 1, and 2.
 
 ### Create and run the configurations
 
-Copy the original configuration three times, then change only the corresponding `[sim]` and `[output]` values from the
+Copy the original configuration three times, then change only the corresponding `[run.batch]`, `[run]`, and `[output]` values from the
 table above.
 
 ```bash
@@ -98,7 +98,7 @@ done
 The expected state is:
 
 - All three runs complete with exit code `0`.
-- `batches` equals `sim.batch_count` in each configuration.
+- `batches` equals `run.batch_count` in each configuration.
 - `simulated_time_s` reaches the same physical end time in all three runs.
 - The `batch` column in `charge_history.csv` can be converted with each run's width to compare element charge at
   corresponding physical times.
@@ -114,13 +114,13 @@ oscillation. Define “agreement” from the accuracy required for the study's q
 | Observation | Decision |
 | --- | --- |
 | Half and reference agree within the chosen tolerance | The reference is a practical candidate; retain half as the validation baseline |
-| The reference or double run oscillates or diverges | Lower `batch_duration` |
+| The reference or double run oscillates or diverges | Lower `run.batch.duration_s` |
 | Final charge changes systematically with width | Repeat the comparison at smaller widths |
-| Monte Carlo noise obscures the history | Adjust `w_particle` or `target_macro_particles_per_batch` first |
+| Monte Carlo noise obscures the history | Adjust `sampling.weight` or `sampling.target_macro_particles_per_batch` first |
 | Change continues at the end | Increase `batch_count` by the same factor in all compared runs, extending their common physical end time |
 
 This is a step-size sensitivity check, not Richardson extrapolation. It assumes neither a power law for the error nor a
-particular convergence order. [`batch_duration` theory](BatchDurationTheory.en.html) explains why.
+particular convergence order. [`run.batch.duration_s` theory](BatchDurationTheory.en.html) explains why.
 
 ## Use adaptive $k\ne0$ progression
 
@@ -128,16 +128,16 @@ particular convergence order. [`batch_duration` theory](BatchDurationTheory.en.h
 
 This path is an advanced option for an existing periodic2 case and requires all of the following:
 
-- `[periodic2].nonzero_mode_backend = "cached_kneq0"`
-- a positive `sim.batch_duration`, or a `sim.batch_duration_step` that resolves to a positive value
-- time-scaled `boundary_inflow` or `photo_raycast`
-- `target_macro_particles_per_batch`, rather than fixed `w_particle`, for reservoir inflow
+- `fields.periodic.backend = "cached_kneq0"`
+- a positive `run.batch.duration_s`, or a `run.batch.duration_steps` that resolves to a positive value
+- time-scaled `inflow` or `photo_raycast`
+- `sampling.target_macro_particles_per_batch`, rather than fixed `sampling.weight`, for reservoir inflow
 
-A `volume_seed` with positive `npcls_per_step` cannot be used on this path.
+A `volume_seed` with positive `sampling.volume_macro_particles_per_batch` cannot be used on this path.
 
 ### Set the limit and run
 
-Copy the original periodic2 configuration, then change the corresponding existing values under `[periodic2]` and
+Copy the original periodic2 configuration, then change the corresponding existing values under `[fields.periodic]` and
 `[output]` in `adaptive.toml`.
 
 ```bash
@@ -145,9 +145,11 @@ cp beach.toml adaptive.toml
 ```
 
 ```toml
-[periodic2]
-nonzero_mode_backend = "cached_kneq0"
-max_nonzero_mode_potential_step = 1.0e-2 # V
+[fields.periodic]
+backend = "cached_kneq0"
+
+[run.batch.adaptive]
+max_nonzero_mode_potential_step_v = 1.0e-2 # V
 
 [output]
 dir = "outputs/adaptive"
@@ -162,7 +164,7 @@ beach adaptive.toml
 beachx inspect outputs/adaptive
 ```
 
-Let $h_0$ be the resolved `sim.batch_duration`. For every accepted batch, BEACH tests
+Let $h_0$ be the resolved `run.batch.duration_s`. For every accepted batch, BEACH tests
 $h_0,h_0/2,h_0/4,\ldots$. It evaluates the $k\ne0$ potential change produced by the candidate charge at every panel
 centroid and accepts the first width whose maximum absolute value does not exceed the limit.
 
@@ -179,7 +181,7 @@ grep -E '^(batches|simulated_time_s|periodic2_max_nonzero_mode_potential_step_V|
 - `adaptive_nonzero_mode_rejected_trials=0` is valid. The field is the cumulative number of halvings needed to satisfy
   the limit.
 - `simulated_time_s` accumulates accepted widths and is not generally equal to
-  `batch_count * batch_duration`.
+  `batch_count * run.batch.duration_s`.
 
 A rejected retry restores the RNG and macro-particle residuals and does not update statistics, history, or the charge
 ledger. The run stops if one batch still exceeds the limit after 24 halvings. In that case, examine the field model,
@@ -187,16 +189,16 @@ particle statistics, and charge change as well as reducing the maximum width.
 
 ### Decide whether to retain the limit
 
-1. Create a run with half the `max_nonzero_mode_potential_step`.
+1. Create a run with half the `run.batch.adaptive.max_nonzero_mode_potential_step_v`.
 2. Compare surface charge, local-potential range, total charge, and particle statistics near the same `simulated_time_s`.
 3. If they agree within the chosen tolerance, retain the larger limit as a practical candidate.
 4. For a fixed-width control, omit the key or set it to `0`.
 
-`max_nonzero_mode_potential_step` is a local-potential trust bound for freezing the $k\ne0$ field within a batch.
+`run.batch.adaptive.max_nonzero_mode_potential_step_v` is a local-potential trust bound for freezing the $k\ne0$ field within a batch.
 It does not guarantee local truncation error, an order of global accuracy, or stability of the $k=0$ update. Adaptive
 progression therefore still requires a fixed-width or limit-halving sensitivity check.
 
-For target-count reservoirs and fixed-`rays_per_batch` photo sources, halving the trial width also halves macro-particle
+For target-count reservoirs and fixed-`sampling.rays_per_batch` photo sources, halving the trial width also halves macro-particle
 charge. A limit-halving comparison therefore includes both time-discretization and Monte Carlo variance changes. Use the
 same RNG seed and report charge-distribution norms together with particle statistics.
 
@@ -205,7 +207,7 @@ agreement of charge distributions and accepted widths rather than bitwise identi
 
 ## Related documents
 
-- [`batch_duration` theory](BatchDurationTheory.en.html) — fixed points, linear stability, and applicability limits
+- [`run.batch.duration_s` theory](BatchDurationTheory.en.html) — fixed points, linear stability, and applicability limits
 - [Input parameter reference](Parameters.en.html) — key types and complete constraints
 - [Boundary-reservoir inflow and velocity sampling](ReservoirInjection.en.html) — particle count and weight
 - [Output Format Reference](OutputReference.en.html#adaptive-batch-diagnostics) — adaptive receipts

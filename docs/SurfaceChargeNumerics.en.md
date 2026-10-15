@@ -85,7 +85,7 @@ Conductor relaxation is then applied deterministically to that same state on eve
 Check [run and resume](Execution.en.html) and [input parameters](Parameters.en.html) for checkpoint compatibility and
 required files for restoring committed `q_elem` and related state.
 
-## Definition of `tol_rel`
+## Definition of `output.diagnostics.charge_rel_change_threshold`
 
 Including conductor relaxation, define the pre/post update difference as
 
@@ -100,7 +100,7 @@ $$
 =\frac{\|\Delta\mathbf q\|_2}{\max(\|\mathbf q^\mathrm{after}\|_2,q_\mathrm{floor})}.
 $$
 
-`tol_rel` is an output metric, not an early-stop condition in the current implementation.
+`output.diagnostics.charge_rel_change_threshold` is an output metric, not an early-stop condition in the current implementation.
 
 ## Implementation and tests
 

@@ -225,7 +225,7 @@ target メッシュグループが source から受ける Coulomb 力とトル�
 `periodic2` が指定された場合、native field kernelをその2軸周期設定で構成して力とトルクを計算します。
 
 `periodic2=None`（デフォルト）の場合は、出力ディレクトリ近傍の `beach.toml` を探索します。
-`field_boundary.mode="periodic2"` なら、`domain.periodic_axes` と `domain.box_min` / `domain.box_max` から周期設定を
+`fields.boundary="periodic2"` なら、`domain.periodic_axes` と `domain.box_min` / `domain.box_max` から周期設定を
 自動構築します。これは `compute_potential_mesh` などの他の関数と共通の自動判定です。
 
 ### 5.2 `CoulombInteraction` 型
@@ -418,11 +418,13 @@ fig.savefig("field_lines.png", dpi=150)
 
 電位再構成、Coulomb 力計算、電場計算、電気力線追跡のすべてで共通の `periodic2` パラメータが利用できます。
 
+保存済み出力の `receipt.as_legacy_sim_mapping()` は 1.x 出力契約の内部 reader 設定を返し、この名前は公開 TOML の入力キーではありません。
+
 ### 8.1 自動判定（`periodic2=None`）
 
 デフォルトの `None` では、まず出力の `field_reconstruction_*` receipt から、実行時に解決済みの
 field boundary、周期軸、長さ、原点を復元します。receipt のない旧出力では、出力ディレクトリ近傍の
-`beach.toml` を探索し、`field_boundary.mode="periodic2"` の場合は `domain.periodic_axes` と
+`beach.toml` を探索し、`fields.boundary="periodic2"` の場合は `domain.periodic_axes` と
 `domain.box_min` / `domain.box_max` から自動解決します。旧出力で設定ファイルが見つからない場合、
 全電場を再計算する高水準APIは自由空間へ黙ってfallbackせず停止します。field boundary が `free` に
 解決される場合は自由空間として再計算します。
@@ -499,11 +501,11 @@ with FieldKernel.from_result(run) as kernel:
 自動構築ではresolved `direct`をexact-directへ、resolved `fmm`をFMMへ対応させ、resolved `treecode`は
 再現不能として停止します。FMMの`order`はreceiptの展開次数がデフォルトで、明示`order=`だけが上書きします。
 resolved `direct`では`eval_e()`、`eval_phi()`、`force_on_charges()`のすべてがexact-directを使い、uniform
-`sim.e0`はそれぞれ一度だけ合成します。
-ただし cached plan の返り値は `cached_kneq0` の $k\ne0$ 成分と `sim.e0` だけで、physical zero mode を含む
+`fields.external.electric_v_m`はそれぞれ一度だけ合成します。
+ただし cached plan の返り値は `cached_kneq0` の $k\ne0$ 成分と `fields.external.electric_v_m` だけで、physical zero mode を含む
 simulator 全電場ではありません。`FieldKernel` はこの成分を明示的に扱う低水準 API です。
 `eval_e_direct()` / `eval_phi_direct()`は、同じsource geometryとchargeを非周期のexact direct法で評価する診断APIです。
-periodic planでは使用できず、uniform `sim.e0`も加算しません。FMMの精度確認とprimary free-space subtractionの
+periodic planでは使用できず、uniform `fields.external.electric_v_m`も加算しません。FMMの精度確認とprimary free-space subtractionの
 小規模oracleに使います。
 
 ### 10.2 `calc_object_forces_kernel(result, ...)`
@@ -585,8 +587,8 @@ print(release.barrier_free_from_rest, release.endpoint_speed_m_s)
 
 | 値 | 場の定義 |
 |---|---|
-| `"configured"` | run の `beach.toml` をそのまま使用する。free、`far_correction="none"` の有限画像、または cached periodic のいずれにもなり得る |
-| `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と、`[periodic2].lower_boundary_model`に従う物理的な`k = 0` modeを組み合わせる。cache の生成・再利用条件を満たす必要がある |
+| `"configured"` | run の `beach.toml` をそのまま使用する。free、`fields.periodic.backend="finite_images"` の有限画像、または cached periodic のいずれにもなり得る |
+| `"infinite_physical"` | x/y periodic run に対して cached `k != 0` と、`fields.periodic.lower_boundary_model`に従う物理的な`k = 0` modeを組み合わせる。cache の生成・再利用条件を満たす必要がある |
 
 完全な `beach.toml` と `domain.box_min` / `domain.box_max` が必要です。
 

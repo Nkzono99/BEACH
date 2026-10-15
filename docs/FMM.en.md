@@ -19,35 +19,35 @@ algorithms, and parallel implementation.
 | Many elements and many particle steps per batch | Consider FMM and benchmark it against Direct in a release build |
 | Production infinite two-axis periodic field | Use FMM with `cached_kneq0` |
 | Small case, reference result, or approximation check | Use Direct |
-| Automatic selection by element count in free space | Use `field_solver="auto"` and check the resolved solver in output |
+| Automatic selection by element count in free space | Use `fields.solver.method="auto"` and check the resolved solver in output |
 
 The crossover depends on particle count, tracking steps, and target distribution as well as element count.
 See [Field evaluation](FieldSolvers.en.html) for the full choice including Treecode.
 
 ## Use a minimal free-space FMM configuration
 
-Start from a case that already passes lint, then set `[sim]`, `[domain]`, `[field_boundary]`, and `[output]` as below.
+Start from a case that already passes lint, then set `[fields.solver]`, `[domain]`, `[fields]`, and `[output]` as below.
 The box values are examples; use the physical extent of the actual case.
 
 ```toml
-[sim]
-field_solver = "fmm"
+[fields.solver]
+method = "fmm"
 
 [domain]
 box_min = [-0.5, -0.5, -0.1]
 box_max = [ 0.5,  0.5,  1.0]
 periodic_axes = []
 
-[field_boundary]
-mode = "free"
+[fields]
+boundary = "free"
 
 [output]
-write_files = true
+enabled = true
 dir = "outputs/fmm"
 ```
 
 See [`examples/panel_fmm.toml`](../examples/panel_fmm.toml) for a complete case. That short-check example has
-`write_files=false`; change it to the `[output]` settings above before inspecting results. Then validate the input, run it,
+`output.enabled=false`; change it to the `[output]` settings above before inspecting results. Then validate the input, run it,
 and verify the resolved solver:
 
 ```bash
@@ -73,8 +73,8 @@ performance benefit. A periodic2 run with `cached_kneq0` rejects an out-of-box t
 
 ## Tune accuracy
 
-First omit `tree_theta` and `tree_leaf_max` and use the element-count-dependent resolved values as a baseline.
-This automatic tuning also applies when `field_solver="fmm"` is explicit. Inspect the resolved values with:
+First omit `fields.solver.tree.theta` and `fields.solver.tree.leaf_max` and use the element-count-dependent resolved values as a baseline.
+This automatic tuning also applies when `fields.solver.method="fmm"` is explicit. Inspect the resolved values with:
 
 ```bash
 grep -E '^field_reconstruction_(tree_theta|tree_leaf_max|fmm_expansion_order)=' \
@@ -83,18 +83,18 @@ grep -E '^field_reconstruction_(tree_theta|tree_leaf_max|fmm_expansion_order)=' 
 
 | Setting | How to use it |
 | --- | --- |
-| `tree_theta` | Smaller values make far acceptance stricter and are generally more accurate and slower; `0 < theta <= 1` |
-| `tree_leaf_max` | Changes the balance between tree depth and near Direct work; compare multiple values of at least `1` |
-| `field_normalization` | Changes internal coordinate scaling only; do not use it as a physical or accuracy acceptance control |
+| `fields.solver.tree.theta` | Smaller values make far acceptance stricter and are generally more accurate and slower; `0 < theta <= 1` |
+| `fields.solver.tree.leaf_max` | Changes the balance between tree depth and near Direct work; compare multiple values of at least `1` |
+| `fields.solver.normalization` | Changes internal coordinate scaling only; do not use it as a physical or accuracy acceptance control |
 
 The current simulator fixes the expansion order at four; it is not configurable. Tune in this order:
 
 1. Run with the automatically resolved values.
-2. Add a run with a smaller `tree_theta`.
-3. Vary `tree_leaf_max` and find where the observables are stable.
+2. Add a run with a smaller `fields.solver.tree.theta`.
+3. Vary `fields.solver.tree.leaf_max` and find where the observables are stable.
 4. Accept a combination only when it meets the Direct error tolerance and reduces measured runtime.
 
-See [Input parameters](Parameters.en.html#field-solver) for types, defaults, and the element-count tuning table.
+See [Input parameters](Parameters.en.html#fieldssolver) for types, defaults, and the element-count tuning table.
 
 <a id="source-kernel"></a>
 
@@ -104,14 +104,14 @@ Direct and FMM both represent element charge with the same triangle-P0 source mo
 therefore measures mainly the FMM approximation. Check mesh-discretization error separately by refining the mesh.
 
 Duplicate a reduced free-space case and change only the solver and output directory. For the first solver-error comparison,
-set `sim.batch_count=1` so both runs produce element charge from the same initial surface-charge state.
+set `run.batch_count=1` so both runs produce element charge from the same initial surface-charge state.
 
-| Configuration | `sim.field_solver` | `output.dir` |
+| Configuration | `fields.solver.method` | `output.dir` |
 | --- | --- | --- |
 | `direct.toml` | `"direct"` | `"outputs/direct"` |
 | `fmm.toml` | `"fmm"` | `"outputs/fmm"` |
 
-Keep the mesh, particles, random seed, thread count, `dt`, `field_normalization`, and output controls identical.
+Keep the mesh, particles, random seed, thread count, `particles.tracking.dt_s`, `fields.solver.normalization`, and output controls identical.
 
 ```bash
 beachx lint direct.toml
@@ -151,7 +151,7 @@ Use `rank_max_s` on the `simulation_total` row for the total comparison. FMM set
 field refresh in `field_refresh`, and particle tracking including target evaluation in `particle_batch`. Setup cost can make
 FMM slower on a small case.
 
-Output controls such as `write_potential_history` also change workload and must match. For periodic2 `cached_kneq0`, measure
+Output controls such as `output.history.potential` also change workload and must match. For periodic2 `cached_kneq0`, measure
 cold-cache and warm-cache runs separately. See [Runtime profiling](Execution.en.html#profiling) for phase definitions.
 
 ## Use FMM with periodic2
@@ -171,7 +171,7 @@ See [`examples/cached_periodic.toml`](../examples/cached_periodic.toml) for a co
 - Supported field boundaries are `free` and `periodic2`; follow the complete
   [compatibility table](FieldSolvers.en.html#solver-and-field-boundary-compatibility).
 - Mesh geometry remains fixed during a run; only charge changes between batches.
-- Changing `field_normalization` does not change the SI units of output fields and potentials.
+- Changing `fields.solver.normalization` does not change the SI units of output fields and potentials.
 - FMM does not solve an outer plasma or sheath; the outer-sheath potential reference is applied to the periodic k=0 mode outside FMM.
 
 Developers looking for formulas, internal APIs, geometry/charge-state separation, out-of-range fallback, or OpenMP details

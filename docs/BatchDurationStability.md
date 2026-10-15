@@ -1,8 +1,8 @@
-title: `batch_duration` をどう決めるか
+title: `run.batch.duration_s` をどう決めるか
 
 Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.en.md)
 
-# `batch_duration` をどう決めるか
+# `run.batch.duration_s` をどう決めるか
 
 このページは、「1 batch の物理時間をどこまで大きくしてよいか」に答える利用ガイドです。
 単独の run から安全な値を決めることはできません。固定幅を 1/2 倍、1 倍、2 倍に変え、
@@ -10,43 +10,43 @@ Lang: [日本語](BatchDurationStability.md) | [English](BatchDurationStability.
 
 読了後は、固定幅の比較を実行し、幅を採用するか、`cached_kneq0` の適応進行を使うかを判断できます。
 
-> `sim.tol_rel` は監視・出力値です。現行実装は `tol_rel` を早期停止条件に使わず、
-> `sim.batch_count` で指定した accepted batch 数まで実行します。
+> `output.diagnostics.charge_rel_change_threshold` は監視・出力値です。現行実装は `output.diagnostics.charge_rel_change_threshold` を早期停止条件に使わず、
+> `run.batch_count` で指定した accepted batch 数まで実行します。
 
 ## まず選ぶ経路
 
 | 目的 | 使う経路 |
 | --- | --- |
 | 一般のケースで時間幅依存性を調べる | 固定幅の 1/2 倍、1 倍、2 倍を比較する |
-| `cached_kneq0` で 1 batch の局所電位変化を制限する | `max_nonzero_mode_potential_step` を使う |
+| `cached_kneq0` で 1 batch の局所電位変化を制限する | `run.batch.adaptive.max_nonzero_mode_potential_step_v` を使う |
 | $k=0$ を含む全体の安定性や大域精度を確認する | 固定幅比較を行う。適応進行だけでは判定しない |
 
-`sim.batch_duration` は 1 batch の物理時間と、表面電荷を更新する時間幅です。
-`sim.batch_duration_step` を使う場合、解決される幅は
+`run.batch.duration_s` は 1 batch の物理時間と、表面電荷を更新する時間幅です。
+`run.batch.duration_steps` を使う場合、解決される幅は
 
 $$
-\texttt{batch\_duration}=\texttt{dt}\times\texttt{batch\_duration\_step}
+\texttt{run.batch.duration\_s}=\texttt{particles.tracking.dt\_s}\times\texttt{run.batch.duration\_steps}
 $$
 
-です。2 つのキーは同時に指定できません。`sim.dt` は粒子を前進させる時間刻みであり、
-表面電荷をまとめて反映する `batch_duration` とは役割が異なります。
+です。2 つのキーは同時に指定できません。`particles.tracking.dt_s` は粒子を前進させる時間刻みであり、
+表面電荷をまとめて反映する `run.batch.duration_s` とは役割が異なります。
 
-`boundary_inflow`、`photo_raycast`、および
-`surface_charge_closure="fixed_current"` は、正の解決済み `batch_duration` を必要とします。
+`inflow`、`photo_raycast`、および
+`charging.closure="fixed_current"` は、正の解決済み `run.batch.duration_s` を必要とします。
 完全な入力条件は[入力パラメータリファレンス](Parameters.html)で確認してください。
 
 ## 固定幅を比較する
 
 ### 比較条件を揃える
 
-- `write_files=true`、`history_stride > 0` とし、`summary.txt` と `charge_history.csv` を保存します。
+- `output.enabled=true`、`output.history.stride_batches > 0` とし、`summary.txt` と `charge_history.csv` を保存します。
 - メッシュ、粒子分布、乱数 seed、OpenMP thread 数、MPI rank 数を揃えます。
 - 3 run の `output.dir` を分けます。
 - 幅だけでなく `batch_count` も変え、同じ `simulated_time_s` 付近で比較します。
 
 基準幅を $h$、基準 batch 数を $N$ とすると、次の組合せを使います。
 
-| run | `batch_duration` | `batch_count` | `output.dir` |
+| run | `run.batch.duration_s` | `batch_count` | `output.dir` |
 | --- | ---: | ---: | --- |
 | half | $h/2$ | $2N$ | `outputs/batch-half` |
 | reference | $h$ | $N$ | `outputs/batch-reference` |
@@ -55,11 +55,11 @@ $$
 $N$ は偶数にします。例えば $h=1.0\times10^{-7}$ s、$N=100$ なら、half、reference、double の
 設定値はそれぞれ `(5.0e-8, 200)`、`(1.0e-7, 100)`、`(2.0e-7, 50)` です。
 これは編集方法を示す例であり、推奨する物理値ではありません。
-`batch_duration_step` を使う場合は `dt` を固定し、step 値を同じ 1/2 倍、1 倍、2 倍にします。
+`run.batch.duration_steps` を使う場合は `particles.tracking.dt_s` を固定し、step 値を同じ 1/2 倍、1 倍、2 倍にします。
 
 ### 設定を作って実行する
 
-元の設定を 3 つに複製し、上表に対応する `[sim]` と `[output]` の値だけを変更します。
+元の設定を 3 つに複製し、上表に対応する `[run.batch]`、`[run]`、`[output]` の値だけを変更します。
 
 ```bash
 cp beach.toml batch-half.toml
@@ -96,7 +96,7 @@ done
 期待する状態は次のとおりです。
 
 - 3 run が終了コード `0` で完了する
-- `batches` が各設定の `sim.batch_count` と一致する
+- `batches` が各設定の `run.batch_count` と一致する
 - `simulated_time_s` が 3 run で同じ物理終了時刻になる
 - `charge_history.csv` の `batch` 列を各 run の幅で物理時刻へ換算し、対応する要素電荷を比較できる
 
@@ -111,14 +111,14 @@ done
 | 観測 | 判断 |
 | --- | --- |
 | half と reference が許容値内で一致する | reference は実用上の候補。half を検証基準として残す |
-| reference または double で振動・発散する | `batch_duration` を下げる |
+| reference または double で振動・発散する | `run.batch.duration_s` を下げる |
 | 幅を変えると最終電荷が系統的に変わる | より小さい幅でもう一度比較する |
-| 履歴が Monte Carlo ノイズに埋もれる | `w_particle` または `target_macro_particles_per_batch` を先に調整する |
+| 履歴が Monte Carlo ノイズに埋もれる | `sampling.weight` または `sampling.target_macro_particles_per_batch` を先に調整する |
 | 終了時にも変化が続く | 比較する全 run の `batch_count` を同じ倍率で増やし、共通の物理終了時刻を延ばす |
 
 この比較は Richardson 外挿ではなく、step-size sensitivity check です。誤差の冪乗則や
 特定の収束次数は仮定しません。理論的な理由は
-[`batch_duration` の理論的背景](BatchDurationTheory.html)で説明します。
+[`run.batch.duration_s` の理論的背景](BatchDurationTheory.html)で説明します。
 
 ## 適応的な $k\ne0$ 進行を使う
 
@@ -126,16 +126,16 @@ done
 
 この経路は既存の periodic2 ケースに対する高度な選択肢で、次をすべて要求します。
 
-- `[periodic2].nonzero_mode_backend = "cached_kneq0"`
-- 正の `sim.batch_duration`、または正の値へ解決される `sim.batch_duration_step`
-- time-scaled な `boundary_inflow`、`photo_raycast`
-- reservoir 流入では、固定 `w_particle` ではなく `target_macro_particles_per_batch`
+- `fields.periodic.backend = "cached_kneq0"`
+- 正の `run.batch.duration_s`、または正の値へ解決される `run.batch.duration_steps`
+- time-scaled な `inflow`、`photo_raycast`
+- reservoir 流入では、固定 `sampling.weight` ではなく `sampling.target_macro_particles_per_batch`
 
-正の `npcls_per_step` を持つ `volume_seed` はこの経路で使えません。
+正の `sampling.volume_macro_particles_per_batch` を持つ `volume_seed` はこの経路で使えません。
 
 ### 上限を設定して実行する
 
-元の periodic2 設定を複製し、`adaptive.toml` の既存の `[periodic2]` と `[output]` にある
+元の periodic2 設定を複製し、`adaptive.toml` の既存の `[fields.periodic]`、`[run.batch.adaptive]`、`[output]` にある
 該当値を変更します。
 
 ```bash
@@ -143,9 +143,11 @@ cp beach.toml adaptive.toml
 ```
 
 ```toml
-[periodic2]
-nonzero_mode_backend = "cached_kneq0"
-max_nonzero_mode_potential_step = 1.0e-2 # V
+[fields.periodic]
+backend = "cached_kneq0"
+
+[run.batch.adaptive]
+max_nonzero_mode_potential_step_v = 1.0e-2 # V
 
 [output]
 dir = "outputs/adaptive"
@@ -159,7 +161,7 @@ beach adaptive.toml
 beachx inspect outputs/adaptive
 ```
 
-解決済み `sim.batch_duration` を $h_0$ とすると、BEACH は各 accepted batch で
+解決済み `run.batch.duration_s` を $h_0$ とすると、BEACH は各 accepted batch で
 $h_0,h_0/2,h_0/4,\ldots$ を試します。候補電荷が作る $k\ne0$ 電位変化を全 panel 重心で評価し、
 最大絶対値が上限以下となる最初の幅を受理します。
 
@@ -174,7 +176,7 @@ grep -E '^(batches|simulated_time_s|periodic2_max_nonzero_mode_potential_step_V|
 - `adaptive_nonzero_mode_last_potential_step_V` は最後に受理した $k\ne0$ 電位変化で、設定上限以下になります。
 - `adaptive_nonzero_mode_rejected_trials=0` でも異常ではありません。上限を満たすまで半減した累積回数を示します。
 - `simulated_time_s` は受理した幅の累積であり、一般には
-  `batch_count * batch_duration` と一致しません。
+  `batch_count * run.batch.duration_s` と一致しません。
 
 棄却した再試行では、RNG と macro 粒子数残差を元へ戻し、統計、履歴、charge ledger を更新しません。
 1 batch で 24 回半減しても上限を満たさない場合は停止します。この場合は最大幅を下げるだけでなく、
@@ -182,16 +184,16 @@ grep -E '^(batches|simulated_time_s|periodic2_max_nonzero_mode_potential_step_V|
 
 ### 上限を採用するか判断する
 
-1. `max_nonzero_mode_potential_step` を 1/2 にした run を作ります。
+1. `run.batch.adaptive.max_nonzero_mode_potential_step_v` を 1/2 にした run を作ります。
 2. 同じ `simulated_time_s` 付近で表面電荷、局所電位幅、総電荷、粒子統計を比較します。
 3. 設定した許容値内で一致すれば、大きい方の上限を実用候補にします。
 4. 固定幅 control では、このキーを省略するか `0` にします。
 
-`max_nonzero_mode_potential_step` は、batch 中に $k\ne0$ 場を固定するための局所電位 trust bound です。
+`run.batch.adaptive.max_nonzero_mode_potential_step_v` は、batch 中に $k\ne0$ 場を固定するための局所電位 trust bound です。
 局所打切り誤差、大域精度の次数、$k=0$ 更新の安定性は保証しません。このため、適応進行を使っても
 固定幅または上限半減の sensitivity check が必要です。
 
-target-count reservoir と固定 `rays_per_batch` の photo source では、trial 幅を半分にすると
+target-count reservoir と固定 `sampling.rays_per_batch` の photo source では、trial 幅を半分にすると
 macro 粒子電荷も半分になります。上限半減比較には時間離散化差と Monte Carlo 分散差の両方が含まれるため、
 同じ乱数 seed を使い、電荷分布 norm と粒子統計を併記します。
 
@@ -200,7 +202,7 @@ macro 粒子電荷も半分になります。上限半減比較には時間離�
 
 ## 関連文書
 
-- [`batch_duration` の理論的背景](BatchDurationTheory.html) — 固定点、線形安定性、適用限界
+- [`run.batch.duration_s` の理論的背景](BatchDurationTheory.html) — 固定点、線形安定性、適用限界
 - [入力パラメータリファレンス](Parameters.html) — キーの型と完全な制約
 - [境界 reservoir の流入量と速度サンプリング](ReservoirInjection.html) — 粒子数と重み
 - [出力形式リファレンス](OutputReference.html#適応-batch-の診断) — adaptive receipt

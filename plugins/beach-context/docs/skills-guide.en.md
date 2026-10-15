@@ -20,4 +20,4 @@ Shared rules:
 - Do not translate code identifiers, TOML keys, file paths, commands, or CSV columns.
 - Do not invent defaults or undocumented behavior.
 - Treat the Fortran implementation and `SPEC.md` as the source of truth for simulation behavior.
-- `tol_rel` is an output monitoring metric, not an early-stop condition in the current implementation.
+- `output.diagnostics.charge_rel_change_threshold` is an output monitoring metric, not an early-stop condition in the current implementation.

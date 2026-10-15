@@ -32,7 +32,7 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | 表面への吸収・放出と batch ごとの電荷更新 | 一般の二次電子放出・散乱モデル |
 | 必要に応じた計算領域上端の準定常境界応答 | 時間変化する外部 sheath や完全な速度分布 solver |
 
-通常の表面電荷更新サイクルと `dt`、`batch_duration`、`batch_count` の違いは
+通常の表面電荷更新サイクルと `particles.tracking.dt_s`、`run.batch.duration_s`、`batch_count` の違いは
 [BEACH の計算サイクル](Algorithms.html)で図解しています。外部 sheath を接続する場合の分担は
 [Zhao closure](ZhaoStationaryClosure.html)を参照してください。
 
@@ -69,7 +69,7 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 ### モデルを理解する
 
 通常の計算サイクル、表面帯電、粒子源、光電子、open 境界、Zhao 定常シース、periodic2、matching plane、
-`batch_duration` を説明します。通常経路を先に読み、高度な model は必要なページだけを選びます。
+`run.batch.duration_s` を説明します。通常経路を先に読み、高度な model は必要なページだけを選びます。
 
 ### リファレンス
 

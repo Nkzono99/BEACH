@@ -61,7 +61,7 @@ flowchart TD
 4. simulator は commit 済み `mesh%q_elem` から
    [`electrostatic_snapshot_type`](../src/physics/field_solver/bem_electrostatic_snapshot.f90) を refresh します。
    同じ trial の粒子追跡中はこの snapshot を固定し、accepted commit の電荷は次の batch の refresh で初めて場へ入ります。
-5. `build_particle_source_plan` と `prepare_batch_state` が、source 設定と `batch_duration` から trial 用の
+5. `build_particle_source_plan` と `prepare_batch_state` が、source 設定と `run.batch.duration_s` から trial 用の
    `particles_soa` を作ります。設定からの粒子構築は
    [`bem_app_config_particle_runtime.f90`](../src/runtime/configuration/bem_app_config_particle_runtime.f90)、分布 sampling は
    `src/particles/` が担当します。
@@ -82,7 +82,7 @@ H 通過モーメントを窓に集め、窓が満ちたら根を解き直して
 
 adaptive batch-duration は手順 5--7 を同じ batch 開始 state から再生します。棄却 trial の候補電荷、粒子 outcome、
 RNG、macro 粒子端数は accepted state にしません。受理・rollback の詳細は
-[`batch_duration` の理論](BatchDurationTheory.html)を参照してください。
+[`run.batch.duration_s` の理論](BatchDurationTheory.html)を参照してください。
 
 ## 主要 state の所有者を確認する
 

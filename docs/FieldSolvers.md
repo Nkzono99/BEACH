@@ -25,7 +25,7 @@ field boundaryです。
 | [FMM](FMM.html) | 大規模計算、多数の評価点 | free、periodic2 | 遠方相互作用を多重極・局所展開で近似 |
 | `auto` | free境界で要素数に応じて選択 | free | DirectまたはFMM |
 
-`auto`は`nelem < tree_min_nelem`ならDirect、それ以上ならFMMを使います。既定のしきい値は`256`です。
+`auto`は`nelem < fields.solver.auto_fmm_min_elements`ならDirect、それ以上ならFMMを使います。既定のしきい値は`256`です。
 solver間の速度差は要素数だけでなく、
 粒子数、step数、評価点の分布にも依存します。実際の計算条件に近い小規模ケースで測定してください。
 
@@ -35,7 +35,7 @@ solver間の速度差は要素数だけでなく、
 
 | solver | `free` | `periodic2` |
 | --- | --- | --- |
-| `direct` | 対応 | split referenceのみ。`periodic2.nonzero_mode_backend="panel_spectral_reference"`、`zero_mode_policy="exclude_k0"`、対応するlower-boundary modelが必須 |
+| `direct` | 対応 | split referenceのみ。`fields.periodic.backend="panel_spectral_reference"`、`fields.periodic.lower_boundary_model` で物理的零モードを指定 |
 | `treecode` | 対応 | 非対応 |
 | `fmm` | 対応 | 対応。無限周期productionでは`cached_kneq0`を使用 |
 | `auto` | 対応 | 非対応 |
@@ -51,12 +51,12 @@ box_origin = [0.0, 0.0, 0.0]
 box_size = [1.0, 1.0, 1.0]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
 ```
 
-`[domain]` は計算 cell と periodic topology、`[field_boundary]` は場の closure を定めます。
-`mode="free"` は自由空間場、`mode="periodic2"` は domain の x/y 周期を使う 2 軸周期場です。現行
+`[domain]` は計算 cell と periodic topology、`[fields]` は場の closure を定めます。
+`fields.boundary="free"` は自由空間場、`fields.boundary="periodic2"` は domain の x/y 周期を使う 2 軸周期場です。現行
 `periodic2` は x/y 周期・z 非周期だけを受理します。粒子種別の境界設定は非周期面の `open` / `reflect` /
 `redistributed_reflect` を選べますが、周期軸を追加・削除・上書きできません。
 
@@ -68,17 +68,14 @@ Treecodeは近傍leafを解析panel核、遠方nodeをmonopoleで
 電場・電位とも評価します。[Direct](DirectSolver.html#triangle-p0)、[Treecode](Treecode.html)、
 [FMM](FMM.html#source-kernel)で、それぞれのtriangle P0評価を説明します。
 
-旧`[field]` tableと`sim.softening`は削除済みです。残した入力はunknown table / keyとして停止し、
-別の要素modelへ読み替えません。
-
 ## 長さを正規化して数値スケールを整える
 
-`sim.field_normalization`は内部座標の代表長さ$L_0$を決めます。入力と出力の単位は変わりません。
+`fields.solver.normalization`は内部座標の代表長さ$L_0$を決めます。入力と出力の単位は変わりません。
 
 | 値 | $L_0$ | 原点$\mathbf{x}_0$ |
 | --- | --- | --- |
 | `si` | 1 m | 0 |
-| `length` | `field_length_scale` | 0 |
+| `length` | `fields.solver.length_scale_m` | 0 |
 | `box` | `[domain]` の3辺の最大値 | `domain.box_min` |
 | `mesh` | mesh bounding boxの最大幅 | mesh bounding boxの最小点 |
 
@@ -90,7 +87,7 @@ $$
 
 として評価し、電場には$k_c/L_0^2$、電位には$k_c/L_0$を掛けてSIへ戻します。
 `box` には正の幅を持つ `[domain]` が必要です。空 mesh で `mesh` を選んだ場合だけ
-`field_length_scale` を使います。
+`fields.solver.length_scale_m` を使います。
 
 ## periodic2ではsolverと境界成分を組み合わせる
 
@@ -110,4 +107,4 @@ $$
 - solverの初期化と自動選択: [`bem_field_solver_config.f90`](../src/physics/field_solver/bem_field_solver_config.f90)
 - 電場・電位の評価: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
 - Treecode/FMMの電荷更新: [`bem_field_solver_tree.f90`](../src/physics/field_solver/bem_field_solver_tree.f90)
-- 設定値: [設定パラメータ](Parameters.html#場ソルバ)
+- 設定値: [設定パラメータ](Parameters.html#fieldssolver)

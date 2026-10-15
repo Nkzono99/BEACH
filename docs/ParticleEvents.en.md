@@ -114,7 +114,7 @@ This image range is determined by which mesh images a particle trajectory segmen
 
 ## Apply the action of each box face
 
-Both faces on an axis listed in `domain.periodic_axes` are periodic. On nonperiodic faces, `[particle_boundary]` keys
+Both faces on an axis listed in `domain.periodic_axes` are periodic. On nonperiodic faces, `[particles.boundary]` keys
 `x_low`, `x_high`, `y_low`, `y_high`, `z_low`, and `z_high` select `open`, `reflect`, or `redistributed_reflect`.
 Particle-boundary tables cannot specify
 `periodic`. When a segment reaches several faces at an edge or corner, faces within a machine-epsilon tolerance of the minimum
@@ -133,13 +133,13 @@ If a simultaneous edge or corner mask contains `redistributed_reflect`, only axe
 resampled. Event axes are not resampled and are placed at their respective inward guards. A corner therefore has no coordinate
 to resample, while an edge resamples only its remaining axis.
 
-In-plane samples do not use a shared random stream. They are derived from `sim.rng_seed` and counters for batch, rank, particle,
+In-plane samples do not use a shared random stream. They are derived from `run.rng_seed` and counters for batch, rank, particle,
 step, event, and axis. A fixed seed and MPI layout are reproducible independently of OpenMP scheduling; identical trajectories
 are not guaranteed after changing the rank decomposition.
 
 `[particles.species.boundary]` overrides the same six faces for one species with `inherit`, `open`, `reflect`, or
 `redistributed_reflect`.
-`inherit` uses global `[particle_boundary]`. Faces selected by `domain.periodic_axes` are topology and cannot be overridden
+`inherit` uses global `[particles.boundary]`. Faces selected by `domain.periodic_axes` are topology and cannot be overridden
 globally or per species. See [Photoelectron emission and lifecycle](PhotoelectronEmission.en.html) for the closed-PE combination.
 
 Reflection and periodic actions at a corner are applied from one face mask, making the result independent of axis traversal order.
@@ -181,7 +181,7 @@ Thus an outward chord crossing cannot be processed with an inward partial-step B
 preserves the event-speed norm. A non-positive or non-finite reconstructed speed, or a zero-length chord, fails closed as an
 unresolved event. BEACH also uses the chord crossing fraction as the remaining-time fraction, but this is not the exact
 physical crossing time under acceleration or magnetic rotation. Check the effect of this time-discretization approximation
-on boundary actions and kinetic-barrier decisions with `dt`, `dt/2`, and, when needed, `dt/4`. After applying the surviving
+on boundary actions and kinetic-barrier decisions with `particles.tracking.dt_s`, `particles.tracking.dt_s/2`, and, when needed, `particles.tracking.dt_s/4`. After applying the surviving
 action, BEACH uses a guard derived from
 the box coordinates and span to place reflected or periodic event-axis coordinates inside the face. This avoids a subnormal
 one-ULP offset at a zero-valued face and prevents the next event fraction from underflowing to zero.
@@ -195,12 +195,12 @@ The pre-reflection field sample is not reused for that remaining time.
 
 One local continuation processes at most eight box events. If a ninth is required,
 `particle_step_multiple_box_events` is returned and the incomplete state is not committed. The limit detects an excessively
-large `dt`, narrow box, or fast particle; changing the scale-aware guard does not change it.
+large `particles.tracking.dt_s`, narrow box, or fast particle; changing the scale-aware guard does not change it.
 
-With `multiple_box_events_retry_backend="upper_panel_fourier"`, a `cached_kneq0` configuration replays only this failed
+With `particles.tracking.events.retry_backend="upper_panel_fourier"`, a `cached_kneq0` configuration replays only this failed
 step from its original position and velocity. The retry expands triangle-P0 charge through
-`periodic2.reference_mode_layers` and factorizes the nonzero Fourier field into its exponentially decaying form above the
-maximum z coordinate of every mesh vertex. Each evaluation adds the same periodic zero mode and `sim.e0` exactly once. If
+`fields.periodic.reference.mode_layers` and factorizes the nonzero Fourier field into its exponentially decaying form above the
+maximum z coordinate of every mesh vertex. Each evaluation adds the same periodic zero mode and `fields.external.electric_v_m` exactly once. If
 any retry field sample is outside this upper-vacuum domain, the replay fails. A kinetic-barrier event evaluates its
 boundary potential with the same expansion and potential gauge, and its sample must satisfy the same domain. If that
 sample is outside the domain, or if the replay still cannot complete the events, BEACH retains
@@ -208,9 +208,9 @@ the original `multiple_box_events` status and applies the configured policy. Thi
 and it does not replace the FMM backend for ordinary particles.
 The geometry response is built once when the snapshot is initialized; multiplication by the current panel charges occurs
 only during retry field and potential evaluations. Mode count and geometry-response memory scale quadratically with
-`reference_mode_layers`, so choose it by checking seam-error and replay-result convergence.
+`fields.periodic.reference.mode_layers`, so choose it by checking seam-error and replay-result convergence.
 
-The default `multiple_box_events_policy="abort"` fails the run closed at this point. Only an explicit
+The default `particles.tracking.events.policy="abort"` fails the run closed at this point. Only an explicit
 `"soft_discard"` removes the affected macro-particle. Standard error records only the per-batch, all-rank count and
 absolute macro charge. Let $D$ be the cumulative discard count, $P$ the cumulative number of macro-particles processed
 in accepted batches, and $Q$ the cumulative absolute macro charge. Before commit, BEACH stops when
@@ -219,9 +219,9 @@ $$
 \left(D>G\ \text{and}\ \frac{D}{P}>f_{\mathrm{limit}}\right).
 $$
 
-$G$ is `multiple_box_events_soft_discard_count_grace`, not a standalone count limit, and $f_{\mathrm{limit}}$ is
-`multiple_box_events_soft_discard_fraction_limit`. Equality is allowed in each comparison.
-`multiple_box_events_soft_discard_abs_charge_limit` is a warning threshold, not a stop condition; BEACH reports the
+$G$ is `particles.tracking.events.discard_count_grace`, not a standalone count limit, and $f_{\mathrm{limit}}$ is
+`particles.tracking.events.discard_fraction_limit`. Equality is allowed in each comparison.
+`particles.tracking.events.discard_charge_warning_c` is a warning threshold, not a stop condition; BEACH reports the
 first crossing of the cumulative absolute charge. `summary.txt` and checkpoints retain
 `multiple_box_events_soft_discarded`, `multiple_box_events_soft_discarded_abs_charge_C`, and
 `multiple_box_events_soft_discard_fraction` derived from $D/P$; the charge ledger also records discarded charge.
@@ -257,11 +257,11 @@ cell indices, and values such as `t_cur`, `t_next`, and `t_delta` to standard er
 
 ## Converge collision positions and charging results
 
-1. Halve `dt` and verify stability of the segment-hit element and position.
+1. Halve `particles.tracking.dt_s` and verify stability of the segment-hit element and position.
 2. Build reduced cases with thin surfaces, edge and corner hits, and nearly parallel trajectory segments.
 3. Test a mesh hit during the remainder after reflection and after periodic wrapping.
 4. At a periodic seam, verify that `pos` and `pos_wrapped` identify the intended base element.
-5. If `multiple_box_events` occurs, reduce `dt` first. With `upper_panel_fourier`, inspect its resolution rate and validity
+5. If `multiple_box_events` occurs, reduce `particles.tracking.dt_s` first. With `upper_panel_fourier`, inspect its resolution rate and validity
    domain. With soft discard, verify that its rate and absolute charge cannot affect the conclusion.
 6. Refine the mesh and check convergence of the first hit and final surface-charge distribution.
 

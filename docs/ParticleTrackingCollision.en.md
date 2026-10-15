@@ -38,15 +38,15 @@ does not immediately change the field. It is accumulated in a thread-local eleme
 
 ## Step limit
 
-A particle advances at most `sim.max_step` times while waiting for absorption or escape. A particle still unclassified at the
+A particle advances at most `particles.tracking.max_steps_per_particle` times while waiting for absorption or escape. A particle still unclassified at the
 limit is counted as `survived_max_step`, not silently reassigned to absorption or escape.
 
-`sim.dt` is one particle-step interval, and `sim.max_step * sim.dt` is the maximum tracked time for one particle.
-`batch_duration`, in contrast, connects particle supply to surface-charge updates and is not the particle-step interval.
+`particles.tracking.dt_s` is one particle-step interval, and `particles.tracking.max_steps_per_particle * particles.tracking.dt_s` is the maximum tracked time for one particle.
+`run.batch.duration_s`, in contrast, connects particle supply to surface-charge updates and is not the particle-step interval.
 
 ## First checks
 
-- halve `sim.dt` and check stability of trajectories, hit elements, and absorbed counts
+- halve `particles.tracking.dt_s` and check stability of trajectories, hit elements, and absorbed counts
 - verify that `survived_max_step` is too small to affect the conclusion
 - exercise trajectories crossing a periodic seam, corner, or post-reflection remainder
 - reconcile absorbed, escaped, and unresolved particle counts with the charge ledger

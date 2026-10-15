@@ -4,11 +4,11 @@ Lang: [日本語](ParticleSourcesBoundaries.md) | [English](ParticleSourcesBound
 
 # Choose where particles enter
 
-This page helps you choose a particle source from its creation location and physical supply mechanism. `source_mode`
-creates particles inside the domain. `[particles.species.boundary_inflow]` brings particles across a box boundary from
+This page helps you choose a particle source from its creation location and physical supply mechanism. `source.mode`
+creates particles inside the domain. `[particles.species.inflow]` brings particles across a box boundary from
 outside; it has a separate role.
 
-> **Decision rule:** use `volume_seed` for a specified count, `boundary_inflow` for an external plasma reservoir,
+> **Decision rule:** use `volume_seed` for a specified count, `inflow` for an external plasma reservoir,
 > and `photo_raycast` for emission from illuminated surfaces.
 
 After reading this page, you should be able to choose one path and continue to the relevant detailed guide or reference.
@@ -17,26 +17,26 @@ After reading this page, you should be able to choose one path and continue to t
 
 | Goal | Setting | What determines particle count | Creation location |
 | --- | --- | --- | --- |
-| Create a specified initial population or orbit test | `source_mode="volume_seed"` | `npcls_per_step` | Between `pos_low` and `pos_high` |
-| Bring particles in from plasma outside the box | `boundary_inflow` | Reservoir flux × box area × `batch_duration` | Nonperiodic box face |
-| Emit from a surface reached by light | `source_mode="photo_raycast"` | Current density, projected area, `batch_duration` | First surface hit by a ray |
+| Create a specified initial population or orbit test | `source.mode="volume_seed"` | `sampling.volume_macro_particles_per_batch` | Between `source.pos_low` and `source.pos_high` |
+| Bring particles in from plasma outside the box | `inflow` | Reservoir flux × box area × `run.batch.duration_s` | Nonperiodic box face |
+| Emit from a surface reached by light | `source.mode="photo_raycast"` | Current density, projected area, `run.batch.duration_s` | First surface hit by a ray |
 
-For boundary inflow alone, specify the physical parameters and `boundary_inflow`. Omit `source_mode` and
-`npcls_per_step`; specify them when using volume generation or another source. Omitting them creates no volume
+For boundary inflow alone, specify the physical parameters and `inflow`. Omit `source.mode` and
+`sampling.volume_macro_particles_per_batch`; specify them when using volume generation or another source. Omitting them creates no volume
 population. See [Input Parameters](Parameters.en.html) for defaults and combination constraints.
 
 ## Place a specified count: `volume_seed`
 
-`volume_seed` creates `npcls_per_step` particles in every batch. Positions are sampled from the box enclosed by
-`pos_low` and `pos_high`; velocities follow the configured drifting Maxwell distribution.
+`volume_seed` creates `sampling.volume_macro_particles_per_batch` particles in every batch. Positions are sampled from the box enclosed by
+`source.pos_low` and `source.pos_high`; velocities follow the configured drifting Maxwell distribution.
 
-It does not derive count from a physical surface flux. A run can therefore use this source with `batch_duration=0`,
+It does not derive count from a physical surface flux. A run can therefore use this source with `run.batch.duration_s=0`,
 but no physical duration in seconds is assigned to that batch. The official
 [10-minute tutorial](Tutorial.en.html) uses this path to demonstrate inter-batch surface-charging feedback.
 
-## Enter from an external reservoir: `boundary_inflow`
+## Enter from an external reservoir: `inflow`
 
-`boundary_inflow` represents plasma entering through an entire nonperiodic box face. Separately configure the outward
+`inflow` represents plasma entering through an entire nonperiodic box face. Separately configure the outward
 action on every selected face as `open`. Outgoing particles escape at an ordinary open face;
 [outer-sheath return](ParticleEscapeReturn.en.html#outer-sheath-barrier) is determined by the Zhao kinetic barrier.
 
@@ -44,7 +44,7 @@ action on every selected face as `open`. Outgoing particles escape at an ordinar
 [[particles.species]]
 # density, temperature, charge, mass, and macro-particle weight
 
-[particles.species.boundary_inflow]
+[particles.species.inflow]
 z_high = "reservoir"
 ```
 
@@ -68,7 +68,7 @@ Every creation path enters the same particle tracker.
 | Absorbed by a triangle | Add charge to the hit element's pending change |
 | Escapes through an open face | Remove it and count a species-resolved escape |
 | Reflected or crosses a periodic boundary | Continue tracking the same particle for the remaining time |
-| Still alive at `sim.max_step` | Count an unresolved survivor and discard it at batch end |
+| Still alive at `particles.tracking.max_steps_per_particle` | Count an unresolved survivor and discard it at batch end |
 
 See [particle escape and return](ParticleEscapeReturn.en.html) for outward box boundaries and
 [particle collision and boundary events](ParticleEvents.en.html) for event ordering.
@@ -76,6 +76,6 @@ See [particle escape and return](ParticleEscapeReturn.en.html) for outward box b
 ## Where to go next
 
 - Combine geometry, source, boundaries, and solver into a case: [Design a case](ConfigurationRecipes.en.html)
-- Configure boundary flux and `phi_infty`: [Inflow through a simulation boundary](ReservoirInjection.en.html)
+- Configure boundary flux and `particles.reservoir.phi_infty_v`: [Inflow through a simulation boundary](ReservoirInjection.en.html)
 - Treat charge after a surface collision: [How surfaces charge](SurfaceModels.en.html)
 - Search the complete key and constraint set: [Input parameters](Parameters.en.html)

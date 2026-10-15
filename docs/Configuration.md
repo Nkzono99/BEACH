@@ -6,7 +6,6 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 
 設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。完全な入力例は `examples/` を参照してください。
 
-
 この文書は、直接編集する `beach.toml` と `beachx config` の使い方をまとめたものです。
 メッシュ、粒子源、境界条件を選んで物理的な構成を組み立てる手順は
 [シミュレーションケースを設計する](ConfigurationRecipes.html)にまとめています。
@@ -34,7 +33,7 @@ beach beach.toml
 
 実行前には `beachx lint` を通し、`status=ok` を確認してから `beach` を実行します。
 
-`box_origin` / `box_size`、`inject_region_mode`、`mesh.groups`なども通常のTOML keyとして直接書けます。
+`box_origin` / `box_size`、`source.region_mode`、`mesh.groups`なども通常のTOML keyとして直接書けます。
 これらがどの座標・寸法を計算し、明示値を置き換えるかは[座標・配置の補助パラメータ](Parameters.html#座標配置の補助パラメータ)を確認してください。
 
 ## 2. コマンド
@@ -52,7 +51,7 @@ beachx config init --force
 生成内容は[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)と
 同一です。`volume_seed` から毎 batch 200 個のマクロ電子を絶縁体平面へ入射し、20 batch にわたる
 電荷分布と後続粒子への feedback を確認する公式入門ケースです。理解しやすい
-`field_solver="direct"` と `[field_boundary] mode="free"` を使い、周期境界、ion species、
+`fields.solver.method="direct"` と `[fields] boundary="free"` を使い、周期境界、ion species、
 `photo_raycast` は含みません。
 
 ### 2.2 `lint`

@@ -1,13 +1,13 @@
-title: Theory of `batch_duration`
+title: Theory of `run.batch.duration_s`
 
 Lang: [English](BatchDurationTheory.en.md) | [日本語](BatchDurationTheory.md)
 
-# Theory of `batch_duration`
+# Theory of `run.batch.duration_s`
 
-This page explains how `batch_duration` affects charging-update stability and the observed steady value.
-For the procedure used to choose a value, see [How to choose `batch_duration`](BatchDurationStability.en.html).
+This page explains how `run.batch.duration_s` affects charging-update stability and the observed steady value.
+For the procedure used to choose a value, see [How to choose `run.batch.duration_s`](BatchDurationStability.en.html).
 
-In one sentence, `batch_duration` is the explicit update width of the mean charging model. The fixed point of a mean model
+In one sentence, `run.batch.duration_s` is the explicit update width of the mean charging model. The fixed point of a mean model
 that converges stably does not depend on the width, but discrete-update stability, finite-time error, and Monte Carlo error do.
 
 ## Mean charging model
@@ -36,7 +36,7 @@ $$
 =\mathbf q^n+\Delta t_b\,\mathbf F(\mathbf q^n)+\boldsymbol\eta^n,
 $$
 
-where $\Delta t_b$ is `batch_duration` and $\boldsymbol\eta^n$ is Monte Carlo error from a finite number of
+where $\Delta t_b$ is `run.batch.duration_s` and $\boldsymbol\eta^n$ is Monte Carlo error from a finite number of
 macro-particles.
 
 ## When the fixed point is independent of width
@@ -48,7 +48,7 @@ $$
 $$
 
 When every element has positive area, this is the same condition as $\mathbf J(\mathbf q^\ast)=\mathbf 0$.
-Because $\Delta t_b>0$ does not enter the fixed-point equation, the fixed point itself is independent of `batch_duration`
+Because $\Delta t_b>0$ does not enter the fixed-point equation, the fixed point itself is independent of `run.batch.duration_s`
 as long as the mean model converges stably to the same fixed point.
 
 An actual run still includes finite-sample $\boldsymbol\eta^n$, a finite physical end time, and nonlinear response.
@@ -104,7 +104,7 @@ $$
 
 are distinct scales. The first characterizes a fast plasma response, while the second estimates the slower change of
 surface charge. The actual upper limit also depends on geometry, potential, inflow distribution, and surface response, so
-neither scale alone is a general upper bound for `batch_duration`.
+neither scale alone is a general upper bound for `run.batch.duration_s`.
 
 ## Coupling to Monte Carlo error
 
@@ -125,7 +125,7 @@ $$
 \le \Phi_{\max}.
 $$
 
-$\Phi_{\max}$ is `max_nonzero_mode_potential_step`.
+$\Phi_{\max}$ is `run.batch.adaptive.max_nonzero_mode_potential_step_v`.
 
 This condition is a trust bound that prevents the frozen $k\ne0$ field from changing too much in one update.
 It is not a local-truncation-error estimator and does not establish an order of global accuracy. It also does not control
@@ -145,7 +145,7 @@ Treat execution completion, numerical convergence, and physical validity as sepa
 
 ## Related documents
 
-- [How to choose `batch_duration`](BatchDurationStability.en.html) — fixed-width comparison and adaptive configuration
+- [How to choose `run.batch.duration_s`](BatchDurationStability.en.html) — fixed-width comparison and adaptive configuration
 - [BEACH computational cycle](Algorithms.en.html) — update order with a frozen field within each batch
 - [Input parameter reference](Parameters.en.html) — configuration contract
 - [Validate Results](ValidationGuide.en.html) — numerical convergence and physical validity

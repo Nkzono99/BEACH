@@ -185,8 +185,8 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}.
 $$
 
-`zero_mode_policy="exclude_k0"` prevents double counting between the FMM backend and physical zero mode; it does not discard
-the mean field. See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the boundary models and Gauss-law construction.
+`fields.periodic.backend="cached_kneq0"` evaluates only the nonzero modes; composing the physical zero mode separately prevents
+double counting of the mean field. See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the boundary models and Gauss-law construction.
 
 ## Understand cache and parallelization boundaries
 

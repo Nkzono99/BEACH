@@ -32,13 +32,13 @@ method = "fmm"
 z_low = "open"
 z_high = "open"
 
-[[particles.species]]          # 太陽風電子（イオンも同じ形）
+[[particles.species]] # 太陽風電子（イオンも同じ形）
 species_key = "solar_wind_electron"
 
 [particles.species.inflow]
 z_high = "reservoir"
 
-[[particles.species]]          # 光電子
+[[particles.species]] # 光電子
 species_key = "photoelectron"
 
 [particles.species.source]

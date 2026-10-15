@@ -63,7 +63,7 @@ beach beach.toml
 
 ### Maxwell 分布
 
-密度（`number_density_m3` または `number_density_cm3`）、温度、drift 速度から、各面を内向きに横切る束
+密度（`distribution.number_density_m3` または `distribution.number_density_cm3`）、温度、drift 速度から、各面を内向きに横切る束
 $\Gamma_\mathrm{in}$ を求めます。面を横切る確率は内向きの法線速度に比例するので、法線速度は束で重み付けした分布から選びます。
 1 バッチで入るマクロ粒子数の期待値は
 
@@ -140,4 +140,4 @@ head -n 2 outputs/latest/charge_ledger.csv
 - 一様な外部電場には無限遠の電位が決まりません。`infinity_barrier` と併用する場合は、`phi_infty_v` を外部プラズマの
   基準として決め、その意味を別に確かめます。
 
-全キーと制約は[入力パラメータ](Parameters.html#particlesspeciesboundary_inflow)にあります。
+全キーと制約は[入力パラメータ](Parameters.html#particlesspeciesinflow)にあります。

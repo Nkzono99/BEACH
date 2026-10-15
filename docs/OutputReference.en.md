@@ -18,31 +18,31 @@ the linked section repeats this information before expanding its columns and dec
 
 | File | Generation condition | Format and purpose | Python reader / restart |
 | --- | --- | --- | --- |
-| `summary.txt` | `output.write_files=true` | `key=value` receipts. [Completion and major keys](#locate-configuration-specific-values) | Fields of `FortranRunResult`. Required for restart |
-| `charges.csv` | `output.write_files=true` | `elem_idx`, `charge_C`. Final signed charge per element | `result.charges`. Required for restart |
-| `mesh_triangles.csv` | `output.write_files=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`. Not used for restart |
-| `mesh_sources.csv` | OBJ or template mesh with `output.write_files=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`. Not used for restart |
-| `mesh_potential.csv` | `output.write_files=true` and `output.write_mesh_potential=true` | `elem_idx`, `potential_V`. [Potential composition](#mesh-potential) | `result.mesh_potential_v`. Not used for restart |
-| `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`. Not used for restart |
-| `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
-| `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
-| `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
+| `summary.txt` | `output.enabled=true` | `key=value` receipts. [Completion and major keys](#locate-configuration-specific-values) | Fields of `FortranRunResult`. Required for restart |
+| `charges.csv` | `output.enabled=true` | `elem_idx`, `charge_C`. Final signed charge per element | `result.charges`. Required for restart |
+| `mesh_triangles.csv` | `output.enabled=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`. Not used for restart |
+| `mesh_sources.csv` | OBJ or template mesh with `output.enabled=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`. Not used for restart |
+| `mesh_potential.csv` | `output.enabled=true` and `output.final.mesh_potential=true` | `elem_idx`, `potential_V`. [Potential composition](#mesh-potential) | `result.mesh_potential_v`. Not used for restart |
+| `charge_history.csv` | `output.enabled=true` and `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`. Not used for restart |
+| `potential_history.csv` | `output.enabled=true`, `output.history.potential=true`, and `output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`. [Join to the reference](#history) | No dedicated `FortranRunResult` attribute; read the CSV directly |
+| `top_reference_history.csv` | `output.enabled=true`, `output.history.potential=true`, `output.history.stride_batches>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated `FortranRunResult` attribute; read the CSV directly |
+| `matching_plane_history.csv` | `output.enabled=true`, `output.history.stride_batches>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
 | `matching_plane_spectrum_history.csv` | Same as `matching_plane_history.csv` | `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` for each positive bin of the [outer source spectrum](#zhao_stationary) | No dedicated attribute; read the CSV directly. Not used for restart |
-| `fixed_current_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `zhao_stationary` or a species with `surface_charge_closure="fixed_current"` | [Tracked and target charge per species and channel](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly. Not used for restart |
+| `fixed_current_history.csv` | `output.enabled=true`, `output.history.stride_batches>0`, and `zhao_stationary` or a species with `charging.closure="fixed_current"` | [Tracked and target charge per species and channel](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly. Not used for restart |
 | `secondary_emission_history.csv` | Output enabled and at least one enabled incident species has SEE enabled; every accepted batch | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`; not required for restart |
-| `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
-| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
-| `macro_residuals.csv` | `output.write_files=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
-| `checkpoint_complete.txt` | `output.write_files=true` for final output and each periodic slot | `key=value` completion manifest. [Meaning and selection](#files-used-for-resume) | No `FortranRunResult` attribute. Required for schema v8+ restart |
-| `checkpoint_latest.txt` | `output.write_files=true` and after a matching accepted-batch commit with `output.checkpoint_stride>0` | Periodic-slot index | Candidate-selection hint, not evidence of completeness |
-| `performance_profile.csv` | `BEACH_PROFILE=1` and `output.write_files=true` | After comment lines: `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`. Not used for restart |
+| `charge_ledger.csv` | `output.enabled=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.enabled=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
+| `macro_residuals.csv` | `output.enabled=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
+| `checkpoint_complete.txt` | `output.enabled=true` for final output and each periodic slot | `key=value` completion manifest. [Meaning and selection](#files-used-for-resume) | No `FortranRunResult` attribute. Required for schema v8+ restart |
+| `checkpoint_latest.txt` | `output.enabled=true` and after a matching accepted-batch commit with `output.checkpoint.stride_batches>0` | Periodic-slot index | Candidate-selection hint, not evidence of completeness |
+| `performance_profile.csv` | `BEACH_PROFILE=1` and `output.enabled=true` | After comment lines: `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`. Not used for restart |
 
 The Python reader requires `summary.txt` and `charges.csv`. Other files may be absent according to configuration or
 runtime state.
 
 ## Locate configuration-specific values
 
-`summary.txt` is a `key=value` file generated with `output.write_files=true`.
+`summary.txt` is a `key=value` file generated with `output.enabled=true`.
 
 `load_fortran_result(...)` converts major values to `FortranRunResult` attributes; use
 `beach.summary.load_summary_file(...)` for untyped receipts.
@@ -53,8 +53,8 @@ Run completion and checkpoint completeness are separate conditions.
 
 | Check | Condition | This condition does not establish |
 | --- | --- | --- |
-| Requested batches completed | `batches == sim.batch_count` using `summary.txt` and the input configuration | Numerical convergence or physical validity |
-| Schema v8+ checkpoint is complete | `checkpoint_complete.txt` has `state=complete`, and the manifest agrees with every required file | Completion through `sim.batch_count` |
+| Requested batches completed | `batches == run.batch_count` using `summary.txt` and the input configuration | Numerical convergence or physical validity |
+| Schema v8+ checkpoint is complete | `checkpoint_complete.txt` has `state=complete`, and the manifest agrees with every required file | Completion through `run.batch_count` |
 | Python reader succeeds | `summary.txt` and `charges.csv` satisfy the reader contract | Checkpoint completeness or physical validity |
 
 `checkpoint_complete.txt` marks completion of a write transaction. An intermediate periodic checkpoint can also have
@@ -133,7 +133,7 @@ meaning and solver selection.
 
 ### `zhao_stationary`
 
-See [Zhao stationary closure](ZhaoStationaryClosure.en.html) for the `[surface_current_model]` physical model,
+See [Zhao stationary closure](ZhaoStationaryClosure.en.html) for the `[sheath]` physical model,
 Type A/B/C, and validity limits.
 This section defines how to read its receipts.
 
@@ -147,8 +147,8 @@ This section defines how to read its receipts.
 | `surface_current_model_photoelectron_active` | Whether PE channels exist. PE receipts are zero when false |
 | `surface_current_model_reference_area_m2` | Reference area for current targets |
 | `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | Resolved surface and minimum potentials |
-| `surface_current_model_upstream_negative_band_V` | Potential width [V] of negative $E^2$ next to upstream; nonzero only when a drifting A/C root was accepted by `zhao_upstream_band_tolerance` or `zhao_upstream_field_floor_v_m` |
-| `surface_current_model_upstream_field_deficit_V_m` | Field deficit $\sqrt{-\min E^2}$ [V/m] inside that band: the external field the upstream plasma must supply, compared with `zhao_upstream_field_floor_v_m` |
+| `surface_current_model_upstream_negative_band_V` | Potential width [V] of negative $E^2$ next to upstream; nonzero only when a drifting A/C root was accepted by `sheath.zhao.upstream_band_tolerance` or `sheath.zhao.upstream_field_floor_v_m` |
+| `surface_current_model_upstream_field_deficit_V_m` | Field deficit $\sqrt{-\min E^2}$ [V/m] inside that band: the external field the upstream plasma must supply, compared with `sheath.zhao.upstream_field_floor_v_m` |
 | `surface_current_model_ambient_electron_density_m3` | Resolved upstream electron Maxwellian density. The z-high electron inflow is injected at this density |
 | `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | Signed electron and ion current densities |
 | `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | Signed PE current densities. Emission and escape are positive; return is negative |
@@ -166,7 +166,7 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 
 | Item | `matching_plane_history.csv` contract |
 | --- | --- |
-| Generation | `output.write_files=true`, `output.history_stride>0`, `surface_current_model.model=zhao_stationary`, and `outflow_refresh_batches>0` |
+| Generation | `output.enabled=true`, `output.history.stride_batches>0`, `sheath.closure="zero_current"`, and `outflow_refresh_batches>0` |
 | Row | Leading `batch`, `simulated_time_s`, then the seventeen state columns below; nineteen columns in total |
 | Time | State after the batch's charge commit and outer-root update; the next batch uses this outer root |
 | Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last state |
@@ -193,10 +193,10 @@ Do not use the state receipts of a summary with `matching_plane_state_valid=F`. 
 
 Spectrum bin `j=1` is $[0, 1\,\text{meV})$, and `j=2..145` are logarithmic bins from 1 meV to 1 keV, 24 per decade, with edges
 $10^{-3}\cdot10^{(j-2)/24}$ eV. Energies above 1 keV are counted in the last bin. `matching_plane_spectrum_history.csv` writes one
-row per positive bin of the source adopted at each batch that refreshed the outer root, independent of `output.history_stride`.
+row per positive bin of the source adopted at each batch that refreshed the outer root, independent of `output.history.stride_batches`.
 A refresh that found no root and kept the previous one writes nothing.
 
-With an explicit split `[periodic2]` table, the z-high plane-mean potential is fixed to $\phi_0$, so potentials in
+With an explicit split `[fields.periodic]` table, the z-high plane-mean potential is fixed to $\phi_0$, so potentials in
 `potential_history.csv` and `mesh_potential.csv` are referenced to the upstream plasma at 0 V. Potential differences
 between particles do not depend on the outer root, but absolute values depend on the outer model's branch and
 approximations through $\phi_0$.
@@ -214,7 +214,7 @@ on resume the writer atomically adds zero SEE columns to old rows before appendi
 | `emitted_charge_c` | Signed emitted particle charge [C], negative; reaction charge is its opposite |
 | `mean_yield` | Sum of model yields divided by hits, including generation-capped hits; 0 with no hits |
 | `generation_capped_count` | Would-be macro count suppressed at the generation cap; no reaction deposit |
-| `secondary_incident_species_<index>`, `secondary_emission_max_generations` | Enabled incident species and configured generation cap |
+| `secondary_incident_species_<index>`, `particles.secondary_emission.max_generations` | Enabled incident species and configured generation cap |
 | `secondary_emission_hits`, `secondary_emission_count`, `secondary_emitted_charge_C` | Cumulative SEE hit count, emitted count, and signed emitted charge in summary |
 | `secondary_yield_sum`, `secondary_mean_yield`, `secondary_generation_capped_count` | Cumulative yield sum, hit-averaged yield, and suppressed count in summary |
 
@@ -225,9 +225,9 @@ Counters, charge, and yield sum survive checkpoint resume; no SEE flight state o
 
 | File | Generation | Columns and interpretation | Python |
 | --- | --- | --- | --- |
-| `charge_history.csv` | `output.write_files=true` and `output.history_stride>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`; one snapshot contains all element charges | `result.history` |
-| `potential_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, and `output.history_stride>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
-| `top_reference_history.csv` | `output.write_files=true`, `output.write_potential_history=true`, `output.history_stride>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
+| `charge_history.csv` | `output.enabled=true` and `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`; one snapshot contains all element charges | `result.history` |
+| `potential_history.csv` | `output.enabled=true`, `output.history.potential=true`, and `output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`; one snapshot contains every element-centroid potential | No dedicated attribute; read the CSV directly |
+| `top_reference_history.csv` | `output.enabled=true`, `output.history.potential=true`, `output.history.stride_batches>0`, and a `[domain]` box | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | No dedicated attribute; read the CSV directly |
 | `matching_plane_history.csv` | Outer-root refresh with stride enabled | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history` |
 | `matching_plane_spectrum_history.csv` | Outer-root refresh with stride enabled; one block per batch that refreshed the outer root | [Outer source spectrum per bin](#zhao_stationary) | No dedicated attribute; read the CSV directly |
 | `fixed_current_history.csv` | Fixed-current closure with stride enabled | [Eight-column window sums](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly |
@@ -248,7 +248,7 @@ The scale factors in `charge_ledger.csv` accumulate over the whole run, so read 
 | Column | Meaning |
 | --- | --- |
 | `batch`, `simulated_time_s` | Last accepted batch of the window and the simulated time after it |
-| `window_batches` | Accepted batches in the window. Normally `history_stride`; shorter at the start of a run and right after a resume |
+| `window_batches` | Accepted batches in the window. Normally `output.history.stride_batches`; shorter at the start of a run and right after a resume |
 | `species_idx` | One-based species index |
 | `channel` | `absorbed`, `emission`, or `escape`. Only channels whose target was applied in the window are written |
 | `tracked_charge_C` | Window sum of the tracked signed charge [C]. For emission, the charge left on the surface |
@@ -265,7 +265,7 @@ does not produce.
 
 | Item | `mesh_potential.csv` contract |
 | --- | --- |
-| Generation | `output.write_files=true` and `output.write_mesh_potential=true` |
+| Generation | `output.enabled=true` and `output.final.mesh_potential=true` |
 | Columns | `elem_idx`, `potential_V` |
 | Interpretation | Potential [V] at each element centroid |
 | Python | `result.mesh_potential_v` |
@@ -281,7 +281,7 @@ does not produce.
 
 | Item | `charge_ledger.csv` contract |
 | --- | --- |
-| Generation | `output.write_files=true` and charge-ledger state is present |
+| Generation | `output.enabled=true` and charge-ledger state is present |
 | One row | Signed charges, corrections, weights, and counts for one species; all 25 columns appear below |
 | Python | `ChargeLedgerEntry` objects in `result.charge_ledger` |
 | Restart | Required when `summary.txt` contains ledger metadata |
@@ -354,7 +354,7 @@ separately across particle or ray counts, batch widths, and RNG seeds. See
 
 ## Adaptive-batch diagnostics
 
-With `periodic2.max_nonzero_mode_potential_step > 0`, `summary.txt` records:
+With `run.batch.adaptive.max_nonzero_mode_potential_step_v > 0`, `summary.txt` records:
 
 | Receipt | Meaning |
 | --- | --- |
@@ -369,11 +369,11 @@ Rejected trials do not appear in history files or the charge ledger.
 
 ## Files used for resume
 
-With `output.checkpoint_stride > 0`, BEACH updates this structure after an accepted-batch commit. Even with
-`output.checkpoint_stride=0`, a normal completion writes the final checkpoint.
+With `output.checkpoint.stride_batches > 0`, BEACH updates this structure after an accepted-batch commit. Even with
+`output.checkpoint.stride_batches=0`, a normal completion writes the final checkpoint.
 
 Here, “complete” means that the **transaction containing the restart files is complete**. Separately establish
-completion of the requested run with `batches == sim.batch_count` using `summary.txt` and the input configuration.
+completion of the requested run with `batches == run.batch_count` using `summary.txt` and the input configuration.
 
 ```text
 <output.dir>/
@@ -401,12 +401,12 @@ completion of the requested run with `batches == sim.batch_count` using `summary
 | Stage | Contract |
 | --- | --- |
 | Update | Finish the inactive slot before atomically switching `checkpoint_latest.txt`. At most two generations are retained |
-| Search | Inspect the final output under `output.restart_from` and both `slot0` / `slot1` directories |
+| Search | Inspect the final output under `run.restart.from` and both `slot0` / `slot1` directories |
 | Selection | Choose the loadable candidate with all required files and the largest `batches` value |
 | Index failure | Recover a slot with a complete manifest even if `checkpoint_latest.txt` is missing, malformed, or stale |
 | Mismatch | Stop when required files, the mesh fingerprint, saved-state array shapes, or MPI world size differ. Model and species configuration changes are not compared through hashes |
 
-`output.restart_from` changes only the read source; new output is written to `output.dir`.
+`run.restart.from` changes only the read source; new output is written to `output.dir`.
 
 ### Schema generations
 

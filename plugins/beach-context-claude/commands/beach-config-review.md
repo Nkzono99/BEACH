@@ -7,9 +7,9 @@ argument-hint: "<beach.toml path or snippet>"
 
 確認する観点:
 - schema と必須 section
-- `sim`, `particles`, `mesh`, `field_solver`, `boundary`, `output`, `resume`
+- `run / domain / mesh / particles / fields / sheath / output`
 - `mesh.kind` ごとの必須/任意 parameter
-- `field_solver` ごとの有効 parameter
+- `fields.solver.method` ごとの有効 parameter
 - output size と workload risk
 
 参照は `docs/Parameters.md`, `schemas/beach.schema.json`, `SPEC.md`, `docs/Algorithms.md` を優先してください。

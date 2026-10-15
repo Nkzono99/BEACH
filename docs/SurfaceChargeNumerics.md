@@ -81,7 +81,7 @@ local な電荷差分は MPI 全体で集約するため、全 rank が同じ gl
 checkpoint は確定済みの `q_elem` と関連 state を保存します。再開互換性と必須 file は
 [実行・再開する](Execution.html)および[入力パラメータ](Parameters.html)を参照してください。
 
-## `tol_rel` の定義
+## `output.diagnostics.charge_rel_change_threshold` の定義
 
 conductor relaxation まで含む更新前後の差を
 
@@ -96,7 +96,7 @@ $$
 =\frac{\|\Delta\mathbf q\|_2}{\max(\|\mathbf q^\mathrm{after}\|_2,q_\mathrm{floor})}
 $$
 
-です。`tol_rel` は output metric であり、現行実装の early-stop 条件ではありません。
+です。`output.diagnostics.charge_rel_change_threshold` は output metric であり、現行実装の early-stop 条件ではありません。
 
 ## 実装とテスト
 

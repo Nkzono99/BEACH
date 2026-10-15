@@ -8,7 +8,7 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 - 現在の要素電荷から静電場を評価する。
 - 粒子は Boris pusher で前進する。
 - 線分と三角形の最初の交差を衝突として扱う。
-- 衝突粒子は吸収され、`q_particle * w_particle` が hit element に堆積する。
+- 衝突粒子は吸収され、`charge_c * sampling.weight` が hit element に堆積する。
 - batch ごとに電荷差分、統計、履歴を commit する。
 - surface model は insulator accumulation が標準。conductor/resistive model は予約・拡張点。
 
@@ -40,8 +40,8 @@ BEACH は BEM による表面帯電とテスト粒子追跡を組み合わせた
 
 実行上の注意:
 
-- `sim.batch_count` は今回実行する batch 数。
-- `sim.max_step` は粒子ごとの上限 step。
-- `sim.tol_rel` は監視値であり停止条件ではない。
-- `output.resume = true` では同じ `output.dir` の `summary.txt`, `charges.csv`, `rng_state.txt` を使う。MPI では前回と同じ world size が必要。
-- `field_bc_mode = "periodic2"` は 2 軸周期境界を扱い、FMM と box boundary 設定の組み合わせに注意する。
+- `run.batch_count` は今回実行する batch 数。
+- `particles.tracking.max_steps_per_particle` は粒子ごとの上限 step。
+- `output.diagnostics.charge_rel_change_threshold` は監視値であり停止条件ではない。
+- `[run.restart]` では同じ `output.dir` の `summary.txt`, `charges.csv`, `rng_state.txt` を使う。MPI では前回と同じ world size が必要。
+- `fields.boundary = "periodic2"` は 2 軸周期境界を扱い、FMM と box boundary 設定の組み合わせに注意する。

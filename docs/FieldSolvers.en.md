@@ -26,7 +26,7 @@ and which field boundary is applied.
 | [FMM](FMM.en.html) | Large problems and many targets | free, periodic2 | Approximates far interactions with multipole and local expansions |
 | `auto` | Select by element count for a free boundary | free | Direct or FMM |
 
-With `auto`, Direct is used when `nelem < tree_min_nelem` and FMM is used at and above the threshold. The default threshold
+With `auto`, Direct is used when `nelem < fields.solver.auto_fmm_min_elements` and FMM is used at and above the threshold. The default threshold
 is `256`. Runtime depends not only on the element count, but also on the
 number of particles, number of steps, and target distribution, so measure a reduced case representative of the production run.
 
@@ -36,7 +36,7 @@ This table is the canonical compatibility reference for solvers and field bounda
 
 | Solver | `free` | `periodic2` |
 | --- | --- | --- |
-| `direct` | Supported | Split reference only. Requires `periodic2.nonzero_mode_backend="panel_spectral_reference"`, `zero_mode_policy="exclude_k0"`, and a supported lower-boundary model |
+| `direct` | Supported | Split reference only. Requires `fields.periodic.backend="panel_spectral_reference"`, and `fields.periodic.lower_boundary_model` for the physical zero mode |
 | `treecode` | Supported | Unsupported |
 | `fmm` | Supported | Supported. Infinite-periodic production runs use `cached_kneq0` |
 | `auto` | Supported | Unsupported |
@@ -52,12 +52,12 @@ box_origin = [0.0, 0.0, 0.0]
 box_size = [1.0, 1.0, 1.0]
 periodic_axes = ["x", "y"]
 
-[field_boundary]
-mode = "periodic2"
+[fields]
+boundary = "periodic2"
 ```
 
-`[domain]` owns the simulation cell and periodic topology; `[field_boundary]` owns field closure. `mode="free"` selects a
-free-space field, while `mode="periodic2"` uses the domain's x/y periodicity. The current periodic2 implementation accepts only
+`[domain]` owns the simulation cell and periodic topology; `[fields]` owns field closure. `fields.boundary="free"` selects a
+free-space field, while `fields.boundary="periodic2"` uses the domain's x/y periodicity. The current periodic2 implementation accepts only
 x/y periodic and z nonperiodic. Species boundary settings may select `open`, `reflect`, or `redistributed_reflect` on
 nonperiodic faces, but cannot add, remove, or override periodic axes.
 
@@ -69,17 +69,14 @@ vacuum side for every element. Treecode evaluates near leaves with the analytic 
 nodes as monopoles for both field and potential. See [Direct](DirectSolver.en.html#triangle-p0),
 [Treecode](Treecode.en.html), and [FMM](FMM.en.html#source-kernel) for details.
 
-The former `[field]` table and `sim.softening` key have been removed. Leaving either in an input fails as an unknown table or
-key; BEACH does not reinterpret it as another element model.
-
 ## Normalize length to control numerical scale
 
-`sim.field_normalization` selects the representative internal length $L_0$. It does not change input or output units.
+`fields.solver.normalization` selects the representative internal length $L_0$. It does not change input or output units.
 
 | Value | $L_0$ | Origin $\mathbf{x}_0$ |
 | --- | --- | --- |
 | `si` | 1 m | 0 |
-| `length` | `field_length_scale` | 0 |
+| `length` | `fields.solver.length_scale_m` | 0 |
 | `box` | Largest extent in `[domain]` | `domain.box_min` |
 | `mesh` | Largest mesh-bounding-box extent | Mesh-bounding-box minimum |
 
@@ -90,7 +87,7 @@ $$
 $$
 
 then multiplies electric field by $k_c/L_0^2$ and potential by $k_c/L_0$ to restore SI units. `box` requires a `[domain]` with
-positive extents. `mesh` falls back to `field_length_scale` only when the mesh is empty.
+positive extents. `mesh` falls back to `fields.solver.length_scale_m` only when the mesh is empty.
 
 ## Combine the solver with boundary components in periodic2
 
@@ -110,4 +107,4 @@ but also the observables used in the study, such as impact locations, accumulate
 - Initialization and automatic selection: [`bem_field_solver_config.f90`](../src/physics/field_solver/bem_field_solver_config.f90)
 - Field and potential evaluation: [`bem_field_solver_eval.f90`](../src/physics/field_solver/bem_field_solver_eval.f90)
 - Treecode/FMM charge refresh: [`bem_field_solver_tree.f90`](../src/physics/field_solver/bem_field_solver_tree.f90)
-- Configuration values: [Configuration parameters](Parameters.en.html#field-solver)
+- Configuration values: [Configuration parameters](Parameters.en.html#fieldssolver)

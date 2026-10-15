@@ -65,7 +65,7 @@ The inflow distribution is a drifting Maxwellian set by the density, temperature
 
 ### Maxwellian
 
-From the density (`number_density_m3` or `number_density_cm3`), temperature, and drift velocity, BEACH computes the flux
+From the density (`distribution.number_density_m3` or `distribution.number_density_cm3`), temperature, and drift velocity, BEACH computes the flux
 $\Gamma_\mathrm{in}$ crossing each face inward. The probability of crossing a face is proportional to the inward normal
 velocity, so normal velocities are sampled from the flux-weighted distribution. The expected number of macro-particles per batch is
 
@@ -144,4 +144,4 @@ also changes the interval between field updates, so compare according to [Choose
 - A uniform external field has no potential at infinity. When combining it with `infinity_barrier`, define `phi_infty_v` as the
   reference of the external plasma and check its meaning separately.
 
-All keys and constraints are in [Input parameters](Parameters.en.html#particlesspeciesboundary_inflow).
+All keys and constraints are in [Input parameters](Parameters.en.html#particlesspeciesinflow).

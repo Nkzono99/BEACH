@@ -10,7 +10,6 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FAR_CORRECTION_MODES = frozenset({"auto", "none", "cached_kneq0"})
 GROUPED_BACKENDS = frozenset({"finite_images", "cached_kneq0", "panel_spectral_reference"})
 
 
@@ -32,23 +31,13 @@ def _paragraph_containing(text: str, token: str) -> str:
     raise AssertionError(f"missing paragraph containing {token!r}")
 
 
-def test_far_correction_schema_exposes_public_modes_and_default() -> None:
-    schema = json.loads(_read("schemas/beach.schema.json"))
-    far = schema["$defs"]["sim"]["properties"][
-        "field_periodic_far_correction"
-    ]
-
-    assert far["type"] == "string"
-    assert far["default"] == "none"
-    assert set(far["enum"]) == FAR_CORRECTION_MODES
-
-
-def test_grouped_schema_exposes_the_documented_backends() -> None:
+def test_far_correction_schema_exposes_public_backends() -> None:
     schema = json.loads(_read("schemas/beach.schema.json"))
     backend = schema["$defs"]["groupedConfig"]["properties"]["fields"][
         "properties"
     ]["periodic"]["properties"]["backend"]
 
+    assert backend["type"] == "string"
     assert set(backend["enum"]) == GROUPED_BACKENDS
 
 
@@ -56,10 +45,10 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
     spec = _read("SPEC.md")
     spec_rows = {
         mode: _line_starting_with(spec, f"- `{mode}`:")
-        for mode in FAR_CORRECTION_MODES
+        for mode in GROUPED_BACKENDS
     }
-    assert "有限" in spec_rows["none"] and "image" in spec_rows["none"]
-    assert "`none`" in spec_rows["auto"] and "正規化" in spec_rows["auto"]
+    assert "有限" in spec_rows["finite_images"] and "image" in spec_rows["finite_images"]
+    assert "direct" in spec_rows["panel_spectral_reference"]
     assert "無限周期" in spec_rows["cached_kneq0"]
     assert "Fourier" in spec_rows["cached_kneq0"]
 
@@ -93,7 +82,8 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
         removed = _paragraph_containing(text, "`m2l_root_oracle`")
         assert contract["removed"] in removed, path
         zero_mode = _paragraph_containing(
-            text, '`zero_mode_policy="exclude_k0"`'
+            text, '`fields.periodic.backend="cached_kneq0"` evaluates' if path.endswith(".en.md")
+            else '`fields.periodic.backend="cached_kneq0"` は非零モード'
         )
         assert contract["zero_mode"] in zero_mode, path
 

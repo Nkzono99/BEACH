@@ -8,7 +8,7 @@ Core v1 behavior:
 - Evaluate the electrostatic field from current element charges.
 - Advance particles with a Boris pusher.
 - Treat the first segment-triangle intersection as the collision.
-- Absorb collided particles and deposit `q_particle * w_particle` onto the hit element.
+- Absorb collided particles and deposit `charge_c * sampling.weight` onto the hit element.
 - Commit charge deltas, statistics, and histories once per batch.
 - The standard surface model is insulator accumulation. Conductor and resistive models are reserved extension points.
 
@@ -40,8 +40,8 @@ Analysis entry points:
 
 Operational notes:
 
-- `sim.batch_count` is the number of batches to run now.
-- `sim.max_step` is the per-particle step limit.
-- `sim.tol_rel` is a monitoring metric, not an early-stop condition.
-- `output.resume = true` reads `summary.txt`, `charges.csv`, and `rng_state.txt` from the same `output.dir`. MPI resume requires the same world size.
-- `field_bc_mode = "periodic2"` handles two periodic axes and requires care with FMM and box boundary settings.
+- `run.batch_count` is the number of batches to run now.
+- `particles.tracking.max_steps_per_particle` is the per-particle step limit.
+- `output.diagnostics.charge_rel_change_threshold` is a monitoring metric, not an early-stop condition.
+- `[run.restart]` reads `summary.txt`, `charges.csv`, and `rng_state.txt` from the same `output.dir`. MPI resume requires the same world size.
+- `fields.boundary = "periodic2"` handles two periodic axes and requires care with FMM and box boundary settings.

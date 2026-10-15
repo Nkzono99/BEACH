@@ -177,8 +177,8 @@ $$
 K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
-`zero_mode_policy="exclude_k0"` は平均場を捨てる指定ではなく、FMM backend と physical zero mode の二重加算を
-防ぐ ownership 規則です。境界モデルと Gauss 則は [periodic2 静電場](PeriodicElectrostatics.html)を参照してください。
+`fields.periodic.backend="cached_kneq0"` は非零モードだけを評価し、physical zero mode を別に加えることで平均場の二重加算を
+防ぎます。境界モデルと Gauss 則は [periodic2 静電場](PeriodicElectrostatics.html)を参照してください。
 
 ## cacheと並列化の境界を理解する
 
