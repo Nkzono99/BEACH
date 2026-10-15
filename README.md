@@ -38,18 +38,18 @@ mkdir beach-tutorial
 cd beach-tutorial
 beachx config init beach.toml
 beachx lint beach.toml
-OMP_NUM_THREADS=1 beach beach.toml
+beach beach.toml
 beachx inspect outputs/tutorial
 ```
 
 `beachx lint` は設定ファイルのキー・値・組合せを実行前に検査します。
-各手順の意味と出力の読み方は [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) で説明しています。
+各手順の意味と出力の読み方は [入門チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) で説明しています。
 
 ## 目的別の入口
 
 | 目的 | 読む順序 |
 | --- | --- |
-| 初めて使う | [インストール](https://nkzono99.github.io/BEACH/installation.html) → [10 分チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [最初の出力を読む](https://nkzono99.github.io/BEACH/output-guide.html) |
+| 初めて使う | [インストール](https://nkzono99.github.io/BEACH/installation.html) → [入門チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) → [最初の出力を読む](https://nkzono99.github.io/BEACH/output-guide.html) |
 | 研究ケースを作る | [ケース設計](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [設定](https://nkzono99.github.io/BEACH/configuration.html) → [実行・再開](https://nkzono99.github.io/BEACH/execution.html) → [妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html) |
 | 物理・数値モデルを理解する | [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) → [表面はどう帯電するか](https://nkzono99.github.io/BEACH/surface-models.html) → [場 solver の選び方](https://nkzono99.github.io/BEACH/field-solvers.html) |
 | ソースを変更する | [アーキテクチャ](https://nkzono99.github.io/BEACH/architecture.html) → [開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) |

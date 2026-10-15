@@ -31,6 +31,17 @@ def _read_doc(name: str) -> str:
     return (ROOT / "docs" / name).read_text(encoding="utf-8")
 
 
+def _canonical_docs() -> list[Path]:
+    """Return the Markdown pages published on the site (not ADRs or the manuscript)."""
+    docs = ROOT / "docs"
+    excluded = {"adr", "manuscript", "superpowers"}
+    return [
+        path
+        for path in docs.rglob("*.md")
+        if path.relative_to(docs).parts[0] not in excluded
+    ]
+
+
 def _strip_inline_code(line: str) -> str:
     result: list[str] = []
     index = 0
@@ -99,32 +110,25 @@ def test_pages_sources_use_remark_math_inline_delimiters() -> None:
 def test_generated_pages_show_development_status_freshness_and_edit_source() -> None:
     module = _load_sync_module()
 
-    for locale in ("root", "en"):
-        page = next(
-            page
-            for page in module.PAGES
-            if page.locale == locale and page.slug == "parameters"
-        )
-        target, content = module.render_page(page)
-        locale_dir = "en" if locale == "en" else ""
-        assert target == module.CONTENT_ROOT / locale_dir / "parameters.md"
+    page = next(page for page in module.PAGES if page.slug == "parameters")
+    target, content = module.render_page(page)
+    assert target == module.CONTENT_ROOT / "parameters.md"
+    # Uncommitted (for example, just moved) sources have no commit date yet.
+    if module.source_last_updated(page.source):
         assert "lastUpdated:" in content
-        assert f"editUrl: {module.GITHUB_EDIT_ROOT}/docs/{page.source}" in content
-        description = json.dumps(page.description, ensure_ascii=False)
-        assert f"description: {description}" in content
-        assert f"sidebar:\n  order: {page.order}" in content
-        if locale == "en":
-            assert "Development documentation" in content
-        else:
-            assert "開発版ドキュメント" in content
+    assert f"editUrl: {module.GITHUB_EDIT_ROOT}/docs/{page.source}" in content
+    description = json.dumps(page.description, ensure_ascii=False)
+    assert f"description: {description}" in content
+    assert f"sidebar:\n  order: {page.order}" in content
+    assert "開発版ドキュメント" in content
 
 
 def test_navigation_keeps_core_workflow_pages_and_readable_sources() -> None:
     module = _load_sync_module()
-    locales_by_slug: dict[str, set[str]] = {}
+    slugs = set()
 
     for page in module.PAGES:
-        locales_by_slug.setdefault(page.slug, set()).add(page.locale)
+        slugs.add(page.slug)
         assert (module.DOCS_ROOT / page.source).is_file(), page.source
 
     for slug in {
@@ -136,56 +140,33 @@ def test_navigation_keeps_core_workflow_pages_and_readable_sources() -> None:
         "validation-guide",
         "troubleshooting",
     }:
-        assert locales_by_slug.get(slug) == {"root", "en"}, slug
+        assert slug in slugs, slug
 
 
-def test_navigation_publishes_every_top_level_bilingual_doc() -> None:
+def test_navigation_publishes_every_canonical_doc() -> None:
     """Do not leave a canonical docs page outside the generated site."""
 
     module = _load_sync_module()
     published = {page.source for page in module.PAGES}
-    canonical = {path.name for path in module.DOCS_ROOT.glob("*.md")}
+    canonical = {
+        path.relative_to(module.DOCS_ROOT).as_posix()
+        for path in _canonical_docs()
+    }
 
     assert published == canonical
 
-    root_sources = {
-        source for source in published if not source.endswith(".en.md")
-    }
-    english_sources = {
-        source.removesuffix(".en.md") + ".md"
-        for source in published
-        if source.endswith(".en.md")
-    }
-    assert root_sources == english_sources
-
 
 def test_canonical_document_links_resolve_to_repository_files() -> None:
-    """Keep task paths intact when pages move between sidebar sections."""
+    """Keep relative links valid on GitHub and in the generated site."""
 
-    for source in (ROOT / "docs").glob("*.md"):
+    for source in _canonical_docs():
         text = source.read_text(encoding="utf-8")
         for raw_target in MARKDOWN_LINK_RE.findall(text):
             target = raw_target.strip("<>").split("#", maxsplit=1)[0]
             if not target or "://" in target or target.startswith(("/", "mailto:")):
                 continue
-
-            if target.endswith(".html") and not target.startswith("../"):
-                candidate = source.parent / (target.removesuffix(".html") + ".md")
-            elif Path(target).suffix in {
-                ".md",
-                ".toml",
-                ".json",
-                ".f90",
-                ".py",
-                ".png",
-                ".gif",
-                ".svg",
-            }:
-                candidate = source.parent / target
-            else:
-                continue
-
-            assert candidate.is_file(), (source.name, raw_target)
+            assert not target.endswith(".html"), (source.name, raw_target)
+            assert (source.parent / target).exists(), (source.name, raw_target)
 
 
 def test_render_page_rewrites_supported_links_and_fences(
@@ -194,18 +175,16 @@ def test_render_page_rewrites_supported_links_and_fences(
     module = _load_sync_module()
     docs_root = tmp_path / "docs"
     content_root = tmp_path / "content"
-    docs_root.mkdir()
-    (docs_root / "Fixture.md").write_text(
+    (docs_root / "guide").mkdir(parents=True)
+    (docs_root / "guide" / "Fixture.md").write_text(
         """title: Fixture title
-
-Lang: [日本語](Fixture.md) | [English](Fixture.en.md)
 
 # Fixture title
 
-[local](Parameters.md#run) and [English](Parameters.en.md)
-[SPEC](../SPEC.md#fixture), [source](../src/example.f90), [ADR](adr/0001-example.md),
-![image](images/example.png), and [module](../module/example.html).
-The repository path `docs/OutputGuide.md` stays plain text.
+[local](../reference/Parameters.md#run) and [sibling](Other.md)
+[SPEC](../../SPEC.md#fixture), [source](../../src/example.f90), [ADR](../adr/0001-example.md),
+![image](../images/example.png) and <img src="../media/example.gif">.
+The repository path `docs/OutputGuide.md` stays plain text, and [web](https://example.com) is kept.
 
 ```fortran
 program example
@@ -214,13 +193,18 @@ end program example
 """,
         encoding="utf-8",
     )
+    monkeypatch.setattr(module, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(module, "DOCS_ROOT", docs_root)
     monkeypatch.setattr(module, "CONTENT_ROOT", content_root)
+    monkeypatch.setattr(
+        module,
+        "DOC_LINKS",
+        {"reference/Parameters.md": "parameters", "guide/Other.md": "other"},
+    )
     monkeypatch.setattr(module, "source_last_updated", lambda _source: "2026-01-02")
 
     page = module.Page(
-        source="Fixture.md",
-        locale="root",
+        source="guide/Fixture.md",
         slug="fixture",
         order=42,
         description="fixture description",
@@ -228,15 +212,15 @@ end program example
     target, content = module.render_page(page)
 
     assert target == content_root / "fixture.md"
-    assert "Lang:" not in content
     assert "\n# Fixture title\n" not in content
     assert "[local](/BEACH/parameters.html#run)" in content
-    assert "[English](/BEACH/en/parameters.html)" in content
+    assert "[sibling](/BEACH/other.html)" in content
     assert f"[SPEC]({module.GITHUB_BLOB_ROOT}/SPEC.md#fixture)" in content
     assert f"[source]({module.GITHUB_BLOB_ROOT}/src/example.f90)" in content
     assert f"[ADR]({module.GITHUB_BLOB_ROOT}/docs/adr/0001-example.md)" in content
     assert "![image](/BEACH/images/example.png)" in content
-    assert "[module](/BEACH/fortran/module/example.html)" in content
+    assert '<img src="/BEACH/media/example.gif">' in content
+    assert "[web](https://example.com)" in content
     assert "`docs/OutputGuide.md`" in content
     assert "```fortran-free-form" in content
 
@@ -250,7 +234,7 @@ def test_configuration_recipes_cover_supported_meshes_and_particle_sources() -> 
     mesh_kinds = template["properties"]["kind"]["enum"]
     source_modes = schema["$defs"]["groupedSpecies"]["properties"]["source"]["properties"]["mode"]["enum"]
 
-    for name in ("ConfigurationRecipes.md", "ConfigurationRecipes.en.md"):
+    for name in ("guide/ConfigurationRecipes.md",):
         text = _read_doc(name)
         mesh_table = text.split("| `kind` |", maxsplit=1)[1].split(
             "\n\n", maxsplit=1

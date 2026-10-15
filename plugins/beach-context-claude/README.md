@@ -5,7 +5,7 @@ BEACH を Claude Code で扱うための repo-local context package です。Cod
 として使いやすい形に移植しています。
 
 この package は BEACH repo と一緒に使う前提です。正式な仕様確認では repo root の
-`README.md`, `SPEC.md`, `docs/Algorithms.md`, `docs/Parameters.md` を優先してください。
+`README.md`, `SPEC.md`, `docs/models/Algorithms.md`, `docs/reference/Parameters.md` を優先してください。
 
 ## 導入
 
@@ -50,12 +50,12 @@ Claude Code の project-local agent として常用する場合は、必要な a
 ## 参照 document
 
 参照マップは `references/README.md` にあります。現行 docs は PascalCase 名に統一されています。
-FMM core と batch duration stability の詳細は `docs/Algorithms.md` に統合済みです。
+FMM core と batch duration stability の詳細は `docs/models/Algorithms.md` に統合済みです。
 
 ## 運用方針
 
 - Fortran 実装と `SPEC.md` を simulation behavior の source of truth とします。
-- 設定値の網羅確認は `docs/Parameters.md` と `schemas/beach.schema.json` を見ます。
-- アルゴリズム説明は `docs/Algorithms.md` を起点にします。
+- 設定値の網羅確認は `docs/reference/Parameters.md` と `schemas/beach.schema.json` を見ます。
+- アルゴリズム説明は `docs/models/Algorithms.md` を起点にします。
 - `plugins/beach-context/` は Codex plugin として残し、この Claude 版からは破壊的に変更しません。
 - KUDPC login node 上では、ビルド、テスト、simulation 実行、大きな出力解析を直接実行しません。

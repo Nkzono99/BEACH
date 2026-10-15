@@ -9,18 +9,18 @@
 | --- | --- |
 | quick start / install / command | `../../../README.md` |
 | simulation behavior の source of truth | `../../../SPEC.md` |
-| algorithm / FMM / periodic2 / batch duration | `../../../docs/Algorithms.md` |
-| parameter reference | `../../../docs/Parameters.md` |
-| configuration workflow | `../../../docs/Configuration.md` |
-| developer workflow | `../../../docs/Workflow.md` |
-| Python post-processing API | `../../../docs/PythonPostprocessAPI.md` |
+| algorithm / FMM / periodic2 / batch duration | `../../../docs/models/Algorithms.md` |
+| parameter reference | `../../../docs/reference/Parameters.md` |
+| configuration workflow | `../../../docs/guide/Configuration.md` |
+| developer workflow | `../../../docs/developer/Workflow.md` |
+| Python post-processing API | `../../../docs/reference/PythonPostprocessAPI.md` |
 | user guide | `../../../docs/agent-user-guide.md` |
 | schema | `../../../schemas/beach.schema.json` |
 | examples | `../../../examples/beach.toml`, `../../../examples/periodic2_basic.toml` |
 
 ## 注意
 
-- FMM と batch duration stability の詳細は `docs/Algorithms.md` に統合済みです。
+- FMM と batch duration stability の詳細は `docs/models/Algorithms.md` に統合済みです。
 - 正式 docs は PascalCase 名に統一されています。
 - `plugins/beach-context/` の `references/` は Codex plugin 用 snapshot です。Claude Code 版では、可能な限り
   repo root の現行 docs を優先してください。

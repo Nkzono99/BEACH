@@ -1,7 +1,5 @@
 title: BEACH Agent User Guide
 
-Lang: [日本語](agent-user-guide.md) | [English](agent-user-guide.en.md)
-
 # BEACH Agent User Guide
 
 AI エージェントが BEACH の設定、実行、検証を始めるための運用ガイドです。
@@ -20,7 +18,7 @@ BEACH は、境界要素法による電場評価と粒子追跡を組み合わ�
 - `output.diagnostics.charge_rel_change_threshold` は監視値であり、早期停止条件ではない
 
 実装挙動の正本は [`SPEC.md`](../SPEC.md)、設定キーの正本は
-[入力パラメータ](Parameters.html) です。削除済みの `[outer_plasma]`、
+[入力パラメータ](reference/Parameters.md) です。削除済みの `[outer_plasma]`、
 `[coupling]`、旧 selector は設定として受理されません。
 
 ## 最短の実行手順
@@ -48,14 +46,14 @@ make run CONFIG=examples/beach.toml
 
 | 目的 | 出発点 | 次に読むページ |
 |---|---|---|
-| 入門の帯電更新 | `examples/tutorial_insulator.toml` | [10 分チュートリアル](Tutorial.html) |
-| 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](ConfigurationRecipes.html) |
-| 外部 plasma reservoir | `[particles.species.inflow]` | [Reservoir 注入](ReservoirInjection.html) |
-| 閉じた光電子再分配 | `examples/closed_photoelectron.toml` | [光電子放出](PhotoelectronEmission.html) |
-| free-space の場評価 | `fields.boundary="free"` | [場の評価](FieldSolvers.html) |
-| 2 軸周期の場評価 | `fields.boundary="periodic2"` | [周期静電場](PeriodicElectrostatics.html) |
-| 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](PostprocessTutorial.html) |
-| checkpoint から再開 | `[run.restart]` | [実行と再開](Execution.html) |
+| 入門の帯電更新 | `examples/tutorial_electron_beam.toml` | [入門チュートリアル](start/Tutorial.md) |
+| 1 粒子の開発用 smoke | `examples/smoke_single_electron.toml` | [設定レシピ](guide/ConfigurationRecipes.md) |
+| 外部 plasma reservoir | `[particles.species.inflow]` | [Reservoir 注入](guide/ReservoirInjection.md) |
+| 閉じた光電子再分配 | `examples/closed_photoelectron.toml` | [光電子放出](models/PhotoelectronEmission.md) |
+| free-space の場評価 | `fields.boundary="free"` | [場の評価](guide/FieldSolvers.md) |
+| 2 軸周期の場評価 | `fields.boundary="periodic2"` | [周期静電場](models/PeriodicElectrostatics.md) |
+| 出力の解析 | `beachx inspect` / `Beach(...)` | [後処理チュートリアル](guide/PostprocessTutorial.md) |
+| checkpoint から再開 | `[run.restart]` | [実行と再開](guide/Execution.md) |
 
 境界 reservoir + closed PE の例は外部シースを自己無撞着に解くモデルではありません。
 box 高さ、周期画像、`particles.tracking.dt_s`、`particles.tracking.max_steps_per_particle`、`run.batch.duration_s`、粒子数、ray 数は目的量に
@@ -66,8 +64,8 @@ box 高さ、周期画像、`particles.tracking.dt_s`、`particles.tracking.max_
 通常の流れは次の 4 段階です。
 
 1. 近い `examples/*.toml` をコピーする。
-2. [設定レシピ](ConfigurationRecipes.html) で必要な table を選ぶ。
-3. [入力パラメータ](Parameters.html) で単位、既定値、排他条件を確認する。
+2. [設定レシピ](guide/ConfigurationRecipes.md) で必要な table を選ぶ。
+3. [入力パラメータ](reference/Parameters.md) で単位、既定値、排他条件を確認する。
 4. `beachx lint beach.toml` を実行する。lint は schema 検査の後に Fortran の preflight (`beach --check-config`) を呼ぶ。
 
 特に次の制約を先に確認してください。
@@ -84,7 +82,7 @@ box 高さ、周期画像、`particles.tracking.dt_s`、`particles.tracking.max_
 `triangle_p0 + panel_spectral_reference + exclude_k0` の検証用 split reference に限られます。
 有限画像近似の `fields.periodic.backend="finite_images"` と、無限周期の非零モードを扱う
 `"cached_kneq0"` を区別してください。詳細な互換表は
-[場の評価](FieldSolvers.html#solverと場境界の互換表)を正本とします。
+[場の評価](guide/FieldSolvers.md#solverと場境界の互換表)を正本とします。
 
 ## 実行と検証
 
@@ -112,7 +110,7 @@ make test-mpi
 個別 Fortran target は
 `FPM_ACTION=test ./build.sh --target <name>` で実行できます。KUDPC ではホスト役割を
 確認し、ログインノード上で test payload を直接実行せず、`tssrun` または
-`sbatch` + `srun` を使ってください。詳細は[開発ワークフロー](Workflow.html)にあります。
+`sbatch` + `srun` を使ってください。詳細は[開発ワークフロー](developer/Workflow.md)にあります。
 
 テスト通過と物理検証は分けて報告します。物理ケースでは少なくとも、時間刻み、
 空間離散、box/周期画像、粒子統計、未解決率に対する目的量の変化を確認してください。
@@ -128,7 +126,7 @@ beachx inspect outputs/latest
 主要ファイルは `summary.txt`、`charges.csv`、`mesh_triangles.csv`、
 `mesh_sources.csv`、`charge_ledger.csv`、`rng_state.txt` です。履歴、potential、
 reservoir residual、性能 profile は設定に応じて追加されます。生成条件と restart 契約は
-[出力ガイド](OutputGuide.html)を正本とします。
+[出力ガイド](guide/OutputGuide.md)を正本とします。
 
 Python では次の入口を使います。
 
@@ -141,7 +139,7 @@ fig, ax = run.plot_charges(step=-1)
 ```
 
 CLI の全オプションは `beachx <command> --help`、Python API は
-[Python 後処理 API](PythonPostprocessAPI.html)を参照してください。
+[Python 後処理 API](reference/PythonPostprocessAPI.md)を参照してください。
 
 ## 変更時のチェックリスト
 
@@ -156,12 +154,12 @@ CLI の全オプションは `beachx <command> --help`、Python API は
 
 | 質問 | 正本 |
 |---|---|
-| シミュレータは何を計算するか | [`SPEC.md`](../SPEC.md)、[アルゴリズム](Algorithms.html) |
-| ケースをどう組み立てるか | [設定レシピ](ConfigurationRecipes.html) |
-| キー、型、単位、制約は何か | [入力パラメータ](Parameters.html) |
-| 実行、負荷見積もり、再開はどうするか | [実行と再開](Execution.html) |
-| 粒子源と境界をどう選ぶか | [粒子源と境界](ParticleSourcesBoundaries.html) |
-| 衝突と box event はどう処理されるか | [粒子イベント](ParticleEvents.html) |
-| 場 solver と周期設定をどう選ぶか | [場の評価](FieldSolvers.html)、[FMM](FMM.html) |
-| 出力をどう読み、可視化するか | [出力ガイド](OutputGuide.html)、[後処理チュートリアル](PostprocessTutorial.html) |
-| 開発テストをどう選ぶか | [開発ワークフロー](Workflow.html)、[検証ガイド](ValidationGuide.html) |
+| シミュレータは何を計算するか | [`SPEC.md`](../SPEC.md)、[アルゴリズム](models/Algorithms.md) |
+| ケースをどう組み立てるか | [設定レシピ](guide/ConfigurationRecipes.md) |
+| キー、型、単位、制約は何か | [入力パラメータ](reference/Parameters.md) |
+| 実行、負荷見積もり、再開はどうするか | [実行と再開](guide/Execution.md) |
+| 粒子源と境界をどう選ぶか | [粒子源と境界](guide/ParticleSourcesBoundaries.md) |
+| 衝突と box event はどう処理されるか | [粒子イベント](developer/ParticleEvents.md) |
+| 場 solver と周期設定をどう選ぶか | [場の評価](guide/FieldSolvers.md)、[FMM](guide/FMM.md) |
+| 出力をどう読み、可視化するか | [出力ガイド](guide/OutputGuide.md)、[後処理チュートリアル](guide/PostprocessTutorial.md) |
+| 開発テストをどう選ぶか | [開発ワークフロー](developer/Workflow.md)、[検証ガイド](guide/ValidationGuide.md) |

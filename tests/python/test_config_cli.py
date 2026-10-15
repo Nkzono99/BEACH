@@ -176,7 +176,7 @@ def test_runtime_validator_rejects_removed_top_level_contracts(
 
 def test_default_config_matches_official_tutorial_case() -> None:
     assert normalize_config_document(to_grouped_layout(default_config())) == load_config_file(
-        Path("examples/tutorial_insulator.toml")
+        Path("examples/tutorial_electron_beam.toml")
     )
 
 
@@ -545,26 +545,27 @@ def test_config_cli_init_and_diff(
     assert initialized["domain"]["periodic_axes"] == []
     assert initialized["sim"]["field_solver"] == "direct"
     assert initialized["field_boundary"]["mode"] == "free"
-    assert initialized["sim"]["batch_count"] == 20
+    assert initialized["sim"]["batch_count"] == 150
+    assert initialized["sim"]["batch_duration"] == 1.0e-8
     assert len(initialized["particles"]["species"]) == 1
     species = initialized["particles"]["species"][0]
     assert species["source_mode"] == "volume_seed"
     assert species["npcls_per_step"] == 200
-    assert species["w_particle"] == 2.0e5
-    assert species["pos_low"] == [0.15, 0.15, 0.8]
-    assert species["pos_high"] == [0.85, 0.85, 0.8]
-    assert species["drift_velocity"] == [0.0, 0.0, -1.0e6]
+    assert species["w_particle"] == 4000.0
+    assert species["pos_low"] == [0.008, 0.008, 0.06]
+    assert species["pos_high"] == [0.032, 0.032, 0.06]
+    assert species["drift_velocity"] == [0.0, 0.0, -1.3262e6]
 
     modified = tmp_path / "modified.toml"
     modified.write_text(
         (tmp_path / "beach.toml")
         .read_text(encoding="utf-8")
-        .replace("batch_count = 20", "batch_count = 21"),
+        .replace("batch_count = 150", "batch_count = 151"),
         encoding="utf-8",
     )
     beachx_main(["config", "diff", "beach.toml", str(modified)])
     diff_streams = capsys.readouterr()
-    assert "sim.batch_count: 20 -> 21" in diff_streams.out
+    assert "sim.batch_count: 150 -> 151" in diff_streams.out
 
 
 def test_lint_cli_accepts_valid_config(

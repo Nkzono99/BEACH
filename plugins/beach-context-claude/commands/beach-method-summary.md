@@ -6,7 +6,7 @@ argument-hint: "<audience/topic>"
 `beach-method-summary` agent を使い、指定された audience と topic に合わせて BEACH の手法説明を作ってください。
 
 優先参照:
-- `docs/Algorithms.md`
+- `docs/models/Algorithms.md`
 - `SPEC.md`
 - `README.md`
 - 必要なら `src/` と `app/`

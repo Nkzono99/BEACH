@@ -89,12 +89,9 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
     def table_marker(path):
         return f"[[{path}]]" if path in {"particles.species", "mesh.parts"} else f"[{path}]"
 
-    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
+    for path in ("docs/reference/Parameters.md",):
         text = _read(path)
-        detail_heading = (
-            "## Detailed Parameter Reference" if path.endswith(".en.md")
-            else "## パラメータ詳細リファレンス"
-        )
+        detail_heading = "## パラメータ詳細リファレンス"
         inventory, separator, detail = text.partition(detail_heading)
         assert separator, path
         headings = [
@@ -144,7 +141,7 @@ def test_parameter_reference_uses_single_remote_editor_schema_directive() -> Non
         "#:schema https://raw.githubusercontent.com/Nkzono99/BEACH/main/"
         "schemas/beach.schema.json"
     )
-    for path in ("docs/Parameters.md", "docs/Parameters.en.md"):
+    for path in ("docs/reference/Parameters.md",):
         text = _read(path)
         assert text.count("#:schema") == 1, path
         assert directive in text, path
@@ -156,7 +153,7 @@ def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
     assert "direct" in fields["solver"]["properties"]["method"]["enum"]
     assert "panel_spectral_reference" in fields["periodic"]["properties"]["backend"]["enum"]
 
-    for path in ("docs/FieldSolvers.md", "docs/FieldSolvers.en.md"):
+    for path in ("docs/guide/FieldSolvers.md",):
         text = _read(path)
         direct_row = next(
             line for line in text.splitlines() if line.startswith("| `direct` |")
@@ -166,7 +163,7 @@ def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
         assert "`triangle_p0`" in text, path
 
 
-def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
+def test_output_manifest_matches_implementation_and_docs() -> None:
     manifest = json.loads(_read("schemas/beach.output-manifest.json"))
     files = manifest["files"]
     names = [entry["name"] for entry in files]
@@ -177,10 +174,7 @@ def test_output_manifest_matches_implementation_and_bilingual_docs() -> None:
     assert "outflow_refresh_batches>0" in matching_history["condition"]
     assert matching_history["restart_role"] == "none"
 
-    reference_docs = (
-        _read("docs/OutputReference.md"),
-        _read("docs/OutputReference.en.md"),
-    )
+    reference_docs = (_read("docs/reference/OutputReference.md"),)
     for entry in files:
         assert {"name", "producer", "condition", "restart_role"} <= entry.keys()
         name = entry["name"]

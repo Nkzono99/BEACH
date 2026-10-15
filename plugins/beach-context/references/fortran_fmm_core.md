@@ -1,18 +1,16 @@
 title: Coulomb FMMコア詳細
 
-Lang: [日本語](FMMCore.md) | [English](FMMCore.en.md)
-
 # Coulomb FMMコア詳細
 
 Coulomb FMMコアは、source geometryから作る`plan`と、電荷から作る`state`を分離し、
 多重極展開と近傍Direct和から電場を評価します。ここでは、現行Fortran実装の低水準開発API、データ構造、
 展開式、periodic2補正を、処理順に沿って説明します。
 
-通常のFMMを利用するための数式と計算フローは[FMM](FMM.html)、periodic root operatorの構成と運用は
-[periodic2遠方補正](PeriodicFarCorrection.html)にまとめています。このページはFortran内部配列と実装手順の
+通常のFMMを利用するための数式と計算フローは[FMM](../guide/FMM.md)、periodic root operatorの構成と運用は
+[periodic2遠方補正](PeriodicFarCorrection.md)にまとめています。このページはFortran内部配列と実装手順の
 詳細を扱います。
 
-APIの詳細は[`bem_coulomb_fmm_core` module page](../module/bem_coulomb_fmm_core.html)でも確認できます。
+APIの詳細は[`bem_coulomb_fmm_core` module page](https://nkzono99.github.io/BEACH/fortran/module/bem_coulomb_fmm_core.html)でも確認できます。
 
 - 低水準開発 API / 境界: `src/physics/field_solver/fmm/api/`
 - 内部共通実装: `src/physics/field_solver/fmm/internal/common/`
@@ -469,7 +467,7 @@ target box外の評価をrejectします。
 ## 8. `periodic2` と遠方補正
 
 この節はFMM core内部から見た数式とfallbackを記録します。設定の選び方、operator fit、cache lifecycle、
-`k=0` ownershipを通した説明は[periodic2遠方補正](PeriodicFarCorrection.html)に分離しています。
+`k=0` ownershipを通した説明は[periodic2遠方補正](PeriodicFarCorrection.md)に分離しています。
 
 ### 8.1 `periodic2`
 
@@ -498,7 +496,7 @@ build-time teacherです。teacherはproxy monopoleに適用されます。
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
 $\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
-この分割をruntimeの場評価へ組み込む流れは、periodic2静電場の説明にまとめています。[<sup>1</sup>](PeriodicElectrostatics.md#ewald2p-teacher)
+この分割をruntimeの場評価へ組み込む流れは、periodic2遠方補正の説明にまとめています。[<sup>1</sup>](PeriodicFarCorrection.md#ewald2pをruntime-kernelではなくteacherとして使う)
 
 #### 8.2.1 記法
 
@@ -642,7 +640,7 @@ $$
 `cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、source節点のmultipoleから
 target anchorのlocal展開へのoperatorをfitします。有限画像殻の面平均は閉じた式で分離し、fitには面平均0の残差だけを
 渡します。電場fitで決まらない定数potential係数はpotential residualから別にfitし、versioned cacheへ保存します。
-無限周期のproduction計算には`cached_kneq0`を使います（詳細は[periodic2 遠方補正](PeriodicFarCorrection.html)）。
+無限周期のproduction計算には`cached_kneq0`を使います（詳細は[periodic2 遠方補正](PeriodicFarCorrection.md)）。
 
 ## 9. 計算量の見方
 
@@ -732,7 +730,7 @@ K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
 $$
 
 です。$K_0^\mathrm{physical}$のtriangle-height積分と下側境界条件は
-[periodic2静電場](PeriodicElectrostatics.md)で説明します。
+[periodic2静電場](../models/PeriodicElectrostatics.md)で説明します。
 
 field fitとpotentialの定数modeは単位が異なるため、同じleast-squaresの列には含めません。
 potential gaugeは、平均residualから別途固定します。

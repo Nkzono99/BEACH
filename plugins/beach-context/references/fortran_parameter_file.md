@@ -1,14 +1,12 @@
 title: BEACH 入力パラメータリファレンス
 
-Lang: [日本語](Parameters.md) | [English](Parameters.en.md)
-
 # 入力パラメータリファレンス
 
 設定ファイルは `run / domain / mesh / particles / fields / sheath / output` の7グループ形式だけを受け付けます。完全な入力例は `examples/` を参照してください。
 
 `beach.toml` のキーを調べるための一覧です。型、既定値、単位、必須条件と排他条件を記載します。
-単位は特記しない限り SI です。最初の設定は[ケース設計](ConfigurationRecipes.html)、
-編集後の確認は[設定の検証](Configuration.html)から始めてください。
+単位は特記しない限り SI です。最初の設定は[ケース設計](../guide/ConfigurationRecipes.md)、
+編集後の確認は[設定の検証](../guide/Configuration.md)から始めてください。
 
 | 調べる対象 | このページの項目 |
 |---|---|
@@ -78,13 +76,13 @@ Fortran はその全診断を繰り返さず、派生値・参照解決と実行
 
 ## 公式入門ケース
 
-最初の実行には [10 分チュートリアル](Tutorial.html) と
-`examples/tutorial_insulator.toml` を使ってください。`beachx config init`
-も同一の設定を生成します。この入門ケースは、毎 batch 200 個のマクロ電子による表面電荷更新を
-20 batch 追跡し、`fields.solver.method="direct"`と`fields.boundary="free"`を使います。
+最初の実行には [入門チュートリアル](../start/Tutorial.md) と
+`examples/tutorial_electron_beam.toml` を使ってください。`beachx config init`
+も同一の設定を生成します。この入門ケースは、5 eV の電子ビームによる浮遊導体板の帯電を
+150 batch（1.5 μs）追跡し、`fields.solver.method="direct"`と`fields.boundary="free"`を使います。
 
 境界reservoir流入、周期境界、閉じた光電子、無限周期補正は、そのケースが実行できた後に
-[シミュレーションケースを設計する](ConfigurationRecipes.html)から追加する応用設定です。
+[シミュレーションケースを設計する](../guide/ConfigurationRecipes.md)から追加する応用設定です。
 
 ---
 
@@ -199,7 +197,7 @@ beach.toml
 
 `run.batch.duration_s` と `run.batch.duration_steps` の同時指定はエラーです。
 `inflow` / `photo_raycast` では、解決後の `run.batch.duration_s > 0` が必須です。
-刻み・追跡長・粒子数を一緒に設計する手順は[ケース設計](ConfigurationRecipes.html#7-時間と粒子数を決める)を参照してください。
+刻み・追跡長・粒子数を一緒に設計する手順は[ケース設計](../guide/ConfigurationRecipes.md#7-時間と粒子数を決める)を参照してください。
 
 ##### `[run.batch.adaptive]`
 
@@ -210,7 +208,7 @@ beach.toml
 適応的な電位変化上限は `inflow` / `photo_raycast` に対応します。
 境界流入は `sampling.target_macro_particles_per_batch` が必須で固定 `sampling.weight` は使用不可、正の `volume_seed` も併用不可です。
 `run.batch_count` は accepted batch 数、`simulated_time_s` は受理幅の総和です。受理条件、rollback、収束確認は
-[`run.batch.duration_s` をどう決めるか](BatchDurationStability.html)を参照してください。
+[`run.batch.duration_s` をどう決めるか](../guide/BatchDurationStability.md)を参照してください。
 
 #### `[run.restart]`
 
@@ -234,7 +232,7 @@ beach.toml
 `run.restart.from` は checkpoint の読み込み元だけを変更します。新しい出力は常に `output.dir` に書きます。
 
 定期 slot の選択、MPI の必須ファイル、mesh 識別子と schema の互換条件は
-[再開に使うファイル](OutputReference.html#再開に使うファイル)を参照してください。
+[再開に使うファイル](OutputReference.md#再開に使うファイル)を参照してください。
 
 ### `[domain]`
 
@@ -320,7 +318,7 @@ beach.toml
 
 変換は `v_new = R(rotation) * (v_old * scale) + offset` で、この要素だけに適用します。
 LF / CRLF、面行 `f v` / `f v/vt` / `f v/vt/vn` / `f v//vn` に対応し、多角形はファン三角形分割します。
-平面と導体の四面体 OBJ の混在例は [`examples/mixed_parts.toml`](../examples/mixed_parts.toml) です。
+平面と導体の四面体 OBJ の混在例は [`examples/mixed_parts.toml`](../../examples/mixed_parts.toml) です。
 
 ##### `kind = "plane"`
 
@@ -474,7 +472,7 @@ z 軸方向の円柱です。
 `upper_panel_fourier` は `cached_kneq0` の `periodic2` 構成でのみ有効です。
 `soft_discard` は、件数猶予の超過後に累積破棄率が率上限を超えた場合だけ停止します。
 累積絶対電荷は実行時間とともに増えるため、電荷閾値の初回超過は警告として記録します。
-再試行の成立条件と診断値は[粒子の衝突・境界イベント](ParticleEvents.html#判定を完了できなければ停止する)を参照してください。
+再試行の成立条件と診断値は[粒子の衝突・境界イベント](../developer/ParticleEvents.md#判定を完了できなければ停止する)を参照してください。
 
 #### `[particles.raycast]`
 
@@ -491,7 +489,7 @@ z 軸方向の円柱です。
 | `z_low`, `z_high` | string | domainに従う | 非周期z面の`open` / `reflect` / `redistributed_reflect` |
 
 省略面は domain topology を継承し、非周期面は `open` になります。周期面は上書きできません。
-反射・再分布反射の定義は[粒子の衝突・境界イベント](ParticleEvents.html#openreflectredistributed_reflectperiodic)を参照してください。
+反射・再分布反射の定義は[粒子の衝突・境界イベント](../developer/ParticleEvents.md#openreflectredistributed_reflectperiodic)を参照してください。
 
 #### `[particles.reservoir]`
 
@@ -502,7 +500,7 @@ z 軸方向の円柱です。
 | `face_potential_grid_n` | int | `3` | 注入面平均電位の`N x N`評価格子。`>=1` |
 
 `infinity_barrier` は `inflow` だけに適用します。一様電場と併用する場合は、`particles.reservoir.phi_infty_v` を有効な reservoir 基準に設定します。
-補正式と適用範囲は[境界から粒子を流入させる](ReservoirInjection.html#3-流入の写像を選ぶ)を参照してください。
+補正式と適用範囲は[境界から粒子を流入させる](../guide/ReservoirInjection.md#3-流入の写像を選ぶ)を参照してください。
 
 #### `[particles.secondary_emission]`
 
@@ -530,7 +528,7 @@ z 軸方向の円柱です。
 | `number_density_m3` | float | 未指定 | Maxwell 分布の上流密度 [m^-3]。`>0`、`distribution.number_density_cm3` と排他 |
 
 境界流入では、密度 2 形式のちょうど一方と温度を指定します。流入速度は drift Maxwell 分布です。
-分布の意味は[境界から粒子を流入させる](ReservoirInjection.html#2-分布を選ぶ)を参照してください。
+分布の意味は[境界から粒子を流入させる](../guide/ReservoirInjection.md#2-分布を選ぶ)を参照してください。
 
 #### `[particles.species.source]`
 
@@ -562,7 +560,7 @@ z 軸方向の円柱です。
 | 使用不可 | `sampling.volume_macro_particles_per_batch`, `distribution.number_density_cm3` / `distribution.number_density_m3`, `sampling.weight`, `sampling.target_macro_particles_per_batch` |
 
 レイ重み、周期 image、再吸収、closed PE の設定は
-[光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
+[光電子の放出とライフサイクル](../models/PhotoelectronEmission.md)を参照してください。
 
 #### `[particles.species.sampling]`
 
@@ -602,8 +600,8 @@ Maxwell 分布で体積生成を加える場合は `source.mode="volume_seed"` �
 
 `fixed_current` と `neutral_return` は同じ species では排他です。
 補正式、PE return の二重計上を避ける条件、標本数の収束確認は
-[表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[光電子の放出とライフサイクル](PhotoelectronEmission.html)、
-[出力形式リファレンス](OutputReference.html#charge-ledger)を参照してください。
+[表面電荷更新の数値仕様](../developer/SurfaceChargeNumerics.md)、[光電子の放出とライフサイクル](../models/PhotoelectronEmission.md)、
+[出力形式リファレンス](OutputReference.md#charge-ledger)を参照してください。
 
 #### `[particles.species.boundary]`
 
@@ -633,7 +631,7 @@ Maxwell 分布で体積生成を追加する場合は `source.mode="volume_seed"
 `sampling.volume_macro_particles_per_batch` を指定します。
 粒子源が `volume_seed` の場合だけ併用でき、複数面の
 `sampling.target_macro_particles_per_batch` は全流入面の合計です。
-流束と電位障壁の詳細は[境界から粒子を流入させる](ReservoirInjection.html)を参照してください。
+流束と電位障壁の詳細は[境界から粒子を流入させる](../guide/ReservoirInjection.md)を参照してください。
 
 #### `[particles.species.surface_interaction]`
 
@@ -651,7 +649,7 @@ Maxwell 分布で体積生成を追加する場合は `source.mode="volume_seed"
 `source.mode="secondary_emission"` では `sampling.*`、`inflow.*`、`source.emit_current_density_a_m2`、光線数、`charging.closure` を省略します。
 電荷は負、質量は正、温度は 0 以上とし、重みは入射粒子から受け継ぎます。
 外部シースの役割へ指定する場合は電荷 -e、ambient electron と同じ質量、open な z-high 面も要求します。
-モデルと Phase 1 の暫定電流配分は [二次電子放出](SecondaryElectronEmission.html)を参照してください。
+モデルと Phase 1 の暫定電流配分は [二次電子放出](../models/SecondaryElectronEmission.md)を参照してください。
 
 ### `[fields]`
 
@@ -661,7 +659,7 @@ Maxwell 分布で体積生成を追加する場合は `source.mode="volume_seed"
 
 `periodic2`では`[domain]`が必要です。非零・零モードoperatorを明示する場合は`fields.periodic.backend` も指定します。
 solverとの組合せは
-[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)に従います。
+[場の評価の互換表](../guide/FieldSolvers.md#solverと場境界の互換表)に従います。
 
 #### `[fields.solver]`
 
@@ -681,7 +679,7 @@ solverとの組合せは
 | `fmm` | 大規模評価、`periodic2`、FMM コア検証 | `fields.boundary="free"` / `"periodic2"` |
 | `auto` | 要素数に応じて direct / FMM を自動選択 | `fields.boundary="free"` |
 
-solverと場境界の組合せは[場の評価の互換表](FieldSolvers.html#solverと場境界の互換表)で確認できます。
+solverと場境界の組合せは[場の評価の互換表](../guide/FieldSolvers.md#solverと場境界の互換表)で確認できます。
 要素電荷は常に三角形上の一定面密度（P0 panel）として評価され、設定でkernelを選択しません。
 
 `fields.solver.normalization` は内部座標のみを変え、電場・電位の出力単位は SI のままです。
@@ -702,8 +700,8 @@ mode ごとの追加キー:
 | `fmm` | Coulomb FMM で大規模近似評価 | `fields.solver.tree.theta`、`fields.solver.tree.leaf_max`、periodic2 関連キー |
 | `auto` | `fields.solver.auto_fmm_min_elements` 未満は direct、以上は FMM | `fields.solver.auto_fmm_min_elements`、FMM 選択時の `fields.solver.tree.theta`、`fields.solver.tree.leaf_max` |
 
-FMM の選択と精度確認は [FMM を使う](FMM.html)、実装は
-[Coulomb FMM コア詳細](FMMCore.html)を参照してください。
+FMM の選択と精度確認は [FMM を使う](../guide/FMM.md)、実装は
+[Coulomb FMM コア詳細](../developer/FMMCore.md)を参照してください。
 
 `fields.solver.tree.theta` と `fields.solver.tree.leaf_max` は、明示指定がなければ要素数から次の値を使います。
 
@@ -754,7 +752,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`fields.boundary="period
 | `cached_kneq0` | versioned operatorを再利用するproduction非零モード |
 
 非零・零modeの分割、`exclude_k0`の役割、下側境界から決まる平均場は
-[periodic2静電場](PeriodicElectrostatics.html)を参照してください。
+[periodic2静電場](../models/PeriodicElectrostatics.md)を参照してください。
 
 #### `[fields.external]`
 
@@ -793,14 +791,14 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`fields.boundary="period
 | `sheath.closure` | 効果 | 詳細 |
 |---|---|---|
 | `none` | 外部シース closure を使わない | species 側の `charging.closure` を設定 |
-| `zero_current` | 外部 1-D シースの Zhao 零電流根から species 別電流と z-high のエネルギー障壁を決定 | [Zhao closure](ZhaoStationaryClosure.html) |
+| `zero_current` | 外部 1-D シースの Zhao 零電流根から species 別電流と z-high のエネルギー障壁を決定 | [Zhao closure](../models/ZhaoStationaryClosure.md) |
 
 入力制約:
 
 | 項目 | 必要条件 |
 |---|---|
 | role species | enabled、相互に異なる。電子・イオン・PE は `charging.closure="fixed_current"`、SEE は `charging.closure` を省略 |
-| ambient electron / ion | z-high reservoir から流入。electron の `distribution.drift_velocity_m_s` の z 成分は 0 以下、ion は負。electron にもイオンと同じ drift を与え、`sheath.zhao.upstream_field_floor_v_m=2.0e-3` とする（drift 0 なら不要。[理由](ZhaoUpstreamBand.html)）。手動 `target_*_current_a` は指定不可 |
+| ambient electron / ion | z-high reservoir から流入。electron の `distribution.drift_velocity_m_s` の z 成分は 0 以下、ion は負。electron にもイオンと同じ drift を与え、`sheath.zhao.upstream_field_floor_v_m=2.0e-3` とする（drift 0 なら不要。[理由](../models/ZhaoUpstreamBand.md)）。手動 `target_*_current_a` は指定不可 |
 | PE なし | `sheath.photoelectrons.source_scale=0.0`、PE 固有キーは省略、`sheath.zhao.branch="auto"` または `"c"` |
 | PE あり | 負電荷の `photo_raycast`、`source.inject_face="z_high"`、`source.deposit_opposite_charge_on_emit=true`、有効な z-high 境界は `open`。`source.emit_current_density_a_m2`（レイ垂直面基準）× ray 仰角の sin が外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ から 5% 以上、または ray の仰角が $\alpha$ から 1 度以上ずれると起動時に警告（停止しない） |
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\ge0$ かつイオンの入口が超音速 $m_i u_z^2/e >$ `sheath.zhao.ion_pressure_factor` $\cdot T_i$ |
@@ -810,12 +808,12 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`fields.boundary="period
 
 PEなしType Cは$J_e+J_i=0$を満たすelectron/ion吸収targetとz-high kinetic barrier mapだけを生成し、
 PE emission / return / escape targetは生成しません。SEE があれば PE なしでも更新でき、初期根だけは源 0 の Type C です。
-`sheath.species.ion` が選ぶ粒子種の `distribution.number_density_m3` は無限遠の太陽風密度です。`sheath.species.electron` にも同じ値を書きます（違えば設定エラー）。電子の流入は、Zhao 根が無限遠の準中性から解いた上流電子 Maxwellian 密度で注入します（[reservoir の密度](ZhaoStationaryClosure.html#上流電子密度で電子を入れる)）。PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
+`sheath.species.ion` が選ぶ粒子種の `distribution.number_density_m3` は無限遠の太陽風密度です。`sheath.species.electron` にも同じ値を書きます（違えば設定エラー）。電子の流入は、Zhao 根が無限遠の準中性から解いた上流電子 Maxwellian 密度で注入します（[reservoir の密度](../models/ZhaoStationaryClosure.md#上流電子密度で電子を入れる)）。PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
 
 split `[fields.periodic]` では z-high 面の水平平均電位を外部シースの壁電位 $\phi_0$ に固定し、x/y 周期では外部障壁で
 戻る粒子をセル内の一様な位置へ戻します。`outflow_refresh_batches>0` は外部根を観測 PE + SEE 流出から準定常に解き直す
 弱連成です。box 外の過渡シースは解きません。電流・障壁・PE return・更新の定義と出力は
-[Zhao closure](ZhaoStationaryClosure.html)を参照してください。`sheath.closure="none"` では `sheath.closure` 以外を指定しません。
+[Zhao closure](../models/ZhaoStationaryClosure.md)を参照してください。`sheath.closure="none"` では `sheath.closure` 以外を指定しません。
 
 計算例は `examples/zero_current.toml`、外部根を更新する例は
 `examples/zero_current_refresh.toml` です。
@@ -825,9 +823,9 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
 | `branch` | string | `"auto"` | `auto` / `a` / `b` / `c`。PE なしは `auto` / `c` のみ |
-| `upstream_band_tolerance` | float | `0.0` | 電子の drift がある A/C の根で、上流に接する $E^2<0$ の幅を A は $\lvert\phi_m\rvert$、C は $\lvert\phi_0\rvert$ の何割まで許すか。`0<=x<1`、0 はこの判定を使わない。`sheath.zhao.upstream_field_floor_v_m` と両方 0 なら drift のある A/C を棄却。設定例は幅ではなく場の下限で受理する。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
-| `upstream_field_floor_v_m` | float | `0.0` | 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子の drift がある A/C の根で、上流の帯の内側の場の不足 $\sqrt{-\min E^2}$ がこれ以下なら受理する。太陽風の運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert$（400 km/s、5 nT で約 2 mV/m）が目安。`>=0`、0 はこの判定を使わない。`sheath.zhao.upstream_band_tolerance` と両方 0 なら drift のある A/C を棄却。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
-| `ion_pressure_factor` | float | `1.0` | 外部根のイオン流体（Sana & Mishra 2026）の圧力係数。1 は等温、3 は 1 次元断熱。イオン温度は `sheath.species.ion` の温度。`>0`。太陽風（入口エネルギー約 1 keV）では根への影響は 0.1 mV 以下。[外部シースとの接続](ZhaoStationaryClosure.html#仮定) |
+| `upstream_band_tolerance` | float | `0.0` | 電子の drift がある A/C の根で、上流に接する $E^2<0$ の幅を A は $\lvert\phi_m\rvert$、C は $\lvert\phi_0\rvert$ の何割まで許すか。`0<=x<1`、0 はこの判定を使わない。`sheath.zhao.upstream_field_floor_v_m` と両方 0 なら drift のある A/C を棄却。設定例は幅ではなく場の下限で受理する。[電子の drift と上流の帯](../models/ZhaoUpstreamBand.md) |
+| `upstream_field_floor_v_m` | float | `0.0` | 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子の drift がある A/C の根で、上流の帯の内側の場の不足 $\sqrt{-\min E^2}$ がこれ以下なら受理する。太陽風の運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert$（400 km/s、5 nT で約 2 mV/m）が目安。`>=0`、0 はこの判定を使わない。`sheath.zhao.upstream_band_tolerance` と両方 0 なら drift のある A/C を棄却。[電子の drift と上流の帯](../models/ZhaoUpstreamBand.md) |
+| `ion_pressure_factor` | float | `1.0` | 外部根のイオン流体（Sana & Mishra 2026）の圧力係数。1 は等温、3 は 1 次元断熱。イオン温度は `sheath.species.ion` の温度。`>0`。太陽風（入口エネルギー約 1 keV）では根への影響は 0.1 mV 以下。[外部シースとの接続](../models/ZhaoStationaryClosure.md#仮定) |
 
 #### `[sheath.species]`
 
@@ -860,7 +858,7 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 | `dir` | string | `"outputs/latest"` | 出力先ディレクトリ |
 
 生成条件、列定義、電位の評価規約、外部シース状態、ledger の解釈は
-[出力形式リファレンス](OutputReference.html)を参照してください。
+[出力形式リファレンス](OutputReference.md)を参照してください。
 
 #### `[output.diagnostics]`
 
@@ -912,7 +910,7 @@ group 使用時は、template の `center`、直接 placement キー、`size_mod
 - `scale_from` は `box_x`, `box_y`, `box_z`, `box_min_xy`, `box_max_xy`, `box_min_xyz`, `box_max_xyz` から選びます。
 - `placement_mode="absolute"`、`size_mode="absolute"`、`source.region_mode="absolute"` は直接指定値をそのまま使います。
 
-入力前に[`beach.toml`を作成・検証する](Configuration.html)の `beachx lint` で組合せを確認してください。
+入力前に[`beach.toml`を作成・検証する](../guide/Configuration.md)の `beachx lint` で組合せを確認してください。
 
 ---
 

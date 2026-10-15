@@ -419,7 +419,7 @@ program test_app_config_parser
 
   call test_begin('tutorial_config')
   call default_app_config(cfg)
-  call load_app_config('examples/tutorial_insulator.toml', cfg)
+  call load_app_config('examples/tutorial_electron_beam.toml', cfg)
   call assert_true(trim(cfg%sim%field_solver) == 'direct', 'tutorial field solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'tutorial field boundary mismatch')
   call assert_equal_i32(cfg%n_particle_species, 1_i32, 'tutorial species count mismatch')

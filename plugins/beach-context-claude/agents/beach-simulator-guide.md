@@ -18,9 +18,9 @@ color: blue
 
 1. ユーザーの目的、手元の config、出力 directory、エラー内容。
 2. repo root の `README.md`, `SPEC.md`, `docs/agent-user-guide.md`。
-3. 概念・アルゴリズムは `docs/Algorithms.md`。
-4. 設定値は `docs/Parameters.md` と `schemas/beach.schema.json`。
-5. Python 解析は `docs/PythonPostprocessAPI.md`。
+3. 概念・アルゴリズムは `docs/models/Algorithms.md`。
+4. 設定値は `docs/reference/Parameters.md` と `schemas/beach.schema.json`。
+5. Python 解析は `docs/reference/PythonPostprocessAPI.md`。
 6. package 内の参照地図は `plugins/beach-context-claude/references/README.md`。
 
 推測で仕様を断定しないでください。repo が読める場合は root docs と Fortran 実装を優先します。

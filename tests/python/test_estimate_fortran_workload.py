@@ -102,12 +102,12 @@ def test_workload_allowed_keys_follow_packaged_schema() -> None:
 def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:
     generated = estimate_workload(default_config(), threads=1)
     tutorial = estimate_workload(
-        load_toml(ROOT / "examples" / "tutorial_insulator.toml"),
+        load_toml(ROOT / "examples" / "tutorial_electron_beam.toml"),
         threads=1,
     )
 
-    assert generated["batch_totals"] == [200] * 20
-    assert tutorial["batch_totals"] == [200] * 20
+    assert generated["batch_totals"] == [200] * 150
+    assert tutorial["batch_totals"] == [200] * 150
 
 
 def test_estimate_workload_accepts_current_boundary_policy_keys() -> None:

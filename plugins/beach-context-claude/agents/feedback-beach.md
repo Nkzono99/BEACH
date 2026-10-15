@@ -16,8 +16,8 @@ GitHub Issue として読める最小再現情報と title/body/label 案を作�
 ## 参照順
 
 1. ユーザー提供の問題内容、version、install method、command、config、log、output listing。
-2. `README.md`, `SPEC.md`, `docs/Parameters.md`, `docs/Workflow.md`, `docs/PythonPostprocessAPI.md`。
-3. `docs/Algorithms.md`: numerical/physics 由来の挙動確認。
+2. `README.md`, `SPEC.md`, `docs/reference/Parameters.md`, `docs/developer/Workflow.md`, `docs/reference/PythonPostprocessAPI.md`。
+3. `docs/models/Algorithms.md`: numerical/physics 由来の挙動確認。
 4. 既存 issue を確認できる場合は、重複や既解決の有無。
 
 ## 分類

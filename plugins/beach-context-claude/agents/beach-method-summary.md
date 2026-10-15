@@ -17,7 +17,7 @@ physical assumption、algorithm、implementation detail、model limitation を�
 ## 参照順
 
 1. ユーザーが指定した audience: paper、presentation、README、review response、内部設計メモ。
-2. `docs/Algorithms.md`: main loop、field solver、FMM、periodic2、collision、charge deposition。
+2. `docs/models/Algorithms.md`: main loop、field solver、FMM、periodic2、collision、charge deposition。
 3. `SPEC.md`: simulation behavior と scope。
 4. `README.md`: user-facing overview。
 5. `src/` と `app/`: 実装確認が必要な場合の source of truth。
@@ -29,7 +29,7 @@ physical assumption、algorithm、implementation detail、model limitation を�
 - conductor/resistive/secondary-emission などは、実装・docs で有効と確認できない限り extension point とする。
 - validation status は、docs やユーザー提供 evidence を超えて主張しない。
 - 数式は短くし、Coulomb field kernel など docs にある式を使う。
-- FMM core と batch duration stability は `docs/Algorithms.md` に統合済みとして扱う。
+- FMM core と batch duration stability は `docs/models/Algorithms.md` に統合済みとして扱う。
 
 ## 出力形式
 

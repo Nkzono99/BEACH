@@ -8,6 +8,7 @@ on:
       - "app/**/*.f90"
       - "app/**/*.F90"
       - "docs/**/*.md"
+      - "docs/manuscript/**"
       - "docs/requirements.txt"
       - "docs-site/**"
       - "schemas/**"
@@ -17,6 +18,7 @@ on:
       - "ford.md"
       - "tools/generate_fortran_dependency_report.py"
       - "tools/sync_starlight_docs.py"
+      - "tools/manuscript_to_starlight.py"
       - ".github/workflows/fortran-docs.yml"
   push:
     branches:
@@ -27,6 +29,7 @@ on:
       - "app/**/*.f90"
       - "app/**/*.F90"
       - "docs/**/*.md"
+      - "docs/manuscript/**"
       - "docs/requirements.txt"
       - "docs-site/**"
       - "schemas/**"
@@ -36,6 +39,7 @@ on:
       - "ford.md"
       - "tools/generate_fortran_dependency_report.py"
       - "tools/sync_starlight_docs.py"
+      - "tools/manuscript_to_starlight.py"
       - ".github/workflows/fortran-docs.yml"
   workflow_dispatch:
 
@@ -71,10 +75,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: docs-site/package-lock.json
 
-      - name: Install Graphviz
+      - name: Install Graphviz and TeX
+        # TeX builds the manuscript PDF and its figures for the theory pages.
         run: |
           sudo apt-get update
-          sudo apt-get install -y graphviz
+          sudo apt-get install -y graphviz poppler-utils \
+            texlive-xetex texlive-latex-extra texlive-pictures texlive-lang-cjk \
+            texlive-fonts-recommended tex-gyre fonts-noto-cjk
 
       - name: Install doc dependencies
         run: |

@@ -1,1 +1,2 @@
 ford~=7.0
+pypandoc-binary==1.17

@@ -43,3 +43,23 @@
   font-family: var(--__sl-font-mono);
   font-size: 0.85rem;
 }
+
+/* Figures generated from the manuscript are dark ink on a transparent background. */
+.sl-markdown-content .theory-figure {
+  margin-block: 1.5rem;
+}
+
+.sl-markdown-content .theory-figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #ffffff;
+}
+
+.sl-markdown-content .theory-figure figcaption {
+  font-size: 0.92rem;
+  color: var(--sl-color-gray-2);
+}

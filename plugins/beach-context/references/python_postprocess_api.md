@@ -1,14 +1,12 @@
 title: Python 後処理 API リファレンス
 
-Lang: [日本語](PythonPostprocessAPI.md) | [English](PythonPostprocessAPI.en.md)
-
 # Python 後処理 API リファレンス
 
 BEACHのPython package (`beach`) は、Fortranシミュレーションの結果を読み込み、解析・可視化するための後処理レイヤです。
 `summary.txt`、`charges.csv`、`mesh_triangles.csv`などを読み込み、電位の再構成、Coulomb力と電場の計算、
 電気力線の追跡、3D可視化を行います。
 
-最初の図を作る手順は [後処理チュートリアル](PostprocessTutorial.html) にまとめています。
+最初の図を作る手順は [後処理チュートリアル](../guide/PostprocessTutorial.md) にまとめています。
 
 ## 1. パッケージ構成
 
@@ -136,7 +134,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 
 `MatchingPlaneState`はセル平均電荷$D_H$、壁電位$\Phi_H=\phi_0$、流入束、外部の放出源、PE return / escape、
 採用した外部根の数、直前の更新での相対変化を名前付きfieldで保持します。各fieldの意味は
-[出力形式リファレンス](OutputReference.html#zhao_stationary)を参照してください。`MatchingPlaneHistoryEntry`は`batch`、`simulated_time_s`と、その時点の
+[出力形式リファレンス](OutputReference.md#zhao_stationary)を参照してください。`MatchingPlaneHistoryEntry`は`batch`、`simulated_time_s`と、その時点の
 `state: MatchingPlaneState`を保持します。`matching_plane_history.csv`がheaderだけなら履歴は空tuple `()`です。
 このため、`None`は「履歴ファイルがない、または有効な外部状態ではない」、空tupleは
 「有効なstateだが記録行がない」と区別できます。

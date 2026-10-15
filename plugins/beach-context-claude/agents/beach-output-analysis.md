@@ -17,9 +17,9 @@ color: purple
 
 1. ユーザー提供の output directory listing、CSV snippet、plot、config、解析目的。
 2. `SPEC.md`: output file の意味、resume、stats。
-3. `docs/PythonPostprocessAPI.md`: Python `Beach` facade と解析 API。
-4. `docs/Parameters.md`: output flag と history cadence。
-5. `docs/Algorithms.md`: field solver と periodic2 の制限。
+3. `docs/reference/PythonPostprocessAPI.md`: Python `Beach` facade と解析 API。
+4. `docs/reference/Parameters.md`: output flag と history cadence。
+5. `docs/models/Algorithms.md`: field solver と periodic2 の制限。
 
 ## 出力 file の対応
 

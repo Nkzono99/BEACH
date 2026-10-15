@@ -12,5 +12,5 @@ argument-hint: "<beach.toml path or snippet>"
 - `fields.solver.method` ごとの有効 parameter
 - output size と workload risk
 
-参照は `docs/Parameters.md`, `schemas/beach.schema.json`, `SPEC.md`, `docs/Algorithms.md` を優先してください。
+参照は `docs/reference/Parameters.md`, `schemas/beach.schema.json`, `SPEC.md`, `docs/models/Algorithms.md` を優先してください。
 KUDPC login node では simulation や重い test は直接実行しないでください。

@@ -14,7 +14,7 @@ abstracts, a table of contents, equations, 20 figures, a list of figures, and re
 3. P0 triangular sources, analytic integration, self terms, and one-sided fields
 4. Direct, treecode, Cartesian FMM, and two-periodic Ewald/zero-mode fields
 5. Same-time Boris updates, collisions, box boundaries, and periodic images
-6. Boundary inflow, velocity distributions, and ray-based photoelectron emission
+6. Boundary inflow, velocity distributions, ray-based photoelectron emission, and secondary electron emission on absorption
 7. Charge budgets, return closure, floating conductors, and batch stability
 8. Outer-sheath model and its connection to the top face (assumptions, orbits and populations, derived densities and fluxes, first integral of Poisson's equation and Types A, B, and C, closures, admissibility, numerical algorithms, numerical examples, closure conditions and type choice, electron drift and field floor, top-face mapping, outer-root refresh)
 9. Verification, convergence, Monte Carlo errors, and reproducibility
@@ -81,18 +81,18 @@ Origins of the methods are given by citations. The correspondence to the impleme
 
 | Chapter | Main implementation and documents |
 | --- | --- |
-| 2 Computation cycle | `src/runtime/simulator/bem_simulator_loop.f90`, `docs/Algorithms.md` |
-| 3 Triangle fields | `src/physics/field_solver/panel/bem_panel_kernel.f90`, `src/physics/field_solver/panel/bem_panel_self_terms.f90`, `docs/DirectSolver.md` |
-| 4 Treecode and FMM | `docs/Treecode.md`, `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90`, `docs/FMMCore.md` |
-| 4 Periodic far field | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`, `docs/PeriodicFarCorrection.md` |
-| 4 Zero mode | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90`, `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90`, `docs/PeriodicElectrostatics.md` |
-| 5 Particle integration and collisions | `src/physics/bem_pusher.f90`, `src/physics/bem_collision.f90`, `src/runtime/simulator/bem_particle_stepper.f90`, `docs/BorisPusher.md`, `docs/ParticleEvents.md` |
-| 6 Inflow and photoelectrons | `src/particles/injection/bem_injection_flux.f90`, `src/particles/injection/bem_photoelectron_injection.f90`, `docs/ParticleSourcesBoundaries.md`, `docs/PhotoelectronEmission.md` |
-| 7 Charge update and conductors | `src/physics/bem_surface_models_conductor.f90`, `docs/SurfaceChargeNumerics.md`, `docs/BatchDurationTheory.md` |
+| 2 Computation cycle | `src/runtime/simulator/bem_simulator_loop.f90`, `docs/models/Algorithms.md` |
+| 3 Triangle fields | `src/physics/field_solver/panel/bem_panel_kernel.f90`, `src/physics/field_solver/panel/bem_panel_self_terms.f90`, `docs/developer/DirectSolver.md` |
+| 4 Treecode and FMM | `docs/developer/Treecode.md`, `src/physics/field_solver/fmm/api/bem_coulomb_fmm_core.f90`, `docs/developer/FMMCore.md` |
+| 4 Periodic far field | `src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`, `docs/developer/PeriodicFarCorrection.md` |
+| 4 Zero mode | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90`, `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90`, `docs/models/PeriodicElectrostatics.md` |
+| 5 Particle integration and collisions | `src/physics/bem_pusher.f90`, `src/physics/bem_collision.f90`, `src/runtime/simulator/bem_particle_stepper.f90`, `docs/models/BorisPusher.md`, `docs/developer/ParticleEvents.md` |
+| 6 Inflow and electron emission | `src/particles/injection/bem_injection_flux.f90`, `src/particles/injection/bem_photoelectron_injection.f90`, `src/particles/bem_secondary_emission.f90`, `src/runtime/simulator/bem_simulator_particles.f90`, `docs/guide/ParticleSourcesBoundaries.md`, `docs/models/PhotoelectronEmission.md` |
+| 7 Charge update and conductors | `src/physics/bem_surface_models_conductor.f90`, `docs/developer/SurfaceChargeNumerics.md`, `docs/models/BatchDurationTheory.md` |
 | 8 Outer-sheath model | sheath-model (commit pinned in `fpm.toml`): `docs/kinetic-model.md`, `docs/algorithm.md`, `docs/spectral-api.md`, `src/internal/sheath_model_admissibility.f90`, `src/sheath_model_photoelectrons.f90`, `sheath_model/_physics.py`, `sheath_model/_profile.py`, `sheath_model/search.py` |
-| 8 Top-face connection | `src/runtime/sheath/bem_surface_current_model.f90`, `src/runtime/sheath/bem_zhao_outflow_refresh.f90`, `docs/ZhaoStationaryClosure.md`, `docs/ZhaoUpstreamBand.md` |
-| 9 Verification | `docs/ValidationGuide.md`, `docs/PhysicsReleaseVerification.md`, `docs/BatchDurationStability.md` |
-| 10 Forces and detachment | `docs/ObjectForcesDetachment.md`, `docs/PythonPostprocessAPI.md` |
+| 8 Top-face connection | `src/runtime/sheath/bem_surface_current_model.f90`, `src/runtime/sheath/bem_zhao_outflow_refresh.f90`, `docs/models/ZhaoStationaryClosure.md`, `docs/models/ZhaoUpstreamBand.md` |
+| 9 Verification | `docs/guide/ValidationGuide.md`, `docs/developer/PhysicsReleaseVerification.md`, `docs/guide/BatchDurationStability.md` |
+| 10 Forces and detachment | `docs/guide/ObjectForcesDetachment.md`, `docs/reference/PythonPostprocessAPI.md` |
 
 ## Build the PDF
 

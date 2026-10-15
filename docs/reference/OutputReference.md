@@ -1,0 +1,461 @@
+title: 出力形式リファレンス
+
+# 出力形式リファレンス
+
+BEACH の出力について、**どのファイルが生成されるか、どの列・receipt を読めばよいか、再開に何が必要か**を
+調べるためのリファレンスです。receipt は、入力値そのものではなく、実行時に解決された設定や状態を
+`summary.txt` に `key=value` 形式で残した記録です。
+
+初めて結果を確認する場合は、先に[出力ファイルを調べる](../guide/OutputGuide.md)の手順を実行してください。
+ファイル生成条件の機械可読な正本は `schemas/beach.output-manifest.json` です。
+
+## ファイル生成条件
+
+各行に、そのファイルの生成条件、形式、用途、reader または再開での役割をまとめています。複雑なファイルは
+リンク先で同じ情報を再掲してから、列や判定規則を展開します。
+
+| ファイル | 生成条件 | 形式と用途 | Python reader / 再開 |
+| --- | --- | --- | --- |
+| `summary.txt` | `output.enabled=true` | `key=value` receipt。[完了判定と主要 key](#構成固有の値を探す) | `FortranRunResult` の各属性。再開に必須 |
+| `charges.csv` | `output.enabled=true` | `elem_idx`, `charge_C`。要素ごとの最終 signed charge | `result.charges`。再開に必須 |
+| `mesh_triangles.csv` | `output.enabled=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`。再開には不使用 |
+| `mesh_sources.csv` | OBJ または template mesh で `output.enabled=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`。再開には不使用 |
+| `mesh_potential.csv` | `output.enabled=true` かつ `output.final.mesh_potential=true` | `elem_idx`, `potential_V`。[電位の構成](#mesh-電位) | `result.mesh_potential_v`。再開には不使用 |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | `FortranRunResult` 専用属性なし。CSV を直接読む |
+| `matching_plane_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [19 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
+| `matching_plane_spectrum_history.csv` | `matching_plane_history.csv` と同じ | [外部源スペクトル](#zhao_stationary)の正の bin ごとに `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
+| `fixed_current_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、`zhao_stationary` または `charging.closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
+| `secondary_emission_history.csv` | 出力有効、SEE 有効な入射種あり。受理バッチごと | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`。再開には不使用 |
+| `charge_ledger.csv` | `output.enabled=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.enabled=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
+| `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
+| `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
+| `checkpoint_latest.txt` | `output.enabled=true` かつ `output.checkpoint.stride_batches>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
+| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`。再開には不使用 |
+
+Python reader の必須入力は `summary.txt` と `charges.csv` です。他のファイルは設定または runtime state に
+応じて省略されます。
+
+## 構成固有の値を探す
+
+`summary.txt` は `output.enabled=true` で生成される `key=value` ファイルです。
+
+`load_fortran_result(...)` は主要値を `FortranRunResult` の属性へ変換し、型付きでない receipt は
+`beach.summary.load_summary_file(...)` から読めます。
+
+### 完了判定
+
+実行完了と checkpoint の完全性は別の条件です。
+
+| 確認対象 | 条件 | この条件が保証しないこと |
+| --- | --- | --- |
+| 要求した batch の完了 | `summary.txt` の `batches == run.batch_count` | 数値収束や物理的妥当性 |
+| schema v8 以降の checkpoint 完全性 | `checkpoint_complete.txt` が `state=complete` で、manifest と必須ファイルが整合する | `run.batch_count` までの実行完了 |
+| Python reader での読込成功 | `summary.txt` と `charges.csv` が reader 契約を満たす | checkpoint 完全性や物理的妥当性 |
+
+`checkpoint_complete.txt` は書き込み transaction の完了を示す manifest です。途中の periodic checkpoint も
+`state=complete` になり得るため、実行目標の到達判定には使いません。数値・物理的な受理条件は
+[計算結果の妥当性確認](../guide/ValidationGuide.md)を参照してください。現行 schema の正常終了出力として扱うには、
+表の最初の 2 条件を両方確認します。
+
+### `summary.txt` の共通 receipt
+
+以下は結果の読解と再開判断に使う主要 receipt です。`summary.txt` のすべての内部診断 key を固定 API として
+列挙する節ではありません。全 producer は [`bem_output_writer.f90`](../../src/runtime/bem_output_writer.f90)、
+Python が型付き属性へ変換する key は [`io.py`](../../beach/fortran_results/io.py)を正本とします。
+
+| receipt | 内容 |
+| --- | --- |
+| `mesh_nelem`, `mesh_count`, `mpi_world_size` | mesh と MPI 構成 |
+| `batches`, `processed_particles`, `absorbed`, `escaped`, `escaped_boundary`, `survived_max_step` | 実行量と主要な粒子 outcome |
+| `simulated_time_s`, `last_rel_change` | 受理済みの模擬時間と最終相対変化。`last_rel_change` は早期停止条件ではない |
+| `checkpoint_schema_version`, `checkpoint_stride` | checkpoint の形式世代と解決済み出力間隔 |
+| `mesh_fingerprint` | 保存電荷を要素へ対応付けるための ordered mesh 識別子 |
+| `reservoir_inflow_map` | 解決済み reservoir 流入モデル |
+
+build receipt は次の 5 key です。
+
+| receipt | 内容 |
+| --- | --- |
+| `build_info_schema_version` | build receipt の schema |
+| `build_version` | BEACH version |
+| `build_version_mode` | version の解決方法 |
+| `build_source_commit` | source commit |
+| `build_id` | build 識別子 |
+
+複数回の box 境界 event は次の 5 key で診断します。
+
+| receipt | 内容 |
+| --- | --- |
+| `multiple_box_events_retry_attempted` | retry を試した粒子数 |
+| `multiple_box_events_retry_resolved` | retry で解決した粒子数 |
+| `multiple_box_events_soft_discarded` | soft-discard した粒子数 |
+| `multiple_box_events_soft_discard_fraction` | `processed_particles` に対する soft-discard の割合 |
+| `multiple_box_events_soft_discarded_abs_charge_C` | soft-discard した絶対電荷の総量 [C] |
+
+### 場と境界の receipt
+
+field-reconstruction schema v2 は、Python で実行時と同じ電場を再構成するための receipt です。新しい出力では、
+近くに置かれた `beach.toml` から推測せず、`result.field_reconstruction` を使います。
+
+| receipt | 内容 |
+| --- | --- |
+| `field_reconstruction_schema_version` | field-reconstruction receipt の schema。現行値は 2 |
+| `field_reconstruction_resolved_field_solver` | 実際に選ばれた `direct` / `treecode` / `fmm` |
+| `field_reconstruction_fmm_expansion_order` | FMM 展開次数。schema v2 では上の key とともに必須 |
+| `field_reconstruction_field_bc_mode` | 解決済みの `free` / `periodic2` |
+| `field_reconstruction_e0_V_m` | 解決済みの一様外部電場 `E0` |
+| `field_reconstruction_use_box`, `field_reconstruction_box_min_m`, `field_reconstruction_box_max_m` | box の有無と範囲 |
+| `field_reconstruction_boundary_low`, `field_reconstruction_boundary_high` | 6 面の解決済み境界 |
+| `field_reconstruction_tree_theta`, `field_reconstruction_tree_leaf_max` | 実行時に使った tree 設定 |
+
+periodic field の key は次のとおりです。物理的な意味と solver の選択は
+[periodic2 の電場モデル](../models/PeriodicElectrostatics.md)を参照してください。
+
+| receipt | 内容 |
+| --- | --- |
+| `field_reconstruction_periodic_image_layers` | 近傍 image shell 数 |
+| `field_reconstruction_periodic_far_correction` | far-correction model |
+| `field_reconstruction_periodic_nonzero_mode_backend` | 非零 mode backend |
+| `field_reconstruction_periodic_zero_mode_policy` | zero-mode policy |
+| `field_reconstruction_periodic_lower_boundary_model` | lower-boundary model |
+| `field_reconstruction_periodic_reference_mode_layers` | reference 非零 mode の image layers |
+| `field_reconstruction_periodic_panel_quadrature_order` | panel quadrature order |
+| `field_reconstruction_periodic_ewald_alpha` | Ewald splitting parameter |
+| `field_reconstruction_periodic_ewald_layers` | Ewald layer 数 |
+| `field_reconstruction_periodic_cache_dir` | operator cache directory |
+| `field_reconstruction_periodic_generation_tolerance` | operator 生成 tolerance |
+
+### `zhao_stationary`
+
+`[sheath]` で選ぶ物理モデル、Type A/B/C、適用限界は
+[Zhao stationary closure](../models/ZhaoStationaryClosure.md)を参照してください。
+この節は receipt の読み方だけを定義します。
+
+| receipt | 読み方 |
+| --- | --- |
+| `surface_current_model`, `surface_current_model_zhao_branch` | 選択された model と初期根の branch |
+| `surface_current_model_outflow_refresh_batches` | 外部根を解き直す accepted batch 間隔。0 は初期根を固定 |
+| `surface_current_model_dynamic_state_source` | `initial_root` なら下表が run 中の値。`matching_plane_state_outflow_refresh` なら現在の外部状態は `matching_plane_*` |
+| `surface_current_model_outer_return_position` | 外部障壁で戻る粒子の位置。`cell_uniform` は z-high 面内一様、`crossing_point` は横切り位置 |
+| `surface_current_model_kinetic_contract` | Zhao 電流と対になる速度空間境界写像の契約 |
+| `surface_current_model_photoelectron_active` | PE channel の有無。false なら PE 関連 receipt は 0 |
+| `surface_current_model_reference_area_m2` | 電流 target の参照面積 |
+| `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` | 解かれた表面電位と極小電位 |
+| `surface_current_model_upstream_negative_band_V` | 上流に接する $E^2<0$ の電位幅 [V]。電子の drift がある A/C の根を `sheath.zhao.upstream_band_tolerance` または `sheath.zhao.upstream_field_floor_v_m` で受理したときだけ 0 より大きい |
+| `surface_current_model_upstream_field_deficit_V_m` | その帯の内側の場の不足 $\sqrt{-\min E^2}$ [V/m]。上流プラズマが供給しなければならない外部の場で、`sheath.zhao.upstream_field_floor_v_m` と比べる |
+| `surface_current_model_ambient_electron_density_m3` | 解かれた上流電子 Maxwellian の密度。z-high の電子流入はこの密度で注入する |
+| `surface_current_model_electron_current_density_A_m2`, `surface_current_model_ion_current_density_A_m2` | signed electron / ion 電流密度 |
+| `surface_current_model_pe_emission_current_density_A_m2`, `surface_current_model_pe_escape_current_density_A_m2`, `surface_current_model_pe_return_current_density_A_m2` | signed PE 電流密度。emission と escape は正、return は負 |
+| `surface_current_model_pe_escape_particle_current_A` | 外向き PE 粒子が運ぶ signed 電流なので負 |
+| `surface_current_model_net_current_density_A_m2` | 全 channel の表面正味電流密度 |
+| `surface_current_model_pe_budget_residual_current_density_A_m2` | PE の emission-return-escape 連続条件の残差 |
+| `surface_current_model_surface_budget_residual_current_density_A_m2` | 表面定常電流の残差 |
+| `surface_current_model_electron_inflow_reservoir_potential_V`, `surface_current_model_electron_inflow_access_potential_V`, `surface_current_model_electron_inflow_face` | electron inflow の reservoir、access potential、face |
+| `surface_current_model_pe_outflow_barrier_potential_V`, `surface_current_model_pe_outflow_barrier_face` | PE outflow barrier の電位と face。PE inactive では 0 |
+
+face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
+
+`surface_current_model_*` の電位・電流は初期根の値です。`outflow_refresh_batches>0` では、現在の外部根を
+`summary.txt` の `matching_plane_*` と `matching_plane_history.csv` で読みます。
+
+| 項目 | `matching_plane_history.csv` の契約 |
+| --- | --- |
+| 生成条件 | `output.enabled=true`、`output.history.stride_batches>0`、`sheath.closure="zero_current"`、`outflow_refresh_batches>0` |
+| 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 17 状態列。全体で 19 列 |
+| 時刻 | その batch の電荷 commit と外部根の更新を終えた後の状態。次の batch はこの外部根を使う |
+| Python | `result.matching_plane_history`。最後の状態は `result.matching_plane_state` |
+| 再開 | CSV 自体は使わない。最後の状態を `summary.txt` に保存し、再開時は放出源（スペクトル）から外部根を再構成する |
+
+| `summary.txt` の receipt | `matching_plane_history.csv` の列 | 意味 |
+| --- | --- | --- |
+| `matching_plane_displacement_C_m2` | `D_H_C_m2` | 確定後のセル総電荷 / 面積。零電流 target が保つ平均電荷の確認値 |
+| `matching_plane_phi_V` | `phi_H_V` | 外部根の壁電位 $\phi_0$。z-high 面平均電位の基準 |
+| `matching_plane_electron_inward_flux_m2_s`, `matching_plane_ion_inward_flux_m2_s` | `electron_inward_flux_m2_s`, `ion_inward_flux_m2_s` | 外部根の electron / ion 吸収 target の数束 |
+| `matching_plane_electron_access_potential_V`, `matching_plane_photoelectron_barrier_potential_V` | `electron_access_potential_V`, `photoelectron_barrier_potential_V` | Type A では $\phi_m$、Type B / C では 0 |
+| `matching_plane_ion_access_potential_V` | `ion_access_potential_V` | 常に 0 |
+| `matching_plane_photoelectron_outward_flux_m2_s`, `matching_plane_photoelectron_mean_normal_energy_eV` | `photoelectron_outward_flux_m2_s`, `photoelectron_mean_normal_energy_eV` | 外部根の放出源の束と平均法線エネルギー。初期根では表面放出、更新後は窓の観測流出 |
+| `matching_plane_photoelectron_spectrum_m2_s` | `matching_plane_spectrum_history.csv` | 外部根の放出源の法線運動エネルギー別の束。145 個の値を空白区切りで 1 行に書く。全て 0 なら放出源は表面放出の半 Maxwell 分布（初期根）、正の値があれば合計が `matching_plane_photoelectron_outward_flux_m2_s` に等しい |
+| `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
+| `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
+| `matching_plane_secondary_share` | `secondary_share` | 直近の観測窓における合算流出束の SEE 割合。SEE なしなら 0 |
+| `secondary_budget_residual_a_m2` | `secondary_budget_residual_a_m2` | 追跡 SEE 脱出帯電電流 − 外部根の脱出電流 × `secondary_share` [A/m²]。暫定 Phase 1 では 0 に拘束しない |
+| `matching_plane_iterations` | `iterations` | 採用した外部根の数。初期根を 1 と数える |
+| `matching_plane_residual` | `residual` | 直前の更新での放出源の最大相対変化。弱連成の固定点に近づくと小さくなる |
+
+`matching_plane_state_valid=F` の summary にある状態 receipt は使えません。放出源の収支は
+`photoelectron_outward_flux_m2_s = photoelectron_return_flux_m2_s + photoelectron_escape_flux_m2_s` を満たします。
+
+スペクトルの bin `j` は、`j=1` が $[0, 1\,\text{meV})$、`j=2..145` が 1 meV から 1 keV までを 1 桁 24 個に分けた対数 bin で、
+境界は $10^{-3}\cdot10^{(j-2)/24}$ eV です。1 keV 以上は最後の bin に数えます。`matching_plane_spectrum_history.csv` は
+外部根を更新した batch ごとに、その更新で採用した源の正の bin を 1 行ずつ書きます。間隔は `output.history.stride_batches` によりません。
+根が見つからずに直前の根を保った更新では書きません。
+
+明示的な split `[fields.periodic]` では z-high 面平均電位を $\phi_0$ に固定するため、`potential_history.csv` と
+`mesh_potential.csv` の電位は上流プラズマ 0 V 基準です。粒子間の電位差は外部根に依存しませんが、
+絶対値は $\phi_0$ を通じて外部モデルの branch と近似に依存します。
+
+`matching_plane_photoelectron_*` という名前は PE + SEE の合算源・スペクトル・外部根の帰還／脱出束を表します。
+PE の設定放出量は PE だけの値です。新しい履歴は 19 列です。公開済みの 17 列履歴の読込は期限を設けず維持し、
+再開時には旧行へ SEE の 0 値の 2 列を加えて原子的に置き換えてから、新行を追加します。
+
+### 二次電子放出の診断
+
+| ファイル／キー | 意味 |
+|---|---|
+| `secondary_emission_history.csv` | SEE 有効な入射種ごと、受理バッチごとに rank 合計の 1 行。履歴間隔とは独立 |
+| `hits`, `emitted_count` | SEE 有効なマクロ粒子命中数と実際の放出マクロ個数 |
+| `emitted_charge_c` | 放出粒子が運ぶ signed 電荷 [C]、負。反作用電荷は逆符号 |
+| `mean_yield` | モデル収率の和／命中数。世代上限の命中も含み、命中なしは 0 |
+| `generation_capped_count` | 世代上限で抑えた放出予定マクロ個数。その反作用電荷は置かない |
+| `secondary_incident_species_<index>`, `particles.secondary_emission.max_generations` | 有効な入射種と世代上限 |
+| `secondary_emission_hits`, `secondary_emission_count`, `secondary_emitted_charge_C` | summary の累積命中数・放出個数・signed 放出電荷 |
+| `secondary_yield_sum`, `secondary_mean_yield`, `secondary_generation_capped_count` | summary の累積収率和・命中平均収率・抑えた個数 |
+
+既存の種別 ledger の `emitted_from_surface_C`、`absorbed_on_surface_C`、`escaped_to_infinity_C` で SEE の移送を確認できます。
+個数・電荷・収率和は再開時に引き継ぎます。SEE の飛行状態と途中の更新窓は保存しません。
+
+## 履歴
+
+| ファイル | 生成条件 | 列と解釈 | Python |
+| --- | --- | --- | --- |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V` | 専用属性なし。CSV を直接読む |
+| `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [19 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
+| `matching_plane_spectrum_history.csv` | 外部根の更新があり、stride 有効。外部根を更新した batch ごと | [bin ごとの外部源スペクトル](#zhao_stationary) | 専用属性なし。CSV を直接読む |
+| `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | 専用属性なし。CSV を直接読む |
+
+`top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。
+要素相対電位は同じ batch の `potential_history.csv` と結合し、
+`potential_V - potential_mean_V` として求めます。
+
+外部根を更新した run では `result.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
+手作業で管理せず typed receipt として参照できます。
+
+### 固定電流の倍率
+
+固定電流 closure は、粒子追跡で得た species 別の合計電荷を目標値へ一律の倍率で合わせます。
+`fixed_current_history.csv` は、その追跡値と目標値を history の書き出し間隔ごとに合計して記録します。
+`charge_ledger.csv` の倍率は run 全体の累積値なので、時間変化はこのファイルで読みます。
+
+| 列 | 意味 |
+| --- | --- |
+| `batch`, `simulated_time_s` | 窓の最後の accepted batch と、その後の模擬時刻 |
+| `window_batches` | 窓に含まれる accepted batch 数。通常は `output.history.stride_batches`、run の最初と再開直後は短い |
+| `species_idx` | 1 始まりの species index |
+| `channel` | `absorbed`、`emission`、`escape`。窓内で target を適用した channel だけを書く |
+| `tracked_charge_C` | 粒子追跡で得た signed charge の窓合計 [C]。emission は表面へ残る電荷 |
+| `target_charge_C` | 外部 closure の目標 signed charge の窓合計 [C] |
+| `target_over_tracked` | `target_charge_C / tracked_charge_C`。追跡値が 0 なら `nan` |
+
+`absorbed` と `emission` の `target_over_tracked` は、その窓で標本の weight に掛けた倍率の平均です。
+`escape` は表面電荷に反映せず、目標と追跡の差を ledger の補正として記録します。
+外部モデルとセル内の追跡が整合していれば、どの channel も MC 雑音の範囲で 1 になります。
+種ごとに 1 から系統的にずれる場合、固定電流は追跡と異なる電流の配分を課しています。
+
+## mesh 電位
+
+| 項目 | `mesh_potential.csv` の契約 |
+| --- | --- |
+| 生成条件 | `output.enabled=true` かつ `output.final.mesh_potential=true` |
+| 列 | `elem_idx`, `potential_V` |
+| 解釈 | 各要素重心の電位 [V] |
+| Python | `result.mesh_potential_v` |
+| 再開 | 使用しない |
+
+| field model | 電位へ含める項 |
+| --- | --- |
+| 共通 | 自己項を解析的 P0 triangle panel kernel で評価 |
+| finite periodic2 | 指定された image shell を加算 |
+| `cached_kneq0` | cached 非零 mode と設定された物理的 zero mode を合成 |
+
+## charge ledger
+
+| 項目 | `charge_ledger.csv` の契約 |
+| --- | --- |
+| 生成条件 | `output.enabled=true` かつ charge ledger state あり |
+| 1 行 | 1 species の signed charge、補正、weight、粒子数。全 25 列を下表に示す |
+| Python | `result.charge_ledger` の `ChargeLedgerEntry` |
+| 再開 | `summary.txt` に ledger metadata がある場合は必須 |
+
+列順は次のとおりです。
+
+| 列 | 意味 |
+| --- | --- |
+| `batch` | ledger state が対応する batch |
+| `species_idx` | 1 始まりの species index |
+| `injected_from_remote_C` | 外部から注入された signed charge [C] |
+| `emitted_from_surface_C` | 表面から放出された signed charge [C] |
+| `absorbed_on_surface_C` | 表面へ吸収された signed charge [C] |
+| `escaped_to_infinity_C` | 軌道追跡で得た raw escape charge [C] |
+| `discarded_unresolved_C` | 未解決 discard の signed charge [C] |
+| `neutral_return_correction_C` | closed PE の neutral-return 補正 [C] |
+| `neutral_return_weight_scale` | neutral-return に使った weight scale |
+| `neutral_return_unresolved_fraction` | neutral-return の未解決率 |
+| `fixed_absorbed_target_charge_C` | fixed-current の吸収 target [C] |
+| `fixed_absorbed_weight_scale` | 吸収標本へ適用した weight scale |
+| `fixed_emission_target_charge_C` | fixed-current の放出 target [C] |
+| `fixed_emission_weight_scale` | 放出標本へ適用した weight scale |
+| `fixed_current_correction_C` | 外部 closure が表面電荷へ加えた補正 [C] |
+| `fixed_absorbed_applied_charge_C` | 吸収 target と同値の互換 alias |
+| `fixed_emission_applied_charge_C` | 放出 target と同値の互換 alias |
+| `fixed_escape_target_charge_C` | 外部 escape target [C] |
+| `fixed_escape_applied_charge_C` | escape target と同値の互換 alias |
+| `fixed_escape_correction_C` | target と raw escape の差 [C] |
+| `injected_count` | 注入したマクロ粒子数 |
+| `emitted_count` | 表面から放出したマクロ粒子数 |
+| `absorbed_count` | 表面へ吸収したマクロ粒子数 |
+| `escaped_count` | escape したマクロ粒子数 |
+| `discarded_unresolved_count` | 未解決 discard のマクロ粒子数 |
+
+### `summary.txt` の companion receipt
+
+| receipt | 内容 |
+| --- | --- |
+| `charge_ledger_nspecies`, `charge_ledger_batch_count` | ledger の species 数と batch |
+| `charge_ledger_surface_charge_before_C`, `charge_ledger_surface_charge_after_C` | 表面電荷 stock の更新前後 |
+| `charge_ledger_local_flight_charge_before_C`, `charge_ledger_local_flight_charge_after_C` | local-flight stock の更新前後 |
+| `charge_ledger_unresolved_stock_before_C`, `charge_ledger_unresolved_stock_after_C` | unresolved stock の更新前後 |
+| `charge_ledger_residual_C`, `charge_ledger_discarded_unresolved_abs_C` | 保存残差と unresolved 絶対電荷 |
+| `charge_ledger_neutral_return_correction_C`, `charge_ledger_fixed_current_correction_C` | closure 補正の合計 |
+| `charge_ledger_fixed_absorbed_applied_charge_C`, `charge_ledger_fixed_emission_applied_charge_C` | 表面 fixed-current target の合計 |
+| `charge_ledger_raw_escape_charge_C`, `charge_ledger_fixed_escape_target_charge_C`, `charge_ledger_fixed_escape_applied_charge_C`, `charge_ledger_fixed_escape_correction_C` | raw escape、target、互換 alias、補正 |
+| `charge_ledger_fixed_applied_surface_net_charge_C` | fixed-current が表面へ適用した正味電荷 |
+| `charge_ledger_fixed_pe_continuity_residual_C` | PE active 時の fixed PE 連続条件残差 |
+
+### 判定規則
+
+| 確認対象 | 一緒に読む値 | 判定上の注意 |
+| --- | --- | --- |
+| 外部 escape | `escaped_to_infinity_C`, `fixed_escape_target_charge_C`, `fixed_escape_correction_C` | raw trajectory 値は上書きされない。escape 補正は表面要素へ deposit されない |
+| 保存残差 | `charge_ledger_residual_C` と上表の surface / local-flight / unresolved の before / after | stock、外部 flux、neutral-return、fixed-current の補正を含む |
+| `fixed_current` の標本分散 | `absorbed_count`, `emitted_count`, raw charge, `fixed_absorbed_weight_scale`, `fixed_emission_weight_scale` | count が 1 なら target 全量が 1 標本の要素へ局所化される |
+| closed PE | raw absorption、unresolved 値、`neutral_return_correction_C`, `neutral_return_unresolved_fraction` | 総電荷が閉じても未解決率は別に確認する |
+
+既存 reader 向けの出力 alias と、内部 ledger が保持する同値の target は次の対応です。
+
+| 出力 alias | 内部 target |
+| --- | --- |
+| `fixed_absorbed_applied_charge_C` | `fixed_absorbed_target_charge_C` |
+| `fixed_emission_applied_charge_C` | `fixed_emission_target_charge_C` |
+| `fixed_escape_applied_charge_C` | `fixed_escape_target_charge_C` |
+
+小さい保存残差は要素別の標本収束を保証しません。粒子数、ray 数、batch 幅、乱数 seed を変えた電荷分布の
+収束を別に確認してください。基本的な照合手順は
+[charge ledger を確認する](../guide/OutputGuide.md#charge-ledger)にあります。
+
+## 適応 batch の診断
+
+`run.batch.adaptive.max_nonzero_mode_potential_step_v > 0` の場合、次の receipt を `summary.txt` に記録します。
+
+| receipt | 内容 |
+| --- | --- |
+| `simulated_time_s` | accepted trial までの模擬時間 |
+| `periodic2_max_nonzero_mode_potential_step_V` | 設定した非零 mode 電位変化上限 |
+| `adaptive_nonzero_mode_rejected_trials` | 棄却した trial の累積数 |
+| `adaptive_nonzero_mode_last_batch_duration_s` | 最終 accepted batch の duration |
+| `adaptive_nonzero_mode_last_potential_step_V` | 最終 accepted batch の非零 mode 電位変化 |
+| `adaptive_nonzero_mode_omp_threads` | adaptive restart で固定する OpenMP thread 数 |
+
+棄却 trial は履歴や ledger へ出力されません。
+
+## 再開に使うファイル
+
+`output.checkpoint.stride_batches > 0` では、accepted batch の commit 後に次の構造を更新します。
+`output.checkpoint.stride_batches=0` でも、正常終了時の最終 checkpoint は出力されます。
+
+この節の「完全」は**再開用ファイル一式の transaction が完全**という意味です。要求した実行の完了は
+`summary.txt` の `batches == run.batch_count` で別に判定します。
+
+```text
+<output.dir>/
+├── checkpoint_complete.txt
+├── checkpoint_latest.txt
+└── checkpoints/
+    ├── slot0/
+    └── slot1/
+```
+
+### 各 checkpoint の内容
+
+| ファイル | 必須条件 | 形式と役割 |
+| --- | --- | --- |
+| `summary.txt` | 常に必須 | `key=value` の統計、schema、fingerprint、ledger stock |
+| `charges.csv` | 常に必須 | `elem_idx`, `charge_C` の要素電荷 |
+| `rng_state.txt` | serial で必須 | RNG 配列長と state |
+| `rng_state_rankNNNNN.txt` | MPI で全 rank 分が必須 | rank ごとの RNG 配列長と state |
+| `macro_residuals.csv` | schema v8 以降で manifest が宣言した場合 | `species_idx`, `face`, `residual`。global な macro 粒子数残差 |
+| `charge_ledger.csv` | summary / manifest に ledger metadata がある場合 | [25 列の species ledger](#charge-ledger) |
+| `checkpoint_complete.txt` | schema v8 以降で必須 | `schema_version`, `state`, `batches`, `mpi_world_size`, `macro_residuals_present`, `charge_ledger_present` |
+
+### 更新と自動選択
+
+| 段階 | 契約 |
+| --- | --- |
+| 更新 | 非 active slot を書き終えてから `checkpoint_latest.txt` を原子的に切り替える。保持は最大 2 世代 |
+| 探索 | `run.restart.from` 直下の最終出力と `slot0` / `slot1` を検査する |
+| 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
+| index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
+| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。モデル・粒子種の設定変更はハッシュで照合しない |
+
+`run.restart.from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
+
+### Schema 世代
+
+| schema | 契約 |
+| --- | --- |
+| v6 | `macro_residuals.csv` は `species_idx,face,residual`。`face=0` は従来 source、`1..6` は boundary face。旧 2 列形式 `species_idx,residual` も読込可能 |
+| v8 以降 | 書き始めに `state=in_progress` を公開する。summary、charges、全 rank の RNG、manifest 宣言済み residual / ledger を閉じてから `state=complete` を原子的に公開する |
+| v9 | matching-plane の accepted feedback、potential、return / escape flux、反復 receipt を `summary.txt` に保存する |
+| v10（現行） | model / species / response-content fingerprint を廃止。v2〜v9 は引き続き読み、旧識別子は無視する。mesh 識別子と状態配列の形式は維持 |
+
+schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下の最終出力に新旧世代のファイルが混在した
+場合、そのディレクトリを選ばず、完全な periodic slot へ戻ります。
+
+設定変更はハッシュで照合せず、保存電荷と統計を現在の条件へ引き継ぎます。以前の条件との比較には
+設定ファイルと summary の具体的な値を使ってください。mesh fingerprint の不一致は、`charges.csv` の要素対応を
+保証できないため停止します。Python reader の `model_fingerprint` と `species_fingerprint` は過去の出力用の
+任意属性として残り、現行出力では `None` になります。
+
+online implicit の bracket node と step-subdivision node は永続 table や checkpoint state ではありません。
+`continuation` は `summary.txt` に保存した accepted response から restart seed の再構成を試み、再構成できなければ
+minimum-energy bootstrap に戻ります。どの policy も必要な response を同じ Zhao contract から直接再評価するため、
+`matching_query.csv` や自動探索点の fingerprint はありません。
+
+実際の操作は[実行・再開する](../guide/Execution.md)を参照してください。
+
+## Python から読む
+
+各ファイルの属性または専用属性の有無は[ファイル生成条件](#ファイル生成条件)の同じ行に示しています。
+代表的な typed 属性は次のように読みます。
+
+```python
+from beach import load_fortran_result
+
+result = load_fortran_result("outputs/tutorial")
+print(result.charges)
+print(result.charge_ledger)
+print(result.field_reconstruction)
+print(result.matching_plane_state)
+```
+
+| 出力 | Python 属性 |
+| --- | --- |
+| `charges.csv` | `result.charges` |
+| `charge_ledger.csv` | `result.charge_ledger` |
+| field reconstruction receipt | `result.field_reconstruction` |
+| 外部状態の summary | `result.matching_plane_state` |
+| `matching_plane_history.csv` | `result.matching_plane_history` |
+
+`summary.txt` と `charges.csv` は必須です。mesh、履歴、ledger、field reconstruction、外部状態は
+対応する出力がある場合だけ読み込まれます。
+
+`matching_plane_state_valid` が false なら、reader は
+`matching_plane_state` と `matching_plane_history` を accepted state として公開しません。
+
+別のケースでは `outputs/tutorial` を実際の `output.dir` に置き換えます。class と属性の詳細は
+[Python 後処理 API](PythonPostprocessAPI.md)、物理・数値的な受理判断は
+[計算結果の妥当性確認](../guide/ValidationGuide.md)を参照してください。

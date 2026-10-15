@@ -10,7 +10,7 @@ argument-hint: "<user goal>"
 参照:
 - `README.md`
 - `docs/agent-user-guide.md`
-- `docs/Parameters.md`
-- `docs/Algorithms.md`
-- `docs/PythonPostprocessAPI.md`
+- `docs/reference/Parameters.md`
+- `docs/models/Algorithms.md`
+- `docs/reference/PythonPostprocessAPI.md`
 - `SPEC.md`

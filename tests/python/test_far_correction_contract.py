@@ -53,7 +53,7 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
     assert "Fourier" in spec_rows["cached_kneq0"]
 
     contracts = {
-        "docs/PeriodicFarCorrection.md": {
+        "docs/developer/PeriodicFarCorrection.md": {
             "rows": {
                 "finite_images": ("有限画像",),
                 "cached_kneq0": ("無限周期", "production"),
@@ -61,15 +61,6 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
             },
             "removed": "削除",
             "zero_mode": "二重加算",
-        },
-        "docs/PeriodicFarCorrection.en.md": {
-            "rows": {
-                "finite_images": ("finite images",),
-                "cached_kneq0": ("infinite-periodic", "Production"),
-                "panel_spectral_reference": ("Fourier", "Reference"),
-            },
-            "removed": "removed",
-            "zero_mode": "double counting",
         },
     }
     for path, contract in contracts.items():
@@ -81,10 +72,7 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
 
         removed = _paragraph_containing(text, "`m2l_root_oracle`")
         assert contract["removed"] in removed, path
-        zero_mode = _paragraph_containing(
-            text, '`fields.periodic.backend="cached_kneq0"` evaluates' if path.endswith(".en.md")
-            else '`fields.periodic.backend="cached_kneq0"` は非零モード'
-        )
+        zero_mode = _paragraph_containing(text, '`fields.periodic.backend="cached_kneq0"` は非零モード')
         assert contract["zero_mode"] in zero_mode, path
 
 
@@ -92,9 +80,9 @@ def test_bundled_plugin_references_match_canonical_sources() -> None:
     mirrors = {
         "plugins/beach-context/references/SPEC.md": "SPEC.md",
         "plugins/beach-context/references/fortran_parameter_file.md": (
-            "docs/Parameters.md"
+            "docs/reference/Parameters.md"
         ),
-        "plugins/beach-context/references/fortran_fmm_core.md": "docs/FMMCore.md",
+        "plugins/beach-context/references/fortran_fmm_core.md": "docs/developer/FMMCore.md",
         "plugins/beach-context/references/examples/beach.toml": (
             "examples/beach.toml"
         ),
@@ -105,7 +93,7 @@ def test_bundled_plugin_references_match_canonical_sources() -> None:
             "docs/agent-user-guide.md"
         ),
         "plugins/beach-context/references/python_postprocess_api.md": (
-            "docs/PythonPostprocessAPI.md"
+            "docs/reference/PythonPostprocessAPI.md"
         ),
     }
 

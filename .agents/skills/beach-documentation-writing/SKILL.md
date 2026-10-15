@@ -1,6 +1,6 @@
 ---
 name: beach-documentation-writing
-description: Write, restructure, or review BEACH documentation (docs/*.md and *.en.md, README, docs-site/navigation.json, plugin reference copies). Use whenever a code change alters user-visible behavior, configuration keys, outputs, or physics models, or when a page has become long, duplicated, or hard to read.
+description: Write, restructure, or review BEACH documentation (docs/**/*.md, the LaTeX manuscript in docs/manuscript, README, docs-site/navigation.json, plugin reference copies). Use whenever a code change alters user-visible behavior, configuration keys, outputs, or physics models, or when a page has become long, duplicated, or hard to read.
 ---
 
 # BEACH ドキュメントの書き方
@@ -22,8 +22,9 @@ BEACH のドキュメントは、機能を足すたびに段落を継ぎ足す�
 3. **ページの型に合わせる。** [references/page-types.md](references/page-types.md) の骨組みに沿う。
    手順のページに内部実装を、モデルのページに全キーの一覧を入れない。
 4. **文体と用語を揃える。** [references/style.md](references/style.md) に従う。用語は
-   [`docs/Glossary.md`](../../../docs/Glossary.md) を正本とする。
-5. **英語版を対訳で揃える。** 日本語版と同じ見出し構成、同じコマンド・設定・警告・リンク先にする。
+   [`docs/reference/Glossary.md`](../../../docs/reference/Glossary.md) を正本とする。
+5. **日本語版だけを書く。** 英語版は構成が固まるまで作らない（[ADR 0003](../../../docs/adr/0003-documentation-restructure.md)）。
+   物理モデルと数値手法の理論は `docs/manuscript/` の原稿が正本で、サイトのページには使い方だけを書く。
 6. **確認する。** [references/checklist.md](references/checklist.md) の項目を通す。
 
 ## 判断の原則

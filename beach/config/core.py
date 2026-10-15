@@ -52,19 +52,20 @@ from .schema import (
 
 
 def default_config() -> dict[str, Any]:
-    """Return the small multi-batch surface-charging tutorial config."""
+    """Return the official tutorial config: a 5 eV electron beam charging a floating plate."""
 
     return {
         "sim": {
-            "dt": 5.0e-8,
-            "batch_count": 20,
-            "max_step": 80,
+            "dt": 2.0e-10,
+            "batch_count": 150,
+            "batch_duration": 1.0e-8,
+            "max_step": 1500,
             "rng_seed": 12345,
             "field_solver": "direct",
         },
         "domain": {
             "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
+            "box_max": [0.04, 0.04, 0.07],
             "periodic_axes": [],
         },
         "field_boundary": {"mode": "free"},
@@ -72,15 +73,16 @@ def default_config() -> dict[str, Any]:
         "particles": {
             "species": [
                 {
+                    "species_key": "beam_electron",
                     "source_mode": "volume_seed",
                     "q_particle": -1.602176634e-19,
-                    "m_particle": 9.10938356e-31,
-                    "w_particle": 2.0e5,
+                    "m_particle": 9.1093837139e-31,
+                    "w_particle": 4000.0,
                     "npcls_per_step": 200,
-                    "pos_low": [0.15, 0.15, 0.8],
-                    "pos_high": [0.85, 0.85, 0.8],
-                    "drift_velocity": [0.0, 0.0, -1.0e6],
-                    "temperature_k": 0.0,
+                    "pos_low": [0.008, 0.008, 0.06],
+                    "pos_high": [0.032, 0.032, 0.06],
+                    "drift_velocity": [0.0, 0.0, -1.3262e6],
+                    "temperature_ev": 0.01,
                 },
             ]
         },
@@ -89,13 +91,13 @@ def default_config() -> dict[str, Any]:
                 {
                     "kind": "plane",
                     "enabled": True,
-                    "surface_model": "insulator",
+                    "surface_model": "conductor",
                     "surface_side": "normal_plus",
-                    "size_x": 0.8,
-                    "size_y": 0.8,
-                    "nx": 12,
-                    "ny": 12,
-                    "center": [0.5, 0.5, 0.2],
+                    "size_x": 0.02,
+                    "size_y": 0.02,
+                    "nx": 10,
+                    "ny": 10,
+                    "center": [0.02, 0.02, 0.01],
                 }
             ],
         },

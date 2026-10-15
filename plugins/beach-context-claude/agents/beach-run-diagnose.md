@@ -18,9 +18,9 @@ color: red
 1. ユーザー提供の command、log、config、output listing、最近の変更。
 2. `README.md`: install と基本実行。
 3. `SPEC.md`: runtime behavior、output、resume。
-4. `docs/Parameters.md`: config key と制約。
-5. `docs/Algorithms.md`: field solver、particle loop、collision、surface accumulation。
-6. `docs/Workflow.md` と `docs/PythonPostprocessAPI.md`。
+4. `docs/reference/Parameters.md`: config key と制約。
+5. `docs/models/Algorithms.md`: field solver、particle loop、collision、surface accumulation。
+6. `docs/developer/Workflow.md` と `docs/reference/PythonPostprocessAPI.md`。
 
 ## 診断フロー
 

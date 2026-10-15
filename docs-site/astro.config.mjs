@@ -8,26 +8,19 @@ import navigation from './navigation.json' with { type: 'json' };
 function mapSidebarItems(items) {
   return items.map((item) => {
     if (item.type === 'page') {
-      return {
-        slug: item.slug,
-        ...(item.label
-          ? { label: item.label.root, translations: { en: item.label.en } }
-          : {}),
-      };
+      return { slug: item.slug, ...(item.label ? { label: item.label } : {}) };
     }
 
     if (item.type === 'group') {
       return {
-        label: item.label.root,
-        translations: { en: item.label.en },
+        label: item.label,
         ...(item.collapsed === true ? { collapsed: true } : {}),
         items: mapSidebarItems(item.items),
       };
     }
 
     return {
-      label: item.label.root,
-      translations: { en: item.label.en },
+      label: item.label,
       link: item.link,
       ...(item.newTab
         ? { attrs: { target: '_blank', rel: 'noreferrer' } }
@@ -36,10 +29,12 @@ function mapSidebarItems(items) {
   });
 }
 
+// A section with `autogenerate` lists generated pages, such as the manuscript chapters.
 const sidebar = navigation.sections.map((section) => ({
-  label: section.label.root,
-  translations: { en: section.label.en },
-  items: mapSidebarItems(section.items),
+  label: section.label,
+  ...(section.autogenerate
+    ? { items: [{ autogenerate: { directory: section.autogenerate } }] }
+    : { items: mapSidebarItems(section.items) }),
 }));
 
 export default defineConfig({
@@ -59,13 +54,11 @@ export default defineConfig({
     starlight({
       title: 'BEACH',
       defaultLocale: 'root',
+      // Japanese is the canonical language while the docs are restructured (ADR 0003).
       locales: {
         root: {
           label: '日本語',
           lang: 'ja',
-        },
-        en: {
-          label: 'English',
         },
       },
       customCss: ['./src/styles/custom.css'],

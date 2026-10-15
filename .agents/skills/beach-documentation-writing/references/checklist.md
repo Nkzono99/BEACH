@@ -8,13 +8,12 @@
 - [ ] 設定例が grouped 7 グループ (`run/domain/mesh/particles/fields/sheath/output`) のキーだけで書かれている。
 - [ ] 削除済み・非推奨の入力への言及が、移行ページ以外にない。
 - [ ] 実行の完了、数値的な収束、物理的な妥当性を区別して書いた。
-- [ ] 日本語版と英語版の見出し構成、設定、コマンド、警告、リンク先が一致する。
 
 ## 構成
 
 - [ ] ページを足した・消した・改題した場合、`docs-site/navigation.json` と
       [page-map.md](page-map.md) を更新した。
-- [ ] 消したページへのリンクが残っていない（`grep -rn "OldPage.html" docs README*.md`）。
+- [ ] 消したページへのリンクが残っていない（`grep -rn "OldPage.md" docs README*.md`）。
 - [ ] plugin のコピーを正本と一致させた（page-map.md の「一緒に更新するもの」）。
 
 ## テスト

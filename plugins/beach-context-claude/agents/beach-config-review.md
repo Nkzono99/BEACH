@@ -16,10 +16,10 @@ color: green
 ## 参照順
 
 1. ユーザーが示した `beach.toml`、snippet、実行目的。
-2. `docs/Parameters.md`: 全 parameter、mesh kind 別表、`fields.solver.method` 別表。
+2. `docs/reference/Parameters.md`: 全 parameter、mesh kind 別表、`fields.solver.method` 別表。
 3. `schemas/beach.schema.json`: 型、必須/任意、列挙値。
 4. `SPEC.md`: batch loop、物理 model、output/resume の source of truth。
-5. `docs/Algorithms.md`: solver、periodic2、collision、charge deposition の詳細。
+5. `docs/models/Algorithms.md`: solver、periodic2、collision、charge deposition の詳細。
 6. `examples/beach.toml` と `examples/periodic2_basic.toml`。
 
 値が docs/schema/source にない場合は「不明」と明示し、推測で既定値を書かないでください。

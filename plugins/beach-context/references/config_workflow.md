@@ -43,9 +43,9 @@ beachx config init run.toml
 beachx config init --force
 ```
 
-生成内容は[`examples/tutorial_insulator.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_insulator.toml)と
-同一です。`volume_seed` から毎 batch 200 個のマクロ電子を絶縁体平面へ入射し、20 batch にわたる
-電荷分布と後続粒子への feedback を確認する公式入門ケースです。理解しやすい
+生成内容は[`examples/tutorial_electron_beam.toml`](https://github.com/Nkzono99/BEACH/blob/main/examples/tutorial_electron_beam.toml)と
+同一です。`volume_seed` で作る 5 eV の電子ビーム（12.8 μA）を 20 mm 四方の浮遊導体板へ 1.5 μs 当て続け、
+板が電子を押し返して帯電が止まるまでを追う公式入門ケースです。理解しやすい
 `fields.solver.method="direct"` と `[fields] boundary="free"` を使い、周期境界、ion species、
 `photo_raycast` は含みません。
 

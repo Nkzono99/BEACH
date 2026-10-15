@@ -166,6 +166,7 @@ docs-site/dist/
 docs-site/src/content/docs/
 docs-site/public/images/
 docs-site/public/media/
+docs-site/public/manuscript/
 docs/superpowers/
 
 # mypy

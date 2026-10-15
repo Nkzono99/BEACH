@@ -79,7 +79,7 @@ BEACH は三角形表面要素に蓄積した電荷から静電場を評価し�
 近傍相互作用を解析的な panel 積分、遠方相互作用を直接和、treecode または Cartesian FMM で扱う。
 粒子は予測中点電場を用いた Boris 速度更新と台形位置更新によって進め、軌道線分上の最初の表面衝突または
 計算箱境界イベントを処理する。場はバッチ中に固定し、電荷差分をバッチ末尾に確定反映する。
-通常の絶縁体電荷蓄積に加え、自由空間での浮遊導体再配分、光電子の照射 ray による放出、
+通常の絶縁体電荷蓄積に加え、浮遊導体の再配分、光電子の照射 ray による放出、吸収時の二次電子放出、
 2 軸周期静電場、外部の定常シースの零電流根を上端面に接続する closure が実装されている。
 外部シースは、太陽風と光電子がつくる平面・無衝突のシースを、軌道に沿って写した速度分布と Poisson 方程式の第一積分で解くモデルである。
 一方、BEACH 領域内の体積プラズマ空間電荷、誘電分極、表面伝導、外部シースの時間依存輸送は解かない。
@@ -95,7 +95,7 @@ and direct summation, a treecode, or a Cartesian fast multipole method for field
 Particle positions and velocities are stored at the same time. A predicted midpoint field, Boris velocity
 rotation, and trapezoidal position update define each candidate step, followed by the first surface or
 box-boundary event. Fields remain fixed during each batch, and charge increments are committed at its end.
-Implemented extensions include floating conductors in free space, ray-based photoelectron emission,
+Implemented extensions include floating conductors, ray-based photoelectron emission, secondary electron emission on absorption,
 two-dimensional periodic electrostatics, and a top-face closure that connects the zero-current root of a stationary outer sheath.
 The outer sheath is a planar, collisionless photoelectron sheath solved from orbit-mapped velocity distributions
 and the first integral of Poisson's equation.

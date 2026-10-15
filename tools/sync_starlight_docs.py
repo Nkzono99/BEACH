@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -23,32 +24,31 @@ GITHUB_BLOB_ROOT = "https://github.com/Nkzono99/BEACH/blob/main"
 GITHUB_EDIT_ROOT = "https://github.com/Nkzono99/BEACH/edit/main"
 CHANGELOG_URL = "https://github.com/Nkzono99/BEACH/blob/main/CHANGELOG.md"
 SITE_BASE = "/BEACH"
+# Directories under docs/ that are copied to the site as static assets.
+ASSET_DIRS = ("media", "images")
+# Relative link destinations in Markdown links and HTML src attributes.
+LINK_RE = re.compile(r"(?P<pre>\]\(|src=\")(?P<target>[^)\"\s]+)(?P<post>[)\"])")
 
 
 @dataclass(frozen=True)
 class Page:
     source: str
-    locale: str
     slug: str
     order: int
     description: str
 
 
 def load_navigation() -> tuple[tuple[Page, ...], dict[str, str]]:
-    """Load the canonical page inventory shared with the Starlight sidebar."""
-    navigation = json.loads(NAVIGATION_FILE.read_text(encoding="utf-8"))
-    pages: list[Page] = []
-    links: dict[str, str] = {}
+    """Load the canonical page inventory shared with the Starlight sidebar.
 
-    for entry in navigation["pages"]:
-        slug = entry["slug"]
-        order = entry["order"]
-        for locale in ("root", "en"):
-            source = entry["source"][locale]
-            pages.append(
-                Page(source, locale, slug, order, entry["description"][locale])
-            )
-            links[Path(source).stem.removesuffix(".en")] = slug
+    Returns the pages and a map from each page source (relative to ``docs/``) to its slug.
+    """
+    navigation = json.loads(NAVIGATION_FILE.read_text(encoding="utf-8"))
+    pages = tuple(
+        Page(entry["source"], entry["slug"], entry["order"], entry["description"])
+        for entry in navigation["pages"]
+    )
+    links = {page.source: page.slug for page in pages}
 
     page_slugs = {page.slug for page in pages}
     sidebar_page_slugs = {
@@ -64,13 +64,13 @@ def load_navigation() -> tuple[tuple[Page, ...], dict[str, str]]:
             f"missing={missing}, unknown={unknown}, hidden_in_sidebar={hidden}"
         )
 
-    return tuple(pages), links
+    return pages, links
 
 
 def iter_page_slugs(groups: list[dict[str, object]]):
     """Yield page slugs from arbitrarily nested sidebar groups."""
     for group in groups:
-        for item in group["items"]:
+        for item in group.get("items", []):
             if item["type"] == "page":
                 yield item["slug"]
             elif item["type"] == "group":
@@ -108,11 +108,6 @@ def read_doc(path: Path) -> tuple[dict[str, str], str]:
     return metadata, body
 
 
-def strip_language_line(text: str) -> str:
-    lines = [line for line in text.splitlines() if not line.startswith("Lang: ")]
-    return "\n".join(lines).strip() + "\n"
-
-
 def strip_first_h1(text: str) -> str:
     lines = text.splitlines()
     for index, line in enumerate(lines):
@@ -126,53 +121,43 @@ def strip_first_h1(text: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def replace_doc_links(text: str, locale: str) -> str:
-    for source_stem, slug in DOC_LINKS.items():
-        current = doc_href(locale, slug)
-        other = doc_href("root" if locale == "en" else "en", slug)
-        replacements = (
-            (f"{source_stem}.en.html", current if locale == "en" else other),
-            (f"{source_stem}.html", current if locale != "en" else other),
-            (f"{source_stem}.en.md", current if locale == "en" else other),
-            (f"{source_stem}.md", current if locale != "en" else other),
-        )
-        for source, target in replacements:
-            # Rewrite Markdown destinations only. Plain-text repository paths such as
-            # `docs/OutputGuide.md` must remain intact.
-            pattern = rf"(?<=\()\.?/?{re.escape(source)}(?=(?:[?#][^)]*)?\))"
-            text = re.sub(pattern, target, text)
-    return text
-
-
-def doc_href(locale: str, slug: str) -> str:
-    if locale == "en":
-        if slug == "index":
-            return f"{SITE_BASE}/en.html"
-        return f"{SITE_BASE}/en/{slug}.html"
+def doc_href(slug: str) -> str:
     if slug == "index":
         return f"{SITE_BASE}/index.html"
     return f"{SITE_BASE}/{slug}.html"
 
 
-def replace_repo_links(text: str, locale: str) -> str:
-    text = text.replace("(../SPEC.md", f"({GITHUB_BLOB_ROOT}/SPEC.md")
-    text = text.replace("(../src/", f"({GITHUB_BLOB_ROOT}/src/")
-    text = text.replace("(../app/", f"({GITHUB_BLOB_ROOT}/app/")
-    text = text.replace("(../tests/", f"({GITHUB_BLOB_ROOT}/tests/")
-    text = text.replace("(../schemas/", f"({GITHUB_BLOB_ROOT}/schemas/")
-    text = text.replace("(../examples/", f"({GITHUB_BLOB_ROOT}/examples/")
-    text = text.replace("(adr/", f"({GITHUB_BLOB_ROOT}/docs/adr/")
+def resolve_link(target: str, source: str) -> str:
+    """Map a relative link in ``docs/<source>`` to its site or repository URL."""
+    if "://" in target or target.startswith(("#", "/", "mailto:")):
+        return target
+    path, separator, fragment = target.partition("#")
+    if not path:
+        return target
+    anchor = separator + fragment
+    resolved = Path(os.path.normpath(DOCS_ROOT / Path(source).parent / path))
+    try:
+        in_docs = resolved.relative_to(DOCS_ROOT).as_posix()
+    except ValueError:
+        in_docs = None
 
-    text = text.replace("(../media/", f"({SITE_BASE}/media/")
-    text = text.replace("(../images/", f"({SITE_BASE}/images/")
-    text = text.replace("(media/", f"({SITE_BASE}/media/")
-    text = text.replace("(images/", f"({SITE_BASE}/images/")
+    if in_docs in DOC_LINKS:
+        return doc_href(DOC_LINKS[in_docs]) + anchor
+    if in_docs is not None and in_docs.split("/", 1)[0] in ASSET_DIRS:
+        return f"{SITE_BASE}/{in_docs}{anchor}"
+    try:
+        in_repo = resolved.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return target
+    return f"{GITHUB_BLOB_ROOT}/{in_repo}{anchor}"
 
-    text = text.replace("(../module/", f"({SITE_BASE}/fortran/module/")
-    text = text.replace("(../proc/", f"({SITE_BASE}/fortran/proc/")
-    text = text.replace("(../type/", f"({SITE_BASE}/fortran/type/")
 
-    return text
+def replace_links(text: str, source: str) -> str:
+    """Rewrite relative Markdown and image destinations; inline code is never a link destination."""
+    return LINK_RE.sub(
+        lambda match: match.group("pre") + resolve_link(match.group("target"), source) + match.group("post"),
+        text,
+    )
 
 
 def normalize_code_fences(text: str) -> str:
@@ -193,13 +178,7 @@ def source_last_updated(source: str) -> str | None:
     return value if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) else None
 
 
-def development_banner(locale: str) -> str:
-    if locale == "en":
-        return (
-            "<strong>Development documentation</strong> — This site follows the "
-            f"<code>main</code> branch and may differ from an installed release. "
-            f'<a href="{CHANGELOG_URL}">View the changelog.</a>'
-        )
+def development_banner() -> str:
     return (
         "<strong>開発版ドキュメント</strong> — このサイトは<code>main</code>ブランチ向けで、"
         "インストール済みリリースと異なる場合があります。"
@@ -220,7 +199,7 @@ def render_frontmatter(page: Page, title: str) -> str:
     lines.extend(
         [
             "banner:",
-            f"  content: {json.dumps(development_banner(page.locale), ensure_ascii=False)}",
+            f"  content: {json.dumps(development_banner(), ensure_ascii=False)}",
             "sidebar:",
             f"  order: {page.order}",
             "---",
@@ -234,18 +213,11 @@ def render_page(page: Page) -> tuple[Path, str]:
     source = DOCS_ROOT / page.source
     metadata, body = read_doc(source)
     title = metadata.get("title") or infer_title(body) or page.slug
-    body = strip_language_line(body)
     body = strip_first_h1(body)
-    body = replace_doc_links(body, page.locale)
-    body = replace_repo_links(body, page.locale)
+    body = replace_links(body, page.source)
     body = normalize_code_fences(body)
     content = render_frontmatter(page, title) + body
-
-    if page.locale == "en":
-        target = CONTENT_ROOT / "en" / f"{page.slug}.md"
-    else:
-        target = CONTENT_ROOT / f"{page.slug}.md"
-    return target, content
+    return CONTENT_ROOT / f"{page.slug}.md", content
 
 
 def infer_title(body: str) -> str | None:
@@ -256,7 +228,7 @@ def infer_title(body: str) -> str | None:
 
 
 def sync_assets() -> None:
-    for name in ("media", "images"):
+    for name in ASSET_DIRS:
         source = DOCS_ROOT / name
         target = PUBLIC_ROOT / name
         if target.exists():

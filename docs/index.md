@@ -1,26 +1,24 @@
 title: BEACH ドキュメント
 
-Lang: [日本語](index.md) | [English](index.en.md)
-
 # BEACH
 
 BEACH は、三角形表面上の電荷から電場を求め、その場の中で荷電粒子を追跡し、
 吸収された粒子の電荷を表面へ蓄積するシミュレータです。
 
-**[10 分チュートリアルを始める](Tutorial.html)** · [BEACH の計算サイクルを先に確認する](Algorithms.html)
+**[入門チュートリアルを始める](start/Tutorial.md)** · [BEACH の計算サイクルを先に確認する](models/Algorithms.md)
 
 ## 最初の 30 分
 
 初めて使う場合は、次の順に進めてください。各ページは前のページの出力を引き継ぎます。
 
-1. [インストール](Installation.html) — `beach` と `beachx` を使える状態にする。
-2. [10 分チュートリアル](Tutorial.html) — 多数粒子と 20 batch の電荷分布更新を確認する。
-3. [出力ファイルを調べる](OutputGuide.html) — `summary.txt` と `charges.csv` を読む。
-4. [実行・再開する](Execution.html#checkpointから一度再開する) — 20 batch の結果を 21 batch へ再開する。
-5. [トラブルシューティング](Troubleshooting.html) — lint、実行、出力、再開の失敗を切り分ける。
+1. [インストール](start/Installation.md) — `beach` と `beachx` を使える状態にする。
+2. [入門チュートリアル](start/Tutorial.md) — 電子ビームで金属板を帯電させ、飽和電位を見積もりと比べる。
+3. [出力ファイルを調べる](guide/OutputGuide.md) — `summary.txt` と `charges.csv` を読む。
+4. [実行・再開する](guide/Execution.md#checkpointから一度再開する) — 150 batch の結果を 151 batch へ再開する。
+5. [トラブルシューティング](guide/Troubleshooting.md) — lint、実行、出力、再開の失敗を切り分ける。
 
-公式入門ケースは end-to-end の動作確認です。正常終了は、研究結果の収束や物理的妥当性を
-意味しません。研究へ使う前に [計算結果の妥当性確認](ValidationGuide.html) を行ってください。
+公式入門ケースは、帯電の結果を解析的な見積もりと比べられる小さなケースです。研究ケースの正常終了は、
+結果の収束や物理的妥当性を意味しません。研究へ使う前に [計算結果の妥当性確認](guide/ValidationGuide.md) を行ってください。
 
 ## BEACH が扱う範囲
 
@@ -33,28 +31,28 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 | 必要に応じた計算領域上端の準定常境界応答 | 時間変化する外部 sheath や完全な速度分布 solver |
 
 通常の表面電荷更新サイクルと `particles.tracking.dt_s`、`run.batch.duration_s`、`batch_count` の違いは
-[BEACH の計算サイクル](Algorithms.html)で図解しています。外部 sheath を接続する場合の分担は
-[Zhao closure](ZhaoStationaryClosure.html)を参照してください。
+[BEACH の計算サイクル](models/Algorithms.md)で図解しています。外部 sheath を接続する場合の分担は
+[Zhao closure](models/ZhaoStationaryClosure.md)を参照してください。
 
 ## 目的から選ぶ
 
 | 目的 | 読む順序 |
 | --- | --- |
-| 研究ケースを作る | [ケースを設計する](ConfigurationRecipes.html) → [`beach.toml`を作成・検証する](Configuration.html) → [実行する](Execution.html) → [結果を検証する](ValidationGuide.html) |
-| 粒子源や表面モデルを選ぶ | [粒子をどこから入れるか](ParticleSourcesBoundaries.html) → [表面はどう帯電するか](SurfaceModels.html) |
-| open 境界と return を構成する | [境界から粒子を流入させる](ReservoirInjection.html) → [粒子の escape と return](ParticleEscapeReturn.html) |
-| 光電子を扱う | [光電子の放出とライフサイクル](PhotoelectronEmission.html) |
-| 太陽風と光電子の中の周期表面を扱う | [プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html) → [外部シースとの接続](ZhaoStationaryClosure.html) → [電子の drift と上流の帯](ZhaoUpstreamBand.html) |
-| 場ソルバや周期境界を選ぶ | [場の評価](FieldSolvers.html) → [periodic2 静電場](PeriodicElectrostatics.html) |
-| 出力を可視化する | [後処理チュートリアル](PostprocessTutorial.html) → [Python API](PythonPostprocessAPI.html) |
-| ソースを変更する | [アーキテクチャ](Architecture.html) → [開発とテスト](Workflow.html) |
+| 研究ケースを作る | [ケースを設計する](guide/ConfigurationRecipes.md) → [`beach.toml`を作成・検証する](guide/Configuration.md) → [実行する](guide/Execution.md) → [結果を検証する](guide/ValidationGuide.md) |
+| 粒子源や表面モデルを選ぶ | [粒子をどこから入れるか](guide/ParticleSourcesBoundaries.md) → [表面はどう帯電するか](models/SurfaceModels.md) |
+| open 境界と return を構成する | [境界から粒子を流入させる](guide/ReservoirInjection.md) → [粒子の escape と return](models/ParticleEscapeReturn.md) |
+| 光電子を扱う | [光電子の放出とライフサイクル](models/PhotoelectronEmission.md) |
+| 太陽風と光電子の中の周期表面を扱う | [プラズマ中の周期表面を設定する](guide/PeriodicPlasmaSurface.md) → [外部シースとの接続](models/ZhaoStationaryClosure.md) → [電子の drift と上流の帯](models/ZhaoUpstreamBand.md) |
+| 場ソルバや周期境界を選ぶ | [場の評価](guide/FieldSolvers.md) → [periodic2 静電場](models/PeriodicElectrostatics.md) |
+| 出力を可視化する | [後処理チュートリアル](guide/PostprocessTutorial.md) → [Python API](reference/PythonPostprocessAPI.md) |
+| ソースを変更する | [アーキテクチャ](developer/Architecture.md) → [開発とテスト](developer/Workflow.md) |
 
 ## ドキュメントの構成
 
 ### はじめる
 
-概要、インストール、最初の実行を順に説明します。ここだけで多数粒子を 20 batch 追跡し、
-表面電荷分布が後続粒子を変えるところまで確認できます。
+概要、インストール、最初の実行を順に説明します。電子ビームで金属板を帯電させ、
+板が電子を押し返して帯電が止まる電位を、手計算の見積もりと比べるところまで確認できます。
 
 ### ケースを作る
 
@@ -73,13 +71,13 @@ BEACH は、三角形表面上の電荷から電場を求め、その場の中�
 
 ### リファレンス
 
-[入力パラメータ](Parameters.html)、[出力形式](OutputReference.html)、数値手法の詳細、[Python API](PythonPostprocessAPI.html)、
+[入力パラメータ](reference/Parameters.md)、[出力形式](reference/OutputReference.md)、数値手法の詳細、[Python API](reference/PythonPostprocessAPI.md)、
 [Fortran API](https://nkzono99.github.io/BEACH/fortran/) は、先頭から読むのではなく検索して使う資料です。
 
 ### 開発者ガイド
 
-[アーキテクチャ](Architecture.html)、[開発とテスト](Workflow.html)、
-[物理リリース検証](PhysicsReleaseVerification.html)、生成された依存関係マップをまとめています。
+[アーキテクチャ](developer/Architecture.md)、[開発とテスト](developer/Workflow.md)、
+[物理リリース検証](developer/PhysicsReleaseVerification.md)、生成された依存関係マップをまとめています。
 
 ## 情報の正本
 

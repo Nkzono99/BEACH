@@ -406,7 +406,7 @@ SEE は `sum(w_out)/(reference_area*sum(run.batch.duration_s))` へ規格化し�
 PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。
 Phase 1 は暫定で、PE の脱出目標を窓の PE 束割合で配分し、帰還目標を脱出 − PE 放出にします。
 SEE は完全に追跡し、追跡脱出と外部根の SEE 配分との差を `secondary_budget_residual_a_m2` へ出します。
-モデルと適用範囲は [docs/SecondaryElectronEmission.md](docs/SecondaryElectronEmission.md) を参照してください。
+モデルと適用範囲は [docs/models/SecondaryElectronEmission.md](docs/models/SecondaryElectronEmission.md) を参照してください。
 
 ## 8. 実行制御
 
