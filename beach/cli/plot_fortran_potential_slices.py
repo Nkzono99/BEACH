@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 from beach import Beach
+from beach.config import ConfigError, load_config_file
 from beach.fortran_results.potential import _periodic2_from_sim
 
 from ._shared import (
@@ -108,25 +109,6 @@ def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.Argument
     return configure_entry_parser(parser, run)
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    try:
-        import tomllib  # py311+
-
-        with path.open("rb") as stream:
-            return tomllib.load(stream)
-    except ModuleNotFoundError:
-        try:
-            import tomli  # type: ignore
-
-            with path.open("rb") as stream:
-                return tomli.load(stream)
-        except ModuleNotFoundError as exc:
-            raise SystemExit(
-                "TOML parser is missing. Use Python 3.11+ or install tomli: "
-                "`python -m pip install tomli`."
-            ) from exc
-
-
 def _coerce_vec3(value: object, *, name: str) -> list[float]:
     if not isinstance(value, (list, tuple)) or len(value) != 3:
         raise SystemExit(f"{name} must be an array of 3 numbers in beach.toml.")
@@ -162,7 +144,10 @@ def _load_sim_box(
     *,
     allow_historical_root_oracle: bool = False,
 ) -> tuple[list[float], list[float], bool, dict[str, object] | None]:
-    config = _load_toml(config_path)
+    try:
+        config = load_config_file(config_path)
+    except ConfigError as exc:
+        raise SystemExit(f"{config_path}: {exc}") from exc
     sim = config.get("sim")
     if not isinstance(sim, dict):
         raise SystemExit("[sim] section is missing in beach.toml.")
