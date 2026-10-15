@@ -12,7 +12,7 @@ configuration, and which outputs show that the cell and the outer sheath agree.
 
 The cell is much shorter than the Debye length (about 10 m in the solar wind), so the outer sheath sees the top face as the
 surface itself. The model does not evolve the sheath in time; by default the root is solved once at the start of the run. With
-outer-root refresh (`sheath.coupling.outflow_refresh_batches`) the root is re-solved periodically from the photoelectrons
+outer-root refresh (`sheath.coupling.outflow_refresh_batches`) the root is re-solved periodically from the PE + SEE electrons
 observed to leave through the top face. How to assemble a whole case is described in
 [Set up a periodic surface in plasma](PeriodicPlasmaSurface.en.html).
 
@@ -25,16 +25,16 @@ observed to leave through the top face. How to assemble a whole case is describe
 
 ## What is solved
 
-The model is a one-dimensional sheath formed by the solar wind upstream (potential 0 V) and photoelectrons emitted from the
+The model is a one-dimensional sheath formed by the solar wind upstream (potential 0 V) and electrons (PE + SEE) emitted from the
 surface. It finds the stationary solution with zero net current to the surface (the zero-current root).
 
 $$
 J_e + J_i + J_{escape} = 0
 $$
 
-$J_e$ is the absorbed electron current, $J_i$ the absorbed ion current, and $J_{escape}$ the current of photoelectrons that
-escape; signs are contributions to surface charging. Without photoelectrons the condition is $J_e + J_i = 0$. Roots fall into
-three types by the shape of the potential. Without photoelectrons only Type C exists.
+$J_e$ is the absorbed electron current, $J_i$ the absorbed ion current, and $J_{escape}$ the current of PE + SEE electrons that
+escape; signs are contributions to surface charging. Without an emitted-electron source the condition is $J_e + J_i = 0$. Roots fall into
+three types by potential shape. Without PE the initial root is Type C; after adding SEE outflow, a refresh may select another type.
 
 | Type | Shape of the potential |
 |---|---|
@@ -76,6 +76,7 @@ reason.
 ### Fix the currents to the root
 
 The three role species (electrons, ions, photoelectrons) use the fixed-current charge closure (`fixed_current`).
+An additional SEE role omits `charging.closure` and remains fully tracked ([Secondary electron emission](SecondaryElectronEmission.en.html)).
 In each batch, the tracked distribution is scaled uniformly to the target charge, which is the root current multiplied by the
 batch duration.
 
@@ -87,10 +88,11 @@ batch duration.
 | Photoelectron return $J_{return}$ | ≤ 0 | Target for re-absorption on the surface |
 | Photoelectron escape $J_{escape}$ | positive | Current that leaves the box and is not deposited |
 
-The root satisfies $J_{return}=J_{escape}-J_{emit}$ and $J_e+J_i+J_{escape}=0$, so the surface currents close as
+For PE alone, the root satisfies $J_{return}=J_{escape}-J_{emit}$ and $J_e+J_i+J_{escape}=0$, so the surface currents close as
 $J_e+J_i+J_{return}+J_{emit}=0$. Emission and return are scaled separately, and the net photoelectron current, a small
 difference of two large currents, is never used as the denominator of a scale. The total surface charge is therefore
-constrained by the floating condition, and only its distribution over the elements is set by tracking.
+constrained by the floating condition, and only its distribution over the elements is set by tracking in the PE-only case.
+With SEE, Phase 1 leaves the difference between its fully tracked current and allocated root current in the surface budget.
 
 ### Match the top-face potential to the wall potential
 
@@ -117,11 +119,11 @@ $$
 
 $\phi_f$ is the mean top-face potential at the start of the batch and $v_{n,\infty}$ the upstream normal velocity.
 
-**Outflow:** electrons and photoelectrons that cross the top face outward are tested against the outer barrier with the
+**Outflow:** electrons, photoelectrons, and secondaries that cross the top face outward are tested against the outer barrier with the
 potential $\phi_c$ at the crossing point and the normal kinetic energy. Particles that cannot pass are returned with their normal
 velocity reversed; particles that can pass escape.
 
-| Type | Barrier for incoming electrons | Barrier for outgoing electrons and photoelectrons | Ions |
+| Type | Barrier for incoming electrons | Barrier for outgoing electrons, PE, and SEE | Ions |
 |---|---:|---:|---:|
 | Type A | $\phi_m$ | $\phi_m$ | 0 V |
 | Type B / C | 0 V | 0 V | 0 V |
@@ -156,16 +158,24 @@ statistical error. $n_{e,\infty}$ is updated each time the outer root is refresh
 
 ### Refresh the outer root
 
-Structure inside the cell changes the emission seen by the outer sheath. Part of the photoelectrons emitted by the surface is
-re-absorbed in the cell, so fewer photoelectrons leave through the top face than are emitted, with a different energy
-distribution. Outer-root refresh feeds this change back to the outer sheath. Every `outflow_refresh_batches` accepted batches:
+The outer-root refresh uses a surface-emitted electron group comprising PE and the optional
+`sheath.species.secondary_electron` role. No separate SEE term is added to sheath-model.
+Every `outflow_refresh_batches` accepted batches:
 
-1. Count the photoelectrons crossing the top face outward in bins of normal kinetic energy $K$. Also sum the number
-   $N_{emit}$ emitted by the surface, and compute the transmission $\eta=N_{out}/N_{emit}$ ($N_{out}$ is the sum over all bins).
-2. Replace the photoelectron source of the outer sheath with the counted spectrum and solve the zero-current root. The bin
-   fluxes are scaled so that their total is $\eta\Gamma_{emit}$, and $d\Gamma/dK$ is constant within a bin. $\Gamma_{emit}$ is the
-   surface emission flux set by the configuration; the surface emission target does not change.
-3. Use the currents, barriers, wall potential, and upstream electron density of the new root from the next batch.
+1. Count raw PE and SEE outward crossings at z-high by normal kinetic-energy bin. For PE, retain
+   $\Gamma_{pe,out}=\eta\Gamma_{pe,emit}$, $\eta=N_{out,pe}/N_{emit,pe}$, using the configured PE emission.
+   For SEE, use $\Gamma_{see,out}=\sum w_{out,see}/(A\sum\Delta t_{batch})$ directly, with $A$ the reference area.
+   For fixed batch durations the denominator is $A N_{window}\Delta t_{batch}$.
+2. Normalize each spectrum to its flux and add bins and flux-weighted mean normal energies.
+   Pass the combined spectrum to the existing outer electron source and solve the zero-current root.
+3. Apply new currents, barriers, wall potential, and upstream electron density from the next batch.
+   PE escape receives the fraction $s_{pe}=\Gamma_{pe,out}/(\Gamma_{pe,out}+\Gamma_{see,out})$;
+   its return target remains escape minus configured emission. SEE receives no fixed-current target.
+
+This Phase 1 split is provisional. `secondary_share=1-s_{pe}` and
+`secondary_budget_residual_a_m2` record tracked SEE escape current minus its allocated root escape current.
+SEE-only refresh is allowed. The initial root still uses only PE surface emission (zero-source Type C without PE);
+SEE enters from the first refresh. A previous branch is tried first, then A, B, and C.
 
 The bins are $[0, 1\,\text{meV})$ and logarithmic bins from 1 meV to 1 keV (24 per decade); energies above 1 keV are counted in
 the last bin. The spectrum is not reduced to a half-Maxwellian with the same mean energy because the spectrum at the top face
@@ -209,7 +219,7 @@ ref_density_m3 = 6.4e7
 outflow_refresh_batches = 50
 ```
 
-- Role species use `charging.closure="fixed_current"`. Electrons and ions enter by boundary inflow through the top face;
+- Electron, ion, and PE roles use `charging.closure="fixed_current"`; SEE omits it. Electrons and ions enter by boundary inflow through the top face;
   photoelectrons use `photo_raycast` from the top face with reaction charge. The top face is open.
 - Write the same solar-wind density for electrons and ions (a mismatch is a configuration error). Set both the electron and
   the ion drift to the normal solar-wind velocity (negative z). With zero electron drift `upstream_field_floor_v_m` is not
@@ -217,7 +227,7 @@ outflow_refresh_batches = 50
 - The ion temperature of the species `temperature_ev` also enters the outer root. Write `sheath.zhao.ion_pressure_factor` only to
   change the pressure coefficient.
 - Without photoelectrons (Type C), set `sheath.photoelectrons.source_scale=0.0` and omit the photoelectron species and its keys.
-  Outer-root refresh is not available.
+  With SEE, outer-root refresh is available.
 - The photoelectron `emit_current_density_a_m2` is per unit area normal to the ray, so the surface emission is that value times
   the sine of the ray elevation. To match the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, set
   `emit_current_density_a_m2` to the normal-incidence value $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$ (2.54 µA/m² in the
@@ -237,7 +247,7 @@ All keys and combination constraints are in [Input parameters](Parameters.en.htm
 | `summary.txt` | `surface_current_model_zhao_branch`, `surface_current_model_phi0_V`, `surface_current_model_phi_m_V` (initial root). The two residuals `surface_current_model_pe_budget_residual_current_density_A_m2` and `surface_current_model_surface_budget_residual_current_density_A_m2` are near zero. With electron drift, `surface_current_model_upstream_field_deficit_V_m` is at most `upstream_field_floor_v_m` |
 | `fixed_current_history.csv` | `target_over_tracked`. If the outer root and tracking in the cell agree, every species stays near 1. If the photoelectron `escape` departs from 1, suspect a difference between the top-face potential and $\phi_0$ |
 | `charge_ledger.csv` | Tracked, target, and applied charge per species, `fixed_*_weight_scale`, and counts |
-| `matching_plane_history.csv` (outer-root refresh) | `phi_H_V` (the current $\phi_0$), the photoelectron outflow flux and mean normal energy. `residual` is the change of the outflow flux and mean energy; read the fluctuation of $\phi_0$ directly from `phi_H_V` |
+| `matching_plane_history.csv` (outer-root refresh) | `phi_H_V` (the current $\phi_0$), the PE + SEE outflow flux and mean normal energy, SEE share and budget residual. `residual` is the change of the outflow flux and mean energy; read the fluctuation of $\phi_0$ directly from `phi_H_V` |
 | `matching_plane_spectrum_history.csv` (outer-root refresh) | The outer source spectrum at each batch that refreshed the outer root. The fraction of the tail accelerated in the cell |
 | `top_reference_history.csv` | `potential_mean_V` equals $\phi_0$. An offset is a field error and shifts the barrier test ([accuracy of the far correction](PeriodicFarCorrection.en.html)) |
 
@@ -253,7 +263,7 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
   Reflection at the top face is an approximation that shortens the round trip outside to a reversal at the boundary.
 - The uniform magnetic field must be zero.
 - Because the solution is planar and stationary, it does not follow curvature, collisions, transients of the outer sheath, or
-  illumination and plasma conditions that change during the run. Outer-root refresh follows only the change of photoelectrons
+  illumination and plasma conditions that change during the run. Outer-root refresh follows PE + SEE electrons
   leaving through the top face.
 
 ### Known limitations
@@ -269,4 +279,5 @@ Vary the ray count, batch duration, and random seed and confirm that the per-ele
   be read from the departure of the electron and ion scales from 1 in `fixed_current_history.csv`. In Type C without
   photoelectrons, faces that ions reach but electrons hardly reach can charge positively up to near the ion kinetic energy (about
   0.84 kV for 400 km/s protons) and reflect ions (about 3% after 10⁵ s in a three-layer particle bed). Surface conduction and
-  secondary electron emission are not modeled.
+  material-specific secondary response are not modeled. The simplified SEE model is described in
+  [Secondary electron emission](SecondaryElectronEmission.en.html).

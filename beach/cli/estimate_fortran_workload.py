@@ -180,6 +180,8 @@ def run(args: argparse.Namespace) -> None:
     print(f"mpi_ranks={mpi_ranks}")
     print(f"mpi_rank={mpi_rank}")
     print("estimate_scope=local_rank")
+    if result["secondary_emission_excluded"]:
+        print("secondary_emission_scope=excluded_collision_generated_particles")
     print(f"target_batch_count={target_batch_count}")
     print(f"completed_batches={completed_batches}")
     print(f"remaining_batch_count={batch_count}")

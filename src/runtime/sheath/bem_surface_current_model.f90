@@ -21,6 +21,8 @@ module bem_surface_current_model
     integer(i32) :: ion_species_idx = 0_i32
     integer(i32) :: photoelectron_species_idx = 0_i32
     logical :: photoelectron_active = .false.
+    integer(i32) :: secondary_electron_species_idx = 0_i32
+    real(dp) :: secondary_share = 0.0_dp
     real(dp) :: reference_area_m2 = 0.0_dp
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
@@ -47,7 +49,7 @@ module bem_surface_current_model
 
   public :: evaluate_surface_current_model
   public :: evaluate_surface_closure
-  public :: solve_zhao_outflow_closure
+  public :: solve_zhao_outflow_closure, split_emission_escape_target
 
 contains
 
@@ -150,10 +152,10 @@ contains
   !> 表面放出はそのままに、matching planeで観測したPE流出を外部Zhaoシースの放出源として零電流根を解き直す。
   !!
   !! 周期セルは外部シースから見て一様な壁なので、外部の1-D解は壁から出るPEとしてH通過流出だけを見る。
-  !! 流出は同じ束と平均法線エネルギーを持つhalf-Maxwellianへ縮約する。previousは同じbranchの初期値に使う。
+  !! 合算した流出スペクトルを使う。省略時だけ half-Maxwellian とし、previous は同じ branch の初期値に使う。
   subroutine solve_zhao_outflow_closure( &
     app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message, previous, &
-    outer_spectrum_m2_s &
+    outer_spectrum_m2_s, secondary_share &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
@@ -164,6 +166,7 @@ contains
     type(surface_current_model_result_type), intent(in), optional :: previous
     !> H外向きスペクトル [1/(m2 s)]、bin別。省略時は束と平均法線エネルギーの半Maxwell源とする。
     real(dp), intent(in), optional :: outer_spectrum_m2_s(outflow_spectrum_bins)
+    real(dp), intent(in), optional :: secondary_share
     type(sheath_equilibrium_result) :: root
     character(len=1), allocatable :: order(:)
     character(len=512) :: root_message
@@ -198,7 +201,7 @@ contains
                 trim(root_message)
       return
     end if
-    call finish_zhao_closure(app, root, outer_density_m3, outer_mean_energy_ev, result, success, message)
+    call finish_zhao_closure(app, root, outer_density_m3, outer_mean_energy_ev, result, success, message, secondary_share)
     result%outer_photoelectron_flux_m2_s = outer_flux_m2_s
     result%outer_photoelectron_mean_energy_ev = outer_mean_energy_ev
     if (present(outer_spectrum_m2_s)) result%outer_photoelectron_spectrum_m2_s = outer_spectrum_m2_s
@@ -353,23 +356,30 @@ contains
   !!
   !! source_density_m3/source_temperature_ev は外部シースが見る放出源。表面放出との差は
   !! 周期セル内で再吸収されたPEであり、return target に含まれる。
-  subroutine finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message)
+  subroutine finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message, secondary_share)
     type(app_config), intent(in) :: app
     type(sheath_equilibrium_result), intent(in) :: root
     real(dp), intent(in) :: source_density_m3, source_temperature_ev
     type(surface_current_model_result_type), intent(inout) :: result
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
-    integer(i32) :: electron_idx, ion_idx, photo_idx
+    real(dp), intent(in), optional :: secondary_share
+    integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
     real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density
-    logical :: photoelectron_active
+    logical :: photoelectron_active, secondary_active
 
     success = .false.
     message = ''
     electron_idx = species_index(app, app%surface_current%electron_species)
     ion_idx = species_index(app, app%surface_current%ion_species)
     photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
+    secondary_active = len_trim(app%surface_current%secondary_electron_species) > 0
+    secondary_idx = 0_i32
+    if (secondary_active) secondary_idx = species_index(app, app%surface_current%secondary_electron_species)
+    result%secondary_share = 0.0_dp
+    if (secondary_active .and. .not. photoelectron_active) result%secondary_share = 1.0_dp
+    if (present(secondary_share)) result%secondary_share = secondary_share
     photo_idx = 0_i32
     if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
     area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
@@ -396,7 +406,9 @@ contains
     result%ion_current_density_a_m2 = qe*root%ion_inward_flux_m2_s
     result%photoelectron_emission_current_density_a_m2 = emission_current_density
     result%photoelectron_escape_current_density_a_m2 = 0.0_dp
-    if (photoelectron_active) result%photoelectron_escape_current_density_a_m2 = qe*root%photoelectron_escape_flux_m2_s
+    if (photoelectron_active .or. secondary_active) then
+      result%photoelectron_escape_current_density_a_m2 = qe*root%photoelectron_escape_flux_m2_s
+    end if
     result%photoelectron_return_current_density_a_m2 = &
       result%photoelectron_escape_current_density_a_m2 - result%photoelectron_emission_current_density_a_m2
     result%net_current_density_a_m2 = result%electron_current_density_a_m2 + &
@@ -428,7 +440,7 @@ contains
     end if
     if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
         result%ion_current_density_a_m2 <= 0.0_dp .or. &
-        result%photoelectron_return_current_density_a_m2 > 0.0_dp .or. &
+        (.not. secondary_active .and. result%photoelectron_return_current_density_a_m2 > 0.0_dp) .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
       message = 'surface-current evaluation produced invalid channel signs.'
       return
@@ -438,11 +450,11 @@ contains
         message = 'photoelectron closure requires a positive emission current.'
         return
       end if
-    else if (any([ &
-                 result%photoelectron_emission_current_density_a_m2, &
-                 result%photoelectron_escape_current_density_a_m2, &
-                 result%photoelectron_return_current_density_a_m2 &
-                 ] /= 0.0_dp)) then
+    else if (.not. secondary_active .and. any([ &
+                                              result%photoelectron_emission_current_density_a_m2, &
+                                              result%photoelectron_escape_current_density_a_m2, &
+                                              result%photoelectron_return_current_density_a_m2 &
+                                              ] /= 0.0_dp)) then
       message = 'no-photoelectron closure produced a nonzero photoelectron current.'
       return
     end if
@@ -468,9 +480,10 @@ contains
     result%ion_species_idx = ion_idx
     result%photoelectron_species_idx = photo_idx
     result%photoelectron_active = photoelectron_active
+    result%secondary_electron_species_idx = secondary_idx
     result%outer_photoelectron_flux_m2_s = source_density_m3*thermal_speed(app, source_temperature_ev)/(2.0_dp*sqrt(pi))
     result%outer_photoelectron_mean_energy_ev = source_temperature_ev
-    if (.not. photoelectron_active) then
+    if (.not. (photoelectron_active .or. secondary_active)) then
       result%outer_photoelectron_flux_m2_s = 0.0_dp
       result%outer_photoelectron_mean_energy_ev = 0.0_dp
     end if
@@ -482,14 +495,11 @@ contains
       result%has_absorbed_target(photo_idx) = .true.
       result%has_emission_target(photo_idx) = .true.
       result%has_escape_target(photo_idx) = .true.
-      result%absorbed_current_a(photo_idx) = &
-        checked_area_current(area, result%photoelectron_return_current_density_a_m2)
       result%emission_current_a(photo_idx) = &
         checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
-      ! escaped_to_infinity は粒子電荷の外向きfluxなので、正の表面帯電電流とは符号が逆。
-      result%escaped_particle_current_a(photo_idx) = &
-        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
     end if
+
+    call split_emission_escape_target(result, result%secondary_share)
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
     ! Type Aの電子はphi_mがaccess bottleneckであり、Type B/Cはphi_infinity=0を使う。
@@ -514,6 +524,11 @@ contains
       result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
       result%outflow_barrier_face(photo_idx) = 6_i32
     end if
+    if (secondary_active) then
+      result%has_outflow_kinetic_barrier(secondary_idx) = .true.
+      result%outflow_barrier_potential_v(secondary_idx) = electron_bottleneck_potential_v
+      result%outflow_barrier_face(secondary_idx) = 6_i32
+    end if
     ! 外部障壁と流入写像は上流0 Vからの電位差なので、z-high面の平均電位を壁電位phi0へ固定する。
     ! 外部での横移動はセル幅よりはるかに大きいので、x/y周期セルでは戻り位置を面内一様にする。
     result%has_plane_gauge = .true.
@@ -522,6 +537,25 @@ contains
                                        all(app%sim%bc_high(1:2) == bc_periodic)
     success = .true.
   end subroutine finish_zhao_closure
+
+  !> Phase 1 uses the latest observed window even when the outer root is retained.
+  subroutine split_emission_escape_target(result, secondary_share)
+    type(surface_current_model_result_type), intent(inout) :: result
+    real(dp), value :: secondary_share
+    integer(i32) :: photo_idx
+    real(dp) :: photo_escape_current
+
+    result%secondary_share = secondary_share
+    if (.not. result%photoelectron_active) return
+    photo_idx = result%photoelectron_species_idx
+    photo_escape_current = (1.0_dp - secondary_share)*result%photoelectron_escape_current_density_a_m2
+    result%absorbed_current_a(photo_idx) = checked_area_current( &
+                                           result%reference_area_m2, &
+                                           photo_escape_current - result%photoelectron_emission_current_density_a_m2 &
+                                           )
+    ! Escaping particle current has the opposite sign to surface charging current.
+    result%escaped_particle_current_a(photo_idx) = -checked_area_current(result%reference_area_m2, photo_escape_current)
+  end subroutine split_emission_escape_target
 
   integer(i32) function species_index(app, species_key) result(index_value)
     type(app_config), intent(in) :: app

@@ -74,6 +74,8 @@ For electrons $q<0$, so positive charge remains on the surface. When the photoel
 added to $j$ as an ordinary absorption. Returning to the same element cancels the two; returning to another element moves
 charge within the surface.
 
+[Secondary electron emission](SecondaryElectronEmission.en.html) shares this velocity sampler and surface-emission charge channel. PE sampling and its optional reaction-charge setting retain their behavior.
+
 ## Photoelectron charge closures
 
 Because the cell is shorter than the Debye length, many photoelectrons that reach the top face would in reality be pushed back by

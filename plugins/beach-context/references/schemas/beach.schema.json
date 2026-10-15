@@ -337,6 +337,10 @@
           "exclusiveMinimum": 0,
           "default": 1,
           "description": "Pressure coefficient of the warm-ion fluid in the Zhao root (Sana & Mishra 2026): 1 isothermal, 3 adiabatic one-dimensional. The ion temperature is the ion species temperature; the entry must stay supersonic, m_i u^2/e > factor*T_i."
+        },
+        "secondary_electron_species": {
+          "type": "string",
+          "maxLength": 64
         }
       }
     },
@@ -916,6 +920,12 @@
             "$ref": "#/$defs/species"
           },
           "description": "List of particle species (at least one required)."
+        },
+        "secondary_emission_max_generations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "default": 3
         }
       },
       "required": [
@@ -947,7 +957,8 @@
           "type": "string",
           "enum": [
             "volume_seed",
-            "photo_raycast"
+            "photo_raycast",
+            "secondary_emission"
           ],
           "default": "volume_seed",
           "description": "Particle source mode."
@@ -1096,6 +1107,34 @@
         "uv_high": {
           "$ref": "#/$defs/fractionVec2",
           "description": "Upper [u, v] range on inject_face for inject_region_mode=\"face_fraction\"."
+        },
+        "secondary_emission_enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "secondary_emission_model": {
+          "type": "string",
+          "enum": [
+            "whipple",
+            "constant"
+          ],
+          "default": "whipple"
+        },
+        "secondary_emission_yield_max": {
+          "type": "number",
+          "default": 1.5
+        },
+        "secondary_emission_energy_max_ev": {
+          "type": "number",
+          "default": 500.0
+        },
+        "secondary_emission_const_yield": {
+          "type": "number",
+          "default": 0.0
+        },
+        "secondary_emission_target_species": {
+          "type": "string",
+          "maxLength": 64
         }
       },
       "allOf": [
@@ -2228,6 +2267,18 @@
                 }
               }
             },
+            "secondary_emission": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "max_generations": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647,
+                  "default": 3
+                }
+              }
+            },
             "boundary": {
               "type": "object",
               "additionalProperties": false,
@@ -2652,6 +2703,10 @@
                 "photoelectron": {
                   "type": "string",
                   "minLength": 1,
+                  "maxLength": 64
+                },
+                "secondary_electron": {
+                  "type": "string",
                   "maxLength": 64
                 }
               }
@@ -3486,7 +3541,8 @@
               "type": "string",
               "enum": [
                 "volume_seed",
-                "photo_raycast"
+                "photo_raycast",
+                "secondary_emission"
               ],
               "default": "volume_seed",
               "description": "Particle source mode."
@@ -3619,6 +3675,46 @@
         "inflow": {
           "$ref": "#/$defs/speciesBoundaryInflow",
           "description": "Reservoir inflow attached to full nonperiodic simulation-boundary faces."
+        },
+        "surface_interaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secondary_emission": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "model": {
+                  "type": "string",
+                  "enum": [
+                    "whipple",
+                    "constant"
+                  ],
+                  "default": "whipple"
+                },
+                "yield_max": {
+                  "type": "number",
+                  "default": 1.5
+                },
+                "energy_max_ev": {
+                  "type": "number",
+                  "default": 500.0
+                },
+                "const_yield": {
+                  "type": "number",
+                  "default": 0.0
+                },
+                "target_species": {
+                  "type": "string",
+                  "maxLength": 64
+                }
+              }
+            }
+          }
         }
       },
       "allOf": [

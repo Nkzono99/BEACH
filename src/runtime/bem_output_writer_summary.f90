@@ -33,7 +33,7 @@ contains
   character(len=1024) :: summary_path
   character(len=256) :: boundary_message
   character(len=16) :: resolved_field_solver
-  integer :: u, ios
+  integer :: u, ios, s
   integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
   real(dp) :: resolved_tree_theta
 
@@ -88,6 +88,20 @@ contains
     stats%adaptive_nonzero_mode_last_potential_step
   write (u, '(a,i0)') 'adaptive_nonzero_mode_omp_threads=', &
     stats%adaptive_nonzero_mode_omp_threads
+  write (u, '(a,i0)') 'secondary_emission_hits=', stats%secondary_emission_hits
+  write (u, '(a,i0)') 'secondary_emission_count=', stats%secondary_emission_count
+  write (u, '(a,es24.16)') 'secondary_emitted_charge_C=', stats%secondary_emitted_charge_c
+  write (u, '(a,es24.16)') 'secondary_yield_sum=', stats%secondary_yield_sum
+  write (u, '(a,es24.16)') 'secondary_mean_yield=', &
+    stats%secondary_yield_sum/real(max(1_i64, stats%secondary_emission_hits), dp)
+  write (u, '(a,i0)') 'secondary_generation_capped_count=', stats%secondary_generation_capped_count
+  write (u, '(a,i0)') 'secondary_emission_max_generations=', cfg%secondary_emission_max_generations
+  do s = 1, cfg%n_particle_species
+    if (.not. cfg%particle_species(s)%enabled .or. .not. cfg%particle_species(s)%secondary_emission_enabled) cycle
+    write (u, '(a,i0,a,a)') 'secondary_incident_species_', s, '=', trim(cfg%particle_species(s)%species_key)
+  end do
+  write (u, '(a,es24.16)') 'matching_plane_secondary_share=', stats%matching_plane_secondary_share
+  write (u, '(a,es24.16)') 'secondary_budget_residual_a_m2=', stats%secondary_budget_residual_a_m2
   write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane_state_valid
   write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
   write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane_phi_v

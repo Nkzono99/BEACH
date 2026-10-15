@@ -94,6 +94,13 @@ module bem_types
     real(dp) :: matching_plane_photoelectron_spectrum_m2_s(outflow_spectrum_bins) = 0.0_dp
     integer(i32) :: matching_plane_iterations = 0_i32
     real(dp) :: matching_plane_residual = 0.0_dp
+    real(dp) :: matching_plane_secondary_share = 0.0_dp
+    real(dp) :: secondary_budget_residual_a_m2 = 0.0_dp
+    integer(i64) :: secondary_emission_hits = 0_i64
+    integer(i64) :: secondary_emission_count = 0_i64
+    integer(i64) :: secondary_generation_capped_count = 0_i64
+    real(dp) :: secondary_emitted_charge_c = 0.0_dp
+    real(dp) :: secondary_yield_sum = 0.0_dp
   end type sim_stats
 
   !> 種ごとのマクロ粒子端数を保持し、再開時にも注入期待値を保つ。

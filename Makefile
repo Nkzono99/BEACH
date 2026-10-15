@@ -53,6 +53,8 @@ FORTRAN_L1_TARGETS ?= \
 	test_charge_ledger \
 	test_surface_current_model \
 	test_zhao_outflow_refresh \
+	test_secondary_emission_yield \
+	test_simulator_secondary_emission \
 	test_panel_moments \
 	test_panel_kernel \
 	test_panel_geometry_near \

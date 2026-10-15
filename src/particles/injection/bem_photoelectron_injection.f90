@@ -1,7 +1,7 @@
 !> 光線追跡による光電子放出位置と速度のsampling。
 module bem_photoelectron_injection
   use, intrinsic :: iso_fortran_env, only: error_unit
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_types, only: mesh_type, sim_config, hit_info, bc_periodic
   use bem_boundary, only: apply_box_boundary
@@ -11,12 +11,14 @@ module bem_photoelectron_injection
   use bem_injection_flux, only: sample_flux_weighted_normal_component
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
+  use bem_counter_rng, only: counter_uniform
   implicit none
   private
 
   real(dp), parameter :: default_velocity_sigma_cutoff = 6.0_dp
 
-  public :: sample_photo_raycast_particles
+  public :: sample_photo_raycast_particles, sample_photo_emission_velocity, build_tangent_basis
+  public :: canonicalize_periodic_emission_position
 
 contains
 
@@ -354,15 +356,25 @@ contains
   !! @param[in] tangent2 第2接線ベクトル（単位化済み）。
   !! @param[in] vmin_normal 放出法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vel サンプルした速度ベクトル [m/s]。
-  subroutine sample_photo_emission_velocity(sigma, normal_drift_speed, normal, tangent1, tangent2, vel, vmin_normal)
+  subroutine sample_photo_emission_velocity( &
+    sigma, normal_drift_speed, normal, tangent1, tangent2, vel, vmin_normal, rng_seed, rng_counter &
+    )
     real(dp), intent(in) :: sigma, normal_drift_speed
     real(dp), intent(in) :: normal(3), tangent1(3), tangent2(3)
     real(dp), intent(out) :: vel(3)
     real(dp), intent(in), optional :: vmin_normal
 
+    integer(i32), intent(in), optional :: rng_seed
+    integer(i64), intent(in), optional :: rng_counter(:)
+
     real(dp) :: vn(1), z(2, 1), vt1, vt2
 
-    if (present(vmin_normal)) then
+    if (present(rng_counter)) then
+      call sample_flux_weighted_normal_component( &
+        normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff, &
+        uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
+        )
+    else if (present(vmin_normal)) then
       call sample_flux_weighted_normal_component( &
         normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff &
         )
@@ -372,7 +384,7 @@ contains
     vt1 = 0.0_dp
     vt2 = 0.0_dp
     if (sigma > 0.0_dp) then
-      call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff)
+      call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff, rng_seed=rng_seed, rng_counter=rng_counter)
       vt1 = sigma*z(1, 1)
       vt2 = sigma*z(2, 1)
     end if

@@ -50,9 +50,11 @@ flowchart LR
 
 - 表面内の横方向伝導、有限抵抗による relaxation、bulk への漏洩
 - 誘電率境界条件、分極電荷、物体内部の電場
-- 一般の二次電子放出、specular / diffuse な粒子反射
+- 材質ごとの二次電子応答、specular / diffuse な粒子反射
 
 これらが時間発展を支配する対象では、`insulator` の結果を実在材料の長時間応答と読み替えないでください。
+
+吸収時に [二次電子](SecondaryElectronEmission.html)を生成できます。反作用電荷は PE と同じ表面放出チャネルへ置きます。
 
 ## 浮遊導体: 総電荷を保って等電位化する
 

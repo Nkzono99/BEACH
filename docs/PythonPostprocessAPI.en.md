@@ -111,7 +111,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 
 Required files: `summary.txt`, `charges.csv`
 Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, `mesh_potential.csv`,
-`matching_plane_history.csv`
+`matching_plane_history.csv`, `secondary_emission_history.csv`
 
 ### 3.2 `FortranRunResult` Type
 
@@ -134,6 +134,7 @@ Optional files: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, 
 | `history` | `FortranChargeHistory \| None` | Charge history accessor |
 | `matching_plane_state` | `MatchingPlaneState \| None` | Last outer state of a `zhao_stationary` run with outer-root refresh; `None` when the summary marks it invalid |
 | `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | Outer-state history; `None` when the state is invalid or the CSV is absent |
+| `secondary_emission_history` | `tuple[SecondaryEmissionHistoryEntry, ...] \| None` | Per-incident-species, per-accepted-batch SEE history; `None` without the CSV |
 
 `MatchingPlaneState` exposes named fields for the cell mean charge $D_H$, wall potential $\Phi_H=\phi_0$, inflow fluxes,
 outer emission source, PE return / escape, the number of accepted outer roots, and the relative change at the last refresh.
@@ -141,6 +142,9 @@ See the [output-format reference](OutputReference.en.html#zhao_stationary) for e
 corresponding `state: MatchingPlaneState`. A header-only `matching_plane_history.csv` produces the empty tuple `()`.
 Thus `None` means that no history file or no valid outer state exists, whereas an empty tuple means that the
 state is valid but the history contains no rows.
+
+`MatchingPlaneState.secondary_share` and `secondary_budget_residual_a_m2` describe the provisional SEE allocation.
+`SecondaryEmissionHistoryEntry` contains `batch, incident_species, hits, emitted_count, emitted_charge_c, mean_yield, generation_capped_count`.
 
 ### 3.3 `FortranChargeHistory`
 

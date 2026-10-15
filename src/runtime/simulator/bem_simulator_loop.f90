@@ -61,6 +61,8 @@ contains
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   type(app_config) :: trial_app
+  integer(i64) :: secondary_counts(3, app%n_particle_species), secondary_count_values(3*app%n_particle_species)
+  real(dp) :: secondary_values(2, app%n_particle_species), secondary_real_values(2*app%n_particle_species)
   type(sim_stats) :: stats_candidate
 
   stats = sim_stats()
@@ -286,13 +288,13 @@ contains
 
       call perf_region_begin(perf_region_particle_batch, t0)
       call process_particle_batch( &
-        mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace%dq_thread, &
-        workspace%escaped_boundary_flag, workspace%absorbed_flag, workspace%absorbed_element, &
-        workspace%soft_discarded_boundary_flag, bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
+        mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace, &
+        bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
-        collision_failure_x, collision_failure_v, workspace%matching_plane_moments_thread, &
+        collision_failure_x, collision_failure_v, &
         batch_retry_counts &
         )
+      fresh_particle_count = pcls_batch%n
       call perf_region_end(perf_region_particle_batch, t0)
 
       if (replay_active) then
@@ -385,7 +387,16 @@ contains
     end if
     ! Build the complete statistics update before mutating mesh/ledger state.  The
     ! checked add routines are the single overflow guard; commit only after all pass.
+    secondary_counts = sum(workspace%secondary_counts_thread, dim=3)
+    secondary_values = sum(workspace%secondary_values_thread, dim=3)
+    secondary_count_values = reshape(secondary_counts, [size(secondary_count_values)])
+    secondary_real_values = reshape(secondary_values, [size(secondary_real_values)])
+    call mpi_allreduce_sum_i64_array(mpi_ctx, secondary_count_values)
+    call mpi_allreduce_sum_real_dp_array(mpi_ctx, secondary_real_values)
+    secondary_counts = reshape(secondary_count_values, shape(secondary_counts))
+    secondary_values = reshape(secondary_real_values, shape(secondary_values))
     stats_candidate = stats
+    call accumulate_secondary_stats(stats_candidate, secondary_counts, secondary_values)
     call accumulate_batch_stats( &
       stats_candidate, batch_counts, batch_soft_discarded_abs_charge, batch_retry_counts, 0.0_dp &
       )
@@ -424,7 +435,7 @@ contains
     call commit_batch_charge(mesh, app%sim, snapshot, conductor_solver, workspace, rel, mpi_ctx)
     call perf_region_end(perf_region_commit_charge, t0)
     call outflow_refresh%commit_batch( &
-      app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
+      trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
     if (outflow_refreshed) call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .false.)
@@ -441,6 +452,12 @@ contains
 
     call perf_region_begin(perf_region_history_write, t0)
     if (mpi_is_root(mpi_ctx)) then
+      if (present(secondary_emission_history_unit)) then
+        if (secondary_emission_history_unit /= -1) then
+          call write_secondary_emission_history_rows(secondary_emission_history_unit, batch_idx, app, &
+                                                     secondary_counts, secondary_values)
+        end if
+      end if
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
       if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then

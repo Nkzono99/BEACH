@@ -41,6 +41,7 @@ PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'sim.multiple_box_events_soft_discard_fraction_limit': 'particles.tracking.events.discard_fraction_limit',
  'sim.multiple_box_events_soft_discard_abs_charge_limit': 'particles.tracking.events.discard_charge_warning_c',
  'sim.raycast_max_bounce': 'particles.raycast.max_bounces',
+ 'particles.secondary_emission_max_generations': 'particles.secondary_emission.max_generations',
  'periodic2.lower_boundary_model': 'fields.periodic.lower_boundary_model',
  'periodic2.reference_mode_layers': 'fields.periodic.reference.mode_layers',
  'periodic2.panel_quadrature_order': 'fields.periodic.reference.panel_quadrature_order',
@@ -50,6 +51,7 @@ PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'surface_current_model.electron_species': 'sheath.species.electron',
  'surface_current_model.ion_species': 'sheath.species.ion',
  'surface_current_model.photoelectron_species': 'sheath.species.photoelectron',
+ 'surface_current_model.secondary_electron_species': 'sheath.species.secondary_electron',
  'surface_current_model.solar_elevation_deg': 'sheath.photoelectrons.solar_elevation_deg',
  'surface_current_model.photoelectron_ref_density_m3': 'sheath.photoelectrons.ref_density_m3',
  'surface_current_model.photoelectron_source_scale': 'sheath.photoelectrons.source_scale',
@@ -112,6 +114,17 @@ SPECIES_PATHS = {'species_key': 'species_key',
  'boundary': 'boundary',
  'boundary_inflow': 'inflow'}
 
+SECONDARY_EMISSION_RULES = {
+    'enabled': {'type': 'boolean', 'default': False},
+    'model': {'type': 'string', 'enum': ['whipple', 'constant'], 'default': 'whipple'},
+    'yield_max': {'type': 'number', 'default': 1.5},
+    'energy_max_ev': {'type': 'number', 'default': 500.0},
+    'const_yield': {'type': 'number', 'default': 0.0},
+    'target_species': {'type': 'string', 'maxLength': 64},
+}
+SPECIES_PATHS.update({f'secondary_emission_{key}': f'surface_interaction.secondary_emission.{key}'
+                      for key in SECONDARY_EMISSION_RULES})
+
 TOP_LEVEL_ORDER = ("run", "domain", "mesh", "particles", "fields", "sheath", "output")
 PRESERVED = {"domain": "domain", "mesh.mode": "mesh.mode",
              "mesh.groups": "mesh.groups", "mesh.templates": "mesh.templates"}
@@ -144,12 +157,12 @@ def is_grouped(config: Mapping[str, Any]) -> bool:
         return True
     lowered = {str(k).lower(): v for k, v in config.items()}
     particles = lowered.get("particles", {})
-    if has(particles, {"boundary", "reservoir", "tracking", "raycast"}):
+    if has(particles, {"boundary", "reservoir", "tracking", "raycast", "secondary_emission"}):
         return True
     if isinstance(particles, Mapping):
         species = next((v for k,v in particles.items() if str(k).lower()=="species"), [])
         if isinstance(species, list) and any(has(item, {"charge_c", "mass_kg", "distribution",
-                "source", "sampling", "inflow", "charging"}) for item in species):
+                "source", "sampling", "inflow", "charging", "surface_interaction"}) for item in species):
             return True
     return has(lowered.get("mesh"), {"obj"}) or has(lowered.get("output"),
             {"enabled", "history", "final", "checkpoint", "diagnostics"})

@@ -1,12 +1,15 @@
 !> output writer の公開 I/O contract と resume 時の履歴追記を検証する。
 program test_output_writer_io
   use, intrinsic :: iso_c_binding, only: c_char, c_int, c_null_char
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
+  use bem_constants, only: qe
   use bem_mesh, only: init_mesh
   use bem_output_writer, only: ensure_output_dir, open_top_reference_history_writer, open_matching_plane_history_writer, &
                                write_result_files, write_top_reference_history_snapshot, &
                                open_fixed_current_history_writer, write_fixed_current_history_rows, &
-                               open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows
+                               open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows, &
+                               write_matching_plane_history_snapshot, &
+                               open_secondary_emission_history_writer, write_secondary_emission_history_rows
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_types, only: mesh_type, sim_stats
@@ -61,10 +64,14 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(9)
+  call test_init(10)
 
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
+
+  call test_begin('secondary_history_and_legacy_matching_history_resume')
+  call test_secondary_and_legacy_history()
+  call test_end()
 
   call cleanup_output_dir(out_dir_disabled)
   call cleanup_output_dir(out_dir_ledger)
@@ -467,6 +474,73 @@ contains
   end subroutine test_fixed_current_history_rows
 
   !> 外部源スペクトルは更新ごとに正の bin だけを history へ書き、summary へは全 bin を 1 行で書く。
+  subroutine test_secondary_and_legacy_history()
+    integer(i64) :: counts(3, 2)
+    real(dp) :: values(2, 2)
+    logical :: opened
+    integer :: unit_id, reader, comma, j
+    character(len=2048) :: header, legacy_header, row
+
+    call default_app_config(cfg)
+    cfg%output_dir = out_dir_matching
+    cfg%n_particle_species = 2_i32
+    cfg%particle_species(1)%enabled = .true.
+    cfg%particle_species(1)%species_key = 'incident,electron'
+    cfg%particle_species(1)%secondary_emission_enabled = .true.
+    cfg%history_stride = 0_i32
+    call open_secondary_emission_history_writer(cfg, .false., opened, unit_id)
+    call assert_true(opened, 'SEE history is independent of ordinary history stride')
+    counts = 0_i64
+    values = 0.0_dp
+    counts(:, 1) = [1_i64, 2_i64, 3_i64]
+    values(:, 1) = [-2.0_dp*qe, 1.5_dp]
+    call write_secondary_emission_history_rows(unit_id, 1_i32, cfg, counts, values)
+    close (unit_id)
+    open (newunit=reader, file=out_dir_matching//'/secondary_emission_history.csv', status='old', action='read')
+    read (reader, '(a)') header
+    read (reader, '(a)') row
+    close (reader)
+    call assert_true(index(header, 'generation_capped_count') > 0, 'SEE history columns')
+    call assert_true(index(row, '"incident,electron"') > 0, 'SEE history quotes incident species')
+
+    cfg%history_stride = 1_i32
+    cfg%surface_current%model = 'zhao_stationary'
+    cfg%surface_current%outflow_refresh_batches = 1_i32
+    call open_matching_plane_history_writer(cfg, .false., opened, unit_id)
+    close (unit_id)
+    open (newunit=reader, file=out_dir_matching//'/matching_plane_history.csv', status='old', action='read')
+    read (reader, '(a)') header
+    close (reader)
+    comma = index(header, ',secondary_share')
+    legacy_header = header(:comma - 1)
+    open (newunit=unit_id, file=out_dir_matching//'/matching_plane_history.csv', status='replace', action='write')
+    write (unit_id, '(a)') trim(legacy_header)
+    write (unit_id, '(a)') '1,1,0,0,1,1,0,0,0,2,2,0,0,1,1,1,0'
+    close (unit_id)
+    call open_matching_plane_history_writer(cfg, .true., opened, unit_id)
+    stats = sim_stats()
+    stats%matching_plane_state_valid = .true.
+    stats%matching_plane_secondary_share = 0.25_dp
+    stats%secondary_budget_residual_a_m2 = -1.0e-8_dp
+    call write_matching_plane_history_snapshot(unit_id, 2_i32, 2.0_dp, stats)
+    close (unit_id)
+    open (newunit=reader, file=out_dir_matching//'/matching_plane_history.csv', status='old', action='read')
+    read (reader, '(a)') row
+    call assert_true(trim(row) == trim(header), 'legacy header must upgrade to the 19-column contract')
+    do j = 1, 2
+      read (reader, '(a)') row
+      comma = 0
+      block
+        integer :: k
+        do k = 1, len_trim(row)
+          if (row(k:k) == ',') comma = comma + 1
+        end do
+      end block
+      call assert_equal_i32(int(comma, i32), 18_i32, 'legacy and new matching rows must have 19 columns')
+    end do
+    close (reader)
+  end subroutine test_secondary_and_legacy_history
+
   subroutine test_matching_plane_spectrum_outputs()
     logical :: opened, found
     integer :: unit_id, read_ios, row_count, pos
@@ -695,6 +769,7 @@ contains
     call delete_file_if_exists(out_dir//'/checkpoint_complete.txt.tmp')
     call delete_file_if_exists(out_dir//'/top_reference_history.csv')
     call delete_file_if_exists(out_dir//'/matching_plane_history.csv')
+    call delete_file_if_exists(out_dir//'/secondary_emission_history.csv')
     call delete_file_if_exists(out_dir//'/fixed_current_history.csv')
     call delete_file_if_exists(out_dir//'/matching_plane_spectrum_history.csv')
     call remove_empty_directory(out_dir)

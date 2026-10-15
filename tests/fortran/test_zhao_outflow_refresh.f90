@@ -9,6 +9,9 @@ program test_zhao_outflow_refresh
                             particle_inflow_reservoir
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
+  use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
+  use bem_surface_closure_contract, only: surface_closure_contract_type
+  use bem_mpi, only: mpi_context
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, delete_file_if_exists
@@ -32,7 +35,7 @@ program test_zhao_outflow_refresh
   logical :: spectrum_rows_valid
   character(len=512) :: line
 
-  call test_init(3)
+  call test_init(5)
 
   call test_begin('stationary_barrier_uses_outer_wall_potential_gauge')
   call configure_fixture(mesh, cfg, inject_state, 0_i32)
@@ -162,9 +165,122 @@ program test_zhao_outflow_refresh
     )
   call test_end()
 
+  call test_begin('combined_pe_see_spectrum_uses_distinct_flux_normalizations')
+  call check_emission_group_refresh(.false.)
+  call test_end()
+  call test_begin('secondary_only_refresh_can_move_from_c_to_a')
+  call check_emission_group_refresh(.true.)
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine check_emission_group_refresh(night)
+    logical, intent(in) :: night
+    type(mesh_type) :: plate
+    type(app_config) :: app
+    type(injection_state) :: state
+    type(sim_stats) :: receipts, restored
+    type(surface_current_model_result_type) :: initial
+    type(surface_closure_contract_type) :: closure, restored_closure
+    type(zhao_outflow_refresh_type) :: refresh, resumed_refresh
+    type(mpi_context) :: mpi
+    real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), raw_charge(12)
+    real(dp) :: spectrum_pe(outflow_spectrum_bins), spectrum_see(outflow_spectrum_bins)
+    real(dp) :: flux_pe, flux_see, raw_out, batch_time, area, expected_share, see_temperature
+    integer :: batch, k
+    logical :: refreshed
+
+    call configure_fixture(plate, app, state, 2_i32)
+    call evaluate_surface_current_model(app, initial)
+    flux_pe = 0.5_dp*initial%photoelectron_emission_current_density_a_m2/qe
+    flux_see = 0.25_dp*flux_pe
+    app%n_particle_species = 4_i32
+    app%surface_current%secondary_electron_species = 'secondary'
+    app%particle_species(4) = species_from_defaults()
+    app%particle_species(4)%species_key = 'secondary'
+    app%particle_species(4)%source_mode = 'secondary_emission'
+    app%particle_species(4)%q_particle = -qe
+    app%particle_species(4)%m_particle = app%particle_species(1)%m_particle
+    if (night) then
+      flux_see = 2.0_dp*flux_pe
+      flux_pe = 0.0_dp
+      app%surface_current%photoelectron_source_scale = 0.0_dp
+      app%surface_current%photoelectron_species = ''
+      app%surface_current%solar_elevation_deg = 0.0_dp
+      app%surface_current%photoelectron_ref_density_m3 = 0.0_dp
+      app%particle_species(3)%enabled = .false.
+    end if
+    see_temperature = 1.1_dp
+    if (night) see_temperature = 2.2_dp
+    area = cell_width**2
+    edges = outflow_spectrum_edges_ev()
+    do k = 1, outflow_spectrum_bins
+      spectrum_pe(k) = exp(-edges(k)/2.2_dp) - exp(-edges(k + 1)/2.2_dp)
+      spectrum_see(k) = exp(-edges(k)/see_temperature) - exp(-edges(k + 1)/see_temperature)
+    end do
+    receipts = sim_stats()
+    call refresh%initialize(app, plate, receipts, closure)
+    if (night) then
+      call assert_true(receipts%matching_plane_phi_v < 0.0_dp, 'night must start from a zero-source Type C root')
+      restored = receipts
+      call resumed_refresh%initialize(app, plate, restored, restored_closure)
+      call assert_close_dp(restored%matching_plane_phi_v, receipts%matching_plane_phi_v, 1.0e-12_dp, &
+                           'zero-source checkpoint before the first SEE refresh must be resumable')
+    end if
+    do batch = 1, 2
+      batch_time = 1.0e-3_dp*real(2*batch - 1, dp)
+      app%sim%batch_duration = batch_time
+      moments = 0.0_dp
+      raw_charge = 0.0_dp
+      if (.not. night) then
+        raw_out = 100.0_dp*real(batch, dp)
+        moments(1, 3, 1) = raw_out
+        moments(2, 3, 1) = raw_out*2.2_dp*qe
+        moments(5:, 3, 1) = raw_out*spectrum_pe
+        raw_charge(7) = 2.0_dp*raw_out*qe
+      end if
+      raw_out = flux_see*area*batch_time
+      moments(1, 4, 1) = raw_out
+      moments(2, 4, 1) = raw_out*see_temperature*qe
+      moments(5:, 4, 1) = raw_out*spectrum_see
+      call refresh%commit_batch(app, plate, mpi, moments, raw_charge, int(batch, i32), receipts, closure, refreshed)
+      call assert_true(refreshed .eqv. (batch == 2), 'refresh must wait for the full accepted-batch window')
+    end do
+    expected_share = flux_see/(flux_pe + flux_see)
+    call assert_close_dp(receipts%matching_plane_feedback(2), (2.2_dp*flux_pe + see_temperature*flux_see)/(flux_pe + flux_see), &
+                         1.0e-12_dp, 'mean normal energy must be flux weighted')
+    call assert_close_dp(receipts%matching_plane_feedback(1), flux_pe + flux_see, &
+                         1.0e-12_dp*(flux_pe + flux_see), 'PE transmission plus SEE weight/area/time normalization')
+    call assert_close_dp(receipts%matching_plane_secondary_share, expected_share, 1.0e-12_dp, 'outflow share')
+    call assert_close_dp(sum(receipts%matching_plane_photoelectron_spectrum_m2_s), flux_pe + flux_see, &
+                         1.0e-12_dp*(flux_pe + flux_see), 'combined spectrum flux conservation')
+    call assert_true(all(abs(receipts%matching_plane_photoelectron_spectrum_m2_s - &
+                             flux_pe*spectrum_pe - flux_see*spectrum_see) < 1.0e-12_dp*(flux_pe + flux_see)), &
+                     'combined spectrum must retain both bin distributions')
+    if (night) call assert_true(receipts%matching_plane_response(6) < 0.0_dp, 'SEE-only outflow must permit C to A')
+    restored = receipts
+    call resumed_refresh%initialize(app, plate, restored, restored_closure)
+    call assert_close_dp(restored%matching_plane_secondary_share, expected_share, 0.0_dp, 'restart must retain split')
+    call assert_close_dp(restored_closure%escaped_particle_current_a(3), closure%escaped_particle_current_a(3), &
+                         1.0e-20_dp, 'restart PE target split')
+    if (.not. night) then
+      ! Empty outflow keeps the finite root but the latest window has no SEE outflow: PE share is one.
+      moments = 0.0_dp
+      raw_charge = 0.0_dp
+      restored = receipts
+      do batch = 3, 4
+        call refresh%commit_batch(app, plate, mpi, moments, raw_charge, int(batch, i32), receipts, closure, refreshed)
+        call assert_true(.not. refreshed, 'an empty window must keep the previous root')
+      end do
+      call assert_close_dp(receipts%matching_plane_phi_v, restored%matching_plane_phi_v, 0.0_dp, 'empty-window root')
+      call assert_close_dp(receipts%matching_plane_secondary_share, 0.0_dp, 0.0_dp, 'no SEE outflow gives PE share one')
+      call assert_close_dp(-closure%escaped_particle_current_a(3), &
+                           receipts%matching_plane_photoelectron_escape_flux_m2_s*qe*area, 1.0e-24_dp, &
+                           'retained-root PE target must follow the latest window')
+    end if
+  end subroutine check_emission_group_refresh
 
   subroutine configure_fixture(fixture_mesh, fixture_cfg, state, refresh_batches)
     type(mesh_type), intent(out) :: fixture_mesh

@@ -3471,3 +3471,40 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
     assert written == out
     assert out.exists()
     assert out.stat().st_size > 0
+
+
+def test_load_fortran_result_secondary_emission_and_combined_matching_source(tmp_path: Path) -> None:
+    out = tmp_path / "secondary"
+    out.mkdir()
+    _write_minimal_result_fixture(out, summary_extra=[
+        *_matching_plane_summary_extra(),
+        "matching_plane_secondary_share=0.25",
+        "secondary_budget_residual_a_m2=-1e-8",
+    ])
+    (out / "matching_plane_history.csv").write_text(
+        f"{_MATCHING_HISTORY_HEADER},secondary_share,secondary_budget_residual_a_m2\n"
+        f"{_matching_history_row()},0.25,-1e-8\n", encoding="utf-8",
+    )
+    (out / "secondary_emission_history.csv").write_text(
+        "batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count\n"
+        '1,"incident,electron",3,6,-9.6e-19,2,0\n'
+        '1,"secondary",1,0,0,1.5,2\n', encoding="utf-8",
+    )
+    result = load_fortran_result(out)
+    assert result.matching_plane_state.secondary_share == 0.25
+    assert result.matching_plane_history[0].state.secondary_budget_residual_a_m2 == -1e-8
+    assert result.secondary_emission_history[0].incident_species == "incident,electron"
+    assert result.secondary_emission_history[0].emitted_count == 6
+    assert result.secondary_emission_history[0].emitted_charge_c == -9.6e-19
+    assert result.secondary_emission_history[1].generation_capped_count == 2
+
+
+@pytest.mark.parametrize("charge", ["nan", "1e-19"])
+def test_secondary_emission_reader_rejects_invalid_emitted_charge(tmp_path: Path, charge: str) -> None:
+    _write_minimal_result_fixture(tmp_path)
+    (tmp_path / "secondary_emission_history.csv").write_text(
+        "batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count\n"
+        f"1,electron,3,6,{charge},2,0\n", encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="emitted_charge_c must be finite and nonpositive"):
+        load_fortran_result(tmp_path)

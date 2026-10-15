@@ -35,6 +35,9 @@ _MATCHING_PLANE_HISTORY_HEADER = (
     "residual",
 )
 
+# Released 17-column histories remain readable; new writers add the two SEE receipts.
+_SECONDARY_HISTORY_COLUMNS = ("secondary_share", "secondary_budget_residual_a_m2")
+
 
 def _parse_matching_plane_state(data: dict[str, str]) -> MatchingPlaneState | None:
     valid = _parse_optional_bool(data, "matching_plane_state_valid")
@@ -118,6 +121,8 @@ def _parse_matching_plane_state(data: dict[str, str]) -> MatchingPlaneState | No
         residual=_parse_nonnegative_finite_float(
             data["matching_plane_residual"], key="matching_plane_residual"
         ),
+        secondary_share=_parse_optional_finite_float(data, "matching_plane_secondary_share") or 0.0,
+        secondary_budget_residual_a_m2=_parse_optional_finite_float(data, "secondary_budget_residual_a_m2") or 0.0,
     )
     _validate_matching_plane_state(state, context="summary.txt")
     return state
@@ -132,14 +137,16 @@ def _load_matching_plane_history_if_exists(
     entries: list[MatchingPlaneHistoryEntry] = []
     with path.open("r", encoding="utf-8", newline="") as stream:
         reader = csv.DictReader(stream)
-        if tuple(reader.fieldnames or ()) != _MATCHING_PLANE_HISTORY_HEADER:
+        header = tuple(reader.fieldnames or ())
+        if header not in (_MATCHING_PLANE_HISTORY_HEADER,
+                          _MATCHING_PLANE_HISTORY_HEADER + _SECONDARY_HISTORY_COLUMNS):
             raise ValueError(
-                "matching_plane_history.csv header does not match the 17-column contract."
+                "matching_plane_history.csv header does not match the 17- or 19-column contract."
             )
         for line_number, row in enumerate(reader, start=2):
-            if None in row or any(row.get(key) is None for key in _MATCHING_PLANE_HISTORY_HEADER):
+            if None in row or any(row.get(key) is None for key in header):
                 raise ValueError(
-                    f"matching_plane_history.csv line {line_number} must have exactly 17 columns."
+                    f"matching_plane_history.csv line {line_number} must have exactly {len(header)} columns."
                 )
             state = MatchingPlaneState(
                 displacement_c_m2=_parse_history_finite(row, "D_H_C_m2", line_number),
@@ -179,6 +186,10 @@ def _load_matching_plane_history_if_exists(
                 ),
                 iterations=_parse_history_nonnegative_int(row, "iterations", line_number),
                 residual=_parse_history_nonnegative(row, "residual", line_number),
+                secondary_share=_parse_history_finite(row, "secondary_share", line_number)
+                if "secondary_share" in header else 0.0,
+                secondary_budget_residual_a_m2=_parse_history_finite(row, "secondary_budget_residual_a_m2", line_number)
+                if "secondary_budget_residual_a_m2" in header else 0.0,
             )
             _validate_matching_plane_state(
                 state, context=f"matching_plane_history.csv line {line_number}"
@@ -241,6 +252,8 @@ def _parse_history_nonnegative_int(
 def _validate_matching_plane_state(
     state: MatchingPlaneState, *, context: str
 ) -> None:
+    if not 0.0 <= state.secondary_share <= 1.0:
+        raise ValueError(f"{context} secondary_share must be between 0 and 1.")
     if state.iterations <= 0:
         raise ValueError(f"{context} matching-plane iterations must be > 0.")
     budget_scale = max(

@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(36)
+  call test_init(39)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -283,7 +283,7 @@ program test_app_config_parser
   call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call write_refresh_variant('examples/zero_current_no_photo.toml', zhao_refresh_variant_path)
-  call assert_config_rejected(zhao_refresh_variant_path, 'requires photoelectron_source_scale > 0')
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires a surface-emitted electron group')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -451,6 +451,39 @@ program test_app_config_parser
     'effective high faces mismatch' &
     )
   call assert_equal_i32(cfg%checkpoint_stride, 2_i32, 'checkpoint stride mismatch')
+  call test_end()
+
+  call test_begin('secondary_emission_keys_and_target_resolution')
+  call default_app_config(cfg)
+  call load_app_config('examples/zero_current_secondary.toml', cfg)
+  call assert_true(cfg%particle_species(1)%secondary_emission_enabled, 'SEE enabled')
+  call assert_equal_i32(cfg%particle_species(1)%secondary_emission_target_idx, 4_i32, 'SEE target species')
+  call assert_close_dp(cfg%particle_species(1)%secondary_emission_yield_max, 1.5_dp, 0.0_dp, 'Whipple yield_max')
+  call assert_close_dp(cfg%particle_species(1)%secondary_emission_energy_max_ev, 500.0_dp, 0.0_dp, 'Whipple energy_max')
+  call assert_equal_i32(cfg%secondary_emission_max_generations, 3_i32, 'default generation cap')
+  call default_app_config(cfg)
+  call load_app_config('examples/zero_current_no_photo_secondary.toml', cfg)
+  call assert_true(len_trim(cfg%surface_current%secondary_electron_species) > 0, 'SEE-only sheath role')
+  call assert_true(cfg%surface_current%outflow_refresh_batches > 0_i32, 'SEE-only refresh accepted')
+  call test_end()
+
+  call test_begin('secondary_source_rejects_independent_sampling_and_current_closures')
+  call write_secondary_variant(input_contract_path, '[particles.species.sampling]'//new_line('a')//'weight = 1.0')
+  call assert_config_rejected(input_contract_path, 'must omit sampling')
+  call write_secondary_variant(input_contract_path, &
+                               '[particles.species.charging]'//new_line('a')//'closure = "fixed_current"')
+  call assert_config_rejected(input_contract_path, 'must omit charging.closure')
+  call write_secondary_variant(input_contract_path, &
+                               '[particles.species.charging]'//new_line('a')//'closure = "neutral_return"')
+  call assert_config_rejected(input_contract_path, 'must omit charging.closure')
+  call test_end()
+
+  call test_begin('secondary_yield_requires_valid_parameters_and_enabled_target')
+  call write_secondary_variant(input_contract_path, '', target='missing')
+  call assert_config_rejected(input_contract_path, 'target_species must name an enabled')
+  call write_secondary_variant(input_contract_path, '', yield_max=-1.0_dp)
+  call assert_config_rejected(input_contract_path, 'whipple SEE requires')
+  call delete_file_if_exists(input_contract_path)
   call test_end()
 
   call test_summary()
@@ -756,6 +789,30 @@ contains
     write (target_unit, '(A)') 'outflow_refresh_batches = 1'
     close (target_unit)
   end subroutine write_refresh_variant
+
+  subroutine write_secondary_variant(path, extra, target, yield_max)
+    character(len=*), intent(in) :: path, extra
+    character(len=*), intent(in), optional :: target
+    real(dp), intent(in), optional :: yield_max
+    integer :: input, output, ios
+    character(len=512) :: line
+    open (newunit=input, file='examples/zero_current_secondary.toml', status='old', action='read')
+    open (newunit=output, file=path, status='replace', action='write')
+    do
+      read (input, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      if (present(target) .and. index(line, 'target_species =') > 0) then
+        line = 'target_species = "'//trim(target)//'"'
+      end if
+      if (present(yield_max) .and. index(line, 'yield_max =') > 0) then
+        write (line, '(a,es24.16)') 'yield_max = ', yield_max
+      end if
+      write (output, '(a)') trim(line)
+    end do
+    write (output, '(a)') extra
+    close (input)
+    close (output)
+  end subroutine write_secondary_variant
 
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment

@@ -1,8 +1,15 @@
 !> 履歴ファイルの生成・再開とスナップショットの出力。
 submodule(bem_output_writer) bem_output_writer_history
   use bem_string_utils, only: lower_ascii
+  use bem_filesystem, only: atomic_rename
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   implicit none
+  character(len=*), parameter :: matching_history_legacy_header = &
+                                 'batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,ion_inward_flux_m2_s,'// &
+                                 'electron_access_potential_V,ion_access_potential_V,photoelectron_barrier_potential_V,'// &
+                                 'photoelectron_outward_flux_m2_s,'// &
+                                 'photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,ion_outward_flux_m2_s,'// &
+                                 'photoelectron_return_flux_m2_s,photoelectron_escape_flux_m2_s,iterations,residual'
 contains
 
   !> 履歴 CSV のオープンとヘッダ初期化を行う。
@@ -102,13 +109,9 @@ contains
     return
   end if
   call ensure_output_dir(app%output_dir)
+  if (resumed) call upgrade_legacy_matching_history(path)
   call open_history_file( &
-    path, resumed, &
-    'batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,ion_inward_flux_m2_s,'// &
-    'electron_access_potential_V,ion_access_potential_V,photoelectron_barrier_potential_V,'// &
-    'photoelectron_outward_flux_m2_s,'// &
-    'photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,ion_outward_flux_m2_s,'// &
-    'photoelectron_return_flux_m2_s,photoelectron_escape_flux_m2_s,iterations,residual', &
+    path, resumed, matching_history_legacy_header//',secondary_share,secondary_budget_residual_a_m2', &
     history_unit, 'Failed to open matching-plane history file.' &
     )
   history_opened = .true.
@@ -131,7 +134,7 @@ contains
   module procedure write_matching_plane_history_snapshot
 
   if (.not. stats%matching_plane_state_valid) return
-  write (unit_id, '(i0,14(a,es24.16),a,i0,a,es24.16)') &
+  write (unit_id, '(i0,14(a,es24.16),a,i0,3(a,es24.16))') &
     batch_idx, ',', simulated_time_s, ',', stats%matching_plane_displacement_c_m2, &
     ',', stats%matching_plane_phi_v, ',', stats%matching_plane_response(2), &
     ',', stats%matching_plane_response(3), ',', stats%matching_plane_response(4), &
@@ -140,7 +143,8 @@ contains
     ',', stats%matching_plane_feedback(2), ',', stats%matching_plane_feedback(3), &
     ',', stats%matching_plane_feedback(4), ',', stats%matching_plane_photoelectron_return_flux_m2_s, &
     ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
-    ',', stats%matching_plane_residual
+    ',', stats%matching_plane_residual, ',', stats%matching_plane_secondary_share, &
+    ',', stats%secondary_budget_residual_a_m2
   end procedure write_matching_plane_history_snapshot
 
   !> 外部根の更新が使う H 外向きスペクトルを、matching-plane history と同じ条件と間隔で書く。
@@ -178,6 +182,50 @@ contains
       ',', edges(j), ',', edges(j + 1), ',', stats%matching_plane_photoelectron_spectrum_m2_s(j)
   end do
   end procedure write_matching_plane_spectrum_history_rows
+
+  module procedure open_secondary_emission_history_writer
+  character(len=1024) :: path
+  logical :: active
+  integer :: s
+
+  history_opened = .false.
+  history_unit = -1
+  if (.not. app%write_output) return
+  path = trim(app%output_dir)//'/secondary_emission_history.csv'
+  active = .false.
+  do s = 1, app%n_particle_species
+    active = active .or. (app%particle_species(s)%enabled .and. app%particle_species(s)%secondary_emission_enabled)
+  end do
+  if (.not. active) then
+    if (.not. resumed) call delete_history_if_exists(path)
+    return
+  end if
+  call ensure_output_dir(app%output_dir)
+  call open_history_file(path, resumed, &
+                         'batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count', &
+                         history_unit, 'Failed to open secondary-emission history file.')
+  history_opened = .true.
+  end procedure open_secondary_emission_history_writer
+
+  module procedure write_secondary_emission_history_rows
+  integer :: s, j
+  real(dp) :: mean_yield
+  character(len=:), allocatable :: key
+
+  do s = 1, app%n_particle_species
+    if (.not. app%particle_species(s)%enabled .or. .not. app%particle_species(s)%secondary_emission_enabled) cycle
+    mean_yield = 0.0_dp
+    if (counts(1, s) > 0_i64) mean_yield = values(2, s)/real(counts(1, s), dp)
+    key = '"'
+    do j = 1, len_trim(app%particle_species(s)%species_key)
+      key = key//app%particle_species(s)%species_key(j:j)
+      if (app%particle_species(s)%species_key(j:j) == '"') key = key//'"'
+    end do
+    key = key//'"'
+    write (unit_id, '(i0,a,a,2(a,i0),2(a,es24.16),a,i0)') batch_idx, ',', key, &
+      ',', counts(1, s), ',', counts(2, s), ',', values(1, s), ',', mean_yield, ',', counts(3, s)
+  end do
+  end procedure write_secondary_emission_history_rows
 
   !> 固定電流closureの追跡電荷と目標電荷を、species別channel別に窓合計で記録する。
   module procedure open_fixed_current_history_writer
@@ -229,6 +277,40 @@ contains
     end do
   end do
   end procedure write_fixed_current_history_rows
+
+  !> Protect the released 17-column history contract when resuming into the 19-column writer.
+  !> Old rows represent runs without SEE, so their two additive diagnostics are zero.
+  subroutine upgrade_legacy_matching_history(path)
+    character(len=*), intent(in) :: path
+    character(len=8192) :: line
+    character(len=:), allocatable :: temporary
+    logical :: exists
+    integer :: input, output, ios, status
+
+    inquire (file=trim(path), exist=exists)
+    if (.not. exists) return
+    open (newunit=input, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'Failed to read matching-plane history for resume.'
+    read (input, '(a)', iostat=ios) line
+    if (ios /= 0 .or. trim(line) /= matching_history_legacy_header) then
+      close (input)
+      return
+    end if
+    temporary = trim(path)//'.see.tmp'
+    open (newunit=output, file=temporary, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to extend legacy matching-plane history.'
+    write (output, '(a)') matching_history_legacy_header//',secondary_share,secondary_budget_residual_a_m2'
+    do
+      read (input, '(a)', iostat=ios) line
+      if (ios < 0) exit
+      if (ios /= 0) error stop 'Failed to read legacy matching-plane history row.'
+      write (output, '(a)') trim(line)//',0,0'
+    end do
+    close (input)
+    close (output)
+    call atomic_rename(temporary, trim(path), status)
+    if (status /= filesystem_success) error stop 'Failed to replace legacy matching-plane history.'
+  end subroutine upgrade_legacy_matching_history
 
   !> Append or replace a history file; an existing resumed file keeps its original header.
   subroutine open_history_file(path, resumed, header, unit_id, failure_message)

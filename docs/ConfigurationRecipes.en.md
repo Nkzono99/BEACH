@@ -105,6 +105,7 @@ minimum configuration from the dedicated guide so that keys specific to the old 
 | --- | --- | --- | --- |
 | `volume_seed` | Place a specified count inside the box for initial populations or orbit tests | Does not represent a surface flux | `npcls_per_step` |
 | `photo_raycast` | Emit from the first surface hit by illumination rays | Current density × projected area × `batch_duration` | `rays_per_batch` and ray hit rate |
+| `secondary_emission` | Created by incident-species absorption and tracked in the same batch | [Secondary electron emission](SecondaryElectronEmission.en.html) |
 
 To keep the tutorial `volume_seed` path but change its supply and region, adjust only these values in the existing
 species entry:
@@ -152,6 +153,9 @@ and [periodic2 electrostatics](PeriodicElectrostatics.en.html). See
 Keep the tutorial reference run at `field_solver="direct"`. Before adopting a faster solver, measure its difference from
 Direct in a reduced case with the same mesh and particle conditions. See [Field evaluation](FieldSolvers.en.html) for
 compatibility and selection, and [Use FMM](FMM.en.html) for FMM configuration and accuracy tuning.
+
+A `secondary_emission` species has no independent injection source. Pair it with the emission settings of an incident
+species ([Secondary electron emission](SecondaryElectronEmission.en.html)).
 
 ## 7. Set time scales and particle sampling
 

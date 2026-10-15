@@ -122,7 +122,7 @@ beach.toml
 | `[particle_boundary]` | root | 任意 | 非周期面のglobal粒子作用 |
 | `[reservoir]` | root | 任意 | 外部reservoirの流入障壁と基準電位 |
 | `[surface_current_model]` | root | 任意 | 外部シースの零電流根から species別`fixed_current` targetと障壁を与えるclosure |
-| `[particles]` | root | 必須 | `[[particles.species]]` のコンテナ。直下に通常 key は置かない |
+| `[particles]` | root | 必須 | 粒子種と `secondary_emission.max_generations` のコンテナ |
 | `[[particles.species]]` | `[particles]` | 1 件以上 | 粒子種、注入方式、速度分布、マクロ粒子重み |
 | `[particles.species.boundary]` | 最新の`[[particles.species]]` | 任意 | その粒子種だけの非周期面override |
 | `[particles.species.boundary_inflow]` | 最新の`[[particles.species]]` | 任意 | 外部reservoirから流入する非周期面 |
@@ -343,11 +343,12 @@ face_potential_grid_n = 3
 | `electron_species` | string | 未指定 | ambient electron の `species_key`。必須、1–64 文字 |
 | `ion_species` | string | 未指定 | 太陽風イオンの `species_key`。必須、1–64 文字。温度は外部根のイオン流体にも使う |
 | `photoelectron_species` | string | PE有効時に必須 | PE の `species_key`。1–64 文字 |
+| `secondary_electron_species` | string | 未指定 | `sheath.species.secondary_electron`: 有効な SEE 種の識別子。省略可、1–64 文字、完全に追跡 |
 | `solar_elevation_deg` | float | PE有効時に必須 | 表面放出に使う太陽高度角 $\alpha$。$0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | PE有効時に必須 | PE基準密度 $n_{pe,ref}$ [m^-3]。`>0` |
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$。`>=0`、0 は PE なし |
 | `reference_area_m2` | float | domainのx-y面積 | 電流密度を総電流へ変換する面積 [m^2]。`>0` |
-| `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE 流出から解き直す。`>=0`、0 は初期根を固定 |
+| `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE + SEE 流出スペクトルから解き直す。`>=0`、0 は初期根を固定 |
 | `zhao_upstream_band_tolerance` | float | `0.0` | 電子の drift がある A/C の根で、上流に接する $E^2<0$ の幅を A は $\lvert\phi_m\rvert$、C は $\lvert\phi_0\rvert$ の何割まで許すか。`0<=x<1`、0 はこの判定を使わない。`zhao_upstream_field_floor_v_m` と両方 0 なら drift のある A/C を棄却。設定例は幅ではなく場の下限で受理する。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
 | `zhao_upstream_field_floor_v_m` | float | `0.0` | 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子の drift がある A/C の根で、上流の帯の内側の場の不足 $\sqrt{-\min E^2}$ がこれ以下なら受理する。太陽風の運動電場 $\lvert\mathbf{u}\times\mathbf{B}\rvert$（400 km/s、5 nT で約 2 mV/m）が目安。`>=0`、0 はこの判定を使わない。`zhao_upstream_band_tolerance` と両方 0 なら drift のある A/C を棄却。[電子の drift と上流の帯](ZhaoUpstreamBand.html) |
 | `zhao_ion_pressure_factor` | float | `1.0` | 外部根のイオン流体（Sana & Mishra 2026）の圧力係数。1 は等温、3 は 1 次元断熱。イオン温度は `ion_species` の温度。`>0`。太陽風（入口エネルギー約 1 keV）では根への影響は 0.1 mV 以下。[外部シースとの接続](ZhaoStationaryClosure.html#仮定) |
@@ -356,21 +357,21 @@ face_potential_grid_n = 3
 
 | 項目 | 必要条件 |
 |---|---|
-| role species | enabled、相互に異なる、`surface_charge_closure="fixed_current"` |
+| role species | enabled、相互に異なる。電子・イオン・PE は `fixed_current`、SEE は `charging.closure` を省略 |
 | ambient electron / ion | z-high reservoir から流入。electron の `drift_velocity` の z 成分は 0 以下、ion は負。electron にもイオンと同じ drift を与え、`zhao_upstream_field_floor_v_m=2.0e-3` とする（drift 0 なら不要。[理由](ZhaoUpstreamBand.html)）。手動 `target_*_current_a` は指定不可 |
 | PE なし | `photoelectron_source_scale=0.0`、PE 固有キーは省略、`zhao_branch="auto"` または `"c"` |
 | PE あり | 負電荷の `photo_raycast`、`inject_face="z_high"`、`deposit_opposite_charge_on_emit=true`、有効な z-high 境界は `open`。`emit_current_density_a_m2`（レイ垂直面基準）× ray 仰角の sin が外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ から 5% 以上、または ray の仰角が $\alpha$ から 1 度以上ずれると起動時に警告（停止しない） |
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\ge0$ かつイオンの入口が超音速 $m_i u_z^2/e >$ `zhao_ion_pressure_factor` $\cdot T_i$ |
 | 外部場 | `sim.b0=[0,0,0]`、`reservoir.inflow_model="infinity_barrier"` は使用不可 |
 | 場 | `field_boundary.mode="periodic2"`、x/y 周期、明示的な split `[periodic2]`（`nonzero_mode_backend` が `cached_kneq0` または `panel_spectral_reference`、`zero_mode_policy="exclude_k0"`）。上端面の平均電位を壁電位 $\phi_0$ に固定するため |
-| 外部根の更新 | `outflow_refresh_batches>0` では PE あり |
+| 外部根の更新 | `outflow_refresh_batches>0` では PE または SEE あり |
 
 PEなしType Cは$J_e+J_i=0$を満たすelectron/ion吸収targetとz-high kinetic barrier mapだけを生成し、
-PE emission / return / escape targetは生成しません。PE がないと H を出る PE 流出がないため、外部根の更新は使えません。
+PE emission / return / escape targetは生成しません。SEE があれば PE なしでも更新でき、初期根だけは源 0 の Type C です。
 `ion_species.number_density_*` は無限遠の太陽風密度です。`electron_species` にも同じ値を書きます（違えば設定エラー）。電子の流入は、Zhao 根が無限遠の準中性から解いた上流電子 Maxwellian 密度で注入します（[reservoir の密度](ZhaoStationaryClosure.html#上流電子密度で電子を入れる)）。PE 放出電流密度の入力は粒子分布の標本化に使い、電流 target は closure が決めます。
 
 split `[periodic2]` では z-high 面の水平平均電位を外部シースの壁電位 $\phi_0$ に固定し、x/y 周期では外部障壁で
-戻る粒子をセル内の一様な位置へ戻します。`outflow_refresh_batches>0` は外部根を観測 PE 流出から準定常に解き直す
+戻る粒子をセル内の一様な位置へ戻します。`outflow_refresh_batches>0` は外部根を観測 PE + SEE 流出から準定常に解き直す
 弱連成です。box 外の過渡シースは解きません。電流・障壁・PE return・更新の定義と出力は
 [Zhao closure](ZhaoStationaryClosure.html)を参照してください。`model="none"` では `model` 以外を指定しません。
 廃止済みの `[outer_plasma]` / `[coupling]` と matching-plane 連成は未対応です。
@@ -412,6 +413,12 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 非零・零modeの分割、`exclude_k0`の役割、下側境界から決まる平均場は
 [periodic2静電場](PeriodicElectrostatics.html)を参照してください。
 
+### `[particles]`: 二次電子放出の世代制御
+
+| キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `secondary_emission_max_generations` | int | `3` | 公開キーは `particles.secondary_emission.max_generations`。`>=0`、一次粒子は世代 0。上限でさらに放出せず、放出するはずだった個数を記録 |
+
 ### `[[particles.species]]`: 粒子種
 
 `[[particles.species]]` は 1 件以上必須です。
@@ -423,7 +430,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 |---|---|---:|---|
 | `species_key` | string | `"species_<1-based index>"` | 安定 ID。1–64 文字、粒子種間で一意 |
 | `enabled` | bool | `true` | 種を有効化 |
-| `source_mode` | string | `"volume_seed"` | `volume_seed` / `photo_raycast` |
+| `source_mode` | string | `"volume_seed"` | `volume_seed` / `photo_raycast` / `secondary_emission` |
 | `q_particle` | float | `-1.602176634e-19` | 粒子電荷 [C]。enabled speciesでは非0 |
 | `m_particle` | float | `9.10938356e-31` | 粒子質量 [kg]。`>0` |
 | `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | 位置下限 [m] |
@@ -450,6 +457,22 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`field_boundary.mode="pe
 `w_particle` と `target_macro_particles_per_batch` はちょうど一方を明示します。
 密度 2 形式のちょうど一方と温度を指定します。流入速度は drift Maxwell 分布です。
 分布の意味は[境界から粒子を流入させる](ReservoirInjection.html#2-分布を選ぶ)を参照してください。
+
+入射種の SEE 設定（公開の接頭辞は `particles.species.surface_interaction.secondary_emission`）:
+
+| reader キー | 型 | 既定値 | 説明 |
+|---|---|---:|---|
+| `secondary_emission_enabled` | bool | `false` | 公開キー `enabled`: 吸収後に放出する |
+| `secondary_emission_model` | string | `"whipple"` | 公開キー `model`: `whipple` / `constant` |
+| `secondary_emission_yield_max` | float | `1.5` | 公開キー `yield_max`、無次元。有効な Whipple で `>0` |
+| `secondary_emission_energy_max_ev` | float | `500.0` | 公開キー `energy_max_ev` [eV]。有効な Whipple で `>0` |
+| `secondary_emission_const_yield` | float | `0.0` | 公開キー `const_yield`、無次元。有効な constant で `>=0` |
+| `secondary_emission_target_species` | string | 未指定 | 公開キー `target_species`: 有効時必須、有効な `secondary_emission` 種を参照 |
+
+`source.mode="secondary_emission"` では `sampling.*`、`inflow.*`、`source.emit_current_density_a_m2`、光線数、`charging.closure` を省略します。
+電荷は負、質量は正、温度は 0 以上とし、重みは入射粒子から受け継ぎます。
+外部シースの役割へ指定する場合は電荷 -e、ambient electron と同じ質量、open な z-high 面も要求します。
+モデルと Phase 1 の暫定電流配分は [二次電子放出](SecondaryElectronEmission.html)を参照してください。
 
 #### `[particles.species.boundary]`: species別override
 
@@ -481,23 +504,34 @@ z_high = "reflect"
 [表面電荷更新の数値仕様](SurfaceChargeNumerics.html)、[光電子の放出とライフサイクル](PhotoelectronEmission.html)、
 [出力形式リファレンス](OutputReference.html#charge-ledger)を参照してください。
 
-#### `source_mode = "volume_seed"`
+#### `source.mode = "volume_seed"`
+
+体積内に置く粒子数と重みは、各粒子種の `[particles.species.sampling]` に指定します。
 
 | キー | 型 | 既定値 | 説明 |
 |---|---|---:|---|
-| `npcls_per_step` | int | `0` | 1 バッチに生成するマクロ粒子数。`>=0` |
-| `w_particle` | float | `1.0` | マクロ粒子重み。`>0` |
+| `sampling.volume_macro_particles_per_batch` | int | `0` | この粒子種が 1 バッチに生成するマクロ粒子数。`>=0` |
+| `sampling.weight` | float | `1.0` | 1 マクロ粒子が代表する実粒子数。`>0` |
+
+```toml
+[particles.species.source]
+mode = "volume_seed"
+
+[particles.species.sampling]
+volume_macro_particles_per_batch = 1000
+weight = 1.0
+```
 
 制約:
 
 | 条件 | 内容 |
 |---|---|
-| 粒子数 | 境界流入を使わない場合、有効 species 全体で `npcls_per_step` 合計が 1 以上必要 |
-| 重み自動解決 | `boundary_inflow`を持たない`volume_seed`では`target_macro_particles_per_batch`は使用不可 |
+| 粒子数 | 境界流入を使わない場合、有効な粒子種全体で `sampling.volume_macro_particles_per_batch` の合計が 1 以上必要 |
+| 重み自動解決 | `inflow` を持たない `volume_seed` では `sampling.target_macro_particles_per_batch` は使用不可 |
 
-`boundary_inflow` だけを使う species では `source_mode` と `npcls_per_step` を省略します。
-既定値はそれぞれ `volume_seed` と `0` で、体積生成は行いません。Maxwell分布で正の値なら、
-体積seedと境界流入を同じspeciesに加えます。
+境界流入だけを使う粒子種では `source` と `sampling.volume_macro_particles_per_batch` を省略し、体積生成は行いません。
+Maxwell 分布で体積生成を加える場合は `source.mode="volume_seed"` と正の
+`sampling.volume_macro_particles_per_batch` を指定します。速度グリッドによる境界流入とは併用できません。
 
 #### `[particles.species.boundary_inflow]`
 
@@ -515,10 +549,10 @@ z_high = "reservoir"
 | `z_low`, `z_high` | string | 省略 | `reservoir`。省略時は流入なし |
 
 `reservoir` は選択した非周期 box 面全体から流入させます。対象面の有効な粒子境界は `open` でなければなりません。
-境界流入だけなら `source_mode` と `npcls_per_step` は省略します。内部ではそれぞれ `volume_seed` と `0` に
-解決されます。Maxwell 分布で体積生成を追加する場合は `source_mode="volume_seed"` と正の
-`npcls_per_step` を指定します。
-解決後の `source_mode` が `volume_seed` の場合だけ併用でき、複数面の
+境界流入だけなら `source` と `sampling.volume_macro_particles_per_batch` は省略します。
+Maxwell 分布で体積生成を追加する場合は `source.mode="volume_seed"` と正の
+`sampling.volume_macro_particles_per_batch` を指定します。
+粒子源が `volume_seed` の場合だけ併用でき、複数面の
 `target_macro_particles_per_batch` は全流入面の合計です。
 流束と電位障壁の詳細は[境界から粒子を流入させる](ReservoirInjection.html)を参照してください。
 
@@ -542,7 +576,7 @@ z_high = "reservoir"
 | 注入面 | `inject_face` が必須 |
 | 粒子属性 | `q_particle` は非ゼロ、`m_particle > 0` |
 | レイ方向 | 正規化可能で、注入面内向き法線との内積が正 |
-| 使用不可 | `npcls_per_step`, `number_density_*`, `w_particle`, `target_macro_particles_per_batch` |
+| 使用不可 | `sampling.volume_macro_particles_per_batch`, `number_density_*`, `w_particle`, `target_macro_particles_per_batch` |
 
 レイ重み、周期 image、再吸収、closed PE の設定は
 [光電子の放出とライフサイクル](PhotoelectronEmission.html)を参照してください。
@@ -845,7 +879,7 @@ group 使用時は、template の `center`、直接 placement キー、`size_mod
 | 項目 | ルール |
 |---|---|
 | 未知キー | すべてエラー |
-| `[particles]` | `[[particles.species]]` のコンテナとしてのみ使用。直下に `key = value` は書かない |
+| `[particles]` | 粒子種と `secondary_emission.max_generations` を保持。SEE の独立注入は不可 |
 | 型 | schema と Fortran パーサの両方で検証 |
 | 列挙値・値域・無効な機能への指定 | `beachx lint` が詳細を診断。Fortran は実行に必要な最小条件を確認 |
 

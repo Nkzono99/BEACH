@@ -353,11 +353,12 @@ closure.
 | `electron_species` | string | unset | Ambient-electron `species_key`; required, 1–64 characters |
 | `ion_species` | string | unset | Solar-wind ion `species_key`; required, 1–64 characters. Its temperature also enters the ion fluid of the outer root |
 | `photoelectron_species` | string | required with PE | PE `species_key`; 1–64 characters |
+| `secondary_electron_species` | string | unset | `sheath.species.secondary_electron`: enabled SEE species; optional, 1–64 characters; fully tracked |
 | `solar_elevation_deg` | float | required with PE | Solar elevation $\alpha$ for the surface emission; $0<\alpha\le90$ degree |
 | `photoelectron_ref_density_m3` | float | required with PE | PE reference density $n_{pe,ref}$ [m^-3]; `>0` |
 | `photoelectron_source_scale` | float | `1.0` | $s_{UV}$; `>=0`, and 0 disables PE |
 | `reference_area_m2` | float | domain x-y area | Area converting current densities to total currents [m^2]; `>0` |
-| `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE outflow observed at z-high; `>=0`, and 0 keeps the initial root |
+| `outflow_refresh_batches` | int | `0` | Re-solve the outer root every N accepted batches from the PE + SEE outflow spectrum observed at z-high; `>=0`, and 0 keeps the initial root |
 | `zhao_upstream_band_tolerance` | float | `0.0` | For A/C roots with electron drift, the accepted width of negative $E^2$ next to upstream as a fraction of $\lvert\phi_m\rvert$ (A) or $\lvert\phi_0\rvert$ (C). `0<=x<1`; 0 disables this criterion, and with `zhao_upstream_field_floor_v_m` also 0 drifting A/C are rejected. The examples accept by the field floor instead of the width. See [Electron drift and the upstream band](ZhaoUpstreamBand.en.html) |
 | `zhao_upstream_field_floor_v_m` | float | `0.0` | Places the upstream boundary where the field has fallen to this external level [V/m]. For A/C roots with electron drift, accepts the root when the field deficit $\sqrt{-\min E^2}$ inside the upstream band does not exceed it. The solar-wind motional field $\lvert\mathbf{u}\times\mathbf{B}\rvert$ (about 2 mV/m for 400 km/s and 5 nT) is the natural scale. `>=0`; 0 disables this criterion, and with `zhao_upstream_band_tolerance` also 0 drifting A/C are rejected. See [Electron drift and the upstream band](ZhaoUpstreamBand.en.html) |
 | `zhao_ion_pressure_factor` | float | `1.0` | Pressure coefficient of the ion fluid in the outer root (Sana & Mishra 2026): 1 isothermal, 3 one-dimensional adiabatic. The ion temperature is that of `ion_species`; `>0`. For the solar wind (entry energy about 1 keV) it changes the root by less than 0.1 mV. See [Connecting to the outer sheath](ZhaoStationaryClosure.en.html#assumptions) |
@@ -366,18 +367,17 @@ Input constraints:
 
 | Item | Required condition |
 |---|---|
-| Role species | Enabled, mutually distinct, and `surface_charge_closure="fixed_current"` |
+| Role species | Enabled and mutually distinct; ambient electron, ion, and PE use `fixed_current`; SEE omits `charging.closure` |
 | Ambient electron / ion | Enter from the z-high reservoir; the electron `drift_velocity` z component is at most 0 and the ion component is negative. Give electrons the same drift as the ions with `zhao_upstream_field_floor_v_m=2.0e-3` (not needed with zero electron drift; [why](ZhaoUpstreamBand.en.html)); no manual `target_*_current_a` |
 | No PE | `photoelectron_source_scale=0.0`; omit PE-specific keys; use `zhao_branch="auto"` or `"c"` |
 | With PE | Negative `photo_raycast`, `inject_face="z_high"`, `deposit_opposite_charge_on_emit=true`, effective z-high boundary `open`. Startup warns (without stopping) when `emit_current_density_a_m2` (per ray-normal area) times the sine of the ray elevation differs by more than 5% from the outer source $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$, or when the ray elevation differs from $\alpha$ by more than 1 degree |
 | Species properties | Singly charged; equal ambient-electron and PE masses; $T_e>0$, $T_{pe}>0$, $T_i\ge0$ with a supersonic ion entry $m_i u_z^2/e >$ `zhao_ion_pressure_factor` $\cdot T_i$ |
 | External field | `sim.b0=[0,0,0]`; `reservoir.inflow_model="infinity_barrier"` is forbidden |
 | Field | `field_boundary.mode="periodic2"`, x/y periodic axes, and an explicit split `[periodic2]` table (`nonzero_mode_backend` set to `cached_kneq0` or `panel_spectral_reference`, `zero_mode_policy="exclude_k0"`), so that the top-face mean potential can be fixed to the wall potential $\phi_0$ |
-| Outer-root refresh | `outflow_refresh_batches>0` requires PE |
+| Outer-root refresh | `outflow_refresh_batches>0` requires PE or SEE |
 
 Without PE, Type C produces only electron/ion absorption targets satisfying $J_e+J_i=0$ and the z-high kinetic-barrier
-map; it produces no PE emission, return, or escape target. Without PE there is no PE outflow at H, so the outer-root
-refresh is unavailable. `ion_species.number_density_*` is the solar-wind density at infinity; write the same value in
+map; it produces no PE emission, return, or escape target. SEE permits refresh without PE; the initial root alone uses a zero-source Type C. `ion_species.number_density_*` is the solar-wind density at infinity; write the same value in
 `electron_species` (a different value is a configuration error). The electron inflow is injected at the upstream electron
 Maxwellian density that the Zhao root solves from quasi-neutrality at infinity
 ([reservoir density](ZhaoStationaryClosure.en.html#inject-electrons-at-the-upstream-density)). PE emission-current density is a sampling input; the
@@ -385,7 +385,7 @@ closure determines current targets.
 
 With a split `[periodic2]` table, the z-high plane-mean potential is fixed to the outer wall potential $\phi_0$; with x/y
 periodic axes, particles returned by the outer barrier re-enter at a cell-uniform position. `outflow_refresh_batches>0`
-is a weak coupling that quasi-statically re-solves the outer root from the observed PE outflow. BEACH does not solve a
+is a weak coupling that quasi-statically re-solves the outer root from the observed PE + SEE outflow. BEACH does not solve a
 transient outer sheath. See the [Zhao Closure](ZhaoStationaryClosure.en.html) for current, barrier, PE-return, refresh,
 and output definitions. With `model="none"`, specify no key other than `model`. The removed `[outer_plasma]` /
 `[coupling]` tables and matching-plane coupling are unsupported.
@@ -428,6 +428,12 @@ closed photoelectrons. The same periodicity applies to field evaluation, collisi
 See [periodic2 electrostatics](PeriodicElectrostatics.en.html) for the nonzero/zero-mode split, the role of
 `exclude_k0`, and the mean field selected by the lower-boundary model.
 
+### `[particles]`: Secondary emission control
+
+| Key | Type | Default | Description |
+|---|---|---:|---|
+| `secondary_emission_max_generations` | int | `3` | Public `particles.secondary_emission.max_generations`, `>=0`. Primaries are generation 0. Hits at the cap do not emit and report the would-be count |
+
 ### `[[particles.species]]`: Particle Species
 
 At least one `[[particles.species]]` entry is required. The keys and constraints
@@ -439,7 +445,7 @@ used depend on `source_mode`.
 |---|---|---:|---|
 | `species_key` | string | `"species_<1-based index>"` | Stable ID. 1–64 characters and unique across species |
 | `enabled` | bool | `true` | Enable the species |
-| `source_mode` | string | `"volume_seed"` | `volume_seed` / `photo_raycast` |
+| `source_mode` | string | `"volume_seed"` | `volume_seed` / `photo_raycast` / `secondary_emission` |
 | `q_particle` | float | `-1.602176634e-19` | Particle charge [C]. Nonzero for an enabled species |
 | `m_particle` | float | `9.10938356e-31` | Particle mass [kg]. `>0` |
 | `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | Lower position bounds [m] |
@@ -466,6 +472,22 @@ Keys for flux-driven boundary inflow (`boundary_inflow`):
 Specify exactly one of `w_particle` and `target_macro_particles_per_batch`.
 Specify exactly one density form and a temperature; the inflow velocities follow a drifting Maxwellian.
 See [Inject Particles Through a Boundary](ReservoirInjection.en.html#2-choose-the-distribution) for the distribution.
+
+SEE settings on the incident species (public prefix `particles.species.surface_interaction.secondary_emission`):
+
+| Reader key | Type | Default | Description |
+|---|---|---:|---|
+| `secondary_emission_enabled` | bool | `false` | Public `enabled`: emit after absorption |
+| `secondary_emission_model` | string | `"whipple"` | Public `model`: `whipple` / `constant` |
+| `secondary_emission_yield_max` | float | `1.5` | Public `yield_max`, dimensionless; `>0` for enabled Whipple |
+| `secondary_emission_energy_max_ev` | float | `500.0` | Public `energy_max_ev` [eV]; `>0` for enabled Whipple |
+| `secondary_emission_const_yield` | float | `0.0` | Public `const_yield`, dimensionless; `>=0` for enabled constant |
+| `secondary_emission_target_species` | string | unset | Public `target_species`: required when enabled, resolves to an enabled `secondary_emission` species |
+
+For `source.mode="secondary_emission"`, omit all `sampling.*`, `inflow.*`, `source.emit_current_density_a_m2`, ray count, and `charging.closure`.
+Charge must be negative, mass positive, and temperature nonnegative; weight is inherited from the incident macro.
+The sheath role additionally requires charge -e, the ambient-electron mass, and an open z-high face.
+See [Secondary electron emission](SecondaryElectronEmission.en.html) for the model and provisional Phase 1 current allocation.
 
 #### `[particles.species.boundary]`: Per-Species Overrides
 
@@ -498,23 +520,34 @@ trajectory after generation. `boundary_inflow` creates particles from outside an
 [Output Format Reference](OutputReference.en.html#charge-ledger) for scaling, PE-return double-counting constraints, and
 sample-count convergence checks.
 
-#### `source_mode = "volume_seed"`
+#### `source.mode = "volume_seed"`
+
+Set the volume particle count and weight in `[particles.species.sampling]` for each species.
 
 | Key | Type | Default | Description |
 |---|---|---:|---|
-| `npcls_per_step` | int | `0` | Macro particles generated per batch. `>=0` |
-| `w_particle` | float | `1.0` | Macro-particle weight. `>0` |
+| `sampling.volume_macro_particles_per_batch` | int | `0` | Macro-particles generated by this species per batch. `>=0` |
+| `sampling.weight` | float | `1.0` | Physical particles represented by one macro-particle. `>0` |
+
+```toml
+[particles.species.source]
+mode = "volume_seed"
+
+[particles.species.sampling]
+volume_macro_particles_per_batch = 1000
+weight = 1.0
+```
 
 Constraints:
 
 | Condition | Details |
 |---|---|
-| Particle count | Without boundary inflow, the sum of `npcls_per_step` over enabled species must be at least 1 |
-| Automatic weight resolution | A `volume_seed` without `boundary_inflow` cannot use `target_macro_particles_per_batch` |
+| Particle count | Without boundary inflow, the sum of `sampling.volume_macro_particles_per_batch` over enabled species must be at least 1 |
+| Automatic weight resolution | A `volume_seed` without `inflow` cannot use `sampling.target_macro_particles_per_batch` |
 
-For boundary inflow alone, omit `source_mode` and `npcls_per_step`. They default to `volume_seed` and `0`, so no volume
-population is generated. For a Maxwell distribution, a positive value combines
-a volume seed with boundary inflow for the same species. Velocity-grid boundary inflow cannot use a positive value.
+For boundary inflow alone, omit `source` and `sampling.volume_macro_particles_per_batch`; no volume population is generated.
+To add volume generation with a Maxwell distribution, specify `source.mode="volume_seed"` and a positive
+`sampling.volume_macro_particles_per_batch`. Volume generation cannot be combined with velocity-grid boundary inflow.
 
 #### `[particles.species.boundary_inflow]`
 
@@ -532,9 +565,9 @@ z_high = "reservoir"
 | `z_low`, `z_high` | string | omitted | `reservoir`; omission disables inflow |
 
 `reservoir` injects across a complete selected nonperiodic box face, whose effective particle boundary must be `open`.
-For boundary inflow alone, omit `source_mode` and `npcls_per_step`; internally they resolve to `volume_seed` and `0`.
-To add volume generation with a Maxwell distribution, specify `source_mode="volume_seed"` and a positive
-`npcls_per_step`. Only a resolved `source_mode` of `volume_seed` can be combined with inflow; on multiple faces,
+For boundary inflow alone, omit `source` and `sampling.volume_macro_particles_per_batch`.
+To add volume generation with a Maxwell distribution, specify `source.mode="volume_seed"` and a positive
+`sampling.volume_macro_particles_per_batch`. Only a `volume_seed` source can be combined with inflow; on multiple faces,
 `target_macro_particles_per_batch` is the total
 across all inflow faces. See [Inject Particles Through a Boundary](ReservoirInjection.en.html) for flux and barrier details.
 
@@ -558,7 +591,7 @@ Constraints:
 | Injection face | `inject_face` is required |
 | Particle properties | `q_particle` is nonzero, and `m_particle > 0` |
 | Ray direction | Must be normalizable, and its dot product with the inward normal of the injection face must be positive |
-| Unavailable keys | `npcls_per_step`, `number_density_*`, `w_particle`, `target_macro_particles_per_batch` |
+| Unavailable keys | `sampling.volume_macro_particles_per_batch`, `number_density_*`, `w_particle`, `target_macro_particles_per_batch` |
 
 See [Photoelectron Emission and Lifecycle](PhotoelectronEmission.en.html) for ray weighting, periodic images,
 reabsorption, and closed-PE configuration.
@@ -868,7 +901,7 @@ Run `beachx lint` from [Create and Validate `beach.toml`](Configuration.en.html)
 | Item | Rule |
 |---|---|
 | Unknown keys | All are errors |
-| `[particles]` | Used only as the container for `[[particles.species]]`. Do not write `key = value` directly under it |
+| `[particles]` | Contains species and `secondary_emission.max_generations`; standalone injection of SEE is forbidden |
 | Type | Validated by both the schema and the Fortran parser |
 | Enums, ranges, and settings for inactive features | `beachx lint` provides detailed diagnostics; Fortran checks minimum prerequisites for execution |
 

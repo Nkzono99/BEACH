@@ -109,7 +109,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 
 必須ファイル: `summary.txt`, `charges.csv`
 オプションファイル: `mesh_triangles.csv`, `mesh_sources.csv`, `charge_history.csv`, `mesh_potential.csv`,
-`matching_plane_history.csv`
+`matching_plane_history.csv`, `secondary_emission_history.csv`
 
 ### 3.2 `FortranRunResult` 型
 
@@ -132,6 +132,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 | `history` | `FortranChargeHistory \| None` | 電荷履歴アクセサ |
 | `matching_plane_state` | `MatchingPlaneState \| None` | `zhao_stationary`の外部根を更新したrunの最後の外部状態。summaryでstateが無効なら`None` |
 | `matching_plane_history` | `tuple[MatchingPlaneHistoryEntry, ...] \| None` | 外部状態の履歴。stateが無効またはCSVがなければ`None` |
+| `secondary_emission_history` | `tuple[SecondaryEmissionHistoryEntry, ...] \| None` | SEE の入射種・受理バッチごとの履歴。CSV なしなら `None` |
 
 `MatchingPlaneState`はセル平均電荷$D_H$、壁電位$\Phi_H=\phi_0$、流入束、外部の放出源、PE return / escape、
 採用した外部根の数、直前の更新での相対変化を名前付きfieldで保持します。各fieldの意味は
@@ -139,6 +140,9 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 `state: MatchingPlaneState`を保持します。`matching_plane_history.csv`がheaderだけなら履歴は空tuple `()`です。
 このため、`None`は「履歴ファイルがない、または有効な外部状態ではない」、空tupleは
 「有効なstateだが記録行がない」と区別できます。
+
+`MatchingPlaneState.secondary_share` と `secondary_budget_residual_a_m2` は暫定の SEE 配分診断です。
+`SecondaryEmissionHistoryEntry` は `batch, incident_species, hits, emitted_count, emitted_charge_c, mean_yield, generation_capped_count` を持ちます。
 
 ### 3.3 `FortranChargeHistory`
 

@@ -325,6 +325,8 @@ class MatchingPlaneState:
     photoelectron_escape_flux_m2_s: float
     iterations: int
     residual: float
+    secondary_share: float = 0.0
+    secondary_budget_residual_a_m2: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -334,6 +336,19 @@ class MatchingPlaneHistoryEntry:
     batch: int
     simulated_time_s: float
     state: MatchingPlaneState
+
+
+@dataclass(frozen=True)
+class SecondaryEmissionHistoryEntry:
+    """Rank-summed SEE diagnostics for one incident species and accepted batch."""
+
+    batch: int
+    incident_species: str
+    hits: int
+    emitted_count: int
+    emitted_charge_c: float
+    mean_yield: float
+    generation_capped_count: int
 
 
 @dataclass(frozen=True)
@@ -440,6 +455,7 @@ class FortranRunResult:
     matching_plane_state: MatchingPlaneState | None = None
     matching_plane_history: tuple[MatchingPlaneHistoryEntry, ...] | None = None
     multiple_box_events_soft_discard_fraction: float = 0.0
+    secondary_emission_history: tuple[SecondaryEmissionHistoryEntry, ...] | None = None
 
     def history_at(self, step: int = -1) -> np.ndarray:
         """Return per-element charges at one history batch step.

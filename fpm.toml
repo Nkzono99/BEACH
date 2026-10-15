@@ -262,3 +262,13 @@ main = "test_field_kernel_cache_c.f90"
 name = "test_version"
 source-dir = "tests/fortran"
 main = "test_version.f90"
+
+[[test]]
+name = "test_secondary_emission_yield"
+source-dir = "tests/fortran"
+main = "test_secondary_emission_yield.f90"
+
+[[test]]
+name = "test_simulator_secondary_emission"
+source-dir = "tests/fortran"
+main = "test_simulator_secondary_emission.f90"

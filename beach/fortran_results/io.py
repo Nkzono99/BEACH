@@ -22,6 +22,7 @@ from ._summary_values import (
     _parse_optional_nonnegative_finite_float,
     _parse_optional_nonnegative_int,
 )
+from ._secondary_emission_io import load_secondary_emission_history
 from .history import FortranChargeHistory
 from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
 
@@ -216,6 +217,7 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
         field_reconstruction=field_reconstruction,
         matching_plane_state=matching_plane_state,
         matching_plane_history=matching_plane_history,
+        secondary_emission_history=load_secondary_emission_history(out_dir / "secondary_emission_history.csv"),
     )
 
 

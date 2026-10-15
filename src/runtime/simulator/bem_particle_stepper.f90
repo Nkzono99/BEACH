@@ -10,6 +10,7 @@ module bem_particle_stepper
                           apply_escape_reflect_periodic_event
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type
+  use bem_counter_rng, only: counter_hash_mix
   implicit none
   private
 
@@ -872,19 +873,6 @@ contains
       uniform(axis) = (real(state, dp) - 0.5_dp)/real(hash_modulus, dp)
     end do
   end subroutine generate_redistribution_uniform
-
-  !> 31-bit素数体上の非線形写像でtuple成分をcounter hashへ混合する。
-  pure integer(i64) function counter_hash_mix(state, value, salt) result(mixed)
-    integer(i64), intent(in) :: state, value, salt
-    integer(i64), parameter :: hash_modulus = 2147483647_i64
-    integer(i64), parameter :: hash_multiplier = 48271_i64
-
-    mixed = modulo(state*state, hash_modulus)
-    mixed = modulo(mixed + modulo(hash_multiplier*state, hash_modulus), hash_modulus)
-    mixed = modulo(mixed + modulo(value, hash_modulus), hash_modulus)
-    mixed = modulo(mixed + modulo(salt, hash_modulus) + 1_i64, hash_modulus)
-    if (mixed == 0_i64) mixed = 1_i64
-  end function counter_hash_mix
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。
   pure logical function point_strictly_inside_box(sim, x) result(inside)

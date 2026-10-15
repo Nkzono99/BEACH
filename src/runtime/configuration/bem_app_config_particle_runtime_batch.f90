@@ -135,6 +135,8 @@ contains
     case ('photo_raycast')
       global_count = cfg%particle_species(s)%rays_per_batch
       source_counts(s) = mpi_split_count(global_count, local_rank, n_ranks)
+    case ('secondary_emission')
+      source_counts(s) = 0_i32
     case default
       error stop 'Unknown particles.species.source_mode.'
     end select

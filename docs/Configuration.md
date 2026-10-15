@@ -15,6 +15,11 @@ Lang: [日本語](Configuration.md) | [English](Configuration.en.md)
 - `beachx config init` は、多数粒子・20 batch の公式チュートリアル設定を作ります。
 - 全キーと、読み込み時に値を計算する座標・配置パラメータは[入力パラメータリファレンス](Parameters.html)にまとめています。
 
+SEE を含む設定は [`zero_current_secondary.toml`](../examples/zero_current_secondary.toml) または
+[`zero_current_no_photo_secondary.toml`](../examples/zero_current_no_photo_secondary.toml) から作ります。
+入射種の放出設定と `source.mode="secondary_emission"` の放出先を組にします。
+制約は [二次電子放出](SecondaryElectronEmission.html)を参照してください。
+
 ## 1. 基本フロー
 
 ```bash

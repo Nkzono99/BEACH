@@ -70,6 +70,12 @@
       "restart_role": "none"
     },
     {
+      "name": "secondary_emission_history.csv",
+      "producer": "src/runtime/bem_output_writer_history.f90",
+      "condition": "output.write_files=true and an enabled incident species has secondary_emission_enabled=true; every accepted batch",
+      "restart_role": "none"
+    },
+    {
       "name": "charge_ledger.csv",
       "producer": "src/runtime/bem_output_writer_files.f90",
       "condition": "output.write_files=true and charge ledger state is present",

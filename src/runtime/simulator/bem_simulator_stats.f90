@@ -61,6 +61,16 @@ contains
                                                         )
   end procedure accumulate_batch_stats
 
+  module procedure accumulate_secondary_stats
+  stats%secondary_emission_hits = checked_add_nonnegative_i64(stats%secondary_emission_hits, sum(counts(1, :)), 'SEE hits')
+  stats%secondary_emission_count = checked_add_nonnegative_i64(stats%secondary_emission_count, sum(counts(2, :)), 'SEE count')
+  stats%secondary_generation_capped_count = checked_add_nonnegative_i64( &
+                                          stats%secondary_generation_capped_count, sum(counts(3, :)), 'SEE generation capped count')
+  stats%secondary_emitted_charge_c = stats%secondary_emitted_charge_c + sum(values(1, :))
+  if (.not. ieee_is_finite(stats%secondary_emitted_charge_c)) error stop 'secondary emitted charge overflowed.'
+  stats%secondary_yield_sum = checked_add_nonnegative_real(stats%secondary_yield_sum, sum(values(2, :)), 'SEE yield sum')
+  end procedure accumulate_secondary_stats
+
   !> 非負の64bit累積カウンタを符号反転させずに加算する。
   function checked_add_nonnegative_i64(accumulated, increment, field_name) result(total)
     integer(i64), intent(in) :: accumulated, increment

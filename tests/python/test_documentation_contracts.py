@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from beach.config._layout import READER_DEFINITIONS
+from beach.config._layout import READER_DEFINITIONS, SPECIES_PATHS
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -75,6 +75,9 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         ],
         "particles": schema["$defs"]["particles"]["properties"],
         "species": schema["$defs"]["species"]["properties"],
+        "species.sampling": schema["$defs"]["groupedSpecies"]["properties"][
+            "sampling"
+        ]["properties"],
         "species.boundary": schema["$defs"]["speciesParticleBoundary"]["properties"],
         "species.boundary_inflow": schema["$defs"]["speciesBoundaryInflow"][
             "properties"
@@ -91,6 +94,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         ("mesh", "templates"): "`[[mesh.templates]]`",
     }
     object_headings = {
+        "particles": "### `[particles]`",
         "sim": "### `[sim]`",
         "domain": "### `[domain]`",
         "field_boundary": "### `[field_boundary]`",
@@ -98,6 +102,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
         "reservoir": "### `[reservoir]`",
         "surface_current_model": "### `[surface_current_model]`",
         "species": "### `[[particles.species]]`",
+        "species.sampling": "### `[[particles.species]]`",
         "species.boundary": "#### `[particles.species.boundary]`",
         "species.boundary_inflow": "#### `[particles.species.boundary_inflow]`",
         "mesh": "### `[mesh]`",
@@ -183,6 +188,8 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
                     f"`{key}=",
                     f".{key}=",
                 )
+                if object_name == "species" and key in SPECIES_PATHS:
+                    markers += (f"`{SPECIES_PATHS[key]}`",)
                 assert any(
                     marker in row for marker in markers for row in parameter_rows
                 ), (path, object_name, key)

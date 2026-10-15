@@ -777,3 +777,10 @@ def test_estimate_workload_rejects_invalid_mpi_rank_parameters(
             mpi_ranks=mpi_ranks,
             mpi_rank=mpi_rank,
         )
+
+
+def test_secondary_source_is_excluded_from_independent_injection_estimate() -> None:
+    config = load_toml(ROOT / "examples/zero_current_secondary.toml")
+    result = estimate_workload(config, threads=2)
+    assert result["secondary_emission_excluded"] is True
+    assert all(counts[-1] == 0 for counts in result["species_per_batch"])

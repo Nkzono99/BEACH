@@ -260,11 +260,12 @@ contains
   !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vn サンプリングした法線速度配列 [m/s]（常に非負）。
-  subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal, sigma_cutoff)
+  subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal, sigma_cutoff, uniform)
     real(dp), intent(in) :: mu, sigma
     real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(in), optional :: sigma_cutoff
     real(dp), intent(out) :: vn(:)
+    real(dp), intent(in), optional :: uniform(:)
     integer :: i
     real(dp) :: target, low, high, mid, vmin, cutoff, tail_min, target_tail, tail_high, width, tolerance
 
@@ -285,7 +286,11 @@ contains
     end if
 
     do i = 1, size(vn)
-      call random_number(target)
+      if (present(uniform)) then
+        target = uniform(i)
+      else
+        call random_number(target)
+      end if
       target_tail = tail_min*(1.0_dp - target)
       low = vmin
       width = max(sigma, spacing(max(abs(vmin), sigma)))

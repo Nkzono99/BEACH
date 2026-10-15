@@ -45,10 +45,10 @@ contains
       select case (path)
       case ('run', 'fields', 'sheath', 'mesh.obj', 'output.enabled', 'output.history', &
             'output.final', 'output.checkpoint', 'output.diagnostics', 'particles.boundary', &
-            'particles.reservoir', 'particles.tracking', 'particles.raycast', &
+            'particles.reservoir', 'particles.tracking', 'particles.raycast', 'particles.secondary_emission', &
             'particles.species.charge_c', 'particles.species.mass_kg', 'particles.species.distribution', &
             'particles.species.source', 'particles.species.sampling', 'particles.species.inflow', &
-            'particles.species.charging')
+            'particles.species.charging', 'particles.species.surface_interaction')
         found = .true.
         return
       end select

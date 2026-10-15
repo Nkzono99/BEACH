@@ -24,7 +24,7 @@ BEACH がサポートする製品構成は、2 軸周期セルに外部 1-D シ�
 | 場 | `periodic2`、FMM、`cached_kneq0`、split zero mode (`exclude_k0`)。direct は `panel_spectral_reference` の検証用 |
 | 表面 | insulator accumulation、`mesh_id` ごとの浮遊 conductor 再配分 |
 | 粒子境界 | z は `open`。`reflect` / `redistributed_reflect` は closed photoelectron 用 |
-| 粒子源 | `volume_seed`、boundary reservoir 流入、`photo_raycast` |
+| 粒子源 | `volume_seed`、boundary reservoir 流入、`photo_raycast`、衝突時の `secondary_emission` |
 | closure | `explicit`、`fixed_current`、`neutral_return`、`zhao_stationary` と outflow refresh |
 
 参照構成として、free-space の direct / FMM と入門ケース (free + direct + `volume_seed` + plane template) の
@@ -42,11 +42,11 @@ BEACH がサポートする製品構成は、2 軸周期セルに外部 1-D シ�
 - insulator accumulation
 - mesh 単位の浮遊 conductor 再配分 (free-space と periodic2 の snapshot 電位で等電位化)
 - open (脱出) / reflect / redistributed_reflect / periodic の box 境界と Zhao の種別 kinetic 障壁
-- `volume_seed` / `photo_raycast`
+- `volume_seed` / `photo_raycast` / 吸収時の `secondary_emission`
 - species 別の simulation boundary reservoir 流入
 - 境界 reservoir の流入補正 (`source_vdf` / `infinity_barrier`)
 - closed photoelectron の局所反射と neutral-return closure
-- 外部 1-D シースの Zhao 零電流根による表面電流 closure と、観測 PE 流出による外部根の準定常更新
+- 外部 1-D シースの Zhao 零電流根による表面電流 closure と、観測 PE + SEE 流出による外部根の準定常更新
 - checkpoint 再開
 
 ### 2.3 未実装・予約
@@ -54,7 +54,7 @@ BEACH がサポートする製品構成は、2 軸周期セルに外部 1-D シ�
 - BEACH 内で解く full-VDF / 1D PIC / time-dependent outer-sheath solver と外部領域の粒子 transport
 - 表面導電・拡散モデル
 - 誘電体分極・誘電境界条件
-- 反射や二次電子放出を含む一般化衝突モデル
+- 反射、材質ごとの二次電子応答を含む一般化衝突モデル
 
 ### 2.4 設定入力の検証
 
@@ -103,7 +103,7 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 2. boundary reservoir inflow、`volume_seed`、`photo_raycast` の粒子を生成する
 3. 各粒子を最大 `max_step` 回まで進める
 4. mesh hit、box escape、max-step survivor を分類する
-5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する
+5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する。SEE は世代ごとに追加追跡する
 6. closed PE が有効なら、解決済み帰還先へ neutral-return 補正を適用する
 7. MPI reduction 後の候補電荷を検証して commit する
 8. accepted batch の統計、履歴、charge ledger、累積時間を更新する
@@ -366,7 +366,7 @@ OpenMP実行順序に依存しません。選び直した位置では、横切�
 補正後に届かない低速粒子は横切り位置へ戻します。x/yが周期でなければ横切り位置へ戻します。固定電流targetはその後に各channel総量を正規化するため、kinetic写像は
 rawなreturn/escape分類と空間分布を決め、Zhao電流は総電流収支を決めます。
 
-`outflow_refresh_batches=N>0`は、上の場の条件に加えてPE有効を要求します。
+`outflow_refresh_batches=N>0` は上の場の条件に加えて PE または SEE の放出電子グループを要求します。以下の PE 規格化に SEE の重み由来の束を合算します（7.1 節）。
 $N$個のaccepted batchで、z-highを外向きに横切ったPE数$N_{out}$、その法線運動エネルギー和、表面放出数
 $N_{emit}$をraw weightで合計し、$\eta=N_{out}/N_{emit}$と平均法線エネルギー$\bar K$を得ます。$N_{out}$は法線運動
 エネルギーのbin（$[0,1\,\mathrm{meV})$と1 meV〜1 keVの1桁24個の対数bin、1 keV以上は最後のbin）別にも数えます。
@@ -382,6 +382,31 @@ half-Maxwellian）から根を再構成し、途中の窓は再開時点から�
 このstationary modelはbox外の電場・空間電荷・Debye shielding・return軌道・遅延を解かず、
 `outflow_refresh_batches=0`ではrun中の表面電位に応じてtargetを再計算しません。z-high反射は外部turning pointまでの距離・飛行時間を省略するadiabaticな境界closureです。
 外部シースの過渡解ではなく、BEACHの軌道追跡から得る空間分布へ固定総電流を与えるclosureです。
+
+### 7.1 二次電子放出
+
+入射種の `particles.species.surface_interaction.secondary_emission` で `enabled`、`model`、`yield_max`、
+`energy_max_ev`、`const_yield`、`target_species` を指定します。既定は無効、有効時は放出先必須です。
+Whipple は正の最大収率・最大エネルギー、constant は 0 以上の収率を要求します。
+入射エネルギー・入射側法線との角度から収率を求め、角度の cosine を 0.1 に制限します。
+`delta*abs(q_in/q_see)` を整数部 + Bernoulli 端数で放出し、重みは入射粒子と同じです。
+位置は衝突点 + 法線方向 1e-12 m、周期座標を canonicalize します。速度は PE と共有する半 Maxwell サンプラーを
+放出先温度・drift 0 で使います。吸収電荷の後に放出元へ必ず `-q_see*w_in` を置きます。
+
+放出先の `source.mode="secondary_emission"` は負電荷・正質量・0 以上の温度を持ち、独立した
+`sampling.*`、`inflow.*`、放出電流密度、光線数、`charging.closure` を指定できません。
+thread ごとの buffer に生成粒子を積み、OpenMP ループ後に親・放出順で追加して同一バッチ・同一凍結場で追跡します。
+一次粒子の世代を 0 とし、`particles.secondary_emission.max_generations`（既定 3、0 以上）に達した命中は
+さらに放出せず、放出予定個数を記録します。追加分も processed/fresh 粒子、ledger、上端スペクトルへ含めます。
+粒子状態は次のバッチへ持ち越さず、生成した rank に留まります。counter-based RNG は実行順に依存しません。
+
+外部シースの `sheath.species.secondary_electron` は SEE を PE と同じ z-high 運動論的障壁と面内一様帰還へ接続し、
+吸収・放出・脱出の固定目標は付けません。外部根の専用 SEE 項は作りません。更新窓の PE 流出は設定放出束 × 透過率、
+SEE は `sum(w_out)/(reference_area*sum(batch_duration))` へ規格化し、bin と平均エネルギーを束で合算します。
+PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。
+Phase 1 は暫定で、PE の脱出目標を窓の PE 束割合で配分し、帰還目標を脱出 − PE 放出にします。
+SEE は完全に追跡し、追跡脱出と外部根の SEE 配分との差を `secondary_budget_residual_a_m2` へ出します。
+モデルと適用範囲は [docs/SecondaryElectronEmission.md](docs/SecondaryElectronEmission.md) を参照してください。
 
 ## 8. 実行制御
 
@@ -403,6 +428,7 @@ half-Maxwellian）から根を再構成し、途中の窓は再開時点から�
 - `matching_plane_history.csv` / `matching_plane_spectrum_history.csv`（`zhao_stationary`の外部根更新かつ履歴出力時）
 - `fixed_current_history.csv`（固定電流 closure があり履歴出力時。species・channel 別の追跡電荷と目標電荷）
 - `charge_ledger.csv`（ledger がある場合）
+- `secondary_emission_history.csv`（SEE 有効な入射種がある場合。受理バッチごと）
 - `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`
 - `checkpoint_complete.txt`

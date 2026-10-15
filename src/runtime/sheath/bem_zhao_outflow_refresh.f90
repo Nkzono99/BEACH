@@ -8,7 +8,6 @@
 !! 総電荷は毎 batch の固定電流 target が浮遊条件へ拘束する。
 module bem_zhao_outflow_refresh
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
-  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: qe
   use bem_types, only: mesh_type, sim_stats
@@ -17,7 +16,7 @@ module bem_zhao_outflow_refresh
   use bem_charge_ledger, only: finite_charge_sum
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model, &
-                                       solve_zhao_outflow_closure
+                                       solve_zhao_outflow_closure, split_emission_escape_target
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array
   use bem_outflow_spectrum, only: outflow_spectrum_bins
   implicit none
@@ -29,14 +28,16 @@ module bem_zhao_outflow_refresh
     integer(i32) :: refresh_batches = 0_i32
     integer(i32) :: window_batches = 0_i32
     integer(i32) :: photo_idx = 0_i32
+    integer(i32) :: secondary_idx = 0_i32
+    real(dp) :: window_duration = 0.0_dp
     integer(i32) :: accepted_solves = 0_i32
     real(dp) :: area = 0.0_dp
     real(dp) :: photo_abs_charge = 0.0_dp
     real(dp) :: last_change = 0.0_dp
     !> 窓内の H 外向き通過数、その法線運動エネルギー和 [J]、表面放出数。raw weight 単位。
-    real(dp) :: window_moments(3) = 0.0_dp
+    real(dp) :: window_moments(3, 2) = 0.0_dp
     !> 窓内の H 外向き通過数の法線運動エネルギー bin 別内訳。raw weight 単位。
-    real(dp) :: window_spectrum(outflow_spectrum_bins) = 0.0_dp
+    real(dp) :: window_spectrum(outflow_spectrum_bins, 2) = 0.0_dp
     type(surface_current_model_result_type) :: state
   contains
     procedure :: initialize
@@ -68,17 +69,23 @@ contains
     if (app%surface_current%has_reference_area_m2) self%area = app%surface_current%reference_area_m2
 
     if (stats%matching_plane_state_valid) then
-      if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp)) then
+      if (stats%matching_plane_feedback(1) == 0.0_dp) then
+        ! Before the first SEE-only refresh, the saved source is zero and the root is Type C.
+        call evaluate_surface_current_model(app, self%state)
+        success = .true.
+      else if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp)) then
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
-          outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s &
+          outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s, &
+          secondary_share=stats%matching_plane_secondary_share &
           )
       else
         ! 外部根をまだ更新していない checkpoint の外部源は、表面放出の半 Maxwell 分布である。
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
-          branch_from_response(stats%matching_plane_response), self%state, success, message &
+          branch_from_response(stats%matching_plane_response), self%state, success, message, &
+          secondary_share=stats%matching_plane_secondary_share &
           )
       end if
       if (.not. success) then
@@ -93,7 +100,8 @@ contains
       self%last_change = 0.0_dp
     end if
     self%photo_idx = self%state%photoelectron_species_idx
-    self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
+    self%secondary_idx = self%state%secondary_electron_species_idx
+    if (self%photo_idx > 0_i32) self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
     surface_closure = self%state%surface_closure_contract_type
     call stage_state( &
       self, stats, finite_charge_sum(mesh%q_elem, 'zhao outflow refresh initial charge')/self%area &
@@ -122,41 +130,71 @@ contains
     type(surface_closure_contract_type), intent(inout) :: surface_closure
     logical, intent(out) :: refreshed
     type(surface_current_model_result_type) :: trial
-    real(dp) :: batch_moments(3), transmission, outer_flux, outer_energy_ev, displacement
-    real(dp) :: batch_values(2 + outflow_spectrum_bins), outer_spectrum(outflow_spectrum_bins)
+    real(dp) :: batch_moments(3, 2), transmission, outer_flux, outer_energy_ev, displacement
+    real(dp) :: photo_flux, secondary_flux, secondary_share, tracked_secondary_current, expected_secondary_current
+    real(dp) :: packed_values(2*(2 + outflow_spectrum_bins)), denominator
+    integer :: group, idx
+    real(dp) :: batch_values(2 + outflow_spectrum_bins, 2), outer_spectrum(outflow_spectrum_bins)
     character(len=256) :: message
     logical :: success
 
     refreshed = .false.
     if (.not. self%active) return
-    batch_values(1:2) = sum(moments_thread(1:2, self%photo_idx, :), dim=2)
-    batch_values(3:) = sum(moments_thread(5:, self%photo_idx, :), dim=2)
-    call mpi_allreduce_sum_real_dp_array(mpi_ctx, batch_values)
-    batch_moments(1:2) = batch_values(1:2)
-    batch_moments(3) = fixed_current_charge_values(app%n_particle_species + self%photo_idx)/self%photo_abs_charge
-    if (.not. all(ieee_is_finite(batch_moments)) .or. any(batch_moments < 0.0_dp) .or. &
-        .not. all(ieee_is_finite(batch_values(3:))) .or. any(batch_values(3:) < 0.0_dp)) then
-      error stop 'zhao_stationary outflow refresh received invalid matching-plane moments.'
+    batch_values = 0.0_dp
+    batch_moments = 0.0_dp
+    do group = 1, 2
+      idx = self%photo_idx
+      if (group == 2) idx = self%secondary_idx
+      if (idx == 0) cycle
+      batch_values(1:2, group) = sum(moments_thread(1:2, idx, :), dim=2)
+      batch_values(3:, group) = sum(moments_thread(5:, idx, :), dim=2)
+    end do
+    packed_values = reshape(batch_values, [size(packed_values)])
+    call mpi_allreduce_sum_real_dp_array(mpi_ctx, packed_values)
+    batch_values = reshape(packed_values, shape(batch_values))
+    batch_moments(1:2, :) = batch_values(1:2, :)
+    if (self%photo_idx > 0) then
+      batch_moments(3, 1) = fixed_current_charge_values(app%n_particle_species + self%photo_idx)/self%photo_abs_charge
     end if
     self%window_moments = self%window_moments + batch_moments
-    self%window_spectrum = self%window_spectrum + batch_values(3:)
+    self%window_spectrum = self%window_spectrum + batch_values(3:, :)
     self%window_batches = self%window_batches + 1_i32
-
+    self%window_duration = self%window_duration + app%sim%batch_duration
     if (self%window_batches >= self%refresh_batches) then
-      if (self%window_moments(1) > 0.0_dp .and. self%window_moments(3) > 0.0_dp) then
-        transmission = self%window_moments(1)/self%window_moments(3)
-        outer_flux = transmission*self%state%photoelectron_emission_current_density_a_m2/qe
-        outer_energy_ev = self%window_moments(2)/(self%window_moments(1)*qe)
-        outer_spectrum = outer_flux*self%window_spectrum/sum(self%window_spectrum)
+      photo_flux = 0.0_dp
+      secondary_flux = self%window_moments(1, 2)/(self%area*self%window_duration)
+      transmission = 0.0_dp
+      if (self%window_moments(3, 1) > 0.0_dp) then
+        transmission = self%window_moments(1, 1)/self%window_moments(3, 1)
+        photo_flux = transmission*self%state%photoelectron_emission_current_density_a_m2/qe
+      end if
+      outer_flux = photo_flux + secondary_flux
+      secondary_share = 0.0_dp
+      if (outer_flux > 0.0_dp) then
+        outer_spectrum = 0.0_dp
+        outer_energy_ev = 0.0_dp
+        if (photo_flux > 0.0_dp) then
+          outer_spectrum = photo_flux*self%window_spectrum(:, 1)/sum(self%window_spectrum(:, 1))
+          outer_energy_ev = photo_flux*self%window_moments(2, 1)/(self%window_moments(1, 1)*qe)
+        end if
+        if (secondary_flux > 0.0_dp) then
+          outer_spectrum = outer_spectrum + secondary_flux*self%window_spectrum(:, 2)/sum(self%window_spectrum(:, 2))
+          outer_energy_ev = outer_energy_ev + secondary_flux*self%window_moments(2, 2)/(self%window_moments(1, 2)*qe)
+        end if
+        outer_energy_ev = outer_energy_ev/outer_flux
+        secondary_share = secondary_flux/outer_flux
         call solve_zhao_outflow_closure( &
           app, outer_flux, outer_energy_ev, self%state%zhao_branch, trial, success, message, previous=self%state, &
-          outer_spectrum_m2_s=outer_spectrum &
+          outer_spectrum_m2_s=outer_spectrum, secondary_share=secondary_share &
           )
         if (success) then
-          self%last_change = max( &
-                             abs(outer_flux/self%state%outer_photoelectron_flux_m2_s - 1.0_dp), &
-                             abs(outer_energy_ev/self%state%outer_photoelectron_mean_energy_ev - 1.0_dp) &
-                             )
+          denominator = self%state%outer_photoelectron_flux_m2_s
+          if (denominator <= 0.0_dp) denominator = outer_flux
+          self%last_change = abs(outer_flux - self%state%outer_photoelectron_flux_m2_s)/denominator
+          denominator = self%state%outer_photoelectron_mean_energy_ev
+          if (denominator <= 0.0_dp) denominator = outer_energy_ev
+          self%last_change = max(self%last_change, &
+                                 abs(outer_energy_ev - self%state%outer_photoelectron_mean_energy_ev)/denominator)
           self%state = trial
           self%accepted_solves = self%accepted_solves + 1_i32
           surface_closure = self%state%surface_closure_contract_type
@@ -177,15 +215,29 @@ contains
         end if
       else if (mpi_is_root(mpi_ctx)) then
         write (error_unit, '(a,i0)') &
-          'WARNING: zhao outflow refresh observed no photoelectron outflow; kept the previous outer state: batch=', &
+          'WARNING: zhao outflow refresh observed no surface-electron outflow; kept the previous outer state: batch=', &
           batch_idx
         flush (error_unit)
+      end if
+      if (.not. refreshed) then
+        call split_emission_escape_target(self%state, secondary_share)
+        surface_closure = self%state%surface_closure_contract_type
       end if
       self%window_moments = 0.0_dp
       self%window_spectrum = 0.0_dp
       self%window_batches = 0_i32
+      self%window_duration = 0.0_dp
     end if
 
+    ! Compare this batch's tracked escape with the root and split published in the same receipt.
+    tracked_secondary_current = 0.0_dp
+    expected_secondary_current = 0.0_dp
+    if (self%secondary_idx > 0) then
+      tracked_secondary_current = -fixed_current_charge_values(2*app%n_particle_species + self%secondary_idx)/ &
+                                  (self%area*app%sim%batch_duration)
+      expected_secondary_current = self%state%photoelectron_escape_current_density_a_m2*self%state%secondary_share
+    end if
+    stats_candidate%secondary_budget_residual_a_m2 = tracked_secondary_current - expected_secondary_current
     displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/self%area
     call stage_state(self, stats_candidate, displacement)
   end subroutine commit_batch
@@ -219,6 +271,7 @@ contains
     stats%matching_plane_photoelectron_escape_flux_m2_s = escape_flux
     stats%matching_plane_iterations = self%accepted_solves
     stats%matching_plane_residual = self%last_change
+    stats%matching_plane_secondary_share = self%state%secondary_share
   end subroutine stage_state
 
   !> 保存した外部障壁と壁電位の符号から Zhao branch を復元する。

@@ -31,6 +31,9 @@ contains
   do ikey = 1, size(keys)
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
+    case ('secondary_emission_max_generations')
+      call get_toml_int(table, keys(ikey), cfg%secondary_emission_max_generations, &
+                        'particles.secondary_emission.max_generations')
     case ('species')
       call read_particle_species_array(cfg, table, keys(ikey), authoring)
     case default
@@ -76,6 +79,30 @@ contains
   do ikey = 1, size(keys)
     k = lower_ascii(trim(keys(ikey)%key))
     select case (trim(k))
+    case ('npcls_per_step', 'w_particle', 'target_macro_particles_per_batch', &
+          'rays_per_batch', 'emit_current_density_a_m2', 'boundary_inflow')
+      spec%has_secondary_forbidden_source_option = .true.
+    end select
+    select case (trim(k))
+    case ('secondary_emission_enabled')
+      call get_toml_logical(table, keys(ikey), spec%secondary_emission_enabled, &
+                            'particles.species.surface_interaction.secondary_emission.enabled')
+    case ('secondary_emission_model')
+      call get_toml_string(table, keys(ikey), spec%secondary_emission_model, &
+                           'particles.species.surface_interaction.secondary_emission.model')
+      spec%secondary_emission_model = lower_ascii(trim(spec%secondary_emission_model))
+    case ('secondary_emission_yield_max')
+      call get_toml_real(table, keys(ikey), spec%secondary_emission_yield_max, &
+                         'particles.species.surface_interaction.secondary_emission.yield_max')
+    case ('secondary_emission_energy_max_ev')
+      call get_toml_real(table, keys(ikey), spec%secondary_emission_energy_max_ev, &
+                         'particles.species.surface_interaction.secondary_emission.energy_max_ev')
+    case ('secondary_emission_const_yield')
+      call get_toml_real(table, keys(ikey), spec%secondary_emission_const_yield, &
+                         'particles.species.surface_interaction.secondary_emission.const_yield')
+    case ('secondary_emission_target_species')
+      call get_toml_string(table, keys(ikey), spec%secondary_emission_target_species, &
+                           'particles.species.surface_interaction.secondary_emission.target_species')
     case ('species_key')
       call get_toml_string(table, keys(ikey), spec%species_key, 'particles.species.species_key')
     case ('enabled')
@@ -147,6 +174,7 @@ contains
       if (.not. associated(child)) error stop 'particles.species.boundary_inflow must be a table.'
       call apply_species_boundary_inflow_toml_table(spec, child)
     case ('surface_charge_closure')
+      spec%has_surface_charge_closure = .true.
       call get_toml_string( &
         table, keys(ikey), spec%surface_charge_closure, 'particles.species.surface_charge_closure' &
         )

@@ -51,10 +51,12 @@ This model represents charge accumulation on a discretized surface. It does not 
 
 - lateral surface conduction, finite-resistance relaxation, or leakage into the bulk;
 - permittivity interface conditions, polarization charge, or the electric field inside the object;
-- general secondary-electron emission or specular / diffuse particle reflection.
+- material-specific secondary-electron response or specular / diffuse particle reflection.
 
 If those effects control the time evolution, do not interpret an `insulator` result as the long-time response of the
 real material.
+
+Absorption may generate [secondary electrons](SecondaryElectronEmission.en.html); their reaction charge uses the same surface-emission channel as PE.
 
 ## Floating conductor: conserve charge and equalize potential
 

@@ -41,10 +41,14 @@ module bem_simulator_workspace
     ! (outward number, outward normal energy [J], barrier return number, barrier escape number,
     !  outward number per normal-energy bin of bem_outflow_spectrum)
     real(dp), allocatable :: matching_plane_moments_thread(:, :, :)
+    ! hits, emitted macro count, generation-capped count; charge [C], sum of yields.
+    integer(i64), allocatable :: secondary_counts_thread(:, :, :)
+    real(dp), allocatable :: secondary_values_thread(:, :, :)
   contains
     procedure :: init => init_simulator_batch_workspace
     procedure :: reset_before_injection
     procedure :: prepare_particle_flags
+    procedure :: extend_particle_flags
   end type simulator_batch_workspace_type
 
 contains
@@ -89,6 +93,7 @@ contains
     ! 1:4 は H 通過モーメント、5 以降は外向き法線運動エネルギーの bin 別重み。
     allocate (self%matching_plane_moments_thread(4_i32 + outflow_spectrum_bins, nspecies, nthreads))
 
+    allocate (self%secondary_counts_thread(3, nspecies, nthreads), self%secondary_values_thread(2, nspecies, nthreads))
     self%dq = 0.0_dp
     self%q_before = 0.0_dp
     self%candidate_charge = 0.0_dp
@@ -124,6 +129,8 @@ contains
     self%fixed_current_correction = 0.0_dp
     self%fixed_channel_active = .false.
     self%matching_plane_moments_thread = 0.0_dp
+    self%secondary_counts_thread = 0_i64
+    self%secondary_values_thread = 0.0_dp
   end subroutine reset_before_injection
 
   subroutine prepare_particle_flags(self, particle_count)
@@ -141,6 +148,20 @@ contains
     self%soft_discarded_boundary_flag(:particle_count) = .false.
   end subroutine prepare_particle_flags
 
+  !> Preserve terminal flags of earlier generations when appending secondary particles.
+  subroutine extend_particle_flags(self, old_count, new_count)
+    class(simulator_batch_workspace_type), intent(inout) :: self
+    integer(i32), intent(in) :: old_count, new_count
+    call ensure_logical_capacity(self%escaped_boundary_flag, new_count)
+    call ensure_logical_capacity(self%absorbed_flag, new_count)
+    call ensure_i32_capacity(self%absorbed_element, new_count)
+    call ensure_logical_capacity(self%soft_discarded_boundary_flag, new_count)
+    self%escaped_boundary_flag(old_count + 1:new_count) = .false.
+    self%absorbed_flag(old_count + 1:new_count) = .false.
+    self%absorbed_element(old_count + 1:new_count) = -1_i32
+    self%soft_discarded_boundary_flag(old_count + 1:new_count) = .false.
+  end subroutine extend_particle_flags
+
   subroutine ensure_logical_capacity(values, required_size)
     logical, allocatable, intent(inout) :: values(:)
     integer(i32), intent(in) :: required_size
@@ -150,6 +171,7 @@ contains
       if (size(values) >= required_size) return
     end if
     allocate (grown(required_size))
+    if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)
   end subroutine ensure_logical_capacity
 
@@ -162,6 +184,7 @@ contains
       if (size(values) >= required_size) return
     end if
     allocate (grown(required_size))
+    if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)
   end subroutine ensure_i32_capacity
 

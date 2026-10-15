@@ -9,10 +9,10 @@ submodule(bem_app_config_parser) bem_app_config_parser_preflight_surface
 contains
 
   module procedure validate_surface_current_model_config
-  integer :: electron_idx, ion_idx, photo_idx
+  integer :: electron_idx, ion_idx, photo_idx, secondary_idx
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
   real(dp) :: electron_temperature, ion_temperature, ion_entry_energy_ev, ion_pressure_energy_ev
-  logical :: photoelectron_active
+  logical :: photoelectron_active, secondary_active
 
   if (cfg%surface_current%outflow_refresh_batches < 0_i32) then
     error stop 'surface_current_model.outflow_refresh_batches must be >= 0.'
@@ -60,6 +60,7 @@ contains
     error stop 'surface_current_model.photoelectron_source_scale must be finite and >= 0.'
   end if
   photoelectron_active = cfg%surface_current%photoelectron_source_scale > 0.0_dp
+  secondary_active = len_trim(cfg%surface_current%secondary_electron_species) > 0
   if (.not. photoelectron_active .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'auto' .and. &
       trim(lower_ascii(cfg%surface_current%zhao_branch)) /= 'c') then
@@ -117,6 +118,21 @@ contains
     if (trim(cfg%particle_species(photo_idx)%source_mode) /= 'photo_raycast' .or. &
         .not. cfg%particle_species(photo_idx)%deposit_opposite_charge_on_emit) then
       error stop 'Zhao photoelectron current requires photo_raycast with opposite-charge emission deposit.'
+    end if
+  end if
+  if (secondary_active) then
+    secondary_idx = find_species_index(cfg, cfg%surface_current%secondary_electron_species)
+    if (trim(cfg%particle_species(secondary_idx)%source_mode) /= 'secondary_emission' .or. &
+        abs(cfg%particle_species(secondary_idx)%q_particle + qe) > 1.0e-6_dp*qe .or. &
+        abs(cfg%particle_species(secondary_idx)%m_particle - cfg%particle_species(electron_idx)%m_particle) > &
+        1.0e-6_dp*cfg%particle_species(electron_idx)%m_particle) then
+      call stop_config_error('Zhao secondary_electron requires a secondary_emission species '// &
+                             'with charge -e and ambient electron mass.')
+    end if
+    call resolve_particle_boundaries(cfg%sim, cfg%particle_boundary_low, cfg%particle_boundary_high, &
+                                     cfg%particle_species(secondary_idx), effective_boundary_low, effective_boundary_high)
+    if (effective_boundary_high(3) /= bc_open) then
+      call stop_config_error('Zhao secondary-electron kinetic closure requires an open z-high particle boundary.')
     end if
   end if
   if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
@@ -187,8 +203,8 @@ contains
   end if
   if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
   call validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
-  if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. .not. photoelectron_active) then
-    error stop 'surface_current_model.outflow_refresh_batches requires photoelectron_source_scale > 0.'
+  if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. .not. (photoelectron_active .or. secondary_active)) then
+    error stop 'surface_current_model.outflow_refresh_batches requires a surface-emitted electron group.'
   end if
   end procedure validate_surface_current_model_config
 

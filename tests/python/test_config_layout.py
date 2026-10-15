@@ -110,3 +110,17 @@ def test_native_rejects_flat_input(native_checker, tmp_path):
                             cwd=ROOT, text=True, capture_output=True, timeout=20)
     assert result.returncode != 0
     assert 'flat beach.toml layout is not supported' in result.stdout + result.stderr
+
+
+def test_secondary_emission_layout_declares_public_keys_and_modes():
+    runtime = load_config_file(ROOT / "examples/zero_current_secondary.toml")
+    incident = runtime["particles"]["species"][0]
+    target = runtime["particles"]["species"][-1]
+    assert incident["secondary_emission_enabled"] is True
+    assert incident["secondary_emission_target_species"] == target["species_key"]
+    assert target["source_mode"] == "secondary_emission"
+    assert runtime["surface_current_model"]["secondary_electron_species"] == target["species_key"]
+    grouped = to_grouped_layout(runtime)
+    assert grouped["particles"]["species"][0]["surface_interaction"]["secondary_emission"]["model"] == "whipple"
+    grouped["particles"]["secondary_emission"] = {"max_generations": 2}
+    assert to_runtime_layout(grouped)["particles"]["secondary_emission_max_generations"] == 2

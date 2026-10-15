@@ -24,6 +24,9 @@ contains
         )
     case ('ion_species')
       call get_toml_string(table, keys(ikey), cfg%surface_current%ion_species, 'surface_current_model.ion_species')
+    case ('secondary_electron_species')
+      call get_toml_string(table, keys(ikey), cfg%surface_current%secondary_electron_species, &
+                           'surface_current_model.secondary_electron_species')
     case ('photoelectron_species')
       call get_toml_string( &
         table, keys(ikey), cfg%surface_current%photoelectron_species, &

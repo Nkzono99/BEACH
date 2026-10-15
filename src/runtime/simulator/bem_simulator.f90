@@ -25,7 +25,7 @@ module bem_simulator
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
   use bem_output_writer, only: write_matching_plane_history_snapshot, write_fixed_current_history_rows, &
-                               write_matching_plane_spectrum_history_rows
+                               write_matching_plane_spectrum_history_rows, write_secondary_emission_history_rows
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
@@ -38,7 +38,7 @@ module bem_simulator
     module subroutine run_absorption_insulator( &
       mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
       potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics, &
-      matching_plane_history_unit, fixed_current_history_unit, matching_plane_spectrum_history_unit &
+    matching_plane_history_unit, fixed_current_history_unit, matching_plane_spectrum_history_unit, secondary_emission_history_unit &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
@@ -55,6 +55,7 @@ module bem_simulator
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
       integer, intent(in), optional :: matching_plane_history_unit
       integer, intent(in), optional :: fixed_current_history_unit
+      integer, intent(in), optional :: secondary_emission_history_unit
       integer, intent(in), optional :: matching_plane_spectrum_history_unit
     end subroutine run_absorption_insulator
 
@@ -77,11 +78,10 @@ module bem_simulator
     end subroutine prepare_batch_state
 
     module subroutine process_particle_batch( &
-      mesh, app, boundary_contract, current_model, snapshot, pcls_batch, dq_thread, escaped_boundary_flag, absorbed_flag, &
-      absorbed_element, soft_discarded_boundary_flag, bfield, batch_idx, mpi_rank, &
+      mesh, app, boundary_contract, current_model, snapshot, pcls_batch, workspace, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, matching_plane_moments_thread, retry_counts &
+      collision_failure_x, collision_failure_v, retry_counts &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -89,16 +89,12 @@ module bem_simulator
       type(surface_closure_contract_type), intent(in) :: current_model
       type(electrostatic_snapshot_type), intent(inout) :: snapshot
       type(particles_soa), intent(inout) :: pcls_batch
-      real(dp), intent(inout) :: dq_thread(:, :)
-      logical, intent(inout) :: escaped_boundary_flag(:), absorbed_flag(:)
-      integer(i32), intent(inout) :: absorbed_element(:)
-      logical, intent(inout) :: soft_discarded_boundary_flag(:)
+      type(simulator_batch_workspace_type), intent(inout) :: workspace
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx, mpi_rank
       integer(i32), intent(out) :: actual_team_size
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
-      real(dp), intent(inout) :: matching_plane_moments_thread(:, :, :)
       integer(i64), intent(out) :: retry_counts(2)
     end subroutine process_particle_batch
 
@@ -177,6 +173,12 @@ module bem_simulator
       integer(i64), intent(in) :: retry_counts(2)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel
     end subroutine accumulate_batch_stats
+
+    module subroutine accumulate_secondary_stats(stats, counts, values)
+      type(sim_stats), intent(inout) :: stats
+      integer(i64), intent(in) :: counts(:, :)
+      real(dp), intent(in) :: values(:, :)
+    end subroutine accumulate_secondary_stats
 
     module subroutine print_batch_progress(batch_idx, final_batch_idx, rel_change)
       integer(i32), intent(in) :: batch_idx, final_batch_idx

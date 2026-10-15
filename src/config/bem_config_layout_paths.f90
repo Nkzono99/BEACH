@@ -71,6 +71,8 @@ contains
       reader_path = 'sim.multiple_box_events_soft_discard_abs_charge_limit'
     case ('particles.raycast.max_bounces')
       reader_path = 'sim.raycast_max_bounce'
+    case ('particles.secondary_emission.max_generations')
+      reader_path = 'particles.secondary_emission_max_generations'
     case ('fields.periodic.lower_boundary_model')
       reader_path = 'periodic2.lower_boundary_model'
     case ('fields.periodic.reference.mode_layers')
@@ -89,6 +91,8 @@ contains
       reader_path = 'surface_current_model.ion_species'
     case ('sheath.species.photoelectron')
       reader_path = 'surface_current_model.photoelectron_species'
+    case ('sheath.species.secondary_electron')
+      reader_path = 'surface_current_model.secondary_electron_species'
     case ('sheath.photoelectrons.solar_elevation_deg')
       reader_path = 'surface_current_model.solar_elevation_deg'
     case ('sheath.photoelectrons.ref_density_m3')
@@ -217,6 +221,18 @@ contains
       reader_path = 'particles.species.boundary'
     case ('particles.species.inflow')
       reader_path = 'particles.species.boundary_inflow'
+    case ('particles.species.surface_interaction.secondary_emission.enabled')
+      reader_path = 'particles.species.secondary_emission_enabled'
+    case ('particles.species.surface_interaction.secondary_emission.model')
+      reader_path = 'particles.species.secondary_emission_model'
+    case ('particles.species.surface_interaction.secondary_emission.yield_max')
+      reader_path = 'particles.species.secondary_emission_yield_max'
+    case ('particles.species.surface_interaction.secondary_emission.energy_max_ev')
+      reader_path = 'particles.species.secondary_emission_energy_max_ev'
+    case ('particles.species.surface_interaction.secondary_emission.const_yield')
+      reader_path = 'particles.species.secondary_emission_const_yield'
+    case ('particles.species.surface_interaction.secondary_emission.target_species')
+      reader_path = 'particles.species.secondary_emission_target_species'
     case default
       reader_path = ''
     end select
@@ -262,6 +278,8 @@ contains
       known = .true.
     case ('particles.reservoir')
       known = .true.
+    case ('particles.secondary_emission')
+      known = .true.
     case ('particles.species')
       known = .true.
     case ('particles.species.charging')
@@ -271,6 +289,10 @@ contains
     case ('particles.species.sampling')
       known = .true.
     case ('particles.species.source')
+      known = .true.
+    case ('particles.species.surface_interaction')
+      known = .true.
+    case ('particles.species.surface_interaction.secondary_emission')
       known = .true.
     case ('particles.tracking')
       known = .true.

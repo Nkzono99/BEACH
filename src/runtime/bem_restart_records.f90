@@ -153,6 +153,20 @@ contains
     case ('matching_plane_iterations')
       call require_unique_summary_key(found_matching_iterations, key)
       call read_matching_summary_integer(value, key, stats%matching_plane_iterations)
+    case ('matching_plane_secondary_share')
+      call read_matching_summary_real(value, key, stats%matching_plane_secondary_share)
+    case ('secondary_budget_residual_a_m2')
+      call read_matching_summary_real(value, key, stats%secondary_budget_residual_a_m2)
+    case ('secondary_emission_hits')
+      read (value, *) stats%secondary_emission_hits
+    case ('secondary_emission_count')
+      read (value, *) stats%secondary_emission_count
+    case ('secondary_generation_capped_count')
+      read (value, *) stats%secondary_generation_capped_count
+    case ('secondary_emitted_charge_C')
+      call read_matching_summary_real(value, key, stats%secondary_emitted_charge_c)
+    case ('secondary_yield_sum')
+      call read_matching_summary_real(value, key, stats%secondary_yield_sum)
     case ('matching_plane_residual')
       call require_unique_summary_key(found_matching_residual, key)
       call read_matching_summary_real(value, key, stats%matching_plane_residual)
@@ -467,12 +481,19 @@ contains
     if (stats%adaptive_nonzero_mode_omp_threads < 0_i32) then
       error stop 'Resume checkpoint adaptive OpenMP thread count must be >= 0.'
     end if
+    if (stats%secondary_emission_hits < 0_i64 .or. stats%secondary_emission_count < 0_i64 .or. &
+        stats%secondary_generation_capped_count < 0_i64 .or. &
+        .not. ieee_is_finite(stats%secondary_yield_sum) .or. stats%secondary_yield_sum < 0.0_dp .or. &
+        .not. ieee_is_finite(stats%secondary_emitted_charge_c) .or. stats%secondary_emitted_charge_c > 0.0_dp) then
+      error stop 'Resume checkpoint secondary-emission diagnostics are invalid.'
+    end if
     if (stats%matching_plane_state_valid) then
       if (.not. all(ieee_is_finite([ &
                                    stats%matching_plane_displacement_c_m2, stats%matching_plane_phi_v, &
                                    stats%matching_plane_response, stats%matching_plane_feedback, &
                                    stats%matching_plane_photoelectron_return_flux_m2_s, &
-                                   stats%matching_plane_photoelectron_escape_flux_m2_s, stats%matching_plane_residual &
+                                   stats%matching_plane_photoelectron_escape_flux_m2_s, stats%matching_plane_residual, &
+                                   stats%matching_plane_secondary_share, stats%secondary_budget_residual_a_m2 &
                                    ]))) then
         error stop 'Resume checkpoint matching-plane state must be finite.'
       end if
@@ -480,7 +501,8 @@ contains
           any(stats%matching_plane_response(2:3) < 0.0_dp) .or. &
           stats%matching_plane_photoelectron_return_flux_m2_s < 0.0_dp .or. &
           stats%matching_plane_photoelectron_escape_flux_m2_s < 0.0_dp .or. &
-          stats%matching_plane_iterations <= 0_i32 .or. stats%matching_plane_residual < 0.0_dp) then
+          stats%matching_plane_iterations <= 0_i32 .or. stats%matching_plane_residual < 0.0_dp .or. &
+          stats%matching_plane_secondary_share < 0.0_dp .or. stats%matching_plane_secondary_share > 1.0_dp) then
         error stop 'Resume checkpoint matching-plane state is outside its physical range.'
       end if
       matching_budget_scale = max( &

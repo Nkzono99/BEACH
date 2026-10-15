@@ -105,6 +105,7 @@ surface_model = "conductor"
 | --- | --- | --- | --- |
 | `volume_seed` | box 内へ指定個数を置く軌道試験や初期粒子 | 面流束には対応しない | `npcls_per_step` |
 | `photo_raycast` | 照射 ray が命中した表面から放出 | 電流密度 × 投影面積 × `batch_duration` | `rays_per_batch` と ray の命中率 |
+| `secondary_emission` | 吸収時に入射種から生成。同一バッチで追跡 | [二次電子放出](SecondaryElectronEmission.html) |
 
 チュートリアルの `volume_seed` を維持して供給量や領域だけ変えるなら、既存 species entry の次の値だけを
 調整します。
@@ -152,6 +153,9 @@ drift_velocity = [0.0, 0.0, -1.0e6]
 チュートリアルの基準計算は `field_solver="direct"` のまま残します。高速 solver を採用する前に、同じ mesh と
 粒子条件を縮小したケースで Direct との差を測ります。互換性と選択基準は
 [場の評価方法](FieldSolvers.html)、FMM の設定と精度調整は [FMM を使う](FMM.html)を参照してください。
+
+吸収時の `secondary_emission` は独立した注入源を持たない種です。入射種の放出条件と組にして設定します
+（[二次電子放出](SecondaryElectronEmission.html)）。
 
 ## 7. 時間と粒子数を決める
 

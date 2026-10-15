@@ -249,22 +249,11 @@ contains
   integer(i32) :: i, species_idx, elem_idx, n
   real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
   real(dp) :: charge_tolerance
-  logical :: has_fixed_current
 
   n = app%n_particle_species
-  has_fixed_current = .false.
-  do species_idx = 1_i32, n
-    if (.not. app%particle_species(species_idx)%enabled) cycle
-    if (fixed_current_species_active(app, current_model, species_idx)) then
-      has_fixed_current = .true.
-    end if
-  end do
-  if (.not. has_fixed_current) return
-
   workspace%fixed_current_charge_values = 0.0_dp
   do i = 1_i32, fresh_particle_count
     species_idx = pcls_batch%species_id(i)
-    if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
     if (workspace%absorbed_flag(i)) then
       workspace%fixed_current_charge_values(species_idx) = &
@@ -275,7 +264,6 @@ contains
     end if
   end do
   do species_idx = 1_i32, n
-    if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
     workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
   end do
   call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
@@ -418,7 +406,7 @@ contains
   do i = 1_i32, fresh_particle_count
     species_idx = pcls_batch%species_id(i)
     macro_charge = checked_macro_charge(pcls_batch%q(i), pcls_batch%w(i), 'initial batch charge ledger')
-    if (trim(lower_ascii(app%particle_species(species_idx)%source_mode)) == 'photo_raycast') then
+    if (pcls_batch%source_element(i) > 0_i32) then
       call checked_accumulate_charge( &
         ledger%emitted_from_surface(species_idx), macro_charge, 'local emitted charge ledger' &
         )

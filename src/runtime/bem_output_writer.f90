@@ -1,6 +1,6 @@
 !> 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。
 module bem_output_writer
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, sim_stats
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
@@ -22,6 +22,7 @@ module bem_output_writer
   public :: write_top_reference_history_snapshot
   public :: write_matching_plane_history_snapshot
   public :: open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows
+  public :: open_secondary_emission_history_writer, write_secondary_emission_history_rows
   public :: open_fixed_current_history_writer
   public :: write_fixed_current_history_rows
   public :: print_run_summary
@@ -88,6 +89,21 @@ module bem_output_writer
       real(dp), intent(in) :: simulated_time_s
       type(sim_stats), intent(in) :: stats
     end subroutine write_matching_plane_spectrum_history_rows
+
+    module subroutine open_secondary_emission_history_writer(app, resumed, history_opened, history_unit)
+      type(app_config), intent(in) :: app
+      logical, intent(in) :: resumed
+      logical, intent(out) :: history_opened
+      integer, intent(out) :: history_unit
+    end subroutine open_secondary_emission_history_writer
+
+    module subroutine write_secondary_emission_history_rows(unit_id, batch_idx, app, counts, values)
+      integer, intent(in) :: unit_id
+      integer(i32), intent(in) :: batch_idx
+      type(app_config), intent(in) :: app
+      integer(i64), intent(in) :: counts(:, :)
+      real(dp), intent(in) :: values(:, :)
+    end subroutine write_secondary_emission_history_rows
 
     module subroutine open_fixed_current_history_writer(app, resumed, history_opened, history_unit)
       type(app_config), intent(in) :: app

@@ -29,6 +29,7 @@ the linked section repeats this information before expanding its columns and dec
 | `matching_plane_history.csv` | `output.write_files=true`, `output.history_stride>0`, and [`zhao_stationary` with `outflow_refresh_batches>0`](#zhao_stationary) | [Seventeen-column outer state](#zhao_stationary) | `result.matching_plane_history`. Not used for restart |
 | `matching_plane_spectrum_history.csv` | Same as `matching_plane_history.csv` | `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` for each positive bin of the [outer source spectrum](#zhao_stationary) | No dedicated attribute; read the CSV directly. Not used for restart |
 | `fixed_current_history.csv` | `output.write_files=true`, `output.history_stride>0`, and `zhao_stationary` or a species with `surface_charge_closure="fixed_current"` | [Tracked and target charge per species and channel](#fixed-current-scale-factors) | No dedicated attribute; read the CSV directly. Not used for restart |
+| `secondary_emission_history.csv` | Output enabled and at least one enabled incident species has SEE enabled; every accepted batch | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`; not required for restart |
 | `charge_ledger.csv` | `output.write_files=true` and charge-ledger state is present | [Twenty-five columns per species](#charge-ledger) | `result.charge_ledger`. Required for restart when summary has ledger metadata |
 | `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.write_files=true`; the former for serial, the latter per MPI rank | Internal RNG state | No `FortranRunResult` attribute. Required for restart |
 | `macro_residuals.csv` | `output.write_files=true` and macro-particle remainder state is allocated | `species_idx`, `face`, `residual` | No `FortranRunResult` attribute. Schema v8+: required when declared by the manifest |
@@ -166,7 +167,7 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 | Item | `matching_plane_history.csv` contract |
 | --- | --- |
 | Generation | `output.write_files=true`, `output.history_stride>0`, `surface_current_model.model=zhao_stationary`, and `outflow_refresh_batches>0` |
-| Row | Leading `batch`, `simulated_time_s`, then the fifteen state columns below; seventeen columns in total |
+| Row | Leading `batch`, `simulated_time_s`, then the seventeen state columns below; nineteen columns in total |
 | Time | State after the batch's charge commit and outer-root update; the next batch uses this outer root |
 | Python | `result.matching_plane_history`; `result.matching_plane_state` holds the last state |
 | Restart | The CSV is not used. `summary.txt` stores the last state, and a restart reconstructs the outer root from its emission source (spectrum) |
@@ -182,6 +183,8 @@ read the current outer root from the `matching_plane_*` keys in `summary.txt` an
 | `matching_plane_photoelectron_spectrum_m2_s` | `matching_plane_spectrum_history.csv` | Flux of the outer-root emission source per normal-kinetic-energy bin; 145 space-separated values on one line. All zero means the source is the surface-emission half-Maxwellian (initial root); otherwise the values sum to `matching_plane_photoelectron_outward_flux_m2_s` |
 | `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | Unused; 0 |
 | `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | The source split into return and escape by the outer-root barrier |
+| `matching_plane_secondary_share` | `secondary_share` | SEE share of combined outward flux in the latest observed window, 0 without SEE |
+| `secondary_budget_residual_a_m2` | `secondary_budget_residual_a_m2` | Tracked SEE escape charging current minus root escape current times `secondary_share` [A/m²]; not constrained to zero in provisional Phase 1 |
 | `matching_plane_iterations` | `iterations` | Number of accepted outer roots, counting the initial root as 1 |
 | `matching_plane_residual` | `residual` | Largest relative change of the source at the last refresh; it decreases toward the weak-coupling fixed point |
 
@@ -197,6 +200,26 @@ With an explicit split `[periodic2]` table, the z-high plane-mean potential is f
 `potential_history.csv` and `mesh_potential.csv` are referenced to the upstream plasma at 0 V. Potential differences
 between particles do not depend on the outer root, but absolute values depend on the outer model's branch and
 approximations through $\phi_0$.
+
+The `matching_plane_photoelectron_*` names describe the combined PE + SEE source, spectrum, and root return/escape flux.
+PE emission settings remain PE-only. New histories have 19 columns. Released 17-column histories remain readable indefinitely;
+on resume the writer atomically adds zero SEE columns to old rows before appending new rows.
+
+### Secondary emission diagnostics
+
+| File / key | Meaning |
+|---|---|
+| `secondary_emission_history.csv` | One row per enabled incident species per accepted batch, rank-summed, independent of history stride |
+| `hits`, `emitted_count` | Macro hits with SEE enabled and actual emitted macro count |
+| `emitted_charge_c` | Signed emitted particle charge [C], negative; reaction charge is its opposite |
+| `mean_yield` | Sum of model yields divided by hits, including generation-capped hits; 0 with no hits |
+| `generation_capped_count` | Would-be macro count suppressed at the generation cap; no reaction deposit |
+| `secondary_incident_species_<index>`, `secondary_emission_max_generations` | Enabled incident species and configured generation cap |
+| `secondary_emission_hits`, `secondary_emission_count`, `secondary_emitted_charge_C` | Cumulative SEE hit count, emitted count, and signed emitted charge in summary |
+| `secondary_yield_sum`, `secondary_mean_yield`, `secondary_generation_capped_count` | Cumulative yield sum, hit-averaged yield, and suppressed count in summary |
+
+The existing species ledger records SEE in `emitted_from_surface_C`, `absorbed_on_surface_C`, and `escaped_to_infinity_C`.
+Counters, charge, and yield sum survive checkpoint resume; no SEE flight state or partial refresh window is saved.
 
 ## History
 

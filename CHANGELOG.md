@@ -16,6 +16,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `docs/GroupedConfiguration*.md` と plugin 内の移行ページ、ナビゲーションと移行リンク。
 
 ### Added
+- Secondary electron emission after absorption: Whipple / constant yields, charge-scaled Bernoulli macro counts,
+  inherited weights, shared PE velocity sampler and reaction-charge channel, and deterministic per-thread spawn buffers
+  tracked generation by generation in the same frozen batch field (`particles.secondary_emission.max_generations`, default 3).
+- Optional `sheath.species.secondary_electron`: shared kinetic barrier and PE + SEE outflow spectrum, including SEE-only
+  refresh. Provisional Phase 1 allocates only the PE escape target by its flux share; SEE remains fully tracked.
+- `secondary_emission_history.csv`, cumulative SEE summary diagnostics, matching-plane `secondary_share` and
+  `secondary_budget_residual_a_m2`, paired SEE documentation, two examples, and focused contracts. Released 17-column
+  matching-plane histories remain readable and are extended atomically on resume.
 - Added [docs/adr/0002-irradiation-cell-scope.md](docs/adr/0002-irradiation-cell-scope.md): BEACH supports one
   product configuration, the `periodic2` irradiation cell with the outer 1-D sheath, and keeps the free-space direct / FMM
   cases and the tutorial as validation references. The record lists the features removed for that scope and the phases

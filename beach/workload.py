@@ -720,7 +720,7 @@ def estimate_workload(
     particles_raw = config.get("particles", {})
     if not isinstance(particles_raw, dict):
         raise SystemExit("[particles] section must be a table.")
-    unknown_particles_keys = sorted(set(particles_raw) - {"species"})
+    unknown_particles_keys = sorted(set(particles_raw) - {"species", "secondary_emission_max_generations"})
     if unknown_particles_keys:
         raise SystemExit(f"Unknown key in [particles]: {unknown_particles_keys[0]}")
 
@@ -837,6 +837,8 @@ def estimate_workload(
             per_batch_volume_particles += n_macro
         elif source_mode == "photo_raycast":
             has_dynamic_source_species = True
+        elif source_mode == "secondary_emission":
+            continue  # Created by collisions, not an independently sampled source.
         else:
             raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
         if has_boundary_inflow:
@@ -978,6 +980,7 @@ def estimate_workload(
             if source_mode not in {
                 "volume_seed",
                 "photo_raycast",
+                "secondary_emission",
             }:
                 raise SystemExit(
                     f"Unknown particles.species.source_mode: {source_mode}"
@@ -998,6 +1001,10 @@ def estimate_workload(
     global_total_particles = sum(global_batch_totals)
 
     return {
+        "secondary_emission_excluded": any(
+            spec.get("secondary_emission_enabled", False) and spec.get("enabled", True)
+            for spec in species_list
+        ),
         "batch_count": batch_count,
         "target_batch_count": target_batch_count,
         "completed_batches": completed_batches,

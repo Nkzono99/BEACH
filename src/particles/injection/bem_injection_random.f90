@@ -1,9 +1,10 @@
 !> 粒子注入で共有する乱数初期化と基本分布sampling。
 module bem_injection_random
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_particles, only: allocate_particles
   use bem_types, only: particles_soa
+  use bem_counter_rng, only: counter_uniform
   implicit none
   private
 
@@ -131,12 +132,16 @@ contains
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
   !! @param[out] z 平均0・分散1の標準正規乱数で埋める出力配列。
-  subroutine sample_standard_normal(z, sigma_cutoff)
+  subroutine sample_standard_normal(z, sigma_cutoff, rng_seed, rng_counter)
     real(dp), intent(out) :: z(:, :)
     real(dp), intent(in), optional :: sigma_cutoff
+    integer(i32), intent(in), optional :: rng_seed
+    integer(i64), intent(in), optional :: rng_counter(:)
+    integer(i64) :: draw
     integer :: n_total, i, row, column
     real(dp) :: r, theta, pi, u1, u2, z1, z2, cutoff
 
+    draw = 100_i64
     n_total = size(z)
     pi = acos(-1.0_dp)
     cutoff = default_velocity_sigma_cutoff
@@ -147,8 +152,14 @@ contains
     row = 1
     column = 1
     do while (i <= n_total)
-      call random_number(u1)
-      call random_number(u2)
+      if (present(rng_counter)) then
+        u1 = counter_uniform(rng_seed, rng_counter, draw)
+        u2 = counter_uniform(rng_seed, rng_counter, draw + 1_i64)
+        draw = draw + 2_i64
+      else
+        call random_number(u1)
+        call random_number(u2)
+      end if
       if (u1 <= tiny(1.0_dp)) u1 = tiny(1.0_dp)
       r = sqrt(-2.0_dp*log(u1))
       theta = 2.0_dp*pi*u2

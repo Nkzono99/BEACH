@@ -25,7 +25,7 @@ program test_surface_current_model
   integer(i32) :: j
   logical :: success
 
-  call test_init(13)
+  call test_init(14)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -355,6 +355,35 @@ program test_surface_current_model
     cfg, 1.0e12_dp, 2.0_dp, 'A', refreshed, success, message, outer_spectrum_m2_s=spectrum &
     )
   call assert_true(.not. success, 'a negative outer spectrum bin must be rejected')
+  call test_end()
+
+  call test_begin('secondary_electron_barrier_role_and_phase_one_pe_target_split')
+  call configure_zhao_fixture(cfg)
+  cfg%n_particle_species = 4_i32
+  cfg%particle_species(4) = particle_species_spec()
+  cfg%particle_species(4)%enabled = .true.
+  cfg%particle_species(4)%species_key = 'secondary'
+  cfg%particle_species(4)%source_mode = 'secondary_emission'
+  cfg%surface_current%secondary_electron_species = 'secondary'
+  cfg%sim%bc_low(1:2) = bc_periodic
+  cfg%sim%bc_high(1:2) = bc_periodic
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%has_outflow_kinetic_barrier(4), 'SEE must have the PE kinetic barrier role')
+  call assert_close_dp(result%outflow_barrier_potential_v(4), result%outflow_barrier_potential_v(3), &
+                       0.0_dp, 'SEE and PE barrier potentials must agree')
+  call assert_equal_i32(result%outflow_barrier_face(4), 6_i32, 'SEE barrier face')
+  call assert_true(result%outer_return_cell_uniform, 'SEE uses the periodic-cell outer return map')
+  call assert_true(.not. result%has_absorbed_target(4) .and. .not. result%has_emission_target(4) .and. &
+                   .not. result%has_escape_target(4), 'SEE must stay fully tracked')
+  call solve_zhao_outflow_closure(cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, 'A', &
+                                  refreshed, success, message, secondary_share=0.25_dp)
+  call assert_true(success, 'mixed emission source solve: '//trim(message))
+  call assert_close_dp(refreshed%escaped_particle_current_a(3), &
+                       -0.75_dp*refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
+                       1.0e-20_dp, 'PE escape target must use its outflow share')
+  call assert_close_dp(refreshed%absorbed_current_a(3), &
+                       -refreshed%escaped_particle_current_a(3) - refreshed%emission_current_a(3), &
+                       1.0e-20_dp, 'PE return target must remain escape minus emission')
   call test_end()
 
   call test_summary()

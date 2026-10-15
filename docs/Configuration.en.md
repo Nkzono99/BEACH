@@ -15,6 +15,11 @@ and the rest of the physical setup.
 - `beachx config init` creates the official multi-particle, 20-batch tutorial `beach.toml`.
 - See [Input Parameters Reference](Parameters.en.html) for every key, including coordinate and placement helpers evaluated while loading.
 
+For SEE, start with [`zero_current_secondary.toml`](../examples/zero_current_secondary.toml) or
+[`zero_current_no_photo_secondary.toml`](../examples/zero_current_no_photo_secondary.toml).
+Add emission settings to the incident species and a `source.mode="secondary_emission"` target;
+see [Secondary electron emission](SecondaryElectronEmission.en.html) for constraints.
+
 ## 1. Basic Flow
 
 ```bash

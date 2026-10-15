@@ -11,7 +11,7 @@ Lang: [日本語](ZhaoStationaryClosure.md) | [English](ZhaoStationaryClosure.en
 
 セルの高さは Debye 長（太陽風で約 10 m）よりはるかに小さいので、外部のシースから見ると上端面は表面そのものです。
 シースを時間発展させるモデルではなく、既定では計算の開始時に根を一度だけ解きます。外部根の更新
-（`sheath.coupling.outflow_refresh_batches`）を使うと、上端面を出ていく光電子の観測値から根を定期的に解き直します。
+（`sheath.coupling.outflow_refresh_batches`）を使うと、上端面を出ていく PE + SEE の観測値から根を定期的に解き直します。
 ケース全体の組み立て方は[プラズマ中の周期表面を設定する](PeriodicPlasmaSurface.html)にあります。
 
 | 根が与えるもの | 上端面での使い方 | 節 |
@@ -23,15 +23,15 @@ Lang: [日本語](ZhaoStationaryClosure.md) | [English](ZhaoStationaryClosure.en
 
 ## 何を解くか
 
-上流（電位 0 V）の太陽風と、表面から放出される光電子がつくる 1 次元のシースです。表面への正味電流が 0 になる
+上流（電位 0 V）の太陽風と、表面から放出される電子（PE + SEE）がつくる 1 次元のシースです。表面への正味電流が 0 になる
 定常解（零電流根）を求めます。
 
 $$
 J_e + J_i + J_{escape} = 0
 $$
 
-$J_e$ は電子の吸収電流、$J_i$ はイオンの吸収電流、$J_{escape}$ は外へ逃げる光電子の電流で、符号は表面帯電への寄与です。
-光電子がない場合は $J_e + J_i = 0$ です。根は電位の形で 3 つの型に分かれます。光電子がなければ Type C だけです。
+$J_e$ は電子の吸収電流、$J_i$ はイオンの吸収電流、$J_{escape}$ は外へ逃げる PE + SEE の電流で、符号は表面帯電への寄与です。
+放出電子源がない場合は $J_e + J_i = 0$ です。根は電位の形で 3 つの型に分かれます。PE なしの初期根は Type C で、SEE 流出を入れる更新後には別の型も選べます。
 
 | 型 | 電位の形 |
 |---|---|
@@ -69,6 +69,7 @@ sheath-model は、代数的な根が次の条件を満たすかも検査し、�
 ### 電流を根の値に固定する
 
 役割を持つ 3 つの粒子種（電子、イオン、光電子）は、電荷の閉じ方を固定電流（`fixed_current`）にします。
+SEE の役割を追加する場合、その種は `charging.closure` を省略して完全に追跡します（[二次電子放出](SecondaryElectronEmission.html)）。
 各バッチで、追跡で得た分布を、根の電流にバッチ幅を掛けた目標電荷へ一律の倍率で合わせます。
 
 | 経路 | 符号 | 扱い |
@@ -79,9 +80,10 @@ sheath-model は、代数的な根が次の条件を満たすかも検査し、�
 | 光電子の帰還 $J_{return}$ | 0 以下 | 表面への再吸収の目標 |
 | 光電子の脱出 $J_{escape}$ | 正 | 表面に置かない、外部へ出る電流 |
 
-根は $J_{return}=J_{escape}-J_{emit}$ と $J_e+J_i+J_{escape}=0$ を満たすので、表面の電流は
+PE だけの場合、根は $J_{return}=J_{escape}-J_{emit}$ と $J_e+J_i+J_{escape}=0$ を満たすので、表面の電流は
 $J_e+J_i+J_{return}+J_{emit}=0$ で閉じます。放出と帰還は別々の倍率で合わせ、二つの大きな電流の差である
-光電子の正味電流を倍率の分母に使いません。このため表面の総電荷は浮遊条件に拘束され、要素ごとの分布だけが追跡で決まります。
+光電子の正味電流を倍率の分母に使いません。PE だけなら表面の総電荷は浮遊条件に拘束され、要素ごとの分布だけが追跡で決まります。
+SEE を加えた Phase 1 では、完全に追跡する SEE の電流と外部根から配分した電流との差が表面収支へ残ります。
 
 ### 上端面の電位を壁電位に合わせる
 
@@ -106,10 +108,10 @@ $$
 
 $\phi_f$ はバッチ開始時の上端面の平均電位、$v_{n,\infty}$ は上流での法線速度です。
 
-**流出:** 上端面を外向きに横切った電子と光電子は、横切った点の電位 $\phi_c$ と法線方向の運動エネルギーで、
+**流出:** 上端面を外向きに横切った電子・光電子・二次電子は、横切った点の電位 $\phi_c$ と法線方向の運動エネルギーで、
 外部の障壁を越えられるかを判定します。越えられないものは法線速度を反転して戻し、越えられるものは脱出とします。
 
-| 型 | 電子が入るときの障壁 | 電子・光電子が出るときの障壁 | イオン |
+| 型 | 電子が入るときの障壁 | 電子・PE・SEE が出るときの障壁 | イオン |
 |---|---:|---:|---:|
 | Type A | $\phi_m$ | $\phi_m$ | 0 V |
 | Type B / C | 0 V | 0 V | 0 V |
@@ -143,15 +145,23 @@ $$
 
 ### 外部根を更新する
 
-セル内の凹凸は、外部シースから見た表面の放出を変えます。表面から出た光電子の一部はセル内で再吸収されるので、
-上端面を出る光電子は放出より少なく、エネルギー分布も変わります。外部根の更新は、この変化を外部シースへ返します。
-受理したバッチが `outflow_refresh_batches` 個たまるごとに、次を行います。
+外部根の更新は PE と任意の `sheath.species.secondary_electron` を表面放出電子のグループとして扱います。
+外部ライブラリへ専用の SEE 項は加えません。`outflow_refresh_batches` 個の受理バッチごとに次を行います。
 
-1. 上端面を外向きに横切った光電子を、法線運動エネルギー $K$ の bin ごとに数える。表面からの放出数 $N_{emit}$ も合計し、
-   透過率 $\eta=N_{out}/N_{emit}$ を求める（$N_{out}$ は全 bin の合計）。
-2. 外部シースの光電子源を、数えたスペクトルに置き換えて零電流根を解く。各 bin の束は全体が $\eta\Gamma_{emit}$ になるように
-   比例配分し、bin の中では $d\Gamma/dK$ を一定とする。$\Gamma_{emit}$ は設定から決まる表面の放出束で、表面の放出の目標は変えない。
-3. 新しい根の電流・障壁・壁電位・上流電子密度を、次のバッチから使う。
+1. z-high の外向き通過を PE と SEE 別に、法線運動エネルギーの bin ごとに数える。
+   PE は従来の $\Gamma_{pe,out}=\eta\Gamma_{pe,emit}$、$\eta=N_{out,pe}/N_{emit,pe}$ と設定放出束を使う。
+   SEE は $\Gamma_{see,out}=\sum w_{out,see}/(A\sum\Delta t_{batch})$ で重みから直接求める。$A$ は参照面積。
+   バッチ幅が一定なら分母は $A N_{window}\Delta t_{batch}$。
+2. 各スペクトルをそれぞれの束へ規格化して bin ごとに加え、平均法線エネルギーも束で重み付けして合算する。
+   合算スペクトルを既存の外部電子放出源へ渡し、零電流根を解く。
+3. 新しい電流・障壁・壁電位・上流電子密度を次のバッチから使う。
+   PE の脱出目標は $s_{pe}=\Gamma_{pe,out}/(\Gamma_{pe,out}+\Gamma_{see,out})$ 倍し、帰還目標は脱出と設定放出の差にする。
+   SEE へ固定電流目標は付けない。
+
+この Phase 1 の配分は暫定です。`secondary_share=1-s_{pe}` と `secondary_budget_residual_a_m2` は、
+追跡した SEE 脱出電流と配分した外部根の脱出電流の差を記録します。SEE だけでも更新できます。
+初期根は PE の表面放出源だけで解き、PE なしでは源 0 の Type C から始めます。SEE は最初の更新から入ります。
+更新では前回の型を先に試し、その後に A、B、C を試します。
 
 bin は $[0, 1\,\text{meV})$ と、1 meV から 1 keV までの対数 bin（1 桁に 24 個）で、1 keV 以上は最後の bin に数えます。
 スペクトルを平均エネルギーだけの半 Maxwell 分布へ縮約しないのは、上端面のスペクトルが、放出に近い低エネルギーの本体と、
@@ -193,14 +203,14 @@ ref_density_m3 = 6.4e7
 outflow_refresh_batches = 50
 ```
 
-- 役割を持つ粒子種は `charging.closure="fixed_current"`。電子とイオンは上端面から境界流入、光電子は上端面からの
+- 電子・イオン・PE の役割は `charging.closure="fixed_current"`、SEE は省略。電子とイオンは上端面から境界流入、光電子は上端面からの
   `photo_raycast` で反作用電荷あり。上端面は開放。
 - 電子とイオンの数密度には同じ太陽風密度を書く（違えば設定エラー）。電子とイオンの drift は、どちらも太陽風の法線速度
   （負の z）にする。電子の drift を 0 にするなら `upstream_field_floor_v_m` は不要だが、$\phi_0$ が約 1 V ずれる
   （[電子の drift と上流の帯](ZhaoUpstreamBand.html)）。
 - イオンの温度は粒子種の `temperature_ev` から外部根にも渡る。`sheath.zhao.ion_pressure_factor` は圧力係数を変えるときだけ書く。
 - 光電子なし（Type C）は `sheath.photoelectrons.source_scale=0.0` とし、光電子の粒子種と関連キーを省く。
-  外部根の更新は使えない。
+  SEE があれば外部根を更新できる。
 - 光電子の `emit_current_density_a_m2` はレイ垂直面基準なので、表面の放出はそれに ray 仰角の sin を掛けた値になる。
   外部源 $e\,s_{UV}\,n_{pe,ref}\sin\alpha\,v_{th}/(2\sqrt\pi)$ と一致させるには、`emit_current_density_a_m2` を垂直入射の値
   $e\,s_{UV}\,n_{pe,ref}\,v_{th}/(2\sqrt\pi)$（設定例では 2.54 µA/m²）にし、`ray_direction` の仰角を `solar_elevation_deg` に
@@ -219,7 +229,7 @@ outflow_refresh_batches = 50
 | `summary.txt` | `surface_current_model_zhao_branch`、`surface_current_model_phi0_V`、`surface_current_model_phi_m_V`（初期根）。二つの残差 `surface_current_model_pe_budget_residual_current_density_A_m2` と `surface_current_model_surface_budget_residual_current_density_A_m2` が 0 に近い。電子に drift があるなら `surface_current_model_upstream_field_deficit_V_m` が `upstream_field_floor_v_m` 以下 |
 | `fixed_current_history.csv` | `target_over_tracked`。外部根とセル内の追跡が整合していれば、どの粒子種も 1 の近く。光電子の `escape` が 1 から外れるときは、上端面の電位と $\phi_0$ の差を疑う |
 | `charge_ledger.csv` | 粒子種ごとの追跡・目標・適用の電荷、`fixed_*_weight_scale`、個数 |
-| `matching_plane_history.csv`（外部根の更新） | `phi_H_V`（現在の $\phi_0$）、光電子の流出束と平均法線エネルギー。`residual` は流出の束と平均エネルギーの変化で、$\phi_0$ の揺れは `phi_H_V` を直接見る |
+| `matching_plane_history.csv`（外部根の更新） | `phi_H_V`（現在の $\phi_0$）、PE + SEE の流出束と平均法線エネルギー、SEE の割合と収支残差。`residual` は流出の束と平均エネルギーの変化で、$\phi_0$ の揺れは `phi_H_V` を直接見る |
 | `matching_plane_spectrum_history.csv`（外部根の更新） | 外部根を更新した batch ごとの外部源スペクトル。セル内で加速された裾の割合 |
 | `top_reference_history.csv` | `potential_mean_V` が $\phi_0$ に一致すること。ずれは場の誤差で、障壁の判定をずらす（[遠方補正の精度](PeriodicFarCorrection.html)） |
 
@@ -235,7 +245,7 @@ outflow_refresh_batches = 50
   外部での往復を境界での反転に縮めた近似です。
 - 一様磁場は 0 でなければなりません。
 - 平面の定常解なので、曲率、衝突、外部シースの過渡、計算中に変わる照射やプラズマ条件には追従しません。
-  外部根の更新が追従するのも、上端面を出る光電子の変化だけです。
+  外部根の更新は上端面を出る PE + SEE の変化に追従します。
 
 ### 既知の制約
 
@@ -247,4 +257,4 @@ outflow_refresh_batches = 50
   外部根は壁に届いた電子とイオンをすべて吸収とみなします。固定電流はこの分も吸収として表面に配るので、総電流の釣り合いは
   保たれます。逃げる割合は `fixed_current_history.csv` の電子とイオンの倍率の 1 からのずれで読めます。光電子のない Type C では、
   電子が届きにくくイオンだけが当たる面が、イオンの運動エネルギー（400 km/s の陽子で約 0.84 kV）近くまで正に帯電し、
-  イオンを跳ね返すことがあります（三層の粒子層で 10⁵ s 後に約 3%）。表面の伝導と二次電子放出はモデルに入っていません。
+  イオンを跳ね返すことがあります（三層の粒子層で 10⁵ s 後に約 3%）。表面の伝導は含みません。簡易 SEE は [二次電子放出](SecondaryElectronEmission.html)で設定します。

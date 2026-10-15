@@ -1,7 +1,7 @@
 !> lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。
 submodule(bem_app_config_parser) bem_app_config_parser_preflight_particles
   use bem_app_config_types, only: particle_inflow_none, particles_per_batch_from_config
-  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face
+  use bem_config_helpers, only: resolve_particle_boundaries, particle_boundary_action_for_face, species_temperature_k
   implicit none
 contains
 
@@ -11,6 +11,9 @@ contains
   character(len=64) :: generated_species_key
   logical :: has_boundary_inflow
 
+  if (cfg%secondary_emission_max_generations < 0_i32) then
+    call stop_config_error("particles.secondary_emission.max_generations must be >= 0.")
+  end if
   do i = 1, cfg%n_particle_species
     if (len_trim(cfg%particle_species(i)%species_key) == 0) then
       write (generated_species_key, '(a,i0)') 'species_', i
@@ -76,8 +79,52 @@ contains
       if (has_boundary_inflow) call validate_boundary_inflow_species(cfg, i)
     case ('photo_raycast')
       call validate_photo_raycast_species(cfg, i)
+    case ('secondary_emission')
+      if (cfg%particle_species(i)%has_secondary_forbidden_source_option) then
+        call stop_config_error('secondary_emission species must omit sampling, inflow, and emission source options.')
+      end if
+      if (cfg%particle_species(i)%has_surface_charge_closure .or. &
+          trim(cfg%particle_species(i)%surface_charge_closure) /= 'explicit') then
+        call stop_config_error('secondary_emission species must omit charging.closure and remain fully tracked.')
+      end if
+      if (cfg%particle_species(i)%q_particle >= 0.0_dp .or. cfg%particle_species(i)%m_particle <= 0.0_dp .or. &
+          species_temperature_k(cfg%particle_species(i)) < 0.0_dp) then
+        call stop_config_error('secondary_emission requires negative charge, positive mass, and nonnegative temperature.')
+      end if
+    case default
+      call stop_config_error('Unknown particles.species.source.mode.')
     end select
     call validate_surface_charge_closure(cfg, i, effective_low, effective_high)
+  end do
+  ! Resolve targets after every species has received its unique key.
+  do i = 1, cfg%n_particle_species
+    if (.not. cfg%particle_species(i)%enabled .or. .not. cfg%particle_species(i)%secondary_emission_enabled) cycle
+    associate (spec => cfg%particle_species(i))
+      select case (trim(spec%secondary_emission_model))
+      case ('whipple')
+        if (spec%secondary_emission_yield_max <= 0.0_dp .or. spec%secondary_emission_energy_max_ev <= 0.0_dp) then
+          call stop_config_error('whipple SEE requires yield_max > 0 and energy_max_ev > 0.')
+        end if
+      case ('constant')
+        if (spec%secondary_emission_const_yield < 0.0_dp) then
+          call stop_config_error('constant SEE requires const_yield >= 0.')
+        end if
+      case default
+        call stop_config_error('secondary emission model must be "whipple" or "constant".')
+      end select
+      spec%secondary_emission_target_idx = 0_i32
+      do j = 1, cfg%n_particle_species
+        if (len_trim(spec%secondary_emission_target_species) == 0) exit
+        if (.not. cfg%particle_species(j)%enabled) cycle
+        if (trim(spec%secondary_emission_target_species) /= trim(cfg%particle_species(j)%species_key)) cycle
+        if (trim(cfg%particle_species(j)%source_mode) /= 'secondary_emission') exit
+        spec%secondary_emission_target_idx = int(j, i32)
+        exit
+      end do
+      if (spec%secondary_emission_target_idx == 0_i32) then
+        call stop_config_error('SEE target_species must name an enabled secondary_emission species.')
+      end if
+    end associate
   end do
   batch_n = particles_per_batch_from_config(cfg)
   end procedure validate_particle_species_config

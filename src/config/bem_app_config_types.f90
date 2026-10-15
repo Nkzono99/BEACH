@@ -21,6 +21,7 @@ module bem_app_config_types
     character(len=64) :: electron_species = ''
     character(len=64) :: ion_species = ''
     character(len=64) :: photoelectron_species = ''
+    character(len=64) :: secondary_electron_species = ''
     real(dp) :: solar_elevation_deg = 0.0_dp
     real(dp) :: photoelectron_ref_density_m3 = 0.0_dp
     real(dp) :: photoelectron_source_scale = 1.0_dp
@@ -42,7 +43,16 @@ module bem_app_config_types
     character(len=64) :: species_key = ''
     logical :: enabled = .false.
     integer(i32) :: npcls_per_step = 0_i32
-    character(len=16) :: source_mode = 'volume_seed'
+    character(len=32) :: source_mode = 'volume_seed'
+    logical :: secondary_emission_enabled = .false.
+    character(len=16) :: secondary_emission_model = 'whipple'
+    real(dp) :: secondary_emission_yield_max = 1.5_dp
+    real(dp) :: secondary_emission_energy_max_ev = 500.0_dp
+    real(dp) :: secondary_emission_const_yield = 0.0_dp
+    character(len=64) :: secondary_emission_target_species = ''
+    integer(i32) :: secondary_emission_target_idx = 0_i32
+    logical :: has_secondary_forbidden_source_option = .false.
+    logical :: has_surface_charge_closure = .false.
     real(dp) :: number_density_cm3 = 0.0d0
     real(dp) :: number_density_m3 = 0.0d0
     logical :: has_number_density_cm3 = .false.
@@ -121,6 +131,7 @@ module bem_app_config_types
 
     integer(i32) :: n_particle_species = 0_i32
     type(particle_species_spec), allocatable :: particle_species(:)
+    integer(i32) :: secondary_emission_max_generations = 3_i32
     integer(i32) :: particle_boundary_low(3) = &
                     [particle_bc_inherit, particle_bc_inherit, particle_bc_inherit]
     integer(i32) :: particle_boundary_high(3) = &
@@ -169,6 +180,8 @@ contains
         batch_n = batch_n + cfg%particle_species(s)%npcls_per_step
       case ('photo_raycast')
         has_dynamic_source = .true.
+      case ('secondary_emission')
+        cycle
       case default
         error stop 'Unknown particles.species.source_mode.'
       end select

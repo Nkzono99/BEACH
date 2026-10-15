@@ -13,7 +13,9 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from beach.config._layout import CHOICES, PATHS, PRESERVED, SPECIES_PATHS, reader_schema
+from beach.config._layout import (  # noqa: E402 (repository import after adding ROOT)
+    CHOICES, PATHS, PRESERVED, SECONDARY_EMISSION_RULES, SPECIES_PATHS, reader_schema,
+)
 
 
 def object_rule():
@@ -84,6 +86,16 @@ def map_constraint(rule, paths, schema, choices=None):
 
 
 def generate_schema(schema):
+    # New scalar declarations live beside their public paths, not in generated JSON.
+    schema['$defs']['particles']['properties']['secondary_emission_max_generations'] = {
+        'type': 'integer', 'minimum': 0, 'maximum': 2147483647, 'default': 3}
+    schema['$defs']['surfaceCurrentModel']['properties']['secondary_electron_species'] = {
+        'type': 'string', 'maxLength': 64}
+    properties = schema['$defs']['species']['properties']
+    for key, rule in SECONDARY_EMISSION_RULES.items():
+        properties[f'secondary_emission_{key}'] = copy.deepcopy(rule)
+    if 'secondary_emission' not in properties['source_mode']['enum']:
+        properties['source_mode']['enum'].append('secondary_emission')
     reader = reader_schema(schema)
     grouped = object_rule()
     grouped['required'] = ['particles']
