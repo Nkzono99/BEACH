@@ -250,5 +250,5 @@ _handoff/
 # Local isolated development worktrees
 .worktrees/
 
-# Local design notes
-/docs/adr/
+# Local design working notes (ADRs themselves are tracked)
+/docs/adr/*/
