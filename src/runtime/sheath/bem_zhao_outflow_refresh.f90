@@ -8,6 +8,8 @@
 !! 総電荷は毎 batch の固定電流 target が浮遊条件へ拘束する。
 module bem_zhao_outflow_refresh
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
+  use bem_irradiation_cell_contract, only: &
+    irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_kinds, only: dp, i32
   use bem_constants, only: qe
   use bem_types, only: mesh_type, sim_stats
@@ -38,6 +40,7 @@ module bem_zhao_outflow_refresh
     real(dp) :: window_moments(3, 2) = 0.0_dp
     !> 窓内の H 外向き通過数の法線運動エネルギー bin 別内訳。raw weight 単位。
     real(dp) :: window_spectrum(outflow_spectrum_bins, 2) = 0.0_dp
+    type(irradiation_cell_contract_type) :: cell
     type(surface_current_model_result_type) :: state
   contains
     procedure :: initialize
@@ -48,12 +51,14 @@ module bem_zhao_outflow_refresh
 contains
 
   !> 新規 run では設定の表面放出を外部源とする静的根から始め、再開では保存した外部源で根を再構成する。
-  subroutine initialize(self, app, mesh, stats, surface_closure)
+  subroutine initialize(self, app, mesh, stats, surface_closure, cell)
     class(zhao_outflow_refresh_type), intent(out) :: self
     type(app_config), intent(in) :: app
     type(mesh_type), intent(in) :: mesh
     type(sim_stats), intent(inout) :: stats
     type(surface_closure_contract_type), intent(inout) :: surface_closure
+    type(irradiation_cell_contract_type), intent(in), optional :: cell
+    integer(i32) :: status
     character(len=256) :: message
     logical :: success
 
@@ -64,28 +69,34 @@ contains
       stats%matching_plane_state_valid = .false.
       return
     end if
+    if (present(cell)) then
+      self%cell = cell
+    else
+      call resolve_irradiation_cell_contract(app, self%cell, status, message)
+      if (status /= irradiation_cell_ok) error stop trim(message)
+    end if
     self%refresh_batches = app%surface_current%outflow_refresh_batches
-    self%area = product(app%sim%box_max(1:2) - app%sim%box_min(1:2))
+    self%area = self%cell%wall_area(app%sim%box_min, app%sim%box_max)
     if (app%surface_current%has_reference_area_m2) self%area = app%surface_current%reference_area_m2
 
     if (stats%matching_plane_state_valid) then
       if (stats%matching_plane_feedback(1) == 0.0_dp) then
         ! Before the first SEE-only refresh, the saved source is zero and the root is Type C.
-        call evaluate_surface_current_model(app, self%state)
+        call evaluate_surface_current_model(app, self%state, self%cell)
         success = .true.
       else if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp)) then
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
           outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s, &
-          secondary_share=stats%matching_plane_secondary_share &
+          secondary_share=stats%matching_plane_secondary_share, cell=self%cell &
           )
       else
         ! 外部根をまだ更新していない checkpoint の外部源は、表面放出の半 Maxwell 分布である。
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
-          secondary_share=stats%matching_plane_secondary_share &
+          secondary_share=stats%matching_plane_secondary_share, cell=self%cell &
           )
       end if
       if (.not. success) then
@@ -95,7 +106,7 @@ contains
       self%accepted_solves = stats%matching_plane_iterations
       self%last_change = stats%matching_plane_residual
     else
-      call evaluate_surface_current_model(app, self%state)
+      call evaluate_surface_current_model(app, self%state, self%cell)
       self%accepted_solves = 1_i32
       self%last_change = 0.0_dp
     end if
@@ -185,7 +196,7 @@ contains
         secondary_share = secondary_flux/outer_flux
         call solve_zhao_outflow_closure( &
           app, outer_flux, outer_energy_ev, self%state%zhao_branch, trial, success, message, previous=self%state, &
-          outer_spectrum_m2_s=outer_spectrum, secondary_share=secondary_share &
+          outer_spectrum_m2_s=outer_spectrum, secondary_share=secondary_share, cell=self%cell &
           )
         if (success) then
           denominator = self%state%outer_photoelectron_flux_m2_s

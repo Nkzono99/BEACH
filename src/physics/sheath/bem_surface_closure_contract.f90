@@ -23,7 +23,7 @@ module bem_surface_closure_contract
     real(dp), allocatable :: outflow_barrier_potential_v(:)
     integer(i32), allocatable :: outflow_barrier_face(:)
     real(dp), allocatable :: inflow_number_flux_m2_s(:)
-    !> z-high面の水平平均電位を外部シース解の壁電位へ固定する場合だけ有効。
+    !> 照射セル契約の壁面の平均電位を外部シース解の壁電位へ固定する場合だけ有効。
     logical :: has_plane_gauge = .false.
     real(dp) :: plane_gauge_potential_v = 0.0_dp
     !> 外部障壁で戻る粒子を周期セル内の一様な位置へ戻す。

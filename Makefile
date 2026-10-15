@@ -64,6 +64,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_electrostatic_snapshot \
 	test_boundary \
 	test_external_boundary_contract \
+	test_irradiation_cell_contract \
 	test_restart \
 	test_reservoir_injection \
 	test_dynamics_basic \

@@ -1,5 +1,6 @@
 !> 粒子注入面とbox基準面の電位統計を評価する実行時変換。
 module bem_app_config_potential_runtime
+  use bem_irradiation_cell_contract, only: irradiation_cell_contract_type
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann
   use bem_types, only: mesh_type, sim_config
@@ -43,13 +44,15 @@ contains
     if (present(phi_max)) phi_max = phi_max_local
   end subroutine compute_face_average_potential
 
-  !> box の z-high 全断面における電位統計をセル中心 `N x N` 格子で評価する。
+  !> box の壁全断面における電位統計をセル中心 `N x N` 格子で評価する。
   !!
   !! `N` は reservoir face 平均と同じ `sim.injection_face_phi_grid_n` を使う。
   !! 注入speciesの開口には依存せず、周期セル全断面を基準面として評価する。
-  subroutine compute_z_high_box_potential_statistics( &
-    mesh, sim, snapshot, phi_mean, phi_std, phi_min, phi_max &
+  subroutine compute_wall_box_potential_statistics( &
+    mesh, sim, snapshot, phi_mean, phi_std, phi_min, phi_max, &
+    cell &
     )
+    type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
@@ -59,10 +62,10 @@ contains
       error stop 'z-high box potential statistics require a finite [domain].'
     end if
     call compute_rectangular_face_potential_statistics( &
-      mesh, sim, snapshot, 'z_high', sim%box_min, sim%box_max, &
+      mesh, sim, snapshot, cell%wall_face_name(), sim%box_min, sim%box_max, &
       sim%injection_face_phi_grid_n, phi_mean, phi_std, phi_min, phi_max &
       )
-  end subroutine compute_z_high_box_potential_statistics
+  end subroutine compute_wall_box_potential_statistics
 
   !> 指定box面の矩形範囲における電位統計をセル中心格子で評価する。
   subroutine compute_rectangular_face_potential_statistics( &

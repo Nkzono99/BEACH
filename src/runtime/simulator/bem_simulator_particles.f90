@@ -71,7 +71,7 @@ contains
   do generation = 0_i32, app%secondary_emission_max_generations
     spawn%n = 0_i32
     !$omp parallel default(none) num_threads(nth) &
-    !$omp shared(mesh,pcls_batch,app,species_sim,species_boundary_contract,snapshot,workspace,bfield,spawn) &
+    !$omp shared(cell,mesh,pcls_batch,app,species_sim,species_boundary_contract,snapshot,workspace,bfield,spawn) &
     !$omp shared(nth,actual_team_size,batch_idx,mpi_rank,first_particle,last_particle,generation) &
     !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
     !$omp shared(collision_failure_x,collision_failure_v) &
@@ -111,7 +111,8 @@ contains
               mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
               result=step_result, boundary_contract=particle_boundary_contract, &
               boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64), &
-              sampled_electric_field=sampled_electric_field &
+              sampled_electric_field=sampled_electric_field, &
+              cell=cell &
               )
             used_event_resolver = .true.
           else
@@ -135,7 +136,8 @@ contains
             mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, x1, v1, &
             hit=hit, result=step_result, boundary_contract=particle_boundary_contract, &
             boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64), &
-            sampled_electric_field=sampled_electric_field &
+            sampled_electric_field=sampled_electric_field, &
+            cell=cell &
             )
           used_event_resolver = .true.
         end if
@@ -146,7 +148,8 @@ contains
             call advance_particle_step_upper_panel_fourier( &
               mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), app%sim%dt, &
               retry_result, retry_field_available, boundary_contract=particle_boundary_contract, &
-              boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64) &
+              boundary_rng_counter=int([batch_idx, mpi_rank, i, step], i64), &
+              cell=cell &
               )
             if (retry_field_available .and. retry_result%status == collision_query_ok) then
               step_result = retry_result
@@ -165,24 +168,24 @@ contains
           end if
           workspace%matching_plane_moments_thread(1, species_idx, tid) = &
             workspace%matching_plane_moments_thread(1, species_idx, tid) + &
-            pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
+            pcls_batch%w(i)*real(step_result%wall_outward_event_count, dp)
           workspace%matching_plane_moments_thread(2, species_idx, tid) = &
             workspace%matching_plane_moments_thread(2, species_idx, tid) + &
-            pcls_batch%w(i)*step_result%z_high_outward_normal_kinetic_energy_j_sum
+            pcls_batch%w(i)*step_result%wall_outward_normal_kinetic_energy_j_sum
           workspace%matching_plane_moments_thread(3, species_idx, tid) = &
             workspace%matching_plane_moments_thread(3, species_idx, tid) + &
             pcls_batch%w(i)*real(step_result%outer_barrier_return_count, dp)
           workspace%matching_plane_moments_thread(4, species_idx, tid) = &
             workspace%matching_plane_moments_thread(4, species_idx, tid) + &
             pcls_batch%w(i)*real(step_result%outer_barrier_escape_count, dp)
-          if (step_result%z_high_outward_event_count > 0) then
+          if (step_result%wall_outward_event_count > 0) then
             ! A step rarely crosses outward twice; its crossings share the mean normal energy bin.
             spectrum_row = 4_i32 + outflow_spectrum_bin( &
-                           step_result%z_high_outward_normal_kinetic_energy_j_sum/ &
-                           (real(step_result%z_high_outward_event_count, dp)*qe))
+                           step_result%wall_outward_normal_kinetic_energy_j_sum/ &
+                           (real(step_result%wall_outward_event_count, dp)*qe))
             workspace%matching_plane_moments_thread(spectrum_row, species_idx, tid) = &
               workspace%matching_plane_moments_thread(spectrum_row, species_idx, tid) + &
-              pcls_batch%w(i)*real(step_result%z_high_outward_event_count, dp)
+              pcls_batch%w(i)*real(step_result%wall_outward_event_count, dp)
           end if
           if (step_result%absorbed) then
             qdep = pcls_batch%q(i)*pcls_batch%w(i)

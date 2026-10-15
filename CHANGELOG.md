@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- 照射セルの壁・周期軸・下端モデルを実行時契約へ集約し、物理結果と保存出力名を保つ。
+
 - Mesh input now uses ordered `[[mesh.parts]]` entries and mixes OBJ files with procedural templates. Each enabled part receives one `mesh_id`, surface policy, and conductor group. Removed `mesh.mode`, `[mesh.obj]`, and `[[mesh.templates]]` without input aliases. Added mixed geometry, preflight contracts, and synchronized examples/docs.
 
 - Fortran の設定エラー・警告を grouped 公開キー名と公開選択値へ統一し、粒子種の添字付き診断と reader 名の混入を検査する回帰テストを追加。

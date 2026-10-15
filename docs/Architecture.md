@@ -25,6 +25,12 @@ field solver に属します。
 | `runtime/` | 設定からの実行データ構築、バッチ制御、モデル間の連成、出力、再開 |
 | `tools/` | 通常のバッチ計算から独立した表生成・診断ツール |
 
+照射実験の前提は [`irradiation_cell_contract_type`](../src/runtime/sheath/bem_irradiation_cell_contract.f90) が持ちます。
+`resolve_irradiation_cell_contract` は実行開始時に設定から壁の面・軸・外向き法線・座標、周期軸、下端モデルを
+一度解決します。粒子追跡、外部シース、壁電位の診断はこの契約へ問い合わせ、mesh・注入分布・pusher・collision・
+direct / FMM の汎用 kernel は契約型に依存しません。壁は現行の製品構成では `z_high` で、公開設定は増やしません。
+表面電流モデルを単独で呼ぶ場合は入口で解決し、simulator から呼ぶ場合は実行中の契約を渡します。
+
 ## 実行フローを追う
 
 ```mermaid

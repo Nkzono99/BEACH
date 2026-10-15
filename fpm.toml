@@ -164,6 +164,11 @@ source-dir = "tests/fortran"
 main = "test_boundary.f90"
 
 [[test]]
+name = "test_irradiation_cell_contract"
+source-dir = "tests/fortran"
+main = "test_irradiation_cell_contract.f90"
+
+[[test]]
 name = "test_external_boundary_contract"
 source-dir = "tests/fortran"
 main = "test_external_boundary_contract.f90"

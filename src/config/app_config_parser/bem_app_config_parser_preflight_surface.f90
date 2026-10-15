@@ -135,6 +135,7 @@ contains
       call stop_config_error('Zhao secondary-electron kinetic closure requires an open z-high particle boundary.')
     end if
   end if
+  ! 壁・法線の実行時表現は bem_irradiation_cell_contract。ここは製品の接続面を制限する preflight 規則。
   if (.not. is_z_high_reservoir(cfg%particle_species(electron_idx)) .or. &
       .not. is_z_high_reservoir(cfg%particle_species(ion_idx))) then
     error stop 'Zhao ambient electron and ion species require z-high reservoir inflow.'
@@ -252,6 +253,7 @@ contains
   end subroutine warn_photoelectron_source_mismatch
 
   !> 外部根は上端面の水平平均電位が壁電位 phi0 であることを前提に、流入の写像と外部障壁の判定を組む。
+  !! 壁と周期軸の実行時参照は bem_irradiation_cell_contract に集約する。
   !! この電位を固定できるのは、零モードを分けて持つ周期セルだけである。
   subroutine validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
     type(app_config), intent(in) :: cfg

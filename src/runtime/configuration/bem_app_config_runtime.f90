@@ -12,7 +12,7 @@ module bem_app_config_runtime
     sample_photo_species_state, compute_macro_particles_for_species, reservoir_face_velocity_correction, &
     species_number_density_m3, resolve_parallel_rank_size, species_temperature_k
   use bem_app_config_potential_runtime, only: &
-    compute_face_average_potential, compute_z_high_box_potential_statistics, &
+    compute_face_average_potential, compute_wall_box_potential_statistics, &
     warn_face_average_potential_variation, resolve_face_sampling_geometry
   implicit none
 end module bem_app_config_runtime

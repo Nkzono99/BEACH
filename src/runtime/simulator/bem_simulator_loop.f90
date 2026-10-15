@@ -1,7 +1,7 @@
 !> `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
-  use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
+  use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
@@ -60,6 +60,7 @@ contains
   type(surface_closure_contract_type) :: surface_closure
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
+  type(irradiation_cell_contract_type) :: cell
   type(app_config) :: trial_app
   integer(i64) :: secondary_counts(3, app%n_particle_species), secondary_count_values(3*app%n_particle_species)
   real(dp) :: secondary_values(2, app%n_particle_species), secondary_real_values(2*app%n_particle_species)
@@ -84,6 +85,8 @@ contains
     boundary_contract, boundary_status, boundary_message &
     )
   if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
+  call resolve_irradiation_cell_contract(app, cell, boundary_status, boundary_message)
+  if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   replay_active = adaptive_nonzero_mode
   omp_dynamic_before = .false.
@@ -126,7 +129,7 @@ contains
   call validate_soft_discard_initial_state(app%sim, stats)
   call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
-  call evaluate_surface_closure(app, surface_closure)
+  call evaluate_surface_closure(app, surface_closure, cell)
 
   matching_history_enabled = present(matching_plane_history_unit)
   matching_hist_unit = -1
@@ -193,8 +196,8 @@ contains
   call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
   call conductor_solver%init(mesh, app%sim, snapshot)
   call perf_region_end(perf_region_field_solver_init, t0)
-  call outflow_refresh%initialize(app, mesh, stats, surface_closure)
-  call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .true.)
+  call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)
+  call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .true.)
 
   if (replay_active) then
     call random_seed(size=species_idx)
@@ -292,7 +295,8 @@ contains
         bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
         collision_failure_x, collision_failure_v, &
-        batch_retry_counts &
+        batch_retry_counts, &
+        cell=cell &
         )
       fresh_particle_count = pcls_batch%n
       call perf_region_end(perf_region_particle_batch, t0)
@@ -438,7 +442,7 @@ contains
       trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
-    if (outflow_refreshed) call apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi_ctx, .false.)
+    if (outflow_refreshed) call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .false.)
     if (fixed_history_enabled) call accumulate_fixed_current_window()
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
@@ -477,7 +481,8 @@ contains
       if (potential_history_enabled) then
         call maybe_write_potential_history_snapshot( &
           potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, app%sim, potential_buf, &
-          top_reference_history_enabled, top_ref_hist_unit &
+          top_reference_history_enabled, top_ref_hist_unit, &
+          cell=cell &
           )
       end if
     end if
@@ -497,13 +502,14 @@ contains
     call snapshot%get_diagnostics(electrostatic_diagnostics)
     if (mpi_is_root(mpi_ctx) .and. app%sim%use_box) then
       call snapshot%refresh(mesh)
-      call compute_z_high_box_potential_statistics( &
-        mesh, app%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+      call compute_wall_box_potential_statistics( &
+        mesh, app%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
+        cell=cell &
         )
       electrostatic_diagnostics%top_reference_available = .true.
       electrostatic_diagnostics%top_reference_last_batch = stats%batches
       electrostatic_diagnostics%top_reference_simulated_time = stats%simulated_time
-      electrostatic_diagnostics%top_reference_z_high = app%sim%box_max(3)
+      electrostatic_diagnostics%top_reference_z_high = cell%wall_coordinate()
       electrostatic_diagnostics%top_reference_sample_n = app%sim%injection_face_phi_grid_n
       electrostatic_diagnostics%top_reference_potential_mean = top_phi_mean
       electrostatic_diagnostics%top_reference_potential_std = top_phi_std
@@ -538,8 +544,8 @@ contains
   end procedure run_absorption_insulator
 
   !> 外部シース解が与える壁電位を、z-high面の水平平均電位として周期k=0成分へ固定する。
-  subroutine apply_surface_plane_gauge(app, mesh, surface_closure, snapshot, mpi, warn_if_unavailable)
-    type(app_config), intent(in) :: app
+  subroutine apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi, warn_if_unavailable)
+    type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
     type(surface_closure_contract_type), intent(in) :: surface_closure
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
@@ -556,7 +562,7 @@ contains
       end if
       return
     end if
-    call snapshot%set_matching_plane_gauge(mesh, app%sim%box_max(3), surface_closure%plane_gauge_potential_v)
+    call snapshot%set_matching_plane_gauge(mesh, cell%wall_coordinate(), surface_closure%plane_gauge_potential_v)
   end subroutine apply_surface_plane_gauge
 
   function checked_add_adaptive_rejected_trials(accumulated, trial_halvings) result(total)

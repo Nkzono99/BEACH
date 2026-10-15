@@ -1,6 +1,6 @@
 !> `bem_simulator` の進捗表示と履歴出力を実装する submodule。
 submodule(bem_simulator) bem_simulator_io
-  use bem_app_config_runtime, only: compute_z_high_box_potential_statistics
+  use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_output_writer, only: write_top_reference_history_snapshot
   implicit none
 contains
@@ -39,11 +39,12 @@ contains
   call snapshot%compute_mesh_potential(mesh, sim, potential_buf)
   call write_potential_history_snapshot(pot_hist_unit, stats%batches, potential_buf)
   if (top_reference_history_enabled) then
-    call compute_z_high_box_potential_statistics( &
-      mesh, sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+    call compute_wall_box_potential_statistics( &
+      mesh, sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
+      cell=cell &
       )
     call write_top_reference_history_snapshot( &
-      top_reference_history_unit, stats%batches, stats%simulated_time, sim%box_max(3), &
+      top_reference_history_unit, stats%batches, stats%simulated_time, cell%wall_coordinate(), &
       sim%injection_face_phi_grid_n, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
       )
   end if

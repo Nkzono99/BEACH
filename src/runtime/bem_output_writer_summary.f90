@@ -1,5 +1,7 @@
 !> 実行サマリと再構築用メタデータの出力。
 submodule(bem_output_writer) bem_output_writer_summary
+  use bem_irradiation_cell_contract, only: &
+    irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_types, only: surface_model_dielectric
   use bem_charge_ledger, only: finite_charge_sum
   use bem_checkpoint_contract, only: checkpoint_schema_version_current
@@ -26,6 +28,7 @@ contains
   !! @param[in] mesh メッシュ情報（要素数を書き出す）。
   !! @param[in] stats 実行統計。
   module procedure write_summary_file
+  type(irradiation_cell_contract_type) :: cell
   type(external_boundary_contract_type) :: resolved_boundary
   type(surface_current_model_result_type) :: current_model
   type(field_physics_config) :: field_config
@@ -44,7 +47,9 @@ contains
   if (boundary_status /= external_boundary_ok) then
     error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
   end if
-  call evaluate_surface_current_model(cfg, current_model)
+  call resolve_irradiation_cell_contract(cfg, cell, boundary_status, boundary_message)
+  if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
+  call evaluate_surface_current_model(cfg, current_model, cell)
   call derive_field_panel_config(cfg%sim, field_config, panel_config)
   call resolve_field_solver_tree_params( &
     mesh%nelem, cfg%sim, resolved_tree_theta, resolved_tree_leaf_max &
@@ -152,7 +157,7 @@ contains
   write (u, '(a,a)') 'field_reconstruction_periodic_zero_mode_policy=', &
     trim(cfg%periodic2%zero_mode_policy)
   write (u, '(a,a)') 'field_reconstruction_periodic_lower_boundary_model=', &
-    trim(cfg%periodic2%lower_boundary_model)
+    trim(cell%lower_boundary_model)
   write (u, '(a,i0)') 'field_reconstruction_periodic_reference_mode_layers=', &
     cfg%periodic2%reference_mode_layers
   write (u, '(a,i0)') 'field_reconstruction_periodic_panel_quadrature_order=', &
@@ -164,7 +169,7 @@ contains
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
   write (u, '(a,a)') 'periodic2_zero_mode_policy=', trim(cfg%periodic2%zero_mode_policy)
-  write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cfg%periodic2%lower_boundary_model)
+  write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cell%lower_boundary_model)
   write (u, '(a,es24.16)') 'periodic2_max_nonzero_mode_potential_step_V=', &
     cfg%periodic2%max_nonzero_mode_potential_step
   write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)

@@ -1,6 +1,7 @@
 !> 粒子ステップ候補の外部電場加算と空間電場の時間精度を検証する。
 program test_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+  use bem_irradiation_cell_contract, only: irradiation_cell_contract_type
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_mesh, only: init_mesh
@@ -348,7 +349,8 @@ contains
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
     call advance_particle_step( &
       mesh, sim, field_solver, 0.0_dp*[1.0_dp, 1.0_dp, 1.0_dp], &
-      [0.2_dp, 0.2_dp, 0.2_dp], [0.1_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.2_dp, 0.2_dp, 0.2_dp], [0.1_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'no-crossing step status mismatch')
@@ -368,7 +370,8 @@ contains
     call init_box_stepper(mesh, sim, field_solver, 0.8_dp)
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'mesh-before-box status mismatch')
@@ -387,7 +390,8 @@ contains
     sim%bc_high(1) = bc_open
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.8_dp, result &
+      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.8_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'mesh/box tie status mismatch')
@@ -406,7 +410,8 @@ contains
     sim%bc_high(1) = bc_open
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.5_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'box-before-mesh status mismatch')
@@ -426,7 +431,8 @@ contains
     sim%bc_high(1) = bc_reflect
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'reflected remainder status mismatch')
@@ -450,21 +456,25 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, first_result, &
-      boundary_rng_counter=first_counter &
+      boundary_rng_counter=first_counter, &
+      cell=irradiation_cell_contract_type() &
       )
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, repeated_result, &
-      boundary_rng_counter=first_counter &
+      boundary_rng_counter=first_counter, &
+      cell=irradiation_cell_contract_type() &
       )
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, different_result, &
-      boundary_rng_counter=different_counter &
+      boundary_rng_counter=different_counter, &
+      cell=irradiation_cell_contract_type() &
       )
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, missing_counter_result &
+      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, missing_counter_result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(first_result%status == particle_step_ok, 'redistributed reflection status mismatch')
@@ -514,7 +524,8 @@ contains
       call advance_particle_step( &
         mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
         [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
-        boundary_rng_counter=counter &
+        boundary_rng_counter=counter, &
+        cell=irradiation_cell_contract_type() &
         )
       call assert_true(result%status == particle_step_ok, 'redistributed sample status mismatch')
       sum_x = sum_x + result%x(1)
@@ -553,7 +564,8 @@ contains
     sim%bc_high(1) = bc_periodic
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'periodic remainder status mismatch')
@@ -573,7 +585,8 @@ contains
     sim%bc_high(1) = bc_periodic
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'periodic remainder collision status mismatch')
@@ -593,7 +606,8 @@ contains
     sim%bc_high(1) = bc_periodic
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
-      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'pure-B periodic step status mismatch')
@@ -611,7 +625,8 @@ contains
     sim%bc_high(1) = bc_reflect
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 2.0_dp], &
-      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.75_dp, 0.75_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'pure-B reflection step status mismatch')
@@ -628,7 +643,8 @@ contains
     call init_box_stepper(mesh, sim, field_solver, 10.0_dp)
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 4.0_dp], &
-      [0.81_dp, 0.5_dp, 0.5_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.81_dp, 0.5_dp, 0.5_dp], [1.0_dp, 0.0_dp, 0.0_dp], 1.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'strong-B boundary step status mismatch')
@@ -658,7 +674,8 @@ contains
     x0 = [0.1_dp, 0.5_dp, 0.5_dp]
     v0 = [1.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 1.0_dp, 1.0_dp, 0.4_dp, result &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 1.0_dp, 1.0_dp, 0.4_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     expected_speed2 = sum(v0*v0) + 2.0_dp*dot_product(sim%e0, result%x - x0)
@@ -681,7 +698,8 @@ contains
     sim%bc_high(1:2) = bc_reflect
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.8_dp, 0.2_dp], [1.0_dp, 1.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.8_dp, 0.8_dp, 0.2_dp], [1.0_dp, 1.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'corner reflection status mismatch')
@@ -700,7 +718,8 @@ contains
     sim%bc_high(1:2) = bc_periodic
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.95_dp, 0.8_dp, 0.2_dp], [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.1_dp, result &
+      [0.95_dp, 0.8_dp, 0.2_dp], [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 0.1_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'two periodic events should complete')
@@ -724,7 +743,8 @@ contains
     x0 = [0.9_dp, 0.2_dp, 0.2_dp]
     v0 = [3.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'three box events should complete')
@@ -747,7 +767,8 @@ contains
     x0 = [0.9_dp, 0.2_dp, 0.2_dp]
     v0 = [8.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'eight box events should complete')
@@ -770,7 +791,8 @@ contains
     x0 = [0.9_dp, 0.2_dp, 0.2_dp]
     v0 = [9.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'nine periodic events should complete by adaptive subdivision')
@@ -792,7 +814,8 @@ contains
     x0 = [0.9_dp, 0.2_dp, 0.2_dp]
     v0 = [9.0_dp, 0.0_dp, 0.0_dp]
     call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result &
+      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_multiple_box_events, 'ninth box event must fail closed')
@@ -815,7 +838,8 @@ contains
     call advance_particle_step_upper_panel_fourier( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.25_dp, 0.5_dp, 0.5_dp], [2.0_dp, 0.0_dp, 0.0_dp], &
-      0.0_dp, 1.0_dp, 1.0_dp, result, field_available &
+      0.0_dp, 1.0_dp, 1.0_dp, result, field_available, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(field_available, 'upper Fourier retry should remain available above the mesh')
@@ -841,7 +865,8 @@ contains
     v0 = [2.0_dp, 0.0_dp, 1.0_dp]
     call advance_particle_step_upper_panel_fourier( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, result, field_available, boundary_contract=contract &
+      x0, v0, 1.0_dp, 1.0_dp, 1.0_dp, result, field_available, boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(.not. field_available, 'barrier potential at z<=H must make the retry unavailable')
@@ -866,16 +891,17 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%status == particle_step_ok, 'species barrier override status mismatch')
     call assert_true(.not. result%escaped_boundary, 'z-high override should return a sub-barrier electron')
     call assert_true(result%v(3) < 0.0_dp, 'returned electron must reverse its outward velocity')
-    call assert_true(result%z_high_outward_event_count == 1_i32, 'z-high outward event count mismatch')
+    call assert_true(result%wall_outward_event_count == 1_i32, 'z-high outward event count mismatch')
     call assert_true(result%outer_barrier_return_count == 1_i32, 'outer barrier return count mismatch')
     call assert_true(result%outer_barrier_escape_count == 0_i32, 'outer barrier escape count mismatch')
     call assert_close_dp( &
-      result%z_high_outward_normal_kinetic_energy_j_sum, 0.5_dp, 1.0e-14_dp, &
+      result%wall_outward_normal_kinetic_energy_j_sum, 0.5_dp, 1.0e-14_dp, &
       'z-high outward normal energy mismatch' &
       )
 
@@ -883,7 +909,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%escaped_boundary, 'z-high super-barrier electron should escape')
     call assert_true(result%outer_barrier_return_count == 0_i32, 'outer barrier return reset mismatch')
@@ -892,7 +919,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.1_dp], [0.0_dp, 0.0_dp, -1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%escaped_boundary, 'z-low must remain ordinary escape when only z-high is overridden')
   end subroutine test_species_barrier_override_is_face_local
@@ -915,7 +943,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, first, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true( &
       first%status == particle_step_invalid_boundary, &
@@ -925,7 +954,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, first, &
-      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(first%status == particle_step_ok, 'cell-uniform barrier return status mismatch')
     call assert_true(.not. first%escaped_boundary, 'sub-barrier electron must return')
@@ -941,13 +971,15 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, repeated, &
-      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_allclose_1d(repeated%x, first%x, 0.0_dp, 'same counter must give the same return position')
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.2_dp, 0.2_dp, 0.9_dp], [0.3_dp, -0.4_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, other, &
-      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 8_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 8_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true( &
       any(abs(other%x(1:2) - first%x(1:2)) > 1.0e-6_dp), &
@@ -987,7 +1019,8 @@ contains
     v0 = [0.0_dp, 0.0_dp, 3.0_dp]
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, 0.1_dp, result, &
-      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%status == particle_step_ok, 'energetic barrier return status mismatch')
     call assert_true(result%outer_barrier_return_count == 1_i32, 'energetic electron must return from the barrier')
@@ -1004,7 +1037,8 @@ contains
     v0 = [0.0_dp, 0.0_dp, 0.1_dp]
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], x0, v0, -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[3_i64, 0_i64, 7_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%status == particle_step_ok, 'slow barrier return status mismatch')
     call assert_true(result%outer_barrier_return_count == 1_i32, 'slow electron must return from the barrier')
@@ -1032,7 +1066,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.9_dp, 0.9_dp, 0.9_dp], [1.0_dp, 1.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
 
     call assert_true(result%status == particle_step_ok, 'ordinary-open barrier corner status mismatch')
@@ -1054,7 +1089,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract &
+      boundary_contract=contract, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true( &
       result%status == particle_step_invalid_boundary, &
@@ -1064,7 +1100,8 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract, boundary_rng_counter=[1_i64, 0_i64, 1_i64, 1_i64] &
+      boundary_contract=contract, boundary_rng_counter=[1_i64, 0_i64, 1_i64, 1_i64], &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%status == particle_step_ok, 'counter-backed barrier redistribution status mismatch')
     call assert_true(.not. result%escaped_boundary, 'counter-backed barrier return should survive')
@@ -1080,7 +1117,8 @@ contains
     sim%bc_high(1) = -1_i32
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result &
+      [0.8_dp, 0.2_dp, 0.2_dp], [1.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 1.0_dp, 1.0_dp, result, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_true( &
       result%status == particle_step_invalid_boundary, &

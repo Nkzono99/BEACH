@@ -181,6 +181,7 @@ contains
         )
       return
     end if
+    ! experiment 層の bem_irradiation_cell_contract も、この preflight 済み方向を解決する。
     if (any(sim%bc_low(1:2) /= bc_periodic) .or. any(sim%bc_high(1:2) /= bc_periodic) .or. &
         sim%bc_low(3) == bc_periodic .or. sim%bc_high(3) == bc_periodic) then
       call reject(physics_config_unavailable, 'Periodic2 requires x/y periodic and z nonperiodic.', status, message)

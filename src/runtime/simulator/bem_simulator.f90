@@ -7,6 +7,8 @@ module bem_simulator
   use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
+  use bem_irradiation_cell_contract, only: &
+    irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_config_helpers, only: resolve_particle_boundaries
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
@@ -81,8 +83,10 @@ module bem_simulator
       mesh, app, boundary_contract, current_model, snapshot, pcls_batch, workspace, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, retry_counts &
+      collision_failure_x, collision_failure_v, retry_counts, &
+      cell &
       )
+      type(irradiation_cell_contract_type), intent(in) :: cell
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
       type(external_boundary_contract_type), intent(in) :: boundary_contract
@@ -202,8 +206,10 @@ module bem_simulator
 
     module subroutine maybe_write_potential_history_snapshot( &
       potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, sim, potential_buf, &
-      top_reference_history_enabled, top_reference_history_unit &
+      top_reference_history_enabled, top_reference_history_unit, &
+      cell &
       )
+      type(irradiation_cell_contract_type), intent(in) :: cell
       logical, intent(in) :: potential_history_enabled
       integer, intent(in) :: pot_hist_unit
       integer(i32), intent(in) :: hist_stride

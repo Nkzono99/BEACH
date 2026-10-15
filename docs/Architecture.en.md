@@ -25,6 +25,13 @@ and quadrature points belong to mesh, while integration of the field from surfac
 | `runtime/` | Runtime-data construction from configuration, batch control, model coupling, output, and restart |
 | `tools/` | Table generation and diagnostics outside the normal batch calculation |
 
+The experiment assumptions belong to [`irradiation_cell_contract_type`](../src/runtime/sheath/bem_irradiation_cell_contract.f90).
+`resolve_irradiation_cell_contract` resolves the wall face, axis, outward normal, coordinate, periodic axes, and lower boundary
+model once at run startup. Particle tracking, the outer sheath, and wall-potential diagnostics query this contract; generic
+mesh, injection-distribution, pusher, collision, and direct / FMM kernels do not depend on it. The current product fixes the
+wall to `z_high` without adding a public setting. Standalone surface-current calls resolve the contract at their entry point;
+simulator calls receive the contract already resolved for the run.
+
 ## Follow the execution flow
 
 ```mermaid

@@ -4,7 +4,8 @@ module bem_surface_current_model
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_boltzmann, pi, qe
   use bem_app_config_types, only: app_config
-  use bem_types, only: bc_periodic
+  use bem_irradiation_cell_contract, only: &
+    irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use sheath_model, only: fixed_entry_equilibrium_input, sheath_equilibrium_result, sheath_solver, &
@@ -54,20 +55,31 @@ module bem_surface_current_model
 contains
 
   !> モデル固有の診断値をシミュレータへ漏らさず、境界契約だけを返す。
-  subroutine evaluate_surface_closure(app, contract)
+  subroutine evaluate_surface_closure(app, contract, cell)
     type(app_config), intent(in) :: app
     type(surface_closure_contract_type), intent(out) :: contract
+    type(irradiation_cell_contract_type), intent(in), optional :: cell
     type(surface_current_model_result_type) :: detailed_result
 
-    call evaluate_surface_current_model(app, detailed_result)
+    call evaluate_surface_current_model(app, detailed_result, cell)
     contract = detailed_result%surface_closure_contract_type
   end subroutine evaluate_surface_closure
 
   !> 設定されたmodelをdispatchし、固定電流closure用のtarget配列を返す。
-  subroutine evaluate_surface_current_model(app, result)
+  subroutine evaluate_surface_current_model(app, result, cell)
     type(app_config), intent(in) :: app
     type(surface_current_model_result_type), intent(out) :: result
+    type(irradiation_cell_contract_type), intent(in), optional :: cell
+    type(irradiation_cell_contract_type) :: active_cell
+    integer(i32) :: status
+    character(len=256) :: message
 
+    if (present(cell)) then
+      active_cell = cell
+    else
+      call resolve_irradiation_cell_contract(app, active_cell, status, message)
+      if (status /= irradiation_cell_ok) error stop trim(message)
+    end if
     call allocate_closure_channels(app, result)
     result%model = trim(lower_ascii(app%surface_current%model))
 
@@ -75,7 +87,7 @@ contains
     case ('none')
       return
     case ('zhao_stationary')
-      call evaluate_zhao_stationary_current(app, result)
+      call evaluate_zhao_stationary_current(app, result, cell=active_cell)
     case default
       error stop 'Unknown surface current model dispatch.'
     end select
@@ -123,9 +135,10 @@ contains
   end subroutine allocate_closure_channels
 
   !> 設定の表面放出を外部源として零電流根を解く。PEなしではType Cだけが成立する。
-  subroutine evaluate_zhao_stationary_current(app, result)
+  subroutine evaluate_zhao_stationary_current(app, result, cell)
     type(app_config), intent(in) :: app
     type(surface_current_model_result_type), intent(inout) :: result
+    type(irradiation_cell_contract_type), intent(in) :: cell
     type(sheath_equilibrium_result) :: root
     character(len=1), allocatable :: order(:)
     character(len=512) :: message
@@ -143,9 +156,9 @@ contains
         error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
       end select
     end if
-    call solve_outer_root(app, source_density_m3, source_temperature_ev, order, root, success, message)
+    call solve_outer_root(app, source_density_m3, source_temperature_ev, order, root, success, message, cell=cell)
     if (.not. success) error stop 'Zhao stationary surface-current root solve failed: '//trim(message)
-    call finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message)
+    call finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message, cell=cell)
     if (.not. success) error stop 'Zhao stationary '//trim(message)
   end subroutine evaluate_zhao_stationary_current
 
@@ -155,7 +168,7 @@ contains
   !! 合算した流出スペクトルを使う。省略時だけ half-Maxwellian とし、previous は同じ branch の初期値に使う。
   subroutine solve_zhao_outflow_closure( &
     app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message, previous, &
-    outer_spectrum_m2_s, secondary_share &
+    outer_spectrum_m2_s, secondary_share, cell &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
@@ -167,6 +180,9 @@ contains
     !> H外向きスペクトル [1/(m2 s)]、bin別。省略時は束と平均法線エネルギーの半Maxwell源とする。
     real(dp), intent(in), optional :: outer_spectrum_m2_s(outflow_spectrum_bins)
     real(dp), intent(in), optional :: secondary_share
+    type(irradiation_cell_contract_type), intent(in), optional :: cell
+    type(irradiation_cell_contract_type) :: active_cell
+    integer(i32) :: cell_status
     type(sheath_equilibrium_result) :: root
     character(len=1), allocatable :: order(:)
     character(len=512) :: root_message
@@ -174,6 +190,12 @@ contains
 
     success = .false.
     message = ''
+    if (present(cell)) then
+      active_cell = cell
+    else
+      call resolve_irradiation_cell_contract(app, active_cell, cell_status, message)
+      if (cell_status /= irradiation_cell_ok) return
+    end if
     if (.not. all(ieee_is_finite([outer_flux_m2_s, outer_mean_energy_ev])) .or. &
         outer_flux_m2_s <= 0.0_dp .or. outer_mean_energy_ev <= 0.0_dp) then
       message = 'outer photoelectron source must have positive finite flux and mean normal energy.'
@@ -194,14 +216,16 @@ contains
     call outer_branch_order(app, preferred_branch, 90.0_dp, order)
     call solve_outer_root( &
       app, outer_density_m3, outer_mean_energy_ev, order, root, success, root_message, previous=previous, &
-      spectrum_m2_s=outer_spectrum_m2_s &
+      spectrum_m2_s=outer_spectrum_m2_s, cell=active_cell &
       )
     if (.not. success) then
       message = 'outer Zhao zero-current root was not found for the observed photoelectron outflow: '// &
                 trim(root_message)
       return
     end if
-    call finish_zhao_closure(app, root, outer_density_m3, outer_mean_energy_ev, result, success, message, secondary_share)
+    call finish_zhao_closure( &
+      app, root, outer_density_m3, outer_mean_energy_ev, result, success, message, secondary_share, cell=active_cell &
+      )
     result%outer_photoelectron_flux_m2_s = outer_flux_m2_s
     result%outer_photoelectron_mean_energy_ev = outer_mean_energy_ev
     if (present(outer_spectrum_m2_s)) result%outer_photoelectron_spectrum_m2_s = outer_spectrum_m2_s
@@ -265,7 +289,7 @@ contains
   !! はるかに小さく、根への影響は 0.1 mV 以下である。内向きdriftのある電子で反射集団を持つA/Cは
   !! 無限遠へ接続できず、upstream_band_tolerance と upstream_field_floor_v_m が共に 0 なら sheath-model が棄却する。
   subroutine solve_outer_root( &
-    app, source_density_m3, source_temperature_ev, order, root, success, message, previous, spectrum_m2_s &
+    app, source_density_m3, source_temperature_ev, order, root, success, message, previous, spectrum_m2_s, cell &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: source_density_m3, source_temperature_ev
@@ -276,6 +300,7 @@ contains
     type(surface_current_model_result_type), intent(in), optional :: previous
     !> 与えたときは半Maxwell源の代わりに、このH外向きスペクトルをbin光電子源にする。
     real(dp), intent(in), optional :: spectrum_m2_s(outflow_spectrum_bins)
+    type(irradiation_cell_contract_type), intent(in) :: cell
     type(fixed_entry_equilibrium_input) :: input
     type(sheath_solver) :: solver
     type(sheath_equilibrium_result) :: guesses(1)
@@ -294,8 +319,8 @@ contains
       species_temperature_k(app%particle_species(electron_idx))*k_boltzmann/qe
     input%plasma%ion_temperature_ev = species_temperature_k(app%particle_species(ion_idx))*k_boltzmann/qe
     input%plasma%ion_pressure_factor = app%surface_current%zhao_ion_pressure_factor
-    input%plasma%electron_drift_mps = -app%particle_species(electron_idx)%drift_velocity(3)
-    input%plasma%ion_entry_speed_mps = -app%particle_species(ion_idx)%drift_velocity(3)
+    input%plasma%electron_drift_mps = -cell%outward_normal_velocity(app%particle_species(electron_idx)%drift_velocity)
+    input%plasma%ion_entry_speed_mps = -cell%outward_normal_velocity(app%particle_species(ion_idx)%drift_velocity)
     input%plasma%ion_mass_kg = app%particle_species(ion_idx)%m_particle
     input%plasma%electron_mass_kg = app%particle_species(electron_idx)%m_particle
     if (present(spectrum_m2_s)) then
@@ -356,7 +381,9 @@ contains
   !!
   !! source_density_m3/source_temperature_ev は外部シースが見る放出源。表面放出との差は
   !! 周期セル内で再吸収されたPEであり、return target に含まれる。
-  subroutine finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message, secondary_share)
+  subroutine finish_zhao_closure( &
+    app, root, source_density_m3, source_temperature_ev, result, success, message, secondary_share, cell &
+    )
     type(app_config), intent(in) :: app
     type(sheath_equilibrium_result), intent(in) :: root
     real(dp), intent(in) :: source_density_m3, source_temperature_ev
@@ -364,6 +391,7 @@ contains
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
     real(dp), intent(in), optional :: secondary_share
+    type(irradiation_cell_contract_type), intent(in) :: cell
     integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance, electron_bottleneck_potential_v
     real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density
@@ -382,7 +410,7 @@ contains
     if (present(secondary_share)) result%secondary_share = secondary_share
     photo_idx = 0_i32
     if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
-    area = (app%sim%box_max(1) - app%sim%box_min(1))*(app%sim%box_max(2) - app%sim%box_min(2))
+    area = cell%wall_area(app%sim%box_min, app%sim%box_max)
     if (app%surface_current%has_reference_area_m2) area = app%surface_current%reference_area_m2
     if (.not. ieee_is_finite(area) .or. area <= 0.0_dp) then
       message = 'surface-current reference area must be finite and positive.'
@@ -514,27 +542,26 @@ contains
     result%inflow_reservoir_density_m3(ion_idx) = species_number_density_m3(app%particle_species(ion_idx))
     result%inflow_access_potential_v(electron_idx) = electron_bottleneck_potential_v
     result%inflow_access_potential_v(ion_idx) = 0.0_dp
-    result%inflow_kinetic_face([electron_idx, ion_idx]) = 6_i32
+    result%inflow_kinetic_face([electron_idx, ion_idx]) = cell%wall_face
     result%has_outflow_kinetic_barrier([electron_idx, ion_idx]) = .true.
     result%outflow_barrier_potential_v(electron_idx) = electron_bottleneck_potential_v
     result%outflow_barrier_potential_v(ion_idx) = 0.0_dp
-    result%outflow_barrier_face([electron_idx, ion_idx]) = 6_i32
+    result%outflow_barrier_face([electron_idx, ion_idx]) = cell%wall_face
     if (photoelectron_active) then
       result%has_outflow_kinetic_barrier(photo_idx) = .true.
       result%outflow_barrier_potential_v(photo_idx) = electron_bottleneck_potential_v
-      result%outflow_barrier_face(photo_idx) = 6_i32
+      result%outflow_barrier_face(photo_idx) = cell%wall_face
     end if
     if (secondary_active) then
       result%has_outflow_kinetic_barrier(secondary_idx) = .true.
       result%outflow_barrier_potential_v(secondary_idx) = electron_bottleneck_potential_v
-      result%outflow_barrier_face(secondary_idx) = 6_i32
+      result%outflow_barrier_face(secondary_idx) = cell%wall_face
     end if
     ! 外部障壁と流入写像は上流0 Vからの電位差なので、z-high面の平均電位を壁電位phi0へ固定する。
     ! 外部での横移動はセル幅よりはるかに大きいので、x/y周期セルでは戻り位置を面内一様にする。
     result%has_plane_gauge = .true.
     result%plane_gauge_potential_v = result%phi0_v
-    result%outer_return_cell_uniform = all(app%sim%bc_low(1:2) == bc_periodic) .and. &
-                                       all(app%sim%bc_high(1:2) == bc_periodic)
+    result%outer_return_cell_uniform = cell%wall_tangents_periodic()
     success = .true.
   end subroutine finish_zhao_closure
 

@@ -1,10 +1,11 @@
 !> 境界 reservoir 流入を検証するテスト。
 program test_reservoir_injection
+  use bem_irradiation_cell_contract, only: irradiation_cell_contract_type
   use bem_kinds, only: dp, i32
   use bem_app_config, only: app_config, default_app_config, load_app_config, particles_per_batch_from_config, &
                             species_from_defaults, seed_particles_from_config, init_particle_batch_from_config
   use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
-                                    compute_face_average_potential, compute_z_high_box_potential_statistics, &
+                                    compute_face_average_potential, compute_wall_box_potential_statistics, &
                                     reservoir_face_velocity_correction
   use bem_app_config_types, only: particle_inflow_reservoir
   use bem_injection, only: compute_macro_particles_for_batch, &
@@ -337,8 +338,9 @@ contains
     call assert_close_dp(phi_min, -0.75_dp, 1.0e-14_dp, 'face potential minimum mismatch')
     call assert_close_dp(phi_max, -0.25_dp, 1.0e-14_dp, 'face potential maximum mismatch')
 
-    call compute_z_high_box_potential_statistics( &
-      stats_mesh, stats_cfg%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+    call compute_wall_box_potential_statistics( &
+      stats_mesh, stats_cfg%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
+      cell=irradiation_cell_contract_type() &
       )
     call assert_close_dp(top_phi_mean, phi_mean, 1.0e-14_dp, 'z-high box potential mean mismatch')
     call assert_close_dp(top_phi_std, phi_std, 1.0e-14_dp, 'z-high box potential standard deviation mismatch')
