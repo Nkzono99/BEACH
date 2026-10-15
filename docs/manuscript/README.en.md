@@ -5,7 +5,7 @@ Lang: [English](README.en.md) | [日本語](README.md)
 This is a Japanese LaTeX manuscript in paper/technical-book form covering BEACH's models, algorithms,
 and related research. Start with [beach_models.tex](beach_models.tex). Chapter sources are under
 `sections/`, and the bibliography is [references.bib](references.bib). It includes Japanese and English
-abstracts, a table of contents, equations, 21 figures, a list of figures, and references.
+abstracts, a table of contents, equations, 20 figures, a list of figures, and references.
 
 ## Contents
 
@@ -16,14 +16,13 @@ abstracts, a table of contents, equations, 21 figures, a list of figures, and re
 5. Same-time Boris updates, collisions, box boundaries, and periodic images
 6. Boundary inflow, velocity distributions, and ray-based photoelectron emission
 7. Charge budgets, return closure, floating conductors, and batch stability
-8. Physical model of the outer sheath (assumptions, orbits and populations, derived densities and fluxes, first integral of Poisson's equation and Types A, B, and C, closures, admissibility, numerical algorithms, numerical examples)
-9. Stationary outer-sheath closure (closure conditions and type choice, upstream band and field floor, top-face mapping, outer-root refresh)
-10. Verification, convergence, Monte Carlo errors, and reproducibility
-11. Force and detachment analysis, methods and limits to report, and manuscript statements
+8. Outer-sheath model and its connection to the top face (assumptions, orbits and populations, derived densities and fluxes, first integral of Poisson's equation and Types A, B, and C, closures, admissibility, numerical algorithms, numerical examples, closure conditions and type choice, electron drift and field floor, top-face mapping, outer-root refresh)
+9. Verification, convergence, Monte Carlo errors, and reproducibility
+10. Force and detachment analysis, methods and limits to report, and manuscript statements
 
 ## Explanatory figures
 
-The manuscript includes the computation-cycle diagram and the following 20 figures at the relevant points in the text.
+The manuscript includes the computation-cycle diagram and the following 19 figures at the relevant points in the text.
 The figures use TikZ vectors so that text and lines remain sharp when enlarged. Drawing sources are under
 `figures/`, with shared colors and line styles in [figures/styles.tex](figures/styles.tex).
 Edit a drawing and run `make` to update the PDF. No additional drawing software or shell escape is required.
@@ -48,8 +47,7 @@ Edit a drawing and run `make` to update the PDF. No additional drawing software 
 | 8 | Electron velocity distributions (numerical) | [sheath_model_vdf.tex](figures/sheath_model_vdf.tex) |
 | 8 | Zero-current roots versus solar elevation (numerical) | [sheath_model_alpha_sweep.tex](figures/sheath_model_alpha_sweep.tex) |
 | 8 | Types with an admissible root (numerical) | [sheath_model_type_map.tex](figures/sheath_model_type_map.tex) |
-| 9 | Upstream band and field deficit | [upstream_band.tex](figures/upstream_band.tex) |
-| 9 | Outer-sheath connection to the top face | [sheath_mapping.tex](figures/sheath_mapping.tex) |
+| 8 | Outer-sheath connection to the top face | [sheath_mapping.tex](figures/sheath_mapping.tex) |
 
 Schematic shapes, trajectories, and potential curves are not numerical solutions. The flux-distribution and
 batch-width plots are analytic examples derived from the equations in the text. The Chapter 8 figures marked
@@ -92,9 +90,9 @@ Origins of the methods are given by citations. The correspondence to the impleme
 | 6 Inflow and photoelectrons | `src/particles/injection/bem_injection_flux.f90`, `src/particles/injection/bem_photoelectron_injection.f90`, `docs/ParticleSourcesBoundaries.md`, `docs/PhotoelectronEmission.md` |
 | 7 Charge update and conductors | `src/physics/bem_surface_models_conductor.f90`, `docs/SurfaceChargeNumerics.md`, `docs/BatchDurationTheory.md` |
 | 8 Outer-sheath model | sheath-model (commit pinned in `fpm.toml`): `docs/kinetic-model.md`, `docs/algorithm.md`, `docs/spectral-api.md`, `src/internal/sheath_model_admissibility.f90`, `src/sheath_model_photoelectrons.f90`, `sheath_model/_physics.py`, `sheath_model/_profile.py`, `sheath_model/search.py` |
-| 9 Outer-sheath closure | `src/runtime/sheath/bem_surface_current_model.f90`, `src/runtime/sheath/bem_zhao_outflow_refresh.f90`, `docs/ZhaoStationaryClosure.md`, `docs/ZhaoUpstreamBand.md` |
-| 10 Verification | `docs/ValidationGuide.md`, `docs/PhysicsReleaseVerification.md`, `docs/BatchDurationStability.md` |
-| 11 Forces and detachment | `docs/ObjectForcesDetachment.md`, `docs/PythonPostprocessAPI.md` |
+| 8 Top-face connection | `src/runtime/sheath/bem_surface_current_model.f90`, `src/runtime/sheath/bem_zhao_outflow_refresh.f90`, `docs/ZhaoStationaryClosure.md`, `docs/ZhaoUpstreamBand.md` |
+| 9 Verification | `docs/ValidationGuide.md`, `docs/PhysicsReleaseVerification.md`, `docs/BatchDurationStability.md` |
+| 10 Forces and detachment | `docs/ObjectForcesDetachment.md`, `docs/PythonPostprocessAPI.md` |
 
 ## Build the PDF
 
@@ -122,7 +120,7 @@ tssrun -p <queue> -t 0:10:0 --rsc p=1:t=1:c=1 \
 
 ### Build verification in this environment
 
-On October 14, 2026, the manuscript produced a 51-page A4 PDF with 21 figures on a System C compute node.
+On October 15, 2026, the manuscript produced a 50-page A4 PDF with 20 figures on a System C compute node.
 There are no unresolved
 citations or references, overfull lines, or BibTeX warnings. Missing `xeCJK` and LaTeX3 bundles were unpacked from
 the matching TeX Live generation into `BEACH/build/manuscript-tools/texmf2018/` for the existing TeX Live 2018
@@ -150,8 +148,9 @@ and algorithms without implementation-specific statements. This revision also br
 Chapter 4 (node-to-node operators at depth 2 and the zero-mode corrections $s$ and $S$) and the removed coupling path in
 Chapter 5 in line with the implementation. On October 14, 2026, Chapter 8 was added to describe the outer-sheath model itself (sheath-model `26569c1`, whose
 physics is identical to `b4a2521`; only `.gitignore` differs). The assumptions, orbits and populations, derivations of
-densities and fluxes, first integral, closures, admissibility, numerical algorithms, and numerical examples moved there,
-and the former Chapter 8 (now Chapter 9) was narrowed to the connection with BEACH. The upstream-band density expansion
+densities and fluxes, first integral, closures, admissibility, numerical algorithms, and numerical examples moved there.
+On October 15, 2026, the former Chapter 8 on the stationary outer-sheath closure was merged into the last section of Chapter 8,
+"Connection to the BEACH top face". The duplicated upstream-band schematic was removed in favor of the numerical Chapter 8 figure. The upstream-band density expansion
 (equation `eq:hlogh`) now states the factor of 2 in front of the integral that comes from slow electrons moving in both directions.
 When the implementation changes, check the matching chapter in the table above.
 

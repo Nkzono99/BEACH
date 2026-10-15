@@ -67,19 +67,12 @@ figure_table_trace:
     supported_manuscript_claims:
       - {claim: "三つの型を電位形状で分類する。", locator: "第8章・三つの型"}
     limitations: ["距離・電位・勾配は数値解ではなく、上流の帯は別図に示す。"]
-  - artifact_id: fig:upstream_band
-    source_data: {dataset_id: upstream-band-definition, file: sections/08_sheath.tex}  # Chapter 9
-    transformation: {manual_derivation: "式 eq:sagdeev の形式的 E^2 が phi_b<phi<0 で負になる状況を模式化し、sqrt(-min E^2) と E_floor の比較を併記。作図：figures/upstream_band.tex"}
-    caption_claim: "負の E^2 の区間には実数の空間接続がなく、場の不足は根の受理判定に使う。"
-    supported_manuscript_claims:
-      - {claim: "電位を横軸にして上流の帯と場の不足を定義する。", locator: "第9章・電子 drift と上流の帯"}
-    limitations: ["帯の幅や場の不足の数値は示さず、曲線は模式的である。"]
   - artifact_id: fig:sheath_mapping
-    source_data: {dataset_id: sheath-mapping-definition, file: sections/08_sheath.tex}  # Chapter 9
+    source_data: {dataset_id: sheath-mapping-definition, file: sections/08_sheath_model.tex}
     transformation: {manual_derivation: "上端面への写像の4条件と式 eq:inflow_map、eq:return_map、および外部根の更新のスペクトル帰還を有向図へ変換。作図：figures/sheath_mapping.tex"}
     caption_claim: "外部根を境界条件へ縮約し、流出光電子の統計による根の更新を次のバッチへ渡す。"
     supported_manuscript_claims:
-      - {claim: "外部根から渡す条件と光電子統計による根の更新を接続する。", locator: "第9章・上端面への写像"}
+      - {claim: "外部根から渡す条件と光電子統計による根の更新を接続する。", locator: "第8章・BEACH の上端面への接続"}
     limitations: ["内外の長さ尺度は同じ縮尺ではなく、外部飛行時間や折り返し位置は追わない。"]
   - artifact_id: fig:sm_populations
     source_data: {dataset_id: sheath-model-profile-A, file: figures/data/sheath_model/profile_A.csv}
@@ -101,7 +94,7 @@ figure_table_trace:
     caption_claim: "drift のある電子では上流に接する帯で E^2<0 になり、その最小値の大きさが場の不足である。"
     supported_manuscript_claims:
       - {claim: "h log(1/h) 項による上流の帯と場の不足の定義。", locator: "第8章・電子 drift と上流の帯"}
-      - {claim: "表 tab:band_deficit の 1 行目（42 mV、0.63 mV/m）。", locator: "第9章・電子 drift と上流の帯"}
+      - {claim: "表 tab:band_deficit の 1 行目（42 mV、0.63 mV/m）。", locator: "第8章・電子 drift と場の下限"}
     limitations: ["E^2 の求積は上流で E=0 を仮定する。帯の内側は理想化した分布に従わない範囲である。"]
   - artifact_id: fig:sm_algorithm
     source_data: {dataset_id: sheath-model-algorithm, file: sections/08_sheath_model.tex}

@@ -5,7 +5,7 @@ Lang: [日本語](README.md) | [English](README.en.md)
 BEACH の物理モデル、数値手法、先行研究をまとめた、日本語の論文・技術書形式の LaTeX 初稿です。
 [beach_models.tex](beach_models.tex) が入口です。章別の本文は `sections/`、文献は
 [references.bib](references.bib) にあります。日本語の概要と英語の abstract、目次、数式、
-21 点の図、図目次、参考文献を含みます。
+20 点の図、図目次、参考文献を含みます。
 
 ## 内容
 
@@ -16,14 +16,13 @@ BEACH の物理モデル、数値手法、先行研究をまとめた、日本�
 5. 同時刻 Boris 更新、衝突、箱境界・周期画像
 6. 境界流入、速度分布、照射 ray と光電子放出
 7. 電荷収支、帰還 closure、浮遊導体、バッチ幅の安定性
-8. 外部シースの物理モデル（仮定、軌道と粒子集団、密度・流束の導出、Poisson 方程式の第一積分と Type A、B、C、閉じ方、物理解の条件、数値アルゴリズム、数値例）
-9. 外部シースの定常 closure（外部根の条件と型の選択、上流の帯と場の下限、上端面への写像、外部根の更新）
-10. 検証、収束、Monte Carlo 誤差、再現性
-11. 力・離脱の評価、論文に記載する方法と限界、原稿作成に関する記載
+8. 外部シースのモデルと上端面への接続（仮定、軌道と粒子集団、密度・流束の導出、Poisson 方程式の第一積分と Type A、B、C、閉じ方、物理解の条件、数値アルゴリズム、数値例、外部根の条件と型の選択、電子 drift と場の下限、上端面への写像、外部根の更新）
+9. 検証、収束、Monte Carlo 誤差、再現性
+10. 力・離脱の評価、論文に記載する方法と限界、原稿作成に関する記載
 
 ## 説明図
 
-計算サイクル図と、次の 20 点を本文の該当箇所に含みます。
+計算サイクル図と、次の 19 点を本文の該当箇所に含みます。
 図は TikZ で描いたベクトル図で、拡大しても文字と線が鮮明に表示されます。
 作図ソースは `figures/`、色と線の共通設定は [figures/styles.tex](figures/styles.tex) です。
 図を編集して `make` を実行すると PDF に反映されます。追加の作図ソフトや shell escape は不要です。
@@ -48,8 +47,7 @@ BEACH の物理モデル、数値手法、先行研究をまとめた、日本�
 | 8 | 電子の速度分布（数値解） | [sheath_model_vdf.tex](figures/sheath_model_vdf.tex) |
 | 8 | 太陽高度に対する零電流根（数値解） | [sheath_model_alpha_sweep.tex](figures/sheath_model_alpha_sweep.tex) |
 | 8 | 物理解が見つかる型の分布（数値解） | [sheath_model_type_map.tex](figures/sheath_model_type_map.tex) |
-| 9 | 上流の帯と場の不足 | [upstream_band.tex](figures/upstream_band.tex) |
-| 9 | 外部シースと上端面の接続 | [sheath_mapping.tex](figures/sheath_mapping.tex) |
+| 8 | 外部シースと上端面の接続 | [sheath_mapping.tex](figures/sheath_mapping.tex) |
 
 模式図の形状・軌道・電位曲線は数値解ではありません。流束分布とバッチ幅の図は、本文の式から
 導いた解析例です。表で「数値解」とした第 8 章の図は、外部シースモデルを解いた結果です。
@@ -91,9 +89,9 @@ make
 | 6 流入・光電子 | `src/particles/injection/bem_injection_flux.f90`、`src/particles/injection/bem_photoelectron_injection.f90`、`docs/ParticleSourcesBoundaries.md`、`docs/PhotoelectronEmission.md` |
 | 7 電荷更新・導体 | `src/physics/bem_surface_models_conductor.f90`、`docs/SurfaceChargeNumerics.md`、`docs/BatchDurationTheory.md` |
 | 8 外部シースモデル | sheath-model（`fpm.toml` で commit を固定）の `docs/kinetic-model.md`、`docs/algorithm.md`、`docs/spectral-api.md`、`src/internal/sheath_model_admissibility.f90`、`src/sheath_model_photoelectrons.f90`、`sheath_model/_physics.py`、`sheath_model/_profile.py`、`sheath_model/search.py` |
-| 9 外部シース closure | `src/runtime/sheath/bem_surface_current_model.f90`、`src/runtime/sheath/bem_zhao_outflow_refresh.f90`、`docs/ZhaoStationaryClosure.md`、`docs/ZhaoUpstreamBand.md` |
-| 10 検証 | `docs/ValidationGuide.md`、`docs/PhysicsReleaseVerification.md`、`docs/BatchDurationStability.md` |
-| 11 力・離脱 | `docs/ObjectForcesDetachment.md`、`docs/PythonPostprocessAPI.md` |
+| 8 上端面への接続 | `src/runtime/sheath/bem_surface_current_model.f90`、`src/runtime/sheath/bem_zhao_outflow_refresh.f90`、`docs/ZhaoStationaryClosure.md`、`docs/ZhaoUpstreamBand.md` |
+| 9 検証 | `docs/ValidationGuide.md`、`docs/PhysicsReleaseVerification.md`、`docs/BatchDurationStability.md` |
+| 10 力・離脱 | `docs/ObjectForcesDetachment.md`、`docs/PythonPostprocessAPI.md` |
 
 ## PDF の作成
 
@@ -122,7 +120,7 @@ tssrun -p <queue> -t 0:10:0 --rsc p=1:t=1:c=1 \
 
 ### この環境での組版確認
 
-2026 年 10 月 14 日、System C の計算ノードで 21 点の図を含む 51 ページの A4 PDF を生成しました。
+2026 年 10 月 15 日、System C の計算ノードで 20 点の図を含む 50 ページの A4 PDF を生成しました。
 未解決の引用・参照、行のはみ出し、BibTeX の警告はありません。
 既存の TeX Live 2018 に不足していた `xeCJK` と LaTeX3 バンドルは、同世代の TeX Live アーカイブから
 `BEACH/build/manuscript-tools/texmf2018/` に一時展開して使いました。既存の TeX インストールは変更していません。
@@ -149,7 +147,9 @@ tssrun -p gr20001c -t 0:10:0 --rsc p=1:t=1:c=1 \
 第 5 章の削除済みの連成経路の記述を現行の実装に合わせました。
 2026 年 10 月 14 日に、外部シースのモデルそのものを説明する第 8 章を追加しました（sheath-model `26569c1`。
 物理の実装は `b4a2521` と同じで、差は `.gitignore` だけです）。仮定、軌道と粒子集団、密度・流束の導出、
-第一積分、閉じ方、物理解の条件、数値アルゴリズムと数値例をここへ移し、旧第 8 章（新第 9 章）は BEACH との接続に絞りました。
+第一積分、閉じ方、物理解の条件、数値アルゴリズムと数値例をここへ移しました。
+2026 年 10 月 15 日に、旧第 8 章の外部シースの定常 closure を第 8 章の最後の節「BEACH の上端面への接続」へ統合しました。
+重複していた上流の帯の模式図は、第 8 章の数値図に置き換えて削除しました。
 上流の帯の密度の展開（式 `eq:hlogh`）は、遅い電子が両方向に存在することによる係数 2 を積分の前に明記しました。
 実装を変更したときは、上の表の対応する章を確認してください。
 
