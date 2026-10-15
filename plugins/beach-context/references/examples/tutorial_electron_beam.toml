@@ -35,7 +35,6 @@ z_low = "open"
 z_high = "open"
 
 [[particles.species]]
-species_key = "beam_electron"
 charge_c = -1.602176634e-19
 mass_kg = 9.1093837139e-31
 

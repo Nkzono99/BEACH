@@ -73,7 +73,6 @@ def default_config() -> dict[str, Any]:
         "particles": {
             "species": [
                 {
-                    "species_key": "beam_electron",
                     "source_mode": "volume_seed",
                     "q_particle": -1.602176634e-19,
                     "m_particle": 9.1093837139e-31,
