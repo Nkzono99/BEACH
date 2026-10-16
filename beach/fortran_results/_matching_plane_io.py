@@ -37,6 +37,7 @@ _MATCHING_PLANE_HISTORY_HEADER = (
 
 # Released 17-column histories remain readable; new writers add the two SEE receipts.
 _SECONDARY_HISTORY_COLUMNS = ("secondary_share", "secondary_budget_residual_a_m2")
+_FIELD_HISTORY_COLUMNS = ("E_top_sheath_V_m", "E_top_cell_mean_V_m")
 
 
 def _parse_matching_plane_state(data: dict[str, str]) -> MatchingPlaneState | None:
@@ -121,6 +122,8 @@ def _parse_matching_plane_state(data: dict[str, str]) -> MatchingPlaneState | No
         residual=_parse_nonnegative_finite_float(
             data["matching_plane_residual"], key="matching_plane_residual"
         ),
+        top_sheath_field_v_m=_parse_optional_finite_float(data, "surface_current_model_top_field_V_m"),
+        top_cell_mean_field_v_m=_parse_optional_finite_float(data, "matching_plane_top_cell_mean_V_m"),
         secondary_share=_parse_optional_finite_float(data, "matching_plane_secondary_share") or 0.0,
         secondary_budget_residual_a_m2=_parse_optional_finite_float(data, "secondary_budget_residual_a_m2") or 0.0,
     )
@@ -139,9 +142,10 @@ def _load_matching_plane_history_if_exists(
         reader = csv.DictReader(stream)
         header = tuple(reader.fieldnames or ())
         if header not in (_MATCHING_PLANE_HISTORY_HEADER,
-                          _MATCHING_PLANE_HISTORY_HEADER + _SECONDARY_HISTORY_COLUMNS):
+                          _MATCHING_PLANE_HISTORY_HEADER + _SECONDARY_HISTORY_COLUMNS,
+                          _MATCHING_PLANE_HISTORY_HEADER + _SECONDARY_HISTORY_COLUMNS + _FIELD_HISTORY_COLUMNS):
             raise ValueError(
-                "matching_plane_history.csv header does not match the 17- or 19-column contract."
+                "matching_plane_history.csv header does not match the 17-, 19-, or 21-column contract."
             )
         for line_number, row in enumerate(reader, start=2):
             if None in row or any(row.get(key) is None for key in header):
@@ -186,6 +190,8 @@ def _load_matching_plane_history_if_exists(
                 ),
                 iterations=_parse_history_nonnegative_int(row, "iterations", line_number),
                 residual=_parse_history_nonnegative(row, "residual", line_number),
+                top_sheath_field_v_m=_parse_optional_history_field(row, "E_top_sheath_V_m", line_number),
+                top_cell_mean_field_v_m=_parse_optional_history_field(row, "E_top_cell_mean_V_m", line_number),
                 secondary_share=_parse_history_finite(row, "secondary_share", line_number)
                 if "secondary_share" in header else 0.0,
                 secondary_budget_residual_a_m2=_parse_history_finite(row, "secondary_budget_residual_a_m2", line_number)
@@ -209,6 +215,14 @@ def _load_matching_plane_history_if_exists(
                 )
             )
     return tuple(entries)
+
+
+def _parse_optional_history_field(row: dict[str, str | None], key: str, line: int) -> float | None:
+    # NaN denotes unavailable historical fields in upgraded 3.0.0 CSV rows.
+    raw = row.get(key)
+    if raw is None or raw.strip().lower() == "nan":
+        return None
+    return _parse_history_finite(row, key, line)
 
 
 def _parse_history_finite(row: dict[str, str | None], key: str, line: int) -> float:

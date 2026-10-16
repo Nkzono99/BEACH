@@ -55,7 +55,7 @@ contains
       end if
     end if
     select case (trim(contract%lower_boundary_model))
-    case ('not_applicable', 'legacy_implicit', 'e_bottom_zero', 'symmetric_vacuum')
+    case ('not_applicable', 'legacy_implicit', 'e_bottom_zero', 'symmetric_vacuum', 'e_top_from_sheath')
       continue
     case default
       status = irradiation_cell_invalid

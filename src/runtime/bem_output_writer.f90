@@ -54,12 +54,13 @@ module bem_output_writer
 
     module subroutine write_top_reference_history_snapshot( &
       unit_id, batch_idx, simulated_time_s, z_high_m, sample_n, &
-      potential_mean_v, potential_std_v, potential_min_v, potential_max_v &
+      potential_mean_v, potential_std_v, potential_min_v, potential_max_v, switch_phi_rms, switch_ez_rms &
       )
       integer, intent(in) :: unit_id
       integer(i32), intent(in) :: batch_idx, sample_n
       real(dp), intent(in) :: simulated_time_s, z_high_m
       real(dp), intent(in) :: potential_mean_v, potential_std_v, potential_min_v, potential_max_v
+      real(dp), intent(in), optional :: switch_phi_rms, switch_ez_rms
     end subroutine write_top_reference_history_snapshot
 
     module subroutine open_matching_plane_history_writer(app, resumed, history_opened, history_unit)

@@ -16,7 +16,7 @@ program test_output_writer_io
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, delete_file_if_exists, remove_empty_directory
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, remove_empty_directory
   implicit none
 
   type(mesh_type) :: mesh
@@ -34,7 +34,7 @@ program test_output_writer_io
   logical :: top_history_opened, saw_top_available, saw_top_definition, saw_top_last_batch, saw_top_mean
   integer :: literal_unit, ios, top_history_unit, matching_history_unit
   integer(i32) :: top_batch, top_sample_n
-  real(dp) :: top_time, top_z, top_mean, top_std, top_min, top_max
+  real(dp) :: top_time, top_z, top_mean, top_std, top_min, top_max, switch_phi_rms, switch_ez_rms
   character(len=2048) :: line
   character(len=*), parameter :: out_dir_disabled = 'test_output_writer_io_disabled_tmp'
   character(len=*), parameter :: out_dir_ledger = 'test_output_writer_io_ledger_tmp'
@@ -142,7 +142,7 @@ program test_output_writer_io
   call open_top_reference_history_writer(cfg, .false., top_history_opened, top_history_unit)
   call assert_true(top_history_opened, 'top-reference history should open with potential history')
   call write_top_reference_history_snapshot( &
-    top_history_unit, 3_i32, 1.5_dp, 2.0_dp, 5_i32, 4.0_dp, 0.25_dp, 3.5_dp, 4.5_dp &
+    top_history_unit, 3_i32, 1.5_dp, 2.0_dp, 5_i32, 4.0_dp, 0.25_dp, 3.5_dp, 4.5_dp, 0.125_dp, 2.5_dp &
     )
   close (top_history_unit)
   call open_top_reference_history_writer(cfg, .true., top_history_opened, top_history_unit)
@@ -158,13 +158,16 @@ program test_output_writer_io
   read (literal_unit, '(A)', iostat=ios) line
   call assert_true( &
     ios == 0 .and. trim(line) == &
-    'batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V', &
+    'batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,potential_min_V,potential_max_V,'// &
+    'switch_phi_rms_mismatch_V,switch_Ez_rms_mismatch_V_m', &
     'top-reference history header mismatch' &
     )
   read (literal_unit, *, iostat=ios) &
-    top_batch, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max
+    top_batch, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max, switch_phi_rms, switch_ez_rms
   call assert_true(ios == 0, 'failed to parse top-reference history row')
   call assert_equal_i32(top_batch, 3_i32, 'top-reference history batch mismatch')
+  call assert_close_dp(switch_phi_rms, 0.125_dp, 0.0_dp, 'switch potential rms column')
+  call assert_close_dp(switch_ez_rms, 2.5_dp, 0.0_dp, 'switch field rms column')
   call assert_equal_i32(top_sample_n, 5_i32, 'top-reference history sample count mismatch')
   call assert_true( &
     abs(top_time - 1.5_dp) < 1.0e-14_dp .and. abs(top_z - 2.0_dp) < 1.0e-14_dp .and. &
@@ -173,9 +176,11 @@ program test_output_writer_io
     'top-reference history values mismatch' &
     )
   read (literal_unit, *, iostat=ios) &
-    top_batch, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max
+    top_batch, top_time, top_z, top_sample_n, top_mean, top_std, top_min, top_max, switch_phi_rms, switch_ez_rms
   call assert_true(ios == 0, 'failed to parse resumed top-reference history row')
   call assert_equal_i32(top_batch, 4_i32, 'resumed top-reference history batch mismatch')
+  call assert_close_dp(switch_phi_rms, 0.0_dp, 0.0_dp, 'off switch potential rms column')
+  call assert_close_dp(switch_ez_rms, 0.0_dp, 0.0_dp, 'off switch field rms column')
   call assert_equal_i32(top_sample_n, 5_i32, 'resumed top-reference history sample count mismatch')
   call assert_true( &
     abs(top_time - 2.0_dp) < 1.0e-14_dp .and. abs(top_z - 2.0_dp) < 1.0e-14_dp .and. &
@@ -526,7 +531,7 @@ contains
     close (unit_id)
     open (newunit=reader, file=out_dir_matching//'/matching_plane_history.csv', status='old', action='read')
     read (reader, '(a)') row
-    call assert_true(trim(row) == trim(header), 'legacy header must upgrade to the 19-column contract')
+    call assert_true(trim(row) == trim(header), 'legacy header must upgrade to the 21-column contract')
     do j = 1, 2
       read (reader, '(a)') row
       comma = 0
@@ -536,7 +541,7 @@ contains
           if (row(k:k) == ',') comma = comma + 1
         end do
       end block
-      call assert_equal_i32(int(comma, i32), 18_i32, 'legacy and new matching rows must have 19 columns')
+      call assert_equal_i32(int(comma, i32), 20_i32, 'legacy and new matching rows must have 21 columns')
     end do
     close (reader)
   end subroutine test_secondary_and_legacy_history

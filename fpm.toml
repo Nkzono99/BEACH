@@ -114,6 +114,11 @@ source-dir = "benchmarks/fortran"
 main = "benchmark_field_kernel_runtime.f90"
 
 [[test]]
+name = "test_upper_fourier_switch"
+source-dir = "tests/fortran"
+main = "test_upper_fourier_switch.f90"
+
+[[test]]
 name = "test_periodic2_cached_snapshot"
 source-dir = "tests/fortran"
 main = "test_periodic2_cached_snapshot.f90"

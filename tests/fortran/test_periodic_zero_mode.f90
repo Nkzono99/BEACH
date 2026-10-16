@@ -15,7 +15,9 @@ program test_periodic_zero_mode
   type(mesh_type) :: mesh
   type(periodic_zero_mode_plan_type) :: plan
   type(periodic_zero_mode_state_type) :: state
-  real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), field, potential
+  real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), field, potential, reference_phi
+  type(periodic_zero_mode_state_type) :: top_zero_state
+  real(dp), parameter :: e_top = -2.7_dp, z_high = 3.0_dp
   real(dp), parameter :: charge = 3.0e-12_dp
   integer(i32) :: status
   character(len=128) :: message
@@ -25,7 +27,7 @@ program test_periodic_zero_mode
   real(dp) :: heights(3, 9), charges(9), z, tolerance, expected_field, expected_potential
   integer(i32) :: i, j, gauge, offset, trace
 
-  call test_init(4)
+  call test_init(5)
 
   call test_begin('horizontal_sheet_jumps_superposition_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -48,6 +50,21 @@ program test_periodic_zero_mode
   call assert_close_dp(field, charge/(2.0_dp*eps0), 1.0e-12_dp, 'sheet superposition mismatch')
   call eval_periodic_zero_mode(plan, state, 0.0_dp, zero_mode_trace_plus, potential, field)
   call assert_close_dp(potential, 1.25_dp, 1.0e-14_dp, 'gauge potential mismatch')
+  call test_end()
+
+  call test_begin('charged_layers_with_prescribed_top_field')
+  call refresh_periodic_zero_mode_state(plan, mesh%q_elem, -sum(mesh%q_elem)/(eps0*plan%area_xy), &
+                                        z_high, 0.0_dp, top_zero_state)
+  call refresh_periodic_zero_mode_state(plan, mesh%q_elem, e_top - sum(mesh%q_elem)/(eps0*plan%area_xy), &
+                                        z_high, 0.0_dp, state)
+  call eval_periodic_zero_mode(plan, state, z_high, zero_mode_trace_plus, potential, field)
+  call assert_close_dp(field, e_top, abs(e_top)*1.0e-12_dp, 'Gauss top Neumann field')
+  do i = 1, 5
+    z = 0.4_dp*real(i, dp)
+    call eval_periodic_zero_mode(plan, state, z, zero_mode_trace_plus, potential, field)
+    call eval_periodic_zero_mode(plan, top_zero_state, z, zero_mode_trace_plus, reference_phi, field)
+    call assert_close_dp(potential - reference_phi, e_top*(z_high - z), 1.0e-12_dp, 'top-field linear potential shift')
+  end do
   call test_end()
 
   call test_begin('inclined_triangle_exact_field_potential_and_closure')

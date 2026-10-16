@@ -377,6 +377,11 @@ contains
       1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
       'rejected full-duration charge leaked into the committed mesh state' &
       )
+    call assert_close_dp( &
+      adaptive_stats%matching_plane_top_cell_mean_v_m, &
+      sum(adaptive_mesh%q_elem)/(2.0_dp*eps0*product(sim%box_max(1:2) - sim%box_min(1:2))), &
+      1.0e-12_dp, 'top-cell mean field receipt must use the committed charge' &
+      )
     adaptive_stats%adaptive_nonzero_mode_omp_threads = actual_team_size + 1_i32
     call run_absorption_insulator( &
       adaptive_mesh, adaptive_cfg, adaptive_resume_stats, initial_stats=adaptive_stats &

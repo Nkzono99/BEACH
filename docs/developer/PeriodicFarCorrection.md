@@ -193,6 +193,9 @@ OpenMPで評価し、完成したoperatorをrank間で集約します。charge�
 `cached_kneq0`はconfigured target box内の評価を前提とし、box外targetをDirect fallbackしません。これはcached
 operatorが固定target topologyに対するproduction kernelだからです。
 
+上端 H 近傍の局所展開誤差は、[上部真空の Fourier 切替](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)で回避できます。
+`fields.periodic.upper_fourier.switch_height="auto"` は上部真空の非零成分を Fourier 評価へ切り替えます。
+
 ## 収束とcache診断を確認する
 
 1. `fields.periodic.image_layers`を増やし、near shellとoperatorの分割に依存しないことを確認する。

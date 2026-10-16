@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -184,7 +185,9 @@ class FieldKernel:
     :meth:`update_charges`. A ``cached_kneq0`` periodic plan evaluates only the
     nonzero in-plane Fourier component; it is not the simulator's total field
     unless the physical zero mode and prescribed-field contribution are
-    composed separately.
+    composed separately. When the saved upper Fourier switch is active, the
+    simulator evaluates near H with Fourier sums; this FMM kernel does not
+    reproduce those evaluations.
     """
 
     def __init__(
@@ -230,6 +233,11 @@ class FieldKernel:
 
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
+        if resolved.field_reconstruction is not None and resolved.field_reconstruction.upper_fourier_switch_active:
+            warnings.warn(
+                "The simulator uses upper Fourier evaluation near H; FieldKernel reproduces only the FMM component.",
+                RuntimeWarning, stacklevel=2,
+            )
         _require_triangle_source_model(resolved)
         triangles = _require_triangles(resolved)
         charges = _charges_for_step(resolved, step=step)

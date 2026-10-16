@@ -124,3 +124,18 @@ def test_secondary_emission_layout_declares_public_keys_and_modes():
     assert grouped["particles"]["species"][0]["surface_interaction"]["secondary_emission"]["model"] == "whipple"
     grouped["particles"]["secondary_emission"] = {"max_generations": 2}
     assert to_runtime_layout(grouped)["particles"]["secondary_emission_max_generations"] == 2
+
+
+@pytest.mark.parametrize('height', ['off', 'auto', 5e-4])
+def test_upper_fourier_paths_roundtrip(height):
+    grouped = to_grouped_layout(default_config())
+    grouped['fields'].update(boundary='periodic2', solver={'method': 'fmm'}, periodic={
+        'backend': 'cached_kneq0', 'lower_boundary_model': 'e_top_from_sheath',
+        'upper_fourier': {'switch_height': height, 'mode_layers': 7},
+    })
+    runtime = to_runtime_layout(grouped)
+    assert runtime['periodic2']['upper_fourier_switch_height'] == height
+    assert runtime['periodic2']['upper_fourier_mode_layers'] == 7
+    assert to_grouped_layout(runtime)['fields']['periodic']['upper_fourier'] == {
+        'switch_height': height, 'mode_layers': 7,
+    }

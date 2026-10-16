@@ -10,6 +10,9 @@ title: FMMを使う
 展開式、内部データ構造、更新アルゴリズム、並列実装は
 [Coulomb FMMコア内部実装](../developer/FMMCore.md)を正本とします。
 
+上端 H 近傍の局所展開誤差は、[上部真空の Fourier 切替](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)で回避できます。
+`fields.periodic.upper_fourier.switch_height="auto"` は上部真空の非零成分を Fourier 評価へ切り替えます。
+
 ## FMMを選ぶか判断する
 
 | 条件 | 選択 |

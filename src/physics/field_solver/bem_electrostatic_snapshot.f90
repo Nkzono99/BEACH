@@ -2,9 +2,11 @@
 module bem_electrostatic_snapshot
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0, pi
   use bem_types, only: mesh_type, sim_config, bc_periodic
   use bem_field_solver, only: field_solver_type
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
+  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
+                                      validate_upper_fourier_height, physics_config_ok
   use bem_string_utils, only: lower_ascii
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
@@ -19,6 +21,11 @@ module bem_electrostatic_snapshot
   private
 
   type, public :: electrostatic_diagnostics_type
+    logical :: upper_fourier_switch_active = .false.
+    real(dp) :: upper_fourier_switch_height_m = 0.0_dp
+    integer(i32) :: upper_fourier_switch_mode_layers = 0_i32
+    real(dp) :: upper_fourier_switch_selected_mismatch_v = 0.0_dp
+    real(dp) :: lower_boundary_field_v_m = 0.0_dp
     logical :: split_periodic_active = .false.
     logical :: top_reference_available = .false.
     integer(i32) :: top_reference_last_batch = -1_i32
@@ -58,9 +65,11 @@ module bem_electrostatic_snapshot
     logical :: matching_plane_gauge_active = .false.
     real(dp) :: matching_plane_z = 0.0_dp
     real(dp) :: matching_plane_phi = 0.0_dp
+    real(dp) :: matching_plane_top_field = 0.0_dp
   contains
     procedure :: init => init_electrostatic_snapshot
     procedure :: refresh => refresh_electrostatic_snapshot
+    procedure :: refresh_zero_mode => refresh_snapshot_zero_mode
     procedure :: eval_local_e => eval_snapshot_local_e
     procedure :: eval_upper_panel_fourier_e => eval_snapshot_upper_panel_fourier_e
     procedure :: eval_upper_panel_fourier_phi => eval_snapshot_upper_panel_fourier_phi
@@ -70,9 +79,23 @@ module bem_electrostatic_snapshot
     procedure :: measure_kneq0_potential_step => measure_snapshot_kneq0_potential_step
     procedure :: get_diagnostics => get_snapshot_diagnostics
     procedure :: set_matching_plane_gauge => set_snapshot_matching_plane_gauge
+    procedure :: set_matching_plane_top_field => set_snapshot_matching_plane_top_field
+    procedure :: measure_switch_mismatch => measure_snapshot_switch_mismatch
   end type electrostatic_snapshot_type
 
   interface
+    module subroutine init_snapshot_upper_fourier_switch(self, mesh, sim)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+    end subroutine init_snapshot_upper_fourier_switch
+
+    module subroutine measure_snapshot_switch_mismatch(self, mesh, sim, phi_rms, ez_rms)
+      class(electrostatic_snapshot_type), intent(inout) :: self
+      type(mesh_type), intent(in) :: mesh
+      type(sim_config), intent(in) :: sim
+      real(dp), intent(out) :: phi_rms, ez_rms
+    end subroutine measure_snapshot_switch_mismatch
     module subroutine eval_snapshot_local_e(self, mesh, position, electric_field)
       class(electrostatic_snapshot_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
@@ -150,6 +173,7 @@ contains
     self%matching_plane_gauge_active = .false.
     self%matching_plane_z = 0.0_dp
     self%matching_plane_phi = 0.0_dp
+    self%matching_plane_top_field = 0.0_dp
     self%diagnostics = electrostatic_diagnostics_type()
 
     if (present(periodic_config)) then
@@ -178,6 +202,14 @@ contains
     type(mesh_type), intent(in) :: mesh
 
     if (.not. self%use_panel_spectral_reference) call self%nonzero_solver%refresh(mesh)
+    call self%refresh_zero_mode(mesh)
+  end subroutine refresh_electrostatic_snapshot
+
+  !> Refresh only the physical mean field after a charge commit; no FMM update is needed for receipts.
+  subroutine refresh_snapshot_zero_mode(self, mesh)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+
     if (self%use_zero_mode) then
       if (self%matching_plane_gauge_active) then
         call refresh_periodic_zero_mode_state( &
@@ -191,7 +223,7 @@ contains
           )
       end if
     end if
-  end subroutine refresh_electrostatic_snapshot
+  end subroutine refresh_snapshot_zero_mode
 
   !> 周期k=0成分の電位ゲージをmatching planeへ移す。
   !! 非ゼロモードのsolver/cacheは変更しない。次回refreshでもこのゲージを保持する。
@@ -218,12 +250,24 @@ contains
       )
   end subroutine set_snapshot_matching_plane_gauge
 
+  !> Set E_z(H+) from the outer root. The selected zero-mode boundary model consumes it on refresh.
+  subroutine set_snapshot_matching_plane_top_field(self, mesh, field_v_m)
+    class(electrostatic_snapshot_type), intent(inout) :: self
+    type(mesh_type), intent(in) :: mesh
+    real(dp), intent(in) :: field_v_m
+
+    if (.not. ieee_is_finite(field_v_m)) error stop 'matching-plane top field must be finite.'
+    self%matching_plane_top_field = field_v_m
+    call self%refresh_zero_mode(mesh)
+  end subroutine set_snapshot_matching_plane_top_field
+
   subroutine get_snapshot_diagnostics(self, diagnostics)
     class(electrostatic_snapshot_type), intent(in) :: self
     type(electrostatic_diagnostics_type), intent(out) :: diagnostics
 
     diagnostics = self%diagnostics
     diagnostics%gauss_residual = self%gauss_residual
+    if (self%use_zero_mode) diagnostics%lower_boundary_field_v_m = self%zero_state%e_bottom
   end subroutine get_snapshot_diagnostics
 
   subroutine init_panel_spectral_snapshot(self, mesh, sim, periodic_config)
@@ -288,6 +332,8 @@ contains
       error stop 'cached_kneq0 snapshot currently requires x/y periodic and z open.'
     end if
 
+    call validate_upper_fourier_height(sim, periodic_config, maxval(mesh%bb_max(3, :)), status, message)
+    if (status /= physics_config_ok) error stop trim(message)
     call build_periodic_zero_mode_plan( &
       mesh, product(sim%box_max(1:2) - sim%box_min(1:2)), self%zero_plan, status, message &
       )
@@ -312,12 +358,14 @@ contains
     self%diagnostics%periodic_cache_fingerprint = &
       self%nonzero_solver%fmm_core_plan%periodic_cache_fingerprint
     self%diagnostics%periodic_cache_path = self%nonzero_solver%fmm_core_plan%periodic_cache_path
-    if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
+    if (periodic_config%upper_fourier_switch /= 'off') then
+      call init_snapshot_upper_fourier_switch(self, mesh, sim)
+    else if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
       call self%upper_fourier_plan%build( &
         mesh, self%periodic_length(1), self%periodic_length(2), self%reference_mode_layers &
         )
-      self%use_upper_panel_fourier_retry = .true.
     end if
+    self%use_upper_panel_fourier_retry = trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier'
   end subroutine init_cached_periodic_snapshot
 
   pure real(dp) function zero_mode_bottom_field(self, charge) result(field)
@@ -327,6 +375,8 @@ contains
     select case (trim(lower_ascii(self%periodic_options%lower_boundary_model)))
     case ('e_bottom_zero')
       field = 0.0_dp
+    case ('e_top_from_sheath')
+      field = self%matching_plane_top_field - sum(charge)/(eps0*self%zero_plan%area_xy)
     case ('symmetric_vacuum')
       field = symmetric_vacuum_bottom_field(self%zero_plan, charge)
     case default
@@ -338,7 +388,7 @@ contains
     character(len=*), intent(in) :: model
 
     select case (trim(lower_ascii(model)))
-    case ('e_bottom_zero', 'symmetric_vacuum')
+    case ('e_bottom_zero', 'symmetric_vacuum', 'e_top_from_sheath')
       supported = .true.
     case default
       supported = .false.

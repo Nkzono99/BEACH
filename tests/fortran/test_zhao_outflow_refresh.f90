@@ -39,10 +39,15 @@ program test_zhao_outflow_refresh
 
   call test_begin('stationary_barrier_uses_outer_wall_potential_gauge')
   call configure_fixture(mesh, cfg, inject_state, 0_i32)
+  cfg%periodic2%lower_boundary_model = 'e_top_from_sheath'
   call evaluate_surface_current_model(cfg, static_root)
   call seed_particles_from_config(cfg)
   call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state, charge_ledger=ledger)
   call assert_true(.not. stats%matching_plane_state_valid, 'a fixed Zhao root must not publish refresh state')
+  call assert_close_dp(stats%surface_current_top_field_v_m, static_root%top_field_v_m, &
+                       1.0e-12_dp*abs(static_root%top_field_v_m), 'static root top-field receipt')
+  call assert_close_dp(stats%matching_plane_top_cell_mean_v_m, static_root%top_field_v_m, &
+                       1.0e-12_dp*abs(static_root%top_field_v_m), 'simulator passes sheath field to snapshot')
   ! A flat plate returns every PE that reaches H below phi0-phi_m. With the H gauge at phi0, the tracked
   ! escape fraction is the half-Maxwellian tail exp(-(phi0-phi_m)/T) of the same root.
   predicted_escape_fraction = static_root%photoelectron_escape_current_density_a_m2/ &
@@ -263,6 +268,8 @@ contains
     restored = receipts
     call resumed_refresh%initialize(app, plate, restored, restored_closure)
     call assert_close_dp(restored%matching_plane_secondary_share, expected_share, 0.0_dp, 'restart must retain split')
+    call assert_close_dp(restored_closure%top_field_v_m, closure%top_field_v_m, &
+                         1.0e-10_dp*abs(closure%top_field_v_m), 'restart reconstructs external top field')
     call assert_close_dp(restored_closure%escaped_particle_current_a(3), closure%escaped_particle_current_a(3), &
                          1.0e-20_dp, 'restart PE target split')
     if (.not. night) then

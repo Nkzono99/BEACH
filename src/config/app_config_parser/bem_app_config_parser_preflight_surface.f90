@@ -28,6 +28,14 @@ contains
       .not. ieee_is_finite(cfg%surface_current%zhao_ion_pressure_factor)) then
     error stop 'sheath.zhao.ion_pressure_factor must be finite and > 0.'
   end if
+  if (trim(cfg%periodic2%lower_boundary_model) == 'e_top_from_sheath' .and. &
+      trim(lower_ascii(cfg%surface_current%model)) /= 'zhao_stationary') then
+    call stop_config_error('e_top_from_sheath requires zhao_stationary (sheath.closure="zero_current").')
+  end if
+  if (trim(lower_ascii(cfg%surface_current%model)) == 'zhao_stationary' .and. &
+      cfg%periodic2%upper_fourier_switch == 'off') then
+    write (error_unit, '(a)') 'WARNING: zhao_stationary with upper Fourier switch off may retain k/=0 errors near H.'
+  end if
   select case (trim(lower_ascii(cfg%surface_current%model)))
   case ('none')
     if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then

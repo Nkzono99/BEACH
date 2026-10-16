@@ -2130,11 +2130,39 @@
                   "default": 1e-08,
                   "description": "Generation tolerance included in the periodic operator cache identity."
                 },
+                "upper_fourier": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "switch_height": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "off",
+                            "auto"
+                          ]
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "default": "off"
+                    },
+                    "mode_layers": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 32,
+                      "default": 0
+                    }
+                  }
+                },
                 "lower_boundary_model": {
                   "default": "e_bottom_zero",
                   "enum": [
                     "e_bottom_zero",
-                    "symmetric_vacuum"
+                    "symmetric_vacuum",
+                    "e_top_from_sheath"
                   ]
                 },
                 "reference": {
@@ -4024,7 +4052,8 @@
           "default": "e_bottom_zero",
           "enum": [
             "e_bottom_zero",
-            "symmetric_vacuum"
+            "symmetric_vacuum",
+            "e_top_from_sheath"
           ]
         },
         "reference_mode_layers": {
@@ -4041,6 +4070,27 @@
           "type": "number",
           "minimum": 0,
           "description": "Maximum accepted change of the cached k!=0 potential at panel centroids [V]. When set, batch_duration is the maximum trial duration and rejected trials are retraced at successive factors of 1/2."
+        },
+        "upper_fourier_switch_height": {
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "off",
+                "auto"
+              ]
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "default": "off"
+        },
+        "upper_fourier_mode_layers": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32,
+          "default": 0
         }
       }
     },

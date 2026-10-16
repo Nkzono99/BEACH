@@ -31,7 +31,7 @@ contains
 
   !> 電位履歴出力条件を満たすバッチだけ電位スナップショットを書き出す。
   module procedure maybe_write_potential_history_snapshot
-  real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
+  real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max, switch_phi_rms, switch_ez_rms
 
   if (.not. potential_history_enabled) return
   if (mod(stats%batches - 1_i32, hist_stride) /= 0_i32) return
@@ -43,9 +43,10 @@ contains
       mesh, sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
       cell=cell &
       )
+    call snapshot%measure_switch_mismatch(mesh, sim, switch_phi_rms, switch_ez_rms)
     call write_top_reference_history_snapshot( &
       top_reference_history_unit, stats%batches, stats%simulated_time, cell%wall_coordinate(), &
-      sim%injection_face_phi_grid_n, top_phi_mean, top_phi_std, top_phi_min, top_phi_max &
+      sim%injection_face_phi_grid_n, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, switch_phi_rms, switch_ez_rms &
       )
   end if
   end procedure maybe_write_potential_history_snapshot

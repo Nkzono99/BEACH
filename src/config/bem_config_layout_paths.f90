@@ -73,6 +73,10 @@ contains
       reader_path = 'sim.raycast_max_bounce'
     case ('particles.secondary_emission.max_generations')
       reader_path = 'particles.secondary_emission_max_generations'
+    case ('fields.periodic.upper_fourier.switch_height')
+      reader_path = 'periodic2.upper_fourier_switch_height'
+    case ('fields.periodic.upper_fourier.mode_layers')
+      reader_path = 'periodic2.upper_fourier_mode_layers'
     case ('fields.periodic.lower_boundary_model')
       reader_path = 'periodic2.lower_boundary_model'
     case ('fields.periodic.reference.mode_layers')
@@ -237,6 +241,8 @@ contains
     case ('fields.periodic')
       known = .true.
     case ('fields.periodic.reference')
+      known = .true.
+    case ('fields.periodic.upper_fourier')
       known = .true.
     case ('fields.solver')
       known = .true.

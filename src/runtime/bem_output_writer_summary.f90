@@ -110,6 +110,7 @@ contains
   write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane_state_valid
   write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
   write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane_phi_v
+  write (u, '(a,es24.16)') 'matching_plane_top_cell_mean_V_m=', stats%matching_plane_top_cell_mean_v_m
   write (u, '(a,es24.16)') 'matching_plane_electron_inward_flux_m2_s=', stats%matching_plane_response(2)
   write (u, '(a,es24.16)') 'matching_plane_ion_inward_flux_m2_s=', stats%matching_plane_response(3)
   write (u, '(a,es24.16)') 'matching_plane_electron_access_potential_V=', stats%matching_plane_response(4)
@@ -177,6 +178,7 @@ contains
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
+  write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%surface_current_top_field_v_m
   if (current_model%active) then
     write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
     write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch
@@ -240,6 +242,18 @@ contains
     end if
   end if
   if (present(electrostatic_diagnostics)) then
+    write (u, '(a,l1)') 'upper_fourier_switch_active=', electrostatic_diagnostics%upper_fourier_switch_active
+    write (u, '(a,es24.16)') 'upper_fourier_switch_height_m=', electrostatic_diagnostics%upper_fourier_switch_height_m
+    write (u, '(a,i0)') 'upper_fourier_switch_mode_layers=', electrostatic_diagnostics%upper_fourier_switch_mode_layers
+    write (u, '(a,es24.16)') 'upper_fourier_switch_selected_mismatch_V=', &
+      electrostatic_diagnostics%upper_fourier_switch_selected_mismatch_v
+    write (u, '(a,l1)') 'field_reconstruction_upper_fourier_switch_active=', &
+      electrostatic_diagnostics%upper_fourier_switch_active
+    write (u, '(a,es24.16)') 'field_reconstruction_upper_fourier_switch_height_m=', &
+      electrostatic_diagnostics%upper_fourier_switch_height_m
+    write (u, '(a,i0)') 'field_reconstruction_upper_fourier_switch_mode_layers=', &
+      electrostatic_diagnostics%upper_fourier_switch_mode_layers
+    write (u, '(a,es24.16)') 'periodic2_lower_boundary_field_V_m=', electrostatic_diagnostics%lower_boundary_field_v_m
     write (u, '(a,l1)') 'top_reference_available=', electrostatic_diagnostics%top_reference_available
     if (electrostatic_diagnostics%top_reference_available) then
       write (u, '(a)') 'top_reference_definition=box_z_high_plane_mean'

@@ -5,8 +5,8 @@ contains
 
   module procedure apply_periodic2_toml_table
   type(toml_key), allocatable :: keys(:)
-  integer :: ikey
-  character(len=:), allocatable :: k
+  integer :: ikey, stat
+  character(len=:), allocatable :: k, switch_text
 
   authoring%periodic2%present = .true.
   call table%get_keys(keys)
@@ -29,6 +29,24 @@ contains
         )
       authoring%periodic2%lower_boundary_model = lower_ascii(trim(authoring%periodic2%lower_boundary_model))
       authoring%periodic2%has_lower_boundary_model = .true.
+    case ('upper_fourier_switch_height')
+      if (allocated(switch_text)) deallocate (switch_text)
+      call get_value(table, keys(ikey), switch_text, stat=stat)
+      if (allocated(switch_text)) then
+        select case (trim(switch_text))
+        case ('off', 'auto')
+          authoring%periodic2%upper_fourier_switch = switch_text
+        case default
+          call stop_config_error('fields.periodic.upper_fourier.switch_height must be off, auto, or a height in metres.')
+        end select
+      else
+        call get_toml_real(table, keys(ikey), authoring%periodic2%upper_fourier_switch_height, &
+                           'fields.periodic.upper_fourier.switch_height')
+        authoring%periodic2%upper_fourier_switch = 'height'
+      end if
+    case ('upper_fourier_mode_layers')
+      call get_toml_int(table, keys(ikey), authoring%periodic2%upper_fourier_mode_layers, &
+                        'fields.periodic.upper_fourier.mode_layers')
     case ('reference_mode_layers')
       call get_toml_int( &
         table, keys(ikey), authoring%periodic2%reference_mode_layers, 'fields.periodic.reference.mode_layers' &

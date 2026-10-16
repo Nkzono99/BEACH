@@ -86,12 +86,13 @@ contains
     end do
   end subroutine build_periodic_nonzero_upper_vacuum_plan
 
-  subroutine eval_periodic_nonzero_upper_vacuum(self, charge, target, potential, field, status)
+  subroutine eval_periodic_nonzero_upper_vacuum(self, charge, target, potential, field, status, mode_layers)
     class(periodic_nonzero_upper_vacuum_plan_type), intent(in) :: self
     real(dp), intent(in) :: charge(:)
     real(dp), intent(in) :: target(3)
     real(dp), intent(out) :: potential, field(3)
     integer(i32), intent(out) :: status
+    integer(i32), intent(in), optional :: mode_layers
     real(dp) :: area_xy, coefficient, cosine_phase, sine_phase, target_decay
     real(dp) :: mode_real, mode_imag, source_real, source_imag, target_phase
     integer(i32) :: mode
@@ -109,6 +110,10 @@ contains
     area_xy = self%length_x*self%length_y
     coefficient = 1.0_dp/(2.0_dp*eps0*area_xy)
     do mode = 1, self%nmode
+      if (present(mode_layers)) then
+        if (abs(self%kx(mode)) > 2.0_dp*pi*(real(mode_layers, dp) + 0.5_dp)/self%length_x .or. &
+            abs(self%ky(mode)) > 2.0_dp*pi*(real(mode_layers, dp) + 0.5_dp)/self%length_y) cycle
+      end if
       source_real = dot_product(charge, self%panel_moment_real(:, mode))
       source_imag = dot_product(charge, self%panel_moment_imag(:, mode))
       target_phase = self%kx(mode)*target(1) + self%ky(mode)*target(2)

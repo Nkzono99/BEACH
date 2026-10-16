@@ -86,6 +86,9 @@ module bem_types
     logical :: matching_plane_state_valid = .false.
     real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
     real(dp) :: matching_plane_phi_v = 0.0_dp
+    ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
+    real(dp) :: surface_current_top_field_v_m = 0.0_dp
+    real(dp) :: matching_plane_top_cell_mean_v_m = 0.0_dp
     real(dp) :: matching_plane_response(6) = 0.0_dp
     real(dp) :: matching_plane_feedback(4) = 0.0_dp
     real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp

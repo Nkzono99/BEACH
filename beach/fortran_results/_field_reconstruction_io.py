@@ -190,6 +190,22 @@ def _parse_field_reconstruction_receipt(
         data["field_reconstruction_periodic_generation_tolerance"],
         key="field_reconstruction_periodic_generation_tolerance",
     )
+    # Released v2 receipts predate the optional switch fields; keep them readable.
+    switch_active = _parse_required_bool(
+        data.get("field_reconstruction_upper_fourier_switch_active", "F"),
+        key="field_reconstruction_upper_fourier_switch_active",
+    )
+    switch_height = float(data.get("field_reconstruction_upper_fourier_switch_height_m", "0"))
+    switch_layers = _parse_nonnegative_int(
+        data.get("field_reconstruction_upper_fourier_switch_mode_layers", "0"),
+        key="field_reconstruction_upper_fourier_switch_mode_layers")
+    if not np.isfinite(switch_height) or switch_layers > 32:
+        raise ValueError("summary.txt upper Fourier switch height/mode layers are invalid.")
+    if switch_active and (
+        periodic_nonzero_mode_backend != "cached_kneq0" or switch_layers < 1
+        or not box_min_m[2] < switch_height < box_max_m[2]
+    ):
+        raise ValueError("summary.txt active upper Fourier switch requires cached_kneq0 and a height inside the box.")
     return FieldReconstructionReceipt(
         schema_version=schema_version,
         resolved_field_solver=resolved_field_solver,
@@ -217,6 +233,9 @@ def _parse_field_reconstruction_receipt(
         periodic_ewald_layers=periodic_ewald_layers,
         periodic_cache_dir=periodic_cache_dir,
         periodic_generation_tolerance=periodic_generation_tolerance,
+        upper_fourier_switch_active=switch_active,
+        upper_fourier_switch_height_m=switch_height,
+        upper_fourier_switch_mode_layers=switch_layers,
     )
 
 
@@ -255,6 +274,7 @@ def _validate_periodic_reconstruction_model(
         if zero_mode_policy != "exclude_k0" or lower_boundary_model not in {
             "e_bottom_zero",
             "symmetric_vacuum",
+            "e_top_from_sheath",
         }:
             raise ValueError(
                 "summary.txt split-periodic reconstruction has an incompatible "

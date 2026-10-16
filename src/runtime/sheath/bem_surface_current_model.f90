@@ -9,7 +9,8 @@ module bem_surface_current_model
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use sheath_model, only: fixed_entry_equilibrium_input, sheath_equilibrium_result, sheath_solver, &
-                          maxwellian_photoelectrons, binned_photoelectrons, SHEATH_OK
+                          maxwellian_photoelectrons, binned_photoelectrons, SHEATH_OK, &
+                          sheath_state_result, evaluate_sheath_state
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -156,7 +157,9 @@ contains
         error stop 'sheath.photoelectrons.source_scale=0 requires sheath.zhao.branch="auto" or "c".'
       end select
     end if
-    call solve_outer_root(app, source_density_m3, source_temperature_ev, order, root, success, message, cell=cell)
+    call solve_outer_root( &
+      app, source_density_m3, source_temperature_ev, order, root, result%top_field_v_m, success, message, cell=cell &
+      )
     if (.not. success) error stop 'Zhao stationary surface-current root solve failed: '//trim(message)
     call finish_zhao_closure(app, root, source_density_m3, source_temperature_ev, result, success, message, cell=cell)
     if (.not. success) error stop 'Zhao stationary '//trim(message)
@@ -215,7 +218,7 @@ contains
     ! 外部根の更新では表面の太陽高度ではなく、前回のbranchを優先して連続性を保つ。
     call outer_branch_order(app, preferred_branch, 90.0_dp, order)
     call solve_outer_root( &
-      app, outer_density_m3, outer_mean_energy_ev, order, root, success, root_message, previous=previous, &
+      app, outer_density_m3, outer_mean_energy_ev, order, root, result%top_field_v_m, success, root_message, previous=previous, &
       spectrum_m2_s=outer_spectrum_m2_s, cell=active_cell &
       )
     if (.not. success) then
@@ -289,12 +292,13 @@ contains
   !! はるかに小さく、根への影響は 0.1 mV 以下である。内向きdriftのある電子で反射集団を持つA/Cは
   !! 無限遠へ接続できず、upstream_band_tolerance と upstream_field_floor_v_m が共に 0 なら sheath-model が棄却する。
   subroutine solve_outer_root( &
-    app, source_density_m3, source_temperature_ev, order, root, success, message, previous, spectrum_m2_s, cell &
+    app, source_density_m3, source_temperature_ev, order, root, top_field_v_m, success, message, previous, spectrum_m2_s, cell &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: source_density_m3, source_temperature_ev
     character(len=1), intent(in) :: order(:)
     type(sheath_equilibrium_result), intent(out) :: root
+    real(dp), intent(out) :: top_field_v_m
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
     type(surface_current_model_result_type), intent(in), optional :: previous
@@ -303,6 +307,7 @@ contains
     type(irradiation_cell_contract_type), intent(in) :: cell
     type(fixed_entry_equilibrium_input) :: input
     type(sheath_solver) :: solver
+    type(sheath_state_result) :: state
     type(sheath_equilibrium_result) :: guesses(1)
     character(len=256) :: attempt_message
     integer(i32) :: electron_idx, ion_idx, status
@@ -311,6 +316,7 @@ contains
     real(dp) :: edges(outflow_spectrum_bins + 1)
 
     success = .false.
+    top_field_v_m = 0.0_dp
     message = ''
     electron_idx = species_index(app, app%surface_current%electron_species)
     ion_idx = species_index(app, app%surface_current%ion_species)
@@ -359,6 +365,17 @@ contains
         call solver%solve_equilibrium(input, root, status, attempt_message)
       end if
       if (status == SHEATH_OK .and. root%valid) then
+        if (root%branch == 'A') then
+          call evaluate_sheath_state(input%plasma, root%branch, root%surface_potential_v, state, status, &
+                                     attempt_message, minimum_potential_v=root%minimum_potential_v)
+        else
+          call evaluate_sheath_state(input%plasma, root%branch, root%surface_potential_v, state, status, attempt_message)
+        end if
+        if (status /= SHEATH_OK .or. .not. ieee_is_finite(state%electric_field_v_m)) then
+          message = 'Outer root has no finite electric field: '//trim(attempt_message)
+          return
+        end if
+        top_field_v_m = state%electric_field_v_m
         success = .true.
         message = ''
         return

@@ -41,6 +41,9 @@ solver間の速度差は要素数だけでなく、
 `periodic2` では `[domain]` の box、`periodic_axes=["x", "y"]`、非周期 z 軸が必要です。
 Direct split reference は小規模な基準解・検証用であり、通常の periodic2 production 経路は FMM です。
 
+上端 H 近傍の局所展開誤差は、[上部真空の Fourier 切替](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)で回避できます。
+`fields.periodic.upper_fourier.switch_height="auto"` は上部真空の非零成分を Fourier 評価へ切り替えます。
+
 ## domain topology と field boundary を分ける
 
 ```toml

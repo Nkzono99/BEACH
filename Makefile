@@ -94,6 +94,7 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
 	test_periodic_shell_mean \
+	test_upper_fourier_switch \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
 	test_periodic_nonzero_reference \
