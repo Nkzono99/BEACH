@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from ._cache import default_periodic_cache_dir
 from .config import ConfigError, normalize_high_level_config
 from .config._toml import load_toml_file
 from .config._layout import to_runtime_layout
@@ -26,7 +27,7 @@ DEFAULT_SIM: dict[str, Any] = {
     "field_periodic_far_correction": "none",
     "field_periodic_ewald_alpha": 0.0,
     "field_periodic_ewald_layers": 4,
-    "field_periodic_cache_dir": ".beach_cache/periodic2",
+    "field_periodic_cache_dir": "",
     "field_periodic_generation_tolerance": 1.0e-8,
     "tree_theta": 0.5,
     "tree_leaf_max": 16,
@@ -755,6 +756,7 @@ def estimate_workload(
     species_list_raw = particles_raw["species"]
 
     sim_cfg = dict(DEFAULT_SIM)
+    sim_cfg["field_periodic_cache_dir"] = default_periodic_cache_dir()
     sim_cfg.update(sim_raw)
     if isinstance(domain_raw, dict):
         sim_cfg["use_box"] = True

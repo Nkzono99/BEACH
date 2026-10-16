@@ -364,6 +364,7 @@ $$
 ```text
 build_plan(src_pos, options):
   initialize_basis_tables(order)
+  precompute_periodic_source_grid()  # cached_kneq0 の box 固定セルと P2M 基底
   build_source_tree(src_pos)
   precompute_source_p2m_basis()
   build_target_topology(target_box)
@@ -492,11 +493,11 @@ real-spaceとreciprocal-spaceの打切り深さは、`fields.periodic.image_laye
 
 Ewald2Pはruntime particle kernelではなく、`cached_kneq0`を作るための
 build-time teacherです。teacherはproxy monopoleに適用されます。
-その結果を、source節点のmultipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
+その結果を、box 固定セルの multipoleからlocal展開へのoperatorとしてfitします。実三角形の近傍評価には解析panel kernel、
 遠方source表現にはtriangle-averaged P2Mを引き続き使います。
 
 $\alpha$はreal-spaceとreciprocal-spaceの収束を配分する数値パラメータで、Debye遮蔽を表しません。
-この分割をruntimeの場評価へ組み込む流れは、periodic2遠方補正の説明にまとめています。[<sup>1</sup>](PeriodicFarCorrection.md#ewald2pをruntime-kernelではなくteacherとして使う)
+この分割をruntimeの場評価へ組み込む流れは、periodic2遠方補正の説明にまとめています。[<sup>1</sup>](PeriodicFarCorrection.md#面平均を分離する)
 
 #### 8.2.1 記法
 
@@ -637,7 +638,7 @@ $$
 を自動選択します。`min(L_1,L_2)\le 0` なら `alpha = 0` としてoperator生成を無効化します。
 また内部では `kmax = max(1, fields.periodic.ewald_layers)` として逆空間の有限和を作ります。
 
-`cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、source節点のmultipoleから
+`cached_kneq0`のcold buildはcheck pointsでEwald residualの電場と電位を評価し、box 固定セルの multipoleから
 target anchorのlocal展開へのoperatorをfitします。有限画像殻の面平均は閉じた式で分離し、fitには面平均0の残差だけを
 渡します。電場fitで決まらない定数potential係数はpotential residualから別にfitし、versioned cacheへ保存します。
 無限周期のproduction計算には`cached_kneq0`を使います（詳細は[periodic2 遠方補正](PeriodicFarCorrection.md)）。
@@ -684,10 +685,10 @@ target anchorのlocal展開へのoperatorをfitします。有限画像殻の面
 
 | 入力 | cached operator | 出力 |
 | --- | --- | --- |
-| 現在の電荷から作ったsource節点のmultipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
+| 現在の電荷から作ったbox 固定セルの multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
 
-cacheが保存するのは、固定geometryに対してsource multipoleを遠方local展開へ写す行列です。
-電場値、粒子位置、電荷履歴は保存しません。このため、batchごとに電荷が変わっても同じ行列を再利用できます。
+cache が保存するのは、box 固定格子の source multipole を遠方 local 展開へ写す行列です。
+電場値、粒子位置、電荷履歴は保存しません。同じ box と設定なら、電荷更新やメッシュの変更後も同じ行列を再利用できます。
 
 #### 1回のfield評価で何を足すか
 

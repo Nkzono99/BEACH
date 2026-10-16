@@ -1,9 +1,13 @@
 !> periodic2 の cached_kneq0 が µm 単位の形状で長さの尺度に従い、k≠0 成分に面平均を漏らさないことを確かめる。
 program test_periodic2_length_scale
   use bem_kinds, only: dp, i32
+  use bem_constants, only: k_coulomb, eps0
+  use bem_types, only: mesh_type
+  use bem_mesh, only: init_mesh
+  use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, &
-                                  build_plan, update_state, eval_points, eval_potential_points, &
+                                  build_plan, build_panel_plan, update_state, eval_points, eval_potential_points, &
                                   destroy_plan, destroy_state
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_allclose_1d, assert_true, &
                           delete_file_if_exists, remove_empty_directory
@@ -42,7 +46,7 @@ program test_periodic2_length_scale
   ! Scaling is independent of the operator partition; the root multipole keeps this case quick.
   options%periodic_operator_source_depth = 0_i32
   options%periodic_operator_target_depth = 1_i32
-  call test_init(2)
+  call test_init(3)
   call test_begin('periodic Coulomb field obeys its physical length scaling')
   do case_idx = 1, 2
     length = 1.0_dp
@@ -81,18 +85,83 @@ program test_periodic2_length_scale
   call test_begin('uniform sheet leaves no plane mean in the nonzero modes')
   ! A uniform sheet has no k/=0 content, so the cached_kneq0 potential must average to zero on every plane.
   ! Uncharged points stretch the source tree over a particle-bed height, as in a regolith cell. A single
-  ! root multipole then left a leak of about 1e-2; the analytic shell mean and the source-node partition of
+  ! root multipole then left a leak of about 1e-2; the analytic shell mean and the box-cell partition of
   ! the far correction remove it with one image layer.
   options%leaf_max = 8_i32
   options%periodic_operator_source_depth = -1_i32
   options%periodic_operator_target_depth = -1_i32
   call check_uniform_sheet_leak(1_i32, 2.0e-4_dp)
   call test_end()
+  call check_panel_vacuum_reference()
   call remove_empty_directory(cache_dir)
   call test_summary()
   call mpi_shutdown(mpi)
 
 contains
+
+  subroutine check_panel_vacuum_reference()
+    type(mesh_type) :: mesh
+    type(fmm_options_type) :: config
+    integer(i32), parameter :: side = 8_i32, n = side*side
+    real(dp) :: a(3, 2), b(3, 2), c(3, 2), q(2), points(3, n), fields(3, n), potentials(n)
+    real(dp) :: reference_phi, reference_e(3), errors(n), horizontal(n), mean_error, rms_error, field_error
+    real(dp) :: z, scale
+    integer(i32) :: i, j, k, idx
+
+    call test_begin('box_panel_operator_independent_fourier_vacuum')
+    config = options
+    ! Isolate the far operator: use direct finite images instead of ordinary FMM truncation in this two-panel oracle.
+    config%theta = 0.01_dp
+    config%leaf_max = 1_i32
+    config%periodic_operator_source_depth = -1_i32
+    config%periodic_operator_target_depth = -1_i32
+    config%periodic_len = 1.0_dp
+    config%target_box_min = 0.0_dp
+    config%target_box_max = 1.0_dp
+    a(:, 1) = [0.19_dp, 0.21_dp, 0.15_dp]
+    b(:, 1) = [0.29_dp, 0.21_dp, 0.15_dp]
+    c(:, 1) = [0.19_dp, 0.31_dp, 0.18_dp]
+    a(:, 2) = [0.61_dp, 0.63_dp, 0.27_dp]
+    b(:, 2) = [0.71_dp, 0.63_dp, 0.30_dp]
+    c(:, 2) = [0.61_dp, 0.73_dp, 0.30_dp]
+    q = [1.0e-12_dp, -0.4e-12_dp]
+    call init_mesh(mesh, a, b, c, q0=q)
+    call build_panel_plan(plan, a, b, c, config)
+    cache_path = plan%periodic_cache_path
+    call update_state(plan, state, q)
+    scale = sum(abs(q))/eps0
+    do k = 1_i32, 3_i32
+      z = 0.3_dp + 0.2_dp*real(k, dp)
+      idx = 0_i32
+      do j = 1_i32, side
+        do i = 1_i32, side
+          idx = idx + 1_i32
+          points(:, idx) = [(real(i, dp) - 0.5_dp)/side, (real(j, dp) - 0.5_dp)/side, z]
+        end do
+      end do
+      call eval_points(plan, state, points, fields)
+      call eval_potential_points(plan, state, points, potentials)
+      do idx = 1_i32, n
+        call eval_periodic_nonzero_panel_reference(mesh, points(:, idx), 1.0_dp, 1.0_dp, 12_i32, 16_i32, &
+                                                   reference_phi, reference_e)
+        errors(idx) = k_coulomb*potentials(idx) - reference_phi
+        horizontal(idx) = sum((k_coulomb*fields(1:2, idx) - reference_e(1:2))**2)
+      end do
+      mean_error = sum(errors)/real(n, dp)
+      rms_error = sqrt(sum((errors - mean_error)**2)/real(n, dp))
+      field_error = sqrt(sum(horizontal)/real(n, dp))
+      write (*, '(a,f4.2,a,3(es14.6,1x))') 'panel vacuum z=', z, ' mean_V,lateral_rms_V,horizontal_rms_V_m=', &
+        mean_error, rms_error, field_error
+      call assert_true(abs(mean_error)/scale < 3.0e-5_dp, 'vacuum mean potential leakage')
+      call assert_true(rms_error/scale < 5.0e-5_dp, 'vacuum lateral potential error')
+      call assert_true(field_error/scale < 5.0e-4_dp, 'vacuum horizontal field error')
+    end do
+    call destroy_state(state)
+    call destroy_plan(plan)
+    call delete_file_if_exists(cache_path)
+    call delete_file_if_exists(trim(cache_path)//'.lock')
+    call test_end()
+  end subroutine check_panel_vacuum_reference
 
   !> Plane means of the k/=0 potential of a 1 pC point-charge sheet, relative to the sheet scale sigma*L/(2 eps0).
   !! The core works in raw 1/r units, where that scale is 2*pi*sigma*L. A negative bound only reports the leak.

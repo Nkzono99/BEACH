@@ -19,6 +19,7 @@ submodule(bem_output_writer) bem_output_writer_summary
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
   use bem_version, only: beach_build_id, beach_source_commit, beach_version, beach_version_mode
+  use bem_filesystem, only: default_periodic_cache_directory
   use bem_string_utils, only: lower_ascii
   implicit none
 contains
@@ -34,6 +35,7 @@ contains
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
   character(len=1024) :: summary_path
+  character(len=256) :: periodic_cache_dir
   character(len=256) :: boundary_message
   character(len=16) :: resolved_field_solver
   integer :: u, ios, s
@@ -165,7 +167,9 @@ contains
     cfg%periodic2%panel_quadrature_order
   write (u, '(a,es24.16)') 'field_reconstruction_periodic_ewald_alpha=', cfg%sim%field_periodic_ewald_alpha
   write (u, '(a,i0)') 'field_reconstruction_periodic_ewald_layers=', cfg%sim%field_periodic_ewald_layers
-  write (u, '(a,a)') 'field_reconstruction_periodic_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
+  periodic_cache_dir = cfg%sim%field_periodic_cache_dir
+  if (len_trim(periodic_cache_dir) == 0) periodic_cache_dir = default_periodic_cache_directory(missing_ok=.true.)
+  write (u, '(a,a)') 'field_reconstruction_periodic_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'field_reconstruction_periodic_generation_tolerance=', &
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'periodic2_nonzero_mode_backend=', trim(cfg%periodic2%nonzero_mode_backend)
@@ -173,7 +177,7 @@ contains
   write (u, '(a,a)') 'periodic2_lower_boundary_model=', trim(cell%lower_boundary_model)
   write (u, '(a,es24.16)') 'periodic2_max_nonzero_mode_potential_step_V=', &
     cfg%periodic2%max_nonzero_mode_potential_step
-  write (u, '(a,a)') 'periodic2_cache_dir=', trim(cfg%sim%field_periodic_cache_dir)
+  write (u, '(a,a)') 'periodic2_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))

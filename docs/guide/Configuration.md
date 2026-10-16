@@ -36,6 +36,10 @@ beach beach.toml
 `box_origin` / `box_size`、`source.region_mode`、`mesh.groups`なども通常のTOML keyとして直接書けます。
 これらがどの座標・寸法を計算し、明示値を置き換えるかは[座標・配置の補助パラメータ](../reference/Parameters.md#座標配置の補助パラメータ)を確認してください。
 
+`fields.periodic.cache_dir` を省略すると、`$BEACH_CACHE_DIR/periodic2`、
+`$XDG_CACHE_HOME/beach/periodic2`、`$HOME/.cache/beach/periodic2` の順で演算子の保存先を決めます。
+明示したパスの優先順位と再利用条件は [periodic2 遠方補正](../developer/PeriodicFarCorrection.md#設定と保存先)を参照してください。
+
 ## 2. コマンド
 
 ### 2.1 `init`

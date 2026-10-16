@@ -321,7 +321,8 @@ program test_output_writer_io
     saw_field_reconstruction(21) = saw_field_reconstruction(21) .or. &
                                    trim(line) == 'field_reconstruction_periodic_ewald_layers=4'
     saw_field_reconstruction(22) = saw_field_reconstruction(22) .or. &
-                                   trim(line) == 'field_reconstruction_periodic_cache_dir=.beach_cache/periodic2'
+                                   trim(line) == &
+                                   'field_reconstruction_periodic_cache_dir='//trim(cfg%sim%field_periodic_cache_dir)
     saw_field_reconstruction(23) = saw_field_reconstruction(23) .or. &
                                    index(line, 'field_reconstruction_periodic_generation_tolerance=') == 1
   end do

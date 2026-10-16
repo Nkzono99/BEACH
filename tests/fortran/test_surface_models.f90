@@ -259,8 +259,9 @@ contains
     v1(:, 2) = [0.50_dp, 0.50_dp, 0.25_dp]
     v2(:, 2) = [0.20_dp, 0.50_dp, 0.25_dp]
     v0(:, 3) = [0.10_dp, 0.30_dp, 0.65_dp]
-    v1(:, 3) = [0.50_dp, 0.30_dp, 0.65_dp]
-    v2(:, 3) = [0.10_dp, 0.60_dp, 0.65_dp]
+    ! Keep the charged panel inside its fixed box-cell proxy envelope.
+    v1(:, 3) = [0.30_dp, 0.30_dp, 0.65_dp]
+    v2(:, 3) = [0.10_dp, 0.45_dp, 0.65_dp]
     q0 = [1.0e-12_dp, 0.0_dp, 2.0e-12_dp]
     mesh_ids = [1_i32, 1_i32, 2_i32]
     surface_models = [surface_model_conductor, surface_model_conductor, surface_model_insulator]

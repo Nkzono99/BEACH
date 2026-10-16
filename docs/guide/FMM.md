@@ -72,6 +72,11 @@ box は `box_min` と `box_max`、または `box_origin` と正の `box_size` �
 free 場で範囲外の点を評価すると、BEACH は全要素の Direct 和へ fallback します。結果は得られますが、頻発すると
 FMM の速度上の利点が失われます。`cached_kneq0` を使う periodic2 計算では範囲外 target を受理しません。
 
+`cached_kneq0` の遠方演算子は box の固定格子を使い、同じ box と設定なら物体集合が違っても再利用できます。
+保存先は `fields.periodic.cache_dir` の明示指定を優先し、省略時は `$BEACH_CACHE_DIR/periodic2`、
+`$XDG_CACHE_HOME/beach/periodic2`、`$HOME/.cache/beach/periodic2` の順で決めます。
+メッシュの殻への収容条件と事前生成は [periodic2 遠方補正](../developer/PeriodicFarCorrection.md)を参照してください。
+
 ## 精度を調整する
 
 最初は `fields.solver.tree.theta` と `fields.solver.tree.leaf_max` を省略し、要素数から解決される値を基準にします。

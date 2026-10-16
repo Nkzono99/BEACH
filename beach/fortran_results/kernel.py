@@ -12,6 +12,8 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from beach._cache import default_periodic_cache_dir
+
 from ._numeric import _vec3
 
 from .context import RunContext, load_config_for_output
@@ -64,7 +66,7 @@ class FieldKernelOptions:
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
     external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    periodic_cache_dir: str = ".beach_cache/periodic2"
+    periodic_cache_dir: str | None = None
     periodic_generation_tolerance: float = 1.0e-8
     resolved_field_solver: str = "fmm"
 
@@ -443,7 +445,11 @@ class FieldKernel:
             return
 
         try:
-            path_bytes = str(opts.periodic_cache_dir).encode("utf-8")
+            path_bytes = (
+                default_periodic_cache_dir()
+                if opts.periodic_cache_dir is None
+                else str(opts.periodic_cache_dir)
+            ).encode("utf-8")
         except UnicodeEncodeError as exc:
             raise ValueError("periodic_cache_dir must be valid UTF-8.") from exc
         path_buffer = ctypes.create_string_buffer(path_bytes)
@@ -953,7 +959,7 @@ def _options_from_result(
         box_min=box_min,
         box_max=box_max,
         periodic_cache_dir=str(
-            (sim or {}).get("field_periodic_cache_dir", ".beach_cache/periodic2")
+            (sim or {}).get("field_periodic_cache_dir") or default_periodic_cache_dir()
         ),
         periodic_generation_tolerance=float(
             (sim or {}).get("field_periodic_generation_tolerance", 1.0e-8)

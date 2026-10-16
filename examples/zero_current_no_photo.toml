@@ -105,7 +105,7 @@ method = "fmm"
 [fields.periodic]
 image_layers = 1
 ewald_layers = 4
-cache_dir = ".beach_cache/periodic2"
+# cache_dir may override the shared user cache (BEACH_CACHE_DIR, XDG_CACHE_HOME, HOME).
 lower_boundary_model = "e_bottom_zero"
 backend = "cached_kneq0"
 

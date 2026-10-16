@@ -713,8 +713,7 @@
         "field_periodic_cache_dir": {
           "type": "string",
           "maxLength": 256,
-          "default": ".beach_cache/periodic2",
-          "description": "Directory for versioned cached_kneq0 operators."
+          "description": "Directory for versioned cached_kneq0 operators. If omitted: BEACH_CACHE_DIR/periodic2, else XDG_CACHE_HOME/beach/periodic2, else HOME/.cache/beach/periodic2. Explicit paths take precedence."
         },
         "field_periodic_generation_tolerance": {
           "type": "number",
@@ -2122,8 +2121,7 @@
                 "cache_dir": {
                   "type": "string",
                   "maxLength": 256,
-                  "default": ".beach_cache/periodic2",
-                  "description": "Directory for versioned cached_kneq0 operators."
+                  "description": "Directory for versioned cached_kneq0 operators. If omitted: BEACH_CACHE_DIR/periodic2, else XDG_CACHE_HOME/beach/periodic2, else HOME/.cache/beach/periodic2. Explicit paths take precedence."
                 },
                 "generation_tolerance": {
                   "type": "number",

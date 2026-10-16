@@ -1,6 +1,8 @@
 program test_periodic2_operator_cache
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, build_plan, destroy_plan
+  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, build_panel_plan, &
+                                  update_state, destroy_state, destroy_plan
+  use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
   use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           remove_empty_directory
   implicit none
@@ -64,10 +66,91 @@ program test_periodic2_operator_cache
   call destroy_plan(rebuilt_plan)
   call destroy_plan(recovered_plan)
   call delete_cache(cache_path)
+  call check_box_mesh_reuse_and_translations()
+  call check_zero_root_moments()
   call remove_empty_directory(cache_dir)
   call test_summary()
 
 contains
+
+  subroutine check_box_mesh_reuse_and_translations()
+    type(fmm_plan_type) :: first, second
+    type(fmm_options_type) :: config
+    real(dp) :: a(3, 3), b(3, 3), c(3, 3), center(3)
+    real(dp), allocatable :: shared(:, :, :)
+    integer(i32) :: idx, shared_count
+    character(len=512) :: path
+
+    config = options
+    config%periodic_operator_source_depth = 1_i32
+    config%periodic_operator_target_depth = 1_i32
+    do idx = 1_i32, 3_i32
+      center = src_pos(:, idx)
+      a(:, idx) = center + [-0.02_dp, -0.01_dp, 0.0_dp]
+      b(:, idx) = center + [0.02_dp, -0.01_dp, 0.0_dp]
+      c(:, idx) = center + [0.0_dp, 0.02_dp, 0.0_dp]
+    end do
+    call test_begin('box_operator_reused_by_different_panel_mesh')
+    call build_panel_plan(first, a(:, 1:2), b(:, 1:2), c(:, 1:2), config)
+    path = first%periodic_cache_path
+    config%leaf_max = 1_i32
+    call build_panel_plan(second, a, b, c, config)
+    call assert_true(second%periodic_cache_hit, 'different panel mesh must hit the box cache')
+    call assert_true(first%periodic_cache_fingerprint == second%periodic_cache_fingerprint, &
+                     'mesh and adaptive topology must not affect the fingerprint')
+    call assert_equal_i32(second%periodic_root_source_count, 8_i32, 'empty source cells must be retained')
+    call assert_true(maxval(abs(first%periodic_root_operator - second%periodic_root_operator)) == 0.0_dp, &
+                     'cache load must preserve box-cell operator ordering')
+    do idx = 1_i32, second%periodic_root_target_count, second%periodic_root_source_count
+      call assert_equal_i32(second%target_node_depth(second%periodic_root_target_nodes(idx)), 1_i32, &
+                            'cached box target IDs must be remapped to the current adaptive tree')
+    end do
+    call test_end()
+
+    call test_begin('shared_translations_and_reflections_match_every_pair')
+    shared = first%periodic_root_operator
+    shared_count = first%periodic_operator_class_count
+    call precompute_periodic_root_operator(first, reuse_translations=.false.)
+    call assert_true(shared_count < first%periodic_operator_class_count, 'shared path must reduce Ewald classes')
+    call assert_true(maxval(abs(shared - first%periodic_root_operator)) < &
+                     5.0e-12_dp*max(1.0_dp, maxval(abs(shared))), 'class sharing must agree within rounding error')
+    write (*, '(a,es12.5)') 'shared/direct operator max difference=', &
+      maxval(abs(shared - first%periodic_root_operator))
+    call test_end()
+    call destroy_plan(first)
+    call destroy_plan(second)
+    call delete_cache(path)
+  end subroutine check_box_mesh_reuse_and_translations
+
+  subroutine check_zero_root_moments()
+    type(fmm_options_type) :: config
+    type(fmm_plan_type) :: neutral
+    type(fmm_state_type) :: state
+    real(dp) :: positions(3, 4), charge(4)
+    character(len=512) :: path
+
+    call test_begin('zero_global_moments_do_not_disable_box_cell_correction')
+    config = options
+    config%order = 1_i32
+    config%leaf_max = 8_i32
+    config%periodic_operator_source_depth = 1_i32
+    config%periodic_operator_target_depth = 1_i32
+    positions(:, 1) = [0.25_dp, 0.25_dp, 0.0_dp]
+    positions(:, 2) = [0.75_dp, 0.25_dp, 0.0_dp]
+    positions(:, 3) = [0.25_dp, 0.75_dp, 0.0_dp]
+    positions(:, 4) = [0.75_dp, 0.75_dp, 0.0_dp]
+    charge = [1.0_dp, -1.0_dp, -1.0_dp, 1.0_dp]
+    call build_plan(neutral, positions, config)
+    path = neutral%periodic_cache_path
+    call update_state(neutral, state, charge)
+    ! Analytic checkerboard: monopole and dipole vanish exactly; its quadrupole field remains.
+    call assert_true(all(state%multipole(:, 1) == 0.0_dp), 'checkerboard global monopole and dipole must vanish')
+    call assert_true(any(abs(state%local) > 1.0e-12_dp), 'nonzero cell moments must still produce a far local field')
+    call destroy_state(state)
+    call destroy_plan(neutral)
+    call delete_cache(path)
+    call test_end()
+  end subroutine check_zero_root_moments
 
   subroutine delete_cache(path)
     character(len=*), intent(in) :: path

@@ -248,8 +248,8 @@ contains
     real(dp) :: full_trial_charge(2)
     real(dp) :: full_potential_step, potential_limit
     real(dp), parameter :: maximum_duration = 1.0e-3_dp
-    real(dp), parameter :: opening_low = 0.20_dp
-    real(dp), parameter :: opening_high = 0.25_dp
+    real(dp), parameter :: opening_low = 0.13_dp
+    real(dp), parameter :: opening_high = 0.16_dp
     real(dp), parameter :: emit_current_density = 1.0e-6_dp
     real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
     integer(i32) :: actual_team_size
@@ -588,6 +588,9 @@ contains
     a(:, 2) = [0.45_dp, 0.45_dp, 0.65_dp]
     b(:, 2) = [0.90_dp, 0.45_dp, 0.65_dp]
     c(:, 2) = [0.90_dp, 0.90_dp, 0.65_dp]
+    ! Resolve the two-panel fixture inside the box-cell proxy envelope.
+    b = a + 0.45_dp*(b - a)
+    c = a + 0.45_dp*(c - a)
     call init_mesh(mesh_out, a, b, c, q0=[1.0e-12_dp, 2.0e-12_dp])
     mesh_out%elem_vacuum_sign = 1_i32
     mesh_out%vacuum_normals = mesh_out%normals

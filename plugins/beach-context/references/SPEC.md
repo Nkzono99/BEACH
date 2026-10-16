@@ -148,8 +148,12 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
 
-`cached_kneq0` の遠方補正は、線源の木の深さ 2 の節点ごとの multipole から深さ 2 の target anchor の local 展開への
-operator を当てはめます。有限画像殻の面平均は無限面電荷の平均場と滑らかな残り $s$ の和で、$s$ は閉じた式で
+`cached_kneq0` の遠方補正は、周期 box の全固定セルの multipole から box 固定の target anchor の local 展開への
+operator を当てはめます。セルの深さは box の半対角線と周期長から選び、空セルも保持します。
+要素重心をセルへ割り当て、セル中心への三角形 P2M を電荷更新ごとに集計します。
+生成器 v11 は相対オフセットと鏡映対称性で Ewald 評価を共有し、mesh に依存しない fingerprint を使います。
+保存先は明示指定を優先し、省略時は `BEACH_CACHE_DIR`、`XDG_CACHE_HOME`、`HOME` から解決します。
+有限画像殻の面平均は無限面電荷の平均場と滑らかな残り $s$ の和で、$s$ は閉じた式で
 求めて線源ごとの高さの表から実行時に引き、operator には面平均 0 の残差だけを当てはめます。こうして非零 mode の
 面平均を 0 に保ちます。
 

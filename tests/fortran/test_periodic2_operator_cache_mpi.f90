@@ -2,7 +2,7 @@ program test_periodic2_operator_cache_mpi
   use bem_kinds, only: dp, i32
   use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, &
                      mpi_bcast_i32_array, mpi_allreduce_sum_i32_scalar, mpi_allreduce_min_real_dp_array, &
-                     mpi_allreduce_max_real_dp_array, mpi_world_barrier
+                     mpi_allreduce_max_real_dp_array, mpi_allreduce_sum_real_dp_array, mpi_world_barrier
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, build_plan, destroy_plan
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_allclose_1d, delete_file_if_exists, remove_empty_directory
@@ -11,7 +11,7 @@ program test_periodic2_operator_cache_mpi
   type(mpi_context) :: mpi
   type(fmm_options_type) :: options
   type(fmm_plan_type) :: cold_plan, warm_plan, rebuilt_plan
-  real(dp) :: src_pos(3, 4), local_target_min(1), local_target_max(1)
+  real(dp) :: src_pos(3, 4), local_target_min(1), local_target_max(1), ewald_per_class(1)
   integer(i32) :: global_local_target_count, cache_nonce(1)
   integer :: clock_count, unit, ios
   character(len=512) :: cache_path, cache_dir
@@ -44,11 +44,16 @@ program test_periodic2_operator_cache_mpi
     global_local_target_count, cold_plan%periodic_root_target_count, &
     'cold MPI target work must cover each target exactly once' &
     )
-  local_target_min(1) = real(cold_plan%periodic_operator_local_target_count, dp)
+  ! Each residual class has the same proxy/check cost; class counts must differ by at most one.
+  ewald_per_class(1) = real(cold_plan%periodic_operator_ewald_evaluation_count, dp)
+  call mpi_allreduce_sum_real_dp_array(mpi, ewald_per_class)
+  ewald_per_class = ewald_per_class/real(cold_plan%periodic_operator_class_count, dp)
+  local_target_min(1) = real(cold_plan%periodic_operator_ewald_evaluation_count, dp)/ewald_per_class(1)
   local_target_max = local_target_min
   call mpi_allreduce_min_real_dp_array(mpi, local_target_min)
   call mpi_allreduce_max_real_dp_array(mpi, local_target_max)
-  call assert_true(local_target_max(1) - local_target_min(1) <= 1.0_dp, 'cold MPI target work is imbalanced')
+  call assert_true(local_target_min(1) > 0.0_dp, 'each MPI rank must receive operator class work')
+  call assert_true(local_target_max(1) - local_target_min(1) <= 1.0_dp, 'MPI residual class work must be balanced')
   call test_end()
 
   call test_begin('mpi_warm_cache_broadcast')

@@ -20,7 +20,7 @@ module bem_field_kernel_c
   integer(c_int), parameter, public :: beach_kernel_abi_major = 2_c_int
   integer(c_int), parameter, public :: beach_kernel_abi_minor = 1_c_int
   integer, parameter :: periodic_cache_path_max_bytes = 256
-  character(len=*), parameter :: default_periodic_cache_dir = '.beach_cache/periodic2'
+  character(len=*), parameter :: default_periodic_cache_dir = ''
   real(dp), parameter :: default_periodic_generation_tolerance = 1.0d-8
 
   type :: field_kernel_handle

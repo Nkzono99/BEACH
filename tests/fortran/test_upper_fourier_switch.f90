@@ -29,6 +29,9 @@ program test_upper_fourier_switch
   a(:, 2) = [0.6_dp, 0.6_dp, 0.25_dp]
   b(:, 2) = [0.9_dp, 0.6_dp, 0.3_dp]
   c(:, 2) = [0.6_dp, 0.9_dp, 0.35_dp]
+  ! Resolve the two-panel fixture inside the box-cell proxy envelope.
+  b = a + 0.5_dp*(b - a)
+  c = a + 0.5_dp*(c - a)
   call init_mesh(mesh, a, b, c, q0=[1.0e-12_dp, -0.3e-12_dp], elem_mesh_id0=[1_i32, 2_i32])
   mesh%elem_vacuum_sign = 1_i32
   mesh%vacuum_normals = mesh%normals
