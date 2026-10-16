@@ -13,7 +13,7 @@ program test_surface_models
                           delete_file_if_exists, remove_empty_directory
   implicit none
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('all_insulator_mesh_leaves_the_solver_inactive')
   call test_all_insulator_mesh_leaves_the_solver_inactive()
@@ -39,9 +39,52 @@ program test_surface_models
   call test_periodic2_reference_conductor_is_translation_invariant()
   call test_end()
 
+  call test_begin('large_charged_conductor_equalizes_after_pivoting')
+  call test_large_conductor_pivot()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> 異なる面積の大きな要素と非ゼロ総電荷で、LU の途中の行交換を検証する。
+  subroutine test_large_conductor_pivot()
+    type(mesh_type) :: mesh
+    type(sim_config) :: sim
+    type(electrostatic_snapshot_type) :: snapshot
+    type(floating_conductor_solver_type) :: solver
+    real(dp) :: centers(3, 3), q0(3), phi1, phi2, v0(3, 3), v1(3, 3), v2(3, 3), half_size
+    integer(i32) :: i
+    integer(i32) :: mesh_ids(3), surface_models(3)
+
+    centers(:, 1) = [0.0d0, 0.0d0, 0.0d0]
+    centers(:, 2) = [2.0d0, 0.0d0, 0.0d0]
+    centers(:, 3) = [-1.0d0, 0.0d0, 0.0d0]
+    q0 = [1.0d-10, 0.0d0, 1.0d-10]
+    mesh_ids = [1_i32, 1_i32, 2_i32]
+    surface_models = [surface_model_conductor, surface_model_conductor, surface_model_insulator]
+    centers = 100.0_dp*centers
+    do i = 1, 3
+      half_size = 5.0_dp*real(i, dp)
+      v0(:, i) = centers(:, i) + [-half_size, -half_size, 0.0_dp]
+      v1(:, i) = centers(:, i) + [half_size, 0.0_dp, 0.0_dp]
+      v2(:, i) = centers(:, i) + [0.0_dp, half_size, 0.0_dp]
+    end do
+    call init_mesh(mesh, v0, v1, v2, q0=q0, elem_mesh_id0=mesh_ids, elem_surface_model0=surface_models)
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+    call init_free_space_snapshot(mesh, [0.0d0, 0.0d0, 0.0d0], sim, snapshot)
+
+    call solver%init(mesh, sim, snapshot)
+    call assert_true(solver%active(), 'conductor mesh must activate the solver')
+    call solver%relax(mesh, sim, snapshot)
+
+    phi1 = scaled_potential_at_elem(mesh, 1_i32, [0.0d0, 0.0d0, 0.0d0])
+    phi2 = scaled_potential_at_elem(mesh, 2_i32, [0.0d0, 0.0d0, 0.0d0])
+    call assert_close_dp(mesh%q_elem(1) + mesh%q_elem(2), 1.0d-10, 1.0d-22, 'induced conductor net charge mismatch')
+    call assert_close_dp(phi1, phi2, 1.0d-20, 'conductor elements should be equipotential')
+    call assert_close_dp(mesh%q_elem(3), q0(3), 0.0d0, 'fixed insulator charge must remain unchanged')
+  end subroutine test_large_conductor_pivot
 
   subroutine test_all_insulator_mesh_leaves_the_solver_inactive()
     type(mesh_type) :: mesh

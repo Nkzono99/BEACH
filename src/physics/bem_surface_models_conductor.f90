@@ -201,6 +201,9 @@ contains
         solution(col) = solution(pivot(col))
         solution(pivot(col)) = tmp_val
       end if
+    end do
+    ! LU 分解では L の既存列も行交換されるため、右辺の置換を全て先に適用する。
+    do col = 1, n
       do row = col + 1, n
         solution(row) = solution(row) - factors(row, col)*solution(col)
       end do
