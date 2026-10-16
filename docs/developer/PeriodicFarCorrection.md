@@ -206,6 +206,22 @@ operatorが固定target topologyに対するproduction kernelだからです。
 6. 非零modeの面平均が0であることを確認する。外部シースと接続する場合は、`top_reference_history.csv`の上端面の
    平均電位が外部根の $\phi_0$ に一致する。`make test-fortran-far-correction`は一様面電荷で同じ性質を検査する。
 
+### cold build だけを先に済ませる
+
+operator の作成は target anchor を MPI rank に分配するので、本番 run より多い rank で作ると短くなる
+（三層レゴリスで 28 コア合計の 1 プロセス × 28 スレッドと 4 rank × 7 スレッドはどちらも約 30 分。anchor は最大 64 個）。
+`beach --prepare-periodic-cache beach.toml` は設定とメッシュを読み、operator を作成（または cache から読込）して
+publish したら終了する。結果ファイルや checkpoint は書かず、`[run.restart]` も無視する。
+
+```bash
+# 例: 16 rank × 7 スレッドで cache だけ作り、本番は 4 rank で走らせる
+srun -n 16 beach --prepare-periodic-cache beach.toml
+srun -n 4 beach beach.toml
+```
+
+標準出力に `periodic2_cache_hit`、`periodic2_operator_build_count`、`periodic2_cache_fingerprint`、`periodic2_cache_path` を出す。
+同じ fingerprint になる条件（box、tree の節点、展開次数、Ewald 設定、kernel）は上の fingerprint の節と同じ。
+
 長さの単位に依存しないことやcacheの再利用だけでは、弱い外部シース場と比べられる精度は保証されません。帯電した
 三層レゴリスの電荷（画像層1、展開次数4）で、層の上の真空域を直接のFourier和と比べると、非零modeの面平均は0.02 V以下、
 横方向の電位誤差は0.01〜0.03 V、電場誤差は約2×10³ V/mでした。
