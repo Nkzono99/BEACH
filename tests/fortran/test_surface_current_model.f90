@@ -10,6 +10,7 @@ program test_surface_current_model
     surface_current_model_result_type, evaluate_surface_current_model, evaluate_surface_closure, &
     solve_zhao_outflow_closure
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev, outflow_spectrum_bin
+  use sheath_model, only: log_energy_edges
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
                           assert_equal_i32
   implicit none
@@ -255,6 +256,8 @@ program test_surface_current_model
   call assert_close_dp(edges(2), 1.0e-3_dp, 1.0e-15_dp, 'second spectrum edge must be 1 meV')
   call assert_close_dp(edges(outflow_spectrum_bins + 1), 1.0e3_dp, 1.0e-9_dp, 'last spectrum edge must be 1 keV')
   call assert_true(all(edges(2:) > edges(:outflow_spectrum_bins)), 'spectrum edges must increase')
+  ! The observed spectrum becomes a sheath-model source on the library's own outflow grid.
+  call assert_true(all(edges == log_energy_edges()), 'spectrum edges must equal the sheath-model outflow grid')
   do j = 2_i32, outflow_spectrum_bins
     call assert_equal_i32( &
       outflow_spectrum_bin(sqrt(edges(j)*edges(j + 1))), j, 'bin centre must fall in its own bin' &

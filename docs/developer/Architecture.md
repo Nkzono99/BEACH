@@ -179,23 +179,26 @@ Gauss 則を積分します。非ゼロ成分を Fourier 参照計算で求め�
 ### シースと外部応答の担当
 
 `src/physics/sheath/` は境界契約を持ち、`app_config`、MPI、ファイルシステム、simulator には依存しません。
-Zhao シースの零電流根と成立条件の検査は外部ライブラリ sheath-model が担当し、設定とバッチ状態への接続は
-`src/runtime/sheath/` が担当します。
+Zhao シースの零電流根、成立条件の検査、根が z-high 面に課す条件（壁電位、電子・イオンが越える電位、
+上流の貯留部、放出電子の脱出・帰還）、観測スペクトルからの放出源の構築、更新間で引き継ぐ根は、外部ライブラリ
+sheath-model の結合 API（`sheath_matching_iteration`、`evaluate_matching_conditions`、`observed_outflow_source`）が担当します。
+粒子種との対応、面積、固定電流 target、PE と SEE の分割、summary による再開は `src/runtime/sheath/` が担当します。
 
 ```mermaid
 flowchart LR
   simulator["simulator: バッチ制御"] --> refresh["runtime/sheath: 外部根の更新"]
   simulator --> model["runtime/sheath: 設定から closure へ"]
   refresh --> model
-  model --> zhao["sheath-model（外部依存）: Zhao 零電流根と成立条件"]
+  refresh --> zhao
+  model --> zhao["sheath-model（外部依存）: 零電流根、面上の条件、外部根の更新"]
   model --> contract["physics/sheath: 境界契約"]
 ```
 
 | ディレクトリ（`src/` 以下） | ファイル | 担当 |
 | --- | --- | --- |
 | `physics/sheath/` | `bem_surface_closure_contract.f90` | simulator が受け取る電流 target、流入写像、外向き障壁、z-high 電位基準のデータ型。モデル固有の解法は持たない |
-| `runtime/sheath/` | `bem_surface_current_model.f90` | 設定から sheath-model の入力を作って成立する零電流根を求め、表面放出と外部放出源を分けて species 別の電流 target と境界写像へ変換 |
-| `runtime/sheath/` | `bem_zhao_outflow_refresh.f90` | 観測 PE 流出の窓平均で外部根を解き直し、外部状態を stats へ保存。再開時の根の再構成 |
+| `runtime/sheath/` | `bem_surface_current_model.f90` | 設定から sheath-model の上流状態と放出源を作り、外部根の面上条件を、表面放出と外部放出源を分けた species 別の電流 target と境界写像へ変換 |
+| `runtime/sheath/` | `bem_zhao_outflow_refresh.f90` | 観測 PE・SEE 流出の窓集計から外部の放出源を作って sheath-model の外部根を更新し、外部状態を stats へ保存。再開時の根の再構成 |
 
 `src/physics/bem_surface_models*.f90` は物体側の電荷再配分・導体条件などを担当し、外部シース応答とは別です。
 

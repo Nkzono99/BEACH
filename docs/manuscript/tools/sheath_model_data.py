@@ -58,7 +58,7 @@ def fluxes(root):
     gamma_e = root.ambient_electron_density_m3 * vte / (2 * math.sqrt(math.pi)) * (
         math.exp(-(b - u) ** 2) + math.sqrt(math.pi) * u * math.erfc(b - u))
     gamma_i = p.ion_density_m3 * p.ion_entry_speed_mps
-    gamma_emit = p.photoelectron_density_m3 * vtp / (2 * math.sqrt(math.pi))
+    gamma_emit = p.emission_density_m3 * vtp / (2 * math.sqrt(math.pi))
     barrier = root.surface_potential_v - root.minimum_potential_v
     gamma_esc = gamma_emit * math.exp(-barrier / p.photoelectron_temperature_ev)
     return gamma_e, gamma_i, gamma_emit, gamma_esc
@@ -88,7 +88,7 @@ def profiles(out: Path):
         root = profile.equilibrium
         d = profile.density
         columns = [profile.z_m, profile.potential_v, profile.electric_field_v_m, d.ion_m3, d.electron_free_m3,
-                   d.electron_reflected_m3, d.photoelectron_free_m3, d.photoelectron_captured_m3,
+                   d.electron_reflected_m3, d.emitted_free_m3, d.emitted_captured_m3,
                    d.charge_c_m3 / QE]
         # Keep the reconstructed nodes but thin them to about 0.1 m (plot resolution); keep both ends and
         # the potential minimum so that no feature of the solution is interpolated.
