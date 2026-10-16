@@ -7,7 +7,12 @@ runops; runops helpers are imported lazily.
 Run directory conventions (the job's working directory is the run directory):
 
 * ``input/beach.toml``: the case's ``beach.toml`` (or ``beach_template.toml``)
-  with run parameters applied and ``[output].dir`` set to ``work/latest``
+  in the grouped layout (``run``, ``domain``, ``mesh``, ``particles``, ``fields``,
+  ``sheath``, ``output``), with run parameters applied as dotted keys (e.g.
+  ``run.batch_count``) and ``[output].dir`` set to ``work/latest``
+* OBJ meshes in ``[[mesh.parts]]`` are referenced from the run directory: a
+  relative path to a file shipped with the case becomes ``input/<path>``, and
+  an absolute path is copied into ``input/``
 * ``work/latest/``: BEACH output directory (``summary.txt`` marks completion)
 
 Agent skills and references come from ``plugins/beach-context``; wheels ship
@@ -59,13 +64,31 @@ class Adapter:
         if not path.is_file():
             raise ValueError("case must contain beach.toml")
         config = toml_override(path, {**params, "output.dir": OUTPUT})
+        from beach.config._layout import is_grouped
+
+        if not is_grouped(config):
+            raise ValueError(
+                "input/beach.toml uses the pre-3.0 flat layout ([sim] ...); BEACH 3 accepts "
+                "only the grouped tables run, domain, mesh, particles, fields, sheath and "
+                "output. Start from `beachx config init` or the files in examples/."
+            )
         written = [INPUT]
-        obj = str(config.get("mesh", {}).get("obj_path", ""))
-        if obj and Path(obj).is_absolute() and Path(obj).is_file():
-            dest = run_dir / "input" / Path(obj).name
-            shutil.copy2(obj, dest)
-            toml_override(path, {"mesh.obj_path": f"input/{dest.name}"})
-            written.append(f"input/{dest.name}")
+        moves = {}
+        parts = config.get("mesh", {}).get("parts", [])
+        for index, part in enumerate(parts if isinstance(parts, list) else []):
+            if (
+                not isinstance(part, dict)
+                or part.get("kind") != "obj"
+                or not part.get("path")
+            ):
+                continue
+            new_path = _localize_obj(Path(str(part["path"])), run_dir, index)
+            if new_path is not None:
+                moves[f"mesh.parts.{index}.path"] = new_path
+                if new_path not in written:
+                    written.append(new_path)
+        if moves:
+            toml_override(path, moves)
         (run_dir / OUTPUT).mkdir(parents=True, exist_ok=True)
         return written
 
@@ -92,17 +115,15 @@ class Adapter:
 
     # ---- optional ----------------------------------------------------
     def case_template(self) -> dict[str, str]:
-        return {
-            "beach.toml": (
-                "# Base BEACH configuration. [output].dir is set by the adapter.\n"
-                "# Override values with dotted keys, e.g. --set sim.batch_count=200\n"
-                "# or --set particles.species.0.pos_low=[0.0,0.0,1.0e-3].\n"
-                "# See examples/beach.toml for a complete configuration.\n\n"
-                "[sim]\n"
-                "dt = 1.0e-6\n"
-                "batch_count = 100\n"
-            )
-        }
+        """The same starting config as ``beachx config init`` (grouped layout)."""
+        from beach.config import default_config, dump_beach_toml
+
+        lines = dump_beach_toml(default_config()).splitlines(keepends=True)
+        note = [
+            "# runops sets [output].dir for each run. Vary values per run with dotted keys,\n",
+            "# e.g. `runo new CASE --set run.batch_count=200`. More starting points: examples/.\n",
+        ]
+        return {"beach.toml": "".join(lines[:2] + note + lines[2:])}
 
     def pip_packages(self) -> list[str]:
         return ["beach-bem"]
@@ -125,6 +146,23 @@ class Adapter:
 
     def agent_context_dir(self) -> Path | None:
         return agent_context_path()
+
+
+def _localize_obj(path: Path, run_dir: Path, index: int) -> str | None:
+    """Return a run-directory-relative OBJ path to write back, or None to keep it."""
+    if path.is_absolute():
+        if not path.is_file():
+            return None
+        dest = run_dir / "input" / path.name
+        if dest.exists() and dest.read_bytes() != path.read_bytes():
+            dest = run_dir / "input" / f"part{index}-{path.name}"
+        shutil.copy2(path, dest)
+        return dest.relative_to(run_dir).as_posix()
+    if (run_dir / path).is_file():
+        return None  # already valid from the run directory
+    if (run_dir / "input" / path).is_file():
+        return (Path("input") / path).as_posix()
+    return None
 
 
 def _number(value: str) -> Any:

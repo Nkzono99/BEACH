@@ -5,6 +5,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- runops adapter: `runo case new` writes the grouped `beach.toml` that `beachx config init` produces (the template was
+  still in the pre-3.0 flat layout, which BEACH 3 rejects). A flat `input/beach.toml` now fails at `runo new` with a
+  clear message instead of in the queue. OBJ meshes in `[[mesh.parts]]` are referenced from the run directory: a path
+  shipped with the case becomes `input/<path>`, and an absolute path is copied into `input/`.
+- `import beach` no longer imports numpy and matplotlib. The public names from `beach.fortran_results` load on first
+  access, so `beach.config` and the runops adapter work inside runops's own environment.
+
 ## [3.0.0] - 2026-10-15
 
 ### Changed
