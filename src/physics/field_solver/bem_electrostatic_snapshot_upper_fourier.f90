@@ -46,7 +46,8 @@ contains
   proxy = mesh
   mismatch = 0.0_dp
   do pattern = 1, 3
-    proxy%q_elem = patterns(:, pattern)/sum(abs(patterns(:, pattern)))
+    ! Normalize each proxy pattern to 1 pC of total |q| so the reported mismatch has a familiar scale.
+    proxy%q_elem = 1.0e-12_dp*patterns(:, pattern)/sum(abs(patterns(:, pattern)))
     call self%nonzero_solver%refresh(proxy)
     do plane = 1, nplane
       call plane_mismatch(self, proxy, sim, heights(plane), layers(plane), phi_rms, ez_rms)

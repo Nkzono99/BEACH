@@ -131,9 +131,9 @@ mode_layers = 0
 panel 電位は切替面より下にあり、対象外です。`upper_panel_fourier` retry も同じ plan を共有します。
 
 `"auto"` は $z_\mathrm{top}+0.25\min(L_x,L_y)$ から $H-10^{-9}H$ までの等間隔16面を比較します。
-代理電荷は全 panel +1、mesh ID 偶数 +1 / 奇数 −1、各 mesh の centroid 高さ中央値以上 +1 / 未満 −1 の3組で、それぞれ $\sum|q|=1$ にします。
+代理電荷は全 panel +1、mesh ID 偶数 +1 / 奇数 −1、各 mesh の centroid 高さ中央値以上 +1 / 未満 −1 の3組で、それぞれ $\sum|q|=1$ pC にします。
 各面の12×12セル中心で FMM−Fourier 電位差の rms を求め、3組の最大値が最小の面を選びます。同値なら低い面を選びます。
-実電荷には依存せず、起動・再開時に各 MPI rank が同じ順序で再計算します。比較値の単位 V はこの代理電荷規格化に対する値です。
+実電荷には依存せず、起動・再開時に各 MPI rank が同じ順序で再計算します。比較値の単位 V はこの代理電荷規格化（総 $|q|$ = 1 pC）に対する値です。
 
 実数は metre の固定高さです。$z_\mathrm{top}+0.1\min(L_x,L_y)\le z_\mathrm{switch}<H$ が必要で、auto の候補区間が空なら設定エラーです。
 次数0は、最初の打切りモードの減衰 $\exp[-2\pi(m+1)(z_\mathrm{switch}-z_\mathrm{top})/\max(L_x,L_y)]\le10^{-6}$ を満たす最小次数を選びます。

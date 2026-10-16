@@ -40,7 +40,9 @@ contains
   electric_field = 0.0_dp
   available = self%use_upper_panel_fourier_retry
   if (.not. available) return
-  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field, status, use_cache=.true.)
+  ! The retry backend may be built without a snapshot refresh (tests); fall back to the panel loop then.
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field, status, &
+                                    use_cache=self%upper_fourier_plan%cached)
   available = status == upper_vacuum_eval_ok
   if (.not. available) then
     electric_field = 0.0_dp
@@ -63,7 +65,8 @@ contains
   potential = 0.0_dp
   available = self%use_upper_panel_fourier_retry
   if (.not. available) return
-  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status, use_cache=.true.)
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status, &
+                                    use_cache=self%upper_fourier_plan%cached)
   available = status == upper_vacuum_eval_ok
   if (.not. available) then
     potential = 0.0_dp
