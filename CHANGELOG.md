@@ -11,7 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   upstream reservoirs, channel fluxes) and the root carried between outflow refreshes now come from the sheath-model
   coupling API (`sheath_matching_iteration`, `evaluate_matching_conditions`, `observed_outflow_source`). BEACH keeps the
   species mapping, reference area, fixed-current targets, PE/SEE split and the summary checkpoint. The sheath-model
-  dependency is pinned to `9695eda`, which renames its emitted-electron source API.
+  dependency is pinned to `384985f`, which renames its emitted-electron source API.
 
 ### Fixed
 
