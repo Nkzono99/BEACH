@@ -61,6 +61,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
+	test_laplace_derivatives \
 	test_electrostatic_snapshot \
 	test_boundary \
 	test_external_boundary_contract \
