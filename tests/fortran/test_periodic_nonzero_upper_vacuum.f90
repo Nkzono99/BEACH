@@ -66,6 +66,12 @@ program test_periodic_nonzero_upper_vacuum
     field, direct_field, 2.0e-12_dp*max(1.0_dp, maxval(abs(direct_field))), &
     'updated charge field mismatch' &
     )
+  ! Cached source sums must reproduce the per-call panel loop exactly.
+  call plan%refresh(updated_charge)
+  call plan%eval(updated_charge, target, direct_potential, direct_field, status, use_cache=.true.)
+  call assert_equal_i32(status, upper_vacuum_eval_ok, 'cached target was rejected')
+  call assert_close_dp(potential, direct_potential, 0.0_dp, 'cached potential mismatch')
+  call assert_allclose_1d(field, direct_field, 0.0_dp, 'cached field mismatch')
   call test_end()
 
   call test_begin('periodic_faces_share_one_value')

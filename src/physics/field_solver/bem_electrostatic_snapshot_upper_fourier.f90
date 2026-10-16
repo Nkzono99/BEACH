@@ -62,6 +62,7 @@ contains
   if (self%upper_fourier_plan%mode_layers /= layers(selected)) then
     call self%upper_fourier_plan%build(mesh, self%periodic_length(1), self%periodic_length(2), layers(selected))
   end if
+  call self%upper_fourier_plan%refresh(mesh%q_elem)
   end procedure init_snapshot_upper_fourier_switch
 
   recursive subroutine sort_switch_heights(values)
@@ -129,13 +130,15 @@ contains
     phi_rms = 0.0_dp
     ez_rms = 0.0_dp
     target(3) = height
+    call self%upper_fourier_plan%refresh(mesh%q_elem)
     do iy = 1, 12
       target(2) = self%periodic_origin(2) + (real(iy, dp) - 0.5_dp)*self%periodic_length(2)/12.0_dp
       do ix = 1, 12
         target(1) = self%periodic_origin(1) + (real(ix, dp) - 0.5_dp)*self%periodic_length(1)/12.0_dp
         call self%nonzero_solver%eval_potential(mesh, sim, target, phi_fmm)
         call self%nonzero_solver%eval_e(mesh, target, e_fmm)
-        call self%upper_fourier_plan%eval(mesh%q_elem, target, phi_fourier, e_fourier, status, mode_layers=layers)
+        call self%upper_fourier_plan%eval(mesh%q_elem, target, phi_fourier, e_fourier, status, mode_layers=layers, &
+                                          use_cache=.true.)
         phi_rms = phi_rms + (phi_fmm - phi_fourier)**2
         ez_rms = ez_rms + (e_fmm(3) - e_fourier(3))**2
       end do

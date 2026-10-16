@@ -11,7 +11,7 @@ contains
 
   if (self%diagnostics%upper_fourier_switch_active .and. &
       position(3) >= self%diagnostics%upper_fourier_switch_height_m) then
-    call self%upper_fourier_plan%eval(mesh%q_elem, position, zero_potential, electric_field, status)
+    call self%upper_fourier_plan%eval(mesh%q_elem, position, zero_potential, electric_field, status, use_cache=.true.)
     if (status /= 0_i32) error stop 'upper Fourier switch evaluated a target below the source panels.'
   else if (self%use_cached_kneq0) then
     call self%nonzero_solver%eval_e(mesh, position, electric_field)
@@ -40,7 +40,7 @@ contains
   electric_field = 0.0_dp
   available = self%use_upper_panel_fourier_retry
   if (.not. available) return
-  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field, status)
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field, status, use_cache=.true.)
   available = status == upper_vacuum_eval_ok
   if (.not. available) then
     electric_field = 0.0_dp
@@ -63,7 +63,7 @@ contains
   potential = 0.0_dp
   available = self%use_upper_panel_fourier_retry
   if (.not. available) return
-  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status)
+  call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status, use_cache=.true.)
   available = status == upper_vacuum_eval_ok
   if (.not. available) then
     potential = 0.0_dp
@@ -84,7 +84,7 @@ contains
 
   if (self%diagnostics%upper_fourier_switch_active .and. &
       position(3) >= self%diagnostics%upper_fourier_switch_height_m) then
-    call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status)
+    call self%upper_fourier_plan%eval(mesh%q_elem, position, potential, electric_field_dummy, status, use_cache=.true.)
     if (status /= 0_i32) error stop 'upper Fourier switch evaluated a target below the source panels.'
   else if (self%use_cached_kneq0) then
     call self%nonzero_solver%eval_potential(mesh, sim, position, potential)

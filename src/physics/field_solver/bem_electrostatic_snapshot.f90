@@ -202,6 +202,7 @@ contains
     type(mesh_type), intent(in) :: mesh
 
     if (.not. self%use_panel_spectral_reference) call self%nonzero_solver%refresh(mesh)
+    if (self%upper_fourier_plan%nmode > 0_i32) call self%upper_fourier_plan%refresh(mesh%q_elem)
     call self%refresh_zero_mode(mesh)
   end subroutine refresh_electrostatic_snapshot
 
@@ -364,6 +365,7 @@ contains
       call self%upper_fourier_plan%build( &
         mesh, self%periodic_length(1), self%periodic_length(2), self%reference_mode_layers &
         )
+      call self%upper_fourier_plan%refresh(mesh%q_elem)
     end if
     self%use_upper_panel_fourier_retry = trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier'
   end subroutine init_cached_periodic_snapshot

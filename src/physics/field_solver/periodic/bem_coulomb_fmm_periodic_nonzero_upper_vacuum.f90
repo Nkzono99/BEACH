@@ -22,8 +22,13 @@ module bem_coulomb_fmm_periodic_nonzero_upper_vacuum
     real(dp), allocatable :: wave_number(:)
     real(dp), allocatable :: panel_moment_real(:, :)
     real(dp), allocatable :: panel_moment_imag(:, :)
+    !> Source sums for the last refreshed charges; evaluation with use_cache skips the panel loop.
+    logical :: cached = .false.
+    real(dp), allocatable :: source_real(:)
+    real(dp), allocatable :: source_imag(:)
   contains
     procedure :: build => build_periodic_nonzero_upper_vacuum_plan
+    procedure :: refresh => refresh_periodic_nonzero_upper_vacuum
     procedure :: eval => eval_periodic_nonzero_upper_vacuum
   end type periodic_nonzero_upper_vacuum_plan_type
 
@@ -86,20 +91,45 @@ contains
     end do
   end subroutine build_periodic_nonzero_upper_vacuum_plan
 
-  subroutine eval_periodic_nonzero_upper_vacuum(self, charge, target, potential, field, status, mode_layers)
+  !> Store the per-mode source sums of the given charges so that eval(use_cache=.true.) costs O(nmode).
+  subroutine refresh_periodic_nonzero_upper_vacuum(self, charge)
+    class(periodic_nonzero_upper_vacuum_plan_type), intent(inout) :: self
+    real(dp), intent(in) :: charge(:)
+    integer(i32) :: mode
+
+    if (self%nmode < 1_i32) error stop 'upper-vacuum Fourier plan must be built before refresh.'
+    if (size(charge) /= self%nelem) error stop 'upper-vacuum Fourier charge size mismatch.'
+    if (any(.not. ieee_is_finite(charge))) error stop 'upper-vacuum Fourier charges must be finite.'
+    if (.not. allocated(self%source_real)) allocate (self%source_real(self%nmode), self%source_imag(self%nmode))
+    do mode = 1, self%nmode
+      self%source_real(mode) = dot_product(charge, self%panel_moment_real(:, mode))
+      self%source_imag(mode) = dot_product(charge, self%panel_moment_imag(:, mode))
+    end do
+    self%cached = .true.
+  end subroutine refresh_periodic_nonzero_upper_vacuum
+
+  subroutine eval_periodic_nonzero_upper_vacuum(self, charge, target, potential, field, status, mode_layers, use_cache)
     class(periodic_nonzero_upper_vacuum_plan_type), intent(in) :: self
     real(dp), intent(in) :: charge(:)
     real(dp), intent(in) :: target(3)
     real(dp), intent(out) :: potential, field(3)
     integer(i32), intent(out) :: status
     integer(i32), intent(in), optional :: mode_layers
+    logical, intent(in), optional :: use_cache
     real(dp) :: area_xy, coefficient, cosine_phase, sine_phase, target_decay
     real(dp) :: mode_real, mode_imag, source_real, source_imag, target_phase
     integer(i32) :: mode
+    logical :: from_cache
 
+    from_cache = .false.
+    if (present(use_cache)) from_cache = use_cache
     if (.not. all(ieee_is_finite(target))) error stop 'upper-vacuum Fourier target must be finite.'
     if (size(charge) /= self%nelem) error stop 'upper-vacuum Fourier charge size mismatch.'
-    if (any(.not. ieee_is_finite(charge))) error stop 'upper-vacuum Fourier charges must be finite.'
+    if (from_cache) then
+      if (.not. self%cached) error stop 'upper-vacuum Fourier plan has no refreshed source sums.'
+    else
+      if (any(.not. ieee_is_finite(charge))) error stop 'upper-vacuum Fourier charges must be finite.'
+    end if
     potential = 0.0_dp
     field = 0.0_dp
     if (target(3) <= self%source_z_max) then
@@ -114,8 +144,13 @@ contains
         if (abs(self%kx(mode)) > 2.0_dp*pi*(real(mode_layers, dp) + 0.5_dp)/self%length_x .or. &
             abs(self%ky(mode)) > 2.0_dp*pi*(real(mode_layers, dp) + 0.5_dp)/self%length_y) cycle
       end if
-      source_real = dot_product(charge, self%panel_moment_real(:, mode))
-      source_imag = dot_product(charge, self%panel_moment_imag(:, mode))
+      if (from_cache) then
+        source_real = self%source_real(mode)
+        source_imag = self%source_imag(mode)
+      else
+        source_real = dot_product(charge, self%panel_moment_real(:, mode))
+        source_imag = dot_product(charge, self%panel_moment_imag(:, mode))
+      end if
       target_phase = self%kx(mode)*target(1) + self%ky(mode)*target(2)
       cosine_phase = cos(target_phase)
       sine_phase = sin(target_phase)
