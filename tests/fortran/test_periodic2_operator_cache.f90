@@ -74,11 +74,11 @@ program test_periodic2_operator_cache
 contains
 
   subroutine check_box_mesh_reuse_and_translations()
-    type(fmm_plan_type) :: first, second
+    type(fmm_plan_type) :: first, second, third
     type(fmm_options_type) :: config
     real(dp) :: a(3, 3), b(3, 3), c(3, 3), center(3)
     real(dp), allocatable :: shared(:, :, :)
-    integer(i32) :: idx, shared_count
+    integer(i32) :: idx, shared_count, nanchor, slot, slot2, cell
     character(len=512) :: path
 
     config = options
@@ -93,18 +93,39 @@ contains
     call test_begin('box_operator_reused_by_different_panel_mesh')
     call build_panel_plan(first, a(:, 1:2), b(:, 1:2), c(:, 1:2), config)
     path = first%periodic_cache_path
+    call assert_equal_i32(first%periodic_operator_new_cell_count, first%periodic_operator_built_count, &
+                          'cold plan builds exactly its occupied cells')
     config%leaf_max = 1_i32
     call build_panel_plan(second, a, b, c, config)
-    call assert_true(second%periodic_cache_hit, 'different panel mesh must hit the box cache')
     call assert_true(first%periodic_cache_fingerprint == second%periodic_cache_fingerprint, &
                      'mesh and adaptive topology must not affect the fingerprint')
-    call assert_equal_i32(second%periodic_root_source_count, 8_i32, 'empty source cells must be retained')
-    call assert_true(maxval(abs(first%periodic_root_operator - second%periodic_root_operator)) == 0.0_dp, &
-                     'cache load must preserve box-cell operator ordering')
-    do idx = 1_i32, second%periodic_root_target_count, second%periodic_root_source_count
-      call assert_equal_i32(second%target_node_depth(second%periodic_root_target_nodes(idx)), 1_i32, &
-                            'cached box target IDs must be remapped to the current adaptive tree')
+    call assert_equal_i32(second%periodic_root_source_count, 8_i32, 'every box cell must stay addressable')
+    call assert_true(.not. second%periodic_cache_hit, 'a newly occupied cell is a partial cache miss')
+    call assert_equal_i32(second%periodic_operator_new_cell_count, &
+                          second%periodic_operator_built_count - first%periodic_operator_built_count, &
+                          'only cells missing from the cache must be built')
+    call assert_true(second%periodic_operator_new_cell_count > 0_i32, 'the third panel must occupy a new cell')
+    nanchor = first%periodic_operator_anchor_count
+    do slot = 1_i32, first%periodic_operator_built_count
+      cell = first%periodic_operator_cells(slot)
+      slot2 = second%periodic_operator_cell_slot(cell)
+      call assert_true(slot2 > 0_i32, 'cells of the first mesh must stay available')
+      call assert_true(maxval(abs(first%periodic_root_operator(:, :, (slot - 1)*nanchor + 1:slot*nanchor) - &
+                                  second%periodic_root_operator(:, :, (slot2 - 1)*nanchor + 1:slot2*nanchor))) == 0.0_dp, &
+                       'cached cell blocks must be reused verbatim')
     end do
+    do idx = 1_i32, second%periodic_operator_anchor_count
+      call assert_equal_i32(second%target_node_depth(second%periodic_operator_anchor_nodes(idx)), 1_i32, &
+                            'box target anchors must map to the current adaptive tree')
+    end do
+    call build_panel_plan(third, a, b, c, config)
+    call assert_true(third%periodic_cache_hit, 'merged cache must cover the second mesh')
+    call assert_equal_i32(third%periodic_operator_build_count, 0_i32, 'merged cache must not rebuild')
+    call destroy_plan(third)
+    config%leaf_max = options%leaf_max
+    call build_panel_plan(third, a(:, 1:2), b(:, 1:2), c(:, 1:2), config)
+    call assert_true(third%periodic_cache_hit, 'merging must keep the cells of the first mesh')
+    call destroy_plan(third)
     call test_end()
 
     call test_begin('shared_translations_and_reflections_match_every_pair')

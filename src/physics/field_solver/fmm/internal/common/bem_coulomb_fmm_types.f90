@@ -140,9 +140,17 @@ module bem_coulomb_fmm_types
     type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
     !> 遠方補正の (target anchor, source cell) 組の数と、各組の target anchor。
-    !! 組 k の source cell は mod(k-1, source_count)+1。
+    !! operator は panel を含む source cell だけを持ち、組 k = (slot-1)*anchor_count + anchor で並ぶ。
+    !! slot は periodic_operator_cell_slot(cell)、0 のセルは operator を持たない（線源を置けない）。
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32), allocatable :: periodic_root_target_nodes(:)
+    integer(i32) :: periodic_operator_anchor_count = 0_i32
+    integer(i32), allocatable :: periodic_operator_anchor_nodes(:)
+    integer(i32) :: periodic_operator_built_count = 0_i32
+    integer(i32), allocatable :: periodic_operator_cell_slot(:)
+    integer(i32), allocatable :: periodic_operator_cells(:)
+    !> 今回の初期化で新たに作った source cell の数（cache にあったセルは数えない）。
+    integer(i32) :: periodic_operator_new_cell_count = 0_i32
     integer(i32) :: periodic_root_source_count = 0_i32
     integer(i32), allocatable :: periodic_source_cell(:)
     real(dp), allocatable :: periodic_source_center(:, :), periodic_source_p2m_basis(:, :)
@@ -298,6 +306,12 @@ contains
     call reset_periodic2_ewald_data(plan%periodic_ewald)
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
+    if (allocated(plan%periodic_operator_anchor_nodes)) deallocate (plan%periodic_operator_anchor_nodes)
+    if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
+    if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
+    plan%periodic_operator_anchor_count = 0_i32
+    plan%periodic_operator_built_count = 0_i32
+    plan%periodic_operator_new_cell_count = 0_i32
     if (allocated(plan%periodic_source_cell)) deallocate (plan%periodic_source_cell)
     if (allocated(plan%periodic_source_center)) deallocate (plan%periodic_source_center)
     if (allocated(plan%periodic_source_p2m_basis)) deallocate (plan%periodic_source_p2m_basis)

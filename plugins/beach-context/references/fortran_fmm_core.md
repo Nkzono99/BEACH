@@ -687,7 +687,8 @@ target anchorのlocal展開へのoperatorをfitします。有限画像殻の面
 | --- | --- | --- |
 | 現在の電荷から作ったbox 固定セルの multipole | geometry固定の行列を適用 | target anchorごとの遠方local展開 |
 
-cache が保存するのは、box 固定格子の source multipole を遠方 local 展開へ写す行列です。
+cache が保存するのは、box 固定格子の source multipole を遠方 local 展開へ写す行列です。要素を含む線源セルの分だけを作り、
+別の物体集合で必要になったセルはその都度追加して同じファイルへ書き足します。
 電場値、粒子位置、電荷履歴は保存しません。同じ box と設定なら、電荷更新やメッシュの変更後も同じ行列を再利用できます。
 
 #### 1回のfield評価で何を足すか

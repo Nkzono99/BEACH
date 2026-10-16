@@ -29,6 +29,7 @@ Use this skill when a user asks what parameter controls a phenomenon, how to bui
 - Preserve comparable diagnostics across sweep cases: output flags, history cadence, seed policy, mesh resolution, and solver settings.
 - For sweeps, vary one primary physical control at a time unless the user explicitly asks for coupled scaling.
 - Estimate cost risk before proposing large batch/mesh/history settings.
+- For `fields.periodic.backend="cached_kneq0"`, plan the far-correction cache as its own step: a short job with more MPI ranks than production runs `beach --prepare-periodic-cache beach.toml` for every distinct box/order/Ewald setting and every object set of a sweep (sequentially in one job), with `BEACH_CACHE_DIR` on a shared file system; production jobs depend on it (`--dependency=afterok`) and should report `periodic2_cache_hit=T`. Do not let many production jobs cold-build the same cache: they serialize on its lock.
 - Keep v1 scope clear: absorption and insulator accumulation are standard; conductor/resistive/secondary-emission models are extension points unless the repo now documents them.
 - Treat `sheath.closure="zero_current"` as the implemented reduced outer-sheath closure:
   the Zhao zero-current root sets species currents and z-high barriers, and `outflow_refresh_batches>0`

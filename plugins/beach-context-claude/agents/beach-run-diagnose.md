@@ -39,6 +39,10 @@ color: red
    - `distribution.temperature_k` と `distribution.temperature_ev` は排他的。
    - `output.diagnostics.charge_rel_change_threshold` は早期停止条件ではなく monitoring/output。
    - `output.history.stride_batches <= 0` では `charge_history.csv` は出ない。
+   - periodic2 の `cached_kneq0` で最初の batch 行が出ないまま長く止まるのは、遠方演算子の生成中か
+     `operator-<fingerprint>.bin.lock` の待ち。`periodic2_cache_hit` / `periodic2_operator_build_count` で確かめ、
+     次回は本番より多い rank の別 job で `beach --prepare-periodic-cache beach.toml` を先に実行し、
+     共有ファイルシステム上の `BEACH_CACHE_DIR` を全 job で使うよう案内する。
    - `output.final.mesh_potential = false` では `mesh_potential.csv` は出ない。
    - resume は `summary.txt`, `charges.csv`, `rng_state.txt` と互換な config が必要。
 4. 最小の確認 command または確認ファイルを提示する。

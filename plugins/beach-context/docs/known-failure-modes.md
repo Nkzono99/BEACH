@@ -22,6 +22,7 @@
 - High `output.history.stride_batches` frequency, `output.history.potential`, large mesh, and many batches can create large CSV outputs.
 - `[run.restart]` needs compatible `summary.txt`, `charges.csv`, and RNG state files in the same output directory.
 - MPI resume requires the same world size as the previous run.
+- `cached_kneq0` の初回実行で最初の batch 行がなかなか出ない: 遠方演算子の生成中か、同じ cache の lock（`operator-<fingerprint>.bin.lock`）待ち。`summary.txt` の `periodic2_cache_hit` / `periodic2_operator_build_count` で確認し、次からは `beach --prepare-periodic-cache` を別 job で先に実行する。
 - Missing `charge_history.csv` usually means `output.history.stride_batches <= 0`.
 - Missing `mesh_potential.csv` usually means `output.final.mesh_potential = false`.
 

@@ -171,6 +171,24 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 成分の選択と検証は[periodic2 静電場](../models/PeriodicElectrostatics.md)、cache の生成と再利用は
 [periodic2 遠方補正](../developer/PeriodicFarCorrection.md)を正本とします。
 
+### 遠方演算子の cache を別 job で先に作る
+
+`cached_kneq0` は、初めての box・展開次数・Ewald 設定で走るとき、初期化中に遠方演算子を作ります。
+三層レゴリス規模では数十コアで数分、数コアでは 30 分以上かかり、その間は最初の batch が始まりません。
+本番 job の時間枠と rank 数（checkpoint 再開で固定される）を cache 作りに使わないよう、次の順で運用します。
+
+1. cache の置き場所を計算ノードから見える共有ファイルシステムにし、全 job で同じ場所を使う。
+   `export BEACH_CACHE_DIR=/path/to/shared/beach-cache`（または `fields.periodic.cache_dir`）。
+2. 本番より多い MPI rank の短い job で `beach --prepare-periodic-cache beach.toml` を実行する。
+   生成は相対オフセットの類ごとに rank へ分配され、各 rank は OpenMP で並列化される。
+3. 本番 job はその job の完了後に投入する（Slurm なら `--dependency=afterok:<cache job>`）。
+   本番の `summary.txt` で `periodic2_cache_hit=T` と `periodic2_operator_build_count=0` を確認する。
+
+演算子は要素を含むセルの分だけ作られ、同じ box で物体集合を変えると足りないセルが追加されます。
+物体集合を変える sweep では、本番の前にすべての物体集合について `--prepare-periodic-cache` を 1 つの job で順に流してください。
+同じ cache へ同時に生成すると lock で 1 つずつ実行されるため、本番 job を並べて投げても速くならず、待つ job の時間枠を消費します。
+cache ファイルは数百 MB になることがあります（三層レゴリスの全セルで約 300 MB）。
+
 ## 現行制約を確認する
 
 - FMM が扱う source は Coulomb の triangle P0 要素で、別の kernel は選べない。

@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - periodic2 `cached_kneq0` の生成器を v11 に更新。線源を box 固定セルへ分け、相対オフセットと鏡映対称性で Ewald 評価を共有する。
   同じ box と設定なら異なるメッシュで演算子を再利用する。v10 の fingerprint は一致せず、必要な演算子を自動再生成する。
+- `cached_kneq0` の演算子は要素を含む線源セルの分だけ作り、cache にないセルだけを追加生成して同じファイルへ書き足す。小さなテスト mesh や上部が空の box で生成が短くなる。
+- FMM の M2L 微分表を多項式の反復乗算から漸化式に置き換え、三層レゴリスの起動（cache 読込済み）が 28 スレッドで 98 s から 5.5 s になった。
 - `fields.periodic.cache_dir` の未指定時は `$BEACH_CACHE_DIR/periodic2`、`$XDG_CACHE_HOME/beach/periodic2`、
   `$HOME/.cache/beach/periodic2` の順で保存先を解決する。明示指定した保存先は維持する。
 

@@ -264,23 +264,25 @@ contains
   subroutine apply_periodic_target_correction(plan, state)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: target_idx, node_idx, source_idx, pair_idx, source_count
+    integer(i32) :: target_idx, node_idx, source_idx, slot, anchor_count
     real(dp) :: node_local(plan%ncoef)
     logical :: node_active
 
     if (.not. plan%periodic_root_operator_ready) return
     if (size(state%local, 2) <= 0) return
-    if (plan%periodic_root_target_count <= 0_i32 .or. plan%periodic_root_source_count <= 0_i32) return
-    source_count = plan%periodic_root_source_count
-    ! 組は target anchor ごとに source cell が連続して並ぶ。anchor 単位で並列化して書き込みの競合を避ける。
+    anchor_count = plan%periodic_operator_anchor_count
+    if (anchor_count <= 0_i32 .or. plan%periodic_root_source_count <= 0_i32) return
+    ! 組は source cell ごとに target anchor が連続して並ぶ。anchor 単位で並列化して書き込みの競合を避ける。
     !$omp do schedule(static)
-    do target_idx = 1_i32, plan%periodic_root_target_count/source_count
-      pair_idx = (target_idx - 1_i32)*source_count
-      node_idx = plan%periodic_root_target_nodes(pair_idx + 1_i32)
+    do target_idx = 1_i32, anchor_count
+      node_idx = plan%periodic_operator_anchor_nodes(target_idx)
       node_local = state%local(:, node_idx)
-      do source_idx = 1_i32, source_count
+      do source_idx = 1_i32, plan%periodic_root_source_count
         if (.not. coefficient_vector_is_active(state%periodic_multipole(:, source_idx))) cycle
-        node_local = node_local + matmul(plan%periodic_root_operator(:, :, pair_idx + source_idx), &
+        slot = plan%periodic_operator_cell_slot(source_idx)
+        ! Every cell that holds a source was built at plan time, so a charged cell always has a slot.
+        if (slot <= 0_i32) error stop 'periodic far correction has no operator for a charged source cell.'
+        node_local = node_local + matmul(plan%periodic_root_operator(:, :, (slot - 1_i32)*anchor_count + target_idx), &
                                          state%periodic_multipole(:, source_idx))
       end do
       node_active = coefficient_vector_is_active(node_local)
