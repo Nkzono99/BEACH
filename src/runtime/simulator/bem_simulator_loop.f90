@@ -198,6 +198,7 @@ contains
   call perf_region_end(perf_region_field_solver_init, t0)
   call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)
   call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .true.)
+  call record_matching_fields(stats, snapshot, surface_closure, mesh)
 
   if (replay_active) then
     call random_seed(size=species_idx)
@@ -443,6 +444,7 @@ contains
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
     if (outflow_refreshed) call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .false.)
+    call record_matching_fields(stats_candidate, snapshot, surface_closure, mesh)
     if (fixed_history_enabled) call accumulate_fixed_current_window()
     stats_candidate%last_rel_change = rel
     if (ledger_enabled) then
@@ -562,8 +564,27 @@ contains
       end if
       return
     end if
+    call snapshot%set_matching_plane_top_field(mesh, surface_closure%top_field_v_m)
     call snapshot%set_matching_plane_gauge(mesh, cell%wall_coordinate(), surface_closure%plane_gauge_potential_v)
   end subroutine apply_surface_plane_gauge
+
+  !> D_H is the BEACH-side displacement, including the selected lower-boundary field.
+  subroutine record_matching_fields(stats, snapshot, closure, mesh)
+    use bem_constants, only: eps0
+    type(sim_stats), intent(inout) :: stats
+    type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    type(mesh_type), intent(in) :: mesh
+    type(surface_closure_contract_type), intent(in) :: closure
+
+    stats%surface_current_top_field_v_m = closure%top_field_v_m
+    if (.not. snapshot%use_zero_mode) return
+    call snapshot%refresh_zero_mode(mesh)
+    stats%matching_plane_top_cell_mean_v_m = snapshot%zero_state%e_bottom + &
+                                             snapshot%zero_state%total_charge/(eps0*snapshot%zero_plan%area_xy)
+    if (stats%matching_plane_state_valid) then
+      stats%matching_plane_displacement_c_m2 = eps0*stats%matching_plane_top_cell_mean_v_m
+    end if
+  end subroutine record_matching_fields
 
   function checked_add_adaptive_rejected_trials(accumulated, trial_halvings) result(total)
     integer(i64), intent(in) :: accumulated

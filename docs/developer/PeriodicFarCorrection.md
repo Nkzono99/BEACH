@@ -2,10 +2,11 @@ title: periodic2遠方補正
 
 # periodic2遠方補正
 
-`periodic2` の FMM は primary cell と有限画像を通常の tree FMM で評価し、その外側の滑らかな無限周期遠方場を
-追加 operator で補います。このページは Ewald2P teacher、`cached_kneq0`、cache、FMM state への接続の正本です。
+`cached_kneq0` は、有限画像の FMM と、周期 box に固定した遠方補正演算子を組み合わせます。
+このページは演算子の生成、面平均の分離、保存と再利用の正本です。
+物理的な境界条件は [periodic2 静電場](../models/PeriodicElectrostatics.md)を参照してください。
 
-## 有限画像モデルと無限周期近似を選ぶ
+## 設定と保存先
 
 ```toml
 [domain]
@@ -22,198 +23,136 @@ method = "fmm"
 [fields.periodic]
 backend = "cached_kneq0"
 image_layers = 1
-cache_dir = ".beach_cache/periodic2"
 generation_tolerance = 1.0e-8
+# cache_dir = "/shared/project/beach-cache/periodic2"  # 明示的な保存先が必要な場合
 ```
 
-`[domain]` が固定 target topology と周期軸を所有し、`fields.boundary` が periodic2 場を選びます。
-`cached_kneq0` は x/y 周期・z 非周期の domain box 内 target だけを受理します。
+`fields.periodic.cache_dir` を省略すると、次の順で保存先を決めます。空の環境変数は未設定と扱います。
 
-| `fields.periodic.backend` | 計算内容 | 用途 |
-| --- | --- | --- |
-| `finite_images` | primary + 有限画像だけ | 有限画像model、収束比較 |
-| `cached_kneq0` | versioned operatorを生成・再利用 | 無限周期nonzero modeのproduction経路 |
-| `panel_spectral_reference` | 非零modeを直接のFourier和で評価（direct solver） | 小規模な検証の参照 |
+1. `$BEACH_CACHE_DIR/periodic2`
+2. `$XDG_CACHE_HOME/beach/periodic2`
+3. `$HOME/.cache/beach/periodic2`
 
-`cached_kneq0` は z 方向の平均場 `k=0` を決めません。[periodic2 静電場](../models/PeriodicElectrostatics.md)の
-場の合成処理が physical `k=0` を一度だけ加えます。このoperator自体は外部plasma/sheathを解かず、外部シース closure の
-電位基準はzero-mode構築とは別の層で与えます。
-`m2l_root_oracle`は削除済みで、設定すると`cached_kneq0`を案内して起動時にrejectされます。
+明示したパスを最優先し、相対パスは実行時の作業ディレクトリから解釈します。
+解決した保存先とファイルは `summary.txt` の `periodic2_cache_dir` / `periodic2_cache_path` に出力します。
+`field_reconstruction_periodic_*` の既存の再構成情報も維持します。
 
-## 有限画像shellを通常のFMMで評価する
-
-周期軸を1、2とし、周期長を$L_1,L_2$とします。画像層$N$では
-
-$$
-\mathcal I_N=\{(i,j)\mid -N\le i,j\le N\}
-$$
-
-のshift
-
-$$
-\mathbf s_{ij}=iL_1\mathbf e_1+jL_2\mathbf e_2
-$$
-
-をsourceへ加えます。near listは固定 P0 triangle kernelでDirect評価し、well-separatedなnode pairは
-各画像shiftを含めたM2L derivativeで評価します。この部分を$K_\mathrm{shell}(N)$と書きます。
-
-`fields.periodic.backend="finite_images"`では$K_\mathrm{shell}(N)$が全結果です。画像層の外側は暗黙に近似されるのではなく、
-寄与しません。
-
-## Ewald2Pをruntime kernelではなくteacherとして使う
-
-2軸周期・1軸開放のCoulomb和を作るため、kernelを数値parameter$\alpha$で分けます。
-
-$$
-\frac{1}{r}=
-\frac{\operatorname{erfc}(\alpha r)}{r}
-+\frac{\operatorname{erf}(\alpha r)}{r}
-$$
-
-第1項をreal-space画像和、第2項を周期2軸のreciprocal modeとして評価し、開放軸は実座標のまま残します。
-
-| 成分 | 数値的な役割 |
+| `fields.periodic.backend` | 計算内容 |
 | --- | --- |
-| real space | 短距離側をscreened Coulomb和として収束させる |
-| reciprocal `k\ne0` | 横方向に変化する滑らかなmodeを足す |
-| `k=0` | 平面平均場。物理的なz境界条件と分離して扱う |
+| `finite_images` | 指定した有限画像だけ |
+| `cached_kneq0` | 有限画像と、保存済み演算子による無限周期の非零モード |
+| `panel_spectral_reference` | 三角形要素の Fourier 和による検証用の非零モード |
 
-$\alpha$はreal/reciprocal計算量の配分parameterで、Debye遮蔽ではありません。実装上のteacherは設定した
-`fields.periodic.ewald_layers`で打ち切った高精度有限和です。理論上の無限和を毎回直接評価するわけではありません。
+## box に固定した線源セル
 
-teacherから有限画像分を引いた滑らかな残差を
+遠方補正の線源は、`domain.box_min..box_max` を各軸で $2^d$ 分割した八分木セルです。
+深さ $d$ は、セルの半対角線が $0.4\min(L_x,L_y)$ 以下になる最浅の深さです。
+演算子はセルの幾何だけで決まりますが、作るのは要素を含むセルだけです。評価側も同じ box の格子を使い、半対角線が
+$0.5\min(L_x,L_y)$ 以下になる最浅の深さ（最低 1）を選びます。
+内部 FMM オプションで深さを明示した場合は、その値を使います。
+
+各要素は、周期 box 内へ戻した重心の属する線源セルへ割り当てます。非周期軸の上端は最後のセルに含めます。
+セル中心を展開中心にした三角形平均の P2M 基底を初期化時に計算し、電荷更新ごとに要素電荷を掛けて集計します。
+この追加処理は要素数 × 係数数に比例します。
+近傍の三角形直接和と有限画像の適応 FMM 木は引き続き使い、`cached_kneq0` の線源の代表座標は box 内に固定します。
+
+仮想線源（proxy）は、セルの各面へ同じ厚さを足した直方体表面に置きます。
+直方体の半対角線がセル半対角線の **1.5 倍**になる厚さを選びます。
+セルを包む余裕を確保しつつ、縦長のセルで x/y の仮想線源を必要以上に遠ざけて高次の打切り誤差を増やすことを避けます。
+この殻は box 寸法と深さだけで決まり、要素形状では拡大しません。
+初期化時に全頂点が担当セルの殻に収まることを検査し、超える要素は設定エラーにします。
+その場合はメッシュを細分化してください。内部 API で線源深さを指定する場合は、浅くしてセルを広げる選択もありますが、
+遠方近似誤差を再検証する必要があります。
+
+## 並進と鏡映による生成の共有
+
+線源セル $s$ の多重極係数を $M_s$、評価側セル $t$ の局所展開を $L_t$ とすると、
 
 $$
-R_\mathrm{Ewald}^{\mathrm{full}}
-=K_\mathrm{Ewald2P}^{\mathrm{truncated}}-K_\mathrm{shell}(N)
+L_t^{\mathrm{far}}=\sum_s A_{t,s}M_s
 $$
 
-とします。Ewald評価はoperatorを作るcold pathだけで使い、通常の粒子評価では実行しません。
+です。生成器タグは `periodic-kneq0-generator-v11` です。
 
-## source節点のmultipoleからtarget localへのoperatorをfitする
+1. 共通の仮想線源配置から、多重極への写像と最小ノルム擬似逆を 1 回作ります。
+   外側とその 0.85 倍の直方体を組み合わせ、実行時の次数より 2 次高いモーメントまで拘束します。
+   保存する写像では追加のモーメントを 0 とし、仮想電荷が未使用の高次成分を作る誤差を抑えます。
+2. 評価側の照合点を、内部点と x/y の対向する 4 面の点の和集合として作ります。
+   各セルは実際に周期境界へ接する面だけを選び、面の組合せごとに正則化 QR 分解を 1 回準備します。
+3. 評価側と線源側の中心差を、両格子の共通の半格子間隔で整数化します。
+   高価な Ewald 残差は同じ相対オフセットで共有します。
+4. 点群を各軸の鏡映に閉じた組で置き、オフセットの符号も共有します。
+   点の添字を鏡映し、電場ベクトルの対応成分の符号を戻します。電位は符号を変えません。
+5. 各組の絶対座標で、下記の面平均の滑らかな残りを高さ間隔 $L/64$ 以下の表から 3 次 Hermite 補間して加え、局所係数を求めます。
+   電位の定数項は、同じ照合点の電位残差から別に求めます。
+6. 仮想線源から局所展開への写像と擬似逆を合成し、(評価セル, 線源セル) の組の演算子にします。
+   相対オフセットの類は、今回作る線源セルとの組に現れるものだけを評価します。
 
-固定geometryでは、遠方残差はsource電荷に対して線形です。source treeの深さ2の節点$s$のmultipole係数を
-$\mathbf M_s$、target treeの深さ2のanchor node$t$のfar local係数を$\mathbf L_t^\mathrm{far}$とすると、
+周期境界に接する面が違っても、高価な核評価は和集合で共有します。最小二乗の重みは内部点と境界面の集合で
+総重みが等しくなるように定めます。多重極行列と QR は長さの次数を正規化して解き、µm 単位でも高次係数を保ちます。
+
+MPI はオフセットの類を巡回して各 rank へ分配し、OpenMP は仮想線源の列を並列評価します。
+全 rank の演算子を集約した後、MPI root だけが既存の lock と checksum 付き atomic publish で保存します。
+
+## 面平均を分離する
+
+Ewald 和は生成時だけの参照です。分割値 `fields.periodic.ewald_alpha` は遮蔽長ではなく、
+実空間と逆空間の計算量を配分します。0 なら周期長から自動決定します。
+`fields.periodic.ewald_layers` は両方の和の打切り深さです。
+有限画像の層数は通常の FMM と参照から差し引く側で一致させます。
+
+有限画像殻の面平均は、対称な無限面電荷の平均場と、滑らかな残り $s$ の和です。
+平均をとる面は mesh ではなく周期 box の x/y 範囲に固定します。
+$s$ は線源の絶対 x/y と高さの差に依存するので、並進・鏡映で共有する Ewald 残差には混ぜず、各組で評価します。
+実行時は各要素の高さの表から $S(z)=\sum_i q_i s_i(z)$ を引きます。
+高さの表は間隔 $L/32$ 以下の 3 次 Hermite 補間で、電場を同じ多項式の微分から求めます。
 
 $$
-\mathbf L_t^\mathrm{far}=\sum_s\mathbf A_{t,s}\mathbf M_s
+K_{k\ne0}=K_\mathrm{shell}+\mathcal F[K_\mathrm{Ewald}^{\mathrm{full}}-K_\mathrm{shell}+s]
+-K_0^\mathrm{sym}-S
 $$
 
-と書けます。線源全体を根のmultipole 1個で見ると、粒子層の高さが除いた画像までの距離（約$2L$）に近いため
-展開がほとんど収束せず、帯電した三層レゴリスでは非零モードに数Vの面平均が漏れていました。深さ2の節点に
-分けると節点が小さくなり、評価側のanchorも小さくなるので、同じ展開次数で誤差が大きく下がります。
-cold buildは次の順に$\mathbf A_{t,s}$を作ります。
+物理的な平均場はこの演算子の外で一度だけ加えます。全線源より上では累積電荷を総電荷で厳密に固定します。
+電荷更新では通常の P2M/M2M/M2L の後、L2L の前に $\sum_s A_{t,s}M_s$ を加えます。
+粒子評価では局所展開と近傍直接和だけを使い、Ewald 和を再評価しません。
 
-1. source節点ごとに節点を囲むproxy点を置き、proxy電荷からその節点のmultipoleへの行列と最小norm擬似逆を作る。
-2. target anchorごとにcheck点を置き、check点の電場をlocal展開で再現する行列を正則化QRで分解する（source節点で共有）。
-3. source節点ごとに、各proxy sourceのEwald residual（下の面平均の補正を含む）をcheck点で評価し、local係数を解く。
-4. proxy-to-local写像と擬似逆を合成する。
-5. geometry、source節点、target anchor、設定からfingerprintを作り、operatorとchecksumをcacheへ公開する。
+## 一致条件と事前生成
 
-組の数はtarget anchor数×source節点数（三層レゴリスで最大64×64）ですが、実行時の追加は小さな行列・vector積だけです。
-初回の作成は長くなり（三層レゴリスで28スレッド1プロセス約27分、MPIではtarget anchorをrankに分ける）、
-cacheに保存して再利用します。
+fingerprint は box の最小・最大座標、周期軸と周期長、両格子の深さ、次数と係数数、
+Ewald 分割値と打切り層数、有限画像層数、核と softening、殻倍率、照合点の定数、生成許容誤差と生成器タグから決めます。
+mesh、適応木の節点位置・半径・節点 ID、電荷、BEACH のビルド識別子は含めません。
+同じ box と設定なら、異なる物体集合や異なる作業ディレクトリでも同じ保存先から再利用できます。
+保存時の評価セル番号は固定格子の順序で、読込時に現在の適応 target tree の節点へ対応付けます。
 
-`cached_kneq0`はこの線形写像をversioned cacheへ保存し、fingerprint、shape、checksumが一致するwarm runで
-再利用します。proxy pointから作ったoperatorを、P0 triangle sourceの
-triangle-averaged P2M係数へ適用します。
+cache ファイルは線源セル単位で育ちます。初期化では要素を含むセルを列挙し、保存済みのセルはそのまま読み込み、
+足りないセルだけを作ってから、lock を取ったうえで保存済みのセルと合わせて書き直します（lock 待ちの間に他の job が
+足したセルは読み直して使います）。同じ box で別の物体集合を走らせるたびに必要なセルが増えていき、全セルがそろえば
+どの物体集合でも生成なしで始まります。`periodic2_cache_hit` は必要なセルがすべて cache にあったとき `T`、
+1 つでも作ったときは `F` で、`periodic2_operator_build_count` が 1 増えます。メモリ上の演算子も要素を含むセルの分だけです。
 
-電場だけのfitではlocal展開の定数potential係数を決められないため、同じcheck点のpotential residualから
-定数係数を別にfitします。これは電場のfitとpotential gaugeを同じ単位のleast-squares列へ混ぜないためです。
-
-proxy 行列の各 multipole 行は長さの次数が異なるため、擬似逆の QR 分解前に行を正規化し、
-右辺にも同じ尺度を適用します。これにより µm 単位の形状でも高次 moment が絶対しきい値で失われません。
-cache の fingerprint は生成器の版を含むので、生成方法を変えた版は古い cache を再利用しません。
-
-物理的な平均場は電荷源内部の高さ分布を保ち、電荷源より上では累積電荷を厳密に総電荷 $Q$ とします。
-これにより、傾いた三角形の累積多項式を加減算した丸め残差が真空域へ外挿されることを防ぎます。
-これは高さ別の平均場を消す処理ではありません。
-
-## 通常M2Lの後、L2Lの前に補正を加える
-
-batchごとの`update_state`は次の順で進みます。
-
-```text
-P2M
-  -> M2M
-  -> ordinary tree M2L
-  -> L_far(t) += sum_s A_ts M_s  periodic far correction
-  -> L2L
-  -> L2P + near Direct
+```bash
+# cache 用の短い job: 本番より多い rank で生成だけを済ませる
+export BEACH_CACHE_DIR=/path/to/shared/beach-cache
+srun -n 16 beach --prepare-periodic-cache beach.toml
+# 本番 job（cache job の後）: 生成なしで始まる
+srun -n 4 beach beach.toml
 ```
 
-実装上は各target anchor nodeについて
+生成は相対オフセットの類を MPI rank へ巡回分配し、各類の組の局所 fit も同じ rank が受け持ちます。
+rank 数は類の数（三層レゴリスで 343）まで効き、各 rank では仮想線源の列を OpenMP で並列化します。
 
-$$
-\mathbf L_t\leftarrow\mathbf L_t+
-\sum_s\mathbf A_{t,s}\mathbf M_s
-$$
+事前生成はメッシュの殻への収容を検査し、演算子を生成または読み込んで終了します。
+結果と checkpoint は書かず、再開設定も無視します。
+標準出力の `prepare_elapsed_s`、`periodic2_cache_hit`、`periodic2_operator_build_count`、
+`periodic2_cache_fingerprint`、`periodic2_cache_path` で確認します。
+通常実行では同じ項目を `summary.txt` で確認します。
 
-を行います。その後は通常のL2Lが補正済みlocalをleafへ伝え、L2Pが粒子位置で評価します。したがってhot pathで
-増える処理は行列・vector積と通常のlocal展開評価であり、all-source Ewald和ではありません。
+## 精度の確認
 
-tree の M2L pair cache と `m2l_deriv` は変更せず、補正を ordinary M2L と L2L の間に追加します。
+- `image_layers` と Ewald の設定を変え、有限画像との分割や参照の打切りに依存しないことを確かめます。
+- 作り直した演算子と保存済み演算子で、電場・電位が丸め誤差内で一致することを確かめます。
+- `make test-fortran-far-correction` で一様面電荷の非零モードの面平均漏れを検査します。
+- 上部真空では独立な三角形 Fourier 和と比較し、面平均と横方向の誤差を別々に確認します。
+  上端 H での精度は [上部真空の Fourier 切替](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)も併用して検証します。
 
-## cached operatorから対称`k=0`を除く
-
-Ewald teacher の full residual には fit を定義する対称 vacuum `k=0` が含まれます。有限画像殻
-$K_\mathrm{shell}(N)$ をセル上で面平均すると、無限面電荷の平均場 $K_0^\mathrm{sym}$（高さ $h$ の単位電荷あたり
-$-2\pi|h|/A$）と滑らかな残り $s(h)$ の和になります。$s$ は $1/r$ を画像ブロック $[c-(N+\tfrac12)L,\,c+(N+\tfrac12)L]^2$
-上で積分した閉じた式から $K_0^\mathrm{sym}$ を引いたもので、$h=0$ でも解析的です（$c$ は線源の木の根の中心）。
-残差の面平均はちょうど $-s$ なので、fit には面平均 0 の $R+s$ だけを渡し、$s$ は線源ごとの高さの表から
-$S(z)=\sum_i q_i s_i(z)$ として実行時に引きます。FMM 側の nonzero kernel は
-
-$$
-K_{k\ne0}=K_\mathrm{shell}(N)
-+\mathcal F\left[R_\mathrm{Ewald}^{\mathrm{full}}+s\right]-K_0^\mathrm{sym}-S
-$$
-
-で（$\mathcal F$ は上の operator による fit）、場の合成時に物理的な平均場を一度だけ加えます。
-$S$ の高さの表は間隔 $L/32$ の 3 次 Hermite 補間で、電場は同じ多項式の微分なので電位の勾配と一致します。
-
-$$
-K_\mathrm{surface}=K_{k\ne0}+K_0^\mathrm{physical}
-$$
-
-`fields.periodic.backend="cached_kneq0"` は非零モードだけを評価し、physical zero mode を別に加えることで平均場の二重加算を
-防ぎます。境界モデルと Gauss 則は [periodic2 静電場](../models/PeriodicElectrostatics.md)を参照してください。
-
-## cacheと並列化の境界を理解する
-
-| 段階 | 主な処理 |
-| --- | --- |
-| cold miss | Ewald teacher、QR fit、operator生成、checksum付きatomic publish |
-| warm hit | fingerprint・shape・checksum検証、operator読込 |
-| charge refresh | P2M/M2M/M2L、保存済みoperator適用、zero-mode state更新 |
-| particle evaluation | local展開 + near Direct。Ewald再評価なし |
-
-cache I/OとlockはMPI rootが担当します。cold buildではtarget operator sliceをMPI rankへ分配し、target内のproxy列を
-OpenMPで評価し、完成したoperatorをrank間で集約します。charge履歴や粒子位置はcacheに含めません。
-
-`cached_kneq0`はconfigured target box内の評価を前提とし、box外targetをDirect fallbackしません。これはcached
-operatorが固定target topologyに対するproduction kernelだからです。
-
-## 収束とcache診断を確認する
-
-1. `fields.periodic.image_layers`を増やし、near shellとoperatorの分割に依存しないことを確認する。
-2. `fields.periodic.ewald_layers`と必要なら`fields.periodic.ewald_alpha`を変え、teacherの打切りを確認する。
-3. cold buildとwarm cacheで電場・電位・主要観測量が丸め誤差範囲で一致することを確認する。
-4. `periodic2_cache_fingerprint`、`periodic2_cache_hit`、`periodic2_operator_build_count`を確認する。
-5. nonzero modeだけでなく、選択したphysical `k=0`とGauss residualも別に確認する。
-6. 非零modeの面平均が0であることを確認する。外部シースと接続する場合は、`top_reference_history.csv`の上端面の
-   平均電位が外部根の $\phi_0$ に一致する。`make test-fortran-far-correction`は一様面電荷で同じ性質を検査する。
-
-長さの単位に依存しないことやcacheの再利用だけでは、弱い外部シース場と比べられる精度は保証されません。帯電した
-三層レゴリスの電荷（画像層1、展開次数4）で、層の上の真空域を直接のFourier和と比べると、非零modeの面平均は0.02 V以下、
-横方向の電位誤差は0.01〜0.03 V、電場誤差は約2×10³ V/mでした。
-
-有限画像和の意味と、無限周期・面平均成分の設定は[periodic2 の静電場](../models/PeriodicElectrostatics.md)にあります。
-
-## Code reference
-
-- mode選択とperiodic helper: [`bem_coulomb_fmm_periodic.f90`](../../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic.f90)
-- Ewald2P teacher: [`bem_coulomb_fmm_periodic_ewald.f90`](../../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90)
-- operator生成（source節点とtarget anchorの組）: [`bem_coulomb_fmm_periodic_root_ops.f90`](../../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90)
-- 有限画像殻の面平均の滑らかな残り $s$ と高さの表: [`bem_periodic_shell_mean.f90`](../../src/physics/field_solver/periodic/bem_periodic_shell_mean.f90)
-- cache I/O: [`bem_coulomb_fmm_periodic_cache.f90`](../../src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cache.f90)
-- stateへのoperator適用: [`bem_coulomb_fmm_state_ops.f90`](../../src/physics/field_solver/fmm/internal/runtime/bem_coulomb_fmm_state_ops.f90)
+有限状態の誤差や許容差の未達は精度診断として扱います。checkpoint の形式は演算子の生成方式とは独立です。

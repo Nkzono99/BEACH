@@ -2,6 +2,7 @@
 module bem_app_config_types
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config
+  use bem_filesystem, only: default_periodic_cache_directory
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
     normalize_legacy_physics_config
@@ -227,6 +228,7 @@ contains
     cfg%checkpoint_stride = 0_i32
     cfg%resume_output = .false.
     cfg%sim = sim_config()
+    cfg%sim%field_periodic_cache_dir = default_periodic_cache_directory(missing_ok=.true.)
     allocate (cfg%mesh_parts(max_templates))
     allocate (cfg%particle_species(max_particle_species))
     cfg%particle_species = particle_species_spec()

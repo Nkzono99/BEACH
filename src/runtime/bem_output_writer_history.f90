@@ -10,6 +10,15 @@ submodule(bem_output_writer) bem_output_writer_history
                                  'photoelectron_outward_flux_m2_s,'// &
                                  'photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,ion_outward_flux_m2_s,'// &
                                  'photoelectron_return_flux_m2_s,photoelectron_escape_flux_m2_s,iterations,residual'
+  character(len=*), parameter :: matching_history_v3_header = &
+                                 matching_history_legacy_header//',secondary_share,secondary_budget_residual_a_m2'
+  character(len=*), parameter :: matching_history_header = &
+                                 matching_history_v3_header//',E_top_sheath_V_m,E_top_cell_mean_V_m'
+  character(len=*), parameter :: top_history_v3_header = &
+                                 'batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,'// &
+                                 'potential_min_V,potential_max_V'
+  character(len=*), parameter :: top_history_header = &
+                                 top_history_v3_header//',switch_phi_rms_mismatch_V,switch_Ez_rms_mismatch_V_m'
 contains
 
   !> 履歴 CSV のオープンとヘッダ初期化を行う。
@@ -78,10 +87,10 @@ contains
   call ensure_output_dir(app%output_dir)
 
   path = trim(app%output_dir)//'/top_reference_history.csv'
+  if (resumed) call extend_history_columns(path, top_history_v3_header, top_history_header, ',0,0')
   call open_history_file( &
     path, resumed, &
-    'batch,simulated_time_s,z_high_m,sample_n,potential_mean_V,potential_std_V,'// &
-    'potential_min_V,potential_max_V', &
+    top_history_header, &
     history_unit, 'Failed to open top-reference potential history file.' &
     )
   history_opened = .true.
@@ -90,9 +99,15 @@ contains
   !> z-high 面平均電位基準を履歴 CSV へ1行書き出す。
   module procedure write_top_reference_history_snapshot
 
-  write (unit_id, '(i0,2(a,es24.16),a,i0,4(a,es24.16))') &
+  real(dp) :: phi_rms, ez_rms
+
+  phi_rms = 0.0_dp
+  ez_rms = 0.0_dp
+  if (present(switch_phi_rms)) phi_rms = switch_phi_rms
+  if (present(switch_ez_rms)) ez_rms = switch_ez_rms
+  write (unit_id, '(i0,2(a,es24.16),a,i0,6(a,es24.16))') &
     batch_idx, ',', simulated_time_s, ',', z_high_m, ',', sample_n, &
-    ',', potential_mean_v, ',', potential_std_v, ',', potential_min_v, ',', potential_max_v
+    ',', potential_mean_v, ',', potential_std_v, ',', potential_min_v, ',', potential_max_v, ',', phi_rms, ',', ez_rms
   end procedure write_top_reference_history_snapshot
 
   module procedure open_matching_plane_history_writer
@@ -109,9 +124,12 @@ contains
     return
   end if
   call ensure_output_dir(app%output_dir)
-  if (resumed) call upgrade_legacy_matching_history(path)
+  if (resumed) then
+    call extend_history_columns(path, matching_history_legacy_header, matching_history_header, ',0,0,NaN,NaN')
+    call extend_history_columns(path, matching_history_v3_header, matching_history_header, ',NaN,NaN')
+  end if
   call open_history_file( &
-    path, resumed, matching_history_legacy_header//',secondary_share,secondary_budget_residual_a_m2', &
+    path, resumed, matching_history_header, &
     history_unit, 'Failed to open matching-plane history file.' &
     )
   history_opened = .true.
@@ -134,7 +152,7 @@ contains
   module procedure write_matching_plane_history_snapshot
 
   if (.not. stats%matching_plane_state_valid) return
-  write (unit_id, '(i0,14(a,es24.16),a,i0,3(a,es24.16))') &
+  write (unit_id, '(i0,14(a,es24.16),a,i0,5(a,es24.16))') &
     batch_idx, ',', simulated_time_s, ',', stats%matching_plane_displacement_c_m2, &
     ',', stats%matching_plane_phi_v, ',', stats%matching_plane_response(2), &
     ',', stats%matching_plane_response(3), ',', stats%matching_plane_response(4), &
@@ -144,7 +162,8 @@ contains
     ',', stats%matching_plane_feedback(4), ',', stats%matching_plane_photoelectron_return_flux_m2_s, &
     ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
     ',', stats%matching_plane_residual, ',', stats%matching_plane_secondary_share, &
-    ',', stats%secondary_budget_residual_a_m2
+    ',', stats%secondary_budget_residual_a_m2, ',', stats%surface_current_top_field_v_m, &
+    ',', stats%matching_plane_top_cell_mean_v_m
   end procedure write_matching_plane_history_snapshot
 
   !> 外部根の更新が使う H 外向きスペクトルを、matching-plane history と同じ条件と間隔で書く。
@@ -278,10 +297,10 @@ contains
   end do
   end procedure write_fixed_current_history_rows
 
-  !> Protect the released 17-column history contract when resuming into the 19-column writer.
-  !> Old rows represent runs without SEE, so their two additive diagnostics are zero.
-  subroutine upgrade_legacy_matching_history(path)
-    character(len=*), intent(in) :: path
+  !> Preserve released 3.0.0 CSV rows on resume (supported while these histories can be resumed).
+  !! Missing historical fields are NaN; histories predating the switch have zero mismatch.
+  subroutine extend_history_columns(path, old_header, new_header, missing_values)
+    character(len=*), intent(in) :: path, old_header, new_header, missing_values
     character(len=8192) :: line
     character(len=:), allocatable :: temporary
     logical :: exists
@@ -290,27 +309,27 @@ contains
     inquire (file=trim(path), exist=exists)
     if (.not. exists) return
     open (newunit=input, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'Failed to read matching-plane history for resume.'
+    if (ios /= 0) error stop 'Failed to read history for resume.'
     read (input, '(a)', iostat=ios) line
-    if (ios /= 0 .or. trim(line) /= matching_history_legacy_header) then
+    if (ios /= 0 .or. trim(line) /= old_header) then
       close (input)
       return
     end if
-    temporary = trim(path)//'.see.tmp'
+    temporary = trim(path)//'.columns.tmp'
     open (newunit=output, file=temporary, status='replace', action='write', iostat=ios)
-    if (ios /= 0) error stop 'Failed to extend legacy matching-plane history.'
-    write (output, '(a)') matching_history_legacy_header//',secondary_share,secondary_budget_residual_a_m2'
+    if (ios /= 0) error stop 'Failed to extend history columns.'
+    write (output, '(a)') new_header
     do
       read (input, '(a)', iostat=ios) line
       if (ios < 0) exit
-      if (ios /= 0) error stop 'Failed to read legacy matching-plane history row.'
-      write (output, '(a)') trim(line)//',0,0'
+      if (ios /= 0) error stop 'Failed to read legacy history row.'
+      write (output, '(a)') trim(line)//missing_values
     end do
     close (input)
     close (output)
     call atomic_rename(temporary, trim(path), status)
-    if (status /= filesystem_success) error stop 'Failed to replace legacy matching-plane history.'
-  end subroutine upgrade_legacy_matching_history
+    if (status /= filesystem_success) error stop 'Failed to replace legacy history.'
+  end subroutine extend_history_columns
 
   !> Append or replace a history file; an existing resumed file keeps its original header.
   subroutine open_history_file(path, resumed, header, unit_id, failure_message)

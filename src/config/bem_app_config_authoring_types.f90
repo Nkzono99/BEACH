@@ -13,6 +13,9 @@ module bem_app_config_authoring_types
     logical :: has_zero_mode_policy = .false.
     character(len=32) :: lower_boundary_model = 'e_bottom_zero'
     logical :: has_lower_boundary_model = .false.
+    character(len=16) :: upper_fourier_switch = 'off'
+    real(dp) :: upper_fourier_switch_height = 0.0_dp
+    integer(i32) :: upper_fourier_mode_layers = 0_i32
     integer(i32) :: reference_mode_layers = 4_i32
     integer(i32) :: panel_quadrature_order = 12_i32
     real(dp) :: max_nonzero_mode_potential_step = 0.0_dp

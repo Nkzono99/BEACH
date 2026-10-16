@@ -5,11 +5,14 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
 
 import numpy as np
+
+from beach._cache import default_periodic_cache_dir
 
 from ._numeric import _vec3
 
@@ -63,7 +66,7 @@ class FieldKernelOptions:
     box_min: tuple[float, float, float] | None = None
     box_max: tuple[float, float, float] | None = None
     external_e0: tuple[float, float, float] = (0.0, 0.0, 0.0)
-    periodic_cache_dir: str = ".beach_cache/periodic2"
+    periodic_cache_dir: str | None = None
     periodic_generation_tolerance: float = 1.0e-8
     resolved_field_solver: str = "fmm"
 
@@ -184,7 +187,9 @@ class FieldKernel:
     :meth:`update_charges`. A ``cached_kneq0`` periodic plan evaluates only the
     nonzero in-plane Fourier component; it is not the simulator's total field
     unless the physical zero mode and prescribed-field contribution are
-    composed separately.
+    composed separately. When the saved upper Fourier switch is active, the
+    simulator evaluates near H with Fourier sums; this FMM kernel does not
+    reproduce those evaluations.
     """
 
     def __init__(
@@ -230,6 +235,11 @@ class FieldKernel:
 
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
+        if resolved.field_reconstruction is not None and resolved.field_reconstruction.upper_fourier_switch_active:
+            warnings.warn(
+                "The simulator uses upper Fourier evaluation near H; FieldKernel reproduces only the FMM component.",
+                RuntimeWarning, stacklevel=2,
+            )
         _require_triangle_source_model(resolved)
         triangles = _require_triangles(resolved)
         charges = _charges_for_step(resolved, step=step)
@@ -435,7 +445,11 @@ class FieldKernel:
             return
 
         try:
-            path_bytes = str(opts.periodic_cache_dir).encode("utf-8")
+            path_bytes = (
+                default_periodic_cache_dir()
+                if opts.periodic_cache_dir is None
+                else str(opts.periodic_cache_dir)
+            ).encode("utf-8")
         except UnicodeEncodeError as exc:
             raise ValueError("periodic_cache_dir must be valid UTF-8.") from exc
         path_buffer = ctypes.create_string_buffer(path_bytes)
@@ -945,7 +959,7 @@ def _options_from_result(
         box_min=box_min,
         box_max=box_max,
         periodic_cache_dir=str(
-            (sim or {}).get("field_periodic_cache_dir", ".beach_cache/periodic2")
+            (sim or {}).get("field_periodic_cache_dir") or default_periodic_cache_dir()
         ),
         periodic_generation_tolerance=float(
             (sim or {}).get("field_periodic_generation_tolerance", 1.0e-8)

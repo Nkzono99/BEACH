@@ -1,5 +1,6 @@
 !> 自動表面電流modelのdispatchとZhao電流分解を検証する。
 program test_surface_current_model
+  use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: qe
   use bem_types, only: bc_open, bc_periodic
@@ -55,6 +56,8 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'B', 'explicit Zhao Type B was not selected')
   call assert_current_decomposition(result, 'Type B')
+  call assert_true(ieee_is_finite(result%top_field_v_m) .and. result%top_field_v_m > 0.0_dp, &
+                   'Type B top field sign and finiteness')
   call assert_kinetic_contract(result, 0.0_dp, 'Type B')
   call test_end()
 
@@ -64,6 +67,8 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_true(result%zhao_branch == 'C', 'explicit Zhao Type C was not selected')
   call assert_current_decomposition(result, 'Type C')
+  call assert_true(ieee_is_finite(result%top_field_v_m) .and. result%top_field_v_m < 0.0_dp, &
+                   'Type C top field sign and finiteness')
   call assert_kinetic_contract(result, 0.0_dp, 'Type C')
   call test_end()
 
@@ -83,6 +88,8 @@ program test_surface_current_model
     'Zhao PE escape current mismatch' &
     )
   call assert_current_decomposition(result, 'Type A')
+  call assert_true(ieee_is_finite(result%top_field_v_m) .and. result%top_field_v_m > 0.0_dp, &
+                   'Type A top field sign and finiteness')
   call assert_close_dp(result%reference_area_m2, 2.0_dp, 0.0_dp, 'configured reference area mismatch')
   call assert_close_dp( &
     result%escaped_particle_current_a(3), &

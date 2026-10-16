@@ -10,6 +10,9 @@ title: FMMを使う
 展開式、内部データ構造、更新アルゴリズム、並列実装は
 [Coulomb FMMコア内部実装](../developer/FMMCore.md)を正本とします。
 
+上端 H 近傍の局所展開誤差は、[上部真空の Fourier 切替](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)で回避できます。
+`fields.periodic.upper_fourier.switch_height="auto"` は上部真空の非零成分を Fourier 評価へ切り替えます。
+
 ## FMMを選ぶか判断する
 
 | 条件 | 選択 |
@@ -68,6 +71,11 @@ box 内に収めると範囲外評価を避けられます。
 box は `box_min` と `box_max`、または `box_origin` と正の `box_size` のどちらか一組で指定します。
 free 場で範囲外の点を評価すると、BEACH は全要素の Direct 和へ fallback します。結果は得られますが、頻発すると
 FMM の速度上の利点が失われます。`cached_kneq0` を使う periodic2 計算では範囲外 target を受理しません。
+
+`cached_kneq0` の遠方演算子は box の固定格子を使い、同じ box と設定なら物体集合が違っても再利用できます。
+保存先は `fields.periodic.cache_dir` の明示指定を優先し、省略時は `$BEACH_CACHE_DIR/periodic2`、
+`$XDG_CACHE_HOME/beach/periodic2`、`$HOME/.cache/beach/periodic2` の順で決めます。
+メッシュの殻への収容条件と事前生成は [periodic2 遠方補正](../developer/PeriodicFarCorrection.md)を参照してください。
 
 ## 精度を調整する
 
@@ -162,6 +170,24 @@ batch ごとの場更新は `field_refresh`、粒子評価を含む追跡は `pa
 完全な構成は [`examples/cached_periodic.toml`](../../examples/cached_periodic.toml)を参照してください。
 成分の選択と検証は[periodic2 静電場](../models/PeriodicElectrostatics.md)、cache の生成と再利用は
 [periodic2 遠方補正](../developer/PeriodicFarCorrection.md)を正本とします。
+
+### 遠方演算子の cache を別 job で先に作る
+
+`cached_kneq0` は、初めての box・展開次数・Ewald 設定で走るとき、初期化中に遠方演算子を作ります。
+三層レゴリス規模では数十コアで数分、数コアでは 30 分以上かかり、その間は最初の batch が始まりません。
+本番 job の時間枠と rank 数（checkpoint 再開で固定される）を cache 作りに使わないよう、次の順で運用します。
+
+1. cache の置き場所を計算ノードから見える共有ファイルシステムにし、全 job で同じ場所を使う。
+   `export BEACH_CACHE_DIR=/path/to/shared/beach-cache`（または `fields.periodic.cache_dir`）。
+2. 本番より多い MPI rank の短い job で `beach --prepare-periodic-cache beach.toml` を実行する。
+   生成は相対オフセットの類ごとに rank へ分配され、各 rank は OpenMP で並列化される。
+3. 本番 job はその job の完了後に投入する（Slurm なら `--dependency=afterok:<cache job>`）。
+   本番の `summary.txt` で `periodic2_cache_hit=T` と `periodic2_operator_build_count=0` を確認する。
+
+演算子は要素を含むセルの分だけ作られ、同じ box で物体集合を変えると足りないセルが追加されます。
+物体集合を変える sweep では、本番の前にすべての物体集合について `--prepare-periodic-cache` を 1 つの job で順に流してください。
+同じ cache へ同時に生成すると lock で 1 つずつ実行されるため、本番 job を並べて投げても速くならず、待つ job の時間枠を消費します。
+cache ファイルは数百 MB になることがあります（三層レゴリスの全セルで約 300 MB）。
 
 ## 現行制約を確認する
 

@@ -1,6 +1,6 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_panel_geometry, only: panel_geometry_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
   use bem_periodic_shell_mean, only: periodic_shell_mean_plan_type, periodic_shell_mean_state_type, &
@@ -10,6 +10,12 @@ module bem_coulomb_fmm_types
 
   real(dp), parameter, public :: inv_sqrt_pi = 0.56418958354775628695d0
 
+  ! Fixed box-cell geometry shared by preflight, proxy generation and cache identity.
+  real(dp), parameter, public :: periodic_operator_proxy_shell_scale = 1.5_dp
+  real(dp), parameter, public :: periodic_operator_source_radius_ratio = 0.4_dp
+  real(dp), parameter, public :: periodic_operator_target_radius_ratio = 0.5_dp
+
+  public :: periodic_source_proxy_half_size
   public :: periodic2_ewald_data_type
   public :: fmm_options_type
   public :: fmm_plan_type
@@ -31,9 +37,9 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_image_layers = 1_i32
     real(dp) :: periodic_ewald_alpha = 0.0d0
     integer(i32) :: periodic_ewald_layers = 4_i32
-    character(len=256) :: periodic_cache_dir = '.beach_cache/periodic2'
+    character(len=256) :: periodic_cache_dir = ''
     real(dp) :: periodic_generation_tolerance = 1.0d-8
-    !> cached_kneq0 の遠方補正が使う source 節点と target anchor の木の深さ。負なら節点の大きさから自動で選ぶ
+    !> cached_kneq0 の遠方補正が使う source セルと target anchor の box 八分木の深さ。負なら節点の大きさから自動で選ぶ
     !! （source は半対角線が周期長の 0.4 倍以下、target は 0.5 倍以下になる最も浅い深さ）。浅いと作成は速いが、
     !! 粒子層の高さが周期長に近いとき非零モードに面平均が漏れる。
     integer(i32) :: periodic_operator_source_depth = -1_i32
@@ -133,18 +139,29 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
-    !> 遠方補正の (target anchor, source node) 組の数と、各組の target anchor。
-    !! 組 k の source node は periodic_root_source_nodes(mod(k-1, source_count)+1)。
+    !> 遠方補正の (target anchor, source cell) 組の数と、各組の target anchor。
+    !! operator は panel を含む source cell だけを持ち、組 k = (slot-1)*anchor_count + anchor で並ぶ。
+    !! slot は periodic_operator_cell_slot(cell)、0 のセルは operator を持たない（線源を置けない）。
     integer(i32) :: periodic_root_target_count = 0_i32
     integer(i32), allocatable :: periodic_root_target_nodes(:)
+    integer(i32) :: periodic_operator_anchor_count = 0_i32
+    integer(i32), allocatable :: periodic_operator_anchor_nodes(:)
+    integer(i32) :: periodic_operator_built_count = 0_i32
+    integer(i32), allocatable :: periodic_operator_cell_slot(:)
+    integer(i32), allocatable :: periodic_operator_cells(:)
+    !> 今回の初期化で新たに作った source cell の数（cache にあったセルは数えない）。
+    integer(i32) :: periodic_operator_new_cell_count = 0_i32
     integer(i32) :: periodic_root_source_count = 0_i32
-    integer(i32), allocatable :: periodic_root_source_nodes(:)
+    integer(i32), allocatable :: periodic_source_cell(:)
+    real(dp), allocatable :: periodic_source_center(:, :), periodic_source_p2m_basis(:, :)
     real(dp), allocatable :: periodic_root_operator(:, :, :)
     logical :: periodic_cache_hit = .false.
     integer(i32) :: periodic_operator_build_count = 0_i32
     integer(i32) :: periodic_qr_preparation_count = 0_i32
     integer(i32) :: periodic_operator_local_target_count = 0_i32
     integer(i32) :: periodic_operator_thread_count = 0_i32
+    integer(i32) :: periodic_operator_class_count = 0_i32
+    integer(i64) :: periodic_operator_ewald_evaluation_count = 0_i64
     character(len=16) :: periodic_cache_fingerprint = ''
     character(len=512) :: periodic_cache_path = ''
     logical :: periodic_k0_ready = .false.
@@ -166,11 +183,24 @@ module bem_coulomb_fmm_types
     real(dp), pointer :: local(:, :) => null()
     integer(i32), pointer :: multipole_active(:) => null()
     integer(i32), pointer :: local_active(:) => null()
+    real(dp), allocatable :: periodic_multipole(:, :)
     type(periodic_zero_mode_state_type) :: periodic_k0_state
     type(periodic_shell_mean_state_type) :: periodic_shell_mean_state
   end type fmm_state_type
 
 contains
+
+  !> Expand all box faces by the same padding, with proxy corner radius = scale * cell half diagonal.
+  pure function periodic_source_proxy_half_size(half) result(proxy_half)
+    real(dp), intent(in) :: half(3)
+    real(dp) :: proxy_half(3), radius, normalized_sum, padding
+
+    radius = norm2(half)
+    normalized_sum = sum(half)/radius
+    padding = radius*(sqrt(normalized_sum**2 + 3.0_dp*(periodic_operator_proxy_shell_scale**2 - 1.0_dp)) - &
+                      normalized_sum)/3.0_dp
+    proxy_half = half + padding
+  end function periodic_source_proxy_half_size
 
   !> periodic2 Ewald 用の補助データを初期状態へ戻す。
   !! @param[inout] data リセット対象の補助データ。
@@ -276,7 +306,15 @@ contains
     call reset_periodic2_ewald_data(plan%periodic_ewald)
     if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    if (allocated(plan%periodic_root_source_nodes)) deallocate (plan%periodic_root_source_nodes)
+    if (allocated(plan%periodic_operator_anchor_nodes)) deallocate (plan%periodic_operator_anchor_nodes)
+    if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
+    if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
+    plan%periodic_operator_anchor_count = 0_i32
+    plan%periodic_operator_built_count = 0_i32
+    plan%periodic_operator_new_cell_count = 0_i32
+    if (allocated(plan%periodic_source_cell)) deallocate (plan%periodic_source_cell)
+    if (allocated(plan%periodic_source_center)) deallocate (plan%periodic_source_center)
+    if (allocated(plan%periodic_source_p2m_basis)) deallocate (plan%periodic_source_p2m_basis)
     plan%periodic_root_source_count = 0_i32
     if (allocated(plan%m2l_deriv)) deallocate (plan%m2l_deriv)
     if (allocated(plan%source_p2m_basis)) deallocate (plan%source_p2m_basis)
@@ -308,6 +346,8 @@ contains
     plan%periodic_qr_preparation_count = 0_i32
     plan%periodic_operator_local_target_count = 0_i32
     plan%periodic_operator_thread_count = 0_i32
+    plan%periodic_operator_class_count = 0_i32
+    plan%periodic_operator_ewald_evaluation_count = 0_i64
     plan%periodic_cache_fingerprint = ''
     plan%periodic_cache_path = ''
     plan%periodic_k0_ready = .false.
@@ -330,6 +370,7 @@ contains
     nullify (state%local)
     nullify (state%multipole_active)
     nullify (state%local_active)
+    if (allocated(state%periodic_multipole)) deallocate (state%periodic_multipole)
     state%ready = .false.
     state%update_count = 0_i32
     if (allocated(state%periodic_k0_state%cumulative_charge_coeff)) then

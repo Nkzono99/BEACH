@@ -274,6 +274,10 @@ class FieldReconstructionReceipt:
     periodic_ewald_layers: int
     periodic_cache_dir: str
     periodic_generation_tolerance: float
+    # Additive v2 receipt fields; absent in released 3.0.0 outputs (supported indefinitely).
+    upper_fourier_switch_active: bool = False
+    upper_fourier_switch_height_m: float = 0.0
+    upper_fourier_switch_mode_layers: int = 0
 
     def as_legacy_sim_mapping(self) -> dict[str, object]:
         """Return the combined simulator mapping consumed by field utilities."""
@@ -327,6 +331,8 @@ class MatchingPlaneState:
     residual: float
     secondary_share: float = 0.0
     secondary_budget_residual_a_m2: float = 0.0
+    top_sheath_field_v_m: float | None = None
+    top_cell_mean_field_v_m: float | None = None
 
 
 @dataclass(frozen=True)

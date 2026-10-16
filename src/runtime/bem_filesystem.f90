@@ -14,6 +14,7 @@ module bem_filesystem
   integer(c_int), parameter :: open_write_create = 65_c_int
   integer(c_int), parameter :: lock_exclusive = 2_c_int
 
+  public :: default_periodic_cache_directory
   public :: create_directories
   public :: atomic_rename
   public :: acquire_file_lock
@@ -59,6 +60,42 @@ module bem_filesystem
   end interface
 
 contains
+
+  !> User cache shared across working directories; an explicit configuration path takes precedence.
+  function default_periodic_cache_directory(missing_ok) result(path)
+    logical, intent(in), optional :: missing_ok
+    character(len=:), allocatable :: path, base
+    integer :: length, status
+
+    call get_environment_variable('BEACH_CACHE_DIR', length=length, status=status)
+    if (status == 0 .and. length > 0) then
+      allocate (character(len=length) :: base)
+      call get_environment_variable('BEACH_CACHE_DIR', base)
+      path = base//'/periodic2'
+      return
+    end if
+    call get_environment_variable('XDG_CACHE_HOME', length=length, status=status)
+    if (status == 0 .and. length > 0) then
+      allocate (character(len=length) :: base)
+      call get_environment_variable('XDG_CACHE_HOME', base)
+      path = base//'/beach/periodic2'
+      return
+    end if
+    call get_environment_variable('HOME', length=length, status=status)
+    if (status /= 0 .or. length == 0) then
+      ! Defaults are formed before TOML is read; an explicit path must still work without these variables.
+      if (present(missing_ok)) then
+        if (missing_ok) then
+          path = ''
+          return
+        end if
+      end if
+      error stop 'Default BEACH cache requires HOME, XDG_CACHE_HOME or BEACH_CACHE_DIR.'
+    end if
+    allocate (character(len=length) :: base)
+    call get_environment_variable('HOME', base)
+    path = base//'/.cache/beach/periodic2'
+  end function default_periodic_cache_directory
 
   subroutine atomic_rename(old_path, new_path, status)
     character(len=*), intent(in) :: old_path, new_path

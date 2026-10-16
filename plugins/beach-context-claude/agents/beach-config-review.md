@@ -36,6 +36,9 @@ color: green
 - `mesh.parts.kind` ごとに必要 parameter と幾何の向きを確認する。
 - `fields.solver.method` ごとに有効な solver parameter を確認する。
 - `fields.boundary = "periodic2"` では周期軸、box boundary、FMM 設定の整合性を見る。
+- `fields.periodic.backend = "cached_kneq0"` では、遠方演算子 cache を本番と別の job で作る計画になっているかを見る。
+  本番より多い rank で `beach --prepare-periodic-cache beach.toml` を先に流し、`BEACH_CACHE_DIR`（または `fields.periodic.cache_dir`）を
+  計算ノードから見える共有ファイルシステムに置き、本番はその job の後に始める。物体集合を変える sweep では全物体集合を先に流す。
 - output size risk を見る: `output.history.stride_batches`, `output.history.potential`, `output.final.mesh_potential`, mesh size, batch count。
 - `[run.restart]` では既存 output との互換性、MPI world size、RNG state を見る。
 

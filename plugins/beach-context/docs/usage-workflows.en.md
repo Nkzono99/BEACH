@@ -48,3 +48,19 @@ beachx estimate-workload beach.toml --threads 8
 ```
 
 For `inflow` and `photo_raycast`, `run.batch.duration_s` / `run.batch.duration_steps`, macro-particle count, mesh element count, and history output strongly affect compute cost and output size.
+
+## Build the periodic2 far-correction cache in a separate job
+
+With `fields.periodic.backend="cached_kneq0"`, the first run for a new box, expansion order, or Ewald setting builds the far-correction operator during initialization.
+Depending on size this takes minutes to tens of minutes and consumes the time limit and the rank count of the production job (fixed on restart). Build the cache in a separate parallel job.
+
+```bash
+export BEACH_CACHE_DIR=/path/to/shared/beach-cache   # shared FS visible from compute nodes; same for all jobs
+srun -n 16 beach --prepare-periodic-cache beach.toml # cache job: more ranks than production, build only
+sbatch --dependency=afterok:<cache job id> run.sh    # production job after the cache job
+```
+
+- Check `periodic2_cache_hit=T` and `periodic2_operator_build_count=0` in the production `summary.txt`.
+- Runs with the same box and settings share one cache even with different object sets; only missing cells are added. For sweeps over object sets, run `--prepare-periodic-cache` for every object set sequentially in one job before production.
+- Builds into the same cache are serialized by a lock. Submitting many production jobs without a cache wastes the time limit of the waiting jobs.
+- Changing the box size, `fields.periodic.image_layers`, `ewald_layers`, or the expansion order selects a different cache.

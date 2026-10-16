@@ -8,6 +8,7 @@ module bem_coulomb_fmm_basis
   public :: initialize_basis_tables
   public :: build_axis_powers
   public :: compute_laplace_derivatives
+  public :: compute_laplace_derivatives_reference
 
 contains
 
@@ -137,7 +138,58 @@ contains
   !! @param[in] plan FMM 計画。
   !! @param[in] r 展開中心からの相対位置 [m]。
   !! @param[out] deriv 微分係数ベクトル。
+  !> 1/sqrt(|r|^2 + s^2) の全次数の偏微分 ∂^α f を漸化式で求める。
+  !! f = a^{-1/2}（a = |r|^2 + s^2）は a ∂_i f = -x_i f を満たし、Leibniz 則で ∂^β を当てると
+  !! D(β+e_i) = -[ x_i D(β) + β_i D(β-e_i) + 2Σ_j β_j x_j D(β+e_i-e_j) + Σ_j β_j(β_j-1) D(β+e_i-2e_j) ] / a
+  !! となる。multi-index は次数昇順に並んでいるので、1 回の走査で全次数が決まる。
+  !! 旧来の多項式乗算版 compute_laplace_derivatives_reference と同じ値を返す（契約テストで検査）。
+  !! @param[in] plan 多重指数テーブルを持つ FMM plan。
+  !! @param[in] r 展開点からの差分ベクトル。
+  !! @param[out] deriv ∂^α f を deriv_map の順に並べた配列。
   subroutine compute_laplace_derivatives(plan, r, deriv)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: r(3)
+    real(dp), intent(out) :: deriv(:)
+    real(dp) :: a, soft2, value
+    integer(i32) :: idx, axis, j, alpha(3), beta(3), lower(3)
+
+    if (size(deriv) /= plan%nderiv) error stop 'Derivative buffer size mismatch.'
+    soft2 = plan%options%softening*plan%options%softening
+    a = dot_product(r, r) + soft2
+    if (a <= tiny(1.0d0)) error stop 'Cannot expand Laplace kernel at r=0.'
+
+    deriv(plan%deriv_map(0_i32, 0_i32, 0_i32)) = 1.0d0/sqrt(a)
+    do idx = 1_i32, plan%nderiv
+      alpha = plan%deriv_alpha(:, idx)
+      if (sum(alpha) == 0_i32) cycle
+      axis = 1_i32
+      do while (alpha(axis) == 0_i32)
+        axis = axis + 1_i32
+      end do
+      beta = alpha
+      beta(axis) = beta(axis) - 1_i32
+      value = r(axis)*deriv(plan%deriv_map(beta(1), beta(2), beta(3)))
+      if (beta(axis) > 0_i32) then
+        lower = beta
+        lower(axis) = lower(axis) - 1_i32
+        value = value + real(beta(axis), dp)*deriv(plan%deriv_map(lower(1), lower(2), lower(3)))
+      end if
+      do j = 1_i32, 3_i32
+        if (beta(j) == 0_i32) cycle
+        lower = alpha
+        lower(j) = lower(j) - 1_i32
+        value = value + 2.0d0*real(beta(j), dp)*r(j)*deriv(plan%deriv_map(lower(1), lower(2), lower(3)))
+        if (beta(j) > 1_i32) then
+          lower(j) = lower(j) - 1_i32
+          value = value + real(beta(j)*(beta(j) - 1_i32), dp)*deriv(plan%deriv_map(lower(1), lower(2), lower(3)))
+        end if
+      end do
+      deriv(idx) = -value/a
+    end do
+  end subroutine compute_laplace_derivatives
+
+  !> 旧実装: (1+q)^{-1/2} の多項式展開を反復乗算で組み立てる。契約テストの参照用に残す。
+  subroutine compute_laplace_derivatives_reference(plan, r, deriv)
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: r(3)
     real(dp), intent(out) :: deriv(:)
@@ -178,7 +230,7 @@ contains
     do idx = 1_i32, plan%nderiv
       deriv(idx) = accum(idx)*plan%deriv_factorial(idx)
     end do
-  end subroutine compute_laplace_derivatives
+  end subroutine compute_laplace_derivatives_reference
 
   subroutine multiply_polynomials(plan, a_poly, b_poly, out_poly)
     type(fmm_plan_type), intent(in) :: plan

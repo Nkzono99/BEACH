@@ -1,7 +1,10 @@
 !> Coulomb FMM plan 構築と tree トポロジ前計算。
 module bem_coulomb_fmm_plan_ops
+  use bem_filesystem, only: default_periodic_cache_directory
   use bem_kinds, only: dp, i32
-  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan
+  use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, reset_fmm_plan, &
+                                   periodic_source_proxy_half_size, periodic_operator_source_radius_ratio, &
+                                   periodic_operator_target_radius_ratio
   use bem_coulomb_fmm_basis, only: initialize_basis_tables, build_axis_powers, compute_laplace_derivatives
   use bem_coulomb_fmm_periodic, only: has_valid_target_box, build_periodic_shift_values, distance_to_source_bbox, &
                                       distance_to_source_bbox_periodic, wrap_src_pos_to_primary_cell, &
@@ -101,7 +104,9 @@ contains
       end if
       if (trim(plan%options%periodic_far_correction) == 'cached_kneq0') then
         if (plan%options%periodic_image_layers < 1_i32) error stop 'cached_kneq0 requires at least one image layer.'
-        if (len_trim(plan%options%periodic_cache_dir) == 0) error stop 'cached_kneq0 requires a cache directory.'
+        if (len_trim(plan%options%periodic_cache_dir) == 0) then
+          plan%options%periodic_cache_dir = default_periodic_cache_directory()
+        end if
         if (plan%options%periodic_generation_tolerance <= 0.0_dp) then
           error stop 'cached_kneq0 requires a positive generation tolerance.'
         end if
@@ -155,6 +160,7 @@ contains
     end if
 
     call initialize_basis_tables(plan, options%order)
+    if (use_periodic2_cached_kneq0(plan)) call precompute_periodic_source_grid(plan)
     call build_source_tree(plan)
     call precompute_source_p2m_basis(plan)
     call build_target_topology(plan)
@@ -187,7 +193,8 @@ contains
       end if
     end do
     call build_periodic_shell_mean_plan( &
-      axes, free_axis, plan%node_center(axes, 1_i32), plan%options%periodic_len, plan%options%periodic_image_layers, &
+      axes, free_axis, 0.5_dp*(plan%options%target_box_min(axes) + plan%options%target_box_max(axes)), &
+      plan%options%periodic_len, plan%options%periodic_image_layers, &
       plan%options%softening, plan%options%target_box_min(free_axis), plan%options%target_box_max(free_axis), &
       minval(plan%options%periodic_len)/spacing_per_period, vertices, plan%periodic_shell_mean &
       )
@@ -389,6 +396,80 @@ contains
     end do
   end subroutine build_source_leaf_index
 
+  !> The far correction uses all box cells, including empty cells. The adaptive near tree is independent.
+  subroutine precompute_periodic_source_grid(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: depth, nside, cell, ix, iy, iz, source, index3(3), alpha_idx
+    real(dp) :: span(3), half(3), proxy_half(3), center(3), d(3), tolerance
+    real(dp) :: xpow(0:plan%options%order), ypow(0:plan%options%order), zpow(0:plan%options%order)
+
+    span = plan%options%target_box_max - plan%options%target_box_min
+    depth = plan%options%periodic_operator_source_depth
+    if (depth < 0_i32) depth = box_operator_depth(periodic_operator_source_radius_ratio, 0_i32)
+    plan%options%periodic_operator_source_depth = depth
+    if (plan%options%periodic_operator_target_depth < 0_i32) then
+      plan%options%periodic_operator_target_depth = box_operator_depth(periodic_operator_target_radius_ratio, 1_i32)
+    end if
+    nside = 2_i32**depth
+    half = 0.5_dp*span/real(nside, dp)
+    proxy_half = periodic_source_proxy_half_size(half)
+    plan%periodic_root_source_count = nside**3
+    allocate (plan%periodic_source_center(3, nside**3), plan%periodic_source_cell(plan%nsrc))
+    allocate (plan%periodic_source_p2m_basis(plan%ncoef, plan%nsrc))
+    do iz = 0_i32, nside - 1_i32
+      do iy = 0_i32, nside - 1_i32
+        do ix = 0_i32, nside - 1_i32
+          cell = 1_i32 + ix + nside*(iy + nside*iz)
+          plan%periodic_source_center(:, cell) = plan%options%target_box_min + &
+                                                 (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*half
+        end do
+      end do
+    end do
+    tolerance = 64.0_dp*epsilon(1.0_dp)*maxval(span)
+    do source = 1_i32, plan%nsrc
+      ! Primary-cell centroids on the upper free face belong to the last cell.
+      index3 = min(nside - 1_i32, max(0_i32, floor((plan%src_pos(:, source) - &
+                                                    plan%options%target_box_min)/span*real(nside, dp), kind=i32)))
+      cell = 1_i32 + index3(1) + nside*(index3(2) + nside*index3(3))
+      plan%periodic_source_cell(source) = cell
+      center = plan%periodic_source_center(:, cell)
+      if (plan%panel_source) then
+        if (any(abs(plan%panel_geometry(source)%vertex - spread(center, 2, 3)) > &
+                spread(proxy_half + tolerance, 2, 3))) then
+          error stop 'cached_kneq0: panel exceeds its box-cell proxy shell (scale 1.5). '// &
+            'Refine the mesh or decrease periodic_operator_source_depth; keep panels inside the source box.'
+        end if
+        do alpha_idx = 1_i32, plan%ncoef
+          plan%periodic_source_p2m_basis(alpha_idx, source) = &
+            panel_monomial_average(plan%panel_geometry(source), center, plan%alpha(:, alpha_idx))/ &
+            plan%alpha_factorial(alpha_idx)
+        end do
+      else
+        d = plan%src_pos(:, source) - center
+        if (any(abs(d) > proxy_half + tolerance)) then
+          error stop 'cached_kneq0: point source is outside the box-cell proxy shell; enlarge the target box.'
+        end if
+        call build_axis_powers(d, plan%options%order, xpow, ypow, zpow)
+        do alpha_idx = 1_i32, plan%ncoef
+          plan%periodic_source_p2m_basis(alpha_idx, source) = &
+            xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx))*zpow(plan%alpha(3, alpha_idx))/ &
+            plan%alpha_factorial(alpha_idx)
+        end do
+      end if
+    end do
+
+  contains
+
+    integer(i32) function box_operator_depth(ratio, minimum) result(level)
+      real(dp), intent(in) :: ratio
+      integer(i32), intent(in) :: minimum
+      level = minimum
+      do while (norm2(0.5_dp*span)*0.5_dp**level > ratio*minval(plan%options%periodic_len))
+        level = level + 1_i32
+      end do
+    end function box_operator_depth
+  end subroutine precompute_periodic_source_grid
+
   subroutine precompute_source_p2m_basis(plan)
     type(fmm_plan_type), intent(inout) :: plan
     integer(i32) :: leaf_idx, node_idx, p, idx, p_end, alpha_idx
@@ -556,7 +637,8 @@ contains
     end if
 
     depth_min = 2_i32
-    depth_max = 4_i32
+    if (use_periodic2_cached_kneq0(plan)) depth_min = max(depth_min, plan%options%periodic_operator_target_depth)
+    depth_max = max(4_i32, depth_min)
     target_cap = 0_i32
     level_nodes = 1_i32
     do depth = 0_i32, depth_max
@@ -1217,6 +1299,8 @@ contains
     real(dp), allocatable :: pos_sorted(:)
 
     call wrap_src_pos_to_primary_cell(plan)
+    ! The cached residual and finite shell must use the same box-based source representatives.
+    if (use_periodic2_cached_kneq0(plan)) return
 
     nsrc = plan%nsrc
     if (nsrc <= 1_i32) return

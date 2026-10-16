@@ -26,6 +26,7 @@ module bem_surface_closure_contract
     !> 照射セル契約の壁面の平均電位を外部シース解の壁電位へ固定する場合だけ有効。
     logical :: has_plane_gauge = .false.
     real(dp) :: plane_gauge_potential_v = 0.0_dp
+    real(dp) :: top_field_v_m = 0.0_dp
     !> 外部障壁で戻る粒子を周期セル内の一様な位置へ戻す。
     logical :: outer_return_cell_uniform = .false.
   end type surface_closure_contract_type

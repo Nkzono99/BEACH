@@ -148,15 +148,25 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 
 平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
 
-`cached_kneq0` の遠方補正は、線源の木の深さ 2 の節点ごとの multipole から深さ 2 の target anchor の local 展開への
-operator を当てはめます。有限画像殻の面平均は無限面電荷の平均場と滑らかな残り $s$ の和で、$s$ は閉じた式で
+`cached_kneq0` の遠方補正は、周期 box の全固定セルの multipole から box 固定の target anchor の local 展開への
+operator を当てはめます。セルの深さは box の半対角線と周期長から選び、空セルも保持します。
+要素重心をセルへ割り当て、セル中心への三角形 P2M を電荷更新ごとに集計します。
+生成器 v11 は相対オフセットと鏡映対称性で Ewald 評価を共有し、mesh に依存しない fingerprint を使います。
+保存先は明示指定を優先し、省略時は `BEACH_CACHE_DIR`、`XDG_CACHE_HOME`、`HOME` から解決します。
+有限画像殻の面平均は無限面電荷の平均場と滑らかな残り $s$ の和で、$s$ は閉じた式で
 求めて線源ごとの高さの表から実行時に引き、operator には面平均 0 の残差だけを当てはめます。こうして非零 mode の
 面平均を 0 に保ちます。
 
 `fields.periodic.backend="cached_kneq0"` または `"panel_spectral_reference"` では、物理的 $k=0$ を
-`fields.periodic.lower_boundary_model="symmetric_vacuum" | "e_bottom_zero"` で別に構築し、場へ一度だけ加えます。
-このzero-mode構築自体は外部プラズマ応答を合成しません。外部シースclosureを選んだ場合、その壁電位は
-z-high面の電位基準として別の層で与えます。
+`fields.periodic.lower_boundary_model="symmetric_vacuum" | "e_bottom_zero" | "e_top_from_sheath"` で別に構築し、場へ一度だけ加えます。
+外部シースclosureを選んだ場合、その壁電位を z-high 面の電位基準として与えます。
+`e_top_from_sheath` では法線電場も外部根から渡します。
+
+`fields.periodic.upper_fourier.switch_height` は既定 `"off"`、`"auto"` または metre の実数です。
+有効時は periodic2 + cached 非零モード + exclude_k0 で、切替面以上の全 snapshot 局所評価を上部真空 Fourier 和へ切り替えます。
+幾何のみの決定論的な選択と次数、診断の契約は [periodic2 静電場](docs/models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)に記載します。
+`e_top_from_sheath` は Zhao 専用で、根の法線電場を $E_\mathrm{bottom}=E_z(H^+)-Q/(\epsilon_0A)$ として渡します。
+選択高さと外部根の場は再開時に再計算し、checkpoint schema は変更しません。
 
 ### 5.3 領域・粒子境界・reservoir
 

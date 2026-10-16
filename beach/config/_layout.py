@@ -42,6 +42,8 @@ PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'sim.multiple_box_events_soft_discard_abs_charge_limit': 'particles.tracking.events.discard_charge_warning_c',
  'sim.raycast_max_bounce': 'particles.raycast.max_bounces',
  'particles.secondary_emission_max_generations': 'particles.secondary_emission.max_generations',
+ 'periodic2.upper_fourier_switch_height': 'fields.periodic.upper_fourier.switch_height',
+ 'periodic2.upper_fourier_mode_layers': 'fields.periodic.upper_fourier.mode_layers',
  'periodic2.lower_boundary_model': 'fields.periodic.lower_boundary_model',
  'periodic2.reference_mode_layers': 'fields.periodic.reference.mode_layers',
  'periodic2.panel_quadrature_order': 'fields.periodic.reference.panel_quadrature_order',
@@ -233,7 +235,7 @@ def to_runtime_layout(config: Mapping[str, Any]) -> dict[str, Any]:
             raise ConfigValidationError(f"unknown or mixed-layout key: {path}")
     periodic = config.get("fields", {}).get("periodic", {})
     if periodic.get("backend", "finite_images") == "finite_images" and (
-            "lower_boundary_model" in periodic or "reference" in periodic):
+            "lower_boundary_model" in periodic or "reference" in periodic or "upper_fourier" in periodic):
         raise ConfigValidationError("split periodic settings require an explicit split backend")
     # An empty source table has semantics, even though it has no leaves.
     for item in config.get("particles", {}).get("species", []):

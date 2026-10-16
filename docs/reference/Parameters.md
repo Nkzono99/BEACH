@@ -120,6 +120,7 @@ beach.toml
 │   ├── [fields.solver]
 │   │   └── [fields.solver.tree]
 │   ├── [fields.periodic]
+│   │   ├── [fields.periodic.upper_fourier]
 │   │   └── [fields.periodic.reference]
 │   └── [fields.external]
 ├── [sheath]
@@ -164,6 +165,7 @@ beach.toml
 | `[fields.solver]` | `[fields]` | 任意 | 場ソルバと長さの正規化 |
 | `[fields.solver.tree]` | `[fields.solver]` | 任意 | Treecode / FMM の精度・木の分割 |
 | `[fields.periodic]` | `[fields]` | periodic2 使用時 | 周期 backend と下側境界 |
+| `[fields.periodic.upper_fourier]` | `[fields.periodic]` | 任意 | 上部真空の Fourier 切替高さ・次数 |
 | `[fields.periodic.reference]` | `[fields.periodic]` | split reference 使用時 | Fourier cutoff と面積分 |
 | `[fields.external]` | `[fields]` | 任意 | 一様外部電場・磁場 |
 | `[sheath]` | root | 任意 | 外部シースの零電流根による closure |
@@ -727,11 +729,21 @@ FMM の選択と精度確認は [FMM を使う](../guide/FMM.md)、実装は
 | `backend` | string | `"finite_images"` | `finite_images` / `cached_kneq0` / `panel_spectral_reference` |
 | `ewald_alpha` | float | `0.0` | cache 生成の Ewald 分割値。`>=0`、0 は自動 |
 | `ewald_layers` | int | `4` | cache 生成の実・逆空間 shell 深さ。far correction 有効時 `>=1` |
-| `cache_dir` | string | `".beach_cache/periodic2"` | operator cacheの保存先。`cached_kneq0` では空文字不可 |
+| `cache_dir` | string | 環境変数から解決 | 演算子の保存先。明示指定を優先し、省略時は `$BEACH_CACHE_DIR/periodic2` → `$XDG_CACHE_HOME/beach/periodic2` → `$HOME/.cache/beach/periodic2`。空の環境変数は未設定と扱う。`cached_kneq0` で明示する場合は空文字不可 |
 | `generation_tolerance` | float | `1.0e-8` | cache identity に含める生成許容誤差。`cached_kneq0` では有限かつ `>0` |
-| `lower_boundary_model` | string | 必須 | `symmetric_vacuum` / `e_bottom_zero` |
+| `lower_boundary_model` | string | 必須 | `symmetric_vacuum` / `e_bottom_zero` / `e_top_from_sheath`。最後は `sheath.closure="zero_current"` 専用 |
 
 `fields.boundary="periodic2"` では `domain.periodic_axes=["x","y"]` が必要です。通常は `fields.solver.method="fmm"` を使い、小規模な split reference に限り `"direct"` を使います。
+
+##### `[fields.periodic.upper_fourier]`
+
+| キー | 型 | 既定値 | 説明・条件 |
+|---|---|---:|---|
+| `switch_height` | string / float | `"off"` | `"off"` / `"auto"` / 高さ [m]。有効時は periodic2 + cached 非零モード + 零モード除外が必要。$z_\mathrm{top}+0.1\min(L_x,L_y)\le z<H$ |
+| `mode_layers` | int | `0` | 0 は減衰から自動、明示値は1〜32。自動次数は reference の次数以上、最大32 |
+
+auto の候補面と代理電荷、起動・再開時の選択は[periodic2静電場](../models/PeriodicElectrostatics.md#上部真空の-fourier-評価への切替)を参照してください。
+外部シース接続で switch が off の場合は警告し、計算を続けます。
 
 ##### `[fields.periodic.reference]`
 

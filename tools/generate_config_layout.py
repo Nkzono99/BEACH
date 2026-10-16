@@ -96,6 +96,14 @@ def generate_schema(schema):
         properties[f'secondary_emission_{key}'] = copy.deepcopy(rule)
     if 'secondary_emission' not in properties['source_mode']['enum']:
         properties['source_mode']['enum'].append('secondary_emission')
+    periodic = schema['$defs']['periodic2']['properties']
+    periodic['upper_fourier_switch_height'] = {
+        'oneOf': [{'type': 'string', 'enum': ['off', 'auto']}, {'type': 'number'}],
+        'default': 'off'}
+    periodic['upper_fourier_mode_layers'] = {
+        'type': 'integer', 'minimum': 0, 'maximum': 32, 'default': 0}
+    if 'e_top_from_sheath' not in periodic['lower_boundary_model']['enum']:
+        periodic['lower_boundary_model']['enum'].append('e_top_from_sheath')
     reader = reader_schema(schema)
     grouped = object_rule()
     grouped['required'] = ['particles']

@@ -67,7 +67,7 @@ lower_boundary_model = "symmetric_vacuum"
 ## 遠くの複製の面内変動成分
 
 `cached_kneq0` は、無限に繰り返す複製の和（Ewald 和）から、直接足した $N$ 層の寄与と面平均成分を除いたものを、
-事前に作った演算子で FMM に加えます。面平均成分を除くのは、下の解析的な面平均成分と二重に数えないためです。
+周期 box の固定格子に対して事前に作った演算子で FMM に加えます。同じ box と設定なら物体集合が違っても再利用します。面平均成分を除くのは、下の解析的な面平均成分と二重に数えないためです。
 演算子の作り方、cache、精度は[periodic2 遠方補正](../developer/PeriodicFarCorrection.md)にあります。
 
 ## 面平均成分（$k=0$）
@@ -100,8 +100,10 @@ $$
 |---|---:|---:|---|
 | `symmetric_vacuum` | $-Q/(2\epsilon_0A)$ | $+Q/(2\epsilon_0A)$ | 上下に同じ真空が広がり、外部の電場がない |
 | `e_bottom_zero` | $0$ | $Q/(\epsilon_0A)$ | 最下層の電荷より下で電場が 0 |
+| `e_top_from_sheath` | $E_H-Q/(\epsilon_0A)$ | $E_H$ | 外部根の $E_z(H^+)$ と接続。`sheath.closure="zero_current"` 専用 |
 
-$Q=\sum_iq_i$ はセルの総電荷です。総電荷が 0 なら二つの条件は一致します。どちらも、物体の内部の誘電分極や遮蔽は解きません。
+$Q=\sum_iq_i$ はセルの総電荷です。総電荷が 0 なら `symmetric_vacuum` と `e_bottom_zero` は一致します。
+`e_top_from_sheath` は H に面電荷がない Neumann 条件です。いずれも物体内部の誘電分極や遮蔽は解きません。
 
 ### 電位の基準
 
@@ -112,7 +114,34 @@ $Q=\sum_iq_i$ はセルの総電荷です。総電荷が 0 なら二つの条件
 
 粒子の層の中では、総電荷が小さくても、高さごとに正負の電荷が分かれていれば $C(z)$ は大きく変わります。
 この層内の平均場も面平均成分です。外部シースの平面の場だけで置き換えると、表面電荷がつくるこの成分を落とします。
-外部シースとの接続では、層内の平均場は表面電荷から計算し、外部シースからは電位の基準と障壁だけを受け取ります。
+外部シースとの接続では層内の平均場を表面電荷から計算し、`e_top_from_sheath` を選ぶと外部根の法線電場を境界値として加えます。
+
+## 上部真空の Fourier 評価への切替
+
+上端 H 付近の局所展開誤差を避けるには、`cached_kneq0` と組み合わせて次を設定します。
+
+```toml
+[fields.periodic.upper_fourier]
+switch_height = "auto"
+mode_layers = 0
+```
+
+既定の `"off"` は従来の FMM 評価です。有効時は $z\ge z_\mathrm{switch}$ の非零成分を上部真空の panel Fourier 和で評価し、
+下側では FMM と cached 補正を使います。粒子の電場、局所障壁、帰還電位、上端面サンプルに共通で、零モードと一様外部場の合成は同じです。
+panel 電位は切替面より下にあり、対象外です。`upper_panel_fourier` retry も同じ plan を共有します。
+
+`"auto"` は $z_\mathrm{top}+0.25\min(L_x,L_y)$ から $H-10^{-9}H$ までの等間隔16面を比較します。
+代理電荷は全 panel +1、mesh ID 偶数 +1 / 奇数 −1、各 mesh の centroid 高さ中央値以上 +1 / 未満 −1 の3組で、それぞれ $\sum|q|=1$ pC にします。
+各面の12×12セル中心で FMM−Fourier 電位差の rms を求め、3組の最大値が最小の面を選びます。同値なら低い面を選びます。
+実電荷には依存せず、起動・再開時に各 MPI rank が同じ順序で再計算します。比較値の単位 V はこの代理電荷規格化（総 $|q|$ = 1 pC）に対する値です。
+
+実数は metre の固定高さです。$z_\mathrm{top}+0.1\min(L_x,L_y)\le z_\mathrm{switch}<H$ が必要で、auto の候補区間が空なら設定エラーです。
+次数0は、最初の打切りモードの減衰 $\exp[-2\pi(m+1)(z_\mathrm{switch}-z_\mathrm{top})/\max(L_x,L_y)]\le10^{-6}$ を満たす最小次数を選びます。
+下限は `fields.periodic.reference.mode_layers`、上限32で、明示次数は1〜32です。切替を使うと reference の次数も1〜32が必要です。
+plan は既存の7点 panel 求積を用いるため、Fourier 打切りと面積求積の誤差は残ります。
+
+切替は periodic2・cached 非零成分・零モード除外の構成専用です。外部シース接続で off の場合は起動時に1行警告します。
+選択値と実電荷の接続面 rms は[出力リファレンス](../reference/OutputReference.md#場と境界の-receipt)で確認します。
 
 ## 粒子の衝突と周期画像
 

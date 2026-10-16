@@ -24,13 +24,6 @@ def _line_starting_with(text: str, prefix: str) -> str:
     raise AssertionError(f"missing line starting with {prefix!r}")
 
 
-def _paragraph_containing(text: str, token: str) -> str:
-    for paragraph in text.split("\n\n"):
-        if token in paragraph:
-            return paragraph
-    raise AssertionError(f"missing paragraph containing {token!r}")
-
-
 def test_far_correction_schema_exposes_public_backends() -> None:
     schema = json.loads(_read("schemas/beach.schema.json"))
     backend = schema["$defs"]["groupedConfig"]["properties"]["fields"][
@@ -56,11 +49,9 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
         "docs/developer/PeriodicFarCorrection.md": {
             "rows": {
                 "finite_images": ("有限画像",),
-                "cached_kneq0": ("無限周期", "production"),
-                "panel_spectral_reference": ("Fourier", "参照"),
+                "cached_kneq0": ("無限周期", "演算子"),
+                "panel_spectral_reference": ("Fourier", "検証"),
             },
-            "removed": "削除",
-            "zero_mode": "二重加算",
         },
     }
     for path, contract in contracts.items():
@@ -70,10 +61,9 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
             row = _line_starting_with(text, f"| `{mode}` |")
             assert all(fragment in row for fragment in fragments), (path, mode)
 
-        removed = _paragraph_containing(text, "`m2l_root_oracle`")
-        assert contract["removed"] in removed, path
-        zero_mode = _paragraph_containing(text, '`fields.periodic.backend="cached_kneq0"` は非零モード')
-        assert contract["zero_mode"] in zero_mode, path
+        assert "物理的な平均場はこの演算子の外で一度だけ加えます" in text
+        assert "periodic-kneq0-generator-v11" in text
+        assert "BEACH_CACHE_DIR" in text
 
 
 def test_bundled_plugin_references_match_canonical_sources() -> None:

@@ -114,6 +114,11 @@ source-dir = "benchmarks/fortran"
 main = "benchmark_field_kernel_runtime.f90"
 
 [[test]]
+name = "test_upper_fourier_switch"
+source-dir = "tests/fortran"
+main = "test_upper_fourier_switch.f90"
+
+[[test]]
 name = "test_periodic2_cached_snapshot"
 source-dir = "tests/fortran"
 main = "test_periodic2_cached_snapshot.f90"
@@ -137,6 +142,11 @@ main = "test_dynamics_panel_fmm.f90"
 name = "test_periodic_zero_mode"
 source-dir = "tests/fortran"
 main = "test_periodic_zero_mode.f90"
+
+[[test]]
+name = "test_laplace_derivatives"
+source-dir = "tests/fortran"
+main = "test_laplace_derivatives.f90"
 
 [[test]]
 name = "test_periodic_zero_mode_c"

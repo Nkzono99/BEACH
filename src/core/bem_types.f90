@@ -33,7 +33,7 @@ module bem_types
     character(len=16) :: field_periodic_far_correction = 'none'
     real(dp) :: field_periodic_ewald_alpha = 0.0d0
     integer(i32) :: field_periodic_ewald_layers = 4_i32
-    character(len=256) :: field_periodic_cache_dir = '.beach_cache/periodic2'
+    character(len=256) :: field_periodic_cache_dir = ''
     real(dp) :: field_periodic_generation_tolerance = 1.0d-8
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
@@ -86,6 +86,9 @@ module bem_types
     logical :: matching_plane_state_valid = .false.
     real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
     real(dp) :: matching_plane_phi_v = 0.0_dp
+    ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
+    real(dp) :: surface_current_top_field_v_m = 0.0_dp
+    real(dp) :: matching_plane_top_cell_mean_v_m = 0.0_dp
     real(dp) :: matching_plane_response(6) = 0.0_dp
     real(dp) :: matching_plane_feedback(4) = 0.0_dp
     real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp

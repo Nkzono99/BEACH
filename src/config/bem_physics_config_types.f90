@@ -20,6 +20,9 @@ module bem_physics_config_types
     character(len=32) :: nonzero_mode_backend = 'not_applicable'
     character(len=32) :: zero_mode_policy = 'not_applicable'
     character(len=32) :: lower_boundary_model = 'not_applicable'
+    character(len=16) :: upper_fourier_switch = 'off'
+    real(dp) :: upper_fourier_switch_height = 0.0_dp
+    integer(i32) :: upper_fourier_mode_layers = 0_i32
     integer(i32) :: reference_mode_layers = 4_i32
     integer(i32) :: panel_quadrature_order = 12_i32
     real(dp) :: max_nonzero_mode_potential_step = 0.0_dp
@@ -34,6 +37,7 @@ module bem_physics_config_types
   public :: derive_field_panel_config
   public :: validate_phase1_panel_config
   public :: validate_active_physics_config
+  public :: validate_upper_fourier_height
 
 contains
 
@@ -160,6 +164,31 @@ contains
       return
     end if
 
+    if (periodic2%upper_fourier_mode_layers < 0_i32 .or. periodic2%upper_fourier_mode_layers > 32_i32) then
+      call reject(physics_config_invalid_combination, &
+                  'fields.periodic.upper_fourier.mode_layers must be between 0 and 32.', status, message)
+      return
+    end if
+    select case (trim(periodic2%upper_fourier_switch))
+    case ('off')
+      continue
+    case ('auto', 'height')
+      if (trim(nonzero_backend) /= 'cached_kneq0' .or. &
+          trim(periodic2%zero_mode_policy) /= 'exclude_k0' .or. trim(sim%field_bc_mode) /= 'periodic2') then
+        call reject(physics_config_invalid_combination, &
+                    'upper Fourier switch requires periodic2 + cached_kneq0 + exclude_k0.', status, message)
+        return
+      end if
+      if (periodic2%reference_mode_layers < 1_i32 .or. periodic2%reference_mode_layers > 32_i32 .or. &
+          .not. ieee_is_finite(periodic2%upper_fourier_switch_height)) then
+        call reject(physics_config_invalid_combination, 'Invalid upper Fourier height or reference mode layers.', status, message)
+        return
+      end if
+    case default
+      call reject(physics_config_invalid_combination, 'Invalid upper Fourier switch.', status, message)
+      return
+    end select
+
     if (trim(lower_ascii(sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier' .and. &
         trim(nonzero_backend) /= 'cached_kneq0') then
       call reject( &
@@ -269,12 +298,42 @@ contains
     end if
   end subroutine validate_active_physics_config
 
+  !> Geometry preflight after mesh construction; called before the cached operator is built.
+  subroutine validate_upper_fourier_height(sim, periodic2, z_top, status, message)
+    type(sim_config), intent(in) :: sim
+    type(periodic2_physics_config), intent(in) :: periodic2
+    real(dp), intent(in) :: z_top
+    integer(i32), intent(out) :: status
+    character(len=*), intent(out) :: message
+    real(dp) :: lower, upper
+
+    status = physics_config_ok
+    message = ''
+    if (periodic2%upper_fourier_switch == 'off') return
+    lower = z_top + 0.1_dp*minval(sim%box_max(1:2) - sim%box_min(1:2))
+    upper = sim%box_max(3)
+    if (periodic2%upper_fourier_switch == 'auto') then
+      lower = z_top + 0.25_dp*minval(sim%box_max(1:2) - sim%box_min(1:2))
+      upper = upper - 1.0e-9_dp*upper
+      if (lower <= upper .and. upper < sim%box_max(3)) return
+    else
+      if (ieee_is_finite(periodic2%upper_fourier_switch_height)) then
+        if (periodic2%upper_fourier_switch_height >= lower .and. &
+            periodic2%upper_fourier_switch_height < upper) return
+      end if
+    end if
+    call reject(physics_config_invalid_combination, &
+                'upper Fourier switch height must lie above z_top + 0.1 min(Lx,Ly) and below H; auto needs 0.25 clearance.', &
+                status, message)
+  end subroutine validate_upper_fourier_height
+
   pure logical function supported_lower_boundary(model) result(supported)
     character(len=*), intent(in) :: model
     character(len=32) :: normalized
 
     normalized = lower_ascii(trim(model))
-    supported = trim(normalized) == 'e_bottom_zero' .or. trim(normalized) == 'symmetric_vacuum'
+    supported = trim(normalized) == 'e_bottom_zero' .or. trim(normalized) == 'symmetric_vacuum' .or. &
+                trim(normalized) == 'e_top_from_sheath'
   end function supported_lower_boundary
 
   pure subroutine reject(code, text, status, message)

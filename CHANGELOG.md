@@ -5,6 +5,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- periodic2 cached 非零モードの上部真空 Fourier 切替。高さの幾何自動選択と次数制御、接続面の電位・法線場 rms、再構築 receipt を追加。
+- Zhao 外部根の法線電場を零モードへ渡す `e_top_from_sheath` と、シース側・セル側の上端電場履歴を追加。checkpoint schema は維持。
+- 17/19列 matching-plane 履歴と8列 top-reference 履歴を、新しい列へ拡張して再開する互換処理。
+- `beach --prepare-periodic-cache beach.toml`: periodic2 の遠方補正 operator を作成・publish して終了する CLI。本番より多い MPI rank で cold build だけを先に済ませられる。
+
+### Changed
+
+- periodic2 `cached_kneq0` の生成器を v11 に更新。線源を box 固定セルへ分け、相対オフセットと鏡映対称性で Ewald 評価を共有する。
+  同じ box と設定なら異なるメッシュで演算子を再利用する。v10 の fingerprint は一致せず、必要な演算子を自動再生成する。
+- `cached_kneq0` の演算子は要素を含む線源セルの分だけ作り、cache にないセルだけを追加生成して同じファイルへ書き足す。小さなテスト mesh や上部が空の box で生成が短くなる。
+- FMM の M2L 微分表を多項式の反復乗算から漸化式に置き換え、三層レゴリスの起動（cache 読込済み）が 28 スレッドで 98 s から 5.5 s になった。
+- `fields.periodic.cache_dir` の未指定時は `$BEACH_CACHE_DIR/periodic2`、`$XDG_CACHE_HOME/beach/periodic2`、
+  `$HOME/.cache/beach/periodic2` の順で保存先を解決する。明示指定した保存先は維持する。
+
 ### Fixed
 
 - runops adapter: `runo case new` writes the grouped `beach.toml` that `beachx config init` produces (the template was

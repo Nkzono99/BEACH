@@ -549,6 +549,9 @@ print(records[0].force_N, records[0].torque_Nm)
 Python側の剛体変換は、既定でNumPyを使います。Numbaを使う場合は、任意依存の`pip install ".[accel]"`を導入し、
 `run.scene(transform_backend="numba")`を指定します。FMM、periodic2、遠方補正を含むfield評価はFortran kernel側で実行します。
 
+`FieldKernelOptions.periodic_cache_dir=None` は、初期化時に `BEACH_CACHE_DIR`、`XDG_CACHE_HOME`、`HOME` の順で
+共通の保存先を解決します。明示した文字列と結果ファイルの再構成情報は優先されます。
+
 ### 10.4 `ObjectInteractionSnapshot` と凍結 source 経路
 
 このAPIは、保存済みの全source geometryとchargeを一度凍結します。その凍結したsourceに対して、
@@ -562,7 +565,6 @@ from beach import AdhesionProfile, Beach
 run = Beach("outputs/latest", config_path="beach.toml")
 with run.object_interaction_snapshot(
     periodic_model="infinite_physical",
-    cache_dir=".beach_cache/periodic2",
 ) as snapshot:
     probe = snapshot.object_probe(6)
     wrench = probe.wrench()

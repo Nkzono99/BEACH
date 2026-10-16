@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(40)
+  call test_init(44)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -230,6 +230,56 @@ program test_app_config_parser
   call delete_file_if_exists(sim_variant_path)
   call test_end()
 
+  call test_begin('upper_fourier_parses_off')
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', &
+                                'lower_boundary_model = "e_bottom_zero"'//new_line('a')// &
+                                'upper_fourier.switch_height = "off"'//new_line('a')//'upper_fourier.mode_layers = 7')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%periodic2%upper_fourier_switch == 'off', 'switch selection parsing')
+  call assert_equal_i32(cfg%periodic2%upper_fourier_mode_layers, 7_i32, 'switch mode layers parsing')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('upper_fourier_parses_auto')
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', &
+                                'lower_boundary_model = "e_bottom_zero"'//new_line('a')// &
+                                'upper_fourier.switch_height = "auto"'//new_line('a')//'upper_fourier.mode_layers = 7')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%periodic2%upper_fourier_switch == 'auto', 'switch selection parsing')
+  call assert_equal_i32(cfg%periodic2%upper_fourier_mode_layers, 7_i32, 'switch mode layers parsing')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('upper_fourier_parses_height')
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', &
+                                'lower_boundary_model = "e_bottom_zero"'//new_line('a')// &
+                                'upper_fourier.switch_height = 0.0005'//new_line('a')//'upper_fourier.mode_layers = 7')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%periodic2%upper_fourier_switch == 'height', 'switch selection parsing')
+  call assert_equal_i32(cfg%periodic2%upper_fourier_mode_layers, 7_i32, 'switch mode layers parsing')
+  call assert_close_dp(cfg%periodic2%upper_fourier_switch_height, 0.0005_dp, 0.0_dp, 'numeric switch height')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('upper_fourier_rejects_invalid_configuration')
+  call write_grouped_config(input_contract_path, &
+                            '[fields.periodic]'//new_line('a')//'backend="cached_kneq0"'//new_line('a')// &
+                            'lower_boundary_model="e_top_from_sheath"')
+  call assert_config_rejected(input_contract_path, 'e_top_from_sheath requires zhao_stationary')
+  call delete_file_if_exists(input_contract_path)
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', &
+                                'lower_boundary_model = "e_bottom_zero"'//new_line('a')// &
+                                'upper_fourier.switch_height = "invalid"')
+  call assert_config_rejected(zhao_refresh_variant_path, 'must be off, auto, or a height in metres')
+  call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', &
+                                'lower_boundary_model = "e_bottom_zero"'//new_line('a')//'upper_fourier.mode_layers = 33')
+  call assert_config_rejected(zhao_refresh_variant_path, 'mode_layers must be between 0 and 32')
+  call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
   call test_begin('split_periodic_accepts_upper_fourier_retry')
   call write_sim_variant(sim_variant_path, 'retry_backend = "upper_panel_fourier"')
   call default_app_config(cfg)
@@ -290,6 +340,8 @@ program test_app_config_parser
   call load_app_config('examples/zero_current_refresh.toml', cfg)
   call assert_true(trim(cfg%surface_current%model) == 'zhao_stationary', 'refresh Zhao model mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 2_i32, 'outflow refresh interval mismatch')
+  call assert_true(cfg%periodic2%upper_fourier_switch == 'auto', 'grouped Fourier auto parsing')
+  call assert_true(cfg%periodic2%lower_boundary_model == 'e_top_from_sheath', 'sheath Neumann boundary parsing')
   call default_app_config(cfg)
   call load_app_config('examples/zero_current.toml', cfg)
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'fixed Zhao root must not refresh')

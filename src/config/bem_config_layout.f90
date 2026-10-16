@@ -151,6 +151,8 @@ contains
       if (text == 'finite_images') then
         call find_node(table, 'lower_boundary_model', node)
         if (associated(node)) call stop_config_error('split periodic settings require an explicit split backend')
+        call find_node(table, 'upper_fourier', node)
+        if (associated(node)) call stop_config_error('split periodic settings require an explicit split backend')
         call find_node(table, 'reference', node)
         if (associated(node)) call stop_config_error('split periodic settings require an explicit split backend')
       end if

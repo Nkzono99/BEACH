@@ -630,7 +630,8 @@ def test_load_fortran_result(tmp_path: Path) -> None:
     np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
 
 
-def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path) -> None:
+@pytest.mark.parametrize("field_values", [None, "-2.7,-2.7", "NaN,NaN"])
+def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path, field_values: str | None) -> None:
     out = tmp_path / "matching"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -641,6 +642,8 @@ def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path) ->
         ],
     )
     (out / "matching_plane_history.csv").write_text(
+        (f"{_MATCHING_HISTORY_HEADER},secondary_share,secondary_budget_residual_a_m2,E_top_sheath_V_m,E_top_cell_mean_V_m\n"
+         f"{_matching_history_row()},0,0,{field_values}\n") if field_values is not None else
         f"{_MATCHING_HISTORY_HEADER}\n{_matching_history_row()}\n",
         encoding="utf-8",
     )
@@ -658,6 +661,10 @@ def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path) ->
     assert isinstance(result.matching_plane_history[0], PublicMatchingPlaneHistoryEntry)
     assert result.matching_plane_history[0].batch == 1
     assert result.matching_plane_history[0].state.iterations == 3
+
+    expected_field = -2.7 if field_values == "-2.7,-2.7" else None
+    assert result.matching_plane_history[0].state.top_sheath_field_v_m == expected_field
+    assert result.matching_plane_history[0].state.top_cell_mean_field_v_m == expected_field
 
 
 def test_load_fortran_result_ignores_stale_matching_history(tmp_path: Path) -> None:
@@ -1498,7 +1505,8 @@ def test_load_fortran_result_rejects_corrupt_charge_ledger(
         load_fortran_result(out)
 
 
-def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path) -> None:
+@pytest.mark.parametrize("switch_active", [False, True])
+def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path, switch_active: bool) -> None:
     out = tmp_path / "field_receipt"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -1517,16 +1525,19 @@ def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path) -> Non
             "field_reconstruction_boundary_low=2 2 0",
             "field_reconstruction_boundary_high=2 2 0",
             "field_reconstruction_periodic_image_layers=2",
-            "field_reconstruction_periodic_far_correction=none",
-            "field_reconstruction_periodic_nonzero_mode_backend=legacy_finite_images",
-            "field_reconstruction_periodic_zero_mode_policy=legacy_not_decomposed",
-            "field_reconstruction_periodic_lower_boundary_model=legacy_implicit",
+            "field_reconstruction_periodic_far_correction=" + ("cached_kneq0" if switch_active else "none"),
+            "field_reconstruction_periodic_nonzero_mode_backend=" + ("cached_kneq0" if switch_active else "legacy_finite_images"),
+            "field_reconstruction_periodic_zero_mode_policy=" + ("exclude_k0" if switch_active else "legacy_not_decomposed"),
+            "field_reconstruction_periodic_lower_boundary_model=" + ("e_top_from_sheath" if switch_active else "legacy_implicit"),
             "field_reconstruction_periodic_reference_mode_layers=4",
             "field_reconstruction_periodic_panel_quadrature_order=12",
             "field_reconstruction_periodic_ewald_alpha=2.5e-1",
             "field_reconstruction_periodic_ewald_layers=5",
             "field_reconstruction_periodic_cache_dir=verified-cache",
             "field_reconstruction_periodic_generation_tolerance=2.0e-9",
+            *(["field_reconstruction_upper_fourier_switch_active=T",
+               "field_reconstruction_upper_fourier_switch_height_m=5.5",
+               "field_reconstruction_upper_fourier_switch_mode_layers=7"] if switch_active else []),
         ],
     )
 
@@ -1539,6 +1550,10 @@ def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path) -> Non
     assert result.field_reconstruction.external_e0_v_m == (1.0, 2.0, 3.0)
     assert result.field_reconstruction.boundary_low == (2, 2, 0)
     assert result.field_reconstruction.periodic_cache_dir == "verified-cache"
+
+    assert result.field_reconstruction.upper_fourier_switch_active == switch_active
+    assert result.field_reconstruction.upper_fourier_switch_height_m == (5.5 if switch_active else 0.0)
+    assert result.field_reconstruction.upper_fourier_switch_mode_layers == (7 if switch_active else 0)
 
 
 def test_free_field_reconstruction_receipt_rejects_periodic_far_model(

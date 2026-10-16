@@ -32,6 +32,9 @@ contains
     cfg%periodic2%nonzero_mode_backend = authoring%periodic2%nonzero_mode_backend
     cfg%periodic2%zero_mode_policy = authoring%periodic2%zero_mode_policy
     cfg%periodic2%lower_boundary_model = authoring%periodic2%lower_boundary_model
+    cfg%periodic2%upper_fourier_switch = authoring%periodic2%upper_fourier_switch
+    cfg%periodic2%upper_fourier_switch_height = authoring%periodic2%upper_fourier_switch_height
+    cfg%periodic2%upper_fourier_mode_layers = authoring%periodic2%upper_fourier_mode_layers
     cfg%periodic2%reference_mode_layers = authoring%periodic2%reference_mode_layers
     cfg%periodic2%panel_quadrature_order = authoring%periodic2%panel_quadrature_order
     cfg%periodic2%max_nonzero_mode_potential_step = &

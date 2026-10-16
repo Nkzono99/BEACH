@@ -20,7 +20,8 @@ program main
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
+  use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type, electrostatic_snapshot_type
+  use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   implicit none
 
   type(mesh_type) :: mesh
@@ -43,6 +44,7 @@ program main
   logical :: fixed_current_history_opened, matching_plane_spectrum_history_opened
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
+  logical :: prepare_cache_only = .false.
 
   call handle_early_cli()
 
@@ -52,6 +54,9 @@ program main
   call perf_region_begin(perf_region_load_or_init, perf_t0)
   call load_or_init_run_state(app, mesh, initial_stats, inject_state, charge_ledger, resumed, mpi)
   call perf_region_end(perf_region_load_or_init, perf_t0)
+  if (prepare_cache_only) then
+    call prepare_periodic_cache_and_stop()
+  end if
   call perf_set_output_context(trim(app%output_dir), app%write_output)
   if (mpi_is_root(mpi)) then
     call perf_region_begin(perf_region_history_open, perf_t0)
@@ -262,9 +267,13 @@ contains
       print '(a)', 'checks=toml,semantic'
       print '(a)', 'status=ok'
       stop
+    case ('--prepare-periodic-cache')
+      if (command_argument_count() /= 2) error stop 'usage: beach --prepare-periodic-cache beach.toml'
+      prepare_cache_only = .true.
     case ('--help', '-h')
       print '(a)', 'usage: beach [beach.toml]'
       print '(a)', '       beach --check-config beach.toml'
+      print '(a)', '       beach --prepare-periodic-cache beach.toml   (build/publish the periodic2 operator cache, then exit)'
       print '(a)', '       beach --version'
       print '(a)', '       beach --build-info'
       stop
@@ -295,6 +304,8 @@ contains
       call load_app_config(trim(cfg_path), app)
     end if
 
+    ! The cache-only mode never reads checkpoints; it only needs the mesh and field settings.
+    if (prepare_cache_only) app%resume_output = .false.
     call build_mesh_from_config(app, mesh)
     call prepare_periodic2_collision_mesh(mesh, app%sim)
     call initialize_injection_state(inject_state, app%n_particle_species)
@@ -332,6 +343,12 @@ contains
 
     path = ''
     found = .false.
+    if (prepare_cache_only) then
+      call get_command_argument(2, path)
+      if (len_trim(path) == 0) error stop 'Config path argument is empty.'
+      found = .true.
+      return
+    end if
     if (command_argument_count() >= 1) then
       call get_command_argument(1, path)
       if (len_trim(path) == 0) error stop 'Config path argument is empty.'
@@ -345,6 +362,36 @@ contains
       found = .true.
     end if
   end subroutine resolve_config_path
+
+  !> periodic2 の遠方補正 operator を作成（または cache から読込）して publish し、終了する。
+  !! 本番 run より多い MPI rank で cold build だけを済ませる用途。target anchor が rank に分配されるので
+  !! rank 数に応じて短くなる。結果ファイルや checkpoint は書かない。
+  subroutine prepare_periodic_cache_and_stop()
+    type(electrostatic_snapshot_type) :: snapshot
+    type(field_physics_config) :: field_config
+    type(panel_kernel_config) :: panel_config
+    type(electrostatic_diagnostics_type) :: diagnostics
+    integer(8) :: clock_start, clock_end, clock_rate
+
+    call system_clock(clock_start, clock_rate)
+    call derive_field_panel_config(app%sim, field_config, panel_config)
+    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
+    call snapshot%get_diagnostics(diagnostics)
+    call mpi_world_barrier(mpi)
+    call system_clock(clock_end)
+    if (mpi_is_root(mpi)) then
+      print '(a,es12.4)', 'prepare_elapsed_s=', real(clock_end - clock_start, dp)/real(max(clock_rate, 1_8), dp)
+      print '(a,a)', 'periodic2_status=', trim(diagnostics%status)
+      print '(a,l1)', 'periodic2_split_periodic_active=', diagnostics%split_periodic_active
+      print '(a,l1)', 'periodic2_cache_hit=', diagnostics%periodic_cache_hit
+      print '(a,i0)', 'periodic2_operator_build_count=', diagnostics%periodic_operator_build_count
+      print '(a,a)', 'periodic2_cache_fingerprint=', trim(diagnostics%periodic_cache_fingerprint)
+      print '(a,a)', 'periodic2_cache_path=', trim(diagnostics%periodic_cache_path)
+      print '(a,i0)', 'mpi_world_size=', mpi_world_size(mpi)
+    end if
+    call mpi_shutdown(mpi)
+    stop
+  end subroutine prepare_periodic_cache_and_stop
 
   !> 種数に合わせて注入状態をゼロ初期化する。
   !! @param[out] state 初期化する注入状態。

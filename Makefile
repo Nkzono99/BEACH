@@ -61,6 +61,7 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
+	test_laplace_derivatives \
 	test_electrostatic_snapshot \
 	test_boundary \
 	test_external_boundary_contract \
@@ -94,6 +95,7 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
 	test_periodic_shell_mean \
+	test_upper_fourier_switch \
 	test_periodic2_cached_snapshot \
 	test_coulomb_fmm_core_periodic \
 	test_periodic_nonzero_reference \
