@@ -67,8 +67,8 @@ program test_periodic2_operator_cache_mpi
     'broadcast target count differs from the generated operator' &
     )
   call assert_true( &
-    all(warm_plan%periodic_root_target_nodes == cold_plan%periodic_root_target_nodes), &
-    'broadcast target nodes differ from the generated operator' &
+    all(warm_plan%periodic_anchor_center == cold_plan%periodic_anchor_center), &
+    'broadcast anchor lattice differs from the generated operator' &
     )
   call assert_allclose_1d( &
     reshape(warm_plan%periodic_root_operator, [size(warm_plan%periodic_root_operator)]), &
@@ -111,8 +111,8 @@ program test_periodic2_operator_cache_mpi
     'rebuilt target count differs from the generated operator' &
     )
   call assert_true( &
-    all(rebuilt_plan%periodic_root_target_nodes == cold_plan%periodic_root_target_nodes), &
-    'rebuilt target nodes differ from the generated operator' &
+    all(rebuilt_plan%periodic_anchor_center == cold_plan%periodic_anchor_center), &
+    'rebuilt anchor lattice differs from the generated operator' &
     )
   call assert_allclose_1d( &
     reshape(rebuilt_plan%periodic_root_operator, [size(rebuilt_plan%periodic_root_operator)]), &

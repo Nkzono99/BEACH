@@ -14,6 +14,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- periodic2 `cached_kneq0` の線源セルと評価側 anchor を、軸ごとの分割数を持つ box 格子にした（生成器 v12）。
+  どのセルもほぼ立方体になるまで最も幅の広い軸だけを分け、箱の高さが周期長より大きくても横方向の分割は増えない。
+  `examples/zero_current_refresh.toml`（0.1×0.1×1 mm）の演算子は 4096 anchor × 4096 セル（5 GB、数時間）から
+  60 anchor × 120 セルになり、三層レゴリスも 64 anchor × 512 セルから 20 × 40 になる。anchor は適応木の節点ではなく
+  点評価で参照する。v11 の fingerprint は一致せず、演算子を再生成する。
 - periodic2 `cached_kneq0` の生成器を v11 に更新。線源を box 固定セルへ分け、相対オフセットと鏡映対称性で Ewald 評価を共有する。
   同じ box と設定なら異なるメッシュで演算子を再利用する。v10 の fingerprint は一致せず、必要な演算子を自動再生成する。
 - `cached_kneq0` の演算子は要素を含む線源セルの分だけ作り、cache にないセルだけを追加生成して同じファイルへ書き足す。小さなテスト mesh や上部が空の box で生成が短くなる。
