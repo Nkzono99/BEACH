@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - periodic2 cached 非零モードの上部真空 Fourier 切替。高さの幾何自動選択と次数制御、接続面の電位・法線場 rms、再構築 receipt を追加。
 - Zhao 外部根の法線電場を零モードへ渡す `e_top_from_sheath` と、シース側・セル側の上端電場履歴を追加。checkpoint schema は維持。
 - 17/19列 matching-plane 履歴と8列 top-reference 履歴を、新しい列へ拡張して再開する互換処理。
+- runops adapter: `runo new --from RUN --continue` resumes from the source run's checkpoint. The new run links
+  `work/restart` to the source output, sets `[run.restart].from`, and records the source in `input/restart_source.txt`.
+  `run.batch_count` must exceed the saved `batches`; otherwise `runo new` stops with the number to use.
+- runops adapter: `runo new` / `runo sweep` warn about `--set` keys that `beach.schema.json` does not define.
 - `beach --prepare-periodic-cache beach.toml`: periodic2 の遠方補正 operator を作成・publish して終了する CLI。本番より多い MPI rank で cold build だけを先に済ませられる。
 
 ### Changed
@@ -31,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   still in the pre-3.0 flat layout, which BEACH 3 rejects). A flat `input/beach.toml` now fails at `runo new` with a
   clear message instead of in the queue. OBJ meshes in `[[mesh.parts]]` are referenced from the run directory: a path
   shipped with the case becomes `input/<path>`, and an absolute path is copied into `input/`.
+- runops adapter: a run counts as completed only when `summary.txt` reports `batches` equal to `run.batch_count`, so
+  a run stopped at the walltime after a periodic checkpoint is `failed`. `runo tidy --purge-work` keeps the final
+  checkpoint in `work/latest/` (RNG state, residuals, ledger, `checkpoint_complete.txt`), so a purged run can still be
+  continued.
 - `import beach` no longer imports numpy and matplotlib. The public names from `beach.fortran_results` load on first
   access, so `beach.config` and the runops adapter work inside runops's own environment.
 
