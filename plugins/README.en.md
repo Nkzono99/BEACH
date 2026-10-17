@@ -59,6 +59,13 @@ copy the skills and references from `plugins/beach-context` (shipped in the whee
 `beach.agent_context`) into the project's `.agents/skills/` and `.claude/skills/`. No plugin
 installation or restart is needed.
 
+For each run the adapter applies the `--set` dotted keys (e.g. `run.batch_count`) to
+`input/beach.toml` and sets the output directory to `work/latest`. Keys the schema does not define
+produce a warning at creation. A run is completed when `summary.txt` reports `batches` equal to
+`run.batch_count`. `runo new --from RUN --continue --set run.batch_count=<cumulative target>`
+resumes from the source run's checkpoint. `runo tidy --purge-work` keeps the final checkpoint, so a
+purged run can still be continued.
+
 ## Placement Policy
 
 BEACH-specific physics, configuration specifications, output specifications, known failure modes, and learning paths live in this simulator repo plugin. Cross-cutting Fortran, fpm, Slurm, and Codex operation workflows should live in repo-root `AGENTS.md` or shared plugins.
