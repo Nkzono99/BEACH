@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - FMM の M2L 微分表を多項式の反復乗算から漸化式に置き換え、三層レゴリスの起動（cache 読込済み）が 28 スレッドで 98 s から 5.5 s になった。
 - `fields.periodic.cache_dir` の未指定時は `$BEACH_CACHE_DIR/periodic2`、`$XDG_CACHE_HOME/beach/periodic2`、
   `$HOME/.cache/beach/periodic2` の順で保存先を解決する。明示指定した保存先は維持する。
+- `zhao_stationary` の外部根、根が z-high 面に課す条件（壁電位・上端電場、access/障壁電位、上流貯留部、各 channel の流束）、
+  外部根の更新間で引き継ぐ根を sheath-model の結合 API（`sheath_matching_iteration`、`evaluate_matching_conditions`、
+  `observed_outflow_source`）から得る。粒子種の対応、参照面積、固定電流 target、PE/SEE の分割、summary による再開は BEACH が持つ。
+  sheath-model を放出源 API を改名した `384985f` へ固定する。
 
 ### Fixed
 

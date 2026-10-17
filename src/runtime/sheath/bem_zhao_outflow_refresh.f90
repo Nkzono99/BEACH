@@ -18,7 +18,9 @@ module bem_zhao_outflow_refresh
   use bem_charge_ledger, only: finite_charge_sum
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model, &
-                                       solve_zhao_outflow_closure, split_emission_escape_target
+                                       solve_zhao_outflow_closure, refresh_zhao_outflow_closure, &
+                                       split_emission_escape_target
+  use sheath_model, only: sheath_matching_iteration
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array
   use bem_outflow_spectrum, only: outflow_spectrum_bins
   implicit none
@@ -42,6 +44,8 @@ module bem_zhao_outflow_refresh
     real(dp) :: window_spectrum(outflow_spectrum_bins, 2) = 0.0_dp
     type(irradiation_cell_contract_type) :: cell
     type(surface_current_model_result_type) :: state
+    !> 外部根と、その放出源。更新は前回の根を初期値にする。
+    type(sheath_matching_iteration) :: outer
   contains
     procedure :: initialize
     procedure :: is_active
@@ -82,21 +86,21 @@ contains
     if (stats%matching_plane_state_valid) then
       if (stats%matching_plane_feedback(1) == 0.0_dp) then
         ! Before the first SEE-only refresh, the saved source is zero and the root is Type C.
-        call evaluate_surface_current_model(app, self%state, self%cell)
+        call evaluate_surface_current_model(app, self%state, self%cell, self%outer)
         success = .true.
       else if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp)) then
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
           outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s, &
-          secondary_share=stats%matching_plane_secondary_share, cell=self%cell &
+          secondary_share=stats%matching_plane_secondary_share, cell=self%cell, outer=self%outer &
           )
       else
         ! 外部根をまだ更新していない checkpoint の外部源は、表面放出の半 Maxwell 分布である。
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
-          secondary_share=stats%matching_plane_secondary_share, cell=self%cell &
+          secondary_share=stats%matching_plane_secondary_share, cell=self%cell, outer=self%outer &
           )
       end if
       if (.not. success) then
@@ -106,7 +110,7 @@ contains
       self%accepted_solves = stats%matching_plane_iterations
       self%last_change = stats%matching_plane_residual
     else
-      call evaluate_surface_current_model(app, self%state, self%cell)
+      call evaluate_surface_current_model(app, self%state, self%cell, self%outer)
       self%accepted_solves = 1_i32
       self%last_change = 0.0_dp
     end if
@@ -194,9 +198,9 @@ contains
         end if
         outer_energy_ev = outer_energy_ev/outer_flux
         secondary_share = secondary_flux/outer_flux
-        call solve_zhao_outflow_closure( &
-          app, outer_flux, outer_energy_ev, self%state%zhao_branch, trial, success, message, previous=self%state, &
-          outer_spectrum_m2_s=outer_spectrum, secondary_share=secondary_share, cell=self%cell &
+        call refresh_zhao_outflow_closure( &
+          app, self%outer, outer_flux, outer_energy_ev, outer_spectrum, secondary_share, self%cell, trial, success, &
+          message &
           )
         if (success) then
           denominator = self%state%outer_photoelectron_flux_m2_s
