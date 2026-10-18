@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.1.0] - 2026-10-18
 
 ### Added
 
@@ -38,6 +38,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   shipped with the case becomes `input/<path>`, and an absolute path is copied into `input/`.
 - `import beach` no longer imports numpy and matplotlib. The public names from `beach.fortran_results` load on first
   access, so `beach.config` and the runops adapter work inside runops's own environment.
+
+### Known issues
+
+- 数百 V に帯電した要素の近傍では、既定の時間刻みの指針で選んだ `particles.tracking.dt_s` で電子のエネルギーが保存しない。
+  三層レゴリス（球が +290〜+700 V、1.98 ps、1 ステップ約 20 µm）では H を反射して出る電子の約 2 割が 10 eV 以上を
+  数値的に獲得し、H での PE 平均法線エネルギーと更新後の壁電位（−0.19 V）も変わる。dt を 1/4 にすると保存する
+  （エネルギー差 rms 0.2〜1 eV）。帯電した表面の近傍を扱う case では dt を 1/4 程度にして収束を確認する。
 
 ## [3.0.0] - 2026-10-15
 
