@@ -83,7 +83,7 @@ module bem_simulator
       mesh, app, boundary_contract, current_model, snapshot, pcls_batch, workspace, bfield, batch_idx, mpi_rank, &
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, retry_counts, &
+      collision_failure_x, collision_failure_v, retry_counts, substep_counts, &
       cell &
       )
       type(irradiation_cell_contract_type), intent(in) :: cell
@@ -100,6 +100,8 @@ module bem_simulator
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
       integer(i64), intent(out) :: retry_counts(2)
+      !> 半分にした dt step 数、その sub-step 総数、半分化の上限に達した step 数。
+      integer(i64), intent(out) :: substep_counts(3)
     end subroutine process_particle_batch
 
     module subroutine commit_batch_charge(mesh, sim, snapshot, conductor, workspace, rel, mpi)
@@ -171,10 +173,12 @@ module bem_simulator
       real(dp), intent(out) :: soft_discarded_abs_charge
     end subroutine count_batch_outcomes
 
-    module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, retry_counts, rel)
+    module subroutine accumulate_batch_stats(stats, batch_counts, soft_discarded_abs_charge, retry_counts, &
+                                             substep_counts, rel)
       type(sim_stats), intent(inout) :: stats
       integer(i64), intent(in) :: batch_counts(6)
       integer(i64), intent(in) :: retry_counts(2)
+      integer(i64), intent(in) :: substep_counts(3)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel
     end subroutine accumulate_batch_stats
 

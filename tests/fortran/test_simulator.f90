@@ -3,6 +3,7 @@ program test_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
+  use bem_particle_stepper, only: particle_substep_needs_halving, particle_substep_energy_floor_j
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_outflow_spectrum, only: outflow_spectrum_bins
   use bem_particles, only: init_particles, append_particles
@@ -146,7 +147,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(22)
+  call test_init(23)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -378,6 +379,10 @@ program test_simulator
 
   call test_begin('multiple_box_event_soft_discard')
   call test_multiple_box_event_soft_discard()
+  call test_end()
+
+  call test_begin('adaptive_substeps_refine_near_charged_panel')
+  call test_adaptive_substeps()
   call test_end()
 
   call test_begin('statistics_overflow_fails_closed')
@@ -1324,6 +1329,88 @@ contains
     call seed_particles_from_config(failure_cfg)
     call run_absorption_insulator(failure_mesh, failure_cfg, failure_stats)
   end subroutine run_multiple_box_event_failure_probe
+
+  !> An electron thrown at a charged triangle in SI units: the step is longer than the panel's field scale.
+  !! Off, the run must not touch the sub-step counters; on, steps near the panel are halved and every halved step
+  !! holds at least two sub-steps while the halving cap is not reached.
+  subroutine test_adaptive_substeps()
+    type(mesh_type) :: mesh_off, mesh_on
+    type(app_config) :: cfg_off, cfg_on
+    type(sim_stats) :: stats_off, stats_on
+    real(dp) :: e_ref(3), e_mid(3), x0(3), x1(3)
+
+    e_ref = [0.0_dp, 0.0_dp, 1.0e5_dp]
+    e_mid = [0.0_dp, 0.0_dp, 1.5e5_dp]
+    x0 = 0.0_dp
+    x1 = [0.0_dp, 0.0_dp, 1.0e-5_dp]
+    call assert_true(particle_substep_needs_halving(e_mid, e_ref, -1.602176634e-19_dp, x0, x1, 0.2_dp), &
+                     'a 50% field change over 10 um at 1e5 V/m must halve the step')
+    call assert_true(.not. particle_substep_needs_halving(e_mid, e_ref, -1.602176634e-19_dp, x0, x1, 0.6_dp), &
+                     'a change below the configured fraction must keep the step')
+    ! 5 V/m over 10 um is 5e-5 eV of work, below the 1e-4 eV floor, although the relative change is 50%.
+    call assert_true(.not. particle_substep_needs_halving(1.5e-4_dp*e_ref, 1.0e-4_dp*e_ref, -1.602176634e-19_dp, &
+                                                          x0, x1, 0.2_dp), &
+                     'a large relative change whose work is below the floor must keep the step')
+    call assert_true(.not. particle_substep_needs_halving(e_mid, e_ref, 0.0_dp, x0, x1, 0.2_dp), &
+                     'an uncharged particle never halves')
+    call assert_close_dp(particle_substep_energy_floor_j, 1.0e-4_dp*1.602176634e-19_dp, 0.0_dp, 'floor is 1e-4 eV')
+
+    call configure_adaptive_substep_fixture(mesh_off, cfg_off)
+    call run_absorption_insulator(mesh_off, cfg_off, stats_off)
+    call assert_equal_i64(stats_off%processed_particles, 1_i64, 'adaptive fixture processes one electron')
+    call assert_equal_i64(stats_off%adaptive_substep_halved_steps, 0_i64, 'disabled sub-steps must not halve')
+    call assert_equal_i64(stats_off%adaptive_substeps, 0_i64, 'disabled sub-steps must not count sub-steps')
+
+    call configure_adaptive_substep_fixture(mesh_on, cfg_on)
+    cfg_on%sim%substep_field_change_max = 0.2_dp
+    cfg_on%sim%substep_max_halvings = 10_i32
+    call run_absorption_insulator(mesh_on, cfg_on, stats_on)
+    call assert_equal_i64(stats_on%processed_particles, 1_i64, 'adaptive run processes one electron')
+    call assert_true(stats_on%adaptive_substep_halved_steps > 0_i64, 'steps near the charged panel must be halved')
+    call assert_true(stats_on%adaptive_substeps >= 2_i64*stats_on%adaptive_substep_halved_steps, &
+                     'every halved step holds at least two sub-steps')
+    call assert_equal_i64(stats_on%adaptive_substep_depth_limited_steps, 0_i64, &
+                          'ten halvings must resolve the panel field without hitting the cap')
+    call assert_equal_i64(stats_on%survived_max_step, 0_i64, 'the electron must finish its track within max_step')
+    write (*, '(a,i0,a,i0)') 'adaptive sub-steps: halved steps=', stats_on%adaptive_substep_halved_steps, &
+      ' sub-steps=', stats_on%adaptive_substeps
+  end subroutine test_adaptive_substeps
+
+  !> One electron starts 80 um from a 20 um triangle carrying -2e-14 C and moves toward it with 6 eV;
+  !! dt gives 20 um steps, longer than the panel's field scale.
+  subroutine configure_adaptive_substep_fixture(fixture_mesh, fixture_cfg)
+    type(mesh_type), intent(out) :: fixture_mesh
+    type(app_config), intent(out) :: fixture_cfg
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), q0(1)
+
+    tri_v0(:, 1) = [1.0e-4_dp, -1.0e-5_dp, -1.0e-5_dp]
+    tri_v1(:, 1) = [1.0e-4_dp, 1.0e-5_dp, -1.0e-5_dp]
+    tri_v2(:, 1) = [1.0e-4_dp, 0.0_dp, 1.0e-5_dp]
+    q0 = [-2.0e-14_dp]
+    call init_mesh(fixture_mesh, tri_v0, tri_v1, tri_v2, q0=q0)
+    fixture_mesh%elem_vacuum_sign = 1_i32
+    fixture_mesh%vacuum_normals = fixture_mesh%normals
+    call default_app_config(fixture_cfg)
+    fixture_cfg%sim%rng_seed = 996_i32
+    fixture_cfg%sim%batch_count = 1_i32
+    fixture_cfg%sim%dt = 1.4e-11_dp
+    fixture_cfg%sim%max_step = 400_i32
+    fixture_cfg%sim%use_box = .true.
+    fixture_cfg%sim%box_min = [-2.0e-4_dp, -2.0e-4_dp, -2.0e-4_dp]
+    fixture_cfg%sim%box_max = [2.0e-4_dp, 2.0e-4_dp, 2.0e-4_dp]
+    fixture_cfg%n_particle_species = 1_i32
+    fixture_cfg%particle_species(1) = species_from_defaults()
+    fixture_cfg%particle_species(1)%source_mode = 'volume_seed'
+    fixture_cfg%particle_species(1)%npcls_per_step = 1_i32
+    fixture_cfg%particle_species(1)%q_particle = -1.602176634e-19_dp
+    fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
+    fixture_cfg%particle_species(1)%w_particle = 1.0_dp
+    fixture_cfg%particle_species(1)%pos_low = [2.0e-5_dp, 1.0e-6_dp, 2.0e-6_dp]
+    fixture_cfg%particle_species(1)%pos_high = fixture_cfg%particle_species(1)%pos_low
+    fixture_cfg%particle_species(1)%drift_velocity = [1.45e6_dp, 0.0_dp, 0.0_dp]
+    fixture_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(fixture_cfg)
+  end subroutine configure_adaptive_substep_fixture
 
   subroutine test_multiple_box_event_soft_discard()
     type(mesh_type) :: soft_mesh

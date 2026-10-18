@@ -90,6 +90,12 @@ contains
       read (value, *) stats%multiple_box_events_retry_attempted
     case ('multiple_box_events_retry_resolved')
       read (value, *) stats%multiple_box_events_retry_resolved
+    case ('adaptive_substep_halved_steps')
+      read (value, *) stats%adaptive_substep_halved_steps
+    case ('adaptive_substeps')
+      read (value, *) stats%adaptive_substeps
+    case ('adaptive_substep_depth_limited_steps')
+      read (value, *) stats%adaptive_substep_depth_limited_steps
     case ('multiple_box_events_soft_discarded')
       read (value, *) stats%multiple_box_events_soft_discarded
     case ('multiple_box_events_soft_discarded_abs_charge_C')
@@ -455,6 +461,12 @@ contains
     end if
     if (stats%multiple_box_events_soft_discarded < 0_i64) then
       error stop 'Resume checkpoint multiple_box_events_soft_discarded must be >= 0.'
+    end if
+    if (stats%adaptive_substep_halved_steps < 0_i64 .or. stats%adaptive_substeps < 0_i64 .or. &
+        stats%adaptive_substep_depth_limited_steps < 0_i64 .or. &
+        stats%adaptive_substep_halved_steps > stats%adaptive_substeps .or. &
+        stats%adaptive_substep_depth_limited_steps > stats%adaptive_substep_halved_steps) then
+      error stop 'Resume checkpoint adaptive_substep counters are inconsistent.'
     end if
     if (.not. ieee_is_finite(stats%multiple_box_events_soft_discarded_abs_charge) .or. &
         stats%multiple_box_events_soft_discarded_abs_charge < 0.0_dp) then

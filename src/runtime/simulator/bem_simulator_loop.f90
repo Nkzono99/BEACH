@@ -39,7 +39,7 @@ contains
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
   logical, allocatable :: fixed_window_active(:, :)
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
-  integer(i64) :: batch_counts(6), batch_retry_counts(2)
+  integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(3)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
@@ -296,7 +296,7 @@ contains
         bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
         collision_failure_x, collision_failure_v, &
-        batch_retry_counts, &
+        batch_retry_counts, batch_substep_counts, &
         cell=cell &
         )
       fresh_particle_count = pcls_batch%n
@@ -379,6 +379,7 @@ contains
     call perf_region_begin(perf_region_mpi_reduce, t0)
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_counts)
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_retry_counts)
+    call mpi_allreduce_sum_i64_array(mpi_ctx, batch_substep_counts)
     call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
     call perf_region_end(perf_region_mpi_reduce, t0)
     call enforce_soft_discard_limits( &
@@ -403,7 +404,7 @@ contains
     stats_candidate = stats
     call accumulate_secondary_stats(stats_candidate, secondary_counts, secondary_values)
     call accumulate_batch_stats( &
-      stats_candidate, batch_counts, batch_soft_discarded_abs_charge, batch_retry_counts, 0.0_dp &
+      stats_candidate, batch_counts, batch_soft_discarded_abs_charge, batch_retry_counts, batch_substep_counts, 0.0_dp &
       )
     stats_candidate%simulated_time = projected_simulated_time
     if (adaptive_nonzero_mode) then

@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `particles.tracking.substep_field_change_max` / `substep_max_halvings`: 粒子ごとの適応サブステップ。step 候補の中点電場が
+  前回受理した中点電場から指定の割合より大きく変わる step を、上限回数まで半分にして取り直す。帯電した要素の近傍で
+  1 step の変位が場の変化スケールに近いときにエネルギー保存を保つ。既定は無効。半分にした step 数と sub-step 総数、
+  上限に達した step 数を `summary.txt` に出力する。三層レゴリス（1.98 ps、球が +290〜+700 V）の 100 バッチ継続では、
+  H を反射して出る電子の全エネルギー差の rms が dt のまま 73 eV（A）/ 545 eV（C）だったものが、閾値 0.2 で
+  0.56 / 2.7 eV、0.1 で 0.22 / 0.69 eV（dt/4 の一様刻みは 0.19 / 1.2 eV）になる。光電子が帯電した球の表面から出る
+  この case では大半の粒子が強い場を通るので、計算時間は閾値 0.1 で dt/4 と同程度である。
+
 ## [3.1.0] - 2026-10-18
 
 ### Added

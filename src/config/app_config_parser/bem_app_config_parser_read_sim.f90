@@ -215,6 +215,11 @@ contains
       cfg%sim%has_batch_duration_step = .true.
     case ('max_step')
       call get_toml_int(table, keys(ikey), cfg%sim%max_step, 'particles.tracking.max_steps_per_particle')
+    case ('substep_field_change_max')
+      call get_toml_real(table, keys(ikey), cfg%sim%substep_field_change_max, &
+                         'particles.tracking.substep_field_change_max')
+    case ('substep_max_halvings')
+      call get_toml_int(table, keys(ikey), cfg%sim%substep_max_halvings, 'particles.tracking.substep_max_halvings')
     case ('tol_rel')
       call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'output.diagnostics.charge_rel_change_threshold')
     case ('q_floor')

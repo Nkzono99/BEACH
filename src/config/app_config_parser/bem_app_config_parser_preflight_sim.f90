@@ -9,6 +9,12 @@ contains
   character(len=6), parameter :: high_faces(3) = ['x_high', 'y_high', 'z_high']
 
   if (cfg%sim%dt <= 0.0_dp) error stop 'particles.tracking.dt_s must be > 0.'
+  if (.not. ieee_is_finite(cfg%sim%substep_field_change_max) .or. cfg%sim%substep_field_change_max < 0.0_dp) then
+    error stop 'particles.tracking.substep_field_change_max must be finite and >= 0.'
+  end if
+  if (cfg%sim%substep_max_halvings < 0_i32 .or. cfg%sim%substep_max_halvings > 16_i32) then
+    error stop 'particles.tracking.substep_max_halvings must be between 0 and 16.'
+  end if
   if (cfg%sim%q_floor <= 0.0_dp) error stop 'output.diagnostics.charge_floor_c must be > 0.'
   if (cfg%sim%use_box) then
     if (.not. all(ieee_is_finite(cfg%sim%box_min)) .or. .not. all(ieee_is_finite(cfg%sim%box_max)) .or. &

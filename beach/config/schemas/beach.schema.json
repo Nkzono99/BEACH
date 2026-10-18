@@ -621,6 +621,19 @@
           "default": 400,
           "description": "Maximum push steps per particle."
         },
+        "substep_field_change_max": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "Adaptive sub-steps: halve a step whose midpoint field changes by more than this fraction from the last accepted midpoint field (and whose change times the displacement exceeds 1e-4 eV). 0 disables."
+        },
+        "substep_max_halvings": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "default": 6,
+          "description": "Maximum number of halvings of one time step (smallest sub-step dt/2^n)."
+        },
         "tol_rel": {
           "type": "number",
           "minimum": 0,
@@ -1779,6 +1792,19 @@
                   "minimum": 1,
                   "default": 400,
                   "description": "Maximum push steps per particle."
+                },
+                "substep_field_change_max": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0,
+                  "description": "Adaptive sub-steps: halve a step whose midpoint field changes by more than this fraction from the last accepted midpoint field (and whose change times the displacement exceeds 1e-4 eV). 0 disables."
+                },
+                "substep_max_halvings": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 16,
+                  "default": 6,
+                  "description": "Maximum number of halvings of one time step (smallest sub-step dt/2^n)."
                 },
                 "events": {
                   "type": "object",
