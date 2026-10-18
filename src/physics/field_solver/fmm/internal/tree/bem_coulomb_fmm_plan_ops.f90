@@ -397,47 +397,77 @@ contains
   end subroutine build_source_leaf_index
 
   !> The far correction uses all box cells, including empty cells. The adaptive near tree is independent.
+  !! Cells and anchors form box lattices with per-axis counts chosen so that every cell is nearly cubic
+  !! and its half diagonal stays below the radius ratio times the shorter period; a tall box therefore
+  !! adds cells along its long axis instead of refining the lateral subdivision.
   subroutine precompute_periodic_source_grid(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: depth, nside, cell, ix, iy, iz, source, index3(3), alpha_idx
-    real(dp) :: span(3), half(3), proxy_half(3), center(3), d(3), tolerance
+    integer(i32) :: cell, ix, iy, iz, source, index3(3), alpha_idx, axis, ncell(3), nanchor(3)
+    real(dp) :: span(3), half(3), proxy_half(3), center(3), d(3), tolerance, period
     real(dp) :: xpow(0:plan%options%order), ypow(0:plan%options%order), zpow(0:plan%options%order)
 
     span = plan%options%target_box_max - plan%options%target_box_min
-    depth = plan%options%periodic_operator_source_depth
-    if (depth < 0_i32) depth = box_operator_depth(periodic_operator_source_radius_ratio, 0_i32)
-    plan%options%periodic_operator_source_depth = depth
-    if (plan%options%periodic_operator_target_depth < 0_i32) then
-      plan%options%periodic_operator_target_depth = box_operator_depth(periodic_operator_target_radius_ratio, 1_i32)
+    period = minval(plan%options%periodic_len)
+    nanchor = plan%options%periodic_operator_anchor_cells
+    if (any(nanchor < 1_i32)) then
+      nanchor = box_operator_cells(periodic_operator_target_radius_ratio)
+      ! Two anchors across each period keep every anchor on at most one periodic seam per axis.
+      nanchor(plan%options%periodic_axes) = max(nanchor(plan%options%periodic_axes), 2_i32)
     end if
-    nside = 2_i32**depth
-    half = 0.5_dp*span/real(nside, dp)
+    ncell = plan%options%periodic_operator_source_cells
+    if (any(ncell < 1_i32)) then
+      ! Source cells refine the anchor lattice by powers of two, so every anchor-cell offset is a multiple of
+      ! half the source spacing and the generator can share Ewald residuals between translation classes.
+      ncell = nanchor
+      do while (norm2(0.5_dp*span/real(ncell, dp)) > periodic_operator_source_radius_ratio*period)
+        axis = int(maxloc(span/real(ncell, dp), dim=1), i32)
+        ncell(axis) = 2_i32*ncell(axis)
+      end do
+    end if
+    plan%options%periodic_operator_anchor_cells = nanchor
+    plan%options%periodic_operator_source_cells = ncell
+    plan%periodic_operator_anchor_cells = nanchor
+    plan%periodic_operator_source_cells = ncell
+    half = 0.5_dp*span/real(ncell, dp)
+    plan%periodic_source_half = half
+    plan%periodic_anchor_half = 0.5_dp*span/real(nanchor, dp)
     proxy_half = periodic_source_proxy_half_size(half)
-    plan%periodic_root_source_count = nside**3
-    allocate (plan%periodic_source_center(3, nside**3), plan%periodic_source_cell(plan%nsrc))
+    plan%periodic_root_source_count = product(ncell)
+    allocate (plan%periodic_source_center(3, plan%periodic_root_source_count), plan%periodic_source_cell(plan%nsrc))
     allocate (plan%periodic_source_p2m_basis(plan%ncoef, plan%nsrc))
-    do iz = 0_i32, nside - 1_i32
-      do iy = 0_i32, nside - 1_i32
-        do ix = 0_i32, nside - 1_i32
-          cell = 1_i32 + ix + nside*(iy + nside*iz)
+    do iz = 0_i32, ncell(3) - 1_i32
+      do iy = 0_i32, ncell(2) - 1_i32
+        do ix = 0_i32, ncell(1) - 1_i32
+          cell = 1_i32 + ix + ncell(1)*(iy + ncell(2)*iz)
           plan%periodic_source_center(:, cell) = plan%options%target_box_min + &
                                                  (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*half
+        end do
+      end do
+    end do
+    plan%periodic_operator_anchor_count = product(nanchor)
+    allocate (plan%periodic_anchor_center(3, plan%periodic_operator_anchor_count))
+    do iz = 0_i32, nanchor(3) - 1_i32
+      do iy = 0_i32, nanchor(2) - 1_i32
+        do ix = 0_i32, nanchor(1) - 1_i32
+          cell = 1_i32 + ix + nanchor(1)*(iy + nanchor(2)*iz)
+          plan%periodic_anchor_center(:, cell) = plan%options%target_box_min + &
+                                                 (real([ix, iy, iz], dp) + 0.5_dp)*2.0_dp*plan%periodic_anchor_half
         end do
       end do
     end do
     tolerance = 64.0_dp*epsilon(1.0_dp)*maxval(span)
     do source = 1_i32, plan%nsrc
       ! Primary-cell centroids on the upper free face belong to the last cell.
-      index3 = min(nside - 1_i32, max(0_i32, floor((plan%src_pos(:, source) - &
-                                                    plan%options%target_box_min)/span*real(nside, dp), kind=i32)))
-      cell = 1_i32 + index3(1) + nside*(index3(2) + nside*index3(3))
+      index3 = min(ncell - 1_i32, max(0_i32, floor((plan%src_pos(:, source) - &
+                                                    plan%options%target_box_min)/span*real(ncell, dp), kind=i32)))
+      cell = 1_i32 + index3(1) + ncell(1)*(index3(2) + ncell(2)*index3(3))
       plan%periodic_source_cell(source) = cell
       center = plan%periodic_source_center(:, cell)
       if (plan%panel_source) then
         if (any(abs(plan%panel_geometry(source)%vertex - spread(center, 2, 3)) > &
                 spread(proxy_half + tolerance, 2, 3))) then
           error stop 'cached_kneq0: panel exceeds its box-cell proxy shell (scale 1.5). '// &
-            'Refine the mesh or decrease periodic_operator_source_depth; keep panels inside the source box.'
+            'Refine the mesh or decrease periodic_operator_source_cells; keep panels inside the source box.'
         end if
         do alpha_idx = 1_i32, plan%ncoef
           plan%periodic_source_p2m_basis(alpha_idx, source) = &
@@ -460,14 +490,18 @@ contains
 
   contains
 
-    integer(i32) function box_operator_depth(ratio, minimum) result(level)
+    !> Smallest per-axis counts whose cell half diagonal is at most ratio times the shorter period,
+    !! always splitting the axis with the widest cell so the cells stay nearly cubic.
+    function box_operator_cells(ratio) result(cells)
       real(dp), intent(in) :: ratio
-      integer(i32), intent(in) :: minimum
-      level = minimum
-      do while (norm2(0.5_dp*span)*0.5_dp**level > ratio*minval(plan%options%periodic_len))
-        level = level + 1_i32
+      integer(i32) :: cells(3), widest
+
+      cells = 1_i32
+      do while (norm2(0.5_dp*span/real(cells, dp)) > ratio*period)
+        widest = int(maxloc(span/real(cells, dp), dim=1), i32)
+        cells(widest) = cells(widest) + 1_i32
       end do
-    end function box_operator_depth
+    end function box_operator_cells
   end subroutine precompute_periodic_source_grid
 
   subroutine precompute_source_p2m_basis(plan)
@@ -637,8 +671,7 @@ contains
     end if
 
     depth_min = 2_i32
-    if (use_periodic2_cached_kneq0(plan)) depth_min = max(depth_min, plan%options%periodic_operator_target_depth)
-    depth_max = max(4_i32, depth_min)
+    depth_max = 4_i32
     target_cap = 0_i32
     level_nodes = 1_i32
     do depth = 0_i32, depth_max

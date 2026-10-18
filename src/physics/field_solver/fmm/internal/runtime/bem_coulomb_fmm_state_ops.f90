@@ -61,6 +61,17 @@ contains
         state%periodic_multipole(:, cell) = state%periodic_multipole(:, cell) + &
                                             src_q(source_idx)*plan%periodic_source_p2m_basis(:, source_idx)
       end do
+      if (allocated(state%anchor_local)) then
+        if (any(shape(state%anchor_local) /= [plan%ncoef, plan%periodic_operator_anchor_count])) then
+          deallocate (state%anchor_local, state%anchor_local_active)
+        end if
+      end if
+      if (.not. allocated(state%anchor_local)) then
+        allocate (state%anchor_local(plan%ncoef, plan%periodic_operator_anchor_count), &
+                  state%anchor_local_active(plan%periodic_operator_anchor_count))
+      end if
+      state%anchor_local = 0.0_dp
+      state%anchor_local_active = 0_i32
     end if
     n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
     !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes)
@@ -261,22 +272,22 @@ contains
     !$omp end do
   end subroutine m2l_accumulate
 
+  !> 遠方補正を anchor 格子の局所展開として集計する。点評価で、点を含む anchor の展開を葉の局所展開に加える。
   subroutine apply_periodic_target_correction(plan, state)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: target_idx, node_idx, source_idx, slot, anchor_count
+    integer(i32) :: target_idx, source_idx, slot, anchor_count
     real(dp) :: node_local(plan%ncoef)
     logical :: node_active
 
     if (.not. plan%periodic_root_operator_ready) return
-    if (size(state%local, 2) <= 0) return
+    if (.not. allocated(state%anchor_local)) return
     anchor_count = plan%periodic_operator_anchor_count
     if (anchor_count <= 0_i32 .or. plan%periodic_root_source_count <= 0_i32) return
     ! 組は source cell ごとに target anchor が連続して並ぶ。anchor 単位で並列化して書き込みの競合を避ける。
     !$omp do schedule(static)
     do target_idx = 1_i32, anchor_count
-      node_idx = plan%periodic_operator_anchor_nodes(target_idx)
-      node_local = state%local(:, node_idx)
+      node_local = 0.0_dp
       do source_idx = 1_i32, plan%periodic_root_source_count
         if (.not. coefficient_vector_is_active(state%periodic_multipole(:, source_idx))) cycle
         slot = plan%periodic_operator_cell_slot(source_idx)
@@ -286,8 +297,8 @@ contains
                                          state%periodic_multipole(:, source_idx))
       end do
       node_active = coefficient_vector_is_active(node_local)
-      state%local(:, node_idx) = node_local
-      state%local_active(node_idx) = merge(1_i32, 0_i32, node_active)
+      state%anchor_local(:, target_idx) = node_local
+      state%anchor_local_active(target_idx) = merge(1_i32, 0_i32, node_active)
     end do
     !$omp end do
   end subroutine apply_periodic_target_correction

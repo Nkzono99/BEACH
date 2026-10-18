@@ -149,7 +149,7 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
 
 `cached_kneq0` の遠方補正は、周期 box の全固定セルの multipole から box 固定の target anchor の local 展開への
-operator を当てはめます。セルの深さは box の半対角線と周期長から選び、空セルも保持します。
+operator を当てはめます。セルは軸ごとの分割数でほぼ立方体にし、半対角線と周期長から選び、空セルも保持します。
 要素重心をセルへ割り当て、セル中心への三角形 P2M を電荷更新ごとに集計します。
 生成器 v11 は相対オフセットと鏡映対称性で Ewald 評価を共有し、mesh に依存しない fingerprint を使います。
 保存先は明示指定を優先し、省略時は `BEACH_CACHE_DIR`、`XDG_CACHE_HOME`、`HOME` から解決します。

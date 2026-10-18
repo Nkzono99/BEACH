@@ -462,8 +462,9 @@ target box外の評価をrejectします。
 
 ### 7.4 root補正の位置
 
-`cached_kneq0`のroot補正は、`update_state`がtarget anchorのlocal展開へ注入します。
-通常のleaf評価ではroot補正を再計算せず、`state`に保存されたlocal展開をそのまま使います。
+`cached_kneq0`のroot補正は、`update_state`がbox格子のtarget anchorごとのlocal展開（`state%anchor_local`）として
+集計します。anchorは適応木の節点ではなく、点評価では葉のlocal展開に加えて、点を含むanchorのlocal展開を評価します。
+通常の評価ではroot補正を再計算せず、`state`に保存された展開をそのまま使います。
 
 ## 8. `periodic2` と遠方補正
 

@@ -44,8 +44,8 @@ program test_periodic2_length_scale
   options%periodic_generation_tolerance = 1.0e-8_dp
   options%target_box_min = 0.0_dp
   ! Scaling is independent of the operator partition; the root multipole keeps this case quick.
-  options%periodic_operator_source_depth = 0_i32
-  options%periodic_operator_target_depth = 1_i32
+  options%periodic_operator_source_cells = 1_i32
+  options%periodic_operator_anchor_cells = 2_i32
   call test_init(3)
   call test_begin('periodic Coulomb field obeys its physical length scaling')
   do case_idx = 1, 2
@@ -88,8 +88,8 @@ program test_periodic2_length_scale
   ! root multipole then left a leak of about 1e-2; the analytic shell mean and the box-cell partition of
   ! the far correction remove it with one image layer.
   options%leaf_max = 8_i32
-  options%periodic_operator_source_depth = -1_i32
-  options%periodic_operator_target_depth = -1_i32
+  options%periodic_operator_source_cells = -1_i32
+  options%periodic_operator_anchor_cells = -1_i32
   call check_uniform_sheet_leak(1_i32, 2.0e-4_dp)
   call test_end()
   call check_panel_vacuum_reference()
@@ -113,8 +113,8 @@ contains
     ! Isolate the far operator: use direct finite images instead of ordinary FMM truncation in this two-panel oracle.
     config%theta = 0.01_dp
     config%leaf_max = 1_i32
-    config%periodic_operator_source_depth = -1_i32
-    config%periodic_operator_target_depth = -1_i32
+    config%periodic_operator_source_cells = -1_i32
+    config%periodic_operator_anchor_cells = -1_i32
     config%periodic_len = 1.0_dp
     config%target_box_min = 0.0_dp
     config%target_box_max = 1.0_dp
