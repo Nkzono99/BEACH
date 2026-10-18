@@ -101,7 +101,8 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 
 1. 現在の要素電荷から静電 snapshot を構築する
 2. boundary reservoir inflow、`volume_seed`、`photo_raycast` の粒子を生成する
-3. 各粒子を最大 `particles.tracking.max_steps_per_particle` 回まで進める
+3. 各粒子を最大 `particles.tracking.max_steps_per_particle` 回まで進める（`substep_field_change_max > 0` なら、
+   中点電場の変化が大きい step を `substep_max_halvings` 回まで半分にして進める）
 4. mesh hit、box escape、max-step survivor を分類する
 5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する。SEE は世代ごとに追加追跡する
 6. closed PE が有効なら、解決済み帰還先へ neutral-return 補正を適用する

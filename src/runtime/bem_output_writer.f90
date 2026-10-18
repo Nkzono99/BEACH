@@ -191,6 +191,9 @@ contains
     print '(a,i0)', 'survived_max_step=', stats%survived_max_step
     print '(a,i0)', 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
     print '(a,i0)', 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
+    print '(a,i0)', 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
+    print '(a,i0)', 'adaptive_substeps=', stats%adaptive_substeps
+    print '(a,i0)', 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
     print '(a,i0)', 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
     print '(a,es12.4)', 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
     print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &

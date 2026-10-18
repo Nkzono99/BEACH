@@ -458,6 +458,8 @@ z 軸方向の円柱です。
 |---|---|---:|---|
 | `dt_s` | float | `1.0e-9` | 時間刻み [s]。有限かつ `>0` |
 | `max_steps_per_particle` | int | `400` | 粒子 1 個あたりの最大 push 回数。`>=1` |
+| `substep_field_change_max` | float | `0` | 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、その差 × 変位が 1e-4 eV を超えるときは、その step を半分にして取り直す。帯電した要素の近傍で 1 step の変位が場の変化スケールに近い case で、エネルギー保存を保つ。`0` で無効、有限かつ `>=0`。`0.1`〜`0.2` から試し、`summary.txt` の `adaptive_substep_*` で refinement の量を確認する |
+| `substep_max_halvings` | int | `6` | 1 つの `dt_s` を半分にする回数の上限（最小 sub-step は `dt_s/2^n`）。`0..16` |
 
 ##### `[particles.tracking.events]`
 
