@@ -128,8 +128,8 @@ contains
 
   !> accepted batch の H 通過モーメントを窓へ加え、窓が満ちたら外部根を解き直して次 batch の closure を返す。
   subroutine commit_batch( &
-    self, app, mesh, mpi_ctx, moments_thread, fixed_current_charge_values, fixed_escape_partner_charge, &
-    fixed_escape_partner_excess, batch_idx, stats_candidate, surface_closure, refreshed &
+    self, app, mesh, mpi_ctx, moments_thread, fixed_current_charge_values, fixed_escape_closed_charge, &
+    fixed_escape_unclosed_charge, batch_idx, stats_candidate, surface_closure, refreshed &
     )
     class(zhao_outflow_refresh_type), intent(inout) :: self
     type(app_config), intent(in) :: app
@@ -138,17 +138,15 @@ contains
     real(dp), intent(in) :: moments_thread(:, :, :)
     !> 固定電流closureがrank合計したraw電荷。n+species番目が表面放出。
     real(dp), intent(in) :: fixed_current_charge_values(:)
-    !> 固定電流closureが species の脱出目標から差し引いた partner の脱出電荷（帯電符号、0 以上）と、
-    !! 根の脱出束を超えて差し引けなかった超過分。
-    real(dp), intent(in) :: fixed_escape_partner_charge(:), fixed_escape_partner_excess(:)
+    !> 固定電流closureが脱出目標の調整で収支に組み込んだ電荷と、組み込めなかった電荷（帯電符号の大きさ、0 以上）。
+    real(dp), intent(in) :: fixed_escape_closed_charge(:), fixed_escape_unclosed_charge(:)
     integer(i32), intent(in) :: batch_idx
     type(sim_stats), intent(inout) :: stats_candidate
     type(surface_closure_contract_type), intent(inout) :: surface_closure
     logical, intent(out) :: refreshed
     type(surface_current_model_result_type) :: trial
     real(dp) :: batch_moments(3, 2), transmission, outer_flux, outer_energy_ev, displacement
-    real(dp) :: photo_flux, secondary_flux, tracked_secondary_current, attributed_secondary_current
-    real(dp) :: total_escape_current
+    real(dp) :: photo_flux, secondary_flux, attributed_secondary_current, total_escape_current
     real(dp) :: packed_values(2*(2 + outflow_spectrum_bins)), denominator
     integer :: group, idx
     real(dp) :: batch_values(2 + outflow_spectrum_bins, 2), outer_spectrum(outflow_spectrum_bins)
@@ -239,25 +237,24 @@ contains
       self%window_duration = 0.0_dp
     end if
 
-    ! このバッチの SEE 脱出のうち根の脱出束に充てた割合と、充てられなかった残差を同じ receipt に出す。
+    ! このバッチの SEE 脱出のうち根の脱出束に充てた割合と、収支に組み込めなかった残差を同じ receipt に出す。
     stats_candidate%matching_plane_secondary_share = 0.0_dp
     stats_candidate%secondary_budget_residual_a_m2 = 0.0_dp
     if (self%secondary_idx > 0) then
       total_escape_current = self%state%photoelectron_escape_current_density_a_m2
       if (self%photo_idx > 0) then
         ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
-        attributed_secondary_current = fixed_escape_partner_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+        attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
         if (total_escape_current > 0.0_dp) then
           stats_candidate%matching_plane_secondary_share = min(1.0_dp, attributed_secondary_current/total_escape_current)
         end if
         stats_candidate%secondary_budget_residual_a_m2 = &
-          fixed_escape_partner_excess(self%photo_idx)/(self%area*app%sim%batch_duration)
+          fixed_escape_unclosed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
       else
-        ! PE がなければ差し引く先がなく、SEE の追跡脱出と根の脱出束の差がそのまま収支に残る。
-        tracked_secondary_current = -fixed_current_charge_values(2*app%n_particle_species + self%secondary_idx)/ &
-                                    (self%area*app%sim%batch_duration)
+        ! PE がなければ根の脱出束は全て SEE のもの。SEE の放出がなく目標を載せられなかった分だけが収支に残る。
         stats_candidate%matching_plane_secondary_share = 1.0_dp
-        stats_candidate%secondary_budget_residual_a_m2 = tracked_secondary_current - total_escape_current
+        stats_candidate%secondary_budget_residual_a_m2 = &
+          fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
       end if
     end if
     displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/self%area

@@ -118,7 +118,8 @@ contains
       result%outflow_barrier_potential_v(app%n_particle_species), &
       result%outflow_barrier_face(app%n_particle_species), &
       result%inflow_number_flux_m2_s(app%n_particle_species), &
-      result%escape_partner_species(app%n_particle_species) &
+      result%escape_partner_species(app%n_particle_species), &
+      result%emission_target_from_tracked_source(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
@@ -137,6 +138,7 @@ contains
     result%outflow_barrier_face = 0_i32
     result%inflow_number_flux_m2_s = 0.0_dp
     result%escape_partner_species = 0_i32
+    result%emission_target_from_tracked_source = .false.
   end subroutine allocate_closure_channels
 
   !> 設定の表面放出を外部源として零電流根を解く。PEなしではType Cだけが成立する。
@@ -559,6 +561,26 @@ contains
       result%escaped_particle_current_a(photo_idx) = &
         -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
       if (secondary_active) result%escape_partner_species(photo_idx) = secondary_idx
+    end if
+    if (secondary_active .and. .not. photoelectron_active) then
+      ! PE がなければ根の脱出束・帰還束は全て SEE のもの。SEE の放出量は追跡した衝突で決まり根は予測しないが、
+      ! 根に与えた外側源（追跡した H 外向き束の窓平均）へ放出の反作用電荷を揃え、帰還と脱出を根の値に固定して
+      ! 表面収支を毎バッチ閉じる（bem_simulator_charge の固定電流 closure）。源 0 の初期根では反作用電荷を置かない。
+      if (.not. ieee_is_finite(plane%emitted_return_flux_m2_s) .or. plane%emitted_return_flux_m2_s < 0.0_dp) then
+        message = 'SEE-only closure received an invalid emitted return flux.'
+        return
+      end if
+      result%has_absorbed_target(secondary_idx) = .true.
+      result%has_emission_target(secondary_idx) = .true.
+      result%has_escape_target(secondary_idx) = .true.
+      result%emission_target_from_tracked_source(secondary_idx) = .true.
+      result%absorbed_current_a(secondary_idx) = -checked_area_current(area, qe*plane%emitted_return_flux_m2_s)
+      result%emission_current_a(secondary_idx) = checked_area_current( &
+                                                 area, result%photoelectron_escape_current_density_a_m2 + &
+                                                 qe*plane%emitted_return_flux_m2_s &
+                                                 )
+      result%escaped_particle_current_a(secondary_idx) = &
+        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
     end if
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。

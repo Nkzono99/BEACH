@@ -149,7 +149,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(24)
+  call test_init(25)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -377,6 +377,10 @@ program test_simulator
 
   call test_begin('fixed_current_escape_partner_subtracts_tracked_secondary_escape')
   call test_fixed_current_escape_partner()
+  call test_end()
+
+  call test_begin('fixed_current_secondary_only_return_target_is_emission_minus_escape')
+  call test_fixed_current_secondary_only_closure()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -1304,8 +1308,8 @@ contains
     call prepare_partner_fixture(workspace)
     call apply_fixed_surface_current_closure(app, model, batch, 3_i32, workspace, mpi)
     ! SEE が 0.5 脱出したので、PE の脱出目標は 2 − 0.5 = 1.5、帰還目標は 1.5 − 5 = −3.5 になる。
-    call assert_close_dp(workspace%fixed_escape_partner_charge(1), 0.5_dp, 0.0_dp, 'partner escape charge')
-    call assert_close_dp(workspace%fixed_escape_partner_excess(1), 0.0_dp, 0.0_dp, 'no excess below the root escape')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), 0.5_dp, 0.0_dp, 'partner escape charge')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'no excess below the root escape')
     call assert_close_dp(workspace%fixed_escape_target_charge(1), -1.5_dp, 1.0e-12_dp, 'PE escape target minus SEE escape')
     call assert_close_dp(workspace%fixed_escape_correction(1), -0.5_dp, 1.0e-12_dp, 'PE escape correction vs raw escape')
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -3.5_dp, 1.0e-12_dp, &
@@ -1315,14 +1319,14 @@ contains
                          workspace%fixed_escape_target_charge(1), 0.0_dp, 1.0e-12_dp, 'PE channel continuity')
     call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(6), &
                          escape_current, 1.0e-12_dp, 'PE and SEE escape must add up to the root escape')
-    call assert_true(all(workspace%fixed_escape_partner_charge(2:) == 0.0_dp), 'SEE itself has no partner')
+    call assert_true(all(workspace%fixed_escape_closed_charge(2:) == 0.0_dp), 'SEE itself has no partner')
 
     ! SEE の脱出が根の脱出束を超えると、PE の脱出目標は 0、帰還目標は放出全量、超過は残差に残る。
     batch%w(3) = 3.0_dp
     call prepare_partner_fixture(workspace)
     call apply_fixed_surface_current_closure(app, model, batch, 3_i32, workspace, mpi)
-    call assert_close_dp(workspace%fixed_escape_partner_charge(1), escape_current, 0.0_dp, 'partner charge clamps at root')
-    call assert_close_dp(workspace%fixed_escape_partner_excess(1), 1.0_dp, 1.0e-12_dp, 'excess SEE escape')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), escape_current, 0.0_dp, 'partner charge clamps at root')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 1.0_dp, 1.0e-12_dp, 'excess SEE escape')
     call assert_close_dp(workspace%fixed_escape_target_charge(1), 0.0_dp, 0.0_dp, 'PE escape target clamps at zero')
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -emission_current, 1.0e-12_dp, &
                          'all PE return when SEE carries the whole root escape')
@@ -1339,6 +1343,126 @@ contains
     ! raw の PE 反作用電荷（放出 2 個分）。
     workspace%photo_emission_dq(1, 1) = 2.0_dp
   end subroutine prepare_partner_fixture
+
+  !> PE がない SEE だけの構成では、SEE の再吸収目標が「raw 放出 − 根の脱出」になり、
+  !! 根の脱出の超過と載せられない目標は未閉の電荷として残る。
+  subroutine test_fixed_current_secondary_only_closure()
+    type(app_config) :: app
+    type(surface_closure_contract_type) :: model
+    type(particles_soa) :: batch
+    type(simulator_batch_workspace_type) :: workspace
+    type(mpi_context) :: mpi
+    real(dp) :: x(3, 2), v(3, 2)
+
+    call default_app_config(app)
+    app%sim%batch_duration = 1.0_dp
+    app%n_particle_species = 1_i32
+    app%particle_species(1) = species_from_defaults()
+    app%particle_species(1)%species_key = 'secondary'
+    app%particle_species(1)%q_particle = -1.0_dp
+
+    ! 根: 帰還 0.1、脱出 0.3、放出目標（根に与えた外側源）0.4。放出 − 帰還 = 脱出。
+    model%active = .true.
+    allocate (model%has_absorbed_target(1), model%has_emission_target(1), model%has_escape_target(1), &
+              model%absorbed_current_a(1), model%emission_current_a(1), model%escaped_particle_current_a(1), &
+              model%escape_partner_species(1), model%emission_target_from_tracked_source(1))
+    model%has_absorbed_target = .true.
+    model%has_emission_target = .true.
+    model%has_escape_target = .true.
+    model%absorbed_current_a = -0.1_dp
+    model%emission_current_a = 0.4_dp
+    model%escaped_particle_current_a = -0.3_dp
+    model%escape_partner_species = 0_i32
+    model%emission_target_from_tracked_source = .true.
+
+    ! 粒子1: 再吸収した SEE（重み 0.5）、粒子2: 脱出した SEE（重み 0.5）。raw の放出反作用電荷は 1.0。
+    x = 0.0_dp
+    v = 0.0_dp
+    call init_particles(batch, x, v, [-1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp], [0.5_dp, 0.5_dp], &
+                        species_id=[1_i32, 1_i32], source_element=[1_i32, 1_i32])
+    call workspace%init(1_i32, 1_i32, 1_i32)
+    call prepare_secondary_only_fixture(workspace, .true., .true., 1.0_dp)
+    call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.1_dp, 1.0e-12_dp, 'SEE return target = root return')
+    call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 0.2_dp, 1.0e-12_dp, 'SEE return scale')
+    call assert_close_dp(workspace%fixed_emission_target_charge(1), 0.4_dp, 1.0e-12_dp, &
+                         'SEE emission reaction = root outward source')
+    call assert_close_dp(workspace%fixed_emission_weight_scale(1), 0.4_dp, 1.0e-12_dp, 'SEE emission scale')
+    call assert_close_dp(workspace%photo_emission_dq(1, 1), 0.4_dp, 1.0e-12_dp, 'applied emission reaction charge')
+    call assert_close_dp(workspace%fixed_escape_target_charge(1), -0.3_dp, 1.0e-12_dp, 'SEE escape target = root escape')
+    call assert_close_dp(workspace%fixed_escape_correction(1), 0.2_dp, 1.0e-12_dp, 'SEE escape correction vs raw escape')
+    call assert_close_dp(workspace%fixed_current_correction(1), -0.2_dp, 1.0e-12_dp, 'return and emission corrections')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), 0.3_dp, 1.0e-12_dp, 'root escape placed in the budget')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'nothing left unclosed')
+    call assert_close_dp(workspace%fixed_emission_target_charge(1) + workspace%fixed_absorbed_target_charge(1) + &
+                         workspace%fixed_escape_target_charge(1), 0.0_dp, 1.0e-12_dp, &
+                         'SEE emission, return and escape targets must close')
+
+    ! 根の脱出がそのバッチの放出を超えても、放出の反作用電荷を根の外側源まで広げて閉じる（繰り越しなし）。
+    model%absorbed_current_a = -0.1_dp
+    model%emission_current_a = 1.6_dp
+    model%escaped_particle_current_a = -1.5_dp
+    call prepare_secondary_only_fixture(workspace, .true., .true., 1.0_dp)
+    call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_emission_weight_scale(1), 1.6_dp, 1.0e-12_dp, 'emission scales up to the root source')
+    call assert_close_dp(workspace%photo_emission_dq(1, 1), 1.6_dp, 1.0e-12_dp, 'applied emission reaction charge')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), 1.5_dp, 1.0e-12_dp, 'whole root escape placed')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'nothing carried over')
+
+    ! 生の帰還がないバッチでは帰還目標を放出へ畳む。放出 − 帰還 = 脱出は変わらない。
+    model%absorbed_current_a = -0.1_dp
+    model%emission_current_a = 0.4_dp
+    model%escaped_particle_current_a = -0.3_dp
+    call prepare_secondary_only_fixture(workspace, .false., .true., 1.0_dp)
+    call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), 0.0_dp, 0.0_dp, 'return target folds into the emission')
+    call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 1.0_dp, 0.0_dp, 'empty raw return keeps the return scale one')
+    call assert_close_dp(workspace%fixed_emission_target_charge(1), 0.3_dp, 1.0e-12_dp, &
+                         'emission reaction = root source minus the folded return')
+    call assert_close_dp(workspace%photo_emission_dq(1, 1), 0.3_dp, 1.0e-12_dp, 'applied emission reaction charge')
+    call assert_close_dp(workspace%fixed_current_correction(1), -0.7_dp, 1.0e-12_dp, 'emission correction closes the budget')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), 0.3_dp, 1.0e-12_dp, 'root escape closed through the emission')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'nothing unclosed through the emission')
+
+    ! 源 0 の初期根（帰還 0、脱出 0）では反作用電荷を置かず、セル総電荷を動かさない。
+    model%absorbed_current_a = 0.0_dp
+    model%emission_current_a = 0.0_dp
+    model%escaped_particle_current_a = 0.0_dp
+    call prepare_secondary_only_fixture(workspace, .false., .true., 1.0_dp)
+    call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+    call assert_close_dp(workspace%photo_emission_dq(1, 1), 0.0_dp, 0.0_dp, 'zero-source root leaves no SEE reaction charge')
+    call assert_close_dp(workspace%fixed_emission_weight_scale(1), 0.0_dp, 0.0_dp, 'zero-source emission scale')
+    call assert_close_dp(workspace%fixed_current_correction(1), -1.0_dp, 1.0e-12_dp, 'the whole emission is corrected away')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.0_dp, 0.0_dp, 'zero-source batch stays closed')
+    call assert_close_dp(workspace%fixed_escape_target_charge(1), 0.0_dp, 0.0_dp, 'zero-source root has no escape target')
+
+    ! SEE が放出されなかったバッチには目標を載せられない。根の脱出分を未閉として記録し、止まらない。
+    model%absorbed_current_a = -0.1_dp
+    model%emission_current_a = 0.4_dp
+    model%escaped_particle_current_a = -0.3_dp
+    call prepare_secondary_only_fixture(workspace, .false., .false., 0.0_dp)
+    call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_emission_target_charge(1), 0.0_dp, 0.0_dp, 'no emission target without emission')
+    call assert_close_dp(workspace%fixed_emission_weight_scale(1), 1.0_dp, 0.0_dp, 'empty raw emission keeps scale one')
+    call assert_close_dp(workspace%fixed_current_correction(1), 0.0_dp, 0.0_dp, 'no correction without emission')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(1), 0.3_dp, 1.0e-12_dp, &
+                         'root escape left unclosed when no SEE was emitted')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(1), 0.0_dp, 0.0_dp, 'nothing placed without emission')
+    call assert_close_dp(workspace%fixed_escape_target_charge(1), -0.3_dp, 1.0e-12_dp, 'escape target is still recorded')
+  end subroutine test_fixed_current_secondary_only_closure
+
+  subroutine prepare_secondary_only_fixture(workspace, absorbed, escaped, emission)
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+    logical, intent(in) :: absorbed, escaped
+    real(dp), intent(in) :: emission
+
+    call workspace%reset_before_injection()
+    call workspace%prepare_particle_flags(2_i32)
+    workspace%absorbed_flag(1) = absorbed
+    workspace%absorbed_element(1) = 1_i32
+    workspace%escaped_boundary_flag(2) = escaped
+    workspace%photo_emission_dq(1, 1) = emission
+  end subroutine prepare_secondary_only_fixture
 
   subroutine test_multiple_box_event_failure_context()
     character(len=1024) :: executable_path, command, child_line

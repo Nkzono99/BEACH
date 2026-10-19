@@ -194,7 +194,7 @@ contains
     real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), raw_charge(12)
     real(dp) :: spectrum_pe(outflow_spectrum_bins), spectrum_see(outflow_spectrum_bins)
     real(dp) :: flux_pe, flux_see, raw_out, batch_time, area, see_temperature, root_escape_charge
-    real(dp) :: partner_charge(4), partner_excess(4)
+    real(dp) :: closed_charge(4), unclosed_charge(4)
     integer :: batch, k
     logical :: refreshed
 
@@ -251,9 +251,9 @@ contains
       moments(1, 4, 1) = raw_out
       moments(2, 4, 1) = raw_out*see_temperature*qe
       moments(5:, 4, 1) = raw_out*spectrum_see
-      partner_charge = 0.0_dp
-      partner_excess = 0.0_dp
-      call refresh%commit_batch(app, plate, mpi, moments, raw_charge, partner_charge, partner_excess, int(batch, i32), &
+      closed_charge = 0.0_dp
+      unclosed_charge = 0.0_dp
+      call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
                                 receipts, closure, refreshed)
       call assert_true(refreshed .eqv. (batch == 2), 'refresh must wait for the full accepted-batch window')
     end do
@@ -265,6 +265,14 @@ contains
     root_escape_charge = qe*receipts%matching_plane_photoelectron_escape_flux_m2_s*area*batch_time
     if (night) then
       call assert_equal_i32(closure%escape_partner_species(3), 0_i32, 'night has no PE to absorb the SEE escape')
+      call assert_true(closure%has_absorbed_target(4) .and. closure%has_emission_target(4) .and. &
+                       closure%has_escape_target(4) .and. closure%emission_target_from_tracked_source(4), &
+                       'SEE-only closure must pin SEE return, emission and escape to the root')
+      call assert_close_dp(-closure%escaped_particle_current_a(4)*batch_time, root_escape_charge, &
+                           1.0e-12_dp*root_escape_charge, 'SEE escape target must carry the root escape')
+      call assert_close_dp(closure%emission_current_a(4) + closure%absorbed_current_a(4) + &
+                           closure%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*closure%emission_current_a(4), &
+                           'SEE emission minus return must equal the root escape')
     else
       call assert_equal_i32(closure%escape_partner_species(3), 4_i32, 'PE must subtract the tracked SEE escape')
       call assert_close_dp(-closure%escaped_particle_current_a(3)*batch_time, root_escape_charge, &
@@ -273,20 +281,21 @@ contains
     ! 窓の途中のバッチ: PE の脱出目標が差し引いた SEE 脱出とその超過が、そのバッチの share と残差になる。
     moments = 0.0_dp
     raw_charge = 0.0_dp
-    partner_charge = 0.0_dp
-    partner_excess = 0.0_dp
+    closed_charge = 0.0_dp
+    unclosed_charge = 0.0_dp
     raw_charge(12) = -0.5_dp*root_escape_charge
-    partner_charge(3) = 0.25_dp*root_escape_charge
-    partner_excess(3) = 0.1_dp*root_escape_charge
-    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, partner_charge, partner_excess, 3_i32, &
+    closed_charge(3) = 0.25_dp*root_escape_charge
+    unclosed_charge(3) = 0.1_dp*root_escape_charge
+    closed_charge(4) = 0.8_dp*root_escape_charge
+    unclosed_charge(4) = 0.2_dp*root_escape_charge
+    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 3_i32, &
                               receipts, closure, refreshed)
     call assert_true(.not. refreshed, 'a partial window must not refresh the outer root')
     if (night) then
       call assert_close_dp(receipts%matching_plane_secondary_share, 1.0_dp, 0.0_dp, 'SEE-only outflow owns the escape')
-      call assert_close_dp(receipts%secondary_budget_residual_a_m2, &
-                           -0.5_dp*qe*receipts%matching_plane_photoelectron_escape_flux_m2_s, &
-                           1.0e-12_dp*qe*receipts%matching_plane_photoelectron_escape_flux_m2_s, &
-                           'without PE the residual is the tracked SEE escape minus the root escape')
+      call assert_close_dp(receipts%secondary_budget_residual_a_m2, 0.2_dp*root_escape_charge/(area*batch_time), &
+                           1.0e-12_dp*root_escape_charge/(area*batch_time), &
+                           'without PE the residual is the root escape the closure could not place')
     else
       call assert_close_dp(receipts%matching_plane_secondary_share, 0.25_dp, 1.0e-12_dp, &
                            'share must be the SEE escape the PE targets absorbed')
@@ -311,11 +320,11 @@ contains
       ! Empty outflow keeps the finite root; without tracked SEE escape the PE targets carry the whole root escape.
       moments = 0.0_dp
       raw_charge = 0.0_dp
-      partner_charge = 0.0_dp
-      partner_excess = 0.0_dp
+      closed_charge = 0.0_dp
+      unclosed_charge = 0.0_dp
       restored = receipts
       do batch = 4, 5
-        call refresh%commit_batch(app, plate, mpi, moments, raw_charge, partner_charge, partner_excess, int(batch, i32), &
+        call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
                                   receipts, closure, refreshed)
         call assert_true(.not. refreshed, 'an empty window must keep the previous root')
       end do
