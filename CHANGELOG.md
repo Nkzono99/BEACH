@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `particles.tracking.substep_field_change_max` / `substep_max_halvings`: 粒子ごとの適応サブステップ。step 候補の中点電場が
+  前回受理した中点電場から指定の割合より大きく変わる step を、上限回数まで半分にして取り直す。帯電した要素の近傍で
+  1 step の変位が場の変化スケールに近いときにエネルギー保存を保つ。既定は無効。半分にした step 数と sub-step 総数、
+  上限に達した step 数を `summary.txt` に出力する。三層レゴリス（1.98 ps、球が +290〜+700 V）の 100 バッチ継続では、
+  H を反射して出る電子の全エネルギー差の rms が dt のまま 73 eV（A）/ 545 eV（C）だったものが、閾値 0.2 で
+  0.56 / 2.7 eV、0.1 で 0.22 / 0.69 eV（dt/4 の一様刻みは 0.19 / 1.2 eV）になる。光電子が帯電した球の表面から出る
+  この case では大半の粒子が強い場を通るので、計算時間は閾値 0.1 で dt/4 と同程度である。
+
+## [3.1.0] - 2026-10-18
+
+### Added
+
 - periodic2 cached 非零モードの上部真空 Fourier 切替。高さの幾何自動選択と次数制御、接続面の電位・法線場 rms、再構築 receipt を追加。
 - Zhao 外部根の法線電場を零モードへ渡す `e_top_from_sheath` と、シース側・セル側の上端電場履歴を追加。checkpoint schema は維持。
 - 17/19列 matching-plane 履歴と8列 top-reference 履歴を、新しい列へ拡張して再開する互換処理。
@@ -18,6 +30,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- periodic2 `cached_kneq0` の線源セルと評価側 anchor を、軸ごとの分割数を持つ box 格子にした（生成器 v12）。
+  どのセルもほぼ立方体になるまで最も幅の広い軸だけを分け、箱の高さが周期長より大きくても横方向の分割は増えない。
+  `examples/zero_current_refresh.toml`（0.1×0.1×1 mm）の演算子は 4096 anchor × 4096 セル（5 GB、数時間）から
+  60 anchor × 120 セルになり、三層レゴリスも 64 anchor × 512 セルから 20 × 40 になる。anchor は適応木の節点ではなく
+  点評価で参照する。v11 の fingerprint は一致せず、演算子を再生成する。
 - periodic2 `cached_kneq0` の生成器を v11 に更新。線源を box 固定セルへ分け、相対オフセットと鏡映対称性で Ewald 評価を共有する。
   同じ box と設定なら異なるメッシュで演算子を再利用する。v10 の fingerprint は一致せず、必要な演算子を自動再生成する。
 - `cached_kneq0` の演算子は要素を含む線源セルの分だけ作り、cache にないセルだけを追加生成して同じファイルへ書き足す。小さなテスト mesh や上部が空の box で生成が短くなる。
@@ -41,6 +58,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   continued.
 - `import beach` no longer imports numpy and matplotlib. The public names from `beach.fortran_results` load on first
   access, so `beach.config` and the runops adapter work inside runops's own environment.
+
+### Known issues
+
+- 数百 V に帯電した要素の近傍では、既定の時間刻みの指針で選んだ `particles.tracking.dt_s` で電子のエネルギーが保存しない。
+  三層レゴリス（球が +290〜+700 V、1.98 ps、1 ステップ約 20 µm）では H を反射して出る電子の約 2 割が 10 eV 以上を
+  数値的に獲得し、H での PE 平均法線エネルギーと更新後の壁電位（−0.19 V）も変わる。dt を 1/4 にすると保存する
+  （エネルギー差 rms 0.2〜1 eV）。帯電した表面の近傍を扱う case では dt を 1/4 程度にして収束を確認する。
 
 ## [3.0.0] - 2026-10-15
 

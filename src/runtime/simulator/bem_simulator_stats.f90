@@ -54,6 +54,15 @@ contains
                                              stats%multiple_box_events_soft_discarded, batch_counts(6), &
                                              'multiple_box_events_soft_discarded' &
                                              )
+  stats%adaptive_substep_halved_steps = checked_add_nonnegative_i64( &
+                                        stats%adaptive_substep_halved_steps, substep_counts(1), &
+                                        'adaptive_substep_halved_steps' &
+                                        )
+  stats%adaptive_substeps = checked_add_nonnegative_i64(stats%adaptive_substeps, substep_counts(2), 'adaptive_substeps')
+  stats%adaptive_substep_depth_limited_steps = checked_add_nonnegative_i64( &
+                                               stats%adaptive_substep_depth_limited_steps, substep_counts(3), &
+                                               'adaptive_substep_depth_limited_steps' &
+                                               )
   stats%multiple_box_events_soft_discarded_abs_charge = checked_add_nonnegative_real( &
                                                         stats%multiple_box_events_soft_discarded_abs_charge, &
                                                         soft_discarded_abs_charge, &

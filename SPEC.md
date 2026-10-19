@@ -101,7 +101,8 @@ AABB/grid cache を保持します。OBJ の scale、rotation、offset はこの
 
 1. 現在の要素電荷から静電 snapshot を構築する
 2. boundary reservoir inflow、`volume_seed`、`photo_raycast` の粒子を生成する
-3. 各粒子を最大 `particles.tracking.max_steps_per_particle` 回まで進める
+3. 各粒子を最大 `particles.tracking.max_steps_per_particle` 回まで進める（`substep_field_change_max > 0` なら、
+   中点電場の変化が大きい step を `substep_max_halvings` 回まで半分にして進める）
 4. mesh hit、box escape、max-step survivor を分類する
 5. 吸収電荷と放出元の逆符号電荷を thread-local buffer へ集計する。SEE は世代ごとに追加追跡する
 6. closed PE が有効なら、解決済み帰還先へ neutral-return 補正を適用する
@@ -149,7 +150,7 @@ cache fingerprint は generator version を含み、物理的 zero mode の評�
 平均場の高さ分布は保持し、全電荷源の上側では累積電荷を総電荷で厳密に固定します。
 
 `cached_kneq0` の遠方補正は、周期 box の全固定セルの multipole から box 固定の target anchor の local 展開への
-operator を当てはめます。セルの深さは box の半対角線と周期長から選び、空セルも保持します。
+operator を当てはめます。セルは軸ごとの分割数でほぼ立方体にし、半対角線と周期長から選び、空セルも保持します。
 要素重心をセルへ割り当て、セル中心への三角形 P2M を電荷更新ごとに集計します。
 生成器 v11 は相対オフセットと鏡映対称性で Ewald 評価を共有し、mesh に依存しない fingerprint を使います。
 保存先は明示指定を優先し、省略時は `BEACH_CACHE_DIR`、`XDG_CACHE_HOME`、`HOME` から解決します。

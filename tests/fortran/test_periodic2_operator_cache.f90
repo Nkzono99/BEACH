@@ -82,8 +82,8 @@ contains
     character(len=512) :: path
 
     config = options
-    config%periodic_operator_source_depth = 1_i32
-    config%periodic_operator_target_depth = 1_i32
+    config%periodic_operator_source_cells = 2_i32
+    config%periodic_operator_anchor_cells = 2_i32
     do idx = 1_i32, 3_i32
       center = src_pos(:, idx)
       a(:, idx) = center + [-0.02_dp, -0.01_dp, 0.0_dp]
@@ -114,10 +114,9 @@ contains
                                   second%periodic_root_operator(:, :, (slot2 - 1)*nanchor + 1:slot2*nanchor))) == 0.0_dp, &
                        'cached cell blocks must be reused verbatim')
     end do
-    do idx = 1_i32, second%periodic_operator_anchor_count
-      call assert_equal_i32(second%target_node_depth(second%periodic_operator_anchor_nodes(idx)), 1_i32, &
-                            'box target anchors must map to the current adaptive tree')
-    end do
+    call assert_equal_i32(second%periodic_operator_anchor_count, 8_i32, 'box anchors form the requested lattice')
+    call assert_true(all(second%periodic_anchor_center == first%periodic_anchor_center), &
+                     'box anchors must not depend on the mesh or the adaptive tree')
     call build_panel_plan(third, a, b, c, config)
     call assert_true(third%periodic_cache_hit, 'merged cache must cover the second mesh')
     call assert_equal_i32(third%periodic_operator_build_count, 0_i32, 'merged cache must not rebuild')
@@ -154,8 +153,8 @@ contains
     config = options
     config%order = 1_i32
     config%leaf_max = 8_i32
-    config%periodic_operator_source_depth = 1_i32
-    config%periodic_operator_target_depth = 1_i32
+    config%periodic_operator_source_cells = 2_i32
+    config%periodic_operator_anchor_cells = 2_i32
     positions(:, 1) = [0.25_dp, 0.25_dp, 0.0_dp]
     positions(:, 2) = [0.75_dp, 0.25_dp, 0.0_dp]
     positions(:, 3) = [0.25_dp, 0.75_dp, 0.0_dp]
@@ -166,7 +165,7 @@ contains
     call update_state(neutral, state, charge)
     ! Analytic checkerboard: monopole and dipole vanish exactly; its quadrupole field remains.
     call assert_true(all(state%multipole(:, 1) == 0.0_dp), 'checkerboard global monopole and dipole must vanish')
-    call assert_true(any(abs(state%local) > 1.0e-12_dp), 'nonzero cell moments must still produce a far local field')
+    call assert_true(any(abs(state%anchor_local) > 1.0e-12_dp), 'nonzero cell moments must still produce a far local field')
     call destroy_state(state)
     call destroy_plan(neutral)
     call delete_cache(path)

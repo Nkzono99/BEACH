@@ -13,6 +13,10 @@ contains
       reader_path = 'sim.dt'
     case ('particles.tracking.max_steps_per_particle')
       reader_path = 'sim.max_step'
+    case ('particles.tracking.substep_field_change_max')
+      reader_path = 'sim.substep_field_change_max'
+    case ('particles.tracking.substep_max_halvings')
+      reader_path = 'sim.substep_max_halvings'
     case ('run.rng_seed')
       reader_path = 'sim.rng_seed'
     case ('run.batch_count')

@@ -39,11 +39,12 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_ewald_layers = 4_i32
     character(len=256) :: periodic_cache_dir = ''
     real(dp) :: periodic_generation_tolerance = 1.0d-8
-    !> cached_kneq0 の遠方補正が使う source セルと target anchor の box 八分木の深さ。負なら節点の大きさから自動で選ぶ
-    !! （source は半対角線が周期長の 0.4 倍以下、target は 0.5 倍以下になる最も浅い深さ）。浅いと作成は速いが、
-    !! 粒子層の高さが周期長に近いとき非零モードに面平均が漏れる。
-    integer(i32) :: periodic_operator_source_depth = -1_i32
-    integer(i32) :: periodic_operator_target_depth = -1_i32
+    !> cached_kneq0 の遠方補正が使う source セルと target anchor の box 格子の各軸の分割数。負なら box と周期長から
+    !! 自動で選ぶ（anchor は半対角線が短い周期長の 0.5 倍以下、source は 0.4 倍以下になるほぼ立方体のセルで、
+    !! source の分割数は anchor の 2^k 倍）。粗いと作成は速いが、粒子層の高さが周期長に近いとき非零モードに
+    !! 面平均が漏れる。
+    integer(i32) :: periodic_operator_source_cells(3) = -1_i32
+    integer(i32) :: periodic_operator_anchor_cells(3) = -1_i32
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
   end type fmm_options_type
@@ -139,13 +140,17 @@ module bem_coulomb_fmm_types
     real(dp), allocatable :: shift_axis1(:), shift_axis2(:)
     type(periodic2_ewald_data_type) :: periodic_ewald
     logical :: periodic_root_operator_ready = .false.
-    !> 遠方補正の (target anchor, source cell) 組の数と、各組の target anchor。
-    !! operator は panel を含む source cell だけを持ち、組 k = (slot-1)*anchor_count + anchor で並ぶ。
-    !! slot は periodic_operator_cell_slot(cell)、0 のセルは operator を持たない（線源を置けない）。
+    !> 遠方補正の (target anchor, source cell) 組の数。anchor は box を各軸 periodic_operator_anchor_cells に分けた
+    !! 格子で、適応木とは独立に点評価で参照する。operator は panel を含む source cell だけを持ち、
+    !! 組 k = (slot-1)*anchor_count + anchor で並ぶ。slot は periodic_operator_cell_slot(cell)、
+    !! 0 のセルは operator を持たない（線源を置けない）。
     integer(i32) :: periodic_root_target_count = 0_i32
-    integer(i32), allocatable :: periodic_root_target_nodes(:)
     integer(i32) :: periodic_operator_anchor_count = 0_i32
-    integer(i32), allocatable :: periodic_operator_anchor_nodes(:)
+    integer(i32) :: periodic_operator_anchor_cells(3) = 0_i32
+    integer(i32) :: periodic_operator_source_cells(3) = 0_i32
+    real(dp) :: periodic_anchor_half(3) = 0.0_dp
+    real(dp) :: periodic_source_half(3) = 0.0_dp
+    real(dp), allocatable :: periodic_anchor_center(:, :)
     integer(i32) :: periodic_operator_built_count = 0_i32
     integer(i32), allocatable :: periodic_operator_cell_slot(:)
     integer(i32), allocatable :: periodic_operator_cells(:)
@@ -184,6 +189,9 @@ module bem_coulomb_fmm_types
     integer(i32), pointer :: multipole_active(:) => null()
     integer(i32), pointer :: local_active(:) => null()
     real(dp), allocatable :: periodic_multipole(:, :)
+    !> 遠方補正の anchor ごとの局所展開。点評価で、点を含む anchor の展開を葉の局所展開に加える。
+    real(dp), allocatable :: anchor_local(:, :)
+    integer(i32), allocatable :: anchor_local_active(:)
     type(periodic_zero_mode_state_type) :: periodic_k0_state
     type(periodic_shell_mean_state_type) :: periodic_shell_mean_state
   end type fmm_state_type
@@ -304,12 +312,13 @@ contains
     if (allocated(plan%shift_axis1)) deallocate (plan%shift_axis1)
     if (allocated(plan%shift_axis2)) deallocate (plan%shift_axis2)
     call reset_periodic2_ewald_data(plan%periodic_ewald)
-    if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    if (allocated(plan%periodic_operator_anchor_nodes)) deallocate (plan%periodic_operator_anchor_nodes)
+    if (allocated(plan%periodic_anchor_center)) deallocate (plan%periodic_anchor_center)
     if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
     if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
     plan%periodic_operator_anchor_count = 0_i32
+    plan%periodic_operator_anchor_cells = 0_i32
+    plan%periodic_operator_source_cells = 0_i32
     plan%periodic_operator_built_count = 0_i32
     plan%periodic_operator_new_cell_count = 0_i32
     if (allocated(plan%periodic_source_cell)) deallocate (plan%periodic_source_cell)
@@ -371,6 +380,8 @@ contains
     nullify (state%multipole_active)
     nullify (state%local_active)
     if (allocated(state%periodic_multipole)) deallocate (state%periodic_multipole)
+    if (allocated(state%anchor_local)) deallocate (state%anchor_local)
+    if (allocated(state%anchor_local_active)) deallocate (state%anchor_local_active)
     state%ready = .false.
     state%update_count = 0_i32
     if (allocated(state%periodic_k0_state%cumulative_charge_coeff)) then
@@ -395,6 +406,8 @@ contains
     if (associated(state%local)) deallocate (state%local)
     if (associated(state%multipole_active)) deallocate (state%multipole_active)
     if (associated(state%local_active)) deallocate (state%local_active)
+    if (allocated(state%anchor_local)) deallocate (state%anchor_local)
+    if (allocated(state%anchor_local_active)) deallocate (state%anchor_local_active)
     call initialize_fmm_state(state)
   end subroutine reset_fmm_state
 

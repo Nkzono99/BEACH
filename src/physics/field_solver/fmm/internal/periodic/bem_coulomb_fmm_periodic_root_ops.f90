@@ -13,8 +13,6 @@ module bem_coulomb_fmm_periodic_root_ops
   use bem_coulomb_fmm_periodic_cache, only: read_periodic_operator_cache, write_periodic_operator_cache, &
                                             periodic_cache_fingerprint, periodic_cache_ok
   use bem_regularized_qr, only: regularized_qr_type, prepare_regularized_qr, solve_regularized_qr
-  use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_child_count, &
-                                        active_tree_child_idx, active_tree_node_center
   implicit none
   private
 
@@ -52,12 +50,9 @@ contains
     type(mpi_context) :: mpi
     logical :: reuse
 
-    if (allocated(plan%periodic_root_target_nodes)) deallocate (plan%periodic_root_target_nodes)
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
-    if (allocated(plan%periodic_operator_anchor_nodes)) deallocate (plan%periodic_operator_anchor_nodes)
     if (allocated(plan%periodic_operator_cell_slot)) deallocate (plan%periodic_operator_cell_slot)
     if (allocated(plan%periodic_operator_cells)) deallocate (plan%periodic_operator_cells)
-    plan%periodic_operator_anchor_count = 0_i32
     plan%periodic_operator_built_count = 0_i32
     plan%periodic_operator_new_cell_count = 0_i32
     plan%periodic_root_operator_ready = .false.
@@ -81,21 +76,20 @@ contains
     logical, intent(in) :: reuse_translations
     integer(i32) :: nproxy, ncheck_bulk, ncheck_face, ncheck_max, ncheck, j, i, k, face, kind
     integer(i32) :: proxy_order, even_degree, even_count
-    integer(i32) :: target_idx, node_idx, target_count, rank, rank_count, source_count, source_idx, pair_count
+    integer(i32) :: target_idx, target_count, rank, rank_count, source_count, source_idx, pair_count
     integer(i32) :: pair, class_idx, class_count, key(3), axis, mask, check_idx, proxy_idx, reflected_check
-    integer(i32) :: reflection, shell_column, nside, cell_index(3)
+    integer(i32) :: reflection, shell_column, cells(3), cell_index(3)
     real(dp) :: source_half(3), proxy_half(3), target_center(3), target_half(3), delta(3), unit(3), point(3), target_z
     real(dp), allocatable :: proxy_points(:, :), check_points(:, :), selected_points(:, :)
     real(dp), allocatable :: proxy_to_multipole(:, :), proxy_to_local(:, :), proxy_pinv(:, :), full_proxy_pinv(:, :)
     real(dp), allocatable :: field_matrix(:, :), field_rhs(:), coeff(:), potential_rhs(:), flat_operator(:)
     real(dp), allocatable :: residual_e(:, :, :), residual_phi(:, :), class_delta(:, :)
     real(dp) :: e_res(3), phi_res, shell_excess, shell_excess_slope, signs(3)
-    integer(i32), allocatable :: target_nodes(:), pair_class(:), class_key(:, :), &
-                                 target_kind(:), pair_reflection(:)
+    integer(i32), allocatable :: pair_class(:), class_key(:, :), target_kind(:), pair_reflection(:)
     type(fmm_plan_type) :: proxy_basis
     type(proxy_shell_table_type) :: shell_table
     type(periodic_check_fit_type) :: fit(0:15)
-    logical :: use_target_tree, used_kind(0:15), lock_held
+    logical :: used_kind(0:15), lock_held
     integer :: cache_lock_fd, lock_status, directory_status
     integer(i32) :: ncell, nreq, nmiss, m, slot, cell
     logical, allocatable :: required(:), have(:)
@@ -106,8 +100,7 @@ contains
     if (.not. plan%periodic_ewald%ready) return
     if (plan%ncoef <= 1_i32) return
     call mpi_get_rank_size(rank, rank_count, mpi)
-    use_target_tree = plan%target_tree_ready
-    if (active_tree_nnode(plan, use_target_tree) <= 0_i32) return
+    if (plan%periodic_operator_anchor_count <= 0_i32) return
 
     proxy_order = plan%options%order + periodic_operator_proxy_null_degrees
     even_degree = proxy_order/2_i32
@@ -117,15 +110,10 @@ contains
     ncheck_bulk = max(8_i32*plan%ncoef, int(periodic_operator_check_multiplier*real(plan%ncoef, dp), i32))
     ncheck_face = 4_i32*((max(8_i32, plan%ncoef) + 3_i32)/4_i32)
     ncheck_max = ncheck_bulk + 4_i32*ncheck_face
-    allocate (target_nodes(active_tree_nnode(plan, use_target_tree)))
-    target_count = 0_i32
-    call collect_periodic_root_targets(plan, use_target_tree, 1_i32, &
-                                       plan%options%periodic_operator_target_depth, target_nodes, target_count)
+    target_count = plan%periodic_operator_anchor_count
     source_count = plan%periodic_root_source_count
     ncell = source_count
-    plan%periodic_operator_anchor_count = target_count
-    allocate (plan%periodic_operator_anchor_nodes(target_count))
-    plan%periodic_operator_anchor_nodes = target_nodes(1:target_count)
+    cells = plan%periodic_operator_source_cells
     ! The operator is mesh-independent per cell, but only cells that hold sources are needed now.
     allocate (required(ncell), have(ncell), missing_flag(ncell))
     required = .false.
@@ -168,10 +156,8 @@ contains
 
     if (nmiss > 0_i32) then
 
-      source_half = (plan%options%target_box_max - plan%options%target_box_min)* &
-                    0.5_dp**(plan%options%periodic_operator_source_depth + 1_i32)
-      target_half = (plan%options%target_box_max - plan%options%target_box_min)* &
-                    0.5_dp**(plan%options%periodic_operator_target_depth + 1_i32)
+      source_half = plan%periodic_source_half
+      target_half = plan%periodic_anchor_half
       allocate (proxy_points(3, nproxy), check_points(3, ncheck_max))
       proxy_basis%options%order = proxy_order
       call initialize_basis_tables(proxy_basis, proxy_order)
@@ -187,7 +173,6 @@ contains
         end if
       end do
       call build_proxy_shell_table(plan, proxy_points, shell_table)
-      nside = 2_i32**plan%options%periodic_operator_source_depth
       call build_proxy_multipole_matrix(proxy_basis, [0.0_dp, 0.0_dp, 0.0_dp], proxy_points, proxy_to_multipole)
       call build_minimum_norm_pseudoinverse(proxy_to_multipole, full_proxy_pinv)
       ! Additional proxy moments are zero: the proxy must not invent the first omitted source moments.
@@ -206,10 +191,10 @@ contains
                 class_key(3, pair_count), class_delta(3, pair_count))
       used_kind = .false.
       class_count = 0_i32
-      unit = (plan%options%target_box_max - plan%options%target_box_min)* &
-             0.5_dp**(max(plan%options%periodic_operator_source_depth, plan%options%periodic_operator_target_depth) + 1_i32)
+      ! Anchor spacings are power-of-two multiples of the source spacing, so offsets are multiples of unit.
+      unit = plan%periodic_source_half
       do target_idx = 1_i32, target_count
-        target_center = active_tree_node_center(plan, use_target_tree, target_nodes(target_idx))
+        target_center = plan%periodic_anchor_center(:, target_idx)
         mask = 0_i32
         do face = 0_i32, 3_i32
           axis = plan%options%periodic_axes(face/2_i32 + 1_i32)
@@ -306,17 +291,16 @@ contains
           target_idx = mod(pair - 1_i32, target_count) + 1_i32
           source_idx = miss_cells((pair - 1_i32)/target_count + 1_i32)
           cell_index = nint((plan%periodic_source_center(:, source_idx) - plan%options%target_box_min)/ &
-                            (plan%options%target_box_max - plan%options%target_box_min)*real(nside, dp) - 0.5_dp, kind=i32)
+                            (plan%options%target_box_max - plan%options%target_box_min)*real(cells, dp) - 0.5_dp, kind=i32)
           shell_column = 1_i32 + cell_index(plan%options%periodic_axes(1)) + &
-                         nside*cell_index(plan%options%periodic_axes(2))
+                         cells(plan%options%periodic_axes(1))*cell_index(plan%options%periodic_axes(2))
           reflection = pair_reflection(pair)
           do axis = 1_i32, 3_i32
             signs(axis) = merge(-1.0_dp, 1.0_dp, btest(reflection, axis - 1_i32))
           end do
           kind = target_kind(target_idx)
           ncheck = size(fit(kind)%index)
-          node_idx = target_nodes(target_idx)
-          target_center = active_tree_node_center(plan, use_target_tree, node_idx)
+          target_center = plan%periodic_anchor_center(:, target_idx)
           proxy_to_local = 0.0_dp
           plan%periodic_operator_local_target_count = plan%periodic_operator_local_target_count + 1_i32
 !$omp parallel default(shared) private(j, i, check_idx, proxy_idx, reflected_check, field_rhs) &
@@ -375,10 +359,6 @@ contains
     plan%periodic_operator_built_count = nreq
     plan%periodic_operator_cells = req_cells
     plan%periodic_root_target_count = target_count*nreq
-    allocate (plan%periodic_root_target_nodes(target_count*nreq))
-    do slot = 1_i32, nreq
-      plan%periodic_root_target_nodes((slot - 1_i32)*target_count + 1_i32:slot*target_count) = target_nodes(1:target_count)
-    end do
     allocate (plan%periodic_root_operator(plan%ncoef, plan%ncoef, target_count*nreq))
     plan%periodic_root_operator = 0.0_dp
     allocate (miss_slot(ncell), cached_slot(ncell))
@@ -498,25 +478,27 @@ contains
     type(fmm_plan_type), intent(in) :: plan
     real(dp), intent(in) :: proxy_points(:, :)
     type(proxy_shell_table_type), intent(out) :: table
-    integer(i32) :: nside, nz, column, j, k, axes(2), free_axis
+    integer(i32) :: cells(3), nz, column, j, k, axes(2), free_axis
     real(dp) :: span(3), point(3), extent, h
 
     if (.not. plan%periodic_shell_mean%ready) return
     axes = plan%options%periodic_axes
     free_axis = plan%periodic_shell_mean%free_axis
     span = plan%options%target_box_max - plan%options%target_box_min
-    nside = 2_i32**plan%options%periodic_operator_source_depth
+    cells = plan%periodic_operator_source_cells
     extent = span(free_axis) + maxval(abs(proxy_points(free_axis, :)))
     nz = ceiling(2.0_dp*extent/(periodic_operator_shell_spacing*minval(plan%options%periodic_len)), kind=i32) + 1_i32
     table%h0 = -extent
     table%dh = 2.0_dp*extent/real(nz - 1_i32, dp)
-    allocate (table%value(nz, size(proxy_points, 2), nside*nside), table%slope(nz, size(proxy_points, 2), nside*nside))
+    allocate (table%value(nz, size(proxy_points, 2), cells(axes(1))*cells(axes(2))), &
+              table%slope(nz, size(proxy_points, 2), cells(axes(1))*cells(axes(2))))
 !$omp parallel do collapse(2) default(shared) private(column, j, k, point, h) schedule(static)
-    do column = 1_i32, nside*nside
+    do column = 1_i32, cells(axes(1))*cells(axes(2))
       do j = 1_i32, size(proxy_points, 2)
         point = 0.0_dp
-        point(axes) = plan%options%target_box_min(axes) + span(axes)/real(nside, dp)* &
-                      (real([mod(column - 1_i32, nside), (column - 1_i32)/nside], dp) + 0.5_dp) + proxy_points(axes, j)
+        point(axes) = plan%options%target_box_min(axes) + span(axes)/real(cells(axes), dp)* &
+                      (real([mod(column - 1_i32, cells(axes(1))), (column - 1_i32)/cells(axes(1))], dp) + 0.5_dp) + &
+                      proxy_points(axes, j)
         do k = 1_i32, nz
           h = table%h0 + real(k - 1_i32, dp)*table%dh
           call periodic_shell_mean_point_excess(plan%periodic_shell_mean, point, h, &
@@ -553,19 +535,19 @@ contains
 
   subroutine set_cache_identity(plan)
     type(fmm_plan_type), intent(inout) :: plan
-    integer(i32) :: integer_values(9)
+    integer(i32) :: integer_values(13)
     real(dp) :: real_values(16)
     character(len=256) :: tag
 
     integer_values = [plan%options%order, plan%ncoef, plan%options%periodic_axes, &
                       plan%options%periodic_image_layers, plan%options%periodic_ewald_layers, &
-                      plan%options%periodic_operator_source_depth, plan%options%periodic_operator_target_depth, &
+                      plan%periodic_operator_source_cells, plan%periodic_operator_anchor_cells, &
                       periodic_operator_proxy_null_degrees]
     real_values = [plan%options%target_box_min, plan%options%target_box_max, plan%options%periodic_len, &
                    plan%options%softening, plan%periodic_ewald%alpha, plan%options%periodic_generation_tolerance, &
                    periodic_operator_proxy_shell_scale, periodic_operator_seam_weight_multiplier, &
                    periodic_operator_check_shell_scale, periodic_operator_shell_spacing, periodic_operator_inner_proxy_scale]
-    tag = 'periodic-kneq0-generator-v11|box-cells|sparse-cell-cache-v1|padded-box-proxy-v1|null-moments-v1|'// &
+    tag = 'periodic-kneq0-generator-v12|box-lattice|sparse-cell-cache-v1|padded-box-proxy-v1|null-moments-v1|'// &
           'scaled-proxy-qr-v1|shell-mean-v1|real64|'
     if (plan%panel_source) then
       tag = trim(tag)//'kernel=triangle_p0|'
@@ -577,35 +559,6 @@ contains
     plan%periodic_cache_path = trim(plan%options%periodic_cache_dir)//'/operator-'// &
                                trim(plan%periodic_cache_fingerprint)//'.bin'
   end subroutine set_cache_identity
-
-  recursive subroutine collect_periodic_root_targets(plan, use_target_tree, node_idx, anchor_depth, target_nodes, target_count)
-    type(fmm_plan_type), intent(in) :: plan
-    logical, intent(in) :: use_target_tree
-    integer(i32), intent(in) :: node_idx, anchor_depth
-    integer(i32), intent(inout) :: target_nodes(:)
-    integer(i32), intent(inout) :: target_count
-    integer(i32) :: node_depth, child_k, child_count
-
-    if (node_idx <= 0_i32) return
-    if (use_target_tree) then
-      node_depth = plan%target_node_depth(node_idx)
-    else
-      node_depth = plan%node_depth(node_idx)
-    end if
-    child_count = active_tree_child_count(plan, use_target_tree, node_idx)
-    if (child_count <= 0_i32 .or. node_depth >= anchor_depth) then
-      target_count = target_count + 1_i32
-      target_nodes(target_count) = node_idx
-      return
-    end if
-
-    do child_k = 1_i32, child_count
-      call collect_periodic_root_targets( &
-        plan, use_target_tree, active_tree_child_idx(plan, use_target_tree, child_k, node_idx), &
-        anchor_depth, target_nodes, target_count &
-        )
-    end do
-  end subroutine collect_periodic_root_targets
 
   !> Complete reflection orbits make the sampled least-squares problem reflection invariant.
   subroutine build_root_surface_points(center, half_size, npoint, offset, scale, points)

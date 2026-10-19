@@ -9,9 +9,9 @@ program test_periodic2_infinite_operator
   implicit none
 
   type(fmm_options_type) :: options
-  type(fmm_plan_type) :: plan0, plan1
-  type(fmm_state_type) :: state0, state1
-  real(dp) :: src_pos(3, 4), q(4), targets(3, 3)
+  type(fmm_plan_type) :: plan0, plan1, plan_tall
+  type(fmm_state_type) :: state0, state1, state_tall
+  real(dp) :: src_pos(3, 4), q(4), targets(3, 3), tall_targets(3, 4), tall_field_scale, tall_phi_scale
   real(dp) :: field0(3), field1(3), field_ref(3), phi0, phi1, phi_ref
   real(dp) :: spectral_field(3), spectral_phi, teacher_field_error, teacher_potential_error
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
@@ -22,7 +22,7 @@ program test_periodic2_infinite_operator
   real(dp) :: seam_potential_error, max_seam_potential_error, seam_potential_scale
   integer(i32) :: target_idx, seam_idx
   integer :: clock_count
-  character(len=512) :: cache_path0, cache_path1, cache_dir
+  character(len=512) :: cache_path0, cache_path1, cache_path_tall, cache_dir
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
   src_pos(:, 2) = [0.75_dp, 0.25_dp, 0.08_dp]
@@ -36,7 +36,7 @@ program test_periodic2_infinite_operator
   call system_clock(count=clock_count)
   write (cache_dir, '(a,i0)') 'test_periodic2_infinite_operator_tmp_', clock_count
   options%periodic_cache_dir = trim(cache_dir)
-  call test_init(3)
+  call test_init(4)
 
   call test_begin('cached_kneq0_matches_ewald_across_image_splits_and_charge_updates')
   options%periodic_image_layers = 1_i32
@@ -162,12 +162,60 @@ program test_periodic2_infinite_operator
     )
   call test_end()
 
+  call test_begin('tall_box_uses_anisotropic_lattice_and_matches_ewald')
+  ! A box six periods tall keeps the lateral lattice at two cells and stacks cubic cells along z,
+  ! and the far correction stays accurate far above the sources, where the near-image tail dominates.
+  call configure_options(options)
+  options%periodic_cache_dir = trim(cache_dir)
+  options%periodic_image_layers = 1_i32
+  options%target_box_max = [1.0_dp, 1.0_dp, 5.5_dp]
+  call build_plan(plan_tall, src_pos, options)
+  cache_path_tall = plan_tall%periodic_cache_path
+  call assert_true(all(plan_tall%periodic_operator_anchor_cells == [2_i32, 2_i32, 9_i32]), &
+                   'tall box must stack anchors along its long axis only')
+  call assert_true(all(plan_tall%periodic_operator_source_cells == [2_i32, 2_i32, 18_i32]), &
+                   'tall box source cells must refine the anchor lattice by powers of two')
+  call assert_equal_count(plan_tall%periodic_operator_anchor_count, 36_i32)
+  call update_state(plan_tall, state_tall, q)
+  tall_targets(:, 1) = targets(:, 2)
+  tall_targets(:, 2) = [0.35_dp, 0.62_dp, 1.4_dp]
+  tall_targets(:, 3) = [0.12_dp, 0.65_dp, 3.1_dp]
+  tall_targets(:, 4) = [0.91_dp, 0.08_dp, 5.3_dp]
+  call exact_kneq0_reference(plan_tall, q, tall_targets(:, 1), field_ref, phi_ref)
+  tall_field_scale = max(1.0e-10_dp, sqrt(sum(field_ref*field_ref)))
+  tall_phi_scale = max(1.0e-10_dp, abs(phi_ref))
+  max_field_error = 0.0_dp
+  max_potential_error = 0.0_dp
+  do target_idx = 1_i32, size(tall_targets, 2)
+    call eval_point(plan_tall, state_tall, tall_targets(:, target_idx), field1)
+    call eval_potential_point(plan_tall, state_tall, tall_targets(:, target_idx), phi1)
+    call exact_kneq0_reference(plan_tall, q, tall_targets(:, target_idx), field_ref, phi_ref)
+    call assert_true( &
+      all(ieee_is_finite(field1)) .and. all(ieee_is_finite(field_ref)) .and. &
+      ieee_is_finite(phi1) .and. ieee_is_finite(phi_ref), &
+      'tall box cached kneq0 evaluation returned a non-finite value' &
+      )
+    ! High targets see a small k/=0 field; compare every target with the near-source scale.
+    field_error = sqrt(sum((field1 - field_ref)**2))/tall_field_scale
+    potential_error = abs(phi1 - phi_ref)/tall_phi_scale
+    write (*, '(a,i0,a,f5.2,2(a,es12.5))') 'tall target ', target_idx, ' z=', tall_targets(3, target_idx), &
+      ' field error=', field_error, ' potential error=', potential_error
+    max_field_error = max(max_field_error, field_error)
+    max_potential_error = max(max_potential_error, potential_error)
+  end do
+  call assert_true(max_field_error < 8.0e-2_dp, 'tall box cached kneq0 field error exceeds 8e-2')
+  call assert_true(max_potential_error < 8.0e-2_dp, 'tall box cached kneq0 potential error exceeds 8e-2')
+  call test_end()
+
   call destroy_state(state0)
   call destroy_state(state1)
+  call destroy_state(state_tall)
   call destroy_plan(plan0)
   call destroy_plan(plan1)
+  call destroy_plan(plan_tall)
   call delete_cache(cache_path0)
   call delete_cache(cache_path1)
+  call delete_cache(cache_path_tall)
   call remove_empty_directory(cache_dir)
   call test_summary()
 
@@ -253,6 +301,11 @@ contains
       end do
     end do
   end subroutine spectral_point_reference
+
+  subroutine assert_equal_count(actual, expected)
+    integer(i32), intent(in) :: actual, expected
+    call assert_true(actual == expected, 'tall box anchor count must equal the lattice size')
+  end subroutine assert_equal_count
 
   subroutine delete_cache(path)
     character(len=*), intent(in) :: path

@@ -12,6 +12,8 @@ from ._shared import ConfigValidationError
 
 PATHS = {'sim.dt': 'particles.tracking.dt_s',
  'sim.max_step': 'particles.tracking.max_steps_per_particle',
+ 'sim.substep_field_change_max': 'particles.tracking.substep_field_change_max',
+ 'sim.substep_max_halvings': 'particles.tracking.substep_max_halvings',
  'sim.rng_seed': 'run.rng_seed',
  'sim.batch_count': 'run.batch_count',
  'sim.batch_duration': 'run.batch.duration_s',

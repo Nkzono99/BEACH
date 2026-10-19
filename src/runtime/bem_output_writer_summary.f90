@@ -81,6 +81,9 @@ contains
   write (u, '(a,i0)') 'survived_max_step=', stats%survived_max_step
   write (u, '(a,i0)') 'multiple_box_events_retry_attempted=', stats%multiple_box_events_retry_attempted
   write (u, '(a,i0)') 'multiple_box_events_retry_resolved=', stats%multiple_box_events_retry_resolved
+  write (u, '(a,i0)') 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
+  write (u, '(a,i0)') 'adaptive_substeps=', stats%adaptive_substeps
+  write (u, '(a,i0)') 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
   write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &

@@ -20,6 +20,9 @@ module bem_particle_stepper
   integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
   integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
   integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
+  !> 適応サブステップが step を半分にする最小の仕事 [J]。電場変化が相対的に大きくても、
+  !! step の仕事に換算してこれより小さければ粒子のエネルギーには効かないので分けない。
+  real(dp), parameter :: particle_substep_energy_floor_j = 1.0e-4_dp*1.602176634e-19_dp
 
   type, public :: particle_step_result
     real(dp) :: x(3) = 0.0_dp
@@ -37,11 +40,24 @@ module bem_particle_stepper
   end type particle_step_result
 
   public :: build_particle_step_candidate
+  public :: particle_substep_needs_halving
+  public :: particle_substep_energy_floor_j
   public :: advance_particle_step
   public :: advance_particle_step_upper_panel_fourier
   public :: resolve_particle_boundary_candidate
 
 contains
+
+  !> step 候補の中点電場 e_mid が参照電場 e_ref から change_max の割合より大きく変わり、
+  !! その差が変位 x1-x0 にわたる仕事に換算して床値を超えるとき真。
+  pure logical function particle_substep_needs_halving(e_mid, e_ref, q, x0, x1, change_max) result(needs)
+    real(dp), intent(in) :: e_mid(3), e_ref(3), q, x0(3), x1(3), change_max
+    real(dp) :: change
+
+    change = norm2(e_mid - e_ref)
+    needs = change > change_max*max(norm2(e_mid), norm2(e_ref)) .and. &
+            abs(q)*change*norm2(x1 - x0) > particle_substep_energy_floor_j
+  end function particle_substep_needs_halving
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。
   subroutine build_particle_step_candidate( &

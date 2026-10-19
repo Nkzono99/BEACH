@@ -206,6 +206,7 @@ contains
     end if
 
     call accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
+    call accumulate_anchor_local_expansion(plan, state, rt, ex, ey, ez)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_field(plan, state, leaf_slot, rt, soft2, axes, ex, ey, ez)
     call subtract_cached_periodic_k0_field(plan, state, rt, ex, ey, ez)
@@ -236,6 +237,7 @@ contains
     end if
 
     call accumulate_leaf_local_potential_expansion(plan, state, leaf_node, rt, phi)
+    call accumulate_anchor_local_potential_expansion(plan, state, rt, phi)
     axes = active_periodic_axes(plan)
     call accumulate_near_direct_potential(plan, state, leaf_slot, rt, soft2, axes, phi)
     call subtract_cached_periodic_k0_potential(plan, state, rt, phi)
@@ -359,6 +361,77 @@ contains
       phi = phi + state%local(alpha_idx, leaf_node)*monomial
     end do
   end subroutine accumulate_leaf_local_potential_expansion
+
+  !> cached_kneq0 の遠方補正: 点を含む anchor 格子セルの番号と中心。box の外の点は端の anchor に寄せる。
+  pure subroutine locate_periodic_anchor(plan, rt, anchor, center)
+    type(fmm_plan_type), intent(in) :: plan
+    real(dp), intent(in) :: rt(3)
+    integer(i32), intent(out) :: anchor
+    real(dp), intent(out) :: center(3)
+    integer(i32) :: cells(3), index3(3)
+    real(dp) :: span(3)
+
+    cells = plan%periodic_operator_anchor_cells
+    span = plan%options%target_box_max - plan%options%target_box_min
+    index3 = min(cells - 1_i32, max(0_i32, floor((rt - plan%options%target_box_min)/span*real(cells, dp), kind=i32)))
+    anchor = 1_i32 + index3(1) + cells(1)*(index3(2) + cells(2)*index3(3))
+    center = plan%options%target_box_min + (real(index3, dp) + 0.5_dp)*2.0_dp*plan%periodic_anchor_half
+  end subroutine locate_periodic_anchor
+
+  !> 遠方補正の anchor 局所展開の電場を加える。
+  subroutine accumulate_anchor_local_expansion(plan, state, rt, ex, ey, ez)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(inout) :: ex, ey, ez
+    integer(i32) :: order, term_idx, anchor
+    real(dp) :: dr(3), monomial, center(3)
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    if (.not. plan%periodic_root_operator_ready) return
+    if (.not. allocated(state%anchor_local)) return
+    order = active_local_expansion_order(plan)
+    if (order <= 0_i32 .or. plan%eval_term_count <= 0_i32) return
+    call locate_periodic_anchor(plan, rt, anchor, center)
+    if (state%anchor_local_active(anchor) == 0_i32) return
+
+    dr = rt - center
+    call build_axis_powers(dr, order, xpow, ypow, zpow)
+    do term_idx = 1_i32, plan%eval_term_count
+      monomial = xpow(plan%eval_exp(1, term_idx))*ypow(plan%eval_exp(2, term_idx)) &
+                 *zpow(plan%eval_exp(3, term_idx))*plan%eval_inv_factorial(term_idx)
+      ex = ex - state%anchor_local(plan%eval_deriv_idx(1, term_idx), anchor)*monomial
+      ey = ey - state%anchor_local(plan%eval_deriv_idx(2, term_idx), anchor)*monomial
+      ez = ez - state%anchor_local(plan%eval_deriv_idx(3, term_idx), anchor)*monomial
+    end do
+  end subroutine accumulate_anchor_local_expansion
+
+  !> 遠方補正の anchor 局所展開の電位を加える。
+  subroutine accumulate_anchor_local_potential_expansion(plan, state, rt, phi)
+    type(fmm_plan_type), intent(in) :: plan
+    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: rt(3)
+    real(dp), intent(inout) :: phi
+    integer(i32) :: order, alpha_idx, anchor
+    real(dp) :: dr(3), monomial, center(3)
+    real(dp) :: xpow(0:max(0_i32, plan%options%order)), ypow(0:max(0_i32, plan%options%order))
+    real(dp) :: zpow(0:max(0_i32, plan%options%order))
+
+    if (.not. plan%periodic_root_operator_ready) return
+    if (.not. allocated(state%anchor_local)) return
+    order = active_local_expansion_order(plan)
+    call locate_periodic_anchor(plan, rt, anchor, center)
+    if (state%anchor_local_active(anchor) == 0_i32) return
+
+    dr = rt - center
+    call build_axis_powers(dr, order, xpow, ypow, zpow)
+    do alpha_idx = 1_i32, plan%ncoef
+      monomial = xpow(plan%alpha(1, alpha_idx))*ypow(plan%alpha(2, alpha_idx)) &
+                 *zpow(plan%alpha(3, alpha_idx))/plan%alpha_factorial(alpha_idx)
+      phi = phi + state%anchor_local(alpha_idx, anchor)*monomial
+    end do
+  end subroutine accumulate_anchor_local_potential_expansion
 
   pure function active_local_expansion_order(plan) result(order)
     type(fmm_plan_type), intent(in) :: plan

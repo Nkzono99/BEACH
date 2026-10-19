@@ -62,7 +62,7 @@ def test_canonical_docs_state_far_correction_semantics() -> None:
             assert all(fragment in row for fragment in fragments), (path, mode)
 
         assert "物理的な平均場はこの演算子の外で一度だけ加えます" in text
-        assert "periodic-kneq0-generator-v11" in text
+        assert "periodic-kneq0-generator-v12" in text
         assert "BEACH_CACHE_DIR" in text
 
 

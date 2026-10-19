@@ -23,6 +23,11 @@ module bem_types
     real(dp) :: batch_duration_step = 0.0d0
     logical :: has_batch_duration_step = .false.
     integer(i32) :: max_step = 100
+    !> 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、
+    !! その差が step の仕事に換算して 1e-4 eV を超えるときは step を半分にして取り直す。0 で無効。
+    real(dp) :: substep_field_change_max = 0.0d0
+    !> 1 つの dt を半分にする回数の上限（最小 sub-step は dt/2^n）。
+    integer(i32) :: substep_max_halvings = 6_i32
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
     character(len=16) :: field_solver = 'auto'
@@ -76,6 +81,10 @@ module bem_types
     integer(i64) :: multiple_box_events_retry_resolved = 0_i64
     integer(i64) :: multiple_box_events_soft_discarded = 0_i64
     real(dp) :: multiple_box_events_soft_discarded_abs_charge = 0.0_dp
+    !> 適応サブステップ: 半分にした dt step の数、その中で受理した sub-step の総数、半分化の上限に達した step の数。
+    integer(i64) :: adaptive_substep_halved_steps = 0_i64
+    integer(i64) :: adaptive_substeps = 0_i64
+    integer(i64) :: adaptive_substep_depth_limited_steps = 0_i64
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
     real(dp) :: simulated_time = 0.0_dp
