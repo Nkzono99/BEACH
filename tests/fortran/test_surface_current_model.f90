@@ -367,7 +367,7 @@ program test_surface_current_model
   call assert_true(.not. success, 'a negative outer spectrum bin must be rejected')
   call test_end()
 
-  call test_begin('secondary_electron_barrier_role_and_phase_one_pe_target_split')
+  call test_begin('secondary_electron_barrier_role_and_pe_escape_partner')
   call configure_zhao_fixture(cfg)
   cfg%n_particle_species = 4_i32
   cfg%particle_species(4) = particle_species_spec()
@@ -385,15 +385,18 @@ program test_surface_current_model
   call assert_true(result%outer_return_cell_uniform, 'SEE uses the periodic-cell outer return map')
   call assert_true(.not. result%has_absorbed_target(4) .and. .not. result%has_emission_target(4) .and. &
                    .not. result%has_escape_target(4), 'SEE must stay fully tracked')
-  call solve_zhao_outflow_closure(cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, 'A', &
-                                  refreshed, success, message, secondary_share=0.25_dp)
+  ! PE の目標は PE+SEE 合算の根の脱出束を持ち、追跡した SEE 脱出は各バッチの固定電流 closure が差し引く。
+  call assert_equal_i32(result%escape_partner_species(3), 4_i32, 'PE escape target must subtract the tracked SEE escape')
+  call assert_equal_i32(result%escape_partner_species(4), 0_i32, 'SEE has no escape partner')
+  call solve_zhao_outflow_closure(cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, 'A', refreshed, success, message)
   call assert_true(success, 'mixed emission source solve: '//trim(message))
   call assert_close_dp(refreshed%escaped_particle_current_a(3), &
-                       -0.75_dp*refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
-                       1.0e-20_dp, 'PE escape target must use its outflow share')
+                       -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
+                       1.0e-20_dp, 'PE escape target must carry the combined root escape')
   call assert_close_dp(refreshed%absorbed_current_a(3), &
                        -refreshed%escaped_particle_current_a(3) - refreshed%emission_current_a(3), &
                        1.0e-20_dp, 'PE return target must remain escape minus emission')
+  call assert_equal_i32(refreshed%escape_partner_species(3), 4_i32, 'refreshed root must keep the SEE escape partner')
   call test_end()
 
   call test_summary()

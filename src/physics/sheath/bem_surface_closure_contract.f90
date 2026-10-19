@@ -23,6 +23,9 @@ module bem_surface_closure_contract
     real(dp), allocatable :: outflow_barrier_potential_v(:)
     integer(i32), allocatable :: outflow_barrier_face(:)
     real(dp), allocatable :: inflow_number_flux_m2_s(:)
+    !> この species の脱出・帰還目標から、そのバッチで追跡した脱出電荷を差し引く species（0 なら無し）。
+    !! 外部根の脱出束が複数の放出電子種の合算なら、追跡した側に充てた残りをこの species の目標にする。
+    integer(i32), allocatable :: escape_partner_species(:)
     !> 照射セル契約の壁面の平均電位を外部シース解の壁電位へ固定する場合だけ有効。
     logical :: has_plane_gauge = .false.
     real(dp) :: plane_gauge_potential_v = 0.0_dp

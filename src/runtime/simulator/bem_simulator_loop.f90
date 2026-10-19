@@ -442,6 +442,7 @@ contains
     call perf_region_end(perf_region_commit_charge, t0)
     call outflow_refresh%commit_batch( &
       trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
+      workspace%fixed_escape_partner_charge, workspace%fixed_escape_partner_excess, &
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
     if (outflow_refreshed) call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .false.)

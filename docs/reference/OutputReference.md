@@ -193,8 +193,8 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | `matching_plane_photoelectron_spectrum_m2_s` | `matching_plane_spectrum_history.csv` | 外部根の放出源の法線運動エネルギー別の束。145 個の値を空白区切りで 1 行に書く。全て 0 なら放出源は表面放出の半 Maxwell 分布（初期根）、正の値があれば合計が `matching_plane_photoelectron_outward_flux_m2_s` に等しい |
 | `matching_plane_electron_outward_flux_m2_s`, `matching_plane_ion_outward_flux_m2_s` | `electron_outward_flux_m2_s`, `ion_outward_flux_m2_s` | 使わないため 0 |
 | `matching_plane_photoelectron_return_flux_m2_s`, `matching_plane_photoelectron_escape_flux_m2_s` | `photoelectron_return_flux_m2_s`, `photoelectron_escape_flux_m2_s` | 放出源を外部根の障壁で分けた return / escape |
-| `matching_plane_secondary_share` | `secondary_share` | 直近の観測窓における合算流出束の SEE 割合。SEE なしなら 0 |
-| `secondary_budget_residual_a_m2` | `secondary_budget_residual_a_m2` | 追跡 SEE 脱出帯電電流 − 外部根の脱出電流 × `secondary_share` [A/m²]。暫定 Phase 1 では 0 に拘束しない |
+| `matching_plane_secondary_share` | `secondary_share` | そのバッチで追跡した SEE の脱出に充てた外部根の脱出束の割合。SEE なしなら 0、PE なしなら 1 |
+| `secondary_budget_residual_a_m2` | `secondary_budget_residual_a_m2` | SEE の追跡脱出帯電電流のうち外部根の脱出電流から差し引けなかった分 [A/m²]。通常 0。PE なしなら追跡脱出 − 外部根の脱出電流 |
 | `matching_plane_iterations` | `iterations` | 採用した外部根の数。初期根を 1 と数える |
 | `matching_plane_residual` | `residual` | 直前の更新での放出源の最大相対変化。弱連成の固定点に近づくと小さくなる |
 

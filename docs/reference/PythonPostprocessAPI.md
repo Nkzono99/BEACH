@@ -139,7 +139,7 @@ print(f"吸収: {result.absorbed}, 脱出: {result.escaped}")
 このため、`None`は「履歴ファイルがない、または有効な外部状態ではない」、空tupleは
 「有効なstateだが記録行がない」と区別できます。
 
-`MatchingPlaneState.secondary_share` と `secondary_budget_residual_a_m2` は暫定の SEE 配分診断です。
+`MatchingPlaneState.secondary_share` はそのバッチで SEE の脱出に充てた外部根の脱出束の割合、`secondary_budget_residual_a_m2` は差し引けなかった残差です。
 `SecondaryEmissionHistoryEntry` は `batch, incident_species, hits, emitted_count, emitted_charge_c, mean_yield, generation_capped_count` を持ちます。
 
 ### 3.3 `FortranChargeHistory`
