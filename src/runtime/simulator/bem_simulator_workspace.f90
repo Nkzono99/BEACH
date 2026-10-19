@@ -33,6 +33,9 @@ module bem_simulator_workspace
     real(dp), allocatable :: fixed_escape_target_charge(:)
     real(dp), allocatable :: fixed_escape_correction(:)
     real(dp), allocatable :: fixed_current_correction(:)
+    !> 脱出目標から差し引いた partner species の脱出電荷（帯電符号）と、根の脱出束を超えて差し引けなかった超過分。
+    real(dp), allocatable :: fixed_escape_partner_charge(:)
+    real(dp), allocatable :: fixed_escape_partner_excess(:)
     !> この batch で固定電流 target を適用した channel。1=吸収、2=放出、3=脱出。
     logical, allocatable :: fixed_channel_active(:, :)
     integer(i64), allocatable :: neutral_return_terminal_counts(:)
@@ -86,7 +89,8 @@ contains
       self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &
       self%fixed_escape_target_charge(nspecies), &
       self%fixed_escape_correction(nspecies), &
-      self%fixed_current_correction(nspecies) &
+      self%fixed_current_correction(nspecies), &
+      self%fixed_escape_partner_charge(nspecies), self%fixed_escape_partner_excess(nspecies) &
       )
     allocate (self%fixed_channel_active(3_i32, nspecies))
     allocate (self%ledger_charge_values(5_i32*nspecies), self%ledger_count_values(5_i32*nspecies))
@@ -127,6 +131,8 @@ contains
     self%fixed_escape_target_charge = 0.0_dp
     self%fixed_escape_correction = 0.0_dp
     self%fixed_current_correction = 0.0_dp
+    self%fixed_escape_partner_charge = 0.0_dp
+    self%fixed_escape_partner_excess = 0.0_dp
     self%fixed_channel_active = .false.
     self%matching_plane_moments_thread = 0.0_dp
     self%secondary_counts_thread = 0_i64

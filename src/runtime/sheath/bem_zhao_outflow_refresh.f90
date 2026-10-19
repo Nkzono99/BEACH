@@ -18,8 +18,7 @@ module bem_zhao_outflow_refresh
   use bem_charge_ledger, only: finite_charge_sum
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model, &
-                                       solve_zhao_outflow_closure, refresh_zhao_outflow_closure, &
-                                       split_emission_escape_target
+                                       solve_zhao_outflow_closure, refresh_zhao_outflow_closure
   use sheath_model, only: sheath_matching_iteration
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array
   use bem_outflow_spectrum, only: outflow_spectrum_bins
@@ -92,15 +91,14 @@ contains
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
-          outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s, &
-          secondary_share=stats%matching_plane_secondary_share, cell=self%cell, outer=self%outer &
+          outer_spectrum_m2_s=stats%matching_plane_photoelectron_spectrum_m2_s, cell=self%cell, outer=self%outer &
           )
       else
         ! 外部根をまだ更新していない checkpoint の外部源は、表面放出の半 Maxwell 分布である。
         call solve_zhao_outflow_closure( &
           app, stats%matching_plane_feedback(1), stats%matching_plane_feedback(2), &
           branch_from_response(stats%matching_plane_response), self%state, success, message, &
-          secondary_share=stats%matching_plane_secondary_share, cell=self%cell, outer=self%outer &
+          cell=self%cell, outer=self%outer &
           )
       end if
       if (.not. success) then
@@ -130,8 +128,8 @@ contains
 
   !> accepted batch の H 通過モーメントを窓へ加え、窓が満ちたら外部根を解き直して次 batch の closure を返す。
   subroutine commit_batch( &
-    self, app, mesh, mpi_ctx, moments_thread, fixed_current_charge_values, batch_idx, stats_candidate, &
-    surface_closure, refreshed &
+    self, app, mesh, mpi_ctx, moments_thread, fixed_current_charge_values, fixed_escape_partner_charge, &
+    fixed_escape_partner_excess, batch_idx, stats_candidate, surface_closure, refreshed &
     )
     class(zhao_outflow_refresh_type), intent(inout) :: self
     type(app_config), intent(in) :: app
@@ -140,13 +138,17 @@ contains
     real(dp), intent(in) :: moments_thread(:, :, :)
     !> 固定電流closureがrank合計したraw電荷。n+species番目が表面放出。
     real(dp), intent(in) :: fixed_current_charge_values(:)
+    !> 固定電流closureが species の脱出目標から差し引いた partner の脱出電荷（帯電符号、0 以上）と、
+    !! 根の脱出束を超えて差し引けなかった超過分。
+    real(dp), intent(in) :: fixed_escape_partner_charge(:), fixed_escape_partner_excess(:)
     integer(i32), intent(in) :: batch_idx
     type(sim_stats), intent(inout) :: stats_candidate
     type(surface_closure_contract_type), intent(inout) :: surface_closure
     logical, intent(out) :: refreshed
     type(surface_current_model_result_type) :: trial
     real(dp) :: batch_moments(3, 2), transmission, outer_flux, outer_energy_ev, displacement
-    real(dp) :: photo_flux, secondary_flux, secondary_share, tracked_secondary_current, expected_secondary_current
+    real(dp) :: photo_flux, secondary_flux, tracked_secondary_current, attributed_secondary_current
+    real(dp) :: total_escape_current
     real(dp) :: packed_values(2*(2 + outflow_spectrum_bins)), denominator
     integer :: group, idx
     real(dp) :: batch_values(2 + outflow_spectrum_bins, 2), outer_spectrum(outflow_spectrum_bins)
@@ -184,7 +186,6 @@ contains
         photo_flux = transmission*self%state%photoelectron_emission_current_density_a_m2/qe
       end if
       outer_flux = photo_flux + secondary_flux
-      secondary_share = 0.0_dp
       if (outer_flux > 0.0_dp) then
         outer_spectrum = 0.0_dp
         outer_energy_ev = 0.0_dp
@@ -197,10 +198,8 @@ contains
           outer_energy_ev = outer_energy_ev + secondary_flux*self%window_moments(2, 2)/(self%window_moments(1, 2)*qe)
         end if
         outer_energy_ev = outer_energy_ev/outer_flux
-        secondary_share = secondary_flux/outer_flux
         call refresh_zhao_outflow_closure( &
-          app, self%outer, outer_flux, outer_energy_ev, outer_spectrum, secondary_share, self%cell, trial, success, &
-          message &
+          app, self%outer, outer_flux, outer_energy_ev, outer_spectrum, self%cell, trial, success, message &
           )
         if (success) then
           denominator = self%state%outer_photoelectron_flux_m2_s
@@ -234,25 +233,33 @@ contains
           batch_idx
         flush (error_unit)
       end if
-      if (.not. refreshed) then
-        call split_emission_escape_target(self%state, secondary_share)
-        surface_closure = self%state%surface_closure_contract_type
-      end if
       self%window_moments = 0.0_dp
       self%window_spectrum = 0.0_dp
       self%window_batches = 0_i32
       self%window_duration = 0.0_dp
     end if
 
-    ! Compare this batch's tracked escape with the root and split published in the same receipt.
-    tracked_secondary_current = 0.0_dp
-    expected_secondary_current = 0.0_dp
+    ! このバッチの SEE 脱出のうち根の脱出束に充てた割合と、充てられなかった残差を同じ receipt に出す。
+    stats_candidate%matching_plane_secondary_share = 0.0_dp
+    stats_candidate%secondary_budget_residual_a_m2 = 0.0_dp
     if (self%secondary_idx > 0) then
-      tracked_secondary_current = -fixed_current_charge_values(2*app%n_particle_species + self%secondary_idx)/ &
-                                  (self%area*app%sim%batch_duration)
-      expected_secondary_current = self%state%photoelectron_escape_current_density_a_m2*self%state%secondary_share
+      total_escape_current = self%state%photoelectron_escape_current_density_a_m2
+      if (self%photo_idx > 0) then
+        ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
+        attributed_secondary_current = fixed_escape_partner_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+        if (total_escape_current > 0.0_dp) then
+          stats_candidate%matching_plane_secondary_share = min(1.0_dp, attributed_secondary_current/total_escape_current)
+        end if
+        stats_candidate%secondary_budget_residual_a_m2 = &
+          fixed_escape_partner_excess(self%photo_idx)/(self%area*app%sim%batch_duration)
+      else
+        ! PE がなければ差し引く先がなく、SEE の追跡脱出と根の脱出束の差がそのまま収支に残る。
+        tracked_secondary_current = -fixed_current_charge_values(2*app%n_particle_species + self%secondary_idx)/ &
+                                    (self%area*app%sim%batch_duration)
+        stats_candidate%matching_plane_secondary_share = 1.0_dp
+        stats_candidate%secondary_budget_residual_a_m2 = tracked_secondary_current - total_escape_current
+      end if
     end if
-    stats_candidate%secondary_budget_residual_a_m2 = tracked_secondary_current - expected_secondary_current
     displacement = finite_charge_sum(mesh%q_elem, 'zhao outflow refresh committed charge')/self%area
     call stage_state(self, stats_candidate, displacement)
   end subroutine commit_batch
@@ -286,7 +293,6 @@ contains
     stats%matching_plane_photoelectron_escape_flux_m2_s = escape_flux
     stats%matching_plane_iterations = self%accepted_solves
     stats%matching_plane_residual = self%last_change
-    stats%matching_plane_secondary_share = self%state%secondary_share
   end subroutine stage_state
 
   !> 保存した外部障壁と壁電位の符号から Zhao branch を復元する。

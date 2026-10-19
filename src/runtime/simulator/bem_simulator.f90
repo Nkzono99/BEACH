@@ -35,6 +35,8 @@ module bem_simulator
   private
 
   public :: run_absorption_insulator
+  !> 固定電流 closure は contract との契約をテストから直接確認する。
+  public :: apply_fixed_surface_current_closure
 
   interface
     module subroutine run_absorption_insulator( &

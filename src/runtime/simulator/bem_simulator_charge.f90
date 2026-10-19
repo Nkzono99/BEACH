@@ -246,12 +246,14 @@ contains
   end procedure apply_neutral_return_surface_closure
 
   module procedure apply_fixed_surface_current_closure
-  integer(i32) :: i, species_idx, elem_idx, n
+  integer(i32) :: i, species_idx, elem_idx, n, partner_idx
   real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
-  real(dp) :: charge_tolerance
+  real(dp) :: charge_tolerance, partner_charge, partner_escape_charge, total_escape_charge
 
   n = app%n_particle_species
   workspace%fixed_current_charge_values = 0.0_dp
+  workspace%fixed_escape_partner_charge = 0.0_dp
+  workspace%fixed_escape_partner_excess = 0.0_dp
   do i = 1_i32, fresh_particle_count
     species_idx = pcls_batch%species_id(i)
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
@@ -270,6 +272,20 @@ contains
 
   do species_idx = 1_i32, n
     if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
+    ! 外部根の脱出束が partner species と合算の値なら、partner が追跡で脱出した電荷（帯電符号）を
+    ! 根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。超過は収支残差として残す。
+    partner_charge = 0.0_dp
+    partner_idx = 0_i32
+    if (allocated(current_model%escape_partner_species)) partner_idx = current_model%escape_partner_species(species_idx)
+    if (partner_idx > 0_i32 .and. current_model%has_escape_target(species_idx)) then
+      partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + partner_idx))
+      total_escape_charge = max(0.0_dp, -checked_fixed_target_charge( &
+                                current_model%escaped_particle_current_a(species_idx), app%sim%batch_duration, &
+                                'fixed_current escape'))
+      partner_charge = min(partner_escape_charge, total_escape_charge)
+      workspace%fixed_escape_partner_charge(species_idx) = partner_charge
+      workspace%fixed_escape_partner_excess(species_idx) = partner_escape_charge - partner_charge
+    end if
     if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
         current_model%has_absorbed_target(species_idx)) then
       raw_charge = workspace%fixed_current_charge_values(species_idx)
@@ -283,7 +299,7 @@ contains
       end if
       target_charge = checked_fixed_target_charge( &
                       target_current, app%sim%batch_duration, 'fixed_current absorbed' &
-                      )
+                      ) - partner_charge
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
       if (abs(raw_charge) <= charge_tolerance) then
         if (abs(target_charge) > charge_tolerance) then
@@ -357,7 +373,7 @@ contains
       end if
       target_charge = checked_fixed_target_charge( &
                       target_current, app%sim%batch_duration, 'fixed_current escape' &
-                      )
+                      ) + partner_charge
       if (target_charge /= 0.0_dp .and. &
           sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
         error stop 'fixed_current escape target sign must match the escaped particle charge.'

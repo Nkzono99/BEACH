@@ -23,7 +23,6 @@ module bem_surface_current_model
     integer(i32) :: photoelectron_species_idx = 0_i32
     logical :: photoelectron_active = .false.
     integer(i32) :: secondary_electron_species_idx = 0_i32
-    real(dp) :: secondary_share = 0.0_dp
     real(dp) :: reference_area_m2 = 0.0_dp
     real(dp) :: phi0_v = 0.0_dp
     real(dp) :: phi_m_v = 0.0_dp
@@ -50,7 +49,7 @@ module bem_surface_current_model
 
   public :: evaluate_surface_current_model
   public :: evaluate_surface_closure
-  public :: solve_zhao_outflow_closure, refresh_zhao_outflow_closure, split_emission_escape_target
+  public :: solve_zhao_outflow_closure, refresh_zhao_outflow_closure
 
 contains
 
@@ -118,7 +117,8 @@ contains
       result%inflow_kinetic_face(app%n_particle_species), &
       result%outflow_barrier_potential_v(app%n_particle_species), &
       result%outflow_barrier_face(app%n_particle_species), &
-      result%inflow_number_flux_m2_s(app%n_particle_species) &
+      result%inflow_number_flux_m2_s(app%n_particle_species), &
+      result%escape_partner_species(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
@@ -136,6 +136,7 @@ contains
     result%outflow_barrier_potential_v = 0.0_dp
     result%outflow_barrier_face = 0_i32
     result%inflow_number_flux_m2_s = 0.0_dp
+    result%escape_partner_species = 0_i32
   end subroutine allocate_closure_channels
 
   !> 設定の表面放出を外部源として零電流根を解く。PEなしではType Cだけが成立する。
@@ -175,7 +176,7 @@ contains
   !! preferred_branch を先に試す。outer を渡すと、後の更新に使う外部解を返す。
   subroutine solve_zhao_outflow_closure( &
     app, outer_flux_m2_s, outer_mean_energy_ev, preferred_branch, result, success, message, &
-    outer_spectrum_m2_s, secondary_share, cell, outer &
+    outer_spectrum_m2_s, cell, outer &
     )
     type(app_config), intent(in) :: app
     real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
@@ -185,7 +186,6 @@ contains
     character(len=*), intent(out) :: message
     !> H外向きスペクトル [1/(m2 s)]、bin別。省略時は束と平均法線エネルギーの半Maxwell源とする。
     real(dp), intent(in), optional :: outer_spectrum_m2_s(outflow_spectrum_bins)
-    real(dp), intent(in), optional :: secondary_share
     type(irradiation_cell_contract_type), intent(in), optional :: cell
     type(sheath_matching_iteration), intent(out), optional :: outer
     type(sheath_matching_iteration) :: local_outer
@@ -214,7 +214,7 @@ contains
     end if
     call finish_observed_closure( &
       app, local_outer, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, &
-      outer_spectrum_m2_s, secondary_share, active_cell &
+      outer_spectrum_m2_s, active_cell &
       )
     if (present(outer)) outer = local_outer
   end subroutine solve_zhao_outflow_closure
@@ -222,14 +222,12 @@ contains
   !> 外部解を観測したH外向き流出で更新する。前回の根を初期値にし、同じbranchを先に試す。
   !! 解けなければ outer は前回のまま残り、success=.false. を返す。
   subroutine refresh_zhao_outflow_closure( &
-    app, outer, outer_flux_m2_s, outer_mean_energy_ev, outer_spectrum_m2_s, secondary_share, cell, result, &
-    success, message &
+    app, outer, outer_flux_m2_s, outer_mean_energy_ev, outer_spectrum_m2_s, cell, result, success, message &
     )
     type(app_config), intent(in) :: app
     type(sheath_matching_iteration), intent(inout) :: outer
     real(dp), intent(in) :: outer_flux_m2_s, outer_mean_energy_ev
     real(dp), intent(in) :: outer_spectrum_m2_s(outflow_spectrum_bins)
-    real(dp), intent(in) :: secondary_share
     type(irradiation_cell_contract_type), intent(in) :: cell
     type(surface_current_model_result_type), intent(out) :: result
     logical, intent(out) :: success
@@ -249,7 +247,7 @@ contains
     end if
     call finish_observed_closure( &
       app, outer, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, &
-      outer_spectrum_m2_s, secondary_share, cell &
+      outer_spectrum_m2_s, cell &
       )
   end subroutine refresh_zhao_outflow_closure
 
@@ -285,8 +283,7 @@ contains
 
   !> 観測した外部源で解いた外部解から closure を作り、外部源の受領値を記録する。
   subroutine finish_observed_closure( &
-    app, outer, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, outer_spectrum_m2_s, &
-    secondary_share, cell &
+    app, outer, outer_flux_m2_s, outer_mean_energy_ev, result, success, message, outer_spectrum_m2_s, cell &
     )
     type(app_config), intent(in) :: app
     type(sheath_matching_iteration), intent(in) :: outer
@@ -295,12 +292,11 @@ contains
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
     real(dp), intent(in), optional :: outer_spectrum_m2_s(outflow_spectrum_bins)
-    real(dp), intent(in), optional :: secondary_share
     type(irradiation_cell_contract_type), intent(in) :: cell
 
     call allocate_closure_channels(app, result)
     result%model = 'zhao_stationary'
-    call finish_zhao_closure(app, outer%conditions(), result, success, message, secondary_share, cell=cell)
+    call finish_zhao_closure(app, outer%conditions(), result, success, message, cell=cell)
     result%outer_photoelectron_flux_m2_s = outer_flux_m2_s
     result%outer_photoelectron_mean_energy_ev = outer_mean_energy_ev
     if (present(outer_spectrum_m2_s)) result%outer_photoelectron_spectrum_m2_s = outer_spectrum_m2_s
@@ -426,13 +422,12 @@ contains
   !> sheath-modelの面上条件から、表面放出を別に与えて species 別の固定電流targetと境界写像を作る。
   !!
   !! 外部シースが見る放出源と表面放出の差は、周期セル内で再吸収されたPEであり、return target に含まれる。
-  subroutine finish_zhao_closure(app, plane, result, success, message, secondary_share, cell)
+  subroutine finish_zhao_closure(app, plane, result, success, message, cell)
     type(app_config), intent(in) :: app
     type(sheath_matching_conditions), intent(in) :: plane
     type(surface_current_model_result_type), intent(inout) :: result
     logical, intent(out) :: success
     character(len=*), intent(out) :: message
-    real(dp), intent(in), optional :: secondary_share
     type(irradiation_cell_contract_type), intent(in) :: cell
     integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance
@@ -447,9 +442,6 @@ contains
     secondary_active = len_trim(app%surface_current%secondary_electron_species) > 0
     secondary_idx = 0_i32
     if (secondary_active) secondary_idx = species_index(app, app%surface_current%secondary_electron_species)
-    result%secondary_share = 0.0_dp
-    if (secondary_active .and. .not. photoelectron_active) result%secondary_share = 1.0_dp
-    if (present(secondary_share)) result%secondary_share = secondary_share
     photo_idx = 0_i32
     if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
     area = cell%wall_area(app%sim%box_min, app%sim%box_max)
@@ -557,9 +549,17 @@ contains
       result%has_escape_target(photo_idx) = .true.
       result%emission_current_a(photo_idx) = &
         checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
+      ! 外部根の脱出束は PE+SEE 合算の値。SEE があれば、各バッチで追跡した SEE 脱出を差し引いた残りが
+      ! PE の脱出目標になり、帰還目標はその値と PE 放出の差になる（bem_simulator_charge の固定電流 closure）。
+      result%absorbed_current_a(photo_idx) = checked_area_current( &
+                                             area, result%photoelectron_escape_current_density_a_m2 - &
+                                             result%photoelectron_emission_current_density_a_m2 &
+                                             )
+      ! Escaping particle current has the opposite sign to surface charging current.
+      result%escaped_particle_current_a(photo_idx) = &
+        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+      if (secondary_active) result%escape_partner_species(photo_idx) = secondary_idx
     end if
-
-    call split_emission_escape_target(result, result%secondary_share)
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
     ! 経路の電位は面の電位とは別に越える電位で、Type Aの電子はphi_m、それ以外は上流の0 V。
@@ -596,25 +596,6 @@ contains
     result%outer_return_cell_uniform = cell%wall_tangents_periodic()
     success = .true.
   end subroutine finish_zhao_closure
-
-  !> Phase 1 uses the latest observed window even when the outer root is retained.
-  subroutine split_emission_escape_target(result, secondary_share)
-    type(surface_current_model_result_type), intent(inout) :: result
-    real(dp), value :: secondary_share
-    integer(i32) :: photo_idx
-    real(dp) :: photo_escape_current
-
-    result%secondary_share = secondary_share
-    if (.not. result%photoelectron_active) return
-    photo_idx = result%photoelectron_species_idx
-    photo_escape_current = (1.0_dp - secondary_share)*result%photoelectron_escape_current_density_a_m2
-    result%absorbed_current_a(photo_idx) = checked_area_current( &
-                                           result%reference_area_m2, &
-                                           photo_escape_current - result%photoelectron_emission_current_density_a_m2 &
-                                           )
-    ! Escaping particle current has the opposite sign to surface charging current.
-    result%escaped_particle_current_a(photo_idx) = -checked_area_current(result%reference_area_m2, photo_escape_current)
-  end subroutine split_emission_escape_target
 
   integer(i32) function species_index(app, species_key) result(index_value)
     type(app_config), intent(in) :: app

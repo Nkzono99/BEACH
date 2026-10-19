@@ -2,7 +2,9 @@
 program test_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
-  use bem_simulator, only: run_absorption_insulator
+  use bem_simulator, only: run_absorption_insulator, apply_fixed_surface_current_closure
+  use bem_surface_closure_contract, only: surface_closure_contract_type
+  use bem_mpi, only: mpi_context
   use bem_particle_stepper, only: particle_substep_needs_halving, particle_substep_energy_floor_j
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_outflow_spectrum, only: outflow_spectrum_bins
@@ -147,7 +149,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(23)
+  call test_init(24)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -371,6 +373,10 @@ program test_simulator
 
   call test_begin('zhao_budget_applies_escape_closure_separately_from_raw_trajectory')
   call test_zhao_fixed_current_budget()
+  call test_end()
+
+  call test_begin('fixed_current_escape_partner_subtracts_tracked_secondary_escape')
+  call test_fixed_current_escape_partner()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -1254,6 +1260,85 @@ contains
       0.0_dp, 1.0e-12_dp, 'Zhao applied surface-current budget must close' &
       )
   end subroutine test_zhao_fixed_current_budget
+
+  !> PE の脱出・帰還目標は、根の脱出束からそのバッチで追跡した SEE 脱出を差し引いた値になる。
+  subroutine test_fixed_current_escape_partner()
+    type(app_config) :: app
+    type(surface_closure_contract_type) :: model
+    type(particles_soa) :: batch
+    type(simulator_batch_workspace_type) :: workspace
+    type(mpi_context) :: mpi
+    real(dp) :: x(3, 3), v(3, 3)
+    real(dp), parameter :: escape_current = 2.0_dp, emission_current = 5.0_dp
+
+    call default_app_config(app)
+    app%sim%batch_duration = 1.0_dp
+    app%n_particle_species = 2_i32
+    app%particle_species(1) = species_from_defaults()
+    app%particle_species(1)%species_key = 'photoelectron'
+    app%particle_species(1)%q_particle = -1.0_dp
+    app%particle_species(1)%surface_charge_closure = 'fixed_current'
+    app%particle_species(2) = species_from_defaults()
+    app%particle_species(2)%species_key = 'secondary'
+    app%particle_species(2)%q_particle = -1.0_dp
+
+    model%active = .true.
+    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
+              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
+              model%escape_partner_species(2))
+    model%has_absorbed_target = [.true., .false.]
+    model%has_emission_target = [.true., .false.]
+    model%has_escape_target = [.true., .false.]
+    model%absorbed_current_a = [escape_current - emission_current, 0.0_dp]
+    model%emission_current_a = [emission_current, 0.0_dp]
+    model%escaped_particle_current_a = [-escape_current, 0.0_dp]
+    model%escape_partner_species = [2_i32, 0_i32]
+
+    ! 粒子1: 帰還した PE、粒子2: 脱出した PE、粒子3: 脱出した SEE（重み 0.5）。
+    x = 0.0_dp
+    v = 0.0_dp
+    call init_particles(batch, x, v, [-1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], &
+                        [1.0_dp, 1.0_dp, 0.5_dp], species_id=[1_i32, 1_i32, 2_i32], &
+                        source_element=[1_i32, 1_i32, 1_i32])
+    call workspace%init(1_i32, 2_i32, 1_i32)
+    call prepare_partner_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 3_i32, workspace, mpi)
+    ! SEE が 0.5 脱出したので、PE の脱出目標は 2 − 0.5 = 1.5、帰還目標は 1.5 − 5 = −3.5 になる。
+    call assert_close_dp(workspace%fixed_escape_partner_charge(1), 0.5_dp, 0.0_dp, 'partner escape charge')
+    call assert_close_dp(workspace%fixed_escape_partner_excess(1), 0.0_dp, 0.0_dp, 'no excess below the root escape')
+    call assert_close_dp(workspace%fixed_escape_target_charge(1), -1.5_dp, 1.0e-12_dp, 'PE escape target minus SEE escape')
+    call assert_close_dp(workspace%fixed_escape_correction(1), -0.5_dp, 1.0e-12_dp, 'PE escape correction vs raw escape')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -3.5_dp, 1.0e-12_dp, &
+                         'PE return target must absorb the SEE escape')
+    call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 3.5_dp, 1.0e-12_dp, 'PE return scale')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + workspace%fixed_emission_target_charge(1) + &
+                         workspace%fixed_escape_target_charge(1), 0.0_dp, 1.0e-12_dp, 'PE channel continuity')
+    call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(6), &
+                         escape_current, 1.0e-12_dp, 'PE and SEE escape must add up to the root escape')
+    call assert_true(all(workspace%fixed_escape_partner_charge(2:) == 0.0_dp), 'SEE itself has no partner')
+
+    ! SEE の脱出が根の脱出束を超えると、PE の脱出目標は 0、帰還目標は放出全量、超過は残差に残る。
+    batch%w(3) = 3.0_dp
+    call prepare_partner_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 3_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_escape_partner_charge(1), escape_current, 0.0_dp, 'partner charge clamps at root')
+    call assert_close_dp(workspace%fixed_escape_partner_excess(1), 1.0_dp, 1.0e-12_dp, 'excess SEE escape')
+    call assert_close_dp(workspace%fixed_escape_target_charge(1), 0.0_dp, 0.0_dp, 'PE escape target clamps at zero')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -emission_current, 1.0e-12_dp, &
+                         'all PE return when SEE carries the whole root escape')
+  end subroutine test_fixed_current_escape_partner
+
+  subroutine prepare_partner_fixture(workspace)
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+
+    call workspace%reset_before_injection()
+    call workspace%prepare_particle_flags(3_i32)
+    workspace%absorbed_flag(1) = .true.
+    workspace%absorbed_element(1) = 1_i32
+    workspace%escaped_boundary_flag(2:3) = .true.
+    ! raw の PE 反作用電荷（放出 2 個分）。
+    workspace%photo_emission_dq(1, 1) = 2.0_dp
+  end subroutine prepare_partner_fixture
 
   subroutine test_multiple_box_event_failure_context()
     character(len=1024) :: executable_path, command, child_line

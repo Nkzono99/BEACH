@@ -3,10 +3,17 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.3.0] - 2026-10-19
 
 ### Changed
 
+- `zhao_stationary` で SEE を使うとき、PE の脱出・帰還目標を「外部根の脱出束 − そのバッチで追跡した SEE の脱出電流」にした
+  （closure contract の `escape_partner_species`）。外部根の脱出束は PE+SEE 合算の値なので、追跡した SEE の分を差し引けば
+  表面の電流収支が毎バッチ厳密に閉じ、セルの総電荷は PE だけのときと同じく固定される。従来は PE の脱出目標を窓の
+  H 外向き束の割合で配分していたため、SEE の脱出の統計雑音がセル総電荷を random walk させ（例題の 0.1×0.1×1 mm セルでは
+  電子 1 個が板と H の電位差 1.8 mV に相当し、40 バッチで数 V）、系統的なずれも残っていた。`secondary_share` は
+  そのバッチで SEE に充てた割合、`secondary_budget_residual_a_m2` は SEE の脱出が根の脱出束を超えて差し引けなかった分
+  （通常 0）になる。履歴・summary・checkpoint の列は変えない。PE なしの SEE だけの構成は従来どおり差し引く先がない。
 - sheath-model を `db32ee7` へ固定する。文書の再構成と、全入力の背景電子ドリフトの既定値を 0 に揃えた変更を含む。
   BEACH は外部根の入力を設定から全て与えるので、計算結果は変わらない。原稿の参照ファイル一覧も新しい文書名に更新した。
 
