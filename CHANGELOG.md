@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.4.0] - 2026-10-19
+
+### Changed
+
+- `zhao_stationary` で PE がなく SEE だけの構成でも表面収支を毎バッチ閉じる。根の脱出束・帰還束は全て SEE のものなので、
+  PE と同じく SEE の帰還・脱出を根の値に固定し、放出の反作用電荷は根に与えた外側源（追跡した H 外向き束の窓平均）に
+  揃える（closure contract の `emission_target_from_tracked_source`）。SEE の放出個数は追跡のまま決まり、根は予測しない。
+  最初の更新前の源 0 の根では反作用電荷を置かない。生の帰還がないバッチでは帰還目標を放出へ畳み、SEE が放出されなかった
+  バッチの根の脱出分だけを `secondary_budget_residual_a_m2` に残す。3.3.1 までは SEE だけの構成でセル総電荷が SEE 脱出の
+  雑音で random walk し、最初のバッチの SEE 脱出がそのまま板の電位に残っていた。
+
 ## [3.3.1] - 2026-10-19
 
 ### Changed

@@ -249,11 +249,13 @@ contains
   integer(i32) :: i, species_idx, elem_idx, n, partner_idx
   real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
   real(dp) :: charge_tolerance, partner_charge, partner_escape_charge, total_escape_charge
+  real(dp) :: folded_return_charge
+  logical :: tracked_source
 
   n = app%n_particle_species
   workspace%fixed_current_charge_values = 0.0_dp
-  workspace%fixed_escape_partner_charge = 0.0_dp
-  workspace%fixed_escape_partner_excess = 0.0_dp
+  workspace%fixed_escape_closed_charge = 0.0_dp
+  workspace%fixed_escape_unclosed_charge = 0.0_dp
   do i = 1_i32, fresh_particle_count
     species_idx = pcls_batch%species_id(i)
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
@@ -283,9 +285,16 @@ contains
                                 current_model%escaped_particle_current_a(species_idx), app%sim%batch_duration, &
                                 'fixed_current escape'))
       partner_charge = min(partner_escape_charge, total_escape_charge)
-      workspace%fixed_escape_partner_charge(species_idx) = partner_charge
-      workspace%fixed_escape_partner_excess(species_idx) = partner_escape_charge - partner_charge
+      workspace%fixed_escape_closed_charge(species_idx) = partner_charge
+      workspace%fixed_escape_unclosed_charge(species_idx) = partner_escape_charge - partner_charge
     end if
+    ! 放出目標が追跡した源の種（PE なしの SEE）は raw channel が空でも止めない。帰還目標は放出へ畳み、
+    ! 放出がなければ根の脱出分を未閉として記録する。
+    tracked_source = .false.
+    if (allocated(current_model%emission_target_from_tracked_source)) then
+      tracked_source = current_model%emission_target_from_tracked_source(species_idx)
+    end if
+    folded_return_charge = 0.0_dp
     if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
         current_model%has_absorbed_target(species_idx)) then
       raw_charge = workspace%fixed_current_charge_values(species_idx)
@@ -303,7 +312,12 @@ contains
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
       if (abs(raw_charge) <= charge_tolerance) then
         if (abs(target_charge) > charge_tolerance) then
-          error stop 'fixed_current cannot map a nonzero absorbed target onto an empty raw channel.'
+          if (.not. tracked_source) then
+            error stop 'fixed_current cannot map a nonzero absorbed target onto an empty raw channel.'
+          end if
+          ! 生の帰還がないバッチでは帰還目標を放出の反作用電荷へ畳む（放出 − 帰還 = 脱出は変わらない）。
+          folded_return_charge = target_charge
+          target_charge = 0.0_dp
         end if
         weight_scale = 1.0_dp
         correction = 0.0_dp
@@ -341,11 +355,16 @@ contains
       end if
       target_charge = checked_fixed_target_charge( &
                       target_current, app%sim%batch_duration, 'fixed_current emission' &
-                      )
+                      ) + folded_return_charge
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
       if (abs(raw_charge) <= charge_tolerance) then
         if (abs(target_charge) > charge_tolerance) then
-          error stop 'fixed_current cannot map a nonzero emission target onto an empty raw channel.'
+          if (.not. tracked_source) then
+            error stop 'fixed_current cannot map a nonzero emission target onto an empty raw channel.'
+          end if
+          ! 放出がないバッチには目標を載せられない。根の脱出分が収支に残るので未閉として記録する。
+          workspace%fixed_escape_unclosed_charge(species_idx) = abs(target_charge)
+          target_charge = 0.0_dp
         end if
         weight_scale = 1.0_dp
         correction = 0.0_dp
@@ -381,6 +400,10 @@ contains
       workspace%fixed_escape_target_charge(species_idx) = target_charge
       workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
       workspace%fixed_channel_active(3, species_idx) = .true.
+      if (tracked_source) then
+        workspace%fixed_escape_closed_charge(species_idx) = &
+          max(0.0_dp, abs(target_charge) - workspace%fixed_escape_unclosed_charge(species_idx))
+      end if
       if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
         error stop 'fixed_current escape correction is not finite.'
       end if

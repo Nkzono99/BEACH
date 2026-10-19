@@ -418,7 +418,11 @@ PE なしの初期根は源 0 の Type C、SEE は最初の更新から入りま
 外部根の脱出束 $J_{escape}$ は PE+SEE 合算の値で、各バッチで追跡した SEE の脱出電流を差し引いた残りを PE の脱出目標、
 その値 − PE 放出を PE の帰還目標にします（closure contract の `escape_partner_species`）。表面収支は毎バッチ閉じ、
 `secondary_share` は SEE に充てた割合、`secondary_budget_residual_a_m2` は SEE の脱出が $J_{escape}$ を超えて
-差し引けなかった分です。SEE は完全に追跡します。PE がなければ差し引く先がなく、残差は SEE の追跡脱出 − $J_{escape}$ です。
+差し引けなかった分です。PE があれば SEE は完全に追跡します。PE がなければ SEE の帰還・脱出を根の $J_{return}$・$J_{escape}$
+に固定し、放出の反作用電荷を根に与えた外側源 $J_{return}+J_{escape}$（追跡した H 外向き束の窓平均）に揃えます
+（closure contract の `emission_target_from_tracked_source`）。放出量は追跡で決まり、根は予測しません。
+生の帰還がないバッチでは帰還目標を放出へ畳み、SEE が放出されなかったバッチの根の脱出分だけを
+`secondary_budget_residual_a_m2` に出します。
 モデルと適用範囲は [docs/models/SecondaryElectronEmission.md](docs/models/SecondaryElectronEmission.md) を参照してください。
 
 ## 8. 実行制御

@@ -27,7 +27,7 @@ program test_surface_current_model
   integer(i32) :: j
   logical :: success
 
-  call test_init(14)
+  call test_init(15)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -397,6 +397,48 @@ program test_surface_current_model
                        -refreshed%escaped_particle_current_a(3) - refreshed%emission_current_a(3), &
                        1.0e-20_dp, 'PE return target must remain escape minus emission')
   call assert_equal_i32(refreshed%escape_partner_species(3), 4_i32, 'refreshed root must keep the SEE escape partner')
+  call test_end()
+
+  call test_begin('secondary_only_closure_targets_secondary_reabsorption')
+  ! PE がなければ根の脱出束・帰還束は全て SEE のもの。帰還・脱出を根の値に、放出の反作用電荷を根の外側源に固定する。
+  call configure_zhao_fixture(cfg)
+  cfg%n_particle_species = 3_i32
+  cfg%particle_species(3) = particle_species_spec()
+  cfg%particle_species(3)%enabled = .true.
+  cfg%particle_species(3)%species_key = 'secondary'
+  cfg%particle_species(3)%source_mode = 'secondary_emission'
+  cfg%surface_current%secondary_electron_species = 'secondary'
+  cfg%surface_current%photoelectron_species = ''
+  cfg%surface_current%solar_elevation_deg = 0.0_dp
+  cfg%surface_current%photoelectron_ref_density_m3 = 0.0_dp
+  cfg%surface_current%photoelectron_source_scale = 0.0_dp
+  cfg%sim%bc_low(1:2) = bc_periodic
+  cfg%sim%bc_high(1:2) = bc_periodic
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%zhao_branch == 'C' .and. .not. result%photoelectron_active, &
+                   'SEE-only initial root is the zero-source Type C')
+  call assert_true(result%has_absorbed_target(3) .and. result%has_emission_target(3) .and. result%has_escape_target(3) &
+                   .and. result%emission_target_from_tracked_source(3), &
+                   'SEE-only closure must pin SEE return, emission and escape to the root')
+  call assert_equal_i32(result%escape_partner_species(3), 0_i32, 'SEE-only has no escape partner')
+  call assert_close_dp(result%escaped_particle_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE escape')
+  call assert_close_dp(result%emission_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE emission target')
+  call assert_close_dp(result%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'zero-source root has no SEE return target')
+  ! 観測した SEE 流出で根を解き直すと、SEE の脱出目標は根の脱出束になる。
+  call bin_shifted_half_maxwellian(1.0e12_dp, 2.0_dp, 0.0_dp, spectrum)
+  call solve_zhao_outflow_closure(cfg, 1.0e12_dp, 2.0_dp, 'C', refreshed, success, message, outer_spectrum_m2_s=spectrum)
+  call assert_true(success, 'SEE-only outflow solve: '//trim(message))
+  call assert_true(refreshed%photoelectron_escape_current_density_a_m2 > 0.0_dp, 'SEE outflow must give a root escape')
+  call assert_close_dp(refreshed%escaped_particle_current_a(3), &
+                       -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
+                       1.0e-20_dp, 'SEE escape target must carry the root escape')
+  call assert_true(refreshed%emission_target_from_tracked_source(3) .and. refreshed%has_absorbed_target(3) .and. &
+                   refreshed%has_emission_target(3), 'refreshed SEE-only root keeps the tracked-source emission target')
+  call assert_true(refreshed%absorbed_current_a(3) <= 0.0_dp .and. refreshed%emission_current_a(3) > 0.0_dp, &
+                   'SEE return target charges negative and the emission target positive')
+  call assert_close_dp(refreshed%emission_current_a(3) + refreshed%absorbed_current_a(3) + &
+                       refreshed%escaped_particle_current_a(3), 0.0_dp, &
+                       1.0e-12_dp*refreshed%emission_current_a(3), 'SEE emission minus return must equal the root escape')
   call test_end()
 
   call test_summary()
