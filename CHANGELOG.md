@@ -14,6 +14,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   H を反射して出る電子の全エネルギー差の rms が dt のまま 73 eV（A）/ 545 eV（C）だったものが、閾値 0.2 で
   0.56 / 2.7 eV、0.1 で 0.22 / 0.69 eV（dt/4 の一様刻みは 0.19 / 1.2 eV）になる。光電子が帯電した球の表面から出る
   この case では大半の粒子が強い場を通るので、計算時間は閾値 0.1 で dt/4 と同程度である。
+- runops adapter: `runo new --from RUN --continue` resumes from the source run's checkpoint. The new run links
+  `work/restart` to the source output, sets `[run.restart].from`, and records the source in `input/restart_source.txt`.
+  `run.batch_count` must exceed the saved `batches`; otherwise `runo new` stops with the number to use.
+- runops adapter: `runo new` / `runo sweep` warn about `--set` keys that `beach.schema.json` does not define.
+
+### Fixed
+
+- runops adapter: a run counts as completed only when `summary.txt` reports `batches` equal to `run.batch_count`, so
+  a run stopped at the walltime after a periodic checkpoint is `failed`. `runo tidy --purge-work` keeps the final
+  checkpoint in `work/latest/` (RNG state, residuals, ledger, `checkpoint_complete.txt`), so a purged run can still be
+  continued.
 
 ## [3.1.0] - 2026-10-18
 

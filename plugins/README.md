@@ -68,6 +68,12 @@ Claude Code では [beach-context-claude](beach-context-claude/README.md) の `a
 `plugins/beach-context` の skill と reference（wheel では `beach.agent_context`）を project の
 `.agents/skills/` と `.claude/skills/` へ展開します。plugin の install や再起動は不要です。
 
+adapter は run ごとに `input/beach.toml` へ `--set` の dotted key（例: `run.batch_count`）を適用し、
+出力先を `work/latest` にします。schema に無い key は作成時に warning を出します。
+`summary.txt` の `batches` が `run.batch_count` に達した run を completed とします。
+`runo new --from RUN --continue --set run.batch_count=<累積の目標>` は元 run の checkpoint から再開します。
+`runo tidy --purge-work` は最終 checkpoint を残すので、整理した run からも再開できます。
+
 ## 配置方針
 
 BEACH 固有の物理、設定仕様、出力仕様、既知の失敗モード、学習導線は simulator repo 内の plugin に置きます。Fortran/fpm/Slurm/Codex 運用の横断的な手順は、repo root の `AGENTS.md` や共通 plugin に寄せます。
