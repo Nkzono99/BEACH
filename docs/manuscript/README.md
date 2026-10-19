@@ -88,7 +88,7 @@ make
 | 5 粒子積分・衝突 | `src/physics/bem_pusher.f90`、`src/physics/bem_collision.f90`、`src/runtime/simulator/bem_particle_stepper.f90`、`docs/models/BorisPusher.md`、`docs/developer/ParticleEvents.md` |
 | 6 流入・電子放出 | `src/particles/injection/bem_injection_flux.f90`、`src/particles/injection/bem_photoelectron_injection.f90`、`src/particles/bem_secondary_emission.f90`、`src/runtime/simulator/bem_simulator_particles.f90`、`docs/guide/ParticleSourcesBoundaries.md`、`docs/models/PhotoelectronEmission.md` |
 | 7 電荷更新・導体 | `src/physics/bem_surface_models_conductor.f90`、`docs/developer/SurfaceChargeNumerics.md`、`docs/models/BatchDurationTheory.md` |
-| 8 外部シースモデル | sheath-model（`fpm.toml` で commit を固定）の `docs/kinetic-model.md`、`docs/algorithm.md`、`docs/spectral-api.md`、`src/internal/sheath_model_admissibility.f90`、`src/sheath_model_photoelectrons.f90`、`sheath_model/_physics.py`、`sheath_model/_profile.py`、`sheath_model/search.py` |
+| 8 外部シースモデル | sheath-model（`fpm.toml` で commit を固定）の `docs/model.md`、`docs/numerics.md`、`docs/fortran-api.md`、`docs/coupling.md`、`src/internal/sheath_model_admissibility.f90`、`src/sheath_model_emission.f90`、`src/sheath_model_matching.f90`、`sheath_model/_physics.py`、`sheath_model/_profile.py`、`sheath_model/search.py` |
 | 8 上端面への接続 | `src/runtime/sheath/bem_surface_current_model.f90`、`src/runtime/sheath/bem_zhao_outflow_refresh.f90`、`docs/models/ZhaoStationaryClosure.md`、`docs/models/ZhaoUpstreamBand.md` |
 | 9 検証 | `docs/guide/ValidationGuide.md`、`docs/developer/PhysicsReleaseVerification.md`、`docs/guide/BatchDurationStability.md` |
 | 10 力・離脱 | `docs/guide/ObjectForcesDetachment.md`、`docs/reference/PythonPostprocessAPI.md` |

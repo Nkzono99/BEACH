@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- sheath-model を `db32ee7` へ固定する。文書の再構成と、全入力の背景電子ドリフトの既定値を 0 に揃えた変更を含む。
+  BEACH は外部根の入力を設定から全て与えるので、計算結果は変わらない。原稿の参照ファイル一覧も新しい文書名に更新した。
+
 ## [3.2.0] - 2026-10-19
 
 ### Added
