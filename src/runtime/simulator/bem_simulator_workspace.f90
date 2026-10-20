@@ -25,6 +25,8 @@ module bem_simulator_workspace
     real(dp), allocatable :: neutral_return_weight_scale(:)
     real(dp), allocatable :: neutral_return_correction(:)
     real(dp), allocatable :: neutral_return_unresolved_fraction(:)
+    !> 固定電流 closure が rank 合計する raw 電荷。1:n 吸収、n+1:2n 放出反作用、2n+1:3n 脱出、
+    !! 3n+1:4n 外部障壁で戻った電荷（H 外向き通過のうち戻った分、帯電符号）。
     real(dp), allocatable :: fixed_current_charge_values(:)
     real(dp), allocatable :: fixed_absorbed_target_charge(:)
     real(dp), allocatable :: fixed_absorbed_weight_scale(:)
@@ -85,7 +87,7 @@ contains
       self%neutral_return_unresolved_charge(nspecies), self%neutral_return_weight_scale(nspecies), &
       self%neutral_return_correction(nspecies), self%neutral_return_unresolved_fraction(nspecies) &
       )
-    allocate (self%fixed_current_charge_values(3_i32*nspecies))
+    allocate (self%fixed_current_charge_values(4_i32*nspecies))
     allocate ( &
       self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
       self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &

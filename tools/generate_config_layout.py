@@ -91,6 +91,12 @@ def generate_schema(schema):
         'type': 'integer', 'minimum': 0, 'maximum': 2147483647, 'default': 3}
     schema['$defs']['surfaceCurrentModel']['properties']['secondary_electron_species'] = {
         'type': 'string', 'maxLength': 64}
+    schema['$defs']['surfaceCurrentModel']['properties']['include_reflected_electrons'] = {
+        'type': 'boolean', 'default': False,
+        'description': 'Zhao stationary only, with outflow_refresh_batches > 0. Add ambient electrons that reflect '
+                       'inside the cell and leave through the z-high matching plane to the outer emitted source; '
+                       'the closure credits their tracked escape to the electron absorbed target and subtracts it '
+                       'from the emitted-electron targets.'}
     properties = schema['$defs']['species']['properties']
     for key, rule in SECONDARY_EMISSION_RULES.items():
         properties[f'secondary_emission_{key}'] = copy.deepcopy(rule)

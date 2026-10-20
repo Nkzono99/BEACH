@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `sheath.coupling.include_reflected_electrons`（既定 `false`）: セル内で反射して z-high を外向きに抜けた上流電子を
+  外部根の放出源に含める。sheath-model の結合ガイドが求める扱いで、各バッチで追跡したその脱出を電子の吸収目標に足し戻し、
+  PE（なければ SEE）の脱出・帰還（SEE だけなら放出も）目標から差し引く（closure contract の `reflected_electron_species`、
+  `absorbed_target_credits_tracked_escape`）。窓の反射束は `electron_outward_flux_m2_s` に出し、更新ログに
+  `reflected_flux_m2_s` と `reflected_mean_normal_energy_eV` を加える。`outflow_refresh_batches>0` が必要。
+
+### Changed
+
+- 上端の流出スペクトルの bin を sheath-model の既定格子（`log_energy_edges` / `log_energy_bin`、145 bin）から取り、
+  BEACH 側の bin 定義を削除。束と Maxwell 規格化密度の換算も sheath-model の `emitted_fluxes` / `with_outward_flux` を使う。
+  sheath-model の依存を plane coupling helpers（PR #10 の merge commit 2455f44）へ更新。
+
 ## [3.4.0] - 2026-10-19
 
 ### Changed

@@ -863,6 +863,7 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
 | `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE + SEE 流出スペクトルから解き直す。`>=0`、0 は初期根を固定 |
+| `include_reflected_electrons` | bool | `false` | 外部根の源に、セル内で反射して z-high を外向きに抜けた上流電子も含める（外部モデルから見れば由来に関わらず境界からの放出電子）。`outflow_refresh_batches>0` が必要。各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の脱出・帰還目標から差し引く。窓の反射束は `electron_outward_flux_m2_s` に出る |
 
 ### `[output]`
 

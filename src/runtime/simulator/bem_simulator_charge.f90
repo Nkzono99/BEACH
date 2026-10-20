@@ -246,10 +246,10 @@ contains
   end procedure apply_neutral_return_surface_closure
 
   module procedure apply_fixed_surface_current_closure
-  integer(i32) :: i, species_idx, elem_idx, n, partner_idx
+  integer(i32) :: i, species_idx, elem_idx, n, partner_idx, reflected_idx
   real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
   real(dp) :: charge_tolerance, partner_charge, partner_escape_charge, total_escape_charge
-  real(dp) :: folded_return_charge
+  real(dp) :: folded_return_charge, reflected_escape, reflected_return, charge_sign
   logical :: tracked_source
 
   n = app%n_particle_species
@@ -269,24 +269,40 @@ contains
   end do
   do species_idx = 1_i32, n
     workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
+    ! 外部障壁で戻った粒子の電荷。H を外向きに通過したが上流へ抜けられず、セルへ戻された分。
+    workspace%fixed_current_charge_values(3*n + species_idx) = app%particle_species(species_idx)%q_particle* &
+                                                               sum(workspace%matching_plane_moments_thread(3, species_idx, :))
   end do
   call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
 
   do species_idx = 1_i32, n
     if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
-    ! 外部根の脱出束が partner species と合算の値なら、partner が追跡で脱出した電荷（帯電符号）を
-    ! 根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。超過は収支残差として残す。
+    ! 外部根の脱出束が partner species（追跡する SEE）や反射して H を抜けた上流電子と合算の値なら、それらが追跡で
+    ! 脱出した電荷（帯電符号の大きさ）を根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。
+    ! 超過は収支残差として残す。
+    charge_sign = sign(1.0_dp, app%particle_species(species_idx)%q_particle)
     partner_charge = 0.0_dp
+    partner_escape_charge = 0.0_dp
     partner_idx = 0_i32
+    reflected_idx = 0_i32
+    reflected_escape = 0.0_dp
+    reflected_return = 0.0_dp
     if (allocated(current_model%escape_partner_species)) partner_idx = current_model%escape_partner_species(species_idx)
-    if (partner_idx > 0_i32 .and. current_model%has_escape_target(species_idx)) then
-      partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + partner_idx))
+    if (allocated(current_model%reflected_electron_species)) then
+      reflected_idx = current_model%reflected_electron_species(species_idx)
+    end if
+    if (partner_idx > 0_i32) partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + partner_idx))
+    if (reflected_idx > 0_i32) then
+      reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + reflected_idx))
+      reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(3*n + reflected_idx))
+    end if
+    if ((partner_idx > 0_i32 .or. reflected_idx > 0_i32) .and. current_model%has_escape_target(species_idx)) then
       total_escape_charge = max(0.0_dp, -checked_fixed_target_charge( &
                                 current_model%escaped_particle_current_a(species_idx), app%sim%batch_duration, &
                                 'fixed_current escape'))
-      partner_charge = min(partner_escape_charge, total_escape_charge)
+      partner_charge = min(partner_escape_charge + reflected_escape, total_escape_charge)
       workspace%fixed_escape_closed_charge(species_idx) = partner_charge
-      workspace%fixed_escape_unclosed_charge(species_idx) = partner_escape_charge - partner_charge
+      workspace%fixed_escape_unclosed_charge(species_idx) = partner_escape_charge + reflected_escape - partner_charge
     end if
     ! 放出目標が追跡した源の種（PE なしの SEE）は raw channel が空でも止めない。帰還目標は放出へ畳み、
     ! 放出がなければ根の脱出分を未閉として記録する。
@@ -306,9 +322,21 @@ contains
       if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
         error stop 'fixed_current absorbed raw/current/duration value is not finite.'
       end if
-      target_charge = checked_fixed_target_charge( &
-                      target_current, app%sim%batch_duration, 'fixed_current absorbed' &
-                      ) - partner_charge
+      target_charge = checked_fixed_target_charge(target_current, app%sim%batch_duration, 'fixed_current absorbed')
+      if (tracked_source) then
+        ! 追跡した源の種では、外部障壁で戻った反射電子は電子の raw 吸収に含まれるので、帰還目標から外す。
+        target_charge = target_charge + reflected_return
+      else
+        target_charge = target_charge - partner_charge
+      end if
+      if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
+        if (current_model%absorbed_target_credits_tracked_escape(species_idx)) then
+          ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
+          target_charge = target_charge - workspace%fixed_current_charge_values(2*n + species_idx)
+        end if
+      end if
+      ! 差し引きで目標の符号が粒子電荷と逆になれば、吸収なしまで縮める。
+      if (target_charge*charge_sign < 0.0_dp) target_charge = 0.0_dp
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
       if (abs(raw_charge) <= charge_tolerance) then
         if (abs(target_charge) > charge_tolerance) then
@@ -356,6 +384,16 @@ contains
       target_charge = checked_fixed_target_charge( &
                       target_current, app%sim%batch_duration, 'fixed_current emission' &
                       ) + folded_return_charge
+      if (tracked_source) then
+        ! 根の外側源には反射電子の外向き束も入っているので、追跡した反射電子の脱出と帰還を放出目標から外す。
+        ! 放出の反作用電荷は粒子電荷と逆符号。差し引きで符号が入れ替われば、放出なしまで縮める。
+        target_charge = target_charge - (reflected_escape + reflected_return)
+        if (target_charge*charge_sign > 0.0_dp) then
+          workspace%fixed_escape_unclosed_charge(species_idx) = &
+            workspace%fixed_escape_unclosed_charge(species_idx) + abs(target_charge)
+          target_charge = 0.0_dp
+        end if
+      end if
       charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
       if (abs(raw_charge) <= charge_tolerance) then
         if (abs(target_charge) > charge_tolerance) then

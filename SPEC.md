@@ -414,7 +414,11 @@ thread ごとの buffer に生成粒子を積み、OpenMP ループ後に親・�
 外部シースの `sheath.species.secondary_electron` は SEE を PE と同じ z-high 運動論的障壁と面内一様帰還へ接続し、
 吸収・放出・脱出の固定目標は付けません。外部根の専用 SEE 項は作りません。更新窓の PE 流出は設定放出束 × 透過率、
 SEE は `sum(w_out)/(reference_area*sum(run.batch.duration_s))` へ規格化し、bin と平均エネルギーを束で合算します。
-PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。
+PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。bin は sheath-model の既定格子（`log_energy_edges`、145 bin）です。
+`sheath.coupling.include_reflected_electrons=true` なら、セル内で反射して z-high を抜けた上流電子を第 3 のグループとして
+SEE と同じ規格化で窓の源に加え、各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の目標から
+差し引きます（closure contract の `reflected_electron_species`、`absorbed_target_credits_tracked_escape`）。窓の反射束は
+`matching_plane_feedback(3)`（`electron_outward_flux_m2_s`）に出します。
 外部根の脱出束 $J_{escape}$ は PE+SEE 合算の値で、各バッチで追跡した SEE の脱出電流を差し引いた残りを PE の脱出目標、
 その値 − PE 放出を PE の帰還目標にします（closure contract の `escape_partner_species`）。表面収支は毎バッチ閉じ、
 `secondary_share` は SEE に充てた割合、`secondary_budget_residual_a_m2` は SEE の脱出が $J_{escape}$ を超えて

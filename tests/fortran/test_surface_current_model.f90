@@ -27,7 +27,7 @@ program test_surface_current_model
   integer(i32) :: j
   logical :: success
 
-  call test_init(15)
+  call test_init(16)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -439,6 +439,35 @@ program test_surface_current_model
   call assert_close_dp(refreshed%emission_current_a(3) + refreshed%absorbed_current_a(3) + &
                        refreshed%escaped_particle_current_a(3), 0.0_dp, &
                        1.0e-12_dp*refreshed%emission_current_a(3), 'SEE emission minus return must equal the root escape')
+  call test_end()
+
+  call test_begin('reflected_electrons_route_through_the_emitting_species')
+  ! 反射電子を外部源に含めると、電子の吸収目標は追跡した脱出を足し戻し、PE（なければ SEE）の目標から差し引く。
+  call configure_zhao_fixture(cfg)
+  cfg%surface_current%outflow_refresh_batches = 1_i32
+  cfg%surface_current%include_reflected_electrons = .true.
+  call evaluate_surface_current_model(cfg, result)
+  call assert_equal_i32(result%reflected_electron_species(3), 1_i32, 'PE subtracts the tracked reflected electrons')
+  call assert_true(result%absorbed_target_credits_tracked_escape(1), 'electron absorbed target credits its tracked escape')
+  call assert_true(.not. any(result%absorbed_target_credits_tracked_escape(2:3)) .and. &
+                   all(result%reflected_electron_species(1:2) == 0_i32), 'only the electron and PE carry the reflected flags')
+  cfg%surface_current%include_reflected_electrons = .false.
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(all(result%reflected_electron_species == 0_i32) .and. &
+                   .not. any(result%absorbed_target_credits_tracked_escape), 'switch off leaves the closure unchanged')
+  cfg%particle_species(3)%source_mode = 'secondary_emission'
+  cfg%particle_species(3)%species_key = 'secondary'
+  cfg%surface_current%secondary_electron_species = 'secondary'
+  cfg%surface_current%photoelectron_species = ''
+  cfg%surface_current%solar_elevation_deg = 0.0_dp
+  cfg%surface_current%photoelectron_ref_density_m3 = 0.0_dp
+  cfg%surface_current%photoelectron_source_scale = 0.0_dp
+  cfg%sim%bc_low(1:2) = bc_periodic
+  cfg%sim%bc_high(1:2) = bc_periodic
+  cfg%surface_current%include_reflected_electrons = .true.
+  call evaluate_surface_current_model(cfg, result)
+  call assert_equal_i32(result%reflected_electron_species(3), 1_i32, 'without PE the SEE subtracts the reflected electrons')
+  call assert_true(result%absorbed_target_credits_tracked_escape(1), 'SEE-only electron target also credits its escape')
   call test_end()
 
   call test_summary()

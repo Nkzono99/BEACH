@@ -9,7 +9,7 @@ module bem_surface_current_model
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_config_helpers, only: species_number_density_m3, species_temperature_k
   use sheath_model, only: plasma_input, sheath_solver, sheath_matching_conditions, sheath_matching_iteration, &
-                          emission_source, maxwellian_emission, observed_outflow_source, SHEATH_OK
+                          emission_source, maxwellian_emission, observed_outflow_source, emitted_fluxes, SHEATH_OK
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_string_utils, only: lower_ascii
   implicit none
@@ -119,7 +119,9 @@ contains
       result%outflow_barrier_face(app%n_particle_species), &
       result%inflow_number_flux_m2_s(app%n_particle_species), &
       result%escape_partner_species(app%n_particle_species), &
-      result%emission_target_from_tracked_source(app%n_particle_species) &
+      result%emission_target_from_tracked_source(app%n_particle_species), &
+      result%reflected_electron_species(app%n_particle_species), &
+      result%absorbed_target_credits_tracked_escape(app%n_particle_species) &
       )
     result%has_absorbed_target = .false.
     result%has_emission_target = .false.
@@ -139,6 +141,8 @@ contains
     result%inflow_number_flux_m2_s = 0.0_dp
     result%escape_partner_species = 0_i32
     result%emission_target_from_tracked_source = .false.
+    result%reflected_electron_species = 0_i32
+    result%absorbed_target_credits_tracked_escape = .false.
   end subroutine allocate_closure_channels
 
   !> 設定の表面放出を外部源として零電流根を解く。PEなしではType Cだけが成立する。
@@ -277,8 +281,8 @@ contains
         return
       end if
     else
-      source = maxwellian_emission(2.0_dp*sqrt(pi)*outer_flux_m2_s/thermal_speed(app, outer_mean_energy_ev), &
-                                   outer_mean_energy_ev)
+      source = maxwellian_emission(1.0_dp, outer_mean_energy_ev)
+      source = source%with_outward_flux(outer_flux_m2_s, surface_electron_mass(app))
     end if
     success = .true.
   end subroutine outer_emission
@@ -399,14 +403,22 @@ contains
     solver%search%upstream_field_floor_v_m = app%surface_current%zhao_upstream_field_floor_v_m
   end function zhao_solver
 
-  !> Maxwell規格化密度と束の換算に使う、温度 [eV] の電子の熱速度 sqrt(2T/m) [m/s]。
-  real(dp) function thermal_speed(app, temperature_ev) result(speed)
+  !> 外部根と放出源の換算に使う電子質量 [kg]。ambient electron と PE の質量は同一（preflight が確認する）。
+  real(dp) function surface_electron_mass(app) result(mass_kg)
     type(app_config), intent(in) :: app
-    real(dp), intent(in) :: temperature_ev
 
-    speed = sqrt(2.0_dp*qe*temperature_ev/ &
-                 app%particle_species(species_index(app, app%surface_current%electron_species))%m_particle)
-  end function thermal_speed
+    mass_kg = app%particle_species(species_index(app, app%surface_current%electron_species))%m_particle
+  end function surface_electron_mass
+
+  !> Maxwell 規格化密度 [m^-3] と温度 [eV] の半 Maxwell 源が境界を出る数流束 [1/(m^2 s)]（sheath-model の評価）。
+  real(dp) function maxwellian_outward_flux(app, density_m3, temperature_ev) result(flux)
+    type(app_config), intent(in) :: app
+    real(dp), intent(in) :: density_m3, temperature_ev
+    real(dp) :: escape, returning
+
+    call emitted_fluxes(maxwellian_emission(density_m3, temperature_ev), surface_electron_mass(app), 0.0_dp, &
+                        flux, escape, returning)
+  end function maxwellian_outward_flux
 
   !> 静的closureの外部源（設定の表面放出）を受領値として記録する。PE・SEEのない closure では 0。
   subroutine record_outer_source(app, result, source_density_m3, source_temperature_ev)
@@ -417,7 +429,7 @@ contains
     result%outer_photoelectron_flux_m2_s = 0.0_dp
     result%outer_photoelectron_mean_energy_ev = 0.0_dp
     if (.not. (result%photoelectron_active .or. result%secondary_electron_species_idx > 0_i32)) return
-    result%outer_photoelectron_flux_m2_s = source_density_m3*thermal_speed(app, source_temperature_ev)/(2.0_dp*sqrt(pi))
+    result%outer_photoelectron_flux_m2_s = maxwellian_outward_flux(app, source_density_m3, source_temperature_ev)
     result%outer_photoelectron_mean_energy_ev = source_temperature_ev
   end subroutine record_outer_source
 
@@ -461,7 +473,7 @@ contains
     result%upstream_field_deficit_v_m = plane%upstream_field_deficit_v_m
     result%ambient_electron_density_m3 = plane%electron_reservoir_density_m3
     call surface_photoelectron_source(app, surface_density_m3, surface_temperature_ev)
-    emission_current_density = qe*surface_density_m3*thermal_speed(app, surface_temperature_ev)/(2.0_dp*sqrt(pi))
+    emission_current_density = qe*maxwellian_outward_flux(app, surface_density_m3, surface_temperature_ev)
     result%electron_current_density_a_m2 = -qe*plane%electron_inward_flux_m2_s
     result%ion_current_density_a_m2 = qe*plane%ion_inward_flux_m2_s
     result%photoelectron_emission_current_density_a_m2 = emission_current_density
@@ -581,6 +593,17 @@ contains
                                                  )
       result%escaped_particle_current_a(secondary_idx) = &
         -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+    end if
+    if (app%surface_current%include_reflected_electrons .and. (photoelectron_active .or. secondary_active)) then
+      ! 外部根の源にセル内で反射して H を抜けた上流電子を含めるとき、根の脱出・帰還は放出電子と反射電子の合算に
+      ! 対する値になる。追跡した反射電子の脱出・帰還を放出電子側の目標から差し引き、脱出した反射電子は壁に届かない
+      ! ので電子の吸収目標に足し戻す（bem_simulator_charge の固定電流 closure）。
+      if (photoelectron_active) then
+        result%reflected_electron_species(photo_idx) = electron_idx
+      else
+        result%reflected_electron_species(secondary_idx) = electron_idx
+      end if
+      result%absorbed_target_credits_tracked_escape(electron_idx) = .true.
     end if
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。
