@@ -340,6 +340,15 @@ program test_app_config_parser
   call assert_true(.not. cfg%surface_current%include_reflected_electrons, 'reflected electrons are off by default')
   call write_coupling_variant(zhao_refresh_variant_path, 'include_reflected_electrons = true')
   call assert_config_rejected(zhao_refresh_variant_path, 'include_reflected_electrons requires')
+  ! PE も SEE もない構成でも、反射電子を外部源に数えれば更新できる。数えなければ源がなく設定エラー。
+  call write_coupling_variant(zhao_refresh_variant_path, 'outflow_refresh_batches = 1'//new_line('a')// &
+                              'include_reflected_electrons = true', 'examples/zero_current_no_photo.toml')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%surface_current%include_reflected_electrons .and. &
+                   cfg%surface_current%outflow_refresh_batches == 1_i32, 'reflected-only refresh accepted')
+  call write_coupling_variant(zhao_refresh_variant_path, 'outflow_refresh_batches = 1', 'examples/zero_current_no_photo.toml')
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires a surface-emitted electron group')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -859,12 +868,16 @@ contains
 
   !> Copy a Zhao example and enable the outflow refresh in its coupling table.
   !> Copy the fixed-root Zhao example and append a [sheath.coupling] table with the given lines.
-  subroutine write_coupling_variant(path, coupling_lines)
+  subroutine write_coupling_variant(path, coupling_lines, source_path)
     character(len=*), intent(in) :: path, coupling_lines
+    character(len=*), intent(in), optional :: source_path
     character(len=1024) :: line
+    character(len=:), allocatable :: source
     integer :: source_unit, target_unit, ios
 
-    open (newunit=source_unit, file='examples/zero_current.toml', status='old', action='read', iostat=ios)
+    source = 'examples/zero_current.toml'
+    if (present(source_path)) source = source_path
+    open (newunit=source_unit, file=source, status='old', action='read', iostat=ios)
     if (ios /= 0) error stop 'failed to open Zhao coupling variant source'
     open (newunit=target_unit, file=path, status='replace', action='write')
     do

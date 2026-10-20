@@ -417,7 +417,8 @@ SEE は `sum(w_out)/(reference_area*sum(run.batch.duration_s))` へ規格化し�
 PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。bin は sheath-model の既定格子（`log_energy_edges`、145 bin）です。
 `sheath.coupling.include_reflected_electrons=true` なら、セル内で反射して z-high を抜けた上流電子を第 3 のグループとして
 SEE と同じ規格化で窓の源に加え、各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の目標から
-差し引きます（closure contract の `reflected_electron_species`、`absorbed_target_credits_tracked_escape`）。窓の反射束は
+差し引きます（closure contract の `reflected_electron_species`、`absorbed_target_credits_tracked_escape`）。PE も SEE もなければ
+反射電子だけが外部源で、電子の吸収目標を根の流入 − 脱出、脱出目標を根の脱出に固定します（放出電子の種なしで更新可）。窓の反射束は
 `matching_plane_feedback(3)`（`electron_outward_flux_m2_s`）に出します。
 外部根の脱出束 $J_{escape}$ は PE+SEE 合算の値で、各バッチで追跡した SEE の脱出電流を差し引いた残りを PE の脱出目標、
 その値 − PE 放出を PE の帰還目標にします（closure contract の `escape_partner_species`）。表面収支は毎バッチ閉じ、
