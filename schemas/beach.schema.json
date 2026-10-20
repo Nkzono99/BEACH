@@ -196,6 +196,11 @@
                 "required": [
                   "outflow_refresh_batches"
                 ]
+              },
+              {
+                "required": [
+                  "include_reflected_electrons"
+                ]
               }
             ]
           }
@@ -341,6 +346,11 @@
         "secondary_electron_species": {
           "type": "string",
           "maxLength": 64
+        },
+        "include_reflected_electrons": {
+          "type": "boolean",
+          "default": false,
+          "description": "Zhao stationary only, with outflow_refresh_batches > 0. Add ambient electrons that reflect inside the cell and leave through the z-high matching plane to the outer emitted source; the closure credits their tracked escape to the electron absorbed target and subtracts it from the emitted-electron targets."
         }
       }
     },
@@ -2363,6 +2373,11 @@
                   "minimum": 0,
                   "default": 0,
                   "description": "Zhao stationary only. Re-solve the outer zero-current root every N accepted batches from the photoelectron outflow observed at the z-high matching plane. 0 keeps the initial root."
+                },
+                "include_reflected_electrons": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Zhao stationary only, with outflow_refresh_batches > 0. Add ambient electrons that reflect inside the cell and leave through the z-high matching plane to the outer emitted source; the closure credits their tracked escape to the electron absorbed target and subtracts it from the emitted-electron targets."
                 }
               }
             }
@@ -2474,6 +2489,18 @@
                       "coupling": {
                         "required": [
                           "outflow_refresh_batches"
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "coupling"
+                    ],
+                    "properties": {
+                      "coupling": {
+                        "required": [
+                          "include_reflected_electrons"
                         ]
                       }
                     }

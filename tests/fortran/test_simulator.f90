@@ -149,7 +149,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(25)
+  call test_init(26)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -381,6 +381,10 @@ program test_simulator
 
   call test_begin('fixed_current_secondary_only_return_target_is_emission_minus_escape')
   call test_fixed_current_secondary_only_closure()
+  call test_end()
+
+  call test_begin('fixed_current_reflected_electrons_credit_the_electron_and_shrink_the_emitter')
+  call test_fixed_current_reflected_electrons()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -1450,6 +1454,108 @@ contains
     call assert_close_dp(workspace%fixed_escape_closed_charge(1), 0.0_dp, 0.0_dp, 'nothing placed without emission')
     call assert_close_dp(workspace%fixed_escape_target_charge(1), -0.3_dp, 1.0e-12_dp, 'escape target is still recorded')
   end subroutine test_fixed_current_secondary_only_closure
+
+  !> 反射して H を抜けた上流電子を外部源に含めたときの closure: 電子の吸収目標には追跡した脱出を足し戻し、
+  !! 放出電子の目標からは追跡した反射電子の脱出（追跡した源の種では帰還と放出も）を差し引く。
+  subroutine test_fixed_current_reflected_electrons()
+    type(app_config) :: app
+    type(surface_closure_contract_type) :: model
+    type(particles_soa) :: batch
+    type(simulator_batch_workspace_type) :: workspace
+    type(mpi_context) :: mpi
+    real(dp) :: x(3, 4), v(3, 4)
+
+    call default_app_config(app)
+    app%sim%batch_duration = 1.0_dp
+    app%n_particle_species = 2_i32
+    app%particle_species(1) = species_from_defaults()
+    app%particle_species(1)%species_key = 'electron'
+    app%particle_species(1)%q_particle = -1.0_dp
+    app%particle_species(2) = species_from_defaults()
+    app%particle_species(2)%species_key = 'photoelectron'
+    app%particle_species(2)%q_particle = -1.0_dp
+
+    model%active = .true.
+    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
+              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
+              model%escape_partner_species(2), model%emission_target_from_tracked_source(2), &
+              model%reflected_electron_species(2), model%absorbed_target_credits_tracked_escape(2))
+    model%has_absorbed_target = .true.
+    model%has_emission_target = [.false., .true.]
+    model%has_escape_target = [.false., .true.]
+    model%escape_partner_species = 0_i32
+    model%emission_target_from_tracked_source = .false.
+    model%reflected_electron_species = [0_i32, 1_i32]
+    model%absorbed_target_credits_tracked_escape = [.true., .false.]
+    ! 根: 電子流入 1.0、PE 放出 1.0、脱出 0.5（反射電子を含む合算）、PE 帰還 = 放出 − 脱出 = 0.5。
+    model%absorbed_current_a = [-1.0_dp, -0.5_dp]
+    model%emission_current_a = [0.0_dp, 1.0_dp]
+    model%escaped_particle_current_a = [0.0_dp, -0.5_dp]
+
+    ! 粒子1: 吸収された電子（重み 1.0）、2: 障壁を越えて脱出した電子（0.2）、3: 再吸収 PE（0.5）、4: 脱出 PE（0.5）。
+    x = 0.0_dp
+    v = 0.0_dp
+    call init_particles(batch, x, v, [-1.0_dp, -1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp], &
+                        [1.0_dp, 0.2_dp, 0.5_dp, 0.5_dp], species_id=[1_i32, 1_i32, 2_i32, 2_i32], &
+                        source_element=[0_i32, 0_i32, 1_i32, 1_i32])
+    call workspace%init(1_i32, 2_i32, 1_i32)
+    call prepare_reflected_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.8_dp, 1.0e-12_dp, &
+                         'electron target = root inflow minus the tracked reflected escape')
+    call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 0.8_dp, 1.0e-12_dp, 'electron scale')
+    call assert_close_dp(workspace%fixed_escape_target_charge(2), -0.3_dp, 1.0e-12_dp, &
+                         'PE escape target = root escape minus the reflected escape')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(2), -0.7_dp, 1.0e-12_dp, &
+                         'PE return target grows by the reflected escape (emission minus escape)')
+    call assert_close_dp(workspace%fixed_emission_target_charge(2), 1.0_dp, 1.0e-12_dp, 'PE emission stays the surface source')
+    call assert_close_dp(workspace%fixed_escape_closed_charge(2), 0.2_dp, 1.0e-12_dp, 'reflected escape placed')
+    call assert_close_dp(workspace%fixed_escape_unclosed_charge(2), 0.0_dp, 0.0_dp, 'nothing unclosed')
+    ! 収支: 電子 −0.8 + イオン +0.5（根の J_i = J_e − J_esc）+ PE 正味 (1.0 − 0.7) = 0。
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + 0.5_dp + workspace%fixed_emission_target_charge(2) + &
+                         workspace%fixed_absorbed_target_charge(2), 0.0_dp, 1.0e-12_dp, 'plate budget closes with the root')
+
+    ! 追跡した源の種（PE なしの SEE）では、反射電子の脱出・帰還・外向きを脱出・帰還・放出の目標から外す。
+    model%emission_target_from_tracked_source(2) = .true.
+    model%absorbed_current_a = [-1.0_dp, -0.1_dp]
+    model%emission_current_a = [0.0_dp, 0.4_dp]
+    model%escaped_particle_current_a = [0.0_dp, -0.3_dp]
+    call prepare_reflected_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.8_dp, 1.0e-12_dp, 'electron credit is unchanged')
+    call assert_close_dp(workspace%fixed_escape_target_charge(2), -0.1_dp, 1.0e-12_dp, 'SEE escape = root escape minus reflected')
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(2), -0.05_dp, 1.0e-12_dp, &
+                         'SEE return = root return minus the reflected barrier return')
+    call assert_close_dp(workspace%fixed_emission_target_charge(2), 0.15_dp, 1.0e-12_dp, &
+                         'SEE emission = root outward minus the reflected outward')
+    call assert_close_dp(workspace%fixed_emission_target_charge(2) + workspace%fixed_absorbed_target_charge(2) + &
+                         workspace%fixed_escape_target_charge(2), 0.0_dp, 1.0e-12_dp, 'SEE emission minus return equals escape')
+    ! 収支: 電子 −0.8 + イオン +0.7 + SEE 正味 0.10 = 0。
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + 0.7_dp + workspace%fixed_emission_target_charge(2) + &
+                         workspace%fixed_absorbed_target_charge(2), 0.0_dp, 1.0e-12_dp, 'SEE-only plate budget closes')
+
+    ! 追跡した反射電子の脱出が根の流入を超えることはないが、超えれば吸収なしまで縮めて止まらない。
+    model%absorbed_current_a = [-0.1_dp, -0.1_dp]
+    call prepare_reflected_fixture(workspace)
+    call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
+    call assert_close_dp(workspace%fixed_absorbed_target_charge(1), 0.0_dp, 0.0_dp, 'electron target clamps at zero')
+  end subroutine test_fixed_current_reflected_electrons
+
+  subroutine prepare_reflected_fixture(workspace)
+    type(simulator_batch_workspace_type), intent(inout) :: workspace
+
+    call workspace%reset_before_injection()
+    call workspace%prepare_particle_flags(4_i32)
+    workspace%absorbed_flag(1) = .true.
+    workspace%absorbed_element(1) = 1_i32
+    workspace%escaped_boundary_flag(2) = .true.
+    workspace%absorbed_flag(3) = .true.
+    workspace%absorbed_element(3) = 1_i32
+    workspace%escaped_boundary_flag(4) = .true.
+    workspace%photo_emission_dq(1, 2) = 1.0_dp
+    ! 外部障壁で戻った電子 0.05 個分（raw weight）。
+    workspace%matching_plane_moments_thread(3, 1, 1) = 0.05_dp
+  end subroutine prepare_reflected_fixture
 
   subroutine prepare_secondary_only_fixture(workspace, absorbed, escaped, emission)
     type(simulator_batch_workspace_type), intent(inout) :: workspace

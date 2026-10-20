@@ -32,15 +32,19 @@ module bem_zhao_outflow_refresh
     integer(i32) :: window_batches = 0_i32
     integer(i32) :: photo_idx = 0_i32
     integer(i32) :: secondary_idx = 0_i32
+    !> 反射して H を抜けた上流電子を外部源に含めるときの電子 species（含めなければ 0）と、最後の窓のその束。
+    integer(i32) :: reflected_idx = 0_i32
+    real(dp) :: reflected_flux_m2_s = 0.0_dp
     real(dp) :: window_duration = 0.0_dp
     integer(i32) :: accepted_solves = 0_i32
     real(dp) :: area = 0.0_dp
     real(dp) :: photo_abs_charge = 0.0_dp
     real(dp) :: last_change = 0.0_dp
     !> 窓内の H 外向き通過数、その法線運動エネルギー和 [J]、表面放出数。raw weight 単位。
-    real(dp) :: window_moments(3, 2) = 0.0_dp
+    !! group 1 = PE、2 = SEE、3 = 反射して H を抜けた上流電子。
+    real(dp) :: window_moments(3, 3) = 0.0_dp
     !> 窓内の H 外向き通過数の法線運動エネルギー bin 別内訳。raw weight 単位。
-    real(dp) :: window_spectrum(outflow_spectrum_bins, 2) = 0.0_dp
+    real(dp) :: window_spectrum(outflow_spectrum_bins, 3) = 0.0_dp
     type(irradiation_cell_contract_type) :: cell
     type(surface_current_model_result_type) :: state
     !> 外部根と、その放出源。更新は前回の根を初期値にする。
@@ -107,6 +111,7 @@ contains
       end if
       self%accepted_solves = stats%matching_plane_iterations
       self%last_change = stats%matching_plane_residual
+      self%reflected_flux_m2_s = stats%matching_plane_feedback(3)
     else
       call evaluate_surface_current_model(app, self%state, self%cell, self%outer)
       self%accepted_solves = 1_i32
@@ -114,6 +119,7 @@ contains
     end if
     self%photo_idx = self%state%photoelectron_species_idx
     self%secondary_idx = self%state%secondary_electron_species_idx
+    if (app%surface_current%include_reflected_electrons) self%reflected_idx = self%state%electron_species_idx
     if (self%photo_idx > 0_i32) self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
     surface_closure = self%state%surface_closure_contract_type
     call stage_state( &
@@ -145,11 +151,11 @@ contains
     type(surface_closure_contract_type), intent(inout) :: surface_closure
     logical, intent(out) :: refreshed
     type(surface_current_model_result_type) :: trial
-    real(dp) :: batch_moments(3, 2), transmission, outer_flux, outer_energy_ev, displacement
-    real(dp) :: photo_flux, secondary_flux, attributed_secondary_current, total_escape_current
-    real(dp) :: packed_values(2*(2 + outflow_spectrum_bins)), denominator
+    real(dp) :: batch_moments(3, 3), transmission, outer_flux, outer_energy_ev, displacement
+    real(dp) :: photo_flux, secondary_flux, reflected_flux, attributed_secondary_current, total_escape_current
+    real(dp) :: packed_values(3*(2 + outflow_spectrum_bins)), denominator
     integer :: group, idx
-    real(dp) :: batch_values(2 + outflow_spectrum_bins, 2), outer_spectrum(outflow_spectrum_bins)
+    real(dp) :: batch_values(2 + outflow_spectrum_bins, 3), outer_spectrum(outflow_spectrum_bins)
     character(len=256) :: message
     logical :: success
 
@@ -157,9 +163,15 @@ contains
     if (.not. self%active) return
     batch_values = 0.0_dp
     batch_moments = 0.0_dp
-    do group = 1, 2
-      idx = self%photo_idx
-      if (group == 2) idx = self%secondary_idx
+    do group = 1, 3
+      select case (group)
+      case (1)
+        idx = self%photo_idx
+      case (2)
+        idx = self%secondary_idx
+      case default
+        idx = self%reflected_idx
+      end select
       if (idx == 0) cycle
       batch_values(1:2, group) = sum(moments_thread(1:2, idx, :), dim=2)
       batch_values(3:, group) = sum(moments_thread(5:, idx, :), dim=2)
@@ -178,12 +190,14 @@ contains
     if (self%window_batches >= self%refresh_batches) then
       photo_flux = 0.0_dp
       secondary_flux = self%window_moments(1, 2)/(self%area*self%window_duration)
+      ! セル内で反射して H を抜けた上流電子。外部モデルから見れば由来に関わらず境界からの放出電子である。
+      reflected_flux = self%window_moments(1, 3)/(self%area*self%window_duration)
       transmission = 0.0_dp
       if (self%window_moments(3, 1) > 0.0_dp) then
         transmission = self%window_moments(1, 1)/self%window_moments(3, 1)
         photo_flux = transmission*self%state%photoelectron_emission_current_density_a_m2/qe
       end if
-      outer_flux = photo_flux + secondary_flux
+      outer_flux = photo_flux + secondary_flux + reflected_flux
       if (outer_flux > 0.0_dp) then
         outer_spectrum = 0.0_dp
         outer_energy_ev = 0.0_dp
@@ -194,6 +208,10 @@ contains
         if (secondary_flux > 0.0_dp) then
           outer_spectrum = outer_spectrum + secondary_flux*self%window_spectrum(:, 2)/sum(self%window_spectrum(:, 2))
           outer_energy_ev = outer_energy_ev + secondary_flux*self%window_moments(2, 2)/(self%window_moments(1, 2)*qe)
+        end if
+        if (reflected_flux > 0.0_dp) then
+          outer_spectrum = outer_spectrum + reflected_flux*self%window_spectrum(:, 3)/sum(self%window_spectrum(:, 3))
+          outer_energy_ev = outer_energy_ev + reflected_flux*self%window_moments(2, 3)/(self%window_moments(1, 3)*qe)
         end if
         outer_energy_ev = outer_energy_ev/outer_flux
         call refresh_zhao_outflow_closure( &
@@ -209,13 +227,21 @@ contains
                                  abs(outer_energy_ev - self%state%outer_photoelectron_mean_energy_ev)/denominator)
           self%state = trial
           self%accepted_solves = self%accepted_solves + 1_i32
+          self%reflected_flux_m2_s = reflected_flux
           surface_closure = self%state%surface_closure_contract_type
           refreshed = .true.
           if (mpi_is_root(mpi_ctx)) then
-            write (output_unit, '(a,i0,a,a1,4(a,es13.5))') &
+            write (output_unit, '(a,i0,a,a1,4(a,es13.5))', advance='no') &
               'zhao outflow refresh: batch=', batch_idx, ' branch=', self%state%zhao_branch, &
               ' transmission=', transmission, ' mean_normal_energy_eV=', outer_energy_ev, &
               ' phi0_V=', self%state%phi0_v, ' relative_change=', self%last_change
+            if (self%reflected_idx > 0_i32) then
+              denominator = 0.0_dp
+              if (self%window_moments(1, 3) > 0.0_dp) denominator = self%window_moments(2, 3)/(self%window_moments(1, 3)*qe)
+              write (output_unit, '(2(a,es13.5))', advance='no') &
+                ' reflected_flux_m2_s=', reflected_flux, ' reflected_mean_normal_energy_eV=', denominator
+            end if
+            write (output_unit, '(a)') ''
             flush (output_unit)
           end if
         else if (mpi_is_root(mpi_ctx)) then
@@ -281,9 +307,10 @@ contains
                                     self%state%ion_current_density_a_m2/qe, access_potential, 0.0_dp, &
                                     access_potential &
                                     ]
+    ! feedback(3) は外部源に含めた反射上流電子の H 外向き束（含めなければ 0）。イオンの外向き束は使わない。
     stats%matching_plane_feedback = [ &
                                     self%state%outer_photoelectron_flux_m2_s, &
-                                    self%state%outer_photoelectron_mean_energy_ev, 0.0_dp, 0.0_dp &
+                                    self%state%outer_photoelectron_mean_energy_ev, self%reflected_flux_m2_s, 0.0_dp &
                                     ]
     stats%matching_plane_photoelectron_spectrum_m2_s = self%state%outer_photoelectron_spectrum_m2_s
     stats%matching_plane_photoelectron_return_flux_m2_s = return_flux

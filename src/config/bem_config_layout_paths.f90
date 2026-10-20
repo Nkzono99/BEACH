@@ -111,6 +111,8 @@ contains
       reader_path = 'surface_current_model.reference_area_m2'
     case ('sheath.coupling.outflow_refresh_batches')
       reader_path = 'surface_current_model.outflow_refresh_batches'
+    case ('sheath.coupling.include_reflected_electrons')
+      reader_path = 'surface_current_model.include_reflected_electrons'
     case ('sheath.zhao.upstream_band_tolerance')
       reader_path = 'surface_current_model.zhao_upstream_band_tolerance'
     case ('sheath.zhao.upstream_field_floor_v_m')

@@ -16,7 +16,7 @@ source-dir = "src"
 
 [dependencies]
 toml-f = { git = "https://github.com/toml-f/toml-f.git", tag = "v0.5.1" }
-sheath-model = { git = "https://github.com/Nkzono99/sheath-model.git", rev = "db32ee7032d0de88a2ed7b5753c73f411700efe1" }
+sheath-model = { git = "https://github.com/Nkzono99/sheath-model.git", rev = "2455f449093eb3d4afb6cf7b6865cd1edacd1b8a" }
 
 [fortran]
 implicit-typing = false

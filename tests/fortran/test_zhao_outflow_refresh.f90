@@ -35,7 +35,7 @@ program test_zhao_outflow_refresh
   logical :: spectrum_rows_valid
   character(len=512) :: line
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('stationary_barrier_uses_outer_wall_potential_gauge')
   call configure_fixture(mesh, cfg, inject_state, 0_i32)
@@ -173,6 +173,9 @@ program test_zhao_outflow_refresh
   call test_begin('combined_pe_see_spectrum_uses_distinct_flux_normalizations')
   call check_emission_group_refresh(.false.)
   call test_end()
+  call test_begin('reflected_electrons_join_the_outer_source')
+  call check_reflected_electron_refresh()
+  call test_end()
   call test_begin('secondary_only_refresh_can_move_from_c_to_a')
   call check_emission_group_refresh(.true.)
   call test_end()
@@ -180,6 +183,63 @@ program test_zhao_outflow_refresh
   call test_summary()
 
 contains
+
+  !> include_reflected_electrons では、セル内で反射して H を抜けた上流電子の重みが第 3 のグループとして外部源に入り、
+  !! その束が matching_plane_feedback(3)（history の electron_outward_flux_m2_s）に出る。
+  subroutine check_reflected_electron_refresh()
+    type(mesh_type) :: plate
+    type(app_config) :: app
+    type(injection_state) :: state
+    type(sim_stats) :: receipts
+    type(surface_current_model_result_type) :: initial
+    type(surface_closure_contract_type) :: closure
+    type(zhao_outflow_refresh_type) :: refresh
+    type(mpi_context) :: mpi
+    real(dp) :: moments(4 + outflow_spectrum_bins, 3, 1), raw_charge(12), closed_charge(3), unclosed_charge(3)
+    real(dp) :: spectrum(outflow_spectrum_bins), flux_pe, flux_e, raw_out, batch_time, area
+    integer :: k
+    logical :: refreshed
+
+    call configure_fixture(plate, app, state, 1_i32)
+    app%surface_current%include_reflected_electrons = .true.
+    call evaluate_surface_current_model(app, initial)
+    flux_pe = 0.5_dp*initial%photoelectron_emission_current_density_a_m2/qe
+    area = cell_width**2
+    batch_time = 1.0e-3_dp
+    app%sim%batch_duration = batch_time
+    flux_e = 0.05_dp*flux_pe
+    edges = outflow_spectrum_edges_ev()
+    do k = 1, outflow_spectrum_bins
+      spectrum(k) = exp(-edges(k)/3.0_dp) - exp(-edges(k + 1)/3.0_dp)
+    end do
+    receipts = sim_stats()
+    call refresh%initialize(app, plate, receipts, closure)
+    call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'initial closure routes reflected electrons via PE')
+    moments = 0.0_dp
+    raw_charge = 0.0_dp
+    raw_out = 100.0_dp
+    moments(1, 3, 1) = raw_out
+    moments(2, 3, 1) = raw_out*2.2_dp*qe
+    moments(5:, 3, 1) = raw_out*spectrum
+    raw_charge(6) = 2.0_dp*raw_out*qe
+    raw_out = flux_e*area*batch_time
+    moments(1, 1, 1) = raw_out
+    moments(2, 1, 1) = raw_out*3.0_dp*qe
+    moments(5:, 1, 1) = raw_out*spectrum
+    closed_charge = 0.0_dp
+    unclosed_charge = 0.0_dp
+    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 1_i32, &
+                              receipts, closure, refreshed)
+    call assert_true(refreshed, 'a full window must refresh the outer root')
+    call assert_close_dp(receipts%matching_plane_feedback(1), flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
+                         'outer source adds the reflected electron flux to the PE transmission flux')
+    call assert_close_dp(receipts%matching_plane_feedback(3), flux_e, 1.0e-12_dp*flux_e, &
+                         'electron_outward_flux reports the reflected flux of the window')
+    call assert_close_dp(receipts%matching_plane_feedback(2), (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
+                         1.0e-12_dp, 'mean normal energy weights the reflected electrons by flux')
+    call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'refreshed closure keeps the reflected route')
+    call assert_true(closure%absorbed_target_credits_tracked_escape(1), 'refreshed closure credits the electron escape')
+  end subroutine check_reflected_electron_refresh
 
   subroutine check_emission_group_refresh(night)
     logical, intent(in) :: night

@@ -130,6 +130,18 @@ def test_schema_zhao_ranges(key, values):
         assert (schema_errors(config, schema) == []) is valid
 
 
+def test_schema_checks_reflected_electron_switch():
+    schema, _ = load_schema()
+    config = _example('zero_current_refresh.toml')
+    config['sheath']['coupling']['include_reflected_electrons'] = True
+    assert schema_errors(config, schema) == []
+    config['sheath']['coupling']['include_reflected_electrons'] = 'yes'
+    assert schema_errors(config, schema)
+    disabled = _example('zero_current.toml')
+    disabled['sheath'] = {'closure': 'none', 'coupling': {'include_reflected_electrons': True}}
+    assert schema_errors(disabled, schema)
+
+
 def test_schema_checks_zhao_closure_and_refresh_keys():
     schema, _ = load_schema()
     config = _example('zero_current_refresh.toml')

@@ -61,6 +61,14 @@ def test_boundary_only_species_has_no_standalone_source():
     assert normalize_config_document(grouped)['particles']['species'][0]['boundary_inflow'] == {'z_high': 'reservoir'}
 
 
+def test_reflected_electron_switch_maps_to_the_coupling_table():
+    grouped = tomllib.loads((ROOT / 'examples/zero_current_refresh.toml').read_text())
+    grouped['sheath']['coupling']['include_reflected_electrons'] = True
+    runtime = to_runtime_layout(grouped)
+    assert runtime['surface_current_model']['include_reflected_electrons'] is True
+    assert to_grouped_layout(runtime)['sheath']['coupling']['include_reflected_electrons'] is True
+
+
 def test_outflow_refresh_uses_the_grouped_coupling_table():
     grouped = tomllib.loads((ROOT / 'examples/zero_current_refresh.toml').read_text())
     assert grouped['sheath']['coupling'] == {'outflow_refresh_batches': 2}
