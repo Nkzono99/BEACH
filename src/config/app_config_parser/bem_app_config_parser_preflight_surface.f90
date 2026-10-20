@@ -41,7 +41,7 @@ contains
     if (cfg%surface_current%outflow_refresh_batches /= 0_i32) then
       error stop 'sheath.coupling.outflow_refresh_batches requires sheath.closure="zero_current".'
     end if
-    if (cfg%surface_current%include_reflected_electrons) then
+    if (cfg%surface_current%has_include_reflected_electrons) then
       error stop 'sheath.coupling.include_reflected_electrons requires sheath.closure="zero_current".'
     end if
     if (cfg%surface_current%zhao_upstream_band_tolerance /= 0.0_dp) then
@@ -219,7 +219,8 @@ contains
     error stop 'sheath.coupling.outflow_refresh_batches requires a surface-emitted electron group '// &
       'or sheath.coupling.include_reflected_electrons.'
   end if
-  if (cfg%surface_current%include_reflected_electrons .and. cfg%surface_current%outflow_refresh_batches <= 0_i32) then
+  if (cfg%surface_current%has_include_reflected_electrons .and. cfg%surface_current%include_reflected_electrons .and. &
+      cfg%surface_current%outflow_refresh_batches <= 0_i32) then
     error stop 'sheath.coupling.include_reflected_electrons requires sheath.coupling.outflow_refresh_batches > 0.'
   end if
   end procedure validate_surface_current_model_config

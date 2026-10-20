@@ -30,8 +30,11 @@ module bem_app_config_types
     logical :: has_reference_area_m2 = .false.
     !> zhao_stationary の外部シース源を観測PE流出で解き直す accepted batch 間隔。0 は初期根を固定する。
     integer(i32) :: outflow_refresh_batches = 0_i32
-    !> 外部根の源に、セル内で反射して z-high を外向きに抜けた上流電子を含める（外部根の更新が必要）。
-    logical :: include_reflected_electrons = .false.
+    !> 外部根の源に、セル内で反射して z-high を外向きに抜けた上流電子を含める。外部根を更新する
+    !! （outflow_refresh_batches>0）ときだけ効く。既定は sheath-model の結合ガイドどおり含める。
+    logical :: include_reflected_electrons = .true.
+    !> include_reflected_electrons を設定ファイルで明示したか。明示した値だけを preflight で検査する。
+    logical :: has_include_reflected_electrons = .false.
     !> 電子drift時のA/C根で、上流に接するE^2<0の幅を |phi_m|(A) / |phi_0|(C) の何割まで許すか。0 は厳密判定。
     real(dp) :: zhao_upstream_band_tolerance = 0.0_dp
     !> 上流境界を「場がこの外部レベル [V/m] まで落ちた点」に置く。電子drift時のA/C根で、帯の内側の場の不足

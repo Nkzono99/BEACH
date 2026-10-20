@@ -17,6 +17,7 @@ contains
 
   call validate_simulation_config(cfg)
   call validate_particle_species_config(cfg)
+  call resolve_sheath_secondary_role(cfg)
   call validate_surface_current_model_config( &
     cfg, authoring%periodic2%present .and. &
     authoring%periodic2%has_nonzero_mode_backend .and. &
@@ -25,6 +26,31 @@ contains
     )
   call validate_field_config(cfg)
   end procedure finalize_loaded_config
+
+  !> zero_current の外部シースで SEE 種が 1 つだけなら、sheath.species.secondary_electron を省略してもその種を
+  !! SEE の役に当てる。外部根の脱出・帰還は放出電子全体の値なので、登録しない SEE 種は表面収支に入らずセル総電荷を
+  !! random walk させる。複数あって指定がなければ、どれを当てるか決められないので設定エラーにする。
+  subroutine resolve_sheath_secondary_role(cfg)
+    type(app_config), intent(inout) :: cfg
+    integer(i32) :: s, found, count
+
+    if (trim(lower_ascii(cfg%surface_current%model)) /= 'zhao_stationary') return
+    if (len_trim(cfg%surface_current%secondary_electron_species) > 0) return
+    count = 0_i32
+    found = 0_i32
+    do s = 1_i32, cfg%n_particle_species
+      if (.not. cfg%particle_species(s)%enabled) cycle
+      if (trim(lower_ascii(cfg%particle_species(s)%source_mode)) /= 'secondary_emission') cycle
+      count = count + 1_i32
+      found = s
+    end do
+    if (count == 0_i32) return
+    if (count > 1_i32) then
+      call stop_config_error('sheath.closure="zero_current" has several secondary_emission species; '// &
+                             'set sheath.species.secondary_electron.')
+    end if
+    cfg%surface_current%secondary_electron_species = cfg%particle_species(found)%species_key
+  end subroutine resolve_sheath_secondary_role
 
   module procedure apply_physics_authoring
 

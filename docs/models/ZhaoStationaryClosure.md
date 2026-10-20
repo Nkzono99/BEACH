@@ -130,8 +130,9 @@ Type C では壁が負なので、外へ向かう電子はすべて脱出しま�
 
 上流から入ってセル内で反射し、上端面を外へ抜ける電子は、外部モデルから見れば由来に関わらず境界からの放出電子です
 （[sheath-model の結合ガイド](https://github.com/Nkzono99/sheath-model/blob/main/docs/coupling.md)）。
-`sheath.coupling.include_reflected_electrons=true` にすると、この反射電子を外部根の放出源に数えます（[外部根を更新する](#外部根を更新する)）。
-既定では数えず、根の電子流入を全て壁への吸収として扱います。
+外部根を更新する run では、既定（`sheath.coupling.include_reflected_electrons=true`）でこの反射電子を外部根の放出源に数えます
+（[外部根を更新する](#外部根を更新する)）。`false` にすると数えず、根の電子流入を全て壁への吸収として扱います。
+外部根を固定する run（`outflow_refresh_batches=0`）では、このスイッチは効きません。
 
 x/y 周期のセルでは、戻す位置を上端面内で一様に選び直します。外部シースの中で粒子が横に動く距離は、
 飛行時間と接線速度の積で m 程度になり、セル幅よりはるかに大きいためです。戻す位置の電位 $\phi_r$ で
@@ -160,6 +161,8 @@ $$
 ### 外部根を更新する
 
 外部根の更新は PE と任意の `sheath.species.secondary_electron` を表面放出電子のグループとして扱います。
+`secondary_emission` 種が 1 つだけなら、`sheath.species.secondary_electron` を省いてもその種が SEE の役になります。
+複数あるときは指定が必要です。
 外部ライブラリへ専用の SEE 項は加えません。`outflow_refresh_batches` 個の受理バッチごとに次を行います。
 
 1. z-high の外向き通過を PE と SEE 別に、法線運動エネルギーの bin ごとに数える。

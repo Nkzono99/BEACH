@@ -119,6 +119,7 @@ contains
     end if
     self%photo_idx = self%state%photoelectron_species_idx
     self%secondary_idx = self%state%secondary_electron_species_idx
+    ! initialize は外部根を更新する run（outflow_refresh_batches>0）でだけ active になる。
     if (app%surface_current%include_reflected_electrons) self%reflected_idx = self%state%electron_species_idx
     if (self%photo_idx > 0_i32) self%photo_abs_charge = abs(app%particle_species(self%photo_idx)%q_particle)
     surface_closure = self%state%surface_closure_contract_type

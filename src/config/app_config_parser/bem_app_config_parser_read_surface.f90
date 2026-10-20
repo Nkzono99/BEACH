@@ -61,6 +61,7 @@ contains
         table, keys(ikey), cfg%surface_current%include_reflected_electrons, &
         'sheath.coupling.include_reflected_electrons' &
         )
+      cfg%surface_current%has_include_reflected_electrons = .true.
     case ('zhao_upstream_band_tolerance')
       call get_toml_real( &
         table, keys(ikey), cfg%surface_current%zhao_upstream_band_tolerance, &
