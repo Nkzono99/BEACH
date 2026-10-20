@@ -174,3 +174,31 @@ def test_kernel_links_fpm_selected_archive_even_with_newer_foreign_build(tmp_pat
     args = (tmp_path / "kernel-link.log").read_text().splitlines()
     assert "build/current/beach_fortran/libbeach_fortran.a" in args
     assert all("foreign" not in arg for arg in args)
+
+
+def test_failed_fpm_run_invalidates_digests_written_during_it(project: tuple) -> None:
+    root, env = project
+    run_build(project)
+    objects = root / "build/gfortran_0123456789ABCDEF/beach_fortran"
+    objects.mkdir(parents=True, exist_ok=True)
+    older = objects / "older.f90.o.digest"
+    older.write_text("1\n")
+    os.utime(older, (older.stat().st_atime - 100, older.stat().st_mtime - 100))
+    refreshed = objects / "refreshed.f90.o.digest"
+    failing_fpm = write_executable(
+        root / "bin/fpm-failing", f'echo 2 > "{refreshed}"\nexit 1\n',
+    )
+    marker = root / "build/.fpm-run-unfinished"
+
+    failed = subprocess.run(
+        [str(root / "build.sh")], cwd=root, env=env | {"FPM": str(failing_fpm)},
+        text=True, capture_output=True, timeout=20,
+    )
+    assert failed.returncode != 0
+    assert marker.exists() and refreshed.exists()
+
+    result = run_build(project)
+    assert "[fpm-stale-guard]" in result.stdout
+    assert not refreshed.exists()
+    assert older.exists()
+    assert not marker.exists()

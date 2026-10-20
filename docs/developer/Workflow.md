@@ -54,6 +54,8 @@ FPM_ACTION=test ./build.sh --target test_particle_stepper
 
 `make build-kernel` は同じコンパイラ・profile・flag で `build.sh --list` が示す archive を選び、共有ライブラリへリンクします。
 
+fpm は、依存先が同じ実行内で再コンパイルされない限り、ソースが変わっていない対象を再コンパイルしません。そのため途中で失敗・中断したビルドの後は、更新済み module に依存する対象が古い型レイアウトのまま残ることがあります。`build.sh` は実行中に `build/.fpm-run-unfinished` を置き、前回分が残っていればそれ以降に書かれた `*.digest` を消してから fpm を呼ぶので、次のビルドで該当対象と依存先が再コンパイルされます。直接 `fpm` を実行した場合はこの保護の対象外です。
+
 古い成果物の混入が疑われる場合は、一度だけ再構築してから通常のテストを実行します。
 
 ```bash

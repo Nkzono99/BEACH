@@ -72,6 +72,31 @@ prepare_fpm_cache() {
   fi
 }
 
+# fpm (0.12) skips a target whose source digest matches its build/**/*.digest
+# unless one of its dependencies is rebuilt in the same run. A run that fails or
+# is killed midway has already refreshed some modules, so their unchanged
+# dependents would keep the old .mod interface and derived-type layout in every
+# later run. Leave a marker while fpm runs; when a previous run left it behind,
+# delete the digests written since then so fpm recompiles those targets and
+# propagates to their dependents. A failing `fpm test`/`fpm run` payload also
+# leaves the marker, which only costs recompiling what that run compiled.
+fpm_stale_guard_run() {
+  local marker="build/.fpm-run-unfinished" status
+  mkdir -p build
+  if [ -e "$marker" ]; then
+    echo "[fpm-stale-guard] Previous fpm run did not finish; invalidating the objects it refreshed."
+    find build -name '*.digest' -newer "$marker" -delete
+  fi
+  # Backdate the marker so digests written in the same timestamp tick count as newer.
+  touch -d "@$(($(date +%s) - 2))" "$marker"
+  "$@"
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    rm -f "$marker"
+  fi
+  return "$status"
+}
+
 read_fpm_version() {
   sed -n -E 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' fpm.toml | head -n 1
 }
@@ -153,19 +178,19 @@ prepare_fpm_cache "$@"
 case "${FPM_ACTION}" in
   build)
     : "${FPM_PROFILE:=release}"
-    exec "${FPM}" build --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    fpm_stale_guard_run "${FPM}" build --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
     ;;
   run)
     : "${FPM_PROFILE:=release}"
-    exec "${FPM}" run --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    fpm_stale_guard_run "${FPM}" run --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
     ;;
   test)
     : "${FPM_PROFILE:=debug}"
-    exec "${FPM}" test --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    fpm_stale_guard_run "${FPM}" test --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" "$@"
     ;;
   install)
     : "${FPM_PROFILE:=release}"
-    exec "${FPM}" install --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" --prefix "${PREFIX}" "$@"
+    fpm_stale_guard_run "${FPM}" install --profile "${FPM_PROFILE}" --flag "${EFFECTIVE_FFLAGS}" --prefix "${PREFIX}" "$@"
     ;;
   *)
     echo "ERROR: FPM_ACTION must be one of: build, run, test, install" >&2
