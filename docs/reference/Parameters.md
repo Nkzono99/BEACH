@@ -818,7 +818,7 @@ periodic2では`[domain]`、`periodic_axes=["x","y"]`、`fields.boundary="period
 | species 物性 | 単価電荷、ambient electron と PE の質量は同一、$T_e>0$、$T_{pe}>0$、$T_i\ge0$ かつイオンの入口が超音速 $m_i u_z^2/e >$ `sheath.zhao.ion_pressure_factor` $\cdot T_i$ |
 | 外部場 | `fields.external.magnetic_t=[0,0,0]`、`particles.reservoir.inflow_model="infinity_barrier"` は使用不可 |
 | 場 | `fields.boundary="periodic2"`、x/y 周期、明示的な split `[fields.periodic]`（`fields.periodic.backend` が `cached_kneq0` または `panel_spectral_reference`）。上端面の平均電位を壁電位 $\phi_0$ に固定するため |
-| 外部根の更新 | `outflow_refresh_batches>0` では PE または SEE あり |
+| 外部根の更新 | `outflow_refresh_batches>0` では PE または SEE あり、または `include_reflected_electrons=true` |
 
 PEなしType Cは$J_e+J_i=0$を満たすelectron/ion吸収targetとz-high kinetic barrier mapだけを生成し、
 PE emission / return / escape targetは生成しません。SEE があれば PE なしでも更新でき、初期根だけは源 0 の Type C です。
@@ -863,7 +863,7 @@ split `[fields.periodic]` では z-high 面の水平平均電位を外部シー�
 | キー | 型 | 既定値 | 説明・条件 |
 |---|---|---:|---|
 | `outflow_refresh_batches` | int | `0` | 外部根を、accepted batch N 個ごとに z-high で観測した PE + SEE 流出スペクトルから解き直す。`>=0`、0 は初期根を固定 |
-| `include_reflected_electrons` | bool | `false` | 外部根の源に、セル内で反射して z-high を外向きに抜けた上流電子も含める（外部モデルから見れば由来に関わらず境界からの放出電子）。`outflow_refresh_batches>0` が必要。各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の脱出・帰還目標から差し引く。窓の反射束は `electron_outward_flux_m2_s` に出る |
+| `include_reflected_electrons` | bool | `false` | 外部根の源に、セル内で反射して z-high を外向きに抜けた上流電子も含める（外部モデルから見れば由来に関わらず境界からの放出電子）。`outflow_refresh_batches>0` が必要。各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の脱出・帰還目標から差し引く。PE も SEE もなければ反射電子だけが外部源で、電子の吸収を根の流入 − 脱出、脱出を根の脱出に固定する（この場合は放出電子の種なしで `outflow_refresh_batches>0` を使える）。窓の反射束は `electron_outward_flux_m2_s` に出る |
 
 ### `[output]`
 

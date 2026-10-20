@@ -446,7 +446,7 @@ contains
     integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance
     real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density
-    logical :: photoelectron_active, secondary_active
+    logical :: photoelectron_active, secondary_active, reflected_only
 
     success = .false.
     message = ''
@@ -454,6 +454,9 @@ contains
     ion_idx = species_index(app, app%surface_current%ion_species)
     photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
     secondary_active = len_trim(app%surface_current%secondary_electron_species) > 0
+    ! PE も SEE もなく反射電子だけを外部源に数える構成。根の脱出・帰還は反射した上流電子のもの。
+    reflected_only = app%surface_current%include_reflected_electrons .and. &
+                     .not. (photoelectron_active .or. secondary_active)
     secondary_idx = 0_i32
     if (secondary_active) secondary_idx = species_index(app, app%surface_current%secondary_electron_species)
     photo_idx = 0_i32
@@ -478,7 +481,7 @@ contains
     result%ion_current_density_a_m2 = qe*plane%ion_inward_flux_m2_s
     result%photoelectron_emission_current_density_a_m2 = emission_current_density
     result%photoelectron_escape_current_density_a_m2 = 0.0_dp
-    if (photoelectron_active .or. secondary_active) then
+    if (photoelectron_active .or. secondary_active .or. reflected_only) then
       result%photoelectron_escape_current_density_a_m2 = qe*plane%emitted_escape_flux_m2_s
     end if
     result%photoelectron_return_current_density_a_m2 = &
@@ -512,7 +515,7 @@ contains
     end if
     if (result%electron_current_density_a_m2 >= 0.0_dp .or. &
         result%ion_current_density_a_m2 <= 0.0_dp .or. &
-        (.not. secondary_active .and. result%photoelectron_return_current_density_a_m2 > 0.0_dp) .or. &
+        (.not. (secondary_active .or. reflected_only) .and. result%photoelectron_return_current_density_a_m2 > 0.0_dp) .or. &
         result%photoelectron_escape_current_density_a_m2 < 0.0_dp) then
       message = 'surface-current evaluation produced invalid channel signs.'
       return
@@ -522,11 +525,11 @@ contains
         message = 'photoelectron closure requires a positive emission current.'
         return
       end if
-    else if (.not. secondary_active .and. any([ &
-                                              result%photoelectron_emission_current_density_a_m2, &
-                                              result%photoelectron_escape_current_density_a_m2, &
-                                              result%photoelectron_return_current_density_a_m2 &
-                                              ] /= 0.0_dp)) then
+    else if (.not. (secondary_active .or. reflected_only) .and. any([ &
+                                                                    result%photoelectron_emission_current_density_a_m2, &
+                                                                    result%photoelectron_escape_current_density_a_m2, &
+                                                                    result%photoelectron_return_current_density_a_m2 &
+                                                                    ] /= 0.0_dp)) then
       message = 'no-photoelectron closure produced a nonzero photoelectron current.'
       return
     end if
@@ -604,6 +607,17 @@ contains
         result%reflected_electron_species(secondary_idx) = electron_idx
       end if
       result%absorbed_target_credits_tracked_escape(electron_idx) = .true.
+    else if (reflected_only) then
+      ! PE も SEE もなければ、根の脱出束は全て反射して H を抜けた上流電子のもの。追跡した脱出で電子の目標を
+      ! 動かすと、その揺らぎを吸収する種がなくセル総電荷が random walk する。電子の吸収を根の「流入 − 脱出」、
+      ! 脱出を根の脱出に固定し（イオンと合わせて J=0 で毎バッチ閉じる）、反射電子のスペクトルは外部源へだけ渡す。
+      result%absorbed_current_a(electron_idx) = checked_area_current( &
+                                                area, result%electron_current_density_a_m2 + &
+                                                result%photoelectron_escape_current_density_a_m2 &
+                                                )
+      result%has_escape_target(electron_idx) = .true.
+      result%escaped_particle_current_a(electron_idx) = &
+        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
     end if
 
     ! Zhao の1-D外部シースを、z-high interfaceに対するkinetic boundary mapへ縮約する。

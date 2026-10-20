@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `sheath.coupling.include_reflected_electrons=true` を PE も SEE もない構成でも使えるようにした。セル内で反射して z-high を
+  抜けた上流電子だけが外部根の源になり、源 0 の Type C から最初の更新で入る。根の脱出・帰還は全て反射電子のものなので、
+  電子の吸収目標を根の「流入 − 脱出」、脱出目標を根の脱出に固定し、追跡した脱出の揺らぎでセル総電荷が動かないようにする。
+  この場合に限り、放出電子の種がなくても `outflow_refresh_batches>0` を受け付ける。
+
 ## [3.5.0] - 2026-10-20
 
 ### Added

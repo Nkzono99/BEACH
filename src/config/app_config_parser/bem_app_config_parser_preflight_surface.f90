@@ -214,8 +214,10 @@ contains
   end if
   if (photoelectron_active) call warn_photoelectron_source_mismatch(cfg, photo_idx)
   call validate_zhao_wall_gauge_config(cfg, periodic2_split_explicit)
-  if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. .not. (photoelectron_active .or. secondary_active)) then
-    error stop 'sheath.coupling.outflow_refresh_batches requires a surface-emitted electron group.'
+  if (cfg%surface_current%outflow_refresh_batches > 0_i32 .and. &
+      .not. (photoelectron_active .or. secondary_active .or. cfg%surface_current%include_reflected_electrons)) then
+    error stop 'sheath.coupling.outflow_refresh_batches requires a surface-emitted electron group '// &
+      'or sheath.coupling.include_reflected_electrons.'
   end if
   if (cfg%surface_current%include_reflected_electrons .and. cfg%surface_current%outflow_refresh_batches <= 0_i32) then
     error stop 'sheath.coupling.include_reflected_electrons requires sheath.coupling.outflow_refresh_batches > 0.'

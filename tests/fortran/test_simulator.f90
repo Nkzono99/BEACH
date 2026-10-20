@@ -149,7 +149,7 @@ program test_simulator
 
   call seed_particles_from_config(cfg)
 
-  call test_init(26)
+  call test_init(27)
 
   call test_begin('batch_workspace_reuse')
   call test_batch_workspace_reuse()
@@ -385,6 +385,10 @@ program test_simulator
 
   call test_begin('fixed_current_reflected_electrons_credit_the_electron_and_shrink_the_emitter')
   call test_fixed_current_reflected_electrons()
+  call test_end()
+
+  call test_begin('fixed_current_reflected_only_pins_the_electron_to_the_root')
+  call test_fixed_current_reflected_only()
   call test_end()
 
   call test_begin('multiple_box_event_failure_context')
@@ -1540,6 +1544,70 @@ contains
     call apply_fixed_surface_current_closure(app, model, batch, 4_i32, workspace, mpi)
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1), 0.0_dp, 0.0_dp, 'electron target clamps at zero')
   end subroutine test_fixed_current_reflected_electrons
+
+  !> PE も SEE もなく反射電子だけを外部源に数えるとき、電子の吸収と脱出は根の値に固定され、追跡した脱出の
+  !! 揺らぎで動かない。イオンと合わせて板の収支は毎バッチ閉じる。
+  subroutine test_fixed_current_reflected_only()
+    type(app_config) :: app
+    type(surface_closure_contract_type) :: model
+    type(particles_soa) :: batch
+    type(simulator_batch_workspace_type) :: workspace
+    type(mpi_context) :: mpi
+    real(dp) :: x(3, 2), v(3, 2), tracked_escape
+    integer :: k
+
+    call default_app_config(app)
+    app%sim%batch_duration = 1.0_dp
+    app%n_particle_species = 2_i32
+    app%particle_species(1) = species_from_defaults()
+    app%particle_species(1)%species_key = 'electron'
+    app%particle_species(1)%q_particle = -1.0_dp
+    app%particle_species(2) = species_from_defaults()
+    app%particle_species(2)%species_key = 'ion'
+    app%particle_species(2)%q_particle = 1.0_dp
+
+    model%active = .true.
+    allocate (model%has_absorbed_target(2), model%has_emission_target(2), model%has_escape_target(2), &
+              model%absorbed_current_a(2), model%emission_current_a(2), model%escaped_particle_current_a(2), &
+              model%escape_partner_species(2), model%emission_target_from_tracked_source(2), &
+              model%reflected_electron_species(2), model%absorbed_target_credits_tracked_escape(2))
+    ! イオンの目標は根の値（+0.8）で、このバッチにイオン粒子は置かないので電子だけを検査する。
+    model%has_absorbed_target = [.true., .false.]
+    model%has_emission_target = .false.
+    model%has_escape_target = [.true., .false.]
+    model%escape_partner_species = 0_i32
+    model%emission_target_from_tracked_source = .false.
+    model%reflected_electron_species = 0_i32
+    model%absorbed_target_credits_tracked_escape = .false.
+    ! 根: 電子流入 1.0、反射電子の脱出 0.2、イオン 0.8（J=0）。電子の吸収目標は流入 − 脱出 = 0.8。
+    model%absorbed_current_a = [-0.8_dp, 0.8_dp]
+    model%emission_current_a = 0.0_dp
+    model%escaped_particle_current_a = [-0.2_dp, 0.0_dp]
+
+    x = 0.0_dp
+    v = 0.0_dp
+    call workspace%init(1_i32, 2_i32, 1_i32)
+    ! 追跡した脱出が根と違っても（0.35 と 0.05）、吸収目標は根の値のまま。
+    do k = 1, 2
+      tracked_escape = merge(0.35_dp, 0.05_dp, k == 1)
+      call init_particles(batch, x, v, [-1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp], [1.0_dp, tracked_escape], &
+                          species_id=[1_i32, 1_i32], source_element=[0_i32, 0_i32])
+      call workspace%reset_before_injection()
+      call workspace%prepare_particle_flags(2_i32)
+      workspace%absorbed_flag(1) = .true.
+      workspace%absorbed_element(1) = 1_i32
+      workspace%escaped_boundary_flag(2) = .true.
+      call apply_fixed_surface_current_closure(app, model, batch, 2_i32, workspace, mpi)
+      call assert_close_dp(workspace%fixed_absorbed_target_charge(1), -0.8_dp, 1.0e-12_dp, &
+                           'electron target is the root inflow minus the root escape')
+      call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 0.8_dp, 1.0e-12_dp, 'electron scale')
+      call assert_close_dp(workspace%fixed_escape_target_charge(1), -0.2_dp, 1.0e-12_dp, 'electron escape = root escape')
+      call assert_close_dp(workspace%fixed_escape_correction(1), -0.2_dp + tracked_escape, 1.0e-12_dp, &
+                           'escape correction is root minus tracked')
+      call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + 0.8_dp, 0.0_dp, 1.0e-12_dp, &
+                           'electron and ion targets close the plate budget')
+    end do
+  end subroutine test_fixed_current_reflected_only
 
   subroutine prepare_reflected_fixture(workspace)
     type(simulator_batch_workspace_type), intent(inout) :: workspace

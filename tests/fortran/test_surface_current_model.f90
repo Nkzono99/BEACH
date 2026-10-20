@@ -27,7 +27,7 @@ program test_surface_current_model
   integer(i32) :: j
   logical :: success
 
-  call test_init(16)
+  call test_init(17)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -468,6 +468,39 @@ program test_surface_current_model
   call evaluate_surface_current_model(cfg, result)
   call assert_equal_i32(result%reflected_electron_species(3), 1_i32, 'without PE the SEE subtracts the reflected electrons')
   call assert_true(result%absorbed_target_credits_tracked_escape(1), 'SEE-only electron target also credits its escape')
+  call test_end()
+
+  call test_begin('reflected_only_closure_pins_the_electron_to_the_root')
+  ! PE も SEE もなく反射電子だけを外部源に数えるとき、電子の吸収は根の流入 − 脱出、脱出は根の脱出に固定される。
+  call configure_zhao_fixture(cfg)
+  cfg%n_particle_species = 2_i32
+  cfg%surface_current%photoelectron_species = ''
+  cfg%surface_current%solar_elevation_deg = 0.0_dp
+  cfg%surface_current%photoelectron_ref_density_m3 = 0.0_dp
+  cfg%surface_current%photoelectron_source_scale = 0.0_dp
+  cfg%sim%bc_low(1:2) = bc_periodic
+  cfg%sim%bc_high(1:2) = bc_periodic
+  cfg%surface_current%outflow_refresh_batches = 1_i32
+  cfg%surface_current%include_reflected_electrons = .true.
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%zhao_branch == 'C', 'reflected-only initial root is the zero-source Type C')
+  call assert_true(result%has_escape_target(1) .and. .not. result%absorbed_target_credits_tracked_escape(1) .and. &
+                   all(result%reflected_electron_species == 0_i32), 'electron channels are pinned, not credited')
+  call assert_close_dp(result%escaped_particle_current_a(1), 0.0_dp, 0.0_dp, 'zero-source root has no escape')
+  call assert_close_dp(result%absorbed_current_a(1) + result%absorbed_current_a(2), 0.0_dp, &
+                       1.0e-9_dp*abs(result%absorbed_current_a(2)), 'zero-source electron and ion targets close')
+  call bin_shifted_half_maxwellian(5.0e10_dp, 3.0_dp, 0.0_dp, spectrum)
+  call solve_zhao_outflow_closure(cfg, 5.0e10_dp, 3.0_dp, 'C', refreshed, success, message, outer_spectrum_m2_s=spectrum)
+  call assert_true(success, 'reflected-only outflow solve: '//trim(message))
+  call assert_true(refreshed%photoelectron_escape_current_density_a_m2 > 0.0_dp, 'reflected outflow gives a root escape')
+  call assert_close_dp(refreshed%escaped_particle_current_a(1), &
+                       -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
+                       1.0e-20_dp, 'electron escape target carries the root escape')
+  call assert_close_dp(refreshed%absorbed_current_a(1), &
+                       (refreshed%electron_current_density_a_m2 + refreshed%photoelectron_escape_current_density_a_m2)* &
+                       refreshed%reference_area_m2, 1.0e-20_dp, 'electron absorbed target is root inflow minus escape')
+  call assert_close_dp(refreshed%absorbed_current_a(1) + refreshed%absorbed_current_a(2), 0.0_dp, &
+                       1.0e-9_dp*abs(refreshed%absorbed_current_a(2)), 'refreshed electron and ion targets close')
   call test_end()
 
   call test_summary()
