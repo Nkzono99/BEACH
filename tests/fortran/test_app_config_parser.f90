@@ -337,9 +337,18 @@ program test_app_config_parser
   call assert_true(cfg%surface_current%include_reflected_electrons, 'reflected electron switch must parse')
   call default_app_config(cfg)
   call load_app_config('examples/zero_current_refresh.toml', cfg)
-  call assert_true(.not. cfg%surface_current%include_reflected_electrons, 'reflected electrons are off by default')
+  call assert_true(cfg%surface_current%include_reflected_electrons .and. &
+                   .not. cfg%surface_current%has_include_reflected_electrons, 'reflected electrons are on by default')
+  ! 既定の true は固定根（更新なし）でも受け付け、効かないだけ。明示した true は更新を要求する。
+  call default_app_config(cfg)
+  call load_app_config('examples/zero_current.toml', cfg)
+  call assert_true(cfg%surface_current%include_reflected_electrons .and. &
+                   cfg%surface_current%outflow_refresh_batches == 0_i32, 'default switch with a fixed root is accepted')
   call write_coupling_variant(zhao_refresh_variant_path, 'include_reflected_electrons = true')
   call assert_config_rejected(zhao_refresh_variant_path, 'include_reflected_electrons requires')
+  call write_coupling_variant(zhao_refresh_variant_path, 'outflow_refresh_batches = 1'//new_line('a')// &
+                              'include_reflected_electrons = false', 'examples/zero_current_no_photo.toml')
+  call assert_config_rejected(zhao_refresh_variant_path, 'requires a surface-emitted electron group')
   ! PE も SEE もない構成でも、反射電子を外部源に数えれば更新できる。数えなければ源がなく設定エラー。
   call write_coupling_variant(zhao_refresh_variant_path, 'outflow_refresh_batches = 1'//new_line('a')// &
                               'include_reflected_electrons = true', 'examples/zero_current_no_photo.toml')
@@ -347,8 +356,11 @@ program test_app_config_parser
   call load_app_config(zhao_refresh_variant_path, cfg)
   call assert_true(cfg%surface_current%include_reflected_electrons .and. &
                    cfg%surface_current%outflow_refresh_batches == 1_i32, 'reflected-only refresh accepted')
+  ! 既定の true なら、PE も SEE もない構成でも更新だけを書けば反射電子を源にして更新できる。
   call write_coupling_variant(zhao_refresh_variant_path, 'outflow_refresh_batches = 1', 'examples/zero_current_no_photo.toml')
-  call assert_config_rejected(zhao_refresh_variant_path, 'requires a surface-emitted electron group')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%surface_current%include_reflected_electrons, 'no-emitter refresh uses the default reflected source')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -378,8 +390,12 @@ program test_app_config_parser
   call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', '# lower boundary omitted')
   call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
   call delete_file_if_exists(zhao_refresh_variant_path)
+  ! PE も SEE もない構成の更新は、既定で反射電子を外部源にするので受け付ける。
   call write_refresh_variant('examples/zero_current_no_photo.toml', zhao_refresh_variant_path)
-  call assert_config_rejected(zhao_refresh_variant_path, 'requires a surface-emitted electron group')
+  call default_app_config(cfg)
+  call load_app_config(zhao_refresh_variant_path, cfg)
+  call assert_true(cfg%surface_current%outflow_refresh_batches == 1_i32 .and. &
+                   cfg%surface_current%include_reflected_electrons, 'no-photo refresh runs on the reflected source')
   call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
@@ -560,6 +576,14 @@ program test_app_config_parser
   call default_app_config(cfg)
   call load_app_config('examples/zero_current_no_photo_secondary.toml', cfg)
   call assert_true(len_trim(cfg%surface_current%secondary_electron_species) > 0, 'SEE-only sheath role')
+  ! sheath.species.secondary_electron を省いても、SEE 種が 1 つなら自動でその種が SEE の役になる。
+  call write_without_line_variant(input_contract_path, 'examples/zero_current_no_photo_secondary.toml', &
+                                  'secondary_electron =')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_true(trim(cfg%surface_current%secondary_electron_species) == 'secondary_electron', &
+                   'a lone secondary_emission species takes the sheath SEE role')
+  call delete_file_if_exists(input_contract_path)
   call assert_true(cfg%surface_current%outflow_refresh_batches > 0_i32, 'SEE-only refresh accepted')
   call test_end()
 
@@ -867,6 +891,31 @@ contains
   end subroutine write_fixed_emission_variant
 
   !> Copy a Zhao example and enable the outflow refresh in its coupling table.
+  !> Copy a config and drop the first line that starts with the given key.
+  subroutine write_without_line_variant(path, source_path, key)
+    character(len=*), intent(in) :: path, source_path, key
+    character(len=1024) :: line
+    integer :: source_unit, target_unit, ios
+    logical :: dropped
+
+    dropped = .false.
+    open (newunit=source_unit, file=source_path, status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open variant source'
+    open (newunit=target_unit, file=path, status='replace', action='write')
+    do
+      read (source_unit, '(A)', iostat=ios) line
+      if (ios /= 0) exit
+      if (.not. dropped .and. index(adjustl(line), key) == 1) then
+        dropped = .true.
+        cycle
+      end if
+      write (target_unit, '(A)') trim(line)
+    end do
+    close (source_unit)
+    close (target_unit)
+    if (.not. dropped) error stop 'variant key was not found'
+  end subroutine write_without_line_variant
+
   !> Copy the fixed-root Zhao example and append a [sheath.coupling] table with the given lines.
   subroutine write_coupling_variant(path, coupling_lines, source_path)
     character(len=*), intent(in) :: path, coupling_lines

@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `sheath.coupling.include_reflected_electrons` の既定を `true` にした。外部根を更新する run（`outflow_refresh_batches>0`）では、
+  セル内で反射して z-high を抜けた上流電子を既定で外部源に数える（sheath-model の結合ガイドどおり）。外部根を固定する run では
+  効かない。Type C の更新 run では φ0 が +0.06〜0.1 V 動き、3.5.0 までの結果や checkpoint からの続きと一致しなくなる。
+  以前の挙動は `include_reflected_electrons = false` で得られる。明示的に `true` と書いた場合だけ、更新間隔 0 を設定エラーにする。
+- `sheath.closure="zero_current"` で `secondary_emission` 種が 1 つだけなら、`sheath.species.secondary_electron` を省いても
+  その種を SEE の役に当てる。以前は登録しない SEE 種が表面収支に入らず、セル総電荷が random walk していた。複数あって
+  指定がなければ設定エラーにする。
+
 ### Added
 
 - `sheath.coupling.include_reflected_electrons=true` を PE も SEE もない構成でも使えるようにした。セル内で反射して z-high を

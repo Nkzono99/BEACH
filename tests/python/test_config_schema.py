@@ -135,6 +135,7 @@ def test_schema_checks_reflected_electron_switch():
     config = _example('zero_current_refresh.toml')
     config['sheath']['coupling']['include_reflected_electrons'] = True
     assert schema_errors(config, schema) == []
+    assert load_schema()[0]['$defs']['surfaceCurrentModel']['properties']['include_reflected_electrons']['default'] is True
     config['sheath']['coupling']['include_reflected_electrons'] = 'yes'
     assert schema_errors(config, schema)
     disabled = _example('zero_current.toml')

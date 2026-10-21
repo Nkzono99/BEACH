@@ -446,7 +446,7 @@ contains
     integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance
     real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density
-    logical :: photoelectron_active, secondary_active, reflected_only
+    logical :: photoelectron_active, secondary_active, reflected_only, reflected_active
 
     success = .false.
     message = ''
@@ -455,8 +455,9 @@ contains
     photoelectron_active = app%surface_current%photoelectron_source_scale > 0.0_dp
     secondary_active = len_trim(app%surface_current%secondary_electron_species) > 0
     ! PE も SEE もなく反射電子だけを外部源に数える構成。根の脱出・帰還は反射した上流電子のもの。
-    reflected_only = app%surface_current%include_reflected_electrons .and. &
-                     .not. (photoelectron_active .or. secondary_active)
+    reflected_active = app%surface_current%include_reflected_electrons .and. &
+                       app%surface_current%outflow_refresh_batches > 0_i32
+    reflected_only = reflected_active .and. .not. (photoelectron_active .or. secondary_active)
     secondary_idx = 0_i32
     if (secondary_active) secondary_idx = species_index(app, app%surface_current%secondary_electron_species)
     photo_idx = 0_i32
@@ -597,7 +598,7 @@ contains
       result%escaped_particle_current_a(secondary_idx) = &
         -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
     end if
-    if (app%surface_current%include_reflected_electrons .and. (photoelectron_active .or. secondary_active)) then
+    if (reflected_active .and. (photoelectron_active .or. secondary_active)) then
       ! 外部根の源にセル内で反射して H を抜けた上流電子を含めるとき、根の脱出・帰還は放出電子と反射電子の合算に
       ! 対する値になる。追跡した反射電子の脱出・帰還を放出電子側の目標から差し引き、脱出した反射電子は壁に届かない
       ! ので電子の吸収目標に足し戻す（bem_simulator_charge の固定電流 closure）。

@@ -415,7 +415,7 @@ thread ごとの buffer に生成粒子を積み、OpenMP ループ後に親・�
 吸収・放出・脱出の固定目標は付けません。外部根の専用 SEE 項は作りません。更新窓の PE 流出は設定放出束 × 透過率、
 SEE は `sum(w_out)/(reference_area*sum(run.batch.duration_s))` へ規格化し、bin と平均エネルギーを束で合算します。
 PE なしの初期根は源 0 の Type C、SEE は最初の更新から入ります。bin は sheath-model の既定格子（`log_energy_edges`、145 bin）です。
-`sheath.coupling.include_reflected_electrons=true` なら、セル内で反射して z-high を抜けた上流電子を第 3 のグループとして
+外部根を更新する run では既定（`sheath.coupling.include_reflected_electrons=true`）で、セル内で反射して z-high を抜けた上流電子を第 3 のグループとして
 SEE と同じ規格化で窓の源に加え、各バッチで追跡したその脱出を電子の吸収目標に足し戻し、PE（なければ SEE）の目標から
 差し引きます（closure contract の `reflected_electron_species`、`absorbed_target_credits_tracked_escape`）。PE も SEE もなければ
 反射電子だけが外部源で、電子の吸収目標を根の流入 − 脱出、脱出目標を根の脱出に固定します（放出電子の種なしで更新可）。窓の反射束は
