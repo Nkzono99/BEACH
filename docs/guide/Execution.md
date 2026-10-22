@@ -42,6 +42,17 @@ OpenMPのスレッド数は環境変数で指定します。
 OMP_NUM_THREADS=8 beach beach.toml
 ```
 
+`beach` は `OMP_SCHEDULE` が未指定なら、通常の粒子追跡を `dynamic,1`（1 粒子ずつ動的に割り当て）で実行します。
+粒子ごとに飛行時間が異なっても、空いたスレッドが次の粒子を処理します。明示した `OMP_SCHEDULE` を優先するので、
+固定割り当てで比較したい場合は次のように指定します。
+
+```bash
+OMP_NUM_THREADS=8 OMP_SCHEDULE=static beach beach.toml
+```
+
+適応的な $k\ne0$ 進行は、同じバッチの再試行を再現するため、粒子追跡中だけ `static` を使います。
+並列実行では電荷の加算順序が変わり、丸め誤差によって個々の粒子の結果が変わる場合があります。
+
 MPIビルドを利用する場合はランチャーから起動します。
 
 ```bash

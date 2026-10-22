@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [3.7.1] - 2026-10-22
+
+### Changed
+
+- CLI `beach` の起動時に `OMP_SCHEDULE` が未指定なら `dynamic,1` を選び、通常の粒子追跡を 1 粒子ずつ
+  空いた OpenMP スレッドへ割り当てる。明示した `OMP_SCHEDULE` は優先し、適応的な $k\ne0$ 進行では
+  再試行の再現性のために従来どおり粒子追跡中だけ `static` を使う。
+
 ## [3.7.0] - 2026-10-22
 
 ### Fixed
