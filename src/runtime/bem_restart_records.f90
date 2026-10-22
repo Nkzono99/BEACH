@@ -96,6 +96,10 @@ contains
       read (value, *) stats%adaptive_substeps
     case ('adaptive_substep_depth_limited_steps')
       read (value, *) stats%adaptive_substep_depth_limited_steps
+    case ('particle_pool_claims')
+      read (value, *) stats%particle_pool_claims
+    case ('particle_pool_claim_seconds')
+      read (value, *) stats%particle_pool_claim_seconds
     case ('multiple_box_events_soft_discarded')
       read (value, *) stats%multiple_box_events_soft_discarded
     case ('multiple_box_events_soft_discarded_abs_charge_C')

@@ -625,6 +625,21 @@
           "exclusiveMinimum": 0,
           "description": "Resolved as batch_duration = dt * batch_duration_step."
         },
+        "particle_distribution": {
+          "type": "string",
+          "enum": [
+            "static",
+            "shared"
+          ],
+          "default": "static",
+          "description": "How batch particles are divided among MPI ranks. static splits every source count per rank up front; shared lets ranks claim chunks of one global slot pool through a rank-0 counter, generating each slot with counter-based random numbers so the batch is independent of the rank count."
+        },
+        "particle_pool_chunk": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Slots taken per claim when particle_distribution is shared."
+        },
         "max_step": {
           "type": "integer",
           "minimum": 1,
@@ -1964,6 +1979,21 @@
                   "type": "number",
                   "exclusiveMinimum": 0,
                   "description": "Resolved as batch_duration = dt * batch_duration_step."
+                },
+                "particle_distribution": {
+                  "type": "string",
+                  "enum": [
+                    "static",
+                    "shared"
+                  ],
+                  "default": "static",
+                  "description": "How batch particles are divided among MPI ranks. static splits every source count per rank up front; shared lets ranks claim chunks of one global slot pool through a rank-0 counter, generating each slot with counter-based random numbers so the batch is independent of the rank count."
+                },
+                "particle_pool_chunk": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 64,
+                  "description": "Slots taken per claim when particle_distribution is shared."
                 },
                 "adaptive": {
                   "type": "object",

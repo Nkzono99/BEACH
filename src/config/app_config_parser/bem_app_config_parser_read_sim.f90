@@ -208,6 +208,11 @@ contains
       call get_toml_int(table, keys(ikey), cfg%sim%rng_seed, 'run.rng_seed')
     case ('batch_count')
       call get_toml_int(table, keys(ikey), cfg%sim%batch_count, 'run.batch_count')
+    case ('particle_distribution')
+      call get_toml_string(table, keys(ikey), cfg%sim%particle_distribution, 'run.batch.particle_distribution')
+      cfg%sim%particle_distribution = lower_ascii(trim(cfg%sim%particle_distribution))
+    case ('particle_pool_chunk')
+      call get_toml_int(table, keys(ikey), cfg%sim%particle_pool_chunk, 'run.batch.particle_pool_chunk')
     case ('batch_duration')
       call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'run.batch.duration_s')
       cfg%sim%has_batch_duration = .true.

@@ -62,6 +62,14 @@ mpirun -n 4 beach beach.toml
 MPI build、launcher、compiler module は利用する環境に合わせてください。MPI / OpenMP 内部の state 所有と
 集約方法を変更する開発者は[ランタイムのアーキテクチャ](../developer/Architecture.md)を参照してください。
 
+既定ではバッチの粒子数を rank ごとに固定分割します（`run.batch.particle_distribution = "static"`）。rank 間で
+粒子追跡の所要時間が偏るときは `"shared"` にすると、全 rank が 1 つの粒子 slot pool を `particle_pool_chunk` 個ずつ
+取り合い（rank 0 のカウンタへの fetch-and-add）、各 slot を counter-based 乱数で生成します。粒子集合が rank 数に
+依らないので checkpoint を別の rank 数で再開でき、`summary.txt` の `particle_pool_claim_seconds` で claim の待ち時間を
+確認できます。各 rank は次の chunk を先に要求して粒子追跡と通信を重ねるので、ノードをまたぐ実行でも既定の
+64 から 256 程度の chunk なら claim の待ち時間はバッチ時間の 1% 未満です。slot は種を round-robin に混ぜた順で
+並ぶので、処理順も `static` と同じ混ざり方になります。
+
 ## 実行前に負荷を見積もる
 
 `inflow`、`photo_raycast`ではバッチごとの粒子数が動的に決まるため、実行前の
@@ -181,6 +189,8 @@ dir = "outputs/tutorial"
 
 一般に、checkpoint が `batches=100` で新しい `batch_count=150` なら 50 バッチを追加します。
 MPI 再開では、checkpoint の `mpi_world_size` と現在の rank 数を一致させます。
+`run.batch.particle_distribution = "shared"` の実行は粒子を global slot の counter-based 乱数で生成するので、
+rank ごとの乱数状態を持たず、checkpoint を別の rank 数で再開できます。
 適応的な $k\ne0$ 進行では、同じ実行内の再試行で全 MPI rank の実 OpenMP team size を揃えます。
 restart 前後で同じ team size を使う必要はなく、再開後の実 team size を新しい診断値として記録します。
 

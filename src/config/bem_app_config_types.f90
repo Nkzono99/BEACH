@@ -253,6 +253,8 @@ contains
     cfg%sim%tree_theta = 0.5d0
     cfg%sim%tree_leaf_max = 16_i32
     cfg%sim%tree_min_nelem = 256_i32
+    cfg%sim%particle_distribution = 'static'
+    cfg%sim%particle_pool_chunk = 64_i32
     cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%has_e0_vector = .false.
     cfg%sim%e0_abs = 0.0d0

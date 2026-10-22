@@ -10,7 +10,8 @@ module bem_simulator
   use bem_irradiation_cell_contract, only: &
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_config_helpers, only: resolve_particle_boundaries
-  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
+                                    batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
                                   advance_particle_step_upper_panel_fourier, &
@@ -29,6 +30,7 @@ module bem_simulator
   use bem_output_writer, only: write_matching_plane_history_snapshot, write_fixed_current_history_rows, &
                                write_matching_plane_spectrum_history_rows, write_secondary_emission_history_rows
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
+                     mpi_shared_counter_type, &
                      mpi_allreduce_sum_i32_scalar, mpi_allreduce_sum_i64_array, &
                      mpi_allreduce_min_i32_scalar, mpi_allreduce_max_i32_scalar, mpi_select_lowest_rank_i32_values
   implicit none
@@ -64,7 +66,7 @@ module bem_simulator
     end subroutine run_absorption_insulator
 
     module subroutine prepare_batch_state( &
-      mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi, inject_state, &
+      mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi, inject_state, &
       collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
       )
       type(mesh_type), intent(in) :: mesh
@@ -75,6 +77,8 @@ module bem_simulator
       integer(i32), intent(out) :: batch_idx
       type(simulator_batch_workspace_type), intent(inout) :: workspace
       type(particles_soa), intent(out) :: pcls_batch
+      !> `shared` のときだけ構築される global slot layout。`static` では `ready=.false.`。
+      type(batch_injection_layout_type), intent(out) :: injection_layout
       type(mpi_context), intent(in) :: mpi
       type(injection_state), intent(inout), optional :: inject_state
       integer(i32), intent(out) :: collision_failure_status, collision_failure_species
@@ -86,7 +90,7 @@ module bem_simulator
       actual_team_size, &
       collision_failure_status, collision_failure_particle, collision_failure_step, &
       collision_failure_x, collision_failure_v, retry_counts, substep_counts, &
-      cell &
+      cell, injection_layout, pool_counter, pool_claims, pool_claim_seconds &
       )
       type(irradiation_cell_contract_type), intent(in) :: cell
       type(mesh_type), intent(in) :: mesh
@@ -104,6 +108,12 @@ module bem_simulator
       integer(i64), intent(out) :: retry_counts(2)
       !> 半分にした dt step 数、その sub-step 総数、半分化の上限に達した step 数。
       integer(i64), intent(out) :: substep_counts(3)
+      !> `shared` の slot layout と claim カウンタ。`static` では layout は未使用。
+      type(batch_injection_layout_type), intent(in) :: injection_layout
+      type(mpi_shared_counter_type), intent(inout) :: pool_counter
+      !> この rank の claim 回数と claim の critical 区間で費やした秒数。
+      integer(i64), intent(out) :: pool_claims
+      real(dp), intent(out) :: pool_claim_seconds
     end subroutine process_particle_batch
 
     module subroutine commit_batch_charge(mesh, sim, snapshot, conductor, workspace, rel, mpi)

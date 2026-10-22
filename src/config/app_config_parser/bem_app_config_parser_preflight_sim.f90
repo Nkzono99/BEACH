@@ -10,6 +10,10 @@ contains
 
   if (cfg%sim%dt <= 0.0_dp) error stop 'particles.tracking.dt_s must be > 0.'
   if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
+  if (trim(cfg%sim%particle_distribution) /= 'static' .and. trim(cfg%sim%particle_distribution) /= 'shared') then
+    error stop 'run.batch.particle_distribution must be "static" or "shared".'
+  end if
+  if (cfg%sim%particle_pool_chunk < 1_i32) error stop 'run.batch.particle_pool_chunk must be >= 1.'
   if (.not. ieee_is_finite(cfg%sim%substep_field_change_max) .or. cfg%sim%substep_field_change_max < 0.0_dp) then
     error stop 'particles.tracking.substep_field_change_max must be finite and >= 0.'
   end if

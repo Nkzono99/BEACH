@@ -3,6 +3,26 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `run.batch.particle_distribution`（既定 `"static"`）。`"shared"` で全 rank 共有の粒子 slot pool を rank 0 の
+  カウンタ（MPI RMA fetch-and-add、次の chunk を先行要求して粒子追跡と重ねる）から
+  `run.batch.particle_pool_chunk`（既定 64）個ずつ取り合い、rank 内では thread が 1 slot ずつ受け取り、各 slot を
+  (batch, species, source, face, slot) の counter-based 乱数で生成する。rank 間の粒子追跡負荷が自動で均され、
+  バッチの粒子集合は rank 数に依らないので checkpoint から rank 数を変えて resume できる（`shared` では
+  rank ごとの `rng_state` と `mpi_world_size` の一致を要求しない）。`summary.txt` に `particle_distribution=`、
+  `particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する。既定の `static` は従来と同じ粒子列。
+- `bem_injection` に counter-based の単一粒子生成 `sample_reservoir_face_particle_counter`、
+  `sample_photo_ray_slot`、`cast_photo_ray`、`photo_ray_macro_weight` を追加し、`bem_app_config` に
+  バッチ注入 layout `batch_injection_layout_type` / `build_batch_injection_layout` / `generate_batch_slot` を追加。
+
+### Changed
+
+- MPI 版は `MPI_Init_thread(MPI_THREAD_SERIALIZED)` で初期化する（`shared` の claim を OpenMP critical 区間から
+  呼ぶため）。
+
 ## [3.7.1] - 2026-10-22
 
 ### Changed

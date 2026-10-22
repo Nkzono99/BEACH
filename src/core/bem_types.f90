@@ -56,6 +56,10 @@ module bem_types
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
+    !> バッチ粒子の rank 配分。`static` は rank ごとに固定分割、`shared` は全 rank 共有の slot pool を chunk 単位で取り合う。
+    character(len=8) :: particle_distribution = 'static'
+    !> `shared` で 1 回の claim が取る slot 数。
+    integer(i32) :: particle_pool_chunk = 64_i32
     character(len=32) :: multiple_box_events_policy = 'abort'
     character(len=32) :: multiple_box_events_retry_backend = 'none'
     integer(i32) :: multiple_box_events_soft_discard_count_grace = 1000_i32
@@ -92,6 +96,9 @@ module bem_types
     real(dp) :: adaptive_nonzero_mode_last_batch_duration = 0.0_dp
     real(dp) :: adaptive_nonzero_mode_last_potential_step = 0.0_dp
     integer(i32) :: adaptive_nonzero_mode_omp_threads = 0_i32
+    !> shared particle pool の claim 回数と、claim の critical 区間で費やした秒数（全 rank 合計）。
+    integer(i64) :: particle_pool_claims = 0_i64
+    real(dp) :: particle_pool_claim_seconds = 0.0_dp
     logical :: matching_plane_state_valid = .false.
     real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
     real(dp) :: matching_plane_phi_v = 0.0_dp

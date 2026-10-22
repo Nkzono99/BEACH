@@ -196,6 +196,8 @@ beach.toml
 |---|---|---:|---|
 | `duration_s` | float | `0.0` | 1 バッチの物理時間 [s]。有限値、流束 source では `>0` |
 | `duration_steps` | float | `0.0` | `run.batch.duration_s=particles.tracking.dt_s*run.batch.duration_steps`。`>0`、`run.batch.duration_s` と排他 |
+| `particle_distribution` | string | `"static"` | バッチ粒子の MPI rank 配分。`static` は source ごとの粒子数を rank に固定分割する（従来）。`shared` は全 rank 共有の slot pool を rank 0 のカウンタ（MPI RMA の fetch-and-add）から `particle_pool_chunk` 個ずつ取り合い、各 slot を counter-based 乱数で生成する。rank 間の負荷が自動で均され、バッチの粒子集合は rank 数に依らないので resume 時に rank 数を変えられる。粒子ごとの境界乱数も global slot で決まる。`summary.txt` に `particle_distribution=`、`particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する |
+| `particle_pool_chunk` | int | `64` | `shared` で 1 回の claim が取る slot 数。`>=1` |
 
 `run.batch.duration_s` と `run.batch.duration_steps` の同時指定はエラーです。
 `inflow` / `photo_raycast` では、解決後の `run.batch.duration_s > 0` が必須です。

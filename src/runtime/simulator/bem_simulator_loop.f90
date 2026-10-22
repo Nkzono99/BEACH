@@ -56,6 +56,11 @@ contains
   type(zhao_outflow_refresh_type) :: outflow_refresh
   type(simulator_batch_workspace_type) :: workspace
   type(particle_source_plan_type) :: source_plan
+  type(batch_injection_layout_type) :: injection_layout
+  type(mpi_shared_counter_type) :: pool_counter
+  logical :: shared_pool
+  integer(i64) :: batch_pool_claims, pool_claim_counts(1)
+  real(dp) :: batch_pool_claim_seconds, pool_claim_values(1)
   type(external_boundary_contract_type) :: boundary_contract
   type(surface_closure_contract_type) :: surface_closure
   type(field_physics_config) :: field_config
@@ -216,6 +221,9 @@ contains
   end if
   adaptive_potential_step = 0.0_dp
 
+  shared_pool = trim(app%sim%particle_distribution) == 'shared'
+  if (shared_pool) call pool_counter%init(mpi_ctx)
+
   do local_batch_idx = 1_i32, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
     batch_idx = stats%batches + 1_i32
@@ -270,8 +278,8 @@ contains
         kinetic_reservoir_density_m3=surface_closure%inflow_reservoir_density_m3 &
         )
       call prepare_batch_state( &
-        mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, mpi_ctx, inject_state, &
-        photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
+        mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi_ctx, &
+        inject_state, photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
         )
       call perf_region_end(perf_region_prepare_batch, t0)
       fresh_particle_count = pcls_batch%n
@@ -291,13 +299,16 @@ contains
       end if
 
       call perf_region_begin(perf_region_particle_batch, t0)
+      ! Every trial of a batch starts the shared pool from slot 1 again.
+      if (shared_pool) call pool_counter%reset(mpi_ctx)
       call process_particle_batch( &
         mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace, &
         bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
         collision_failure_status, collision_failure_particle, collision_failure_step, &
         collision_failure_x, collision_failure_v, &
         batch_retry_counts, batch_substep_counts, &
-        cell=cell &
+        cell=cell, injection_layout=injection_layout, pool_counter=pool_counter, pool_claims=batch_pool_claims, &
+        pool_claim_seconds=batch_pool_claim_seconds &
         )
       fresh_particle_count = pcls_batch%n
       call perf_region_end(perf_region_particle_batch, t0)
@@ -381,6 +392,14 @@ contains
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_retry_counts)
     call mpi_allreduce_sum_i64_array(mpi_ctx, batch_substep_counts)
     call mpi_allreduce_sum_real_dp_scalar(mpi_ctx, batch_soft_discarded_abs_charge)
+    if (shared_pool) then
+      pool_claim_values = [batch_pool_claim_seconds]
+      pool_claim_counts = [batch_pool_claims]
+      call mpi_allreduce_sum_real_dp_array(mpi_ctx, pool_claim_values)
+      call mpi_allreduce_sum_i64_array(mpi_ctx, pool_claim_counts)
+      batch_pool_claim_seconds = pool_claim_values(1)
+      batch_pool_claims = pool_claim_counts(1)
+    end if
     call perf_region_end(perf_region_mpi_reduce, t0)
     call enforce_soft_discard_limits( &
       app%sim, stats, batch_idx, batch_counts(6), batch_counts(1), batch_soft_discarded_abs_charge, mpi_ctx &
@@ -407,6 +426,10 @@ contains
       stats_candidate, batch_counts, batch_soft_discarded_abs_charge, batch_retry_counts, batch_substep_counts, 0.0_dp &
       )
     stats_candidate%simulated_time = projected_simulated_time
+    if (shared_pool) then
+      stats_candidate%particle_pool_claims = stats%particle_pool_claims + batch_pool_claims
+      stats_candidate%particle_pool_claim_seconds = stats%particle_pool_claim_seconds + batch_pool_claim_seconds
+    end if
     if (adaptive_nonzero_mode) then
       stats_candidate%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
       stats_candidate%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
@@ -494,6 +517,7 @@ contains
     call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
     call perf_region_end(perf_region_batch_total, batch_t0)
   end do
+  if (shared_pool) call pool_counter%destroy()
   call perf_region_end(perf_region_simulation_total, sim_t0)
 !$ if (replay_active) call omp_set_dynamic(omp_dynamic_before)
 

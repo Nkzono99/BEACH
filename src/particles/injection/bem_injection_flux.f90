@@ -1,10 +1,11 @@
 !> Maxwell reservoirの流束、macro粒子数、面速度sampling。
 module bem_injection_flux
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
-  use bem_injection_random, only: sample_shifted_maxwell_velocities
+  use bem_injection_random, only: sample_shifted_maxwell_velocities, sample_standard_normal
+  use bem_counter_rng, only: counter_uniform
   implicit none
   private
 
@@ -15,6 +16,7 @@ module bem_injection_flux
   public :: compute_macro_particles_for_batch
   public :: compute_macro_particles_from_flux
   public :: sample_reservoir_face_particles
+  public :: sample_reservoir_face_particle_counter
   public :: sample_flux_weighted_normal_component
 
 contains
@@ -235,6 +237,52 @@ contains
   !> 標準正規分布の PDF を返す。
   !! @param[in] x 評価点。
   !! @return pdf 標準正規分布の確率密度。
+  !> `sample_reservoir_face_particles` と同じ分布から粒子を 1 つ、counter-based 乱数で生成する。
+  !! 同じ (seed, counter) は常に同じ粒子を返すので、どの rank・thread が生成しても結果は同じ。
+  !! 速度の法線成分は flux-weighted に draw 1、面内位置は draw 2, 3、熱速度は draw 100 以降を使う。
+  !! @param[in] barrier_normal_energy 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（0 なら無し）。
+  !! @param[in] vmin_normal 無限遠法線速度の下限 [m/s]。
+  subroutine sample_reservoir_face_particle_counter( &
+    box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, &
+    barrier_normal_energy, vmin_normal, rng_seed, rng_counter, x, v &
+    )
+    real(dp), intent(in) :: box_min(3), box_max(3)
+    character(len=*), intent(in) :: inject_face
+    real(dp), intent(in) :: pos_low(3), pos_high(3), drift_velocity(3)
+    real(dp), intent(in) :: m_particle, temperature_k, barrier_normal_energy, vmin_normal
+    integer(i32), intent(in) :: rng_seed
+    integer(i64), intent(in) :: rng_counter(:)
+    real(dp), intent(out) :: x(3), v(3)
+    integer :: axis_n, axis_t1, axis_t2
+    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, vn_inf, vn(1), z(3, 1)
+
+    call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
+    call resolve_face_axes(inject_face, axis_t1, axis_t2)
+    if (m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
+    if (temperature_k < 0.0_dp) error stop "temperature [K] must be >= 0"
+    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
+    u_n = dot_product(drift_velocity, inward_normal)
+    vn_floor = 0.0_dp
+    if (barrier_normal_energy > 0.0_dp) vn_floor = sqrt(barrier_normal_energy)
+    vn_floor = max(vn_floor, max(0.0_dp, vmin_normal))
+
+    call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff, rng_seed=rng_seed, rng_counter=rng_counter)
+    v = sigma*z(:, 1) + drift_velocity
+    call sample_flux_weighted_normal_component( &
+      u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, &
+      uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
+      )
+    ! A negative barrier (accelerating sheath) raises the normal speed, exactly as the batch sampler does.
+    vn_inf = sqrt(max(0.0_dp, vn(1)*vn(1) - barrier_normal_energy))
+    v(axis_n) = inward_normal(axis_n)*vn_inf
+
+    x = 0.0_dp
+    ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
+    x(axis_n) = nearest(boundary_value, inward_normal(axis_n))
+    x(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*counter_uniform(rng_seed, rng_counter, 2_i64)
+    x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*counter_uniform(rng_seed, rng_counter, 3_i64)
+  end subroutine sample_reservoir_face_particle_counter
+
   pure real(dp) function standard_normal_pdf(x) result(pdf)
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1

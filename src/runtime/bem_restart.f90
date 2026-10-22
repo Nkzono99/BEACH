@@ -123,7 +123,7 @@ contains
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_legacy_residual
     logical :: checkpoint_complete, checkpoint_has_residual, checkpoint_has_ledger
-    logical :: must_have_checkpoint
+    logical :: must_have_checkpoint, rank_independent_resume
     integer(i32) :: local_rank, world_size, contract_status, residual_species, checkpoint_schema
 
     stats = sim_stats()
@@ -170,7 +170,15 @@ contains
       end if
     end if
 
-    call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
+    ! The shared particle pool keys every draw on the global slot, so a resumed run may use any rank count
+    ! and does not restore the per-rank intrinsic RNG stream.
+    rank_independent_resume = .false.
+    if (present(app)) rank_independent_resume = trim(app%sim%particle_distribution) == 'shared'
+    if (rank_independent_resume) then
+      call load_summary_file(trim(summary_path), mesh%nelem, stats)
+    else
+      call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
+    end if
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
       if (checkpoint_has_ledger) then
@@ -190,7 +198,7 @@ contains
         charge_ledger%surface_charge_after = sum(mesh%q_elem)
       end if
     end if
-    call restore_rng_state(trim(rng_path))
+    if (.not. rank_independent_resume) call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (allocated(state%boundary_macro_residual)) state%boundary_macro_residual = 0.0d0

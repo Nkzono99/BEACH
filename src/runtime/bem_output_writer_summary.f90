@@ -84,6 +84,9 @@ contains
   write (u, '(a,i0)') 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
   write (u, '(a,i0)') 'adaptive_substeps=', stats%adaptive_substeps
   write (u, '(a,i0)') 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
+  write (u, '(a,a)') 'particle_distribution=', trim(cfg%sim%particle_distribution)
+  write (u, '(a,i0)') 'particle_pool_claims=', stats%particle_pool_claims
+  write (u, '(a,es24.16)') 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds
   write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &

@@ -416,7 +416,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | 探索 | `run.restart.from` 直下の最終出力と `slot0` / `slot1` を検査する |
 | 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
 | index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
-| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する。モデル・粒子種の設定変更はハッシュで照合しない |
+| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する（`run.batch.particle_distribution = "shared"` では world size の一致を要求しない）。モデル・粒子種の設定変更はハッシュで照合しない |
 
 `run.restart.from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 

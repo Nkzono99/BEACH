@@ -194,6 +194,10 @@ contains
     print '(a,i0)', 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
     print '(a,i0)', 'adaptive_substeps=', stats%adaptive_substeps
     print '(a,i0)', 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
+    if (stats%particle_pool_claims > 0_i64) then
+      print '(a,i0)', 'particle_pool_claims=', stats%particle_pool_claims
+      print '(a,es12.4)', 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds
+    end if
     print '(a,i0)', 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
     print '(a,es12.4)', 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
     print '(a,es12.4)', 'multiple_box_events_soft_discarded_abs_charge_C=', &

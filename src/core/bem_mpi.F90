@@ -3,6 +3,7 @@ module bem_mpi
   use bem_kinds, only: dp, i32, i64
 #ifdef USE_MPI
   use mpi
+  use, intrinsic :: iso_c_binding, only: c_ptr, c_f_pointer
 #endif
   implicit none
   private
@@ -11,10 +12,39 @@ module bem_mpi
     integer(i32) :: rank = 0_i32
     integer(i32) :: size = 1_i32
     logical :: enabled = .false.
+    !> `MPI_Init_thread` が返した thread support level（非 MPI build では 0）。
+    integer(i32) :: thread_level = 0_i32
 #ifdef USE_MPI
     logical :: initialized_here = .false.
 #endif
   end type mpi_context
+
+  !> rank 0 が保持する 64 bit カウンタを全 rank が fetch-and-add で取り合う、バッチ粒子 slot pool の claim 窓口。
+  !! `claim` は OpenMP の critical 区間から呼ぶ前提で、MPI は `MPI_THREAD_SERIALIZED` 以上を要求する。
+  !! 非 MPI build や 1 rank では rank 内のカウンタに落ちる。
+  type, public :: mpi_shared_counter_type
+    logical :: active = .false.
+    logical :: distributed = .false.
+    !> この rank が窓を持つ（rank 0）。remote の fetch-and-add は窓を持つ rank の MPI 進行で処理される。
+    logical :: hosts_window = .false.
+    !> 次の chunk の fetch-and-add を先に発行してある（結果は `prefetch_result`）。
+    logical :: prefetch_pending = .false.
+    integer(i64) :: local_value = 0_i64
+#ifdef USE_MPI
+    integer :: win = MPI_WIN_NULL
+#endif
+  contains
+    procedure :: init => shared_counter_init
+    procedure :: reset => shared_counter_reset
+    procedure :: claim => shared_counter_claim
+    procedure :: progress => shared_counter_progress
+    procedure :: complete_prefetch => shared_counter_complete_prefetch
+    procedure :: destroy => shared_counter_destroy
+  end type mpi_shared_counter_type
+
+  !> 先行発行した fetch-and-add の結果バッファ。MPI が非同期に書くので volatile にし、run 中は 1 pool だけ使う。
+  integer(i64), save, volatile, target :: prefetch_result = 0_i64
+  integer(i64), save, target :: prefetch_count = 0_i64
 
   public :: mpi_context
   public :: mpi_initialize
@@ -48,15 +78,19 @@ contains
 #ifdef USE_MPI
     logical :: is_initialized
     integer :: ierr
-    integer :: rank_int, size_int
+    integer :: rank_int, size_int, provided
 #endif
     ctx = mpi_context()
 #ifdef USE_MPI
     call MPI_Initialized(is_initialized, ierr)
     if (.not. is_initialized) then
-      call MPI_Init(ierr)
+      ! shared particle pool は OpenMP critical 区間から RMA を呼ぶので SERIALIZED を求める。
+      call MPI_Init_thread(MPI_THREAD_SERIALIZED, provided, ierr)
       ctx%initialized_here = .true.
+    else
+      call MPI_Query_thread(provided, ierr)
     end if
+    ctx%thread_level = int(provided, i32)
 
     call MPI_Comm_rank(MPI_COMM_WORLD, rank_int, ierr)
     call MPI_Comm_size(MPI_COMM_WORLD, size_int, ierr)
@@ -489,6 +523,143 @@ contains
       )
 #endif
   end subroutine mpi_allgatherv_inplace_i32
+
+  !> rank 0 に 1 要素の RMA 窓を作り、全 rank で passive-target lock を張る（collective）。
+  subroutine shared_counter_init(self, ctx)
+    class(mpi_shared_counter_type), intent(inout) :: self
+    type(mpi_context), intent(in) :: ctx
+#ifdef USE_MPI
+    integer(MPI_ADDRESS_KIND) :: window_bytes
+    type(c_ptr) :: base_ptr
+    integer(i64), pointer :: base_value
+    integer :: ierr
+#endif
+
+    call self%destroy()
+    self%active = .true.
+    self%distributed = .false.
+    self%local_value = 0_i64
+#ifdef USE_MPI
+    if (.not. ctx%enabled) return
+    if (ctx%thread_level < MPI_THREAD_SERIALIZED) then
+      error stop 'shared particle pool needs MPI_THREAD_SERIALIZED, but MPI_Init_thread provided less.'
+    end if
+    window_bytes = 0_MPI_ADDRESS_KIND
+    if (ctx%rank == 0_i32) window_bytes = 8_MPI_ADDRESS_KIND
+    call MPI_Win_allocate(window_bytes, 8, MPI_INFO_NULL, MPI_COMM_WORLD, base_ptr, self%win, ierr)
+    if (ierr /= MPI_SUCCESS) error stop 'MPI_Win_allocate failed for the shared particle pool counter.'
+    if (ctx%rank == 0_i32) then
+      call c_f_pointer(base_ptr, base_value)
+      base_value = 0_i64
+    end if
+    call MPI_Win_lock_all(MPI_MODE_NOCHECK, self%win, ierr)
+    call MPI_Barrier(MPI_COMM_WORLD, ierr)
+    self%distributed = .true.
+    self%hosts_window = ctx%rank == 0_i32
+#endif
+  end subroutine shared_counter_init
+
+  !> カウンタを 0 に戻す（collective）。前バッチの claim が全て終わってから呼ぶ。
+  subroutine shared_counter_reset(self, ctx)
+    class(mpi_shared_counter_type), intent(inout) :: self
+    type(mpi_context), intent(in) :: ctx
+#ifdef USE_MPI
+    integer(i64) :: zero_value, previous
+    integer :: ierr
+#endif
+
+    if (.not. self%active) error stop 'shared particle pool counter is not initialized.'
+    self%local_value = 0_i64
+#ifdef USE_MPI
+    if (.not. self%distributed) return
+    call self%complete_prefetch()
+    call MPI_Barrier(MPI_COMM_WORLD, ierr)
+    if (ctx%rank == 0_i32) then
+      zero_value = 0_i64
+      call MPI_Fetch_and_op(zero_value, previous, MPI_INTEGER8, 0, 0_MPI_ADDRESS_KIND, MPI_REPLACE, self%win, ierr)
+      call MPI_Win_flush(0, self%win, ierr)
+    end if
+    call MPI_Barrier(MPI_COMM_WORLD, ierr)
+#endif
+  end subroutine shared_counter_reset
+
+  !> `count` 個を確保し、確保前のカウンタ値（0 始まりの先頭 slot）を返す。
+  subroutine shared_counter_claim(self, count, first)
+    class(mpi_shared_counter_type), intent(inout) :: self
+    integer(i64), intent(in) :: count
+    integer(i64), intent(out) :: first
+#ifdef USE_MPI
+    integer :: ierr
+#endif
+
+#ifdef USE_MPI
+    if (self%distributed) then
+      ! The claim for the next chunk is issued right away and completed at the following call, so the
+      ! round trip to the window owner overlaps with the tracking of the current chunk.
+      if (self%prefetch_pending .and. prefetch_count == count) then
+        call MPI_Win_flush(0, self%win, ierr)
+        first = prefetch_result
+      else
+        if (self%prefetch_pending) call MPI_Win_flush(0, self%win, ierr)
+        call MPI_Fetch_and_op(count, first, MPI_INTEGER8, 0, 0_MPI_ADDRESS_KIND, MPI_SUM, self%win, ierr)
+        call MPI_Win_flush(0, self%win, ierr)
+      end if
+      prefetch_count = count
+      call MPI_Fetch_and_op( &
+        prefetch_count, prefetch_result, MPI_INTEGER8, 0, 0_MPI_ADDRESS_KIND, MPI_SUM, self%win, ierr &
+        )
+      self%prefetch_pending = .true.
+      return
+    end if
+#endif
+    first = self%local_value
+    self%local_value = self%local_value + count
+  end subroutine shared_counter_claim
+
+  !> 窓を持つ rank が MPI の進行エンジンを回し、他 rank から届いた fetch-and-add を処理する。
+  !! passive-target RMA は target が MPI を呼ばないと進まないので、rank 0 の粒子ループから定期的に呼ぶ。
+  subroutine shared_counter_progress(self)
+    class(mpi_shared_counter_type), intent(inout) :: self
+#ifdef USE_MPI
+    integer :: ierr
+    logical :: flag
+    integer :: status(MPI_STATUS_SIZE)
+
+    if (.not. self%distributed .or. .not. self%hosts_window) return
+    call MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, flag, status, ierr)
+    call MPI_Win_flush(0, self%win, ierr)
+#endif
+  end subroutine shared_counter_progress
+
+  !> 先行発行した fetch-and-add があれば完了させて捨てる（barrier の前に呼ぶ）。
+  subroutine shared_counter_complete_prefetch(self)
+    class(mpi_shared_counter_type), intent(inout) :: self
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (self%distributed .and. self%prefetch_pending) call MPI_Win_flush(0, self%win, ierr)
+#endif
+    self%prefetch_pending = .false.
+  end subroutine shared_counter_complete_prefetch
+
+  !> RMA 窓を解放する（collective。`init` した全 rank が呼ぶ）。
+  subroutine shared_counter_destroy(self)
+    class(mpi_shared_counter_type), intent(inout) :: self
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (self%distributed) then
+      call self%complete_prefetch()
+      call MPI_Win_unlock_all(self%win, ierr)
+      call MPI_Win_free(self%win, ierr)
+      self%win = MPI_WIN_NULL
+    end if
+#endif
+    self%distributed = .false.
+    self%hosts_window = .false.
+    self%active = .false.
+    self%local_value = 0_i64
+  end subroutine shared_counter_destroy
 
   !> 全rankの同期ポイント。
   subroutine mpi_world_barrier(ctx)
