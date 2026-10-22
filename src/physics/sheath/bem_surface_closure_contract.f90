@@ -1,8 +1,12 @@
 !> シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。
 module bem_surface_closure_contract
   use bem_kinds, only: dp, i32
+  use bem_runtime_modes, only: closure_mode_none, closure_mode_target, closure_mode_escape_partner, &
+                               closure_mode_tracked_source
   implicit none
   private
+
+  public :: species_closure_mode
 
   type, public :: surface_closure_contract_type
     logical :: active = .false.
@@ -42,5 +46,33 @@ module bem_surface_closure_contract
     !> 外部障壁で戻る粒子を周期セル内の一様な位置へ戻す。
     logical :: outer_return_cell_uniform = .false.
   end type surface_closure_contract_type
+
+contains
+
+  !> 種 species_idx の固定電流 closure 方式（bem_runtime_modes の closure_mode_*）。
+  !! 設定が fixed_current でも外部根の目標もなければ none。方式は contract のフラグから導くので、
+  !! 方式とフラグが食い違うことはない。
+  pure integer(i32) function species_closure_mode(contract, species_idx, configured_fixed_current) result(mode)
+    type(surface_closure_contract_type), intent(in) :: contract
+    integer(i32), intent(in) :: species_idx
+    logical, intent(in) :: configured_fixed_current
+
+    mode = closure_mode_none
+    if (.not. (configured_fixed_current .or. contract%has_absorbed_target(species_idx) .or. &
+               contract%has_emission_target(species_idx) .or. contract%has_escape_target(species_idx))) return
+    mode = closure_mode_target
+    if (allocated(contract%emission_target_from_tracked_source)) then
+      if (contract%emission_target_from_tracked_source(species_idx)) then
+        mode = closure_mode_tracked_source
+        return
+      end if
+    end if
+    if (allocated(contract%escape_partner_species)) then
+      if (contract%escape_partner_species(species_idx) > 0_i32) mode = closure_mode_escape_partner
+    end if
+    if (allocated(contract%reflected_electron_species)) then
+      if (contract%reflected_electron_species(species_idx) > 0_i32) mode = closure_mode_escape_partner
+    end if
+  end function species_closure_mode
 
 end module bem_surface_closure_contract
