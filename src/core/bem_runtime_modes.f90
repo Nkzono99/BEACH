@@ -18,8 +18,15 @@ module bem_runtime_modes
   integer(i32), parameter, public :: surface_charge_closure_neutral_return = 2_i32
   integer(i32), parameter, public :: surface_charge_closure_unknown = -1_i32
 
+  !> fields.periodic.lower_boundary_model（zero mode の下端条件）。
+  integer(i32), parameter, public :: lower_boundary_e_bottom_zero = 0_i32
+  integer(i32), parameter, public :: lower_boundary_symmetric_vacuum = 1_i32
+  integer(i32), parameter, public :: lower_boundary_e_top_from_sheath = 2_i32
+  integer(i32), parameter, public :: lower_boundary_unknown = -1_i32
+
   public :: field_solver_mode_id
   public :: surface_charge_closure_id
+  public :: lower_boundary_model_id
 
 contains
 
@@ -52,5 +59,21 @@ contains
       id = surface_charge_closure_unknown
     end select
   end function surface_charge_closure_id
+
+  !> 'e_bottom_zero' / 'symmetric_vacuum' / 'e_top_from_sheath' を enum へ写す。未知の値は unknown。
+  pure integer(i32) function lower_boundary_model_id(model) result(id)
+    character(len=*), intent(in) :: model
+
+    select case (trim(lower_ascii(model)))
+    case ('e_bottom_zero')
+      id = lower_boundary_e_bottom_zero
+    case ('symmetric_vacuum')
+      id = lower_boundary_symmetric_vacuum
+    case ('e_top_from_sheath')
+      id = lower_boundary_e_top_from_sheath
+    case default
+      id = lower_boundary_unknown
+    end select
+  end function lower_boundary_model_id
 
 end module bem_runtime_modes

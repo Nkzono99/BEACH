@@ -8,6 +8,8 @@ module bem_electrostatic_snapshot
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
                                       validate_upper_fourier_height, physics_config_ok
   use bem_string_utils, only: lower_ascii
+  use bem_runtime_modes, only: lower_boundary_model_id, lower_boundary_e_bottom_zero, &
+                               lower_boundary_symmetric_vacuum, lower_boundary_e_top_from_sheath, lower_boundary_unknown
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
                                          build_periodic_zero_mode_plan, refresh_periodic_zero_mode_state, &
                                          symmetric_vacuum_bottom_field, periodic_zero_mode_ok
@@ -60,6 +62,8 @@ module bem_electrostatic_snapshot
     type(periodic_zero_mode_state_type) :: zero_state
     type(periodic_nonzero_upper_vacuum_plan_type) :: upper_fourier_plan
     type(periodic2_physics_config) :: periodic_options
+    !> periodic_options%lower_boundary_model を init で解決した値。zero mode の更新ごとに文字列を比べない。
+    integer(i32) :: lower_boundary_id = lower_boundary_unknown
     type(electrostatic_diagnostics_type) :: diagnostics
     real(dp) :: gauss_residual = 0.0_dp
     logical :: matching_plane_gauge_active = .false.
@@ -301,6 +305,7 @@ contains
       error stop 'panel_spectral_reference zero-mode plan: '//trim(message)
     end if
     self%periodic_options = periodic_config
+    self%lower_boundary_id = lower_boundary_model_id(periodic_config%lower_boundary_model)
     call refresh_periodic_zero_mode_state( &
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
       self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
@@ -340,6 +345,7 @@ contains
       )
     if (status /= periodic_zero_mode_ok) error stop 'cached_kneq0 zero-mode plan: '//trim(message)
     self%periodic_options = periodic_config
+    self%lower_boundary_id = lower_boundary_model_id(periodic_config%lower_boundary_model)
     call refresh_periodic_zero_mode_state( &
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
       self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
@@ -374,12 +380,12 @@ contains
     class(electrostatic_snapshot_type), intent(in) :: self
     real(dp), intent(in) :: charge(:)
 
-    select case (trim(lower_ascii(self%periodic_options%lower_boundary_model)))
-    case ('e_bottom_zero')
+    select case (self%lower_boundary_id)
+    case (lower_boundary_e_bottom_zero)
       field = 0.0_dp
-    case ('e_top_from_sheath')
+    case (lower_boundary_e_top_from_sheath)
       field = self%matching_plane_top_field - sum(charge)/(eps0*self%zero_plan%area_xy)
-    case ('symmetric_vacuum')
+    case (lower_boundary_symmetric_vacuum)
       field = symmetric_vacuum_bottom_field(self%zero_plan, charge)
     case default
       error stop 'unsupported periodic2 lower boundary model.'
