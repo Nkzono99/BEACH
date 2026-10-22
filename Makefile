@@ -78,7 +78,10 @@ FORTRAN_L1_TARGETS ?= \
 	test_injection_sampling \
 	test_performance_profile \
 	test_output_writer_io \
-	test_output_writer_potential
+	test_output_writer_potential \
+	test_counter_rng \
+	test_particle_pool \
+	test_step_growth
 FORTRAN_L2_TARGETS ?= \
 	test_field_kernel_c \
 	test_periodic_zero_mode_c
