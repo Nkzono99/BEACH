@@ -324,6 +324,46 @@ def test_native_species_diagnostic_uses_public_key_and_index(
     assert "q_particle" not in native.stderr
 
 
+def _photo_raycast_tutorial() -> dict:
+    config = default_config()
+    config["particles"]["species"] = [{
+        "source_mode": "photo_raycast",
+        "q_particle": -1.602176634e-19,
+        "m_particle": 9.1093837139e-31,
+        "temperature_ev": 2.0,
+        "emit_current_density_a_m2": 1.0e-4,
+        "rays_per_batch": 100,
+        "inject_face": "z_high",
+        "pos_low": [0.0, 0.0, 0.07],
+        "pos_high": [0.04, 0.04, 0.07],
+    }]
+    return config
+
+
+def _without_domain(config: dict) -> dict:
+    del config["domain"]
+    config["particle_boundary"] = {}
+    return config
+
+
+@pytest.mark.parametrize("edit, diagnostic", [
+    (lambda config: config, None),
+    (_without_domain, "photo_raycast requires a finite [domain]"),
+    (lambda config: config["sim"].update(batch_duration=0.0) or config,
+     "photo_raycast requires run.batch.duration_s > 0"),
+    (lambda config: config["sim"].update(batch_count=0) or config, "run.batch_count must be > 0"),
+])
+def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_checker, tmp_path):
+    path = _write_config(edit(_photo_raycast_tutorial()), tmp_path)
+    native = subprocess.run([str(native_checker), "--check-config", str(path)], cwd=tmp_path,
+                            text=True, capture_output=True, timeout=20)
+    if diagnostic is None:
+        assert native.returncode == 0, native.stdout + native.stderr
+    else:
+        assert native.returncode != 0
+        assert diagnostic in native.stdout + native.stderr
+
+
 @pytest.mark.parametrize("part, diagnostic", [
     ({"kind": "obj", "path": "unused.obj", "group": "g"}, "group"),
     ({"kind": "obj", "path": "unused.obj", "placement_mode": "absolute"}, "placement_mode"),

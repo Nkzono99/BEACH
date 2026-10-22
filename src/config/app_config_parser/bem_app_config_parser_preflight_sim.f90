@@ -9,6 +9,7 @@ contains
   character(len=6), parameter :: high_faces(3) = ['x_high', 'y_high', 'z_high']
 
   if (cfg%sim%dt <= 0.0_dp) error stop 'particles.tracking.dt_s must be > 0.'
+  if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
   if (.not. ieee_is_finite(cfg%sim%substep_field_change_max) .or. cfg%sim%substep_field_change_max < 0.0_dp) then
     error stop 'particles.tracking.substep_field_change_max must be finite and >= 0.'
   end if

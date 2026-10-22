@@ -49,7 +49,6 @@ contains
   if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
   if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
   if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
-  if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
   if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
     error stop 'Requested batch index is out of range.'
   end if

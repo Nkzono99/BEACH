@@ -100,6 +100,11 @@ contains
     error stop species_config_path(species_idx)//'.source.ray_direction must point inward from '// &
       species_config_path(species_idx)//'.source.inject_face.'
   end if
+  ! 放出サンプラーはバッチごとにこれらの値をそのまま使うので、検査はここだけで行う。
+  if (.not. cfg%sim%use_box) error stop "photo_raycast requires a finite [domain]"
+  if (cfg%sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires run.batch.duration_s > 0"
+  if (spec%m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
+  if (species_temperature_k(spec) < 0.0_dp) error stop "temperature [K] must be >= 0"
 
   cfg%particle_species(species_idx) = spec
   end procedure validate_photo_raycast_species
