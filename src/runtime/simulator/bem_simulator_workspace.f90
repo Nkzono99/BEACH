@@ -15,6 +15,8 @@ module bem_simulator_workspace
     logical, allocatable :: absorbed_flag(:)
     integer(i32), allocatable :: absorbed_element(:)
     logical, allocatable :: soft_discarded_boundary_flag(:)
+    !> 粒子ごとの乱数 id。static では局所 index、shared では global slot（子粒子は親 id から派生）。
+    integer(i64), allocatable :: rng_id(:)
     real(dp), allocatable :: q_before(:)
     real(dp), allocatable :: candidate_charge(:)
     logical :: charge_candidate_ready = .false.
@@ -146,30 +148,40 @@ contains
   subroutine prepare_particle_flags(self, particle_count)
     class(simulator_batch_workspace_type), intent(inout) :: self
     integer(i32), intent(in) :: particle_count
+    integer(i32) :: index
 
     if (particle_count < 0_i32) error stop 'simulator workspace particle count must be >= 0.'
     call ensure_logical_capacity(self%escaped_boundary_flag, particle_count)
     call ensure_logical_capacity(self%absorbed_flag, particle_count)
     call ensure_i32_capacity(self%absorbed_element, particle_count)
     call ensure_logical_capacity(self%soft_discarded_boundary_flag, particle_count)
+    call ensure_i64_capacity(self%rng_id, particle_count)
     self%escaped_boundary_flag(:particle_count) = .false.
     self%absorbed_flag(:particle_count) = .false.
     self%absorbed_element(:particle_count) = -1_i32
     self%soft_discarded_boundary_flag(:particle_count) = .false.
+    do index = 1_i32, particle_count
+      self%rng_id(index) = int(index, i64)
+    end do
   end subroutine prepare_particle_flags
 
   !> Preserve terminal flags of earlier generations when appending secondary particles.
   subroutine extend_particle_flags(self, old_count, new_count)
     class(simulator_batch_workspace_type), intent(inout) :: self
     integer(i32), intent(in) :: old_count, new_count
+    integer(i32) :: index
     call ensure_logical_capacity(self%escaped_boundary_flag, new_count)
     call ensure_logical_capacity(self%absorbed_flag, new_count)
     call ensure_i32_capacity(self%absorbed_element, new_count)
     call ensure_logical_capacity(self%soft_discarded_boundary_flag, new_count)
+    call ensure_i64_capacity(self%rng_id, new_count)
     self%escaped_boundary_flag(old_count + 1:new_count) = .false.
     self%absorbed_flag(old_count + 1:new_count) = .false.
     self%absorbed_element(old_count + 1:new_count) = -1_i32
     self%soft_discarded_boundary_flag(old_count + 1:new_count) = .false.
+    do index = old_count + 1_i32, new_count
+      self%rng_id(index) = int(index, i64)
+    end do
   end subroutine extend_particle_flags
 
   subroutine ensure_logical_capacity(values, required_size)
@@ -184,6 +196,19 @@ contains
     if (allocated(values)) grown(:size(values)) = values
     call move_alloc(grown, values)
   end subroutine ensure_logical_capacity
+
+  subroutine ensure_i64_capacity(values, required_size)
+    integer(i64), allocatable, intent(inout) :: values(:)
+    integer(i32), intent(in) :: required_size
+    integer(i64), allocatable :: grown(:)
+
+    if (allocated(values)) then
+      if (size(values) >= required_size) return
+    end if
+    allocate (grown(required_size))
+    if (allocated(values)) grown(:size(values)) = values
+    call move_alloc(grown, values)
+  end subroutine ensure_i64_capacity
 
   subroutine ensure_i32_capacity(values, required_size)
     integer(i32), allocatable, intent(inout) :: values(:)

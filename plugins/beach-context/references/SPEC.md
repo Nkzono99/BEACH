@@ -453,7 +453,6 @@ SEE と同じ規格化で窓の源に加え、各バッチで追跡したその�
 - `fixed_current_history.csv`（固定電流 closure があり履歴出力時。species・channel 別の追跡電荷と目標電荷）
 - `charge_ledger.csv`（ledger がある場合）
 - `secondary_emission_history.csv`（SEE 有効な入射種がある場合。受理バッチごと）
-- `rng_state.txt`、MPI では `rng_state_rankNNNNN.txt`
 - `macro_residuals.csv`
 - `checkpoint_complete.txt`
 - `performance_profile.csv`（`BEACH_PROFILE=1`）
@@ -479,10 +478,13 @@ schema v6 の `macro_residuals.csv` は `species_idx,face,residual` を持ち、
 `1..6` は boundary face です。旧 2 列形式は読み込み互換です。
 schema v9は`matching_plane_*`の外部状態（放出源、壁電位、return/escape flux、採用根数と相対変化）を`summary.txt`へ
 保存します。外部根を更新しないmodelではこれらを無効値として保持し、v8以前のload可能なcheckpointとの互換性を維持します。
-現行 schema v10 は model / species / response-content fingerprint の出力と照合を廃止します。
+schema v10 は model / species / response-content fingerprint の出力と照合を廃止します。
 v2〜v9 も引き続き読み、旧 fingerprint は無視します。メッシュ識別子の計算法と状態配列の形式は変更しません。
+schema v11 は乱数状態ファイルを保存しません。乱数はすべて (seed, batch, slot, ...) で決まる PCG64 の counter-based
+乱数で、checkpoint は rank 数に依存しません。v10 以前の checkpoint は rank 別 `rng_state*.txt` の存在を確認して読み、
+内容は使いません。
 以前の実行条件は設定ファイルと summary の具体的な値で確認してください。
-必須ファイルの欠落、world size の不一致、非有限値、保存ファイルが要求する配列形状や mesh 要素数の不一致は
+必須ファイルの欠落、非有限値、保存ファイルが要求する配列形状や mesh 要素数の不一致は
 新規実行へ fallback せず停止します。
 
 ## 10. 設計方針

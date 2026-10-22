@@ -10,7 +10,7 @@ program test_mpi_hybrid
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             init_particle_batch_from_config, particle_inflow_reservoir
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
+  use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
@@ -115,7 +115,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(8)
+  call test_init(10)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -185,6 +185,14 @@ program test_mpi_hybrid
 
   call test_begin('mpi_neutral_return_layout_invariance')
   call run_mpi_neutral_return_layout_test(mpi)
+  call test_end()
+
+  call test_begin('mpi_shared_pool_rank_independent')
+  call run_mpi_shared_pool_test(mpi, 'shared')
+  call test_end()
+
+  call test_begin('mpi_static_slots_rank_independent')
+  call run_mpi_shared_pool_test(mpi, 'static')
   call test_end()
 
   call test_begin('mpi_history')
@@ -268,7 +276,6 @@ program test_mpi_hybrid
   state%macro_residual(1) = 0.25d0 + 0.01d0*real(mpi%rank, dp)
   state%boundary_macro_residual = 0.0_dp
   state%boundary_macro_residual(2, 1) = 0.5_dp + 0.01_dp*real(mpi%rank, dp)
-  call write_rng_state_file(out_dir, mpi=mpi)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
 
@@ -544,6 +551,110 @@ contains
       'neutral-return MPI ledger residual must close' &
       )
   end subroutine run_mpi_neutral_return_layout_test
+
+  !> shared pool: 全 rank で slot を取り合った結果が、root だけで同じ pool を処理した結果と一致する。
+  !! さらにその checkpoint を別の rank 数で読み戻せる。
+  subroutine run_mpi_shared_pool_test(mpi, distribution)
+    type(mpi_context), intent(in) :: mpi
+    character(len=*), intent(in) :: distribution
+    integer(i32), parameter :: rays_per_batch = 2048_i32
+    integer(i32), parameter :: signature_size = 13_i32
+    character(len=*), parameter :: pool_dir = 'test_mpi_hybrid_pool_tmp'
+    type(mesh_type) :: reference_mesh, pool_mesh, resume_mesh
+    type(app_config) :: reference_cfg, pool_cfg
+    type(sim_stats) :: reference_stats, pool_stats, resume_stats
+    type(charge_ledger_type) :: reference_ledger, pool_ledger
+    real(dp) :: reference_signature(signature_size), pool_signature(signature_size), tolerance
+    integer(i64) :: reference_counts(4), pool_counts(4)
+    integer(i32) :: value_index
+    logical :: pool_has_restart
+    character(len=128) :: assertion_message
+    character(len=1024) :: pool_checkpoint_dir
+
+    call cleanup_pool_dir(mpi, pool_dir)
+    if (mpi_is_root(mpi)) call ensure_directory(pool_dir)
+    call mpi_world_barrier(mpi)
+
+    reference_signature = 0.0_dp
+    reference_counts = 0_i64
+    if (mpi_is_root(mpi)) then
+      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_batch)
+      reference_cfg%sim%particle_distribution = distribution
+      reference_cfg%sim%particle_pool_chunk = 5_i32
+      call seed_particles_from_config(reference_cfg)
+      call run_absorption_insulator( &
+        reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger &
+        )
+      call pack_neutral_return_signature(reference_mesh, reference_ledger, reference_signature)
+      reference_counts = [ &
+                         reference_ledger%emitted_count(1), reference_ledger%absorbed_count(1), &
+                         reference_ledger%discarded_unresolved_count(1), reference_stats%processed_particles &
+                         ]
+    end if
+    call mpi_allreduce_sum_real_dp_array(mpi, reference_signature)
+    call mpi_allreduce_sum_i64_array(mpi, reference_counts)
+
+    call setup_mpi_neutral_return_fixture(pool_mesh, pool_cfg, rays_per_batch)
+    pool_cfg%sim%particle_distribution = distribution
+    pool_cfg%sim%particle_pool_chunk = 5_i32
+    pool_cfg%output_dir = pool_dir
+    pool_cfg%checkpoint_stride = 1_i32
+    call seed_particles_from_config(pool_cfg, mpi=mpi)
+    call run_absorption_insulator(pool_mesh, pool_cfg, pool_stats, mpi=mpi, charge_ledger=pool_ledger)
+    call pack_neutral_return_signature(pool_mesh, pool_ledger, pool_signature)
+    pool_counts = [pool_ledger%emitted_count(1), pool_ledger%absorbed_count(1), pool_ledger%discarded_unresolved_count(1), &
+                   pool_stats%processed_particles]
+
+    do value_index = 1_i32, signature_size
+      tolerance = 1.0e-11_dp*max(1.0_dp, abs(reference_signature(value_index)))
+      write (assertion_message, '(a,i0)') 'shared pool signature must not depend on the rank count: index ', value_index
+      call assert_close_dp(pool_signature(value_index), reference_signature(value_index), tolerance, &
+                           trim(assertion_message))
+    end do
+    do value_index = 1_i32, 4_i32
+      write (assertion_message, '(a,i0)') 'shared pool count must not depend on the rank count: index ', value_index
+      call assert_equal_i64(pool_counts(value_index), reference_counts(value_index), trim(assertion_message))
+    end do
+    if (distribution == 'shared') then
+      call assert_true(pool_stats%particle_pool_claims >= int(mpi%size, i64), 'every rank should claim pool slots')
+    end if
+
+    ! The pool keys every draw on the global slot, so the checkpoint may be resumed with another rank count.
+    call resolve_latest_checkpoint_dir(pool_dir, pool_checkpoint_dir)
+    call init_mesh(resume_mesh, pool_mesh%v0, pool_mesh%v1, pool_mesh%v2)
+    resume_mesh%elem_vacuum_sign = 1_i32
+    resume_mesh%vacuum_normals = resume_mesh%normals
+    call load_restart_checkpoint( &
+      trim(pool_checkpoint_dir), resume_mesh, resume_stats, pool_has_restart, mpi_rank=0_i32, mpi_size=mpi%size + 1_i32, &
+      app=pool_cfg &
+      )
+    call assert_true(pool_has_restart, 'shared pool checkpoint should load with a different rank count')
+    call assert_equal_i32(resume_stats%batches, 1_i32, 'shared pool resumed batch count mismatch')
+    call assert_equal_i64(resume_stats%processed_particles, pool_stats%processed_particles, &
+                          'shared pool resumed processed_particles mismatch')
+    call mpi_world_barrier(mpi)
+    call cleanup_pool_dir(mpi, pool_dir)
+  end subroutine run_mpi_shared_pool_test
+
+  subroutine cleanup_pool_dir(mpi, pool_dir)
+    type(mpi_context), intent(in) :: mpi
+    character(len=*), intent(in) :: pool_dir
+    character(len=1024) :: pool_rng_path
+
+    pool_rng_path = restart_rng_state_path(pool_dir//'/checkpoints/slot0', mpi=mpi)
+    call delete_file_if_exists(pool_rng_path)
+    pool_rng_path = restart_rng_state_path(pool_dir, mpi=mpi)
+    call delete_file_if_exists(pool_rng_path)
+    call mpi_world_barrier(mpi)
+    if (mpi_is_root(mpi)) then
+      call cleanup_periodic_slot(pool_dir//'/checkpoints/slot0')
+      call delete_file_if_exists(pool_dir//'/checkpoint_latest.txt')
+      call delete_file_if_exists(pool_dir//'/checkpoint_latest.txt.tmp')
+      call remove_empty_directory(pool_dir//'/checkpoints')
+      call remove_empty_directory(pool_dir)
+    end if
+    call mpi_world_barrier(mpi)
+  end subroutine cleanup_pool_dir
 
   subroutine cleanup_periodic_slot(slot_dir)
     character(len=*), intent(in) :: slot_dir

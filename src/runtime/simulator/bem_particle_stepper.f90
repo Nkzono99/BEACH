@@ -14,7 +14,7 @@ module bem_particle_stepper
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type
   use bem_irradiation_cell_contract, only: irradiation_cell_contract_type
-  use bem_counter_rng, only: counter_hash_mix
+  use bem_counter_rng, only: counter_uniform
   implicit none
   private
 
@@ -48,13 +48,17 @@ contains
 
   !> step 候補の中点電場 e_mid が参照電場 e_ref から change_max の割合より大きく変わり、
   !! その差が変位 x1-x0 にわたる仕事に換算して床値を超えるとき真。
-  pure logical function particle_substep_needs_halving(e_mid, e_ref, q, x0, x1, change_max) result(needs)
+  !! @param[in] energy_floor 仕事の床値 [J]（省略時は `particle_substep_energy_floor_j`）。
+  pure logical function particle_substep_needs_halving(e_mid, e_ref, q, x0, x1, change_max, energy_floor) result(needs)
     real(dp), intent(in) :: e_mid(3), e_ref(3), q, x0(3), x1(3), change_max
-    real(dp) :: change
+    real(dp), intent(in), optional :: energy_floor
+    real(dp) :: change, floor_j
 
+    floor_j = particle_substep_energy_floor_j
+    if (present(energy_floor)) floor_j = max(floor_j, energy_floor)
     change = norm2(e_mid - e_ref)
     needs = change > change_max*max(norm2(e_mid), norm2(e_ref)) .and. &
-            abs(q)*change*norm2(x1 - x0) > particle_substep_energy_floor_j
+            abs(q)*change*norm2(x1 - x0) > floor_j
   end function particle_substep_needs_halving
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。
@@ -889,25 +893,15 @@ contains
                (.not. has_open .or. event_uses_kinetic_barrier(event, boundary_contract))
   end function event_requires_redistribution_counter
 
-  !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する。
-  pure subroutine generate_redistribution_uniform(seed, counter, event_index, uniform)
+  !> 粒子event識別子からOpenMP実行順序に依存しない一様乱数を構築する（PCG64 counter-based）。
+  subroutine generate_redistribution_uniform(seed, counter, event_index, uniform)
     integer(i32), intent(in) :: seed, event_index
     integer(i64), intent(in) :: counter(4)
     real(dp), intent(out) :: uniform(3)
-    integer(i32) :: axis, item
-    integer(i64) :: state
-    integer(i64), parameter :: hash_modulus = 2147483647_i64
+    integer(i32) :: axis
 
     do axis = 1_i32, 3_i32
-      state = counter_hash_mix(104729_i64, int(seed, i64), 37_i64*int(axis, i64))
-      state = counter_hash_mix(state, int(axis, i64), 1009_i64)
-      do item = 1_i32, 4_i32
-        state = counter_hash_mix(state, counter(item), 7919_i64*int(item, i64))
-      end do
-      state = counter_hash_mix(state, int(event_index, i64), 104729_i64)
-      state = counter_hash_mix(state, counter(3), 13007_i64*int(axis, i64))
-      state = counter_hash_mix(state, counter(1), 433494437_i64)
-      uniform(axis) = (real(state, dp) - 0.5_dp)/real(hash_modulus, dp)
+      uniform(axis) = counter_uniform(seed, [counter, int(event_index, i64), 1009_i64], int(axis, i64))
     end do
   end subroutine generate_redistribution_uniform
 

@@ -5,12 +5,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- 乱数をすべて PCG64（[pcg-cpp-fortran-bind](https://github.com/Nkzono99/pcg-cpp-fortran-bind)、DRIFT・MPIEMSES3D と同じ
+  revision）に切り替えた。粒子注入・境界イベント・二次電子は (seed, batch, slot, ...) を Murmur3 で 128 bit の鍵にした
+  counter-based 乱数、単体の sampling API は seed と thread から開く逐次 PCG64 stream を使う。Fortran 組み込みの
+  `random_number` と自前の 31 bit ハッシュ乱数は使わない。同じ seed でも 3.7.x とは粒子列が変わる。
+- バッチの粒子は種・source・面ごとの global slot に並べて生成する。既定の `run.batch.particle_distribution = "static"` は
+  slot を rank に連続区間で割り振り、粒子ごとの境界・二次電子乱数も global slot で決まるので、同じ seed ならバッチの
+  粒子集合は rank 数に依らない。
+- checkpoint schema v11 は乱数状態ファイル（`rng_state.txt` / `rng_state_rankNNNNN.txt`）を書かず、再開時に MPI
+  rank 数の一致を要求しない。v10 以前の checkpoint はこれまでどおり読み、乱数状態ファイルは存在だけを確認する。
+- MPI 版は `MPI_Init_thread(MPI_THREAD_SERIALIZED)` で初期化する（`shared` の claim を OpenMP critical 区間から呼ぶため）。
+- build に C++ コンパイラが必要になった（fpm が `icpx` / `g++` などを使う）。
+
 ### Added
 
+- `particles.tracking.step_growth`（既定 `false`）、`step_growth_max`（既定 5）、`step_growth_energy_fraction`（既定 0.01）。
+  場の変化が小さい領域で粒子の step を `dt_s` の 2^n 倍まで伸ばす。受理した step の中点電場の変化が
+  `substep_field_change_max` の 4 分の 1 未満（または変化 × 変位の仕事が 1e-4 eV と運動エネルギーの
+  `step_growth_energy_fraction` 倍の大きい方以下）なら次の step を 2 倍にし、大きければ既存の半分化で戻す。
+  `substep_field_change_max` が 0 なら 0.05 を自動で使う。本番相当の入力では step の 4 分の 3 が粒子層から 20 µm 以上
+  離れた弱い場にあり、粒子追跡が 4.4 倍速くなった（最長の捕捉光電子は 20 万 push から 3 千 push、455 ms から 43 ms）。
+  吸収・脱出数と表面電荷は実行間の揺らぎの範囲で一致した。`summary.txt` に `adaptive_grown_steps=` と
+  `adaptive_step_growth_max=` を記録する。
+- `run.batch.particle_distribution`（既定 `"static"`）と `run.batch.particle_pool_chunk`（既定 64）。`"shared"` で全 rank
+  共有の slot pool を rank 0 のカウンタ（MPI RMA fetch-and-add、次の chunk を先行要求して粒子追跡と重ねる）から
+  chunk ずつ取り合い、rank 内では thread が 1 slot ずつ受け取る。rank 間の粒子追跡負荷を動的に均す。`summary.txt` に
+  `particle_distribution=`、`particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する。
 - `fields.solver.near_field_precision`（既定 `"double"`）。`"single"` で FMM 近接場の葉ごとの panel 表を葉中心基準の
   単精度で持ち、8 レーン SIMD の核で和を取る。本番相当の入力でその和が約 1.5 倍速く、場の相対誤差は 10⁻⁶ 程度で
-  展開次数 4 の FMM 打ち切り（2×10⁻⁴）の 100 分の 1。平面上の点は従来どおり倍精度の核に落ちる。既定の `double` は
-  従来と bit 単位で同じ結果。`summary.txt` に `field_near_field_precision=` を記録する。
+  展開次数 4 の FMM 打ち切り（2×10⁻⁴）の 100 分の 1。平面上の点は倍精度の核に落ちる。`summary.txt` に
+  `field_near_field_precision=` を記録する。
+- `bem_counter_rng`（PCG64 counter-based の `counter_uniform`、`counter_key`、`counter_child_id`）と逐次 PCG64 stream の
+  `bem_random_stream`（`seed_random_stream`、`random_uniform`）。
+- `bem_injection` に counter-based の単一粒子生成 `sample_reservoir_face_particle_counter`、
+  `sample_photo_ray_slot`、`cast_photo_ray`、`photo_ray_macro_weight` を追加し、`bem_app_config` に
+  バッチ注入 layout `batch_injection_layout_type` / `build_batch_injection_layout` / `generate_batch_slot` を追加。
 
 ## [3.7.1] - 2026-10-22
 

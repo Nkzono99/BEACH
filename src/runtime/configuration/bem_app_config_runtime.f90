@@ -6,6 +6,8 @@ module bem_app_config_runtime
     append_triangles, append_mesh_ids, append_real_values, surface_model_id_from_name
   use bem_app_config_particle_runtime, only: &
     particle_source_plan_type, seed_particles_from_config, &
+    batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot, &
+    slot_kind_none, slot_kind_volume, slot_kind_photo_ray, slot_kind_reservoir_face, &
     build_particle_source_plan, init_particle_batch_from_config, sample_species_state, &
     has_boundary_inflow, boundary_inflow_face_enabled, &
     make_boundary_inflow_spec, boundary_face_name, &

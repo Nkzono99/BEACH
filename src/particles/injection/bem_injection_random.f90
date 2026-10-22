@@ -5,6 +5,7 @@ module bem_injection_random
   use bem_particles, only: allocate_particles
   use bem_types, only: particles_soa
   use bem_counter_rng, only: counter_uniform
+  use bem_random_stream, only: seed_random_stream, random_uniform
   implicit none
   private
 
@@ -18,28 +19,18 @@ module bem_injection_random
 
 contains
 
-  !> 与えたシード列またはシステム時刻からFortran乱数生成器を初期化する。
+  !> 与えたシード列またはシステム時刻から逐次 PCG64 乱数列を初期化する。
   !! @param[in] seed 乱数生成器へ与えるシード列（省略時は `system_clock` 値から生成）。
   subroutine seed_rng(seed)
     integer(i32), intent(in), optional :: seed(:)
-    integer :: n, i, clk
-    integer, allocatable :: put(:)
-
-    call random_seed(size=n)
-    allocate (put(n))
+    integer(i64) :: clk
 
     if (present(seed)) then
-      do i = 1, n
-        put(i) = seed(mod(i - 1, size(seed)) + 1) + 104729*i
-      end do
+      call seed_random_stream(seed)
     else
       call system_clock(count=clk)
-      do i = 1, n
-        put(i) = clk + 37*i
-      end do
+      call seed_random_stream([int(iand(clk, 2147483647_i64), i32), int(iand(ishft(clk, -31), 2147483647_i64), i32)])
     end if
-
-    call random_seed(put=put)
   end subroutine seed_rng
 
   !> 直方体領域 `[low, high]` 内で一様分布の初期位置をサンプリングする。
@@ -56,7 +47,7 @@ contains
     if (any(high < low)) error stop "high must be >= low for all axes"
 
     span = high - low
-    call random_number(x)
+    call random_uniform(x)
     do i = 1, size(x, 2)
       x(:, i) = low + span*x(:, i)
     end do
@@ -157,8 +148,8 @@ contains
         u2 = counter_uniform(rng_seed, rng_counter, draw + 1_i64)
         draw = draw + 2_i64
       else
-        call random_number(u1)
-        call random_number(u2)
+        call random_uniform(u1)
+        call random_uniform(u2)
       end if
       if (u1 <= tiny(1.0_dp)) u1 = tiny(1.0_dp)
       r = sqrt(-2.0_dp*log(u1))

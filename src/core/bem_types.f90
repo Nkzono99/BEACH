@@ -28,6 +28,11 @@ module bem_types
     real(dp) :: substep_field_change_max = 0.0d0
     !> 1 つの dt を半分にする回数の上限（最小 sub-step は dt/2^n）。
     integer(i32) :: substep_max_halvings = 6_i32
+    !> 場の変化が小さい領域で step を `dt_s` の 2^n 倍まで伸ばす（opt-in）。有効時に `substep_field_change_max` が 0 なら 0.05 を使う。
+    logical :: step_growth = .false.
+    integer(i32) :: step_growth_max = 5_i32
+    !> 伸長時の仕事の床値を運動エネルギーのこの割合にする（1e-4 eV との大きい方）。
+    real(dp) :: step_growth_energy_fraction = 1.0d-2
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
     character(len=16) :: field_solver = 'auto'
@@ -58,6 +63,10 @@ module bem_types
     real(dp) :: b0(3) = 0.0d0
     character(len=32) :: reservoir_potential_model = 'none'
     real(dp) :: phi_infty = 0.0d0
+    !> バッチ粒子の rank 配分。`static` は rank ごとに固定分割、`shared` は全 rank 共有の slot pool を chunk 単位で取り合う。
+    character(len=8) :: particle_distribution = 'static'
+    !> `shared` で 1 回の claim が取る slot 数。
+    integer(i32) :: particle_pool_chunk = 64_i32
     character(len=32) :: multiple_box_events_policy = 'abort'
     character(len=32) :: multiple_box_events_retry_backend = 'none'
     integer(i32) :: multiple_box_events_soft_discard_count_grace = 1000_i32
@@ -87,6 +96,8 @@ module bem_types
     integer(i64) :: adaptive_substep_halved_steps = 0_i64
     integer(i64) :: adaptive_substeps = 0_i64
     integer(i64) :: adaptive_substep_depth_limited_steps = 0_i64
+    !> step 伸長で `dt_s` より長く進めた push の数。
+    integer(i64) :: adaptive_grown_steps = 0_i64
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
     real(dp) :: simulated_time = 0.0_dp
@@ -94,6 +105,9 @@ module bem_types
     real(dp) :: adaptive_nonzero_mode_last_batch_duration = 0.0_dp
     real(dp) :: adaptive_nonzero_mode_last_potential_step = 0.0_dp
     integer(i32) :: adaptive_nonzero_mode_omp_threads = 0_i32
+    !> shared particle pool の claim 回数と、claim の critical 区間で費やした秒数（全 rank 合計）。
+    integer(i64) :: particle_pool_claims = 0_i64
+    real(dp) :: particle_pool_claim_seconds = 0.0_dp
     logical :: matching_plane_state_valid = .false.
     real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
     real(dp) :: matching_plane_phi_v = 0.0_dp
