@@ -95,25 +95,18 @@ contains
     total_rays = rays_per_batch
     if (present(global_rays_per_batch)) total_rays = global_rays_per_batch
     if (total_rays <= 0_i32) error stop "global_rays_per_batch must be > 0"
-    if (.not. sim%use_box) error stop "photo_raycast requires a finite [domain]"
-    if (sim%batch_duration <= 0.0_dp) error stop "photo_raycast requires run.batch.duration_s > 0"
-    if (m_particle <= 0.0_dp) error stop "particle mass [kg] must be > 0"
-    if (temperature_k < 0.0_dp) error stop "temperature [K] must be >= 0"
-    if (emit_current_density_a_m2 <= 0.0_dp) error stop "emission current density [A/m^2] must be > 0"
-    if (abs(q_particle) <= 0.0_dp) error stop "particle charge [C] must be non-zero"
+    ! 領域・バッチ幅・質量・温度・電荷・開口・入射方向は preflight（validate_photo_raycast_species 等）が検査済み。
+    ! 放出電流密度は呼び出し側が正のときだけサンプルする。
 
     call resolve_face_geometry(sim%box_min, sim%box_max, inject_face, axis_n, boundary_value, inward_normal)
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
 
     launch_dir = ray_direction
     launch_dir_norm = sqrt(sum(launch_dir*launch_dir))
-    if (launch_dir_norm <= 0.0_dp) error stop "ray direction norm must be > 0"
     launch_dir = launch_dir/launch_dir_norm
     inward_dot = dot_product(launch_dir, inward_normal)
-    if (inward_dot <= 0.0_dp) error stop "ray direction must point inward from injection face"
 
     launch_area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    if (launch_area <= 0.0_dp) error stop "photo_raycast opening area must be positive"
     projected_area = launch_area*abs(inward_dot)
     w_hit = emit_current_density_a_m2*projected_area*sim%batch_duration/(abs(q_particle)*real(total_rays, dp))
     if (w_hit <= 0.0_dp) error stop "photo_raycast produced invalid w_hit"
