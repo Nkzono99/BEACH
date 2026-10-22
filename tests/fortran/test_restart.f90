@@ -322,6 +322,8 @@ program test_restart
   call ensure_directory(out_dir)
   call write_summary_fixture(out_dir)
   call write_charges_fixture(out_dir)
+  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists its RNG state file.
+  call touch_file(out_dir//'/rng_state.txt')
   state%macro_residual = [0.25_dp, 0.75_dp]
   call write_macro_residuals_file(out_dir, state)
   inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
