@@ -1,6 +1,7 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
   use bem_kinds, only: dp, i32, i64
+  use bem_mpi, only: mpi_context
   use bem_panel_geometry, only: panel_geometry_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
   use bem_periodic_shell_mean, only: periodic_shell_mean_plan_type, periodic_shell_mean_state_type, &
@@ -47,6 +48,9 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_operator_anchor_cells(3) = -1_i32
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
+    !> cached_kneq0 の root operator を rank で分担して作るときの MPI 文脈。呼び出し側（runtime）が渡す。
+    !! 既定は単一 rank で、collective は何もしない（C ABI・テスト・非 MPI build）。
+    type(mpi_context) :: mpi
   end type fmm_options_type
 
   type :: periodic2_ewald_data_type

@@ -4,6 +4,7 @@ module bem_electrostatic_snapshot
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi
   use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_mpi, only: mpi_context
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
                                       validate_upper_fourier_height, physics_config_ok
@@ -159,13 +160,15 @@ module bem_electrostatic_snapshot
 
 contains
 
-  subroutine init_electrostatic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config)
+  !> mpi は cached_kneq0 の root operator を rank で分担して作るときの文脈。全 rank が同じ引数で呼ぶ。
+  subroutine init_electrostatic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(field_physics_config), intent(in), optional :: field_config
     type(periodic2_physics_config), intent(in), optional :: periodic_config
     type(panel_kernel_config), intent(in), optional :: panel_config
+    type(mpi_context), intent(in), optional :: mpi
 
     self%prescribed_e = sim%e0
     self%prescribed_phi_origin = 0.0_dp
@@ -189,13 +192,13 @@ contains
         if (.not. present(field_config) .or. .not. present(panel_config)) then
           error stop 'cached_kneq0 requires typed field and panel configuration.'
         end if
-        call init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config)
+        call init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
         return
       end if
     end if
 
     if (present(field_config) .and. present(periodic_config) .and. present(panel_config)) then
-      call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config)
+      call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config, mpi=mpi)
     else
       call self%nonzero_solver%init(mesh, sim)
     end if
@@ -318,13 +321,14 @@ contains
     self%diagnostics%status = 'panel_spectral_reference'
   end subroutine init_panel_spectral_snapshot
 
-  subroutine init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config)
+  subroutine init_cached_periodic_snapshot(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(field_physics_config), intent(in) :: field_config
     type(periodic2_physics_config), intent(in) :: periodic_config
     type(panel_kernel_config), intent(in) :: panel_config
+    type(mpi_context), intent(in), optional :: mpi
     integer(i32) :: status
     character(len=256) :: message
 
@@ -350,7 +354,7 @@ contains
       self%zero_plan, mesh%q_elem, zero_mode_bottom_field(self, mesh%q_elem), &
       self%zero_plan%break_z(1), 0.0_dp, self%zero_state &
       )
-    call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config)
+    call self%nonzero_solver%init(mesh, sim, field_config, periodic_config, panel_config, mpi=mpi)
     self%use_cached_kneq0 = .true.
     self%use_zero_mode = .true.
     self%periodic_length = sim%box_max(1:2) - sim%box_min(1:2)

@@ -117,6 +117,7 @@ contains
   self%fmm_core_options%periodic_generation_tolerance = self%periodic_generation_tolerance
   self%fmm_core_options%target_box_min = (self%target_box_min - self%field_origin)*self%field_inv_length_scale
   self%fmm_core_options%target_box_max = (self%target_box_max - self%field_origin)*self%field_inv_length_scale
+  if (present(mpi)) self%fmm_core_options%mpi = mpi
 
   if (self%mode_id == field_solver_mode_fmm) then
     select case (trim(self%periodic_far_correction))

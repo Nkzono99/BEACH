@@ -2,7 +2,7 @@
 module bem_coulomb_fmm_periodic_root_ops
 !$ use omp_lib, only: omp_get_num_threads
   use bem_kinds, only: dp, i32, i64
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown, mpi_is_root, mpi_get_rank_size, &
+  use bem_mpi, only: mpi_context, mpi_is_root, mpi_get_rank_size, &
                      mpi_allreduce_sum_real_dp_array, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_filesystem, only: create_directories, filesystem_success, acquire_file_lock, release_file_lock
   use bem_coulomb_fmm_types, only: fmm_plan_type, periodic_operator_proxy_shell_scale, periodic_source_proxy_half_size
@@ -47,7 +47,6 @@ contains
     type(fmm_plan_type), intent(inout) :: plan
     ! Internal verification path: false computes every pair independently and bypasses disk cache.
     logical, intent(in), optional :: reuse_translations
-    type(mpi_context) :: mpi
     logical :: reuse
 
     if (allocated(plan%periodic_root_operator)) deallocate (plan%periodic_root_operator)
@@ -62,11 +61,10 @@ contains
     plan%periodic_cache_fingerprint = ''
     plan%periodic_cache_path = ''
     if (use_periodic2_cached_kneq0(plan)) then
-      call mpi_initialize(mpi)
       reuse = .true.
       if (present(reuse_translations)) reuse = reuse_translations
-      call precompute_periodic_cached_operator_collective(plan, mpi, reuse)
-      call mpi_shutdown(mpi)
+      ! MPI の初期化・終了は呼び出し側の責務。rank の分担は plan の options が持つ文脈に従う。
+      call precompute_periodic_cached_operator_collective(plan, plan%options%mpi, reuse)
     end if
   end subroutine precompute_periodic_root_operator
 
