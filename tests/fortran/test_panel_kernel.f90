@@ -26,6 +26,9 @@ program test_panel_kernel
   real(dp) :: batch_charge(batch_panels), batch_shift1(batch_entries), batch_shift2(batch_entries)
   real(dp) :: sum_ex, sum_ey, sum_ez, sum_phi, ref_ex, ref_ey, ref_ez, ref_phi
   integer(i32) :: batch_index(batch_entries), panel_idx, entry
+  real(dp) :: tab_vx(3, batch_entries), tab_vy(3, batch_entries), tab_vz(3, batch_entries)
+  real(dp) :: tab_nx(batch_entries), tab_ny(batch_entries), tab_nz(batch_entries), tab_edge(3, batch_entries)
+  real(dp) :: tab_ox(3, batch_entries), tab_oy(3, batch_entries), tab_oz(3, batch_entries), tab_area(batch_entries)
   real(dp), parameter :: scales(5) = [1.0e-9_dp, 1.0e-6_dp, 1.0_dp, 1.0e3_dp, 1.0e6_dp]
   real(dp), parameter :: offsets(3) = [0.0_dp, 1.0e3_dp, 1.0e6_dp]
 
@@ -177,6 +180,18 @@ program test_panel_kernel
     batch_index(entry) = 1_i32 + int(lcg_uniform()*real(batch_panels, dp), i32)
     batch_shift1(entry) = real(int(3.0_dp*lcg_uniform(), i32) - 1_i32, dp)*2.5_dp
     batch_shift2(entry) = real(int(3.0_dp*lcg_uniform(), i32) - 1_i32, dp)*2.5_dp
+    ! The FMM plan stores each near panel translated as `vertex + shift`, component by component.
+    tab_vx(:, entry) = batch_geom(batch_index(entry))%vertex(1, :) + batch_shift1(entry)
+    tab_vy(:, entry) = batch_geom(batch_index(entry))%vertex(2, :) + batch_shift2(entry)
+    tab_vz(:, entry) = batch_geom(batch_index(entry))%vertex(3, :) + 0.0_dp
+    tab_nx(entry) = batch_geom(batch_index(entry))%normal(1)
+    tab_ny(entry) = batch_geom(batch_index(entry))%normal(2)
+    tab_nz(entry) = batch_geom(batch_index(entry))%normal(3)
+    tab_edge(:, entry) = batch_geom(batch_index(entry))%edge_length
+    tab_ox(:, entry) = batch_geom(batch_index(entry))%edge_outward(1, :)
+    tab_oy(:, entry) = batch_geom(batch_index(entry))%edge_outward(2, :)
+    tab_oz(:, entry) = batch_geom(batch_index(entry))%edge_outward(3, :)
+    tab_area(entry) = batch_geom(batch_index(entry))%area
   end do
   do trial = 1, 3
     select case (trial)
@@ -207,11 +222,12 @@ program test_panel_kernel
     sum_ez = 0.0_dp
     sum_phi = 0.0_dp
     call panel_field_sum_translated( &
-      batch_geom, batch_index, [1_i32, 2_i32], batch_shift1, batch_shift2, batch_charge, batch_entries, target, &
-      sum_ex, sum_ey, sum_ez &
+      batch_entries, tab_vx, tab_vy, tab_vz, tab_nx, tab_ny, tab_nz, tab_edge, tab_ox, tab_oy, tab_oz, tab_area, &
+      batch_index, batch_charge, batch_geom, target, sum_ex, sum_ey, sum_ez &
       )
     call panel_potential_sum_translated( &
-      batch_geom, batch_index, [1_i32, 2_i32], batch_shift1, batch_shift2, batch_charge, batch_entries, target, sum_phi &
+      batch_entries, tab_vx, tab_vy, tab_vz, tab_nx, tab_ny, tab_nz, tab_edge, tab_ox, tab_oy, tab_oz, tab_area, &
+      batch_index, batch_charge, batch_geom, target, sum_phi &
       )
     call assert_close_dp(sum_ex, ref_ex, 0.0_dp, 'batched ex is not bitwise identical')
     call assert_close_dp(sum_ey, ref_ey, 0.0_dp, 'batched ey is not bitwise identical')

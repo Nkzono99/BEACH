@@ -467,10 +467,12 @@ contains
 
     if (plan%panel_source) then
       call panel_field_sum_translated( &
-        plan%panel_geometry, plan%near_source_idx(near_source_begin:near_source_end), axes, &
-        plan%near_source_shift1(near_source_begin:near_source_end), &
-        plan%near_source_shift2(near_source_begin:near_source_end), state%src_q, &
-        near_source_end - near_source_begin + 1_i32, rt, ex, ey, ez &
+        near_source_end - near_source_begin + 1_i32, &
+        plan%near_vx(1, near_source_begin), plan%near_vy(1, near_source_begin), plan%near_vz(1, near_source_begin), &
+        plan%near_nx(near_source_begin), plan%near_ny(near_source_begin), plan%near_nz(near_source_begin), &
+        plan%near_edge(1, near_source_begin), plan%near_ox(1, near_source_begin), plan%near_oy(1, near_source_begin), &
+        plan%near_oz(1, near_source_begin), plan%near_area(near_source_begin), &
+        plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, rt, ex, ey, ez &
         )
       return
     end if
@@ -517,10 +519,12 @@ contains
 
     if (plan%panel_source) then
       call panel_potential_sum_translated( &
-        plan%panel_geometry, plan%near_source_idx(near_source_begin:near_source_end), axes, &
-        plan%near_source_shift1(near_source_begin:near_source_end), &
-        plan%near_source_shift2(near_source_begin:near_source_end), state%src_q, &
-        near_source_end - near_source_begin + 1_i32, rt, phi &
+        near_source_end - near_source_begin + 1_i32, &
+        plan%near_vx(1, near_source_begin), plan%near_vy(1, near_source_begin), plan%near_vz(1, near_source_begin), &
+        plan%near_nx(near_source_begin), plan%near_ny(near_source_begin), plan%near_nz(near_source_begin), &
+        plan%near_edge(1, near_source_begin), plan%near_ox(1, near_source_begin), plan%near_oy(1, near_source_begin), &
+        plan%near_oz(1, near_source_begin), plan%near_area(near_source_begin), &
+        plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, rt, phi &
         )
       return
     end if
