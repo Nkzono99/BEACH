@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import csv
 import math
 from pathlib import Path
@@ -11,57 +12,104 @@ from ._cache import default_periodic_cache_dir
 from .config import ConfigError, normalize_high_level_config
 from .config._toml import load_toml_file
 from .config._layout import to_runtime_layout
-from .config.schema import schema_definition_property_names
+from .config.schema import schema_definition_defaults, schema_definition_property_names
 from .summary import load_summary_file
 
 K_BOLTZMANN = 1.380649e-23
 EV_TO_K = 1.160451812e4
 
-DEFAULT_SIM: dict[str, Any] = {
-    "batch_count": 1,
+# The estimator reads these [sim] and species keys. Their defaults come from the
+# packaged schema, so the schema stays the single source with the Fortran types.
+# The fallbacks cover keys the schema declares without a default: the box and
+# field-boundary keys are resolved from [domain] and [field_boundary], one of
+# the two batch-duration forms is required for dynamic sources, and the
+# remaining keys are mode-specific inputs that have no neutral value.
+_SIM_KEYS = (
+    "batch_count",
+    "batch_duration",
+    "batch_duration_step",
+    "field_solver",
+    "field_bc_mode",
+    "field_periodic_image_layers",
+    "field_periodic_far_correction",
+    "field_periodic_ewald_alpha",
+    "field_periodic_ewald_layers",
+    "field_periodic_cache_dir",
+    "field_periodic_generation_tolerance",
+    "tree_theta",
+    "tree_leaf_max",
+    "tree_min_nelem",
+    "e0",
+    "e0_abs",
+    "e0_phi_xy_deg",
+    "e0_phi_z_deg",
+    "use_box",
+    "box_min",
+    "box_max",
+)
+_SIM_FALLBACKS: dict[str, Any] = {
     "batch_duration": 0.0,
     "batch_duration_step": 0.0,
-    "field_solver": "auto",
     "field_bc_mode": "free",
-    "field_periodic_image_layers": 1,
-    "field_periodic_far_correction": "none",
-    "field_periodic_ewald_alpha": 0.0,
-    "field_periodic_ewald_layers": 4,
     "field_periodic_cache_dir": "",
-    "field_periodic_generation_tolerance": 1.0e-8,
     "tree_theta": 0.5,
     "tree_leaf_max": 16,
-    "tree_min_nelem": 256,
-    "e0": [0.0, 0.0, 0.0],
     "e0_abs": 0.0,
-    "e0_phi_xy_deg": 0.0,
-    "e0_phi_z_deg": 0.0,
     "use_box": False,
     "box_min": [-1.0, -1.0, -1.0],
     "box_max": [1.0, 1.0, 1.0],
 }
-
-DEFAULT_SPECIES: dict[str, Any] = {
+_SPECIES_KEYS = (
+    "species_key",
+    "enabled",
+    "source_mode",
+    "npcls_per_step",
+    "temperature_k",
+    "q_particle",
+    "m_particle",
+    "w_particle",
+    "target_macro_particles_per_batch",
+    "pos_low",
+    "pos_high",
+    "drift_velocity",
+    "emit_current_density_a_m2",
+    "rays_per_batch",
+    "deposit_opposite_charge_on_emit",
+    "normal_drift_speed",
+    "ray_direction",
+    "inject_face",
+    "boundary_inflow",
+)
+_SPECIES_FALLBACKS: dict[str, Any] = {
     "species_key": "",
-    "enabled": True,
-    "source_mode": "volume_seed",
-    "npcls_per_step": 0,
-    "temperature_k": 2.0e4,
-    "q_particle": -1.602176634e-19,
-    "m_particle": 9.10938356e-31,
-    "w_particle": 1.0,
     "target_macro_particles_per_batch": 0,
-    "pos_low": [-0.4, -0.4, 0.2],
-    "pos_high": [0.4, 0.4, 0.5],
-    "drift_velocity": [0.0, 0.0, -8.0e5],
     "emit_current_density_a_m2": 0.0,
     "rays_per_batch": 0,
-    "deposit_opposite_charge_on_emit": False,
-    "normal_drift_speed": 0.0,
     "ray_direction": [0.0, 0.0, 0.0],
     "inject_face": "",
     "boundary_inflow": {},
 }
+
+
+def _defaults_from_schema(
+    definition: str, keys: tuple[str, ...], fallbacks: dict[str, Any]
+) -> dict[str, Any]:
+    schema_defaults = schema_definition_defaults(definition)
+    defaults: dict[str, Any] = {}
+    for key in keys:
+        if key in schema_defaults:
+            defaults[key] = schema_defaults[key]
+        elif key in fallbacks:
+            defaults[key] = copy.deepcopy(fallbacks[key])
+        else:
+            raise ValueError(f"BEACH schema has no default for $defs.{definition}.{key}")
+    return defaults
+
+
+DEFAULT_SIM: dict[str, Any] = _defaults_from_schema("sim", _SIM_KEYS, _SIM_FALLBACKS)
+DEFAULT_SPECIES: dict[str, Any] = _defaults_from_schema(
+    "species", _SPECIES_KEYS, _SPECIES_FALLBACKS
+)
 
 ALLOWED_SIM_KEYS = schema_definition_property_names("sim")
 _LEGACY_SIM_BOUNDARY_KEYS = frozenset(
