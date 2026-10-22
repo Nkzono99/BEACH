@@ -3,7 +3,7 @@ module bem_collision
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: mesh_type, hit_info, sim_config, bc_periodic
+  use bem_types, only: mesh_type, hit_info, sim_config
   use bem_string_utils, only: lower_ascii
   implicit none
   integer(i32), parameter, public :: collision_query_ok = 0_i32
@@ -31,21 +31,17 @@ contains
     integer(i32), intent(out), optional :: status
 
     logical :: use_periodic2
-    integer(i32) :: periodic_axes(2), query_status
-    real(dp) :: periodic_len(2)
+    integer(i32) :: query_status
 
     use_periodic2 = .false.
     query_status = collision_query_ok
-    periodic_axes = 0_i32
-    periodic_len = 0.0d0
     if (any(.not. ieee_is_finite(p0)) .or. any(.not. ieee_is_finite(p1))) then
       call initialize_hit(hit)
       call finalize_collision_query(collision_query_invalid_segment, status)
       return
     end if
-    if (present(sim)) then
-      call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
-    end if
+    ! periodic2 の周期軸と周期長は prepare_periodic2_collision_mesh が mesh に解決済み。query ごとに解き直さない。
+    if (present(sim)) use_periodic2 = trim(sim%field_bc_mode) == 'periodic2'
 
     if (use_periodic2) then
       call find_first_hit_periodic2( &
@@ -113,7 +109,7 @@ contains
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
     real(dp) :: shifted_p0(3), shifted_p1(3)
     type(hit_info) :: candidate
-    logical :: use_periodic2, use_box_filter, require_inside_elem
+    logical :: use_box_filter, require_inside_elem
 
     call initialize_hit(hit)
     if (present(status)) status = collision_query_ok
@@ -121,12 +117,8 @@ contains
       error stop 'periodic2 collision requires prepare_periodic2_collision_mesh before ray queries.'
     end if
 
-    call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
-    if (.not. use_periodic2) then
-      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status=base_status)
-      call finalize_collision_query(base_status, status)
-      return
-    end if
+    periodic_axes = mesh%periodic2_axes
+    periodic_len = mesh%periodic2_len
 
     call resolve_box_filter_args( &
       box_min, box_max, require_elem_inside, use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
@@ -743,50 +735,6 @@ contains
       error stop 'find_first_hit require_elem_inside=true needs box_min/box_max.'
     end if
   end subroutine resolve_box_filter_args
-
-  !> periodic2 collision で必要な 2 軸周期設定を解決する。
-  subroutine resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
-    type(sim_config), intent(in) :: sim
-    logical, intent(out) :: use_periodic2
-    integer(i32), intent(out) :: periodic_axes(2)
-    real(dp), intent(out) :: periodic_len(2)
-
-    character(len=16) :: field_bc_mode
-    integer(i32) :: axis, n_periodic
-    real(dp) :: span
-
-    use_periodic2 = .false.
-    periodic_axes = 0_i32
-    periodic_len = 0.0d0
-    field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
-    if (trim(field_bc_mode) /= 'periodic2') return
-
-    if (.not. sim%use_box) then
-      error stop 'fields.boundary="periodic2" requires a finite [domain].'
-    end if
-
-    n_periodic = 0_i32
-    do axis = 1_i32, 3_i32
-      if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
-        error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
-      end if
-      if (sim%bc_low(axis) == bc_periodic) then
-        n_periodic = n_periodic + 1_i32
-        if (n_periodic <= 2_i32) periodic_axes(n_periodic) = axis
-      end if
-    end do
-    if (n_periodic /= 2_i32) then
-      error stop 'fields.boundary="periodic2" requires exactly two periodic axes.'
-    end if
-
-    do axis = 1_i32, 2_i32
-      span = sim%box_max(periodic_axes(axis)) - sim%box_min(periodic_axes(axis))
-      if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
-      periodic_len(axis) = span
-    end do
-
-    use_periodic2 = .true.
-  end subroutine resolve_periodic2_collision_config
 
   !> 線分 AABB と canonical mesh AABB の重なりから必要な image shift 範囲を決める。
   subroutine compute_periodic_shift_bounds(mesh, p0, p1, axis, period_len, nmin, nmax, status)

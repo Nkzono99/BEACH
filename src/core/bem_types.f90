@@ -156,6 +156,9 @@ module bem_types
     integer(i32), allocatable :: grid_cell_elem(:)
     logical :: use_collision_grid = .false.
     logical :: periodic2_collision_ready = .false.
+    !> prepare_periodic2_collision_mesh が解決した周期軸と周期長。ray query のたびに設定を解き直さない。
+    integer(i32) :: periodic2_axes(2) = 0_i32
+    real(dp) :: periodic2_len(2) = 0.0d0
   end type mesh_type
 
   !> 粒子の位置・速度・物性値・生存フラグをSoA形式で保持する型。

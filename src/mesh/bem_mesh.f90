@@ -1,8 +1,8 @@
 !> 三角形メッシュ幾何量(重心・法線・AABB・代表長)を前計算して保持するモジュール。
 module bem_mesh
   use bem_kinds, only: dp, i32
-  use bem_types, only: mesh_type, sim_config, bc_periodic, surface_model_insulator
-  use bem_string_utils, only: lower_ascii
+  use bem_types, only: mesh_type, sim_config, surface_model_insulator
+  use bem_periodic2_axes, only: resolve_periodic2_axes
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_triangle_quadrature, only: fill_panel_quadrature
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -94,8 +94,10 @@ contains
     real(dp) :: periodic_len(2), box_center(2), center_axis, shift
     logical :: use_periodic2
 
-    call resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
+    call resolve_periodic2_axes(sim, use_periodic2, periodic_axes, periodic_len)
     mesh%periodic2_collision_ready = .false.
+    mesh%periodic2_axes = 0_i32
+    mesh%periodic2_len = 0.0d0
     if (.not. use_periodic2) return
 
     do iaxis = 1, 2
@@ -116,6 +118,8 @@ contains
     end do
 
     call update_mesh_geometry(mesh)
+    mesh%periodic2_axes = periodic_axes
+    mesh%periodic2_len = periodic_len
     mesh%periodic2_collision_ready = .true.
   end subroutine prepare_periodic2_collision_mesh
 
@@ -330,49 +334,5 @@ contains
     c(2) = a(3)*b(1) - a(1)*b(3)
     c(3) = a(1)*b(2) - a(2)*b(1)
   end function cross
-
-  !> periodic2 collision で使う 2 軸周期設定を検証付きで解決する。
-  subroutine resolve_periodic2_collision_config(sim, use_periodic2, periodic_axes, periodic_len)
-    type(sim_config), intent(in) :: sim
-    logical, intent(out) :: use_periodic2
-    integer(i32), intent(out) :: periodic_axes(2)
-    real(dp), intent(out) :: periodic_len(2)
-
-    character(len=16) :: field_bc_mode
-    integer(i32) :: axis, n_periodic
-    real(dp) :: span
-
-    use_periodic2 = .false.
-    periodic_axes = 0_i32
-    periodic_len = 0.0d0
-    field_bc_mode = lower_ascii(trim(sim%field_bc_mode))
-    if (trim(field_bc_mode) /= 'periodic2') return
-
-    if (.not. sim%use_box) then
-      error stop 'fields.boundary="periodic2" requires a finite [domain].'
-    end if
-
-    n_periodic = 0_i32
-    do axis = 1_i32, 3_i32
-      if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
-        error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
-      end if
-      if (sim%bc_low(axis) == bc_periodic) then
-        n_periodic = n_periodic + 1_i32
-        if (n_periodic <= 2_i32) periodic_axes(n_periodic) = axis
-      end if
-    end do
-    if (n_periodic /= 2_i32) then
-      error stop 'fields.boundary="periodic2" requires exactly two periodic axes.'
-    end if
-
-    do axis = 1_i32, 2_i32
-      span = sim%box_max(periodic_axes(axis)) - sim%box_min(periodic_axes(axis))
-      if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
-      periodic_len(axis) = span
-    end do
-
-    use_periodic2 = .true.
-  end subroutine resolve_periodic2_collision_config
 
 end module bem_mesh
