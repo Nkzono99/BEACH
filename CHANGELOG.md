@@ -23,6 +23,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   （`panel_field_sum_translated` / `panel_potential_sum_translated`）で行う。演算順は同じなので電場・電位は
   bit 単位で一致し、テストで逐次評価と比較している。粒子ステップの大半を占める近接和が速くなる。
 
+- FMM の各葉の近接 panel を、像シフトを掛けた成分配列（頂点 x/y/z、法線、辺長、辺の外向き法線、面積）として
+  plan に保存し（`near_vx` など、`build_near_panel_tables`）、点評価は葉の区間をそのまま読む。近接和は 64 panel ずつ
+  SIMD ループで評価し、合算は従来どおりリスト順に行う。値の演算順は変えていないので結果は bit 単位で同じ。
+  本番相当の入力（3,392 panel、4 MPI×16 スレッド）で 1 batch が 1.33 s から 0.69 s になった。
+- `update_state` と `snapshot%refresh`、`field_solver%refresh` に省略可能な `mpi` 引数を追加した。batch ループが渡す
+  MPI コンテキストで M2L の target node を組数がほぼ等しい連続ブロックに分け、各 rank が自分のブロックだけ計算して
+  局所展開を allgather で揃える（`bem_mpi` に in-place の allgatherv 補助を追加）。各 node の展開は従来と同じループで
+  1 つの rank が求めるので、全 rank で複製していた結果と bit 単位で同じ。`test_mpi_hybrid` で確認する。
+
 ## [3.6.1] - 2026-10-22
 
 ### Fixed
