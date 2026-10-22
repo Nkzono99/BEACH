@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- `fields.solver.near_field_precision`（既定 `"double"`）。`"single"` で FMM 近接場の葉ごとの panel 表を葉中心基準の
+  単精度で持ち、8 レーン SIMD の核で和を取る。本番相当の入力でその和が約 1.5 倍速く、場の相対誤差は 10⁻⁶ 程度で
+  展開次数 4 の FMM 打ち切り（2×10⁻⁴）の 100 分の 1。平面上の点は従来どおり倍精度の核に落ちる。既定の `double` は
+  従来と bit 単位で同じ結果。`summary.txt` に `field_near_field_precision=` を記録する。
+
 ## [3.7.1] - 2026-10-22
 
 ### Changed

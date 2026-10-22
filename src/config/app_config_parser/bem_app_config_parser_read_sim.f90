@@ -259,6 +259,9 @@ contains
       cfg%sim%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
       call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'fields.solver.auto_fmm_min_elements')
+    case ('near_field_precision')
+      call get_toml_string(table, keys(ikey), cfg%sim%near_field_precision, 'fields.solver.near_field_precision')
+      cfg%sim%near_field_precision = lower_ascii(trim(cfg%sim%near_field_precision))
     case ('e0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'fields.external.electric_v_m')
       cfg%sim%has_e0_vector = .true.

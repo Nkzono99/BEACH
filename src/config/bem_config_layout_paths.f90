@@ -41,6 +41,8 @@ contains
       reader_path = 'sim.tree_leaf_max'
     case ('fields.solver.auto_fmm_min_elements')
       reader_path = 'sim.tree_min_nelem'
+    case ('fields.solver.near_field_precision')
+      reader_path = 'sim.near_field_precision'
     case ('fields.periodic.image_layers')
       reader_path = 'sim.field_periodic_image_layers'
     case ('fields.periodic.backend')

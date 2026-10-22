@@ -1,12 +1,13 @@
 !> Analytic P0 triangle kernel against independent quadrature and side limits.
 program test_panel_kernel
   use, intrinsic :: ieee_exceptions, only: ieee_invalid, ieee_divide_by_zero, ieee_set_flag, ieee_get_flag
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, sp, i32, i64
   use bem_constants, only: eps0, k_coulomb
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_quadrature, only: panel_oracle_potential_field, panel_singular_potential_oracle
   use bem_panel_kernel, only: panel_potential_field, panel_potential_field_translated, panel_field_sum_translated, &
-                              panel_potential_sum_translated, panel_side_principal_value, panel_side_normal_plus, &
+                              panel_potential_sum_translated, panel_field_sum_translated_sp, &
+                              panel_potential_sum_translated_sp, panel_side_principal_value, panel_side_normal_plus, &
                               panel_side_normal_minus
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_equal_i32, assert_close_dp, &
                           assert_allclose_1d, assert_true
@@ -31,6 +32,10 @@ program test_panel_kernel
   real(dp) :: tab_vx(3, batch_entries), tab_vy(3, batch_entries), tab_vz(3, batch_entries)
   real(dp) :: tab_nx(batch_entries), tab_ny(batch_entries), tab_nz(batch_entries), tab_edge(3, batch_entries)
   real(dp) :: tab_ox(3, batch_entries), tab_oy(3, batch_entries), tab_oz(3, batch_entries), tab_area(batch_entries)
+  real(sp) :: sp_vx(3, batch_entries), sp_vy(3, batch_entries), sp_vz(3, batch_entries)
+  real(sp) :: sp_nx(batch_entries), sp_ny(batch_entries), sp_nz(batch_entries), sp_edge(3, batch_entries)
+  real(sp) :: sp_ox(3, batch_entries), sp_oy(3, batch_entries), sp_oz(3, batch_entries), sp_area(batch_entries)
+  real(dp) :: leaf_center(3), sp_ex, sp_ey, sp_ez, sp_phi, field_scale, potential_scale
   real(dp), parameter :: scales(5) = [1.0e-9_dp, 1.0e-6_dp, 1.0_dp, 1.0e3_dp, 1.0e6_dp]
   real(dp), parameter :: offsets(3) = [0.0_dp, 1.0e3_dp, 1.0e6_dp]
 
@@ -39,7 +44,7 @@ program test_panel_kernel
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
   call init_panel_geometry(v0, v1, v2, geom, status)
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('off_surface_analytic_matches_oracle')
   call assert_equal_i32(status, panel_geometry_ok, 'valid geometry status mismatch')
@@ -245,6 +250,76 @@ program test_panel_kernel
     call assert_close_dp(sum_ey, ref_ey, 0.0_dp, 'batched ey is not bitwise identical')
     call assert_close_dp(sum_ez, ref_ez, 0.0_dp, 'batched ez is not bitwise identical')
     call assert_close_dp(sum_phi, ref_phi, 0.0_dp, 'batched potential is not bitwise identical')
+  end do
+  call test_end()
+
+  call test_begin('single_precision_near_field_sum_stays_within_1e-5')
+  ! The optional single-precision tables hold the panels relative to a leaf center; the sums must agree
+  ! with the double-precision sequential kernel to the single-precision level and use the double
+  ! kernel for on-plane targets.
+  leaf_center = [0.3_dp, 0.4_dp, 0.5_dp]
+  do entry = 1_i32, batch_entries
+    sp_vx(:, entry) = real(tab_vx(:, entry) - leaf_center(1), sp)
+    sp_vy(:, entry) = real(tab_vy(:, entry) - leaf_center(2), sp)
+    sp_vz(:, entry) = real(tab_vz(:, entry) - leaf_center(3), sp)
+    sp_nx(entry) = real(tab_nx(entry), sp)
+    sp_ny(entry) = real(tab_ny(entry), sp)
+    sp_nz(entry) = real(tab_nz(entry), sp)
+    sp_edge(:, entry) = real(tab_edge(:, entry), sp)
+    sp_ox(:, entry) = real(tab_ox(:, entry), sp)
+    sp_oy(:, entry) = real(tab_oy(:, entry), sp)
+    sp_oz(:, entry) = real(tab_oz(:, entry), sp)
+    sp_area(entry) = real(tab_area(entry), sp)
+  end do
+  do trial = 1, 3
+    select case (trial)
+    case (1)
+      target = [0.4_dp, 0.3_dp, 1.7_dp]
+    case (2)
+      target = batch_geom(batch_index(2))%centroid + [batch_shift1(2), batch_shift2(2), 0.0_dp]
+    case default
+      target = [-1.2_dp, 2.9_dp, -0.6_dp]
+    end select
+    ref_ex = 0.0_dp
+    ref_ey = 0.0_dp
+    ref_ez = 0.0_dp
+    ref_phi = 0.0_dp
+    field_scale = 0.0_dp
+    potential_scale = 0.0_dp
+    do entry = 1_i32, batch_entries
+      if (abs(batch_charge(batch_index(entry))) <= tiny(1.0_dp)) cycle
+      shift = [batch_shift1(entry), batch_shift2(entry), 0.0_dp]
+      call panel_potential_field_translated( &
+        batch_geom(batch_index(entry)), shift, batch_charge(batch_index(entry)), target, phi, field &
+        )
+      ref_ex = ref_ex + field(1)/k_coulomb
+      ref_ey = ref_ey + field(2)/k_coulomb
+      ref_ez = ref_ez + field(3)/k_coulomb
+      ref_phi = ref_phi + phi/k_coulomb
+      ! Random-sign charges cancel in the sum; the precision bound applies to the contributions.
+      field_scale = field_scale + sqrt(sum(field*field))/k_coulomb
+      potential_scale = potential_scale + abs(phi)/k_coulomb
+    end do
+    sp_ex = 0.0_dp
+    sp_ey = 0.0_dp
+    sp_ez = 0.0_dp
+    sp_phi = 0.0_dp
+    call panel_field_sum_translated_sp( &
+      batch_entries, sp_vx, sp_vy, sp_vz, sp_nx, sp_ny, sp_nz, sp_edge, sp_ox, sp_oy, sp_oz, sp_area, batch_index, &
+      batch_charge, batch_geom, [1_i32, 2_i32], batch_shift1, batch_shift2, target - leaf_center, target, &
+      sp_ex, sp_ey, sp_ez &
+      )
+    call panel_potential_sum_translated_sp( &
+      batch_entries, sp_vx, sp_vy, sp_vz, sp_nx, sp_ny, sp_nz, sp_edge, sp_ox, sp_oy, sp_oz, sp_area, batch_index, &
+      batch_charge, batch_geom, [1_i32, 2_i32], batch_shift1, batch_shift2, target - leaf_center, target, sp_phi &
+      )
+    write (*, '(a,i0,a,es10.2,a,es10.2)') 'single-precision sum trial ', trial, ': field rel err=', &
+      sqrt((sp_ex - ref_ex)**2 + (sp_ey - ref_ey)**2 + (sp_ez - ref_ez)**2)/max(field_scale, 1.0e-300_dp), &
+      ' potential rel err=', abs(sp_phi - ref_phi)/max(potential_scale, 1.0e-300_dp)
+    call assert_close_dp(sqrt((sp_ex - ref_ex)**2 + (sp_ey - ref_ey)**2 + (sp_ez - ref_ez)**2), 0.0_dp, &
+                         1.0e-5_dp*field_scale, 'single-precision field sum differs from the double kernel by more than 1e-5')
+    call assert_close_dp(sp_phi, ref_phi, 1.0e-5_dp*potential_scale, &
+                         'single-precision potential sum differs from the double kernel by more than 1e-5')
   end do
   call test_end()
 

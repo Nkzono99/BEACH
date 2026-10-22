@@ -16,6 +16,9 @@ program test_coulomb_fmm_core_panel
   type(panel_geometry_type) :: image_geometry
   real(dp) :: v0(3, nsrc), v1(3, nsrc), v2(3, nsrc), q(nsrc)
   real(dp) :: targets(3, 5), field(3), field_ref(3), phi, phi_ref
+  real(dp) :: field_single(3), phi_single, single_vs_double_field, single_vs_double_potential
+  type(fmm_state_type) :: state_single
+  type(fmm_plan_type) :: plan_single
   real(dp) :: field_error, potential_error, max_field_error, max_potential_error
   real(dp) :: order_field_error(4), order_potential_error(4)
   real(dp) :: source_field(3), source_phi, image_shift(3)
@@ -64,6 +67,47 @@ program test_coulomb_fmm_core_panel
   call assert_true(order_field_error(4) < order_field_error(1), 'panel FMM field must improve from order 2 to 5')
   call assert_true(order_potential_error(4) < order_potential_error(1), &
                    'panel FMM potential must improve from order 2 to 5')
+  call test_end()
+
+  call test_begin('single_precision_near_field_stays_within_fmm_tolerance')
+  ! options%near_field_single keeps the per-leaf panel tables in single precision; the field must stay
+  ! within the order-4 FMM tolerance against the direct oracle and within 1e-4 of the double plan.
+  options%order = 4_i32
+  options%near_field_single = .false.
+  call build_panel_plan(plan, v0, v1, v2, options)
+  call update_state(plan, state, q)
+  options%near_field_single = .true.
+  call build_panel_plan(plan_single, v0, v1, v2, options)
+  call update_state(plan_single, state_single, q)
+  options%near_field_single = .false.
+  max_field_error = 0.0_dp
+  max_potential_error = 0.0_dp
+  single_vs_double_field = 0.0_dp
+  single_vs_double_potential = 0.0_dp
+  do target_idx = 1_i32, size(targets, 2)
+    call eval_point(plan_single, state_single, targets(:, target_idx), field_single)
+    call eval_potential_point(plan_single, state_single, targets(:, target_idx), phi_single)
+    call eval_point(plan, state, targets(:, target_idx), field)
+    call eval_potential_point(plan, state, targets(:, target_idx), phi)
+    call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
+    max_field_error = max(max_field_error, &
+                          sqrt(sum((field_single - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref))))
+    max_potential_error = max(max_potential_error, abs(phi_single - phi_ref)/max(1.0e-14_dp, abs(phi_ref)))
+    single_vs_double_field = max(single_vs_double_field, &
+                                 sqrt(sum((field_single - field)**2))/max(1.0e-14_dp, sqrt(sum(field*field))))
+    single_vs_double_potential = max(single_vs_double_potential, abs(phi_single - phi)/max(1.0e-14_dp, abs(phi)))
+  end do
+  write (*, '(a,es12.4,a,es12.4)') 'single-precision near field vs double plan: field=', single_vs_double_field, &
+    ' potential=', single_vs_double_potential
+  call assert_true(max_field_error < 2.0e-3_dp, 'single-precision panel FMM field error exceeds 2e-3')
+  call assert_true(max_potential_error < 2.0e-3_dp, 'single-precision panel FMM potential error exceeds 2e-3')
+  call assert_true(single_vs_double_field < 1.0e-4_dp, 'single-precision field differs from double by more than 1e-4')
+  call assert_true(single_vs_double_potential < 1.0e-4_dp, &
+                   'single-precision potential differs from double by more than 1e-4')
+  call destroy_state(state_single)
+  call destroy_plan(plan_single)
+  call destroy_state(state)
+  call destroy_plan(plan)
   call test_end()
 
   call test_begin('periodic_panel_near_images_match_finite_shell')
