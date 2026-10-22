@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `beach --check-config` が、これまで実行中のバッチで初めて停止していた設定を preflight で拒否する: `run.batch_count <= 0`、
   負の `run.batch.duration_s`、photo_raycast 種の finite `[domain]` なし・`run.batch.duration_s <= 0`・質量 <= 0・温度 < 0。
   エラーの文言は変わらない。
+- FMM の近接場で、像シフトした panel を評価するたびに 328 byte の geometry を複製して一般の核へ渡していたのをやめ、
+  保存済み geometry をその場で読み、頂点だけ平行移動し、頂点距離を辺ごとに二度ではなく一度だけ求める核
+  （`panel_potential_field_translated`）を追加した。葉の近接 panel の総和は核モジュール内の 1 つのループ
+  （`panel_field_sum_translated` / `panel_potential_sum_translated`）で行う。演算順は同じなので電場・電位は
+  bit 単位で一致し、テストで逐次評価と比較している。粒子ステップの大半を占める近接和が速くなる。
 
 ## [3.6.1] - 2026-10-22
 
