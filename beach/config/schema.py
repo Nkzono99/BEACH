@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import math
 from collections.abc import Mapping
@@ -102,9 +103,7 @@ def load_json_schema(path: Path) -> dict[str, Any]:
     return schema
 
 
-def schema_definition_property_names(definition: str) -> frozenset[str]:
-    """Return property names declared by one packaged-schema definition."""
-
+def _schema_definition_properties(definition: str) -> Mapping[str, Any]:
     schema, _ = load_schema()
     definitions = schema.get("$defs")
     if not isinstance(definitions, Mapping):
@@ -115,7 +114,27 @@ def schema_definition_property_names(definition: str) -> frozenset[str]:
     properties = definition_schema.get("properties")
     if not isinstance(properties, Mapping):
         raise ValueError(f"BEACH schema is missing $defs.{definition}.properties")
-    return frozenset(str(key) for key in properties)
+    return properties
+
+
+def schema_definition_property_names(definition: str) -> frozenset[str]:
+    """Return property names declared by one packaged-schema definition."""
+
+    return frozenset(str(key) for key in _schema_definition_properties(definition))
+
+
+def schema_definition_defaults(definition: str) -> dict[str, Any]:
+    """Return the ``default`` values declared by one packaged-schema definition.
+
+    Properties without a ``default`` are omitted. The values are copies, so
+    callers may mutate them.
+    """
+
+    return {
+        str(key): copy.deepcopy(prop["default"])
+        for key, prop in _schema_definition_properties(definition).items()
+        if isinstance(prop, Mapping) and "default" in prop
+    }
 
 
 def schema_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> list[str]:
