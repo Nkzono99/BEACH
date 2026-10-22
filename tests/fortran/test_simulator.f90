@@ -1325,7 +1325,7 @@ contains
     call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 3.5_dp, 1.0e-12_dp, 'PE return scale')
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + workspace%fixed_emission_target_charge(1) + &
                          workspace%fixed_escape_target_charge(1), 0.0_dp, 1.0e-12_dp, 'PE channel continuity')
-    call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(6), &
+    call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(2, 3), &
                          escape_current, 1.0e-12_dp, 'PE and SEE escape must add up to the root escape')
     call assert_true(all(workspace%fixed_escape_closed_charge(2:) == 0.0_dp), 'SEE itself has no partner')
 

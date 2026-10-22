@@ -3,6 +3,7 @@ submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
+  use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
                                      perf_region_count_outcomes, perf_region_end, perf_region_field_refresh, &
@@ -441,7 +442,8 @@ contains
     call commit_batch_charge(mesh, app%sim, snapshot, conductor_solver, workspace, rel, mpi_ctx)
     call perf_region_end(perf_region_commit_charge, t0)
     call outflow_refresh%commit_batch( &
-      trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, workspace%fixed_current_charge_values, &
+      trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, &
+      workspace%fixed_current_charge_values(:, fixed_charge_emission), &
       workspace%fixed_escape_closed_charge, workspace%fixed_escape_unclosed_charge, &
       batch_idx, stats_candidate, surface_closure, outflow_refreshed &
       )
@@ -533,12 +535,12 @@ contains
 
   !> accepted batch の固定電流 closure の追跡電荷と目標電荷を history 窓へ足す。
   subroutine accumulate_fixed_current_window()
-    integer(i32) :: n
-
-    n = app%n_particle_species
-    fixed_window_tracked(1, :) = fixed_window_tracked(1, :) + workspace%fixed_current_charge_values(1:n)
-    fixed_window_tracked(2, :) = fixed_window_tracked(2, :) + workspace%fixed_current_charge_values(n + 1:2*n)
-    fixed_window_tracked(3, :) = fixed_window_tracked(3, :) + workspace%fixed_current_charge_values(2*n + 1:3*n)
+    fixed_window_tracked(1, :) = fixed_window_tracked(1, :) + &
+                                 workspace%fixed_current_charge_values(:, fixed_charge_absorbed)
+    fixed_window_tracked(2, :) = fixed_window_tracked(2, :) + &
+                                 workspace%fixed_current_charge_values(:, fixed_charge_emission)
+    fixed_window_tracked(3, :) = fixed_window_tracked(3, :) + &
+                                 workspace%fixed_current_charge_values(:, fixed_charge_escaped)
     fixed_window_target(1, :) = fixed_window_target(1, :) + workspace%fixed_absorbed_target_charge
     fixed_window_target(2, :) = fixed_window_target(2, :) + workspace%fixed_emission_target_charge
     fixed_window_target(3, :) = fixed_window_target(3, :) + workspace%fixed_escape_target_charge

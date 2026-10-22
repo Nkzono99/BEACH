@@ -4,6 +4,11 @@ submodule(bem_simulator) bem_simulator_charge
   use bem_charge_ledger, only: checked_accumulate_charge, finite_charge_sum
   use bem_runtime_modes, only: surface_charge_closure_id, surface_charge_closure_fixed_current, &
                                surface_charge_closure_neutral_return
+  use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped, &
+                                     fixed_charge_barrier_return, neutral_charge_emitted, neutral_charge_absorbed, &
+                                     neutral_charge_unresolved, neutral_charge_escaped, neutral_charge_soft, &
+                                     neutral_charge_invalid, neutral_count_escaped, neutral_count_soft, &
+                                     neutral_count_invalid
   implicit none
   real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
 contains
@@ -157,67 +162,58 @@ contains
     if (.not. neutral_return_species(species_idx)) cycle
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
     if (.not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp .or. i > fresh_particle_count) then
-      workspace%neutral_return_charge_values(5*n + species_idx) = &
-        workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-        workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      call count_invalid_terminal()
       cycle
     end if
-    workspace%neutral_return_charge_values(species_idx) = &
-      workspace%neutral_return_charge_values(species_idx) + macro_charge
+    workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted) = &
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted) + macro_charge
     terminal_count = merge(1_i32, 0_i32, workspace%absorbed_flag(i)) + &
                      merge(1_i32, 0_i32, workspace%escaped_boundary_flag(i)) + &
                      merge(1_i32, 0_i32, workspace%soft_discarded_boundary_flag(i)) + &
                      merge(1_i32, 0_i32, pcls_batch%alive(i))
     if (terminal_count /= 1_i32) then
-      workspace%neutral_return_charge_values(5*n + species_idx) = &
-        workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-        workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      call count_invalid_terminal()
     else if (workspace%absorbed_flag(i)) then
       elem_idx = workspace%absorbed_element(i)
       if (elem_idx >= 1_i32 .and. elem_idx <= size(workspace%dq_thread, 1)) then
-        workspace%neutral_return_charge_values(n + species_idx) = &
-          workspace%neutral_return_charge_values(n + species_idx) + macro_charge
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed) = &
+          workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed) + macro_charge
       else
-        workspace%neutral_return_charge_values(5*n + species_idx) = &
-          workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+        call count_invalid_terminal()
       end if
     else if (workspace%escaped_boundary_flag(i)) then
-      workspace%neutral_return_charge_values(3*n + species_idx) = &
-        workspace%neutral_return_charge_values(3*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(species_idx) = &
-        workspace%neutral_return_terminal_counts(species_idx) + 1_i64
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped) + macro_charge
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped) = &
+        workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped) + 1_i64
     else if (workspace%soft_discarded_boundary_flag(i)) then
-      workspace%neutral_return_charge_values(4*n + species_idx) = &
-        workspace%neutral_return_charge_values(4*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(n + species_idx) = &
-        workspace%neutral_return_terminal_counts(n + species_idx) + 1_i64
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_soft) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_soft) + macro_charge
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft) = &
+        workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft) + 1_i64
     else
-      workspace%neutral_return_charge_values(2*n + species_idx) = &
-        workspace%neutral_return_charge_values(2*n + species_idx) + macro_charge
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved) + macro_charge
     end if
   end do
 
-  call mpi_allreduce_sum_real_dp_array(mpi, workspace%neutral_return_charge_values)
-  call mpi_allreduce_sum_i64_array(mpi, workspace%neutral_return_terminal_counts)
-  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(1:n)
-  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(n + 1:2*n)
-  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(2*n + 1:3*n)
+  call allreduce_sum_real_matrix(mpi, workspace%neutral_return_charge_values)
+  call allreduce_sum_i64_matrix(mpi, workspace%neutral_return_terminal_counts)
+  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(:, neutral_charge_emitted)
+  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(:, neutral_charge_absorbed)
+  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(:, neutral_charge_unresolved)
 
   do species_idx = 1_i32, n
     if (.not. neutral_return_species(species_idx)) cycle
     emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
     absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
     unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
-    escaped_charge = workspace%neutral_return_charge_values(3*n + species_idx)
-    soft_charge = workspace%neutral_return_charge_values(4*n + species_idx)
-    invalid_charge = workspace%neutral_return_charge_values(5*n + species_idx)
-    escaped_count = workspace%neutral_return_terminal_counts(species_idx)
-    soft_count = workspace%neutral_return_terminal_counts(n + species_idx)
-    invalid_count = workspace%neutral_return_terminal_counts(2*n + species_idx)
+    escaped_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped)
+    soft_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_soft)
+    invalid_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid)
+    escaped_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped)
+    soft_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft)
+    invalid_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid)
     if (escaped_count > 0_i64 .or. soft_count > 0_i64 .or. invalid_count > 0_i64) then
       write (error_unit, '(a,i0,3(a,i0),3(a,es13.5))') &
         'neutral_return has unsupported terminal outcome for species ', species_idx, &
@@ -252,6 +248,15 @@ contains
     workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
                                        (workspace%neutral_return_weight_scale(species_idx) - 1.0_dp)*macro_charge
   end do
+contains
+
+  !> 終端が一意でない、または電荷・吸収要素が不正な粒子を invalid として数える。
+  subroutine count_invalid_terminal()
+    workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid) = &
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid) + macro_charge
+    workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid) = &
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid) + 1_i64
+  end subroutine count_invalid_terminal
   end procedure apply_neutral_return_surface_closure
 
   module procedure apply_fixed_surface_current_closure
@@ -275,20 +280,21 @@ contains
     species_idx = pcls_batch%species_id(i)
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
     if (workspace%absorbed_flag(i)) then
-      workspace%fixed_current_charge_values(species_idx) = &
-        workspace%fixed_current_charge_values(species_idx) + macro_charge
+      workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed) = &
+        workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed) + macro_charge
     else if (workspace%escaped_boundary_flag(i)) then
-      workspace%fixed_current_charge_values(2*n + species_idx) = &
-        workspace%fixed_current_charge_values(2*n + species_idx) + macro_charge
+      workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped) = &
+        workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped) + macro_charge
     end if
   end do
   do species_idx = 1_i32, n
-    workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
+    workspace%fixed_current_charge_values(species_idx, fixed_charge_emission) = &
+      sum(workspace%photo_emission_dq(:, species_idx))
     ! 外部障壁で戻った粒子の電荷。H を外向きに通過したが上流へ抜けられず、セルへ戻された分。
-    workspace%fixed_current_charge_values(3*n + species_idx) = app%particle_species(species_idx)%q_particle* &
-                                                               sum(workspace%matching_plane_moments_thread(3, species_idx, :))
+    workspace%fixed_current_charge_values(species_idx, fixed_charge_barrier_return) = &
+      app%particle_species(species_idx)%q_particle*sum(workspace%matching_plane_moments_thread(3, species_idx, :))
   end do
-  call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
+  call allreduce_sum_real_matrix(mpi, workspace%fixed_current_charge_values)
 
   do species_idx = 1_i32, n
     if (.not. fixed_current_species_active(fixed_current_species(species_idx), current_model, species_idx)) cycle
@@ -306,10 +312,12 @@ contains
     if (allocated(current_model%reflected_electron_species)) then
       reflected_idx = current_model%reflected_electron_species(species_idx)
     end if
-    if (partner_idx > 0_i32) partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + partner_idx))
+    if (partner_idx > 0_i32) then
+      partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(partner_idx, fixed_charge_escaped))
+    end if
     if (reflected_idx > 0_i32) then
-      reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + reflected_idx))
-      reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(3*n + reflected_idx))
+      reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_escaped))
+      reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_barrier_return))
     end if
     if ((partner_idx > 0_i32 .or. reflected_idx > 0_i32) .and. current_model%has_escape_target(species_idx)) then
       total_escape_charge = max(0.0_dp, -checked_fixed_target_charge( &
@@ -328,7 +336,7 @@ contains
     folded_return_charge = 0.0_dp
     if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
         current_model%has_absorbed_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(species_idx)
+      raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed)
       if (current_model%has_absorbed_target(species_idx)) then
         target_current = current_model%absorbed_current_a(species_idx)
       else
@@ -347,7 +355,7 @@ contains
       if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
         if (current_model%absorbed_target_credits_tracked_escape(species_idx)) then
           ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
-          target_charge = target_charge - workspace%fixed_current_charge_values(2*n + species_idx)
+          target_charge = target_charge - workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
         end if
       end if
       ! 差し引きで目標の符号が粒子電荷と逆になれば、吸収なしまで縮める。
@@ -387,7 +395,7 @@ contains
 
     if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
         current_model%has_emission_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(n + species_idx)
+      raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_emission)
       if (current_model%has_emission_target(species_idx)) then
         target_current = current_model%emission_current_a(species_idx)
       else
@@ -438,7 +446,7 @@ contains
     end if
 
     if (current_model%has_escape_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(2*n + species_idx)
+      raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
       target_current = current_model%escaped_particle_current_a(species_idx)
       if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
         error stop 'fixed_current escape raw/current/duration value is not finite.'
@@ -463,6 +471,28 @@ contains
     end if
   end do
   end procedure apply_fixed_surface_current_closure
+
+  !> species × channel の 2 次元配列を rank 合計する。列優先の並びは旧 1 次元配列と同じなので MPI の buffer も同じ。
+  subroutine allreduce_sum_real_matrix(mpi, values)
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(inout) :: values(:, :)
+    real(dp) :: flat(size(values))
+
+    flat = reshape(values, [size(values)])
+    call mpi_allreduce_sum_real_dp_array(mpi, flat)
+    values = reshape(flat, shape(values))
+  end subroutine allreduce_sum_real_matrix
+
+  !> 64bit 整数の species × kind 配列を rank 合計する。
+  subroutine allreduce_sum_i64_matrix(mpi, values)
+    type(mpi_context), intent(in) :: mpi
+    integer(i64), intent(inout) :: values(:, :)
+    integer(i64) :: flat(size(values))
+
+    flat = reshape(values, [size(values)])
+    call mpi_allreduce_sum_i64_array(mpi, flat)
+    values = reshape(flat, shape(values))
+  end subroutine allreduce_sum_i64_matrix
 
   !> finiteな電流とdurationの積を、丸め境界を含めて有限かつ非zero underflowなしに変換する。
   real(dp) function checked_fixed_target_charge(target_current, duration, context) result(target_charge)

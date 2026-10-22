@@ -195,7 +195,7 @@ contains
     type(surface_closure_contract_type) :: closure
     type(zhao_outflow_refresh_type) :: refresh
     type(mpi_context) :: mpi
-    real(dp) :: moments(4 + outflow_spectrum_bins, 3, 1), raw_charge(12), closed_charge(3), unclosed_charge(3)
+    real(dp) :: moments(4 + outflow_spectrum_bins, 3, 1), emission_charge(3), closed_charge(3), unclosed_charge(3)
     real(dp) :: spectrum(outflow_spectrum_bins), flux_pe, flux_e, raw_out, batch_time, area
     integer :: k
     logical :: refreshed
@@ -216,19 +216,19 @@ contains
     call refresh%initialize(app, plate, receipts, closure)
     call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'initial closure routes reflected electrons via PE')
     moments = 0.0_dp
-    raw_charge = 0.0_dp
+    emission_charge = 0.0_dp
     raw_out = 100.0_dp
     moments(1, 3, 1) = raw_out
     moments(2, 3, 1) = raw_out*2.2_dp*qe
     moments(5:, 3, 1) = raw_out*spectrum
-    raw_charge(6) = 2.0_dp*raw_out*qe
+    emission_charge(3) = 2.0_dp*raw_out*qe
     raw_out = flux_e*area*batch_time
     moments(1, 1, 1) = raw_out
     moments(2, 1, 1) = raw_out*3.0_dp*qe
     moments(5:, 1, 1) = raw_out*spectrum
     closed_charge = 0.0_dp
     unclosed_charge = 0.0_dp
-    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 1_i32, &
+    call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, 1_i32, &
                               receipts, closure, refreshed)
     call assert_true(refreshed, 'a full window must refresh the outer root')
     call assert_close_dp(receipts%matching_plane_feedback(1), flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
@@ -251,7 +251,7 @@ contains
     type(surface_closure_contract_type) :: closure, restored_closure
     type(zhao_outflow_refresh_type) :: refresh, resumed_refresh
     type(mpi_context) :: mpi
-    real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), raw_charge(12)
+    real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), emission_charge(4)
     real(dp) :: spectrum_pe(outflow_spectrum_bins), spectrum_see(outflow_spectrum_bins)
     real(dp) :: flux_pe, flux_see, raw_out, batch_time, area, see_temperature, root_escape_charge
     real(dp) :: closed_charge(4), unclosed_charge(4)
@@ -299,13 +299,13 @@ contains
       batch_time = 1.0e-3_dp*real(2*batch - 1, dp)
       app%sim%batch_duration = batch_time
       moments = 0.0_dp
-      raw_charge = 0.0_dp
+      emission_charge = 0.0_dp
       if (.not. night) then
         raw_out = 100.0_dp*real(batch, dp)
         moments(1, 3, 1) = raw_out
         moments(2, 3, 1) = raw_out*2.2_dp*qe
         moments(5:, 3, 1) = raw_out*spectrum_pe
-        raw_charge(7) = 2.0_dp*raw_out*qe
+        emission_charge(3) = 2.0_dp*raw_out*qe
       end if
       raw_out = flux_see*area*batch_time
       moments(1, 4, 1) = raw_out
@@ -313,7 +313,7 @@ contains
       moments(5:, 4, 1) = raw_out*spectrum_see
       closed_charge = 0.0_dp
       unclosed_charge = 0.0_dp
-      call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
+      call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, int(batch, i32), &
                                 receipts, closure, refreshed)
       call assert_true(refreshed .eqv. (batch == 2), 'refresh must wait for the full accepted-batch window')
     end do
@@ -340,15 +340,14 @@ contains
     end if
     ! 窓の途中のバッチ: PE の脱出目標が差し引いた SEE 脱出とその超過が、そのバッチの share と残差になる。
     moments = 0.0_dp
-    raw_charge = 0.0_dp
+    emission_charge = 0.0_dp
     closed_charge = 0.0_dp
     unclosed_charge = 0.0_dp
-    raw_charge(12) = -0.5_dp*root_escape_charge
     closed_charge(3) = 0.25_dp*root_escape_charge
     unclosed_charge(3) = 0.1_dp*root_escape_charge
     closed_charge(4) = 0.8_dp*root_escape_charge
     unclosed_charge(4) = 0.2_dp*root_escape_charge
-    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 3_i32, &
+    call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, 3_i32, &
                               receipts, closure, refreshed)
     call assert_true(.not. refreshed, 'a partial window must not refresh the outer root')
     if (night) then
@@ -379,12 +378,12 @@ contains
     if (.not. night) then
       ! Empty outflow keeps the finite root; without tracked SEE escape the PE targets carry the whole root escape.
       moments = 0.0_dp
-      raw_charge = 0.0_dp
+      emission_charge = 0.0_dp
       closed_charge = 0.0_dp
       unclosed_charge = 0.0_dp
       restored = receipts
       do batch = 4, 5
-        call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
+        call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, int(batch, i32), &
                                   receipts, closure, refreshed)
         call assert_true(.not. refreshed, 'an empty window must keep the previous root')
       end do
