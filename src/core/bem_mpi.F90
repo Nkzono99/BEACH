@@ -36,6 +36,8 @@ module bem_mpi
   public :: mpi_bcast_i32_array
   public :: mpi_bcast_real_dp_array
   public :: mpi_gatherv_real_dp_array
+  public :: mpi_allgatherv_inplace_real_dp
+  public :: mpi_allgatherv_inplace_i32
   public :: mpi_world_barrier
 
 contains
@@ -454,6 +456,55 @@ contains
       allocate (global_values(0))
     end if
   end subroutine mpi_gatherv_real_dp_array
+
+  !> 各rankが `values` の自分の区間 (`displacements(rank+1)+1` から `counts(rank+1)` 要素) を持ち寄り、
+  !! 全rankで `values` の全区間を揃える。非MPIまたは単一rankでは何もしない。
+  subroutine mpi_allgatherv_inplace_real_dp(ctx, values, counts, displacements)
+    type(mpi_context), intent(in) :: ctx
+    real(dp), intent(inout) :: values(*)
+    integer(i32), intent(in) :: counts(:), displacements(:)
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (.not. ctx%enabled .or. ctx%size <= 1_i32) return
+    if (size(counts) /= int(ctx%size) .or. size(displacements) /= int(ctx%size)) then
+      error stop 'mpi_allgatherv_inplace_real_dp needs one count and displacement per rank.'
+    end if
+    call MPI_Allgatherv( &
+      MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, values, int(counts), int(displacements), MPI_DOUBLE_PRECISION, &
+      MPI_COMM_WORLD, ierr &
+      )
+#else
+    if (size(counts) /= 1 .or. size(displacements) /= 1) then
+      error stop 'mpi_allgatherv_inplace_real_dp needs one count and displacement per rank.'
+    end if
+    if (values(1) /= values(1)) return
+#endif
+  end subroutine mpi_allgatherv_inplace_real_dp
+
+  !> `mpi_allgatherv_inplace_real_dp` の 32 bit 整数版。
+  subroutine mpi_allgatherv_inplace_i32(ctx, values, counts, displacements)
+    type(mpi_context), intent(in) :: ctx
+    integer(i32), intent(inout) :: values(*)
+    integer(i32), intent(in) :: counts(:), displacements(:)
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (.not. ctx%enabled .or. ctx%size <= 1_i32) return
+    if (size(counts) /= int(ctx%size) .or. size(displacements) /= int(ctx%size)) then
+      error stop 'mpi_allgatherv_inplace_i32 needs one count and displacement per rank.'
+    end if
+    call MPI_Allgatherv( &
+      MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, values, int(counts), int(displacements), MPI_INTEGER4, &
+      MPI_COMM_WORLD, ierr &
+      )
+#else
+    if (size(counts) /= 1 .or. size(displacements) /= 1) then
+      error stop 'mpi_allgatherv_inplace_i32 needs one count and displacement per rank.'
+    end if
+    if (values(1) /= values(1)) return
+#endif
+  end subroutine mpi_allgatherv_inplace_i32
 
   !> 全rankの同期ポイント。
   subroutine mpi_world_barrier(ctx)

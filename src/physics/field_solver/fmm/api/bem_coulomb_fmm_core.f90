@@ -2,6 +2,7 @@
 module bem_coulomb_fmm_core
   use bem_kinds, only: dp
   use bem_coulomb_fmm_types, only: fmm_options_type, fmm_plan_type, fmm_state_type
+  use bem_mpi, only: mpi_context
   implicit none
   private
 
@@ -41,10 +42,13 @@ module bem_coulomb_fmm_core
     !! @param[in] plan 構築済みの FMM 計画。
     !! @param[inout] state 更新対象の state。
     !! @param[in] src_q ソース電荷量。
-    module subroutine update_state(plan, state, src_q)
+    !! @param[in] mpi 与えると M2L を target node のブロックごとに rank で分担し、局所展開を全 rank で揃える。
+    !!            全 rank が同じ plan と src_q で呼ぶこと。結果は分担しない場合と bit 単位で同じ。
+    module subroutine update_state(plan, state, src_q, mpi)
       type(fmm_plan_type), intent(in) :: plan
       type(fmm_state_type), intent(inout) :: state
       real(dp), intent(in) :: src_q(:)
+      type(mpi_context), intent(in), optional :: mpi
     end subroutine update_state
 
     !> 複数の評価点で電場を計算する。
