@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- periodic2 の zero mode（k=0）で、傾斜 panel の累積電荷を絶対 z の二次・三次の冪で積分していたため、薄い高さ分布を
+  原点から離すと有効桁を失い、電位が符号ごと狂っていた（高さ差 1 µm の三角形を z=1 m に置くと −2.26 V が +122 V）。
+  区間ごとの累積電荷を区間左端を原点とする局所座標で持ち、panel の寄与を panel 自身の高さ幅だけで表すようにした。
+  平行移動しても一次モーメントと Gauss 則が保たれる（#41）。
+
 ## [3.6.0] - 2026-10-22
 
 ### Changed

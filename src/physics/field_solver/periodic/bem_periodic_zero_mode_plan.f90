@@ -28,6 +28,8 @@ module bem_periodic_zero_mode_plan
     real(dp) :: z_gauge = 0.0_dp
     real(dp) :: phi_gauge = 0.0_dp
     real(dp) :: total_charge = 0.0_dp
+    !> 区間 k の累積電荷多項式の係数。k>=2 は左端 break_z(k-1)、k=1 は break_z(1) を原点とする局所座標
+    !! t=z-原点 の多項式で、絶対 z の冪の相殺を避ける（zero_mode_interval_origin）。
     real(dp), allocatable :: cumulative_charge_coeff(:, :)
     real(dp), allocatable :: primitive_at_break(:)
     real(dp), allocatable :: sheet_charge(:)
@@ -37,6 +39,8 @@ module bem_periodic_zero_mode_plan
   public :: build_periodic_zero_mode_height_plan
   public :: refresh_periodic_zero_mode_state
   public :: symmetric_vacuum_bottom_field
+  public :: zero_mode_interval_origin
+  public :: integrate_local_polynomial
 
 contains
 
@@ -135,7 +139,7 @@ contains
     real(dp), intent(in) :: e_bottom, z_gauge, phi_gauge
     type(periodic_zero_mode_state_type), intent(out) :: state
     real(dp), allocatable :: difference(:, :)
-    real(dp) :: z0, z1, z2, denominator, coefficient(3)
+    real(dp) :: z0, z1, z2, denominator, offset, shift
     integer(i32) :: elem, interval, ninterval, i0, i1, i2
 
     if (size(charge) /= plan%nelem) error stop 'periodic zero-mode charge size mismatch.'
@@ -151,6 +155,8 @@ contains
     state%phi_gauge = phi_gauge
     state%total_charge = sum(charge)
 
+    ! 傾斜 panel の寄与は、加える区間と外す区間それぞれの局所原点で表す。係数は panel 自身の高さ幅だけで
+    ! 決まり、絶対 z に依らない（平行移動で値が変わらない）。
     do elem = 1, plan%nelem
       z0 = plan%panel(elem)%z(1)
       z1 = plan%panel(elem)%z(2)
@@ -162,25 +168,38 @@ contains
         state%sheet_charge(i0) = state%sheet_charge(i0) + charge(elem)
       else
         if (i1 > i0) then
+          ! [z0, z1]: q*(z-z0)^2/denominator。原点 a では z-z0 = t+offset, offset=a-z0。
           denominator = (z1 - z0)*(z2 - z0)
-          coefficient = charge(elem)*[z0*z0/denominator, -2.0_dp*z0/denominator, 1.0_dp/denominator]
-          call add_interval_range(difference, i0 + 1_i32, i1, coefficient)
+          offset = plan%break_z(i0) - z0
+          difference(:, i0 + 1_i32) = difference(:, i0 + 1_i32) + &
+                                      charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
+          offset = plan%break_z(i1) - z0
+          difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) - &
+                                      charge(elem)*[offset*offset, 2.0_dp*offset, 1.0_dp]/denominator
         end if
         if (i2 > i1) then
+          ! [z1, z2]: q*(1-(z2-z)^2/denominator)。原点 a では z2-z = offset-t, offset=z2-a。
           denominator = (z2 - z0)*(z2 - z1)
-          coefficient = charge(elem)*[ &
-                        1.0_dp - z2*z2/denominator, 2.0_dp*z2/denominator, -1.0_dp/denominator &
-                        ]
-          call add_interval_range(difference, i1 + 1_i32, i2, coefficient)
+          offset = z2 - plan%break_z(i1)
+          difference(:, i1 + 1_i32) = difference(:, i1 + 1_i32) + charge(elem)*[ &
+                                      1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
+                                      -1.0_dp/denominator]
+          offset = z2 - plan%break_z(i2)
+          difference(:, i2 + 1_i32) = difference(:, i2 + 1_i32) - charge(elem)*[ &
+                                      1.0_dp - offset*offset/denominator, 2.0_dp*offset/denominator, &
+                                      -1.0_dp/denominator]
         end if
       end if
-      call add_interval_range(difference, i2 + 1_i32, ninterval, [charge(elem), 0.0_dp, 0.0_dp])
+      difference(1, i2 + 1_i32) = difference(1, i2 + 1_i32) + charge(elem)
     end do
 
+    ! 前の区間の多項式を次の区間の原点へ移してから差分を足す。移す量は隣接 break の間隔だけ。
     state%cumulative_charge_coeff(:, 1) = difference(:, 1)
     do interval = 2, ninterval
+      shift = zero_mode_interval_origin(plan%break_z, interval) - &
+              zero_mode_interval_origin(plan%break_z, interval - 1_i32)
       state%cumulative_charge_coeff(:, interval) = &
-        state%cumulative_charge_coeff(:, interval - 1) + difference(:, interval)
+        shift_polynomial(state%cumulative_charge_coeff(:, interval - 1), shift) + difference(:, interval)
     end do
     ! Outside the source slab the integrated charge is known exactly. Do not
     ! extrapolate cancellation residue from the inclined-panel polynomials.
@@ -189,30 +208,37 @@ contains
     state%primitive_at_break(1) = 0.0_dp
     do interval = 1, plan%nbreak - 1
       state%primitive_at_break(interval + 1) = state%primitive_at_break(interval) + &
-                                               integrate_polynomial( &
+                                               integrate_local_polynomial( &
                                                state%cumulative_charge_coeff(:, interval + 1), &
-                                               plan%break_z(interval), plan%break_z(interval + 1) &
+                                               plan%break_z(interval + 1) - plan%break_z(interval) &
                                                )
     end do
   end subroutine refresh_periodic_zero_mode_state
 
-  subroutine add_interval_range(difference, first, last, coefficient)
-    real(dp), intent(inout) :: difference(:, :)
-    integer(i32), intent(in) :: first, last
-    real(dp), intent(in) :: coefficient(3)
+  !> 区間 interval の累積電荷多項式の原点。区間 1 は最下 break、それ以外は区間の左端 break。
+  pure real(dp) function zero_mode_interval_origin(break_z, interval) result(origin)
+    real(dp), intent(in) :: break_z(:)
+    integer(i32), intent(in) :: interval
 
-    if (first > last) return
-    difference(:, first) = difference(:, first) + coefficient
-    difference(:, last + 1_i32) = difference(:, last + 1_i32) - coefficient
-  end subroutine add_interval_range
+    origin = break_z(max(interval - 1_i32, 1_i32))
+  end function zero_mode_interval_origin
 
-  pure real(dp) function integrate_polynomial(coefficient, lower, upper) result(integral)
-    real(dp), intent(in) :: coefficient(3), lower, upper
+  !> 局所座標の多項式を原点から t=0..t_upper まで積分する。
+  pure real(dp) function integrate_local_polynomial(coefficient, t_upper) result(integral)
+    real(dp), intent(in) :: coefficient(3), t_upper
 
-    integral = coefficient(1)*(upper - lower) + &
-               0.5_dp*coefficient(2)*(upper*upper - lower*lower) + &
-               coefficient(3)/3.0_dp*(upper**3 - lower**3)
-  end function integrate_polynomial
+    integral = t_upper*(coefficient(1) + t_upper*(0.5_dp*coefficient(2) + t_upper*coefficient(3)/3.0_dp))
+  end function integrate_local_polynomial
+
+  !> c0+c1*t+c2*t^2 を原点を shift だけ進めた座標 t'=t-shift の係数へ書き換える。
+  pure function shift_polynomial(coefficient, shift) result(shifted)
+    real(dp), intent(in) :: coefficient(3), shift
+    real(dp) :: shifted(3)
+
+    shifted(1) = coefficient(1) + shift*(coefficient(2) + shift*coefficient(3))
+    shifted(2) = coefficient(2) + 2.0_dp*shift*coefficient(3)
+    shifted(3) = coefficient(3)
+  end function shift_polynomial
 
   pure integer(i32) function nearest_break(break_z, value) result(index)
     real(dp), intent(in) :: break_z(:), value
