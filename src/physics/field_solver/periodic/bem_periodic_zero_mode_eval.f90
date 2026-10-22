@@ -1,7 +1,8 @@
 module bem_periodic_zero_mode_eval
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0
-  use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
+  use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
+                                         zero_mode_interval_origin, integrate_local_polynomial
   implicit none
   private
 
@@ -26,7 +27,9 @@ contains
       error stop 'invalid periodic zero-mode trace.'
     end if
     call locate_interval(plan%break_z, z, interval, breakpoint)
-    cumulative_charge = evaluate_polynomial(state%cumulative_charge_coeff(:, interval), z)
+    cumulative_charge = evaluate_polynomial( &
+                        state%cumulative_charge_coeff(:, interval), z - zero_mode_interval_origin(plan%break_z, interval) &
+                        )
     if (breakpoint > 0_i32) then
       sheet_correction = 0.5_dp*real(1_i32 - trace, dp)*state%sheet_charge(breakpoint)
       cumulative_charge = cumulative_charge - sheet_correction
@@ -44,17 +47,12 @@ contains
     type(periodic_zero_mode_state_type), intent(in) :: state
     real(dp), intent(in) :: z
     integer(i32), intent(in) :: interval
-    integer(i32) :: lower_break
 
-    if (interval == 1_i32) then
-      primitive = integrate_polynomial(state%cumulative_charge_coeff(:, 1), plan%break_z(1), z)
-      return
-    end if
-    lower_break = interval - 1_i32
-    primitive = state%primitive_at_break(lower_break) + &
-                integrate_polynomial( &
-                state%cumulative_charge_coeff(:, interval), plan%break_z(lower_break), z &
+    ! 区間 1 は最下 break から、それ以外は区間の左端 break（局所原点）から積分する。
+    primitive = integrate_local_polynomial( &
+                state%cumulative_charge_coeff(:, interval), z - zero_mode_interval_origin(plan%break_z, interval) &
                 )
+    if (interval > 1_i32) primitive = primitive + state%primitive_at_break(interval - 1_i32)
   end function charge_primitive
 
   pure subroutine locate_interval(break_z, z, interval, breakpoint)
@@ -83,18 +81,10 @@ contains
     interval = low
   end subroutine locate_interval
 
-  pure real(dp) function evaluate_polynomial(coefficient, z) result(value)
-    real(dp), intent(in) :: coefficient(3), z
+  pure real(dp) function evaluate_polynomial(coefficient, t) result(value)
+    real(dp), intent(in) :: coefficient(3), t
 
-    value = coefficient(1) + z*(coefficient(2) + z*coefficient(3))
+    value = coefficient(1) + t*(coefficient(2) + t*coefficient(3))
   end function evaluate_polynomial
-
-  pure real(dp) function integrate_polynomial(coefficient, lower, upper) result(integral)
-    real(dp), intent(in) :: coefficient(3), lower, upper
-
-    integral = coefficient(1)*(upper - lower) + &
-               0.5_dp*coefficient(2)*(upper*upper - lower*lower) + &
-               coefficient(3)/3.0_dp*(upper**3 - lower**3)
-  end function integrate_polynomial
 
 end module bem_periodic_zero_mode_eval
