@@ -87,6 +87,9 @@ load_modules_if_requested
 
 export FPM_FC="${FC}"
 export FPM_FFLAGS="${FFLAGS}"
+if [[ -n "${FPM_NO_PROFILE:-}" ]]; then
+  export FPM_NO_PROFILE
+fi
 if [[ -n "${LDFLAGS}" ]]; then
   export FPM_LDFLAGS="${LDFLAGS}"
 fi
@@ -94,6 +97,9 @@ fi
 echo "[install.sh] BUILD_PROFILE=${BUILD_PROFILE}"
 echo "[install.sh] FPM_FC=${FPM_FC}"
 echo "[install.sh] FPM_FFLAGS=${FPM_FFLAGS}"
+if [[ "${FPM_NO_PROFILE:-0}" == "1" ]]; then
+  echo "[install.sh] FPM_NO_PROFILE=1 (fpm profile flags are not added)"
+fi
 echo "[install.sh] PREFIX=${PREFIX}"
 
 if ! command -v "${FPM_FC}" >/dev/null 2>&1; then

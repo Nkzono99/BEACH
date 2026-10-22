@@ -32,6 +32,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   局所展開を allgather で揃える（`bem_mpi` に in-place の allgatherv 補助を追加）。各 node の展開は従来と同じループで
   1 つの rank が求めるので、全 rank で複製していた結果と bit 単位で同じ。`test_mpi_hybrid` で確認する。
 
+- opt-in の `env/camphor-fast.env`（`make install-camphor-fast`）を追加した。`-fp-model fast=1` で近接核の `log`/`atan2` が
+  4 レーンの SVML になり、本番相当の入力で 1 batch が約 1.3 倍速い（0.62 s → 0.48 s）。結果は precise ビルドと 10⁻¹³ 程度
+  異なり bit 再現しないので、テストと golden 比較は従来の `camphor.env` で行う。fpm は `--flag` の後に自分のプロファイル
+  フラグを足して `-fp-model` を上書きするため、`build.sh` に `FPM_NO_PROFILE=1`（`FFLAGS` だけを fpm に渡す）を追加した。
+
 ## [3.6.1] - 2026-10-22
 
 ### Fixed
