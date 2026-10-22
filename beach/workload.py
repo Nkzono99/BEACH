@@ -693,44 +693,8 @@ def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
     return read_summary_batches(checkpoint_dir / "summary.txt")
 
 
-def estimate_workload(
-    config: dict[str, Any],
-    threads: int,
-    initial_residuals: list[float] | None = None,
-    mpi_ranks: int = 1,
-    mpi_rank: int = 0,
-    completed_batches: int = 0,
-) -> dict[str, Any]:
-    """Estimate particle workload for one local MPI rank.
-
-    Parameters
-    ----------
-    config : dict[str, Any]
-        Parsed TOML-like configuration dictionary.
-    threads : int
-        OpenMP thread count used for per-thread load bounds.
-    initial_residuals : list[float] or None, default None
-        Initial macro residuals for each species.
-    mpi_ranks : int, default 1
-        MPI world size.
-    mpi_rank : int, default 0
-        Local rank index used for split-count estimation.
-    completed_batches : int, default 0
-        Completed checkpoint batches. ``sim.batch_count`` is treated as the
-        cumulative target, so only ``sim.batch_count - completed_batches``
-        batches are estimated.
-
-    Returns
-    -------
-    dict[str, Any]
-        Workload summary including per-batch totals, per-thread bounds, and
-        resolved batch duration.
-
-    Raises
-    ------
-    SystemExit
-        If configuration values are inconsistent or invalid.
-    """
+def _normalized_sections(config: dict[str, Any]) -> dict[str, Any]:
+    """Check the sections the estimator reads and resolve their high-level notation."""
 
     sim_raw = config.get("sim", {})
     if not isinstance(sim_raw, dict):
@@ -779,16 +743,18 @@ def estimate_workload(
     if particle_boundary_raw is not None:
         workload_config["particle_boundary"] = particle_boundary_raw
     try:
-        normalized_config = normalize_high_level_config(workload_config)
+        return normalize_high_level_config(workload_config)
     except (ConfigError, TypeError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
+
+
+def _resolved_sim_config(normalized_config: dict[str, Any]) -> dict[str, Any]:
+    """Merge [sim] over the defaults and resolve the box, boundaries, and E0."""
+
     sim_raw = normalized_config["sim"]
     domain_raw = normalized_config.get("domain")
     field_boundary_raw = normalized_config.get("field_boundary")
     particle_boundary_raw = normalized_config.get("particle_boundary")
-    particles_raw = normalized_config["particles"]
-    species_list_raw = particles_raw["species"]
-
     sim_cfg = dict(DEFAULT_SIM)
     sim_cfg["field_periodic_cache_dir"] = default_periodic_cache_dir()
     sim_cfg.update(sim_raw)
@@ -802,6 +768,11 @@ def estimate_workload(
     if isinstance(particle_boundary_raw, dict):
         sim_cfg["particle_boundary"] = particle_boundary_raw
     _validate_external_e_field(sim_raw, sim_cfg)
+    return sim_cfg
+
+
+def _species_with_defaults(species_list_raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge each species over the defaults and record which inputs were given."""
 
     species_list: list[dict[str, Any]] = []
     for raw in species_list_raw:
@@ -823,7 +794,10 @@ def estimate_workload(
             "deposit_opposite_charge_on_emit" in raw
         )
         species_list.append(spec)
+    return species_list
 
+
+def _remaining_batch_count(sim_cfg: dict[str, Any], completed_batches: int) -> tuple[int, int]:
     target_batch_count = int(sim_cfg["batch_count"])
     if target_batch_count <= 0:
         raise SystemExit("sim.batch_count must be > 0")
@@ -833,8 +807,10 @@ def estimate_workload(
         raise SystemExit(
             "sim.batch_count must be >= completed checkpoint batches when resuming."
         )
-    batch_count = target_batch_count - completed_batches
+    return target_batch_count, target_batch_count - completed_batches
 
+
+def _check_parallel_layout(threads: int, mpi_ranks: int, mpi_rank: int) -> None:
     if threads <= 0:
         raise SystemExit("threads must be > 0")
     if mpi_ranks <= 0:
@@ -842,28 +818,26 @@ def estimate_workload(
     if mpi_rank < 0 or mpi_rank >= mpi_ranks:
         raise SystemExit("mpi_rank must satisfy 0 <= mpi_rank < mpi_ranks")
 
+
+def _has_dynamic_sources(species_list: list[dict[str, Any]]) -> bool:
+    """Check the per-mode source keys and report whether a source needs a batch duration."""
+
     has_dynamic_source_species = False
     per_batch_volume_particles = 0
     for spec in species_list:
         if not bool(spec.get("enabled", True)):
             continue
-        source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+        source_mode = spec["source_mode"]
         has_boundary_inflow = bool(spec.get("boundary_inflow"))
-        has_reservoir_injection = has_boundary_inflow
         if source_mode == "volume_seed":
             if (
-                not has_reservoir_injection
+                not has_boundary_inflow
                 and bool(spec.get("_has_target_macro_particles_per_batch", False))
             ):
                 raise SystemExit(
                     "target_macro_particles_per_batch is only valid for boundary_inflow."
                 )
-            if (
-                abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
-                or int(spec.get("rays_per_batch", 0)) != 0
-                or bool(spec.get("_has_ray_direction", False))
-                or bool(spec.get("_has_deposit_opposite_charge_on_emit", False))
-            ):
+            if _has_photo_raycast_keys(spec):
                 raise SystemExit(
                     'photo_raycast keys are only valid for source_mode="photo_raycast".'
                 )
@@ -883,11 +857,16 @@ def estimate_workload(
         raise SystemExit(
             "At least one enabled [[particles.species]] entry must have npcls_per_step > 0."
         )
-    resolved_batch_duration = _resolve_batch_duration(
-        sim_cfg=sim_cfg,
-        sim_raw=sim_raw,
-        has_dynamic_source_species=has_dynamic_source_species,
-    )
+    return has_dynamic_source_species
+
+
+def _source_parameters(
+    sim_cfg: dict[str, Any],
+    species_list: list[dict[str, Any]],
+    resolved_batch_duration: float,
+) -> tuple[list[dict[str, Any] | None], list[dict[str, Any] | None]]:
+    """Validate and resolve the reservoir and photo_raycast parameters per species."""
+
     reservoir_params_by_species: list[dict[str, Any] | None] = [None] * len(
         species_list
     )
@@ -895,9 +874,7 @@ def estimate_workload(
     for s_idx, spec in enumerate(species_list):
         if not bool(spec.get("enabled", True)):
             continue
-        source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
-        has_reservoir_injection = bool(spec.get("boundary_inflow"))
-        if has_reservoir_injection:
+        if bool(spec.get("boundary_inflow")):
             reservoir_params_by_species[s_idx] = _validate_reservoir_species(
                 sim_cfg,
                 spec,
@@ -906,40 +883,130 @@ def estimate_workload(
                 species_list,
                 reservoir_params_by_species,
             )
-        if source_mode == "photo_raycast":
+        if spec["source_mode"] == "photo_raycast":
             photo_params_by_species[s_idx] = _validate_photo_raycast_species(
                 sim_cfg,
                 spec,
             )
+    return reservoir_params_by_species, photo_params_by_species
 
-    residuals = [0.0] * len(species_list)
+
+_FACE_INDEX = {"x_low": 0, "x_high": 1, "y_low": 2, "y_high": 3, "z_low": 4, "z_high": 5}
+
+
+def _initial_residual_state(
+    n_species: int,
+    reservoir_params_by_species: list[dict[str, Any] | None],
+    initial_residuals: list[float] | None,
+) -> tuple[list[float], list[list[float]]]:
+    """Return per-species source residuals and per-surface reservoir residuals."""
+
+    residuals = [0.0] * n_species
     boundary_residuals = [
         [0.0] * len(params["surface_rates"]) if params is not None else []
         for params in reservoir_params_by_species
     ]
     if initial_residuals is not None:
-        if len(initial_residuals) != len(species_list):
+        if len(initial_residuals) != n_species:
             raise SystemExit(
                 "macro residual species count does not match config species count"
             )
         residuals = list(initial_residuals)
         restart_boundary = getattr(initial_residuals, "boundary", None)
         if restart_boundary is not None:
-            face_index = {
-                "x_low": 0,
-                "x_high": 1,
-                "y_low": 2,
-                "y_high": 3,
-                "z_low": 4,
-                "z_high": 5,
-            }
             for species_idx, params in enumerate(reservoir_params_by_species):
                 if params is None:
                     continue
                 boundary_residuals[species_idx] = [
-                    float(restart_boundary[face_index[surface["face"]]][species_idx])
+                    float(restart_boundary[_FACE_INDEX[surface["face"]]][species_idx])
                     for surface in params["surfaces"]
                 ]
+    return residuals, boundary_residuals
+
+
+def _reservoir_batch_counts(
+    reservoir_params: dict[str, Any],
+    face_residuals: list[float],
+    resolved_batch_duration: float,
+    mpi_rank: int,
+    mpi_ranks: int,
+) -> tuple[int, int]:
+    """Draw one batch of reservoir macros per surface; update the residuals in place."""
+
+    n_reservoir_global = 0
+    n_reservoir_local = 0
+    for face_idx, rate_per_s in enumerate(reservoir_params["surface_rates"]):
+        n_macro_expected = (
+            rate_per_s * resolved_batch_duration / reservoir_params["w_particle"]
+        )
+        macro_budget = face_residuals[face_idx] + n_macro_expected
+        if macro_budget < 0.0:
+            macro_budget = 0.0
+        n_face_global = math.floor(macro_budget)
+        face_residuals[face_idx] = macro_budget - n_face_global
+        n_reservoir_global += n_face_global
+        n_reservoir_local += _split_count_for_rank(
+            int(n_face_global), mpi_rank, mpi_ranks
+        )
+    return int(n_reservoir_global), n_reservoir_local
+
+
+def estimate_workload(
+    config: dict[str, Any],
+    threads: int,
+    initial_residuals: list[float] | None = None,
+    mpi_ranks: int = 1,
+    mpi_rank: int = 0,
+    completed_batches: int = 0,
+) -> dict[str, Any]:
+    """Estimate particle workload for one local MPI rank.
+
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Parsed TOML-like configuration dictionary.
+    threads : int
+        OpenMP thread count used for per-thread load bounds.
+    initial_residuals : list[float] or None, default None
+        Initial macro residuals for each species.
+    mpi_ranks : int, default 1
+        MPI world size.
+    mpi_rank : int, default 0
+        Local rank index used for split-count estimation.
+    completed_batches : int, default 0
+        Completed checkpoint batches. ``sim.batch_count`` is treated as the
+        cumulative target, so only ``sim.batch_count - completed_batches``
+        batches are estimated.
+
+    Returns
+    -------
+    dict[str, Any]
+        Workload summary including per-batch totals, per-thread bounds, and
+        resolved batch duration.
+
+    Raises
+    ------
+    SystemExit
+        If configuration values are inconsistent or invalid.
+    """
+
+    normalized_config = _normalized_sections(config)
+    sim_cfg = _resolved_sim_config(normalized_config)
+    species_list = _species_with_defaults(normalized_config["particles"]["species"])
+    target_batch_count, batch_count = _remaining_batch_count(sim_cfg, completed_batches)
+    _check_parallel_layout(threads, mpi_ranks, mpi_rank)
+
+    resolved_batch_duration = _resolve_batch_duration(
+        sim_cfg=sim_cfg,
+        sim_raw=normalized_config["sim"],
+        has_dynamic_source_species=_has_dynamic_sources(species_list),
+    )
+    reservoir_params_by_species, photo_params_by_species = _source_parameters(
+        sim_cfg, species_list, resolved_batch_duration
+    )
+    residuals, boundary_residuals = _initial_residual_state(
+        len(species_list), reservoir_params_by_species, initial_residuals
+    )
 
     batch_totals: list[int] = []
     batch_thread_min: list[int] = []
@@ -959,46 +1026,29 @@ def estimate_workload(
                 global_species_counts.append(0)
                 continue
 
-            source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+            # Source modes and counts were validated by _has_dynamic_sources.
+            source_mode = spec["source_mode"]
             reservoir_params = reservoir_params_by_species[s_idx]
             n_macro_global = 0
             n_macro_local = 0
             if source_mode == "volume_seed":
                 n_volume_global = int(spec.get("npcls_per_step", 0))
-                if n_volume_global < 0:
-                    raise SystemExit("particles.species.npcls_per_step must be >= 0")
                 n_macro_global += n_volume_global
                 n_macro_local += _split_count_for_rank(
                     n_volume_global, mpi_rank, mpi_ranks
                 )
 
             if reservoir_params is not None:
-                n_reservoir_global = 0
-                n_reservoir_local = 0
-                for face_idx, rate_per_s in enumerate(
-                    reservoir_params["surface_rates"]
-                ):
-                    n_macro_expected = (
-                        rate_per_s
-                        * resolved_batch_duration
-                        / reservoir_params["w_particle"]
-                    )
-                    macro_budget = (
-                        boundary_residuals[s_idx][face_idx] + n_macro_expected
-                    )
-                    if macro_budget < 0.0:
-                        macro_budget = 0.0
-                    n_face_global = math.floor(macro_budget)
-                    boundary_residuals[s_idx][face_idx] = (
-                        macro_budget - n_face_global
-                    )
-                    n_reservoir_global += n_face_global
-                    n_reservoir_local += _split_count_for_rank(
-                        int(n_face_global), mpi_rank, mpi_ranks
-                    )
+                n_reservoir_global, n_reservoir_local = _reservoir_batch_counts(
+                    reservoir_params,
+                    boundary_residuals[s_idx],
+                    resolved_batch_duration,
+                    mpi_rank,
+                    mpi_ranks,
+                )
                 local_reservoir_particles += n_reservoir_local
-                global_reservoir_particles += int(n_reservoir_global)
-                n_macro_global += int(n_reservoir_global)
+                global_reservoir_particles += n_reservoir_global
+                n_macro_global += n_reservoir_global
                 n_macro_local += n_reservoir_local
 
             if source_mode == "photo_raycast":
@@ -1013,14 +1063,6 @@ def estimate_workload(
                     n_rays_global, mpi_rank, mpi_ranks
                 )
 
-            if source_mode not in {
-                "volume_seed",
-                "photo_raycast",
-                "secondary_emission",
-            }:
-                raise SystemExit(
-                    f"Unknown particles.species.source_mode: {source_mode}"
-                )
             species_counts.append(n_macro_local)
             global_species_counts.append(n_macro_global)
 
