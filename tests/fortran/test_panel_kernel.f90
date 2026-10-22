@@ -1,5 +1,6 @@
 !> Analytic P0 triangle kernel against independent quadrature and side limits.
 program test_panel_kernel
+  use, intrinsic :: ieee_exceptions, only: ieee_invalid, ieee_divide_by_zero, ieee_set_flag, ieee_get_flag
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0, k_coulomb
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
@@ -8,7 +9,7 @@ program test_panel_kernel
                               panel_potential_sum_translated, panel_side_principal_value, panel_side_normal_plus, &
                               panel_side_normal_minus
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_equal_i32, assert_close_dp, &
-                          assert_allclose_1d
+                          assert_allclose_1d, assert_true
   implicit none
 
   type(panel_geometry_type) :: geom, moved, small_geom, neighbor_geom, random_geom, reference_geom
@@ -21,6 +22,7 @@ program test_panel_kernel
   real(dp) :: random_vertex(3, 3), translated_phi, translated_field(3)
   integer :: trial, accepted_trials
   integer(i64) :: lcg_state
+  logical :: invalid_raised, divide_by_zero_raised
   integer(i32), parameter :: batch_panels = 24_i32, batch_entries = 150_i32
   type(panel_geometry_type) :: batch_geom(batch_panels)
   real(dp) :: batch_charge(batch_panels), batch_shift1(batch_entries), batch_shift2(batch_entries)
@@ -178,6 +180,7 @@ program test_panel_kernel
   batch_charge(5) = 0.0_dp
   do entry = 1_i32, batch_entries
     batch_index(entry) = 1_i32 + int(lcg_uniform()*real(batch_panels, dp), i32)
+    if (entry == 1_i32) batch_index(entry) = 5_i32
     batch_shift1(entry) = real(int(3.0_dp*lcg_uniform(), i32) - 1_i32, dp)*2.5_dp
     batch_shift2(entry) = real(int(3.0_dp*lcg_uniform(), i32) - 1_i32, dp)*2.5_dp
     ! The FMM plan stores each near panel translated as `vertex + shift`, component by component.
@@ -193,14 +196,17 @@ program test_panel_kernel
     tab_oz(:, entry) = batch_geom(batch_index(entry))%edge_outward(3, :)
     tab_area(entry) = batch_geom(batch_index(entry))%area
   end do
-  do trial = 1, 3
+  do trial = 1, 4
     select case (trial)
     case (1)
       target = [0.4_dp, 0.3_dp, 1.7_dp]
     case (2)
       target = batch_geom(batch_index(2))%centroid + [batch_shift1(2), batch_shift2(2), 0.0_dp]
-    case default
+    case (3)
       target = [-1.2_dp, 2.9_dp, -0.6_dp]
+    case default
+      ! A zero-charge panel contributes nothing even when its vertex coincides with the target.
+      target = batch_geom(5)%vertex(:, 1) + [batch_shift1(1), batch_shift2(1), 0.0_dp]
     end select
     ref_ex = 0.0_dp
     ref_ey = 0.0_dp
@@ -221,6 +227,8 @@ program test_panel_kernel
     sum_ey = 0.0_dp
     sum_ez = 0.0_dp
     sum_phi = 0.0_dp
+    call ieee_set_flag(ieee_invalid, .false.)
+    call ieee_set_flag(ieee_divide_by_zero, .false.)
     call panel_field_sum_translated( &
       batch_entries, tab_vx, tab_vy, tab_vz, tab_nx, tab_ny, tab_nz, tab_edge, tab_ox, tab_oy, tab_oz, tab_area, &
       batch_index, batch_charge, batch_geom, target, sum_ex, sum_ey, sum_ez &
@@ -229,6 +237,10 @@ program test_panel_kernel
       batch_entries, tab_vx, tab_vy, tab_vz, tab_nx, tab_ny, tab_nz, tab_edge, tab_ox, tab_oy, tab_oz, tab_area, &
       batch_index, batch_charge, batch_geom, target, sum_phi &
       )
+    call ieee_get_flag(ieee_invalid, invalid_raised)
+    call ieee_get_flag(ieee_divide_by_zero, divide_by_zero_raised)
+    call assert_true(.not. invalid_raised, 'batched near field raised an invalid operation')
+    call assert_true(.not. divide_by_zero_raised, 'batched near field divided by zero')
     call assert_close_dp(sum_ex, ref_ex, 0.0_dp, 'batched ex is not bitwise identical')
     call assert_close_dp(sum_ey, ref_ey, 0.0_dp, 'batched ey is not bitwise identical')
     call assert_close_dp(sum_ez, ref_ez, 0.0_dp, 'batched ez is not bitwise identical')

@@ -63,6 +63,22 @@ def cache_artifacts(root: Path, compiler: str = "gfortran") -> list[Path]:
     return paths
 
 
+@pytest.mark.parametrize("action", ["build", "run", "test", "install"])
+@pytest.mark.parametrize("no_profile", ["0", "1"])
+def test_profile_flags_can_be_disabled_for_explicit_float_model(project: tuple, action: str, no_profile: str) -> None:
+    root, _ = project
+    run_build(project, FPM_ACTION=action, FPM_PROFILE="release", FPM_NO_PROFILE=no_profile,
+              FPM_FFLAGS="-O3 -fp-model fast=1")
+    args = (root / "fpm.log").read_text().splitlines()
+    assert args[0] == action
+    assert "-fp-model fast=1" in args[args.index("--flag") + 1]
+    if no_profile == "1":
+        assert "--profile" not in args
+        assert not any(arg == "" for arg in args)
+    else:
+        assert args[args.index("--profile") + 1] == "release"
+
+
 def test_bootstrap_clears_complete_compiler_cache_and_preserves_products(project: tuple) -> None:
     root, _ = project
     old = cache_artifacts(root)

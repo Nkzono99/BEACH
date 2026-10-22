@@ -401,8 +401,9 @@ update_state(plan, state, src_q):
 ```
 
 `mpi` を与えた場合、target node は組数がほぼ等しい連続ブロックに rank 順で分けられ（`m2l_rank_blocks`）、
-各 node の展開は 1 つの rank が従来と同じループで求める。そのため rank 数によらず結果は同じで、
-rank ごとの M2L コストだけが 1/rank 数になる。M2L は保存した演算子（この入力では数 GB）の読み出しに律速される。
+各 node の展開は 1 つの rank が従来と同じループで求める。通常精度の同一ビルドでは計算を分担しても結果は同じで、
+M2L の組の評価を rank に分配できる。通信と組数の偏りがあるため、所要時間が rank 数に反比例するとは限らない。
+演算子と plan の保存領域は引き続き各 rank が保持する。
 
 ### 6.2 OpenMP並列化
 
@@ -429,6 +430,7 @@ rank ごとの M2L コストだけが 1/rank 数になる。M2L は保存した�
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
 - panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_vx` … `near_area`）として build 時に保存し、
   点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
+- 近接 panel の成分表には、像と葉による重複を含む近接リストの 1 エントリにつき約 200 byte を各 rank で追加保持する
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
 
 ## 7. `eval_point(s)` のアルゴリズム

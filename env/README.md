@@ -3,10 +3,11 @@
 `install.sh` can load host-specific build presets from this directory.
 
 - `common.env`: shared defaults
-- `camphor.env`: optimized Intel MPI + OpenMP flags for camphor (`-fp-model precise`, bit-reproducible against the test builds)
+- `camphor.env`: optimized Intel MPI + OpenMP flags for camphor (`-fp-model precise`)
 - `camphor-fast.env`: opt-in camphor build with `-fp-model fast=1`; about 1.3x faster per batch because the near-field
-  kernel can use 4-lane SVML `log`/`atan2`. Results differ from `camphor.env` at the 1e-13 level and are not
-  bit-reproducible against it, so use it for production runs only and keep `camphor.env` for tests and golden
+  kernel can use 4-lane SVML `log`/`atan2`. Short single-thread comparisons showed charge/history differences
+  around 1e-13 and changed individual particle outcomes. This is not an error bound for other cases or long runs.
+  Results are not bit-reproducible against `camphor.env`; keep `camphor.env` for tests and golden
   comparisons. It sets `FPM_NO_PROFILE=1` because fpm would otherwise append `-fp-model precise` after `FFLAGS`.
 - `profile.template.env`: new profile template
 

@@ -179,34 +179,33 @@ prepare_fpm_cache "$@"
 # fpm appends its profile flags after --flag, so a profile's "-O3 -fp-model precise" silently
 # overrides any -fp-model given in FFLAGS. FPM_NO_PROFILE=1 passes only FFLAGS to fpm; the
 # caller then spells out every flag it needs (env/camphor-fast.env does).
-profile_option() {
+run_fpm() {
+  local action="$1" profile="$2"
+  shift 2
   if [[ "${FPM_NO_PROFILE:-0}" == "1" ]]; then
     echo "[build.sh] fpm profile flags disabled (FPM_NO_PROFILE=1); using FFLAGS only" >&2
-    return 0
+    fpm_stale_guard_run "${FPM}" "${action}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+  else
+    fpm_stale_guard_run "${FPM}" "${action}" --profile "${profile}" --flag "${EFFECTIVE_FFLAGS}" "$@"
   fi
-  printf -- '--profile\n%s\n' "$1"
 }
 
 case "${FPM_ACTION}" in
   build)
     : "${FPM_PROFILE:=release}"
-    mapfile -t profile_args < <(profile_option "${FPM_PROFILE}")
-    fpm_stale_guard_run "${FPM}" build "${profile_args[@]}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    run_fpm build "${FPM_PROFILE}" "$@"
     ;;
   run)
     : "${FPM_PROFILE:=release}"
-    mapfile -t profile_args < <(profile_option "${FPM_PROFILE}")
-    fpm_stale_guard_run "${FPM}" run "${profile_args[@]}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    run_fpm run "${FPM_PROFILE}" "$@"
     ;;
   test)
     : "${FPM_PROFILE:=debug}"
-    mapfile -t profile_args < <(profile_option "${FPM_PROFILE}")
-    fpm_stale_guard_run "${FPM}" test "${profile_args[@]}" --flag "${EFFECTIVE_FFLAGS}" "$@"
+    run_fpm test "${FPM_PROFILE}" "$@"
     ;;
   install)
     : "${FPM_PROFILE:=release}"
-    mapfile -t profile_args < <(profile_option "${FPM_PROFILE}")
-    fpm_stale_guard_run "${FPM}" install "${profile_args[@]}" --flag "${EFFECTIVE_FFLAGS}" --prefix "${PREFIX}" "$@"
+    run_fpm install "${FPM_PROFILE}" --prefix "${PREFIX}" "$@"
     ;;
   *)
     echo "ERROR: FPM_ACTION must be one of: build, run, test, install" >&2

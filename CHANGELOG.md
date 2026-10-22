@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [3.7.0] - 2026-10-22
 
 ### Fixed
 
@@ -33,9 +33,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   1 つの rank が求めるので、全 rank で複製していた結果と bit 単位で同じ。`test_mpi_hybrid` で確認する。
 
 - opt-in の `env/camphor-fast.env`（`make install-camphor-fast`）を追加した。`-fp-model fast=1` で近接核の `log`/`atan2` が
-  4 レーンの SVML になり、本番相当の入力で 1 batch が約 1.3 倍速い（0.62 s → 0.48 s）。結果は precise ビルドと 10⁻¹³ 程度
-  異なり bit 再現しないので、テストと golden 比較は従来の `camphor.env` で行う。fpm は `--flag` の後に自分のプロファイル
+  4 レーンの SVML になり、20 バッチの測定（4 MPI rank × 16 スレッド）で 1 batch が約 1.3 倍速い（0.62 s → 0.48 s）。
+  短い単一スレッド比較では電荷・履歴に相対 10⁻¹³ 程度の差があった。粒子の衝突・脱出結果も変わり得るため、
+  この値を他の入力や長時間実行の誤差上限とはしない。テストと golden 比較は従来の `camphor.env` で行う。
+  fpm は `--flag` の後に自分のプロファイル
   フラグを足して `-fp-model` を上書きするため、`build.sh` に `FPM_NO_PROFILE=1`（`FFLAGS` だけを fpm に渡す）を追加した。
+- SIMD の近接和で、電荷ゼロの panel と面上の評価点を非特異な経路へ分けた。使わないレーンでの特異式の評価による
+  浮動小数点例外を避ける。ビルドのプロファイル選択には macOS 標準 Bash にも対応する構文を使う。
 
 ## [3.6.1] - 2026-10-22
 

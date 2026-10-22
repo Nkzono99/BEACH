@@ -170,6 +170,9 @@ contains
         scale = k_coulomb*charge(index(m))/area(m)
         height = (target(1) - vx(1, m))*nx(m) + (target(2) - vy(1, m))*ny(m) + (target(3) - vz(1, m))*nz(m)
         on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
+        ! Inactive panels contribute nothing; on-plane targets use the scalar surface kernel below.
+        ! Neither case may evaluate the singular off-surface expressions, even in an unused lane.
+        if (.not. active(k) .or. on_plane(k)) cycle
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -189,7 +192,10 @@ contains
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        edge_hit = edge_hit .or. (active(k) .and. .not. on_plane(k) .and. max(l1, l2, l3) >= 1.0_dp)
+        if (max(l1, l2, l3) >= 1.0_dp) then
+          edge_hit = .true.
+          cycle
+        end if
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))
@@ -263,6 +269,7 @@ contains
         py = target(2) - height*ny(m)
         pz = target(3) - height*nz(m)
         on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
+        if (.not. active(k) .or. on_plane(k)) cycle
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -282,7 +289,10 @@ contains
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        edge_hit = edge_hit .or. (active(k) .and. .not. on_plane(k) .and. max(l1, l2, l3) >= 1.0_dp)
+        if (max(l1, l2, l3) >= 1.0_dp) then
+          edge_hit = .true.
+          cycle
+        end if
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))

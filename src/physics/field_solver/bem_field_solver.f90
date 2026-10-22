@@ -7,7 +7,6 @@ module bem_field_solver
   use bem_types, only: mesh_type, sim_config
   use bem_mpi, only: mpi_context
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
-  use bem_mpi, only: mpi_context
   use bem_string_utils, only: lower_ascii
   use bem_runtime_modes, only: field_solver_mode_direct, field_solver_mode_treecode, field_solver_mode_fmm, &
                                field_solver_mode_id
