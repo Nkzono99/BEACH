@@ -18,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - camphor のビルドプロファイル（`env/camphor.env`）で作った MPI 版が、どの設定でもバッチループの先頭で
   `forrtl: severe (154): array index out of bounds` で停止していた。ifx 2023.2.4 が `-xHost`（Xeon Max の AVX-512）で
   8 byte 境界の stack 一時領域へ `vmovaps %xmm16` を出す誤コンパイルで、少なくとも 3.5.0 から起きていた。
-  プロファイルの命令セットを `-xCORE-AVX2` にした。ifx 2024.0 / 2025.0 なら `-xHost` でも正しく動く。
+  プロファイルの命令セットを `-xCORE-AVX2` にした。ifx 2024.0 と 2025.0.4 でも同じ非整列ストアが出て停止する
+  （2026-10-22 に計測）ので、これらでも `-xHost` は使わない。
 
 ### Changed
 
