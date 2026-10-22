@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- `beach --check-config` が、これまで実行中のバッチで初めて停止していた設定を preflight で拒否する: `run.batch_count <= 0`、
+  負の `run.batch.duration_s`、photo_raycast 種の finite `[domain]` なし・`run.batch.duration_s <= 0`・質量 <= 0・温度 < 0。
+  エラーの文言は変わらない。
+
 ## [3.6.1] - 2026-10-22
 
 ### Fixed
