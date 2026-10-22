@@ -21,7 +21,7 @@ program test_panel_kernel
   real(dp) :: random_vertex(3, 3), translated_phi, translated_field(3)
   integer :: trial, accepted_trials
   integer(i64) :: lcg_state
-  integer(i32), parameter :: batch_panels = 24_i32, batch_entries = 40_i32
+  integer(i32), parameter :: batch_panels = 24_i32, batch_entries = 150_i32
   type(panel_geometry_type) :: batch_geom(batch_panels)
   real(dp) :: batch_charge(batch_panels), batch_shift1(batch_entries), batch_shift2(batch_entries)
   real(dp) :: sum_ex, sum_ey, sum_ez, sum_phi, ref_ex, ref_ey, ref_ez, ref_phi
