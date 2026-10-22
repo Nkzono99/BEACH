@@ -8,9 +8,9 @@ program test_dynamics_basic
   use bem_field_solver, only: field_solver_type
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_pusher, only: boris_push, boris_update_velocity
-  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
-                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok, &
-                           compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
+  use bem_collision, only: compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
+  use bem_status_codes, only: collision_query_grid_stalled, collision_query_image_limit, &
+                              collision_query_index_range, collision_query_invalid_segment, collision_query_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   implicit none

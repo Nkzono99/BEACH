@@ -11,8 +11,8 @@ program test_particle_stepper
   use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   advance_particle_step_upper_panel_fourier, &
-                                  resolve_particle_boundary_candidate, particle_step_result, &
-                                  particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events
+                                  resolve_particle_boundary_candidate, particle_step_result
+  use bem_status_codes, only: particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 

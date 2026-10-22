@@ -2,9 +2,9 @@
 program test_boundary
   use bem_kinds, only: dp, i32
   use, intrinsic :: ieee_arithmetic, only: ieee_quiet_nan, ieee_value
-  use bem_boundary, only: apply_box_boundary, boundary_event_type, boundary_event_ok, &
-                          boundary_event_invalid_geometry, find_first_boundary_event, &
+  use bem_boundary, only: apply_box_boundary, boundary_event_type, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
+  use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
   use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d

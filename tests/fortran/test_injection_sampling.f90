@@ -8,7 +8,7 @@ program test_injection_sampling
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
-  use bem_collision, only: collision_query_image_limit
+  use bem_status_codes, only: collision_query_image_limit
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none

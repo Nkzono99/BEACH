@@ -5,8 +5,11 @@ module bem_particle_stepper
   use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
-  use bem_collision, only: collision_query_ok, find_first_hit
-  use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
+  use bem_collision, only: find_first_hit
+  use bem_status_codes, only: collision_query_ok, boundary_event_ok, boundary_event_invalid_geometry, particle_step_ok, &
+                              particle_step_invalid_boundary, particle_step_multiple_box_events, &
+                              particle_step_ambiguous_open_corner
+  use bem_boundary, only: boundary_event_type, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type
@@ -15,11 +18,6 @@ module bem_particle_stepper
   implicit none
   private
 
-  integer(i32), parameter, public :: particle_step_ok = collision_query_ok
-  integer(i32), parameter, public :: particle_step_invalid_boundary = 1001_i32
-  integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
-  integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
-  integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
   !> 適応サブステップが step を半分にする最小の仕事 [J]。電場変化が相対的に大きくても、
   !! step の仕事に換算してこれより小さければ粒子のエネルギーには効かないので分けない。
   real(dp), parameter :: particle_substep_energy_floor_j = 1.0e-4_dp*1.602176634e-19_dp

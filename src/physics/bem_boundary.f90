@@ -3,11 +3,10 @@ module bem_boundary
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
+  use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
   implicit none
   private
 
-  integer(i32), parameter, public :: boundary_event_ok = 0_i32
-  integer(i32), parameter, public :: boundary_event_invalid_geometry = 1_i32
   integer(i32), parameter :: boundary_face_all = 63_i32
 
   type, public :: boundary_event_type

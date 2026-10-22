@@ -5,8 +5,7 @@ module bem_app_config_particle_runtime
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
-  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
-                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok
+  use bem_status_codes, only: collision_query_ok, particle_status_name
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
     compute_macro_particles_from_flux, sample_reservoir_face_particles, &
