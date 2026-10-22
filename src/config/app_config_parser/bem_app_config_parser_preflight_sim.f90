@@ -40,6 +40,8 @@ contains
   if (cfg%sim%injection_face_phi_grid_n < 1_i32) error stop 'particles.reservoir.face_potential_grid_n must be >= 1.'
   call resolve_external_e_field(cfg)
   call resolve_batch_duration(cfg)
+  ! 注入の macro 粒子数と位置の jitter はバッチごとにこの値を使う。
+  if (cfg%sim%batch_duration < 0.0_dp) error stop "run.batch.duration_s must be >= 0"
   end procedure validate_simulation_config
 
 end submodule bem_app_config_parser_preflight_sim

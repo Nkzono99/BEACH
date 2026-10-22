@@ -352,6 +352,7 @@ def _without_domain(config: dict) -> dict:
     (lambda config: config["sim"].update(batch_duration=0.0) or config,
      "photo_raycast requires run.batch.duration_s > 0"),
     (lambda config: config["sim"].update(batch_count=0) or config, "run.batch_count must be > 0"),
+    (lambda config: config["sim"].update(batch_duration=-1.0e-8) or config, "run.batch.duration_s must be >= 0"),
 ])
 def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_checker, tmp_path):
     path = _write_config(edit(_photo_raycast_tutorial()), tmp_path)

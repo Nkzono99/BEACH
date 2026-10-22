@@ -93,7 +93,6 @@ contains
     real(dp) :: inward_normal(3), gamma_in, area, n_phys_batch, n_macro_expected, macro_budget
 
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
-    if (batch_duration < 0.0_dp) error stop "run.batch.duration_s must be >= 0"
 
     call resolve_face_geometry(box_min, box_max, inject_face, inward_normal=inward_normal)
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
@@ -134,7 +133,6 @@ contains
       error stop "particle_flux_m2_s must be finite and >= 0"
     end if
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
-    if (batch_duration < 0.0_dp) error stop "run.batch.duration_s must be >= 0"
 
     area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
     n_phys_batch = particle_flux_m2_s*area*batch_duration
@@ -184,7 +182,6 @@ contains
 
     if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
     if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
-    if (batch_duration < 0.0_dp) error stop "run.batch.duration_s must be >= 0"
     if (present(position_jitter_dt)) then
       if (position_jitter_dt < 0.0_dp) error stop "position_jitter_dt must be >= 0"
       jitter_dt = position_jitter_dt
