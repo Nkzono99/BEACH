@@ -96,6 +96,8 @@ contains
       read (value, *) stats%adaptive_substeps
     case ('adaptive_substep_depth_limited_steps')
       read (value, *) stats%adaptive_substep_depth_limited_steps
+    case ('adaptive_grown_steps')
+      read (value, *) stats%adaptive_grown_steps
     case ('particle_pool_claims')
       read (value, *) stats%particle_pool_claims
     case ('particle_pool_claim_seconds')
@@ -466,6 +468,7 @@ contains
     if (stats%multiple_box_events_soft_discarded < 0_i64) then
       error stop 'Resume checkpoint multiple_box_events_soft_discarded must be >= 0.'
     end if
+    if (stats%adaptive_grown_steps < 0_i64) error stop 'Resume checkpoint adaptive_grown_steps must be >= 0.'
     if (stats%adaptive_substep_halved_steps < 0_i64 .or. stats%adaptive_substeps < 0_i64 .or. &
         stats%adaptive_substep_depth_limited_steps < 0_i64 .or. &
         stats%adaptive_substep_halved_steps > stats%adaptive_substeps .or. &

@@ -94,6 +94,8 @@ build receipt は次の 5 key です。
 | `adaptive_substep_halved_steps` | 適応サブステップで半分にした `dt_s` step の数（`substep_field_change_max > 0` のとき） |
 | `adaptive_substeps` | 半分にした step の中で受理した sub-step の総数 |
 | `adaptive_substep_depth_limited_steps` | 半分化が `substep_max_halvings` の上限に達した step の数。多いときは上限か `dt_s` を見直す |
+| `adaptive_grown_steps` | `particles.tracking.step_growth` で `dt_s` より長く進めた push の数 |
+| `adaptive_step_growth_max` | `step_growth` の 2 倍化回数の上限（無効なら 0） |
 | `multiple_box_events_soft_discarded` | soft-discard した粒子数 |
 | `multiple_box_events_soft_discard_fraction` | `processed_particles` に対する soft-discard の割合 |
 | `multiple_box_events_soft_discarded_abs_charge_C` | soft-discard した絶対電荷の総量 [C] |

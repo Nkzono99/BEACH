@@ -292,3 +292,8 @@ main = "test_simulator_secondary_emission.f90"
 name = "test_particle_pool"
 source-dir = "tests/fortran"
 main = "test_particle_pool.f90"
+
+[[test]]
+name = "test_step_growth"
+source-dir = "tests/fortran"
+main = "test_step_growth.f90"

@@ -39,7 +39,7 @@ contains
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
   logical, allocatable :: fixed_window_active(:, :)
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
-  integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(3)
+  integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(4)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
   real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
   real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)

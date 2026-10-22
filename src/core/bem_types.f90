@@ -28,6 +28,11 @@ module bem_types
     real(dp) :: substep_field_change_max = 0.0d0
     !> 1 つの dt を半分にする回数の上限（最小 sub-step は dt/2^n）。
     integer(i32) :: substep_max_halvings = 6_i32
+    !> 場の変化が小さい領域で step を `dt_s` の 2^n 倍まで伸ばす（opt-in）。有効時に `substep_field_change_max` が 0 なら 0.05 を使う。
+    logical :: step_growth = .false.
+    integer(i32) :: step_growth_max = 5_i32
+    !> 伸長時の仕事の床値を運動エネルギーのこの割合にする（1e-4 eV との大きい方）。
+    real(dp) :: step_growth_energy_fraction = 1.0d-2
     real(dp) :: tol_rel = 1.0d-4
     real(dp) :: q_floor = 1.0d-30
     character(len=16) :: field_solver = 'auto'
@@ -89,6 +94,8 @@ module bem_types
     integer(i64) :: adaptive_substep_halved_steps = 0_i64
     integer(i64) :: adaptive_substeps = 0_i64
     integer(i64) :: adaptive_substep_depth_limited_steps = 0_i64
+    !> step 伸長で `dt_s` より長く進めた push の数。
+    integer(i64) :: adaptive_grown_steps = 0_i64
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
     real(dp) :: simulated_time = 0.0_dp

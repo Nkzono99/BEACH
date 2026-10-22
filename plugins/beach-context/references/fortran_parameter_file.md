@@ -462,6 +462,9 @@ z 軸方向の円柱です。
 | `max_steps_per_particle` | int | `400` | 粒子 1 個あたりの最大 push 回数。`>=1` |
 | `substep_field_change_max` | float | `0` | 粒子ごとの適応サブステップ。step 候補の中点電場が前回受理した中点電場からこの割合より大きく変わり、その差 × 変位が 1e-4 eV を超えるときは、その step を半分にして取り直す。帯電した要素の近傍で 1 step の変位が場の変化スケールに近い case で、エネルギー保存を保つ。`0` で無効、有限かつ `>=0`。`0.1`〜`0.2` から試し、`summary.txt` の `adaptive_substep_*` で refinement の量を確認する |
 | `substep_max_halvings` | int | `6` | 1 つの `dt_s` を半分にする回数の上限（最小 sub-step は `dt_s/2^n`）。`0..16` |
+| `step_growth` | bool | `false` | 場の変化が小さい領域で step を `dt_s` より長くする。受理した step の中点電場の変化が `substep_field_change_max` の 4 分の 1 未満（または変化 × 変位が床値以下）なら次の step を 2 倍にし、変化が大きければ既存の半分化で戻す。伸長時の床値は 1e-4 eV と粒子の運動エネルギーの `step_growth_energy_fraction` 倍の大きい方（遠方の弱い場では FMM 打ち切り雑音が場と同程度で、絶対床値だけでは雑音が半分化を起こす）。半分化の後 8 chunk は伸長を試みない。`substep_field_change_max` が `0` のときは `0.05` を自動で使う。衝突判定は線分なので長い step でも面をすり抜けない。粒子層から離れた弱い場の領域（本番相当の入力では step の 4 分の 3）で効き、長寿命の捕捉電子の追跡時間を大きく縮める。`summary.txt` の `adaptive_grown_steps` が伸ばした push の数 |
+| `step_growth_max` | int | `5` | `step_growth` で 1 つの step を 2 倍にする回数の上限（最大 step は `dt_s*2^n`）。`1..16` |
+| `step_growth_energy_fraction` | float | `0.01` | `step_growth` の仕事の床値を粒子の運動エネルギーのこの割合にする（1e-4 eV との大きい方）。本番相当の入力では `0.001` で粒子追跡が 1.9 倍、`0.01` で 4.4 倍速くなり、吸収・脱出数と表面電荷は実行間の揺らぎの範囲で一致した。`(0, 1]` |
 
 ##### `[particles.tracking.events]`
 

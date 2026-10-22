@@ -63,6 +63,8 @@ contains
                                                stats%adaptive_substep_depth_limited_steps, substep_counts(3), &
                                                'adaptive_substep_depth_limited_steps' &
                                                )
+  stats%adaptive_grown_steps = checked_add_nonnegative_i64(stats%adaptive_grown_steps, substep_counts(4), &
+                                                           'adaptive_grown_steps')
   stats%multiple_box_events_soft_discarded_abs_charge = checked_add_nonnegative_real( &
                                                         stats%multiple_box_events_soft_discarded_abs_charge, &
                                                         soft_discarded_abs_charge, &

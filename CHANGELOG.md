@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `particles.tracking.step_growth`（既定 `false`）と `step_growth_max`（既定 5）。場の変化が小さい領域で粒子の step を
+  `dt_s` の 2^n 倍まで伸ばす。受理した step の中点電場の変化が `substep_field_change_max` の 4 分の 1 未満なら次の
+  step を 2 倍にし、大きければ既存の半分化で戻す。伸長時の仕事の床値は 1e-4 eV と運動エネルギーの
+  `step_growth_energy_fraction`（既定 0.01）倍の大きい方。本番相当の入力で粒子追跡が 4.4 倍速くなり、吸収・脱出数と
+  表面電荷は実行間の揺らぎの範囲で一致した。
+  `substep_field_change_max` が 0 なら 0.05 を自動で使う。
+  本番相当の入力では step の 4 分の 3 が粒子層から 20 µm 以上離れた弱い場にあり、長寿命の捕捉光電子
+  （最大 40 万 step）を含めて粒子追跡時間を大きく縮める。`summary.txt` に `adaptive_grown_steps=` と
+  `adaptive_step_growth_max=` を記録する。
 - `run.batch.particle_distribution`（既定 `"static"`）。`"shared"` で全 rank 共有の粒子 slot pool を rank 0 の
   カウンタ（MPI RMA fetch-and-add、次の chunk を先行要求して粒子追跡と重ねる）から
   `run.batch.particle_pool_chunk`（既定 64）個ずつ取り合い、rank 内では thread が 1 slot ずつ受け取り、各 slot を

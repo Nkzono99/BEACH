@@ -46,10 +46,17 @@ contains
 
   module procedure process_particle_batch
   integer(i32) :: i, tid, nth, species_idx, slot, local_index, claimed_count, rank_next_slot, rank_end_slot
-  integer(i64) :: thread_step_counts(5, size(workspace%dq_thread, 2))
+  integer(i64) :: thread_step_counts(6, size(workspace%dq_thread, 2))
   integer(i64) :: pool_first, pool_chunk
   real(dp) :: h_min, claim_t0, claim_t1
-  logical :: adaptive_substeps, adaptive_nonzero_mode, shared_pool, pool_exhausted
+  logical :: adaptive_substeps, adaptive_nonzero_mode, shared_pool, pool_exhausted, step_growth
+  integer(i32) :: growth_chunk_max
+  real(dp) :: growth_change_max
+  !> step 伸長時の仕事の床値は運動エネルギーの `step_growth_energy_fraction` 倍（1e-4 eV との大きい方）。遠方の弱い場では
+  !! FMM 打ち切り雑音が場そのものと同程度なので、絶対床値だけでは雑音が半分化を起こす。
+  real(dp) :: growth_energy_fraction
+  !> 半分化が起きた後、この回数の chunk は伸長を試みない（伸長と半分化の往復を防ぐ）。
+  integer(i32), parameter :: growth_hold_chunks = 8_i32
   logical :: retry_upper_panel_fourier, soft_discard_multiple_box_events
   integer(i32) :: first_particle, last_particle, generation, rng_tag
   type(secondary_spawn_buffer_type), allocatable :: spawn(:)
@@ -73,6 +80,12 @@ contains
   pool_claim_seconds = 0.0_dp
   adaptive_substeps = app%sim%substep_field_change_max > 0.0_dp
   h_min = app%sim%dt*0.5_dp**app%sim%substep_max_halvings
+  ! Step growth doubles a particle's step while the field change stays below a quarter of the halving threshold.
+  step_growth = app%sim%step_growth .and. adaptive_substeps
+  growth_chunk_max = 1_i32
+  if (step_growth) growth_chunk_max = 2_i32**min(16_i32, app%sim%step_growth_max)
+  growth_change_max = 0.25_dp*app%sim%substep_field_change_max
+  growth_energy_fraction = app%sim%step_growth_energy_fraction
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
   shared_pool = trim(app%sim%particle_distribution) == 'shared'
   ! multiple_box_events の再試行 backend と policy はバッチの先頭で一度だけ解決する。
@@ -212,16 +225,17 @@ contains
   end do
 !$ call omp_set_schedule(previous_schedule_kind, previous_schedule_chunk)
   retry_counts = [sum(thread_step_counts(1, :)), sum(thread_step_counts(2, :))]
-  substep_counts = [sum(thread_step_counts(3, :)), sum(thread_step_counts(4, :)), sum(thread_step_counts(5, :))]
+  substep_counts = [sum(thread_step_counts(3, :)), sum(thread_step_counts(4, :)), sum(thread_step_counts(5, :)), &
+                    sum(thread_step_counts(6, :))]
 
 contains
   !> 粒子 `i` を吸収・脱出・最大 step まで追跡する。OpenMP 並列領域から呼ぶので、状態は引数と局所変数だけに持つ。
   subroutine track_particle(i, tid)
     integer(i32), intent(in) :: i, tid
-    integer(i32) :: step, collision_status, species_idx, spectrum_row, sub_index
+    integer(i32) :: step, collision_status, species_idx, spectrum_row, sub_index, chunk_steps, growth_hold
     integer(i64) :: rng_step, boundary_rng_counter(4)
-    real(dp) :: h, h_prev, remaining, field_ref(3)
-    logical :: have_field_ref, particle_done, halved, depth_limited
+    real(dp) :: h, h_prev, remaining, field_ref(3), energy_floor
+    logical :: have_field_ref, particle_done, halved, depth_limited, grow_ok
     real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
     type(hit_info) :: hit
     type(particle_step_result) :: step_result, retry_result
@@ -234,13 +248,24 @@ contains
     particle_boundary_contract => species_boundary_contract(species_idx)
     have_field_ref = .false.
     h_prev = app%sim%dt
-    step_loop: do step = 1_i32, app%sim%max_step
+    grow_ok = .false.
+    growth_hold = 0_i32
+    energy_floor = 0.0_dp
+    step = 1_i32
+    step_loop: do while (step <= app%sim%max_step)
       if (adaptive_substeps .and. .not. have_field_ref) then
         ! The first reference field is the field where the particle starts its track.
         call snapshot%eval_local_e(mesh, pcls_batch%x(:, i), field_ref)
         have_field_ref = .true.
       end if
-      remaining = app%sim%dt
+      chunk_steps = 1_i32
+      if (step_growth) then
+        ! In a smooth field the particle takes one push of 2^n dt; the chunk never exceeds the flight budget.
+        if (h_prev >= app%sim%dt) chunk_steps = max(1_i32, nint(h_prev/app%sim%dt, i32))
+        if (grow_ok) chunk_steps = 2_i32*chunk_steps
+        chunk_steps = min(chunk_steps, growth_chunk_max, app%sim%max_step - step + 1_i32)
+      end if
+      remaining = real(chunk_steps, dp)*app%sim%dt
       sub_index = 0_i32
       halved = .false.
       depth_limited = .false.
@@ -251,6 +276,7 @@ contains
         v0 = pcls_batch%v(:, i)
         h = remaining
         if (adaptive_substeps) h = min(remaining, 2.0_dp*h_prev)
+        if (step_growth) energy_floor = growth_energy_fraction*0.5_dp*pcls_batch%m(i)*sum(v0*v0)
         halve_loop: do
           call build_particle_step_candidate( &
             mesh, particle_sim, snapshot, bfield, x0, v0, &
@@ -258,8 +284,13 @@ contains
             )
           if (.not. adaptive_substeps) exit halve_loop
           if (.not. all(ieee_is_finite(x1)) .or. .not. all(ieee_is_finite(v1))) exit halve_loop
-          if (.not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
-                                                   app%sim%substep_field_change_max)) exit halve_loop
+          if (step_growth) then
+            if (.not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
+                                                     app%sim%substep_field_change_max, energy_floor)) exit halve_loop
+          else
+            if (.not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
+                                                     app%sim%substep_field_change_max)) exit halve_loop
+          end if
           if (0.5_dp*h < h_min) then
             depth_limited = .true.
             exit halve_loop
@@ -382,6 +413,13 @@ contains
           pcls_batch%x(:, i) = step_result%x
           pcls_batch%v(:, i) = step_result%v
         end if
+        if (step_growth) then
+          if (halved) growth_hold = growth_hold_chunks
+          grow_ok = .not. halved .and. .not. depth_limited .and. growth_hold == 0_i32 .and. &
+                    .not. particle_substep_needs_halving(sampled_electric_field, field_ref, pcls_batch%q(i), x0, x1, &
+                                                         growth_change_max, energy_floor)
+          if (h > app%sim%dt) thread_step_counts(6, tid) = thread_step_counts(6, tid) + 1_i64
+        end if
         ! Accepted: the sampled midpoint field becomes the reference for the next sub-step.
         field_ref = sampled_electric_field
         h_prev = h
@@ -394,6 +432,8 @@ contains
         if (depth_limited) thread_step_counts(5, tid) = thread_step_counts(5, tid) + 1_i64
       end if
       if (particle_done) exit step_loop
+      if (.not. halved .and. growth_hold > 0_i32) growth_hold = growth_hold - 1_i32
+      step = step + chunk_steps
     end do step_loop
   end subroutine track_particle
 

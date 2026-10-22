@@ -106,8 +106,8 @@ module bem_simulator
       integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
       real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
       integer(i64), intent(out) :: retry_counts(2)
-      !> 半分にした dt step 数、その sub-step 総数、半分化の上限に達した step 数。
-      integer(i64), intent(out) :: substep_counts(3)
+      !> 半分にした dt step 数、その sub-step 総数、半分化の上限に達した step 数、dt より長く進めた push 数。
+      integer(i64), intent(out) :: substep_counts(4)
       !> `shared` の slot layout と claim カウンタ。`static` では layout は未使用。
       type(batch_injection_layout_type), intent(in) :: injection_layout
       type(mpi_shared_counter_type), intent(inout) :: pool_counter
@@ -190,7 +190,7 @@ module bem_simulator
       type(sim_stats), intent(inout) :: stats
       integer(i64), intent(in) :: batch_counts(6)
       integer(i64), intent(in) :: retry_counts(2)
-      integer(i64), intent(in) :: substep_counts(3)
+      integer(i64), intent(in) :: substep_counts(4)
       real(dp), intent(in) :: soft_discarded_abs_charge, rel
     end subroutine accumulate_batch_stats
 

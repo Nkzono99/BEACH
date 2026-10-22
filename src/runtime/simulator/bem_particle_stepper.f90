@@ -48,13 +48,17 @@ contains
 
   !> step 候補の中点電場 e_mid が参照電場 e_ref から change_max の割合より大きく変わり、
   !! その差が変位 x1-x0 にわたる仕事に換算して床値を超えるとき真。
-  pure logical function particle_substep_needs_halving(e_mid, e_ref, q, x0, x1, change_max) result(needs)
+  !! @param[in] energy_floor 仕事の床値 [J]（省略時は `particle_substep_energy_floor_j`）。
+  pure logical function particle_substep_needs_halving(e_mid, e_ref, q, x0, x1, change_max, energy_floor) result(needs)
     real(dp), intent(in) :: e_mid(3), e_ref(3), q, x0(3), x1(3), change_max
-    real(dp) :: change
+    real(dp), intent(in), optional :: energy_floor
+    real(dp) :: change, floor_j
 
+    floor_j = particle_substep_energy_floor_j
+    if (present(energy_floor)) floor_j = max(floor_j, energy_floor)
     change = norm2(e_mid - e_ref)
     needs = change > change_max*max(norm2(e_mid), norm2(e_ref)) .and. &
-            abs(q)*change*norm2(x1 - x0) > particle_substep_energy_floor_j
+            abs(q)*change*norm2(x1 - x0) > floor_j
   end function particle_substep_needs_halving
 
   !> 予測中点の電場と一様磁場を使い、次時刻の位置・速度候補を返す。

@@ -194,6 +194,7 @@ contains
     print '(a,i0)', 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
     print '(a,i0)', 'adaptive_substeps=', stats%adaptive_substeps
     print '(a,i0)', 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
+    print '(a,i0)', 'adaptive_grown_steps=', stats%adaptive_grown_steps
     if (stats%particle_pool_claims > 0_i64) then
       print '(a,i0)', 'particle_pool_claims=', stats%particle_pool_claims
       print '(a,es12.4)', 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds

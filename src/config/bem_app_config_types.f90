@@ -254,6 +254,9 @@ contains
     cfg%sim%tree_leaf_max = 16_i32
     cfg%sim%tree_min_nelem = 256_i32
     cfg%sim%particle_distribution = 'static'
+    cfg%sim%step_growth = .false.
+    cfg%sim%step_growth_max = 5_i32
+    cfg%sim%step_growth_energy_fraction = 1.0d-2
     cfg%sim%particle_pool_chunk = 64_i32
     cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%has_e0_vector = .false.

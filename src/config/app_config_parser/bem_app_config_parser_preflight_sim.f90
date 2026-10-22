@@ -20,6 +20,15 @@ contains
   if (cfg%sim%substep_max_halvings < 0_i32 .or. cfg%sim%substep_max_halvings > 16_i32) then
     error stop 'particles.tracking.substep_max_halvings must be between 0 and 16.'
   end if
+  if (cfg%sim%step_growth_max < 1_i32 .or. cfg%sim%step_growth_max > 16_i32) then
+    error stop 'particles.tracking.step_growth_max must be between 1 and 16.'
+  end if
+  if (.not. ieee_is_finite(cfg%sim%step_growth_energy_fraction) .or. cfg%sim%step_growth_energy_fraction <= 0.0_dp .or. &
+      cfg%sim%step_growth_energy_fraction > 1.0_dp) then
+    error stop 'particles.tracking.step_growth_energy_fraction must be in (0, 1].'
+  end if
+  ! Step growth reuses the sub-step criterion; without an explicit threshold use a conservative default.
+  if (cfg%sim%step_growth .and. cfg%sim%substep_field_change_max <= 0.0_dp) cfg%sim%substep_field_change_max = 0.05_dp
   if (cfg%sim%q_floor <= 0.0_dp) error stop 'output.diagnostics.charge_floor_c must be > 0.'
   if (cfg%sim%use_box) then
     if (.not. all(ieee_is_finite(cfg%sim%box_min)) .or. .not. all(ieee_is_finite(cfg%sim%box_max)) .or. &

@@ -226,6 +226,13 @@ contains
                          'particles.tracking.substep_field_change_max')
     case ('substep_max_halvings')
       call get_toml_int(table, keys(ikey), cfg%sim%substep_max_halvings, 'particles.tracking.substep_max_halvings')
+    case ('step_growth')
+      call get_toml_logical(table, keys(ikey), cfg%sim%step_growth, 'particles.tracking.step_growth')
+    case ('step_growth_max')
+      call get_toml_int(table, keys(ikey), cfg%sim%step_growth_max, 'particles.tracking.step_growth_max')
+    case ('step_growth_energy_fraction')
+      call get_toml_real(table, keys(ikey), cfg%sim%step_growth_energy_fraction, &
+                         'particles.tracking.step_growth_energy_fraction')
     case ('tol_rel')
       call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'output.diagnostics.charge_rel_change_threshold')
     case ('q_floor')
