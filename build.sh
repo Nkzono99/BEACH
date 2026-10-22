@@ -88,7 +88,8 @@ fpm_stale_guard_run() {
     find build -name '*.digest' -newer "$marker" -delete
   fi
   # Backdate the marker so digests written in the same timestamp tick count as newer.
-  touch -d "@$(($(date +%s) - 2))" "$marker"
+  # BSD touch (macOS) rejects -d @epoch; its file systems keep sub-second mtimes.
+  touch -d "@$(($(date +%s) - 2))" "$marker" 2>/dev/null || touch "$marker"
   "$@"
   status=$?
   if [ "$status" -eq 0 ]; then
