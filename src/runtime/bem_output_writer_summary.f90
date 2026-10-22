@@ -146,6 +146,7 @@ contains
   write (u, '(a)') 'field_reconstruction_schema_version=2'
   write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
   write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
+  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%near_field_precision)
   write (u, '(a,a)') 'field_reconstruction_field_bc_mode=', trim(cfg%sim%field_bc_mode)
   write (u, '(a,es24.16)') 'field_reconstruction_tree_theta=', resolved_tree_theta
   write (u, '(a,i0)') 'field_reconstruction_tree_leaf_max=', resolved_tree_leaf_max

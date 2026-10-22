@@ -105,6 +105,7 @@ contains
   self%fmm_core_options%theta = self%theta
   self%fmm_core_options%leaf_max = self%leaf_max
   self%fmm_core_options%order = field_solver_fmm_expansion_order
+  self%fmm_core_options%near_field_single = trim(sim%near_field_precision) == 'single'
   self%fmm_core_options%softening = 0.0_dp
   self%fmm_core_options%use_periodic2 = self%use_periodic2
   self%fmm_core_options%periodic_far_correction = self%periodic_far_correction

@@ -43,6 +43,8 @@ module bem_types
     real(dp) :: tree_theta = 0.5d0
     logical :: has_tree_theta = .false.
     integer(i32) :: tree_leaf_max = 16_i32
+    !> 'double' (default, bitwise-reproducible) or 'single' for the FMM near-field panel sums.
+    character(len=8) :: near_field_precision = 'double'
     logical :: has_tree_leaf_max = .false.
     integer(i32) :: tree_min_nelem = 256_i32
     real(dp) :: e0(3) = 0.0d0

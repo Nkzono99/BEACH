@@ -91,6 +91,9 @@ contains
       end if
       if (cfg%sim%tree_leaf_max < 1_i32) error stop 'fields.solver.tree.leaf_max must be >= 1 for tree-capable solvers.'
       if (cfg%sim%tree_min_nelem < 1_i32) error stop 'fields.solver.auto_fmm_min_elements must be >= 1 for tree-capable solvers.'
+      if (trim(cfg%sim%near_field_precision) /= 'double' .and. trim(cfg%sim%near_field_precision) /= 'single') then
+        error stop 'fields.solver.near_field_precision must be "double" or "single".'
+      end if
     end if
     if (trim(cfg%sim%field_bc_mode) /= 'periodic2') return
     if (cfg%sim%field_periodic_image_layers < 0_i32) then

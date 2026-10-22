@@ -252,6 +252,7 @@ contains
     cfg%sim%field_periodic_ewald_layers = 4_i32
     cfg%sim%tree_theta = 0.5d0
     cfg%sim%tree_leaf_max = 16_i32
+    cfg%sim%near_field_precision = 'double'
     cfg%sim%tree_min_nelem = 256_i32
     cfg%sim%e0 = [0.0d0, 0.0d0, 0.0d0]
     cfg%sim%has_e0_vector = .false.

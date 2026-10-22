@@ -673,6 +673,7 @@ solverとの組合せは
 | `normalization` | string | `"si"` | `si` / `box` / `mesh` / `length` |
 | `length_scale_m` | float | `1.0` | `fields.solver.normalization="length"` の長さ [m]。`>0` |
 | `auto_fmm_min_elements` | int | `256` | `auto` が direct から FMM へ切り替える要素数。`>=1` |
+| `near_field_precision` | string | `"double"` | FMM 近接場の panel 和の精度。`double` は従来と bit 単位で同じ。`single` は葉ごとの panel 表を単精度で持ち 8 レーン SIMD で評価する（その和が約 1.5 倍速く、場の相対誤差は 10⁻⁶ 程度。展開次数 4 の FMM 打ち切り誤差は 2×10⁻⁴）。出力 `summary.txt` の `field_near_field_precision` に記録される |
 
 `fields.solver.method` は、要素電荷から Coulomb 場を評価する方式を選びます。
 

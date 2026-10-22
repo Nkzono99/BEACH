@@ -3,7 +3,8 @@ module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_panel_kernel, only: panel_potential_field_translated, panel_field_sum_translated, &
-                              panel_potential_sum_translated
+                              panel_potential_sum_translated, panel_field_sum_translated_sp, &
+                              panel_potential_sum_translated_sp
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_cached_kneq0
@@ -465,6 +466,19 @@ contains
     near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
     if (near_source_end < near_source_begin) return
 
+    if (plan%panel_source .and. plan%options%near_field_single) then
+      call panel_field_sum_translated_sp( &
+        near_source_end - near_source_begin + 1_i32, &
+        plan%near_sp_vx(1, near_source_begin), plan%near_sp_vy(1, near_source_begin), &
+        plan%near_sp_vz(1, near_source_begin), plan%near_sp_nx(near_source_begin), plan%near_sp_ny(near_source_begin), &
+        plan%near_sp_nz(near_source_begin), plan%near_sp_edge(1, near_source_begin), plan%near_sp_ox(1, near_source_begin), &
+        plan%near_sp_oy(1, near_source_begin), plan%near_sp_oz(1, near_source_begin), plan%near_sp_area(near_source_begin), &
+        plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, axes, &
+        plan%near_source_shift1(near_source_begin), plan%near_source_shift2(near_source_begin), &
+        rt - plan%near_leaf_center(:, leaf_slot), rt, ex, ey, ez &
+        )
+      return
+    end if
     if (plan%panel_source) then
       call panel_field_sum_translated( &
         near_source_end - near_source_begin + 1_i32, &
@@ -517,6 +531,19 @@ contains
     near_source_end = plan%near_source_start(leaf_slot + 1_i32) - 1_i32
     if (near_source_end < near_source_begin) return
 
+    if (plan%panel_source .and. plan%options%near_field_single) then
+      call panel_potential_sum_translated_sp( &
+        near_source_end - near_source_begin + 1_i32, &
+        plan%near_sp_vx(1, near_source_begin), plan%near_sp_vy(1, near_source_begin), &
+        plan%near_sp_vz(1, near_source_begin), plan%near_sp_nx(near_source_begin), plan%near_sp_ny(near_source_begin), &
+        plan%near_sp_nz(near_source_begin), plan%near_sp_edge(1, near_source_begin), plan%near_sp_ox(1, near_source_begin), &
+        plan%near_sp_oy(1, near_source_begin), plan%near_sp_oz(1, near_source_begin), plan%near_sp_area(near_source_begin), &
+        plan%near_source_idx(near_source_begin), state%src_q, plan%panel_geometry, axes, &
+        plan%near_source_shift1(near_source_begin), plan%near_source_shift2(near_source_begin), &
+        rt - plan%near_leaf_center(:, leaf_slot), rt, phi &
+        )
+      return
+    end if
     if (plan%panel_source) then
       call panel_potential_sum_translated( &
         near_source_end - near_source_begin + 1_i32, &
