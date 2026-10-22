@@ -13,6 +13,8 @@ module bem_panel_kernel
 
   public :: panel_potential_field
   public :: panel_potential_field_translated
+  public :: panel_field_sum_translated
+  public :: panel_potential_sum_translated
 
 contains
 
@@ -128,6 +130,118 @@ contains
     potential = k_coulomb*charge/geometry%area*potential_integral
     field = k_coulomb*charge/geometry%area*field_integral
   end subroutine panel_potential_field_translated
+
+  !> Principal-value field at `target` of `count` translated panels, accumulated into `ex`, `ey`, `ez`
+  !! divided by `k_coulomb` as the FMM near field stores it. Entry k is panel `index(k)` translated by
+  !! `shift1(k)` and `shift2(k)` along `axes` and carrying `charge(index(k))`. Each panel uses the
+  !! arithmetic of `panel_potential_field_translated`, so the sum matches a loop over that routine bit
+  !! for bit; the loop body is inlined here because this sum dominates the particle step.
+  subroutine panel_field_sum_translated(geometry, index, axes, shift1, shift2, charge, count, target, ex, ey, ez)
+    type(panel_geometry_type), intent(in) :: geometry(:)
+    integer(i32), intent(in) :: index(:), axes(2)
+    real(dp), intent(in) :: shift1(:), shift2(:), charge(:)
+    integer(i32), intent(in) :: count
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(inout) :: ex, ey, ez
+    real(dp) :: shift(3), vertex(3, 3), relative_vertex(3, 3), radius(3), field(3), potential
+    real(dp) :: height, field_integral(3), omega, line_integral, ratio, numerator, denominator
+    integer(i32) :: k, idx
+    integer :: edge, next_edge
+
+    do k = 1_i32, count
+      idx = index(k)
+      if (abs(charge(idx)) <= tiny(1.0_dp)) cycle
+      shift = 0.0_dp
+      if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + shift1(k)
+      if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + shift2(k)
+      vertex = geometry(idx)%vertex + spread(shift, 2, 3)
+      height = dot_product(target - vertex(:, 1), geometry(idx)%normal)
+      if (abs(height) <= 64.0_dp*epsilon(1.0_dp)*maxval(geometry(idx)%edge_length)) then
+        call panel_potential_field_on_translated_surface( &
+          geometry(idx), vertex, shift, charge(idx), target, potential, field &
+          )
+      else
+        do edge = 1, 3
+          relative_vertex(:, edge) = vertex(:, edge) - target
+          radius(edge) = norm2(relative_vertex(:, edge))
+        end do
+        numerator = dot_product(relative_vertex(:, 1), &
+                                cross_product(relative_vertex(:, 2), relative_vertex(:, 3)))
+        denominator = radius(1)*radius(2)*radius(3) + &
+                      dot_product(relative_vertex(:, 1), relative_vertex(:, 2))*radius(3) + &
+                      dot_product(relative_vertex(:, 2), relative_vertex(:, 3))*radius(1) + &
+                      dot_product(relative_vertex(:, 3), relative_vertex(:, 1))*radius(2)
+        omega = -2.0_dp*atan2(numerator, denominator)
+        field_integral = geometry(idx)%normal*omega
+        do edge = 1, 3
+          next_edge = merge(edge + 1, 1, edge < 3)
+          ratio = geometry(idx)%edge_length(edge)/(radius(edge) + radius(next_edge))
+          if (ratio >= 1.0_dp) error stop 'panel target lies on an edge or vertex.'
+          line_integral = log((1.0_dp + ratio)/(1.0_dp - ratio))
+          field_integral = field_integral + geometry(idx)%edge_outward(:, edge)*line_integral
+        end do
+        field = k_coulomb*charge(idx)/geometry(idx)%area*field_integral
+      end if
+      ex = ex + field(1)/k_coulomb
+      ey = ey + field(2)/k_coulomb
+      ez = ez + field(3)/k_coulomb
+    end do
+  end subroutine panel_field_sum_translated
+
+  !> Principal-value potential counterpart of `panel_field_sum_translated`, accumulated into `phi`
+  !! divided by `k_coulomb`.
+  subroutine panel_potential_sum_translated(geometry, index, axes, shift1, shift2, charge, count, target, phi)
+    type(panel_geometry_type), intent(in) :: geometry(:)
+    integer(i32), intent(in) :: index(:), axes(2)
+    real(dp), intent(in) :: shift1(:), shift2(:), charge(:)
+    integer(i32), intent(in) :: count
+    real(dp), intent(in) :: target(3)
+    real(dp), intent(inout) :: phi
+    real(dp) :: shift(3), vertex(3, 3), relative_vertex(3, 3), radius(3), field(3), potential
+    real(dp) :: projection(3), height, potential_integral, omega, line_integral, distance, ratio
+    real(dp) :: numerator, denominator
+    integer(i32) :: k, idx
+    integer :: edge, next_edge
+
+    do k = 1_i32, count
+      idx = index(k)
+      if (abs(charge(idx)) <= tiny(1.0_dp)) cycle
+      shift = 0.0_dp
+      if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + shift1(k)
+      if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + shift2(k)
+      vertex = geometry(idx)%vertex + spread(shift, 2, 3)
+      height = dot_product(target - vertex(:, 1), geometry(idx)%normal)
+      projection = target - height*geometry(idx)%normal
+      if (abs(height) <= 64.0_dp*epsilon(1.0_dp)*maxval(geometry(idx)%edge_length)) then
+        call panel_potential_field_on_translated_surface( &
+          geometry(idx), vertex, shift, charge(idx), target, potential, field &
+          )
+      else
+        do edge = 1, 3
+          relative_vertex(:, edge) = vertex(:, edge) - target
+          radius(edge) = norm2(relative_vertex(:, edge))
+        end do
+        numerator = dot_product(relative_vertex(:, 1), &
+                                cross_product(relative_vertex(:, 2), relative_vertex(:, 3)))
+        denominator = radius(1)*radius(2)*radius(3) + &
+                      dot_product(relative_vertex(:, 1), relative_vertex(:, 2))*radius(3) + &
+                      dot_product(relative_vertex(:, 2), relative_vertex(:, 3))*radius(1) + &
+                      dot_product(relative_vertex(:, 3), relative_vertex(:, 1))*radius(2)
+        omega = -2.0_dp*atan2(numerator, denominator)
+        potential_integral = -height*omega
+        do edge = 1, 3
+          next_edge = merge(edge + 1, 1, edge < 3)
+          ratio = geometry(idx)%edge_length(edge)/(radius(edge) + radius(next_edge))
+          if (ratio >= 1.0_dp) error stop 'panel target lies on an edge or vertex.'
+          line_integral = log((1.0_dp + ratio)/(1.0_dp - ratio))
+          distance = dot_product(vertex(:, edge) - projection, geometry(idx)%edge_outward(:, edge))
+          potential_integral = potential_integral + distance*line_integral
+        end do
+        potential = k_coulomb*charge(idx)/geometry(idx)%area*potential_integral
+      end if
+      phi = phi + potential/k_coulomb
+    end do
+  end subroutine panel_potential_sum_translated
 
   !> On-plane fallback of `panel_potential_field_translated`; kept apart so the hot path never
   !! default-initializes a geometry copy.

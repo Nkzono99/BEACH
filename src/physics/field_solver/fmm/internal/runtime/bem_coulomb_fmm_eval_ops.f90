@@ -2,7 +2,8 @@
 module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_panel_kernel, only: panel_potential_field_translated
+  use bem_panel_kernel, only: panel_potential_field_translated, panel_field_sum_translated, &
+                              panel_potential_sum_translated
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_cached_kneq0
@@ -465,12 +466,12 @@ contains
     if (near_source_end < near_source_begin) return
 
     if (plan%panel_source) then
-      do near_pos = near_source_begin, near_source_end
-        idx = plan%near_source_idx(near_pos)
-        shift1 = plan%near_source_shift1(near_pos)
-        shift2 = plan%near_source_shift2(near_pos)
-        call accumulate_panel_shifted_field(plan, state, idx, rt, axes, shift1, shift2, ex, ey, ez)
-      end do
+      call panel_field_sum_translated( &
+        plan%panel_geometry, plan%near_source_idx(near_source_begin:near_source_end), axes, &
+        plan%near_source_shift1(near_source_begin:near_source_end), &
+        plan%near_source_shift2(near_source_begin:near_source_end), state%src_q, &
+        near_source_end - near_source_begin + 1_i32, rt, ex, ey, ez &
+        )
       return
     end if
 
@@ -515,12 +516,12 @@ contains
     if (near_source_end < near_source_begin) return
 
     if (plan%panel_source) then
-      do near_pos = near_source_begin, near_source_end
-        idx = plan%near_source_idx(near_pos)
-        shift1 = plan%near_source_shift1(near_pos)
-        shift2 = plan%near_source_shift2(near_pos)
-        call accumulate_panel_shifted_potential(plan, state, idx, rt, axes, shift1, shift2, phi)
-      end do
+      call panel_potential_sum_translated( &
+        plan%panel_geometry, plan%near_source_idx(near_source_begin:near_source_end), axes, &
+        plan%near_source_shift1(near_source_begin:near_source_end), &
+        plan%near_source_shift2(near_source_begin:near_source_end), state%src_q, &
+        near_source_end - near_source_begin + 1_i32, rt, phi &
+        )
       return
     end if
 
