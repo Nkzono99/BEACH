@@ -41,6 +41,7 @@ contains
   type(sim_config), pointer :: particle_sim
   type(external_boundary_contract_type), pointer :: particle_boundary_contract
   logical :: candidate_inside, used_event_resolver, adaptive_nonzero_mode, retry_field_available
+  logical :: retry_upper_panel_fourier, soft_discard_multiple_box_events
 !$ integer(kind=omp_sched_kind) :: previous_schedule_kind
 !$ integer :: previous_schedule_chunk
 
@@ -59,6 +60,9 @@ contains
   adaptive_substeps = app%sim%substep_field_change_max > 0.0_dp
   h_min = app%sim%dt*0.5_dp**app%sim%substep_max_halvings
   adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+  ! multiple_box_events の再試行 backend と policy はバッチの先頭で一度だけ解決する。
+  retry_upper_panel_fourier = trim(lower_ascii(app%sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier'
+  soft_discard_multiple_box_events = trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard'
   ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
   do species_idx = 1_i32, app%n_particle_species
     species_sim(species_idx) = app%sim
@@ -82,7 +86,7 @@ contains
     !$omp parallel default(none) num_threads(nth) &
     !$omp shared(cell,mesh,pcls_batch,app,species_sim,species_boundary_contract,snapshot,workspace,bfield,spawn) &
     !$omp shared(nth,actual_team_size,batch_idx,mpi_rank,first_particle,last_particle,generation) &
-    !$omp shared(adaptive_substeps,h_min) &
+    !$omp shared(adaptive_substeps,h_min,retry_upper_panel_fourier,soft_discard_multiple_box_events) &
     !$omp shared(collision_failure_status,collision_failure_particle,collision_failure_step) &
     !$omp shared(collision_failure_x,collision_failure_v) &
     !$omp private(i,step,x0,v0,x1,v1,sampled_electric_field,hit,step_result,retry_result) &
@@ -186,8 +190,7 @@ contains
             used_event_resolver = .true.
           end if
           if (used_event_resolver) then
-            if (step_result%status == particle_step_multiple_box_events .and. &
-                trim(lower_ascii(app%sim%multiple_box_events_retry_backend)) == 'upper_panel_fourier') then
+            if (step_result%status == particle_step_multiple_box_events .and. retry_upper_panel_fourier) then
               retry_attempted = retry_attempted + 1_i64
               call advance_particle_step_upper_panel_fourier( &
                 mesh, particle_sim, snapshot, bfield, x0, v0, pcls_batch%q(i), pcls_batch%m(i), h, &
@@ -201,8 +204,7 @@ contains
               end if
             end if
             if (step_result%status /= collision_query_ok) then
-              if (step_result%status == particle_step_multiple_box_events .and. &
-                  trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard') then
+              if (step_result%status == particle_step_multiple_box_events .and. soft_discard_multiple_box_events) then
                 pcls_batch%alive(i) = .false.
                 workspace%soft_discarded_boundary_flag(i) = .true.
                 particle_done = .true.
