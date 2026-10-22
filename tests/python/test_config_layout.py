@@ -147,3 +147,40 @@ def test_upper_fourier_paths_roundtrip(height):
     assert to_grouped_layout(runtime)['fields']['periodic']['upper_fourier'] == {
         'switch_height': height, 'mode_layers': 7,
     }
+
+
+def _finite_images_case(method, adaptive_limit):
+    grouped = tomllib.loads(ROOT.joinpath('examples/cached_periodic.toml').read_text())
+    grouped['fields']['periodic'] = {'backend': 'finite_images'}
+    grouped['fields']['solver']['method'] = method
+    if adaptive_limit is not None:
+        grouped['run']['batch'] = {'adaptive': {'max_nonzero_mode_potential_step_v': adaptive_limit}}
+    return grouped
+
+
+@pytest.mark.parametrize('adaptive_limit', [None, 0.0])
+@pytest.mark.parametrize('method', ['fmm', 'direct'])
+def test_disabled_adaptive_limit_keeps_finite_images(method, adaptive_limit):
+    runtime = normalize_config_document(_finite_images_case(method, adaptive_limit))
+    assert 'nonzero_mode_backend' not in runtime.get('periodic2', {})
+    assert to_grouped_layout(runtime)['fields']['periodic']['backend'] == 'finite_images'
+
+
+@pytest.mark.parametrize('adaptive_limit', [None, 0.0, 0.1])
+@pytest.mark.parametrize('method', ['fmm', 'direct'])
+def test_native_adaptive_limit_never_switches_finite_images(method, adaptive_limit, native_checker, tmp_path):
+    import tomli_w
+
+    path = tmp_path / 'finite_images.toml'
+    path.write_text(tomli_w.dumps(_finite_images_case(method, adaptive_limit)))
+    result = subprocess.run([str(native_checker), '--check-config', str(path)],
+                            cwd=ROOT, text=True, capture_output=True, timeout=20)
+    output = result.stdout + result.stderr
+    if method == 'direct':
+        assert result.returncode != 0
+        assert 'direct requires its exact free-space kernel' in output
+    elif adaptive_limit:
+        assert result.returncode != 0
+        assert 'requires fields.periodic.backend="cached_kneq0"' in output
+    else:
+        assert result.returncode == 0, output

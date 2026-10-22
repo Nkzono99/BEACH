@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- `run.batch.adaptive.max_nonzero_mode_potential_step_v` を書くと、値が無効を意味する 0 でも、明示した
+  `fields.periodic.backend="finite_images"`（または既定の finite_images）が `panel_spectral_reference` / `exclude_k0` /
+  `e_bottom_zero` に黙って切り替わっていた（Fortran parser と Python の正規化の両方）。adaptive 上限は backend を選ばない。
+  0 は何もせず、正の値は従来どおり `cached_kneq0` 以外では設定エラーになる（#44）。
+
 ## [3.6.0] - 2026-10-22
 
 ### Changed

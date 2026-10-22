@@ -32,7 +32,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(45)
+  call test_init(46)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -278,6 +278,28 @@ program test_app_config_parser
                                 'lower_boundary_model = "e_bottom_zero"'//new_line('a')//'upper_fourier.mode_layers = 33')
   call assert_config_rejected(zhao_refresh_variant_path, 'mode_layers must be between 0 and 32')
   call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  ! 無効値 0 の adaptive 上限は split 設定ではない。明示した finite_images を別 backend へ切り替えない。
+  call test_begin('disabled_adaptive_limit_keeps_finite_images')
+  call write_periodic_grouped_config(input_contract_path, &
+                                     '[fields.periodic]'//new_line('a')//'backend = "finite_images"'//new_line('a')// &
+                                     '[run.batch.adaptive]'//new_line('a')//'max_nonzero_mode_potential_step_v = 0.0')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_true(trim(cfg%periodic2%nonzero_mode_backend) == 'legacy_finite_images', 'finite_images backend kept')
+  call assert_true(trim(cfg%periodic2%lower_boundary_model) == 'legacy_implicit', 'finite_images lower boundary kept')
+  call assert_close_dp(cfg%periodic2%max_nonzero_mode_potential_step, 0.0_dp, 0.0_dp, 'disabled adaptive limit')
+  call write_periodic_grouped_config(input_contract_path, &
+                                     '[fields.periodic]'//new_line('a')//'backend = "finite_images"'//new_line('a')// &
+                                     '[run.batch.adaptive]'//new_line('a')//'max_nonzero_mode_potential_step_v = 0.0', &
+                                     method='direct')
+  call assert_config_rejected(input_contract_path, 'direct requires its exact free-space kernel')
+  call write_periodic_grouped_config(input_contract_path, &
+                                     '[fields.periodic]'//new_line('a')//'backend = "finite_images"'//new_line('a')// &
+                                     '[run.batch.adaptive]'//new_line('a')//'max_nonzero_mode_potential_step_v = 0.1')
+  call assert_config_rejected(input_contract_path, 'requires fields.periodic.backend="cached_kneq0"')
+  call delete_file_if_exists(input_contract_path)
   call test_end()
 
   call test_begin('split_periodic_accepts_upper_fourier_retry')
@@ -640,9 +662,10 @@ contains
     close (unit)
   end subroutine write_grouped_config
 
-  !> 2 軸周期セルの最小構成。`extra` は末尾に追加する。
-  subroutine write_periodic_grouped_config(path, extra)
+  !> 2 軸周期セルの最小構成。`extra` は末尾に追加する。`method` は場の solver（既定 fmm）。
+  subroutine write_periodic_grouped_config(path, extra, method)
     character(len=*), intent(in) :: path, extra
+    character(len=*), intent(in), optional :: method
     integer :: unit
     open (newunit=unit, file=path, status='replace', action='write')
     write (unit, '(a)') '[run]'
@@ -665,7 +688,11 @@ contains
     write (unit, '(a)') '[fields]'
     write (unit, '(a)') 'boundary = "periodic2"'
     write (unit, '(a)') '[fields.solver]'
-    write (unit, '(a)') 'method = "fmm"'
+    if (present(method)) then
+      write (unit, '(a)') 'method = "'//method//'"'
+    else
+      write (unit, '(a)') 'method = "fmm"'
+    end if
     write (unit, '(a)') '[output]'
     write (unit, '(a)') 'enabled = false'
     if (len_trim(extra) > 0) write (unit, '(a)') extra

@@ -293,6 +293,9 @@ def to_grouped_layout(config: Mapping[str, Any]) -> dict[str, Any]:
         else:
             raise ConfigValidationError(f"unknown runtime key: {path}")
     periodic = config.get("periodic2")
+    # The adaptive batch limit shares the internal table but is not a split setting.
+    if isinstance(periodic, Mapping) and set(periodic) <= {"max_nonzero_mode_potential_step"}:
+        periodic = None
     far = config.get("sim", {}).get("field_periodic_far_correction", "none")
     if isinstance(periodic, Mapping) or far == "cached_kneq0":
         backend = periodic.get("nonzero_mode_backend", "panel_spectral_reference") if periodic is not None else far
