@@ -2,6 +2,8 @@
 submodule(bem_simulator) bem_simulator_charge
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_charge_ledger, only: checked_accumulate_charge, finite_charge_sum
+  use bem_runtime_modes, only: surface_charge_closure_id, surface_charge_closure_fixed_current, &
+                               surface_charge_closure_neutral_return
   implicit none
   real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
 contains
@@ -129,12 +131,19 @@ contains
   real(dp) :: charge_scale, charge_tolerance
   real(dp) :: weight_scale, correction_charge, unresolved_fraction
   logical :: has_neutral_return
+  logical :: neutral_return_species(app%n_particle_species)
 
   n = app%n_particle_species
+  ! 種ごとの closure をバッチの先頭で一度だけ解決し、粒子ループでは文字列を比べない。
+  do species_idx = 1_i32, n
+    neutral_return_species(species_idx) = &
+      surface_charge_closure_id(app%particle_species(species_idx)%surface_charge_closure) == &
+      surface_charge_closure_neutral_return
+  end do
   has_neutral_return = .false.
   do species_idx = 1_i32, n
     if (.not. app%particle_species(species_idx)%enabled) cycle
-    if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'neutral_return') then
+    if (neutral_return_species(species_idx)) then
       has_neutral_return = .true.
     end if
   end do
@@ -145,7 +154,7 @@ contains
   workspace%neutral_return_terminal_counts = 0_i64
   do i = 1_i32, pcls_batch%n
     species_idx = pcls_batch%species_id(i)
-    if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'neutral_return') cycle
+    if (.not. neutral_return_species(species_idx)) cycle
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
     if (.not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp .or. i > fresh_particle_count) then
       workspace%neutral_return_charge_values(5*n + species_idx) = &
@@ -199,7 +208,7 @@ contains
   workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(2*n + 1:3*n)
 
   do species_idx = 1_i32, n
-    if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'neutral_return') cycle
+    if (.not. neutral_return_species(species_idx)) cycle
     emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
     absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
     unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
@@ -236,7 +245,7 @@ contains
 
   do i = 1_i32, fresh_particle_count
     species_idx = pcls_batch%species_id(i)
-    if (trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) /= 'neutral_return') cycle
+    if (.not. neutral_return_species(species_idx)) cycle
     if (.not. workspace%absorbed_flag(i)) cycle
     elem_idx = workspace%absorbed_element(i)
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
@@ -251,8 +260,14 @@ contains
   real(dp) :: charge_tolerance, partner_charge, partner_escape_charge, total_escape_charge
   real(dp) :: folded_return_charge, reflected_escape, reflected_return, charge_sign
   logical :: tracked_source
+  logical :: fixed_current_species(app%n_particle_species)
 
   n = app%n_particle_species
+  do species_idx = 1_i32, n
+    fixed_current_species(species_idx) = &
+      surface_charge_closure_id(app%particle_species(species_idx)%surface_charge_closure) == &
+      surface_charge_closure_fixed_current
+  end do
   workspace%fixed_current_charge_values = 0.0_dp
   workspace%fixed_escape_closed_charge = 0.0_dp
   workspace%fixed_escape_unclosed_charge = 0.0_dp
@@ -276,7 +291,7 @@ contains
   call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
 
   do species_idx = 1_i32, n
-    if (.not. fixed_current_species_active(app, current_model, species_idx)) cycle
+    if (.not. fixed_current_species_active(fixed_current_species(species_idx), current_model, species_idx)) cycle
     ! 外部根の脱出束が partner species（追跡する SEE）や反射して H を抜けた上流電子と合算の値なら、それらが追跡で
     ! 脱出した電荷（帯電符号の大きさ）を根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。
     ! 超過は収支残差として残す。
@@ -466,12 +481,13 @@ contains
     end if
   end function checked_fixed_target_charge
 
-  logical function fixed_current_species_active(app, current_model, species_idx) result(active)
-    type(app_config), intent(in) :: app
+  !> 設定の closure が fixed_current か、外部シースの contract がこの種に目標電流を持つなら固定電流 closure を当てる。
+  logical function fixed_current_species_active(configured_fixed_current, current_model, species_idx) result(active)
+    logical, intent(in) :: configured_fixed_current
     type(surface_closure_contract_type), intent(in) :: current_model
     integer(i32), intent(in) :: species_idx
 
-    active = trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current' .or. &
+    active = configured_fixed_current .or. &
              current_model%has_absorbed_target(species_idx) .or. &
              current_model%has_emission_target(species_idx) .or. &
              current_model%has_escape_target(species_idx)

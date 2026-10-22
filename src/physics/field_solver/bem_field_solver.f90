@@ -7,6 +7,8 @@ module bem_field_solver
   use bem_types, only: mesh_type, sim_config
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
+  use bem_runtime_modes, only: field_solver_mode_direct, field_solver_mode_treecode, field_solver_mode_fmm, &
+                               field_solver_mode_id
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   implicit none
   private
@@ -15,6 +17,8 @@ module bem_field_solver
 
   type :: field_solver_type
     character(len=16) :: mode = 'direct'
+    !> mode を init で解決した値。評価のたびに文字列を比べない。
+    integer(i32) :: mode_id = field_solver_mode_direct
     character(len=16) :: field_bc_mode = 'free'
     character(len=16) :: field_normalization = 'si'
     real(dp) :: field_length_scale = 1.0d0
