@@ -452,11 +452,10 @@ contains
       )
   end subroutine run_mpi_soft_discard_aggregation_test
 
-  !> 同一ray集合を複製したMPI実行とserial参照でneutral-return閉包を比較する。
+  !> 同じglobal ray集合を追跡するMPI実行とserial参照でneutral-return閉包を比較する。
   !!
-  !! MPI側は各rankがserial参照と同じray集合を追跡し、global raysを
-  !! world-size倍にしてmacro chargeを1/world-sizeへ落とす。したがって
-  !! 全rankの物理的な放出・帰還・未解決電荷とmesh depositはserial参照と一致する。
+  !! バッチの ray は global slot の counter-based 乱数で決まるので、MPI 側で rank に分けた ray 集合は
+  !! serial 参照の ray 集合と同じになる。全rankの物理的な放出・帰還・未解決電荷とmesh depositはserial参照と一致する。
   subroutine run_mpi_neutral_return_layout_test(mpi)
     type(mpi_context), intent(in) :: mpi
     integer(i32), parameter :: rays_per_rank = 1024_i32
@@ -474,7 +473,8 @@ contains
     reference_signature = 0.0_dp
     reference_counts = 0_i64
     if (mpi_is_root(mpi)) then
-      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_rank)
+      ! Batch slots are counter-based, so the root alone traces exactly the global ray set of the MPI run.
+      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_rank*mpi%size)
       call seed_particles_from_config(reference_cfg)
       call run_absorption_insulator( &
         reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger &
@@ -491,9 +491,7 @@ contains
     call setup_mpi_neutral_return_fixture( &
       distributed_mesh, distributed_cfg, rays_per_rank*mpi%size &
       )
-    ! Test-only common stream: every rank traces the same rays while each
-    ! macro charge is divided by the global ray count.
-    call seed_particles_from_config(distributed_cfg, mpi_rank=0_i32, mpi_size=1_i32)
+    call seed_particles_from_config(distributed_cfg, mpi=mpi)
     call run_absorption_insulator( &
       distributed_mesh, distributed_cfg, distributed_stats, mpi=mpi, &
       charge_ledger=distributed_ledger &
@@ -514,15 +512,15 @@ contains
     end do
 
     call assert_equal_i64( &
-      distributed_ledger%emitted_count(1), int(mpi%size, i64)*reference_counts(1), &
+      distributed_ledger%emitted_count(1), reference_counts(1), &
       'neutral-return MPI emitted count was not reduced across ranks' &
       )
     call assert_equal_i64( &
-      distributed_ledger%absorbed_count(1), int(mpi%size, i64)*reference_counts(2), &
+      distributed_ledger%absorbed_count(1), reference_counts(2), &
       'neutral-return MPI absorbed count was not reduced across ranks' &
       )
     call assert_equal_i64( &
-      distributed_ledger%discarded_unresolved_count(1), int(mpi%size, i64)*reference_counts(3), &
+      distributed_ledger%discarded_unresolved_count(1), reference_counts(3), &
       'neutral-return MPI unresolved count was not reduced across ranks' &
       )
     call assert_true( &

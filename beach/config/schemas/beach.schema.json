@@ -2196,6 +2196,11 @@
                     }
                   }
                 },
+                "auto_fmm_min_elements": {
+                  "type": "integer",
+                  "default": 256,
+                  "description": "Element count threshold for field_solver=auto to switch from direct evaluation to FMM."
+                },
                 "near_field_precision": {
                   "type": "string",
                   "enum": [
@@ -2204,11 +2209,6 @@
                   ],
                   "default": "double",
                   "description": "Precision of the FMM near-field panel sums. \"double\" (default) reproduces the previous results bit for bit; \"single\" stores the per-leaf panel tables in single precision and evaluates them with 8-lane SIMD, about 1.5x faster for that sum, with a relative field error around 1e-6 (the order-4 FMM truncation is about 2e-4)."
-                },
-                "auto_fmm_min_elements": {
-                  "type": "integer",
-                  "default": 256,
-                  "description": "Element count threshold for field_solver=auto to switch from direct evaluation to FMM."
                 }
               }
             },
