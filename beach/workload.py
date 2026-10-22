@@ -172,48 +172,41 @@ def _standard_normal_cdf(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
 
+# Box faces: normal axis, whether the face is the upper bound, and the two
+# tangential axes of the face area.
+_FACES: dict[str, tuple[int, bool, tuple[int, int]]] = {
+    "x_low": (0, False, (1, 2)),
+    "x_high": (0, True, (1, 2)),
+    "y_low": (1, False, (2, 0)),
+    "y_high": (1, True, (2, 0)),
+    "z_low": (2, False, (0, 1)),
+    "z_high": (2, True, (0, 1)),
+}
+
+
+def _face(inject_face: str) -> tuple[int, bool, tuple[int, int]]:
+    try:
+        return _FACES[inject_face]
+    except KeyError:
+        raise ValueError(f"unknown inject_face: {inject_face}") from None
+
+
 def _inward_normal_for_face(inject_face: str) -> list[float]:
-    if inject_face == "x_low":
-        return [1.0, 0.0, 0.0]
-    if inject_face == "x_high":
-        return [-1.0, 0.0, 0.0]
-    if inject_face == "y_low":
-        return [0.0, 1.0, 0.0]
-    if inject_face == "y_high":
-        return [0.0, -1.0, 0.0]
-    if inject_face == "z_low":
-        return [0.0, 0.0, 1.0]
-    if inject_face == "z_high":
-        return [0.0, 0.0, -1.0]
-    raise ValueError(f"unknown inject_face: {inject_face}")
+    axis, high, _ = _face(inject_face)
+    normal = [0.0, 0.0, 0.0]
+    normal[axis] = -1.0 if high else 1.0
+    return normal
 
 
 def _face_tangential_axes(inject_face: str) -> tuple[int, int]:
-    if inject_face in ("x_low", "x_high"):
-        return 1, 2
-    if inject_face in ("y_low", "y_high"):
-        return 2, 0
-    if inject_face in ("z_low", "z_high"):
-        return 0, 1
-    raise ValueError(f"unknown inject_face: {inject_face}")
+    return _face(inject_face)[2]
 
 
 def _axis_and_boundary_for_face(
     inject_face: str, box_min: list[float], box_max: list[float]
 ) -> tuple[int, float]:
-    if inject_face == "x_low":
-        return 0, box_min[0]
-    if inject_face == "x_high":
-        return 0, box_max[0]
-    if inject_face == "y_low":
-        return 1, box_min[1]
-    if inject_face == "y_high":
-        return 1, box_max[1]
-    if inject_face == "z_low":
-        return 2, box_min[2]
-    if inject_face == "z_high":
-        return 2, box_max[2]
-    raise ValueError(f"unknown inject_face: {inject_face}")
+    axis, high, _ = _face(inject_face)
+    return axis, (box_max if high else box_min)[axis]
 
 
 def _species_temperature_k(spec: dict[str, Any]) -> float:
@@ -226,6 +219,33 @@ def _species_density_m3(spec: dict[str, Any]) -> float:
     if bool(spec.get("_has_number_density_cm3", False)):
         return float(spec["number_density_cm3"]) * 1.0e6
     return float(spec["number_density_m3"])
+
+
+def _has_photo_raycast_keys(spec: dict[str, Any]) -> bool:
+    return (
+        abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
+        or int(spec.get("rays_per_batch", 0)) != 0
+        or bool(spec.get("_has_ray_direction", False))
+        or bool(spec.get("_has_deposit_opposite_charge_on_emit", False))
+    )
+
+
+def _check_temperature_inputs(spec: dict[str, Any]) -> None:
+    has_temp_k = bool(spec.get("_has_temperature_k", False))
+    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
+    if has_temp_k and has_temp_ev:
+        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
+    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
+        raise SystemExit("temperature_ev must be >= 0.")
+    if has_temp_k and float(spec["temperature_k"]) < 0.0:
+        raise SystemExit("temperature_k must be >= 0.")
+
+
+def _checked_particle_mass(spec: dict[str, Any]) -> float:
+    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+    if m_particle <= 0.0:
+        raise SystemExit("m_particle must be > 0.")
+    return m_particle
 
 
 def _validate_external_e_field(
@@ -265,8 +285,6 @@ def _validate_external_e_field(
             e0_abs * math.cos(phi_z_rad) * math.sin(phi_xy_rad),
             e0_abs * math.sin(phi_z_rad),
         ]
-
-
 
 
 def _compute_inflow_flux(
@@ -335,15 +353,11 @@ def _parse_boundary_inflow_surfaces(
                 f"particles.species.boundary_inflow.{face} requires an open "
                 "particle boundary action."
             )
-        axis_t1, axis_t2 = _face_tangential_axes(face)
-        area = (box_max[axis_t1] - box_min[axis_t1]) * (
-            box_max[axis_t2] - box_min[axis_t2]
-        )
         surfaces.append(
             {
                 "face": face,
                 "normal": _inward_normal_for_face(face),
-                "area": area,
+                "area": _compute_face_area(face, box_min, box_max),
             }
         )
     return surfaces
@@ -353,7 +367,7 @@ def _reservoir_injection_surfaces(
     sim_cfg: dict[str, Any],
     spec: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
+    source_mode = spec["source_mode"]
     boundary_surfaces = _parse_boundary_inflow_surfaces(sim_cfg, spec)
     if boundary_surfaces and source_mode != "volume_seed":
         raise SystemExit(
@@ -377,13 +391,7 @@ def _validate_reservoir_species(
     surfaces = _reservoir_injection_surfaces(sim_cfg, spec)
     if not surfaces:
         raise SystemExit("reservoir injection requires at least one injection surface.")
-    source_mode = str(spec.get("source_mode", "volume_seed")).strip().lower()
-    if source_mode != "photo_raycast" and (
-        abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
-        or int(spec.get("rays_per_batch", 0)) != 0
-        or bool(spec.get("_has_ray_direction", False))
-        or bool(spec.get("_has_deposit_opposite_charge_on_emit", False))
-    ):
+    if spec["source_mode"] != "photo_raycast" and _has_photo_raycast_keys(spec):
         raise SystemExit("photo_raycast keys are not allowed for reservoir injection.")
 
     has_w_particle = bool(spec.get("_has_w_particle", False))
@@ -431,9 +439,7 @@ def _validate_reservoir_species(
                 )
             w_particle = float(params1["w_particle"])
 
-    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
-    if m_particle <= 0.0:
-        raise SystemExit("m_particle must be > 0.")
+    m_particle = _checked_particle_mass(spec)
 
     has_cm3 = bool(spec.get("_has_number_density_cm3", False))
     has_m3 = bool(spec.get("_has_number_density_m3", False))
@@ -450,14 +456,7 @@ def _validate_reservoir_species(
     if has_m3 and float(spec["number_density_m3"]) <= 0.0:
         raise SystemExit("number_density_m3 must be > 0.")
 
-    has_temp_k = bool(spec.get("_has_temperature_k", False))
-    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
-    if has_temp_k and has_temp_ev:
-        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
-    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
-        raise SystemExit("temperature_ev must be >= 0.")
-    if has_temp_k and float(spec["temperature_k"]) < 0.0:
-        raise SystemExit("temperature_k must be >= 0.")
+    _check_temperature_inputs(spec)
 
     drift_velocity = [
         float(x) for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
@@ -475,14 +474,11 @@ def _validate_reservoir_species(
         for surface in surfaces
     ]
     area = sum(float(surface["area"]) for surface in surfaces)
-    rate_per_s = sum(
-        surface_flux * float(surface["area"])
-        for surface_flux, surface in zip(surface_fluxes, surfaces, strict=True)
-    )
     surface_rates = [
         surface_flux * float(surface["area"])
         for surface_flux, surface in zip(surface_fluxes, surfaces, strict=True)
     ]
+    rate_per_s = sum(surface_rates)
     if has_target_macro and target_macro != -1:
         w_particle = rate_per_s * resolved_batch_duration / float(target_macro)
         if (not math.isfinite(w_particle)) or w_particle <= 0.0:
@@ -512,7 +508,6 @@ def _validate_photo_raycast_species(
             'particles.species.source_mode="photo_raycast" requires a [domain] box.'
         )
 
-
     if abs(float(spec.get("emit_current_density_a_m2", 0.0))) <= 0.0:
         raise SystemExit("photo_raycast requires emit_current_density_a_m2 > 0.")
     rays_per_batch = int(spec.get("rays_per_batch", 0))
@@ -534,18 +529,9 @@ def _validate_photo_raycast_species(
             "number_density_cm3/number_density_m3 are not allowed for photo_raycast."
         )
 
-    has_temp_k = bool(spec.get("_has_temperature_k", False))
-    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
-    if has_temp_k and has_temp_ev:
-        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
-    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
-        raise SystemExit("temperature_ev must be >= 0.")
-    if has_temp_k and float(spec["temperature_k"]) < 0.0:
-        raise SystemExit("temperature_k must be >= 0.")
+    _check_temperature_inputs(spec)
 
-    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
-    if m_particle <= 0.0:
-        raise SystemExit("m_particle must be > 0.")
+    m_particle = _checked_particle_mass(spec)
     if abs(float(spec.get("q_particle", 0.0))) <= 0.0:
         raise SystemExit("q_particle must be non-zero for photo_raycast.")
 
