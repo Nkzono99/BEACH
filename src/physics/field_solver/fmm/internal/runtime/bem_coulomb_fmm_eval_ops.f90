@@ -2,8 +2,7 @@
 module bem_coulomb_fmm_eval_ops
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_panel_geometry, only: panel_geometry_type
-  use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
+  use bem_panel_kernel, only: panel_potential_field_translated
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type
   use bem_coulomb_fmm_basis, only: build_axis_powers
   use bem_coulomb_fmm_periodic, only: wrap_periodic2_point, use_periodic2_cached_kneq0
@@ -679,11 +678,11 @@ contains
     real(dp), intent(in) :: target(3), shift1, shift2
     real(dp), intent(inout) :: ex, ey, ez
     real(dp) :: potential, field(3)
-    type(panel_geometry_type) :: geometry
 
     if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
-    call shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
-    call panel_potential_field(geometry, state%src_q(idx), target, panel_side_principal_value, potential, field)
+    call panel_potential_field_translated( &
+      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), state%src_q(idx), target, potential, field &
+      )
     ex = ex + field(1)/k_coulomb
     ey = ey + field(2)/k_coulomb
     ez = ez + field(3)/k_coulomb
@@ -696,28 +695,24 @@ contains
     real(dp), intent(in) :: target(3), shift1, shift2
     real(dp), intent(inout) :: phi
     real(dp) :: potential, field(3)
-    type(panel_geometry_type) :: geometry
 
     if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
-    call shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
-    call panel_potential_field(geometry, state%src_q(idx), target, panel_side_principal_value, potential, field)
+    call panel_potential_field_translated( &
+      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), state%src_q(idx), target, potential, field &
+      )
     phi = phi + potential/k_coulomb
   end subroutine accumulate_panel_shifted_potential
 
-  subroutine shifted_panel_geometry(plan, idx, axes, shift1, shift2, geometry)
-    type(fmm_plan_type), intent(in) :: plan
-    integer(i32), intent(in) :: idx, axes(2)
+  !> Image translation of a source along the periodic axes; zero on the free axis.
+  pure function periodic_shift_vector(axes, shift1, shift2) result(shift)
+    integer(i32), intent(in) :: axes(2)
     real(dp), intent(in) :: shift1, shift2
-    type(panel_geometry_type), intent(out) :: geometry
     real(dp) :: shift(3)
 
-    geometry = plan%panel_geometry(idx)
     shift = 0.0_dp
     if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + shift1
     if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + shift2
-    geometry%vertex = geometry%vertex + spread(shift, 2, 3)
-    geometry%centroid = geometry%centroid + shift
-  end subroutine shifted_panel_geometry
+  end function periodic_shift_vector
 
   pure subroutine accumulate_point_charge_field(q, sx, sy, sz, tx, ty, tz, soft2, ex, ey, ez)
     real(dp), intent(in) :: q, sx, sy, sz, tx, ty, tz, soft2

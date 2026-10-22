@@ -12,6 +12,7 @@ module bem_panel_kernel
   integer(i32), parameter, public :: panel_side_normal_minus = -1_i32
 
   public :: panel_potential_field
+  public :: panel_potential_field_translated
 
 contains
 
@@ -76,6 +77,71 @@ contains
     potential = k_coulomb*charge/geometry%area*potential_integral
     field = k_coulomb*charge/geometry%area*field_integral
   end subroutine panel_potential_field
+
+  !> Principal-value potential and field of `geometry` translated by `shift`, without copying it.
+  !! The arithmetic is the same as `panel_potential_field` applied to a geometry whose vertices were
+  !! translated, evaluated once per vertex distance instead of once per edge end, so the result is
+  !! bitwise identical. A target on the panel plane falls back to that routine.
+  subroutine panel_potential_field_translated(geometry, shift, charge, target, potential, field)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: shift(3), charge, target(3)
+    real(dp), intent(out) :: potential, field(3)
+    real(dp) :: vertex(3, 3), relative_vertex(3, 3), radius(3)
+    real(dp) :: projection(3), height, potential_integral, field_integral(3), omega
+    real(dp) :: line_integral, distance, ratio, numerator, denominator, scale, plane_tolerance
+    integer :: edge, next_edge
+
+    vertex = geometry%vertex + spread(shift, 2, 3)
+    height = dot_product(target - vertex(:, 1), geometry%normal)
+    projection = target - height*geometry%normal
+    scale = maxval(geometry%edge_length)
+    plane_tolerance = 64.0_dp*epsilon(1.0_dp)*scale
+    if (abs(height) <= plane_tolerance) then
+      call panel_potential_field_on_translated_surface(geometry, vertex, shift, charge, target, potential, field)
+      return
+    end if
+
+    do edge = 1, 3
+      relative_vertex(:, edge) = vertex(:, edge) - target
+      radius(edge) = norm2(relative_vertex(:, edge))
+    end do
+    numerator = dot_product(relative_vertex(:, 1), &
+                            cross_product(relative_vertex(:, 2), relative_vertex(:, 3)))
+    denominator = radius(1)*radius(2)*radius(3) + &
+                  dot_product(relative_vertex(:, 1), relative_vertex(:, 2))*radius(3) + &
+                  dot_product(relative_vertex(:, 2), relative_vertex(:, 3))*radius(1) + &
+                  dot_product(relative_vertex(:, 3), relative_vertex(:, 1))*radius(2)
+    omega = -2.0_dp*atan2(numerator, denominator)
+
+    potential_integral = -height*omega
+    field_integral = geometry%normal*omega
+    do edge = 1, 3
+      next_edge = merge(edge + 1, 1, edge < 3)
+      ratio = geometry%edge_length(edge)/(radius(edge) + radius(next_edge))
+      if (ratio >= 1.0_dp) error stop 'panel target lies on an edge or vertex.'
+      line_integral = log((1.0_dp + ratio)/(1.0_dp - ratio))
+      distance = dot_product(vertex(:, edge) - projection, geometry%edge_outward(:, edge))
+      potential_integral = potential_integral + distance*line_integral
+      field_integral = field_integral + geometry%edge_outward(:, edge)*line_integral
+    end do
+
+    potential = k_coulomb*charge/geometry%area*potential_integral
+    field = k_coulomb*charge/geometry%area*field_integral
+  end subroutine panel_potential_field_translated
+
+  !> On-plane fallback of `panel_potential_field_translated`; kept apart so the hot path never
+  !! default-initializes a geometry copy.
+  subroutine panel_potential_field_on_translated_surface(geometry, vertex, shift, charge, target, potential, field)
+    type(panel_geometry_type), intent(in) :: geometry
+    real(dp), intent(in) :: vertex(3, 3), shift(3), charge, target(3)
+    real(dp), intent(out) :: potential, field(3)
+    type(panel_geometry_type) :: translated
+
+    translated = geometry
+    translated%vertex = vertex
+    translated%centroid = geometry%centroid + shift
+    call panel_potential_field(translated, charge, target, panel_side_principal_value, potential, field)
+  end subroutine panel_potential_field_on_translated_surface
 
   pure logical function point_in_triangle(geometry, point) result(inside)
     type(panel_geometry_type), intent(in) :: geometry
