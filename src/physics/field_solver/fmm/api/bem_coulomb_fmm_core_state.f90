@@ -5,7 +5,7 @@ submodule(bem_coulomb_fmm_core) bem_coulomb_fmm_core_state
 contains
 
   module procedure update_state
-  call core_update_state_impl(plan, state, src_q)
+  call core_update_state_impl(plan, state, src_q, mpi)
   end procedure update_state
 
   module procedure destroy_state

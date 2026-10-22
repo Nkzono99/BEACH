@@ -126,6 +126,13 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: near_source_start(:), near_source_idx(:)
     real(dp), allocatable :: near_source_shift1(:), near_source_shift2(:)
+    !> Panel sources only: the near-field panels in `near_source_idx` order as translated component arrays
+    !! (vertex x/y/z per vertex, normal, edge lengths, outward edge normals per component, area), so a
+    !! point evaluation reads its leaf's panels without gathering them from `panel_geometry`.
+    real(dp), allocatable :: near_vx(:, :), near_vy(:, :), near_vz(:, :)
+    real(dp), allocatable :: near_nx(:), near_ny(:), near_nz(:)
+    real(dp), allocatable :: near_edge(:, :), near_ox(:, :), near_oy(:, :), near_oz(:, :)
+    real(dp), allocatable :: near_area(:)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
@@ -297,6 +304,17 @@ contains
     if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
     if (allocated(plan%near_source_shift1)) deallocate (plan%near_source_shift1)
     if (allocated(plan%near_source_shift2)) deallocate (plan%near_source_shift2)
+    if (allocated(plan%near_vx)) deallocate (plan%near_vx)
+    if (allocated(plan%near_vy)) deallocate (plan%near_vy)
+    if (allocated(plan%near_vz)) deallocate (plan%near_vz)
+    if (allocated(plan%near_nx)) deallocate (plan%near_nx)
+    if (allocated(plan%near_ny)) deallocate (plan%near_ny)
+    if (allocated(plan%near_nz)) deallocate (plan%near_nz)
+    if (allocated(plan%near_edge)) deallocate (plan%near_edge)
+    if (allocated(plan%near_ox)) deallocate (plan%near_ox)
+    if (allocated(plan%near_oy)) deallocate (plan%near_oy)
+    if (allocated(plan%near_oz)) deallocate (plan%near_oz)
+    if (allocated(plan%near_area)) deallocate (plan%near_area)
     if (allocated(plan%far_start)) deallocate (plan%far_start)
     if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
     if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)

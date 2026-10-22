@@ -1,5 +1,6 @@
 .PHONY: \
 	install install-local install-auto install-generic install-camphor install-camphor-local \
+	install-camphor-fast install-camphor-fast-local \
 	install-intel install-intel-local \
 	build check run \
 	static-check source-text-check schema-check schema-sync \
@@ -151,6 +152,12 @@ install-camphor:
 
 install-camphor-local:
 	BUILD_PROFILE=camphor PREFIX=$(PWD)/.local-intel ./install.sh
+
+install-camphor-fast:
+	BUILD_PROFILE=camphor-fast ./install.sh
+
+install-camphor-fast-local:
+	BUILD_PROFILE=camphor-fast PREFIX=$(PWD)/.local-intel-fast ./install.sh
 
 install-intel:
 	$(MAKE) install-camphor

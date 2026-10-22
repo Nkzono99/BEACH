@@ -880,6 +880,7 @@ contains
     call build_near_source_index( &
       plan, m2l_target_buf, m2l_source_buf, m2l_shift_idx1_buf, m2l_shift_idx2_buf, pair_used, pair_cap &
       )
+    if (plan%panel_source) call build_near_panel_tables(plan)
     allocate ( &
       plan%m2l_target_nodes(max(1_i32, pair_used)), plan%m2l_source_nodes(max(1_i32, pair_used)), &
       plan%m2l_shift_idx1(max(1_i32, pair_used)), plan%m2l_shift_idx2(max(1_i32, pair_used)) &
@@ -989,6 +990,53 @@ contains
       end do
     end do
   end subroutine build_near_source_index
+
+  !> Store every near-field panel of every leaf, translated by its image shift, as component arrays
+  !! in `near_source_idx` order. The translation is the same `vertex + shift` the point kernel used
+  !! to apply per evaluation, so the tables reproduce it bit for bit.
+  subroutine build_near_panel_tables(plan)
+    type(fmm_plan_type), intent(inout) :: plan
+    integer(i32) :: n, pos, idx, axes(2)
+    real(dp) :: shift(3)
+
+    n = 0_i32
+    if (plan%nleaf > 0_i32) n = plan%near_source_start(plan%nleaf + 1_i32) - 1_i32
+    n = max(0_i32, n)
+    allocate (plan%near_vx(3, max(1_i32, n)), plan%near_vy(3, max(1_i32, n)), plan%near_vz(3, max(1_i32, n)))
+    allocate (plan%near_nx(max(1_i32, n)), plan%near_ny(max(1_i32, n)), plan%near_nz(max(1_i32, n)))
+    allocate (plan%near_edge(3, max(1_i32, n)), plan%near_ox(3, max(1_i32, n)), plan%near_oy(3, max(1_i32, n)))
+    allocate (plan%near_oz(3, max(1_i32, n)), plan%near_area(max(1_i32, n)))
+    plan%near_vx = 0.0_dp
+    plan%near_vy = 0.0_dp
+    plan%near_vz = 0.0_dp
+    plan%near_nx = 0.0_dp
+    plan%near_ny = 0.0_dp
+    plan%near_nz = 0.0_dp
+    plan%near_edge = 0.0_dp
+    plan%near_ox = 0.0_dp
+    plan%near_oy = 0.0_dp
+    plan%near_oz = 0.0_dp
+    plan%near_area = 1.0_dp
+    axes = 0_i32
+    if (plan%options%use_periodic2) axes = plan%options%periodic_axes
+    do pos = 1_i32, n
+      idx = plan%near_source_idx(pos)
+      shift = 0.0_dp
+      if (axes(1) > 0_i32) shift(axes(1)) = shift(axes(1)) + plan%near_source_shift1(pos)
+      if (axes(2) > 0_i32) shift(axes(2)) = shift(axes(2)) + plan%near_source_shift2(pos)
+      plan%near_vx(:, pos) = plan%panel_geometry(idx)%vertex(1, :) + shift(1)
+      plan%near_vy(:, pos) = plan%panel_geometry(idx)%vertex(2, :) + shift(2)
+      plan%near_vz(:, pos) = plan%panel_geometry(idx)%vertex(3, :) + shift(3)
+      plan%near_nx(pos) = plan%panel_geometry(idx)%normal(1)
+      plan%near_ny(pos) = plan%panel_geometry(idx)%normal(2)
+      plan%near_nz(pos) = plan%panel_geometry(idx)%normal(3)
+      plan%near_edge(:, pos) = plan%panel_geometry(idx)%edge_length
+      plan%near_ox(:, pos) = plan%panel_geometry(idx)%edge_outward(1, :)
+      plan%near_oy(:, pos) = plan%panel_geometry(idx)%edge_outward(2, :)
+      plan%near_oz(:, pos) = plan%panel_geometry(idx)%edge_outward(3, :)
+      plan%near_area(pos) = plan%panel_geometry(idx)%area
+    end do
+  end subroutine build_near_panel_tables
 
   recursive subroutine gather_leaf_interactions(plan, target_leaf, source_node, near_buf, near_n, far_buf, far_n)
     type(fmm_plan_type), intent(in) :: plan

@@ -220,7 +220,7 @@ contains
     call perf_region_begin(perf_region_batch_total, batch_t0)
     batch_idx = stats%batches + 1_i32
     call perf_region_begin(perf_region_field_refresh, t0)
-    call snapshot%refresh(mesh)
+    call snapshot%refresh(mesh, mpi_ctx)
     call perf_region_end(perf_region_field_refresh, t0)
 
     trial_batch_duration = app%sim%batch_duration

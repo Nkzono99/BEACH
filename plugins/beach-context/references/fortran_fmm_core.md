@@ -45,7 +45,7 @@ Coulomb電場を計算します。低水準の検証・periodic operator構築�
 ```fortran
 call build_plan(plan, src_pos, options)             ! generic monopole plan
 call build_panel_plan(plan, v0, v1, v2, options)   ! BEACH surface plan
-call update_state(plan, state, src_q)
+call update_state(plan, state, src_q)             ! optional 4th argument: mpi_context
 call eval_points(plan, state, target_pos, e)
 call eval_point(plan, state, r, e)
 ```
@@ -58,6 +58,9 @@ call eval_point(plan, state, r, e)
   panel planの三角形頂点。`build_panel_plan`後は固定とみなす。
 - `src_q(n)`:
   source 点の電荷。`update_state` ごとに更新できる。
+- `mpi`（省略可）:
+  `bem_mpi` の `mpi_context`。与えると M2L の target node を rank で分担し、局所展開を allgather で揃える。
+  全 rank が同じ plan と `src_q` で呼ぶこと。結果は省略した場合と bit 単位で同じ。
 - `target_pos(3,m)` または `r(3)`:
   評価点。
 - `e(3,m)` または `e(3)`:
@@ -390,10 +393,16 @@ update_state(plan, state, src_q):
   clear multipole/local only when the tree has no source leaves or no M2L pairs
   P2M on source leaves
   M2M bottom-up
-  M2L on cached pairs
+  M2L on cached pairs (this rank's block of target nodes when mpi is given)
+  allgather local expansions and active flags across ranks (mpi only)
+  periodic far correction on anchors
   L2L top-down
   mark state ready
 ```
+
+`mpi` を与えた場合、target node は組数がほぼ等しい連続ブロックに rank 順で分けられ（`m2l_rank_blocks`）、
+各 node の展開は 1 つの rank が従来と同じループで求める。そのため rank 数によらず結果は同じで、
+rank ごとの M2L コストだけが 1/rank 数になる。M2L は保存した演算子（この入力では数 GB）の読み出しに律速される。
 
 ### 6.2 OpenMP並列化
 
@@ -418,6 +427,8 @@ update_state(plan, state, src_q):
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
 - `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
+- panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_vx` … `near_area`）として build 時に保存し、
+  点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
 
 ## 7. `eval_point(s)` のアルゴリズム

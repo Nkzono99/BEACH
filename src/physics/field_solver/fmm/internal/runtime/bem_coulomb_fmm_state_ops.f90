@@ -1,12 +1,13 @@
 !> Coulomb FMM state 更新と upward/downward pass。
 module bem_coulomb_fmm_state_ops
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: eps0
   use bem_coulomb_fmm_types, only: fmm_plan_type, fmm_state_type, initialize_fmm_state, reset_fmm_state
   use bem_coulomb_fmm_tree_utils, only: active_tree_nnode, active_tree_max_depth, active_tree_level_bounds, &
                                         active_tree_level_node
   use bem_periodic_zero_mode_plan, only: refresh_periodic_zero_mode_state
   use bem_periodic_shell_mean, only: refresh_periodic_shell_mean_state
+  use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_allgatherv_inplace_real_dp, mpi_allgatherv_inplace_i32
   implicit none
   private
 
@@ -19,11 +20,14 @@ contains
   !! @param[in] plan 構築済みの FMM 計画。
   !! @param[inout] state 更新対象の state。
   !! @param[in] src_q ソース電荷量。
-  subroutine core_update_state_impl(plan, state, src_q)
+  !! @param[in] mpi 与えると M2L の target node を rank で分担し、局所展開を allgather で揃える。
+  subroutine core_update_state_impl(plan, state, src_q, mpi)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
     real(dp), intent(in) :: src_q(:)
-    integer(i32) :: n_target_nodes, source_idx, cell
+    type(mpi_context), intent(in), optional :: mpi
+    integer(i32) :: n_target_nodes, source_idx, cell, rank, rank_count, block_begin, block_end
+    integer(i32), allocatable :: block_counts(:), block_offsets(:)
     real(dp) :: total_charge, e_bottom, phi_gauge, z_gauge
 
     if (.not. plan%built) error stop 'FMM plan is not built.'
@@ -74,7 +78,13 @@ contains
       state%anchor_local_active = 0_i32
     end if
     n_target_nodes = merge(plan%target_nnode, plan%nnode, plan%target_tree_ready)
-    !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes)
+    rank = 0_i32
+    rank_count = 1_i32
+    if (present(mpi)) call mpi_get_rank_size(rank, rank_count, mpi)
+    call m2l_rank_blocks(plan, n_target_nodes, rank_count, block_counts, block_offsets)
+    block_begin = block_offsets(rank + 1_i32) + 1_i32
+    block_end = block_offsets(rank + 1_i32) + block_counts(rank + 1_i32)
+    !$omp parallel default(none) shared(plan, state, src_q, n_target_nodes, block_begin, block_end)
     if (associated(state%multipole_active)) then
       !$omp workshare
       state%multipole_active = 0_i32
@@ -103,8 +113,16 @@ contains
 
     call p2m_leaf_moments(plan, state)
     call m2m_upward_pass(plan, state)
+    if (n_target_nodes > 0_i32) call m2l_accumulate(plan, state, block_begin, block_end)
+    !$omp end parallel
+
+    if (rank_count > 1_i32 .and. n_target_nodes > 0_i32 .and. plan%m2l_pair_count > 0_i32) then
+      call mpi_allgatherv_inplace_real_dp(mpi, state%local, block_counts*plan%ncoef, block_offsets*plan%ncoef)
+      call mpi_allgatherv_inplace_i32(mpi, state%local_active, block_counts, block_offsets)
+    end if
+
+    !$omp parallel default(none) shared(plan, state, n_target_nodes)
     if (n_target_nodes > 0_i32) then
-      call m2l_accumulate(plan, state)
       call apply_periodic_target_correction(plan, state)
       call l2l_downward_pass(plan, state)
     end if
@@ -239,17 +257,44 @@ contains
     end do
   end subroutine m2m_upward_pass
 
-  subroutine m2l_accumulate(plan, state)
+  !> M2L の target node を rank 数で分け、各 rank の node 数と先頭 offset を返す。組の数がほぼ等しくなる
+  !! 連続ブロックにする。組がなければ全 node を rank 0 に置く。
+  subroutine m2l_rank_blocks(plan, n_target_nodes, rank_count, block_counts, block_offsets)
+    type(fmm_plan_type), intent(in) :: plan
+    integer(i32), intent(in) :: n_target_nodes, rank_count
+    integer(i32), allocatable, intent(out) :: block_counts(:), block_offsets(:)
+    integer(i32) :: t_node, owner, pairs_before
+    integer(i64) :: pair_total
+
+    allocate (block_counts(rank_count), block_offsets(rank_count))
+    block_counts = 0_i32
+    block_offsets = 0_i32
+    pair_total = int(plan%m2l_pair_count, i64)
+    do t_node = 1_i32, n_target_nodes
+      owner = 0_i32
+      if (rank_count > 1_i32 .and. pair_total > 0_i64 .and. allocated(plan%m2l_target_start)) then
+        pairs_before = plan%m2l_target_start(t_node) - 1_i32
+        owner = int(min(int(rank_count - 1_i32, i64), (int(pairs_before, i64)*int(rank_count, i64))/pair_total), i32)
+      end if
+      block_counts(owner + 1_i32) = block_counts(owner + 1_i32) + 1_i32
+    end do
+    do owner = 2_i32, rank_count
+      block_offsets(owner) = block_offsets(owner - 1_i32) + block_counts(owner - 1_i32)
+    end do
+  end subroutine m2l_rank_blocks
+
+  !> target node `t_begin` から `t_end` の局所展開を M2L で求める。
+  subroutine m2l_accumulate(plan, state, t_begin, t_end)
     type(fmm_plan_type), intent(in) :: plan
     type(fmm_state_type), intent(inout) :: state
-    integer(i32) :: t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx, n_target_nodes
+    integer(i32), intent(in) :: t_begin, t_end
+    integer(i32) :: t_node, pair_pos, pair_idx, s_node, alpha_idx, beta_idx, deriv_idx
     real(dp) :: local_acc(plan%ncoef), source_coeff
     logical :: local_active
 
     if (plan%m2l_pair_count <= 0_i32) return
-    n_target_nodes = active_tree_nnode(plan, plan%target_tree_ready)
     !$omp do schedule(static)
-    do t_node = 1_i32, n_target_nodes
+    do t_node = t_begin, t_end
       local_acc = 0.0d0
       local_active = .false.
       do pair_pos = plan%m2l_target_start(t_node), plan%m2l_target_start(t_node + 1_i32) - 1_i32

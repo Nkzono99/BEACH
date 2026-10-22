@@ -204,11 +204,13 @@ contains
     end if
   end subroutine init_electrostatic_snapshot
 
-  subroutine refresh_electrostatic_snapshot(self, mesh)
+  !> 電荷から場の状態を更新する。`mpi` を与えると FMM の M2L を rank で分担する（結果は同じ）。
+  subroutine refresh_electrostatic_snapshot(self, mesh, mpi)
     class(electrostatic_snapshot_type), intent(inout) :: self
     type(mesh_type), intent(in) :: mesh
+    type(mpi_context), intent(in), optional :: mpi
 
-    if (.not. self%use_panel_spectral_reference) call self%nonzero_solver%refresh(mesh)
+    if (.not. self%use_panel_spectral_reference) call self%nonzero_solver%refresh(mesh, mpi)
     if (self%upper_fourier_plan%nmode > 0_i32) call self%upper_fourier_plan%refresh(mesh%q_elem)
     call self%refresh_zero_mode(mesh)
   end subroutine refresh_electrostatic_snapshot

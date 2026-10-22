@@ -25,7 +25,7 @@ contains
     call build_panel_plan(self%fmm_core_plan, panel_v0, panel_v1, panel_v2, self%fmm_core_options)
   end if
 
-  call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem)
+  call update_state(self%fmm_core_plan, self%fmm_core_state, mesh%q_elem, mpi)
   self%fmm_core_ready = self%fmm_core_plan%built .and. self%fmm_core_state%ready
   end procedure refresh_fmm_solver
 

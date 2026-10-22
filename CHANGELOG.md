@@ -17,6 +17,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `beach --check-config` が、これまで実行中のバッチで初めて停止していた設定を preflight で拒否する: `run.batch_count <= 0`、
   負の `run.batch.duration_s`、photo_raycast 種の finite `[domain]` なし・`run.batch.duration_s <= 0`・質量 <= 0・温度 < 0。
   エラーの文言は変わらない。
+- FMM の近接場で、像シフトした panel を評価するたびに 328 byte の geometry を複製して一般の核へ渡していたのをやめ、
+  保存済み geometry をその場で読み、頂点だけ平行移動し、頂点距離を辺ごとに二度ではなく一度だけ求める核
+  （`panel_potential_field_translated`）を追加した。葉の近接 panel の総和は核モジュール内の 1 つのループ
+  （`panel_field_sum_translated` / `panel_potential_sum_translated`）で行う。演算順は同じなので電場・電位は
+  bit 単位で一致し、テストで逐次評価と比較している。粒子ステップの大半を占める近接和が速くなる。
+
+- FMM の各葉の近接 panel を、像シフトを掛けた成分配列（頂点 x/y/z、法線、辺長、辺の外向き法線、面積）として
+  plan に保存し（`near_vx` など、`build_near_panel_tables`）、点評価は葉の区間をそのまま読む。近接和は 64 panel ずつ
+  SIMD ループで評価し、合算は従来どおりリスト順に行う。値の演算順は変えていないので結果は bit 単位で同じ。
+  本番相当の入力（3,392 panel、4 MPI×16 スレッド）で 1 batch が 1.33 s から 0.69 s になった。
+- `update_state` と `snapshot%refresh`、`field_solver%refresh` に省略可能な `mpi` 引数を追加した。batch ループが渡す
+  MPI コンテキストで M2L の target node を組数がほぼ等しい連続ブロックに分け、各 rank が自分のブロックだけ計算して
+  局所展開を allgather で揃える（`bem_mpi` に in-place の allgatherv 補助を追加）。各 node の展開は従来と同じループで
+  1 つの rank が求めるので、全 rank で複製していた結果と bit 単位で同じ。`test_mpi_hybrid` で確認する。
+
+- opt-in の `env/camphor-fast.env`（`make install-camphor-fast`）を追加した。`-fp-model fast=1` で近接核の `log`/`atan2` が
+  4 レーンの SVML になり、本番相当の入力で 1 batch が約 1.3 倍速い（0.62 s → 0.48 s）。結果は precise ビルドと 10⁻¹³ 程度
+  異なり bit 再現しないので、テストと golden 比較は従来の `camphor.env` で行う。fpm は `--flag` の後に自分のプロファイル
+  フラグを足して `-fp-model` を上書きするため、`build.sh` に `FPM_NO_PROFILE=1`（`FFLAGS` だけを fpm に渡す）を追加した。
 
 ## [3.6.1] - 2026-10-22
 

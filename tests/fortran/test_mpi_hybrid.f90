@@ -15,6 +15,8 @@ program test_mpi_hybrid
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_panel_plan, update_state, &
+                                  eval_point, destroy_plan, destroy_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -40,6 +42,13 @@ program test_mpi_hybrid
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
+  integer(i32), parameter :: grid_nx = 6_i32, grid_ny = 6_i32, grid_nsrc = 2_i32*grid_nx*grid_ny
+  type(fmm_options_type) :: fmm_options
+  type(fmm_plan_type) :: fmm_plan
+  type(fmm_state_type) :: replicated_state, distributed_state
+  real(dp) :: grid_v0(3, grid_nsrc), grid_v1(3, grid_nsrc), grid_v2(3, grid_nsrc), grid_q(grid_nsrc)
+  real(dp) :: replicated_field(3), distributed_field(3), probe(3)
+  integer(i32) :: node_idx, coeff_idx, mismatches
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
 
   call mpi_initialize(mpi)
@@ -106,7 +115,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -305,11 +314,72 @@ program test_mpi_hybrid
     call remove_empty_directory(out_dir)
   end if
 
+  call test_begin('mpi_distributed_m2l_matches_replicated_update')
+  ! update_state with the MPI context splits the M2L targets over ranks and gathers the local
+  ! expansions; every rank must end with the same expansions as the replicated update, bit for bit.
+  call make_mpi_panel_grid(grid_v0, grid_v1, grid_v2, grid_q)
+  fmm_options%theta = 0.45_dp
+  fmm_options%leaf_max = 4_i32
+  fmm_options%order = 4_i32
+  fmm_options%target_box_min = [-1.2_dp, -1.2_dp, -0.5_dp]
+  fmm_options%target_box_max = [1.2_dp, 1.2_dp, 2.5_dp]
+  call build_panel_plan(fmm_plan, grid_v0, grid_v1, grid_v2, fmm_options)
+  call update_state(fmm_plan, replicated_state, grid_q)
+  call update_state(fmm_plan, distributed_state, grid_q, mpi)
+  call assert_true(fmm_plan%m2l_pair_count > 0_i32, 'MPI M2L test needs a plan with M2L pairs')
+  mismatches = 0_i32
+  do node_idx = 1_i32, size(replicated_state%local, 2)
+    if (distributed_state%local_active(node_idx) /= replicated_state%local_active(node_idx)) mismatches = mismatches + 1_i32
+    do coeff_idx = 1_i32, size(replicated_state%local, 1)
+      if (distributed_state%local(coeff_idx, node_idx) /= replicated_state%local(coeff_idx, node_idx)) then
+        mismatches = mismatches + 1_i32
+      end if
+    end do
+  end do
+  call assert_equal_i32(mismatches, 0_i32, 'distributed M2L local expansions differ from the replicated ones')
+  probe = [0.42_dp, 0.31_dp, 0.45_dp]
+  call eval_point(fmm_plan, replicated_state, probe, replicated_field)
+  call eval_point(fmm_plan, distributed_state, probe, distributed_field)
+  call assert_true(all(distributed_field == replicated_field), 'distributed M2L field differs from the replicated one')
+  call destroy_state(replicated_state)
+  call destroy_state(distributed_state)
+  call destroy_plan(fmm_plan)
+  call test_end()
+
   call test_summary()
 
   call mpi_shutdown(mpi)
 
 contains
+
+  !> Two triangles per cell on a square grid in z=0, with smoothly varying charges.
+  subroutine make_mpi_panel_grid(v0_out, v1_out, v2_out, q_out)
+    real(dp), intent(out) :: v0_out(3, grid_nsrc), v1_out(3, grid_nsrc), v2_out(3, grid_nsrc), q_out(grid_nsrc)
+    integer(i32) :: ix, iy, element
+    real(dp) :: x0, x1, y0, y1, dx, dy
+
+    dx = 1.6_dp/real(grid_nx, dp)
+    dy = 1.6_dp/real(grid_ny, dp)
+    element = 0_i32
+    do iy = 1_i32, grid_ny
+      y0 = -0.8_dp + real(iy - 1_i32, dp)*dy
+      y1 = y0 + dy
+      do ix = 1_i32, grid_nx
+        x0 = -0.8_dp + real(ix - 1_i32, dp)*dx
+        x1 = x0 + dx
+        element = element + 1_i32
+        v0_out(:, element) = [x0, y0, 0.0_dp]
+        v1_out(:, element) = [x1, y0, 0.0_dp]
+        v2_out(:, element) = [x1, y1, 0.0_dp]
+        q_out(element) = 1.0_dp + 0.2_dp*sin(real(element, dp))
+        element = element + 1_i32
+        v0_out(:, element) = [x0, y0, 0.0_dp]
+        v1_out(:, element) = [x1, y1, 0.0_dp]
+        v2_out(:, element) = [x0, y1, 0.0_dp]
+        q_out(element) = 1.0_dp + 0.2_dp*cos(real(element, dp))
+      end do
+    end do
+  end subroutine make_mpi_panel_grid
 
   subroutine run_mpi_soft_discard_aggregation_test(mpi)
     type(mpi_context), intent(in) :: mpi
