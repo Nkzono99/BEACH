@@ -270,13 +270,20 @@ contains
     if (self%secondary_idx > 0) then
       total_escape_current = self%state%photoelectron_escape_current_density_a_m2
       if (self%photo_idx > 0) then
-        ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
-        attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+        if (self%state%escape_partner_species(self%photo_idx) > 0) then
+          ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
+          attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+          stats_candidate%secondary_budget_residual_a_m2 = &
+            fixed_escape_unclosed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
+        else
+          ! Type C では SEE を根へ固定する。根の脱出束のうち SEE の脱出目標に載せた分が SEE の取り分。
+          attributed_secondary_current = fixed_escape_closed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+          stats_candidate%secondary_budget_residual_a_m2 = &
+            fixed_escape_unclosed_charge(self%secondary_idx)/(self%area*app%sim%batch_duration)
+        end if
         if (total_escape_current > 0.0_dp) then
           stats_candidate%matching_plane_secondary_share = min(1.0_dp, attributed_secondary_current/total_escape_current)
         end if
-        stats_candidate%secondary_budget_residual_a_m2 = &
-          fixed_escape_unclosed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
       else
         ! PE がなければ根の脱出束は全て SEE のもの。SEE の放出がなく目標を載せられなかった分だけが収支に残る。
         stats_candidate%matching_plane_secondary_share = 1.0_dp

@@ -17,6 +17,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `fields.periodic.backend="finite_images"`（または既定の finite_images）が `panel_spectral_reference` / `exclude_k0` /
   `e_bottom_zero` に黙って切り替わっていた（Fortran parser と Python の正規化の両方）。adaptive 上限は backend を選ばない。
   0 は何もせず、正の値は従来どおり `cached_kneq0` 以外では設定エラーになる（#44）。
+- PE と SEE があり外部根が Type C（放出電子の帰還 0）のとき、SEE が脱出したバッチで固定電流 closure が存在しない PE 帰還へ
+  目標を割り当てて停止していた（#48）。Type C では PE が全て脱出して帰還がないので、PE の帰還目標を 0、脱出目標を PE 放出とし、
+  SEE を PE なしの構成と同じく根へ固定する（帰還・脱出を根の値、放出の反作用電荷を根に与えた外側源へ）。SEE の取り分は
+  根の脱出 − PE 放出で、最初の更新前は 0。Type A/B では従来どおり PE の帰還が SEE 脱出を差し引く。
 
 ## [3.6.0] - 2026-10-22
 

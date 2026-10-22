@@ -445,8 +445,8 @@ contains
     type(irradiation_cell_contract_type), intent(in) :: cell
     integer(i32) :: electron_idx, ion_idx, photo_idx, secondary_idx
     real(dp) :: area, budget_scale, budget_tolerance
-    real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density
-    logical :: photoelectron_active, secondary_active, reflected_only, reflected_active
+    real(dp) :: surface_density_m3, surface_temperature_ev, emission_current_density, secondary_escape_density
+    logical :: photoelectron_active, secondary_active, reflected_only, reflected_active, secondary_pinned
 
     success = .false.
     message = ''
@@ -460,6 +460,10 @@ contains
     reflected_only = reflected_active .and. .not. (photoelectron_active .or. secondary_active)
     secondary_idx = 0_i32
     if (secondary_active) secondary_idx = species_index(app, app%surface_current%secondary_electron_species)
+    ! SEE の脱出の揺らぎを吸収する PE の帰還がなければ（PE なし、または放出電子の帰還 0 の Type C）、SEE の
+    ! 帰還・脱出・放出を根に固定する。Type C では外部障壁がなく、根の帰還束は厳密に 0。
+    secondary_pinned = secondary_active .and. &
+                       (.not. photoelectron_active .or. .not. (plane%emitted_return_flux_m2_s > 0.0_dp))
     photo_idx = 0_i32
     if (photoelectron_active) photo_idx = species_index(app, app%surface_current%photoelectron_species)
     area = cell%wall_area(app%sim%box_min, app%sim%box_max)
@@ -567,24 +571,36 @@ contains
       result%has_escape_target(photo_idx) = .true.
       result%emission_current_a(photo_idx) = &
         checked_area_current(area, result%photoelectron_emission_current_density_a_m2)
-      ! 外部根の脱出束は PE+SEE 合算の値。SEE があれば、各バッチで追跡した SEE 脱出を差し引いた残りが
-      ! PE の脱出目標になり、帰還目標はその値と PE 放出の差になる（bem_simulator_charge の固定電流 closure）。
-      result%absorbed_current_a(photo_idx) = checked_area_current( &
-                                             area, result%photoelectron_escape_current_density_a_m2 - &
-                                             result%photoelectron_emission_current_density_a_m2 &
-                                             )
-      ! Escaping particle current has the opposite sign to surface charging current.
-      result%escaped_particle_current_a(photo_idx) = &
-        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
-      if (secondary_active) result%escape_partner_species(photo_idx) = secondary_idx
+      if (secondary_pinned) then
+        ! Type C では放出電子が全て脱出する。PE は帰還 0・脱出 = 放出に固定し、残りの脱出束を SEE に充てる。
+        result%absorbed_current_a(photo_idx) = 0.0_dp
+        result%escaped_particle_current_a(photo_idx) = -result%emission_current_a(photo_idx)
+      else
+        ! 外部根の脱出束は PE+SEE 合算の値。SEE があれば、各バッチで追跡した SEE 脱出を差し引いた残りが
+        ! PE の脱出目標になり、帰還目標はその値と PE 放出の差になる（bem_simulator_charge の固定電流 closure）。
+        result%absorbed_current_a(photo_idx) = checked_area_current( &
+                                               area, result%photoelectron_escape_current_density_a_m2 - &
+                                               result%photoelectron_emission_current_density_a_m2 &
+                                               )
+        ! Escaping particle current has the opposite sign to surface charging current.
+        result%escaped_particle_current_a(photo_idx) = &
+          -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+        if (secondary_active) result%escape_partner_species(photo_idx) = secondary_idx
+      end if
     end if
-    if (secondary_active .and. .not. photoelectron_active) then
+    if (secondary_pinned) then
       ! PE がなければ根の脱出束・帰還束は全て SEE のもの。SEE の放出量は追跡した衝突で決まり根は予測しないが、
       ! 根に与えた外側源（追跡した H 外向き束の窓平均）へ放出の反作用電荷を揃え、帰還と脱出を根の値に固定して
       ! 表面収支を毎バッチ閉じる（bem_simulator_charge の固定電流 closure）。源 0 の初期根では反作用電荷を置かない。
+      ! PE+SEE の Type C も同じで、SEE の取り分は根の脱出 − PE 放出（最初の更新前は 0）。
       if (.not. ieee_is_finite(plane%emitted_return_flux_m2_s) .or. plane%emitted_return_flux_m2_s < 0.0_dp) then
-        message = 'SEE-only closure received an invalid emitted return flux.'
+        message = 'SEE closure received an invalid emitted return flux.'
         return
+      end if
+      secondary_escape_density = result%photoelectron_escape_current_density_a_m2
+      if (photoelectron_active) then
+        secondary_escape_density = max(0.0_dp, secondary_escape_density - &
+                                       result%photoelectron_emission_current_density_a_m2)
       end if
       result%has_absorbed_target(secondary_idx) = .true.
       result%has_emission_target(secondary_idx) = .true.
@@ -592,17 +608,15 @@ contains
       result%emission_target_from_tracked_source(secondary_idx) = .true.
       result%absorbed_current_a(secondary_idx) = -checked_area_current(area, qe*plane%emitted_return_flux_m2_s)
       result%emission_current_a(secondary_idx) = checked_area_current( &
-                                                 area, result%photoelectron_escape_current_density_a_m2 + &
-                                                 qe*plane%emitted_return_flux_m2_s &
+                                                 area, secondary_escape_density + qe*plane%emitted_return_flux_m2_s &
                                                  )
-      result%escaped_particle_current_a(secondary_idx) = &
-        -checked_area_current(area, result%photoelectron_escape_current_density_a_m2)
+      result%escaped_particle_current_a(secondary_idx) = -checked_area_current(area, secondary_escape_density)
     end if
     if (reflected_active .and. (photoelectron_active .or. secondary_active)) then
       ! 外部根の源にセル内で反射して H を抜けた上流電子を含めるとき、根の脱出・帰還は放出電子と反射電子の合算に
       ! 対する値になる。追跡した反射電子の脱出・帰還を放出電子側の目標から差し引き、脱出した反射電子は壁に届かない
       ! ので電子の吸収目標に足し戻す（bem_simulator_charge の固定電流 closure）。
-      if (photoelectron_active) then
+      if (photoelectron_active .and. .not. secondary_pinned) then
         result%reflected_electron_species(photo_idx) = electron_idx
       else
         result%reflected_electron_species(secondary_idx) = electron_idx
