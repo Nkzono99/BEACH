@@ -89,8 +89,9 @@ contains
   end select
 
   self%mode = resolve_field_solver_mode(mesh%nelem, sim)
+  self%mode_id = field_solver_mode_id(self%mode)
 
-  if (trim(self%mode) == 'fmm' .and. sim%use_box) then
+  if (self%mode_id == field_solver_mode_fmm .and. sim%use_box) then
     if (any(sim%box_max <= sim%box_min)) then
       error stop 'A finite [domain] requires positive box extents for fmm dual-target.'
     end if
@@ -117,7 +118,7 @@ contains
   self%fmm_core_options%target_box_min = (self%target_box_min - self%field_origin)*self%field_inv_length_scale
   self%fmm_core_options%target_box_max = (self%target_box_max - self%field_origin)*self%field_inv_length_scale
 
-  if (trim(self%mode) == 'fmm') then
+  if (self%mode_id == field_solver_mode_fmm) then
     select case (trim(self%periodic_far_correction))
     case ('auto', 'none', 'cached_kneq0')
       continue
@@ -128,7 +129,7 @@ contains
     return
   end if
 
-  if (trim(self%mode) == 'treecode' .and. mesh%nelem > 0_i32) then
+  if (self%mode_id == field_solver_mode_treecode .and. mesh%nelem > 0_i32) then
     call build_tree_topology(self, mesh)
     call refresh_field_solver(self, mesh)
   else

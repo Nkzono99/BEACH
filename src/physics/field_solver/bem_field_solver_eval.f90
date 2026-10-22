@@ -10,7 +10,7 @@ contains
   module procedure eval_e_field_solver
   real(dp) :: rx, ry, rz, ex, ey, ez, r_scaled(3)
 
-  if (trim(self%mode) == 'fmm') then
+  if (self%mode_id == field_solver_mode_fmm) then
     if (mesh%nelem <= 0_i32) then
       e = 0.0d0
       return
@@ -24,7 +24,7 @@ contains
     return
   end if
 
-  if (trim(self%mode) /= 'treecode' .or. .not. self%tree_ready) then
+  if (self%mode_id /= field_solver_mode_treecode .or. .not. self%tree_ready) then
     call electric_field_at_panel_mesh(mesh, r, e)
     return
   end if
@@ -50,7 +50,7 @@ contains
   phi = 0.0d0
   if (mesh%nelem <= 0_i32) return
 
-  if (trim(self%mode) == 'fmm') then
+  if (self%mode_id == field_solver_mode_fmm) then
     if (.not. self%fmm_core_ready) then
       error stop 'FMM core is not ready. Call solver%init/refresh before eval_potential.'
     end if
@@ -60,7 +60,7 @@ contains
     return
   end if
 
-  if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
+  if (self%mode_id == field_solver_mode_treecode .and. self%tree_ready) then
     phi_sum = 0.0_dp
     call traverse_potential_node(self, mesh, 1_i32, r(1), r(2), r(3), phi_sum)
     phi = self%potential_output_scale*phi_sum
@@ -196,9 +196,9 @@ contains
   potential_v = 0.0d0
   if (mesh%nelem <= 0) return
 
-  if (trim(self%mode) == 'fmm' .and. self%fmm_core_ready) then
+  if (self%mode_id == field_solver_mode_fmm .and. self%fmm_core_ready) then
     call compute_mesh_potential_fmm(self, mesh, potential_v)
-  else if (trim(self%mode) == 'treecode' .and. self%tree_ready) then
+  else if (self%mode_id == field_solver_mode_treecode .and. self%tree_ready) then
     call compute_mesh_potential_tree(self, mesh, potential_v)
   else
     call compute_mesh_potential_direct(self, mesh, potential_v)
@@ -218,7 +218,7 @@ contains
   if (.not. all(ieee_is_finite(charge_step)) .or. .not. all(ieee_is_finite(mesh%q_elem))) then
     error stop 'cached kneq0 potential step requires finite charges.'
   end if
-  if (trim(self%mode) /= 'fmm' .or. &
+  if (self%mode_id /= field_solver_mode_fmm .or. &
       .not. self%use_periodic2 .or. trim(self%periodic_far_correction) /= 'cached_kneq0') then
     error stop 'kneq0 potential-step measurement requires the cached_kneq0 FMM backend.'
   end if

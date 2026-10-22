@@ -10,9 +10,9 @@ contains
   integer(i32) :: depth, level_pos, level_start_pos, level_end_pos
   real(dp) :: q, abs_q, qx, qy, qz, qi
 
-  if (trim(self%mode) /= 'treecode' .and. trim(self%mode) /= 'fmm') return
+  if (self%mode_id /= field_solver_mode_treecode .and. self%mode_id /= field_solver_mode_fmm) return
 
-  if (trim(self%mode) == 'fmm') then
+  if (self%mode_id == field_solver_mode_fmm) then
     call refresh_fmm_solver(self, mesh)
     return
   end if
