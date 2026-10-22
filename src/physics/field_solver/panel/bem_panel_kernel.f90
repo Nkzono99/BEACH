@@ -156,23 +156,21 @@ contains
     logical :: active(panel_chunk), on_plane(panel_chunk)
     real(dp) :: ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator, omega
     real(dp) :: l1, l2, l3, fx, fy, fz, scale, potential, field(3)
-    logical :: edge_hit
+    logical :: edge_hit, evaluate_lane
     integer(i32) :: chunk_start, chunk_size, k, m, idx
 
     do chunk_start = 1_i32, count, panel_chunk
       chunk_size = min(panel_chunk, count - chunk_start + 1_i32)
       edge_hit = .false.
       !$omp simd private(m, ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator) &
-      !$omp   private(omega, l1, l2, l3, fx, fy, fz, scale) reduction(.or.:edge_hit)
+      !$omp   private(omega, l1, l2, l3, fx, fy, fz, scale, evaluate_lane) reduction(.or.:edge_hit)
       do k = 1_i32, chunk_size
         m = chunk_start + k - 1_i32
         active(k) = abs(charge(index(m))) > tiny(1.0_dp)
         scale = k_coulomb*charge(index(m))/area(m)
         height = (target(1) - vx(1, m))*nx(m) + (target(2) - vy(1, m))*ny(m) + (target(3) - vz(1, m))*nz(m)
         on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
-        ! Inactive panels contribute nothing; on-plane targets use the scalar surface kernel below.
-        ! Neither case may evaluate the singular off-surface expressions, even in an unused lane.
-        if (.not. active(k) .or. on_plane(k)) cycle
+        evaluate_lane = active(k) .and. .not. on_plane(k)
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -188,14 +186,15 @@ contains
         numerator = ax*(by*cz - bz*cy) + ay*(bz*cx - bx*cz) + az*(bx*cy - by*cx)
         denominator = ra*rb*rc + (ax*bx + ay*by + az*bz)*rc + (bx*cx + by*cy + bz*cz)*ra + &
                       (cx*ax + cy*ay + cz*az)*rb
-        omega = -2.0_dp*atan2(numerator, denominator)
+        ! Keep unused lanes non-singular without branching around the vector math calls.
+        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        if (max(l1, l2, l3) >= 1.0_dp) then
-          edge_hit = .true.
-          cycle
-        end if
+        edge_hit = edge_hit .or. (evaluate_lane .and. max(l1, l2, l3) >= 1.0_dp)
+        l1 = merge(l1, 0.0_dp, evaluate_lane .and. l1 < 1.0_dp)
+        l2 = merge(l2, 0.0_dp, evaluate_lane .and. l2 < 1.0_dp)
+        l3 = merge(l3, 0.0_dp, evaluate_lane .and. l3 < 1.0_dp)
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))
@@ -252,14 +251,14 @@ contains
     logical :: active(panel_chunk), on_plane(panel_chunk)
     real(dp) :: ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator, omega
     real(dp) :: px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale, potential, field(3)
-    logical :: edge_hit
+    logical :: edge_hit, evaluate_lane
     integer(i32) :: chunk_start, chunk_size, k, m, idx
 
     do chunk_start = 1_i32, count, panel_chunk
       chunk_size = min(panel_chunk, count - chunk_start + 1_i32)
       edge_hit = .false.
       !$omp simd private(m, ax, ay, az, bx, by, bz, cx, cy, cz, ra, rb, rc, height, numerator, denominator) &
-      !$omp   private(omega, px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale) reduction(.or.:edge_hit)
+      !$omp   private(omega, px, py, pz, l1, l2, l3, d1, d2, d3, integral, scale, evaluate_lane) reduction(.or.:edge_hit)
       do k = 1_i32, chunk_size
         m = chunk_start + k - 1_i32
         active(k) = abs(charge(index(m))) > tiny(1.0_dp)
@@ -269,7 +268,7 @@ contains
         py = target(2) - height*ny(m)
         pz = target(3) - height*nz(m)
         on_plane(k) = abs(height) <= 64.0_dp*epsilon(1.0_dp)*max(edge(1, m), edge(2, m), edge(3, m))
-        if (.not. active(k) .or. on_plane(k)) cycle
+        evaluate_lane = active(k) .and. .not. on_plane(k)
         ax = vx(1, m) - target(1)
         ay = vy(1, m) - target(2)
         az = vz(1, m) - target(3)
@@ -285,14 +284,14 @@ contains
         numerator = ax*(by*cz - bz*cy) + ay*(bz*cx - bx*cz) + az*(bx*cy - by*cx)
         denominator = ra*rb*rc + (ax*bx + ay*by + az*bz)*rc + (bx*cx + by*cy + bz*cz)*ra + &
                       (cx*ax + cy*ay + cz*az)*rb
-        omega = -2.0_dp*atan2(numerator, denominator)
+        omega = -2.0_dp*atan2(merge(numerator, 0.0_dp, evaluate_lane), merge(denominator, 1.0_dp, evaluate_lane))
         l1 = edge(1, m)/(ra + rb)
         l2 = edge(2, m)/(rb + rc)
         l3 = edge(3, m)/(rc + ra)
-        if (max(l1, l2, l3) >= 1.0_dp) then
-          edge_hit = .true.
-          cycle
-        end if
+        edge_hit = edge_hit .or. (evaluate_lane .and. max(l1, l2, l3) >= 1.0_dp)
+        l1 = merge(l1, 0.0_dp, evaluate_lane .and. l1 < 1.0_dp)
+        l2 = merge(l2, 0.0_dp, evaluate_lane .and. l2 < 1.0_dp)
+        l3 = merge(l3, 0.0_dp, evaluate_lane .and. l3 < 1.0_dp)
         l1 = log((1.0_dp + l1)/(1.0_dp - l1))
         l2 = log((1.0_dp + l2)/(1.0_dp - l2))
         l3 = log((1.0_dp + l3)/(1.0_dp - l3))
