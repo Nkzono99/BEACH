@@ -4,7 +4,7 @@ module bem_photoelectron_injection
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_types, only: mesh_type, sim_config, hit_info, bc_periodic
-  use bem_boundary, only: apply_box_boundary
+  use bem_boundary, only: apply_ray_box_boundary
   use bem_collision, only: find_first_hit
   use bem_status_codes, only: collision_query_ok, particle_status_name
   use bem_string_utils, only: lower_ascii
@@ -78,7 +78,7 @@ contains
     real(dp), allocatable :: u(:, :), hit_pos(:, :), hit_normal(:, :)
     integer(i32), allocatable :: hit_elem(:)
     logical, allocatable :: ray_emitted(:)
-    logical :: reached_boundary, alive, escaped_boundary
+    logical :: reached_boundary, alive
     logical :: use_periodic2_mode
     type(hit_info) :: hit
 
@@ -145,7 +145,7 @@ contains
     !$omp        use_periodic2_mode, ray_emitted, hit_pos, hit_normal, hit_elem, query_failure_status, &
     !$omp        query_failure_ray, query_failure_bounce) &
     !$omp private(i, ray_pos, ray_dir, seg_end, reached_boundary, alive, bounce_count, hit, surf_normal, boundary_probe, &
-    !$omp         boundary_dir, escaped_boundary, collision_status)
+    !$omp         boundary_dir, collision_status)
     do i = 1_i32, rays_per_batch
       ray_pos = 0.0_dp
       ray_pos(axis_n) = boundary_value
@@ -192,8 +192,7 @@ contains
 
         boundary_probe = seg_end + ray_dir*eps
         boundary_dir = ray_dir
-        escaped_boundary = .false.
-        call apply_box_boundary(sim, boundary_probe, boundary_dir, alive, escaped_boundary)
+        call apply_ray_box_boundary(sim, boundary_probe, boundary_dir, alive)
         if (.not. alive) exit
         ray_dir = boundary_dir/sqrt(sum(boundary_dir*boundary_dir))
         ray_pos = boundary_probe + ray_dir*eps
