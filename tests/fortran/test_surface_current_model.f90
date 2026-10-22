@@ -27,7 +27,7 @@ program test_surface_current_model
   integer(i32) :: j
   logical :: success
 
-  call test_init(17)
+  call test_init(18)
 
   call test_begin('none_dispatch')
   call default_app_config(cfg)
@@ -397,6 +397,48 @@ program test_surface_current_model
                        -refreshed%escaped_particle_current_a(3) - refreshed%emission_current_a(3), &
                        1.0e-20_dp, 'PE return target must remain escape minus emission')
   call assert_equal_i32(refreshed%escape_partner_species(3), 4_i32, 'refreshed root must keep the SEE escape partner')
+  call test_end()
+
+  call test_begin('mixed_type_c_pins_secondary_and_lets_pe_escape')
+  ! Type C では放出電子の帰還が 0 で、PE の帰還は SEE 脱出の揺らぎを吸収できない（#48）。PE は帰還 0・脱出 = 放出、
+  ! SEE は根の脱出 − PE 放出を取り分として帰還・脱出・放出を根に固定する。
+  call configure_zhao_fixture(cfg, alpha_deg=10.0_dp)
+  cfg%surface_current%zhao_branch = 'c'
+  cfg%n_particle_species = 4_i32
+  cfg%particle_species(4) = particle_species_spec()
+  cfg%particle_species(4)%enabled = .true.
+  cfg%particle_species(4)%species_key = 'secondary'
+  cfg%particle_species(4)%source_mode = 'secondary_emission'
+  cfg%surface_current%secondary_electron_species = 'secondary'
+  cfg%sim%bc_low(1:2) = bc_periodic
+  cfg%sim%bc_high(1:2) = bc_periodic
+  call evaluate_surface_current_model(cfg, result)
+  call assert_true(result%zhao_branch == 'C', 'mixed initial root must be Type C')
+  call assert_equal_i32(result%escape_partner_species(3), 0_i32, 'Type C PE has no SEE escape partner')
+  call assert_close_dp(result%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'Type C PE has no return target')
+  call assert_close_dp(result%escaped_particle_current_a(3), -result%emission_current_a(3), 0.0_dp, &
+                       'Type C PE escape target equals its emission')
+  call assert_true(result%has_absorbed_target(4) .and. result%has_emission_target(4) .and. result%has_escape_target(4) &
+                   .and. result%emission_target_from_tracked_source(4), 'Type C pins the SEE channels to the root')
+  call assert_close_dp(result%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*result%emission_current_a(3), &
+                       'PE-only source leaves no SEE share of the root escape')
+  ! 弱い PE の Type C 根は、外部源をわずかに増やした範囲でだけ Type C に留まる。
+  call solve_zhao_outflow_closure(cfg, 1.05_dp*result%outer_photoelectron_flux_m2_s, 1.0_dp, 'C', refreshed, &
+                                  success, message)
+  call assert_true(success .and. refreshed%zhao_branch == 'C', 'mixed Type C outflow solve: '//trim(message))
+  call assert_true(refreshed%escaped_particle_current_a(4) < 0.0_dp, 'refreshed SEE share of the root escape is positive')
+  call assert_close_dp(refreshed%escaped_particle_current_a(3) + refreshed%escaped_particle_current_a(4), &
+                       -refreshed%photoelectron_escape_current_density_a_m2*refreshed%reference_area_m2, &
+                       1.0e-12_dp*refreshed%emission_current_a(3), 'PE and SEE escape targets share the root escape')
+  call assert_close_dp(refreshed%emission_current_a(4) + refreshed%absorbed_current_a(4) + &
+                       refreshed%escaped_particle_current_a(4), 0.0_dp, 1.0e-12_dp*refreshed%emission_current_a(4), &
+                       'SEE emission minus return must equal its escape share')
+  call assert_close_dp(refreshed%absorbed_current_a(3), 0.0_dp, 0.0_dp, 'refreshed Type C PE has no return target')
+  cfg%surface_current%outflow_refresh_batches = 1_i32
+  cfg%surface_current%include_reflected_electrons = .true.
+  call evaluate_surface_current_model(cfg, result)
+  call assert_equal_i32(result%reflected_electron_species(4), 1_i32, 'Type C SEE subtracts the reflected electrons')
+  call assert_equal_i32(result%reflected_electron_species(3), 0_i32, 'Type C PE keeps its pinned targets')
   call test_end()
 
   call test_begin('secondary_only_closure_targets_secondary_reabsorption')
