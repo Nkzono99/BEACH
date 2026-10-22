@@ -276,6 +276,12 @@ program test_mpi_hybrid
   state%macro_residual(1) = 0.25d0 + 0.01d0*real(mpi%rank, dp)
   state%boundary_macro_residual = 0.0_dp
   state%boundary_macro_residual(2, 1) = 0.5_dp + 0.01_dp*real(mpi%rank, dp)
+  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists one RNG file per rank.
+  rng_path = restart_rng_state_path(out_dir, mpi=mpi)
+  open (newunit=u, file=trim(rng_path), status='replace', action='write', iostat=ios)
+  if (ios /= 0) error stop 'failed to open legacy MPI RNG fixture'
+  write (u, '(a)') '0'
+  close (u)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
 
