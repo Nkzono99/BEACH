@@ -14,7 +14,7 @@ program test_boundary
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive, escaped_boundary
 
-  call test_init(25)
+  call test_init(26)
 
   cfg = sim_config()
   cfg%use_box = .true.
@@ -142,6 +142,10 @@ program test_boundary
 
   call test_begin('boundary_event_open_escape')
   call test_boundary_event_open_escape()
+  call test_end()
+
+  call test_begin('boundary_event_face_bc_override')
+  call test_boundary_event_face_bc_override()
   call test_end()
 
   call test_begin('boundary_event_start_inward')
@@ -474,6 +478,43 @@ contains
     call assert_true(event_escaped, 'open event should report boundary escape')
     call assert_allclose_1d(event_x, [1.0_dp, 0.5_dp, 0.5_dp], 0.0_dp, 'open event should keep event point')
   end subroutine test_boundary_event_open_escape
+
+  !> face 別境界条件を渡すと、box 設定の open 面を反射として扱える。event の face_bc は渡した値と照合する。
+  subroutine test_boundary_event_face_bc_override()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status, face_bc(6)
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    call find_first_boundary_event( &
+      event_cfg, [0.5_dp, 0.5_dp, 0.5_dp], [1.5_dp, 0.5_dp, 0.5_dp], event, status &
+      )
+    face_bc = event%face_bc
+    face_bc(2) = bc_reflect
+    event%face_bc(2) = bc_reflect
+    event_x = [1.0_dp, 0.5_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status, face_bc=face_bc &
+      )
+    call assert_equal_i32(status, boundary_event_ok, 'face_bc override status mismatch')
+    call assert_true(event_alive .and. .not. event_escaped, 'overridden reflect face should keep the particle')
+    call assert_allclose_1d(event_v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, 'overridden face should reflect the normal velocity')
+    call assert_true(event_x(1) < 1.0_dp, 'overridden reflect should move the particle inside')
+
+    ! 渡した face 別境界条件と event が食い違えば、box 設定と食い違うときと同じく不正。
+    event_x = [1.0_dp, 0.5_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
+      )
+    call assert_equal_i32(status, boundary_event_invalid_geometry, 'event face_bc must match the box without override')
+    call assert_true(event_alive, 'rejected event must not change the particle')
+  end subroutine test_boundary_event_face_bc_override
 
   subroutine test_boundary_event_start_inward()
     type(sim_config) :: event_cfg

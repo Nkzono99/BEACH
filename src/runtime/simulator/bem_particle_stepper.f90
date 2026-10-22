@@ -686,11 +686,10 @@ contains
     logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
-    type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
     real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, barrier_energy_j
     real(dp) :: x_crossing(3), v_crossing(3), phi_return, kinetic_return
-    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc
+    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc, action_face_bc(6)
     logical :: high_side, reflect_open
 
     status = boundary_event_ok
@@ -729,7 +728,11 @@ contains
       return
     end if
 
-    action_sim = sim
+    ! 障壁で戻す面だけを反射に置き換えた face 別境界条件。他の面は box 設定のまま event と照合する。
+    do axis = 1_i32, 3_i32
+      action_face_bc(2_i32*axis - 1_i32) = sim%bc_low(axis)
+      action_face_bc(2_i32*axis) = sim%bc_high(axis)
+    end do
     action_event = event
     if (.not. ieee_is_finite(q) .or. .not. ieee_is_finite(m) .or. m <= 0.0_dp) then
       status = particle_step_invalid_boundary
@@ -810,13 +813,9 @@ contains
       integer(i32), intent(in) :: bc
 
       action_event%face_bc(face_index) = bc
-      if (high_side) then
-        action_sim%bc_high(axis) = bc
-      else
-        action_sim%bc_low(axis) = bc
-      end if
+      action_face_bc(face_index) = bc
       call apply_escape_reflect_periodic_event( &
-        action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
+        sim, action_event, x, v, alive, escaped, status, redistribution_uniform, face_bc=action_face_bc &
         )
     end subroutine reflect_on_barrier_face
   end subroutine apply_kinetic_barrier_event
