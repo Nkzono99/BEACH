@@ -12,7 +12,14 @@ module bem_runtime_modes
   integer(i32), parameter, public :: field_solver_mode_treecode = 1_i32
   integer(i32), parameter, public :: field_solver_mode_fmm = 2_i32
 
+  !> particles.species.charging.closure。
+  integer(i32), parameter, public :: surface_charge_closure_explicit = 0_i32
+  integer(i32), parameter, public :: surface_charge_closure_fixed_current = 1_i32
+  integer(i32), parameter, public :: surface_charge_closure_neutral_return = 2_i32
+  integer(i32), parameter, public :: surface_charge_closure_unknown = -1_i32
+
   public :: field_solver_mode_id
+  public :: surface_charge_closure_id
 
 contains
 
@@ -29,5 +36,21 @@ contains
       id = field_solver_mode_direct
     end select
   end function field_solver_mode_id
+
+  !> 'explicit' / 'fixed_current' / 'neutral_return' を enum へ写す。未知の値は unknown。
+  pure integer(i32) function surface_charge_closure_id(closure) result(id)
+    character(len=*), intent(in) :: closure
+
+    select case (trim(lower_ascii(closure)))
+    case ('explicit')
+      id = surface_charge_closure_explicit
+    case ('fixed_current')
+      id = surface_charge_closure_fixed_current
+    case ('neutral_return')
+      id = surface_charge_closure_neutral_return
+    case default
+      id = surface_charge_closure_unknown
+    end select
+  end function surface_charge_closure_id
 
 end module bem_runtime_modes
