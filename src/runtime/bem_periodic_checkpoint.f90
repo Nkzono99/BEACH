@@ -8,7 +8,7 @@ module bem_periodic_checkpoint
   use bem_filesystem, only: atomic_rename, filesystem_success
   use bem_mpi, only: mpi_bcast_i32_array, mpi_context, mpi_is_root, mpi_world_barrier, mpi_world_size
   use bem_output_writer, only: ensure_output_dir, write_checkpoint_state_files
-  use bem_restart, only: write_macro_residuals_file, write_rng_state_file
+  use bem_restart, only: write_macro_residuals_file
   implicit none
   private
 
@@ -57,9 +57,8 @@ contains
         trim(checkpoint_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), charge_ledger=charge_ledger &
         )
     end if
-    ! 非root rankがslot directoryの作成より先にrank別RNGを書き始めないよう同期する。
+    ! 非root rankがslot directoryの作成より先にcheckpoint fileを書き始めないよう同期する。
     call mpi_world_barrier(mpi)
-    call write_rng_state_file(trim(checkpoint_dir), mpi=mpi)
     if (present(state)) call write_macro_residuals_file(trim(checkpoint_dir), state, mpi=mpi)
 
     ! completion manifestを全rankのファイルが閉じられた後に公開し、続けてadvisory indexを更新する。

@@ -29,7 +29,6 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `fixed_current_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、`zhao_stationary` または `charging.closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
 | `secondary_emission_history.csv` | 出力有効、SEE 有効な入射種あり。受理バッチごと | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`。再開には不使用 |
 | `charge_ledger.csv` | `output.enabled=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
-| `rng_state.txt` / `rng_state_rankNNNNN.txt` | `output.enabled=true`。serial は前者、MPI は rank ごとに後者 | RNG の内部状態 | `FortranRunResult` 属性なし。再開に必須 |
 | `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
 | `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
 | `checkpoint_latest.txt` | `output.enabled=true` かつ `output.checkpoint.stride_batches>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
@@ -404,8 +403,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | --- | --- | --- |
 | `summary.txt` | 常に必須 | `key=value` の統計、schema、fingerprint、ledger stock |
 | `charges.csv` | 常に必須 | `elem_idx`, `charge_C` の要素電荷 |
-| `rng_state.txt` | serial で必須 | RNG 配列長と state |
-| `rng_state_rankNNNNN.txt` | MPI で全 rank 分が必須 | rank ごとの RNG 配列長と state |
+| `rng_state.txt` / `rng_state_rankNNNNN.txt` | schema v10 以前の checkpoint だけ（serial は前者、MPI は全 rank 分） | 旧 RNG 状態。存在を確認するだけで読み込まない |
 | `macro_residuals.csv` | schema v8 以降で manifest が宣言した場合 | `species_idx`, `face`, `residual`。global な macro 粒子数残差 |
 | `charge_ledger.csv` | summary / manifest に ledger metadata がある場合 | [25 列の species ledger](#charge-ledger) |
 | `checkpoint_complete.txt` | schema v8 以降で必須 | `schema_version`, `state`, `batches`, `mpi_world_size`, `macro_residuals_present`, `charge_ledger_present` |
@@ -418,7 +416,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | 探索 | `run.restart.from` 直下の最終出力と `slot0` / `slot1` を検査する |
 | 選択 | 必須ファイルが揃う load 可能な候補のうち、`batches` が最大のものを選ぶ |
 | index 障害 | `checkpoint_latest.txt` が欠落、破損、古い場合も、完了 manifest を持つ slot を回収する |
-| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状、MPI world size が不一致なら停止する（`run.batch.particle_distribution = "shared"` では world size の一致を要求しない）。モデル・粒子種の設定変更はハッシュで照合しない |
+| 不整合 | 必須ファイル、mesh fingerprint、保存状態の配列形状が不一致なら停止する。乱数は (seed, batch, slot, ...) で決まる PCG64 の counter-based 乱数で状態を持たないので、MPI rank 数は保存時と違ってよい。モデル・粒子種の設定変更はハッシュで照合しない |
 
 `run.restart.from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 

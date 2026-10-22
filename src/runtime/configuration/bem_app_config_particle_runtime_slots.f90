@@ -1,6 +1,6 @@
 !> バッチ注入 layout の構築と、layout 上の slot 1 つを counter-based 乱数で生成する処理。
-!! layout は rank に依らない global 粒子数と面ごとの速度補正を持ち、`static` の rank 分割と
-!! `shared` の slot pool の両方がこれを基に粒子を作る。
+!> layout は rank に依らない global 粒子数と面ごとの速度補正を持ち、`static` の rank 分割と
+!> `shared` の slot pool の両方がこれを基に粒子を作る。
 submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_slots
   use bem_kinds, only: i64
   use bem_app_config_types, only: species_config_path

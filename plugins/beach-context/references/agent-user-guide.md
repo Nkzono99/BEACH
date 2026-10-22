@@ -124,7 +124,7 @@ beachx inspect outputs/latest
 ```
 
 主要ファイルは `summary.txt`、`charges.csv`、`mesh_triangles.csv`、
-`mesh_sources.csv`、`charge_ledger.csv`、`rng_state.txt` です。履歴、potential、
+`mesh_sources.csv`、`charge_ledger.csv`、`checkpoint_complete.txt` です。履歴、potential、
 reservoir residual、性能 profile は設定に応じて追加されます。生成条件と restart 契約は
 [出力ガイド](guide/OutputGuide.md)を正本とします。
 

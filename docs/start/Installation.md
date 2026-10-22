@@ -16,13 +16,15 @@ BEACH の Python package、`beachx`、Fortran 実行バイナリ `beach` は同�
 | source取得 | `git` |
 | build tool | `make` |
 | Fortran | `gfortran`、Intel Fortranなど |
-| ネットワーク | 初回ビルドで fpm が依存ライブラリ（toml-f、sheath-model）を GitHub から取得する |
+| C++ | `g++`、`icpx` など。乱数ライブラリ（pcg-cpp-fortran-bind）の build に使う |
+| ネットワーク | 初回ビルドで fpm が依存ライブラリ（toml-f、sheath-model、pcg-cpp-fortran-bind）を GitHub から取得する |
 
 ```bash
 python --version
 git --version
 make --version
 gfortran --version
+g++ --version
 ```
 
 計算ノードから GitHub へ接続できない HPC では、ビルドの前にログインノードで依存だけを取得します。

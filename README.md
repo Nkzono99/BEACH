@@ -29,7 +29,7 @@ BEACH は、三角形メッシュで表した物体表面の帯電を計算す�
 
 ## インストールと最初の実行
 
-Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラが必要です。
+Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラ、C++ コンパイラが必要です。
 
 ```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"

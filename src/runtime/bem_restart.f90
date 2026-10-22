@@ -16,7 +16,6 @@ module bem_restart
   integer(i32), parameter, public :: restart_contract_malformed = 3_i32
   public :: load_restart_checkpoint
   public :: validate_restart_contract
-  public :: write_rng_state_file
   public :: write_macro_residuals_file
   public :: restart_rng_state_path
   public :: restart_macro_residual_path
@@ -39,12 +38,6 @@ module bem_restart
       type(charge_ledger_type), intent(inout) :: ledger
     end subroutine load_charge_ledger_checkpoint
 
-    module subroutine write_rng_state_file(out_dir, mpi_rank, mpi_size, mpi)
-      character(len=*), intent(in) :: out_dir
-      integer(i32), intent(in), optional :: mpi_rank, mpi_size
-      type(mpi_context), intent(in), optional :: mpi
-    end subroutine write_rng_state_file
-
     module subroutine write_macro_residuals_file(out_dir, state, mpi_rank, mpi_size, mpi)
       character(len=*), intent(in) :: out_dir
       type(injection_state), intent(in) :: state
@@ -52,15 +45,12 @@ module bem_restart
       type(mpi_context), intent(in), optional :: mpi
     end subroutine write_macro_residuals_file
 
-    module subroutine restore_rng_state(path)
-      character(len=*), intent(in) :: path
-    end subroutine restore_rng_state
-
     module subroutine load_macro_residual_file(path, state)
       character(len=*), intent(in) :: path
       type(injection_state), intent(inout) :: state
     end subroutine load_macro_residual_file
 
+    !> schema 10 以前の checkpoint が持っていた rank 別 RNG 状態ファイルのパス（読み込みには使わない）。
     module function restart_rng_state_path(out_dir, mpi_rank, mpi_size, mpi) result(path)
       character(len=*), intent(in) :: out_dir
       integer(i32), intent(in), optional :: mpi_rank, mpi_size
@@ -123,7 +113,7 @@ contains
     character(len=256) :: contract_message
     logical :: has_summary, has_charges, has_rng, has_legacy_residual
     logical :: checkpoint_complete, checkpoint_has_residual, checkpoint_has_ledger
-    logical :: must_have_checkpoint, rank_independent_resume
+    logical :: must_have_checkpoint
     integer(i32) :: local_rank, world_size, contract_status, residual_species, checkpoint_schema
 
     stats = sim_stats()
@@ -170,15 +160,9 @@ contains
       end if
     end if
 
-    ! The shared particle pool keys every draw on the global slot, so a resumed run may use any rank count
-    ! and does not restore the per-rank intrinsic RNG stream.
-    rank_independent_resume = .false.
-    if (present(app)) rank_independent_resume = trim(app%sim%particle_distribution) == 'shared'
-    if (rank_independent_resume) then
-      call load_summary_file(trim(summary_path), mesh%nelem, stats)
-    else
-      call load_summary_file(trim(summary_path), mesh%nelem, stats, expected_world_size=world_size)
-    end if
+    ! Every random draw is keyed on (seed, batch, global slot, ...), so a checkpoint carries no RNG state and
+    ! resumes with any MPI rank count.
+    call load_summary_file(trim(summary_path), mesh%nelem, stats)
     call load_charge_file(trim(charges_path), mesh)
     if (present(charge_ledger)) then
       if (checkpoint_has_ledger) then
@@ -198,7 +182,6 @@ contains
         charge_ledger%surface_charge_after = sum(mesh%q_elem)
       end if
     end if
-    if (.not. rank_independent_resume) call restore_rng_state(trim(rng_path))
     if (present(state)) then
       if (allocated(state%macro_residual)) state%macro_residual = 0.0d0
       if (allocated(state%boundary_macro_residual)) state%boundary_macro_residual = 0.0d0

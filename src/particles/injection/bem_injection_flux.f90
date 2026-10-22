@@ -6,6 +6,7 @@ module bem_injection_flux
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_shifted_maxwell_velocities, sample_standard_normal
   use bem_counter_rng, only: counter_uniform
+  use bem_random_stream, only: random_uniform
   implicit none
   private
 
@@ -218,11 +219,11 @@ contains
     end do
 
     allocate (u(2, size(x, 2)))
-    call random_number(u)
+    call random_uniform(u)
     if (jitter_dt > 0.0_dp) then
       allocate (tau(size(x, 2)))
       ! Keep the historical draw count so MPI ranks and restarted runs retain the same RNG stream.
-      call random_number(tau)
+      call random_uniform(tau)
     end if
 
     do i = 1, size(x, 2)
@@ -334,7 +335,7 @@ contains
       if (present(uniform)) then
         target = uniform(i)
       else
-        call random_number(target)
+        call random_uniform(target)
       end if
       target_tail = tail_min*(1.0_dp - target)
       low = vmin

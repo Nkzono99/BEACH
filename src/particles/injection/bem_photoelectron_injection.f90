@@ -12,6 +12,7 @@ module bem_photoelectron_injection
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
   use bem_counter_rng, only: counter_uniform
+  use bem_random_stream, only: random_uniform
   implicit none
   private
 
@@ -128,7 +129,7 @@ contains
 
     allocate (u(2, rays_per_batch))
     allocate (hit_pos(3, rays_per_batch), hit_normal(3, rays_per_batch), hit_elem(rays_per_batch), ray_emitted(rays_per_batch))
-    call random_number(u)
+    call random_uniform(u)
     hit_pos = 0.0_dp
     hit_normal = 0.0_dp
     hit_elem = -1_i32

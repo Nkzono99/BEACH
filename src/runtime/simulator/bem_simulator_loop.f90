@@ -29,7 +29,6 @@ contains
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
   integer(i32) :: boundary_status
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
-  integer, allocatable :: rng_state_before(:)
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
@@ -206,8 +205,6 @@ contains
   call record_matching_fields(stats, snapshot, surface_closure, mesh)
 
   if (replay_active) then
-    call random_seed(size=species_idx)
-    allocate (rng_state_before(species_idx))
     if (present(inject_state)) then
       if (allocated(inject_state%macro_residual)) allocate (injection_residual_before(size(inject_state%macro_residual)))
       if (allocated(inject_state%boundary_macro_residual)) then
@@ -235,7 +232,6 @@ contains
     trial_halvings = 0_i32
     trial_accepted = .false.
     if (replay_active) then
-      call random_seed(get=rng_state_before)
       if (allocated(injection_residual_before)) injection_residual_before = inject_state%macro_residual
       if (allocated(boundary_injection_residual_before)) then
         boundary_injection_residual_before = inject_state%boundary_macro_residual
@@ -246,7 +242,6 @@ contains
 
     do while (.not. trial_accepted)
       if (replay_active) then
-        call random_seed(put=rng_state_before)
         if (allocated(injection_residual_before)) inject_state%macro_residual = injection_residual_before
         if (allocated(boundary_injection_residual_before)) then
           inject_state%boundary_macro_residual = boundary_injection_residual_before

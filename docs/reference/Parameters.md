@@ -196,7 +196,7 @@ beach.toml
 |---|---|---:|---|
 | `duration_s` | float | `0.0` | 1 バッチの物理時間 [s]。有限値、流束 source では `>0` |
 | `duration_steps` | float | `0.0` | `run.batch.duration_s=particles.tracking.dt_s*run.batch.duration_steps`。`>0`、`run.batch.duration_s` と排他 |
-| `particle_distribution` | string | `"static"` | バッチ粒子の MPI rank 配分。`static` は source ごとの粒子数を rank に固定分割する（従来）。`shared` は全 rank 共有の slot pool を rank 0 のカウンタ（MPI RMA の fetch-and-add）から `particle_pool_chunk` 個ずつ取り合い、各 slot を counter-based 乱数で生成する。rank 間の負荷が自動で均され、バッチの粒子集合は rank 数に依らないので resume 時に rank 数を変えられる。粒子ごとの境界乱数も global slot で決まる。`summary.txt` に `particle_distribution=`、`particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する |
+| `particle_distribution` | string | `"static"` | バッチ粒子の MPI rank 配分。バッチの粒子は種・source・面ごとの global slot に並び、各 slot は (seed, batch, species, source, face, index) の PCG64 counter-based 乱数で生成されるので、どちらでもバッチの粒子集合は rank 数に依らない。`static` は slot を rank に連続区間で割り振る（決定的）。`shared` は全 rank 共有の slot pool を rank 0 のカウンタ（MPI RMA の fetch-and-add）から `particle_pool_chunk` 個ずつ取り合い、rank 間の粒子追跡負荷を動的に均す（`MPI_THREAD_SERIALIZED` を使う）。粒子ごとの境界・二次電子の乱数も global slot で決まる。`summary.txt` に `particle_distribution=`、`particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する |
 | `particle_pool_chunk` | int | `64` | `shared` で 1 回の claim が取る slot 数。`>=1` |
 
 `run.batch.duration_s` と `run.batch.duration_steps` の同時指定はエラーです。
@@ -228,7 +228,8 @@ beach.toml
 |---|---|
 | 出力 | `output.enabled=true` が必須 |
 | 読み込み元 | `run.restart.from` 未指定なら `output.dir`、指定時は `run.restart.from` |
-| 必須ファイル | `summary.txt`, `charges.csv`, serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt`。schema v8 以降は`checkpoint_complete.txt`も必須 |
+| 必須ファイル | `summary.txt`, `charges.csv`。schema v8 以降は`checkpoint_complete.txt`も必須。schema v10 以前は serialの`rng_state.txt`またはMPI全rankの`rng_state_rankNNNNN.txt`の存在も確認する（内容は使わない） |
+| MPI rank 数 | 保存時と違ってよい（乱数は状態を持たない counter-based の PCG64） |
 | 条件付きファイル | ledger metadataがある場合の`charge_ledger.csv` |
 | 条件付き state | schema v8 以降は`checkpoint_complete.txt`が宣言した`macro_residuals.csv`を必須とし、旧schemaでは存在時に復元 |
 | 挙動 | 必須 checkpoint がなければ新規実行にフォールバックせず停止 |

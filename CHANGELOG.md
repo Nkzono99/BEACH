@@ -5,6 +5,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- 乱数をすべて PCG64（[pcg-cpp-fortran-bind](https://github.com/Nkzono99/pcg-cpp-fortran-bind)、DRIFT・MPIEMSES3D と同じ
+  revision）に切り替えた。粒子注入・境界イベント・二次電子は (seed, batch, slot, ...) を Murmur3 で 128 bit の鍵にした
+  counter-based 乱数、単体の sampling API は seed と thread から開く逐次 PCG64 stream を使う。Fortran 組み込みの
+  `random_number` と自前の 31 bit ハッシュ乱数は使わない。同じ seed でも 3.7.x とは粒子列が変わる。
+- 既定の `run.batch.particle_distribution = "static"` は、バッチ注入 layout の global slot を rank に連続区間で割り振る。
+  粒子ごとの境界・二次電子乱数も global slot で決まるので、同じ seed ならバッチの粒子集合は rank 数に依らない。
+- checkpoint schema v11 は乱数状態ファイル（`rng_state.txt` / `rng_state_rankNNNNN.txt`）を書かず、再開時に MPI
+  rank 数の一致を要求しない。v10 以前の checkpoint はこれまでどおり読み、乱数状態ファイルは存在だけを確認する。
+- build に C++ コンパイラが必要になった（fpm が `icpx` / `g++` などを使う）。
+
 ### Added
 
 - `particles.tracking.step_growth`（既定 `false`）と `step_growth_max`（既定 5）。場の変化が小さい領域で粒子の step を
@@ -20,9 +32,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   カウンタ（MPI RMA fetch-and-add、次の chunk を先行要求して粒子追跡と重ねる）から
   `run.batch.particle_pool_chunk`（既定 64）個ずつ取り合い、rank 内では thread が 1 slot ずつ受け取り、各 slot を
   (batch, species, source, face, slot) の counter-based 乱数で生成する。rank 間の粒子追跡負荷が自動で均され、
-  バッチの粒子集合は rank 数に依らないので checkpoint から rank 数を変えて resume できる（`shared` では
-  rank ごとの `rng_state` と `mpi_world_size` の一致を要求しない）。`summary.txt` に `particle_distribution=`、
-  `particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する。既定の `static` は従来と同じ粒子列。
+  `summary.txt` に `particle_distribution=`、`particle_pool_claims=`、`particle_pool_claim_seconds=` を記録する。
+- `bem_counter_rng`（PCG64 counter-based の `counter_uniform`、`counter_key`、`counter_child_id`）と逐次 PCG64 stream の
+  `bem_random_stream`（`seed_random_stream`、`random_uniform`）。
 - `bem_injection` に counter-based の単一粒子生成 `sample_reservoir_face_particle_counter`、
   `sample_photo_ray_slot`、`cast_photo_ray`、`photo_ray_macro_weight` を追加し、`bem_app_config` に
   バッチ注入 layout `batch_injection_layout_type` / `build_batch_injection_layout` / `generate_batch_slot` を追加。

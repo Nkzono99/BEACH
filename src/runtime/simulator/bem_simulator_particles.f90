@@ -8,12 +8,13 @@ submodule(bem_simulator) bem_simulator_particles
   use bem_particles, only: append_particles, allocate_particles, trim_particles
   use bem_outflow_spectrum, only: outflow_spectrum_bin
   use bem_particle_stepper, only: particle_substep_needs_halving
+  use bem_counter_rng, only: counter_child_id
   implicit none
-  !> `shared` で子粒子の乱数 id を親 id から派生させるときの基数。
-  integer(i64), parameter :: child_rng_id_radix = 4096_i64
 contains
 
   module procedure prepare_batch_state
+  integer(i32), allocatable :: slot_ids(:)
+
   batch_idx = stats%batches + 1_i32
   call workspace%reset_before_injection()
   collision_failure_status = collision_query_ok
@@ -38,10 +39,13 @@ contains
     photo_emission_dq_by_species=workspace%photo_emission_dq, &
     mpi=mpi, collision_failure_status=collision_failure_status, &
     collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
-    collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan &
+    collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan, &
+    slot_ids=slot_ids &
     )
   if (collision_failure_status /= collision_query_ok) return
   call workspace%prepare_particle_flags(pcls_batch%n)
+  ! Boundary and secondary-emission draws are keyed on the global slot, as in the shared pool.
+  workspace%rng_id(1:pcls_batch%n) = int(slot_ids, i64)
   end procedure prepare_batch_state
 
   module procedure process_particle_batch
@@ -120,10 +124,9 @@ contains
   claimed_count = 0_i32
   do generation = 0_i32, app%secondary_emission_max_generations
     spawn%n = 0_i32
-    ! Static mode keys the boundary and emission counters on (rank, local index) as before; the pool keys
-    ! them on (generation, global slot) so a batch does not depend on the rank count.
-    rng_tag = mpi_rank
-    if (shared_pool) rng_tag = generation
+    ! Boundary and emission counters are keyed on (generation, global slot), so a batch does not depend on
+    ! the rank count or on which thread tracks a particle.
+    rng_tag = generation
     if (shared_pool .and. generation == 0_i32) then
       ! The rank claims chunks from the global counter, and its threads take single slots from the
       ! current chunk, so thread-level balance stays as fine as schedule(dynamic,1).
@@ -529,9 +532,8 @@ contains
         elements(index) = child%element
         q(index) = app%particle_species(child%species_idx)%q_particle
         m(index) = app%particle_species(child%species_idx)%m_particle
-        ! The pool derives a child's rng id from its parent's so it does not depend on the local index.
-        child_rng_id(index) = modulo(workspace%rng_id(child%parent)*child_rng_id_radix + int(child%ordinal, i64), &
-                                     huge(0_i64)/child_rng_id_radix)
+        ! A child's rng id derives from its parent's, so it does not depend on the local index.
+        child_rng_id(index) = counter_child_id(workspace%rng_id(child%parent), int(child%ordinal, i64))
       end do
     end do
     do index = 1, added
@@ -541,7 +543,7 @@ contains
     old_count = pcls_batch%n
     call append_particles(pcls_batch, x, v, q, m, w, species, elements)
     call workspace%extend_particle_flags(old_count, pcls_batch%n)
-    if (shared_pool) workspace%rng_id(old_count + 1:pcls_batch%n) = child_rng_id
+    workspace%rng_id(old_count + 1:pcls_batch%n) = child_rng_id
     first = old_count + 1_i32
     last = pcls_batch%n
   end subroutine append_spawned_particles

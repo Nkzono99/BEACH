@@ -116,7 +116,7 @@ module bem_app_config_particle_runtime
     module subroutine init_particle_batch_from_config( &
       cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
       collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot, &
-      source_plan, photo_emission_dq_by_species &
+      source_plan, photo_emission_dq_by_species, slot_ids &
       )
       type(app_config), intent(in) :: cfg
       integer(i32), intent(in) :: batch_idx
@@ -131,6 +131,8 @@ module bem_app_config_particle_runtime
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       type(particle_source_plan_type), intent(in), optional, target :: source_plan
       real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
+      !> 各粒子の global slot 番号（粒子追跡の境界・二次電子乱数の鍵に使う）。
+      integer(i32), allocatable, intent(out), optional :: slot_ids(:)
     end subroutine init_particle_batch_from_config
 
     module subroutine sample_species_state( &

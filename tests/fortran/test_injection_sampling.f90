@@ -9,6 +9,7 @@ program test_injection_sampling
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
   use bem_status_codes, only: collision_query_image_limit
+  use bem_random_stream, only: random_uniform
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -51,7 +52,7 @@ program test_injection_sampling
       call sample_shifted_maxwell_velocities([1.0_dp, 2.0_dp, 3.0_dp], 1.0_dp, contiguous_sample, &
                                              thermal_speed=2.0_dp, sigma_cutoff=0.5_dp)
     end if
-    call random_number(next_contiguous)
+    call random_uniform(next_contiguous)
     call seed_rng([867_i32])
     if (i == 1) then
       call sample_uniform_positions([-2.0_dp, 1.0_dp, 4.0_dp], [3.0_dp, 2.0_dp, 4.0_dp], strided_sample(1:6:2, 1:10:2))
@@ -59,7 +60,7 @@ program test_injection_sampling
       call sample_shifted_maxwell_velocities([1.0_dp, 2.0_dp, 3.0_dp], 1.0_dp, strided_sample(1:6:2, 1:10:2), &
                                              thermal_speed=2.0_dp, sigma_cutoff=0.5_dp)
     end if
-    call random_number(next_strided)
+    call random_uniform(next_strided)
     call assert_true(all(strided_sample(1:6:2, 1:10:2) == contiguous_sample), 'strides changed sampled values')
     call assert_true(all(strided_sample(2:6:2, :) == -999.0_dp), 'sampling overwrote unselected rows')
     call assert_true(all(strided_sample(:, 2:10:2) == -999.0_dp), 'sampling overwrote unselected columns')

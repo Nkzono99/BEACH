@@ -5,7 +5,9 @@ module bem_checkpoint_contract
   implicit none
   private
 
-  integer(i32), parameter, public :: checkpoint_schema_version_current = 10_i32
+  integer(i32), parameter, public :: checkpoint_schema_version_current = 11_i32
+  !> この schema から checkpoint は RNG 状態ファイルを持たない（乱数はすべて counter-based の PCG64）。
+  integer(i32), parameter, public :: checkpoint_rng_free_schema = 11_i32
   integer(i32), parameter :: checkpoint_manifest_schema_current = 1_i32
   integer(i32), parameter :: checkpoint_manifest_required_schema = 8_i32
   character(len=*), parameter :: checkpoint_manifest_name = 'checkpoint_complete.txt'
@@ -147,14 +149,16 @@ contains
       call assign_inspection_outputs()
       return
     end if
-    do rank = 0_i32, saved_world_size - 1_i32
-      path = checkpoint_rng_path(trim(checkpoint_dir), rank, saved_world_size)
-      inquire (file=trim(path), exist=exists)
-      if (.not. exists) then
-        call assign_inspection_outputs()
-        return
-      end if
-    end do
+    if (saved_schema < checkpoint_rng_free_schema) then
+      do rank = 0_i32, saved_world_size - 1_i32
+        path = checkpoint_rng_path(trim(checkpoint_dir), rank, saved_world_size)
+        inquire (file=trim(path), exist=exists)
+        if (.not. exists) then
+          call assign_inspection_outputs()
+          return
+        end if
+      end do
+    end if
     if (manifest_has_residuals) then
       inquire (file=trim(checkpoint_dir)//'/macro_residuals.csv', exist=exists)
       if (.not. exists) then
