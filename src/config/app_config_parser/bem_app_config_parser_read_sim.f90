@@ -8,10 +8,11 @@ contains
   integer :: ikey, stat
   character(len=:), allocatable :: k, switch_text
 
-  authoring%periodic2%present = .true.
   call table%get_keys(keys)
   do ikey = 1, size(keys)
     k = lower_ascii(trim(keys(ikey)%key))
+    ! adaptive batch の上限も同じ内部 table に入るが split 設定ではない。それだけでは split backend を選ばない。
+    if (trim(k) /= 'max_nonzero_mode_potential_step') authoring%periodic2%present = .true.
     select case (trim(k))
     case ('nonzero_mode_backend')
       call get_toml_string( &

@@ -63,9 +63,9 @@ contains
     cfg%periodic2%upper_fourier_mode_layers = authoring%periodic2%upper_fourier_mode_layers
     cfg%periodic2%reference_mode_layers = authoring%periodic2%reference_mode_layers
     cfg%periodic2%panel_quadrature_order = authoring%periodic2%panel_quadrature_order
-    cfg%periodic2%max_nonzero_mode_potential_step = &
-      authoring%periodic2%max_nonzero_mode_potential_step
   end if
+  ! adaptive 上限は backend を選ばない。正の値と backend の組み合わせは validate_adaptive_batch_config が検査する。
+  cfg%periodic2%max_nonzero_mode_potential_step = authoring%periodic2%max_nonzero_mode_potential_step
   end procedure apply_physics_authoring
 
   module procedure validate_field_config

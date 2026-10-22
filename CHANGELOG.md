@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   原点から離すと有効桁を失い、電位が符号ごと狂っていた（高さ差 1 µm の三角形を z=1 m に置くと −2.26 V が +122 V）。
   区間ごとの累積電荷を区間左端を原点とする局所座標で持ち、panel の寄与を panel 自身の高さ幅だけで表すようにした。
   平行移動しても一次モーメントと Gauss 則が保たれる（#41）。
+- 浮遊導体の LU 分解は L の既存列ごと行を交換するのに、解く側は右辺の行交換と前進代入を交互に行っていたため、途中で
+  行交換が起きると電荷再配分後も同じ導体内に電位差が残っていた。右辺の置換を全て先に適用する（#46）。
+- `run.batch.adaptive.max_nonzero_mode_potential_step_v` を書くと、値が無効を意味する 0 でも、明示した
+  `fields.periodic.backend="finite_images"`（または既定の finite_images）が `panel_spectral_reference` / `exclude_k0` /
+  `e_bottom_zero` に黙って切り替わっていた（Fortran parser と Python の正規化の両方）。adaptive 上限は backend を選ばない。
+  0 は何もせず、正の値は従来どおり `cached_kneq0` 以外では設定エラーになる（#44）。
 
 ## [3.6.0] - 2026-10-22
 
