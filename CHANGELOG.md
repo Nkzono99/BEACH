@@ -5,6 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- camphor のビルドプロファイル（`env/camphor.env`）で作った MPI 版が、どの設定でもバッチループの先頭で
+  `forrtl: severe (154): array index out of bounds` で停止していた。ifx 2023.2.4 が `-xHost`（Xeon Max の AVX-512）で
+  8 byte 境界の stack 一時領域へ `vmovaps %xmm16` を出す誤コンパイルで、少なくとも 3.5.0 から起きていた。
+  プロファイルの命令セットを `-xCORE-AVX2` にした。ifx 2024.0 / 2025.0 なら `-xHost` でも正しく動く。
+
 ### Changed
 
 - `beach --check-config` が、これまで実行中のバッチで初めて停止していた設定を preflight で拒否する: `run.batch_count <= 0`、
