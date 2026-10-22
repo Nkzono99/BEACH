@@ -375,7 +375,7 @@ contains
 
     call system_clock(clock_start, clock_rate)
     call derive_field_panel_config(app%sim, field_config, panel_config)
-    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
+    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi)
     call snapshot%get_diagnostics(diagnostics)
     call mpi_world_barrier(mpi)
     call system_clock(clock_end)

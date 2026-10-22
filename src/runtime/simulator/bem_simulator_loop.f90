@@ -193,7 +193,7 @@ contains
   call perf_region_begin(perf_region_simulation_total, sim_t0)
   call perf_region_begin(perf_region_field_solver_init, t0)
   call derive_field_panel_config(app%sim, field_config, panel_config)
-  call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
+  call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
   call conductor_solver%init(mesh, app%sim, snapshot)
   call perf_region_end(perf_region_field_solver_init, t0)
   call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)

@@ -833,8 +833,12 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   `add_periodic2_exact_ewald_correction_single_source`
   （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90`）
 - periodic2 root operator:
-  `precompute_periodic_root_operator`
-  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`）
+  `precompute_periodic_root_operator`, `build_missing_cell_operators`
+  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`）。
+  セル単位 cache の読み書きと lock は `lookup_cell_cache`, `publish_cell_cache_and_unlock`
+  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cell_cache.f90`）。
+  rank 分担に使う MPI 文脈は `fmm_options_type%mpi` で、呼び出し側（simulator、`--prepare-periodic-cache`）が
+  `snapshot%init(..., mpi=)` から渡す。コアは MPI を初期化・終了しない
 - BEACH adapter:
   `src/physics/field_solver/bem_field_solver_config.f90`,
   `src/physics/field_solver/bem_field_solver_tree.f90`,
