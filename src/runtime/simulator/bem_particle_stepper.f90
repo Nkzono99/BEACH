@@ -5,8 +5,11 @@ module bem_particle_stepper
   use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
-  use bem_collision, only: collision_query_ok, find_first_hit
-  use bem_boundary, only: boundary_event_type, boundary_event_ok, boundary_event_invalid_geometry, find_first_boundary_event, &
+  use bem_collision, only: find_first_hit
+  use bem_status_codes, only: collision_query_ok, boundary_event_ok, boundary_event_invalid_geometry, particle_step_ok, &
+                              particle_step_invalid_boundary, particle_step_multiple_box_events, &
+                              particle_step_ambiguous_open_corner
+  use bem_boundary, only: boundary_event_type, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type
@@ -15,11 +18,6 @@ module bem_particle_stepper
   implicit none
   private
 
-  integer(i32), parameter, public :: particle_step_ok = collision_query_ok
-  integer(i32), parameter, public :: particle_step_invalid_boundary = 1001_i32
-  integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
-  integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
-  integer(i32), parameter, public :: particle_step_unsupported_barrier_corner = particle_step_ambiguous_open_corner
   !> 適応サブステップが step を半分にする最小の仕事 [J]。電場変化が相対的に大きくても、
   !! step の仕事に換算してこれより小さければ粒子のエネルギーには効かないので分けない。
   real(dp), parameter :: particle_substep_energy_floor_j = 1.0e-4_dp*1.602176634e-19_dp
@@ -688,11 +686,10 @@ contains
     logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
-    type(sim_config) :: action_sim
     type(boundary_event_type) :: action_event
     real(dp) :: phi_boundary, barrier_potential_v, outward_v, kinetic_normal, barrier_energy_j
     real(dp) :: x_crossing(3), v_crossing(3), phi_return, kinetic_return
-    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc
+    integer(i32) :: axis, face_index, barrier_open_count, ordinary_open_count, reflect_bc, action_face_bc(6)
     logical :: high_side, reflect_open
 
     status = boundary_event_ok
@@ -731,7 +728,11 @@ contains
       return
     end if
 
-    action_sim = sim
+    ! 障壁で戻す面だけを反射に置き換えた face 別境界条件。他の面は box 設定のまま event と照合する。
+    do axis = 1_i32, 3_i32
+      action_face_bc(2_i32*axis - 1_i32) = sim%bc_low(axis)
+      action_face_bc(2_i32*axis) = sim%bc_high(axis)
+    end do
     action_event = event
     if (.not. ieee_is_finite(q) .or. .not. ieee_is_finite(m) .or. m <= 0.0_dp) then
       status = particle_step_invalid_boundary
@@ -812,13 +813,9 @@ contains
       integer(i32), intent(in) :: bc
 
       action_event%face_bc(face_index) = bc
-      if (high_side) then
-        action_sim%bc_high(axis) = bc
-      else
-        action_sim%bc_low(axis) = bc
-      end if
+      action_face_bc(face_index) = bc
       call apply_escape_reflect_periodic_event( &
-        action_sim, action_event, x, v, alive, escaped, status, redistribution_uniform &
+        sim, action_event, x, v, alive, escaped, status, redistribution_uniform, face_bc=action_face_bc &
         )
     end subroutine reflect_on_barrier_face
   end subroutine apply_kinetic_barrier_event

@@ -5,12 +5,9 @@ module bem_collision
   use bem_kinds, only: dp, i32, i64
   use bem_types, only: mesh_type, hit_info, sim_config
   use bem_string_utils, only: lower_ascii
+  use bem_status_codes, only: collision_query_ok, collision_query_image_limit, collision_query_index_range, &
+                              collision_query_invalid_segment, collision_query_grid_stalled
   implicit none
-  integer(i32), parameter, public :: collision_query_ok = 0_i32
-  integer(i32), parameter, public :: collision_query_image_limit = 1_i32
-  integer(i32), parameter, public :: collision_query_index_range = 2_i32
-  integer(i32), parameter, public :: collision_query_invalid_segment = 3_i32
-  integer(i32), parameter, public :: collision_query_grid_stalled = 4_i32
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
   private :: finalize_collision_query, report_collision_grid_stall
 contains

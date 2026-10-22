@@ -316,7 +316,6 @@ contains
     integer(i32), intent(in) :: query_status, batch_idx, species_idx, query_ray, query_bounce
     integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
     integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
-    character(len=16) :: status_name
     character(len=256) :: failure_message
 
     if (present(collision_failure_status)) collision_failure_status = query_status
@@ -325,22 +324,10 @@ contains
     if (present(collision_failure_bounce)) collision_failure_bounce = query_bounce
     if (present(collision_failure_status)) return
 
-    select case (query_status)
-    case (collision_query_image_limit)
-      status_name = 'image_limit'
-    case (collision_query_index_range)
-      status_name = 'index_range'
-    case (collision_query_invalid_segment)
-      status_name = 'invalid_segment'
-    case (collision_query_grid_stalled)
-      status_name = 'grid_stalled'
-    case default
-      status_name = 'unknown'
-    end select
     write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
       'photo_raycast collision query incomplete during batch preparation: batch=', batch_idx, &
       ' species=', species_idx, ' ray=', query_ray, ' bounce=', query_bounce, &
-      ' status=', trim(status_name), ' code=', query_status
+      ' status=', trim(particle_status_name(query_status)), ' code=', query_status
     write (error_unit, '(a)') trim(failure_message)
     flush (error_unit)
     error stop 1

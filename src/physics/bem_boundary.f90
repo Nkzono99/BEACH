@@ -3,11 +3,10 @@ module bem_boundary
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
+  use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
   implicit none
   private
 
-  integer(i32), parameter, public :: boundary_event_ok = 0_i32
-  integer(i32), parameter, public :: boundary_event_invalid_geometry = 1_i32
   integer(i32), parameter :: boundary_face_all = 63_i32
 
   type, public :: boundary_event_type
@@ -17,7 +16,7 @@ module bem_boundary
     integer(i32) :: face_bc(6) = -1_i32
   end type boundary_event_type
 
-  public :: apply_box_boundary
+  public :: apply_ray_box_boundary
   public :: find_first_boundary_event
   public :: apply_escape_reflect_periodic_event
 contains
@@ -91,8 +90,10 @@ contains
   end subroutine find_first_boundary_event
 
   !> 最初のbox eventへescape/reflect/redistributed-reflect/periodicを軸順序に依存せず適用する。
+  !! face_bc を渡すと、box 設定の代わりにその face 別境界条件を event と照合する（外部障壁で一面を反射に
+  !! 置き換える場合など）。省略時は cfg の bc_low/bc_high。
   subroutine apply_escape_reflect_periodic_event( &
-    cfg, event, x, v, alive, escaped, status, redistribution_uniform &
+    cfg, event, x, v, alive, escaped, status, redistribution_uniform, face_bc &
     )
     type(sim_config), intent(in) :: cfg
     type(boundary_event_type), intent(in) :: event
@@ -101,9 +102,10 @@ contains
     logical, intent(out) :: escaped
     integer(i32), intent(out) :: status
     real(dp), intent(in), optional :: redistribution_uniform(3)
+    integer(i32), intent(in), optional :: face_bc(6)
 
     real(dp) :: x_work(3), v_work(3)
-    integer(i32) :: axis, low_face, high_face, low_bc, high_bc
+    integer(i32) :: axis, low_face, high_face, low_bc, high_bc, expected_face_bc(6)
     logical :: alive_work, has_open, has_redistributed_reflect
 
     escaped = .false.
@@ -128,7 +130,15 @@ contains
       status = boundary_event_invalid_geometry
       return
     end if
-    if (any(event%face_bc /= boundary_face_conditions(cfg))) then
+    expected_face_bc = boundary_face_conditions(cfg)
+    if (present(face_bc)) then
+      if (.not. all(valid_boundary_condition(face_bc))) then
+        status = boundary_event_invalid_geometry
+        return
+      end if
+      expected_face_bc = face_bc
+    end if
+    if (any(event%face_bc /= expected_face_bc)) then
       status = boundary_event_invalid_geometry
       return
     end if
@@ -309,129 +319,58 @@ contains
     end do
   end function boundary_face_conditions
 
-  !> 1ステップの更新候補位置にボックス境界条件を適用し、生存/流出状態と位置速度を更新する。
-  !! @param[in] cfg 境界条件とボックス範囲を含むシミュレーション設定。
-  !! @param[inout] x 境界適用対象の粒子位置 `(x,y,z)` [m]。
-  !! @param[inout] v 境界適用対象の粒子速度 `(vx,vy,vz)` [m/s]。
-  !! @param[inout] alive 粒子生存フラグ（流出時は `.false.` へ更新）。
-  !! @param[out] escaped_boundary この呼び出しで境界流出が発生したか。
-  !! @param[in] redistribution_uniform 面内再配置反射に使う各軸の一様乱数 `[0,1]`。
-  subroutine apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, redistribution_uniform &
-    )
+  !> photo raycast の ray が box 面を越えた点に反射・周期境界を適用する。粒子の境界処理は event API
+  !! （find_first_boundary_event / apply_escape_reflect_periodic_event）が担い、これは ray 専用。
+  !! ray は面内再配置の乱数を持たないので、流出面と再配置反射の面では ray を止める（alive=.false.）。
+  !! box が無効なら何もせず、幅 0 の軸があれば ray を止める。
+  subroutine apply_ray_box_boundary(cfg, x, dir, alive)
     type(sim_config), intent(in) :: cfg
-    real(dp), intent(inout) :: x(3)
-    real(dp), intent(inout) :: v(3)
+    real(dp), intent(inout) :: x(3), dir(3)
     logical, intent(inout) :: alive
-    logical, intent(out) :: escaped_boundary
-    real(dp), intent(in), optional :: redistribution_uniform(3)
 
+    real(dp), parameter :: eps = 1.0d-12
     integer(i32) :: axis
-    integer(i32) :: bc
-    real(dp) :: span, eps
+    real(dp) :: span
 
-    escaped_boundary = .false.
     if (.not. cfg%use_box) return
     if (.not. alive) return
 
-    eps = 1.0d-12
     do axis = 1, 3
       span = cfg%box_max(axis) - cfg%box_min(axis)
       if (span <= 0.0_dp) then
         alive = .false.
-        escaped_boundary = .true.
         return
       end if
 
       do while (x(axis) < cfg%box_min(axis))
-        bc = cfg%bc_low(axis)
-        call apply_one_side_boundary( &
-          cfg, axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary, &
-          redistribution_uniform &
-          )
-        if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) >= cfg%box_min(axis))) exit
+        call apply_ray_face(cfg%bc_low(axis))
+        if ((.not. alive) .or. x(axis) >= cfg%box_min(axis)) exit
       end do
       if (.not. alive) return
 
       do while (x(axis) > cfg%box_max(axis))
-        bc = cfg%bc_high(axis)
-        call apply_one_side_boundary( &
-          cfg, axis, bc, cfg%box_min(axis), cfg%box_max(axis), span, eps, x, v, alive, escaped_boundary, &
-          redistribution_uniform &
-          )
-        if ((.not. alive) .or. (.not. escaped_boundary .and. x(axis) <= cfg%box_max(axis))) exit
+        call apply_ray_face(cfg%bc_high(axis))
+        if ((.not. alive) .or. x(axis) <= cfg%box_max(axis)) exit
       end do
       if (.not. alive) return
     end do
-  end subroutine apply_box_boundary
 
-  !> 単一軸・単一側面の境界条件を適用する内部ヘルパ。
-  !! @param[in] axis 境界判定軸（1:x, 2:y, 3:z）。
-  !! @param[in] bc 適用する境界条件種別（open/reflect/redistributed-reflect/periodic）。
-  !! @param[in] box_min 判定軸の下限座標 [m]。
-  !! @param[in] box_max 判定軸の上限座標 [m]。
-  !! @param[in] span 判定軸のボックス幅 `box_max - box_min` [m]。
-  !! @param[in] eps 反射/周期後に境界内へ押し戻す微小量 [m]。
-  !! @param[inout] x 粒子位置 `(x,y,z)` [m]。
-  !! @param[inout] v 粒子速度 `(vx,vy,vz)` [m/s]。
-  !! @param[inout] alive 粒子生存フラグ。
-  !! @param[inout] escaped_boundary 境界流出フラグ。
-  subroutine apply_one_side_boundary( &
-    cfg, axis, bc, box_min, box_max, span, eps, x, v, alive, escaped_boundary, redistribution_uniform &
-    )
-    type(sim_config), intent(in) :: cfg
-    integer(i32), intent(in) :: axis, bc
-    real(dp), intent(in) :: box_min, box_max, span, eps
-    real(dp), intent(inout) :: x(3), v(3)
-    logical, intent(inout) :: alive
-    logical, intent(inout) :: escaped_boundary
-    real(dp), intent(in), optional :: redistribution_uniform(3)
+  contains
 
-    select case (bc)
-    case (bc_open)
-      alive = .false.
-      escaped_boundary = .true.
-    case (bc_reflect)
-      call reflect_one_side(axis, box_min, box_max, eps, x, v)
-      escaped_boundary = .false.
-    case (bc_redistributed_reflect)
-      if (.not. present(redistribution_uniform)) then
+    subroutine apply_ray_face(bc)
+      integer(i32), intent(in) :: bc
+
+      select case (bc)
+      case (bc_reflect)
+        call reflect_one_side(axis, cfg%box_min(axis), cfg%box_max(axis), eps, x, dir)
+      case (bc_periodic)
+        x(axis) = modulo(x(axis) - cfg%box_min(axis), span) + cfg%box_min(axis)
+        x(axis) = min(cfg%box_max(axis) - eps, max(cfg%box_min(axis) + eps, x(axis)))
+      case default
         alive = .false.
-        escaped_boundary = .true.
-      else if (.not. valid_redistribution_uniform(redistribution_uniform)) then
-        alive = .false.
-        escaped_boundary = .true.
-      else
-        call reflect_one_side(axis, box_min, box_max, eps, x, v)
-        call redistribute_one_face_position(cfg, axis, redistribution_uniform, x)
-        escaped_boundary = .false.
-      end if
-    case (bc_periodic)
-      x(axis) = modulo(x(axis) - box_min, span) + box_min
-      x(axis) = min(box_max - eps, max(box_min + eps, x(axis)))
-      escaped_boundary = .false.
-    case default
-      alive = .false.
-      escaped_boundary = .true.
-    end select
-  end subroutine apply_one_side_boundary
-
-  !> legacy単一面APIで、反射軸以外の二座標をbox面内へ一様再配置する。
-  pure subroutine redistribute_one_face_position(cfg, normal_axis, uniform, x)
-    type(sim_config), intent(in) :: cfg
-    integer(i32), intent(in) :: normal_axis
-    real(dp), intent(in) :: uniform(3)
-    real(dp), intent(inout) :: x(3)
-    integer(i32) :: axis
-    real(dp) :: inset
-
-    do axis = 1_i32, 3_i32
-      if (axis == normal_axis) cycle
-      inset = boundary_inset(cfg%box_min(axis), cfg%box_max(axis))
-      x(axis) = cfg%box_min(axis) + inset + &
-                uniform(axis)*(cfg%box_max(axis) - cfg%box_min(axis) - 2.0_dp*inset)
-    end do
-  end subroutine redistribute_one_face_position
+      end select
+    end subroutine apply_ray_face
+  end subroutine apply_ray_box_boundary
 
   !> 反射境界と同じ鏡像位置・法線速度反転を適用する。
   subroutine reflect_one_side(axis, box_min, box_max, eps, x, v)

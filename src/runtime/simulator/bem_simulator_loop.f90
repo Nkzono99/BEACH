@@ -608,7 +608,7 @@ contains
     real(dp), intent(in) :: dt, x(3), v(3)
     write (error_unit, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0,a,es13.5,a,3es13.5,a,3es13.5)') &
       'particle step failed: batch=', batch_idx, ' particle=', particle, ' step=', step, &
-      ' rank=', rank, ' status=', trim(particle_failure_name(status)), ' code=', status, &
+      ' rank=', rank, ' status=', trim(particle_status_name(status)), ' code=', status, &
       ' dt=', dt, ' x=', x, ' v=', v
     flush (error_unit)
     error stop 'particle step failed.'
@@ -618,7 +618,7 @@ contains
     integer(i32), intent(in) :: batch_idx, rank, species, ray, bounce, status
     write (error_unit, '(a,i0,a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
       'photo ray collision failed: batch=', batch_idx, ' rank=', rank, ' species=', species, &
-      ' ray=', ray, ' bounce=', bounce, ' status=', trim(collision_failure_name(status)), ' code=', status
+      ' ray=', ray, ' bounce=', bounce, ' status=', trim(particle_status_name(status)), ' code=', status
     flush (error_unit)
     error stop 'photo ray collision query failed.'
   end subroutine stop_for_photo_collision_failure
@@ -717,47 +717,5 @@ contains
     end if
     error stop 'multiple_box_events soft-discard cumulative fraction limit exceeded.'
   end subroutine enforce_soft_discard_limits
-
-  pure function particle_failure_name(status) result(name)
-    integer(i32), intent(in) :: status
-    character(len=32) :: name
-
-    select case (status)
-    case (collision_query_image_limit)
-      name = 'image_limit'
-    case (collision_query_index_range)
-      name = 'index_range'
-    case (collision_query_invalid_segment)
-      name = 'invalid_segment'
-    case (collision_query_grid_stalled)
-      name = 'grid_stalled'
-    case (particle_step_invalid_boundary)
-      name = 'invalid_boundary'
-    case (particle_step_multiple_box_events)
-      name = 'multiple_box_events'
-    case (particle_step_ambiguous_open_corner)
-      name = 'ambiguous_open_corner'
-    case default
-      name = 'unknown'
-    end select
-  end function particle_failure_name
-
-  pure function collision_failure_name(status) result(name)
-    integer(i32), intent(in) :: status
-    character(len=16) :: name
-
-    select case (status)
-    case (collision_query_image_limit)
-      name = 'image_limit'
-    case (collision_query_index_range)
-      name = 'index_range'
-    case (collision_query_invalid_segment)
-      name = 'invalid_segment'
-    case (collision_query_grid_stalled)
-      name = 'grid_stalled'
-    case default
-      name = 'unknown'
-    end select
-  end function collision_failure_name
 
 end submodule bem_simulator_loop

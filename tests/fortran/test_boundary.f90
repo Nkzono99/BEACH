@@ -2,9 +2,9 @@
 program test_boundary
   use bem_kinds, only: dp, i32
   use, intrinsic :: ieee_arithmetic, only: ieee_quiet_nan, ieee_value
-  use bem_boundary, only: apply_box_boundary, boundary_event_type, boundary_event_ok, &
-                          boundary_event_invalid_geometry, find_first_boundary_event, &
+  use bem_boundary, only: apply_ray_box_boundary, boundary_event_type, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
+  use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
   use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
@@ -12,82 +12,71 @@ program test_boundary
 
   type(sim_config) :: cfg
   real(dp) :: x(3), v(3), expected(3)
-  logical :: alive, escaped_boundary
+  logical :: alive
 
-  call test_init(25)
+  call test_init(26)
 
   cfg = sim_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
 
-  call test_begin('open_boundary')
+  ! photo raycast の ray 用 box 境界。粒子の境界処理（再配置反射を含む）は下の event API のテストが担う。
+  call test_begin('ray_open_face_stops_ray')
   x = [1.1d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
   cfg%bc_high(1) = bc_open
-  call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
-  call assert_true(.not. alive, 'open boundary should kill the particle')
-  call assert_true(escaped_boundary, 'open boundary should mark escaped_boundary')
+  call apply_ray_box_boundary(cfg, x, v, alive)
+  call assert_true(.not. alive, 'open face should stop the ray')
   call test_end()
 
-  call test_begin('reflect_boundary')
+  call test_begin('ray_reflect_face')
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
   cfg%bc_high(1) = bc_reflect
-  call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
+  call apply_ray_box_boundary(cfg, x, v, alive)
   expected = [0.8d0, 0.5d0, 0.5d0]
-  call assert_true(alive, 'reflect boundary should keep particle alive')
-  call assert_true(.not. escaped_boundary, 'reflect boundary should not mark escaped')
-  call assert_allclose_1d(x, expected, 1.0d-10, 'reflect position mismatch')
-  call assert_close_dp(v(1), -1.0d0, 1.0d-12, 'reflect velocity mismatch')
-  call assert_close_dp(v(2), 2.0d0, 1.0d-12, 'reflect should preserve tangential velocity')
+  call assert_true(alive, 'reflect face should keep the ray')
+  call assert_allclose_1d(x, expected, 1.0d-10, 'ray reflect position mismatch')
+  call assert_close_dp(v(1), -1.0d0, 1.0d-12, 'ray reflect direction mismatch')
+  call assert_close_dp(v(2), 2.0d0, 1.0d-12, 'ray reflect should preserve the tangential direction')
   call test_end()
 
-  call test_begin('redistributed_reflect_boundary')
+  call test_begin('ray_redistributed_reflect_face_stops_ray')
+  ! ray は面内再配置の乱数を持たないので、再配置反射の面では止める。
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
   cfg%bc_high(1) = bc_redistributed_reflect
-  call apply_box_boundary( &
-    cfg, x, v, alive, escaped_boundary, redistribution_uniform=[0.1_dp, 0.25_dp, 0.75_dp] &
-    )
-  expected = [0.8d0, 0.25d0, 0.75d0]
-  call assert_true(alive, 'redistributed reflect boundary should keep particle alive')
-  call assert_true(.not. escaped_boundary, 'redistributed reflect boundary should not mark escaped')
-  call assert_allclose_1d(x, expected, 1.0d-10, 'redistributed reflect position mismatch')
-  call assert_allclose_1d( &
-    v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, &
-    'redistributed reflect should reverse only the normal velocity' &
-    )
+  call apply_ray_box_boundary(cfg, x, v, alive)
+  call assert_true(.not. alive, 'redistributed reflect face should stop the ray')
   call test_end()
 
-  call test_begin('periodic_boundary')
+  call test_begin('ray_periodic_face')
   x = [-0.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
   cfg%bc_low(1) = bc_periodic
-  call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
+  call apply_ray_box_boundary(cfg, x, v, alive)
   expected = [0.8d0, 0.5d0, 0.5d0]
-  call assert_true(alive, 'periodic boundary should keep particle alive')
-  call assert_true(.not. escaped_boundary, 'periodic boundary should not mark escaped')
-  call assert_allclose_1d(x, expected, 1.0d-10, 'periodic position mismatch')
-  call assert_allclose_1d(v, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'periodic should preserve velocity')
+  call assert_true(alive, 'periodic face should keep the ray')
+  call assert_allclose_1d(x, expected, 1.0d-10, 'ray periodic position mismatch')
+  call assert_allclose_1d(v, [1.0d0, 2.0d0, 3.0d0], 1.0d-12, 'periodic face should preserve the direction')
   call test_end()
 
-  call test_begin('disabled_box')
+  call test_begin('ray_disabled_box')
   cfg = sim_config()
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
-  call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
-  call assert_true(alive, 'disabled box should not change alive flag')
-  call assert_true(.not. escaped_boundary, 'disabled box should not mark escaped')
-  call assert_allclose_1d(x, [1.2d0, 0.5d0, 0.5d0], 1.0d-12, 'disabled box should preserve position')
+  call apply_ray_box_boundary(cfg, x, v, alive)
+  call assert_true(alive, 'disabled box should keep the ray')
+  call assert_allclose_1d(x, [1.2d0, 0.5d0, 0.5d0], 1.0d-12, 'disabled box should preserve the position')
   call test_end()
 
-  call test_begin('degenerate_box')
+  call test_begin('ray_degenerate_box')
   cfg = sim_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
@@ -95,9 +84,8 @@ program test_boundary
   x = [0.0d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
-  call apply_box_boundary(cfg, x, v, alive, escaped_boundary)
-  call assert_true(.not. alive, 'degenerate box should stop the particle')
-  call assert_true(escaped_boundary, 'degenerate box should mark escaped_boundary')
+  call apply_ray_box_boundary(cfg, x, v, alive)
+  call assert_true(.not. alive, 'degenerate box should stop the ray')
   call test_end()
 
   call test_begin('first_boundary_event_single_face')
@@ -142,6 +130,10 @@ program test_boundary
 
   call test_begin('boundary_event_open_escape')
   call test_boundary_event_open_escape()
+  call test_end()
+
+  call test_begin('boundary_event_face_bc_override')
+  call test_boundary_event_face_bc_override()
   call test_end()
 
   call test_begin('boundary_event_start_inward')
@@ -474,6 +466,43 @@ contains
     call assert_true(event_escaped, 'open event should report boundary escape')
     call assert_allclose_1d(event_x, [1.0_dp, 0.5_dp, 0.5_dp], 0.0_dp, 'open event should keep event point')
   end subroutine test_boundary_event_open_escape
+
+  !> face 別境界条件を渡すと、box 設定の open 面を反射として扱える。event の face_bc は渡した値と照合する。
+  subroutine test_boundary_event_face_bc_override()
+    type(sim_config) :: event_cfg
+    type(boundary_event_type) :: event
+    integer(i32) :: status, face_bc(6)
+    real(dp) :: event_x(3), event_v(3)
+    logical :: event_alive, event_escaped
+
+    call init_event_box(event_cfg)
+    call find_first_boundary_event( &
+      event_cfg, [0.5_dp, 0.5_dp, 0.5_dp], [1.5_dp, 0.5_dp, 0.5_dp], event, status &
+      )
+    face_bc = event%face_bc
+    face_bc(2) = bc_reflect
+    event%face_bc(2) = bc_reflect
+    event_x = [1.0_dp, 0.5_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status, face_bc=face_bc &
+      )
+    call assert_equal_i32(status, boundary_event_ok, 'face_bc override status mismatch')
+    call assert_true(event_alive .and. .not. event_escaped, 'overridden reflect face should keep the particle')
+    call assert_allclose_1d(event_v, [-1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, 'overridden face should reflect the normal velocity')
+    call assert_true(event_x(1) < 1.0_dp, 'overridden reflect should move the particle inside')
+
+    ! 渡した face 別境界条件と event が食い違えば、box 設定と食い違うときと同じく不正。
+    event_x = [1.0_dp, 0.5_dp, 0.5_dp]
+    event_v = [1.0_dp, 2.0_dp, 3.0_dp]
+    event_alive = .true.
+    call apply_escape_reflect_periodic_event( &
+      event_cfg, event, event_x, event_v, event_alive, event_escaped, status &
+      )
+    call assert_equal_i32(status, boundary_event_invalid_geometry, 'event face_bc must match the box without override')
+    call assert_true(event_alive, 'rejected event must not change the particle')
+  end subroutine test_boundary_event_face_bc_override
 
   subroutine test_boundary_event_start_inward()
     type(sim_config) :: event_cfg

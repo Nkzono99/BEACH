@@ -14,10 +14,10 @@ module bem_simulator
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type, electrostatic_diagnostics_type
   use bem_particle_stepper, only: build_particle_step_candidate, resolve_particle_boundary_candidate, &
                                   advance_particle_step_upper_panel_fourier, &
-                                  particle_step_result, particle_step_invalid_boundary, &
-                                  particle_step_multiple_box_events, particle_step_ambiguous_open_corner
-  use bem_collision, only: collision_query_grid_stalled, collision_query_image_limit, &
-                           collision_query_index_range, collision_query_invalid_segment, collision_query_ok, find_first_hit
+                                  particle_step_result
+  use bem_status_codes, only: particle_step_invalid_boundary, particle_step_multiple_box_events, &
+                              particle_step_ambiguous_open_corner, particle_status_name, collision_query_ok
+  use bem_collision, only: find_first_hit
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
