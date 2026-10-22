@@ -87,6 +87,11 @@ make test-l2
 | output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart` | `make test-l1` と関連する Python reader test |
 | Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
 
+挙動を変えないリファクタでは、計算ノードで変更前と変更後の checkout それぞれで `tools/golden_regression.py run OUT_DIR` を実行し、
+`tools/golden_regression.py compare BASE_DIR NEW_DIR` で出力を比べます。examples を縮小した3ケース（free-space direct、
+periodic2 FMM と光電子、零電流の外部根更新）を release・OpenMP 1 thread・固定 seed で走らせ、`summary.txt`、`charges.csv`、
+各 history をビット単位で比較します。演算順が変わる変更では `--rtol 1e-14` のように許容を指定します。
+
 Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正本です。subsystem、source、直接 test、
 関連 document の対応は[開発者向けアーキテクチャ](Architecture.html)にあります。
 

@@ -2,14 +2,14 @@
 submodule(bem_field_solver) bem_field_solver_config
   use bem_coulomb_fmm_core, only: destroy_plan, destroy_state
   use bem_physics_config_types, only: validate_phase1_panel_config, physics_config_ok
+  use bem_periodic2_axes, only: resolve_periodic2_axes
   implicit none
 contains
 
   !> 設定値から direct/treecode/fmm の実行モードを確定し、必要なら木構造を初期化する。
   module procedure init_field_solver
   character(len=16) :: requested_mode, field_bc_mode
-  integer(i32) :: axis, n_periodic
-  real(dp) :: span
+  logical :: use_periodic2
   integer(i32) :: panel_status
   character(len=256) :: panel_message
 
@@ -68,27 +68,7 @@ contains
     if (trim(requested_mode) /= 'fmm') then
       error stop 'fields.boundary must be "free" unless fields.solver.method="fmm".'
     end if
-    if (.not. sim%use_box) then
-      error stop 'fields.boundary="periodic2" requires a finite [domain].'
-    end if
-    n_periodic = 0_i32
-    do axis = 1_i32, 3_i32
-      if ((sim%bc_low(axis) == bc_periodic) .neqv. (sim%bc_high(axis) == bc_periodic)) then
-        error stop 'periodic2 requires bc_low(axis)=bc_high(axis)=periodic for periodic axes.'
-      end if
-      if (sim%bc_low(axis) == bc_periodic) then
-        n_periodic = n_periodic + 1_i32
-        if (n_periodic <= 2_i32) self%periodic_axes(n_periodic) = axis
-      end if
-    end do
-    if (n_periodic /= 2_i32) then
-      error stop 'fields.boundary="periodic2" requires exactly two periodic axes.'
-    end if
-    do axis = 1_i32, 2_i32
-      span = sim%box_max(self%periodic_axes(axis)) - sim%box_min(self%periodic_axes(axis))
-      if (span <= 0.0d0) error stop 'periodic2 requires positive box length on periodic axes.'
-      self%periodic_len(axis) = span
-    end do
+    call resolve_periodic2_axes(sim, use_periodic2, self%periodic_axes, self%periodic_len)
     self%target_box_min = sim%box_min
     self%target_box_max = sim%box_max
     select case (trim(self%periodic_far_correction))

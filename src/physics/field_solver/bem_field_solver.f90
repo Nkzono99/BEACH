@@ -4,7 +4,7 @@ module bem_field_solver
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_types, only: mesh_type, sim_config
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
