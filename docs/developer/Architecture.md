@@ -57,7 +57,9 @@ flowchart TD
    `app_config` へ読みます。authoring の正規化と領域別 preflight が派生値・参照と最小のモデル成立条件を確認します。
    [`bem_app_config_mesh_runtime.f90`](../../src/runtime/configuration/bem_app_config_mesh_runtime.f90) が template または OBJ から
    `mesh_type` を構築します。
-3. `main` は [`run_absorption_insulator`](../../src/runtime/simulator/bem_simulator.f90) を呼びます。interface は
+3. `main` は [`open_run_outputs`](../../src/runtime/bem_run_outputs.f90) で history と終了時 mesh 電位の出力先を
+   `run_outputs_type` にまとめて開き、[`run_absorption_insulator`](../../src/runtime/simulator/bem_simulator.f90) に 1 引数で
+   渡します（unit = -1 の history は書かない）。interface は
    `bem_simulator.f90`、主 loop は [`bem_simulator_loop.f90`](../../src/runtime/simulator/bem_simulator_loop.f90)、
    粒子生成・追跡は [`bem_simulator_particles.f90`](../../src/runtime/simulator/bem_simulator_particles.f90)、
    電荷反映・電流補正・台帳は [`bem_simulator_charge.f90`](../../src/runtime/simulator/bem_simulator_charge.f90) が担当します。

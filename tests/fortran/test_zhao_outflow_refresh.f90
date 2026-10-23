@@ -5,6 +5,7 @@ program test_zhao_outflow_refresh
   use bem_types, only: mesh_type, sim_stats, injection_state, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
+  use bem_run_outputs, only: run_outputs_type
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             particle_inflow_reservoir
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
@@ -16,6 +17,8 @@ program test_zhao_outflow_refresh
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, delete_file_if_exists
   implicit none
+
+  type(run_outputs_type) :: run_outputs
 
   real(dp), parameter :: cell_width = 1.0e-4_dp
   real(dp), parameter :: box_height = 1.0e-3_dp
@@ -73,10 +76,10 @@ program test_zhao_outflow_refresh
   call seed_particles_from_config(cfg)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='replace', action='write')
   open (newunit=spectrum_history_unit, file=spectrum_history_path, status='replace', action='write')
-  call run_absorption_insulator( &
-    mesh, cfg, stats, history_stride=1_i32, inject_state=inject_state, fixed_current_history_unit=fixed_history_unit, &
-    matching_plane_spectrum_history_unit=spectrum_history_unit &
-    )
+  run_outputs = run_outputs_type( &
+                fixed_current_history_unit=fixed_history_unit, matching_plane_spectrum_history_unit=spectrum_history_unit, &
+                history_stride=1_i32)
+  call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state, outputs=run_outputs)
   close (fixed_history_unit)
   close (spectrum_history_unit)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='old', action='read')

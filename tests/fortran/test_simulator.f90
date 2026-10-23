@@ -3,6 +3,7 @@ program test_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator, apply_fixed_surface_current_closure
+  use bem_run_outputs, only: run_outputs_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_mpi, only: mpi_context
   use bem_particle_stepper, only: particle_substep_needs_halving, particle_substep_energy_floor_j
@@ -17,6 +18,8 @@ program test_simulator
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
+
+  type(run_outputs_type) :: run_outputs
 
   type(mesh_type) :: mesh
   type(mesh_type) :: mesh_tree
@@ -163,9 +166,8 @@ program test_simulator
   call delete_file_if_exists(history_path)
   open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator history fixture'
-  call run_absorption_insulator( &
-    mesh, cfg, stats, history_unit=u, history_stride=1_i32, charge_ledger=charge_ledger &
-    )
+  run_outputs = run_outputs_type(history_unit=u, history_stride=1_i32)
+  call run_absorption_insulator(mesh, cfg, stats, charge_ledger=charge_ledger, outputs=run_outputs)
   close (u)
 
   call assert_equal_i64(stats%processed_particles, 4_i64, 'processed_particles mismatch')
@@ -254,9 +256,9 @@ program test_simulator
   if (ios /= 0) error stop 'failed to open simulator potential history fixture'
   open (newunit=u_top, file=top_reference_history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator top-reference history fixture'
+  run_outputs = run_outputs_type(potential_history_unit=u, top_reference_history_unit=u_top, history_stride=1_i32)
   call run_absorption_insulator( &
-    mesh_potential_history, cfg_potential_history, stats_potential_history, &
-    potential_history_unit=u, top_reference_history_unit=u_top, history_stride=1_i32 &
+    mesh_potential_history, cfg_potential_history, stats_potential_history, outputs=run_outputs &
     )
   close (u)
   close (u_top)
