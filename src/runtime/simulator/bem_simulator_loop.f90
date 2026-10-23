@@ -19,23 +19,16 @@ contains
 
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
-  integer(i32) :: team_size_min, team_size_max
-  integer(i32) :: particle_team_size, particle_team_size_min, particle_team_size_max
-  integer(i32) :: collision_failure_count, collision_failure_rank, collision_failure_status
-  integer(i32) :: collision_failure_particle, collision_failure_step
-  integer(i32) :: local_failure_values(3), selected_failure_values(3)
-  integer(i32) :: photo_failure_count, photo_failure_rank, photo_failure_status, photo_failure_species
-  integer(i32) :: photo_failure_ray, photo_failure_bounce
-  integer(i32) :: photo_local_failure_values(4), photo_selected_failure_values(4)
-  integer(i32) :: trial_halvings, species_idx, fresh_particle_count
-  integer(i32) :: boundary_status
+  integer(i32) :: particle_team_size
+  integer(i32) :: collision_failure_status, collision_failure_particle, collision_failure_step
+  integer(i32) :: photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce
+  integer(i32) :: trial_halvings, fresh_particle_count
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
   integer :: secondary_hist_unit
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
-  logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
+  logical :: ledger_enabled, adaptive_nonzero_mode, omp_dynamic_before
   logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
   logical :: spectrum_history_enabled, secondary_history_enabled
-  integer(i32) :: history_stride
   integer(i32) :: fixed_window_batches
   ! 固定電流historyの窓合計。(channel, species)、channelは1=吸収、2=放出、3=脱出。
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
@@ -43,11 +36,8 @@ contains
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(4)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
-  real(dp) :: collision_failure_x(3), collision_failure_v(3), selected_failure_state(6)
-  real(dp) :: trial_batch_duration, duration_ratio, adaptive_potential_step, adaptive_metric_values(1)
-  real(dp) :: projected_simulated_time
-  real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
-  character(len=256) :: boundary_message
+  real(dp) :: collision_failure_x(3), collision_failure_v(3)
+  real(dp) :: trial_batch_duration, adaptive_potential_step
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
   type(electrostatic_snapshot_type) :: snapshot
@@ -61,155 +51,19 @@ contains
   type(batch_injection_layout_type) :: injection_layout
   type(mpi_shared_counter_type) :: pool_counter
   logical :: shared_pool
-  integer(i64) :: batch_pool_claims, pool_claim_counts(1)
-  real(dp) :: batch_pool_claim_seconds, pool_claim_values(1)
+  integer(i64) :: batch_pool_claims
+  real(dp) :: batch_pool_claim_seconds
   type(external_boundary_contract_type) :: boundary_contract
   type(surface_closure_contract_type) :: surface_closure
-  type(field_physics_config) :: field_config
-  type(panel_kernel_config) :: panel_config
   type(irradiation_cell_contract_type) :: cell
   type(app_config) :: trial_app
-  integer(i64) :: secondary_counts(3, app%n_particle_species), secondary_count_values(3*app%n_particle_species)
-  real(dp) :: secondary_values(2, app%n_particle_species), secondary_real_values(2*app%n_particle_species)
+  integer(i64) :: secondary_counts(3, app%n_particle_species)
+  real(dp) :: secondary_values(2, app%n_particle_species)
   type(sim_stats) :: stats_candidate
 
-  stats = sim_stats()
-  if (present(initial_stats)) stats = initial_stats
-  mpi_ctx = mpi_context()
-  if (present(mpi)) mpi_ctx = mpi
-  ledger_enabled = present(charge_ledger)
-  if (ledger_enabled) then
-    if (.not. allocated(charge_ledger%injected_from_remote)) then
-      call charge_ledger%init(app%n_particle_species)
-    else if (charge_ledger%nspecies /= app%n_particle_species) then
-      error stop 'charge ledger species count does not match app config.'
-    end if
-    call batch_ledger%init(app%n_particle_species)
-  end if
-
-  call resolve_external_boundary_contract( &
-    app%sim%reservoir_potential_model, &
-    boundary_contract, boundary_status, boundary_message &
-    )
-  if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
-  call resolve_irradiation_cell_contract(app, cell, boundary_status, boundary_message)
-  if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
-  adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
-  replay_active = adaptive_nonzero_mode
-  omp_dynamic_before = .false.
-!$ omp_dynamic_before = omp_get_dynamic()
-  nth = 1_i32
-  if (replay_active) then
-!$  call omp_set_dynamic(.false.)
-    !$omp parallel default(none) shared(nth)
-    !$omp single
-!$  nth = int(omp_get_num_threads(), i32)
-    !$omp end single
-    !$omp end parallel
-
-    team_size_min = nth
-    team_size_max = nth
-    call mpi_allreduce_min_i32_scalar(mpi_ctx, team_size_min)
-    call mpi_allreduce_max_i32_scalar(mpi_ctx, team_size_max)
-    if (team_size_min /= team_size_max) then
-      if (mpi_is_root(mpi_ctx)) then
-        write (error_unit, '(a,i0,a,i0)') &
-          'replayed-trial OpenMP team-size mismatch across MPI ranks: min=', team_size_min, ' max=', team_size_max
-        flush (error_unit)
-      end if
-      error stop 'replayed-trial OpenMP team size must match across MPI ranks.'
-    end if
-
-    ! Rejected trials within this run still use one fixed team size.  A restart may
-    ! use a different team size because checkpoint compatibility is numerical, not
-    ! bitwise-replay compatibility with the previous process.
-    if (adaptive_nonzero_mode) stats%adaptive_nonzero_mode_omp_threads = nth
-  else
-!$  nth = max(1_i32, int(omp_get_max_threads(), i32))
-  end if
-  if (.not. adaptive_nonzero_mode) then
-    stats%adaptive_nonzero_mode_rejected_trials = 0_i64
-    stats%adaptive_nonzero_mode_last_batch_duration = 0.0_dp
-    stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
-    stats%adaptive_nonzero_mode_omp_threads = 0_i32
-  end if
-  call validate_soft_discard_initial_state(app%sim, stats)
-  call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
-  call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
-  call evaluate_surface_closure(app, surface_closure, cell)
-
-  ! 出力先の unit と間隔。unit=-1 の history は書かない。間隔が 0 以下なら matching-plane・spectrum・固定電流
-  ! history を止め、電荷・要素電位 history は毎 batch 扱いにする。
-  hist_unit = -1
-  pot_hist_unit = -1
-  top_ref_hist_unit = -1
-  matching_hist_unit = -1
-  spectrum_hist_unit = -1
-  fixed_hist_unit = -1
-  secondary_hist_unit = -1
-  history_stride = 1_i32
-  if (present(outputs)) then
-    hist_unit = outputs%history_unit
-    pot_hist_unit = outputs%potential_history_unit
-    top_ref_hist_unit = outputs%top_reference_history_unit
-    matching_hist_unit = outputs%matching_plane_history_unit
-    spectrum_hist_unit = outputs%matching_plane_spectrum_history_unit
-    fixed_hist_unit = outputs%fixed_current_history_unit
-    secondary_hist_unit = outputs%secondary_emission_history_unit
-    history_stride = outputs%history_stride
-    if (allocated(outputs%mesh_potential_v)) deallocate (outputs%mesh_potential_v)
-  end if
-  history_enabled = hist_unit /= -1
-  potential_history_enabled = pot_hist_unit /= -1
-  top_reference_history_enabled = top_ref_hist_unit /= -1
-  matching_history_enabled = matching_hist_unit /= -1 .and. history_stride > 0_i32
-  spectrum_history_enabled = spectrum_hist_unit /= -1 .and. history_stride > 0_i32
-  fixed_history_enabled = fixed_hist_unit /= -1 .and. history_stride > 0_i32
-  secondary_history_enabled = secondary_hist_unit /= -1
-  hist_stride = max(1_i32, history_stride)
-  allocate ( &
-    fixed_window_tracked(3, app%n_particle_species), fixed_window_target(3, app%n_particle_species), &
-    fixed_window_active(3, app%n_particle_species) &
-    )
-  call reset_fixed_current_window()
-  if (potential_history_enabled) allocate (potential_buf(mesh%nelem))
-
-  bfield = app%sim%b0
-  final_batch_idx = app%sim%batch_count
-  if (stats%batches < 0_i32 .or. stats%batches > final_batch_idx) then
-    error stop 'checkpoint batch count is outside run.batch_count.'
-  end if
-  if (.not. adaptive_nonzero_mode .and. stats%batches > 0_i32 .and. stats%simulated_time == 0.0_dp) then
-    stats%simulated_time = real(stats%batches, dp)*app%sim%batch_duration
-  end if
-  batch_count_this_run = final_batch_idx - stats%batches
-
-  call perf_region_begin(perf_region_simulation_total, sim_t0)
-  call perf_region_begin(perf_region_field_solver_init, t0)
-  call derive_field_panel_config(app%sim, field_config, panel_config)
-  call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
-  call conductor_solver%init(mesh, app%sim, snapshot)
-  call perf_region_end(perf_region_field_solver_init, t0)
-  call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)
-  call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .true.)
-  call record_matching_fields(stats, snapshot, surface_closure, mesh)
-
-  if (replay_active) then
-    if (present(inject_state)) then
-      if (allocated(inject_state%macro_residual)) allocate (injection_residual_before(size(inject_state%macro_residual)))
-      if (allocated(inject_state%boundary_macro_residual)) then
-        allocate ( &
-          boundary_injection_residual_before( &
-          size(inject_state%boundary_macro_residual, 1), size(inject_state%boundary_macro_residual, 2) &
-          ) &
-          )
-      end if
-    end if
-  end if
-  adaptive_potential_step = 0.0_dp
-
-  shared_pool = trim(app%sim%particle_distribution) == 'shared'
-  if (shared_pool) call pool_counter%init(mpi_ctx)
+  call initialize_run()
+  call resolve_history_outputs()
+  call initialize_fields()
 
   do local_batch_idx = 1_i32, batch_count_this_run
     call perf_region_begin(perf_region_batch_total, batch_t0)
@@ -217,6 +71,187 @@ contains
     call perf_region_begin(perf_region_field_refresh, t0)
     call snapshot%refresh(mesh, mpi_ctx)
     call perf_region_end(perf_region_field_refresh, t0)
+
+    call run_accepted_trial()
+    call reduce_batch_outcomes()
+    call build_stats_candidate()
+    if (ledger_enabled) call record_batch_ledger()
+    call commit_accepted_batch()
+
+    call perf_region_begin(perf_region_history_write, t0)
+    if (mpi_is_root(mpi_ctx)) call write_batch_history()
+    call perf_region_end(perf_region_history_write, t0)
+    call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
+    call perf_region_end(perf_region_batch_total, batch_t0)
+  end do
+  if (shared_pool) call pool_counter%destroy()
+  call perf_region_end(perf_region_simulation_total, sim_t0)
+!$ if (replay_active) call omp_set_dynamic(omp_dynamic_before)
+
+  call finish_run_outputs()
+
+contains
+
+  !> 統計・charge ledger・境界契約を初期化し、replay する trial の OpenMP team size を確定する。
+  subroutine initialize_run()
+    integer(i32) :: team_size_min, team_size_max, boundary_status
+    character(len=256) :: boundary_message
+
+    stats = sim_stats()
+    if (present(initial_stats)) stats = initial_stats
+    mpi_ctx = mpi_context()
+    if (present(mpi)) mpi_ctx = mpi
+    ledger_enabled = present(charge_ledger)
+    if (ledger_enabled) then
+      if (.not. allocated(charge_ledger%injected_from_remote)) then
+        call charge_ledger%init(app%n_particle_species)
+      else if (charge_ledger%nspecies /= app%n_particle_species) then
+        error stop 'charge ledger species count does not match app config.'
+      end if
+      call batch_ledger%init(app%n_particle_species)
+    end if
+
+    call resolve_external_boundary_contract( &
+      app%sim%reservoir_potential_model, &
+      boundary_contract, boundary_status, boundary_message &
+      )
+    if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
+    call resolve_irradiation_cell_contract(app, cell, boundary_status, boundary_message)
+    if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
+    adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp
+    replay_active = adaptive_nonzero_mode
+    omp_dynamic_before = .false.
+!$  omp_dynamic_before = omp_get_dynamic()
+    nth = 1_i32
+    if (replay_active) then
+!$    call omp_set_dynamic(.false.)
+      !$omp parallel default(none) shared(nth)
+      !$omp single
+!$    nth = int(omp_get_num_threads(), i32)
+      !$omp end single
+      !$omp end parallel
+
+      team_size_min = nth
+      team_size_max = nth
+      call mpi_allreduce_min_i32_scalar(mpi_ctx, team_size_min)
+      call mpi_allreduce_max_i32_scalar(mpi_ctx, team_size_max)
+      if (team_size_min /= team_size_max) then
+        if (mpi_is_root(mpi_ctx)) then
+          write (error_unit, '(a,i0,a,i0)') &
+            'replayed-trial OpenMP team-size mismatch across MPI ranks: min=', team_size_min, ' max=', team_size_max
+          flush (error_unit)
+        end if
+        error stop 'replayed-trial OpenMP team size must match across MPI ranks.'
+      end if
+
+      ! Rejected trials within this run still use one fixed team size.  A restart may
+      ! use a different team size because checkpoint compatibility is numerical, not
+      ! bitwise-replay compatibility with the previous process.
+      if (adaptive_nonzero_mode) stats%adaptive_nonzero_mode_omp_threads = nth
+    else
+!$    nth = max(1_i32, int(omp_get_max_threads(), i32))
+    end if
+    if (.not. adaptive_nonzero_mode) then
+      stats%adaptive_nonzero_mode_rejected_trials = 0_i64
+      stats%adaptive_nonzero_mode_last_batch_duration = 0.0_dp
+      stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
+      stats%adaptive_nonzero_mode_omp_threads = 0_i32
+    end if
+    call validate_soft_discard_initial_state(app%sim, stats)
+    call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
+    call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
+    call evaluate_surface_closure(app, surface_closure, cell)
+  end subroutine initialize_run
+
+  !> 出力先の unit と間隔を取り出す。unit=-1 の history は書かない。間隔が 0 以下なら matching-plane・spectrum・
+  !! 固定電流 history を止め、電荷・要素電位 history は毎 batch 扱いにする。
+  subroutine resolve_history_outputs()
+    integer(i32) :: history_stride
+
+    hist_unit = -1
+    pot_hist_unit = -1
+    top_ref_hist_unit = -1
+    matching_hist_unit = -1
+    spectrum_hist_unit = -1
+    fixed_hist_unit = -1
+    secondary_hist_unit = -1
+    history_stride = 1_i32
+    if (present(outputs)) then
+      hist_unit = outputs%history_unit
+      pot_hist_unit = outputs%potential_history_unit
+      top_ref_hist_unit = outputs%top_reference_history_unit
+      matching_hist_unit = outputs%matching_plane_history_unit
+      spectrum_hist_unit = outputs%matching_plane_spectrum_history_unit
+      fixed_hist_unit = outputs%fixed_current_history_unit
+      secondary_hist_unit = outputs%secondary_emission_history_unit
+      history_stride = outputs%history_stride
+      if (allocated(outputs%mesh_potential_v)) deallocate (outputs%mesh_potential_v)
+    end if
+    history_enabled = hist_unit /= -1
+    potential_history_enabled = pot_hist_unit /= -1
+    top_reference_history_enabled = top_ref_hist_unit /= -1
+    matching_history_enabled = matching_hist_unit /= -1 .and. history_stride > 0_i32
+    spectrum_history_enabled = spectrum_hist_unit /= -1 .and. history_stride > 0_i32
+    fixed_history_enabled = fixed_hist_unit /= -1 .and. history_stride > 0_i32
+    secondary_history_enabled = secondary_hist_unit /= -1
+    hist_stride = max(1_i32, history_stride)
+    allocate ( &
+      fixed_window_tracked(3, app%n_particle_species), fixed_window_target(3, app%n_particle_species), &
+      fixed_window_active(3, app%n_particle_species) &
+      )
+    call reset_fixed_current_window()
+    if (potential_history_enabled) allocate (potential_buf(mesh%nelem))
+  end subroutine resolve_history_outputs
+
+  !> 再開 batch を検査し、場ソルバ・浮遊導体・外部根の更新を初期化して、replay と共有 pool の作業領域を用意する。
+  subroutine initialize_fields()
+    type(field_physics_config) :: field_config
+    type(panel_kernel_config) :: panel_config
+
+    bfield = app%sim%b0
+    final_batch_idx = app%sim%batch_count
+    if (stats%batches < 0_i32 .or. stats%batches > final_batch_idx) then
+      error stop 'checkpoint batch count is outside run.batch_count.'
+    end if
+    if (.not. adaptive_nonzero_mode .and. stats%batches > 0_i32 .and. stats%simulated_time == 0.0_dp) then
+      stats%simulated_time = real(stats%batches, dp)*app%sim%batch_duration
+    end if
+    batch_count_this_run = final_batch_idx - stats%batches
+
+    call perf_region_begin(perf_region_simulation_total, sim_t0)
+    call perf_region_begin(perf_region_field_solver_init, t0)
+    call derive_field_panel_config(app%sim, field_config, panel_config)
+    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
+    call conductor_solver%init(mesh, app%sim, snapshot)
+    call perf_region_end(perf_region_field_solver_init, t0)
+    call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)
+    call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .true.)
+    call record_matching_fields(stats, snapshot, surface_closure, mesh)
+
+    if (replay_active) then
+      if (present(inject_state)) then
+        if (allocated(inject_state%macro_residual)) allocate (injection_residual_before(size(inject_state%macro_residual)))
+        if (allocated(inject_state%boundary_macro_residual)) then
+          allocate ( &
+            boundary_injection_residual_before( &
+            size(inject_state%boundary_macro_residual, 1), size(inject_state%boundary_macro_residual, 2) &
+            ) &
+            )
+        end if
+      end if
+    end if
+    adaptive_potential_step = 0.0_dp
+
+    shared_pool = trim(app%sim%particle_distribution) == 'shared'
+    if (shared_pool) call pool_counter%init(mpi_ctx)
+  end subroutine initialize_fields
+
+  !> batch の trial を実行し、adaptive nonzero-mode の電位変化が上限に収まるまで duration を半分にして
+  !! 注入残差と場の状態を巻き戻してやり直す。受理した trial の粒子と closure が workspace に残る。
+  subroutine run_accepted_trial()
+    integer(i32) :: species_idx, particle_team_size_min, particle_team_size_max
+    real(dp) :: duration_ratio, adaptive_metric_values(1)
+    logical :: trial_accepted
 
     trial_batch_duration = app%sim%batch_duration
     trial_halvings = 0_i32
@@ -268,20 +303,7 @@ contains
         )
       call perf_region_end(perf_region_prepare_batch, t0)
       fresh_particle_count = pcls_batch%n
-
-      photo_failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
-      call mpi_allreduce_sum_i32_scalar(mpi_ctx, photo_failure_count)
-      if (photo_failure_count > 0_i32) then
-        photo_local_failure_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
-        call mpi_select_lowest_rank_i32_values( &
-          mpi_ctx, photo_failure_status /= collision_query_ok, photo_local_failure_values, &
-          photo_failure_rank, photo_selected_failure_values &
-          )
-        call stop_for_photo_collision_failure( &
-          batch_idx, photo_failure_rank, photo_selected_failure_values(1), photo_selected_failure_values(2), &
-          photo_selected_failure_values(3), photo_selected_failure_values(4) &
-          )
-      end if
+      call stop_on_photo_collision_failure()
 
       call perf_region_begin(perf_region_particle_batch, t0)
       ! Every trial of a batch starts the shared pool from slot 1 again.
@@ -314,25 +336,7 @@ contains
         end if
       end if
 
-      collision_failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
-      call mpi_allreduce_sum_i32_scalar(mpi_ctx, collision_failure_count)
-      if (collision_failure_count > 0_i32) then
-        local_failure_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
-        call mpi_select_lowest_rank_i32_values( &
-          mpi_ctx, collision_failure_status /= collision_query_ok, local_failure_values, &
-          collision_failure_rank, selected_failure_values &
-          )
-        selected_failure_state = 0.0_dp
-        if (mpi_ctx%rank == collision_failure_rank) then
-          selected_failure_state(1:3) = collision_failure_x
-          selected_failure_state(4:6) = collision_failure_v
-        end if
-        call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_failure_state)
-        call stop_for_collision_failure( &
-          batch_idx, collision_failure_rank, selected_failure_values(1), selected_failure_values(2), &
-          selected_failure_values(3), trial_app%sim%dt, selected_failure_state(1:3), selected_failure_state(4:6) &
-          )
-      end if
+      call stop_on_particle_step_failure()
 
       call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
       call apply_fixed_surface_current_closure( &
@@ -365,6 +369,52 @@ contains
         error stop 'adaptive nonzero-mode batch duration became invalid.'
       end if
     end do
+  end subroutine run_accepted_trial
+
+  !> photo ray の衝突判定が失敗した rank があれば、最小 rank の失敗を報告して止める。
+  subroutine stop_on_photo_collision_failure()
+    integer(i32) :: failure_count, failure_rank, local_values(4), selected_values(4)
+
+    failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, failure_count)
+    if (failure_count == 0_i32) return
+    local_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+    call mpi_select_lowest_rank_i32_values( &
+      mpi_ctx, photo_failure_status /= collision_query_ok, local_values, failure_rank, selected_values &
+      )
+    call stop_for_photo_collision_failure( &
+      batch_idx, failure_rank, selected_values(1), selected_values(2), selected_values(3), selected_values(4) &
+      )
+  end subroutine stop_on_photo_collision_failure
+
+  !> 粒子 step が失敗した rank があれば、最小 rank の失敗の粒子・位置・速度を報告して止める。
+  subroutine stop_on_particle_step_failure()
+    integer(i32) :: failure_count, failure_rank, local_values(3), selected_values(3)
+    real(dp) :: selected_state(6)
+
+    failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+    call mpi_allreduce_sum_i32_scalar(mpi_ctx, failure_count)
+    if (failure_count == 0_i32) return
+    local_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+    call mpi_select_lowest_rank_i32_values( &
+      mpi_ctx, collision_failure_status /= collision_query_ok, local_values, failure_rank, selected_values &
+      )
+    selected_state = 0.0_dp
+    if (mpi_ctx%rank == failure_rank) then
+      selected_state(1:3) = collision_failure_x
+      selected_state(4:6) = collision_failure_v
+    end if
+    call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_state)
+    call stop_for_collision_failure( &
+      batch_idx, failure_rank, selected_values(1), selected_values(2), &
+      selected_values(3), trial_app%sim%dt, selected_state(1:3), selected_state(4:6) &
+      )
+  end subroutine stop_on_particle_step_failure
+
+  !> 受理した trial の粒子の終端を数えて rank 合計し、soft-discard の上限を検査する。
+  subroutine reduce_batch_outcomes()
+    integer(i64) :: pool_claim_counts(1)
+    real(dp) :: pool_claim_values(1)
 
     call perf_region_begin(perf_region_count_outcomes, t0)
     call count_batch_outcomes( &
@@ -390,6 +440,13 @@ contains
       app%sim, stats, batch_idx, batch_counts(6), batch_counts(1), batch_soft_discarded_abs_charge, mpi_ctx &
       )
     call report_soft_discard_summary(batch_idx, batch_counts(6), batch_soft_discarded_abs_charge, mpi_ctx)
+  end subroutine reduce_batch_outcomes
+
+  !> 受理した batch の統計更新を stats_candidate に組み立てる。overflow の検査は全て通ってから commit する。
+  subroutine build_stats_candidate()
+    integer(i64) :: secondary_count_values(3*app%n_particle_species)
+    real(dp) :: secondary_real_values(2*app%n_particle_species), projected_simulated_time
+
     projected_simulated_time = stats%simulated_time + trial_batch_duration
     if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp .or. &
         .not. ieee_is_finite(projected_simulated_time)) then
@@ -423,28 +480,23 @@ contains
                                                               trial_halvings &
                                                               )
     end if
+  end subroutine build_stats_candidate
 
-    if (ledger_enabled) then
-      call batch_ledger%reset(batch_idx)
-      batch_ledger%surface_charge_before = finite_charge_sum(mesh%q_elem, 'batch surface charge before commit')
-      call record_batch_initial_charge(trial_app, pcls_batch, fresh_particle_count, batch_ledger)
-      call record_batch_outcome_charge( &
-        pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
-        workspace%soft_discarded_boundary_flag, batch_ledger &
-        )
-      call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
-      batch_ledger%neutral_return_correction = workspace%neutral_return_correction
-      batch_ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
-      batch_ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
-      batch_ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
-      batch_ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
-      batch_ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
-      batch_ledger%fixed_emission_weight_scale = workspace%fixed_emission_weight_scale
-      batch_ledger%fixed_escape_target_charge = workspace%fixed_escape_target_charge
-      batch_ledger%fixed_escape_correction = workspace%fixed_escape_correction
-      batch_ledger%fixed_current_correction = workspace%fixed_current_correction
-    end if
+  !> 表面電荷の commit 前に、この batch の注入・終端・closure 補正を batch ledger に記録する。
+  subroutine record_batch_ledger()
+    call batch_ledger%reset(batch_idx)
+    batch_ledger%surface_charge_before = finite_charge_sum(mesh%q_elem, 'batch surface charge before commit')
+    call record_batch_initial_charge(trial_app, pcls_batch, fresh_particle_count, batch_ledger)
+    call record_batch_outcome_charge( &
+      pcls_batch, workspace%escaped_boundary_flag, workspace%absorbed_flag, &
+      workspace%soft_discarded_boundary_flag, batch_ledger &
+      )
+    call reduce_charge_ledger_fluxes(batch_ledger, mpi_ctx, workspace)
+    call copy_closure_corrections_to_ledger(workspace, batch_ledger)
+  end subroutine record_batch_ledger
 
+  !> 表面電荷を commit し、外部根の更新・壁電位の固定・matching-plane receipt を進めて統計を確定する。
+  subroutine commit_accepted_batch()
     call perf_region_begin(perf_region_commit_charge, t0)
     call commit_batch_charge(mesh, app%sim, snapshot, conductor_solver, workspace, rel, mpi_ctx)
     call perf_region_end(perf_region_commit_charge, t0)
@@ -466,72 +518,69 @@ contains
     call perf_region_begin(perf_region_stats_update, t0)
     stats = stats_candidate
     call perf_region_end(perf_region_stats_update, t0)
+  end subroutine commit_accepted_batch
 
-    call perf_region_begin(perf_region_history_write, t0)
-    if (mpi_is_root(mpi_ctx)) then
-      if (secondary_history_enabled) then
-        call write_secondary_emission_history_rows(secondary_hist_unit, batch_idx, app, secondary_counts, secondary_values)
-      end if
-      call print_batch_progress(batch_idx, final_batch_idx, rel)
-      call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
-      if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
-        call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
-      end if
-      ! 外部源は更新時にだけ変わるので、スペクトルは間隔によらず更新した batch で書く。
-      if (spectrum_history_enabled .and. outflow_refreshed) then
-        call write_matching_plane_spectrum_history_rows(spectrum_hist_unit, batch_idx, stats%simulated_time, stats)
-      end if
-      if (fixed_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
-        call write_fixed_current_history_rows( &
-          fixed_hist_unit, batch_idx, stats%simulated_time, fixed_window_batches, fixed_window_active, &
-          fixed_window_tracked, fixed_window_target &
-          )
-        call reset_fixed_current_window()
-      end if
-      if (potential_history_enabled) then
-        call maybe_write_potential_history_snapshot( &
-          potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, app%sim, potential_buf, &
-          top_reference_history_enabled, top_ref_hist_unit, &
-          cell=cell &
-          )
-      end if
+  !> root rank で batch の進捗と各 history を書く。
+  subroutine write_batch_history()
+    if (secondary_history_enabled) then
+      call write_secondary_emission_history_rows(secondary_hist_unit, batch_idx, app, secondary_counts, secondary_values)
     end if
-    call perf_region_end(perf_region_history_write, t0)
-    call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
-    call perf_region_end(perf_region_batch_total, batch_t0)
-  end do
-  if (shared_pool) call pool_counter%destroy()
-  call perf_region_end(perf_region_simulation_total, sim_t0)
-!$ if (replay_active) call omp_set_dynamic(omp_dynamic_before)
-
-  if (present(outputs)) then
-    if (outputs%mesh_potential .and. mpi_is_root(mpi_ctx)) then
-      call snapshot%refresh(mesh)
-      allocate (outputs%mesh_potential_v(mesh%nelem))
-      call snapshot%compute_mesh_potential(mesh, app%sim, outputs%mesh_potential_v)
+    call print_batch_progress(batch_idx, final_batch_idx, rel)
+    call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
+    if (matching_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
+      call write_matching_plane_history_snapshot(matching_hist_unit, batch_idx, stats%simulated_time, stats)
     end if
-  end if
-  if (present(electrostatic_diagnostics)) then
-    call snapshot%get_diagnostics(electrostatic_diagnostics)
-    if (mpi_is_root(mpi_ctx) .and. app%sim%use_box) then
-      call snapshot%refresh(mesh)
-      call compute_wall_box_potential_statistics( &
-        mesh, app%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
+    ! 外部源は更新時にだけ変わるので、スペクトルは間隔によらず更新した batch で書く。
+    if (spectrum_history_enabled .and. outflow_refreshed) then
+      call write_matching_plane_spectrum_history_rows(spectrum_hist_unit, batch_idx, stats%simulated_time, stats)
+    end if
+    if (fixed_history_enabled .and. mod(batch_idx - 1_i32, hist_stride) == 0_i32) then
+      call write_fixed_current_history_rows( &
+        fixed_hist_unit, batch_idx, stats%simulated_time, fixed_window_batches, fixed_window_active, &
+        fixed_window_tracked, fixed_window_target &
+        )
+      call reset_fixed_current_window()
+    end if
+    if (potential_history_enabled) then
+      call maybe_write_potential_history_snapshot( &
+        potential_history_enabled, pot_hist_unit, hist_stride, stats, snapshot, mesh, app%sim, potential_buf, &
+        top_reference_history_enabled, top_ref_hist_unit, &
         cell=cell &
         )
-      electrostatic_diagnostics%top_reference_available = .true.
-      electrostatic_diagnostics%top_reference_last_batch = stats%batches
-      electrostatic_diagnostics%top_reference_simulated_time = stats%simulated_time
-      electrostatic_diagnostics%top_reference_z_high = cell%wall_coordinate()
-      electrostatic_diagnostics%top_reference_sample_n = app%sim%injection_face_phi_grid_n
-      electrostatic_diagnostics%top_reference_potential_mean = top_phi_mean
-      electrostatic_diagnostics%top_reference_potential_std = top_phi_std
-      electrostatic_diagnostics%top_reference_potential_min = top_phi_min
-      electrostatic_diagnostics%top_reference_potential_max = top_phi_max
     end if
-  end if
+  end subroutine write_batch_history
 
-contains
+  !> 終了時のメッシュ電位と静電診断（z-high 参照電位の統計を含む）を返す。
+  subroutine finish_run_outputs()
+    real(dp) :: top_phi_mean, top_phi_std, top_phi_min, top_phi_max
+
+    if (present(outputs)) then
+      if (outputs%mesh_potential .and. mpi_is_root(mpi_ctx)) then
+        call snapshot%refresh(mesh)
+        allocate (outputs%mesh_potential_v(mesh%nelem))
+        call snapshot%compute_mesh_potential(mesh, app%sim, outputs%mesh_potential_v)
+      end if
+    end if
+    if (present(electrostatic_diagnostics)) then
+      call snapshot%get_diagnostics(electrostatic_diagnostics)
+      if (mpi_is_root(mpi_ctx) .and. app%sim%use_box) then
+        call snapshot%refresh(mesh)
+        call compute_wall_box_potential_statistics( &
+          mesh, app%sim, snapshot, top_phi_mean, top_phi_std, top_phi_min, top_phi_max, &
+          cell=cell &
+          )
+        electrostatic_diagnostics%top_reference_available = .true.
+        electrostatic_diagnostics%top_reference_last_batch = stats%batches
+        electrostatic_diagnostics%top_reference_simulated_time = stats%simulated_time
+        electrostatic_diagnostics%top_reference_z_high = cell%wall_coordinate()
+        electrostatic_diagnostics%top_reference_sample_n = app%sim%injection_face_phi_grid_n
+        electrostatic_diagnostics%top_reference_potential_mean = top_phi_mean
+        electrostatic_diagnostics%top_reference_potential_std = top_phi_std
+        electrostatic_diagnostics%top_reference_potential_min = top_phi_min
+        electrostatic_diagnostics%top_reference_potential_max = top_phi_max
+      end if
+    end if
+  end subroutine finish_run_outputs
 
   subroutine reset_fixed_current_window()
     fixed_window_batches = 0_i32
@@ -555,6 +604,23 @@ contains
     fixed_window_batches = fixed_window_batches + 1_i32
   end subroutine accumulate_fixed_current_window
   end procedure run_absorption_insulator
+
+  !> neutral_return と固定電流 closure がこの batch に当てた補正を ledger の receipt へ写す。
+  subroutine copy_closure_corrections_to_ledger(workspace, ledger)
+    type(simulator_batch_workspace_type), intent(in) :: workspace
+    type(charge_ledger_type), intent(inout) :: ledger
+
+    ledger%neutral_return_correction = workspace%neutral_return_correction
+    ledger%neutral_return_weight_scale = workspace%neutral_return_weight_scale
+    ledger%neutral_return_unresolved_fraction = workspace%neutral_return_unresolved_fraction
+    ledger%fixed_absorbed_target_charge = workspace%fixed_absorbed_target_charge
+    ledger%fixed_absorbed_weight_scale = workspace%fixed_absorbed_weight_scale
+    ledger%fixed_emission_target_charge = workspace%fixed_emission_target_charge
+    ledger%fixed_emission_weight_scale = workspace%fixed_emission_weight_scale
+    ledger%fixed_escape_target_charge = workspace%fixed_escape_target_charge
+    ledger%fixed_escape_correction = workspace%fixed_escape_correction
+    ledger%fixed_current_correction = workspace%fixed_current_correction
+  end subroutine copy_closure_corrections_to_ledger
 
   !> 外部シース解が与える壁電位を、z-high面の水平平均電位として周期k=0成分へ固定する。
   subroutine apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi, warn_if_unavailable)
