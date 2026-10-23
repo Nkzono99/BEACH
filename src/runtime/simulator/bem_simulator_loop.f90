@@ -30,10 +30,12 @@ contains
   integer(i32) :: trial_halvings, species_idx, fresh_particle_count
   integer(i32) :: boundary_status
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
+  integer :: secondary_hist_unit
   logical :: history_enabled, potential_history_enabled, top_reference_history_enabled
   logical :: ledger_enabled, adaptive_nonzero_mode, trial_accepted, omp_dynamic_before
   logical :: replay_active, matching_history_enabled, outflow_refreshed, fixed_history_enabled
-  logical :: spectrum_history_enabled
+  logical :: spectrum_history_enabled, secondary_history_enabled
+  integer(i32) :: history_stride
   integer(i32) :: fixed_window_batches
   ! 固定電流historyの窓合計。(channel, species)、channelは1=吸収、2=放出、3=脱出。
   real(dp), allocatable :: fixed_window_tracked(:, :), fixed_window_target(:, :)
@@ -136,54 +138,41 @@ contains
   call workspace%init(mesh%nelem, app%n_particle_species, nth, candidate_charge_enabled=adaptive_nonzero_mode)
   call evaluate_surface_closure(app, surface_closure, cell)
 
-  matching_history_enabled = present(matching_plane_history_unit)
+  ! 出力先の unit と間隔。unit=-1 の history は書かない。間隔が 0 以下なら matching-plane・spectrum・固定電流
+  ! history を止め、電荷・要素電位 history は毎 batch 扱いにする。
+  hist_unit = -1
+  pot_hist_unit = -1
+  top_ref_hist_unit = -1
   matching_hist_unit = -1
-  if (matching_history_enabled) then
-    matching_hist_unit = matching_plane_history_unit
-    matching_history_enabled = matching_hist_unit /= -1
-  end if
-
-  spectrum_history_enabled = present(matching_plane_spectrum_history_unit)
   spectrum_hist_unit = -1
-  if (spectrum_history_enabled) then
-    spectrum_hist_unit = matching_plane_spectrum_history_unit
-    spectrum_history_enabled = spectrum_hist_unit /= -1
-  end if
-
-  fixed_history_enabled = present(fixed_current_history_unit)
   fixed_hist_unit = -1
-  if (fixed_history_enabled) then
-    fixed_hist_unit = fixed_current_history_unit
-    fixed_history_enabled = fixed_hist_unit /= -1
+  secondary_hist_unit = -1
+  history_stride = 1_i32
+  if (present(outputs)) then
+    hist_unit = outputs%history_unit
+    pot_hist_unit = outputs%potential_history_unit
+    top_ref_hist_unit = outputs%top_reference_history_unit
+    matching_hist_unit = outputs%matching_plane_history_unit
+    spectrum_hist_unit = outputs%matching_plane_spectrum_history_unit
+    fixed_hist_unit = outputs%fixed_current_history_unit
+    secondary_hist_unit = outputs%secondary_emission_history_unit
+    history_stride = outputs%history_stride
+    if (allocated(outputs%mesh_potential_v)) deallocate (outputs%mesh_potential_v)
   end if
+  history_enabled = hist_unit /= -1
+  potential_history_enabled = pot_hist_unit /= -1
+  top_reference_history_enabled = top_ref_hist_unit /= -1
+  matching_history_enabled = matching_hist_unit /= -1 .and. history_stride > 0_i32
+  spectrum_history_enabled = spectrum_hist_unit /= -1 .and. history_stride > 0_i32
+  fixed_history_enabled = fixed_hist_unit /= -1 .and. history_stride > 0_i32
+  secondary_history_enabled = secondary_hist_unit /= -1
+  hist_stride = max(1_i32, history_stride)
   allocate ( &
     fixed_window_tracked(3, app%n_particle_species), fixed_window_target(3, app%n_particle_species), &
     fixed_window_active(3, app%n_particle_species) &
     )
   call reset_fixed_current_window()
-
-  history_enabled = present(history_unit)
-  hist_unit = 0
-  if (history_enabled) hist_unit = history_unit
-  hist_stride = 1_i32
-  if (present(history_stride)) then
-    matching_history_enabled = matching_history_enabled .and. history_stride > 0_i32
-    fixed_history_enabled = fixed_history_enabled .and. history_stride > 0_i32
-    spectrum_history_enabled = spectrum_history_enabled .and. history_stride > 0_i32
-    hist_stride = max(1_i32, history_stride)
-  end if
-  potential_history_enabled = present(potential_history_unit)
-  pot_hist_unit = -1
-  if (potential_history_enabled) then
-    pot_hist_unit = potential_history_unit
-    allocate (potential_buf(mesh%nelem))
-  end if
-  top_reference_history_enabled = present(top_reference_history_unit)
-  top_ref_hist_unit = -1
-  if (top_reference_history_enabled) then
-    top_ref_hist_unit = top_reference_history_unit
-    top_reference_history_enabled = top_ref_hist_unit /= -1
-  end if
+  if (potential_history_enabled) allocate (potential_buf(mesh%nelem))
 
   bfield = app%sim%b0
   final_batch_idx = app%sim%batch_count
@@ -480,11 +469,8 @@ contains
 
     call perf_region_begin(perf_region_history_write, t0)
     if (mpi_is_root(mpi_ctx)) then
-      if (present(secondary_emission_history_unit)) then
-        if (secondary_emission_history_unit /= -1) then
-          call write_secondary_emission_history_rows(secondary_emission_history_unit, batch_idx, app, &
-                                                     secondary_counts, secondary_values)
-        end if
+      if (secondary_history_enabled) then
+        call write_secondary_emission_history_rows(secondary_hist_unit, batch_idx, app, secondary_counts, secondary_values)
       end if
       call print_batch_progress(batch_idx, final_batch_idx, rel)
       call maybe_write_history_snapshot(history_enabled, hist_unit, hist_stride, stats, rel, mesh%q_elem)
@@ -518,10 +504,12 @@ contains
   call perf_region_end(perf_region_simulation_total, sim_t0)
 !$ if (replay_active) call omp_set_dynamic(omp_dynamic_before)
 
-  if (present(mesh_potential_v) .and. mpi_is_root(mpi_ctx)) then
-    call snapshot%refresh(mesh)
-    allocate (mesh_potential_v(mesh%nelem))
-    call snapshot%compute_mesh_potential(mesh, app%sim, mesh_potential_v)
+  if (present(outputs)) then
+    if (outputs%mesh_potential .and. mpi_is_root(mpi_ctx)) then
+      call snapshot%refresh(mesh)
+      allocate (outputs%mesh_potential_v(mesh%nelem))
+      call snapshot%compute_mesh_potential(mesh, app%sim, outputs%mesh_potential_v)
+    end if
   end if
   if (present(electrostatic_diagnostics)) then
     call snapshot%get_diagnostics(electrostatic_diagnostics)

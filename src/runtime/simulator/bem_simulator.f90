@@ -27,6 +27,7 @@ module bem_simulator
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure
+  use bem_run_outputs, only: run_outputs_type
   use bem_output_writer, only: write_matching_plane_history_snapshot, write_fixed_current_history_rows, &
                                write_matching_plane_spectrum_history_rows, write_secondary_emission_history_rows
   use bem_mpi, only: mpi_context, mpi_is_root, mpi_allreduce_sum_real_dp_array, mpi_allreduce_sum_real_dp_scalar, &
@@ -42,27 +43,18 @@ module bem_simulator
 
   interface
     module subroutine run_absorption_insulator( &
-      mesh, app, stats, history_unit, history_stride, initial_stats, inject_state, mpi, mesh_potential_v, &
-      potential_history_unit, top_reference_history_unit, charge_ledger, electrostatic_diagnostics, &
-    matching_plane_history_unit, fixed_current_history_unit, matching_plane_spectrum_history_unit, secondary_emission_history_unit &
+      mesh, app, stats, initial_stats, inject_state, mpi, charge_ledger, electrostatic_diagnostics, outputs &
       )
       type(mesh_type), intent(inout) :: mesh
       type(app_config), intent(in) :: app
       type(sim_stats), intent(out) :: stats
-      integer, intent(in), optional :: history_unit
-      integer(i32), intent(in), optional :: history_stride
       type(sim_stats), intent(in), optional :: initial_stats
       type(injection_state), intent(inout), optional :: inject_state
       type(mpi_context), intent(in), optional :: mpi
-      real(dp), allocatable, intent(out), optional :: mesh_potential_v(:)
-      integer, intent(in), optional :: potential_history_unit
-      integer, intent(in), optional :: top_reference_history_unit
       type(charge_ledger_type), intent(inout), optional :: charge_ledger
       type(electrostatic_diagnostics_type), intent(out), optional :: electrostatic_diagnostics
-      integer, intent(in), optional :: matching_plane_history_unit
-      integer, intent(in), optional :: fixed_current_history_unit
-      integer, intent(in), optional :: secondary_emission_history_unit
-      integer, intent(in), optional :: matching_plane_spectrum_history_unit
+      !> history の出力先と終了時のメッシュ電位。省略時は何も書かない。
+      type(run_outputs_type), intent(inout), optional :: outputs
     end subroutine run_absorption_insulator
 
     module subroutine prepare_batch_state( &

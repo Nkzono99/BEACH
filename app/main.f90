@@ -13,10 +13,8 @@ program main
   use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_checkpoint_contract, only: publish_checkpoint_manifest
-  use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
-                               open_matching_plane_history_writer, open_fixed_current_history_writer, &
-                               open_matching_plane_spectrum_history_writer, open_secondary_emission_history_writer, &
-                               print_run_summary, write_result_files, ensure_output_dir
+  use bem_output_writer, only: print_run_summary, write_result_files, ensure_output_dir
+  use bem_run_outputs, only: run_outputs_type, open_run_outputs, close_run_outputs
   use bem_app_config, only: app_config, default_app_config, load_app_config, build_mesh_from_config, &
                             seed_particles_from_config
   use bem_mesh, only: prepare_periodic2_collision_mesh
@@ -33,18 +31,9 @@ program main
   type(charge_ledger_type) :: charge_ledger
   type(electrostatic_diagnostics_type) :: electrostatic_diagnostics
   type(mpi_context) :: mpi
-  integer :: history_unit
-  integer :: potential_history_unit
-  integer :: top_reference_history_unit
-  integer :: matching_plane_history_unit
-  integer :: fixed_current_history_unit
-  integer :: secondary_emission_history_unit
-  logical :: secondary_emission_history_opened
-  integer :: matching_plane_spectrum_history_unit
-  logical :: history_opened, potential_history_opened, top_reference_history_opened, matching_plane_history_opened, resumed
-  logical :: fixed_current_history_opened, matching_plane_spectrum_history_opened
+  type(run_outputs_type) :: run_outputs
+  logical :: resumed
   real(dp) :: perf_t0, perf_program_t0
-  real(dp), allocatable :: mesh_potential_v(:)
   logical :: prepare_cache_only = .false.
 !$ integer :: schedule_env_status
 
@@ -64,148 +53,15 @@ program main
     call prepare_periodic_cache_and_stop()
   end if
   call perf_set_output_context(trim(app%output_dir), app%write_output)
-  if (mpi_is_root(mpi)) then
-    call perf_region_begin(perf_region_history_open, perf_t0)
-    call open_history_writer(app, resumed, history_opened, history_unit)
-    call open_potential_history_writer(app, resumed, potential_history_opened, potential_history_unit)
-    call open_top_reference_history_writer( &
-      app, resumed, top_reference_history_opened, top_reference_history_unit &
-      )
-    call open_matching_plane_history_writer( &
-      app, resumed, matching_plane_history_opened, matching_plane_history_unit &
-      )
-    call open_fixed_current_history_writer( &
-      app, resumed, fixed_current_history_opened, fixed_current_history_unit &
-      )
-    call open_matching_plane_spectrum_history_writer( &
-      app, resumed, matching_plane_spectrum_history_opened, matching_plane_spectrum_history_unit &
-      )
-    call open_secondary_emission_history_writer(app, resumed, secondary_emission_history_opened, &
-                                                secondary_emission_history_unit)
-    call perf_region_end(perf_region_history_open, perf_t0)
-  else
-    history_opened = .false.
-    history_unit = -1
-    potential_history_opened = .false.
-    potential_history_unit = -1
-    top_reference_history_opened = .false.
-    top_reference_history_unit = -1
-    matching_plane_history_opened = .false.
-    matching_plane_history_unit = -1
-    fixed_current_history_opened = .false.
-    fixed_current_history_unit = -1
-    matching_plane_spectrum_history_opened = .false.
-    matching_plane_spectrum_history_unit = -1
-    secondary_emission_history_unit = -1
-    secondary_emission_history_opened = .false.
-  end if
+  if (mpi_is_root(mpi)) call perf_region_begin(perf_region_history_open, perf_t0)
+  call open_run_outputs(app, resumed, mpi_is_root(mpi), run_outputs)
+  if (mpi_is_root(mpi)) call perf_region_end(perf_region_history_open, perf_t0)
 
-  if (history_opened) then
-    if (app%write_mesh_potential) then
-      if (potential_history_opened) then
-        call run_absorption_insulator( &
-          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, &
-          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      else
-        call run_absorption_insulator( &
-          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      end if
-    else
-      if (potential_history_opened) then
-        call run_absorption_insulator( &
-          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, &
-          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      else
-        call run_absorption_insulator( &
-          mesh, app, stats, history_unit=history_unit, history_stride=app%history_stride, initial_stats=initial_stats, &
-          inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      end if
-    end if
-    close (history_unit)
-  else
-    if (app%write_mesh_potential) then
-      if (potential_history_opened) then
-        call run_absorption_insulator( &
-          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          mesh_potential_v=mesh_potential_v, &
-          potential_history_unit=potential_history_unit, &
-          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      else
-        call run_absorption_insulator( &
-          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          mesh_potential_v=mesh_potential_v, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      end if
-    else
-      if (potential_history_opened) then
-        call run_absorption_insulator( &
-          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          potential_history_unit=potential_history_unit, &
-          top_reference_history_unit=top_reference_history_unit, charge_ledger=charge_ledger, &
-          electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      else
-        call run_absorption_insulator( &
-          mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, &
-          charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics, &
-          matching_plane_history_unit=matching_plane_history_unit, &
-          fixed_current_history_unit=fixed_current_history_unit, &
-          matching_plane_spectrum_history_unit=matching_plane_spectrum_history_unit, &
-          secondary_emission_history_unit=secondary_emission_history_unit &
-          )
-      end if
-    end if
-  end if
-  if (potential_history_opened) close (potential_history_unit)
-  if (top_reference_history_opened) close (top_reference_history_unit)
-  if (matching_plane_history_opened) close (matching_plane_history_unit)
-  if (fixed_current_history_opened) close (fixed_current_history_unit)
-  if (secondary_emission_history_opened) close (secondary_emission_history_unit)
-  if (matching_plane_spectrum_history_opened) close (matching_plane_spectrum_history_unit)
+  call run_absorption_insulator( &
+    mesh, app, stats, initial_stats=initial_stats, inject_state=inject_state, mpi=mpi, charge_ledger=charge_ledger, &
+    electrostatic_diagnostics=electrostatic_diagnostics, outputs=run_outputs &
+    )
+  call close_run_outputs(run_outputs)
 
   if (mpi_is_root(mpi)) call print_run_summary(mesh, stats)
 
@@ -213,9 +69,10 @@ program main
     call ensure_output_dir(app%output_dir)
     if (mpi_is_root(mpi)) then
       call perf_region_begin(perf_region_write_results, perf_t0)
-      if (allocated(mesh_potential_v)) then
+      if (allocated(run_outputs%mesh_potential_v)) then
         call write_result_files( &
-          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), mesh_potential_v=mesh_potential_v, &
+          trim(app%output_dir), mesh, stats, app, mpi_world_size=mpi_world_size(mpi), &
+          mesh_potential_v=run_outputs%mesh_potential_v, &
           charge_ledger=charge_ledger, electrostatic_diagnostics=electrostatic_diagnostics &
           )
       else
