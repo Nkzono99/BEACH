@@ -3,9 +3,9 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [4.0.0] - 2026-10-23
 
-以下の Python API と CLI の破壊的変更は、4.0 にまとめてリリースする。
+Python API と CLI の破壊的変更を含む。移行に必要な変更点を以下に示す。
 
 ### Changed
 
