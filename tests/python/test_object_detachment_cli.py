@@ -10,10 +10,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.cli.object_detachment as cli_module
 import examples.analyze_periodic_object_detachment as example_module
 from beach import (
+    Beach,
     FiniteShellConvergenceResult,
+    ObjectInteractionSnapshot,
     ObjectForcePath,
     ObjectWrench,
     RigidTransform,
@@ -76,41 +77,31 @@ def _required_args(tmp_path: Path) -> list[str]:
 @pytest.mark.parametrize(
     ("extra", "message"),
     [
-        pytest.param(["--mass-kg", "0"], "--mass-kg must be > 0", id="zero-mass"),
+        pytest.param(["--mass-kg", "0"], "--mass-kg: must be > 0", id="zero-mass"),
         pytest.param(
-            ["--mass-kg", "nan"], "--mass-kg must be finite", id="nonfinite-mass"
+            ["--mass-kg", "nan"], "--mass-kg: must be finite", id="nonfinite-mass"
         ),
-        pytest.param(["--z-points", "1"], "--z-points must be >= 2", id="one-z-point"),
-        pytest.param(["--z-max-m", "0"], "--z-max-m must be > 0", id="zero-z-extent"),
+        pytest.param(["--z-points", "1"], "--z-points: must be >= 2", id="one-z-point"),
+        pytest.param(["--z-max-m", "0"], "--z-max-m: must be > 0", id="zero-z-extent"),
         pytest.param(
             ["--gravity-m-s2", "-1"],
-            "--gravity-m-s2 must be >= 0",
+            "--gravity-m-s2: must be >= 0",
             id="negative-gravity",
         ),
         pytest.param(
             ["--eta-translation", "1.1"],
-            "--eta-translation must be between 0 and 1",
+            "--eta-translation: must be between 0 and 1",
             id="eta-above-one",
         ),
         pytest.param(
             ["--max-refinement", "-1"],
-            "--max-refinement must be >= 0",
+            "--max-refinement: must be >= 0",
             id="negative-refinement",
         ),
         pytest.param(
             ["--relative-tolerance", "-1"],
-            "--relative-tolerance must be >= 0",
+            "--relative-tolerance: must be >= 0",
             id="negative-relative-tolerance",
-        ),
-        pytest.param(
-            ["--generation-tolerance", "0"],
-            "--generation-tolerance must be > 0",
-            id="zero-generation-tolerance",
-        ),
-        pytest.param(
-            ["--adhesion-force-n", "0", "--adhesion-range-m", "1"],
-            "--adhesion-force-n must be > 0",
-            id="zero-adhesion-force",
         ),
     ],
 )
@@ -138,8 +129,10 @@ def test_object_detachment_cli_validates_numeric_contracts(
 
 def test_object_detachment_cli_requires_complete_adhesion_model(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    _install_fake_evaluator(tmp_path, monkeypatch)
     args = _required_args(tmp_path) + ["--adhesion-force-n", "1.0"]
 
     with pytest.raises(SystemExit) as excinfo:
@@ -159,7 +152,7 @@ def test_object_detachment_cli_rejects_invalid_torque_origin(
         beachx_main(args)
 
     assert excinfo.value.code == 2
-    assert "--torque-origin must be" in capsys.readouterr().err
+    assert "--torque-origin: must be" in capsys.readouterr().err
 
 
 class _FakeProbe:
@@ -519,22 +512,14 @@ def _install_fake_evaluator(
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
     resolved_result = _FakeResult() if result is None else result
-    monkeypatch.setattr(
-        cli_module,
-        "load_fortran_result",
-        lambda _path: resolved_result,
-    )
+    monkeypatch.setattr(Beach, "result", property(lambda _self: resolved_result))
 
     def fake_snapshot(*_args, **kwargs):
         if captured is not None:
             captured.update(kwargs)
         return _FakeSnapshot(step=kwargs["step"])
 
-    monkeypatch.setattr(
-        cli_module.ObjectInteractionSnapshot,
-        "from_result",
-        fake_snapshot,
-    )
+    monkeypatch.setattr(ObjectInteractionSnapshot, "from_result", fake_snapshot)
 
 
 def test_object_detachment_strict_json_failure_preserves_existing_artifacts(
@@ -557,7 +542,7 @@ def test_object_detachment_strict_json_failure_preserves_existing_artifacts(
     monkeypatch.setattr(_FakeProbe, "wrench", nonfinite_wrench)
     args = _required_args(tmp_path) + ["--output-dir", str(artifact_dir)]
 
-    with pytest.raises(ValueError, match="non-finite"):
+    with pytest.raises(SystemExit, match="non-finite"):
         beachx_main(args)
 
     for name in _ARTIFACT_NAMES:

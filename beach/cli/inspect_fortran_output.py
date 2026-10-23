@@ -5,29 +5,18 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
-from typing import Sequence
 
 from beach import Beach, compute_potential_mesh, list_fortran_runs
-from beach.plot._defaults import (
-    DEFAULT_MESH_VIEW_AZIM,
-    DEFAULT_MESH_VIEW_ELEV,
-)
 
-from ._shared import (
-    configure_entry_parser,
-    require_finite,
-)
-
-COMMAND_NAME = "inspect"
-LEGACY_COMMAND_NAME = "beach-inspect"
+from . import _options
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("output_dir", nargs="?", default="outputs/latest")
-    parser.add_argument(
-        "--show",
-        action="store_true",
-        help="display all matplotlib plots, including potential plots",
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``inspect`` options."""
+
+    _options.add_output_dir(parser)
+    _options.add_show(
+        parser, help="display all matplotlib plots, including potential plots"
     )
     parser.add_argument(
         "--save-bar", type=Path, default=None, help="save bar-chart figure path"
@@ -50,94 +39,16 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             "may be expensive"
         ),
     )
-    parser.add_argument(
-        "--library",
-        type=Path,
-        default=None,
-        help="path to libbeach_field_kernel shared library",
-    )
-    parser.add_argument(
-        "--view-elev",
-        type=float,
-        default=DEFAULT_MESH_VIEW_ELEV,
-        help="elevation angle [deg] for 3D mesh plots (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--view-azim",
-        type=float,
-        default=DEFAULT_MESH_VIEW_AZIM,
-        help="azimuth angle [deg] for 3D mesh plots (default: %(default)s)",
-    )
-    parser.add_argument(
-        "--apply-periodic2-mesh",
-        action="store_true",
-        help=(
-            "wrap each plotted triangle into the periodic2 cell from nearby "
-            "beach.toml using its centroid"
-        ),
-    )
-    parser.add_argument(
-        "--periodic2-mesh-mode",
-        choices=("centroid", "mesh"),
-        default="centroid",
-        help=(
-            "periodic2 wrapping unit for mesh plots; 'mesh' keeps each mesh_id "
-            "object intact"
-        ),
-    )
-    parser.add_argument(
-        "--periodic2-repeat",
-        type=int,
-        default=0,
-        help=(
-            "replicate the mesh over periodic images; n produces (2n+1)^2 copies "
-            "(default: 0 = no replication)"
-        ),
-    )
-    parser.add_argument(
-        "--axis-unit",
-        choices=("m", "um", "nm"),
-        default="m",
-        help="coordinate unit for 3D mesh plot axes",
-    )
+    _options.add_library(parser)
+    _options.add_view(parser)
+    _options.add_periodic2_mesh(parser)
+    _options.add_axis_unit(parser)
 
 
-def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
-    """Build the argument parser for output inspection CLI."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this command under the unified ``beachx`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="inspect Fortran output files",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the output-inspection command."""
 
-    parser = args._parser
-    require_finite(parser, args.view_elev, "--view-elev")
-    require_finite(parser, args.view_azim, "--view-azim")
-    if args.periodic2_repeat < 0:
-        parser.error("--periodic2-repeat must be >= 0.")
-
-    beach = Beach(args.output_dir)
-    try:
-        result = beach.result
-    except FileNotFoundError as exc:
-        raise SystemExit(
-            f'Fortran output files are missing under "{args.output_dir}". '
-            "Expected at least summary.txt and charges.csv."
-        ) from exc
+    result = beach.result
     print(f"directory={result.directory}")
     print(f"mesh_nelem={result.mesh_nelem}")
     print(f"processed_particles={result.processed_particles}")
@@ -196,54 +107,46 @@ def run(args: argparse.Namespace) -> None:
     need_mesh_plot = args.save_mesh is not None or args.show
     need_potential_mesh_plot = args.save_potential_mesh is not None or args.show
 
-    try:
-        if need_bar_plot:
-            bar_fig, _ = beach.plot_bar()
-            if args.save_bar is not None:
-                bar_fig.savefig(args.save_bar, dpi=150)
-                print(f"saved_bar={args.save_bar}")
+    if need_bar_plot:
+        bar_fig, _ = beach.plot_bar()
+        if args.save_bar is not None:
+            bar_fig.savefig(args.save_bar, dpi=150)
+            print(f"saved_bar={args.save_bar}")
 
-        if need_mesh_plot:
-            if result.triangles is not None:
-                mesh_fig, _ = beach.plot_mesh(
-                    view_elev=args.view_elev,
-                    view_azim=args.view_azim,
-                    apply_periodic2_mesh=args.apply_periodic2_mesh,
-                    periodic2_mesh_mode=args.periodic2_mesh_mode,
-                    periodic2_repeat=args.periodic2_repeat,
-                    axis_unit=args.axis_unit,
-                )
-                if args.save_mesh is not None:
-                    mesh_fig.savefig(args.save_mesh, dpi=150)
-                    print(f"saved_mesh={args.save_mesh}")
-            else:
-                print("mesh_triangles.csv not found; mesh visualization is skipped")
+    if need_mesh_plot:
+        if result.triangles is not None:
+            mesh_fig, _ = beach.plot_mesh(
+                view_elev=args.view_elev,
+                view_azim=args.view_azim,
+                apply_periodic2_mesh=args.apply_periodic2_mesh,
+                periodic2_mesh_mode=args.periodic2_mesh_mode,
+                periodic2_repeat=args.periodic2_repeat,
+                axis_unit=args.axis_unit,
+            )
+            if args.save_mesh is not None:
+                mesh_fig.savefig(args.save_mesh, dpi=150)
+                print(f"saved_mesh={args.save_mesh}")
+        else:
+            print("mesh_triangles.csv not found; mesh visualization is skipped")
 
-        if need_potential_mesh_plot:
-            if result.triangles is not None:
-                potential_mesh_fig, _ = beach.plot_potential(
-                    view_elev=args.view_elev,
-                    view_azim=args.view_azim,
-                    apply_periodic2_mesh=args.apply_periodic2_mesh,
-                    periodic2_mesh_mode=args.periodic2_mesh_mode,
-                    periodic2_repeat=args.periodic2_repeat,
-                    axis_unit=args.axis_unit,
-                    library_path=args.library,
-                )
-                if args.save_potential_mesh is not None:
-                    potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)
-                    print(f"saved_potential_mesh={args.save_potential_mesh}")
-            else:
-                print(
-                    "mesh_triangles.csv not found; potential mesh visualization is skipped"
-                )
-    except ModuleNotFoundError as exc:
-        if exc.name is not None and exc.name.startswith("matplotlib"):
-            raise SystemExit(
-                "matplotlib is required for visualization. "
-                "Install dependencies with `python -m pip install -e . --no-build-isolation`."
-            ) from exc
-        raise
+    if need_potential_mesh_plot:
+        if result.triangles is not None:
+            potential_mesh_fig, _ = beach.plot_potential(
+                view_elev=args.view_elev,
+                view_azim=args.view_azim,
+                apply_periodic2_mesh=args.apply_periodic2_mesh,
+                periodic2_mesh_mode=args.periodic2_mesh_mode,
+                periodic2_repeat=args.periodic2_repeat,
+                axis_unit=args.axis_unit,
+                library_path=args.library,
+            )
+            if args.save_potential_mesh is not None:
+                potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)
+                print(f"saved_potential_mesh={args.save_potential_mesh}")
+        else:
+            print(
+                "mesh_triangles.csv not found; potential mesh visualization is skipped"
+            )
 
     if args.show:
         import matplotlib.pyplot as plt
@@ -253,16 +156,6 @@ def run(args: argparse.Namespace) -> None:
     runs = list_fortran_runs(Path(args.output_dir).parent)
     if runs:
         print("sibling_runs=")
-        for run in runs:
-            print(f"  - {run}")
+        for sibling in runs:
+            print(f"  - {sibling}")
 
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the output-inspection CLI entry point."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

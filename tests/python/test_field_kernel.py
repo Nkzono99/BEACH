@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 import beach.native.kernel as kernel_module
-from beach.cli.kernel_forces import main as kernel_forces_main
+from beach.cli.main import main as beachx_main
 from beach import (
     BeachScene,
     FieldKernel,
@@ -1287,8 +1287,9 @@ def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
     )
     save_csv = tmp_path / "forces.csv"
 
-    kernel_forces_main(
+    beachx_main(
         [
+            "kernel-forces",
             str(out),
             "--config",
             str(config_path),

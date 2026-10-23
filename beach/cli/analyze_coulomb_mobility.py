@@ -5,39 +5,19 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import Sequence
 
 from beach import Beach
 
-from ._shared import (
-    configure_entry_parser,
-    require_nonnegative_finite,
-    require_positive_finite,
-)
-
-COMMAND_NAME = "mobility"
+from . import _options
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("output_dir", nargs="?", default="outputs/latest")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help="path to beach.toml (default: auto-detect near output_dir)",
-    )
-    parser.add_argument(
-        "--step",
-        type=int,
-        default=-1,
-        help="history batch step used for charges (-1: latest history)",
-    )
-    parser.add_argument(
-        "--library",
-        type=Path,
-        default=None,
-        help="path to libbeach_field_kernel shared library",
-    )
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``mobility`` options."""
+
+    _options.add_output_dir(parser)
+    _options.add_config(parser)
+    _options.add_step(parser)
+    _options.add_library(parser)
     parser.add_argument(
         "--gravity",
         nargs=3,
@@ -94,25 +74,6 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="output CSV path (default: <output_dir>/mobility_summary.csv)",
     )
-
-
-def build_parser(*, prog: str | None = COMMAND_NAME) -> argparse.ArgumentParser:
-    """Build the argument parser for Coulomb mobility CLI."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this command under the unified ``beachx`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="analyze object-wise Coulomb mobility indicators",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
 
 
 def _parse_kind_list(value: str | None) -> tuple[str, ...] | None:
@@ -195,49 +156,26 @@ def _write_csv(path: Path, analysis) -> None:
             )
 
 
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the Coulomb mobility command."""
 
-    parser = args._parser
-    require_nonnegative_finite(parser, args.adhesion_force_N, "--adhesion-force-N")
-    require_positive_finite(parser, args.density_kg_m3, "--density-kg-m3")
-    require_nonnegative_finite(parser, args.mu_static, "--mu-static")
-    require_nonnegative_finite(parser, args.mu_roll, "--mu-roll")
-
-    output_dir = Path(args.output_dir)
     save_csv = (
         args.save_csv
         if args.save_csv is not None
-        else output_dir / "mobility_summary.csv"
+        else args.output_dir / "mobility_summary.csv"
     )
-    support_kinds = _parse_kind_list(args.support_kinds)
-    target_kinds = _parse_kind_list(args.target_kinds)
-
-    beach = Beach(output_dir)
-    try:
-        beach.result
-    except FileNotFoundError as exc:
-        raise SystemExit(
-            f'Fortran output files are missing under "{output_dir}". '
-            "Expected at least summary.txt and charges.csv."
-        ) from exc
-
-    try:
-        analysis = beach.analyze_coulomb_mobility(
-            step=args.step,
-            config_path=args.config,
-            library_path=args.library,
-            gravity=args.gravity,
-            support_normal=args.support_normal,
-            support_kinds=support_kinds,
-            target_kinds=target_kinds,
-            density_kg_m3=args.density_kg_m3,
-            mu_static=args.mu_static,
-            mu_roll=args.mu_roll,
-            adhesion_force_N=args.adhesion_force_N,
-        )
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
+    analysis = beach.analyze_coulomb_mobility(
+        step=args.step,
+        library_path=args.library,
+        gravity=args.gravity,
+        support_normal=args.support_normal,
+        support_kinds=_parse_kind_list(args.support_kinds),
+        target_kinds=_parse_kind_list(args.target_kinds),
+        density_kg_m3=args.density_kg_m3,
+        mu_static=args.mu_static,
+        mu_roll=args.mu_roll,
+        adhesion_force_N=args.adhesion_force_N,
+    )
 
     _write_csv(save_csv, analysis)
 
@@ -260,13 +198,3 @@ def run(args: argparse.Namespace) -> None:
         if record.notes:
             print(f"notes[{record.label}]={'; '.join(record.notes)}")
 
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the Coulomb mobility CLI entry point."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

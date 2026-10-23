@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Backward-compatible wrapper for the close-packed model generator."""
+"""Backward-compatible wrapper for ``beachx model close-pack``."""
 
-from beach.cli.model_close_pack import main
+import sys
+
+from beach.cli.main import main
 
 
 if __name__ == "__main__":
-    main()
+    main(["model", "close-pack", *sys.argv[1:]])

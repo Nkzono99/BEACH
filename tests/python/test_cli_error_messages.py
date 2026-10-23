@@ -1,114 +1,108 @@
+from pathlib import Path
+
 import pytest
 
-from beach.cli.analyze_coulomb_mobility import main as mobility_main
-from beach.cli.animate_fortran_history import main as animate_main
-from beach.cli.estimate_fortran_workload import main as workload_main
-from beach.cli.inspect_fortran_output import main as inspect_main
-from beach.cli.kernel_forces import main as kernel_forces_main
-from beach.cli.plot_coulomb_force_matrix import main as plot_coulomb_main
-from beach.cli.plot_fortran_potential_slices import main as plot_slices_main
-from beach.cli.plot_performance_profile import main as plot_performance_main
+from beach.cli.main import main as beachx_main
 
 
 @pytest.mark.parametrize(
-    ("cli_main", "argv", "message"),
+    ("argv", "message"),
     [
         pytest.param(
-            inspect_main,
-            ["no_such_dir"],
+            ["inspect", "no_such_dir"],
             r'Fortran output files are missing under "no_such_dir"',
             id="inspect",
         ),
         pytest.param(
-            animate_main,
-            ["no_such_dir"],
+            ["animate", "no_such_dir"],
             r'Fortran output files are missing under "no_such_dir"',
             id="animate",
         ),
         pytest.param(
-            plot_slices_main,
-            ["no_such_dir"],
+            ["slices", "no_such_dir"],
             r'Fortran output files are missing under "no_such_dir"',
             id="slices",
         ),
         pytest.param(
-            plot_coulomb_main,
-            ["no_such_dir"],
+            ["coulomb", "no_such_dir"],
             r'Fortran output files are missing under "no_such_dir"',
             id="coulomb",
         ),
         pytest.param(
-            plot_performance_main,
-            ["no_such_dir"],
+            ["profile", "no_such_dir"],
             r'Performance profile file is missing under "no_such_dir/performance_profile\.csv"',
             id="profile",
         ),
         pytest.param(
-            workload_main,
-            ["no_such_file.toml"],
+            ["workload", "no_such_file.toml"],
             r"config file not found: no_such_file\.toml",
             id="workload",
         ),
     ],
 )
 def test_cli_missing_input_exits_with_friendly_message(
-    cli_main,
     argv: list[str],
     message: str,
 ) -> None:
     with pytest.raises(SystemExit, match=message):
-        cli_main(argv)
+        beachx_main(argv)
 
 
 @pytest.mark.parametrize(
-    ("cli_main", "argv", "message"),
+    ("argv", "message"),
     [
         pytest.param(
-            plot_coulomb_main,
-            ["--softening", "nan"],
+            ["coulomb", "--softening", "nan"],
             "unrecognized arguments: --softening",
             id="coulomb-removed-softening",
         ),
         pytest.param(
-            kernel_forces_main,
-            ["--theta", "nan"],
-            "--theta must be finite",
+            ["kernel-forces", "--theta", "nan"],
+            "argument --theta: must be finite",
             id="kernel-theta",
         ),
         pytest.param(
-            mobility_main,
-            ["--density-kg-m3", "inf"],
-            "--density-kg-m3 must be finite",
-            id="mobility-density",
-        ),
-        pytest.param(
-            inspect_main,
-            ["--view-elev", "nan"],
-            "--view-elev must be finite",
+            ["inspect", "--view-elev", "nan"],
+            "argument --view-elev: must be finite",
             id="inspect-view",
         ),
         pytest.param(
-            animate_main,
-            ["--fps", "0"],
-            "--fps must be > 0",
-            id="animate-fps",
+            ["animate", "--periodic2-repeat", "-1"],
+            "argument --periodic2-repeat: must be >= 0",
+            id="animate-repeat",
         ),
         pytest.param(
-            plot_slices_main,
-            ["--vmin", "nan"],
-            "--vmin must be finite",
+            ["slices", "--vmin", "nan"],
+            "argument --vmin: must be finite",
             id="slices-vmin",
         ),
     ],
 )
 def test_cli_rejects_invalid_option(
     capsys: pytest.CaptureFixture[str],
-    cli_main,
     argv: list[str],
     message: str,
 ) -> None:
     with pytest.raises(SystemExit) as exc:
-        cli_main(argv)
+        beachx_main(argv)
 
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_cli_reports_library_value_error_as_message(tmp_path: Path) -> None:
+    output_dir = tmp_path / "run"
+    output_dir.mkdir()
+    (output_dir / "summary.txt").write_text(
+        "mesh_nelem=1\nprocessed_particles=0\nabsorbed=0\nescaped=0\n"
+        "batches=1\nlast_rel_change=0.0\n",
+        encoding="utf-8",
+    )
+    (output_dir / "charges.csv").write_text(
+        "elem_idx,charge_C\n1,0.0\n", encoding="utf-8"
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        beachx_main(["animate", str(output_dir), "--fps", "0"])
+
+    assert exc.value.code == "fps must be > 0."

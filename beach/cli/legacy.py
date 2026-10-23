@@ -2,56 +2,51 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Sequence
 
-from . import (
-    animate_fortran_history,
-    estimate_fortran_workload,
-    inspect_fortran_output,
-    plot_coulomb_force_matrix,
-    plot_fortran_potential_slices,
-    plot_performance_profile,
-)
-from ._shared import print_legacy_warning
+from ._registry import main
+
+
+def _forward(legacy_name: str, subcommand: str, argv: Sequence[str] | None) -> None:
+    print(
+        f"WARNING: `{legacy_name}` is deprecated; use `beachx {subcommand}` instead.",
+        file=sys.stderr,
+    )
+    main([subcommand, *(sys.argv[1:] if argv is None else argv)])
 
 
 def inspect_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-inspect`` alias."""
 
-    print_legacy_warning("beach-inspect", "inspect")
-    inspect_fortran_output.main(argv)
+    _forward("beach-inspect", "inspect", argv)
 
 
 def animate_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-animate-history`` alias."""
 
-    print_legacy_warning("beach-animate-history", "animate")
-    animate_fortran_history.main(argv)
+    _forward("beach-animate-history", "animate", argv)
 
 
 def coulomb_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-plot-coulomb-force-matrix`` alias."""
 
-    print_legacy_warning("beach-plot-coulomb-force-matrix", "coulomb")
-    plot_coulomb_force_matrix.main(argv)
+    _forward("beach-plot-coulomb-force-matrix", "coulomb", argv)
 
 
 def slices_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-plot-potential-slices`` alias."""
 
-    print_legacy_warning("beach-plot-potential-slices", "slices")
-    plot_fortran_potential_slices.main(argv)
+    _forward("beach-plot-potential-slices", "slices", argv)
 
 
 def workload_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-estimate-workload`` alias."""
 
-    print_legacy_warning("beach-estimate-workload", "workload")
-    estimate_fortran_workload.main(argv)
+    _forward("beach-estimate-workload", "workload", argv)
 
 
 def profile_main(argv: Sequence[str] | None = None) -> None:
     """Run the deprecated ``beach-plot-performance-profile`` alias."""
 
-    print_legacy_warning("beach-plot-performance-profile", "profile")
-    plot_performance_profile.main(argv)
+    _forward("beach-plot-performance-profile", "profile", argv)

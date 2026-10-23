@@ -7,6 +7,7 @@ import pytest
 
 from beach import Beach
 from beach.cli import inspect_fortran_output as inspect_cli
+from beach.cli.main import main as beachx_main
 
 
 def _write_inspect_fixture(
@@ -67,7 +68,7 @@ def test_inspect_without_precomputed_potential_does_not_compute(
         _fail_if_potential_is_computed,
     )
 
-    inspect_cli.main([str(output_dir)])
+    beachx_main(["inspect", str(output_dir)])
 
     output = capsys.readouterr().out
     assert "mesh_nelem=2" in output
@@ -95,7 +96,7 @@ def test_inspect_reports_precomputed_potential_without_compute(
         _fail_if_potential_is_computed,
     )
 
-    inspect_cli.main([str(output_dir)])
+    beachx_main(["inspect", str(output_dir)])
 
     output = capsys.readouterr().out
     assert "potential_min=-2.500000e+00" in output
@@ -124,8 +125,9 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
 
     monkeypatch.setattr(inspect_cli, "compute_potential_mesh", fake_compute)
 
-    inspect_cli.main(
+    beachx_main(
         [
+            "inspect",
             str(output_dir),
             "--recompute-potential",
             "--library",
@@ -167,7 +169,7 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
 
     monkeypatch.setattr(Beach, "plot_potential", fake_plot)
 
-    inspect_cli.main([str(output_dir), "--save-potential-mesh", str(save_path)])
+    beachx_main(["inspect", str(output_dir), "--save-potential-mesh", str(save_path)])
 
     output = capsys.readouterr().out
     assert len(plot_calls) == 1
