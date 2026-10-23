@@ -91,6 +91,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- runops adapter に `progress(run_dir)` を追加した（runops >= 2.5 が `runo sync` で呼ぶ）。manifest の job の
+  stdout から現在の batch と `run.batch_count` を返し、再開した run は先頭の `resuming_from_batches=` を `start` として
+  返す。runops はこれを時刻付きで保存し、再開点から数えた速度と残り時間を `runo status` / `list` に出す。
+- wheel の agent context（`beach.agent_context`）に `plugins/beach-context/docs/` を含めた。skill が参照する
+  `../../docs/*.md` が runops の展開先（`beach-docs`）で読めるようになる。
 - `beachx inspect`、`mobility`、`kernel-forces`、`coulomb`、`object-detachment`、`workload` に `--json` を追加した。
   `key=value` 行と同じ内容を JSON 1 オブジェクトで標準出力に出す。表は配列（`objects`、`batch_details`、
   `mesh_sources`、`force_matrix`）、非有限値は文字列 `"inf"` / `"-inf"` / `"nan"` になる。`object-detachment` は

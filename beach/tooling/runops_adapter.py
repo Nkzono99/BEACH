@@ -47,6 +47,7 @@ CHECKPOINT_FILES = (
 )
 ERROR_WORDS = ("error", "fatal", "killed", "oom")
 BATCH_RE = re.compile(r"\bbatch\s+(\d+)\s*/\s*(\d+)\b", re.IGNORECASE)
+RESUME_RE = re.compile(r"^resuming_from_batches\s*=\s*(\d+)", re.MULTILINE)
 TAIL_BYTES = 256 * 1024
 
 _PACKAGE_DIR = Path(__file__).resolve().parents[1]
@@ -238,6 +239,27 @@ class Adapter:
     def agent_context_dir(self) -> Path | None:
         return agent_context_path()
 
+    def progress(self, run_dir: Path) -> dict[str, Any] | None:
+        """Batches of the latest job for ``runo sync`` (runops >= 2.5).
+
+        ``start`` is the batch a resumed run continued from (``resuming_from_batches=``
+        at the top of stdout), so runops measures speed from the resume point.
+        """
+        log = _latest_stdout(run_dir)
+        if log is None:
+            return None
+        matches = BATCH_RE.findall(_tail(log))
+        if not matches:
+            return None
+        done, total = int(matches[-1][0]), int(matches[-1][1])
+        resumed = RESUME_RE.search(_head(log))
+        return {
+            "done": done,
+            "total": total,
+            "unit": "batch",
+            "start": int(resumed.group(1)) if resumed else 0,
+        }
+
 
 def _localize_obj(path: Path, run_dir: Path, index: int) -> str | None:
     """Return a run-directory-relative OBJ path to write back, or None to keep it."""
@@ -394,16 +416,36 @@ def _summary_file(run_dir: Path) -> Path | None:
     return None
 
 
-def _progress(run_dir: Path) -> tuple[int, int] | None:
+def _latest_stdout(run_dir: Path) -> Path | None:
+    """stdout of the manifest's job if present, else the newest stdout in ``work/``."""
     work = run_dir / "work"
+    if not work.is_dir():
+        return None
+    job_id = _job_id(run_dir)
+    for name in (f"stdout.{job_id}.log", f"{job_id}.out") if job_id else ():
+        if (work / name).is_file():
+            return work / name
     logs = sorted(
         [*work.glob("stdout.*.log"), *work.glob("*.out")],
         key=lambda p: p.stat().st_mtime,
     )
-    if not logs:
+    return logs[-1] if logs else None
+
+
+def _progress(run_dir: Path) -> tuple[int, int] | None:
+    log = _latest_stdout(run_dir)
+    if log is None:
         return None
-    matches = BATCH_RE.findall(_tail(logs[-1]))
+    matches = BATCH_RE.findall(_tail(log))
     return (int(matches[-1][0]), int(matches[-1][1])) if matches else None
+
+
+def _head(path: Path, size: int = 16 * 1024) -> str:
+    try:
+        with path.open("rb") as handle:
+            return handle.read(size).decode("utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _tail(path: Path) -> str:
