@@ -4,6 +4,7 @@ submodule(bem_output_writer) bem_output_writer_summary
     irradiation_cell_contract_type, resolve_irradiation_cell_contract, irradiation_cell_ok
   use bem_types, only: surface_model_dielectric
   use bem_charge_ledger, only: finite_charge_sum
+  use bem_matching_plane_summary, only: write_matching_plane_summary
   use bem_checkpoint_contract, only: checkpoint_schema_version_current
   use bem_field_solver, only: &
     field_solver_fmm_expansion_order, &
@@ -115,34 +116,7 @@ contains
     if (.not. cfg%particle_species(s)%enabled .or. .not. cfg%particle_species(s)%secondary_emission_enabled) cycle
     write (u, '(a,i0,a,a)') 'secondary_incident_species_', s, '=', trim(cfg%particle_species(s)%species_key)
   end do
-  write (u, '(a,es24.16)') 'matching_plane_secondary_share=', stats%matching_plane%secondary_share
-  write (u, '(a,es24.16)') 'secondary_budget_residual_a_m2=', stats%matching_plane%secondary_budget_residual_a_m2
-  write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane%state_valid
-  write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane%displacement_c_m2
-  write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane%phi_v
-  write (u, '(a,es24.16)') 'matching_plane_top_cell_mean_V_m=', stats%matching_plane%top_cell_mean_v_m
-  write (u, '(a,es24.16)') 'matching_plane_electron_inward_flux_m2_s=', stats%matching_plane%response(2)
-  write (u, '(a,es24.16)') 'matching_plane_ion_inward_flux_m2_s=', stats%matching_plane%response(3)
-  write (u, '(a,es24.16)') 'matching_plane_electron_access_potential_V=', stats%matching_plane%response(4)
-  write (u, '(a,es24.16)') 'matching_plane_ion_access_potential_V=', stats%matching_plane%response(5)
-  write (u, '(a,es24.16)') 'matching_plane_photoelectron_barrier_potential_V=', &
-    stats%matching_plane%response(6)
-  write (u, '(a,es24.16)') 'matching_plane_photoelectron_outward_flux_m2_s=', &
-    stats%matching_plane%feedback(1)
-  write (u, '(a,es24.16)') 'matching_plane_photoelectron_mean_normal_energy_eV=', &
-    stats%matching_plane%feedback(2)
-  write (u, '(a,*(1x,es24.16))') 'matching_plane_photoelectron_spectrum_m2_s=', &
-    stats%matching_plane%photoelectron_spectrum_m2_s
-  write (u, '(a,es24.16)') 'matching_plane_electron_outward_flux_m2_s=', &
-    stats%matching_plane%feedback(3)
-  write (u, '(a,es24.16)') 'matching_plane_ion_outward_flux_m2_s=', &
-    stats%matching_plane%feedback(4)
-  write (u, '(a,es24.16)') 'matching_plane_photoelectron_return_flux_m2_s=', &
-    stats%matching_plane%photoelectron_return_flux_m2_s
-  write (u, '(a,es24.16)') 'matching_plane_photoelectron_escape_flux_m2_s=', &
-    stats%matching_plane%photoelectron_escape_flux_m2_s
-  write (u, '(a,i0)') 'matching_plane_iterations=', stats%matching_plane%iterations
-  write (u, '(a,es24.16)') 'matching_plane_residual=', stats%matching_plane%residual
+  call write_matching_plane_summary(u, stats%matching_plane)
   write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
   write (u, '(a,a)') 'field_backend=', trim(field_config%backend)
   write (u, '(a,a)') 'field_normalization=', trim(field_config%normalization)
