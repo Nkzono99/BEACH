@@ -31,6 +31,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from beach.io.summary import parse_summary_text
+
 INPUT = "input/beach.toml"
 OUTPUT = "work/latest"
 RESTART_LINK = "work/restart"
@@ -224,10 +226,10 @@ class Adapter:
         summary: dict[str, Any] = {"status": self.detect_status(run_dir)}
         path = _summary_file(run_dir)
         if path is not None:
-            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-                key, sep, value = line.partition("=")
-                if sep:
-                    summary[key.strip()] = _number(value.strip())
+            values = parse_summary_text(
+                path.read_text(encoding="utf-8", errors="replace"), source=str(path)
+            )
+            summary.update({key: _number(value) for key, value in values.items()})
         progress = _progress(run_dir)
         if progress is not None:
             summary["batch"], summary["batch_count"] = progress
