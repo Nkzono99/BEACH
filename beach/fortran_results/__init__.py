@@ -1,6 +1,6 @@
 """Utilities for reading and visualizing Fortran simulation outputs."""
 
-from .animation import _select_frame_columns, animate_history_mesh
+from .animation import animate_history_mesh
 from .constants import K_COULOMB
 from .coulomb import calc_coulomb
 from .detachment import (
@@ -29,7 +29,6 @@ from .kernel import (
     FieldKernelOptions,
     KernelObjectForceRecord,
 )
-from .mesh import _surface_charge_density
 from .mobility import analyze_coulomb_mobility
 from .object_interaction import ObjectInteractionSnapshot, ObjectProbe
 from .plotting import (
@@ -124,6 +123,4 @@ __all__ = [
     "plot_potential_slices",
     "plot_potential_mesh",
     "animate_history_mesh",
-    "_select_frame_columns",
-    "_surface_charge_density",
 ]

@@ -19,13 +19,11 @@ from beach.fortran_results import (
     FortranRunResult,
     MatchingPlaneHistoryEntry,
     MatchingPlaneState,
-    _select_frame_columns,
     animate_history_mesh,
     compute_potential_points,
     compute_potential_slices,
     compute_potential_mesh,
     compute_electric_field_points,
-    _surface_charge_density,
     list_fortran_runs,
     load_fortran_result,
     plot_mesh_source_boxplot,
@@ -34,7 +32,9 @@ from beach.fortran_results import (
     plot_potential_slices,
     plot_potential_mesh,
 )
+from beach.fortran_results.animation import _select_frame_columns
 from beach.fortran_results.mesh import (
+    _surface_charge_density,
     _wrap_periodic2_triangles_by_centroid,
     _wrap_periodic2_triangles_by_mesh_centroid,
 )
