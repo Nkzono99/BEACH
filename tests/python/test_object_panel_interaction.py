@@ -3,15 +3,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     FieldKernelError,
     FortranRunResult,
     ObjectInteractionSnapshot,
     RigidTransform,
 )
-from beach.fortran_results import K_COULOMB
-from beach.fortran_results.panel_quadrature import panel_target_quadrature
+from beach import K_COULOMB
+from beach.analysis.panel_quadrature import panel_target_quadrature
 
 
 def _kernel_lib() -> Path:

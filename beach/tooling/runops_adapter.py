@@ -47,14 +47,14 @@ ERROR_WORDS = ("error", "fatal", "killed", "oom")
 BATCH_RE = re.compile(r"\bbatch\s+(\d+)\s*/\s*(\d+)\b", re.IGNORECASE)
 TAIL_BYTES = 256 * 1024
 
-_HERE = Path(__file__).resolve().parent
+_PACKAGE_DIR = Path(__file__).resolve().parents[1]
 
 
 def agent_context_path() -> Path | None:
     """Directory with ``skills/`` and ``references/`` for runops to deploy."""
     for candidate in (
-        _HERE / "agent_context",
-        _HERE.parent / "plugins" / "beach-context",
+        _PACKAGE_DIR / "agent_context",
+        _PACKAGE_DIR.parent / "plugins" / "beach-context",
     ):
         if (candidate / "skills").is_dir():
             return candidate

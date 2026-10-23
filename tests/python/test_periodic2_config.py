@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from beach.fortran_results.periodic import (
-    Periodic2Config,
-    coerce_periodic2,
-    periodic2_from_sim,
-)
+from beach.analysis.periodic import periodic2_from_sim
+from beach.native.periodic2 import Periodic2Config, coerce_periodic2
 
 
 def test_periodic2_config_normalizes_documented_mapping_contract() -> None:

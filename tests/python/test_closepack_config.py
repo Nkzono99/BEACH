@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.closepack_config import (
+from beach.tooling.closepack_config import (
     ClosePackSpec,
     build_closepack_config,
     default_base_config,

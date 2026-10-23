@@ -7,7 +7,22 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
-from ._defaults import (
+from .analysis._selection import _build_mesh_selection
+from .analysis.context import RunContext
+from .analysis.coulomb import calc_coulomb
+from .analysis.field_kernel import calc_object_forces_kernel, field_kernel_from_result
+from .analysis.field_lines import compute_electric_field_points, trace_field_lines
+from .analysis.mobility import analyze_coulomb_mobility
+from .analysis.object_interaction import ObjectInteractionSnapshot
+from .analysis.potential import (
+    compute_potential_mesh,
+    compute_potential_points,
+    compute_potential_slices,
+)
+from .analysis.scene import BeachScene, TransformBackend
+from .io.results import load_fortran_result
+from .io.types import FortranRunResult, MeshSelection
+from .plot._defaults import (
     DEFAULT_CHARGE_CMAP,
     DEFAULT_FIELD_LINE_CMAP,
     DEFAULT_FORCE_CMAP,
@@ -15,33 +30,12 @@ from ._defaults import (
     DEFAULT_MESH_VIEW_ELEV,
     DEFAULT_POTENTIAL_CMAP,
 )
-from .animation import animate_history_mesh
-from .coulomb import calc_coulomb
-from .field_lines import (
-    compute_electric_field_points,
-    plot_field_lines_3d,
-    trace_field_lines,
-)
-from .io import load_fortran_result
-from .kernel import calc_object_forces_kernel, FieldKernel
-from .mobility import analyze_coulomb_mobility
-from .object_interaction import ObjectInteractionSnapshot
-from .plotting import (
-    plot_charge_mesh,
-    plot_charges,
-    plot_coulomb_force_matrix,
-    plot_mesh_source_boxplot,
-    plot_potential_mesh,
-    plot_potential_slices,
-)
-from .potential import (
-    compute_potential_mesh,
-    compute_potential_points,
-    compute_potential_slices,
-)
-from .scene import BeachScene, TransformBackend
-from .selection import _build_mesh_selection, _mesh_ids_or_default
-from .types import FortranRunResult, MeshSelection
+from .plot.animation import animate_history_mesh
+from .plot.boxplot import plot_mesh_source_boxplot
+from .plot.field_lines import plot_field_lines_3d
+from .plot.matrix import plot_coulomb_force_matrix
+from .plot.mesh import plot_charge_mesh, plot_charges, plot_potential_mesh
+from .plot.slices import plot_potential_slices
 
 if TYPE_CHECKING:
     from matplotlib.animation import FuncAnimation
@@ -110,7 +104,7 @@ class Beach:
             Sorted unique mesh identifiers.
         """
 
-        ids = np.unique(_mesh_ids_or_default(self.result))
+        ids = np.unique(RunContext.from_value(self.result).mesh_ids_or_default())
         return tuple(int(v) for v in ids)
 
     def get_mesh(self, *mesh_ids: int, step: int | None = -1):
@@ -260,7 +254,7 @@ class Beach:
     ):
         """Build a Python handle to the resolved native field kernel."""
 
-        return FieldKernel.from_result(
+        return field_kernel_from_result(
             self.result,
             step=step,
             periodic2=periodic2,
@@ -413,7 +407,7 @@ class Beach:
         ----------
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
-            :func:`beach.fortran_results.compute_potential_mesh`.
+            :func:`beach.compute_potential_mesh`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default None
             基準電位を差し引く参照点。
@@ -452,7 +446,7 @@ class Beach:
             Number of points processed per chunk.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
-            :func:`beach.fortran_results.compute_potential_points`.
+            :func:`beach.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default None
             基準電位を差し引く参照点。
@@ -508,7 +502,7 @@ class Beach:
             Sampling chunk size.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
-            :func:`beach.fortran_results.compute_potential_points`.
+            :func:`beach.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default None
             基準電位を差し引く参照点。
@@ -561,7 +555,7 @@ class Beach:
             Azimuth angle in degrees.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
-            :func:`beach.fortran_results.compute_potential_mesh`.
+            :func:`beach.compute_potential_mesh`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         apply_periodic2_mesh : bool, default False
             ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
@@ -641,7 +635,7 @@ class Beach:
             Upper color limit.
         periodic2 : mapping or None, default None
             Two-axis periodic setting. See
-            :func:`beach.fortran_results.compute_potential_points`.
+            :func:`beach.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
         reference_point : iterable of float, {"species1_injection_center"}, or None, default None
             基準電位を差し引く参照点。``None`` は絶対電位。

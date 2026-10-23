@@ -8,18 +8,19 @@ from typing import Iterable
 
 import numpy as np
 
-from .context import RunContext
-from .coulomb import calc_coulomb
-from .kernel import _require_total_field_config
-from .mesh import _triangle_centers
-from .objects import normalize_kind_filter, resolve_object_specs
-from .periodic import auto_periodic2_from_result
-from .selection import _build_mesh_selection
-from .types import (
+from beach.io.types import (
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
     FortranRunResult,
 )
+
+from ._selection import _build_mesh_selection
+from .context import RunContext
+from .coulomb import calc_coulomb
+from .field_kernel import _require_total_field_config
+from .mesh import _triangle_centers
+from .objects import normalize_kind_filter, resolve_object_specs
+from .periodic import auto_periodic2_from_result
 
 
 def analyze_coulomb_mobility(

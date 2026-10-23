@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from beach.summary import CORE_SUMMARY_REQUIRED_KEYS, load_summary_file
+from .summary import CORE_SUMMARY_REQUIRED_KEYS, load_summary_file
 
 from ._field_reconstruction_io import _parse_field_reconstruction_receipt
 from ._matching_plane_io import (

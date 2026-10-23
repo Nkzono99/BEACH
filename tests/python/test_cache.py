@@ -2,7 +2,7 @@
 
 import pytest
 
-from beach._cache import default_periodic_cache_dir
+from beach.tooling._cache import default_periodic_cache_dir
 
 
 @pytest.mark.parametrize(

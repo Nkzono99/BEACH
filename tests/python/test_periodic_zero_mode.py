@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import beach.fortran_results.periodic_zero_mode as zero_mode_module
+import beach.native.periodic_zero_mode as zero_mode_module
 from beach import FieldKernelError, PeriodicZeroMode
 
 

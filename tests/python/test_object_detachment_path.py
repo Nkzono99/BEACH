@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     FieldKernelError,
     FortranRunResult,

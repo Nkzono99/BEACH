@@ -9,8 +9,8 @@ from typing import Mapping
 
 import numpy as np
 
-from .history import FortranChargeHistory
-from .types import FortranRunResult
+from beach.io.history import FortranChargeHistory
+from beach.io.types import FortranRunResult
 
 
 def resolve_result(value: FortranRunResult | object) -> FortranRunResult:
@@ -197,6 +197,14 @@ class RunContext:
         if result.mesh_ids is None or result.mesh_ids.size != result.mesh_nelem:
             return np.ones(result.mesh_nelem, dtype=np.int64)
         return result.mesh_ids.astype(np.int64, copy=False)
+
+    def require_triangle_source_model(self) -> None:
+        if self.result.field_source_model != "triangle_p0":
+            raise ValueError(
+                "This operation requires field_source_model='triangle_p0'; "
+                f"the run uses {self.result.field_source_model!r}. "
+                "Centroid point-source reconstruction was removed."
+            )
 
     def require_triangles(self) -> np.ndarray:
         if self.result.triangles is None:

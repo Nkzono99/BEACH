@@ -7,35 +7,20 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
-from ._numeric import _points
+from beach.io._numeric import _points
+from beach.io.types import FortranRunResult, PotentialSlice2D
+from beach.native.kernel import FieldKernel, FieldKernelOptions
+from beach.native.periodic2 import Periodic2Config, coerce_periodic2
 
-from .context import (
-    RunContext,
-    find_config_path_near_output as _find_config_path_near_output,
-    load_toml as _load_toml,
-)
-from .kernel import (
-    FieldKernel,
-    FieldKernelOptions,
+from .context import RunContext
+from .field_kernel import (
     _options_from_result,
     _require_complete_total_kernel,
     _require_total_field_config,
     _require_total_field_reconstruction,
 )
 from .mesh import _triangle_centers
-from .periodic import (
-    Periodic2Config,
-    auto_periodic2_from_result,
-    coerce_periodic2,
-    periodic2_from_sim,
-)
-from .selection import _require_triangle_source_model, _require_triangles
-from .types import FortranRunResult, PotentialSlice2D
-
-
-_periodic2_from_sim = periodic2_from_sim
-_auto_periodic2_from_result = auto_periodic2_from_result
-_coerce_periodic2 = coerce_periodic2
+from .periodic import auto_periodic2_from_result
 
 
 def compute_potential_mesh(
@@ -50,7 +35,7 @@ def compute_potential_mesh(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_triangle_source_model(resolved)
+    context.require_triangle_source_model()
     reference_xyz = _resolve_reference_point(
         resolved,
         reference_point,
@@ -64,7 +49,7 @@ def compute_potential_mesh(
     ):
         return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
 
-    triangles = _require_triangles(resolved)
+    triangles = context.require_triangles()
     points = _triangle_centers(triangles)
     with _panel_kernel(
         context,
@@ -93,7 +78,7 @@ def compute_potential_points(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_triangle_source_model(resolved)
+    context.require_triangle_source_model()
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0.")
 
@@ -277,6 +262,61 @@ def _potential_history(
     return values
 
 
+def _run_potential_history(
+    context: RunContext,
+    charges_history: np.ndarray,
+    *,
+    periodic2: Mapping[str, object] | None,
+    reference_point: Iterable[float] | str | None,
+    library_path: str | Path | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Recompute one run's panel potential history and its resolved reference."""
+
+    resolved = context.result
+    context.require_triangle_source_model()
+    periodic_cfg = coerce_periodic2(
+        periodic2,
+        allow_cached_kneq0=True,
+    )
+    if periodic_cfg is None:
+        periodic_cfg = auto_periodic2_from_result(
+            resolved,
+            allow_cached_kneq0=True,
+            context=context,
+        )
+    resolved_reference = _resolve_reference_point(
+        resolved,
+        reference_point,
+        context=context,
+    )
+    _require_total_field_config(
+        context,
+        operation="potential history recomputation",
+    )
+    field_options = _options_from_result(
+        resolved,
+        periodic2=periodic_cfg,
+        theta=None,
+        leaf_max=None,
+        order=None,
+        config_path=context.requested_config_path,
+        context=context,
+    )
+    _require_total_field_reconstruction(
+        context,
+        field_options,
+        operation="potential history recomputation",
+    )
+    values = _potential_history(
+        charges_history,
+        context.require_triangles(),
+        reference_point=resolved_reference,
+        field_options=field_options,
+        library_path=library_path,
+    )
+    return values, resolved_reference
+
+
 def _panel_kernel(
     context: RunContext,
     *,
@@ -284,10 +324,10 @@ def _panel_kernel(
     library_path: str | Path | None,
 ) -> FieldKernel:
     resolved = context.result
-    _require_triangle_source_model(resolved)
-    triangles = _require_triangles(resolved)
+    context.require_triangle_source_model()
+    triangles = context.require_triangles()
     if periodic2 is not None:
-        _coerce_periodic2(periodic2, allow_cached_kneq0=True)
+        coerce_periodic2(periodic2, allow_cached_kneq0=True)
     _require_total_field_config(
         context,
         operation="potential recomputation",
@@ -388,21 +428,6 @@ def _reference_array(value: Iterable[float] | np.ndarray) -> np.ndarray:
     if not np.all(np.isfinite(point)):
         raise ValueError("reference_point must contain finite values.")
     return point
-
-
-def _load_sim_near_output(output_dir: Path) -> Mapping[str, object] | None:
-    config = _load_config_near_output(output_dir)
-    if config is None:
-        return None
-    sim = config.get("sim")
-    return sim if isinstance(sim, Mapping) else None
-
-
-def _load_config_near_output(output_dir: Path) -> dict[str, object] | None:
-    config_path = _find_config_path_near_output(output_dir)
-    if config_path is None:
-        return None
-    return _load_toml(config_path)
 
 
 def _species1_injection_center_from_result(

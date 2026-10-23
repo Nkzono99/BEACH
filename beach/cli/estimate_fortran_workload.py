@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Sequence
 
-from beach.workload import (
+from beach.tooling.workload import (
     ALLOWED_SIM_KEYS,
     ALLOWED_SPECIES_KEYS,
     DEFAULT_SIM,

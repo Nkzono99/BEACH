@@ -9,7 +9,9 @@ from typing import Mapping
 
 import numpy as np
 
-from ._numeric import _finite_scalar, _readonly
+from beach.io._numeric import _finite_scalar, _readonly
+
+from .scene import RigidTransform
 
 
 @dataclass(frozen=True)
@@ -601,8 +603,6 @@ def _readonly_metadata_array(value: np.ndarray) -> np.ndarray:
 def _freeze_transform(value: object | None) -> object | None:
     if value is None:
         return None
-    from .scene import RigidTransform
-
     if not isinstance(value, RigidTransform):
         raise TypeError("transform must be a RigidTransform or None.")
     result = RigidTransform(

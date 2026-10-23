@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.kernel as kernel_module
+import beach.native.kernel as kernel_module
 from beach.cli.kernel_forces import main as kernel_forces_main
 from beach import (
     BeachScene,
@@ -18,8 +18,9 @@ from beach import (
     field_kernel_build_info,
     field_kernel_options_from_result,
 )
-from beach.fortran_results.panel_quadrature import panel_target_quadrature
-from beach.fortran_results.periodic import auto_periodic2_from_result
+from beach.analysis.field_kernel import field_kernel_from_result
+from beach.analysis.panel_quadrature import panel_target_quadrature
+from beach.analysis.periodic import auto_periodic2_from_result
 
 
 def _int_value(value: object) -> int:
@@ -872,7 +873,7 @@ def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None
     )
     target = np.array([[0.25, 0.2, 0.4]], dtype=float)
 
-    with FieldKernel.from_result(result, step=None, library_path=lib) as panel_kernel:
+    with field_kernel_from_result(result, step=None, library_path=lib) as panel_kernel:
         panel_field = panel_kernel.eval_e(target)
         direct_field = panel_kernel.eval_e_direct(target)
 

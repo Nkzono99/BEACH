@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.cli_estimate_fortran_workload import (
+from beach.tooling.workload import (
     ALLOWED_SIM_KEYS,
     ALLOWED_SPECIES_KEYS,
     DEFAULT_SIM,

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach
-from beach.fortran_results._defaults import (
+from beach.plot._defaults import (
     DEFAULT_CHARGE_CMAP,
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,

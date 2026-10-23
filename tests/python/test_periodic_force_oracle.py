@@ -23,8 +23,8 @@ from beach import (
     finite_shell_convergence,
     finite_shell_wrench,
 )
-from beach.fortran_results.constants import K_COULOMB
-import beach.fortran_results.periodic_force_oracle as oracle_module
+from beach import K_COULOMB
+import beach.analysis.periodic_force_oracle as oracle_module
 
 
 EPS0 = 1.0 / (4.0 * np.pi * K_COULOMB)

@@ -1,4 +1,4 @@
-"""Result resolution and mesh-selection helpers."""
+"""Mesh-group selection for force and mesh-access helpers."""
 
 from __future__ import annotations
 
@@ -6,21 +6,9 @@ from typing import Iterable
 
 import numpy as np
 
-from .context import RunContext, resolve_result
-from .history import FortranChargeHistory
-from .types import FortranRunResult, MeshSelection
+from beach.io.types import FortranRunResult, MeshSelection
 
-
-_resolve_result = resolve_result
-
-
-def _require_triangle_source_model(result: FortranRunResult) -> None:
-    if result.field_source_model != "triangle_p0":
-        raise ValueError(
-            "This operation requires field_source_model='triangle_p0'; "
-            f"the run uses {result.field_source_model!r}. "
-            "Centroid point-source reconstruction was removed."
-        )
+from .context import RunContext
 
 
 def _coerce_group_selection(
@@ -64,15 +52,16 @@ def _coerce_group_selection(
 def _build_mesh_selection(
     result: FortranRunResult, mesh_ids: tuple[int, ...], *, step: int | None
 ) -> MeshSelection:
+    context = RunContext.from_value(result)
     unique_mesh_ids = tuple(dict.fromkeys(int(mid) for mid in mesh_ids))
-    all_mesh_ids = _mesh_ids_or_default(result)
+    all_mesh_ids = context.mesh_ids_or_default()
     available = set(int(mid) for mid in np.unique(all_mesh_ids))
     missing = [mid for mid in unique_mesh_ids if mid not in available]
     if missing:
         raise ValueError(f"unknown mesh id(s): {missing}. available={sorted(available)}")
 
-    triangles = _require_triangles(result)
-    charges = _charges_for_step(result, step=step)
+    triangles = context.require_triangles()
+    charges = context.charges_at(step)
     mask = np.isin(all_mesh_ids, np.asarray(unique_mesh_ids, dtype=np.int64))
     elem_indices = np.flatnonzero(mask)
 
@@ -84,19 +73,3 @@ def _build_mesh_selection(
         charges=charges[elem_indices],
         step=step,
     )
-
-
-def _charges_for_step(result: FortranRunResult, *, step: int | None) -> np.ndarray:
-    return RunContext.from_value(result).charges_at(step)
-
-
-def _mesh_ids_or_default(result: FortranRunResult) -> np.ndarray:
-    return RunContext.from_value(result).mesh_ids_or_default()
-
-
-def _require_triangles(result: FortranRunResult) -> np.ndarray:
-    return RunContext.from_value(result).require_triangles()
-
-
-def _require_history(result: FortranRunResult) -> FortranChargeHistory:
-    return RunContext.from_value(result).require_history()

@@ -3,13 +3,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.coulomb as coulomb_module
-import beach.fortran_results.potential as potential_module
+import beach.analysis.coulomb as coulomb_module
+import beach.analysis.potential as potential_module
 from beach import (
     MatchingPlaneHistoryEntry as PublicMatchingPlaneHistoryEntry,
     MatchingPlaneState as PublicMatchingPlaneState,
 )
-from beach.fortran_results import (
+from beach import (
     analyze_coulomb_mobility,
     Beach,
     calc_coulomb,
@@ -32,18 +32,16 @@ from beach.fortran_results import (
     plot_potential_slices,
     plot_potential_mesh,
 )
-from beach.fortran_results.animation import _select_frame_columns
-from beach.fortran_results.mesh import (
+from beach.analysis.mesh import (
     _surface_charge_density,
     _wrap_periodic2_triangles_by_centroid,
     _wrap_periodic2_triangles_by_mesh_centroid,
 )
-from beach.fortran_results.objects import resolve_object_specs
-from beach.fortran_results.panel_quadrature import panel_target_quadrature
-from beach.fortran_results.potential import (
-    _coerce_periodic2,
-    _potential_history,
-)
+from beach.analysis.objects import resolve_object_specs
+from beach.analysis.panel_quadrature import panel_target_quadrature
+from beach.analysis.potential import _potential_history
+from beach.native.periodic2 import coerce_periodic2
+from beach.plot.animation import _select_frame_columns
 
 
 class _UnitPanelKernel:
@@ -2458,7 +2456,7 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
 def test_potential_history_reuses_panel_kernel_with_periodic2() -> None:
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charges_history = np.array([[2.0e-9, -1.0e-9]])
-    periodic2 = _coerce_periodic2(
+    periodic2 = coerce_periodic2(
         {"axes": (0, 1), "lengths": (1.0, 1.0), "image_layers": 1}
     )
     assert periodic2 is not None
@@ -3562,7 +3560,7 @@ def test_saved_config_mesh_parts_and_archived_templates_remain_readable(tmp_path
     import tomli_w
     from beach.config import default_config
     from beach.config._layout import to_grouped_layout
-    from beach.fortran_results.context import load_config_for_output
+    from beach.analysis.context import load_config_for_output
 
     config = to_grouped_layout(default_config())
     if archived:

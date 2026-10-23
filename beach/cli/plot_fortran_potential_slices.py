@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach
+from beach.analysis.periodic import periodic2_from_sim
 from beach.config import ConfigError, load_config_file
-from beach.fortran_results._defaults import DEFAULT_POTENTIAL_CMAP
-from beach.fortran_results.potential import _periodic2_from_sim
+from beach.plot._defaults import DEFAULT_POTENTIAL_CMAP
 
 from ._shared import (
     configure_entry_parser,
@@ -186,7 +186,7 @@ def _load_sim_box(
     if isinstance(field_boundary, dict):
         periodic_sim["field_bc_mode"] = field_boundary.get("mode", "free")
     try:
-        periodic2 = _periodic2_from_sim(
+        periodic2 = periodic2_from_sim(
             periodic_sim,
             allow_historical_root_oracle=allow_historical_root_oracle,
         )

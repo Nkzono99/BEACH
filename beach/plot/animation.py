@@ -7,36 +7,22 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
+from beach.analysis.context import RunContext
+from beach.analysis.mesh import (
+    _maybe_apply_periodic2_mesh,
+    _maybe_replicate_periodic2,
+    _surface_charge_density_history,
+)
+from beach.analysis.potential import _run_potential_history
+from beach.io.types import FortranRunResult
+
 from ._defaults import (
     DEFAULT_CHARGE_CMAP,
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,
     DEFAULT_POTENTIAL_CMAP,
 )
-from .context import RunContext
-from .kernel import (
-    _options_from_result,
-    _require_total_field_config,
-    _require_total_field_reconstruction,
-)
-from .mesh import (
-    _configure_mesh_axes,
-    _maybe_apply_periodic2_mesh,
-    _maybe_replicate_periodic2,
-    _surface_charge_density_history,
-)
-from .potential import (
-    _auto_periodic2_from_result,
-    _coerce_periodic2,
-    _potential_history,
-    _resolve_reference_point,
-)
-from .selection import (
-    _require_history,
-    _require_triangle_source_model,
-    _require_triangles,
-)
-from .types import FortranRunResult
+from ._mesh3d import _configure_mesh_axes
 
 if TYPE_CHECKING:
     from matplotlib.animation import FuncAnimation
@@ -120,7 +106,7 @@ def animate_history_mesh(
     if total_frames is not None and frame_stride != 1:
         raise ValueError("frame_stride and total_frames cannot be used together.")
 
-    triangles = _require_triangles(resolved)
+    triangles = context.require_triangles()
     plot_triangles = _maybe_apply_periodic2_mesh(
         resolved,
         triangles,
@@ -128,7 +114,7 @@ def animate_history_mesh(
         apply_periodic2_mesh=apply_periodic2_mesh,
         context=context,
     )
-    history = _require_history(resolved)
+    history = context.require_history()
     charge_history = history.as_array()
     batch_indices = history.batch_indices
     processed_by_batch = history.processed_particles_by_batch
@@ -147,45 +133,11 @@ def animate_history_mesh(
         title_prefix = "Surface charge density history"
         use_cmap = DEFAULT_CHARGE_CMAP if cmap is None else cmap
     elif quantity_key == "potential":
-        _require_triangle_source_model(resolved)
-        periodic_cfg = _coerce_periodic2(
-            periodic2,
-            allow_cached_kneq0=True,
-        )
-        if periodic_cfg is None:
-            periodic_cfg = _auto_periodic2_from_result(
-                resolved,
-                allow_cached_kneq0=True,
-                context=context,
-            )
-        resolved_reference = _resolve_reference_point(
-            resolved,
-            reference_point,
-            context=context,
-        )
-        _require_total_field_config(
+        values_history, resolved_reference = _run_potential_history(
             context,
-            operation="potential history recomputation",
-        )
-        field_options = _options_from_result(
-            resolved,
-            periodic2=periodic_cfg,
-            theta=None,
-            leaf_max=None,
-            order=None,
-            config_path=context.requested_config_path,
-            context=context,
-        )
-        _require_total_field_reconstruction(
-            context,
-            field_options,
-            operation="potential history recomputation",
-        )
-        values_history = _potential_history(
             charges_sampled,
-            triangles,
-            reference_point=resolved_reference,
-            field_options=field_options,
+            periodic2=periodic2,
+            reference_point=reference_point,
             library_path=library_path,
         )
         colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ._numeric import _finite_scalar, _readonly
+from beach.io._numeric import _finite_scalar, _readonly
 
 from .kernel import FieldKernelError, _load_kernel_library
 

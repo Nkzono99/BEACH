@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import replace
 from pathlib import Path
-from typing import Iterable, Literal, Mapping
+from typing import Iterable, Literal, Mapping, Sequence
 
 import numpy as np
 
+from beach.io.types import CoulombInteraction, FortranRunResult, MeshSelection
+from beach.native.kernel import FieldKernel
+
+from ._selection import _coerce_group_selection
 from .context import RunContext
-from .kernel import (
-    FieldKernel,
+from .field_kernel import (
     _options_from_result,
     _require_total_field_config,
     _require_total_field_reconstruction,
 )
 from .mesh import _triangle_centers
 from .panel_quadrature import _quadrature_order, panel_target_quadrature
-from .selection import (
-    _coerce_group_selection,
-    _require_triangle_source_model,
-)
-from .types import CoulombInteraction, FortranRunResult, MeshSelection
+from .periodic import auto_periodic2_from_result
 
 
 def calc_coulomb(
@@ -46,7 +47,7 @@ def calc_coulomb(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    _require_triangle_source_model(resolved)
+    context.require_triangle_source_model()
     sel_target = _coerce_group_selection(resolved, target, step=step)
     sel_source = _coerce_group_selection(resolved, source, step=step)
     if sel_target.elem_indices.size == 0:
@@ -125,3 +126,123 @@ def calc_coulomb(
         mean_force_on_a_per_element_N=force_target / target_count,
         mean_torque_on_a_per_element_Nm=torque_target / target_count,
     )
+
+
+_COULOMB_MATRIX_WORKER_CONTEXT: dict[str, object] = {}
+
+
+def _coulomb_force_matrix(
+    context: RunContext,
+    *,
+    source_mesh_ids: Sequence[int],
+    target_mesh_ids: Sequence[int],
+    component_idx: int,
+    step: int | None,
+    config_path: str | Path | None,
+    library_path: str | Path | None,
+    workers: int,
+) -> np.ndarray:
+    """Return one force component per source row and target column.
+
+    The extra last row holds the net force from every other source object.
+    """
+
+    resolved = context.result
+    periodic2 = auto_periodic2_from_result(resolved, context=context)
+    matrix = np.zeros((len(source_mesh_ids) + 1, len(target_mesh_ids)), dtype=float)
+
+    tasks: list[tuple[int, int, int, list[int]]] = []
+    for col_idx, target_mesh_id in enumerate(target_mesh_ids):
+        for row_idx, source_mesh_id in enumerate(source_mesh_ids):
+            if source_mesh_id == target_mesh_id:
+                continue
+            tasks.append((row_idx, col_idx, target_mesh_id, [source_mesh_id]))
+
+        net_sources = [
+            mesh_id for mesh_id in source_mesh_ids if mesh_id != target_mesh_id
+        ]
+        if net_sources:
+            tasks.append((len(source_mesh_ids), col_idx, target_mesh_id, net_sources))
+
+    def _compute_entry_serial(
+        task: tuple[int, int, int, list[int]],
+    ) -> tuple[int, int, float]:
+        row_idx, col_idx, target_mesh_id, task_source_ids = task
+        interaction = calc_coulomb(
+            resolved,
+            target=target_mesh_id,
+            source=task_source_ids,
+            step=step,
+            periodic2=periodic2,
+            config_path=config_path,
+            library_path=library_path,
+        )
+        return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
+
+    if workers == 1 or len(tasks) <= 1:
+        entries = map(_compute_entry_serial, tasks)
+        for row_idx, col_idx, value in entries:
+            matrix[row_idx, col_idx] = value
+    else:
+        max_workers = min(int(workers), len(tasks))
+        try:
+            mp_context = mp.get_context("fork")
+        except ValueError:
+            mp_context = None
+        with ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=mp_context,
+            initializer=_init_coulomb_matrix_worker,
+            initargs=(
+                resolved,
+                step,
+                component_idx,
+                periodic2,
+                config_path,
+                library_path,
+            ),
+        ) as executor:
+            for row_idx, col_idx, value in executor.map(
+                _compute_coulomb_matrix_entry_worker,
+                tasks,
+            ):
+                matrix[row_idx, col_idx] = value
+    return matrix
+
+
+def _init_coulomb_matrix_worker(
+    resolved: FortranRunResult,
+    step: int | None,
+    component_idx: int,
+    periodic2: Mapping[str, object] | None,
+    config_path: str | Path | None,
+    library_path: str | Path | None,
+) -> None:
+    _COULOMB_MATRIX_WORKER_CONTEXT.clear()
+    _COULOMB_MATRIX_WORKER_CONTEXT.update(
+        {
+            "resolved": resolved,
+            "step": step,
+            "component_idx": component_idx,
+            "periodic2": periodic2,
+            "config_path": config_path,
+            "library_path": library_path,
+        }
+    )
+
+
+def _compute_coulomb_matrix_entry_worker(
+    task: tuple[int, int, int, list[int]],
+) -> tuple[int, int, float]:
+    row_idx, col_idx, target_mesh_id, source_mesh_ids = task
+    interaction = calc_coulomb(
+        _COULOMB_MATRIX_WORKER_CONTEXT["resolved"],
+        target=target_mesh_id,
+        source=source_mesh_ids,
+        step=_COULOMB_MATRIX_WORKER_CONTEXT["step"],
+        periodic2=_COULOMB_MATRIX_WORKER_CONTEXT["periodic2"],
+        config_path=_COULOMB_MATRIX_WORKER_CONTEXT["config_path"],
+        library_path=_COULOMB_MATRIX_WORKER_CONTEXT["library_path"],
+    )
+    component_idx = int(_COULOMB_MATRIX_WORKER_CONTEXT["component_idx"])
+    return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])

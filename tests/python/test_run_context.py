@@ -6,11 +6,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.potential as potential_module
-from beach.fortran_results.context import RunContext, resolve_result
-from beach.fortran_results.history import FortranChargeHistory
-from beach.fortran_results.potential import compute_potential_mesh
-from beach.fortran_results.types import FortranRunResult
+import beach.analysis.potential as potential_module
+from beach.analysis.context import RunContext, resolve_result
+from beach.analysis.potential import compute_potential_mesh
+from beach.io.history import FortranChargeHistory
+from beach.io.types import FortranRunResult
 
 
 def _result(directory: Path) -> FortranRunResult:

@@ -9,9 +9,9 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from beach.io.types import FortranRunResult, MeshSource
+
 from .context import RunContext
-from .selection import _mesh_ids_or_default
-from .types import FortranRunResult, MeshSource
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ def resolve_object_specs(
 ) -> list[ResolvedObjectSpec]:
     """Resolve object labels, kinds, and optional template definitions."""
 
-    mesh_ids = tuple(int(v) for v in np.unique(_mesh_ids_or_default(result)))
+    mesh_ids = tuple(int(v) for v in np.unique(RunContext.from_value(result).mesh_ids_or_default()))
     run_context = context or RunContext.from_value(result, config_path=config_path)
     config_specs = _object_specs_from_config(
         mesh_ids=mesh_ids,

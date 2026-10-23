@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Sequence
 
-from beach.closepack_config import (
+from beach.tooling.closepack_config import (
     ClosePackSpec,
     build_closepack_config,
     load_base_config,

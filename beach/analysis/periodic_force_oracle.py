@@ -8,17 +8,17 @@ from typing import Iterable, Iterator
 
 import numpy as np
 
-from ._numeric import _cumulative_trapezoid, _nonnegative_integer, _nonnegative_scalar
+from beach.io._numeric import _cumulative_trapezoid, _nonnegative_integer, _nonnegative_scalar
+from beach.io.constants import K_COULOMB
+from beach.native.kernel import FieldKernel
+from beach.native.periodic2 import Periodic2Config
 
-from .constants import K_COULOMB
 from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
-from .kernel import FieldKernel
 from .object_interaction import (
     ObjectInteractionSnapshot,
     ObjectProbe,
     _aggregate_wrench,
 )
-from .periodic import Periodic2Config
 from .scene import RigidTransform
 
 

@@ -8,11 +8,12 @@ from typing import Iterable, Literal, Mapping
 
 import numpy as np
 
-from ._numeric import _vec3
+from beach.io._numeric import _vec3
+from beach.io.types import FortranRunResult
+from beach.native.kernel import FieldKernel
 
 from .context import RunContext
-from .kernel import (
-    FieldKernel,
+from .field_kernel import (
     KernelObjectForceRecord,
     _options_from_result,
     _require_total_field_config,
@@ -21,14 +22,6 @@ from .kernel import (
 )
 from .mesh import _triangle_centers
 from .panel_quadrature import panel_target_quadrature
-from .selection import (
-    _charges_for_step,
-    _mesh_ids_or_default,
-    _require_triangle_source_model,
-    _require_triangles,
-    _resolve_result,
-)
-from .types import FortranRunResult
 
 
 TransformBackend = Literal["numpy", "numba", "auto"]
@@ -182,15 +175,15 @@ class BeachScene:
     ) -> "BeachScene":
         """Create a scene from a BEACH output snapshot."""
 
-        resolved = _resolve_result(result)
-        triangles = np.asarray(_require_triangles(resolved), dtype=np.float64)
+        context = RunContext.from_value(result)
+        triangles = np.asarray(context.require_triangles(), dtype=np.float64)
         return cls(
-            result=resolved,
+            result=context.result,
             step=step,
             centers_m=_triangle_centers(triangles),
             triangles_m=triangles,
-            charges_C=_charges_for_step(resolved, step=step),
-            mesh_ids=_mesh_ids_or_default(resolved),
+            charges_C=context.charges_at(step),
+            mesh_ids=context.mesh_ids_or_default(),
             config_path=None if config_path is None else Path(config_path),
             transform_backend=transform_backend,
         )
@@ -329,13 +322,13 @@ class BeachScene:
     ) -> tuple[KernelObjectForceRecord, ...]:
         """Compute object-wise force/torque for the edited scene geometry."""
 
-        _require_triangle_source_model(self.result)
-        target_ids = self._target_ids(target_mesh_ids)
         resolved_config_path = self._resolve_config_path(config_path)
         context = RunContext.from_value(
             self.result,
             config_path=resolved_config_path,
         )
+        context.require_triangle_source_model()
+        target_ids = self._target_ids(target_mesh_ids)
         _require_total_field_config(
             context,
             operation="BeachScene.calc_object_forces_kernel",

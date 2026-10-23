@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import beach.fortran_results.kernel as kernel_module
+import beach.native.kernel as kernel_module
 
 
 ROOT = Path(__file__).resolve().parents[2]

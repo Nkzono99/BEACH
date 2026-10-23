@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach
-from beach.fortran_results._defaults import DEFAULT_FORCE_CMAP
+from beach.plot._defaults import DEFAULT_FORCE_CMAP
 
 from ._shared import configure_entry_parser
 

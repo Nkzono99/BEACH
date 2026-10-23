@@ -40,9 +40,9 @@ from beach import (  # noqa: E402
     FortranChargeHistory,
     ObjectInteractionSnapshot,
     finite_shell_convergence,
+    K_COULOMB,
     field_kernel_build_info,
 )
-from beach.fortran_results.constants import K_COULOMB  # noqa: E402
 
 
 JOB_TEMPLATE = REPO_ROOT / "examples/job_scripts/periodic_object_validation_sysa.sh"

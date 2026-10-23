@@ -1,13 +1,13 @@
 import pytest
 
-from beach.cli_animate_fortran_history import main as animate_main
-from beach.cli_estimate_fortran_workload import main as workload_main
-from beach.cli_inspect_fortran_output import main as inspect_main
-from beach.cli_plot_coulomb_force_matrix import main as plot_coulomb_main
-from beach.cli_plot_performance_profile import main as plot_performance_main
 from beach.cli.analyze_coulomb_mobility import main as mobility_main
+from beach.cli.animate_fortran_history import main as animate_main
+from beach.cli.estimate_fortran_workload import main as workload_main
+from beach.cli.inspect_fortran_output import main as inspect_main
 from beach.cli.kernel_forces import main as kernel_forces_main
-from beach.cli_plot_fortran_potential_slices import main as plot_slices_main
+from beach.cli.plot_coulomb_force_matrix import main as plot_coulomb_main
+from beach.cli.plot_fortran_potential_slices import main as plot_slices_main
+from beach.cli.plot_performance_profile import main as plot_performance_main
 
 
 @pytest.mark.parametrize(

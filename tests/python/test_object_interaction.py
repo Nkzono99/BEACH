@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-import beach.fortran_results.kernel as kernel_module
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.field_kernel as field_kernel_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     calc_object_forces_kernel,
     FieldKernel,
@@ -996,7 +996,7 @@ def test_legacy_object_force_helper_still_zeros_the_target_periodic_lattice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _LegacyCaptureKernel.instances.clear()
-    monkeypatch.setattr(kernel_module, "FieldKernel", _LegacyCaptureKernel)
+    monkeypatch.setattr(field_kernel_module, "FieldKernel", _LegacyCaptureKernel)
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
     result = _two_object_result(tmp_path)

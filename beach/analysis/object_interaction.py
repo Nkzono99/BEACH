@@ -9,33 +9,23 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
-from ._numeric import (
+from beach.io._numeric import (
     _cumulative_trapezoid,
     _nonnegative_integer,
     _nonnegative_scalar,
     _readonly,
 )
+from beach.io.types import FieldReconstructionReceipt, FortranRunResult
+from beach.native.kernel import FieldKernel, FieldKernelError, FieldKernelOptions
+from beach.native.periodic2 import coerce_periodic2
+from beach.native.periodic_zero_mode import PeriodicZeroMode
 
 from .context import RunContext
 from .detachment import ObjectForcePath, ObjectWrench, WrenchComponent
-from .kernel import (
-    FieldKernel,
-    FieldKernelError,
-    FieldKernelOptions,
-    _options_from_result,
-)
+from .field_kernel import _options_from_result
 from .mesh import _triangle_centers, _wrap_periodic2_triangles_by_mesh_centroid
 from .panel_quadrature import _quadrature_order, panel_target_quadrature
-from .periodic import coerce_periodic2
-from .periodic_zero_mode import PeriodicZeroMode
 from .scene import RigidTransform
-from .selection import (
-    _charges_for_step,
-    _mesh_ids_or_default,
-    _require_triangle_source_model,
-    _require_triangles,
-)
-from .types import FieldReconstructionReceipt, FortranRunResult
 
 
 _PHYSICAL_COMPONENTS = (
@@ -138,7 +128,7 @@ class ObjectInteractionSnapshot:
             )
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
-        _require_triangle_source_model(resolved)
+        context.require_triangle_source_model()
         receipt = resolved.field_reconstruction
         full_config: Mapping[str, object] | None = None
         if receipt is None:
@@ -149,9 +139,9 @@ class ObjectInteractionSnapshot:
                     "uniform-field and box policies cannot silently change."
                 )
             _validate_full_box_config(full_config)
-        triangles = np.asarray(_require_triangles(resolved), dtype=np.float64)
-        charges = np.asarray(_charges_for_step(resolved, step=step), dtype=np.float64)
-        mesh_ids = np.asarray(_mesh_ids_or_default(resolved), dtype=np.int64)
+        triangles = np.asarray(context.require_triangles(), dtype=np.float64)
+        charges = np.asarray(context.charges_at(step), dtype=np.float64)
+        mesh_ids = np.asarray(context.mesh_ids_or_default(), dtype=np.int64)
         if charges.shape != (triangles.shape[0],) or not np.all(np.isfinite(charges)):
             raise ValueError("saved source charges must be finite and match the mesh.")
 

@@ -111,9 +111,13 @@ def test_wheel_metadata_exposes_runtime_resources_and_cli_entry_points() -> None
 
     assert {
         "beach",
+        "beach.io",
+        "beach.native",
+        "beach.analysis",
+        "beach.plot",
+        "beach.tooling",
         "beach.cli",
         "beach.config",
-        "beach.fortran_results",
     } <= set(setuptools["packages"])
     assert "include/*.h" in package_data["beach"]
     assert "schemas/*.json" in package_data["beach.config"]
@@ -124,7 +128,7 @@ def test_wheel_metadata_exposes_runtime_resources_and_cli_entry_points() -> None
     assert setuptools["package-dir"]["beach.agent_context"] == "plugins/beach-context"
     assert "skills/*/*" in package_data["beach.agent_context"]
     assert (ROOT / "plugins/beach-context/skills/beach-config-review/SKILL.md").is_file()
-    assert project["entry-points"]["runops.adapters"]["beach"] == "beach.runops_adapter:Adapter"
+    assert project["entry-points"]["runops.adapters"]["beach"] == "beach.tooling.runops_adapter:Adapter"
 
     scripts = project["scripts"]
     assert {

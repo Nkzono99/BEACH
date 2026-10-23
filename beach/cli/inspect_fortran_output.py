@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach, compute_potential_mesh, list_fortran_runs
-from beach.fortran_results._defaults import (
+from beach.plot._defaults import (
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,
 )

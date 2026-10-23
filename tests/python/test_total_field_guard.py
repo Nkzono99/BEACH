@@ -4,17 +4,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from beach.fortran_results.context import RunContext
-from beach.fortran_results.kernel import (
-    FieldKernelOptions,
+from beach.analysis.context import RunContext
+from beach.analysis.field_kernel import (
     _require_total_field_reconstruction,
     field_kernel_options_from_result,
 )
-from beach.fortran_results.periodic import Periodic2Config
-from beach.fortran_results.types import (
+from beach.io.types import (
     FieldReconstructionReceipt,
     FortranRunResult,
 )
+from beach.native.kernel import FieldKernelOptions
+from beach.native.periodic2 import Periodic2Config
 
 
 def _result(
