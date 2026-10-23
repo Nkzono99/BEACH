@@ -5,16 +5,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+以下の Python API と CLI の破壊的変更は、4.0 にまとめてリリースする。
+
 ### Changed
 
 - **BREAKING**: Python package を依存の層ごとのサブパッケージに分けた。`beach.io`（出力 reader・データ型・`summary.txt`
   parser、numpy のみ）、`beach.native`（field kernel と zero mode の ctypes binding）、`beach.analysis`（電位・電場・力・object
   解析）、`beach.plot`（matplotlib の図とアニメーション）、`beach.tooling`（workload・close-pack・runops adapter、numpy 不要）、
-  `beach.facade`（`Beach`）。`beach` トップレベルの公開名は変わらない。`beach.fortran_results` と import 互換の
+  `beach.facade`（`Beach`）。`beach.fortran_results` と import 互換の
   `beach/cli_*.py` 6 本は互換層を残さず削除した。サブパッケージから import していたコードは、`from beach import ...` または
   新しい module（例: `beach.summary` は `beach.io.summary`、`beach.workload` は `beach.tooling.workload`、
   `beach.fortran_results.periodic.Periodic2Config` は `beach.native.periodic2.Periodic2Config`）へ書き換える。runops の entry point は
   `beach.tooling.runops_adapter:Adapter` になった。
+- **BREAKING**: `FortranRunResult`、`load_fortran_result`、`list_fortran_runs` を `RunResult`、`load_run`、`list_runs` に改名した。
+  `RunResult` の統計・形状・状態記録・診断・場の出自は、それぞれ `summary`、`mesh`、`receipts`、`diagnostics`、`field` に分けた。
+  例として `result.triangles` は `result.mesh.triangles`、`result.batches` は `result.summary.batches` になる。
+  `FortranChargeHistory` は `BatchHistory` に一般化し、電荷と電位の履歴は `result.history.charge` と
+  `result.history.potential` で得る。旧名の alias と旧属性の property は残さない。保存済みの出力形式は変更しない。
 - **BREAKING**: `FieldKernel.from_result(...)` を削除した。native binding が run の解析層に依存しないよう、run から kernel を作る処理は
   `beach.analysis.field_kernel.field_kernel_from_result(...)` に移した。`Beach` からは `Beach.kernel(...)` を使う（下記）。
 - **BREAKING**: `Beach` を、1 つの出力ディレクトリの結果・`RunContext`・native field kernel を持つセッションにした。
@@ -77,6 +84,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `beach.cli.main.main(["inspect", ...])` を使う。`beach.cli.config` と `beach.cli.model` は `config_init`、
   `config_diff` と registry の入れ子に置き換え、`beach.cli.lint.run_lint` は `run` に改名した。
   `beach.cli.estimate_fortran_workload` は `beach.tooling.workload` の名前を re-export しない。
+- `summary.txt` のスカラーと `RunResult` の属性の対応を `SUMMARY_FIELDS` にまとめた。
+  `tools/generate_summary_reference.py` は同じ表から出力リファレンスの対応表を更新する。
+- `beachx` の解析コマンドは `Beach` セッションを使い、`inspect --recompute-potential` の計算結果を要約と図で共有する。
+- `examples/tutorial_beam_analysis.py` は、生 CSV の列番号に依存せず `load_run` と履歴の公開 API を使う。
 
 ### Added
 
@@ -84,8 +95,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `key=value` 行と同じ内容を JSON 1 オブジェクトで標準出力に出す。表は配列（`objects`、`batch_details`、
   `mesh_sources`、`force_matrix`）、非有限値は文字列 `"inf"` / `"-inf"` / `"nan"` になる。`object-detachment` は
   保存先と要約値だけを出し、詳細は従来どおり `summary.json` に書く。`coulomb` は target ごとの力行列も出す。
-
-### Added
 
 - `compute_potential_mesh`、`compute_potential_points`、`compute_potential_slices`、`compute_electric_field_points`、
   `trace_field_lines`、`calc_coulomb`、`calc_object_forces_kernel`、`plot_potential_mesh`、`plot_potential_slices`、
@@ -102,9 +111,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `BeachScene.from_result(..., library_path=None)` と `BeachScene.library_path` を追加した。scene の kernel メソッドは
   `library_path` を省略するとこの値を使う。`Beach.scene()` はセッションの `library_path` を渡す。
 - 公開解析・描画関数の docstring の冒頭に、native kernel を構築する（heavy）か保存済みの値だけを使う（light）かを書いた。
+- `top_reference_history.csv`、`fixed_current_history.csv`、`matching_plane_spectrum_history.csv` と
+  `performance_profile.csv` の公開 reader を追加し、`RunResult` からも参照できるようにした。
+- Sphinx autodoc と napoleon で Python API リファレンスを生成する。`make docs-python` で単独生成し、
+  `make docs-pages` は Fortran API と並べて `python/` に同梱する。Sphinx は開発用の `docs` extra に置く。
+- `dev` extra と `make python-type-check` を追加した。L0 は軽量な summary・設定処理3ファイルを mypy の strict 設定で検査する。
+  結果のテストは IO・解析・描画に分け、公開描画関数の戻り値に図と axes の型を付けた。
 
 ### Fixed
 
+- `make build-kernel` が PCG64 の C++ 部品に `-fPIC` を渡しておらず、共有ライブラリをリンクできなかった。
+  C・C++ にも位置独立コードを指定し、C++ runtime をリンクする。
+- 参照点の iterator を保存値の選択と計算で二重に消費していた問題を修正した。モジュール関数と `Beach` で
+  `source="saved"` の引数制約もそろえた。
+- `FieldKernel` は入力電荷をコピーして保持する。呼び出し側が元の配列を書き換えても、借用 kernel の復元状態は変わらない。
+  `Beach` の kernel cache は、解決済みの設定と同じ電荷を持つ呼び出しで共有し、委譲メソッドは指定した履歴 step を使う。
 - モジュール関数に `Beach(..., config_path=...)` を渡したとき、`analyze_coulomb_mobility` と `plot_coulomb_force_matrix` の
   内部の Coulomb 計算、`plot_mesh_source_boxplot(quantity="potential")`、`BeachScene.from_result` が明示した `beach.toml` を
   使わず近傍の自動探索に戻っていた。内部の呼び出しは run の `RunContext` を引き継ぐ。

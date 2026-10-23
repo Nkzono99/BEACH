@@ -55,7 +55,7 @@ camphor 用の通常精度・高速ビルドは [インストール手順](docs/
 | 研究ケースを作る | [ケース設計](https://nkzono99.github.io/BEACH/configuration-recipes.html) → [設定](https://nkzono99.github.io/BEACH/configuration.html) → [実行・再開](https://nkzono99.github.io/BEACH/execution.html) → [妥当性確認](https://nkzono99.github.io/BEACH/validation-guide.html) |
 | 物理・数値モデルを理解する | [BEACH の計算サイクル](https://nkzono99.github.io/BEACH/algorithms.html) → [表面はどう帯電するか](https://nkzono99.github.io/BEACH/surface-models.html) → [場 solver の選び方](https://nkzono99.github.io/BEACH/field-solvers.html) |
 | ソースを変更する | [アーキテクチャ](https://nkzono99.github.io/BEACH/architecture.html) → [開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) |
-| キーや API を調べる | [入力パラメータ](https://nkzono99.github.io/BEACH/parameters.html) / [Python API](https://nkzono99.github.io/BEACH/python-postprocess-api.html) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) |
+| キーや API を調べる | [入力パラメータ](https://nkzono99.github.io/BEACH/parameters.html) / [Python API の使い方](https://nkzono99.github.io/BEACH/python-postprocess-api.html) / [Python API](https://nkzono99.github.io/BEACH/python/) / [Fortran API](https://nkzono99.github.io/BEACH/fortran/) |
 
 ドキュメント全体の案内は [BEACH Documentation](https://nkzono99.github.io/BEACH/) にあります。
 
@@ -73,7 +73,7 @@ camphor 用の通常精度・高速ビルドは [インストール手順](docs/
 
 ```bash
 python -m pip install fpm
-python -m pip install -e . --no-build-isolation
+python -m pip install -e '.[dev]' --no-build-isolation
 make check
 ```
 

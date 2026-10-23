@@ -23,7 +23,7 @@ python --version
 
 ```bash
 python -m pip install -U pip setuptools wheel
-python -m pip install -e . --no-build-isolation
+python -m pip install -e '.[dev]' --no-build-isolation
 make check
 ```
 
@@ -102,7 +102,7 @@ make test-l2      # L1 + C / kernel contract + Python / Fortran 設定契約
 make test-l3      # L2 + heavy FMM / panel
 ```
 
-- L0 は `git diff --check`、source text、`ruff check .`（設定は `pyproject.toml` の `[tool.ruff]`）、JSON schema、`make check` を確認します。
+- L0 は `git diff --check`、source text、`ruff check .`、`mypy`、JSON schema、`make check` を確認します。lint と型検査の設定は `pyproject.toml` にあります。
 - L1 は L0 に全 Python test と通常の Fortran test target を加えます。
 - L2 は C ABI、periodic zero-mode C contract、lint に成功する設定を Fortran で読み込む contract test を加えます。
 - L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
@@ -126,6 +126,10 @@ release profile の `make test-fortran-benchmark` を使います。物理 relea
 handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
 最後に `git diff --check` で whitespace error を確認します。これらの format / lint check が必要な変更では、
 test tier の通過だけで代用しません。
+
+`make python-type-check` は、`beach.io.summary` と設定の共有エラー・schema 読み込みを `mypy --strict` 相当で検査します。
+解析・描画などの未移行部分は検査対象に含めず、型注釈を整えた module から `tool.mypy.files` に追加します。
+結果の読み込み・解析・描画の回帰テストは、それぞれ `test_io_results.py`、`test_analysis_results.py`、`test_plot_results.py` にあります。
 
 ## 設定の契約を確認する
 
