@@ -44,9 +44,9 @@ Fortran main (developer direct run):
 - `fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml`
 
 Python CLI examples:
-- `beach-inspect outputs/latest`
-- `beach-animate-history outputs/latest --quantity charge --save-gif outputs/latest/charge_history.gif`
-- `beach-estimate-workload examples/beach.toml --threads 8`
+- `beachx inspect outputs/latest`
+- `beachx animate outputs/latest --quantity charge --save outputs/latest/charge_history.gif`
+- `beachx workload examples/beach.toml --threads 8`
 
 ## Tests / quality
 - Python tests: `pytest -q`

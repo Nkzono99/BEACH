@@ -31,20 +31,21 @@ beachx inspect outputs/tutorial
 - `absorbed`、`escaped`、`charge_sum` が表示される
 - 保存済み `mesh_potential.csv` の `potential_min` と `potential_max` が表示される
 - `charge_history_shape` と保存された batch index が表示される
-- `mesh_ids` と `mesh_source` が表示される
+- `mesh_ids` と、mesh source ごとの `mesh_id=... source=... template=...` の行が表示される
 
 `rng_seed=12345` での参照値は
 [出力ファイルを調べる](OutputGuide.md#公式入門ケースの結果を確認する)にあります。
+各行は `key=value` で、`--json` を付けると同じ内容を JSON 1 オブジェクトで出力します。
 
 次に、同じ出力から基本図を保存します。
 
 ```bash
-beachx inspect outputs/tutorial \
-  --save-bar outputs/tutorial/charges_bar.png \
-  --save-mesh outputs/tutorial/charge.png
+beachx inspect outputs/tutorial --save-dir outputs/tutorial/figures
 ```
 
-正常終了すると、要素電荷の bar chart と、表面電荷密度で着色した mesh が指定先に保存されます。
+正常終了すると、要素電荷の bar chart（`charge_bar.png`）、表面電荷密度で着色した mesh（`charge_mesh.png`）、
+保存済み絶対電位で着色した mesh（`potential_mesh.png`）が `outputs/tutorial/figures` に保存され、
+`saved_charge_bar=...` などの行で保存先が表示されます。
 画像の生成は後処理の成功を示しますが、数値収束や物理的妥当性の証明ではありません。
 
 ## 2. `beachx animate` で batch 間の変化を見る
@@ -55,11 +56,11 @@ beachx inspect outputs/tutorial \
 ```bash
 beachx animate outputs/tutorial \
   --quantity charge \
-  --save-gif outputs/tutorial/charge_history.gif \
+  --save outputs/tutorial/charge_history.gif \
   --total-frames 30
 ```
 
-正常終了すると、`saved_gif=outputs/tutorial/charge_history.gif`、`snapshots=150`、
+正常終了すると、`saved=outputs/tutorial/charge_history.gif`、`snapshots=150`、
 `rendered_frames=30` が表示されます。
 
 `animate` は `charge_history.csv` の保存済み snapshot を使います。`potential` mode では、その電荷と
@@ -132,11 +133,11 @@ export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
 ```bash
 beachx animate outputs/tutorial \
   --quantity potential \
-  --save-gif outputs/tutorial/potential_history.gif \
+  --save outputs/tutorial/potential_history.gif \
   --total-frames 30
 ```
 
-正常終了すると、`saved_gif=outputs/tutorial/potential_history.gif`、`snapshots=150`、
+正常終了すると、`saved=outputs/tutorial/potential_history.gif`、`snapshots=150`、
 `rendered_frames=30` が表示されます。次に、simulation box 中央の XY / YZ / XZ 断面を作ります。
 
 ```bash
@@ -146,7 +147,7 @@ beachx slices outputs/tutorial \
   --save outputs/tutorial/potential_slices.png
 ```
 
-正常終了すると `saved_potential_slices=outputs/tutorial/potential_slices.png` が表示されます。これらは保存電荷から
+正常終了すると `saved=outputs/tutorial/potential_slices.png` が表示されます。これらは保存電荷から
 場を再構成する解析であり、mesh や solver に対する収束確認の代わりにはなりません。研究結果として採用する前に
 [計算結果の妥当性確認](ValidationGuide.md)に従ってください。
 

@@ -32,7 +32,7 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 | `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
 | `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
 | `checkpoint_latest.txt` | `output.enabled=true` かつ `output.checkpoint.stride_batches>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
-| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`。再開には不使用 |
+| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beachx profile <output_dir>`。再開には不使用 |
 
 Python reader の必須入力は `summary.txt` と `charges.csv` です。他のファイルは設定または runtime state に
 応じて省略されます。
