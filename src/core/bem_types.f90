@@ -81,6 +81,34 @@ module bem_types
     integer(i32) :: bc_high(3) = [bc_open, bc_open, bc_open]
   end type sim_config
 
+  !> adaptive batch（非零 mode の電位変化で batch 幅を縮める）の状態。summary の adaptive_nonzero_mode_* キー。
+  type :: adaptive_nonzero_mode_stats
+    integer(i64) :: rejected_trials = 0_i64
+    real(dp) :: last_batch_duration = 0.0_dp
+    real(dp) :: last_potential_step = 0.0_dp
+    integer(i32) :: omp_threads = 0_i32
+  end type adaptive_nonzero_mode_stats
+
+  !> 外部シースの receipt。summary の matching_plane_* キー（top_field_v_m は surface_current_top_field_v_m）。
+  type :: matching_plane_stats
+    logical :: state_valid = .false.
+    real(dp) :: displacement_c_m2 = 0.0_dp
+    real(dp) :: phi_v = 0.0_dp
+    ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
+    real(dp) :: top_field_v_m = 0.0_dp
+    real(dp) :: top_cell_mean_v_m = 0.0_dp
+    real(dp) :: response(6) = 0.0_dp
+    real(dp) :: feedback(4) = 0.0_dp
+    real(dp) :: photoelectron_return_flux_m2_s = 0.0_dp
+    real(dp) :: photoelectron_escape_flux_m2_s = 0.0_dp
+    !> 外部根の光電子源に使った H 外向きスペクトル [1/(m2 s)]、bin 別。全て 0 は表面放出の半 Maxwell 源。
+    real(dp) :: photoelectron_spectrum_m2_s(outflow_spectrum_bins) = 0.0_dp
+    integer(i32) :: iterations = 0_i32
+    real(dp) :: residual = 0.0_dp
+    real(dp) :: secondary_share = 0.0_dp
+    real(dp) :: secondary_budget_residual_a_m2 = 0.0_dp
+  end type matching_plane_stats
+
   !> 処理済み粒子数、吸着/脱出数、バッチ数、最終相対変化量を集計する統計型。
   type :: sim_stats
     integer(i64) :: processed_particles = 0_i64
@@ -101,29 +129,13 @@ module bem_types
     integer(i32) :: batches = 0
     real(dp) :: last_rel_change = -1.0d0
     real(dp) :: simulated_time = 0.0_dp
-    integer(i64) :: adaptive_nonzero_mode_rejected_trials = 0_i64
-    real(dp) :: adaptive_nonzero_mode_last_batch_duration = 0.0_dp
-    real(dp) :: adaptive_nonzero_mode_last_potential_step = 0.0_dp
-    integer(i32) :: adaptive_nonzero_mode_omp_threads = 0_i32
+    !> 非零 mode の電位変化で batch 幅を縮める adaptive batch の状態。
+    type(adaptive_nonzero_mode_stats) :: adaptive_nonzero_mode
     !> shared particle pool の claim 回数と、claim の critical 区間で費やした秒数（全 rank 合計）。
     integer(i64) :: particle_pool_claims = 0_i64
     real(dp) :: particle_pool_claim_seconds = 0.0_dp
-    logical :: matching_plane_state_valid = .false.
-    real(dp) :: matching_plane_displacement_c_m2 = 0.0_dp
-    real(dp) :: matching_plane_phi_v = 0.0_dp
-    ! Recomputed from the restored external root and snapshot; not persisted in checkpoints.
-    real(dp) :: surface_current_top_field_v_m = 0.0_dp
-    real(dp) :: matching_plane_top_cell_mean_v_m = 0.0_dp
-    real(dp) :: matching_plane_response(6) = 0.0_dp
-    real(dp) :: matching_plane_feedback(4) = 0.0_dp
-    real(dp) :: matching_plane_photoelectron_return_flux_m2_s = 0.0_dp
-    real(dp) :: matching_plane_photoelectron_escape_flux_m2_s = 0.0_dp
-    !> 外部根の光電子源に使った H 外向きスペクトル [1/(m2 s)]、bin 別。全て 0 は表面放出の半 Maxwell 源。
-    real(dp) :: matching_plane_photoelectron_spectrum_m2_s(outflow_spectrum_bins) = 0.0_dp
-    integer(i32) :: matching_plane_iterations = 0_i32
-    real(dp) :: matching_plane_residual = 0.0_dp
-    real(dp) :: matching_plane_secondary_share = 0.0_dp
-    real(dp) :: secondary_budget_residual_a_m2 = 0.0_dp
+    !> 外部シース（Zhao 根と z-high の matching-plane）の receipt。summary と checkpoint に出る。
+    type(matching_plane_stats) :: matching_plane
     integer(i64) :: secondary_emission_hits = 0_i64
     integer(i64) :: secondary_emission_count = 0_i64
     integer(i64) :: secondary_generation_capped_count = 0_i64

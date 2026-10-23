@@ -96,13 +96,13 @@ contains
   write (u, '(a,es24.16)') 'last_rel_change=', stats%last_rel_change
   write (u, '(a,es24.16)') 'simulated_time_s=', stats%simulated_time
   write (u, '(a,i0)') 'adaptive_nonzero_mode_rejected_trials=', &
-    stats%adaptive_nonzero_mode_rejected_trials
+    stats%adaptive_nonzero_mode%rejected_trials
   write (u, '(a,es24.16)') 'adaptive_nonzero_mode_last_batch_duration_s=', &
-    stats%adaptive_nonzero_mode_last_batch_duration
+    stats%adaptive_nonzero_mode%last_batch_duration
   write (u, '(a,es24.16)') 'adaptive_nonzero_mode_last_potential_step_V=', &
-    stats%adaptive_nonzero_mode_last_potential_step
+    stats%adaptive_nonzero_mode%last_potential_step
   write (u, '(a,i0)') 'adaptive_nonzero_mode_omp_threads=', &
-    stats%adaptive_nonzero_mode_omp_threads
+    stats%adaptive_nonzero_mode%omp_threads
   write (u, '(a,i0)') 'secondary_emission_hits=', stats%secondary_emission_hits
   write (u, '(a,i0)') 'secondary_emission_count=', stats%secondary_emission_count
   write (u, '(a,es24.16)') 'secondary_emitted_charge_C=', stats%secondary_emitted_charge_c
@@ -115,34 +115,34 @@ contains
     if (.not. cfg%particle_species(s)%enabled .or. .not. cfg%particle_species(s)%secondary_emission_enabled) cycle
     write (u, '(a,i0,a,a)') 'secondary_incident_species_', s, '=', trim(cfg%particle_species(s)%species_key)
   end do
-  write (u, '(a,es24.16)') 'matching_plane_secondary_share=', stats%matching_plane_secondary_share
-  write (u, '(a,es24.16)') 'secondary_budget_residual_a_m2=', stats%secondary_budget_residual_a_m2
-  write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane_state_valid
-  write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
-  write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane_phi_v
-  write (u, '(a,es24.16)') 'matching_plane_top_cell_mean_V_m=', stats%matching_plane_top_cell_mean_v_m
-  write (u, '(a,es24.16)') 'matching_plane_electron_inward_flux_m2_s=', stats%matching_plane_response(2)
-  write (u, '(a,es24.16)') 'matching_plane_ion_inward_flux_m2_s=', stats%matching_plane_response(3)
-  write (u, '(a,es24.16)') 'matching_plane_electron_access_potential_V=', stats%matching_plane_response(4)
-  write (u, '(a,es24.16)') 'matching_plane_ion_access_potential_V=', stats%matching_plane_response(5)
+  write (u, '(a,es24.16)') 'matching_plane_secondary_share=', stats%matching_plane%secondary_share
+  write (u, '(a,es24.16)') 'secondary_budget_residual_a_m2=', stats%matching_plane%secondary_budget_residual_a_m2
+  write (u, '(a,l1)') 'matching_plane_state_valid=', stats%matching_plane%state_valid
+  write (u, '(a,es24.16)') 'matching_plane_displacement_C_m2=', stats%matching_plane%displacement_c_m2
+  write (u, '(a,es24.16)') 'matching_plane_phi_V=', stats%matching_plane%phi_v
+  write (u, '(a,es24.16)') 'matching_plane_top_cell_mean_V_m=', stats%matching_plane%top_cell_mean_v_m
+  write (u, '(a,es24.16)') 'matching_plane_electron_inward_flux_m2_s=', stats%matching_plane%response(2)
+  write (u, '(a,es24.16)') 'matching_plane_ion_inward_flux_m2_s=', stats%matching_plane%response(3)
+  write (u, '(a,es24.16)') 'matching_plane_electron_access_potential_V=', stats%matching_plane%response(4)
+  write (u, '(a,es24.16)') 'matching_plane_ion_access_potential_V=', stats%matching_plane%response(5)
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_barrier_potential_V=', &
-    stats%matching_plane_response(6)
+    stats%matching_plane%response(6)
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_outward_flux_m2_s=', &
-    stats%matching_plane_feedback(1)
+    stats%matching_plane%feedback(1)
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_mean_normal_energy_eV=', &
-    stats%matching_plane_feedback(2)
+    stats%matching_plane%feedback(2)
   write (u, '(a,*(1x,es24.16))') 'matching_plane_photoelectron_spectrum_m2_s=', &
-    stats%matching_plane_photoelectron_spectrum_m2_s
+    stats%matching_plane%photoelectron_spectrum_m2_s
   write (u, '(a,es24.16)') 'matching_plane_electron_outward_flux_m2_s=', &
-    stats%matching_plane_feedback(3)
+    stats%matching_plane%feedback(3)
   write (u, '(a,es24.16)') 'matching_plane_ion_outward_flux_m2_s=', &
-    stats%matching_plane_feedback(4)
+    stats%matching_plane%feedback(4)
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_return_flux_m2_s=', &
-    stats%matching_plane_photoelectron_return_flux_m2_s
+    stats%matching_plane%photoelectron_return_flux_m2_s
   write (u, '(a,es24.16)') 'matching_plane_photoelectron_escape_flux_m2_s=', &
-    stats%matching_plane_photoelectron_escape_flux_m2_s
-  write (u, '(a,i0)') 'matching_plane_iterations=', stats%matching_plane_iterations
-  write (u, '(a,es24.16)') 'matching_plane_residual=', stats%matching_plane_residual
+    stats%matching_plane%photoelectron_escape_flux_m2_s
+  write (u, '(a,i0)') 'matching_plane_iterations=', stats%matching_plane%iterations
+  write (u, '(a,es24.16)') 'matching_plane_residual=', stats%matching_plane%residual
   write (u, '(a)') 'particle_time_centering=same_time_midpoint_boris'
   write (u, '(a,a)') 'field_backend=', trim(field_config%backend)
   write (u, '(a,a)') 'field_normalization=', trim(field_config%normalization)
@@ -191,7 +191,7 @@ contains
     cfg%sim%field_periodic_generation_tolerance
   write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
-  write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%surface_current_top_field_v_m
+  write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%matching_plane%top_field_v_m
   if (current_model%active) then
     write (u, '(a,a)') 'surface_current_model_kinetic_contract=', trim(current_model%kinetic_contract)
     write (u, '(a,a)') 'surface_current_model_zhao_branch=', current_model%zhao_branch

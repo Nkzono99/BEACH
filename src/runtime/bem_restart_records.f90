@@ -112,63 +112,63 @@ contains
     case ('simulated_time_s')
       read (value, *) stats%simulated_time
     case ('adaptive_nonzero_mode_rejected_trials')
-      read (value, *) stats%adaptive_nonzero_mode_rejected_trials
+      read (value, *) stats%adaptive_nonzero_mode%rejected_trials
     case ('adaptive_nonzero_mode_last_batch_duration_s')
-      read (value, *) stats%adaptive_nonzero_mode_last_batch_duration
+      read (value, *) stats%adaptive_nonzero_mode%last_batch_duration
     case ('adaptive_nonzero_mode_last_potential_step_V')
-      read (value, *) stats%adaptive_nonzero_mode_last_potential_step
+      read (value, *) stats%adaptive_nonzero_mode%last_potential_step
     case ('adaptive_nonzero_mode_omp_threads')
-      read (value, *) stats%adaptive_nonzero_mode_omp_threads
+      read (value, *) stats%adaptive_nonzero_mode%omp_threads
     case ('matching_plane_state_valid')
       call require_unique_summary_key(found_matching_state, key)
-      call read_matching_summary_logical(value, key, stats%matching_plane_state_valid)
+      call read_matching_summary_logical(value, key, stats%matching_plane%state_valid)
     case ('matching_plane_displacement_C_m2')
       call require_unique_summary_key(found_matching_displacement, key)
-      call read_matching_summary_real(value, key, stats%matching_plane_displacement_c_m2)
+      call read_matching_summary_real(value, key, stats%matching_plane%displacement_c_m2)
     case ('matching_plane_phi_V')
       call require_unique_summary_key(found_matching_phi, key)
-      call read_matching_summary_real(value, key, stats%matching_plane_phi_v)
-      stats%matching_plane_response(1) = stats%matching_plane_phi_v
+      call read_matching_summary_real(value, key, stats%matching_plane%phi_v)
+      stats%matching_plane%response(1) = stats%matching_plane%phi_v
     case ('matching_plane_electron_inward_flux_m2_s')
       call require_unique_summary_key(found_matching_response(2), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_response(2))
+      call read_matching_summary_real(value, key, stats%matching_plane%response(2))
     case ('matching_plane_ion_inward_flux_m2_s')
       call require_unique_summary_key(found_matching_response(3), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_response(3))
+      call read_matching_summary_real(value, key, stats%matching_plane%response(3))
     case ('matching_plane_electron_access_potential_V')
       call require_unique_summary_key(found_matching_response(4), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_response(4))
+      call read_matching_summary_real(value, key, stats%matching_plane%response(4))
     case ('matching_plane_ion_access_potential_V')
       call require_unique_summary_key(found_matching_response(5), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_response(5))
+      call read_matching_summary_real(value, key, stats%matching_plane%response(5))
     case ('matching_plane_photoelectron_barrier_potential_V')
       call require_unique_summary_key(found_matching_response(6), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_response(6))
+      call read_matching_summary_real(value, key, stats%matching_plane%response(6))
     case ('matching_plane_photoelectron_outward_flux_m2_s')
       call require_unique_summary_key(found_matching_feedback(1), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_feedback(1))
+      call read_matching_summary_real(value, key, stats%matching_plane%feedback(1))
     case ('matching_plane_photoelectron_mean_normal_energy_eV')
       call require_unique_summary_key(found_matching_feedback(2), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_feedback(2))
+      call read_matching_summary_real(value, key, stats%matching_plane%feedback(2))
     case ('matching_plane_electron_outward_flux_m2_s')
       call require_unique_summary_key(found_matching_feedback(3), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_feedback(3))
+      call read_matching_summary_real(value, key, stats%matching_plane%feedback(3))
     case ('matching_plane_ion_outward_flux_m2_s')
       call require_unique_summary_key(found_matching_feedback(4), key)
-      call read_matching_summary_real(value, key, stats%matching_plane_feedback(4))
+      call read_matching_summary_real(value, key, stats%matching_plane%feedback(4))
     case ('matching_plane_photoelectron_return_flux_m2_s')
       call require_unique_summary_key(found_matching_return, key)
-      call read_matching_summary_real(value, key, stats%matching_plane_photoelectron_return_flux_m2_s)
+      call read_matching_summary_real(value, key, stats%matching_plane%photoelectron_return_flux_m2_s)
     case ('matching_plane_photoelectron_escape_flux_m2_s')
       call require_unique_summary_key(found_matching_escape, key)
-      call read_matching_summary_real(value, key, stats%matching_plane_photoelectron_escape_flux_m2_s)
+      call read_matching_summary_real(value, key, stats%matching_plane%photoelectron_escape_flux_m2_s)
     case ('matching_plane_iterations')
       call require_unique_summary_key(found_matching_iterations, key)
-      call read_matching_summary_integer(value, key, stats%matching_plane_iterations)
+      call read_matching_summary_integer(value, key, stats%matching_plane%iterations)
     case ('matching_plane_secondary_share')
-      call read_matching_summary_real(value, key, stats%matching_plane_secondary_share)
+      call read_matching_summary_real(value, key, stats%matching_plane%secondary_share)
     case ('secondary_budget_residual_a_m2')
-      call read_matching_summary_real(value, key, stats%secondary_budget_residual_a_m2)
+      call read_matching_summary_real(value, key, stats%matching_plane%secondary_budget_residual_a_m2)
     case ('secondary_emission_hits')
       read (value, *) stats%secondary_emission_hits
     case ('secondary_emission_count')
@@ -181,10 +181,10 @@ contains
       call read_matching_summary_real(value, key, stats%secondary_yield_sum)
     case ('matching_plane_residual')
       call require_unique_summary_key(found_matching_residual, key)
-      call read_matching_summary_real(value, key, stats%matching_plane_residual)
+      call read_matching_summary_real(value, key, stats%matching_plane%residual)
     case ('matching_plane_photoelectron_spectrum_m2_s')
       call require_unique_summary_key(found_matching_spectrum, key)
-      read (value, *, iostat=ios) stats%matching_plane_photoelectron_spectrum_m2_s
+      read (value, *, iostat=ios) stats%matching_plane%photoelectron_spectrum_m2_s
       if (ios /= 0) error stop 'Resume checkpoint matching-plane photoelectron spectrum could not be parsed.'
     end select
   end do
@@ -486,18 +486,18 @@ contains
     if (.not. ieee_is_finite(stats%simulated_time) .or. stats%simulated_time < 0.0_dp) then
       error stop 'Resume checkpoint simulated_time_s must be finite and >= 0.'
     end if
-    if (stats%adaptive_nonzero_mode_rejected_trials < 0_i64) then
+    if (stats%adaptive_nonzero_mode%rejected_trials < 0_i64) then
       error stop 'Resume checkpoint adaptive rejected-trial count must be >= 0.'
     end if
-    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode_last_batch_duration) .or. &
-        stats%adaptive_nonzero_mode_last_batch_duration < 0.0_dp) then
+    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode%last_batch_duration) .or. &
+        stats%adaptive_nonzero_mode%last_batch_duration < 0.0_dp) then
       error stop 'Resume checkpoint adaptive last batch duration must be finite and >= 0.'
     end if
-    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode_last_potential_step) .or. &
-        stats%adaptive_nonzero_mode_last_potential_step < 0.0_dp) then
+    if (.not. ieee_is_finite(stats%adaptive_nonzero_mode%last_potential_step) .or. &
+        stats%adaptive_nonzero_mode%last_potential_step < 0.0_dp) then
       error stop 'Resume checkpoint adaptive last potential step must be finite and >= 0.'
     end if
-    if (stats%adaptive_nonzero_mode_omp_threads < 0_i32) then
+    if (stats%adaptive_nonzero_mode%omp_threads < 0_i32) then
       error stop 'Resume checkpoint adaptive OpenMP thread count must be >= 0.'
     end if
     if (stats%secondary_emission_hits < 0_i64 .or. stats%secondary_emission_count < 0_i64 .or. &
@@ -506,42 +506,42 @@ contains
         .not. ieee_is_finite(stats%secondary_emitted_charge_c) .or. stats%secondary_emitted_charge_c > 0.0_dp) then
       error stop 'Resume checkpoint secondary-emission diagnostics are invalid.'
     end if
-    if (stats%matching_plane_state_valid) then
+    if (stats%matching_plane%state_valid) then
       if (.not. all(ieee_is_finite([ &
-                                   stats%matching_plane_displacement_c_m2, stats%matching_plane_phi_v, &
-                                   stats%matching_plane_response, stats%matching_plane_feedback, &
-                                   stats%matching_plane_photoelectron_return_flux_m2_s, &
-                                   stats%matching_plane_photoelectron_escape_flux_m2_s, stats%matching_plane_residual, &
-                                   stats%matching_plane_secondary_share, stats%secondary_budget_residual_a_m2 &
+                                   stats%matching_plane%displacement_c_m2, stats%matching_plane%phi_v, &
+                                   stats%matching_plane%response, stats%matching_plane%feedback, &
+                                   stats%matching_plane%photoelectron_return_flux_m2_s, &
+                                   stats%matching_plane%photoelectron_escape_flux_m2_s, stats%matching_plane%residual, &
+                                   stats%matching_plane%secondary_share, stats%matching_plane%secondary_budget_residual_a_m2 &
                                    ]))) then
         error stop 'Resume checkpoint matching-plane state must be finite.'
       end if
-      if (any(stats%matching_plane_feedback < 0.0_dp) .or. &
-          any(stats%matching_plane_response(2:3) < 0.0_dp) .or. &
-          stats%matching_plane_photoelectron_return_flux_m2_s < 0.0_dp .or. &
-          stats%matching_plane_photoelectron_escape_flux_m2_s < 0.0_dp .or. &
-          stats%matching_plane_iterations <= 0_i32 .or. stats%matching_plane_residual < 0.0_dp .or. &
-          stats%matching_plane_secondary_share < 0.0_dp .or. stats%matching_plane_secondary_share > 1.0_dp) then
+      if (any(stats%matching_plane%feedback < 0.0_dp) .or. &
+          any(stats%matching_plane%response(2:3) < 0.0_dp) .or. &
+          stats%matching_plane%photoelectron_return_flux_m2_s < 0.0_dp .or. &
+          stats%matching_plane%photoelectron_escape_flux_m2_s < 0.0_dp .or. &
+          stats%matching_plane%iterations <= 0_i32 .or. stats%matching_plane%residual < 0.0_dp .or. &
+          stats%matching_plane%secondary_share < 0.0_dp .or. stats%matching_plane%secondary_share > 1.0_dp) then
         error stop 'Resume checkpoint matching-plane state is outside its physical range.'
       end if
       matching_budget_scale = max( &
-                              1.0_dp, stats%matching_plane_feedback(1), &
-                              stats%matching_plane_photoelectron_return_flux_m2_s, &
-                              stats%matching_plane_photoelectron_escape_flux_m2_s &
+                              1.0_dp, stats%matching_plane%feedback(1), &
+                              stats%matching_plane%photoelectron_return_flux_m2_s, &
+                              stats%matching_plane%photoelectron_escape_flux_m2_s &
                               )
       if (abs( &
-          stats%matching_plane_feedback(1) - &
-          stats%matching_plane_photoelectron_return_flux_m2_s - &
-          stats%matching_plane_photoelectron_escape_flux_m2_s &
+          stats%matching_plane%feedback(1) - &
+          stats%matching_plane%photoelectron_return_flux_m2_s - &
+          stats%matching_plane%photoelectron_escape_flux_m2_s &
           ) > sqrt(epsilon(1.0_dp))*matching_budget_scale) then
         error stop 'Resume checkpoint matching-plane photoelectron budget is inconsistent.'
       end if
-      if (.not. all(ieee_is_finite(stats%matching_plane_photoelectron_spectrum_m2_s)) .or. &
-          any(stats%matching_plane_photoelectron_spectrum_m2_s < 0.0_dp)) then
+      if (.not. all(ieee_is_finite(stats%matching_plane%photoelectron_spectrum_m2_s)) .or. &
+          any(stats%matching_plane%photoelectron_spectrum_m2_s < 0.0_dp)) then
         error stop 'Resume checkpoint matching-plane photoelectron spectrum must be finite and >= 0.'
       end if
-      if (any(stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp) .and. &
-          abs(sum(stats%matching_plane_photoelectron_spectrum_m2_s) - stats%matching_plane_feedback(1)) > &
+      if (any(stats%matching_plane%photoelectron_spectrum_m2_s > 0.0_dp) .and. &
+          abs(sum(stats%matching_plane%photoelectron_spectrum_m2_s) - stats%matching_plane%feedback(1)) > &
           sqrt(epsilon(1.0_dp))*matching_budget_scale) then
         error stop 'Resume checkpoint matching-plane photoelectron spectrum does not match its outward flux.'
       end if

@@ -151,19 +151,19 @@ contains
 
   module procedure write_matching_plane_history_snapshot
 
-  if (.not. stats%matching_plane_state_valid) return
+  if (.not. stats%matching_plane%state_valid) return
   write (unit_id, '(i0,14(a,es24.16),a,i0,5(a,es24.16))') &
-    batch_idx, ',', simulated_time_s, ',', stats%matching_plane_displacement_c_m2, &
-    ',', stats%matching_plane_phi_v, ',', stats%matching_plane_response(2), &
-    ',', stats%matching_plane_response(3), ',', stats%matching_plane_response(4), &
-    ',', stats%matching_plane_response(5), ',', stats%matching_plane_response(6), &
-    ',', stats%matching_plane_feedback(1), &
-    ',', stats%matching_plane_feedback(2), ',', stats%matching_plane_feedback(3), &
-    ',', stats%matching_plane_feedback(4), ',', stats%matching_plane_photoelectron_return_flux_m2_s, &
-    ',', stats%matching_plane_photoelectron_escape_flux_m2_s, ',', stats%matching_plane_iterations, &
-    ',', stats%matching_plane_residual, ',', stats%matching_plane_secondary_share, &
-    ',', stats%secondary_budget_residual_a_m2, ',', stats%surface_current_top_field_v_m, &
-    ',', stats%matching_plane_top_cell_mean_v_m
+    batch_idx, ',', simulated_time_s, ',', stats%matching_plane%displacement_c_m2, &
+    ',', stats%matching_plane%phi_v, ',', stats%matching_plane%response(2), &
+    ',', stats%matching_plane%response(3), ',', stats%matching_plane%response(4), &
+    ',', stats%matching_plane%response(5), ',', stats%matching_plane%response(6), &
+    ',', stats%matching_plane%feedback(1), &
+    ',', stats%matching_plane%feedback(2), ',', stats%matching_plane%feedback(3), &
+    ',', stats%matching_plane%feedback(4), ',', stats%matching_plane%photoelectron_return_flux_m2_s, &
+    ',', stats%matching_plane%photoelectron_escape_flux_m2_s, ',', stats%matching_plane%iterations, &
+    ',', stats%matching_plane%residual, ',', stats%matching_plane%secondary_share, &
+    ',', stats%matching_plane%secondary_budget_residual_a_m2, ',', stats%matching_plane%top_field_v_m, &
+    ',', stats%matching_plane%top_cell_mean_v_m
   end procedure write_matching_plane_history_snapshot
 
   !> 外部根の更新が使う H 外向きスペクトルを、matching-plane history と同じ条件と間隔で書く。
@@ -193,12 +193,12 @@ contains
   real(dp) :: edges(outflow_spectrum_bins + 1)
   integer(i32) :: j
 
-  if (.not. stats%matching_plane_state_valid) return
+  if (.not. stats%matching_plane%state_valid) return
   edges = outflow_spectrum_edges_ev()
   do j = 1_i32, outflow_spectrum_bins
-    if (stats%matching_plane_photoelectron_spectrum_m2_s(j) <= 0.0_dp) cycle
+    if (stats%matching_plane%photoelectron_spectrum_m2_s(j) <= 0.0_dp) cycle
     write (unit_id, '(i0,a,es24.16,a,i0,3(a,es24.16))') batch_idx, ',', simulated_time_s, ',', j, &
-      ',', edges(j), ',', edges(j + 1), ',', stats%matching_plane_photoelectron_spectrum_m2_s(j)
+      ',', edges(j), ',', edges(j + 1), ',', stats%matching_plane%photoelectron_spectrum_m2_s(j)
   end do
   end procedure write_matching_plane_spectrum_history_rows
 
