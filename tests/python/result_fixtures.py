@@ -6,8 +6,25 @@ import pytest
 import beach.analysis.coulomb as coulomb_module
 import beach.analysis.field_kernel as field_kernel_module
 import beach.analysis.potential as potential_module
-from beach import FortranChargeHistory, K_COULOMB
+from beach import BatchHistory, K_COULOMB
 from beach.analysis.panel_quadrature import panel_target_quadrature
+
+
+_MATCHING_HISTORY_HEADER = (
+    "batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,"
+    "ion_inward_flux_m2_s,electron_access_potential_V,ion_access_potential_V,"
+    "photoelectron_barrier_potential_V,photoelectron_outward_flux_m2_s,"
+    "photoelectron_mean_normal_energy_eV,electron_outward_flux_m2_s,"
+    "ion_outward_flux_m2_s,photoelectron_return_flux_m2_s,"
+    "photoelectron_escape_flux_m2_s,iterations,residual"
+)
+
+_CHARGE_LEDGER_REQUIRED_HEADER = (
+    "batch,species_idx,injected_from_remote_C,emitted_from_surface_C,"
+    "absorbed_on_surface_C,escaped_to_infinity_C,discarded_unresolved_C,"
+    "injected_count,emitted_count,absorbed_count,escaped_count,"
+    "discarded_unresolved_count"
+)
 
 
 class _UnitPanelKernel:
@@ -152,7 +169,7 @@ def _make_history(
     batch_indices: np.ndarray | None = None,
     processed_particles_by_batch: np.ndarray | None = None,
     rel_change_by_batch: np.ndarray | None = None,
-) -> FortranChargeHistory:
+) -> BatchHistory:
     n_snapshots = int(history.shape[1])
     batches = (
         np.arange(1, n_snapshots + 1, dtype=np.int64)
@@ -169,7 +186,7 @@ def _make_history(
         if rel_change_by_batch is None
         else rel_change_by_batch.astype(float, copy=False)
     )
-    return FortranChargeHistory.from_arrays(
+    return BatchHistory.from_arrays(
         Path("dummy_charge_history.csv"),
         mesh_nelem=mesh_nelem,
         history=history,
@@ -184,14 +201,14 @@ def _write_charge_history(
     rows: list[str],
     *,
     mesh_nelem: int = 3,
-) -> FortranChargeHistory:
+) -> BatchHistory:
     path.write_text(
         "batch,processed_particles,rel_change,elem_idx,charge_C\n"
         + "\n".join(rows)
         + "\n",
         encoding="utf-8",
     )
-    return FortranChargeHistory(path, mesh_nelem=mesh_nelem)
+    return BatchHistory(path, mesh_nelem=mesh_nelem)
 
 
 def _write_three_mesh_fixture(out: Path) -> None:

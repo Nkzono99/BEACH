@@ -14,11 +14,12 @@ import examples.analyze_periodic_object_detachment as example_module
 from beach import (
     Beach,
     FiniteShellConvergenceResult,
-    ObjectInteractionSnapshot,
     ObjectForcePath,
     ObjectWrench,
     RigidTransform,
     WrenchComponent,
+    RunHistory,
+    RunSummary,
 )
 from beach.cli.main import main as beachx_main
 
@@ -292,8 +293,8 @@ class _FakeResult:
         batches: int = 123,
         history: _FakeHistory | None = None,
     ) -> None:
-        self.batches = batches
-        self.history = history
+        self.summary = RunSummary(mesh_nelem=0, processed_particles=0, absorbed=0, escaped=0, batches=batches)
+        self.history = RunHistory(charge=history)
 
 
 def test_object_detachment_cli_writes_deterministic_artifacts(
@@ -420,7 +421,6 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
     assert captured["config_path"] == tmp_path / "beach.toml"
     assert captured["cache_dir"] == cache_dir
     assert captured["generation_tolerance"] == pytest.approx(1.0e-7)
-    assert captured["library_path"] == library
     np.testing.assert_allclose(
         _FakeProbe.last_wrench_kwargs["torque_origin"],
         [1.0, 2.0, 3.0],
@@ -512,14 +512,17 @@ def _install_fake_evaluator(
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
     resolved_result = _FakeResult() if result is None else result
-    monkeypatch.setattr(Beach, "result", property(lambda _self: resolved_result))
+    resolved_result.directory = tmp_path / "run"
+    monkeypatch.setattr("beach.facade.load_run", lambda _output: resolved_result)
 
-    def fake_snapshot(*_args, **kwargs):
+    def fake_snapshot(run, **kwargs):
         if captured is not None:
             captured.update(kwargs)
+            captured["library_path"] = run.library_path
+            captured["config_path"] = run.context.config_path
         return _FakeSnapshot(step=kwargs["step"])
 
-    monkeypatch.setattr(ObjectInteractionSnapshot, "from_result", fake_snapshot)
+    monkeypatch.setattr(Beach, "object_interaction_snapshot", fake_snapshot)
 
 
 def test_object_detachment_strict_json_failure_preserves_existing_artifacts(

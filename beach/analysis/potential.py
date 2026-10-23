@@ -9,7 +9,7 @@ from typing import Iterable, Literal, Mapping
 import numpy as np
 
 from beach.io._numeric import _points
-from beach.io.types import FortranRunResult, PotentialSlice2D
+from beach.io.types import RunResult, PotentialSlice2D
 from beach.native.kernel import FieldKernel, FieldKernelOptions
 from beach.native.periodic2 import Periodic2Config, coerce_periodic2
 
@@ -27,7 +27,7 @@ from .periodic import auto_periodic2_from_result
 
 
 def compute_potential_mesh(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     periodic2: Mapping[str, object] | None = None,
     reference_point: Iterable[float] | str | None = None,
@@ -40,7 +40,7 @@ def compute_potential_mesh(
 
     Parameters
     ----------
-    result : FortranRunResult, RunContext, or Beach
+    result : RunResult, RunContext, or Beach
         Run to evaluate.
     periodic2 : mapping or None, default None
         Two-axis periodic setting. ``None`` resolves it from the run.
@@ -76,7 +76,7 @@ def compute_potential_mesh(
         reference_point=reference_point,
         kernel=kernel,
     ):
-        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
+        return np.asarray(resolved.mesh.mesh_potential_v, dtype=float).copy()
 
     reference_xyz = _resolve_reference_point(
         resolved,
@@ -99,7 +99,7 @@ def compute_potential_mesh(
 
 
 def _uses_saved_mesh_potential(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     source: str,
     periodic2: Mapping[str, object] | None,
@@ -113,13 +113,8 @@ def _uses_saved_mesh_potential(
     if source not in {"auto", "saved"}:
         raise ValueError('source must be "auto", "saved", or "kernel".')
     context = RunContext.from_value(result)
-    saved = context.result.mesh_potential_v is not None
-    reference_xyz = _resolve_reference_point(
-        context.result,
-        reference_point,
-        context=context,
-    )
-    unmodified = periodic2 is None and reference_xyz is None and kernel is None
+    saved = context.result.mesh.mesh_potential_v is not None
+    unmodified = periodic2 is None and reference_point is None and kernel is None
     if source == "auto":
         return saved and unmodified
     if not saved:
@@ -133,7 +128,7 @@ def _uses_saved_mesh_potential(
 
 
 def compute_potential_points(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     points: np.ndarray,
     *,
     chunk_size: int = 2048,
@@ -147,7 +142,7 @@ def compute_potential_points(
 
     Parameters
     ----------
-    result : FortranRunResult, RunContext, or Beach
+    result : RunResult, RunContext, or Beach
         Run to evaluate.
     points : numpy.ndarray
         Sampling points with shape ``(n_points, 3)`` in meters.
@@ -201,7 +196,7 @@ def compute_potential_points(
 
 
 def compute_potential_slices(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     box_min: Iterable[float],
     box_max: Iterable[float],
@@ -547,7 +542,7 @@ def _coerce_slice_coordinate(
 
 
 def _resolve_reference_point(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     reference_point: Iterable[float] | str | None,
     *,
     context: RunContext | None = None,
@@ -578,7 +573,7 @@ def _reference_array(value: Iterable[float] | np.ndarray) -> np.ndarray:
 
 
 def _species1_injection_center_from_result(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     *,
     context: RunContext | None = None,
 ) -> np.ndarray | None:

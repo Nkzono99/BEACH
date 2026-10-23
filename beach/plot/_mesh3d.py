@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from ._defaults import DEFAULT_MESH_VIEW_AZIM, DEFAULT_MESH_VIEW_ELEV
 
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d import Axes3D
+
 
 def _configure_mesh_axes(
-    ax,
+    ax: Axes3D,
     triangles: np.ndarray,
     *,
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
@@ -54,7 +60,7 @@ def _plot_scalar_mesh(
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     axis_unit: str = "m",
-):
+) -> tuple[Figure, Axes3D]:
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 

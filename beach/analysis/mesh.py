@@ -6,7 +6,7 @@ from typing import Mapping
 
 import numpy as np
 
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 from beach.native.periodic2 import coerce_periodic2
 
 from .context import RunContext
@@ -112,7 +112,7 @@ def _periodic_coordinate_mean(
 
 
 def _maybe_apply_periodic2_mesh(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     triangles: np.ndarray,
     *,
     periodic2: Mapping[str, object] | None = None,
@@ -141,11 +141,11 @@ def _maybe_apply_periodic2_mesh(
             origins=periodic_cfg.origins,
         )
     if mode in {"mesh", "object"}:
-        if resolved.mesh_ids is None:
+        if resolved.mesh.mesh_ids is None:
             raise ValueError("periodic2_mesh_mode='mesh' requires mesh_ids.")
         return _wrap_periodic2_triangles_by_mesh_centroid(
             triangles,
-            resolved.mesh_ids,
+            resolved.mesh.mesh_ids,
             axes=periodic_cfg.axes,
             lengths=periodic_cfg.lengths,
             origins=periodic_cfg.origins,
@@ -200,7 +200,7 @@ def _replicate_periodic2(
 
 
 def _maybe_replicate_periodic2(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     triangles: np.ndarray,
     values: np.ndarray,
     *,

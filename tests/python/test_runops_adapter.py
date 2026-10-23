@@ -253,6 +253,6 @@ def test_public_names_still_resolve() -> None:
     import beach
 
     assert beach.Beach.__name__ == "Beach"
-    assert "load_fortran_result" in dir(beach)
+    assert "load_run" in dir(beach)
     with pytest.raises(AttributeError):
         beach.no_such_name  # noqa: B018

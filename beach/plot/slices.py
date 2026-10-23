@@ -9,17 +9,20 @@ import numpy as np
 
 from beach.analysis.context import RunContext
 from beach.analysis.potential import _resolve_reference_point, compute_potential_slices
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 
 from ._defaults import DEFAULT_POTENTIAL_CMAP
 from ._mesh3d import _resolve_axis_unit
 
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from numpy.typing import NDArray
+
     from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_potential_slices(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     box_min: Iterable[float],
     box_max: Iterable[float],
@@ -37,13 +40,13 @@ def plot_potential_slices(
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
     kernel: FieldKernel | None = None,
-):
+) -> tuple[Figure, NDArray[np.object_]]:
     """Plot XY/YZ/XZ potential slices in one figure (heavy: native kernel).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     box_min : iterable of float
         Lower simulation-box corner ``[x, y, z]`` in meters.
     box_max : iterable of float

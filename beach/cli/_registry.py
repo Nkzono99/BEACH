@@ -4,7 +4,9 @@ Each leaf command is one module under :mod:`beach.cli` that defines
 ``configure(parser)`` and ``run(args)``. A command whose ``configure`` adds the
 shared ``output_dir`` argument (:func:`beach.cli._options.add_output_dir`) instead
 defines ``run(args, beach)``: the registry
-opens the run directory once and reports missing output files with one message.
+opens the run directory once as a :class:`~beach.Beach` session (with the
+command's ``--config`` and ``--library``), reports missing output files with one
+message, and closes the session's kernels after ``run`` returns.
 The order of :data:`COMMANDS` is the order in ``beachx --help``.
 """
 
@@ -139,7 +141,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     try:
         if getattr(args, "_opens_run", False):
-            args._run(args, _open_run(args))
+            with _open_run(args) as beach:
+                args._run(args, beach)
         else:
             args._run(args)
     except ModuleNotFoundError as exc:
@@ -155,7 +158,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 def _open_run(args: argparse.Namespace):
     from beach import Beach
 
-    beach = Beach(args.output_dir, config_path=getattr(args, "config", None))
+    beach = Beach(
+        args.output_dir,
+        config_path=getattr(args, "config", None),
+        library_path=getattr(args, "library", None),
+    )
     try:
         beach.result
     except FileNotFoundError as exc:

@@ -157,7 +157,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     )
     analysis = beach.analyze_coulomb_mobility(
         step=args.step,
-        library_path=args.library,
         gravity=args.gravity,
         support_normal=args.support_normal,
         support_kinds=_parse_kind_list(args.support_kinds),

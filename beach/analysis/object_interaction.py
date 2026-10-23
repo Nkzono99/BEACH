@@ -15,7 +15,7 @@ from beach.io._numeric import (
     _nonnegative_scalar,
     _readonly,
 )
-from beach.io.types import FieldReconstructionReceipt, FortranRunResult
+from beach.io.types import FieldReconstructionReceipt, RunResult
 from beach.native.kernel import FieldKernel, FieldKernelError, FieldKernelOptions
 from beach.native.periodic2 import coerce_periodic2
 from beach.native.periodic_zero_mode import PeriodicZeroMode
@@ -73,7 +73,7 @@ class ObjectInteractionSnapshot:
     def __init__(
         self,
         *,
-        result: FortranRunResult,
+        result: RunResult,
         step: int | None,
         triangles_m: np.ndarray,
         centers_m: np.ndarray,
@@ -110,7 +110,7 @@ class ObjectInteractionSnapshot:
     @classmethod
     def from_result(
         cls,
-        result: FortranRunResult | object,
+        result: RunResult | object,
         *,
         step: int | None = -1,
         config_path: str | Path | None = None,
@@ -129,7 +129,7 @@ class ObjectInteractionSnapshot:
         context = RunContext.from_value(result, config_path=config_path)
         resolved = context.result
         context.require_triangle_source_model()
-        receipt = resolved.field_reconstruction
+        receipt = resolved.receipts.field_reconstruction
         full_config: Mapping[str, object] | None = None
         if receipt is None:
             full_config = context.config

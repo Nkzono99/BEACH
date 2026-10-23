@@ -210,8 +210,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         vmax=args.vmax,
         periodic2=periodic2,
         axis_unit=args.axis_unit,
-        config_path=config_path,
-        library_path=args.library,
     )
 
     save_path.parent.mkdir(parents=True, exist_ok=True)

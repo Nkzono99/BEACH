@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 from beach.native.periodic2 import (
     Periodic2Config,
     _coerce_vec3,
@@ -16,7 +16,7 @@ from .context import RunContext
 
 
 def auto_periodic2_from_result(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     *,
     allow_cached_kneq0: bool = False,
     context: RunContext | None = None,

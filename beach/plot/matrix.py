@@ -10,16 +10,19 @@ import numpy as np
 from beach.analysis.context import RunContext
 from beach.analysis.coulomb import _coulomb_force_matrix
 from beach.analysis.objects import normalize_kind_filter, resolve_object_specs
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 
 from ._defaults import DEFAULT_FORCE_CMAP
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+
     from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_coulomb_force_matrix(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     step: int | None = -1,
     component: str = "z",
@@ -30,13 +33,13 @@ def plot_coulomb_force_matrix(
     annotate: bool = True,
     workers: int = 1,
     kernel: FieldKernel | None = None,
-):
+) -> tuple[Figure, Axes]:
     """Plot an object-wise Coulomb-force matrix (heavy: native kernel).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     step : int or None, default -1
         History batch step used for charge snapshot.
         ``None`` uses final charges from ``charges.csv``.

@@ -59,13 +59,12 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         periodic2_repeat=args.periodic2_repeat,
         view_elev=args.view_elev,
         view_azim=args.view_azim,
-        library_path=args.library,
     )
 
     result = beach.result
     snapshot_count = (
-        len(result.history)
-        if result.history is not None and result.history.has_data
+        len(result.history.charge)
+        if result.history.charge is not None and result.history.charge.has_data
         else 0
     )
     if args.total_frames is None:

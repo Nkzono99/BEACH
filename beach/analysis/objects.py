@@ -9,7 +9,7 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
-from beach.io.types import FortranRunResult, MeshSource
+from beach.io.types import RunResult, MeshSource
 
 from .context import RunContext
 
@@ -43,7 +43,7 @@ def normalize_kind_filter(kinds: Iterable[str] | None) -> set[str] | None:
 
 
 def resolve_object_specs(
-    result: FortranRunResult,
+    result: RunResult,
     *,
     config_path: str | Path | None,
     context: RunContext | None = None,
@@ -57,11 +57,11 @@ def resolve_object_specs(
         context=run_context,
     )
     if config_specs is not None:
-        return _with_mesh_source_materials(config_specs, result.mesh_sources)
+        return _with_mesh_source_materials(config_specs, result.mesh.mesh_sources)
 
-    if result.mesh_sources is not None:
+    if result.mesh.mesh_sources is not None:
         kinds = [
-            _mesh_kind_from_source(result.mesh_sources.get(mesh_id))
+            _mesh_kind_from_source(result.mesh.mesh_sources.get(mesh_id))
             for mesh_id in mesh_ids
         ]
         labels = _labels_from_kinds(kinds)
@@ -70,8 +70,8 @@ def resolve_object_specs(
                 mesh_id=mesh_id,
                 kind=kind,
                 label=label,
-                surface_model=_surface_model_from_source(result.mesh_sources.get(mesh_id)),
-                epsilon_r=_epsilon_r_from_source(result.mesh_sources.get(mesh_id)),
+                surface_model=_surface_model_from_source(result.mesh.mesh_sources.get(mesh_id)),
+                epsilon_r=_epsilon_r_from_source(result.mesh.mesh_sources.get(mesh_id)),
             )
             for mesh_id, kind, label in zip(mesh_ids, kinds, labels)
         ]

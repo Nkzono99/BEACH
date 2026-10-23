@@ -25,9 +25,10 @@ from pathlib import Path
 
 import numpy as np
 
+from beach import Beach, K_COULOMB
+
 ELEMENTARY_CHARGE = 1.602176634e-19
 EPSILON_0 = 8.8541878188e-12
-COULOMB_K = 1.0 / (4.0 * math.pi * EPSILON_0)
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,26 +60,31 @@ def main() -> int:
     source_centre = 0.5 * (source_low + source_high)
     beam_area = float(np.prod((source_high - source_low)[:2]))
 
-    triangles = np.loadtxt(args.output / "mesh_triangles.csv", delimiter=",", skiprows=1)
-    vertices = triangles[:, 1:10].reshape(-1, 3, 3)
+    with Beach(args.output, config_path=args.config) as run:
+        result = run.result
+        vertices = result.mesh.triangles
+        charge_history = result.history.charge
+        potential_history = result.history.potential
+        if vertices is None or charge_history is None or potential_history is None:
+            raise ValueError("the tutorial needs saved mesh, charge history and potential history")
+        batches = charge_history.batch_indices
+        if batches.size == 0 or not np.array_equal(batches, potential_history.batch_indices):
+            raise ValueError("charge and potential histories must have the same nonempty batch index")
+        q = charge_history.as_array().T
+        phi = potential_history.as_array().T
+
     centroids = vertices.mean(axis=1)
     areas = 0.5 * np.linalg.norm(
         np.cross(vertices[:, 1] - vertices[:, 0], vertices[:, 2] - vertices[:, 0]), axis=1
     )
-    nelem = len(centroids)
-
-    charges = np.loadtxt(args.output / "charge_history.csv", delimiter=",", skiprows=1)
-    potentials = np.loadtxt(args.output / "potential_history.csv", delimiter=",", skiprows=1)
-    nbatch = int(charges[:, 0].max())
-    q = charges[:, 4].reshape(nbatch, nelem)
-    phi = potentials[:, 2].reshape(nbatch, nelem)
+    nbatch = len(batches)
 
     total = q.sum(axis=1)
-    absorbed = -np.diff(np.concatenate([[0.0], total])) / (abs(charge) * weight * macro)
+    absorbed = -np.diff(np.concatenate([[0.0], total])) / (abs(charge) * weight * macro * np.diff(np.concatenate([[0], batches])))
     distance = np.linalg.norm(centroids - source_centre, axis=1)
-    phi_source = COULOMB_K * (q / distance).sum(axis=1)
+    phi_source = K_COULOMB * (q / distance).sum(axis=1)
     relative = phi - phi_source[:, None]
-    time_us = np.arange(1, nbatch + 1) * batch_s * 1.0e6
+    time_us = batches * batch_s * 1.0e6
 
     plate_area = float(areas.sum())
     disk_capacitance = 8.0 * EPSILON_0 * math.sqrt(plate_area / math.pi)
@@ -88,7 +94,7 @@ def main() -> int:
     print("batch time_us absorbed_fraction plate_charge_C phi_plate_V phi_source_V phi_plate_minus_source_V(min/mean/max)")
     for n in sorted(set(range(0, nbatch, args.every)) | {nbatch - 1}):
         print(
-            f"{n + 1:5d} {time_us[n]:7.3f} {absorbed[n]:6.3f} {total[n]: .4e} {phi[n].mean():7.3f} "
+            f"{batches[n]:5d} {time_us[n]:7.3f} {absorbed[n]:6.3f} {total[n]: .4e} {phi[n].mean():7.3f} "
             f"{phi_source[n]:7.3f} {relative[n].min():7.3f}/{relative[n].mean():7.3f}/{relative[n].max():7.3f}"
         )
     print(f"capacitance_from_run_pF={abs(total[-1] / phi[-1].mean()) * 1.0e12:.3f}")

@@ -64,8 +64,8 @@ def test_inspect_without_precomputed_potential_does_not_compute(
     output_dir = tmp_path / "run_no_potential"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        inspect_cli,
-        "compute_potential_mesh",
+        Beach,
+        "compute_potential",
         _fail_if_potential_is_computed,
     )
 
@@ -93,8 +93,8 @@ def test_inspect_reports_precomputed_potential_without_compute(
         potential_values=(1.5, -2.5),
     )
     monkeypatch.setattr(
-        inspect_cli,
-        "compute_potential_mesh",
+        Beach,
+        "compute_potential",
         _fail_if_potential_is_computed,
     )
 
@@ -121,11 +121,12 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     calls: list[dict[str, object]] = []
 
     def fake_compute(result: object, **kwargs: object) -> np.ndarray:
-        assert result.mesh_potential_v is None
+        assert isinstance(result, Beach)
+        assert result.library_path == library_path
         calls.append(kwargs)
         return np.array([7.0, -8.0])
 
-    monkeypatch.setattr(inspect_cli, "compute_potential_mesh", fake_compute)
+    monkeypatch.setattr(Beach, "compute_potential", fake_compute)
 
     beachx_main(
         [
@@ -138,7 +139,7 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     )
 
     output = capsys.readouterr().out
-    assert calls == [{"library_path": library_path}]
+    assert calls == [{"source": "kernel"}]
     assert "potential_min=-8.000000e+00" in output
     assert "potential_max=7.000000e+00" in output
     assert "potential_min=1.000000e+02" not in output
@@ -156,8 +157,8 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
     save_path = save_dir / "potential_mesh.png"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        inspect_cli,
-        "compute_potential_mesh",
+        Beach,
+        "compute_potential",
         _fail_if_potential_is_computed,
     )
     plot_calls: list[dict[str, object]] = []
@@ -202,3 +203,33 @@ def test_inspect_json_reports_the_same_fields_as_key_value_lines(
     assert report["charge_sum"] == pytest.approx(-1.0e-9)
     assert report["potential_min"] == -2.5
     assert report["mesh_ids"] == [1]
+
+
+def test_inspect_reuses_recomputed_values_for_the_potential_figure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("matplotlib")
+    output_dir = tmp_path / "run_recompute_plot"
+    save_dir = tmp_path / "figures"
+    _write_inspect_fixture(output_dir, potential_values=(100.0, 200.0))
+    evaluated = []
+    plotted = []
+
+    def compute(_run: Beach, *, source: str) -> np.ndarray:
+        assert source == "kernel"
+        evaluated.append(source)
+        return np.array([7.0, -8.0])
+
+    original_plot = inspect_cli.plot_potential_mesh
+
+    def plot(context, **options):
+        plotted.append(context.result.mesh.mesh_potential_v.copy())
+        return original_plot(context, **options)
+
+    monkeypatch.setattr(Beach, "compute_potential", compute)
+    monkeypatch.setattr(inspect_cli, "plot_potential_mesh", plot)
+    beachx_main(["inspect", str(output_dir), "--recompute-potential", "--save-dir", str(save_dir)])
+
+    assert evaluated == ["kernel"]
+    np.testing.assert_array_equal(plotted, [[7.0, -8.0]])
+    assert (save_dir / "potential_mesh.png").is_file()

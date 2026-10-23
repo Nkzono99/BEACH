@@ -14,7 +14,7 @@ from beach.analysis.mesh import (
     _surface_charge_density_history,
 )
 from beach.analysis.potential import _run_potential_history
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 
 from ._defaults import (
     DEFAULT_CHARGE_CMAP,
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 def animate_history_mesh(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     output_path: str | Path | None = None,
     *,
     quantity: Literal["charge", "potential"] = "charge",
@@ -52,8 +52,8 @@ def animate_history_mesh(
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     output_path : str or pathlib.Path or None, default None
         Output GIF path. If ``None``, return a live ``FuncAnimation`` object.
     quantity : {"charge", "potential"}, default "charge"

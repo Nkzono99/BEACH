@@ -9,21 +9,21 @@ from typing import Mapping
 
 import numpy as np
 
-from beach.io.history import FortranChargeHistory
-from beach.io.types import FortranRunResult
+from beach.io.history import BatchHistory
+from beach.io.types import RunResult
 
 
-def resolve_result(value: FortranRunResult | object) -> FortranRunResult:
+def resolve_result(value: RunResult | object) -> RunResult:
     """Resolve a result object while preserving the accepted Beach-like protocol."""
 
-    if isinstance(value, FortranRunResult):
+    if isinstance(value, RunResult):
         return value
 
     candidate = getattr(value, "result", None)
-    if isinstance(candidate, FortranRunResult):
+    if isinstance(candidate, RunResult):
         return candidate
 
-    raise TypeError("result must be FortranRunResult or Beach.")
+    raise TypeError("result must be RunResult or Beach.")
 
 
 def find_config_path_near_output(output_dir: Path) -> Path | None:
@@ -107,7 +107,7 @@ def load_config_for_output(
 class RunContext:
     """Resolved run plus lazily loaded, cached nearby configuration."""
 
-    result: FortranRunResult
+    result: RunResult
     requested_config_path: Path | None = None
 
     @property
@@ -117,7 +117,7 @@ class RunContext:
     @classmethod
     def from_value(
         cls,
-        value: FortranRunResult | object,
+        value: RunResult | object,
         *,
         config_path: str | Path | None = None,
     ) -> "RunContext":
@@ -150,7 +150,7 @@ class RunContext:
 
     @cached_property
     def sim(self) -> Mapping[str, object] | None:
-        receipt = self.result.field_reconstruction
+        receipt = self.result.receipts.field_reconstruction
         if receipt is not None:
             return receipt.as_legacy_sim_mapping()
         if self.config is None:
@@ -160,7 +160,7 @@ class RunContext:
 
     @cached_property
     def domain(self) -> Mapping[str, object] | None:
-        if self.result.field_reconstruction is not None:
+        if self.result.receipts.field_reconstruction is not None:
             return None
         if self.config is None:
             return None
@@ -169,7 +169,7 @@ class RunContext:
 
     @cached_property
     def field_boundary(self) -> Mapping[str, object] | None:
-        if self.result.field_reconstruction is not None:
+        if self.result.receipts.field_reconstruction is not None:
             return None
         if self.config is None:
             return None
@@ -180,7 +180,7 @@ class RunContext:
         if step is None:
             return self.result.charges
 
-        history = self.result.history
+        history = self.result.history.charge
         if history is None or not history.has_data:
             if step == -1:
                 return self.result.charges
@@ -193,27 +193,27 @@ class RunContext:
 
     def mesh_ids_or_default(self) -> np.ndarray:
         result = self.result
-        if result.mesh_ids is None or result.mesh_ids.size != result.mesh_nelem:
-            return np.ones(result.mesh_nelem, dtype=np.int64)
-        return result.mesh_ids.astype(np.int64, copy=False)
+        if result.mesh.mesh_ids is None or result.mesh.mesh_ids.size != result.summary.mesh_nelem:
+            return np.ones(result.summary.mesh_nelem, dtype=np.int64)
+        return result.mesh.mesh_ids.astype(np.int64, copy=False)
 
     def require_triangle_source_model(self) -> None:
-        if self.result.field_source_model != "triangle_p0":
+        if self.result.field.source_model != "triangle_p0":
             raise ValueError(
                 "This operation requires field_source_model='triangle_p0'; "
-                f"the run uses {self.result.field_source_model!r}. "
+                f"the run uses {self.result.field.source_model!r}. "
                 "Centroid point-source reconstruction was removed."
             )
 
     def require_triangles(self) -> np.ndarray:
-        if self.result.triangles is None:
+        if self.result.mesh.triangles is None:
             raise ValueError(
                 "mesh_triangles.csv is not found. Re-run Fortran with latest output format."
             )
-        return self.result.triangles
+        return self.result.mesh.triangles
 
-    def require_history(self) -> FortranChargeHistory:
-        history = self.result.history
+    def require_history(self) -> BatchHistory:
+        history = self.result.history.charge
         if history is None or not history.has_data:
             raise ValueError(
                 "charge_history.csv is not found or empty. Enable history output and rerun."

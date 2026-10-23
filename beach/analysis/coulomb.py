@@ -10,7 +10,7 @@ from typing import Iterable, Literal, Mapping, Sequence
 
 import numpy as np
 
-from beach.io.types import CoulombInteraction, FortranRunResult, MeshSelection
+from beach.io.types import CoulombInteraction, RunResult, MeshSelection
 from beach.native.kernel import FieldKernel
 
 from ._selection import _coerce_group_selection
@@ -28,7 +28,7 @@ from .periodic import auto_periodic2_from_result
 
 
 def calc_coulomb(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     target: int | MeshSelection | Iterable[int | MeshSelection],
     source: int | MeshSelection | Iterable[int | MeshSelection],
     *,
@@ -50,7 +50,7 @@ def calc_coulomb(
 
     Parameters
     ----------
-    result : FortranRunResult, RunContext, or Beach
+    result : RunResult, RunContext, or Beach
         Run to evaluate.
     target, source : int, MeshSelection, or iterable of those
         Disjoint mesh groups; the force acts on ``target`` (group A).
@@ -141,7 +141,7 @@ def calc_coulomb(
             )
     else:
         _require_run_kernel(context, kernel, operation="calc_coulomb")
-        source_q = np.zeros(resolved.mesh_nelem, dtype=np.float64)
+        source_q = np.zeros(resolved.summary.mesh_nelem, dtype=np.float64)
         source_q[sel_source.elem_indices] = sel_source.charges
         with _restoring_charges(kernel):
             kernel.update_charges(source_q)
@@ -261,7 +261,7 @@ def _coulomb_force_matrix(
 
 
 def _init_coulomb_matrix_worker(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     step: int | None,
     component_idx: int,
     periodic2: Mapping[str, object] | None,

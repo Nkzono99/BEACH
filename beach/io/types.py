@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from .history import FortranChargeHistory
+    from .history import BatchHistory
 
 
 @dataclass(frozen=True)
@@ -358,90 +358,67 @@ class SecondaryEmissionHistoryEntry:
 
 
 @dataclass(frozen=True)
-class FortranRunResult:
-    """Container for one Fortran simulation output directory.
+class RunSummary:
+    """Core counts and accepted simulation time from ``summary.txt``."""
 
-    Attributes
-    ----------
-    directory : pathlib.Path
-        Output directory path.
-    mesh_nelem : int
-        Number of mesh elements.
-    processed_particles : int
-        Number of processed particles.
-    absorbed : int
-        Number of absorbed particles.
-    escaped : int
-        Number of escaped particles.
-    batches : int
-        Number of processed batches.
-    escaped_boundary : int
-        Number of particles escaped by boundary condition.
-    survived_max_step : int
-        Number of particles that reached max-step limit.
-    multiple_box_events_retry_attempted : int, default 0
-        Number of failed boundary steps replayed by the configured retry backend.
-    multiple_box_events_retry_resolved : int, default 0
-        Number of replayed boundary steps completed successfully.
-    multiple_box_events_soft_discard_fraction : float, default 0.0
-        Derived fraction of processed particles removed by the soft-discard fallback.
-    last_rel_change : float
-        Last relative charge-change metric.
-    charges : numpy.ndarray
-        Final per-element charge array with shape ``(mesh_nelem,)``.
-    triangles : numpy.ndarray or None, default None
-        Triangle vertices with shape ``(mesh_nelem, 3, 3)``.
-    mesh_ids : numpy.ndarray or None, default None
-        Per-element mesh id array with shape ``(mesh_nelem,)``.
-    mesh_sources : dict[int, MeshSource] or None, default None
-        Mesh-source metadata indexed by mesh id.
-    mesh_potential_v : numpy.ndarray or None, default None
-        Optional per-element centroid potential loaded from ``mesh_potential.csv``.
-    history : FortranChargeHistory or None, default None
-        Lazy charge-history accessor.
-    simulated_time_s : float or None, default None
-        Sum of accepted batch durations reported by the runtime.
-    adaptive_nonzero_mode_rejected_trials : int, default 0
-        Cumulative rejected adaptive ``k != 0`` trial count.
-    adaptive_nonzero_mode_last_batch_duration_s : float or None, default None
-        Duration of the last accepted adaptive trial.
-    adaptive_nonzero_mode_last_potential_step_v : float or None, default None
-        Last accepted maximum ``k != 0`` potential change.
-    adaptive_nonzero_mode_omp_threads : int or None, default None
-        OpenMP team size recorded and enforced for an adaptive restart.
-    periodic2_max_nonzero_mode_potential_step_v : float or None, default None
-        Configured adaptive ``k != 0`` potential-change limit.
-    field_reconstruction : FieldReconstructionReceipt or None, default None
-        Resolved field-model receipt embedded in new ``summary.txt`` outputs.
-    matching_plane_state : MatchingPlaneState or None, default None
-        Last accepted matching-plane state when the summary marks it valid.
-    matching_plane_history : tuple[MatchingPlaneHistoryEntry, ...] or None, default None
-        Matching-plane history. A present header-only CSV produces an empty tuple.
-    """
-
-    directory: Path
     mesh_nelem: int
     processed_particles: int
     absorbed: int
     escaped: int
     batches: int
-    escaped_boundary: int
-    survived_max_step: int
-    last_rel_change: float
-    charges: np.ndarray
+    escaped_boundary: int = 0
+    survived_max_step: int = 0
+    last_rel_change: float = 0.0
+    simulated_time_s: float | None = None
+
+
+@dataclass(frozen=True)
+class RunMesh:
+    """Saved geometry, per-element mesh ids, materials, and centroid potentials.
+
+    Missing optional CSV products are represented by ``None``. Coordinates are
+    in meters and ``mesh_potential_v`` is in volts.
+    """
+
     triangles: np.ndarray | None = None
     mesh_ids: np.ndarray | None = None
     mesh_sources: dict[int, MeshSource] | None = None
     mesh_potential_v: np.ndarray | None = None
-    history: FortranChargeHistory | None = None
+
+
+@dataclass(frozen=True)
+class RunHistory:
+    """Lazy per-element charge and potential histories, absent files as ``None``."""
+
+    charge: BatchHistory | None = None
+    potential: BatchHistory | None = None
+
+
+@dataclass(frozen=True)
+class RunReceipts:
+    """Persisted model identity and settings needed for field reconstruction."""
+
     checkpoint_schema_version: int | None = None
     model_fingerprint: str | None = None
     mesh_fingerprint: str | None = None
     species_fingerprint: str | None = None
+    field_reconstruction: FieldReconstructionReceipt | None = None
+    matching_plane_state: MatchingPlaneState | None = None
+
+
+@dataclass(frozen=True)
+class RunField:
+    """Saved field source model and native-kernel identifier."""
+
+    source_model: str = "triangle_p0"
+    kernel_id: str | None = None
+
+
+@dataclass(frozen=True)
+class RunDiagnostics:
+    """Optional cache, boundary retry, ledger, and adaptive-step diagnostics."""
+
     charge_ledger_residual_c: float | None = None
-    charge_ledger: tuple[ChargeLedgerEntry, ...] | None = None
-    field_source_model: str = "triangle_p0"
-    field_kernel_id: str | None = None
     periodic2_cache_hit: bool | None = None
     periodic2_operator_build_count: int | None = None
     periodic2_cache_fingerprint: str | None = None
@@ -451,42 +428,86 @@ class FortranRunResult:
     multiple_box_events_retry_resolved: int = 0
     multiple_box_events_soft_discarded: int = 0
     multiple_box_events_soft_discarded_abs_charge_c: float = 0.0
-    simulated_time_s: float | None = None
+    multiple_box_events_soft_discard_fraction: float = 0.0
     adaptive_nonzero_mode_rejected_trials: int = 0
     adaptive_nonzero_mode_last_batch_duration_s: float | None = None
     adaptive_nonzero_mode_last_potential_step_v: float | None = None
     adaptive_nonzero_mode_omp_threads: int | None = None
     periodic2_max_nonzero_mode_potential_step_v: float | None = None
-    field_reconstruction: FieldReconstructionReceipt | None = None
-    matching_plane_state: MatchingPlaneState | None = None
+
+
+@dataclass(frozen=True)
+class TopReferenceHistoryEntry:
+    """One z-high plane potential sample; mismatch fields were added after 3.0."""
+
+    batch: int
+    simulated_time_s: float
+    z_high_m: float
+    sample_n: int
+    potential_mean_v: float
+    potential_std_v: float
+    potential_min_v: float
+    potential_max_v: float
+    switch_phi_rms_mismatch_v: float = 0.0
+    switch_ez_rms_mismatch_v_m: float = 0.0
+
+
+@dataclass(frozen=True)
+class MatchingPlaneSpectrumHistoryEntry:
+    """One nonempty outward photoelectron energy bin at an accepted batch."""
+
+    batch: int
+    simulated_time_s: float
+    bin: int
+    energy_low_ev: float
+    energy_high_ev: float
+    photoelectron_outward_flux_m2_s: float
+
+
+@dataclass(frozen=True)
+class FixedCurrentHistoryEntry:
+    """Tracked and target charge over a history window for one species/channel.
+
+    ``target_over_tracked`` is NaN when the tracked charge is zero, as written by
+    the simulator. This diagnostic does not participate in restart state.
+    """
+
+    batch: int
+    simulated_time_s: float
+    window_batches: int
+    species_idx: int
+    channel: str
+    tracked_charge_c: float
+    target_charge_c: float
+    target_over_tracked: float
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """Saved output from one BEACH run, grouped by purpose (light: CSV only).
+
+    ``summary`` contains core counts, ``mesh`` contains saved geometry and
+    potentials, ``history`` provides lazy :class:`BatchHistory` accessors, and
+    ``receipts`` and ``diagnostics`` hold optional settings and monitoring data.
+    Optional CSV files are ``None`` when absent and empty tuples when header-only.
+    No native field kernel or matplotlib is loaded by the reader.
+    """
+
+    directory: Path
+    summary: RunSummary
+    charges: np.ndarray
+    mesh: RunMesh = dataclass_field(default_factory=RunMesh)
+    history: RunHistory = dataclass_field(default_factory=RunHistory)
+    receipts: RunReceipts = dataclass_field(default_factory=RunReceipts)
+    diagnostics: RunDiagnostics = dataclass_field(default_factory=RunDiagnostics)
+    field: RunField = dataclass_field(default_factory=RunField)
+    ledger: tuple[ChargeLedgerEntry, ...] | None = None
     matching_plane_history: tuple[MatchingPlaneHistoryEntry, ...] | None = None
-    multiple_box_events_soft_discard_fraction: float = 0.0
     secondary_emission_history: tuple[SecondaryEmissionHistoryEntry, ...] | None = None
-
-    def history_at(self, step: int = -1) -> np.ndarray:
-        """Return per-element charges at one history batch step.
-
-        Parameters
-        ----------
-        step : int, default -1
-            Batch step to read. ``-1`` selects the latest history step.
-
-        Returns
-        -------
-        numpy.ndarray
-            Per-element charge array with shape ``(mesh_nelem,)``.
-
-        Raises
-        ------
-        ValueError
-            If history data is missing or empty.
-        """
-
-        if self.history is None or not self.history.has_data:
-            raise ValueError(
-                "charge_history.csv is not found or empty. Enable history output and rerun."
-            )
-        return self.history.get_step(step)
+    top_reference_history: tuple[TopReferenceHistoryEntry, ...] | None = None
+    matching_plane_spectrum_history: tuple[MatchingPlaneSpectrumHistoryEntry, ...] | None = None
+    fixed_current_history: tuple[FixedCurrentHistoryEntry, ...] | None = None
+    performance_profile: tuple[dict[str, str], list[dict[str, str | float]]] | None = None
 
 
 @dataclass(frozen=True)

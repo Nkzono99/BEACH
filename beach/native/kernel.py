@@ -422,7 +422,7 @@ class FieldKernel:
             q.ctypes.data_as(ctypes.c_void_p),
         )
         _check_status(status, "beach_kernel_update_charges")
-        self._charges_keepalive = q
+        self._charges_keepalive = q.copy()
 
     def eval_e(self, points: np.ndarray) -> np.ndarray:
         """Evaluate electric field vectors at points with shape ``(n, 3)``.

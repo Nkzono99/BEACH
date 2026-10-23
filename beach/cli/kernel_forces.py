@@ -62,7 +62,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         theta=args.theta,
         leaf_max=args.leaf_max,
         order=args.order,
-        library_path=args.library,
     )
 
     _write_csv(save_path, records)

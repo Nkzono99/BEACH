@@ -1,3 +1,5 @@
+
+from beach.io.types import RunMesh, RunReceipts, RunSummary
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,7 +13,7 @@ from beach.analysis.field_kernel import (
 )
 from beach.io.types import (
     FieldReconstructionReceipt,
-    FortranRunResult,
+    RunResult,
 )
 from beach.native.kernel import FieldKernelOptions
 from beach.native.periodic2 import Periodic2Config
@@ -21,20 +23,24 @@ def _result(
     directory: Path,
     *,
     field_reconstruction: FieldReconstructionReceipt | None = None,
-) -> FortranRunResult:
-    return FortranRunResult(
+) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
-        field_reconstruction=field_reconstruction,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+        ),
+        receipts=RunReceipts(field_reconstruction=field_reconstruction),
     )
 
 
@@ -277,7 +283,10 @@ def test_legacy_auto_solver_resolves_from_mesh_threshold(
         "tree_min_nelem = 256\n",
         encoding="utf-8",
     )
-    result = replace(_result(tmp_path), mesh_nelem=mesh_nelem)
+    result = replace(
+        _result(tmp_path),
+        summary=replace(_result(tmp_path).summary, mesh_nelem=mesh_nelem),
+    )
 
     options = field_kernel_options_from_result(result)
 

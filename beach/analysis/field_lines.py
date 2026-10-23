@@ -9,7 +9,7 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from beach.io._numeric import _points
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 from beach.native.kernel import FieldKernel
 
 from .context import RunContext
@@ -23,7 +23,7 @@ from .field_kernel import (
 
 
 def compute_electric_field_points(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     points: np.ndarray,
     *,
     chunk_size: int = 2048,
@@ -36,7 +36,7 @@ def compute_electric_field_points(
 
     Parameters
     ----------
-    result : FortranRunResult, RunContext, or Beach
+    result : RunResult, RunContext, or Beach
         Run to evaluate.
     points : numpy.ndarray
         Sampling points with shape ``(n_points, 3)`` in meters.
@@ -82,7 +82,7 @@ def compute_electric_field_points(
 
 
 def trace_field_lines(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     seed_points: np.ndarray,
     *,
     ds: float | None = None,
@@ -99,7 +99,7 @@ def trace_field_lines(
 
     Parameters
     ----------
-    result : FortranRunResult, RunContext, or Beach
+    result : RunResult, RunContext, or Beach
         Run to evaluate.
     seed_points : numpy.ndarray
         Starting points with shape ``(n_seeds, 3)`` in meters.

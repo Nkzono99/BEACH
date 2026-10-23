@@ -172,7 +172,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         periodic_model=requested_model.replace("-", "_"),
         cache_dir=args.cache_dir,
         generation_tolerance=args.generation_tolerance,
-        library_path=args.library,
     ) as snapshot:
         probe = snapshot.object_probe(args.target_mesh_id)
         wrench = probe.wrench(torque_origin=args.torque_origin, components=True)
@@ -236,13 +235,13 @@ def _resolve_charge_provenance(
     step: int | None,
 ) -> tuple[str, int]:
     if step is None:
-        return "charges.csv", int(result.batches)
+        return "charges.csv", int(result.summary.batches)
     if step != -1:
         return "charge_history.csv", int(step)
-    history = result.history
+    history = result.history.charge
     if history is not None and history.has_data:
         return "charge_history.csv", int(history.batch_indices[-1])
-    return "charges.csv", int(result.batches)
+    return "charges.csv", int(result.summary.batches)
 
 
 def _adhesion_from_args(args: argparse.Namespace) -> AdhesionProfile:

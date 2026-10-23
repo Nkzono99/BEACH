@@ -1,11 +1,13 @@
 """Result plot contracts."""
 
+from beach.io.types import RunField, RunHistory, RunMesh, RunSummary
+
 from pathlib import Path
 import numpy as np
 import pytest
 from beach import (
     Beach,
-    FortranRunResult,
+    RunResult,
     animate_history_mesh,
     plot_mesh_source_boxplot,
     plot_charge_mesh,
@@ -48,21 +50,25 @@ def test_potential_animation_rejects_cached_kneq0_component(
         encoding="utf-8",
     )
     triangles = np.array([[[0.2, 0.2, 0.0], [0.8, 0.2, 0.0], [0.2, 0.8, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=output_dir,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=1,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([2.0e-9]),
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=1,
-            history=np.array([[1.0e-9, 2.0e-9]]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=1,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=1,
+                history=np.array([[1.0e-9, 2.0e-9]]),
+            )
         ),
     )
     with pytest.raises(ValueError, match="only the k!=0 component"):
@@ -79,18 +85,20 @@ def test_plot_potential_slices_returns_figure_and_axes(tmp_path: Path) -> None:
     _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, axes = plot_potential_slices(
@@ -114,18 +122,20 @@ def test_plot_potential_slices_applies_vmin_vmax(tmp_path: Path) -> None:
     _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, axes = plot_potential_slices(
@@ -146,18 +156,20 @@ def test_plot_potential_slices_applies_vmin_vmax(tmp_path: Path) -> None:
 def test_plot_potential_slices_rejects_invalid_vmin_vmax(tmp_path: Path) -> None:
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(ValueError, match="vmin"):
@@ -176,18 +188,20 @@ def test_plot_charge_mesh_can_apply_periodic2_mesh_wrapping() -> None:
     matplotlib.use("Agg")
 
     triangles = np.array([[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, ax = plot_charge_mesh(
@@ -214,18 +228,20 @@ def test_plot_potential_mesh_returns_figure_and_axes(tmp_path: Path) -> None:
             [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9, -1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, ax = plot_potential_mesh(result, reference_point=None)
@@ -251,18 +267,20 @@ def test_plot_potential_mesh_can_apply_periodic2_mesh_wrapping(
     _write_complete_free_field_config(tmp_path)
 
     triangles = np.array([[[1.10, 0.10, 0.0], [1.20, 0.10, 0.0], [1.10, 0.20, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, ax = plot_potential_mesh(
@@ -290,18 +308,20 @@ def test_plot_potential_mesh_accepts_custom_view_angles(tmp_path: Path) -> None:
             [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9, -1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     fig, ax = plot_potential_mesh(
@@ -329,19 +349,20 @@ def test_plot_mesh_source_boxplot_charge_uses_area_weighted_statistics() -> None
             [[0.0, 0.0, 1.0], [2.0, 0.0, 1.0], [0.0, 2.0, 1.0]],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([0.0, 10.0]),
-        triangles=triangles,
-        mesh_ids=np.array([11, 11], dtype=np.int64),
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([11, 11], dtype=np.int64)),
     )
 
     fig, ax = plot_mesh_source_boxplot(result, quantity="charge")
@@ -365,19 +386,20 @@ def test_plot_mesh_source_boxplot_supports_potential_quantity(
             [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9, -2.0e-9]),
-        triangles=triangles,
-        mesh_ids=np.array([1, 2], dtype=np.int64),
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1, 2], dtype=np.int64)),
     )
 
     fig, ax = plot_mesh_source_boxplot(
@@ -393,18 +415,20 @@ def test_plot_mesh_source_boxplot_supports_potential_quantity(
 
 def test_plot_mesh_source_boxplot_rejects_invalid_quantity() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(ValueError, match="quantity"):
@@ -518,19 +542,21 @@ def test_select_frame_columns(
 
 def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        history=None,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(charge=None),
     )
 
     with pytest.raises(ValueError, match="charge_history.csv"):
@@ -539,21 +565,25 @@ def test_animate_history_mesh_requires_charge_history(tmp_path: Path) -> None:
 
 def test_animate_history_mesh_rejects_invalid_quantity(tmp_path: Path) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=1,
-            history=np.array([[1.0e-9, 1.2e-9]]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=1,
+                history=np.array([[1.0e-9, 1.2e-9]]),
+            )
         ),
     )
 
@@ -571,23 +601,27 @@ def test_potential_animation_rejects_legacy_or_missing_source_receipt(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=1,
-            history=np.array([[1.0e-9, 1.2e-9]]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
         ),
-        field_source_model=source_model,
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=1,
+                history=np.array([[1.0e-9, 1.2e-9]]),
+            )
+        ),
+        field=RunField(source_model=source_model),
     )
 
     with pytest.raises(ValueError, match="field_source_model='triangle_p0'"):
@@ -596,21 +630,25 @@ def test_potential_animation_rejects_legacy_or_missing_source_receipt(
 
 def test_animate_history_mesh_rejects_invalid_total_frames(tmp_path: Path) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=1,
-            history=np.array([[1.0e-9, 1.2e-9]]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=1,
+                history=np.array([[1.0e-9, 1.2e-9]]),
+            )
         ),
     )
 
@@ -622,21 +660,25 @@ def test_animate_history_mesh_rejects_stride_and_total_frames_combination(
     tmp_path: Path,
 ) -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=1,
-            history=np.array([[1.0e-9, 1.2e-9]]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=1,
+                history=np.array([[1.0e-9, 1.2e-9]]),
+            )
         ),
     )
 
@@ -668,24 +710,28 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
             [-2.0e-10, -1.0e-10, -0.5e-10],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charge_history[:, -1],
-        triangles=triangles,
-        history=_make_history(
+        summary=RunSummary(
             mesh_nelem=2,
-            history=charge_history,
-            batch_indices=np.array([1, 2, 3]),
-            processed_particles_by_batch=np.array([10, 20, 30]),
-            rel_change_by_batch=np.array([1.0e-1, 1.0e-2, 1.0e-3]),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        history=RunHistory(
+            charge=_make_history(
+                mesh_nelem=2,
+                history=charge_history,
+                batch_indices=np.array([1, 2, 3]),
+                processed_particles_by_batch=np.array([10, 20, 30]),
+                rel_change_by_batch=np.array([1.0e-1, 1.0e-2, 1.0e-3]),
+            )
         ),
     )
     out = tmp_path / f"{quantity}.gif"
@@ -711,19 +757,25 @@ def test_animate_history_mesh_omitted_view_uses_mesh_plot_defaults(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([2.0e-10]),
-        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
-        history=_make_history(mesh_nelem=1, history=np.array([[1.0e-10, 2.0e-10]])),
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+        ),
+        history=RunHistory(
+            charge=_make_history(mesh_nelem=1, history=np.array([[1.0e-10, 2.0e-10]]))
+        ),
     )
     _, mesh_ax = plot_charge_mesh(result)
 

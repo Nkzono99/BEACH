@@ -14,7 +14,7 @@ from beach.analysis.mesh import (
     _surface_charge_density,
 )
 from beach.analysis.potential import _resolve_reference_point, compute_potential_mesh
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 
 from ._defaults import (
     DEFAULT_CHARGE_CMAP,
@@ -25,16 +25,20 @@ from ._defaults import (
 from ._mesh3d import _plot_scalar_mesh
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d import Axes3D
+
     from beach.analysis.field_kernel import FieldKernel
 
 
-def plot_charges(result: FortranRunResult | object):
+def plot_charges(result: RunResult | object) -> tuple[Figure, Axes]:
     """Plot per-element charges as a bar chart (light: saved values only).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
 
     Returns
     -------
@@ -56,7 +60,7 @@ def plot_charges(result: FortranRunResult | object):
 
 
 def plot_charge_mesh(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     cmap: str = DEFAULT_CHARGE_CMAP,
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
@@ -66,13 +70,13 @@ def plot_charge_mesh(
     periodic2_mesh_mode: str = "centroid",
     periodic2_repeat: int = 0,
     axis_unit: str = "m",
-):
+) -> tuple[Figure, Axes3D]:
     """Plot a 3D mesh colored by surface charge density (light: saved values only).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     cmap : str, default "coolwarm"
         Matplotlib colormap name.
     view_elev : float, default 24.0
@@ -138,7 +142,7 @@ def plot_charge_mesh(
 
 
 def plot_potential_mesh(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     cmap: str = DEFAULT_POTENTIAL_CMAP,
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
@@ -153,13 +157,13 @@ def plot_potential_mesh(
     library_path: str | Path | None = None,
     source: Literal["auto", "saved", "kernel"] = "auto",
     kernel: FieldKernel | None = None,
-):
+) -> tuple[Figure, Axes3D]:
     """Plot a 3D mesh colored by electric potential (heavy unless saved values are used).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     cmap : str, default "viridis"
         Matplotlib colormap name.
     view_elev : float, default 24.0
@@ -215,19 +219,21 @@ def plot_potential_mesh(
         periodic2_mesh_mode=periodic2_mesh_mode,
         context=context,
     )
-    resolved_reference = _resolve_reference_point(
-        resolved,
-        reference_point,
-        context=context,
-    )
+    if reference_point is not None and not isinstance(reference_point, str):
+        reference_point = tuple(reference_point)
     phi = compute_potential_mesh(
         context,
         periodic2=periodic2,
-        reference_point=resolved_reference,
+        reference_point=reference_point,
         config_path=config_path,
         library_path=library_path,
         source=source,
         kernel=kernel,
+    )
+    resolved_reference = _resolve_reference_point(
+        resolved,
+        reference_point,
+        context=context,
     )
     plot_triangles, phi = _maybe_replicate_periodic2(
         resolved,

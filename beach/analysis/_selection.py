@@ -6,13 +6,13 @@ from typing import Iterable
 
 import numpy as np
 
-from beach.io.types import FortranRunResult, MeshSelection
+from beach.io.types import RunResult, MeshSelection
 
 from .context import RunContext
 
 
 def _coerce_group_selection(
-    result: FortranRunResult,
+    result: RunResult,
     group: int | MeshSelection | Iterable[int | MeshSelection],
     *,
     step: int | None,
@@ -50,7 +50,7 @@ def _coerce_group_selection(
 
 
 def _build_mesh_selection(
-    result: FortranRunResult, mesh_ids: tuple[int, ...], *, step: int | None
+    result: RunResult, mesh_ids: tuple[int, ...], *, step: int | None
 ) -> MeshSelection:
     context = RunContext.from_value(result)
     unique_mesh_ids = tuple(dict.fromkeys(int(mid) for mid in mesh_ids))

@@ -173,3 +173,32 @@ def test_methods_show_the_module_signature_and_docstring(name: str) -> None:
     assert method_parameters[1:] == function_parameters[1:]
     assert method.__name__ == name
     assert inspect.getdoc(method).startswith(inspect.getdoc(function))
+
+
+def test_forwarded_analysis_uses_the_requested_history_step(tmp_path: Path) -> None:
+    out = _write_run(tmp_path / "run")
+    with Beach(out) as run:
+        records = run.calc_object_forces_kernel(step=1)
+        assert records[0].total_charge_C == 1.0e-9
+        history_kernel = run.kernel(step=1)
+        assert _RecordingKernel.built == [history_kernel]
+        np.testing.assert_array_equal(history_kernel.source_charges, [1.0e-9])
+
+
+def test_session_reference_iterator_is_consumed_once(tmp_path: Path) -> None:
+    out = _write_run(tmp_path / "run")
+    with Beach(out) as run:
+        actual = run.compute_potential(reference_point=(v for v in (0.0, 0.0, 2.0)))
+        np.testing.assert_array_equal(actual, [0.0])
+        with pytest.raises(ValueError, match='source="saved" cannot be combined'):
+            run.compute_potential(source="saved", reference_point=(v for v in (0.0, 0.0, 2.0)))
+
+
+def test_equivalent_resolved_options_and_history_charges_share_a_kernel(tmp_path: Path) -> None:
+    out = _write_run(tmp_path / "run")
+    # Final charges differ from the latest history snapshot.
+    (out / "charges.csv").write_text("elem_idx,charge_C\n1,3.0e-9\n", encoding="utf-8")
+    with Beach(out) as run:
+        latest = run.kernel()
+        assert run.kernel(step=2, theta=0.3, leaf_max=16, order=4) is latest
+        assert run.kernel(step=None) is not latest

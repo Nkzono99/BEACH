@@ -17,6 +17,7 @@ from .analysis.field_kernel import (
     _require_total_field_config,
     calc_object_forces_kernel,
     field_kernel_from_result,
+    field_kernel_options_from_result,
 )
 from .analysis.field_lines import compute_electric_field_points, trace_field_lines
 from .analysis.mobility import analyze_coulomb_mobility
@@ -28,10 +29,9 @@ from .analysis.potential import (
     compute_potential_slices,
 )
 from .analysis.scene import BeachScene
-from .io.results import load_fortran_result
-from .io.types import FortranRunResult
+from .io.results import load_run
+from .io.types import RunResult
 from .native.kernel import FieldKernel
-from .native.periodic2 import coerce_periodic2
 from .plot.animation import animate_history_mesh
 from .plot.boxplot import plot_mesh_source_boxplot
 from .plot.field_lines import plot_field_lines_3d
@@ -89,7 +89,7 @@ def _forward(
         ):
             _require_total_field_config(self.context, operation=func.__name__)
             arguments["kernel"] = self.kernel(
-                step=kernel_step,
+                step=arguments.get("step", kernel_step),
                 **{name: arguments[name] for name in _PLAN_ARGUMENTS if name in accepted},
             )
         return func(self, **arguments)
@@ -105,7 +105,7 @@ def _forward(
             "its plan arguments as ``kernel``; passing ``kernel``, ``config_path``, "
             "or another ``library_path`` builds a kernel for the call instead."
         )
-    method.__doc__ = f"{inspect.cleandoc(func.__doc__ or '')}\n\n{textwrap.fill(note, 88)}"
+    method.__doc__ = f"{inspect.cleandoc(func.__doc__ or '')}\n\nNotes\n-----\n{textwrap.fill(note, 88)}"
     return method
 
 
@@ -164,29 +164,29 @@ class Beach:
 
         if self._context is None:
             self._context = RunContext(
-                result=load_fortran_result(self.output_dir),
+                result=load_run(self.output_dir),
                 requested_config_path=self._config_path,
             )
         return self._context
 
     @property
-    def result(self) -> FortranRunResult:
+    def result(self) -> RunResult:
         """Return the loaded run result.
 
         Returns
         -------
-        FortranRunResult
+        RunResult
             Parsed result for ``output_dir``.
         """
 
         return self.context.result
 
-    def reload(self) -> FortranRunResult:
+    def reload(self) -> RunResult:
         """Close the cached kernels and reload output files from disk.
 
         Returns
         -------
-        FortranRunResult
+        RunResult
             Refreshed parsed result.
         """
 
@@ -207,9 +207,9 @@ class Beach:
 
         The kernel is built with
         :func:`beach.analysis.field_kernel.field_kernel_from_result` and cached by
-        its charges, ``periodic2``, ``theta``, ``leaf_max``, ``order``, and the
-        session's ``library_path``. ``step`` values whose charges equal the final
-        ``charges.csv`` share one kernel. The session owns the kernel: do not close
+        its charge values, resolved field-kernel options, and the session's
+        ``library_path``. Equivalent defaults and explicit options, and steps
+        with the same charges, share one kernel. The session owns the kernel: do not close
         it, and restore its charges after :meth:`FieldKernel.update_charges`.
         :meth:`close` and :meth:`reload` release every cached kernel.
 
@@ -230,14 +230,10 @@ class Beach:
         """
 
         charges = self.context.charges_at(step)
-        key = (
-            None if np.array_equal(charges, self.result.charges) else step,
-            coerce_periodic2(periodic2, allow_cached_kneq0=True),
-            None if theta is None else float(theta),
-            None if leaf_max is None else int(leaf_max),
-            None if order is None else int(order),
-            self.library_path,
+        options = field_kernel_options_from_result(
+            self, periodic2=periodic2, theta=theta, leaf_max=leaf_max, order=order
         )
+        key = (np.asarray(charges, dtype=np.float64).tobytes(), options, self.library_path)
         kernel = self._kernels.get(key)
         if kernel is None or kernel.closed:
             kernel = field_kernel_from_result(

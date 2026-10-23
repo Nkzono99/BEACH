@@ -4,31 +4,35 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
 
 import numpy as np
 
 from beach.analysis.context import RunContext
 from beach.analysis.mesh import _triangle_areas
 from beach.analysis.potential import compute_potential_mesh
-from beach.io.types import FortranRunResult, MeshSource
+from beach.io.types import RunResult, MeshSource
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 
 def plot_mesh_source_boxplot(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     quantity: str = "charge",
     step: int | None = -1,
     showfliers: bool = True,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
-):
+) -> tuple[Figure, Axes]:
     """Plot area-weighted boxplots per mesh source (heavy for potential not saved in mesh_potential.csv).
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     quantity : {"charge", "potential"}, default "charge"
         Quantity used in boxplot values.
     step : int or None, default -1
@@ -65,7 +69,7 @@ def plot_mesh_source_boxplot(
         values=values,
         weights=areas,
         mesh_ids=mesh_ids,
-        mesh_sources=resolved.mesh_sources,
+        mesh_sources=resolved.mesh.mesh_sources,
     )
     if len(stats) == 0:
         raise ValueError("no mesh elements are available for boxplot.")

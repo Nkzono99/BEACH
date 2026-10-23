@@ -9,13 +9,15 @@ from beach import (
 )
 from beach import (
     Beach,
-    FortranChargeHistory,
+    BatchHistory,
     MatchingPlaneHistoryEntry,
     MatchingPlaneState,
-    list_fortran_runs,
-    load_fortran_result,
+    list_runs,
+    load_run,
 )
 from result_fixtures import (
+    _MATCHING_HISTORY_HEADER,
+    _CHARGE_LEDGER_REQUIRED_HEADER,
     _charge_ledger_row,
     _matching_history_row,
     _matching_plane_summary_extra,
@@ -85,48 +87,48 @@ def test_load_fortran_result(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.mesh_nelem == 2
-    assert result.absorbed == 7
-    assert result.escaped_boundary == 2
-    assert result.survived_max_step == 1
-    assert result.multiple_box_events_retry_attempted == 6
-    assert result.multiple_box_events_retry_resolved == 2
-    assert result.multiple_box_events_soft_discarded == 4
-    assert result.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
-    assert result.multiple_box_events_soft_discard_fraction == 0.4
-    assert result.simulated_time_s == 7.5e-6
-    assert result.adaptive_nonzero_mode_rejected_trials == 3
-    assert result.adaptive_nonzero_mode_last_batch_duration_s == 2.5e-6
-    assert result.adaptive_nonzero_mode_last_potential_step_v == 8.0e-3
-    assert result.adaptive_nonzero_mode_omp_threads == 16
-    assert result.periodic2_max_nonzero_mode_potential_step_v == 1.0e-2
-    assert result.triangles is not None
-    assert result.triangles.shape == (2, 3, 3)
-    assert result.history is not None
-    assert result.mesh_ids is not None
-    np.testing.assert_array_equal(result.mesh_ids, np.array([1, 2]))
-    assert result.mesh_sources is not None
-    assert result.mesh_sources[1].template_kind == "plane"
-    assert result.mesh_sources[1].surface_model == "insulator"
-    assert result.mesh_sources[1].epsilon_r == 1.0
-    assert result.mesh_sources[2].surface_model == "conductor"
-    assert result.mesh_sources[2].epsilon_r == 2.5
+    assert result.summary.mesh_nelem == 2
+    assert result.summary.absorbed == 7
+    assert result.summary.escaped_boundary == 2
+    assert result.summary.survived_max_step == 1
+    assert result.diagnostics.multiple_box_events_retry_attempted == 6
+    assert result.diagnostics.multiple_box_events_retry_resolved == 2
+    assert result.diagnostics.multiple_box_events_soft_discarded == 4
+    assert result.diagnostics.multiple_box_events_soft_discarded_abs_charge_c == 2.5e-15
+    assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.4
+    assert result.summary.simulated_time_s == 7.5e-6
+    assert result.diagnostics.adaptive_nonzero_mode_rejected_trials == 3
+    assert result.diagnostics.adaptive_nonzero_mode_last_batch_duration_s == 2.5e-6
+    assert result.diagnostics.adaptive_nonzero_mode_last_potential_step_v == 8.0e-3
+    assert result.diagnostics.adaptive_nonzero_mode_omp_threads == 16
+    assert result.diagnostics.periodic2_max_nonzero_mode_potential_step_v == 1.0e-2
+    assert result.mesh.triangles is not None
+    assert result.mesh.triangles.shape == (2, 3, 3)
+    assert result.history.charge is not None
+    assert result.mesh.mesh_ids is not None
+    np.testing.assert_array_equal(result.mesh.mesh_ids, np.array([1, 2]))
+    assert result.mesh.mesh_sources is not None
+    assert result.mesh.mesh_sources[1].template_kind == "plane"
+    assert result.mesh.mesh_sources[1].surface_model == "insulator"
+    assert result.mesh.mesh_sources[1].epsilon_r == 1.0
+    assert result.mesh.mesh_sources[2].surface_model == "conductor"
+    assert result.mesh.mesh_sources[2].epsilon_r == 2.5
     np.testing.assert_allclose(result.charges, np.array([1.0e-10, -2.0e-10]))
-    assert result.mesh_potential_v is not None
-    np.testing.assert_allclose(result.mesh_potential_v, np.array([1.5, -2.5]))
+    assert result.mesh.mesh_potential_v is not None
+    np.testing.assert_allclose(result.mesh.mesh_potential_v, np.array([1.5, -2.5]))
     np.testing.assert_allclose(
-        result.history.as_array(),
+        result.history.charge.as_array(),
         np.array([[2.0e-11, 1.0e-10], [-1.0e-11, -2.0e-10]]),
     )
     np.testing.assert_array_equal(
-        result.history.processed_particles_by_batch, np.array([5, 10])
+        result.history.charge.processed_particles_by_batch, np.array([5, 10])
     )
     np.testing.assert_allclose(
-        result.history.rel_change_by_batch, np.array([3.0e-1, 1.0e-8])
+        result.history.charge.rel_change_by_batch, np.array([3.0e-1, 1.0e-8])
     )
-    np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 3]))
+    np.testing.assert_array_equal(result.history.charge.batch_indices, np.array([1, 3]))
 
 
 @pytest.mark.parametrize("field_values", [None, "-2.7,-2.7", "NaN,NaN"])
@@ -147,13 +149,13 @@ def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path, fi
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.matching_plane_state is not None
+    assert result.receipts.matching_plane_state is not None
     assert PublicMatchingPlaneState is MatchingPlaneState
-    assert isinstance(result.matching_plane_state, PublicMatchingPlaneState)
-    assert result.matching_plane_state.phi_v == 1.5
-    assert result.matching_plane_state.photoelectron_escape_flux_m2_s == 1.5
+    assert isinstance(result.receipts.matching_plane_state, PublicMatchingPlaneState)
+    assert result.receipts.matching_plane_state.phi_v == 1.5
+    assert result.receipts.matching_plane_state.photoelectron_escape_flux_m2_s == 1.5
     assert result.matching_plane_history is not None
     assert len(result.matching_plane_history) == 1
     assert PublicMatchingPlaneHistoryEntry is MatchingPlaneHistoryEntry
@@ -178,9 +180,9 @@ def test_load_fortran_result_ignores_stale_matching_history(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.matching_plane_state is None
+    assert result.receipts.matching_plane_state is None
     assert result.matching_plane_history is None
 
 
@@ -197,7 +199,7 @@ def test_load_fortran_result_rejects_inconsistent_matching_budget(
     )
 
     with pytest.raises(ValueError, match="photoelectron budget"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -250,7 +252,7 @@ def test_load_fortran_result_rejects_corrupt_matching_plane_history(
     )
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -283,7 +285,7 @@ def test_load_fortran_result_rejects_corrupt_charges(
     _write_minimal_result_fixture(out, charges_text=charges_text)
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_rejects_mesh_triangle_row_count_mismatch(
@@ -300,7 +302,7 @@ def test_load_fortran_result_rejects_mesh_triangle_row_count_mismatch(
     )
 
     with pytest.raises(ValueError, match="mesh_triangles.csv row count"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -> None:
@@ -316,7 +318,7 @@ def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -
     )
 
     with pytest.raises(ValueError, match="vertex values"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -343,7 +345,7 @@ def test_load_fortran_result_rejects_invalid_triangle_mesh_id(
     )
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -388,7 +390,7 @@ def test_load_fortran_result_rejects_invalid_mesh_source_fields(
     )
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -424,7 +426,7 @@ def test_load_fortran_result_rejects_corrupt_mesh_potential(
     )
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> None:
@@ -433,7 +435,7 @@ def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> No
     _write_minimal_result_fixture(out, summary_extra=["escaped_boundary=-1"])
 
     with pytest.raises(ValueError, match="escaped_boundary"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_rejects_inconsistent_retry_counts(
@@ -450,7 +452,7 @@ def test_load_fortran_result_rejects_inconsistent_retry_counts(
     )
 
     with pytest.raises(ValueError, match="retry_resolved must not exceed"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_derives_missing_soft_discard_fraction(
@@ -463,9 +465,9 @@ def test_load_fortran_result_derives_missing_soft_discard_fraction(
         summary_extra=["multiple_box_events_soft_discarded=4"],
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.multiple_box_events_soft_discard_fraction == 0.4
+    assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.4
 
 
 def test_load_fortran_result_accepts_zero_soft_discard_fraction(
@@ -484,9 +486,9 @@ def test_load_fortran_result_accepts_zero_soft_discard_fraction(
         ],
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.multiple_box_events_soft_discard_fraction == 0.0
+    assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.0
 
 
 def test_load_fortran_result_accepts_soft_discard_fraction_roundoff(
@@ -502,9 +504,9 @@ def test_load_fortran_result_accepts_soft_discard_fraction_roundoff(
         ],
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.multiple_box_events_soft_discard_fraction == 0.1
+    assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.1
 
 
 def test_load_fortran_result_rejects_soft_discard_count_above_processed(
@@ -518,7 +520,7 @@ def test_load_fortran_result_rejects_soft_discard_count_above_processed(
     )
 
     with pytest.raises(ValueError, match="must not exceed processed_particles"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_rejects_inconsistent_soft_discard_fraction(
@@ -535,7 +537,7 @@ def test_load_fortran_result_rejects_inconsistent_soft_discard_fraction(
     )
 
     with pytest.raises(ValueError, match="must match"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize("value", ["-1.0e-6", "1.000001", "nan", "inf"])
@@ -551,7 +553,7 @@ def test_load_fortran_result_rejects_invalid_soft_discard_fraction(
     )
 
     with pytest.raises(ValueError, match="multiple_box_events_soft_discard_fraction"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize(
@@ -657,11 +659,11 @@ def test_load_fortran_result_defers_corrupt_history_validation(tmp_path: Path) -
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.history is not None
+    assert result.history.charge is not None
     with pytest.raises(ValueError, match=r"batch=1.*missing elem_idx=2"):
-        _ = result.history.batch_indices
+        _ = result.history.charge.batch_indices
 
 
 def test_charge_history_accepts_permuted_dense_rows(tmp_path: Path) -> None:
@@ -683,14 +685,14 @@ def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> Non
     out.mkdir()
     _write_three_mesh_fixture(out)
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.history is not None
-    np.testing.assert_allclose(result.history[1], np.array([5.0e-10, 1.0e-9, -1.5e-9]))
+    assert result.history.charge is not None
+    np.testing.assert_allclose(result.history.charge[1], np.array([5.0e-10, 1.0e-9, -1.5e-9]))
     np.testing.assert_allclose(
-        result.history_at(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
+        result.history.charge.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
     )
-    history = result.history.as_array()
+    history = result.history.charge.as_array()
     np.testing.assert_allclose(
         history,
         np.array(
@@ -701,12 +703,12 @@ def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> Non
             ]
         ),
     )
-    np.testing.assert_array_equal(result.history.batch_indices, np.array([1, 10]))
+    np.testing.assert_array_equal(result.history.charge.batch_indices, np.array([1, 10]))
 
 
 def test_charge_history_materialization_preserves_cached_edits(tmp_path: Path) -> None:
     _write_three_mesh_fixture(tmp_path)
-    history = FortranChargeHistory(tmp_path / "charge_history.csv", mesh_nelem=3)
+    history = BatchHistory(tmp_path / "charge_history.csv", mesh_nelem=3)
     first = history[1]
     first[0] = 7.0e-9
     with pytest.raises(ValueError, match="step=2 is not found"):
@@ -734,7 +736,7 @@ def test_list_fortran_runs(tmp_path: Path) -> None:
     invalid.mkdir()
     (invalid / "summary.txt").write_text("mesh_nelem=1\n", encoding="utf-8")
 
-    runs = list_fortran_runs(tmp_path)
+    runs = list_runs(tmp_path)
     assert runs == [valid]
 
 
@@ -763,7 +765,7 @@ def test_beach_uses_outputs_latest_by_default(
 
     beach = Beach()
     assert beach.output_dir == Path("outputs/latest")
-    assert beach.result.mesh_nelem == 1
+    assert beach.result.summary.mesh_nelem == 1
 
 
 def test_beach_default_lazy_history_keeps_step_access(tmp_path: Path) -> None:
@@ -774,10 +776,10 @@ def test_beach_default_lazy_history_keeps_step_access(tmp_path: Path) -> None:
     beach = Beach(out)
     result = beach.result
 
-    assert result.history is not None
+    assert result.history.charge is not None
     np.testing.assert_allclose(beach.get_mesh_charge(2, step=10), np.array([2.0e-9]))
     np.testing.assert_allclose(
-        result.history.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
+        result.history.charge.get_step(10), np.array([1.0e-9, 2.0e-9, -3.0e-9])
     )
 
 
@@ -800,19 +802,19 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
     )
     (out / "charges.csv").write_text("elem_idx,charge_C\n1,0.0\n", encoding="utf-8")
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.escaped_boundary == 0
-    assert result.survived_max_step == 0
-    assert result.checkpoint_schema_version is None
-    assert result.charge_ledger is None
-    assert result.simulated_time_s is None
-    assert result.adaptive_nonzero_mode_rejected_trials == 0
-    assert result.adaptive_nonzero_mode_last_batch_duration_s is None
-    assert result.adaptive_nonzero_mode_last_potential_step_v is None
-    assert result.adaptive_nonzero_mode_omp_threads is None
-    assert result.periodic2_max_nonzero_mode_potential_step_v is None
-    assert result.multiple_box_events_soft_discard_fraction == 0.0
+    assert result.summary.escaped_boundary == 0
+    assert result.summary.survived_max_step == 0
+    assert result.receipts.checkpoint_schema_version is None
+    assert result.ledger is None
+    assert result.summary.simulated_time_s is None
+    assert result.diagnostics.adaptive_nonzero_mode_rejected_trials == 0
+    assert result.diagnostics.adaptive_nonzero_mode_last_batch_duration_s is None
+    assert result.diagnostics.adaptive_nonzero_mode_last_potential_step_v is None
+    assert result.diagnostics.adaptive_nonzero_mode_omp_threads is None
+    assert result.diagnostics.periodic2_max_nonzero_mode_potential_step_v is None
+    assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.0
 
 
 @pytest.mark.parametrize(
@@ -853,7 +855,7 @@ def test_load_fortran_result_rejects_incomplete_adaptive_summary(
     (out / "charges.csv").write_text("elem_idx,charge_C\n1,0.0\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) -> None:
@@ -889,39 +891,39 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.checkpoint_schema_version == 4
-    assert result.model_fingerprint == "0123456789ABCDEF"
-    assert result.mesh_fingerprint == "1111111122222222"
-    assert result.species_fingerprint == "3333333344444444"
-    assert result.charge_ledger_residual_c == pytest.approx(1.0e-18)
-    assert result.charge_ledger is not None
-    assert result.charge_ledger[0].species_idx == 1
-    assert result.charge_ledger[0].injected_from_remote_c == pytest.approx(-3.0)
-    assert result.charge_ledger[0].escaped_count == 1
-    assert result.charge_ledger[0].neutral_return_correction_c == pytest.approx(-0.1)
-    assert result.charge_ledger[0].neutral_return_weight_scale == pytest.approx(1.05)
-    assert result.charge_ledger[0].neutral_return_unresolved_fraction == pytest.approx(
+    assert result.receipts.checkpoint_schema_version == 4
+    assert result.receipts.model_fingerprint == "0123456789ABCDEF"
+    assert result.receipts.mesh_fingerprint == "1111111122222222"
+    assert result.receipts.species_fingerprint == "3333333344444444"
+    assert result.diagnostics.charge_ledger_residual_c == pytest.approx(1.0e-18)
+    assert result.ledger is not None
+    assert result.ledger[0].species_idx == 1
+    assert result.ledger[0].injected_from_remote_c == pytest.approx(-3.0)
+    assert result.ledger[0].escaped_count == 1
+    assert result.ledger[0].neutral_return_correction_c == pytest.approx(-0.1)
+    assert result.ledger[0].neutral_return_weight_scale == pytest.approx(1.05)
+    assert result.ledger[0].neutral_return_unresolved_fraction == pytest.approx(
         0.05
     )
-    assert result.charge_ledger[0].fixed_absorbed_target_charge_c == pytest.approx(-4.0)
-    assert result.charge_ledger[0].fixed_absorbed_weight_scale == pytest.approx(2.0)
-    assert result.charge_ledger[0].fixed_emission_target_charge_c == pytest.approx(3.0)
-    assert result.charge_ledger[0].fixed_emission_weight_scale == pytest.approx(1.5)
-    assert result.charge_ledger[0].fixed_absorbed_applied_charge_c == pytest.approx(
+    assert result.ledger[0].fixed_absorbed_target_charge_c == pytest.approx(-4.0)
+    assert result.ledger[0].fixed_absorbed_weight_scale == pytest.approx(2.0)
+    assert result.ledger[0].fixed_emission_target_charge_c == pytest.approx(3.0)
+    assert result.ledger[0].fixed_emission_weight_scale == pytest.approx(1.5)
+    assert result.ledger[0].fixed_absorbed_applied_charge_c == pytest.approx(
         -4.0
     )
-    assert result.charge_ledger[0].fixed_emission_applied_charge_c == pytest.approx(3.0)
-    assert result.charge_ledger[0].fixed_escape_target_charge_c == pytest.approx(-1.0)
-    assert result.charge_ledger[0].fixed_escape_applied_charge_c == pytest.approx(-1.0)
-    assert result.charge_ledger[0].fixed_escape_correction_c == pytest.approx(-0.5)
-    assert result.charge_ledger[0].fixed_current_correction_c == pytest.approx(-2.0)
-    assert result.periodic2_cache_hit is True
-    assert result.periodic2_operator_build_count == 0
-    assert result.periodic2_cache_fingerprint == "ABCDEF0123456789"
-    assert result.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
-    assert result.periodic2_generation_tolerance == pytest.approx(1.0e-8)
+    assert result.ledger[0].fixed_emission_applied_charge_c == pytest.approx(3.0)
+    assert result.ledger[0].fixed_escape_target_charge_c == pytest.approx(-1.0)
+    assert result.ledger[0].fixed_escape_applied_charge_c == pytest.approx(-1.0)
+    assert result.ledger[0].fixed_escape_correction_c == pytest.approx(-0.5)
+    assert result.ledger[0].fixed_current_correction_c == pytest.approx(-2.0)
+    assert result.diagnostics.periodic2_cache_hit is True
+    assert result.diagnostics.periodic2_operator_build_count == 0
+    assert result.diagnostics.periodic2_cache_fingerprint == "ABCDEF0123456789"
+    assert result.diagnostics.periodic2_cache_path == ".beach_cache/periodic2/operator.bin"
+    assert result.diagnostics.periodic2_generation_tolerance == pytest.approx(1.0e-8)
 
 
 @pytest.mark.parametrize(
@@ -957,7 +959,7 @@ def test_load_fortran_result_rejects_corrupt_charge_ledger(
     (out / "charge_ledger.csv").write_text(ledger_text, encoding="utf-8")
 
     with pytest.raises(ValueError, match=match):
-        load_fortran_result(out)
+        load_run(out)
 
 
 @pytest.mark.parametrize("switch_active", [False, True])
@@ -996,19 +998,19 @@ def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path, switch
         ],
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.field_reconstruction is not None
-    assert result.field_reconstruction.schema_version == 2
-    assert result.field_reconstruction.resolved_field_solver == "fmm"
-    assert result.field_reconstruction.fmm_expansion_order == 4
-    assert result.field_reconstruction.external_e0_v_m == (1.0, 2.0, 3.0)
-    assert result.field_reconstruction.boundary_low == (2, 2, 0)
-    assert result.field_reconstruction.periodic_cache_dir == "verified-cache"
+    assert result.receipts.field_reconstruction is not None
+    assert result.receipts.field_reconstruction.schema_version == 2
+    assert result.receipts.field_reconstruction.resolved_field_solver == "fmm"
+    assert result.receipts.field_reconstruction.fmm_expansion_order == 4
+    assert result.receipts.field_reconstruction.external_e0_v_m == (1.0, 2.0, 3.0)
+    assert result.receipts.field_reconstruction.boundary_low == (2, 2, 0)
+    assert result.receipts.field_reconstruction.periodic_cache_dir == "verified-cache"
 
-    assert result.field_reconstruction.upper_fourier_switch_active == switch_active
-    assert result.field_reconstruction.upper_fourier_switch_height_m == (5.5 if switch_active else 0.0)
-    assert result.field_reconstruction.upper_fourier_switch_mode_layers == (7 if switch_active else 0)
+    assert result.receipts.field_reconstruction.upper_fourier_switch_active == switch_active
+    assert result.receipts.field_reconstruction.upper_fourier_switch_height_m == (5.5 if switch_active else 0.0)
+    assert result.receipts.field_reconstruction.upper_fourier_switch_mode_layers == (7 if switch_active else 0)
 
 
 def test_load_fortran_result_secondary_emission_and_combined_matching_source(tmp_path: Path) -> None:
@@ -1028,8 +1030,8 @@ def test_load_fortran_result_secondary_emission_and_combined_matching_source(tmp
         '1,"incident,electron",3,6,-9.6e-19,2,0\n'
         '1,"secondary",1,0,0,1.5,2\n', encoding="utf-8",
     )
-    result = load_fortran_result(out)
-    assert result.matching_plane_state.secondary_share == 0.25
+    result = load_run(out)
+    assert result.receipts.matching_plane_state.secondary_share == 0.25
     assert result.matching_plane_history[0].state.secondary_budget_residual_a_m2 == -1e-8
     assert result.secondary_emission_history[0].incident_species == "incident,electron"
     assert result.secondary_emission_history[0].emitted_count == 6
@@ -1045,7 +1047,7 @@ def test_secondary_emission_reader_rejects_invalid_emitted_charge(tmp_path: Path
         f"1,electron,3,6,{charge},2,0\n", encoding="utf-8",
     )
     with pytest.raises(ValueError, match="emitted_charge_c must be finite and nonpositive"):
-        load_fortran_result(tmp_path)
+        load_run(tmp_path)
 
 
 @pytest.mark.parametrize("archived", [False, True])

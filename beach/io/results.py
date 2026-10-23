@@ -7,7 +7,11 @@ from pathlib import Path
 
 import numpy as np
 
-from .summary import CORE_SUMMARY_REQUIRED_KEYS, load_summary_file
+from .summary import (
+    CORE_SUMMARY_REQUIRED_KEYS,
+    _parse_summary_fields,
+    load_summary_file,
+)
 
 from ._field_reconstruction_io import _parse_field_reconstruction_receipt
 from ._matching_plane_io import (
@@ -15,16 +19,28 @@ from ._matching_plane_io import (
     _parse_matching_plane_state,
 )
 from ._summary_values import (
-    _parse_nonnegative_finite_float,
     _parse_nonnegative_int,
-    _parse_optional_bool,
-    _parse_optional_finite_float,
     _parse_optional_nonnegative_finite_float,
-    _parse_optional_nonnegative_int,
 )
 from ._secondary_emission_io import load_secondary_emission_history
-from .history import FortranChargeHistory
-from .types import ChargeLedgerEntry, FortranRunResult, MeshSource
+from .csv_history import (
+    load_fixed_current_history,
+    load_matching_plane_spectrum_history,
+    load_top_reference_history,
+)
+from .performance import load_performance_profile
+from .history import BatchHistory
+from .types import (
+    ChargeLedgerEntry,
+    MeshSource,
+    RunResult,
+    RunSummary,
+    RunMesh,
+    RunHistory,
+    RunReceipts,
+    RunDiagnostics,
+    RunField,
+)
 
 _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS = (
     "simulated_time_s",
@@ -35,84 +51,82 @@ _ADAPTIVE_NONZERO_MODE_SUMMARY_KEYS = (
 )
 
 
-def load_fortran_result(directory: str | Path) -> FortranRunResult:
-    """Load one Fortran output directory into a structured result object.
+def load_run(directory: str | Path) -> RunResult:
+    """Read one output directory without constructing a native kernel (light).
 
     Parameters
     ----------
     directory : str or pathlib.Path
-        Output directory that contains ``summary.txt`` and ``charges.csv``.
+        Output directory containing ``summary.txt`` and ``charges.csv``.
 
     Returns
     -------
-    FortranRunResult
-        Parsed output container with optional mesh/history metadata.
+    RunResult
+        Counts, geometry, receipts, diagnostics and lazy charge/potential histories.
+        Missing optional CSV products are ``None``; header-only diagnostic CSVs
+        are empty tuples. Persisted outputs from released versions remain readable.
 
     Raises
     ------
     FileNotFoundError
-        If required files are missing.
+        Required files are missing.
     ValueError
-        If required summary keys are missing or CSV values are malformed.
+        Required summary keys are missing or persisted values are malformed.
     """
 
     out_dir = Path(directory)
     summary = load_summary_file(
-        out_dir / "summary.txt",
-        required_keys=CORE_SUMMARY_REQUIRED_KEYS,
+        out_dir / "summary.txt", required_keys=CORE_SUMMARY_REQUIRED_KEYS
     )
-    mesh_nelem = _parse_nonnegative_int(summary["mesh_nelem"], key="mesh_nelem")
-    q_values = _load_charges(out_dir / "charges.csv", mesh_nelem=mesh_nelem)
-
+    groups = _parse_summary_fields(summary)
+    core = RunSummary(**groups["summary"])
+    diagnostics = RunDiagnostics(**groups["diagnostics"])
+    mesh_nelem = core.mesh_nelem
+    charges = _load_charges(out_dir / "charges.csv", mesh_nelem=mesh_nelem)
     triangles, mesh_ids = _load_triangles_if_exists(
-        out_dir / "mesh_triangles.csv",
-        mesh_nelem=mesh_nelem,
+        out_dir / "mesh_triangles.csv", mesh_nelem=mesh_nelem
     )
-    mesh_sources = _load_mesh_sources_if_exists(out_dir / "mesh_sources.csv")
-    mesh_potential_v = _load_mesh_potential_if_exists(
-        out_dir / "mesh_potential.csv", mesh_nelem=mesh_nelem
+    mesh = RunMesh(
+        triangles=triangles,
+        mesh_ids=mesh_ids,
+        mesh_sources=_load_mesh_sources_if_exists(out_dir / "mesh_sources.csv"),
+        mesh_potential_v=_load_mesh_potential_if_exists(
+            out_dir / "mesh_potential.csv", mesh_nelem=mesh_nelem
+        ),
     )
-    history_path = out_dir / "charge_history.csv"
-    history: FortranChargeHistory | None = None
-
-    if history_path.exists():
-        history = FortranChargeHistory(history_path, mesh_nelem=mesh_nelem)
-    charge_ledger = _load_charge_ledger_if_exists(out_dir / "charge_ledger.csv")
-    _validate_adaptive_nonzero_mode_summary_contract(summary)
-    field_reconstruction = _parse_field_reconstruction_receipt(summary)
-    matching_plane_state = _parse_matching_plane_state(summary)
-    matching_plane_history = None
-    if matching_plane_state is not None:
-        matching_plane_history = _load_matching_plane_history_if_exists(
-            out_dir / "matching_plane_history.csv"
+    histories = {}
+    for quantity, column in (("charge", "charge_C"), ("potential", "potential_V")):
+        path = out_dir / f"{quantity}_history.csv"
+        histories[quantity] = (
+            BatchHistory(path, mesh_nelem=mesh_nelem, value_column=column)
+            if path.exists()
+            else None
         )
-    processed_particles = _parse_nonnegative_int(
-        summary["processed_particles"],
-        key="processed_particles",
+    _validate_adaptive_nonzero_mode_summary_contract(summary)
+    receipts = RunReceipts(
+        **groups["receipts"],
+        field_reconstruction=_parse_field_reconstruction_receipt(summary),
+        matching_plane_state=_parse_matching_plane_state(summary),
     )
-    soft_discarded = _parse_nonnegative_int(
-        summary.get("multiple_box_events_soft_discarded", "0"),
-        key="multiple_box_events_soft_discarded",
-    )
-    if soft_discarded > processed_particles:
+    soft_discarded = diagnostics.multiple_box_events_soft_discarded
+    if soft_discarded > core.processed_particles:
         raise ValueError(
             "multiple_box_events_soft_discarded must not exceed processed_particles"
         )
-    soft_discard_fraction = (
-        soft_discarded / processed_particles if processed_particles > 0 else 0.0
+    soft_fraction = (
+        soft_discarded / core.processed_particles
+        if core.processed_particles > 0
+        else 0.0
     )
     if "multiple_box_events_soft_discard_fraction" in summary:
-        reported_soft_discard_fraction = _parse_nonnegative_finite_float(
-            summary["multiple_box_events_soft_discard_fraction"],
-            key="multiple_box_events_soft_discard_fraction",
-        )
-        if reported_soft_discard_fraction > 1.0:
+        reported = diagnostics.multiple_box_events_soft_discard_fraction
+        if reported > 1.0:
             raise ValueError(
                 "summary.txt multiple_box_events_soft_discard_fraction must be <= 1."
             )
         if not np.isclose(
-            reported_soft_discard_fraction,
-            soft_discard_fraction,
+            reported,
+            soft_fraction,
             rtol=16.0 * np.finfo(float).eps,
             atol=np.finfo(float).tiny,
         ):
@@ -120,108 +134,55 @@ def load_fortran_result(directory: str | Path) -> FortranRunResult:
                 "summary.txt multiple_box_events_soft_discard_fraction must match "
                 "multiple_box_events_soft_discarded / processed_particles."
             )
-    retry_attempted = _parse_nonnegative_int(
-        summary.get("multiple_box_events_retry_attempted", "0"),
-        key="multiple_box_events_retry_attempted",
-    )
-    retry_resolved = _parse_nonnegative_int(
-        summary.get("multiple_box_events_retry_resolved", "0"),
-        key="multiple_box_events_retry_resolved",
-    )
-    if retry_resolved > retry_attempted:
+    if (
+        diagnostics.multiple_box_events_retry_resolved
+        > diagnostics.multiple_box_events_retry_attempted
+    ):
         raise ValueError(
-            "multiple_box_events_retry_resolved must not exceed "
-            "multiple_box_events_retry_attempted"
+            "multiple_box_events_retry_resolved must not exceed multiple_box_events_retry_attempted"
         )
-    return FortranRunResult(
+    from dataclasses import replace
+
+    diagnostics = replace(
+        diagnostics, multiple_box_events_soft_discard_fraction=soft_fraction
+    )
+    profile_path = out_dir / "performance_profile.csv"
+    return RunResult(
         directory=out_dir,
-        mesh_nelem=mesh_nelem,
-        processed_particles=processed_particles,
-        absorbed=_parse_nonnegative_int(summary["absorbed"], key="absorbed"),
-        escaped=_parse_nonnegative_int(summary["escaped"], key="escaped"),
-        batches=_parse_nonnegative_int(summary["batches"], key="batches"),
-        escaped_boundary=_parse_nonnegative_int(
-            summary.get("escaped_boundary", "0"),
-            key="escaped_boundary",
-        ),
-        survived_max_step=_parse_nonnegative_int(
-            summary.get("survived_max_step", "0"),
-            key="survived_max_step",
-        ),
-        multiple_box_events_retry_attempted=retry_attempted,
-        multiple_box_events_retry_resolved=retry_resolved,
-        multiple_box_events_soft_discarded=soft_discarded,
-        multiple_box_events_soft_discarded_abs_charge_c=_parse_nonnegative_finite_float(
-            summary.get("multiple_box_events_soft_discarded_abs_charge_C", "0"),
-            key="multiple_box_events_soft_discarded_abs_charge_C",
-        ),
-        multiple_box_events_soft_discard_fraction=soft_discard_fraction,
-        last_rel_change=_parse_nonnegative_finite_float(
-            summary["last_rel_change"],
-            key="last_rel_change",
-        ),
-        simulated_time_s=_parse_optional_nonnegative_finite_float(
-            summary, "simulated_time_s"
-        ),
-        adaptive_nonzero_mode_rejected_trials=(
-            _parse_optional_nonnegative_int(
-                summary, "adaptive_nonzero_mode_rejected_trials"
+        summary=core,
+        charges=charges,
+        mesh=mesh,
+        history=RunHistory(**histories),
+        receipts=receipts,
+        diagnostics=diagnostics,
+        field=RunField(**groups["field"]),
+        ledger=_load_charge_ledger_if_exists(out_dir / "charge_ledger.csv"),
+        matching_plane_history=(
+            _load_matching_plane_history_if_exists(
+                out_dir / "matching_plane_history.csv"
             )
-            or 0
+            if receipts.matching_plane_state is not None
+            else None
         ),
-        adaptive_nonzero_mode_last_batch_duration_s=(
-            _parse_optional_nonnegative_finite_float(
-                summary, "adaptive_nonzero_mode_last_batch_duration_s"
-            )
+        secondary_emission_history=load_secondary_emission_history(
+            out_dir / "secondary_emission_history.csv"
         ),
-        adaptive_nonzero_mode_last_potential_step_v=(
-            _parse_optional_nonnegative_finite_float(
-                summary, "adaptive_nonzero_mode_last_potential_step_V"
-            )
+        top_reference_history=load_top_reference_history(
+            out_dir / "top_reference_history.csv"
         ),
-        adaptive_nonzero_mode_omp_threads=_parse_optional_nonnegative_int(
-            summary, "adaptive_nonzero_mode_omp_threads"
+        fixed_current_history=load_fixed_current_history(
+            out_dir / "fixed_current_history.csv"
         ),
-        periodic2_max_nonzero_mode_potential_step_v=(
-            _parse_optional_nonnegative_finite_float(
-                summary, "periodic2_max_nonzero_mode_potential_step_V"
-            )
+        matching_plane_spectrum_history=load_matching_plane_spectrum_history(
+            out_dir / "matching_plane_spectrum_history.csv"
         ),
-        charges=q_values,
-        triangles=triangles,
-        mesh_ids=mesh_ids,
-        mesh_sources=mesh_sources,
-        mesh_potential_v=mesh_potential_v,
-        history=history,
-        checkpoint_schema_version=_parse_optional_nonnegative_int(
-            summary, "checkpoint_schema_version"
-        ),
-        model_fingerprint=summary.get("model_fingerprint"),
-        mesh_fingerprint=summary.get("mesh_fingerprint"),
-        species_fingerprint=summary.get("species_fingerprint"),
-        charge_ledger_residual_c=_parse_optional_finite_float(
-            summary, "charge_ledger_residual_C"
-        ),
-        charge_ledger=charge_ledger,
-        field_source_model=summary.get("field_source_model", "unknown").strip().lower(),
-        field_kernel_id=summary.get("field_kernel_id"),
-        periodic2_cache_hit=_parse_optional_bool(summary, "periodic2_cache_hit"),
-        periodic2_operator_build_count=_parse_optional_nonnegative_int(
-            summary, "periodic2_operator_build_count"
-        ),
-        periodic2_cache_fingerprint=summary.get("periodic2_cache_fingerprint"),
-        periodic2_cache_path=summary.get("periodic2_cache_path"),
-        periodic2_generation_tolerance=_parse_optional_finite_float(
-            summary, "periodic2_generation_tolerance"
-        ),
-        field_reconstruction=field_reconstruction,
-        matching_plane_state=matching_plane_state,
-        matching_plane_history=matching_plane_history,
-        secondary_emission_history=load_secondary_emission_history(out_dir / "secondary_emission_history.csv"),
+        performance_profile=load_performance_profile(profile_path)
+        if profile_path.exists()
+        else None,
     )
 
 
-def list_fortran_runs(root: str | Path) -> list[Path]:
+def list_runs(root: str | Path) -> list[Path]:
     """List directories that look like valid Fortran output runs.
 
     Parameters

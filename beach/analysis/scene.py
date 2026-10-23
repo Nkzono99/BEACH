@@ -9,7 +9,7 @@ from typing import Iterable, Literal, Mapping
 import numpy as np
 
 from beach.io._numeric import _vec3
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 from beach.native.kernel import FieldKernel
 
 from .context import RunContext
@@ -125,7 +125,7 @@ class BeachScene:
     charges attached to their original mesh elements.
     """
 
-    result: FortranRunResult
+    result: RunResult
     step: int | None
     centers_m: np.ndarray
     triangles_m: np.ndarray
@@ -170,7 +170,7 @@ class BeachScene:
     @classmethod
     def from_result(
         cls,
-        result: FortranRunResult | object,
+        result: RunResult | object,
         *,
         step: int | None = -1,
         config_path: str | Path | None = None,

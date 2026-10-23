@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from beach import RunDiagnostics, RunField, RunHistory, RunMesh, RunReceipts, RunSummary
+
 import copy
 import csv
 import importlib.util
@@ -3963,22 +3965,27 @@ def test_analyze_archive_only_writes_stable_explicit_missing_artifacts(
             assert Path(output_dir) == archive_run / "work/latest"
             assert Path(config_path) == archive_run / "input/beach.toml"
             self.result = SimpleNamespace(
-                mesh_nelem=3392,
-                processed_particles=100,
-                absorbed=60,
-                escaped=40,
-                batches=280000,
-                escaped_boundary=39,
-                survived_max_step=1,
-                last_rel_change=1.0e-3,
                 charges=[1.0e-15, -2.0e-15],
-                mesh_ids=None,
-                mesh_potential_v=None,
-                charge_ledger=None,
-                charge_ledger_residual_c=None,
-                model_fingerprint=None,
-                mesh_fingerprint=None,
-                species_fingerprint=None,
+                ledger=None,
+                summary=RunSummary(
+                    mesh_nelem=3392,
+                    processed_particles=100,
+                    absorbed=60,
+                    escaped=40,
+                    batches=280000,
+                    escaped_boundary=39,
+                    survived_max_step=1,
+                    last_rel_change=1.0e-3,
+                ),
+                mesh=RunMesh(mesh_ids=None, mesh_potential_v=None),
+                diagnostics=RunDiagnostics(charge_ledger_residual_c=None),
+                receipts=RunReceipts(
+                    model_fingerprint=None,
+                    mesh_fingerprint=None,
+                    species_fingerprint=None,
+                ),
+                history=RunHistory(),
+                field=RunField(),
             )
 
     monkeypatch.setattr(tool, "Beach", FakeBeach)
@@ -4238,27 +4245,36 @@ def test_analyze_available_archive_uses_public_wrench_path_and_shell_apis(
             assert Path(output_dir) == archive_run / "work/latest"
             assert Path(config_path) == archive_run / "input/beach.toml"
             self.result = SimpleNamespace(
-                mesh_nelem=2,
-                processed_particles=100,
-                absorbed=60,
-                escaped=40,
-                batches=280000,
-                escaped_boundary=39,
-                survived_max_step=1,
-                last_rel_change=1.0e-3,
                 charges=np.array([1.0e-15, 2.0e-15]),
-                mesh_ids=np.array([6, 7]),
-                triangles=triangles,
-                mesh_potential_v=None,
-                charge_ledger=None,
-                charge_ledger_residual_c=None,
-                model_fingerprint=None,
-                mesh_fingerprint=None,
-                species_fingerprint=None,
-                history=SimpleNamespace(
-                    has_data=True,
-                    batch_indices=np.array([149001, 180001, 279001]),
+                ledger=None,
+                summary=RunSummary(
+                    mesh_nelem=2,
+                    processed_particles=100,
+                    absorbed=60,
+                    escaped=40,
+                    batches=280000,
+                    escaped_boundary=39,
+                    survived_max_step=1,
+                    last_rel_change=1.0e-3,
                 ),
+                mesh=RunMesh(
+                    mesh_ids=np.array([6, 7]),
+                    triangles=triangles,
+                    mesh_potential_v=None,
+                ),
+                diagnostics=RunDiagnostics(charge_ledger_residual_c=None),
+                receipts=RunReceipts(
+                    model_fingerprint=None,
+                    mesh_fingerprint=None,
+                    species_fingerprint=None,
+                ),
+                history=RunHistory(
+                    charge=SimpleNamespace(
+                        has_data=True,
+                        batch_indices=np.array([149001, 180001, 279001]),
+                    )
+                ),
+                field=RunField(),
             )
 
         def object_interaction_snapshot(self, *, periodic_model, step, **_kwargs):
@@ -5162,7 +5178,14 @@ def test_object_physics_requires_both_target_meshes(tmp_path: Path) -> None:
     tool = _load_tool()
 
     class IncompleteRun:
-        result = SimpleNamespace(mesh_ids=np.array([6]))
+        result = SimpleNamespace(
+            summary=RunSummary(mesh_nelem=1, processed_particles=0, absorbed=0, escaped=0, batches=0),
+            mesh=RunMesh(mesh_ids=np.array([6])),
+            history=RunHistory(),
+            field=RunField(),
+            receipts=RunReceipts(),
+            diagnostics=RunDiagnostics(),
+        )
 
         def object_interaction_snapshot(self, **_kwargs):
             raise AssertionError("snapshot must not be built for incomplete targets")
@@ -5252,9 +5275,18 @@ def test_object_physics_rejects_invalid_wrench_contract_metadata(
 
     class FakeRun:
         result = SimpleNamespace(
-            batches=280000,
-            mesh_ids=np.array([6, 7]),
-            triangles=triangles,
+            summary=RunSummary(
+                batches=280000,
+                mesh_nelem=0,
+                processed_particles=0,
+                absorbed=0,
+                escaped=0,
+            ),
+            mesh=RunMesh(mesh_ids=np.array([6, 7]), triangles=triangles),
+            history=RunHistory(),
+            field=RunField(),
+            receipts=RunReceipts(),
+            diagnostics=RunDiagnostics(),
         )
 
         def object_interaction_snapshot(self, **kwargs):
@@ -5311,9 +5343,18 @@ def test_new_infinite_final_charge_gets_infinite_shell_reference(
 
     class FakeRun:
         result = SimpleNamespace(
-            batches=280000,
-            mesh_ids=np.array([6, 7]),
-            triangles=triangles,
+            summary=RunSummary(
+                batches=280000,
+                mesh_nelem=0,
+                processed_particles=0,
+                absorbed=0,
+                escaped=0,
+            ),
+            mesh=RunMesh(mesh_ids=np.array([6, 7]), triangles=triangles),
+            history=RunHistory(),
+            field=RunField(),
+            receipts=RunReceipts(),
+            diagnostics=RunDiagnostics(),
         )
 
         def object_interaction_snapshot(self, *, step, periodic_model, **_kwargs):
@@ -5424,17 +5465,35 @@ def test_geometry_comparison_allows_declared_roundoff_not_order_change() -> None
             [[0.0, 0.0, 1.0e-3], [1.0e-3, 0.0, 1.0e-3], [0.0, 1.0e-3, 1.0e-3]],
         ]
     )
-    left = SimpleNamespace(mesh_ids=np.array([6, 7]), triangles=triangles)
+    left = SimpleNamespace(
+        mesh=RunMesh(mesh_ids=np.array([6, 7]), triangles=triangles),
+        history=RunHistory(),
+        field=RunField(),
+        receipts=RunReceipts(),
+        diagnostics=RunDiagnostics(),
+    )
     preliminary = tool._geometry_comparison(left, left)
     perturbed = triangles.copy()
     perturbed[0, 0, 0] += 0.5 * preliminary["coordinate_tolerance_m"]
     within = tool._geometry_comparison(
         left,
-        SimpleNamespace(mesh_ids=np.array([6, 7]), triangles=perturbed),
+        SimpleNamespace(
+            mesh=RunMesh(mesh_ids=np.array([6, 7]), triangles=perturbed),
+            history=RunHistory(),
+            field=RunField(),
+            receipts=RunReceipts(),
+            diagnostics=RunDiagnostics(),
+        ),
     )
     reordered = tool._geometry_comparison(
         left,
-        SimpleNamespace(mesh_ids=np.array([7, 6]), triangles=triangles),
+        SimpleNamespace(
+            mesh=RunMesh(mesh_ids=np.array([7, 6]), triangles=triangles),
+            history=RunHistory(),
+            field=RunField(),
+            receipts=RunReceipts(),
+            diagnostics=RunDiagnostics(),
+        ),
     )
 
     assert within["status"] == "match"
@@ -5871,25 +5930,33 @@ def test_analyze_require_complete_verifies_all_cases_and_physics(
         def __init__(self, _output_dir, *, config_path=None):
             assert config_path is not None
             self.result = SimpleNamespace(
-                mesh_nelem=1,
-                processed_particles=10,
-                absorbed=6,
-                escaped=4,
-                batches=280000,
-                escaped_boundary=3,
-                survived_max_step=1,
-                last_rel_change=1.0e-3,
                 charges=np.array([1.0e-15]),
-                mesh_ids=np.array([1]),
-                triangles=np.array(
-                    [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+                ledger=None,
+                summary=RunSummary(
+                    mesh_nelem=1,
+                    processed_particles=10,
+                    absorbed=6,
+                    escaped=4,
+                    batches=280000,
+                    escaped_boundary=3,
+                    survived_max_step=1,
+                    last_rel_change=1.0e-3,
                 ),
-                mesh_potential_v=None,
-                charge_ledger=None,
-                charge_ledger_residual_c=0.0,
-                model_fingerprint="0123456789ABCDEF",
-                mesh_fingerprint="1111111111111111",
-                species_fingerprint="2222222222222222",
+                mesh=RunMesh(
+                    mesh_ids=np.array([1]),
+                    triangles=np.array(
+                        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+                    ),
+                    mesh_potential_v=None,
+                ),
+                diagnostics=RunDiagnostics(charge_ledger_residual_c=0.0),
+                receipts=RunReceipts(
+                    model_fingerprint="0123456789ABCDEF",
+                    mesh_fingerprint="1111111111111111",
+                    species_fingerprint="2222222222222222",
+                ),
+                history=RunHistory(),
+                field=RunField(),
             )
 
     monkeypatch.setattr(tool, "Beach", FakeBeach)

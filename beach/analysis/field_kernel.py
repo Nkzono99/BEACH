@@ -12,7 +12,7 @@ from typing import Iterable, Mapping
 import numpy as np
 
 from beach.io._numeric import _vec3
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 from beach.native.kernel import (
     FieldKernel,
     FieldKernelOptions,
@@ -40,7 +40,7 @@ class KernelObjectForceRecord:
 
 
 def field_kernel_from_result(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     step: int | None = -1,
     periodic2: Mapping[str, object] | None = None,
@@ -59,7 +59,7 @@ def field_kernel_from_result(
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
-    if resolved.field_reconstruction is not None and resolved.field_reconstruction.upper_fourier_switch_active:
+    if resolved.receipts.field_reconstruction is not None and resolved.receipts.field_reconstruction.upper_fourier_switch_active:
         warnings.warn(
             "The simulator uses upper Fourier evaluation near H; FieldKernel reproduces only the FMM component.",
             RuntimeWarning, stacklevel=2,
@@ -85,7 +85,7 @@ def field_kernel_from_result(
 
 
 def calc_object_forces_kernel(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     step: int | None = -1,
     target_mesh_ids: int | Iterable[int] | None = None,
@@ -188,7 +188,7 @@ def calc_object_forces_kernel(
 
 
 def field_kernel_options_from_result(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     periodic2: Mapping[str, object] | None = None,
     theta: float | None = None,
@@ -213,7 +213,7 @@ def field_kernel_options_from_result(
 
 
 def _options_from_result(
-    resolved: FortranRunResult,
+    resolved: RunResult,
     *,
     periodic2: Mapping[str, object] | None,
     theta: float | None,
@@ -266,7 +266,7 @@ def _options_from_result(
         # An explicit or configured finite-periodic model is a native FMM model.
         # panel_spectral_reference was rejected above instead of being translated.
         resolved_field_solver = "fmm"
-    receipt = run_context.result.field_reconstruction
+    receipt = run_context.result.receipts.field_reconstruction
     receipt_order = 4 if receipt is None else receipt.fmm_expansion_order
     resolved_order = receipt_order if order is None else int(order)
     resolved_theta = float(
@@ -307,10 +307,10 @@ def _require_run_kernel(
     """Check that a caller's kernel holds this run's panels and the total field."""
 
     nsource = kernel.source_charges.shape[0]
-    if nsource != context.result.mesh_nelem:
+    if nsource != context.result.summary.mesh_nelem:
         raise ValueError(
             f"{operation}: the kernel holds {nsource} source panels but the run has "
-            f"{context.result.mesh_nelem}; build it from this run with Beach.kernel() "
+            f"{context.result.summary.mesh_nelem}; build it from this run with Beach.kernel() "
             "or field_kernel_from_result()."
         )
     _require_total_field_reconstruction(context, kernel.options, operation=operation)
@@ -346,7 +346,7 @@ def _require_total_field_config(
 ) -> None:
     """Validate configuration before resolving a total-field kernel."""
 
-    receipt = context.result.field_reconstruction
+    receipt = context.result.receipts.field_reconstruction
     if receipt is not None:
         if receipt.resolved_field_solver == "treecode":
             raise ValueError(
@@ -396,7 +396,7 @@ def _require_total_field_config(
 
 
 def _periodic_nonzero_mode_backend(context: RunContext) -> str | None:
-    receipt = context.result.field_reconstruction
+    receipt = context.result.receipts.field_reconstruction
     if receipt is not None:
         return receipt.periodic_nonzero_mode_backend
     config = context.config
@@ -412,7 +412,7 @@ def _periodic_nonzero_mode_backend(context: RunContext) -> str | None:
 def _resolved_field_solver(context: RunContext) -> str:
     """Resolve the simulator backend for automatic result reconstruction."""
 
-    receipt = context.result.field_reconstruction
+    receipt = context.result.receipts.field_reconstruction
     if receipt is not None:
         return _coerce_resolved_field_solver(receipt.resolved_field_solver)
     sim = context.sim
@@ -431,7 +431,7 @@ def _resolved_field_solver(context: RunContext) -> str:
     tree_min_nelem = int(sim.get("tree_min_nelem", 256))
     if tree_min_nelem < 1:
         raise ValueError("sim.tree_min_nelem must be >= 1 for field reconstruction.")
-    return "fmm" if context.result.mesh_nelem >= tree_min_nelem else "direct"
+    return "fmm" if context.result.summary.mesh_nelem >= tree_min_nelem else "direct"
 
 
 def _require_complete_total_kernel(

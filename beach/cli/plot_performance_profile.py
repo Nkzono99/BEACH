@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from pathlib import Path
 from typing import Any
+
+from beach.io.performance import load_performance_profile
 
 from . import _options
 from ._output import emit
@@ -94,52 +95,6 @@ def run(args: argparse.Namespace) -> None:
         plt.show()
     else:
         plt.close(fig)
-
-
-def load_performance_profile(path: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
-    """Load one ``performance_profile.csv`` file."""
-
-    metadata: dict[str, str] = {}
-    csv_lines: list[str] = []
-
-    if not path.exists():
-        raise FileNotFoundError(path)
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("#"):
-            comment = stripped[1:].strip()
-            if "=" in comment:
-                key, value = comment.split("=", 1)
-                metadata[key.strip()] = value.strip()
-            continue
-        csv_lines.append(line)
-
-    if not csv_lines:
-        raise ValueError("CSV body is empty.")
-
-    reader = csv.DictReader(csv_lines)
-    rows: list[dict[str, Any]] = []
-    for row in reader:
-        if row is None:
-            continue
-        rows.append(
-            {
-                "region": _required_field(row, "region"),
-                "calls_sum": float(_required_field(row, "calls_sum")),
-                "calls_mean": float(_required_field(row, "calls_mean")),
-                "rank_min_s": float(_required_field(row, "rank_min_s")),
-                "rank_mean_s": float(_required_field(row, "rank_mean_s")),
-                "rank_max_s": float(_required_field(row, "rank_max_s")),
-                "imbalance_ratio": float(_required_field(row, "imbalance_ratio")),
-            }
-        )
-
-    if not rows:
-        raise ValueError("No profile rows were found.")
-    return metadata, rows
 
 
 def plot_performance_profile(
@@ -256,13 +211,6 @@ def _resolve_profile_path(value: str) -> Path:
     if path.is_dir() or path.suffix == "":
         return path / "performance_profile.csv"
     return path
-
-
-def _required_field(row: dict[str, str], key: str) -> str:
-    value = row.get(key)
-    if value is None or value.strip() == "":
-        raise ValueError(f"Missing required column: {key}")
-    return value.strip()
 
 
 def _simulation_total(rows: list[dict[str, Any]], *, metric: str) -> float:

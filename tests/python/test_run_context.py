@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from beach.io.types import RunMesh, RunSummary
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,33 +11,35 @@ import pytest
 import beach.analysis.potential as potential_module
 from beach.analysis.context import RunContext, resolve_result
 from beach.analysis.potential import compute_potential_mesh
-from beach.io.history import FortranChargeHistory
-from beach.io.types import FortranRunResult
+from beach.io.history import BatchHistory
+from beach.io.types import RunResult
 
 
-def _result(directory: Path) -> FortranRunResult:
-    return FortranRunResult(
+def _result(directory: Path) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([2.0e-9]),
-        triangles=np.array(
-            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
         ),
-        mesh_ids=np.array([4]),
+        mesh=RunMesh(
+            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+            mesh_ids=np.array([4]),
+        ),
     )
 
 
 class _BeachLike:
     """The Beach protocol: ``result`` plus the session's own ``context``."""
 
-    def __init__(self, result: FortranRunResult, config_path: Path | None) -> None:
+    def __init__(self, result: RunResult, config_path: Path | None) -> None:
         self.result = result
         self.context = RunContext(result=result, requested_config_path=config_path)
 
@@ -51,7 +55,7 @@ def test_run_context_preserves_result_protocol_and_errors(tmp_path: Path) -> Non
 
     assert resolve_result(result) is result
     assert resolve_result(beach_like) is result
-    with pytest.raises(TypeError, match="result must be FortranRunResult or Beach\\."):
+    with pytest.raises(TypeError, match="result must be RunResult or Beach\\."):
         resolve_result(object())
 
 
@@ -123,7 +127,7 @@ def test_run_context_selection_and_missing_data_contracts(tmp_path: Path) -> Non
     with pytest.raises(ValueError, match="charge_history.csv is not found or empty"):
         context.require_history()
 
-    history = FortranChargeHistory.from_arrays(
+    history = BatchHistory.from_arrays(
         tmp_path / "charge_history.csv",
         mesh_nelem=1,
         history=np.array([[1.0e-9, 3.0e-9]]),
@@ -131,7 +135,12 @@ def test_run_context_selection_and_missing_data_contracts(tmp_path: Path) -> Non
         rel_change_by_batch=np.array([0.2, 0.1]),
         batch_indices=np.array([2, 5]),
     )
-    historical = RunContext.from_value(replace(result, history=history))
+    historical = RunContext.from_value(
+        replace(
+            result,
+            history=replace(result.history, charge=history),
+        )
+    )
     np.testing.assert_allclose(historical.charges_at(2), np.array([1.0e-9]))
     np.testing.assert_allclose(historical.charges_at(-1), np.array([3.0e-9]))
     np.testing.assert_array_equal(
@@ -140,7 +149,10 @@ def test_run_context_selection_and_missing_data_contracts(tmp_path: Path) -> Non
     )
 
     missing_mesh_data = RunContext.from_value(
-        replace(result, mesh_ids=None, triangles=None)
+        replace(
+            result,
+            mesh=replace(result.mesh, mesh_ids=None, triangles=None),
+        )
     )
     np.testing.assert_array_equal(
         missing_mesh_data.mesh_ids_or_default(),

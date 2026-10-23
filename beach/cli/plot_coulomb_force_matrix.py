@@ -64,7 +64,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         step=args.step,
         component=args.component,
         target_kinds=_parse_target_kinds(args.target_kinds),
-        library_path=args.library,
         cmap=args.cmap,
         annotate=not args.no_annotate,
         workers=args.workers,

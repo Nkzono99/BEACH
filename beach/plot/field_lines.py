@@ -10,7 +10,7 @@ import numpy as np
 from beach.analysis.context import RunContext
 from beach.analysis.field_lines import trace_field_lines
 from beach.analysis.mesh import _surface_charge_density
-from beach.io.types import FortranRunResult
+from beach.io.types import RunResult
 
 from ._defaults import (
     DEFAULT_CHARGE_CMAP,
@@ -21,11 +21,14 @@ from ._defaults import (
 from ._mesh3d import _configure_mesh_axes
 
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+    from mpl_toolkits.mplot3d import Axes3D
+
     from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_field_lines_3d(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     seed_points: np.ndarray,
     *,
     ds: float | None = None,
@@ -47,7 +50,7 @@ def plot_field_lines_3d(
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
     kernel: FieldKernel | None = None,
-):
+) -> tuple[Figure, Axes3D]:
     """Plot triangle-P0 field lines and an optional surface mesh (heavy: native kernel).
 
     The tracing arguments, including ``kernel``, are those of

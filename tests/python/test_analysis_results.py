@@ -1,5 +1,7 @@
 """Result analysis contracts."""
 
+from beach.io.types import RunMesh, RunSummary
+
 from pathlib import Path
 import numpy as np
 import pytest
@@ -10,12 +12,12 @@ from beach import (
     calc_coulomb,
     CoulombMobilityAnalysis,
     FieldKernelOptions,
-    FortranRunResult,
+    RunResult,
     compute_potential_points,
     compute_potential_slices,
     compute_potential_mesh,
     compute_electric_field_points,
-    load_fortran_result,
+    load_run,
 )
 from beach.analysis.mesh import (
     _surface_charge_density,
@@ -56,9 +58,9 @@ def test_panel_estimators_reject_incompatible_source_model_receipt(
         summary_extra=summary_extra,
         field_source_model=field_source_model,
     )
-    result = load_fortran_result(out)
+    result = load_run(out)
 
-    assert result.field_source_model == expected_source_model
+    assert result.field.source_model == expected_source_model
     with pytest.raises(ValueError, match="triangle_p0"):
         compute_potential_mesh(result)
     with pytest.raises(ValueError, match="triangle_p0"):
@@ -72,7 +74,7 @@ def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> N
     out.mkdir()
     _write_mobility_fixture(out)
 
-    result = load_fortran_result(out)
+    result = load_run(out)
     specs = resolve_object_specs(result, config_path=out / "beach.toml")
 
     assert [spec.kind for spec in specs] == ["plane", "sphere"]
@@ -115,7 +117,7 @@ def test_free_field_reconstruction_receipt_rejects_periodic_far_model(
     )
 
     with pytest.raises(ValueError, match="free-space reconstruction"):
-        load_fortran_result(out)
+        load_run(out)
 
 
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:
@@ -286,7 +288,7 @@ def test_calc_coulomb_panel_force_obeys_action_reaction(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
     interaction = calc_coulomb(result, 1, 2)
 
     assert interaction.force_on_a_N[0] > 0.0
@@ -319,18 +321,20 @@ def test_surface_charge_density_uses_triangle_area() -> None:
 
 
 def test_compute_potential_mesh_uses_precomputed_output_when_available() -> None:
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9, -1.0e-9]),
-        mesh_potential_v=np.array([3.0, -4.0]),
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(mesh_potential_v=np.array([3.0, -4.0])),
     )
 
     potential = compute_potential_mesh(result)
@@ -347,9 +351,9 @@ def test_compute_potential_mesh_source_and_kernel_choose_the_evaluation(
     _write_minimal_result_fixture(
         out, mesh_potential_text="elem_idx,potential_V\n1,3.0\n2,-4.0\n"
     )
-    result = load_fortran_result(out)
+    result = load_run(out)
     kernel = _UnitPanelKernel(
-        result.triangles, result.charges, options=FieldKernelOptions()
+        result.mesh.triangles, result.charges, options=FieldKernelOptions()
     )
 
     saved = compute_potential_mesh(result)
@@ -365,7 +369,7 @@ def test_compute_potential_mesh_source_and_kernel_choose_the_evaluation(
         compute_potential_mesh(result, source="saved", reference_point=[0.0, 0.0, 2.0])
     (out / "mesh_potential.csv").unlink()
     with pytest.raises(ValueError, match="requires mesh_potential.csv"):
-        compute_potential_mesh(load_fortran_result(out), source="saved")
+        compute_potential_mesh(load_run(out), source="saved")
 
 
 def test_calc_coulomb_with_run_kernel_matches_source_only_plan_and_restores_it(
@@ -374,9 +378,9 @@ def test_calc_coulomb_with_run_kernel_matches_source_only_plan_and_restores_it(
     out = tmp_path / "run_coulomb_kernel"
     out.mkdir()
     _write_three_mesh_fixture(out)
-    result = load_fortran_result(out)
+    result = load_run(out)
     kernel = _UnitPanelKernel(
-        result.triangles, result.charges, options=FieldKernelOptions()
+        result.mesh.triangles, result.charges, options=FieldKernelOptions()
     )
 
     expected = calc_coulomb(result, 1, [2, 3], step=1)
@@ -391,18 +395,20 @@ def test_calc_coulomb_with_run_kernel_matches_source_only_plan_and_restores_it(
 def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_incompatible() -> (
     None
 ):
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        mesh_potential_v=np.array([2.0]),
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(mesh_potential_v=np.array([2.0])),
     )
 
     with pytest.raises(ValueError, match="mesh_triangles.csv"):
@@ -418,32 +424,36 @@ def test_compute_potential_mesh_is_linear_in_panel_charges(tmp_path: Path) -> No
         ]
     )
     charges = np.array([2.0e-9, -1.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
-    scaled_result = FortranRunResult(
+    scaled_result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=-0.25 * charges,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     potential = compute_potential_mesh(result)
@@ -466,18 +476,20 @@ def test_compute_potential_mesh_rejects_removed_keywords(
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(TypeError, match=removed_keyword):
@@ -492,18 +504,20 @@ def test_compute_potential_mesh_includes_finite_panel_self_term(
 ) -> None:
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [3.0, 0.0, 0.0], [0.0, 3.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     potential = compute_potential_mesh(result)
@@ -524,18 +538,20 @@ def test_compute_potential_mesh_uses_panel_centroids_as_targets(
         ]
     )
     charges = np.array([2.0e-9, -1.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     mesh_potential = compute_potential_mesh(result)
@@ -555,18 +571,20 @@ def test_compute_potential_mesh_supports_reference_point_difference(
         ]
     )
     charges = np.array([2.0e-9, -1.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     reference = np.array([0.0, 0.0, 6.0])
@@ -623,7 +641,7 @@ def test_compute_potential_mesh_reads_panel_solver_options_from_config(
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
 
     class _ThetaProbeKernel(_UnitPanelKernel):
         def __init__(
@@ -688,7 +706,7 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
     absolute = compute_potential_mesh(result)
     phi = compute_potential_mesh(
         result,
@@ -703,18 +721,20 @@ def test_compute_potential_mesh_supports_species1_injection_reference_from_confi
 
 
 def test_compute_potential_mesh_requires_triangles() -> None:
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=None,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=None),
     )
 
     with pytest.raises(ValueError, match="mesh_triangles.csv"):
@@ -724,18 +744,20 @@ def test_compute_potential_mesh_requires_triangles() -> None:
 def test_compute_potential_mesh_rejects_degenerate_panel(tmp_path: Path) -> None:
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(ValueError, match="non-degenerate"):
@@ -748,18 +770,20 @@ def test_compute_potential_points_returns_finite_panel_potential(
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charge,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
     points = np.array([[0.0, 0.0, 2.0], [0.0, 0.0, 4.0]])
 
@@ -775,18 +799,20 @@ def test_compute_potential_points_supports_periodic2_image_sum(
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charge,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
     points = np.array([[0.0, 0.0, 2.0]])
     periodic2 = {
@@ -810,18 +836,20 @@ def test_compute_potential_mesh_supports_periodic2_image_sum(
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charge,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
     periodic2 = {
         "axes": (0, 1),
@@ -895,7 +923,7 @@ def test_compute_potential_points_normalizes_periodic2_config_far_correction(
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
     points = np.array([[0.0, 0.0, 0.5]])
     potential = compute_potential_points(result, points)
     explicit = compute_potential_points(
@@ -1015,7 +1043,7 @@ def test_compute_potential_points_wraps_periodic2_points_to_fundamental_cell(
         encoding="utf-8",
     )
 
-    result = load_fortran_result(out)
+    result = load_run(out)
     points = np.array(
         [
             [0.25, 0.25, 1.0],
@@ -1054,19 +1082,21 @@ def test_compute_potential_points_normalizes_auto_far_correction_to_none(
     tmp_path: Path,
 ) -> None:
     _write_complete_free_field_config(tmp_path)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([2.0e-9]),
-        triangles=np.array(
-            [[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]]
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
         ),
     )
     points = np.array([[0.0, 0.0, 2.0]])
@@ -1110,19 +1140,21 @@ def test_compute_potential_points_rejects_removed_periodic2_far_correction(
     match: str,
 ) -> None:
     _write_complete_free_field_config(tmp_path)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([2.0e-9]),
-        triangles=np.array(
-            [[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]]
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
         ),
     )
 
@@ -1160,18 +1192,20 @@ def test_potential_history_supports_reference_point_difference() -> None:
 
 def test_compute_potential_points_validates_shape_and_chunk_size() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(ValueError, match="shape"):
@@ -1190,18 +1224,20 @@ def test_compute_potential_slices_returns_xy_yz_xz_grids(tmp_path: Path) -> None
     _write_complete_free_field_config(tmp_path)
     triangles = np.array([[[-1.0, -1.0, 0.0], [1.0, -1.0, 0.0], [0.0, 2.0, 0.0]]])
     charge = np.array([2.0e-9])
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charge,
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     slices = compute_potential_slices(
@@ -1235,18 +1271,20 @@ def test_compute_potential_slices_returns_xy_yz_xz_grids(tmp_path: Path) -> None
 
 def test_compute_potential_slices_rejects_invalid_grid_or_coordinate() -> None:
     triangles = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
-    result = FortranRunResult(
+    result = RunResult(
         directory=Path("dummy"),
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
     )
 
     with pytest.raises(ValueError, match="grid_n"):
@@ -1380,3 +1418,29 @@ def test_analyze_coulomb_mobility_computes_lift_and_slide_ratios(
     assert record.lift_ratio == pytest.approx(expected_force / expected_weight)
     assert record.slide_ratio == pytest.approx(0.0, abs=1.0e-12)
     assert record.notes == ()
+
+
+def test_compute_potential_mesh_accepts_a_single_use_reference(tmp_path: Path) -> None:
+    _write_complete_free_field_config(tmp_path)
+    result = RunResult(
+        directory=tmp_path,
+        summary=RunSummary(
+            mesh_nelem=1, processed_particles=0, absorbed=0, escaped=0, batches=0
+        ),
+        charges=np.array([2.0e-9]),
+        mesh=RunMesh(
+            triangles=np.array([[[0, 0, 0], [1, 0, 0], [0, 1, 0]]], dtype=float)
+        ),
+    )
+    reference = [0.0, 0.0, 2.0]
+    expected = compute_potential_mesh(result, reference_point=reference)
+    actual = compute_potential_mesh(result, reference_point=(value for value in reference))
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_saved_potential_plot_rejects_an_explicit_reference_without_a_config(tmp_path: Path) -> None:
+    from beach import plot_potential_mesh
+
+    _write_minimal_result_fixture(tmp_path, mesh_potential_text="elem_idx,potential_V\n1,1.0\n2,2.0\n")
+    with pytest.raises(ValueError, match='source="saved" cannot be combined'):
+        plot_potential_mesh(load_run(tmp_path), source="saved", reference_point="species1_injection_center")

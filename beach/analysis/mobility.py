@@ -11,7 +11,7 @@ import numpy as np
 from beach.io.types import (
     CoulombMobilityAnalysis,
     CoulombMobilityRecord,
-    FortranRunResult,
+    RunResult,
 )
 
 from ._selection import _build_mesh_selection
@@ -24,7 +24,7 @@ from .periodic import auto_periodic2_from_result
 
 
 def analyze_coulomb_mobility(
-    result: FortranRunResult | object,
+    result: RunResult | object,
     *,
     step: int | None = -1,
     config_path: str | Path | None = None,
@@ -42,8 +42,8 @@ def analyze_coulomb_mobility(
 
     Parameters
     ----------
-    result : FortranRunResult or Beach-like object
-        Run result or object exposing ``result`` as ``FortranRunResult``.
+    result : RunResult or Beach-like object
+        Run result or object exposing ``result`` as ``RunResult``.
     step : int or None, default -1
         History batch step used for charge snapshot.
         ``None`` uses final charges from ``charges.csv``.
