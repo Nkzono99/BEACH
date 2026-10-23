@@ -51,7 +51,7 @@ def _write_inspect_fixture(
 
 
 def _fail_if_potential_is_computed(*_args: object, **_kwargs: object) -> np.ndarray:
-    raise AssertionError("ordinary inspect must not call Beach.compute_potential")
+    raise AssertionError("ordinary inspect must not recompute the potential")
 
 
 def test_inspect_without_precomputed_potential_does_not_compute(
@@ -62,8 +62,8 @@ def test_inspect_without_precomputed_potential_does_not_compute(
     output_dir = tmp_path / "run_no_potential"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        Beach,
-        "compute_potential",
+        inspect_cli,
+        "compute_potential_mesh",
         _fail_if_potential_is_computed,
     )
 
@@ -90,8 +90,8 @@ def test_inspect_reports_precomputed_potential_without_compute(
         potential_values=(1.5, -2.5),
     )
     monkeypatch.setattr(
-        Beach,
-        "compute_potential",
+        inspect_cli,
+        "compute_potential_mesh",
         _fail_if_potential_is_computed,
     )
 
@@ -117,11 +117,12 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     )
     calls: list[dict[str, object]] = []
 
-    def fake_compute(_self: object, **kwargs: object) -> np.ndarray:
+    def fake_compute(result: object, **kwargs: object) -> np.ndarray:
+        assert result.mesh_potential_v is None
         calls.append(kwargs)
         return np.array([7.0, -8.0])
 
-    monkeypatch.setattr(Beach, "compute_potential", fake_compute)
+    monkeypatch.setattr(inspect_cli, "compute_potential_mesh", fake_compute)
 
     inspect_cli.main(
         [
@@ -133,12 +134,7 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     )
 
     output = capsys.readouterr().out
-    assert calls == [
-        {
-            "reference_point": "species1_injection_center",
-            "library_path": library_path,
-        }
-    ]
+    assert calls == [{"library_path": library_path}]
     assert "potential_min=-8.000000e+00" in output
     assert "potential_max=7.000000e+00" in output
     assert "potential_min=1.000000e+02" not in output
@@ -154,8 +150,8 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
     save_path = tmp_path / "potential.png"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
-        Beach,
-        "compute_potential",
+        inspect_cli,
+        "compute_potential_mesh",
         _fail_if_potential_is_computed,
     )
     plot_calls: list[dict[str, object]] = []

@@ -5,6 +5,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `reference_point` の既定を、電位の計算と描画で共通の `None`（絶対電位）にした。
+  `plot_potential_mesh`、`plot_potential_slices`、`animate_history_mesh(quantity="potential")` と `Beach.plot_potential`、
+  `Beach.plot_potential_slices`、`Beach.animate_mesh` は、これまで species 1 の注入面中心を基準にした電位差を既定で描いていた。
+  `compute_potential_*` は以前から `None` が既定なので、同じ引数で計算と描画の値が一致する。`mesh_potential.csv` があれば
+  potential mesh の描画は kernel を使わずに保存値を使う。従来の図は `reference_point="species1_injection_center"` で得られる。
+  `beachx inspect` の potential plot と `--recompute-potential` の要約、`beachx slices`、`beachx animate --quantity potential`
+  も絶対電位になる。
+
 ### Fixed
 
 - `animate_history_mesh` と `Beach.animate_mesh`（`beachx animate`）は `view_elev` / `view_azim` を省略すると matplotlib の

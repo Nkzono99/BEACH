@@ -162,6 +162,11 @@ trusted in-memory経路として動作します。
 
 ## 4. 電位再構成
 
+`reference_point` の既定は、計算（`compute_potential_mesh` / `compute_potential_points` / `compute_potential_slices`）と
+描画（`plot_potential_mesh` / `plot_potential_slices` / `animate_history_mesh`、`Beach` の同名メソッド）で共通の
+`None`（絶対電位）です。species 1 の注入面中心を基準にした電位差は `reference_point="species1_injection_center"`
+で明示します。
+
 ### 4.1 `compute_potential_mesh(result, *, periodic2, reference_point, config_path, library_path)`
 
 native field kernelのP0 triangle panel評価で、三角形重心の電位を計算します。Fortran が
@@ -685,7 +690,8 @@ refinement を使います。これらは cache 生成を伴う opt-in 検証で
 
 ```python
 fig, ax = b.plot_mesh(cmap="coolwarm")                        # 電荷密度
-fig, ax = b.plot_potential(reference_point="species1_injection_center")  # 電位
+fig, ax = b.plot_potential()                                   # 絶対電位
+fig, ax = b.plot_potential(reference_point="species1_injection_center")  # species 1 注入面中心との電位差
 ```
 
 ### 11.2 電位断面
@@ -734,10 +740,11 @@ v1.0.0 以降は `beachx` 統一 CLI を推奨します。
 破損、非有限値、要素数の不一致がある`mesh_potential.csv`は、入力errorとして扱います。
 
 `--recompute-potential`を指定すると、`mesh_potential.csv`の有無にかかわらず、
-`Beach.compute_potential`で電位を再計算して要約に使います。この計算はmesh規模によって$O(N^2)$になり得ます。
+native field kernelで絶対電位を再計算して要約に使います。この計算はmesh規模によって$O(N^2)$になり得ます。
 
-`--save-potential-mesh`と`--show`もpotential plotを明示的に要求するため、`--recompute-potential`なしでも電位を計算する場合があります。
-`--recompute-potential`とpotential plotを同時に指定すると、要約用とplot用の計算が別々に実行され、電位評価が重複する場合があります。
+`--save-potential-mesh`と`--show`のpotential plotは絶対電位を描きます。`mesh_potential.csv`があればその値を使い、
+なければ`--recompute-potential`なしでも電位を計算します。`mesh_potential.csv`がない出力で`--recompute-potential`と
+potential plotを同時に指定すると、要約用とplot用の計算が別々に実行され、電位評価が重複します。
 
 ### 12.2 旧 CLI（非推奨）
 

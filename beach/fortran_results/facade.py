@@ -544,7 +544,7 @@ class Beach:
         apply_periodic2_mesh: bool = False,
         periodic2_mesh_mode: str = "centroid",
         periodic2_repeat: int = 0,
-        reference_point: Iterable[float] | str | None = "species1_injection_center",
+        reference_point: Iterable[float] | str | None = None,
         axis_unit: str = "m",
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
@@ -570,8 +570,8 @@ class Beach:
             周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示する。
         periodic2_repeat : int, default 0
             周期イメージの複製数。``0`` は複製なし。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-            基準電位を差し引く参照点。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。``None`` は絶対電位。
         axis_unit : {"m", "um", "nm"}, default "m"
             Coordinate unit used for 3D axes.
 
@@ -610,7 +610,7 @@ class Beach:
         vmin: float | None = None,
         vmax: float | None = None,
         periodic2: Mapping[str, object] | None = None,
-        reference_point: Iterable[float] | str | None = "species1_injection_center",
+        reference_point: Iterable[float] | str | None = None,
         axis_unit: str = "m",
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
@@ -643,8 +643,8 @@ class Beach:
             Two-axis periodic setting. See
             :func:`beach.fortran_results.compute_potential_points`.
             ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-            基準電位を差し引く参照点。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。``None`` は絶対電位。
         axis_unit : {"m", "um", "nm"}, default "m"
             Coordinate unit used for slice axes.
 
@@ -772,7 +772,7 @@ class Beach:
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
         periodic2_repeat: int = 0,
-        reference_point: Iterable[float] | str | None = "species1_injection_center",
+        reference_point: Iterable[float] | str | None = None,
         view_elev: float | None = None,
         view_azim: float | None = None,
         library_path: str | Path | None = None,
@@ -801,8 +801,8 @@ class Beach:
             適用して描画する。
         periodic2_repeat : int, default 0
             周期イメージの複製数。``0`` は複製なし。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-            基準電位を差し引く参照点。
+        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+            基準電位を差し引く参照点。``None`` は絶対電位。
         view_elev : float or None, default None
             3D view elevation angle in degrees.
         view_azim : float or None, default None

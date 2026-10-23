@@ -208,7 +208,7 @@ def plot_potential_slices(
     vmin: float | None = None,
     vmax: float | None = None,
     periodic2: Mapping[str, object] | None = None,
-    reference_point: Iterable[float] | str | None = "species1_injection_center",
+    reference_point: Iterable[float] | str | None = None,
     axis_unit: str = "m",
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
@@ -242,8 +242,9 @@ def plot_potential_slices(
     periodic2 : mapping or None, default None
         Two-axis periodic setting. See
         :func:`beach.fortran_results.compute_potential_points`.
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。``None`` は絶対電位、``"species1_injection_center"``
+        は species1 の注入面中心を基準にした電位差を描く。
     axis_unit : {"m", "um", "nm"}, default "m"
         Coordinate unit used for slice axes.
 
@@ -330,7 +331,7 @@ def plot_potential_mesh(
     apply_periodic2_mesh: bool = False,
     periodic2_mesh_mode: str = "centroid",
     periodic2_repeat: int = 0,
-    reference_point: Iterable[float] | str | None = "species1_injection_center",
+    reference_point: Iterable[float] | str | None = None,
     axis_unit: str = "m",
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
@@ -359,8 +360,9 @@ def plot_potential_mesh(
     periodic2_repeat : int, default 0
         周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
         までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。``None`` は絶対電位、``"species1_injection_center"``
+        は species1 の注入面中心を基準にした電位差を描く。
     axis_unit : {"m", "um", "nm"}, default "m"
         Coordinate unit used for 3D axes.
 

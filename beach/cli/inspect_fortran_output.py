@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 from typing import Sequence
 
-from beach import Beach, list_fortran_runs
+from beach import Beach, compute_potential_mesh, list_fortran_runs
 from beach.fortran_results._defaults import (
     DEFAULT_MESH_VIEW_AZIM,
     DEFAULT_MESH_VIEW_ELEV,
@@ -44,8 +45,8 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         "--recompute-potential",
         action="store_true",
         help=(
-            "recompute potential plots and potential min/max through "
-            "Beach.compute_potential instead of using only mesh_potential.csv; "
+            "recompute the absolute potential for potential min/max with the "
+            "native field kernel instead of reading mesh_potential.csv; "
             "may be expensive"
         ),
     )
@@ -129,8 +130,6 @@ def run(args: argparse.Namespace) -> None:
     if args.periodic2_repeat < 0:
         parser.error("--periodic2-repeat must be >= 0.")
 
-    reference_point = "species1_injection_center"
-
     beach = Beach(args.output_dir)
     try:
         result = beach.result
@@ -173,8 +172,9 @@ def run(args: argparse.Namespace) -> None:
             )
     potential = None
     if args.recompute_potential:
-        potential = beach.compute_potential(
-            reference_point=reference_point,
+        # Without saved values compute_potential_mesh evaluates the kernel.
+        potential = compute_potential_mesh(
+            replace(result, mesh_potential_v=None),
             library_path=args.library,
         )
     elif result.mesh_potential_v is not None:
@@ -222,7 +222,6 @@ def run(args: argparse.Namespace) -> None:
         if need_potential_mesh_plot:
             if result.triangles is not None:
                 potential_mesh_fig, _ = beach.plot_potential(
-                    reference_point=reference_point,
                     view_elev=args.view_elev,
                     view_azim=args.view_azim,
                     apply_periodic2_mesh=args.apply_periodic2_mesh,

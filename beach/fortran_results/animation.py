@@ -54,7 +54,7 @@ def animate_history_mesh(
     periodic2: Mapping[str, object] | None = None,
     apply_periodic2_mesh: bool = False,
     periodic2_repeat: int = 0,
-    reference_point: Iterable[float] | str | None = "species1_injection_center",
+    reference_point: Iterable[float] | str | None = None,
     view_elev: float | None = None,
     view_azim: float | None = None,
     library_path: str | Path | None = None,
@@ -86,8 +86,9 @@ def animate_history_mesh(
     periodic2_repeat : int, default 0
         周期イメージの複製数。``n`` を指定すると各周期軸方向に ``-n`` から ``+n``
         までの ``(2n+1)^2`` コピーを生成して描画する。``0`` は複製なし。
-    reference_point : iterable of float, {"species1_injection_center"}, or None, default "species1_injection_center"
-        基準電位を差し引く参照点。既定では species1 の注入面中心を使う。
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        基準電位を差し引く参照点。``None`` は絶対電位、``"species1_injection_center"``
+        は species1 の注入面中心を基準にした電位差を描く。
     view_elev : float or None, default None
         3D view elevation angle in degrees. ``None`` uses the default (24.0).
     view_azim : float or None, default None

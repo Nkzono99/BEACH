@@ -90,12 +90,13 @@ bar_fig.savefig("outputs/tutorial/python_charges_bar.png", dpi=150)
 charge_fig, _ = run.plot_mesh()
 charge_fig.savefig("outputs/tutorial/python_charge.png", dpi=150)
 
-potential_fig, _ = run.plot_potential(reference_point=None)
+potential_fig, _ = run.plot_potential()
 potential_fig.savefig("outputs/tutorial/python_potential.png", dpi=150)
 ```
 
-`reference_point=None` は `mesh_potential.csv` に保存された最終絶対電位を明示的に選ぶため、このケースでは
-native field kernel は不要です。保存値と異なる基準で再評価する場合は、次節の kernel が必要です。
+`plot_potential()` の既定 `reference_point=None` は `mesh_potential.csv` に保存された最終絶対電位を使うため、
+このケースでは native field kernel は不要です。`reference_point="species1_injection_center"` のように保存値と
+異なる基準で再評価する場合は、次節の kernel が必要です。
 
 ### 特定の mesh と batch を選ぶ
 
