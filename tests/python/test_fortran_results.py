@@ -3488,6 +3488,38 @@ def test_animate_history_mesh_writes_gif(tmp_path: Path, quantity: str) -> None:
     assert out.stat().st_size > 0
 
 
+def test_animate_history_mesh_omitted_view_uses_mesh_plot_defaults(
+    tmp_path: Path,
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    pytest.importorskip("PIL")
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    result = FortranRunResult(
+        directory=Path("dummy"),
+        mesh_nelem=1,
+        processed_particles=0,
+        absorbed=0,
+        escaped=0,
+        batches=0,
+        escaped_boundary=0,
+        survived_max_step=0,
+        last_rel_change=0.0,
+        charges=np.array([2.0e-10]),
+        triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]),
+        history=_make_history(mesh_nelem=1, history=np.array([[1.0e-10, 2.0e-10]])),
+    )
+    _, mesh_ax = plot_charge_mesh(result)
+
+    animation = animate_history_mesh(result)
+    anim_ax = plt.gcf().axes[0]
+
+    assert (anim_ax.elev, anim_ax.azim) == (mesh_ax.elev, mesh_ax.azim)
+    animation.save(tmp_path / "view.gif", writer="pillow")
+    plt.close("all")
+
+
 def test_load_fortran_result_secondary_emission_and_combined_matching_source(tmp_path: Path) -> None:
     out = tmp_path / "secondary"
     out.mkdir()

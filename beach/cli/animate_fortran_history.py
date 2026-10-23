@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach
+from beach.fortran_results._defaults import (
+    DEFAULT_CHARGE_CMAP,
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+    DEFAULT_POTENTIAL_CMAP,
+)
 
 from ._shared import (
     configure_entry_parser,
@@ -48,7 +54,10 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--cmap",
         default=None,
-        help="matplotlib colormap name (defaults: charge=coolwarm, potential=viridis)",
+        help=(
+            "matplotlib colormap name (defaults: "
+            f"charge={DEFAULT_CHARGE_CMAP}, potential={DEFAULT_POTENTIAL_CMAP})"
+        ),
     )
     parser.add_argument(
         "--library",
@@ -77,13 +86,13 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         "--view-elev",
         type=float,
         default=None,
-        help="3D view elevation angle in degrees (default: 24.0)",
+        help=f"3D view elevation angle in degrees (default: {DEFAULT_MESH_VIEW_ELEV})",
     )
     parser.add_argument(
         "--view-azim",
         type=float,
         default=None,
-        help="3D view azimuth angle in degrees (default: -58.0)",
+        help=f"3D view azimuth angle in degrees (default: {DEFAULT_MESH_VIEW_AZIM})",
     )
 
 

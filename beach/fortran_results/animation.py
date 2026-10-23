@@ -7,6 +7,12 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
+from ._defaults import (
+    DEFAULT_CHARGE_CMAP,
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+    DEFAULT_POTENTIAL_CMAP,
+)
 from .context import RunContext
 from .kernel import (
     _options_from_result,
@@ -138,7 +144,7 @@ def animate_history_mesh(
         values_history = _surface_charge_density_history(charges_sampled, triangles)
         colorbar_label = "surface charge density [C/m^2]"
         title_prefix = "Surface charge density history"
-        use_cmap = "coolwarm" if cmap is None else cmap
+        use_cmap = DEFAULT_CHARGE_CMAP if cmap is None else cmap
     elif quantity_key == "potential":
         _require_triangle_source_model(resolved)
         periodic_cfg = _coerce_periodic2(
@@ -183,7 +189,7 @@ def animate_history_mesh(
         )
         colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
         title_prefix = "Electric potential history" if resolved_reference is None else "Electric potential difference history"
-        use_cmap = "viridis" if cmap is None else cmap
+        use_cmap = DEFAULT_POTENTIAL_CMAP if cmap is None else cmap
     else:
         raise ValueError("quantity must be one of {'charge', 'potential'}.")
 
@@ -212,7 +218,12 @@ def animate_history_mesh(
         alpha=0.88,
     )
     ax.add_collection3d(mesh)
-    _configure_mesh_axes(ax, plot_triangles, view_elev=view_elev, view_azim=view_azim)
+    _configure_mesh_axes(
+        ax,
+        plot_triangles,
+        view_elev=DEFAULT_MESH_VIEW_ELEV if view_elev is None else view_elev,
+        view_azim=DEFAULT_MESH_VIEW_AZIM if view_azim is None else view_azim,
+    )
 
     def _title_for_frame(frame_idx: int) -> str:
         col = int(frame_cols[frame_idx])

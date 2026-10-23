@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- `animate_history_mesh` と `Beach.animate_mesh`（`beachx animate`）は `view_elev` / `view_azim` を省略すると matplotlib の
+  既定（仰角 30°、方位角 -60°）で描いていた。docstring と CLI help のとおり、他の mesh 描画と同じ 24° / -58° を使う。
+  描画の既定の view 角度と colormap は `beach/fortran_results/_defaults.py` の定数だけが持ち、関数・`Beach`・CLI の
+  既定値と help はそこから取る。
+
 ## [3.8.0] - 2026-10-23
 
 ### Changed

@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach, list_fortran_runs
+from beach.fortran_results._defaults import (
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+)
 
 from ._shared import (
     configure_entry_parser,
@@ -54,14 +58,14 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--view-elev",
         type=float,
-        default=24.0,
-        help="elevation angle [deg] for 3D mesh plots",
+        default=DEFAULT_MESH_VIEW_ELEV,
+        help="elevation angle [deg] for 3D mesh plots (default: %(default)s)",
     )
     parser.add_argument(
         "--view-azim",
         type=float,
-        default=-58.0,
-        help="azimuth angle [deg] for 3D mesh plots",
+        default=DEFAULT_MESH_VIEW_AZIM,
+        help="azimuth angle [deg] for 3D mesh plots (default: %(default)s)",
     )
     parser.add_argument(
         "--apply-periodic2-mesh",

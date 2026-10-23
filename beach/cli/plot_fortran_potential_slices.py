@@ -8,6 +8,7 @@ from typing import Sequence
 
 from beach import Beach
 from beach.config import ConfigError, load_config_file
+from beach.fortran_results._defaults import DEFAULT_POTENTIAL_CMAP
 from beach.fortran_results.potential import _periodic2_from_sim
 
 from ._shared import (
@@ -65,7 +66,7 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--cmap",
-        default="viridis",
+        default=DEFAULT_POTENTIAL_CMAP,
         help="matplotlib colormap name",
     )
     parser.add_argument(

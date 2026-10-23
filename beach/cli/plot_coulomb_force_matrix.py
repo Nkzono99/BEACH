@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence
 
 from beach import Beach
+from beach.fortran_results._defaults import DEFAULT_FORCE_CMAP
 
 from ._shared import configure_entry_parser
 
@@ -47,7 +48,7 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--cmap",
-        default="coolwarm",
+        default=DEFAULT_FORCE_CMAP,
         help="matplotlib colormap name",
     )
     parser.add_argument(

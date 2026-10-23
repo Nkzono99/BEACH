@@ -7,6 +7,14 @@ from typing import Iterable, Literal, Mapping, TYPE_CHECKING
 
 import numpy as np
 
+from ._defaults import (
+    DEFAULT_CHARGE_CMAP,
+    DEFAULT_FIELD_LINE_CMAP,
+    DEFAULT_FORCE_CMAP,
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+    DEFAULT_POTENTIAL_CMAP,
+)
 from .animation import animate_history_mesh
 from .coulomb import calc_coulomb
 from .field_lines import (
@@ -330,9 +338,9 @@ class Beach:
     def plot_mesh(
         self,
         *,
-        cmap: str = "coolwarm",
-        view_elev: float = 24.0,
-        view_azim: float = -58.0,
+        cmap: str = DEFAULT_CHARGE_CMAP,
+        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
         periodic2_mesh_mode: str = "centroid",
@@ -529,9 +537,9 @@ class Beach:
     def plot_potential(
         self,
         *,
-        cmap: str = "viridis",
-        view_elev: float = 24.0,
-        view_azim: float = -58.0,
+        cmap: str = DEFAULT_POTENTIAL_CMAP,
+        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
         periodic2: Mapping[str, object] | None = None,
         apply_periodic2_mesh: bool = False,
         periodic2_mesh_mode: str = "centroid",
@@ -598,7 +606,7 @@ class Beach:
         yz_x: float | None = None,
         xz_y: float | None = None,
         chunk_size: int = 2048,
-        cmap: str = "viridis",
+        cmap: str = DEFAULT_POTENTIAL_CMAP,
         vmin: float | None = None,
         vmax: float | None = None,
         periodic2: Mapping[str, object] | None = None,
@@ -709,7 +717,7 @@ class Beach:
         target_kinds: Iterable[str] | None = None,
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
-        cmap: str = "coolwarm",
+        cmap: str = DEFAULT_FORCE_CMAP,
         annotate: bool = True,
         workers: int = 1,
     ):
@@ -919,12 +927,12 @@ class Beach:
         box_max: Iterable[float] | None = None,
         show_mesh: bool = True,
         mesh_alpha: float = 0.25,
-        mesh_cmap: str = "coolwarm",
+        mesh_cmap: str = DEFAULT_CHARGE_CMAP,
         line_color: str | None = None,
-        line_cmap: str = "plasma",
+        line_cmap: str = DEFAULT_FIELD_LINE_CMAP,
         line_width: float = 1.2,
-        view_elev: float = 24.0,
-        view_azim: float = -58.0,
+        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
         title: str = "Electric field lines",
         figsize: tuple[float, float] = (9, 7),
         config_path: str | Path | None = None,

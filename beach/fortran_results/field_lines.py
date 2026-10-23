@@ -9,6 +9,12 @@ import numpy as np
 
 from ._numeric import _points
 
+from ._defaults import (
+    DEFAULT_CHARGE_CMAP,
+    DEFAULT_FIELD_LINE_CMAP,
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+)
 from .context import RunContext
 from .kernel import (
     FieldKernel,
@@ -229,12 +235,12 @@ def plot_field_lines_3d(
     box_max: Iterable[float] | None = None,
     show_mesh: bool = True,
     mesh_alpha: float = 0.25,
-    mesh_cmap: str = "coolwarm",
+    mesh_cmap: str = DEFAULT_CHARGE_CMAP,
     line_color: str | None = None,
-    line_cmap: str = "plasma",
+    line_cmap: str = DEFAULT_FIELD_LINE_CMAP,
     line_width: float = 1.2,
-    view_elev: float = 24.0,
-    view_azim: float = -58.0,
+    view_elev: float = DEFAULT_MESH_VIEW_ELEV,
+    view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     title: str = "Electric field lines",
     figsize: tuple[float, float] = (9, 7),
     config_path: str | Path | None = None,

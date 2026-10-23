@@ -10,11 +10,16 @@ from typing import Iterable, Mapping
 
 import numpy as np
 
+from ._defaults import (
+    DEFAULT_CHARGE_CMAP,
+    DEFAULT_FORCE_CMAP,
+    DEFAULT_MESH_VIEW_AZIM,
+    DEFAULT_MESH_VIEW_ELEV,
+    DEFAULT_POTENTIAL_CMAP,
+)
 from .context import RunContext
 from .coulomb import calc_coulomb
 from .mesh import (
-    DEFAULT_MESH_VIEW_AZIM,
-    DEFAULT_MESH_VIEW_ELEV,
     _maybe_apply_periodic2_mesh,
     _maybe_replicate_periodic2,
     _plot_scalar_mesh,
@@ -110,7 +115,7 @@ def plot_charges(result: FortranRunResult | object):
 def plot_charge_mesh(
     result: FortranRunResult | object,
     *,
-    cmap: str = "coolwarm",
+    cmap: str = DEFAULT_CHARGE_CMAP,
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
@@ -199,7 +204,7 @@ def plot_potential_slices(
     yz_x: float | None = None,
     xz_y: float | None = None,
     chunk_size: int = 2048,
-    cmap: str = "viridis",
+    cmap: str = DEFAULT_POTENTIAL_CMAP,
     vmin: float | None = None,
     vmax: float | None = None,
     periodic2: Mapping[str, object] | None = None,
@@ -318,7 +323,7 @@ def plot_potential_slices(
 def plot_potential_mesh(
     result: FortranRunResult | object,
     *,
-    cmap: str = "viridis",
+    cmap: str = DEFAULT_POTENTIAL_CMAP,
     view_elev: float = DEFAULT_MESH_VIEW_ELEV,
     view_azim: float = DEFAULT_MESH_VIEW_AZIM,
     periodic2: Mapping[str, object] | None = None,
@@ -423,7 +428,7 @@ def plot_coulomb_force_matrix(
     target_kinds: Iterable[str] | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
-    cmap: str = "coolwarm",
+    cmap: str = DEFAULT_FORCE_CMAP,
     annotate: bool = True,
     workers: int = 1,
 ):

@@ -6,13 +6,11 @@ from typing import TYPE_CHECKING, Mapping
 
 import numpy as np
 
+from ._defaults import DEFAULT_MESH_VIEW_AZIM, DEFAULT_MESH_VIEW_ELEV
 from .context import RunContext
 
 if TYPE_CHECKING:
     from .types import FortranRunResult
-
-DEFAULT_MESH_VIEW_ELEV = 24.0
-DEFAULT_MESH_VIEW_AZIM = -58.0
 
 
 def _surface_charge_density(charges: np.ndarray, triangles: np.ndarray) -> np.ndarray:
