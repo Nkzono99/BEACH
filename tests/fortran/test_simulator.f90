@@ -177,19 +177,19 @@ program test_simulator
   call assert_equal_i64(stats%survived_max_step, 0_i64, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_equal_i64( &
-    stats%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    stats%adaptive_nonzero_mode%rejected_trials, 0_i64, &
     'non-adaptive run must not record rejected adaptive trials' &
     )
   call assert_equal_i32( &
-    stats%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    stats%adaptive_nonzero_mode%omp_threads, 0_i32, &
     'non-adaptive run must not record an adaptive OpenMP team size' &
     )
   call assert_close_dp( &
-    stats%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    stats%adaptive_nonzero_mode%last_batch_duration, 0.0_dp, 0.0_dp, &
     'non-adaptive run must not record an adaptive batch duration' &
     )
   call assert_close_dp( &
-    stats%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    stats%adaptive_nonzero_mode%last_potential_step, 0.0_dp, 0.0_dp, &
     'non-adaptive run must not record an adaptive potential step' &
     )
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
@@ -305,10 +305,10 @@ program test_simulator
   stats_seed%batches = 7_i32
   stats_seed%last_rel_change = 1.0d-3
   ! schema v7以前のnon-adaptive出力が誤って保持した値をresume時に除去する。
-  stats_seed%adaptive_nonzero_mode_rejected_trials = 9_i64
-  stats_seed%adaptive_nonzero_mode_last_batch_duration = 0.25_dp
-  stats_seed%adaptive_nonzero_mode_last_potential_step = 3.0_dp
-  stats_seed%adaptive_nonzero_mode_omp_threads = 4_i32
+  stats_seed%adaptive_nonzero_mode%rejected_trials = 9_i64
+  stats_seed%adaptive_nonzero_mode%last_batch_duration = 0.25_dp
+  stats_seed%adaptive_nonzero_mode%last_potential_step = 3.0_dp
+  stats_seed%adaptive_nonzero_mode%omp_threads = 4_i32
   call run_absorption_insulator(mesh_resume, cfg, stats_resume, initial_stats=stats_seed)
 
   call assert_equal_i64(stats_resume%processed_particles, 14_i64, 'resume processed_particles mismatch')
@@ -318,19 +318,19 @@ program test_simulator
   call assert_equal_i64(stats_resume%survived_max_step, 3_i64, 'resume survived_max_step mismatch')
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
   call assert_equal_i64( &
-    stats_resume%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    stats_resume%adaptive_nonzero_mode%rejected_trials, 0_i64, &
     'non-adaptive resume must clear stale adaptive rejected trials' &
     )
   call assert_equal_i32( &
-    stats_resume%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    stats_resume%adaptive_nonzero_mode%omp_threads, 0_i32, &
     'non-adaptive resume must clear stale adaptive OpenMP team size' &
     )
   call assert_close_dp( &
-    stats_resume%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    stats_resume%adaptive_nonzero_mode%last_batch_duration, 0.0_dp, 0.0_dp, &
     'non-adaptive resume must clear stale adaptive batch duration' &
     )
   call assert_close_dp( &
-    stats_resume%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    stats_resume%adaptive_nonzero_mode%last_potential_step, 0.0_dp, 0.0_dp, &
     'non-adaptive resume must clear stale adaptive potential step' &
     )
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')

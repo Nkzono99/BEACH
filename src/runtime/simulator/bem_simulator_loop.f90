@@ -3,6 +3,7 @@ submodule(bem_simulator) bem_simulator_loop
   use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
   use bem_app_config_runtime, only: compute_wall_box_potential_statistics
   use bem_zhao_outflow_refresh, only: zhao_outflow_refresh_type
+  use bem_types, only: adaptive_nonzero_mode_stats
   use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_state_type
   use bem_performance_profile, only: perf_region_batch_total, perf_region_begin, perf_region_commit_charge, &
@@ -146,15 +147,12 @@ contains
       ! Rejected trials within this run still use one fixed team size.  A restart may
       ! use a different team size because checkpoint compatibility is numerical, not
       ! bitwise-replay compatibility with the previous process.
-      if (adaptive_nonzero_mode) stats%adaptive_nonzero_mode_omp_threads = nth
+      if (adaptive_nonzero_mode) stats%adaptive_nonzero_mode%omp_threads = nth
     else
 !$    nth = max(1_i32, int(omp_get_max_threads(), i32))
     end if
     if (.not. adaptive_nonzero_mode) then
-      stats%adaptive_nonzero_mode_rejected_trials = 0_i64
-      stats%adaptive_nonzero_mode_last_batch_duration = 0.0_dp
-      stats%adaptive_nonzero_mode_last_potential_step = 0.0_dp
-      stats%adaptive_nonzero_mode_omp_threads = 0_i32
+      stats%adaptive_nonzero_mode = adaptive_nonzero_mode_stats()
     end if
     call validate_soft_discard_initial_state(app%sim, stats)
     call enforce_soft_discard_limits(app%sim, stats, stats%batches, 0_i64, 0_i64, 0.0_dp, mpi_ctx)
@@ -223,7 +221,7 @@ contains
     call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi_ctx)
     call conductor_solver%init(mesh, app%sim, snapshot)
     call perf_region_end(perf_region_field_solver_init, t0)
-    call outflow_refresh%initialize(app, mesh, stats, surface_closure, cell)
+    call outflow_refresh%initialize(app, mesh, stats%matching_plane, surface_closure, cell)
     call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .true.)
     call record_matching_fields(stats, snapshot, surface_closure, mesh)
 
@@ -472,10 +470,10 @@ contains
       stats_candidate%particle_pool_claim_seconds = stats%particle_pool_claim_seconds + batch_pool_claim_seconds
     end if
     if (adaptive_nonzero_mode) then
-      stats_candidate%adaptive_nonzero_mode_last_batch_duration = trial_batch_duration
-      stats_candidate%adaptive_nonzero_mode_last_potential_step = adaptive_potential_step
-      stats_candidate%adaptive_nonzero_mode_rejected_trials = checked_add_adaptive_rejected_trials( &
-                                                              stats%adaptive_nonzero_mode_rejected_trials, &
+      stats_candidate%adaptive_nonzero_mode%last_batch_duration = trial_batch_duration
+      stats_candidate%adaptive_nonzero_mode%last_potential_step = adaptive_potential_step
+      stats_candidate%adaptive_nonzero_mode%rejected_trials = checked_add_adaptive_rejected_trials( &
+                                                              stats%adaptive_nonzero_mode%rejected_trials, &
                                                               trial_halvings &
                                                               )
     end if
@@ -503,7 +501,7 @@ contains
       trial_app, mesh, mpi_ctx, workspace%matching_plane_moments_thread, &
       workspace%fixed_current_charge_values(:, fixed_charge_emission), &
       workspace%fixed_escape_closed_charge, workspace%fixed_escape_unclosed_charge, &
-      batch_idx, stats_candidate, surface_closure, outflow_refreshed &
+      batch_idx, stats_candidate%matching_plane, surface_closure, outflow_refreshed &
       )
     if (outflow_refreshed) call apply_surface_plane_gauge(cell, mesh, surface_closure, snapshot, mpi_ctx, .false.)
     call record_matching_fields(stats_candidate, snapshot, surface_closure, mesh)
@@ -652,13 +650,13 @@ contains
     type(mesh_type), intent(in) :: mesh
     type(surface_closure_contract_type), intent(in) :: closure
 
-    stats%surface_current_top_field_v_m = closure%top_field_v_m
+    stats%matching_plane%top_field_v_m = closure%top_field_v_m
     if (.not. snapshot%use_zero_mode) return
     call snapshot%refresh_zero_mode(mesh)
-    stats%matching_plane_top_cell_mean_v_m = snapshot%zero_state%e_bottom + &
+    stats%matching_plane%top_cell_mean_v_m = snapshot%zero_state%e_bottom + &
                                              snapshot%zero_state%total_charge/(eps0*snapshot%zero_plan%area_xy)
-    if (stats%matching_plane_state_valid) then
-      stats%matching_plane_displacement_c_m2 = eps0*stats%matching_plane_top_cell_mean_v_m
+    if (stats%matching_plane%state_valid) then
+      stats%matching_plane%displacement_c_m2 = eps0*stats%matching_plane%top_cell_mean_v_m
     end if
   end subroutine record_matching_fields
 
