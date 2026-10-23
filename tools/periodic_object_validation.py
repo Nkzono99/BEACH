@@ -33,16 +33,19 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from beach import (  # noqa: E402
+    RunField,
+    RunMesh,
+    RunSummary,
     AdhesionProfile,
     Beach,
     FieldKernel,
-    FortranRunResult,
-    FortranChargeHistory,
+    RunResult,
+    BatchHistory,
     ObjectInteractionSnapshot,
     finite_shell_convergence,
+    K_COULOMB,
     field_kernel_build_info,
 )
-from beach.fortran_results.constants import K_COULOMB  # noqa: E402
 
 
 JOB_TEMPLATE = REPO_ROOT / "examples/job_scripts/periodic_object_validation_sysa.sh"
@@ -1885,7 +1888,7 @@ def stage_validation(
             resume=resume,
             restart_from=restart_from,
         )
-        from beach.config._layout import to_grouped_layout
+        from beach.config import to_grouped_layout
         _write_toml(config_path, to_grouped_layout(config))
         spec = _case_spec(
             root,
@@ -1980,7 +1983,7 @@ def stage_validation(
 
 
 def _normalize_config(config: Mapping[str, Any]) -> dict[str, Any]:
-    from beach.config._layout import to_grouped_layout, to_runtime_layout
+    from beach.config import to_grouped_layout, to_runtime_layout
     normalized = to_runtime_layout(to_grouped_layout(config))
     normalized.setdefault("output", {}).setdefault("resume", False)
     sim = normalized.setdefault("sim", {})
@@ -2322,7 +2325,7 @@ def verify_inputs(
         if not isinstance(value, dict):
             raise ValidationError(f"case {name} metadata must be an object")
         path = Path(str(value["config_path"]))
-        from beach.config._layout import to_runtime_layout
+        from beach.config import to_runtime_layout
         actual = to_runtime_layout(_load_toml(path))
         restart_value = value.get("restart_from")
         expected = _case_config(
@@ -3283,7 +3286,7 @@ def verify_run(
     if any("fallback" in value.lower() for value in summary.values()):
         raise ValidationError("summary reports a forbidden fallback")
     config_path = Path(str(case["config_path"]))
-    from beach.config._layout import to_runtime_layout
+    from beach.config import to_runtime_layout
     case_config = to_runtime_layout(_load_toml(config_path))
     output_config = case_config.get("output", {})
     if not isinstance(output_config, dict):
@@ -3574,19 +3577,19 @@ def _case_result(
             "case": case,
             "status": "available",
             "source_version": source_version,
-            "batches": result.batches,
-            "mesh_nelem": result.mesh_nelem,
-            "mesh_count": len(set(int(v) for v in result.mesh_ids))
-            if result.mesh_ids is not None
+            "batches": result.summary.batches,
+            "mesh_nelem": result.summary.mesh_nelem,
+            "mesh_count": len(set(int(v) for v in result.mesh.mesh_ids))
+            if result.mesh.mesh_ids is not None
             else "",
-            "processed_particles": result.processed_particles,
-            "absorbed": result.absorbed,
-            "escaped": result.escaped,
-            "escaped_boundary": result.escaped_boundary,
-            "survived_max_step": result.survived_max_step,
-            "last_rel_change": result.last_rel_change,
+            "processed_particles": result.summary.processed_particles,
+            "absorbed": result.summary.absorbed,
+            "escaped": result.summary.escaped,
+            "escaped_boundary": result.summary.escaped_boundary,
+            "survived_max_step": result.summary.survived_max_step,
+            "last_rel_change": result.summary.last_rel_change,
             "total_charge_C": math.fsum(charges),
-            "mesh_fingerprint": result.mesh_fingerprint or "",
+            "mesh_fingerprint": result.receipts.mesh_fingerprint or "",
             "message": "",
         }
         return row, run
@@ -3823,18 +3826,18 @@ def _collect_charge_snapshots(
             {},
         )
     result = run.result
-    mesh_ids = getattr(result, "mesh_ids", None)
+    mesh_ids = result.mesh.mesh_ids
     if mesh_ids is None:
         raise ValidationError(f"snapshot comparison requires mesh_ids for {case}")
     mesh_ids_array = np.asarray(mesh_ids, dtype=np.int64)
-    if mesh_ids_array.shape != (int(result.mesh_nelem),):
+    if mesh_ids_array.shape != (int(result.summary.mesh_nelem),):
         raise ValidationError(f"snapshot mesh_ids shape mismatch for {case}")
     history_snapshots: dict[int, dict[str, Any]] = {}
     source_hashes: dict[Path, str] = {}
     for path in history_paths:
         if not path.is_file():
             continue
-        history = FortranChargeHistory(path, mesh_nelem=int(result.mesh_nelem))
+        history = BatchHistory(path, mesh_nelem=int(result.summary.mesh_nelem))
         batches = np.asarray(history.batch_indices, dtype=np.int64)
         processed = np.asarray(history.processed_particles_by_batch, dtype=np.int64)
         rel_change = np.asarray(history.rel_change_by_batch, dtype=np.float64)
@@ -3862,12 +3865,12 @@ def _collect_charge_snapshots(
             "resolved_batch": batch,
             "is_latest_history": batch == latest_history,
         }
-    final_batch = int(result.batches)
+    final_batch = int(result.summary.batches)
     final_charges = np.asarray(result.charges, dtype=np.float64)
     snapshots[("final", final_batch)] = {
         "charges": final_charges,
-        "processed_particles": int(result.processed_particles),
-        "rel_change": float(result.last_rel_change),
+        "processed_particles": int(result.summary.processed_particles),
+        "rel_change": float(result.summary.last_rel_change),
         "source_file": Path(getattr(result, "directory", ".")) / "charges.csv",
         "sample_kind": "final",
         "resolved_batch": final_batch,
@@ -3906,11 +3909,9 @@ def _collect_charge_snapshots(
                     "resolved_batch": snapshot["resolved_batch"],
                     "run_final_batch": final_batch,
                     "is_latest_history": snapshot["is_latest_history"],
-                    "mesh_fingerprint": getattr(result, "mesh_fingerprint", None) or "",
-                    "field_source_model": getattr(
-                        result, "field_source_model", "unknown"
-                    ),
-                    "field_kernel_id": getattr(result, "field_kernel_id", None) or "",
+                    "mesh_fingerprint": result.receipts.mesh_fingerprint or "",
+                    "field_source_model": result.field.source_model,
+                    "field_kernel_id": result.field.kernel_id or "",
                     "scope": scope,
                     "mesh_id": mesh_id,
                     "processed_particles": snapshot["processed_particles"],
@@ -3932,10 +3933,10 @@ def _collect_charge_snapshots(
 
 
 def _geometry_comparison(left_result: Any, right_result: Any) -> dict[str, Any]:
-    left_mesh_ids_value = getattr(left_result, "mesh_ids", None)
-    right_mesh_ids_value = getattr(right_result, "mesh_ids", None)
-    left_triangles_value = getattr(left_result, "triangles", None)
-    right_triangles_value = getattr(right_result, "triangles", None)
+    left_mesh_ids_value = left_result.mesh.mesh_ids
+    right_mesh_ids_value = right_result.mesh.mesh_ids
+    left_triangles_value = left_result.mesh.triangles
+    right_triangles_value = right_result.mesh.triangles
     if any(
         value is None
         for value in (
@@ -4066,7 +4067,7 @@ def _charge_snapshot_comparisons(
             continue
         left_result = left_run.result
         right_result = right_run.result
-        left_mesh_ids = np.asarray(left_result.mesh_ids, dtype=np.int64)
+        left_mesh_ids = np.asarray(left_result.mesh.mesh_ids, dtype=np.int64)
         geometry = _geometry_comparison(left_result, right_result)
         geometry_matches = geometry["status"] == "match"
         common = sorted(
@@ -6058,8 +6059,8 @@ def _evaluate_object_physics_at_step(
             continue
         result = run.result
         available_ids = (
-            set(int(value) for value in np.asarray(result.mesh_ids).tolist())
-            if result.mesh_ids is not None
+            set(int(value) for value in np.asarray(result.mesh.mesh_ids).tolist())
+            if result.mesh.mesh_ids is not None
             else set()
         )
         missing_ids = sorted(set(target_ids) - available_ids)
@@ -6189,7 +6190,7 @@ def _evaluate_object_physics_at_step(
                                             "final" if step is None else step
                                         ),
                                         resolved_batch=(
-                                            int(result.batches)
+                                            int(result.summary.batches)
                                             if step is None
                                             else step
                                         ),
@@ -6235,7 +6236,7 @@ def _evaluate_object_physics_at_step(
                                             "final" if step is None else step
                                         ),
                                         resolved_batch=(
-                                            int(result.batches)
+                                            int(result.summary.batches)
                                             if step is None
                                             else step
                                         ),
@@ -6576,7 +6577,7 @@ def _evaluate_object_physics_at_step(
                                             "final" if step is None else step
                                         ),
                                         resolved_batch=(
-                                            int(result.batches)
+                                            int(result.summary.batches)
                                             if step is None
                                             else step
                                         ),
@@ -6652,7 +6653,7 @@ def _evaluate_object_physics_at_step(
                     )
     step_selector: int | str = "final" if step is None else step
     batches_by_case = {
-        case: int(getattr(run.result, "batches", 0))
+        case: int(run.result.summary.batches)
         for case, run in runs.items()
         if run is not None
     }
@@ -6711,8 +6712,8 @@ def _evaluate_new_infinite_shell_reference(
         cache_file_hashes = {}
     target_ids = (6, 7)
     available_ids = (
-        set(int(value) for value in np.asarray(result.mesh_ids).tolist())
-        if result.mesh_ids is not None
+        set(int(value) for value in np.asarray(result.mesh.mesh_ids).tolist())
+        if result.mesh.mesh_ids is not None
         else set()
     )
     missing_ids = sorted(set(target_ids) - available_ids)
@@ -6792,7 +6793,7 @@ def _evaluate_new_infinite_shell_reference(
                             zero_mode_policy="exclude_k0",
                             lower_boundary_model="e_bottom_zero",
                             step_selector="final",
-                            resolved_batch=int(result.batches),
+                            resolved_batch=int(result.summary.batches),
                             mesh_id=mesh_id,
                             shell=shell,
                             mechanics=mechanics,
@@ -6863,7 +6864,7 @@ def _evaluate_object_physics(
                 eligible_rows.append(row)
                 eligible_runs[case] = run
                 continue
-            history = getattr(run.result, "history", None)
+            history = run.result.history.charge
             if history is None or not bool(history.has_data):
                 if require_history:
                     failures.append(
@@ -7731,7 +7732,7 @@ def _analyze_validation_impl(
             potential_rows.append({"case": row["case"], "status": row["status"]})
             continue
         result = run.result
-        ledger = result.charge_ledger
+        ledger = result.ledger
         if ledger:
             for entry in ledger:
                 ledger_rows.append(
@@ -7743,7 +7744,7 @@ def _analyze_validation_impl(
                         "injected_count": entry.injected_count,
                         "absorbed_count": entry.absorbed_count,
                         "escaped_count": entry.escaped_count,
-                        "residual_C": result.charge_ledger_residual_c,
+                        "residual_C": result.diagnostics.charge_ledger_residual_c,
                     }
                 )
         else:
@@ -7751,13 +7752,13 @@ def _analyze_validation_impl(
                 {
                     "case": row["case"],
                     "status": "not_recorded",
-                    "residual_C": result.charge_ledger_residual_c or "",
+                    "residual_C": result.diagnostics.charge_ledger_residual_c or "",
                 }
             )
-        if result.mesh_potential_v is None:
+        if result.mesh.mesh_potential_v is None:
             potential_rows.append({"case": row["case"], "status": "not_recorded"})
         else:
-            for index, value in enumerate(result.mesh_potential_v, start=1):
+            for index, value in enumerate(result.mesh.mesh_potential_v, start=1):
                 potential_rows.append(
                     {
                         "case": row["case"],
@@ -8023,31 +8024,34 @@ def _oracle_panel_result(
     charges: np.ndarray,
     *,
     mesh_ids: np.ndarray | None = None,
-) -> FortranRunResult:
-    return FortranRunResult(
+) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=len(charges),
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.asarray(charges, dtype=np.float64),
-        triangles=np.asarray(triangles, dtype=np.float64),
-        mesh_ids=(
-            np.ones(len(charges), dtype=np.int64)
-            if mesh_ids is None
-            else np.asarray(mesh_ids, dtype=np.int64)
+        summary=RunSummary(
+            mesh_nelem=len(charges),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
         ),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        mesh=RunMesh(
+            triangles=np.asarray(triangles, dtype=np.float64),
+            mesh_ids=np.ones(len(charges), dtype=np.int64)
+            if mesh_ids is None
+            else np.asarray(mesh_ids, dtype=np.int64),
+        ),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
 
 def _oracle_panel_config_data() -> dict[str, Any]:
-    from beach.config._layout import to_grouped_layout
+    from beach.config import to_grouped_layout
 
     return to_grouped_layout({
         "sim": {
@@ -8700,7 +8704,7 @@ def _run_periodic_plane_kernel_oracle(
     canonical_cache_identities: dict[str, dict[str, Any]] = {}
     cache_evaluations: list[dict[str, Any]] = []
     observed_effective_field_contract: dict[str, str] | None = None
-    from beach.config._layout import to_runtime_layout
+    from beach.config import to_runtime_layout
     oracle_sim = to_runtime_layout(_load_toml(config_path)).get("sim", {})
     if not isinstance(oracle_sim, Mapping):
         raise ValidationError("periodic plane-oracle sim config is invalid")

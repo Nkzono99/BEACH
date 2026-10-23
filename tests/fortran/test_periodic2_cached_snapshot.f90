@@ -341,12 +341,12 @@ contains
 !$    'adaptive run did not restore the caller OpenMP schedule chunk' &
 !$    )
 
-    call assert_equal_i64(adaptive_stats%adaptive_nonzero_mode_rejected_trials, 1_i64, &
+    call assert_equal_i64(adaptive_stats%adaptive_nonzero_mode%rejected_trials, 1_i64, &
                           'adaptive batch must reject the full-duration trial exactly once')
     call assert_equal_i32(adaptive_stats%batches, 1_i32, &
                           'rejected adaptive trials must not increment the accepted batch count')
     call assert_equal_i32( &
-      adaptive_stats%adaptive_nonzero_mode_omp_threads, actual_team_size, &
+      adaptive_stats%adaptive_nonzero_mode%omp_threads, actual_team_size, &
       'adaptive run must checkpoint its actual OpenMP team size' &
       )
     call assert_equal_i64(adaptive_stats%processed_particles, 1_i64, &
@@ -359,16 +359,16 @@ contains
       'simulated time must include only the accepted half-duration trial' &
       )
     call assert_close_dp( &
-      adaptive_stats%adaptive_nonzero_mode_last_batch_duration, 0.5_dp*maximum_duration, &
+      adaptive_stats%adaptive_nonzero_mode%last_batch_duration, 0.5_dp*maximum_duration, &
       64.0_dp*epsilon(1.0_dp)*maximum_duration, &
       'adaptive accepted duration must be one half of the rejected trial' &
       )
     call assert_true( &
-      adaptive_stats%adaptive_nonzero_mode_last_potential_step <= potential_limit, &
+      adaptive_stats%adaptive_nonzero_mode%last_potential_step <= potential_limit, &
       'accepted adaptive kneq0 potential step exceeds the configured limit' &
       )
     call assert_close_dp( &
-      adaptive_stats%adaptive_nonzero_mode_last_potential_step, 0.5_dp*full_potential_step, &
+      adaptive_stats%adaptive_nonzero_mode%last_potential_step, 0.5_dp*full_potential_step, &
       1.0e-10_dp*max(1.0_dp, full_potential_step), &
       'accepted adaptive potential step does not scale with the half duration' &
       )
@@ -378,18 +378,18 @@ contains
       'rejected full-duration charge leaked into the committed mesh state' &
       )
     call assert_close_dp( &
-      adaptive_stats%matching_plane_top_cell_mean_v_m, &
+      adaptive_stats%matching_plane%top_cell_mean_v_m, &
       sum(adaptive_mesh%q_elem)/(2.0_dp*eps0*product(sim%box_max(1:2) - sim%box_min(1:2))), &
       1.0e-12_dp, 'top-cell mean field receipt must use the committed charge' &
       )
-    adaptive_stats%adaptive_nonzero_mode_omp_threads = actual_team_size + 1_i32
+    adaptive_stats%adaptive_nonzero_mode%omp_threads = actual_team_size + 1_i32
     call run_absorption_insulator( &
       adaptive_mesh, adaptive_cfg, adaptive_resume_stats, initial_stats=adaptive_stats &
       )
     call assert_equal_i32(adaptive_resume_stats%batches, adaptive_stats%batches, &
                           'same-team adaptive zero-batch resume changed the accepted batch count')
     call assert_equal_i32( &
-      adaptive_resume_stats%adaptive_nonzero_mode_omp_threads, &
+      adaptive_resume_stats%adaptive_nonzero_mode%omp_threads, &
       actual_team_size, &
       'adaptive resume must record the current team size rather than require the checkpoint value' &
       )

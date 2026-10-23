@@ -360,7 +360,7 @@ program test_restart
     stats%multiple_box_events_soft_discarded, 4_i64, 'soft discarded count mismatch' &
     )
   call assert_equal_i32( &
-    stats%adaptive_nonzero_mode_omp_threads, 6_i32, 'adaptive OpenMP thread count mismatch' &
+    stats%adaptive_nonzero_mode%omp_threads, 6_i32, 'adaptive OpenMP thread count mismatch' &
     )
   call assert_close_dp( &
     stats%multiple_box_events_soft_discarded_abs_charge, 2.5e-15_dp, 1.0e-27_dp, &

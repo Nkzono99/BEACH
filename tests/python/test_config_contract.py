@@ -16,7 +16,7 @@ import subprocess
 import pytest
 import tomli_w
 
-from beach.cli.lint import run_lint
+from beach.cli.lint import run as run_lint
 from beach.config import default_config
 from beach.config._layout import to_grouped_layout, to_runtime_layout
 from beach.config._toml import load_toml_file

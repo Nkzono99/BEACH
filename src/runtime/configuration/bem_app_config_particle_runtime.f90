@@ -5,7 +5,7 @@ module bem_app_config_particle_runtime
   use bem_types, only: mesh_type, particles_soa, sim_config, injection_state
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
-  use bem_status_codes, only: collision_query_ok, particle_status_name
+  use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
   use bem_injection, only: &
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
     compute_macro_particles_from_flux, sample_reservoir_face_particles, &
@@ -114,8 +114,7 @@ module bem_app_config_particle_runtime
     end subroutine generate_batch_slot
 
     module subroutine init_particle_batch_from_config( &
-      cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
-      collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot, &
+      cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, photo_failure, snapshot, &
       source_plan, photo_emission_dq_by_species, slot_ids &
       )
       type(app_config), intent(in) :: cfg
@@ -126,8 +125,8 @@ module bem_app_config_particle_runtime
       real(dp), intent(out), optional :: photo_emission_dq(:)
       integer(i32), intent(in), optional :: mpi_rank, mpi_size
       type(mpi_context), intent(in), optional :: mpi
-      integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
-      integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
+      !> 不完全な photo collision query（省略時は停止）。
+      type(photo_ray_failure_type), intent(out), optional :: photo_failure
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       type(particle_source_plan_type), intent(in), optional, target :: source_plan
       real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
@@ -148,8 +147,7 @@ module bem_app_config_particle_runtime
 
     module subroutine sample_photo_species_state( &
       sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-      emit_current_density_override, normal_drift_speed_override, vmin_normal, &
-      collision_failure_status, collision_failure_ray, collision_failure_bounce &
+      emit_current_density_override, normal_drift_speed_override, vmin_normal, failure &
       )
       type(sim_config), intent(in) :: sim
       type(particle_species_spec), intent(in) :: spec
@@ -164,7 +162,7 @@ module bem_app_config_particle_runtime
       real(dp), intent(in), optional :: emit_current_density_override
       real(dp), intent(in), optional :: normal_drift_speed_override
       real(dp), intent(in), optional :: vmin_normal
-      integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
+      type(photo_ray_failure_type), intent(out), optional :: failure
     end subroutine sample_photo_species_state
 
     module subroutine reservoir_face_velocity_correction( &

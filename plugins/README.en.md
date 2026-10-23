@@ -53,7 +53,7 @@ The `plugins/beach-context/skills/` directory contains user-facing plugin skills
 ## runops Integration
 
 `beach-bem` publishes the `beach` adapter for [runops](https://github.com/Nkzono99/runops) 2.x
-through the `runops.adapters` entry point (`beach.runops_adapter:Adapter`). When `beach-bem` is
+through the `runops.adapters` entry point (`beach.tooling.runops_adapter:Adapter`). When `beach-bem` is
 installed in a runops project's `.venv`, `runo init beach` and `runo update` find the adapter and
 copy the skills and references from `plugins/beach-context` (shipped in the wheel as
 `beach.agent_context`) into the project's `.agents/skills/` and `.claude/skills/`. No plugin

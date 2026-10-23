@@ -63,7 +63,7 @@ Claude Code では [beach-context-claude](beach-context-claude/README.md) の `a
 ## runops 連携
 
 `beach-bem` は [runops](https://github.com/Nkzono99/runops) 2.x 向けの `beach` adapter を
-`runops.adapters` entry point（`beach.runops_adapter:Adapter`）で公開します。runops project の
+`runops.adapters` entry point（`beach.tooling.runops_adapter:Adapter`）で公開します。runops project の
 `.venv` に `beach-bem` が入っていれば、`runo init beach` と `runo update` が adapter を見つけ、
 `plugins/beach-context` の skill と reference（wheel では `beach.agent_context`）を project の
 `.agents/skills/` と `.claude/skills/` へ展開します。plugin の install や再起動は不要です。

@@ -1,6 +1,6 @@
 ---
 name: python-postprocess-viz
-description: "Use this agent when working on the Python layer (`beach/` package) for reading Fortran simulation outputs, creating or modifying visualizations, updating plotting APIs, or handling backward compatibility of the Python post-processing tools. Also use when modifying or creating notebooks/scripts in `examples/` that involve visualization.\\n\\nExamples:\\n\\n- user: \"beach-animate-history の出力 GIF で charge の色スケールがおかしい\"\\n  assistant: \"可視化の問題を調査します。Agent tool で python-postprocess-viz agent を起動します。\"\\n\\n- user: \"新しい Fortran 出力フォーマットに対応する reader を追加して\"\\n  assistant: \"Fortran 出力の読込と可視化パイプラインに関わるので、python-postprocess-viz agent を使います。\"\\n\\n- user: \"examples/ に新しい可視化スクリプトを追加したい\"\\n  assistant: \"可視化スクリプトの作成なので、python-postprocess-viz agent に任せます。\"\\n\\n- user: \"Python 側の plotting API のインターフェースを変更したい\"\\n  assistant: \"公開 API の変更は後方互換性の検討が必要です。python-postprocess-viz agent を起動して対応します。\""
+description: "Use this agent when working on the Python layer (`beach/` package) for reading Fortran simulation outputs, creating or modifying visualizations, updating plotting APIs, or handling backward compatibility of the Python post-processing tools. Also use when modifying or creating notebooks/scripts in `examples/` that involve visualization.\\n\\nExamples:\\n\\n- user: \"beachx animate の出力 GIF で charge の色スケールがおかしい\"\\n  assistant: \"可視化の問題を調査します。Agent tool で python-postprocess-viz agent を起動します。\"\\n\\n- user: \"新しい Fortran 出力フォーマットに対応する reader を追加して\"\\n  assistant: \"Fortran 出力の読込と可視化パイプラインに関わるので、python-postprocess-viz agent を使います。\"\\n\\n- user: \"examples/ に新しい可視化スクリプトを追加したい\"\\n  assistant: \"可視化スクリプトの作成なので、python-postprocess-viz agent に任せます。\"\\n\\n- user: \"Python 側の plotting API のインターフェースを変更したい\"\\n  assistant: \"公開 API の変更は後方互換性の検討が必要です。python-postprocess-viz agent を起動して対応します。\""
 model: opus
 color: green
 memory: project
@@ -15,7 +15,7 @@ You work on BEACH (BEM + Accumulated CHarge) — a Fortran simulation with a Pyt
 - `beach/`: Python package for reading Fortran outputs, plotting, CLI tools
 - `examples/`: runnable configs, notebooks, helper scripts
 - `tests/python/`: Python tests
-- CLI tools: `beach-inspect`, `beach-animate-history`, `beach-estimate-workload`
+- CLI tools: `beachx inspect`, `beachx animate`, `beachx workload`
 - Fortran output is the source of truth for physics data
 
 ## Core Responsibilities

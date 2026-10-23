@@ -24,6 +24,20 @@ module bem_runtime_modes
   integer(i32), parameter, public :: lower_boundary_e_top_from_sheath = 2_i32
   integer(i32), parameter, public :: lower_boundary_unknown = -1_i32
 
+  ! 種ごとの固定電流 closure の方式。contract の目標・partner・反射電子・追跡源の指定から
+  ! bem_surface_closure_contract::species_closure_mode が一意に決める。
+  !> 固定電流 closure を当てない。
+  integer(i32), parameter, public :: closure_mode_none = 0_i32
+  !> 設定または外部根の目標電流へ、追跡した raw channel をそのまま合わせる（外部根の電子・イオン、
+  !! PE だけの PE、Type C で全て脱出する PE、反射電子だけを数えるときの電子）。
+  integer(i32), parameter, public :: closure_mode_target = 1_i32
+  !> 外部根の脱出束が他の追跡種と合算の値で、そのバッチに追跡した partner（SEE）や反射電子の脱出を
+  !! この種の脱出・帰還目標から差し引く（PE+SEE の Type A/B の PE、反射電子を数える PE）。
+  integer(i32), parameter, public :: closure_mode_escape_partner = 2_i32
+  !> 放出目標が根の予測ではなく根に与えた外側源で、帰還・脱出・放出を根へ固定する（PE なしの SEE、
+  !! PE+SEE の Type C の SEE）。空の帰還は放出へ畳み、放出がなければ未閉として記録する。
+  integer(i32), parameter, public :: closure_mode_tracked_source = 3_i32
+
   public :: field_solver_mode_id
   public :: surface_charge_closure_id
   public :: lower_boundary_model_id

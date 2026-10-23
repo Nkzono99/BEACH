@@ -3,7 +3,7 @@
 	install-camphor-fast install-camphor-fast-local \
 	install-intel install-intel-local \
 	build check run \
-	static-check source-text-check schema-check schema-sync \
+	static-check source-text-check python-lint python-type-check schema-check schema-sync \
 	test-config-contract \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
@@ -14,7 +14,7 @@
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi test-mpi-periodic-cache \
-	docs-deps docs-starlight docs-manuscript docs-fortran docs-pages docs-clean
+	docs-deps docs-starlight docs-manuscript docs-fortran docs-python docs-pages docs-clean
 
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
@@ -32,6 +32,7 @@ FPM ?= fpm
 BUILD_SH ?= ./build.sh
 FORD ?= $(PYTHON) -m ford
 FORD_CONFIG ?= preprocessor = "$(PYTHON) -W ignore::RuntimeWarning -m pcpp.pcmd -D__GFORTRAN__ --passthru-comments"
+SPHINX ?= $(PYTHON) -m sphinx
 PROFILE ?= release
 CONFIG ?= beach.toml
 OPENMP_FLAG ?= -fopenmp
@@ -115,9 +116,12 @@ FPRETTIFY ?= fprettify
 PRE_COMMIT ?= pre-commit
 DOCS_PROJECT_FILE ?= ford.md
 DOCS_OUTPUT_DIR ?= build/ford-docs
+DOCS_PYTHON_SOURCE_DIR ?= docs/python-api
+DOCS_PYTHON_OUTPUT_DIR ?= build/python-api
 DOCS_SITE_DIR ?= docs-site
 DOCS_SITE_OUTPUT_DIR ?= build/starlight-site
 DOCS_SITE_FORTRAN_DIR ?= $(DOCS_SITE_OUTPUT_DIR)/fortran
+DOCS_SITE_PYTHON_DIR ?= $(DOCS_SITE_OUTPUT_DIR)/python
 FORTRAN_DEP_MAP_MD ?= docs/developer/FortranDependencyMap.md
 FORTRAN_DEP_MAP_DOT ?= build/fortran_module_dependencies.dot
 FORTRAN_DEP_MAP_SVG ?= docs/media/fortran_module_dependencies.svg
@@ -178,16 +182,18 @@ check:
 
 build-kernel:
 	BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
-		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH)
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" \
+		FPM_CFLAGS="$(FPM_CFLAGS) -fPIC" FPM_CXXFLAGS="$(FPM_CXXFLAGS) -fPIC" $(BUILD_SH)
 	@set -eu; \
 	targets=$$(BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
-		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH) --list 2>&1) || \
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" \
+		FPM_CFLAGS="$(FPM_CFLAGS) -fPIC" FPM_CXXFLAGS="$(FPM_CXXFLAGS) -fPIC" $(BUILD_SH) --list 2>&1) || \
 		{ printf '%s\n' "$$targets" >&2; exit 1; }; \
 	lib=$$(printf '%s\n' "$$targets" | awk '$$NF ~ /\/beach_fortran\/libbeach_fortran[.]a$$/ {print $$NF}'); \
 	if [ ! -f "$$lib" ]; then echo "fpm did not identify one built BEACH archive for this configuration." >&2; exit 1; fi; \
 	mkdir -p "$$(dirname "$(KERNEL_LIB)")"; \
 	$(KERNEL_FC) -shared -o "$(KERNEL_LIB)" \
-		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG); \
+		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG) -lstdc++; \
 	echo "built $(KERNEL_LIB)"
 
 run:
@@ -199,6 +205,12 @@ static-check: source-text-check
 
 source-text-check:
 	$(PYTHON) tools/check_source_text.py
+
+python-lint:
+	$(PYTHON) -m ruff check .
+
+python-type-check:
+	$(PYTHON) -m mypy
 
 schema-check:
 	@set -eu; \
@@ -218,7 +230,7 @@ schema-check:
 schema-sync:
 	@set -eu; for schema in $(SCHEMA_COPIES); do cp "$(SCHEMA_CANONICAL)" "$$schema"; done
 
-test-l0: static-check schema-check check
+test-l0: static-check python-lint python-type-check schema-check check
 
 test: test-l1
 
@@ -336,16 +348,22 @@ docs-fortran:
 		--svg $(FORTRAN_DEP_MAP_SVG)
 	$(FORD) $(DOCS_PROJECT_FILE) --output_dir $(DOCS_OUTPUT_DIR) --config '$(FORD_CONFIG)'
 
-docs-pages: docs-fortran
+docs-python:
+	$(SPHINX) -b html -W --keep-going $(DOCS_PYTHON_SOURCE_DIR) $(DOCS_PYTHON_OUTPUT_DIR)
+
+docs-pages: docs-fortran docs-python
 	$(PYTHON) tools/sync_starlight_docs.py
 	$(PYTHON) tools/manuscript_to_starlight.py
 	npm --prefix $(DOCS_SITE_DIR) run build
 	rm -rf $(DOCS_SITE_FORTRAN_DIR)
 	mkdir -p $(DOCS_SITE_FORTRAN_DIR)
 	cp -a $(DOCS_OUTPUT_DIR)/. $(DOCS_SITE_FORTRAN_DIR)/
+	rm -rf $(DOCS_SITE_PYTHON_DIR)
+	mkdir -p $(DOCS_SITE_PYTHON_DIR)
+	cp -a $(DOCS_PYTHON_OUTPUT_DIR)/. $(DOCS_SITE_PYTHON_DIR)/
 
 docs-clean:
-	rm -rf $(DOCS_OUTPUT_DIR) $(DOCS_SITE_OUTPUT_DIR) \
+	rm -rf $(DOCS_OUTPUT_DIR) $(DOCS_PYTHON_OUTPUT_DIR) $(DOCS_SITE_OUTPUT_DIR) \
 		$(DOCS_SITE_DIR)/src/content/docs \
 		$(DOCS_SITE_DIR)/public/images \
 		$(DOCS_SITE_DIR)/public/media \

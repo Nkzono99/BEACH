@@ -8,6 +8,7 @@ program test_mpi_hybrid
                      mpi_world_barrier
   use bem_mesh, only: init_mesh
   use bem_simulator, only: run_absorption_insulator
+  use bem_run_outputs, only: run_outputs_type
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             init_particle_batch_from_config, particle_inflow_reservoir
   use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file, &
@@ -22,6 +23,8 @@ program test_mpi_hybrid
                           assert_close_dp, delete_file_if_exists, &
                           ensure_directory, remove_empty_directory
   implicit none
+
+  type(run_outputs_type) :: run_outputs
 
   type(mpi_context) :: mpi
   type(mesh_type) :: mesh, mesh_restart
@@ -146,9 +149,8 @@ program test_mpi_hybrid
   if (mpi_is_root(mpi)) then
     open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'failed to open MPI hybrid history fixture'
-    call run_absorption_insulator( &
-      mesh, cfg, stats, history_unit=u, history_stride=1_i32, mpi=mpi, charge_ledger=ledger &
-      )
+    run_outputs = run_outputs_type(history_unit=u, history_stride=1_i32)
+    call run_absorption_insulator(mesh, cfg, stats, mpi=mpi, charge_ledger=ledger, outputs=run_outputs)
     close (u)
   else
     call run_absorption_insulator(mesh, cfg, stats, mpi=mpi, charge_ledger=ledger)

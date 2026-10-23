@@ -102,7 +102,7 @@ chargeの非周期exact-direct値を返します。周期planに対してはinva
 vector の配列は `values[3 * point_index + component]` の順で格納します。status code、
 periodic far-correction code、handle の所有権は公開ヘッダに定義しています。
 
-Pythonでは、`beach.fortran_results.kernel.FieldKernel`がこのABIを`ctypes`で呼び出します。
+Pythonでは、`beach.native.kernel.FieldKernel`がこのABIを`ctypes`で呼び出します。
 Python wrapper はversion問い合わせを提供するlibraryの互換性を読込時に検査します。
 問い合わせsymbolがない旧libraryも拒否し、ABI v2以上を明示したlibraryだけを受理します。
 `calc_object_forces_kernel`は、対象object自身のsource電荷をゼロにして

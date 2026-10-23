@@ -1,12 +1,14 @@
+
+from beach.io.types import RunField, RunMesh, RunSummary
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     FieldKernelError,
-    FortranRunResult,
+    RunResult,
     ObjectInteractionSnapshot,
 )
 
@@ -23,23 +25,26 @@ def _result(
     *,
     triangles: np.ndarray | None = None,
     source_model: str = "triangle_p0",
-) -> FortranRunResult:
+) -> RunResult:
     if triangles is None:
         triangles = _triangles_at(np.array([[0.0, 0.0, 0.0], [0.0, 0.0, -1.0]]))
-    return FortranRunResult(
+    return RunResult(
         directory=directory,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0, 2.0]),
-        triangles=np.asarray(triangles, dtype=float),
-        mesh_ids=np.array([1, 2]),
-        field_source_model=source_model,
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.asarray(triangles, dtype=float), mesh_ids=np.array([1, 2])
+        ),
+        field=RunField(source_model=source_model),
     )
 
 

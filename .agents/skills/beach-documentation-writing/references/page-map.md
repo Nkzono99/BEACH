@@ -59,7 +59,8 @@
 | `reference/Parameters.md` | `parameters` | リファレンス | 新形式の全キー（型、単位、既定値、制約） |
 | `reference/OutputReference.md` | `output-reference` | リファレンス | 全出力ファイル、列、`summary.txt` の key、checkpoint の契約 |
 | `reference/Glossary.md` | `glossary` | リファレンス | 用語（日本語、英語、識別子） |
-| `reference/PythonPostprocessAPI.md` | `python-postprocess-api` | リファレンス | Python API |
+| `reference/PythonPostprocessAPI.md` | `python-postprocess-api` | リファレンス | Python API の使い方、読み込み・kernel・場の選択 |
+| `python-api/index.rst` | `python/` | リファレンス | Sphinx が生成する Python 公開 API の引数、戻り値、型、単位（docstring が正本） |
 | `developer/SurfaceChargeNumerics.md` | `surface-charge-numerics` | 内部実装 | 確定反映の順序、浮遊導体の連立方程式、並列集約 |
 | `models/BatchDurationTheory.md` | `batch-duration-theory` | 内部実装 | バッチ幅依存性と適応制御の理論 |
 | `developer/DirectSolver.md` | `direct-solver` | 内部実装 | 三角形要素の直接評価 |

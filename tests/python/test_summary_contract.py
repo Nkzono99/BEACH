@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.summary import (
+from beach.io.summary import (
     CORE_SUMMARY_REQUIRED_KEYS,
     load_summary_file,
     parse_summary_text,

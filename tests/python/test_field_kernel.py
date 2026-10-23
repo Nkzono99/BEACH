@@ -1,11 +1,13 @@
+
+from beach.io.types import RunField, RunMesh, RunSummary
 import ctypes
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import beach.fortran_results.kernel as kernel_module
-from beach.cli.kernel_forces import main as kernel_forces_main
+import beach.native.kernel as kernel_module
+from beach.cli.main import main as beachx_main
 from beach import (
     BeachScene,
     FieldKernel,
@@ -13,13 +15,14 @@ from beach import (
     FieldKernelDiagnostics,
     FieldKernelError,
     FieldKernelOptions,
-    FortranRunResult,
+    RunResult,
     calc_object_forces_kernel,
     field_kernel_build_info,
     field_kernel_options_from_result,
 )
-from beach.fortran_results.panel_quadrature import panel_target_quadrature
-from beach.fortran_results.periodic import auto_periodic2_from_result
+from beach.analysis.field_kernel import field_kernel_from_result
+from beach.analysis.panel_quadrature import panel_target_quadrature
+from beach.analysis.periodic import auto_periodic2_from_result
 
 
 def _int_value(value: object) -> int:
@@ -774,19 +777,21 @@ def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails
         ),
         encoding="utf-8",
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([0.0]),
-        triangles=np.array(
-            [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
         ),
     )
 
@@ -855,24 +860,27 @@ def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None
         dtype=float,
     )
     charges = np.array([2.5e-9], dtype=float)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
     target = np.array([[0.25, 0.2, 0.4]], dtype=float)
 
-    with FieldKernel.from_result(result, step=None, library_path=lib) as panel_kernel:
+    with field_kernel_from_result(result, step=None, library_path=lib) as panel_kernel:
         panel_field = panel_kernel.eval_e(target)
         direct_field = panel_kernel.eval_e_direct(target)
 
@@ -1093,19 +1101,20 @@ def test_calc_object_forces_kernel_excludes_self_sources(tmp_path: Path) -> None
         dtype=float,
     )
     charges = np.array([1.0e-9, 2.0e-9], dtype=float)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
-        mesh_ids=np.array([1, 2], dtype=np.int64),
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1, 2], dtype=np.int64)),
     )
 
     records = calc_object_forces_kernel(result, step=None, library_path=lib)
@@ -1138,19 +1147,20 @@ def test_scene_move_updates_kernel_force_geometry(tmp_path: Path) -> None:
         dtype=float,
     )
     charges = np.array([1.0e-9, 2.0e-9], dtype=float)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
-        mesh_ids=np.array([1, 2], dtype=np.int64),
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1, 2], dtype=np.int64)),
     )
 
     scene = BeachScene.from_result(result, step=None)
@@ -1190,20 +1200,21 @@ def test_scene_force_rejects_legacy_or_missing_source_receipt(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0e-9]),
-        triangles=triangles,
-        mesh_ids=np.array([1], dtype=np.int64),
-        field_source_model=source_model,
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1], dtype=np.int64)),
+        field=RunField(source_model=source_model),
     )
 
     with pytest.raises(ValueError, match="field_source_model='triangle_p0'"):
@@ -1221,19 +1232,20 @@ def test_scene_rotate_keeps_charges_attached_to_mesh_elements(tmp_path: Path) ->
     )
     charges = np.array([1.0e-9, 2.0e-9, 3.0e-9], dtype=float)
     mesh_ids = np.array([1, 2, 2], dtype=np.int64)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=3,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
-        mesh_ids=mesh_ids,
+        summary=RunSummary(
+            mesh_nelem=3,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=mesh_ids),
     )
 
     scene = BeachScene.from_result(result, step=None)
@@ -1286,14 +1298,15 @@ def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
     )
     save_csv = tmp_path / "forces.csv"
 
-    kernel_forces_main(
+    beachx_main(
         [
+            "kernel-forces",
             str(out),
             "--config",
             str(config_path),
             "--library",
             str(lib),
-            "--save-csv",
+            "--save",
             str(save_csv),
         ]
     )
@@ -1301,3 +1314,16 @@ def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
     text = save_csv.read_text(encoding="utf-8")
     assert "mesh_id,step,total_charge_C" in text
     assert "1,-1,1e-09" in text
+
+
+def test_source_charge_snapshot_is_owned_after_native_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_kernel(monkeypatch)
+    panels, charges = _one_panel_source()
+    expected = charges.copy()
+    with FieldKernel(panels, charges) as kernel:
+        charges[:] = 99.0
+        np.testing.assert_array_equal(kernel.source_charges, expected)
+        updated = np.array([3.0])
+        kernel.update_charges(updated)
+        updated[:] = 55.0
+        np.testing.assert_array_equal(kernel.source_charges, [3.0])

@@ -25,8 +25,10 @@ beachx inspect outputs/tutorial
 ```text
 directory=outputs/tutorial
 processed_particles=30000
-absorbed=7769 escaped=22231
-batches=150 last_rel_change=...
+absorbed=7769
+escaped=22231
+batches=150
+last_rel_change=...
 simulated_time_s=1.500000e-06
 charge_sum=-4.978924e-12
 ```
@@ -149,7 +151,7 @@ head -n 3 outputs/tutorial/potential_history.csv
 
 beachx animate outputs/tutorial \
   --quantity charge \
-  --save-gif outputs/tutorial/charge_history.gif \
+  --save outputs/tutorial/charge_history.gif \
   --total-frames 30
 ```
 

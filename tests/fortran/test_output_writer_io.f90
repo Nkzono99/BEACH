@@ -525,9 +525,9 @@ contains
     close (unit_id)
     call open_matching_plane_history_writer(cfg, .true., opened, unit_id)
     stats = sim_stats()
-    stats%matching_plane_state_valid = .true.
-    stats%matching_plane_secondary_share = 0.25_dp
-    stats%secondary_budget_residual_a_m2 = -1.0e-8_dp
+    stats%matching_plane%state_valid = .true.
+    stats%matching_plane%secondary_share = 0.25_dp
+    stats%matching_plane%secondary_budget_residual_a_m2 = -1.0e-8_dp
     call write_matching_plane_history_snapshot(unit_id, 2_i32, 2.0_dp, stats)
     close (unit_id)
     open (newunit=reader, file=out_dir_matching//'/matching_plane_history.csv', status='old', action='read')
@@ -576,10 +576,10 @@ contains
     call assert_true(opened, 'outflow refresh must open the spectrum history')
     if (.not. opened) return
     stats = sim_stats()
-    stats%matching_plane_photoelectron_spectrum_m2_s(3) = 1.0e10_dp
+    stats%matching_plane%photoelectron_spectrum_m2_s(3) = 1.0e10_dp
     call write_matching_plane_spectrum_history_rows(unit_id, 1_i32, 2.0_dp, stats)
-    stats%matching_plane_state_valid = .true.
-    stats%matching_plane_photoelectron_spectrum_m2_s(100) = 2.0e10_dp
+    stats%matching_plane%state_valid = .true.
+    stats%matching_plane%photoelectron_spectrum_m2_s(100) = 2.0e10_dp
     call write_matching_plane_spectrum_history_rows(unit_id, 3_i32, 6.0_dp, stats)
     close (unit_id)
 
@@ -626,7 +626,7 @@ contains
     close (unit_id)
     call assert_true(found, 'summary must write every spectrum bin on one line')
     call assert_true( &
-      all(summary_spectrum == stats%matching_plane_photoelectron_spectrum_m2_s), &
+      all(summary_spectrum == stats%matching_plane%photoelectron_spectrum_m2_s), &
       'summary spectrum must round-trip exactly' &
       )
   end subroutine test_matching_plane_spectrum_outputs

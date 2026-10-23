@@ -1,0 +1,407 @@
+"""Helpers for generating BEACH close-packed sphere configs."""
+
+from __future__ import annotations
+
+import copy
+import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from beach.config._toml import load_toml_file, render_toml_document
+from beach.config._layout import TOP_LEVEL_ORDER, to_grouped_layout, to_runtime_layout
+
+SQRT2 = math.sqrt(2.0)
+DEFAULT_FLOOR_Z = 0.02
+DEFAULT_TOP_CLEARANCE_FACTOR = 30.0
+
+DEFAULT_BASE_CONFIG: dict[str, Any] = {
+    "sim": {
+        "dt": 2.0e-8,
+        "batch_count": 100,
+        "max_step": 100000,
+        "tol_rel": 1.0e-8,
+        "b0": [0.0, 0.0, 0.0],
+        "rng_seed": 12345,
+        "field_solver": "treecode",
+        "batch_duration_step": 60000,
+    },
+    "domain": {
+        "box_min": [0.0, 0.0, 0.0],
+        "box_max": [1.0, 1.0, 10.0],
+        "periodic_axes": ["x", "y"],
+    },
+    "field_boundary": {"mode": "free"},
+    "particle_boundary": {"z_low": "open", "z_high": "open"},
+    "reservoir": {"inflow_model": "source_vdf"},
+    "particles": {
+        "species": [
+            {
+                "source_mode": "volume_seed",
+                "npcls_per_step": 0,
+                "number_density_cm3": 5.0,
+                "temperature_ev": 10.0,
+                "q_particle": -1.602176634e-19,
+                "m_particle": 9.10938356e-31,
+                "target_macro_particles_per_batch": 5000,
+                "boundary_inflow": {"z_high": "reservoir"},
+                "drift_velocity": [0.0, 0.0, -4.0e5],
+            },
+            {
+                "source_mode": "volume_seed",
+                "npcls_per_step": 0,
+                "number_density_cm3": 5.0,
+                "temperature_ev": 10.0,
+                "q_particle": 1.602176634e-19,
+                "m_particle": 1.672482821616e-27,
+                "target_macro_particles_per_batch": -1,
+                "boundary_inflow": {"z_high": "reservoir"},
+                "drift_velocity": [0.0, 0.0, -4.0e5],
+            },
+        ]
+    },
+    "mesh": {
+    },
+    "output": {
+        "write_files": True,
+        "dir": "./outputs/latest",
+        "history_stride": 10,
+    },
+}
+
+_TOP_LEVEL_SECTION_ORDER = (
+    "sim",
+    "domain",
+    "field_boundary",
+    "particle_boundary",
+    "reservoir",
+    "particles",
+    "mesh",
+    "output",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ClosePackSpec:
+    """Geometry and meshing inputs for the close-packed sphere generator."""
+
+    layers: int
+    radius: float
+    cells_x: int
+    cells_y: int
+    floor_z: float = DEFAULT_FLOOR_Z
+    plane_nx: int = 20
+    plane_ny: int = 20
+    sphere_n_lon: int = 14
+    sphere_n_lat: int = 6
+    box_height: float | None = None
+    top_clearance: float | None = None
+
+    def validate(self) -> None:
+        if self.layers < 1:
+            raise ValueError("layers must be >= 1.")
+        if self.radius <= 0.0:
+            raise ValueError("radius must be > 0.")
+        if self.cells_x < 1 or self.cells_y < 1:
+            raise ValueError("cells_x and cells_y must be >= 1.")
+        if self.floor_z < 0.0:
+            raise ValueError("floor_z must be >= 0.")
+        if self.plane_nx < 1 or self.plane_ny < 1:
+            raise ValueError("plane_nx and plane_ny must be >= 1.")
+        if self.sphere_n_lon < 3:
+            raise ValueError("sphere_n_lon must be >= 3.")
+        if self.sphere_n_lat < 2:
+            raise ValueError("sphere_n_lat must be >= 2.")
+        if self.box_height is not None and self.box_height <= 0.0:
+            raise ValueError("box_height must be > 0 when provided.")
+        if self.top_clearance is not None and self.top_clearance <= 0.0:
+            raise ValueError("top_clearance must be > 0 when provided.")
+        if self.box_height is not None and self.top_clearance is not None:
+            raise ValueError("box_height and top_clearance cannot be used together.")
+
+
+def default_base_config() -> dict[str, Any]:
+    """Return a deep copy of the bundled base config."""
+
+    return copy.deepcopy(DEFAULT_BASE_CONFIG)
+
+
+def load_base_config(path: str | Path | None = None) -> dict[str, Any]:
+    """Load a base config from TOML, or use the bundled defaults."""
+
+    if path is None:
+        return default_base_config()
+    config = load_toml_file(path)
+    if not isinstance(config, dict):
+        raise ValueError("base config must decode to a TOML table.")
+    return to_runtime_layout(config)
+
+
+def unit_cell_pitch(radius: float) -> float:
+    """Return the lateral period for the A/B square close-packing cell."""
+
+    if radius <= 0.0:
+        raise ValueError("radius must be > 0.")
+    return radius * (2.0 + SQRT2)
+
+
+def layer_spacing(radius: float) -> float:
+    """Return the vertical separation between neighboring close-packed layers."""
+
+    if radius <= 0.0:
+        raise ValueError("radius must be > 0.")
+    return radius * SQRT2
+
+
+def total_sphere_count(spec: ClosePackSpec) -> int:
+    """Return the number of sphere templates produced by a spec."""
+
+    spec.validate()
+    return 2 * spec.layers * spec.cells_x * spec.cells_y
+
+
+def geometry_top_z(spec: ClosePackSpec) -> float:
+    """Return the highest z coordinate touched by the stacked spheres."""
+
+    spec.validate()
+    return (
+        spec.floor_z
+        + 2.0 * spec.radius
+        + (spec.layers - 1) * layer_spacing(spec.radius)
+    )
+
+
+def generate_closepack_sphere_templates(
+    spec: ClosePackSpec,
+    *,
+    box_min: Sequence[float] = (0.0, 0.0, 0.0),
+) -> list[dict[str, Any]]:
+    """Generate sphere templates matching the current `exp_bench_tree` pattern."""
+
+    spec.validate()
+    box_min_xyz = _coerce_vec3(box_min, name="box_min")
+    pitch = unit_cell_pitch(spec.radius)
+    basis_a = (
+        (spec.radius, spec.radius),
+        (pitch - spec.radius, pitch - spec.radius),
+    )
+    basis_b = (
+        (pitch - spec.radius, spec.radius),
+        (spec.radius, pitch - spec.radius),
+    )
+    z0 = spec.floor_z + spec.radius
+    dz = layer_spacing(spec.radius)
+    templates: list[dict[str, Any]] = []
+    for layer_index in range(spec.layers):
+        basis = basis_a if layer_index % 2 == 0 else basis_b
+        center_z = z0 + layer_index * dz
+        for iy in range(spec.cells_y):
+            y_shift = box_min_xyz[1] + iy * pitch
+            for ix in range(spec.cells_x):
+                x_shift = box_min_xyz[0] + ix * pitch
+                for basis_x, basis_y in basis:
+                    templates.append(
+                        {
+                            "kind": "sphere",
+                            "enabled": True,
+                            "surface_side": "outward_closed",
+                            "radius": spec.radius,
+                            "center": [x_shift + basis_x, y_shift + basis_y, center_z],
+                            "n_lon": spec.sphere_n_lon,
+                            "n_lat": spec.sphere_n_lat,
+                        }
+                    )
+    return templates
+
+
+def build_closepack_config(
+    spec: ClosePackSpec,
+    *,
+    base_config: Mapping[str, Any] | None = None,
+    output_dir: str | None = None,
+) -> dict[str, Any]:
+    """Build a BEACH config with a close-packed floor + sphere stack."""
+
+    spec.validate()
+    config = copy.deepcopy(dict(base_config if base_config is not None else default_base_config()))
+    _ensure_table(config, "sim")
+    domain = _ensure_table(config, "domain")
+    particles = _ensure_table(config, "particles")
+    mesh = _ensure_table(config, "mesh")
+    output = _ensure_table(config, "output")
+
+    box_min = _coerce_vec3(
+        domain.get("box_min", [0.0, 0.0, 0.0]), name="domain.box_min"
+    )
+    box_max_existing = _coerce_vec3(
+        domain.get("box_max", [0.0, 0.0, 0.0]),
+        name="domain.box_max",
+    )
+
+    width_x = spec.cells_x * unit_cell_pitch(spec.radius)
+    width_y = spec.cells_y * unit_cell_pitch(spec.radius)
+    required_top_z = geometry_top_z(spec)
+    box_max_z = _resolve_box_top_z(
+        spec=spec,
+        box_min_z=box_min[2],
+        existing_box_top_z=box_max_existing[2],
+        required_top_z=required_top_z,
+    )
+    box_max = [box_min[0] + width_x, box_min[1] + width_y, box_max_z]
+
+    if spec.floor_z <= box_min[2]:
+        raise ValueError("floor_z must be above domain.box_min[2].")
+    if box_max_z <= required_top_z:
+        raise ValueError("The generated box is not tall enough for the sphere stack.")
+
+    domain["box_min"] = box_min
+    domain["box_max"] = box_max
+
+    species_list = particles.get("species", [])
+    if not isinstance(species_list, list):
+        raise ValueError("particles.species must be an array of tables.")
+    for species in species_list:
+        if not isinstance(species, dict):
+            raise ValueError("particles.species entries must be TOML tables.")
+        _fit_species_face_to_box(species, box_min=box_min, box_max=box_max)
+
+    mesh["parts"] = [
+        _build_floor_plane_template(spec=spec, box_min=box_min, width_x=width_x, width_y=width_y),
+        *generate_closepack_sphere_templates(spec, box_min=box_min),
+    ]
+
+    if output_dir is not None:
+        output["dir"] = output_dir
+
+    return config
+
+
+def render_closepack_toml(
+    config: Mapping[str, Any],
+    *,
+    spec: ClosePackSpec | None = None,
+    base_config_path: str | Path | None = None,
+) -> str:
+    """Render a generated config as TOML text."""
+
+    header_comments: list[str] = ["# Generated by beachx model close-pack"]
+    if spec is not None:
+        header_comments.append(
+            "# closepack "
+            f"layers={spec.layers} radius={spec.radius} "
+            f"cells_x={spec.cells_x} cells_y={spec.cells_y} "
+            f"spheres={total_sphere_count(spec)}"
+        )
+        header_comments.append(
+            "# lattice "
+            f"pitch={unit_cell_pitch(spec.radius)} "
+            f"layer_spacing={layer_spacing(spec.radius)}"
+        )
+    if base_config_path is not None:
+        header_comments.append(f"# base_config={base_config_path}")
+    return render_toml_document(
+        to_grouped_layout(config),
+        header_comments=header_comments,
+        top_level_order=TOP_LEVEL_ORDER,
+    )
+
+
+def _resolve_box_top_z(
+    *,
+    spec: ClosePackSpec,
+    box_min_z: float,
+    existing_box_top_z: float,
+    required_top_z: float,
+) -> float:
+    if spec.box_height is not None:
+        return box_min_z + spec.box_height
+    clearance = (
+        spec.top_clearance
+        if spec.top_clearance is not None
+        else DEFAULT_TOP_CLEARANCE_FACTOR * spec.radius
+    )
+    resolved = required_top_z + clearance
+    if spec.top_clearance is None:
+        resolved = max(resolved, existing_box_top_z)
+    return resolved
+
+
+def _build_floor_plane_template(
+    *,
+    spec: ClosePackSpec,
+    box_min: Sequence[float],
+    width_x: float,
+    width_y: float,
+) -> dict[str, Any]:
+    return {
+        "kind": "plane",
+        "enabled": True,
+        "surface_side": "normal_plus",
+        "size_x": width_x,
+        "size_y": width_y,
+        "nx": spec.plane_nx,
+        "ny": spec.plane_ny,
+        "center": [
+            float(box_min[0]) + 0.5 * width_x,
+            float(box_min[1]) + 0.5 * width_y,
+            spec.floor_z,
+        ],
+    }
+
+
+def _fit_species_face_to_box(
+    species: dict[str, Any],
+    *,
+    box_min: Sequence[float],
+    box_max: Sequence[float],
+) -> None:
+    inject_face = species.get("inject_face")
+    if not isinstance(inject_face, str) or inject_face == "":
+        return
+    axis, boundary = _axis_and_boundary_for_face(inject_face, box_min, box_max)
+    pos_low = [float(v) for v in box_min]
+    pos_high = [float(v) for v in box_max]
+    pos_low[axis] = boundary
+    pos_high[axis] = boundary
+    species["pos_low"] = pos_low
+    species["pos_high"] = pos_high
+
+
+def _axis_and_boundary_for_face(
+    inject_face: str,
+    box_min: Sequence[float],
+    box_max: Sequence[float],
+) -> tuple[int, float]:
+    if inject_face == "x_low":
+        return 0, float(box_min[0])
+    if inject_face == "x_high":
+        return 0, float(box_max[0])
+    if inject_face == "y_low":
+        return 1, float(box_min[1])
+    if inject_face == "y_high":
+        return 1, float(box_max[1])
+    if inject_face == "z_low":
+        return 2, float(box_min[2])
+    if inject_face == "z_high":
+        return 2, float(box_max[2])
+    raise ValueError(f"unknown inject_face: {inject_face}")
+
+
+def _ensure_table(config: dict[str, Any], key: str) -> dict[str, Any]:
+    value = config.get(key)
+    if value is None:
+        table: dict[str, Any] = {}
+        config[key] = table
+        return table
+    if not isinstance(value, dict):
+        raise ValueError(f"{key} must be a TOML table.")
+    return value
+
+
+def _coerce_vec3(value: object, *, name: str) -> list[float]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise ValueError(f"{name} must be a 3-element array.")
+    if len(value) != 3:
+        raise ValueError(f"{name} must be a 3-element array.")
+    return [float(value[0]), float(value[1]), float(value[2])]

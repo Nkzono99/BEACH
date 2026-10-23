@@ -5,6 +5,7 @@ program test_zhao_outflow_refresh
   use bem_types, only: mesh_type, sim_stats, injection_state, bc_open, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator
+  use bem_run_outputs, only: run_outputs_type
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             particle_inflow_reservoir
   use bem_charge_ledger, only: charge_ledger_type, finite_charge_sum
@@ -16,6 +17,8 @@ program test_zhao_outflow_refresh
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, delete_file_if_exists
   implicit none
+
+  type(run_outputs_type) :: run_outputs
 
   real(dp), parameter :: cell_width = 1.0e-4_dp
   real(dp), parameter :: box_height = 1.0e-3_dp
@@ -43,10 +46,10 @@ program test_zhao_outflow_refresh
   call evaluate_surface_current_model(cfg, static_root)
   call seed_particles_from_config(cfg)
   call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state, charge_ledger=ledger)
-  call assert_true(.not. stats%matching_plane_state_valid, 'a fixed Zhao root must not publish refresh state')
-  call assert_close_dp(stats%surface_current_top_field_v_m, static_root%top_field_v_m, &
+  call assert_true(.not. stats%matching_plane%state_valid, 'a fixed Zhao root must not publish refresh state')
+  call assert_close_dp(stats%matching_plane%top_field_v_m, static_root%top_field_v_m, &
                        1.0e-12_dp*abs(static_root%top_field_v_m), 'static root top-field receipt')
-  call assert_close_dp(stats%matching_plane_top_cell_mean_v_m, static_root%top_field_v_m, &
+  call assert_close_dp(stats%matching_plane%top_cell_mean_v_m, static_root%top_field_v_m, &
                        1.0e-12_dp*abs(static_root%top_field_v_m), 'simulator passes sheath field to snapshot')
   ! A flat plate returns every PE that reaches H below phi0-phi_m. With the H gauge at phi0, the tracked
   ! escape fraction is the half-Maxwellian tail exp(-(phi0-phi_m)/T) of the same root.
@@ -73,10 +76,10 @@ program test_zhao_outflow_refresh
   call seed_particles_from_config(cfg)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='replace', action='write')
   open (newunit=spectrum_history_unit, file=spectrum_history_path, status='replace', action='write')
-  call run_absorption_insulator( &
-    mesh, cfg, stats, history_stride=1_i32, inject_state=inject_state, fixed_current_history_unit=fixed_history_unit, &
-    matching_plane_spectrum_history_unit=spectrum_history_unit &
-    )
+  run_outputs = run_outputs_type( &
+                fixed_current_history_unit=fixed_history_unit, matching_plane_spectrum_history_unit=spectrum_history_unit, &
+                history_stride=1_i32)
+  call run_absorption_insulator(mesh, cfg, stats, inject_state=inject_state, outputs=run_outputs)
   close (fixed_history_unit)
   close (spectrum_history_unit)
   open (newunit=fixed_history_unit, file=fixed_history_path, status='old', action='read')
@@ -93,30 +96,30 @@ program test_zhao_outflow_refresh
     int(fixed_history_rows, i32), 5_i32*cfg%sim%batch_count, 'fixed-current history must write every active channel' &
     )
   emission_flux = static_root%photoelectron_emission_current_density_a_m2/qe
-  call assert_true(stats%matching_plane_state_valid, 'outflow refresh state was not published')
+  call assert_true(stats%matching_plane%state_valid, 'outflow refresh state was not published')
   call assert_equal_i32( &
-    stats%matching_plane_iterations, cfg%sim%batch_count + 1_i32, &
+    stats%matching_plane%iterations, cfg%sim%batch_count + 1_i32, &
     'every one-batch window must refresh the outer root' &
     )
   call assert_close_dp( &
-    stats%matching_plane_feedback(1)/emission_flux, 1.0_dp, 0.02_dp, &
+    stats%matching_plane%feedback(1)/emission_flux, 1.0_dp, 0.02_dp, &
     'every PE leaving a flat plate must cross H once' &
     )
   call assert_close_dp( &
-    stats%matching_plane_feedback(2), 2.2_dp, 0.15_dp, &
+    stats%matching_plane%feedback(2), 2.2_dp, 0.15_dp, &
     'flat-plate outflow mean normal energy must equal the emission temperature' &
     )
-  call assert_close_dp(stats%matching_plane_phi_v, static_root%phi0_v, 0.3_dp, 'refreshed phi0 drifted')
+  call assert_close_dp(stats%matching_plane%phi_v, static_root%phi0_v, 0.3_dp, 'refreshed phi0 drifted')
   ! 平板から出たPEの法線エネルギーは放出の半Maxwell分布のまま: K < K_s の割合は 1 - exp(-K_s/T)。
   call assert_close_dp( &
-    sum(stats%matching_plane_photoelectron_spectrum_m2_s), stats%matching_plane_feedback(1), &
-    1.0e-12_dp*stats%matching_plane_feedback(1), 'outer spectrum must carry the outer source flux' &
+    sum(stats%matching_plane%photoelectron_spectrum_m2_s), stats%matching_plane%feedback(1), &
+    1.0e-12_dp*stats%matching_plane%feedback(1), 'outer spectrum must carry the outer source flux' &
     )
   edges = outflow_spectrum_edges_ev()
   split_bin = minloc(abs(edges - 2.2_dp), dim=1)
   split_edge = edges(split_bin)
-  slow_fraction = sum(stats%matching_plane_photoelectron_spectrum_m2_s(:split_bin - 1))/ &
-                  sum(stats%matching_plane_photoelectron_spectrum_m2_s)
+  slow_fraction = sum(stats%matching_plane%photoelectron_spectrum_m2_s(:split_bin - 1))/ &
+                  sum(stats%matching_plane%photoelectron_spectrum_m2_s)
   call assert_close_dp( &
     slow_fraction, 1.0_dp - exp(-split_edge/2.2_dp), 0.04_dp, 'flat-plate outflow spectrum must stay half-Maxwellian' &
     )
@@ -142,16 +145,16 @@ program test_zhao_outflow_refresh
   call assert_true(spectrum_rows_valid, 'spectrum history rows must be positive bins in batch order')
   call assert_equal_i32(last_row_batch, cfg%sim%batch_count, 'spectrum history must end at the last refresh')
   call assert_close_dp( &
-    last_batch_flux, stats%matching_plane_feedback(1), 1.0e-12_dp*stats%matching_plane_feedback(1), &
+    last_batch_flux, stats%matching_plane%feedback(1), 1.0e-12_dp*stats%matching_plane%feedback(1), &
     'last spectrum history rows must carry the outer source flux' &
     )
   call assert_close_dp( &
-    stats%matching_plane_photoelectron_return_flux_m2_s + stats%matching_plane_photoelectron_escape_flux_m2_s, &
-    stats%matching_plane_feedback(1), 1.0e-12_dp*stats%matching_plane_feedback(1), &
+    stats%matching_plane%photoelectron_return_flux_m2_s + stats%matching_plane%photoelectron_escape_flux_m2_s, &
+    stats%matching_plane%feedback(1), 1.0e-12_dp*stats%matching_plane%feedback(1), &
     'outer source return/escape partition mismatch' &
     )
   call assert_close_dp( &
-    stats%matching_plane_displacement_c_m2, 0.0_dp, 1.0e-6_dp*emission_flux*qe*cfg%sim%batch_duration, &
+    stats%matching_plane%displacement_c_m2, 0.0_dp, 1.0e-6_dp*emission_flux*qe*cfg%sim%batch_duration, &
     'refreshed zero-current targets must keep the cell floating' &
     )
   call test_end()
@@ -159,14 +162,14 @@ program test_zhao_outflow_refresh
   call test_begin('outflow_refresh_state_reconstructs_on_resume')
   cfg%sim%batch_count = stats%batches + 1_i32
   call run_absorption_insulator(mesh, cfg, resumed_stats, initial_stats=stats, inject_state=inject_state)
-  call assert_true(resumed_stats%matching_plane_state_valid, 'resumed outflow refresh state was not valid')
+  call assert_true(resumed_stats%matching_plane%state_valid, 'resumed outflow refresh state was not valid')
   call assert_equal_i32( &
-    resumed_stats%matching_plane_iterations, stats%matching_plane_iterations + 1_i32, &
+    resumed_stats%matching_plane%iterations, stats%matching_plane%iterations + 1_i32, &
     'resume must continue the accepted outer-solve count' &
     )
-  call assert_close_dp(resumed_stats%matching_plane_phi_v, stats%matching_plane_phi_v, 0.3_dp, 'resumed phi0 jump')
+  call assert_close_dp(resumed_stats%matching_plane%phi_v, stats%matching_plane%phi_v, 0.3_dp, 'resumed phi0 jump')
   call assert_true( &
-    any(resumed_stats%matching_plane_photoelectron_spectrum_m2_s > 0.0_dp), 'resume must keep refreshing the spectrum' &
+    any(resumed_stats%matching_plane%photoelectron_spectrum_m2_s > 0.0_dp), 'resume must keep refreshing the spectrum' &
     )
   call test_end()
 
@@ -195,7 +198,7 @@ contains
     type(surface_closure_contract_type) :: closure
     type(zhao_outflow_refresh_type) :: refresh
     type(mpi_context) :: mpi
-    real(dp) :: moments(4 + outflow_spectrum_bins, 3, 1), raw_charge(12), closed_charge(3), unclosed_charge(3)
+    real(dp) :: moments(4 + outflow_spectrum_bins, 3, 1), emission_charge(3), closed_charge(3), unclosed_charge(3)
     real(dp) :: spectrum(outflow_spectrum_bins), flux_pe, flux_e, raw_out, batch_time, area
     integer :: k
     logical :: refreshed
@@ -213,29 +216,29 @@ contains
       spectrum(k) = exp(-edges(k)/3.0_dp) - exp(-edges(k + 1)/3.0_dp)
     end do
     receipts = sim_stats()
-    call refresh%initialize(app, plate, receipts, closure)
+    call refresh%initialize(app, plate, receipts%matching_plane, closure)
     call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'initial closure routes reflected electrons via PE')
     moments = 0.0_dp
-    raw_charge = 0.0_dp
+    emission_charge = 0.0_dp
     raw_out = 100.0_dp
     moments(1, 3, 1) = raw_out
     moments(2, 3, 1) = raw_out*2.2_dp*qe
     moments(5:, 3, 1) = raw_out*spectrum
-    raw_charge(6) = 2.0_dp*raw_out*qe
+    emission_charge(3) = 2.0_dp*raw_out*qe
     raw_out = flux_e*area*batch_time
     moments(1, 1, 1) = raw_out
     moments(2, 1, 1) = raw_out*3.0_dp*qe
     moments(5:, 1, 1) = raw_out*spectrum
     closed_charge = 0.0_dp
     unclosed_charge = 0.0_dp
-    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 1_i32, &
-                              receipts, closure, refreshed)
+    call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, 1_i32, &
+                              receipts%matching_plane, closure, refreshed)
     call assert_true(refreshed, 'a full window must refresh the outer root')
-    call assert_close_dp(receipts%matching_plane_feedback(1), flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
+    call assert_close_dp(receipts%matching_plane%feedback(1), flux_pe + flux_e, 1.0e-12_dp*(flux_pe + flux_e), &
                          'outer source adds the reflected electron flux to the PE transmission flux')
-    call assert_close_dp(receipts%matching_plane_feedback(3), flux_e, 1.0e-12_dp*flux_e, &
+    call assert_close_dp(receipts%matching_plane%feedback(3), flux_e, 1.0e-12_dp*flux_e, &
                          'electron_outward_flux reports the reflected flux of the window')
-    call assert_close_dp(receipts%matching_plane_feedback(2), (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
+    call assert_close_dp(receipts%matching_plane%feedback(2), (2.2_dp*flux_pe + 3.0_dp*flux_e)/(flux_pe + flux_e), &
                          1.0e-12_dp, 'mean normal energy weights the reflected electrons by flux')
     call assert_equal_i32(closure%reflected_electron_species(3), 1_i32, 'refreshed closure keeps the reflected route')
     call assert_true(closure%absorbed_target_credits_tracked_escape(1), 'refreshed closure credits the electron escape')
@@ -251,7 +254,7 @@ contains
     type(surface_closure_contract_type) :: closure, restored_closure
     type(zhao_outflow_refresh_type) :: refresh, resumed_refresh
     type(mpi_context) :: mpi
-    real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), raw_charge(12)
+    real(dp) :: moments(4 + outflow_spectrum_bins, 4, 1), emission_charge(4)
     real(dp) :: spectrum_pe(outflow_spectrum_bins), spectrum_see(outflow_spectrum_bins)
     real(dp) :: flux_pe, flux_see, raw_out, batch_time, area, see_temperature, root_escape_charge
     real(dp) :: closed_charge(4), unclosed_charge(4)
@@ -287,25 +290,25 @@ contains
       spectrum_see(k) = exp(-edges(k)/see_temperature) - exp(-edges(k + 1)/see_temperature)
     end do
     receipts = sim_stats()
-    call refresh%initialize(app, plate, receipts, closure)
+    call refresh%initialize(app, plate, receipts%matching_plane, closure)
     if (night) then
-      call assert_true(receipts%matching_plane_phi_v < 0.0_dp, 'night must start from a zero-source Type C root')
+      call assert_true(receipts%matching_plane%phi_v < 0.0_dp, 'night must start from a zero-source Type C root')
       restored = receipts
-      call resumed_refresh%initialize(app, plate, restored, restored_closure)
-      call assert_close_dp(restored%matching_plane_phi_v, receipts%matching_plane_phi_v, 1.0e-12_dp, &
+      call resumed_refresh%initialize(app, plate, restored%matching_plane, restored_closure)
+      call assert_close_dp(restored%matching_plane%phi_v, receipts%matching_plane%phi_v, 1.0e-12_dp, &
                            'zero-source checkpoint before the first SEE refresh must be resumable')
     end if
     do batch = 1, 2
       batch_time = 1.0e-3_dp*real(2*batch - 1, dp)
       app%sim%batch_duration = batch_time
       moments = 0.0_dp
-      raw_charge = 0.0_dp
+      emission_charge = 0.0_dp
       if (.not. night) then
         raw_out = 100.0_dp*real(batch, dp)
         moments(1, 3, 1) = raw_out
         moments(2, 3, 1) = raw_out*2.2_dp*qe
         moments(5:, 3, 1) = raw_out*spectrum_pe
-        raw_charge(7) = 2.0_dp*raw_out*qe
+        emission_charge(3) = 2.0_dp*raw_out*qe
       end if
       raw_out = flux_see*area*batch_time
       moments(1, 4, 1) = raw_out
@@ -313,16 +316,16 @@ contains
       moments(5:, 4, 1) = raw_out*spectrum_see
       closed_charge = 0.0_dp
       unclosed_charge = 0.0_dp
-      call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
-                                receipts, closure, refreshed)
+      call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, int(batch, i32), &
+                                receipts%matching_plane, closure, refreshed)
       call assert_true(refreshed .eqv. (batch == 2), 'refresh must wait for the full accepted-batch window')
     end do
-    call assert_close_dp(receipts%matching_plane_feedback(2), (2.2_dp*flux_pe + see_temperature*flux_see)/(flux_pe + flux_see), &
+    call assert_close_dp(receipts%matching_plane%feedback(2), (2.2_dp*flux_pe + see_temperature*flux_see)/(flux_pe + flux_see), &
                          1.0e-12_dp, 'mean normal energy must be flux weighted')
-    call assert_close_dp(receipts%matching_plane_feedback(1), flux_pe + flux_see, &
+    call assert_close_dp(receipts%matching_plane%feedback(1), flux_pe + flux_see, &
                          1.0e-12_dp*(flux_pe + flux_see), 'PE transmission plus SEE weight/area/time normalization')
     ! 根の脱出束は PE+SEE 合算の値で、PE の目標はその全量を持つ。追跡した SEE 脱出は各バッチの closure が差し引く。
-    root_escape_charge = qe*receipts%matching_plane_photoelectron_escape_flux_m2_s*area*batch_time
+    root_escape_charge = qe*receipts%matching_plane%photoelectron_escape_flux_m2_s*area*batch_time
     if (night) then
       call assert_equal_i32(closure%escape_partner_species(3), 0_i32, 'night has no PE to absorb the SEE escape')
       call assert_true(closure%has_absorbed_target(4) .and. closure%has_emission_target(4) .and. &
@@ -340,37 +343,36 @@ contains
     end if
     ! 窓の途中のバッチ: PE の脱出目標が差し引いた SEE 脱出とその超過が、そのバッチの share と残差になる。
     moments = 0.0_dp
-    raw_charge = 0.0_dp
+    emission_charge = 0.0_dp
     closed_charge = 0.0_dp
     unclosed_charge = 0.0_dp
-    raw_charge(12) = -0.5_dp*root_escape_charge
     closed_charge(3) = 0.25_dp*root_escape_charge
     unclosed_charge(3) = 0.1_dp*root_escape_charge
     closed_charge(4) = 0.8_dp*root_escape_charge
     unclosed_charge(4) = 0.2_dp*root_escape_charge
-    call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, 3_i32, &
-                              receipts, closure, refreshed)
+    call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, 3_i32, &
+                              receipts%matching_plane, closure, refreshed)
     call assert_true(.not. refreshed, 'a partial window must not refresh the outer root')
     if (night) then
-      call assert_close_dp(receipts%matching_plane_secondary_share, 1.0_dp, 0.0_dp, 'SEE-only outflow owns the escape')
-      call assert_close_dp(receipts%secondary_budget_residual_a_m2, 0.2_dp*root_escape_charge/(area*batch_time), &
+      call assert_close_dp(receipts%matching_plane%secondary_share, 1.0_dp, 0.0_dp, 'SEE-only outflow owns the escape')
+      call assert_close_dp(receipts%matching_plane%secondary_budget_residual_a_m2, 0.2_dp*root_escape_charge/(area*batch_time), &
                            1.0e-12_dp*root_escape_charge/(area*batch_time), &
                            'without PE the residual is the root escape the closure could not place')
     else
-      call assert_close_dp(receipts%matching_plane_secondary_share, 0.25_dp, 1.0e-12_dp, &
+      call assert_close_dp(receipts%matching_plane%secondary_share, 0.25_dp, 1.0e-12_dp, &
                            'share must be the SEE escape the PE targets absorbed')
-      call assert_close_dp(receipts%secondary_budget_residual_a_m2, 0.1_dp*root_escape_charge/(area*batch_time), &
+      call assert_close_dp(receipts%matching_plane%secondary_budget_residual_a_m2, 0.1_dp*root_escape_charge/(area*batch_time), &
                            1.0e-12_dp*root_escape_charge/(area*batch_time), 'residual must be the unabsorbed SEE escape')
     end if
-    call assert_close_dp(sum(receipts%matching_plane_photoelectron_spectrum_m2_s), flux_pe + flux_see, &
+    call assert_close_dp(sum(receipts%matching_plane%photoelectron_spectrum_m2_s), flux_pe + flux_see, &
                          1.0e-12_dp*(flux_pe + flux_see), 'combined spectrum flux conservation')
-    call assert_true(all(abs(receipts%matching_plane_photoelectron_spectrum_m2_s - &
+    call assert_true(all(abs(receipts%matching_plane%photoelectron_spectrum_m2_s - &
                              flux_pe*spectrum_pe - flux_see*spectrum_see) < 1.0e-12_dp*(flux_pe + flux_see)), &
                      'combined spectrum must retain both bin distributions')
-    if (night) call assert_true(receipts%matching_plane_response(6) < 0.0_dp, 'SEE-only outflow must permit C to A')
+    if (night) call assert_true(receipts%matching_plane%response(6) < 0.0_dp, 'SEE-only outflow must permit C to A')
     restored = receipts
-    call resumed_refresh%initialize(app, plate, restored, restored_closure)
-    call assert_close_dp(restored%matching_plane_secondary_share, receipts%matching_plane_secondary_share, 0.0_dp, &
+    call resumed_refresh%initialize(app, plate, restored%matching_plane, restored_closure)
+    call assert_close_dp(restored%matching_plane%secondary_share, receipts%matching_plane%secondary_share, 0.0_dp, &
                          'restart must retain the last share receipt')
     call assert_close_dp(restored_closure%top_field_v_m, closure%top_field_v_m, &
                          1.0e-10_dp*abs(closure%top_field_v_m), 'restart reconstructs external top field')
@@ -379,20 +381,21 @@ contains
     if (.not. night) then
       ! Empty outflow keeps the finite root; without tracked SEE escape the PE targets carry the whole root escape.
       moments = 0.0_dp
-      raw_charge = 0.0_dp
+      emission_charge = 0.0_dp
       closed_charge = 0.0_dp
       unclosed_charge = 0.0_dp
       restored = receipts
       do batch = 4, 5
-        call refresh%commit_batch(app, plate, mpi, moments, raw_charge, closed_charge, unclosed_charge, int(batch, i32), &
-                                  receipts, closure, refreshed)
+        call refresh%commit_batch(app, plate, mpi, moments, emission_charge, closed_charge, unclosed_charge, int(batch, i32), &
+                                  receipts%matching_plane, closure, refreshed)
         call assert_true(.not. refreshed, 'an empty window must keep the previous root')
       end do
-      call assert_close_dp(receipts%matching_plane_phi_v, restored%matching_plane_phi_v, 0.0_dp, 'empty-window root')
-      call assert_close_dp(receipts%matching_plane_secondary_share, 0.0_dp, 0.0_dp, 'no SEE escape gives PE share one')
-      call assert_close_dp(receipts%secondary_budget_residual_a_m2, 0.0_dp, 0.0_dp, 'no SEE escape leaves no residual')
+      call assert_close_dp(receipts%matching_plane%phi_v, restored%matching_plane%phi_v, 0.0_dp, 'empty-window root')
+      call assert_close_dp(receipts%matching_plane%secondary_share, 0.0_dp, 0.0_dp, 'no SEE escape gives PE share one')
+      call assert_close_dp(receipts%matching_plane%secondary_budget_residual_a_m2, 0.0_dp, 0.0_dp, &
+                           'no SEE escape leaves no residual')
       call assert_close_dp(-closure%escaped_particle_current_a(3), &
-                           receipts%matching_plane_photoelectron_escape_flux_m2_s*qe*area, 1.0e-24_dp, &
+                           receipts%matching_plane%photoelectron_escape_flux_m2_s*qe*area, 1.0e-24_dp, &
                            'retained-root PE target must keep the root escape')
     end if
   end subroutine check_emission_group_refresh

@@ -34,7 +34,7 @@ color: purple
 
 ## 解析方針
 
-- 最初の確認には `beachx inspect outputs/latest` を優先する。
+- 最初の確認には `beachx inspect outputs/latest` を優先する。出力は `key=value` 行で、値を機械処理するときは `--json`（`mobility`、`kernel-forces`、`coulomb`、`object-detachment`、`workload` でも可）を付ける。
 - script では `from beach import Beach` を使う。
 - `beach.toml` が output directory 近傍にあるか確認し、解析時の object label、periodic2、tree/FMM 設定に使う。
 - abnormal result では `absorbed`, `escaped_boundary`, `survived_max_step`, `last_rel_change`、charge sign/scale、mesh placement、injection を比較する。

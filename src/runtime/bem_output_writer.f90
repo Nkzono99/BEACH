@@ -206,25 +206,25 @@ contains
     print '(a,es12.4)', 'last_rel_change=', stats%last_rel_change
     print '(a,es12.4)', 'simulated_time_s=', stats%simulated_time
     print '(a,i0)', 'adaptive_nonzero_mode_rejected_trials=', &
-      stats%adaptive_nonzero_mode_rejected_trials
+      stats%adaptive_nonzero_mode%rejected_trials
     print '(a,es12.4)', 'adaptive_nonzero_mode_last_batch_duration_s=', &
-      stats%adaptive_nonzero_mode_last_batch_duration
+      stats%adaptive_nonzero_mode%last_batch_duration
     print '(a,es12.4)', 'adaptive_nonzero_mode_last_potential_step_V=', &
-      stats%adaptive_nonzero_mode_last_potential_step
+      stats%adaptive_nonzero_mode%last_potential_step
     print '(a,i0)', 'adaptive_nonzero_mode_omp_threads=', &
-      stats%adaptive_nonzero_mode_omp_threads
-    print '(a,l1)', 'matching_plane_state_valid=', stats%matching_plane_state_valid
-    if (stats%matching_plane_state_valid) then
-      print '(a,es12.4)', 'matching_plane_displacement_C_m2=', stats%matching_plane_displacement_c_m2
-      print '(a,es12.4)', 'matching_plane_phi_V=', stats%matching_plane_phi_v
-      print '(a,6(1x,es12.4))', 'matching_plane_response=', stats%matching_plane_response
-      print '(a,4(1x,es12.4))', 'matching_plane_feedback=', stats%matching_plane_feedback
+      stats%adaptive_nonzero_mode%omp_threads
+    print '(a,l1)', 'matching_plane_state_valid=', stats%matching_plane%state_valid
+    if (stats%matching_plane%state_valid) then
+      print '(a,es12.4)', 'matching_plane_displacement_C_m2=', stats%matching_plane%displacement_c_m2
+      print '(a,es12.4)', 'matching_plane_phi_V=', stats%matching_plane%phi_v
+      print '(a,6(1x,es12.4))', 'matching_plane_response=', stats%matching_plane%response
+      print '(a,4(1x,es12.4))', 'matching_plane_feedback=', stats%matching_plane%feedback
       print '(a,es12.4)', 'matching_plane_photoelectron_return_flux_m2_s=', &
-        stats%matching_plane_photoelectron_return_flux_m2_s
+        stats%matching_plane%photoelectron_return_flux_m2_s
       print '(a,es12.4)', 'matching_plane_photoelectron_escape_flux_m2_s=', &
-        stats%matching_plane_photoelectron_escape_flux_m2_s
-      print '(a,i0)', 'matching_plane_iterations=', stats%matching_plane_iterations
-      print '(a,es12.4)', 'matching_plane_residual=', stats%matching_plane_residual
+        stats%matching_plane%photoelectron_escape_flux_m2_s
+      print '(a,i0)', 'matching_plane_iterations=', stats%matching_plane%iterations
+      print '(a,es12.4)', 'matching_plane_residual=', stats%matching_plane%residual
     end if
     print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
     dielectric_count = count_dielectric_surfaces(mesh)

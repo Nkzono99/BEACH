@@ -48,11 +48,18 @@ def test_beachx_profile_saves_png_and_reports_top_regions(
     assert save_path.is_file()
     assert save_path.stat().st_size > 0
     assert f"saved={save_path}" in streams.out
-    assert "top_regions_by_rank_max_s=" in streams.out
-    assert streams.out.index("program_total:") < streams.out.index("simulation_total:")
-    assert streams.out.index("simulation_total:") < streams.out.index("particle_batch:")
-    assert streams.out.index("particle_batch:") < streams.out.index("field_refresh:")
-    assert "commit_charge:" not in streams.out
+    assert "metric=rank_max_s" in streams.out
+    regions = [
+        line.split()[0].removeprefix("region=")
+        for line in streams.out.splitlines()
+        if line.startswith("region=")
+    ]
+    assert regions == [
+        "program_total",
+        "simulation_total",
+        "particle_batch",
+        "field_refresh",
+    ]
 
 
 def test_beachx_profile_rejects_missing_required_column(tmp_path: Path) -> None:

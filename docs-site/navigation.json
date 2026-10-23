@@ -36,7 +36,7 @@
     {"source": "models/BorisPusher.md", "slug": "boris-pusher", "order": 181, "description": "予測中点場、Boris速度回転、台形位置更新。"},
     {"source": "developer/ParticleEvents.md", "slug": "particle-events", "order": 182, "description": "mesh衝突とbox境界をperiodic imageまで含めて比較する。"},
     {"source": "developer/PeriodicFarCorrection.md", "slug": "periodic-far-correction", "order": 185, "description": "periodic2のEwald teacher、遠方operator、cache。"},
-    {"source": "reference/PythonPostprocessAPI.md", "slug": "python-postprocess-api", "order": 190, "description": "Python後処理APIのリファレンス。"},
+    {"source": "reference/PythonPostprocessAPI.md", "slug": "python-postprocess-api", "order": 190, "description": "Python APIで結果を読み込み、kernelを再利用して解析する。"},
     {"source": "developer/Architecture.md", "slug": "architecture", "order": 200, "description": "runtime実行フロー、state所有者、source・test・docs対応。"},
     {"source": "developer/Workflow.md", "slug": "workflow", "order": 210, "description": "開発環境、変更別テスト、KUDPC開発workflow。"},
     {"source": "developer/PhysicsReleaseVerification.md", "slug": "physics-release-verification", "order": 220, "description": "物理リリースの判定項目と収束基準。"},
@@ -258,7 +258,12 @@
         {
           "type": "page",
           "slug": "python-postprocess-api",
-          "label": "Python API"
+          "label": "Python API の使い方"
+        },
+        {
+          "type": "external",
+          "label": "Python API リファレンス",
+          "link": "https://nkzono99.github.io/BEACH/python/"
         },
         {
           "type": "external",

@@ -1,11 +1,13 @@
+
+from beach.io.types import RunField, RunMesh, RunSummary
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import beach.fortran_results.kernel as kernel_module
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.field_kernel as field_kernel_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     calc_object_forces_kernel,
     FieldKernel,
@@ -13,7 +15,7 @@ from beach import (
     FieldKernelError,
     FieldKernelOptions,
     FieldReconstructionReceipt,
-    FortranRunResult,
+    RunResult,
     ObjectInteractionSnapshot,
     RigidTransform,
 )
@@ -45,25 +47,29 @@ def _result(
     mesh_ids: np.ndarray,
     *,
     source_model: str = "triangle_p0",
-) -> FortranRunResult:
-    return FortranRunResult(
+) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=len(charges),
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.asarray(charges, dtype=float),
-        triangles=_triangles_at(positions),
-        mesh_ids=np.asarray(mesh_ids, dtype=np.int64),
-        field_source_model=source_model,
+        summary=RunSummary(
+            mesh_nelem=len(charges),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=_triangles_at(positions),
+            mesh_ids=np.asarray(mesh_ids, dtype=np.int64),
+        ),
+        field=RunField(source_model=source_model),
     )
 
 
-def _two_object_result(directory: Path) -> FortranRunResult:
+def _two_object_result(directory: Path) -> RunResult:
     return _result(
         directory,
         np.array([[1.0, 1.0, 1.0], [2.0, 1.0, 2.0]]),
@@ -593,7 +599,7 @@ def test_snapshot_defensively_copies_saved_source_arrays(
         config_path=config,
     )
     result.charges[:] = 99.0
-    result.triangles[:] = 99.0  # type: ignore[index]
+    result.mesh.triangles[:] = 99.0  # type: ignore[index]
 
     np.testing.assert_array_equal(snapshot.source_charges_C, expected_charges)
     np.testing.assert_allclose(snapshot.source_positions_m[0], [1.0, 1.0, 1.0])
@@ -648,15 +654,19 @@ def test_field_receipt_makes_cached_object_interaction_self_contained_and_author
     fake_native,
     config_mode: str,
 ) -> None:
+    base_result = _result(
+        tmp_path,
+        np.array([[1.0, 1.0, 1.0]]),
+        np.array([1.0]),
+        np.array([1]),
+    )
     result = replace(
-        _result(
-            tmp_path,
-            np.array([[1.0, 1.0, 1.0]]),
-            np.array([1.0]),
-            np.array([1]),
-        ),
-        field_reconstruction=_cached_field_receipt(
-            lower_boundary_model="symmetric_vacuum"
+        base_result,
+        receipts=replace(
+            base_result.receipts,
+            field_reconstruction=_cached_field_receipt(
+                lower_boundary_model="symmetric_vacuum"
+            ),
         ),
     )
     expected_bottom_field = -1.0 / (2.0 * interaction_module._EPS0_F_M * 16.0)
@@ -996,7 +1006,7 @@ def test_legacy_object_force_helper_still_zeros_the_target_periodic_lattice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _LegacyCaptureKernel.instances.clear()
-    monkeypatch.setattr(kernel_module, "FieldKernel", _LegacyCaptureKernel)
+    monkeypatch.setattr(field_kernel_module, "FieldKernel", _LegacyCaptureKernel)
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
     result = _two_object_result(tmp_path)
@@ -1096,7 +1106,7 @@ def test_periodic_snapshot_connects_one_mesh_across_the_cell_seam(
         assert not snapshot.source_triangles_m.flags.writeable
         assert (
             snapshot.source_triangles_m.tobytes()
-            == np.asarray(result.triangles).tobytes()
+            == np.asarray(result.mesh.triangles).tobytes()
         )
         assert np.ptp(snapshot.source_positions_m[:, 0]) == pytest.approx(3.6)
         assert np.ptp(periodic.source_positions[:, 0]) == pytest.approx(3.6)
@@ -1130,7 +1140,7 @@ def test_free_snapshot_keeps_saved_geometry_bitwise(
         np.array([1.0, 2.0]),
         np.array([1, 1]),
     )
-    saved = np.asarray(result.triangles)
+    saved = np.asarray(result.mesh.triangles)
 
     with ObjectInteractionSnapshot.from_result(
         result,
@@ -1161,20 +1171,21 @@ def test_periodic_full_cell_plane_uses_concentration_fallback(
             p01 = np.array([x0, y1, 1.0])
             triangles.extend((np.array([p00, p10, p11]), np.array([p00, p11, p01])))
     saved = np.asarray(triangles)
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=saved.shape[0],
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.ones(saved.shape[0]),
-        triangles=saved,
-        mesh_ids=np.ones(saved.shape[0], dtype=np.int64),
-        field_source_model="triangle_p0",
+        summary=RunSummary(
+            mesh_nelem=saved.shape[0],
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=saved, mesh_ids=np.ones(saved.shape[0], dtype=np.int64)),
+        field=RunField(source_model="triangle_p0"),
     )
 
     with ObjectInteractionSnapshot.from_result(
@@ -1205,20 +1216,21 @@ def test_wrench_checks_transformed_triangle_vertices_before_native_evaluation(
             [[0.5, 0.0, 0.0], [0.7, 0.0, 0.0], [0.5, 0.2, 0.0]],
         ]
     )
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([1.0, 2.0]),
-        triangles=triangles,
-        mesh_ids=np.array([1, 2]),
-        field_source_model="triangle_p0",
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1, 2])),
+        field=RunField(source_model="triangle_p0"),
     )
 
     with ObjectInteractionSnapshot.from_result(

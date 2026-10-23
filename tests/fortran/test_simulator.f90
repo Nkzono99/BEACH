@@ -3,6 +3,7 @@ program test_simulator
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_simulator, only: run_absorption_insulator, apply_fixed_surface_current_closure
+  use bem_run_outputs, only: run_outputs_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_mpi, only: mpi_context
   use bem_particle_stepper, only: particle_substep_needs_halving, particle_substep_energy_floor_j
@@ -17,6 +18,8 @@ program test_simulator
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, delete_file_if_exists
   implicit none
+
+  type(run_outputs_type) :: run_outputs
 
   type(mesh_type) :: mesh
   type(mesh_type) :: mesh_tree
@@ -163,9 +166,8 @@ program test_simulator
   call delete_file_if_exists(history_path)
   open (newunit=u, file=history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator history fixture'
-  call run_absorption_insulator( &
-    mesh, cfg, stats, history_unit=u, history_stride=1_i32, charge_ledger=charge_ledger &
-    )
+  run_outputs = run_outputs_type(history_unit=u, history_stride=1_i32)
+  call run_absorption_insulator(mesh, cfg, stats, charge_ledger=charge_ledger, outputs=run_outputs)
   close (u)
 
   call assert_equal_i64(stats%processed_particles, 4_i64, 'processed_particles mismatch')
@@ -175,19 +177,19 @@ program test_simulator
   call assert_equal_i64(stats%survived_max_step, 0_i64, 'survived_max_step mismatch')
   call assert_equal_i32(stats%batches, 1_i32, 'batch count mismatch')
   call assert_equal_i64( &
-    stats%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    stats%adaptive_nonzero_mode%rejected_trials, 0_i64, &
     'non-adaptive run must not record rejected adaptive trials' &
     )
   call assert_equal_i32( &
-    stats%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    stats%adaptive_nonzero_mode%omp_threads, 0_i32, &
     'non-adaptive run must not record an adaptive OpenMP team size' &
     )
   call assert_close_dp( &
-    stats%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    stats%adaptive_nonzero_mode%last_batch_duration, 0.0_dp, 0.0_dp, &
     'non-adaptive run must not record an adaptive batch duration' &
     )
   call assert_close_dp( &
-    stats%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    stats%adaptive_nonzero_mode%last_potential_step, 0.0_dp, 0.0_dp, &
     'non-adaptive run must not record an adaptive potential step' &
     )
   call assert_close_dp(mesh%q_elem(1), 5.0d0, 1.0d-12, 'deposited charge mismatch')
@@ -254,9 +256,9 @@ program test_simulator
   if (ios /= 0) error stop 'failed to open simulator potential history fixture'
   open (newunit=u_top, file=top_reference_history_path, status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'failed to open simulator top-reference history fixture'
+  run_outputs = run_outputs_type(potential_history_unit=u, top_reference_history_unit=u_top, history_stride=1_i32)
   call run_absorption_insulator( &
-    mesh_potential_history, cfg_potential_history, stats_potential_history, &
-    potential_history_unit=u, top_reference_history_unit=u_top, history_stride=1_i32 &
+    mesh_potential_history, cfg_potential_history, stats_potential_history, outputs=run_outputs &
     )
   close (u)
   close (u_top)
@@ -303,10 +305,10 @@ program test_simulator
   stats_seed%batches = 7_i32
   stats_seed%last_rel_change = 1.0d-3
   ! schema v7以前のnon-adaptive出力が誤って保持した値をresume時に除去する。
-  stats_seed%adaptive_nonzero_mode_rejected_trials = 9_i64
-  stats_seed%adaptive_nonzero_mode_last_batch_duration = 0.25_dp
-  stats_seed%adaptive_nonzero_mode_last_potential_step = 3.0_dp
-  stats_seed%adaptive_nonzero_mode_omp_threads = 4_i32
+  stats_seed%adaptive_nonzero_mode%rejected_trials = 9_i64
+  stats_seed%adaptive_nonzero_mode%last_batch_duration = 0.25_dp
+  stats_seed%adaptive_nonzero_mode%last_potential_step = 3.0_dp
+  stats_seed%adaptive_nonzero_mode%omp_threads = 4_i32
   call run_absorption_insulator(mesh_resume, cfg, stats_resume, initial_stats=stats_seed)
 
   call assert_equal_i64(stats_resume%processed_particles, 14_i64, 'resume processed_particles mismatch')
@@ -316,19 +318,19 @@ program test_simulator
   call assert_equal_i64(stats_resume%survived_max_step, 3_i64, 'resume survived_max_step mismatch')
   call assert_equal_i32(stats_resume%batches, 8_i32, 'resume batches mismatch')
   call assert_equal_i64( &
-    stats_resume%adaptive_nonzero_mode_rejected_trials, 0_i64, &
+    stats_resume%adaptive_nonzero_mode%rejected_trials, 0_i64, &
     'non-adaptive resume must clear stale adaptive rejected trials' &
     )
   call assert_equal_i32( &
-    stats_resume%adaptive_nonzero_mode_omp_threads, 0_i32, &
+    stats_resume%adaptive_nonzero_mode%omp_threads, 0_i32, &
     'non-adaptive resume must clear stale adaptive OpenMP team size' &
     )
   call assert_close_dp( &
-    stats_resume%adaptive_nonzero_mode_last_batch_duration, 0.0_dp, 0.0_dp, &
+    stats_resume%adaptive_nonzero_mode%last_batch_duration, 0.0_dp, 0.0_dp, &
     'non-adaptive resume must clear stale adaptive batch duration' &
     )
   call assert_close_dp( &
-    stats_resume%adaptive_nonzero_mode_last_potential_step, 0.0_dp, 0.0_dp, &
+    stats_resume%adaptive_nonzero_mode%last_potential_step, 0.0_dp, 0.0_dp, &
     'non-adaptive resume must clear stale adaptive potential step' &
     )
   call assert_close_dp(mesh_resume%q_elem(1), 5.0d0, 1.0d-12, 'resume deposited charge mismatch')
@@ -1325,7 +1327,7 @@ contains
     call assert_close_dp(workspace%fixed_absorbed_weight_scale(1), 3.5_dp, 1.0e-12_dp, 'PE return scale')
     call assert_close_dp(workspace%fixed_absorbed_target_charge(1) + workspace%fixed_emission_target_charge(1) + &
                          workspace%fixed_escape_target_charge(1), 0.0_dp, 1.0e-12_dp, 'PE channel continuity')
-    call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(6), &
+    call assert_close_dp(-workspace%fixed_escape_target_charge(1) - workspace%fixed_current_charge_values(2, 3), &
                          escape_current, 1.0e-12_dp, 'PE and SEE escape must add up to the root escape')
     call assert_true(all(workspace%fixed_escape_closed_charge(2:) == 0.0_dp), 'SEE itself has no partner')
 

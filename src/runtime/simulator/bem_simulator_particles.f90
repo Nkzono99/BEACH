@@ -17,10 +17,6 @@ contains
 
   batch_idx = stats%batches + 1_i32
   call workspace%reset_before_injection()
-  collision_failure_status = collision_query_ok
-  collision_failure_species = huge(0_i32)
-  collision_failure_ray = huge(0_i32)
-  collision_failure_bounce = 0_i32
   if (trim(app%sim%particle_distribution) == 'shared') then
     ! The pool mode only fixes the global layout here; slots are generated while they are claimed.
     call build_batch_injection_layout( &
@@ -37,12 +33,10 @@ contains
   call init_particle_batch_from_config( &
     app, batch_idx, pcls_batch, inject_state, mesh=mesh, &
     photo_emission_dq_by_species=workspace%photo_emission_dq, &
-    mpi=mpi, collision_failure_status=collision_failure_status, &
-    collision_failure_species=collision_failure_species, collision_failure_ray=collision_failure_ray, &
-    collision_failure_bounce=collision_failure_bounce, snapshot=snapshot, source_plan=source_plan, &
+    mpi=mpi, photo_failure=photo_failure, snapshot=snapshot, source_plan=source_plan, &
     slot_ids=slot_ids &
     )
-  if (collision_failure_status /= collision_query_ok) return
+  if (photo_failure%status /= collision_query_ok) return
   call workspace%prepare_particle_flags(pcls_batch%n)
   ! Boundary and secondary-emission draws are keyed on the global slot, as in the shared pool.
   workspace%rng_id(1:pcls_batch%n) = int(slot_ids, i64)
@@ -74,11 +68,6 @@ contains
 
   nth = size(workspace%dq_thread, 2)
   actual_team_size = nth
-  collision_failure_status = collision_query_ok
-  collision_failure_particle = huge(0_i32)
-  collision_failure_step = 0_i32
-  collision_failure_x = 0.0_dp
-  collision_failure_v = 0.0_dp
   thread_step_counts = 0_i64
   pool_claims = 0_i64
   pool_claim_seconds = 0.0_dp
@@ -222,7 +211,7 @@ contains
       !$omp end do
       !$omp end parallel
     end if
-    if (collision_failure_status /= collision_query_ok) exit
+    if (track_failure%status /= collision_query_ok) exit
     if (sum(spawn%n) == 0_i32) exit
     call append_spawned_particles(first_particle, last_particle)
   end do
@@ -574,13 +563,9 @@ contains
     integer(i32), intent(in) :: status, particle_index, particle_step
     real(dp), intent(in) :: failure_x(3), failure_v(3)
     !$omp critical (beach_collision_query_failure)
-    if (collision_failure_status == collision_query_ok .or. particle_index < collision_failure_particle .or. &
-        (particle_index == collision_failure_particle .and. particle_step < collision_failure_step)) then
-      collision_failure_status = status
-      collision_failure_particle = particle_index
-      collision_failure_step = particle_step
-      collision_failure_x = failure_x
-      collision_failure_v = failure_v
+    if (track_failure%status == collision_query_ok .or. particle_index < track_failure%particle .or. &
+        (particle_index == track_failure%particle .and. particle_step < track_failure%step)) then
+      track_failure = particle_track_failure_type(status, particle_index, particle_step, failure_x, failure_v)
     end if
     !$omp end critical (beach_collision_query_failure)
   end subroutine record_collision_failure
