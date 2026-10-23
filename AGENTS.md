@@ -30,7 +30,7 @@ models until a current change actually implements them; preserve only minimal ex
 Python utilities:
 - `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` (builds Python + Fortran `beach` binary via `make`)
 - `python -m pip install -U pip setuptools wheel`
-- `python -m pip install -e . --no-build-isolation`
+- `python -m pip install -e '.[dev]' --no-build-isolation`
 
 Fortran execution/testing requires a Fortran compiler (`gfortran` etc.) and `fpm`.
 
@@ -51,9 +51,10 @@ Python CLI examples:
 ## Tests / quality
 - Python tests: `pytest -q`
 - Python lint: `ruff check .`
+- Python type check: `make python-type-check` (strict summary and shared configuration modules)
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
-  - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, JSON schema parse checks, `make check`)
+  - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, `mypy`, JSON schema parse checks, `make check`)
   - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
   - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
