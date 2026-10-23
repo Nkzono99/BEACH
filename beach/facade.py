@@ -1,37 +1,37 @@
-"""Object-oriented facade for one Fortran output directory."""
+"""Session facade for one Fortran output directory."""
 
 from __future__ import annotations
 
+import functools
+import inspect
+import textwrap
 from pathlib import Path
-from typing import Iterable, Literal, Mapping, TYPE_CHECKING
+from typing import Any, Callable, Mapping
 
 import numpy as np
 
 from .analysis._selection import _build_mesh_selection
 from .analysis.context import RunContext
 from .analysis.coulomb import calc_coulomb
-from .analysis.field_kernel import calc_object_forces_kernel, field_kernel_from_result
+from .analysis.field_kernel import (
+    _require_total_field_config,
+    calc_object_forces_kernel,
+    field_kernel_from_result,
+)
 from .analysis.field_lines import compute_electric_field_points, trace_field_lines
 from .analysis.mobility import analyze_coulomb_mobility
 from .analysis.object_interaction import ObjectInteractionSnapshot
 from .analysis.potential import (
+    _uses_saved_mesh_potential,
     compute_potential_mesh,
     compute_potential_points,
     compute_potential_slices,
 )
-from .analysis.scene import BeachScene, TransformBackend
+from .analysis.scene import BeachScene
 from .io.results import load_fortran_result
-from .io.types import FortranRunResult, MeshSelection
+from .io.types import FortranRunResult
 from .native.kernel import FieldKernel
 from .native.periodic2 import coerce_periodic2
-from .plot._defaults import (
-    DEFAULT_CHARGE_CMAP,
-    DEFAULT_FIELD_LINE_CMAP,
-    DEFAULT_FORCE_CMAP,
-    DEFAULT_MESH_VIEW_AZIM,
-    DEFAULT_MESH_VIEW_ELEV,
-    DEFAULT_POTENTIAL_CMAP,
-)
 from .plot.animation import animate_history_mesh
 from .plot.boxplot import plot_mesh_source_boxplot
 from .plot.field_lines import plot_field_lines_3d
@@ -39,8 +39,84 @@ from .plot.matrix import plot_coulomb_force_matrix
 from .plot.mesh import plot_charge_mesh, plot_charges, plot_potential_mesh
 from .plot.slices import plot_potential_slices
 
-if TYPE_CHECKING:
-    from matplotlib.animation import FuncAnimation
+_NO_KERNEL = object()
+_PLAN_ARGUMENTS = ("periodic2", "theta", "leaf_max", "order")
+
+
+def _forward(
+    func: Callable[..., Any],
+    *,
+    kernel_step: object = _NO_KERNEL,
+    needs_kernel: Callable[["Beach", Mapping[str, Any]], bool] | None = None,
+) -> Callable[..., Any]:
+    """Expose ``func`` as a ``Beach`` method that keeps its signature and defaults.
+
+    The method passes the session as ``result`` and the session's
+    ``library_path`` when none is given. With ``kernel_step`` it also passes the
+    cached :meth:`Beach.kernel` for the call's plan arguments, unless the caller
+    gives ``kernel``, ``config_path``, or another ``library_path`` (those calls
+    build their own kernel), or ``needs_kernel`` says this call evaluates none.
+    """
+
+    signature = inspect.signature(func)
+    parameters = list(signature.parameters.values())
+    method_signature = signature.replace(
+        parameters=[
+            inspect.Parameter("self", inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            *parameters[1:],
+        ]
+    )
+    accepted = method_signature.parameters
+
+    @functools.wraps(func)
+    def method(self: "Beach", *args: Any, **kwargs: Any) -> Any:
+        bound = method_signature.bind(self, *args, **kwargs)
+        bound.apply_defaults()
+        arguments = dict(bound.arguments)
+        del arguments["self"]
+        library_path = arguments.get("library_path")
+        own_plan = (
+            arguments.get("kernel") is not None
+            or arguments.get("config_path") is not None
+            or (library_path is not None and Path(library_path) != self.library_path)
+        )
+        if "library_path" in accepted and library_path is None:
+            arguments["library_path"] = self.library_path
+        if (
+            kernel_step is not _NO_KERNEL
+            and not own_plan
+            and (needs_kernel is None or needs_kernel(self, arguments))
+        ):
+            _require_total_field_config(self.context, operation=func.__name__)
+            arguments["kernel"] = self.kernel(
+                step=kernel_step,
+                **{name: arguments[name] for name in _PLAN_ARGUMENTS if name in accepted},
+            )
+        return func(self, **arguments)
+
+    method.__signature__ = method_signature  # type: ignore[attr-defined]
+    target = f"{func.__module__}.{func.__qualname__}"
+    note = f"Session method for :func:`{target}` with this run as ``result``."
+    if "library_path" in accepted:
+        note += " ``library_path`` defaults to the session's."
+    if kernel_step is not _NO_KERNEL:
+        note += (
+            " A kernel-evaluating call receives the cached :meth:`Beach.kernel` for "
+            "its plan arguments as ``kernel``; passing ``kernel``, ``config_path``, "
+            "or another ``library_path`` builds a kernel for the call instead."
+        )
+    method.__doc__ = f"{inspect.cleandoc(func.__doc__ or '')}\n\n{textwrap.fill(note, 88)}"
+    return method
+
+
+def _potential_needs_kernel(run: "Beach", arguments: Mapping[str, Any]) -> bool:
+    return not _uses_saved_mesh_potential(
+        run,
+        source=arguments["source"],
+        periodic2=arguments["periodic2"],
+        reference_point=arguments["reference_point"],
+        kernel=None,
+    )
 
 
 class Beach:
@@ -256,815 +332,45 @@ class Beach:
             return tuple(mesh.charges.copy() for mesh in selection)
         return selection.charges.copy()
 
-    def calc_coulomb(
-        self,
-        target: int | MeshSelection | Iterable[int | MeshSelection],
-        source: int | MeshSelection | Iterable[int | MeshSelection],
-        *,
-        step: int | None = -1,
-        torque_origin: Literal[
-            "target_center",
-            "source_center",
-            "origin",
-            "group_a_center",
-            "group_b_center",
-        ] = "target_center",
-        periodic2: Mapping[str, object] | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Compute Coulomb force/torque from source acting on target.
+    calc_coulomb = _forward(calc_coulomb, kernel_step=-1)
+    analyze_coulomb_mobility = _forward(analyze_coulomb_mobility)
+    object_interaction_snapshot = _forward(ObjectInteractionSnapshot.from_result)
+    calc_object_forces_kernel = _forward(calc_object_forces_kernel, kernel_step=-1)
+    scene = _forward(BeachScene.from_result)
+    plot_mesh = _forward(plot_charge_mesh)
+    plot_bar = _forward(plot_charges)
+    compute_potential = _forward(
+        compute_potential_mesh,
+        kernel_step=None,
+        needs_kernel=_potential_needs_kernel,
+    )
+    compute_potential_points = _forward(compute_potential_points, kernel_step=None)
+    compute_potential_slices = _forward(compute_potential_slices, kernel_step=None)
+    plot_potential = _forward(
+        plot_potential_mesh,
+        kernel_step=None,
+        needs_kernel=_potential_needs_kernel,
+    )
+    plot_potential_slices = _forward(plot_potential_slices, kernel_step=None)
+    plot_mesh_source_boxplot = _forward(plot_mesh_source_boxplot)
+    plot_coulomb_force_matrix = _forward(
+        plot_coulomb_force_matrix,
+        kernel_step=-1,
+        needs_kernel=lambda _run, arguments: arguments["workers"] == 1,
+    )
+    animate_mesh = _forward(
+        animate_history_mesh,
+        kernel_step=-1,
+        needs_kernel=lambda _run, arguments: str(arguments["quantity"]).lower()
+        == "potential",
+    )
+    compute_electric_field = _forward(compute_electric_field_points, kernel_step=-1)
+    trace_field_lines = _forward(trace_field_lines, kernel_step=-1)
+    plot_field_lines = _forward(plot_field_lines_3d, kernel_step=-1)
 
-        Parameters
-        ----------
-        target : int, MeshSelection, or iterable of those
-            Target mesh group (group A).
-        source : int, MeshSelection, or iterable of those
-            Source mesh group (group B).
-        step : int or None, default -1
-            History step used to select charges.
-        torque_origin : {"target_center", "source_center", "origin", "group_a_center", "group_b_center"}, default "target_center"
-            Torque reference point.
-        periodic2 : mapping or None, default None
-            Two-axis periodic boundary setting. ``None`` の場合は出力
-            ディレクトリ近傍の ``beach.toml`` から自動判定。
 
-        Returns
-        -------
-        CoulombInteraction
-            Aggregated force/torque summary.
-        """
-
-        return calc_coulomb(
-            self,
-            target,
-            source,
-            step=step,
-            torque_origin=torque_origin,
-            periodic2=periodic2,
-            library_path=library_path,
-        )
-
-    def analyze_coulomb_mobility(
-        self,
-        *,
-        step: int | None = -1,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-        gravity: Iterable[float] = (0.0, 0.0, -9.81),
-        support_normal: Iterable[float] | None = None,
-        support_kinds: Iterable[str] | None = ("plane",),
-        target_kinds: Iterable[str] | None = None,
-        density_kg_m3: float | None = None,
-        mu_static: float | None = None,
-        mu_roll: float | None = None,
-        adhesion_force_N: float = 0.0,
-    ):
-        """Analyze per-object Coulomb mobility indicators."""
-
-        return analyze_coulomb_mobility(
-            self,
-            step=step,
-            config_path=config_path,
-            library_path=library_path,
-            gravity=gravity,
-            support_normal=support_normal,
-            support_kinds=support_kinds,
-            target_kinds=target_kinds,
-            density_kg_m3=density_kg_m3,
-            mu_static=mu_static,
-            mu_roll=mu_roll,
-            adhesion_force_N=adhesion_force_N,
-        )
-
-    def object_interaction_snapshot(
-        self,
-        *,
-        step: int | None = -1,
-        config_path: str | Path | None = None,
-        periodic_model: str = "configured",
-        cache_dir: str | Path | None = None,
-        generation_tolerance: float | None = None,
-        library_path: str | Path | None = None,
-    ) -> ObjectInteractionSnapshot:
-        """Build a frozen-source periodic object interaction snapshot."""
-
-        return ObjectInteractionSnapshot.from_result(
-            self,
-            step=step,
-            config_path=config_path,
-            periodic_model=periodic_model,
-            cache_dir=cache_dir,
-            generation_tolerance=generation_tolerance,
-            library_path=library_path,
-        )
-
-    def calc_object_forces_kernel(
-        self,
-        *,
-        step: int | None = -1,
-        target_mesh_ids: int | Iterable[int] | None = None,
-        periodic2: Mapping[str, object] | None = None,
-        theta: float | None = None,
-        leaf_max: int | None = None,
-        order: int | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Compute object-wise net force using the resolved native field kernel."""
-
-        return calc_object_forces_kernel(
-            self,
-            step=step,
-            target_mesh_ids=target_mesh_ids,
-            periodic2=periodic2,
-            theta=theta,
-            leaf_max=leaf_max,
-            order=order,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def scene(
-        self,
-        *,
-        step: int | None = -1,
-        config_path: str | Path | None = None,
-        transform_backend: TransformBackend = "numpy",
-    ) -> BeachScene:
-        """Create an editable what-if scene for this output snapshot."""
-
-        return BeachScene.from_result(
-            self,
-            step=step,
-            config_path=config_path,
-            transform_backend=transform_backend,
-        )
-
-    def plot_mesh(
-        self,
-        *,
-        cmap: str = DEFAULT_CHARGE_CMAP,
-        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
-        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
-        periodic2: Mapping[str, object] | None = None,
-        apply_periodic2_mesh: bool = False,
-        periodic2_mesh_mode: str = "centroid",
-        periodic2_repeat: int = 0,
-        axis_unit: str = "m",
-    ):
-        """Plot a 3D mesh colored by surface charge density.
-
-        Parameters
-        ----------
-        cmap : str, default "coolwarm"
-            Matplotlib colormap name.
-        view_elev : float, default 24.0
-            Elevation angle in degrees.
-        view_azim : float, default -58.0
-            Azimuth angle in degrees.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting used when ``apply_periodic2_mesh=True``.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        apply_periodic2_mesh : bool, default False
-            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
-            適用して描画する。
-        periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
-            周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示する。
-        periodic2_repeat : int, default 0
-            周期イメージの複製数。``0`` は複製なし。
-        axis_unit : {"m", "um", "nm"}, default "m"
-            Coordinate unit used for 3D axes.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_charge_mesh(
-            self,
-            cmap=cmap,
-            view_elev=view_elev,
-            view_azim=view_azim,
-            periodic2=periodic2,
-            apply_periodic2_mesh=apply_periodic2_mesh,
-            periodic2_mesh_mode=periodic2_mesh_mode,
-            periodic2_repeat=periodic2_repeat,
-            axis_unit=axis_unit,
-        )
-
-    def plot_bar(self):
-        """Plot per-element charges as a bar chart.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_charges(self)
-
-    def compute_potential(
-        self,
-        *,
-        periodic2: Mapping[str, object] | None = None,
-        reference_point: Iterable[float] | str | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ) -> np.ndarray:
-        """Compute potential values at triangle centroids.
-
-        Parameters
-        ----------
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting. See
-            :func:`beach.compute_potential_mesh`.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。
-
-        Returns
-        -------
-        numpy.ndarray
-            Potential values in volts with shape ``(mesh_nelem,)``.
-        """
-
-        return compute_potential_mesh(
-            self,
-            periodic2=periodic2,
-            reference_point=reference_point,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def compute_potential_points(
-        self,
-        points: np.ndarray,
-        *,
-        chunk_size: int = 2048,
-        periodic2: Mapping[str, object] | None = None,
-        reference_point: Iterable[float] | str | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ) -> np.ndarray:
-        """Compute potential values at arbitrary 3D points.
-
-        Parameters
-        ----------
-        points : numpy.ndarray
-            Sampling points with shape ``(n_points, 3)``.
-        chunk_size : int, default 2048
-            Number of points processed per chunk.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting. See
-            :func:`beach.compute_potential_points`.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。
-
-        Returns
-        -------
-        numpy.ndarray
-            Potential values in volts with shape ``(n_points,)``.
-        """
-
-        return compute_potential_points(
-            self,
-            points,
-            chunk_size=chunk_size,
-            periodic2=periodic2,
-            reference_point=reference_point,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def compute_potential_slices(
-        self,
-        *,
-        box_min: Iterable[float],
-        box_max: Iterable[float],
-        grid_n: int = 200,
-        xy_z: float | None = None,
-        yz_x: float | None = None,
-        xz_y: float | None = None,
-        chunk_size: int = 2048,
-        periodic2: Mapping[str, object] | None = None,
-        reference_point: Iterable[float] | str | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Compute potential slices on XY/YZ/XZ planes.
-
-        Parameters
-        ----------
-        box_min : iterable of float
-            Lower simulation-box corner ``[x, y, z]``.
-        box_max : iterable of float
-            Upper simulation-box corner ``[x, y, z]``.
-        grid_n : int, default 200
-            Grid size per slice axis.
-        xy_z : float or None, default None
-            Z coordinate of XY slice.
-        yz_x : float or None, default None
-            X coordinate of YZ slice.
-        xz_y : float or None, default None
-            Y coordinate of XZ slice.
-        chunk_size : int, default 2048
-            Sampling chunk size.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting. See
-            :func:`beach.compute_potential_points`.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。
-
-        Returns
-        -------
-        dict[str, PotentialSlice2D]
-            Slice data keyed by ``"xy"``, ``"yz"``, and ``"xz"``.
-        """
-
-        return compute_potential_slices(
-            self,
-            box_min=box_min,
-            box_max=box_max,
-            grid_n=grid_n,
-            xy_z=xy_z,
-            yz_x=yz_x,
-            xz_y=xz_y,
-            chunk_size=chunk_size,
-            periodic2=periodic2,
-            reference_point=reference_point,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def plot_potential(
-        self,
-        *,
-        cmap: str = DEFAULT_POTENTIAL_CMAP,
-        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
-        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
-        periodic2: Mapping[str, object] | None = None,
-        apply_periodic2_mesh: bool = False,
-        periodic2_mesh_mode: str = "centroid",
-        periodic2_repeat: int = 0,
-        reference_point: Iterable[float] | str | None = None,
-        axis_unit: str = "m",
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Plot a 3D mesh colored by reconstructed electric potential.
-
-        Parameters
-        ----------
-        cmap : str, default "viridis"
-            Matplotlib colormap name.
-        view_elev : float, default 24.0
-            Elevation angle in degrees.
-        view_azim : float, default -58.0
-            Azimuth angle in degrees.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting. See
-            :func:`beach.compute_potential_mesh`.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        apply_periodic2_mesh : bool, default False
-            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
-            適用して描画する。
-        periodic2_mesh_mode : {"centroid", "mesh"}, default "centroid"
-            周期セルへ wrap する単位。``"mesh"`` は粒子を割らずに表示する。
-        periodic2_repeat : int, default 0
-            周期イメージの複製数。``0`` は複製なし。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。``None`` は絶対電位。
-        axis_unit : {"m", "um", "nm"}, default "m"
-            Coordinate unit used for 3D axes.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_potential_mesh(
-            self,
-            cmap=cmap,
-            view_elev=view_elev,
-            view_azim=view_azim,
-            periodic2=periodic2,
-            apply_periodic2_mesh=apply_periodic2_mesh,
-            periodic2_mesh_mode=periodic2_mesh_mode,
-            periodic2_repeat=periodic2_repeat,
-            reference_point=reference_point,
-            axis_unit=axis_unit,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def plot_potential_slices(
-        self,
-        *,
-        box_min: Iterable[float],
-        box_max: Iterable[float],
-        grid_n: int = 200,
-        xy_z: float | None = None,
-        yz_x: float | None = None,
-        xz_y: float | None = None,
-        chunk_size: int = 2048,
-        cmap: str = DEFAULT_POTENTIAL_CMAP,
-        vmin: float | None = None,
-        vmax: float | None = None,
-        periodic2: Mapping[str, object] | None = None,
-        reference_point: Iterable[float] | str | None = None,
-        axis_unit: str = "m",
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Plot XY/YZ/XZ potential slices with a shared color scale.
-
-        Parameters
-        ----------
-        box_min : iterable of float
-            Lower simulation-box corner ``[x, y, z]``.
-        box_max : iterable of float
-            Upper simulation-box corner ``[x, y, z]``.
-        grid_n : int, default 200
-            Grid size per slice axis.
-        xy_z : float or None, default None
-            Z coordinate of XY slice.
-        yz_x : float or None, default None
-            X coordinate of YZ slice.
-        xz_y : float or None, default None
-            Y coordinate of XZ slice.
-        chunk_size : int, default 2048
-            Sampling chunk size.
-        cmap : str, default "viridis"
-            Matplotlib colormap name.
-        vmin : float or None, default None
-            Lower color limit.
-        vmax : float or None, default None
-            Upper color limit.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting. See
-            :func:`beach.compute_potential_points`.
-            ``None`` の場合は出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。``None`` は絶対電位。
-        axis_unit : {"m", "um", "nm"}, default "m"
-            Coordinate unit used for slice axes.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes_array)`` from matplotlib.
-        """
-
-        return plot_potential_slices(
-            self,
-            box_min=box_min,
-            box_max=box_max,
-            grid_n=grid_n,
-            xy_z=xy_z,
-            yz_x=yz_x,
-            xz_y=xz_y,
-            chunk_size=chunk_size,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            periodic2=periodic2,
-            reference_point=reference_point,
-            axis_unit=axis_unit,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def plot_mesh_source_boxplot(
-        self,
-        *,
-        quantity: str = "charge",
-        step: int | None = -1,
-        showfliers: bool = True,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Plot area-weighted boxplots per mesh source.
-
-        Parameters
-        ----------
-        quantity : {"charge", "potential"}, default "charge"
-            Quantity used in boxplot values.
-        step : int or None, default -1
-            History batch step used for charge snapshot.
-            ``None`` uses final charges from ``charges.csv``.
-        showfliers : bool, default True
-            Whether outlier markers are rendered.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_mesh_source_boxplot(
-            self,
-            quantity=quantity,
-            step=step,
-            showfliers=showfliers,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def plot_coulomb_force_matrix(
-        self,
-        *,
-        step: int | None = -1,
-        component: str = "z",
-        target_kinds: Iterable[str] | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-        cmap: str = DEFAULT_FORCE_CMAP,
-        annotate: bool = True,
-        workers: int = 1,
-    ):
-        """Plot an object-wise Coulomb-force matrix.
-
-        Parameters
-        ----------
-        step : int or None, default -1
-            History batch step used for charge snapshot.
-            ``None`` uses final charges from ``charges.csv``.
-        component : {"x", "y", "z"}, default "z"
-            Force component rendered in the matrix.
-        target_kinds : iterable of str or None, default None
-            Template kinds used as target objects. ``None`` means all objects.
-        config_path : str, pathlib.Path, or None, default None
-            Optional ``beach.toml`` path used for object labels/order.
-            ``None`` auto-detects near ``output_dir``.
-        cmap : str, default "coolwarm"
-            Matplotlib colormap name.
-        annotate : bool, default True
-            Whether to draw scientific-notation values inside each cell.
-        workers : int, default 1
-            Number of worker processes used for source/target force entries.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_coulomb_force_matrix(
-            self,
-            step=step,
-            component=component,
-            target_kinds=target_kinds,
-            config_path=config_path,
-            library_path=library_path,
-            cmap=cmap,
-            annotate=annotate,
-            workers=workers,
-        )
-
-    def animate_mesh(
-        self,
-        output_path: str | Path | None = None,
-        *,
-        quantity: Literal["charge", "potential"] = "charge",
-        fps: int = 10,
-        frame_stride: int = 1,
-        total_frames: int | None = None,
-        cmap: str | None = None,
-        periodic2: Mapping[str, object] | None = None,
-        apply_periodic2_mesh: bool = False,
-        periodic2_repeat: int = 0,
-        reference_point: Iterable[float] | str | None = None,
-        view_elev: float | None = None,
-        view_azim: float | None = None,
-        library_path: str | Path | None = None,
-    ) -> Path | FuncAnimation:
-        """Animate charge or potential history on the 3D surface mesh.
-
-        Parameters
-        ----------
-        output_path : str or pathlib.Path or None, default None
-            GIF output path. If ``None``, return a live animation object.
-        quantity : {"charge", "potential"}, default "charge"
-            Quantity used for per-face coloring.
-        fps : int, default 10
-            Frames per second.
-        frame_stride : int, default 1
-            Use every ``frame_stride``-th snapshot.
-        total_frames : int or None, default None
-            Number of evenly sampled frames.
-        cmap : str or None, default None
-            Matplotlib colormap name.
-        periodic2 : mapping or None, default None
-            Two-axis periodic setting for potential mode. ``None`` の場合は
-            出力ディレクトリ近傍の ``beach.toml`` から自動判定。
-        apply_periodic2_mesh : bool, default False
-            ``True`` の場合、triangle 重心を周期セルへ wrap する平行移動を各 face に
-            適用して描画する。
-        periodic2_repeat : int, default 0
-            周期イメージの複製数。``0`` は複製なし。
-        reference_point : iterable of float, {"species1_injection_center"}, or None, default None
-            基準電位を差し引く参照点。``None`` は絶対電位。
-        view_elev : float or None, default None
-            3D view elevation angle in degrees.
-        view_azim : float or None, default None
-            3D view azimuth angle in degrees.
-
-        Returns
-        -------
-        pathlib.Path or matplotlib.animation.FuncAnimation
-            Output GIF path or in-memory animation.
-        """
-
-        return animate_history_mesh(
-            self,
-            output_path=output_path,
-            quantity=quantity,
-            fps=fps,
-            frame_stride=frame_stride,
-            total_frames=total_frames,
-            cmap=cmap,
-            periodic2=periodic2,
-            apply_periodic2_mesh=apply_periodic2_mesh,
-            periodic2_repeat=periodic2_repeat,
-            reference_point=reference_point,
-            view_elev=view_elev,
-            view_azim=view_azim,
-            library_path=library_path,
-        )
-
-    def compute_electric_field(
-        self,
-        points: np.ndarray,
-        *,
-        chunk_size: int = 2048,
-        periodic2: Mapping[str, object] | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ) -> np.ndarray:
-        """Compute the electric field vector at arbitrary 3D points.
-
-        Parameters
-        ----------
-        points : numpy.ndarray
-            Sampling points with shape ``(n_points, 3)``.
-        chunk_size : int, default 2048
-            Number of points processed per chunk.
-        periodic2 : mapping or None, default None
-            Two-axis periodic boundary setting. ``None`` で自動判定。
-
-        Returns
-        -------
-        numpy.ndarray
-            Electric field vectors in V/m with shape ``(n_points, 3)``.
-        """
-
-        return compute_electric_field_points(
-            self,
-            points,
-            chunk_size=chunk_size,
-            periodic2=periodic2,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def trace_field_lines(
-        self,
-        seed_points: np.ndarray,
-        *,
-        ds: float | None = None,
-        max_steps: int = 500,
-        periodic2: Mapping[str, object] | None = None,
-        direction: str = "both",
-        box_min: Iterable[float] | None = None,
-        box_max: Iterable[float] | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ) -> list[np.ndarray]:
-        """Trace electric field lines from seed points.
-
-        Parameters
-        ----------
-        seed_points : numpy.ndarray
-            Starting points with shape ``(n_seeds, 3)``.
-        ds : float or None
-            Integration step size. ``None`` で自動設定。
-        max_steps : int, default 500
-            Maximum steps per direction.
-        periodic2 : mapping or None
-            Periodic setting. ``None`` で自動判定。
-        direction : {"both", "forward", "backward"}
-            Tracing direction.
-        box_min, box_max : iterable of float or None
-            Bounding box for termination.
-
-        Returns
-        -------
-        list of numpy.ndarray
-            Each element is shape ``(n_points_i, 3)``.
-        """
-
-        return trace_field_lines(
-            self,
-            seed_points,
-            ds=ds,
-            max_steps=max_steps,
-            periodic2=periodic2,
-            direction=direction,
-            box_min=box_min,
-            box_max=box_max,
-            config_path=config_path,
-            library_path=library_path,
-        )
-
-    def plot_field_lines(
-        self,
-        seed_points: np.ndarray,
-        *,
-        ds: float | None = None,
-        max_steps: int = 500,
-        periodic2: Mapping[str, object] | None = None,
-        direction: str = "both",
-        box_min: Iterable[float] | None = None,
-        box_max: Iterable[float] | None = None,
-        show_mesh: bool = True,
-        mesh_alpha: float = 0.25,
-        mesh_cmap: str = DEFAULT_CHARGE_CMAP,
-        line_color: str | None = None,
-        line_cmap: str = DEFAULT_FIELD_LINE_CMAP,
-        line_width: float = 1.2,
-        view_elev: float = DEFAULT_MESH_VIEW_ELEV,
-        view_azim: float = DEFAULT_MESH_VIEW_AZIM,
-        title: str = "Electric field lines",
-        figsize: tuple[float, float] = (9, 7),
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Plot 3D electric field lines with optional mesh overlay.
-
-        Parameters
-        ----------
-        seed_points : numpy.ndarray
-            Starting points with shape ``(n_seeds, 3)``.
-        ds : float or None
-            Integration step size.
-        max_steps : int
-            Maximum steps per direction.
-        periodic2 : mapping or None
-            Periodic setting.
-        direction : {"both", "forward", "backward"}
-            Tracing direction.
-        box_min, box_max : iterable of float or None
-            Bounding box.
-        show_mesh : bool, default True
-            Overlay mesh surface.
-        mesh_alpha : float, default 0.25
-            Mesh transparency.
-        mesh_cmap : str, default "coolwarm"
-            Mesh colormap.
-        line_color : str or None
-            Fixed line color.
-        line_cmap : str, default "plasma"
-            Colormap for lines.
-        line_width : float, default 1.2
-            Line width.
-        view_elev : float, default 24.0
-            Elevation angle.
-        view_azim : float, default -58.0
-            Azimuth angle.
-        title : str
-            Plot title.
-        figsize : tuple of float
-            Figure size.
-
-        Returns
-        -------
-        tuple
-            ``(figure, axes)`` from matplotlib.
-        """
-
-        return plot_field_lines_3d(
-            self,
-            seed_points,
-            ds=ds,
-            max_steps=max_steps,
-            periodic2=periodic2,
-            direction=direction,
-            box_min=box_min,
-            box_max=box_max,
-            show_mesh=show_mesh,
-            mesh_alpha=mesh_alpha,
-            mesh_cmap=mesh_cmap,
-            line_color=line_color,
-            line_cmap=line_cmap,
-            line_width=line_width,
-            view_elev=view_elev,
-            view_azim=view_azim,
-            title=title,
-            figsize=figsize,
-            config_path=config_path,
-            library_path=library_path,
-        )
+for _name, _member in vars(Beach).items():
+    if hasattr(_member, "__wrapped__"):
+        _member.__name__ = _name
+        _member.__qualname__ = f"Beach.{_name}"
+del _name, _member

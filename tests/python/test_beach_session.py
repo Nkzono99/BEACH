@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+import beach
 import beach.analysis.field_kernel as field_kernel_module
-from beach import Beach
+import beach.analysis.potential as potential_module
+from beach import Beach, BeachScene, ObjectInteractionSnapshot
 
 
 class _RecordingKernel:
@@ -22,6 +25,28 @@ class _RecordingKernel:
 
     def close(self) -> None:
         self.closed = True
+
+    def __enter__(self) -> "_RecordingKernel":
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
+
+    @property
+    def source_charges(self) -> np.ndarray:
+        return self.charges.copy()
+
+    def update_charges(self, charges: np.ndarray) -> None:
+        self.charges = np.asarray(charges, dtype=float).copy()
+
+    def eval_phi(self, points: np.ndarray) -> np.ndarray:
+        return np.zeros(np.asarray(points).shape[0])
+
+    def eval_e(self, points: np.ndarray) -> np.ndarray:
+        return np.zeros((np.asarray(points).shape[0], 3))
+
+    def force_on_charges(self, points, charges, *, origin):
+        return np.zeros(3), np.zeros(3)
 
 
 def _write_run(out: Path) -> Path:
@@ -43,7 +68,12 @@ def _write_run(out: Path) -> Path:
         "2,1,0.0,1,2.0e-9\n",
         encoding="utf-8",
     )
-    (out / "beach.toml").write_text("[sim]\ntree_theta = 0.3\n", encoding="utf-8")
+    (out / "mesh_potential.csv").write_text(
+        "elem_idx,potential_V\n1,5.0\n", encoding="utf-8"
+    )
+    (out / "beach.toml").write_text(
+        '[sim]\ntree_theta = 0.3\nfield_bc_mode = "free"\n', encoding="utf-8"
+    )
     return out
 
 
@@ -51,6 +81,7 @@ def _write_run(out: Path) -> Path:
 def _recording_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
     _RecordingKernel.built = []
     monkeypatch.setattr(field_kernel_module, "FieldKernel", _RecordingKernel)
+    monkeypatch.setattr(potential_module, "FieldKernel", _RecordingKernel)
 
 
 def test_kernel_is_cached_per_plan_and_closed_with_the_session(tmp_path: Path) -> None:
@@ -90,3 +121,55 @@ def test_context_owns_the_session_config(tmp_path: Path) -> None:
     assert run.context.config_path == explicit
     assert run.context.result is run.result
     assert run.kernel().options.theta == pytest.approx(0.9)
+
+
+def test_methods_share_the_session_kernel_and_keep_its_charges(tmp_path: Path) -> None:
+    out = _write_run(tmp_path / "run")
+
+    with Beach(out) as run:
+        np.testing.assert_allclose(run.compute_potential(), np.array([5.0]))
+        assert _RecordingKernel.built == []
+        run.compute_potential(source="kernel")
+        run.compute_electric_field(np.array([[0.0, 0.0, 1.0]]))
+        run.calc_object_forces_kernel()
+        run.compute_potential_points(np.array([[0.0, 0.0, 1.0]]), library_path=tmp_path)
+
+    assert len(_RecordingKernel.built) == 2
+    shared, own_library = _RecordingKernel.built
+    np.testing.assert_allclose(shared.charges, np.array([2.0e-9]))
+    assert shared.closed and own_library.closed
+
+
+_FORWARDED = {
+    "calc_coulomb": beach.calc_coulomb,
+    "analyze_coulomb_mobility": beach.analyze_coulomb_mobility,
+    "object_interaction_snapshot": ObjectInteractionSnapshot.from_result,
+    "calc_object_forces_kernel": beach.calc_object_forces_kernel,
+    "scene": BeachScene.from_result,
+    "plot_mesh": beach.plot_charge_mesh,
+    "plot_bar": beach.plot_charges,
+    "compute_potential": beach.compute_potential_mesh,
+    "compute_potential_points": beach.compute_potential_points,
+    "compute_potential_slices": beach.compute_potential_slices,
+    "plot_potential": beach.plot_potential_mesh,
+    "plot_potential_slices": beach.plot_potential_slices,
+    "plot_mesh_source_boxplot": beach.plot_mesh_source_boxplot,
+    "plot_coulomb_force_matrix": beach.plot_coulomb_force_matrix,
+    "animate_mesh": beach.animate_history_mesh,
+    "compute_electric_field": beach.compute_electric_field_points,
+    "trace_field_lines": beach.trace_field_lines,
+    "plot_field_lines": beach.plot_field_lines_3d,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_FORWARDED))
+def test_methods_show_the_module_signature_and_docstring(name: str) -> None:
+    function = _FORWARDED[name]
+    method = getattr(Beach, name)
+
+    function_parameters = list(inspect.signature(function).parameters.values())
+    method_parameters = list(inspect.signature(method).parameters.values())
+    assert method_parameters[0].name == "self"
+    assert method_parameters[1:] == function_parameters[1:]
+    assert method.__name__ == name
+    assert inspect.getdoc(method).startswith(inspect.getdoc(function))
