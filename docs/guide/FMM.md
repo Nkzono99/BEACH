@@ -128,8 +128,7 @@ beachx inspect outputs/direct
 beachx inspect outputs/fmm
 ```
 
-同じ評価点での電場と電位は、[電場計算](../reference/PythonPostprocessAPI.md#6-電場計算)と
-[電位再構成](../reference/PythonPostprocessAPI.md#4-電位再構成)を使って比較できます。
+同じ評価点での電場と電位は、[電位と電場の Python API](../reference/PythonPostprocessAPI.md#電位と電場)で比較できます。
 基準場がほぼ 0 の点では相対誤差が不安定になるため、絶対誤差または代表場で正規化した誤差も使ってください。
 solver 誤差が合格した後に代表的な複数 batch へ延長し、吸収・escape 数、要素別の最終電荷、
 `charge_ledger.csv` も比較します。許容値は研究目的に応じて先に決め、

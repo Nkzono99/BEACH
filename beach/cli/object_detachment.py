@@ -16,21 +16,11 @@ from typing import Any
 
 import numpy as np
 
-from beach import (
-    AdhesionProfile,
-    FieldKernelError,
-    ObjectInteractionSnapshot,
-    load_fortran_result,
-)
+from beach import AdhesionProfile, Beach
 
-from ._shared import (
-    configure_entry_parser,
-    require_finite,
-    require_nonnegative_finite,
-    require_positive_finite,
-)
+from . import _options
+from ._output import emit
 
-COMMAND_NAME = "object-detachment"
 _INSTANTANEOUS_FIELDS = (
     "component",
     "component_kind",
@@ -80,14 +70,15 @@ _ARTIFACT_NAMES = (
 )
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("output_dir", help="Fortran output directory")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="beach.toml used by the simulation",
-    )
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``object-detachment`` options.
+
+    The path and release options are checked here because the library checks
+    them only after the snapshot and the path have been evaluated.
+    """
+
+    _options.add_output_dir(parser)
+    _options.add_config(parser, required=True)
     parser.add_argument("--target-mesh-id", type=int, required=True)
     parser.add_argument(
         "--periodic-model",
@@ -95,35 +86,27 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         required=True,
         help="use the saved finite-image policy or cached infinite-periodic field",
     )
-    parser.add_argument("--z-max-m", type=float, required=True)
-    parser.add_argument("--z-points", type=int, required=True)
-    parser.add_argument("--mass-kg", type=float, required=True)
+    parser.add_argument("--z-max-m", type=_options.positive_float, required=True)
+    parser.add_argument("--z-points", type=_z_points, required=True)
+    parser.add_argument("--mass-kg", type=_options.positive_float, required=True)
     parser.add_argument(
         "--gravity-m-s2",
-        type=float,
+        type=_options.nonnegative_float,
         default=1.62,
         help="gravity used for release mechanics (default: lunar 1.62 m/s^2)",
     )
     parser.add_argument("--adhesion-force-n", type=float, default=None)
     parser.add_argument("--adhesion-range-m", type=float, default=None)
-    parser.add_argument("--eta-translation", type=float, default=1.0)
+    parser.add_argument("--eta-translation", type=_eta_translation, default=1.0)
     parser.add_argument(
         "--torque-origin",
+        type=_torque_origin,
         default="geometric-area-centroid",
         help="geometric-area-centroid, origin, or X,Y,Z in metres",
     )
-    parser.add_argument(
-        "--step",
-        type=_parse_step,
-        default=None,
-        metavar="final|BATCH",
-        help=(
-            "charge snapshot: final uses charges.csv (default); an integer selects "
-            "that stored history batch, and -1 selects the last stored history row"
-        ),
-    )
+    _options.add_step(parser, default=None)
     parser.add_argument("--cache-dir", type=Path, default=None)
-    parser.add_argument("--library", type=Path, default=None)
+    _options.add_library(parser)
     parser.add_argument(
         "--generation-tolerance",
         type=float,
@@ -135,139 +118,80 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="disable adaptive midpoint refinement of the initial z grid",
     )
-    parser.add_argument("--relative-tolerance", type=float, default=5.0e-3)
+    parser.add_argument(
+        "--relative-tolerance", type=_options.nonnegative_float, default=5.0e-3
+    )
     parser.add_argument(
         "--force-absolute-tolerance-n",
-        type=float,
+        type=_options.nonnegative_float,
         default=1.0e-12,
     )
     parser.add_argument(
         "--work-absolute-tolerance-j",
-        type=float,
+        type=_options.nonnegative_float,
         default=1.0e-18,
     )
-    parser.add_argument("--max-refinement", type=int, default=8)
-    parser.add_argument(
-        "--output-dir",
-        dest="artifact_dir",
-        type=Path,
-        default=None,
-        help="artifact directory (default: OUTPUT_DIR/object_detachment_mesh_<id>)",
-    )
+    parser.add_argument("--max-refinement", type=_options.nonnegative_int, default=8)
+    _options.add_save_dir(parser, default="<output_dir>/object_detachment_mesh_<id>")
+    _options.add_json(parser)
 
 
-def build_parser(*, prog: str | None = COMMAND_NAME) -> argparse.ArgumentParser:
-    """Build the parser for the object-detachment CLI."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this command under the unified ``beachx`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="evaluate periodic object force, work, and release speed",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
+def _z_points(value: str) -> int:
+    parsed = int(value)
+    if parsed < 2:
+        raise argparse.ArgumentTypeError("must be >= 2")
+    return parsed
 
 
-def _parse_step(value: str) -> int | None:
-    normalized = value.strip().lower()
-    if normalized == "final":
-        return None
-    try:
-        return int(normalized)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "step must be final or an integer batch."
-        ) from exc
+def _eta_translation(value: str) -> float:
+    parsed = _options.finite_float(value)
+    if not 0.0 <= parsed <= 1.0:
+        raise argparse.ArgumentTypeError("must be between 0 and 1")
+    return parsed
 
 
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, beach: Beach) -> None:
     """Evaluate one object and write deterministic review artifacts."""
 
-    parser = args._parser
-    require_positive_finite(parser, args.mass_kg, "--mass-kg")
-    require_positive_finite(parser, args.z_max_m, "--z-max-m")
-    require_nonnegative_finite(parser, args.gravity_m_s2, "--gravity-m-s2")
-    require_finite(parser, args.eta_translation, "--eta-translation")
-    if not 0.0 <= args.eta_translation <= 1.0:
-        parser.error("--eta-translation must be between 0 and 1.")
-    if args.z_points < 2:
-        parser.error("--z-points must be >= 2.")
-    if args.max_refinement < 0:
-        parser.error("--max-refinement must be >= 0.")
-    require_nonnegative_finite(
-        parser,
-        args.relative_tolerance,
-        "--relative-tolerance",
-    )
-    require_nonnegative_finite(
-        parser,
-        args.force_absolute_tolerance_n,
-        "--force-absolute-tolerance-n",
-    )
-    require_nonnegative_finite(
-        parser,
-        args.work_absolute_tolerance_j,
-        "--work-absolute-tolerance-j",
-    )
-    require_positive_finite(
-        parser,
-        args.generation_tolerance,
-        "--generation-tolerance",
-    )
-    adhesion = _adhesion_from_args(parser, args)
-    torque_origin = _parse_torque_origin(parser, args.torque_origin)
+    adhesion = _adhesion_from_args(args)
 
-    run_dir = Path(args.output_dir)
-    artifact_dir = args.artifact_dir or (
+    run_dir = args.output_dir
+    artifact_dir = args.save_dir or (
         run_dir / f"object_detachment_mesh_{args.target_mesh_id}"
     )
     requested_model = args.periodic_model
-    api_model = requested_model.replace("-", "_")
     displacement = np.linspace(0.0, args.z_max_m, args.z_points)
 
-    try:
-        result = load_fortran_result(run_dir)
-        charge_source, resolved_charge_batch = _resolve_charge_provenance(
-            result,
-            args.step,
+    result = beach.result
+    charge_source, resolved_charge_batch = _resolve_charge_provenance(
+        result,
+        args.step,
+    )
+    with beach.object_interaction_snapshot(
+        step=args.step,
+        periodic_model=requested_model.replace("-", "_"),
+        cache_dir=args.cache_dir,
+        generation_tolerance=args.generation_tolerance,
+    ) as snapshot:
+        probe = snapshot.object_probe(args.target_mesh_id)
+        wrench = probe.wrench(torque_origin=args.torque_origin, components=True)
+        path = probe.vertical_path(
+            displacement,
+            adaptive=not args.fixed_grid,
+            relative_tolerance=args.relative_tolerance,
+            force_absolute_tolerance_N=args.force_absolute_tolerance_n,
+            work_absolute_tolerance_J=args.work_absolute_tolerance_j,
+            max_refinement=args.max_refinement,
+            torque_origin=args.torque_origin,
+            components=True,
         )
-        with ObjectInteractionSnapshot.from_result(
-            result,
-            step=args.step,
-            config_path=args.config,
-            periodic_model=api_model,
-            cache_dir=args.cache_dir,
-            generation_tolerance=args.generation_tolerance,
-            library_path=args.library,
-        ) as snapshot:
-            probe = snapshot.object_probe(args.target_mesh_id)
-            wrench = probe.wrench(torque_origin=torque_origin, components=True)
-            path = probe.vertical_path(
-                displacement,
-                adaptive=not args.fixed_grid,
-                relative_tolerance=args.relative_tolerance,
-                force_absolute_tolerance_N=args.force_absolute_tolerance_n,
-                work_absolute_tolerance_J=args.work_absolute_tolerance_j,
-                max_refinement=args.max_refinement,
-                torque_origin=torque_origin,
-                components=True,
-            )
-            resolved_snapshot_step = snapshot.step
-        release = path.evaluate_release(
-            mass_kg=args.mass_kg,
-            gravity_m_s2=args.gravity_m_s2,
-            adhesion=adhesion,
-            eta_translation=args.eta_translation,
-        )
-    except (FileNotFoundError, ValueError, FieldKernelError) as exc:
-        raise SystemExit(str(exc)) from exc
+        resolved_snapshot_step = snapshot.step
+    release = path.evaluate_release(
+        mass_kg=args.mass_kg,
+        gravity_m_s2=args.gravity_m_s2,
+        adhesion=adhesion,
+        eta_translation=args.eta_translation,
+    )
 
     summary = _build_summary(
         args=args,
@@ -290,12 +214,20 @@ def run(args: argparse.Namespace) -> None:
     }
     artifact_dir.mkdir(parents=True, exist_ok=True)
     _replace_artifact_set(artifact_dir, artifacts)
-    print(f"saved_dir={artifact_dir}")
-    print(f"force_z_N={wrench.force_N[2]:.6e}")
-    print(f"barrier_free_from_rest={release.barrier_free_from_rest}")
     release_summary = summary["release"]
     assert isinstance(release_summary, Mapping)
-    print(f"numerically_qualified={release_summary['numerically_qualified']}")
+    emit(
+        args,
+        {
+            **{
+                f"saved_{Path(name).stem}": artifact_dir / name
+                for name in _ARTIFACT_NAMES
+            },
+            "force_z_N": wrench.force_N[2],
+            "barrier_free_from_rest": release.barrier_free_from_rest,
+            "numerically_qualified": release_summary["numerically_qualified"],
+        },
+    )
 
 
 def _resolve_charge_provenance(
@@ -303,36 +235,28 @@ def _resolve_charge_provenance(
     step: int | None,
 ) -> tuple[str, int]:
     if step is None:
-        return "charges.csv", int(result.batches)
+        return "charges.csv", int(result.summary.batches)
     if step != -1:
         return "charge_history.csv", int(step)
-    history = result.history
+    history = result.history.charge
     if history is not None and history.has_data:
         return "charge_history.csv", int(history.batch_indices[-1])
-    return "charges.csv", int(result.batches)
+    return "charges.csv", int(result.summary.batches)
 
 
-def _adhesion_from_args(
-    parser: argparse.ArgumentParser,
-    args: argparse.Namespace,
-) -> AdhesionProfile:
+def _adhesion_from_args(args: argparse.Namespace) -> AdhesionProfile:
     force = args.adhesion_force_n
     extent = args.adhesion_range_m
     if (force is None) != (extent is None):
-        parser.error(
+        args._parser.error(
             "--adhesion-force-n and --adhesion-range-m must be supplied together."
         )
     if force is None:
         return AdhesionProfile.none()
-    require_positive_finite(parser, force, "--adhesion-force-n")
-    require_positive_finite(parser, extent, "--adhesion-range-m")
     return AdhesionProfile.finite_range_constant(force, extent)
 
 
-def _parse_torque_origin(
-    parser: argparse.ArgumentParser,
-    value: str,
-) -> str | np.ndarray:
+def _torque_origin(value: str) -> str | np.ndarray:
     normalized = value.strip().lower()
     if normalized == "geometric-area-centroid":
         return "geometric_area_centroid"
@@ -346,8 +270,8 @@ def _parse_torque_origin(
     except ValueError:
         result = np.empty(0)
     if result.shape != (3,) or not np.all(np.isfinite(result)):
-        parser.error(
-            "--torque-origin must be geometric-area-centroid, origin, or X,Y,Z."
+        raise argparse.ArgumentTypeError(
+            "must be geometric-area-centroid, origin, or X,Y,Z."
         )
     return result
 
@@ -755,13 +679,3 @@ def _json_value(value: object) -> object:
         }
     raise TypeError(f"unsupported JSON value: {type(value).__name__}")
 
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the object-detachment CLI entry point."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

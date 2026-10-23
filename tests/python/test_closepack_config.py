@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.closepack_config import (
+from beach.tooling.closepack_config import (
     ClosePackSpec,
     build_closepack_config,
     default_base_config,
@@ -141,7 +141,7 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
     assert schema_errors(tomllib.loads(path.read_text()), schema) == []
 
 
-def test_generate_closepack_config_script_writes_expected_file(tmp_path: Path) -> None:
+def test_beachx_model_close_pack_module_writes_expected_file(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     base_path = tmp_path / "base.toml"
     output_path = tmp_path / "beach.toml"
@@ -153,7 +153,10 @@ def test_generate_closepack_config_script_writes_expected_file(tmp_path: Path) -
     completed = subprocess.run(
         [
             sys.executable,
-            str(repo_root / "examples" / "generate_closepack_config.py"),
+            "-m",
+            "beach.cli.main",
+            "model",
+            "close-pack",
             str(base_path),
             "--layers",
             "3",

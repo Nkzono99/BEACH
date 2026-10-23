@@ -16,23 +16,23 @@ BEACH の出力について、**どのファイルが生成されるか、どの
 
 | ファイル | 生成条件 | 形式と用途 | Python reader / 再開 |
 | --- | --- | --- | --- |
-| `summary.txt` | `output.enabled=true` | `key=value` receipt。[完了判定と主要 key](#構成固有の値を探す) | `FortranRunResult` の各属性。再開に必須 |
+| `summary.txt` | `output.enabled=true` | `key=value` receipt。[完了判定と主要 key](#構成固有の値を探す) | `RunResult` の各属性。再開に必須 |
 | `charges.csv` | `output.enabled=true` | `elem_idx`, `charge_C`。要素ごとの最終 signed charge | `result.charges`。再開に必須 |
-| `mesh_triangles.csv` | `output.enabled=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.triangles`, `result.mesh_ids`。再開には不使用 |
-| `mesh_sources.csv` | OBJ または template mesh で `output.enabled=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh_sources`。再開には不使用 |
-| `mesh_potential.csv` | `output.enabled=true` かつ `output.final.mesh_potential=true` | `elem_idx`, `potential_V`。[電位の構成](#mesh-電位) | `result.mesh_potential_v`。再開には不使用 |
-| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history`。再開には不使用 |
-| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `FortranRunResult` 専用属性なし。CSV を直接読む |
-| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V`, `switch_phi_rms_mismatch_V`, `switch_Ez_rms_mismatch_V_m` | `FortranRunResult` 専用属性なし。CSV を直接読む |
+| `mesh_triangles.csv` | `output.enabled=true` | `elem_idx`, `v0x`, `v0y`, `v0z`, `v1x`, `v1y`, `v1z`, `v2x`, `v2y`, `v2z`, `charge_C`, `mesh_id` | `result.mesh.triangles`, `result.mesh.mesh_ids`。再開には不使用 |
+| `mesh_sources.csv` | OBJ または template mesh で `output.enabled=true` | `mesh_id`, `source_kind`, `template_kind`, `surface_model`, `epsilon_r`, `elem_count` | `result.mesh.mesh_sources`。再開には不使用 |
+| `mesh_potential.csv` | `output.enabled=true` かつ `output.final.mesh_potential=true` | `elem_idx`, `potential_V`。[電位の構成](#mesh-電位) | `result.mesh.mesh_potential_v`。再開には不使用 |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C` | `result.history.charge`。再開には不使用 |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。[基準電位との結合](#履歴) | `result.history.potential`。再開には不使用 |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V`, `switch_phi_rms_mismatch_V`, `switch_Ez_rms_mismatch_V_m` | `result.top_reference_history`。再開には不使用 |
 | `matching_plane_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、[`outflow_refresh_batches>0` の `zhao_stationary`](#zhao_stationary) | [21 列の外部状態](#zhao_stationary) | `result.matching_plane_history`。再開には不使用 |
-| `matching_plane_spectrum_history.csv` | `matching_plane_history.csv` と同じ | [外部源スペクトル](#zhao_stationary)の正の bin ごとに `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
-| `fixed_current_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、`zhao_stationary` または `charging.closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `FortranRunResult` 専用属性なし。CSV を直接読む。再開には不使用 |
+| `matching_plane_spectrum_history.csv` | `matching_plane_history.csv` と同じ | [外部源スペクトル](#zhao_stationary)の正の bin ごとに `batch`, `simulated_time_s`, `bin`, `energy_low_eV`, `energy_high_eV`, `photoelectron_outward_flux_m2_s` | `result.matching_plane_spectrum_history`。再開には不使用 |
+| `fixed_current_history.csv` | `output.enabled=true`、`output.history.stride_batches>0`、`zhao_stationary` または `charging.closure="fixed_current"` の species あり | [species・channel ごとの追跡電荷と目標電荷](#固定電流の倍率) | `result.fixed_current_history`。再開には不使用 |
 | `secondary_emission_history.csv` | 出力有効、SEE 有効な入射種あり。受理バッチごと | `batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count` | `result.secondary_emission_history`。再開には不使用 |
-| `charge_ledger.csv` | `output.enabled=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.charge_ledger`。summary に ledger metadata があれば再開に必須 |
-| `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `FortranRunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
-| `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `FortranRunResult` 属性なし。schema v8 以降は再開に必須 |
+| `charge_ledger.csv` | `output.enabled=true` かつ charge ledger state あり | [species ごとの 25 列](#charge-ledger) | `result.ledger`。summary に ledger metadata があれば再開に必須 |
+| `macro_residuals.csv` | `output.enabled=true` かつ macro 粒子数の残差 state あり | `species_idx`, `face`, `residual` | `RunResult` 属性なし。schema v8 以降は manifest 宣言時に再開に必須 |
+| `checkpoint_complete.txt` | `output.enabled=true`。final output と各 periodic slot | `key=value` 完了 manifest。[意味と選択規則](#再開に使うファイル) | `RunResult` 属性なし。schema v8 以降は再開に必須 |
 | `checkpoint_latest.txt` | `output.enabled=true` かつ `output.checkpoint.stride_batches>0` で該当 accepted batch の commit 後 | periodic slot の案内 | reader の候補選択 hint であり、完全性の証拠ではない |
-| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `beach-plot-performance-profile <output_dir>`。再開には不使用 |
+| `performance_profile.csv` | `BEACH_PROFILE=1` かつ `output.enabled=true` | コメント行後に `region`, `calls_sum`, `calls_mean`, `rank_min_s`, `rank_mean_s`, `rank_max_s`, `imbalance_ratio` | `result.performance_profile`、`load_performance_profile`、`beachx profile <output_dir>`。再開には不使用 |
 
 Python reader の必須入力は `summary.txt` と `charges.csv` です。他のファイルは設定または runtime state に
 応じて省略されます。
@@ -41,8 +41,8 @@ Python reader の必須入力は `summary.txt` と `charges.csv` です。他の
 
 `summary.txt` は `output.enabled=true` で生成される `key=value` ファイルです。
 
-`load_fortran_result(...)` は主要値を `FortranRunResult` の属性へ変換し、型付きでない receipt は
-`beach.summary.load_summary_file(...)` から読めます。
+`load_run(...)` は主要値を `RunResult` の属性へ変換し、型付きでない receipt は
+`beach.io.summary.load_summary_file(...)` から読めます。
 
 ### 完了判定
 
@@ -63,7 +63,7 @@ Python reader の必須入力は `summary.txt` と `charges.csv` です。他の
 
 以下は結果の読解と再開判断に使う主要 receipt です。`summary.txt` のすべての内部診断 key を固定 API として
 列挙する節ではありません。全 producer は [`bem_output_writer.f90`](../../src/runtime/bem_output_writer.f90)、
-Python が型付き属性へ変換する key は [`io.py`](../../beach/fortran_results/io.py)を正本とします。
+Python が型付き属性へ変換する scalar key は [`summary.py`](../../beach/io/summary.py) の `SUMMARY_FIELDS` を正本とします。
 
 | receipt | 内容 |
 | --- | --- |
@@ -99,10 +99,53 @@ build receipt は次の 5 key です。
 | `multiple_box_events_soft_discard_fraction` | `processed_particles` に対する soft-discard の割合 |
 | `multiple_box_events_soft_discarded_abs_charge_C` | soft-discard した絶対電荷の総量 [C] |
 
+### Python が型付きで読む scalar
+
+この表は `beach.io.summary.SUMMARY_FIELDS` から生成します。
+`PYTHONPATH=. python tools/generate_summary_reference.py` で更新し、`--check` で同期を確認します。
+
+<!-- BEGIN GENERATED SUMMARY FIELDS -->
+
+| summary.txt key | RunResult attribute | Type | Required / default |
+|---|---|---|---|
+| `mesh_nelem` | `summary.mesh_nelem` | `nonnegative_int` | required |
+| `processed_particles` | `summary.processed_particles` | `nonnegative_int` | required |
+| `absorbed` | `summary.absorbed` | `nonnegative_int` | required |
+| `escaped` | `summary.escaped` | `nonnegative_int` | required |
+| `batches` | `summary.batches` | `nonnegative_int` | required |
+| `last_rel_change` | `summary.last_rel_change` | `nonnegative_float` | required |
+| `escaped_boundary` | `summary.escaped_boundary` | `nonnegative_int` | `0` |
+| `survived_max_step` | `summary.survived_max_step` | `nonnegative_int` | `0` |
+| `simulated_time_s` | `summary.simulated_time_s` | `nonnegative_float` | `None` |
+| `checkpoint_schema_version` | `receipts.checkpoint_schema_version` | `nonnegative_int` | `None` |
+| `model_fingerprint` | `receipts.model_fingerprint` | `str` | `None` |
+| `mesh_fingerprint` | `receipts.mesh_fingerprint` | `str` | `None` |
+| `species_fingerprint` | `receipts.species_fingerprint` | `str` | `None` |
+| `field_source_model` | `field.source_model` | `model` | `'unknown'` |
+| `field_kernel_id` | `field.kernel_id` | `str` | `None` |
+| `charge_ledger_residual_C` | `diagnostics.charge_ledger_residual_c` | `float` | `None` |
+| `periodic2_cache_hit` | `diagnostics.periodic2_cache_hit` | `bool` | `None` |
+| `periodic2_operator_build_count` | `diagnostics.periodic2_operator_build_count` | `nonnegative_int` | `None` |
+| `periodic2_cache_fingerprint` | `diagnostics.periodic2_cache_fingerprint` | `str` | `None` |
+| `periodic2_cache_path` | `diagnostics.periodic2_cache_path` | `str` | `None` |
+| `periodic2_generation_tolerance` | `diagnostics.periodic2_generation_tolerance` | `float` | `None` |
+| `multiple_box_events_retry_attempted` | `diagnostics.multiple_box_events_retry_attempted` | `nonnegative_int` | `0` |
+| `multiple_box_events_retry_resolved` | `diagnostics.multiple_box_events_retry_resolved` | `nonnegative_int` | `0` |
+| `multiple_box_events_soft_discarded` | `diagnostics.multiple_box_events_soft_discarded` | `nonnegative_int` | `0` |
+| `multiple_box_events_soft_discarded_abs_charge_C` | `diagnostics.multiple_box_events_soft_discarded_abs_charge_c` | `nonnegative_float` | `0.0` |
+| `multiple_box_events_soft_discard_fraction` | `diagnostics.multiple_box_events_soft_discard_fraction` | `nonnegative_float` | `0.0` |
+| `adaptive_nonzero_mode_rejected_trials` | `diagnostics.adaptive_nonzero_mode_rejected_trials` | `nonnegative_int` | `0` |
+| `adaptive_nonzero_mode_last_batch_duration_s` | `diagnostics.adaptive_nonzero_mode_last_batch_duration_s` | `nonnegative_float` | `None` |
+| `adaptive_nonzero_mode_last_potential_step_V` | `diagnostics.adaptive_nonzero_mode_last_potential_step_v` | `nonnegative_float` | `None` |
+| `adaptive_nonzero_mode_omp_threads` | `diagnostics.adaptive_nonzero_mode_omp_threads` | `nonnegative_int` | `None` |
+| `periodic2_max_nonzero_mode_potential_step_V` | `diagnostics.periodic2_max_nonzero_mode_potential_step_v` | `nonnegative_float` | `None` |
+
+<!-- END GENERATED SUMMARY FIELDS -->
+
 ### 場と境界の receipt
 
 field-reconstruction schema v2 は、Python で実行時と同じ電場を再構成するための receipt です。新しい出力では、
-近くに置かれた `beach.toml` から推測せず、`result.field_reconstruction` を使います。
+近くに置かれた `beach.toml` から推測せず、`result.receipts.field_reconstruction` を使います。
 
 | receipt | 内容 |
 | --- | --- |
@@ -178,7 +221,7 @@ face 番号は `1..6 = x_low, x_high, y_low, y_high, z_low, z_high` です。
 | 生成条件 | `output.enabled=true`、`output.history.stride_batches>0`、`sheath.closure="zero_current"`、`outflow_refresh_batches>0` |
 | 1 行 | 先頭の `batch`, `simulated_time_s` と下表の 19 状態列。全体で 21 列 |
 | 時刻 | その batch の電荷 commit と外部根の更新を終えた後の状態。次の batch はこの外部根を使う |
-| Python | `result.matching_plane_history`。最後の状態は `result.matching_plane_state` |
+| Python | `result.matching_plane_history`。最後の状態は `result.receipts.matching_plane_state` |
 | 再開 | CSV 自体は使わない。最後の状態を `summary.txt` に保存し、再開時は放出源（スペクトル）から外部根を再構成する |
 
 | `summary.txt` の receipt | `matching_plane_history.csv` の列 | 意味 |
@@ -239,18 +282,18 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 
 | ファイル | 生成条件 | 列と解釈 | Python |
 | --- | --- | --- | --- |
-| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history` |
-| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | 専用属性なし。CSV を直接読む |
-| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V`, `switch_phi_rms_mismatch_V`, `switch_Ez_rms_mismatch_V_m` | 専用属性なし。CSV を直接読む |
+| `charge_history.csv` | `output.enabled=true` かつ `output.history.stride_batches>0` | `batch`, `processed_particles`, `rel_change`, `elem_idx`, `charge_C`。1 snapshot は全要素の電荷 | `result.history.charge` |
+| `potential_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0` | `batch`, `elem_idx`, `potential_V`。1 snapshot は全要素重心の電位 | `result.history.potential` |
+| `top_reference_history.csv` | `output.enabled=true`、`output.history.potential=true`、`output.history.stride_batches>0`、`[domain]` の box あり | `batch`, `simulated_time_s`, `z_high_m`, `sample_n`, `potential_mean_V`, `potential_std_V`, `potential_min_V`, `potential_max_V`, `switch_phi_rms_mismatch_V`, `switch_Ez_rms_mismatch_V_m` | `result.top_reference_history` |
 | `matching_plane_history.csv` | 外部根の更新があり、stride 有効 | [21 列の外部状態](#zhao_stationary) | `result.matching_plane_history` |
-| `matching_plane_spectrum_history.csv` | 外部根の更新があり、stride 有効。外部根を更新した batch ごと | [bin ごとの外部源スペクトル](#zhao_stationary) | 専用属性なし。CSV を直接読む |
-| `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | 専用属性なし。CSV を直接読む |
+| `matching_plane_spectrum_history.csv` | 外部根の更新があり、stride 有効。外部根を更新した batch ごと | [bin ごとの外部源スペクトル](#zhao_stationary) | `result.matching_plane_spectrum_history` |
+| `fixed_current_history.csv` | 固定電流 closure があり、stride 有効 | [8 列の窓合計](#固定電流の倍率) | `result.fixed_current_history` |
 
 `top_reference_history.csv` の基準は box の z-high 面平均であり、無限遠電位や plasma 電位ではありません。
 要素相対電位は同じ batch の `potential_history.csv` と結合し、
 `potential_V - potential_mean_V` として求めます。
 
-外部根を更新した run では `result.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
+外部根を更新した run では `result.receipts.matching_plane_state` と `result.matching_plane_history` を使うと、列番号を
 手作業で管理せず typed receipt として参照できます。
 
 ### 固定電流の倍率
@@ -281,7 +324,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | 生成条件 | `output.enabled=true` かつ `output.final.mesh_potential=true` |
 | 列 | `elem_idx`, `potential_V` |
 | 解釈 | 各要素重心の電位 [V] |
-| Python | `result.mesh_potential_v` |
+| Python | `result.mesh.mesh_potential_v` |
 | 再開 | 使用しない |
 
 | field model | 電位へ含める項 |
@@ -296,7 +339,7 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 | --- | --- |
 | 生成条件 | `output.enabled=true` かつ charge ledger state あり |
 | 1 行 | 1 species の signed charge、補正、weight、粒子数。全 25 列を下表に示す |
-| Python | `result.charge_ledger` の `ChargeLedgerEntry` |
+| Python | `result.ledger` の `ChargeLedgerEntry` |
 | 再開 | `summary.txt` に ledger metadata がある場合は必須 |
 
 列順は次のとおりです。
@@ -434,7 +477,7 @@ schema v8 以降では `checkpoint_complete.txt` 自体が必須です。直下�
 
 設定変更はハッシュで照合せず、保存電荷と統計を現在の条件へ引き継ぎます。以前の条件との比較には
 設定ファイルと summary の具体的な値を使ってください。mesh fingerprint の不一致は、`charges.csv` の要素対応を
-保証できないため停止します。Python reader の `model_fingerprint` と `species_fingerprint` は過去の出力用の
+保証できないため停止します。Python reader の `result.receipts.model_fingerprint` と `result.receipts.species_fingerprint` は過去の出力用の
 任意属性として残り、現行出力では `None` になります。
 
 online implicit の bracket node と step-subdivision node は永続 table や checkpoint state ではありません。
@@ -450,21 +493,21 @@ minimum-energy bootstrap に戻ります。どの policy も必要な response �
 代表的な typed 属性は次のように読みます。
 
 ```python
-from beach import load_fortran_result
+from beach import load_run
 
-result = load_fortran_result("outputs/tutorial")
+result = load_run("outputs/tutorial")
 print(result.charges)
-print(result.charge_ledger)
-print(result.field_reconstruction)
-print(result.matching_plane_state)
+print(result.ledger)
+print(result.receipts.field_reconstruction)
+print(result.receipts.matching_plane_state)
 ```
 
 | 出力 | Python 属性 |
 | --- | --- |
 | `charges.csv` | `result.charges` |
-| `charge_ledger.csv` | `result.charge_ledger` |
-| field reconstruction receipt | `result.field_reconstruction` |
-| 外部状態の summary | `result.matching_plane_state` |
+| `charge_ledger.csv` | `result.ledger` |
+| field reconstruction receipt | `result.receipts.field_reconstruction` |
+| 外部状態の summary | `result.receipts.matching_plane_state` |
 | `matching_plane_history.csv` | `result.matching_plane_history` |
 
 `summary.txt` と `charges.csv` は必須です。mesh、履歴、ledger、field reconstruction、外部状態は

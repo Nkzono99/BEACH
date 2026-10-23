@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from beach.runops_adapter import Adapter, agent_context_path
+from beach.tooling.runops_adapter import Adapter, agent_context_path
 
 
 GROUPED = """[run]
@@ -235,9 +235,9 @@ def test_adapter_imports_without_numpy() -> None:
     root = Path(__file__).resolve().parents[2]
     code = (
         "import sys; sys.modules['numpy'] = None; sys.modules['matplotlib'] = None\n"
-        "import beach.runops_adapter, beach.config\n"
-        "beach.runops_adapter.Adapter().case_template()\n"
-        "assert beach.runops_adapter.Adapter().validate_params({'run.batch_cuont': 1})\n"
+        "import beach.tooling.runops_adapter, beach.config\n"
+        "beach.tooling.runops_adapter.Adapter().case_template()\n"
+        "assert beach.tooling.runops_adapter.Adapter().validate_params({'run.batch_cuont': 1})\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -253,6 +253,6 @@ def test_public_names_still_resolve() -> None:
     import beach
 
     assert beach.Beach.__name__ == "Beach"
-    assert "load_fortran_result" in dir(beach)
+    assert "load_run" in dir(beach)
     with pytest.raises(AttributeError):
         beach.no_such_name  # noqa: B018

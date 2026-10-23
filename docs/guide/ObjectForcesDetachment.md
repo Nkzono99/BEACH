@@ -30,7 +30,7 @@ export BEACH_FIELD_KERNEL_LIB=/path/to/BEACH/build/libbeach_field_kernel.so
 beachx inspect outputs/latest
 ```
 
-`mesh_ids` に複数の ID があり、`mesh_source` または `mesh_sources.csv` から各形状を説明できることを確認します。
+`mesh_ids` に複数の ID があり、`mesh_id=... source=...` の行または `mesh_sources.csv` から各形状を説明できることを確認します。
 対象 ID `6` がなければ、以降の `6` を実在する ID へ変更します。ここで複数物体を確認できない run は、この解析に
 進めません。
 
@@ -38,9 +38,11 @@ x/y 周期 run の mesh を primary cell 内へ表示したい場合だけ、次
 
 ```bash
 beachx inspect outputs/latest \
-  --save-mesh outputs/latest/charges_mesh_periodic.png \
+  --save-dir outputs/latest/periodic_figures \
   --apply-periodic2-mesh
 ```
+
+`outputs/latest/periodic_figures/charge_mesh.png` が primary cell 内へ wrap した電荷 mesh です。
 
 ## 2. 保存位置での力と移動指標を確認する
 
@@ -55,13 +57,13 @@ beachx coulomb outputs/latest \
 beachx kernel-forces outputs/latest \
   --config beach.toml \
   --target-mesh-ids 6 \
-  --save-csv outputs/latest/object_forces_kernel.csv
+  --save outputs/latest/object_forces_kernel.csv
 
 beachx mobility outputs/latest \
   --config beach.toml \
   --density-kg-m3 2500 \
   --mu-static 0.4 \
-  --save-csv outputs/latest/mobility_summary.csv
+  --save outputs/latest/mobility_summary.csv
 ```
 
 `coulomb` は物体間の成分別 force matrix、`kernel-forces` は field kernel による物体別合力、`mobility` は
@@ -93,10 +95,12 @@ beachx object-detachment outputs/latest \
   --gravity-m-s2 9.80665 \
   --adhesion-force-n 1.0e-10 \
   --adhesion-range-m 2.0e-6 \
-  --output-dir outputs/latest/object_detachment
+  --save-dir outputs/latest/object_detachment
 ```
 
-正常終了すると、`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md` が生成されます。
+正常終了すると、`instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md` が生成され、標準出力に
+`saved_summary=...` などの保存先と `force_z_N`、`barrier_free_from_rest`、`numerically_qualified` が表示されます
+（`--json` で同じ内容を JSON 1 オブジェクトにします。詳細は `summary.json` を読みます）。
 `object-detachment` の既定重力は月面の `1.62 m/s^2` で、この例は地上重力を明示しています。付着を使う場合は、
 `--adhesion-force-n` と `--adhesion-range-m` を必ず組にします。
 
@@ -135,7 +139,7 @@ print("barrier free:", release.barrier_free_from_rest)
 完全な例は
 [`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
 にあります。全 class、結果 field、`configured` と `infinite_physical` の詳細は
-[Python 後処理 API リファレンス](../reference/PythonPostprocessAPI.md#104-objectinteractionsnapshot-と凍結-source-経路)を
+[Python 後処理 API](../reference/PythonPostprocessAPI.md#物体の力と離脱)を
 参照してください。
 
 ## 5. 完了と妥当性を分けて判定する

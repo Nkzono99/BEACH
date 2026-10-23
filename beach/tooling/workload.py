@@ -1,0 +1,1105 @@
+"""Particle-workload estimation for BEACH simulation configs."""
+
+from __future__ import annotations
+
+import copy
+import csv
+import math
+from pathlib import Path
+from typing import Any
+
+from beach.config import ConfigError, normalize_high_level_config
+from beach.config._toml import load_toml_file
+from beach.config._layout import to_runtime_layout
+from beach.config.schema import schema_definition_defaults, schema_definition_property_names
+from beach.io.summary import load_summary_file
+
+from ._cache import default_periodic_cache_dir
+
+K_BOLTZMANN = 1.380649e-23
+EV_TO_K = 1.160451812e4
+
+# The estimator reads these [sim] and species keys. Their defaults come from the
+# packaged schema, so the schema stays the single source with the Fortran types.
+# The fallbacks cover keys the schema declares without a default: the box and
+# field-boundary keys are resolved from [domain] and [field_boundary], one of
+# the two batch-duration forms is required for dynamic sources, and the
+# remaining keys are mode-specific inputs that have no neutral value.
+_SIM_KEYS = (
+    "batch_count",
+    "batch_duration",
+    "batch_duration_step",
+    "field_solver",
+    "field_bc_mode",
+    "field_periodic_image_layers",
+    "field_periodic_far_correction",
+    "field_periodic_ewald_alpha",
+    "field_periodic_ewald_layers",
+    "field_periodic_cache_dir",
+    "field_periodic_generation_tolerance",
+    "tree_theta",
+    "tree_leaf_max",
+    "tree_min_nelem",
+    "e0",
+    "e0_abs",
+    "e0_phi_xy_deg",
+    "e0_phi_z_deg",
+    "use_box",
+    "box_min",
+    "box_max",
+)
+_SIM_FALLBACKS: dict[str, Any] = {
+    "batch_duration": 0.0,
+    "batch_duration_step": 0.0,
+    "field_bc_mode": "free",
+    "field_periodic_cache_dir": "",
+    "tree_theta": 0.5,
+    "tree_leaf_max": 16,
+    "e0_abs": 0.0,
+    "use_box": False,
+    "box_min": [-1.0, -1.0, -1.0],
+    "box_max": [1.0, 1.0, 1.0],
+}
+_SPECIES_KEYS = (
+    "species_key",
+    "enabled",
+    "source_mode",
+    "npcls_per_step",
+    "temperature_k",
+    "q_particle",
+    "m_particle",
+    "w_particle",
+    "target_macro_particles_per_batch",
+    "pos_low",
+    "pos_high",
+    "drift_velocity",
+    "emit_current_density_a_m2",
+    "rays_per_batch",
+    "deposit_opposite_charge_on_emit",
+    "normal_drift_speed",
+    "ray_direction",
+    "inject_face",
+    "boundary_inflow",
+)
+_SPECIES_FALLBACKS: dict[str, Any] = {
+    "species_key": "",
+    "target_macro_particles_per_batch": 0,
+    "emit_current_density_a_m2": 0.0,
+    "rays_per_batch": 0,
+    "ray_direction": [0.0, 0.0, 0.0],
+    "inject_face": "",
+    "boundary_inflow": {},
+}
+
+
+def _defaults_from_schema(
+    definition: str, keys: tuple[str, ...], fallbacks: dict[str, Any]
+) -> dict[str, Any]:
+    schema_defaults = schema_definition_defaults(definition)
+    defaults: dict[str, Any] = {}
+    for key in keys:
+        if key in schema_defaults:
+            defaults[key] = schema_defaults[key]
+        elif key in fallbacks:
+            defaults[key] = copy.deepcopy(fallbacks[key])
+        else:
+            raise ValueError(f"BEACH schema has no default for $defs.{definition}.{key}")
+    return defaults
+
+
+DEFAULT_SIM: dict[str, Any] = _defaults_from_schema("sim", _SIM_KEYS, _SIM_FALLBACKS)
+DEFAULT_SPECIES: dict[str, Any] = _defaults_from_schema(
+    "species", _SPECIES_KEYS, _SPECIES_FALLBACKS
+)
+
+ALLOWED_SIM_KEYS = schema_definition_property_names("sim")
+_LEGACY_SIM_BOUNDARY_KEYS = frozenset(
+    {
+        "field_bc_mode",
+        "use_box",
+        "box_min",
+        "box_max",
+        "box_origin",
+        "box_size",
+        "bc_x_low",
+        "bc_x_high",
+        "bc_y_low",
+        "bc_y_high",
+        "bc_z_low",
+        "bc_z_high",
+    }
+)
+ALLOWED_SPECIES_KEYS = schema_definition_property_names("species")
+
+
+class _MacroResiduals(list[float]):
+    """Source residuals with optional six-face residuals from restart CSV."""
+
+    def __init__(
+        self,
+        source: list[float],
+        boundary: list[list[float]],
+    ) -> None:
+        super().__init__(source)
+        self.boundary = boundary
+
+
+def _split_count_for_rank(total_count: int, rank: int, n_ranks: int) -> int:
+    if total_count < 0:
+        raise SystemExit("split_count_for_rank requires total_count >= 0.")
+    if n_ranks <= 0:
+        raise SystemExit("split_count_for_rank requires n_ranks > 0.")
+    if rank < 0 or rank >= n_ranks:
+        raise SystemExit("split_count_for_rank rank out of range.")
+    base, rem = divmod(total_count, n_ranks)
+    return base + (1 if rank < rem else 0)
+
+
+def load_toml(path: Path) -> dict[str, Any]:
+    """Load a TOML configuration through the shared BEACH config reader."""
+
+    return to_runtime_layout(load_toml_file(path))
+
+
+def _dot(a: list[float], b: list[float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+def _standard_normal_pdf(x: float) -> float:
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+
+def _standard_normal_cdf(x: float) -> float:
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
+# Box faces: normal axis, whether the face is the upper bound, and the two
+# tangential axes of the face area.
+_FACES: dict[str, tuple[int, bool, tuple[int, int]]] = {
+    "x_low": (0, False, (1, 2)),
+    "x_high": (0, True, (1, 2)),
+    "y_low": (1, False, (2, 0)),
+    "y_high": (1, True, (2, 0)),
+    "z_low": (2, False, (0, 1)),
+    "z_high": (2, True, (0, 1)),
+}
+
+
+def _face(inject_face: str) -> tuple[int, bool, tuple[int, int]]:
+    try:
+        return _FACES[inject_face]
+    except KeyError:
+        raise ValueError(f"unknown inject_face: {inject_face}") from None
+
+
+def _inward_normal_for_face(inject_face: str) -> list[float]:
+    axis, high, _ = _face(inject_face)
+    normal = [0.0, 0.0, 0.0]
+    normal[axis] = -1.0 if high else 1.0
+    return normal
+
+
+def _face_tangential_axes(inject_face: str) -> tuple[int, int]:
+    return _face(inject_face)[2]
+
+
+def _axis_and_boundary_for_face(
+    inject_face: str, box_min: list[float], box_max: list[float]
+) -> tuple[int, float]:
+    axis, high, _ = _face(inject_face)
+    return axis, (box_max if high else box_min)[axis]
+
+
+def _species_temperature_k(spec: dict[str, Any]) -> float:
+    if bool(spec.get("_has_temperature_ev", False)):
+        return float(spec["temperature_ev"]) * EV_TO_K
+    return float(spec.get("temperature_k", DEFAULT_SPECIES["temperature_k"]))
+
+
+def _species_density_m3(spec: dict[str, Any]) -> float:
+    if bool(spec.get("_has_number_density_cm3", False)):
+        return float(spec["number_density_cm3"]) * 1.0e6
+    return float(spec["number_density_m3"])
+
+
+def _has_photo_raycast_keys(spec: dict[str, Any]) -> bool:
+    return (
+        abs(float(spec.get("emit_current_density_a_m2", 0.0))) > 0.0
+        or int(spec.get("rays_per_batch", 0)) != 0
+        or bool(spec.get("_has_ray_direction", False))
+        or bool(spec.get("_has_deposit_opposite_charge_on_emit", False))
+    )
+
+
+def _check_temperature_inputs(spec: dict[str, Any]) -> None:
+    has_temp_k = bool(spec.get("_has_temperature_k", False))
+    has_temp_ev = bool(spec.get("_has_temperature_ev", False))
+    if has_temp_k and has_temp_ev:
+        raise SystemExit("Specify either temperature_ev or temperature_k, not both.")
+    if has_temp_ev and float(spec["temperature_ev"]) < 0.0:
+        raise SystemExit("temperature_ev must be >= 0.")
+    if has_temp_k and float(spec["temperature_k"]) < 0.0:
+        raise SystemExit("temperature_k must be >= 0.")
+
+
+def _checked_particle_mass(spec: dict[str, Any]) -> float:
+    m_particle = float(spec.get("m_particle", DEFAULT_SPECIES["m_particle"]))
+    if m_particle <= 0.0:
+        raise SystemExit("m_particle must be > 0.")
+    return m_particle
+
+
+def _validate_external_e_field(
+    sim_raw: dict[str, Any],
+    sim_cfg: dict[str, Any],
+) -> None:
+    has_vector = "e0" in sim_raw
+    has_abs = "e0_abs" in sim_raw
+    has_phi_xy = "e0_phi_xy_deg" in sim_raw
+    has_phi_z = "e0_phi_z_deg" in sim_raw
+    if has_vector and (has_abs or has_phi_xy or has_phi_z):
+        raise SystemExit(
+            "sim.e0 cannot be combined with sim.e0_abs/e0_phi_xy_deg/e0_phi_z_deg."
+        )
+    if has_vector:
+        e0 = [float(x) for x in sim_cfg.get("e0", DEFAULT_SIM["e0"])]
+        if len(e0) != 3 or not all(math.isfinite(x) for x in e0):
+            raise SystemExit("sim.e0 must contain 3 finite values.")
+        sim_cfg["e0"] = e0
+        return
+    if (has_phi_xy or has_phi_z) and not has_abs:
+        raise SystemExit("sim.e0_phi_xy_deg/e0_phi_z_deg require sim.e0_abs.")
+    if has_abs:
+        e0_abs = float(sim_cfg.get("e0_abs", 0.0))
+        phi_xy = float(sim_cfg.get("e0_phi_xy_deg", 0.0))
+        phi_z = float(sim_cfg.get("e0_phi_z_deg", 0.0))
+        if not math.isfinite(e0_abs) or e0_abs < 0.0:
+            raise SystemExit("sim.e0_abs must be finite and >= 0.")
+        if not math.isfinite(phi_xy):
+            raise SystemExit("sim.e0_phi_xy_deg must be finite.")
+        if not math.isfinite(phi_z):
+            raise SystemExit("sim.e0_phi_z_deg must be finite.")
+        phi_xy_rad = math.radians(phi_xy)
+        phi_z_rad = math.radians(phi_z)
+        sim_cfg["e0"] = [
+            e0_abs * math.cos(phi_z_rad) * math.cos(phi_xy_rad),
+            e0_abs * math.cos(phi_z_rad) * math.sin(phi_xy_rad),
+            e0_abs * math.sin(phi_z_rad),
+        ]
+
+
+def _compute_inflow_flux(
+    number_density_m3: float,
+    temperature_k: float,
+    m_particle: float,
+    drift_velocity: list[float],
+    inward_normal: list[float],
+) -> float:
+    u_n = _dot(drift_velocity, inward_normal)
+    sigma = math.sqrt(K_BOLTZMANN * temperature_k / m_particle)
+    if sigma <= 0.0:
+        return number_density_m3 * max(0.0, u_n)
+    alpha = u_n / sigma
+    return number_density_m3 * (
+        sigma * _standard_normal_pdf(alpha) + u_n * _standard_normal_cdf(alpha)
+    )
+
+
+def _compute_face_area(
+    inject_face: str, pos_low: list[float], pos_high: list[float]
+) -> float:
+    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+    return (pos_high[axis_t1] - pos_low[axis_t1]) * (
+        pos_high[axis_t2] - pos_low[axis_t2]
+    )
+
+
+def _parse_boundary_inflow_surfaces(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> list[dict[str, Any]]:
+    raw_inflow = spec.get("boundary_inflow", {})
+    if not isinstance(raw_inflow, dict):
+        raise SystemExit("particles.species.boundary_inflow must be a table.")
+    face_keys = {"x_low", "x_high", "y_low", "y_high", "z_low", "z_high"}
+    unknown = set(raw_inflow) - face_keys
+    if unknown:
+        raise SystemExit(
+            "Unknown key in particles.species.boundary_inflow: "
+            + sorted(unknown)[0]
+        )
+    periodic_axes = set(sim_cfg.get("periodic_axes", []))
+    global_boundary = sim_cfg.get("particle_boundary", {})
+    species_boundary = spec.get("boundary", {})
+    if not isinstance(global_boundary, dict) or not isinstance(species_boundary, dict):
+        raise SystemExit("particle boundary settings must be tables.")
+    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
+    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
+    surfaces: list[dict[str, Any]] = []
+    for face in sorted(raw_inflow):
+        if raw_inflow[face] != "reservoir":
+            raise SystemExit(
+                f'particles.species.boundary_inflow.{face} must be "reservoir".'
+            )
+        if face[0] in periodic_axes:
+            raise SystemExit(
+                f"particles.species.boundary_inflow.{face} cannot inject through "
+                "a periodic domain face."
+            )
+        action = species_boundary.get(face, "inherit")
+        if action == "inherit":
+            action = global_boundary.get(face, "open")
+        if action != "open":
+            raise SystemExit(
+                f"particles.species.boundary_inflow.{face} requires an open "
+                "particle boundary action."
+            )
+        surfaces.append(
+            {
+                "face": face,
+                "normal": _inward_normal_for_face(face),
+                "area": _compute_face_area(face, box_min, box_max),
+            }
+        )
+    return surfaces
+
+
+def _reservoir_injection_surfaces(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> list[dict[str, Any]]:
+    source_mode = spec["source_mode"]
+    boundary_surfaces = _parse_boundary_inflow_surfaces(sim_cfg, spec)
+    if boundary_surfaces and source_mode != "volume_seed":
+        raise SystemExit(
+            f'source_mode="{source_mode}" cannot be combined with boundary_inflow.'
+        )
+    if boundary_surfaces and str(spec.get("inject_face", "")).strip():
+        raise SystemExit("inject_face is not used by boundary_inflow.")
+    return boundary_surfaces
+
+
+def _validate_reservoir_species(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+    resolved_batch_duration: float,
+    species_idx: int,
+    species_list: list[dict[str, Any]],
+    reservoir_params_by_species: list[dict[str, Any] | None],
+) -> dict[str, Any]:
+    if not bool(sim_cfg.get("use_box", False)):
+        raise SystemExit("reservoir injection requires a [domain] box.")
+    surfaces = _reservoir_injection_surfaces(sim_cfg, spec)
+    if not surfaces:
+        raise SystemExit("reservoir injection requires at least one injection surface.")
+    if spec["source_mode"] != "photo_raycast" and _has_photo_raycast_keys(spec):
+        raise SystemExit("photo_raycast keys are not allowed for reservoir injection.")
+
+    has_w_particle = bool(spec.get("_has_w_particle", False))
+    has_target_macro = bool(spec.get("_has_target_macro_particles_per_batch", False))
+    if has_w_particle and has_target_macro:
+        raise SystemExit(
+            "reservoir injection does not allow both w_particle and target_macro_particles_per_batch."
+        )
+    if (not has_w_particle) and (not has_target_macro):
+        raise SystemExit(
+            "reservoir injection requires either w_particle or target_macro_particles_per_batch."
+        )
+    if has_w_particle:
+        w_particle = float(spec.get("w_particle", DEFAULT_SPECIES["w_particle"]))
+        if w_particle <= 0.0:
+            raise SystemExit(
+                "particles.species.w_particle must be > 0 for boundary_inflow"
+            )
+    if has_target_macro:
+        target_macro = int(spec.get("target_macro_particles_per_batch", 0))
+        if target_macro == 0 or target_macro < -1:
+            raise SystemExit(
+                "particles.species.target_macro_particles_per_batch must be > 0 or -1."
+            )
+        if target_macro == -1:
+            if species_idx == 0:
+                raise SystemExit(
+                    "particles.species[1].target_macro_particles_per_batch cannot be -1."
+                )
+            spec1 = species_list[0]
+            if not bool(spec1.get("enabled", True)):
+                raise SystemExit(
+                    "target_macro_particles_per_batch=-1 requires particles.species[1] to be enabled."
+                )
+            has_reservoir1 = bool(spec1.get("boundary_inflow"))
+            if not has_reservoir1:
+                raise SystemExit(
+                    "target_macro_particles_per_batch=-1 requires particles.species[1] "
+                    "to use reservoir injection."
+                )
+            params1 = reservoir_params_by_species[0]
+            if params1 is None or float(params1["w_particle"]) <= 0.0:
+                raise SystemExit(
+                    "target_macro_particles_per_batch=-1 requires species[1] to resolve a positive w_particle."
+                )
+            w_particle = float(params1["w_particle"])
+
+    m_particle = _checked_particle_mass(spec)
+
+    has_cm3 = bool(spec.get("_has_number_density_cm3", False))
+    has_m3 = bool(spec.get("_has_number_density_m3", False))
+    if has_cm3 and has_m3:
+        raise SystemExit(
+            "Specify either number_density_cm3 or number_density_m3, not both."
+        )
+    if (not has_cm3) and (not has_m3):
+        raise SystemExit(
+            "reservoir injection requires number_density_cm3 or number_density_m3."
+        )
+    if has_cm3 and float(spec["number_density_cm3"]) <= 0.0:
+        raise SystemExit("number_density_cm3 must be > 0.")
+    if has_m3 and float(spec["number_density_m3"]) <= 0.0:
+        raise SystemExit("number_density_m3 must be > 0.")
+
+    _check_temperature_inputs(spec)
+
+    drift_velocity = [
+        float(x) for x in spec.get("drift_velocity", DEFAULT_SPECIES["drift_velocity"])
+    ]
+    temperature_k = _species_temperature_k(spec)
+    number_density_m3 = _species_density_m3(spec)
+    surface_fluxes = [
+        _compute_inflow_flux(
+            number_density_m3=number_density_m3,
+            temperature_k=temperature_k,
+            m_particle=m_particle,
+            drift_velocity=drift_velocity,
+            inward_normal=list(surface["normal"]),
+        )
+        for surface in surfaces
+    ]
+    area = sum(float(surface["area"]) for surface in surfaces)
+    surface_rates = [
+        surface_flux * float(surface["area"])
+        for surface_flux, surface in zip(surface_fluxes, surfaces, strict=True)
+    ]
+    rate_per_s = sum(surface_rates)
+    if has_target_macro and target_macro != -1:
+        w_particle = rate_per_s * resolved_batch_duration / float(target_macro)
+        if (not math.isfinite(w_particle)) or w_particle <= 0.0:
+            raise SystemExit(
+                "target_macro_particles_per_batch produced invalid w_particle."
+            )
+
+    return {
+        "surfaces": surfaces,
+        "area": area,
+        "w_particle": w_particle,
+        "drift_velocity": drift_velocity,
+        "m_particle": m_particle,
+        "temperature_k": temperature_k,
+        "number_density_m3": number_density_m3,
+        "gamma_in": rate_per_s / area,
+        "surface_rates": surface_rates,
+    }
+
+
+def _validate_photo_raycast_species(
+    sim_cfg: dict[str, Any],
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    if not bool(sim_cfg.get("use_box", False)):
+        raise SystemExit(
+            'particles.species.source_mode="photo_raycast" requires a [domain] box.'
+        )
+
+    if abs(float(spec.get("emit_current_density_a_m2", 0.0))) <= 0.0:
+        raise SystemExit("photo_raycast requires emit_current_density_a_m2 > 0.")
+    rays_per_batch = int(spec.get("rays_per_batch", 0))
+    if rays_per_batch <= 0:
+        raise SystemExit("photo_raycast requires rays_per_batch > 0.")
+    if int(spec.get("npcls_per_step", 0)) != 0:
+        raise SystemExit("npcls_per_step is not allowed for photo_raycast.")
+
+    if bool(spec.get("_has_w_particle", False)):
+        raise SystemExit("w_particle is not allowed for photo_raycast.")
+    if bool(spec.get("_has_target_macro_particles_per_batch", False)):
+        raise SystemExit(
+            "target_macro_particles_per_batch is not allowed for photo_raycast."
+        )
+    if bool(spec.get("_has_number_density_cm3", False)) or bool(
+        spec.get("_has_number_density_m3", False)
+    ):
+        raise SystemExit(
+            "number_density_cm3/number_density_m3 are not allowed for photo_raycast."
+        )
+
+    _check_temperature_inputs(spec)
+
+    _checked_particle_mass(spec)
+    if abs(float(spec.get("q_particle", 0.0))) <= 0.0:
+        raise SystemExit("q_particle must be non-zero for photo_raycast.")
+
+    inject_face = str(spec.get("inject_face", "")).strip().lower()
+    inward_normal = _inward_normal_for_face(inject_face)
+    pos_low = [float(x) for x in spec.get("pos_low", DEFAULT_SPECIES["pos_low"])]
+    pos_high = [float(x) for x in spec.get("pos_high", DEFAULT_SPECIES["pos_high"])]
+    box_min = [float(x) for x in sim_cfg.get("box_min", DEFAULT_SIM["box_min"])]
+    box_max = [float(x) for x in sim_cfg.get("box_max", DEFAULT_SIM["box_max"])]
+    axis_n, boundary_value = _axis_and_boundary_for_face(inject_face, box_min, box_max)
+    if (
+        abs(pos_low[axis_n] - boundary_value) > 1.0e-12
+        or abs(pos_high[axis_n] - boundary_value) > 1.0e-12
+    ):
+        raise SystemExit(
+            "photo_raycast pos_low/pos_high must lie on the selected box face."
+        )
+    axis_t1, axis_t2 = _face_tangential_axes(inject_face)
+    if pos_high[axis_t1] < pos_low[axis_t1] or pos_high[axis_t2] < pos_low[axis_t2]:
+        raise SystemExit(
+            "photo_raycast tangential bounds must satisfy pos_high >= pos_low."
+        )
+    area = _compute_face_area(inject_face, pos_low, pos_high)
+    if area <= 0.0:
+        raise SystemExit("photo_raycast opening area must be positive")
+
+    has_ray_direction = bool(spec.get("_has_ray_direction", False))
+    if has_ray_direction:
+        ray_direction = [float(x) for x in spec["ray_direction"]]
+        norm_ray = math.sqrt(_dot(ray_direction, ray_direction))
+        if (not math.isfinite(norm_ray)) or norm_ray <= 0.0:
+            raise SystemExit("ray_direction norm must be > 0.")
+        ray_direction = [x / norm_ray for x in ray_direction]
+    else:
+        ray_direction = list(inward_normal)
+
+    inward_dot = _dot(ray_direction, inward_normal)
+    if inward_dot <= 0.0:
+        raise SystemExit("ray_direction must point inward from inject_face.")
+
+    return {
+        "rays_per_batch": rays_per_batch,
+        "emit_current_density_a_m2": float(spec.get("emit_current_density_a_m2", 0.0)),
+        "inject_face": inject_face,
+        "ray_direction": ray_direction,
+    }
+
+
+def _resolve_batch_duration(
+    sim_cfg: dict[str, Any],
+    sim_raw: dict[str, Any],
+    has_dynamic_source_species: bool,
+) -> float:
+    has_batch_duration = "batch_duration" in sim_raw
+    has_batch_duration_step = "batch_duration_step" in sim_raw
+    if has_batch_duration and has_batch_duration_step:
+        raise SystemExit(
+            "sim.batch_duration and sim.batch_duration_step cannot be used together."
+        )
+    if has_batch_duration_step:
+        batch_duration_step = float(sim_cfg.get("batch_duration_step", 0.0))
+        if (not math.isfinite(batch_duration_step)) or batch_duration_step <= 0.0:
+            raise SystemExit("sim.batch_duration_step must be > 0.")
+        dt = float(sim_cfg.get("dt", 0.0))
+        if (not math.isfinite(dt)) or dt <= 0.0:
+            raise SystemExit("sim.dt must be > 0 when sim.batch_duration_step is set.")
+        batch_duration = dt * batch_duration_step
+        if (not math.isfinite(batch_duration)) or batch_duration <= 0.0:
+            raise SystemExit(
+                "sim.batch_duration_step produced invalid sim.batch_duration."
+            )
+        return batch_duration
+
+    batch_duration = float(sim_cfg.get("batch_duration", 0.0))
+    if not math.isfinite(batch_duration):
+        raise SystemExit("sim.batch_duration must be finite.")
+    if has_dynamic_source_species and batch_duration <= 0.0:
+        raise SystemExit("sim.batch_duration must be > 0 for dynamic sources")
+    return batch_duration
+
+
+def read_macro_residuals(path: Path | None, n_species: int) -> list[float]:
+    """Load resume residuals from ``macro_residuals.csv``.
+
+    Parameters
+    ----------
+    path : pathlib.Path or None
+        CSV path. ``None`` returns zeros.
+    n_species : int
+        Number of species in current configuration.
+
+    Returns
+    -------
+    list[float]
+        Per-species residual values.
+
+    Raises
+    ------
+    SystemExit
+        If ``path`` is provided but does not exist.
+    """
+
+    residuals = [0.0] * n_species
+    boundary_residuals = [[0.0] * n_species for _ in range(6)]
+    if path is None:
+        return _MacroResiduals(residuals, boundary_residuals)
+    if path.name.startswith("macro_residuals_rank") and path.suffix == ".csv":
+        raise SystemExit(
+            "legacy rank-local macro residual files are not supported; "
+            "use the global macro_residuals.csv"
+        )
+    if not path.exists():
+        raise SystemExit(f"macro residual file not found: {path}")
+
+    with path.open("r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            idx = int(row["species_idx"])
+            face = int(row.get("face") or 0)
+            if 1 <= idx <= n_species and face == 0:
+                residuals[idx - 1] = float(row["residual"])
+            elif 1 <= idx <= n_species and 1 <= face <= 6:
+                boundary_residuals[face - 1][idx - 1] = float(row["residual"])
+    return _MacroResiduals(residuals, boundary_residuals)
+
+
+def read_summary_batches(path: Path) -> int:
+    """Load completed batch count from a Fortran ``summary.txt`` file."""
+
+    if not path.exists():
+        raise SystemExit(f"summary file not found: {path}")
+    try:
+        values = load_summary_file(path)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    try:
+        batches = int(values["batches"])
+    except KeyError as exc:
+        raise SystemExit(f"summary file is missing batches: {path}") from exc
+    except ValueError as exc:
+        raise SystemExit(f"summary batches must be an integer: {path}") from exc
+    if batches < 0:
+        raise SystemExit(f"summary batches must be >= 0: {path}")
+    return batches
+
+
+def completed_batches_from_resume_config(config: dict[str, Any]) -> int:
+    """Return checkpoint batch count when config requests a restart."""
+
+    output_raw = config.get("output", {})
+    if not isinstance(output_raw, dict):
+        return 0
+    if not bool(output_raw.get("resume", False)):
+        return 0
+    checkpoint_dir_raw = output_raw.get("restart_from") or output_raw.get(
+        "dir", "outputs/latest"
+    )
+    checkpoint_dir = Path(str(checkpoint_dir_raw))
+    return read_summary_batches(checkpoint_dir / "summary.txt")
+
+
+def _normalized_sections(config: dict[str, Any]) -> dict[str, Any]:
+    """Check the sections the estimator reads and resolve their high-level notation."""
+
+    sim_raw = config.get("sim", {})
+    if not isinstance(sim_raw, dict):
+        raise SystemExit("[sim] section must be a table.")
+    unknown_sim_keys = sorted(
+        set(sim_raw) - ALLOWED_SIM_KEYS - _LEGACY_SIM_BOUNDARY_KEYS
+    )
+    if unknown_sim_keys:
+        raise SystemExit(f"Unknown key in [sim]: {unknown_sim_keys[0]}")
+    domain_raw = config.get("domain")
+    if domain_raw is not None and not isinstance(domain_raw, dict):
+        raise SystemExit("[domain] section must be a table.")
+    field_boundary_raw = config.get("field_boundary")
+    if field_boundary_raw is not None and not isinstance(field_boundary_raw, dict):
+        raise SystemExit("[field_boundary] section must be a table.")
+    particle_boundary_raw = config.get("particle_boundary")
+    if particle_boundary_raw is not None and not isinstance(
+        particle_boundary_raw, dict
+    ):
+        raise SystemExit("[particle_boundary] section must be a table.")
+
+    particles_raw = config.get("particles", {})
+    if not isinstance(particles_raw, dict):
+        raise SystemExit("[particles] section must be a table.")
+    unknown_particles_keys = sorted(set(particles_raw) - {"species", "secondary_emission_max_generations"})
+    if unknown_particles_keys:
+        raise SystemExit(f"Unknown key in [particles]: {unknown_particles_keys[0]}")
+
+    species_list_raw = particles_raw.get("species", [])
+    if not isinstance(species_list_raw, list) or len(species_list_raw) == 0:
+        raise SystemExit("At least one [[particles.species]] entry is required.")
+    for raw in species_list_raw:
+        if not isinstance(raw, dict):
+            raise SystemExit("Each [[particles.species]] entry must be a table.")
+        unknown_species_keys = sorted(set(raw) - ALLOWED_SPECIES_KEYS)
+        if unknown_species_keys:
+            raise SystemExit(
+                f"Unknown key in [[particles.species]]: {unknown_species_keys[0]}"
+            )
+
+    workload_config = {"sim": sim_raw, "particles": particles_raw}
+    if domain_raw is not None:
+        workload_config["domain"] = domain_raw
+    if field_boundary_raw is not None:
+        workload_config["field_boundary"] = field_boundary_raw
+    if particle_boundary_raw is not None:
+        workload_config["particle_boundary"] = particle_boundary_raw
+    try:
+        return normalize_high_level_config(workload_config)
+    except (ConfigError, TypeError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _resolved_sim_config(normalized_config: dict[str, Any]) -> dict[str, Any]:
+    """Merge [sim] over the defaults and resolve the box, boundaries, and E0."""
+
+    sim_raw = normalized_config["sim"]
+    domain_raw = normalized_config.get("domain")
+    field_boundary_raw = normalized_config.get("field_boundary")
+    particle_boundary_raw = normalized_config.get("particle_boundary")
+    sim_cfg = dict(DEFAULT_SIM)
+    sim_cfg["field_periodic_cache_dir"] = default_periodic_cache_dir()
+    sim_cfg.update(sim_raw)
+    if isinstance(domain_raw, dict):
+        sim_cfg["use_box"] = True
+        sim_cfg["box_min"] = domain_raw.get("box_min", DEFAULT_SIM["box_min"])
+        sim_cfg["box_max"] = domain_raw.get("box_max", DEFAULT_SIM["box_max"])
+        sim_cfg["periodic_axes"] = domain_raw.get("periodic_axes", [])
+    if isinstance(field_boundary_raw, dict):
+        sim_cfg["field_bc_mode"] = field_boundary_raw.get("mode", "free")
+    if isinstance(particle_boundary_raw, dict):
+        sim_cfg["particle_boundary"] = particle_boundary_raw
+    _validate_external_e_field(sim_raw, sim_cfg)
+    return sim_cfg
+
+
+def _species_with_defaults(species_list_raw: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge each species over the defaults and record which inputs were given."""
+
+    species_list: list[dict[str, Any]] = []
+    for raw in species_list_raw:
+        spec = dict(DEFAULT_SPECIES)
+        spec.update(raw)
+        spec["source_mode"] = (
+            str(spec.get("source_mode", "volume_seed")).strip().lower()
+        )
+        spec["_has_number_density_cm3"] = "number_density_cm3" in raw
+        spec["_has_number_density_m3"] = "number_density_m3" in raw
+        spec["_has_temperature_k"] = "temperature_k" in raw
+        spec["_has_temperature_ev"] = "temperature_ev" in raw
+        spec["_has_w_particle"] = "w_particle" in raw
+        spec["_has_target_macro_particles_per_batch"] = (
+            "target_macro_particles_per_batch" in raw
+        )
+        spec["_has_ray_direction"] = "ray_direction" in raw
+        spec["_has_deposit_opposite_charge_on_emit"] = (
+            "deposit_opposite_charge_on_emit" in raw
+        )
+        species_list.append(spec)
+    return species_list
+
+
+def _remaining_batch_count(sim_cfg: dict[str, Any], completed_batches: int) -> tuple[int, int]:
+    target_batch_count = int(sim_cfg["batch_count"])
+    if target_batch_count <= 0:
+        raise SystemExit("sim.batch_count must be > 0")
+    if completed_batches < 0:
+        raise SystemExit("completed_batches must be >= 0")
+    if completed_batches > target_batch_count:
+        raise SystemExit(
+            "sim.batch_count must be >= completed checkpoint batches when resuming."
+        )
+    return target_batch_count, target_batch_count - completed_batches
+
+
+def _check_parallel_layout(threads: int, mpi_ranks: int, mpi_rank: int) -> None:
+    if threads <= 0:
+        raise SystemExit("threads must be > 0")
+    if mpi_ranks <= 0:
+        raise SystemExit("mpi_ranks must be > 0")
+    if mpi_rank < 0 or mpi_rank >= mpi_ranks:
+        raise SystemExit("mpi_rank must satisfy 0 <= mpi_rank < mpi_ranks")
+
+
+def _has_dynamic_sources(species_list: list[dict[str, Any]]) -> bool:
+    """Check the per-mode source keys and report whether a source needs a batch duration."""
+
+    has_dynamic_source_species = False
+    per_batch_volume_particles = 0
+    for spec in species_list:
+        if not bool(spec.get("enabled", True)):
+            continue
+        source_mode = spec["source_mode"]
+        has_boundary_inflow = bool(spec.get("boundary_inflow"))
+        if source_mode == "volume_seed":
+            if (
+                not has_boundary_inflow
+                and bool(spec.get("_has_target_macro_particles_per_batch", False))
+            ):
+                raise SystemExit(
+                    "target_macro_particles_per_batch is only valid for boundary_inflow."
+                )
+            if _has_photo_raycast_keys(spec):
+                raise SystemExit(
+                    'photo_raycast keys are only valid for source_mode="photo_raycast".'
+                )
+            n_macro = int(spec.get("npcls_per_step", 0))
+            if n_macro < 0:
+                raise SystemExit("particles.species.npcls_per_step must be >= 0")
+            per_batch_volume_particles += n_macro
+        elif source_mode == "photo_raycast":
+            has_dynamic_source_species = True
+        elif source_mode == "secondary_emission":
+            continue  # Created by collisions, not an independently sampled source.
+        else:
+            raise SystemExit(f"Unknown particles.species.source_mode: {source_mode}")
+        if has_boundary_inflow:
+            has_dynamic_source_species = True
+    if per_batch_volume_particles <= 0 and not has_dynamic_source_species:
+        raise SystemExit(
+            "At least one enabled [[particles.species]] entry must have npcls_per_step > 0."
+        )
+    return has_dynamic_source_species
+
+
+def _source_parameters(
+    sim_cfg: dict[str, Any],
+    species_list: list[dict[str, Any]],
+    resolved_batch_duration: float,
+) -> tuple[list[dict[str, Any] | None], list[dict[str, Any] | None]]:
+    """Validate and resolve the reservoir and photo_raycast parameters per species."""
+
+    reservoir_params_by_species: list[dict[str, Any] | None] = [None] * len(
+        species_list
+    )
+    photo_params_by_species: list[dict[str, Any] | None] = [None] * len(species_list)
+    for s_idx, spec in enumerate(species_list):
+        if not bool(spec.get("enabled", True)):
+            continue
+        if bool(spec.get("boundary_inflow")):
+            reservoir_params_by_species[s_idx] = _validate_reservoir_species(
+                sim_cfg,
+                spec,
+                resolved_batch_duration,
+                s_idx,
+                species_list,
+                reservoir_params_by_species,
+            )
+        if spec["source_mode"] == "photo_raycast":
+            photo_params_by_species[s_idx] = _validate_photo_raycast_species(
+                sim_cfg,
+                spec,
+            )
+    return reservoir_params_by_species, photo_params_by_species
+
+
+_FACE_INDEX = {"x_low": 0, "x_high": 1, "y_low": 2, "y_high": 3, "z_low": 4, "z_high": 5}
+
+
+def _initial_residual_state(
+    n_species: int,
+    reservoir_params_by_species: list[dict[str, Any] | None],
+    initial_residuals: list[float] | None,
+) -> tuple[list[float], list[list[float]]]:
+    """Return per-species source residuals and per-surface reservoir residuals."""
+
+    residuals = [0.0] * n_species
+    boundary_residuals = [
+        [0.0] * len(params["surface_rates"]) if params is not None else []
+        for params in reservoir_params_by_species
+    ]
+    if initial_residuals is not None:
+        if len(initial_residuals) != n_species:
+            raise SystemExit(
+                "macro residual species count does not match config species count"
+            )
+        residuals = list(initial_residuals)
+        restart_boundary = getattr(initial_residuals, "boundary", None)
+        if restart_boundary is not None:
+            for species_idx, params in enumerate(reservoir_params_by_species):
+                if params is None:
+                    continue
+                boundary_residuals[species_idx] = [
+                    float(restart_boundary[_FACE_INDEX[surface["face"]]][species_idx])
+                    for surface in params["surfaces"]
+                ]
+    return residuals, boundary_residuals
+
+
+def _reservoir_batch_counts(
+    reservoir_params: dict[str, Any],
+    face_residuals: list[float],
+    resolved_batch_duration: float,
+    mpi_rank: int,
+    mpi_ranks: int,
+) -> tuple[int, int]:
+    """Draw one batch of reservoir macros per surface; update the residuals in place."""
+
+    n_reservoir_global = 0
+    n_reservoir_local = 0
+    for face_idx, rate_per_s in enumerate(reservoir_params["surface_rates"]):
+        n_macro_expected = (
+            rate_per_s * resolved_batch_duration / reservoir_params["w_particle"]
+        )
+        macro_budget = face_residuals[face_idx] + n_macro_expected
+        if macro_budget < 0.0:
+            macro_budget = 0.0
+        n_face_global = math.floor(macro_budget)
+        face_residuals[face_idx] = macro_budget - n_face_global
+        n_reservoir_global += n_face_global
+        n_reservoir_local += _split_count_for_rank(
+            int(n_face_global), mpi_rank, mpi_ranks
+        )
+    return int(n_reservoir_global), n_reservoir_local
+
+
+def estimate_workload(
+    config: dict[str, Any],
+    threads: int,
+    initial_residuals: list[float] | None = None,
+    mpi_ranks: int = 1,
+    mpi_rank: int = 0,
+    completed_batches: int = 0,
+) -> dict[str, Any]:
+    """Estimate particle workload for one local MPI rank.
+
+    Parameters
+    ----------
+    config : dict[str, Any]
+        Parsed TOML-like configuration dictionary.
+    threads : int
+        OpenMP thread count used for per-thread load bounds.
+    initial_residuals : list[float] or None, default None
+        Initial macro residuals for each species.
+    mpi_ranks : int, default 1
+        MPI world size.
+    mpi_rank : int, default 0
+        Local rank index used for split-count estimation.
+    completed_batches : int, default 0
+        Completed checkpoint batches. ``sim.batch_count`` is treated as the
+        cumulative target, so only ``sim.batch_count - completed_batches``
+        batches are estimated.
+
+    Returns
+    -------
+    dict[str, Any]
+        Workload summary including per-batch totals, per-thread bounds, and
+        resolved batch duration.
+
+    Raises
+    ------
+    SystemExit
+        If configuration values are inconsistent or invalid.
+    """
+
+    normalized_config = _normalized_sections(config)
+    sim_cfg = _resolved_sim_config(normalized_config)
+    species_list = _species_with_defaults(normalized_config["particles"]["species"])
+    target_batch_count, batch_count = _remaining_batch_count(sim_cfg, completed_batches)
+    _check_parallel_layout(threads, mpi_ranks, mpi_rank)
+
+    resolved_batch_duration = _resolve_batch_duration(
+        sim_cfg=sim_cfg,
+        sim_raw=normalized_config["sim"],
+        has_dynamic_source_species=_has_dynamic_sources(species_list),
+    )
+    reservoir_params_by_species, photo_params_by_species = _source_parameters(
+        sim_cfg, species_list, resolved_batch_duration
+    )
+    residuals, boundary_residuals = _initial_residual_state(
+        len(species_list), reservoir_params_by_species, initial_residuals
+    )
+
+    batch_totals: list[int] = []
+    batch_thread_min: list[int] = []
+    batch_thread_max: list[int] = []
+    species_per_batch: list[list[int]] = []
+    global_batch_totals: list[int] = []
+    global_species_per_batch: list[list[int]] = []
+    local_reservoir_particles = 0
+    global_reservoir_particles = 0
+
+    for _batch_idx in range(batch_count):
+        species_counts: list[int] = []
+        global_species_counts: list[int] = []
+        for s_idx, spec in enumerate(species_list):
+            if not bool(spec.get("enabled", True)):
+                species_counts.append(0)
+                global_species_counts.append(0)
+                continue
+
+            # Source modes and counts were validated by _has_dynamic_sources.
+            source_mode = spec["source_mode"]
+            reservoir_params = reservoir_params_by_species[s_idx]
+            n_macro_global = 0
+            n_macro_local = 0
+            if source_mode == "volume_seed":
+                n_volume_global = int(spec.get("npcls_per_step", 0))
+                n_macro_global += n_volume_global
+                n_macro_local += _split_count_for_rank(
+                    n_volume_global, mpi_rank, mpi_ranks
+                )
+
+            if reservoir_params is not None:
+                n_reservoir_global, n_reservoir_local = _reservoir_batch_counts(
+                    reservoir_params,
+                    boundary_residuals[s_idx],
+                    resolved_batch_duration,
+                    mpi_rank,
+                    mpi_ranks,
+                )
+                local_reservoir_particles += n_reservoir_local
+                global_reservoir_particles += n_reservoir_global
+                n_macro_global += n_reservoir_global
+                n_macro_local += n_reservoir_local
+
+            if source_mode == "photo_raycast":
+                params = photo_params_by_species[s_idx]
+                if params is None:
+                    raise SystemExit(
+                        "internal error: photo_raycast species parameters were not initialized."
+                    )
+                n_rays_global = int(params["rays_per_batch"])
+                n_macro_global += n_rays_global
+                n_macro_local += _split_count_for_rank(
+                    n_rays_global, mpi_rank, mpi_ranks
+                )
+
+            species_counts.append(n_macro_local)
+            global_species_counts.append(n_macro_global)
+
+        batch_total = sum(species_counts)
+        q, r = divmod(batch_total, threads)
+        batch_totals.append(batch_total)
+        global_batch_totals.append(sum(global_species_counts))
+        batch_thread_min.append(q)
+        batch_thread_max.append(q + 1 if r > 0 else q)
+        species_per_batch.append(species_counts)
+        global_species_per_batch.append(global_species_counts)
+
+    total_particles = sum(batch_totals)
+    global_total_particles = sum(global_batch_totals)
+
+    return {
+        "secondary_emission_excluded": any(
+            spec.get("secondary_emission_enabled", False) and spec.get("enabled", True)
+            for spec in species_list
+        ),
+        "batch_count": batch_count,
+        "target_batch_count": target_batch_count,
+        "completed_batches": completed_batches,
+        "threads": threads,
+        "mpi_ranks": mpi_ranks,
+        "mpi_rank": mpi_rank,
+        "batch_totals": batch_totals,
+        "batch_thread_min": batch_thread_min,
+        "batch_thread_max": batch_thread_max,
+        "species_per_batch": species_per_batch,
+        "global_batch_totals": global_batch_totals,
+        "global_species_per_batch": global_species_per_batch,
+        "final_residuals": residuals,
+        "total_particles": total_particles,
+        "global_total_particles": global_total_particles,
+        "local_reservoir_particles": local_reservoir_particles,
+        "global_reservoir_particles": global_reservoir_particles,
+        "resolved_batch_duration": resolved_batch_duration,
+    }

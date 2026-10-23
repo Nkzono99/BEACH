@@ -8,7 +8,7 @@ import math
 from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ._shared import ConfigValidationError
 
@@ -76,7 +76,7 @@ def prepare_schema_document(
                 return normalized
         return value
 
-    return copy_value(config, schema, ())
+    return cast(dict[str, Any], copy_value(config, schema, ()))
 
 
 def load_schema(path: Path | None = None) -> tuple[dict[str, Any], str]:
@@ -164,7 +164,8 @@ def validation_errors(config: Mapping[str, Any], schema: Mapping[str, Any]) -> l
         "integer", lambda checker, value: isinstance(value, int)
         and not isinstance(value, bool) and -(2**31) <= value < 2**31
     )
-    validator = validators.extend(Draft7Validator, type_checker=integer_types)(
+    # jsonschema's stubs do not type the validator-class factory.
+    validator = validators.extend(Draft7Validator, type_checker=integer_types)(  # type: ignore[no-untyped-call]
         schema
     )
     errors = sorted(

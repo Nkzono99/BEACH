@@ -18,37 +18,13 @@ from beach.config.core import _load_config_file
 from beach.config.schema import ConfigSchemaError
 from beach.config.schema import load_schema as _load_schema
 
-from ._shared import configure_entry_parser
-
-COMMAND_NAME = "lint"
 NATIVE_CHECKER_ENV = "BEACH_CONFIG_CHECK_EXE"
 NATIVE_CHECKER_NAME = "beach"
 
 
-def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
-    """Build the parser for ``beachx lint``."""
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``lint`` options."""
 
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return parser
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register the ``lint`` command under the root CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="lint beach.toml with the JSON Schema and the Fortran preflight",
-        description=(
-            "Validate a BEACH config with TOML parsing, the packaged JSON Schema, "
-            "and the Fortran preflight (beach --check-config)."
-        ),
-    )
-    _configure_parser(parser)
-    return parser
-
-
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "config_path",
         nargs="?",
@@ -75,7 +51,6 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
             f"(default: ${NATIVE_CHECKER_ENV}, then `{NATIVE_CHECKER_NAME}` on PATH)"
         ),
     )
-    configure_entry_parser(parser, run_lint)
 
 
 def resolve_native_checker(explicit: Path | None = None) -> Path:
@@ -124,7 +99,7 @@ def run_native_check(checker: Path, config_path: Path) -> None:
     )
 
 
-def run_lint(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace) -> None:
     """Lint one BEACH config file."""
 
     if args.max_errors < 1:
@@ -187,14 +162,3 @@ def _raise_schema_errors(
     if hidden_count > 0:
         lines.append(f"... {hidden_count} more schema error(s) omitted.")
     raise SystemExit("\n".join(lines))
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run ``beachx lint`` as a standalone entry."""
-
-    args = build_parser(prog="beachx lint").parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

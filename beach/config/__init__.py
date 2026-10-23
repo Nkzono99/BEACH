@@ -1,5 +1,7 @@
 """Config tooling for BEACH."""
 
+from ._layout import to_grouped_layout, to_runtime_layout
+
 from .core import (
     CONFIG_FILENAME,
     ConfigError,
@@ -13,6 +15,8 @@ from .core import (
 )
 
 __all__ = [
+    "to_grouped_layout",
+    "to_runtime_layout",
     "CONFIG_FILENAME",
     "ConfigError",
     "ConfigValidationError",

@@ -1,17 +1,19 @@
+
+from beach.io.types import RunField, RunMesh, RunSummary
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-import beach.fortran_results.object_interaction as interaction_module
+import beach.analysis.object_interaction as interaction_module
 from beach import (
     FieldKernelError,
-    FortranRunResult,
+    RunResult,
     ObjectInteractionSnapshot,
     RigidTransform,
 )
-from beach.fortran_results import K_COULOMB
-from beach.fortran_results.panel_quadrature import panel_target_quadrature
+from beach import K_COULOMB
+from beach.analysis.panel_quadrature import panel_target_quadrature
 
 
 def _kernel_lib() -> Path:
@@ -26,22 +28,27 @@ def _result(
     triangles: np.ndarray,
     charges: np.ndarray,
     mesh_ids: np.ndarray,
-) -> FortranRunResult:
-    return FortranRunResult(
+) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=len(charges),
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.asarray(charges, dtype=float),
-        triangles=np.asarray(triangles, dtype=float),
-        mesh_ids=np.asarray(mesh_ids, dtype=np.int64),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=len(charges),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.asarray(triangles, dtype=float),
+            mesh_ids=np.asarray(mesh_ids, dtype=np.int64),
+        ),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
 

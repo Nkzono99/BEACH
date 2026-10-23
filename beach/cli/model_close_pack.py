@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Sequence
 
-from beach.closepack_config import (
+from beach.tooling.closepack_config import (
     ClosePackSpec,
     build_closepack_config,
     load_base_config,
@@ -14,12 +13,12 @@ from beach.closepack_config import (
     total_sphere_count,
 )
 
-from ._shared import configure_entry_parser
-
-COMMAND_NAME = "close-pack"
+from ._output import emit
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``model close-pack`` options."""
+
     parser.add_argument(
         "base_config",
         nargs="?",
@@ -93,25 +92,6 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def build_parser(*, prog: str | None = None) -> argparse.ArgumentParser:
-    """Build the argument parser for close-packed model generation."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this generator under a parent ``model`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="generate a close-packed sphere-stack beach.toml",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
 def run(args: argparse.Namespace) -> None:
     """Execute close-packed model generation."""
 
@@ -154,19 +134,13 @@ def run(args: argparse.Namespace) -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(text, encoding="utf-8")
 
-    print(f"saved={args.output}")
-    print(f"base_config={args.base_config}")
-    print(f"sphere_count={total_sphere_count(spec)}")
-    print(f"box_min={config['domain']['box_min']}")
-    print(f"box_max={config['domain']['box_max']}")
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the close-packed model generator CLI."""
-
-    args = build_parser(prog="beachx model close-pack").parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()
+    emit(
+        args,
+        {
+            "saved": args.output,
+            "base_config": args.base_config,
+            "sphere_count": total_sphere_count(spec),
+            "box_min": config["domain"]["box_min"],
+            "box_max": config["domain"]["box_max"],
+        },
+    )

@@ -21,7 +21,7 @@ models until a current change actually implements them; preserve only minimal ex
 ## Repo layout
 - `src/`, `app/`: Fortran runtime and physics core
 - `tests/fortran`: Fortran unit/integration tests (fpm targets)
-- `beach/`: Python package for reading/plotting Fortran outputs
+- `beach/`: Python package for reading/plotting Fortran outputs, layered `io` (readers, numpy only) <- `native` (ctypes field kernel) <- `analysis` <- `plot` (matplotlib); `facade.py` holds `Beach`, `config/` and `tooling/` (workload, close-pack, runops adapter) import without numpy, and `cli/` is `beachx`
 - `tests/python`: Python tests for CLI/result utilities
 - `examples/`: runnable configs and helper scripts
 - `docs/`, `SPEC.md`: behavior/spec documentation
@@ -30,7 +30,7 @@ models until a current change actually implements them; preserve only minimal ex
 Python utilities:
 - `python -m pip install "git+https://github.com/Nkzono99/BEACH.git"` (builds Python + Fortran `beach` binary via `make`)
 - `python -m pip install -U pip setuptools wheel`
-- `python -m pip install -e . --no-build-isolation`
+- `python -m pip install -e '.[dev]' --no-build-isolation`
 
 Fortran execution/testing requires a Fortran compiler (`gfortran` etc.) and `fpm`.
 
@@ -44,16 +44,17 @@ Fortran main (developer direct run):
 - `fpm run --target beach --profile release --flag "-fopenmp" -- examples/beach.toml`
 
 Python CLI examples:
-- `beach-inspect outputs/latest`
-- `beach-animate-history outputs/latest --quantity charge --save-gif outputs/latest/charge_history.gif`
-- `beach-estimate-workload examples/beach.toml --threads 8`
+- `beachx inspect outputs/latest`
+- `beachx animate outputs/latest --quantity charge --save outputs/latest/charge_history.gif`
+- `beachx workload examples/beach.toml --threads 8`
 
 ## Tests / quality
 - Python tests: `pytest -q`
 - Python lint: `ruff check .`
+- Python type check: `make python-type-check` (strict summary and shared configuration modules)
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
-  - L0 static/build: `make test-l0` (`git diff --check`, JSON schema parse checks, `make check`)
+  - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, `mypy`, JSON schema parse checks, `make check`)
   - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
   - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)

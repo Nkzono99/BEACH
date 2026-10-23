@@ -22,7 +22,7 @@ Prefer sources in this order:
 
 Do not invent defaults. If a value is not present and not documented in accessible sources, mark it unknown.
 Prefer calling or suggesting `beachx lint beach.toml` when the CLI is available.
-For workload questions, use schema/TOML inspection and `beachx estimate-workload <config> --threads N` when relevant.
+For workload questions, use schema/TOML inspection and `beachx workload <config> --threads N` when relevant.
 
 ## Review Checklist
 
@@ -69,4 +69,4 @@ Return a concise report in the response language. Translate headings when approp
 - ...
 ```
 
-Suggest concrete commands only when they fit the environment, for example `beachx lint beach.toml`, `Fortran parser`, `beachx estimate-workload beach.toml --threads 8`, or `beach examples/beach.toml`.
+Suggest concrete commands only when they fit the environment, for example `beachx lint beach.toml`, `Fortran parser`, `beachx workload beach.toml --threads 8`, or `beach examples/beach.toml`.

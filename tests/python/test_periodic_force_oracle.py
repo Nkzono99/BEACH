@@ -1,3 +1,5 @@
+
+from beach.io.types import RunField, RunMesh, RunSummary
 import importlib.util
 import json
 import os
@@ -16,15 +18,15 @@ from beach import (
     FieldKernel,
     FieldKernelOptions,
     FiniteShellConvergenceResult,
-    FortranRunResult,
+    RunResult,
     ObjectForcePath,
     ObjectInteractionSnapshot,
     RigidTransform,
     finite_shell_convergence,
     finite_shell_wrench,
 )
-from beach.fortran_results.constants import K_COULOMB
-import beach.fortran_results.periodic_force_oracle as oracle_module
+from beach import K_COULOMB
+import beach.analysis.periodic_force_oracle as oracle_module
 
 
 EPS0 = 1.0 / (4.0 * np.pi * K_COULOMB)
@@ -63,24 +65,26 @@ def _result(
     charges: np.ndarray,
     *,
     positions: np.ndarray | None = None,
-) -> FortranRunResult:
+) -> RunResult:
     if positions is None:
         positions = np.array([[0.5, 0.5, 0.0], [1.5, 0.5, 0.3]])
-    return FortranRunResult(
+    return RunResult(
         directory=directory,
-        mesh_nelem=2,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.asarray(charges, dtype=float),
-        triangles=_triangles_at(positions),
-        mesh_ids=np.array([1, 2]),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=2,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=_triangles_at(positions), mesh_ids=np.array([1, 2])),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
 
@@ -181,22 +185,27 @@ def _panel_result(
     directory: Path,
     triangles: np.ndarray,
     charges: np.ndarray,
-) -> FortranRunResult:
-    return FortranRunResult(
+) -> RunResult:
+    return RunResult(
         directory=directory,
-        mesh_nelem=len(charges),
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.asarray(charges, dtype=float),
-        triangles=np.asarray(triangles, dtype=float),
-        mesh_ids=np.ones(len(charges), dtype=np.int64),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=len(charges),
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.asarray(triangles, dtype=float),
+            mesh_ids=np.ones(len(charges), dtype=np.int64),
+        ),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
 
@@ -336,21 +345,25 @@ def test_panel_wrench_identity_transform_records_primary_self_subtraction(
         )
         assert matches.size == 1
         charges[int(matches[0])] = EPS0 * 4.0 / coarse_triangles.shape[0]
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=triangles.shape[0],
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=charges,
-        triangles=triangles,
-        mesh_ids=np.ones(triangles.shape[0], dtype=np.int64),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=triangles.shape[0],
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=triangles, mesh_ids=np.ones(triangles.shape[0], dtype=np.int64)
+        ),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
     with ObjectInteractionSnapshot.from_result(
@@ -389,21 +402,23 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
     _write_free_interaction_config(config)
     triangles = _plane_triangles(1)[:1]
     charge = 1.0e-12
-    result = FortranRunResult(
+    result = RunResult(
         directory=tmp_path,
-        mesh_nelem=1,
-        processed_particles=0,
-        absorbed=0,
-        escaped=0,
-        batches=0,
-        escaped_boundary=0,
-        survived_max_step=0,
-        last_rel_change=0.0,
         charges=np.array([charge]),
-        triangles=triangles,
-        mesh_ids=np.ones(1, dtype=np.int64),
-        field_source_model="triangle_p0",
-        field_kernel_id="triangle_p0_exact_p2m_near",
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.ones(1, dtype=np.int64)),
+        field=RunField(
+            source_model="triangle_p0", kernel_id="triangle_p0_exact_p2m_near"
+        ),
     )
 
     with ObjectInteractionSnapshot.from_result(
@@ -436,9 +451,11 @@ def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
     split = np.array([[0.1, 0.7, 0.0], [1.9, 0.7, 0.0]])
     unwrapped = np.array([[2.1, 0.7, 0.0], [1.9, 0.7, 0.0]])
 
-    def result(positions: np.ndarray) -> FortranRunResult:
+    def result(positions: np.ndarray) -> RunResult:
         value = _result(tmp_path, charges, positions=positions)
-        return replace(value, mesh_ids=np.ones(2, dtype=np.int64))
+        return replace(
+            value, mesh=replace(value.mesh, mesh_ids=np.ones(2, dtype=np.int64))
+        )
 
     wrenches = []
     for positions in (split, unwrapped):
