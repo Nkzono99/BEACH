@@ -42,7 +42,7 @@ Python reader の必須入力は `summary.txt` と `charges.csv` です。他の
 `summary.txt` は `output.enabled=true` で生成される `key=value` ファイルです。
 
 `load_fortran_result(...)` は主要値を `FortranRunResult` の属性へ変換し、型付きでない receipt は
-`beach.summary.load_summary_file(...)` から読めます。
+`beach.io.summary.load_summary_file(...)` から読めます。
 
 ### 完了判定
 
@@ -63,7 +63,7 @@ Python reader の必須入力は `summary.txt` と `charges.csv` です。他の
 
 以下は結果の読解と再開判断に使う主要 receipt です。`summary.txt` のすべての内部診断 key を固定 API として
 列挙する節ではありません。全 producer は [`bem_output_writer.f90`](../../src/runtime/bem_output_writer.f90)、
-Python が型付き属性へ変換する key は [`io.py`](../../beach/fortran_results/io.py)を正本とします。
+Python が型付き属性へ変換する key は [`results.py`](../../beach/io/results.py)を正本とします。
 
 | receipt | 内容 |
 | --- | --- |

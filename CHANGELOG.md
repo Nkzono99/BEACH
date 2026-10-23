@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **BREAKING**: Python package を依存の層ごとのサブパッケージに分けた。`beach.io`（出力 reader・データ型・`summary.txt`
+  parser、numpy のみ）、`beach.native`（field kernel と zero mode の ctypes binding）、`beach.analysis`（電位・電場・力・object
+  解析）、`beach.plot`（matplotlib の図とアニメーション）、`beach.tooling`（workload・close-pack・runops adapter、numpy 不要）、
+  `beach.facade`（`Beach`）。`beach` トップレベルの公開名は変わらない。`beach.fortran_results` と import 互換の
+  `beach/cli_*.py` 6 本は互換層を残さず削除した。サブパッケージから import していたコードは、`from beach import ...` または
+  新しい module（例: `beach.summary` は `beach.io.summary`、`beach.workload` は `beach.tooling.workload`、
+  `beach.fortran_results.periodic.Periodic2Config` は `beach.native.periodic2.Periodic2Config`）へ書き換える。runops の entry point は
+  `beach.tooling.runops_adapter:Adapter` になった。
+- **BREAKING**: `FieldKernel.from_result(...)` を削除した。native binding が run の解析層に依存しないよう、run から kernel を作る処理は
+  `beach.analysis.field_kernel.field_kernel_from_result(...)` に移した。`Beach.field_kernel(...)` は従来どおり使える。
+- runops adapter の `summarize` は `summary.txt` を `beach.io.summary.parse_summary_text` で読む。重複 key や空 key は黙って
+  上書きせず `ValueError` になる。
 - **BREAKING**: `reference_point` の既定を、電位の計算と描画で共通の `None`（絶対電位）にした。
   `plot_potential_mesh`、`plot_potential_slices`、`animate_history_mesh(quantity="potential")` と `Beach.plot_potential`、
   `Beach.plot_potential_slices`、`Beach.animate_mesh` は、これまで species 1 の注入面中心を基準にした電位差を既定で描いていた。
@@ -19,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `animate_history_mesh` と `Beach.animate_mesh`（`beachx animate`）は `view_elev` / `view_azim` を省略すると matplotlib の
   既定（仰角 30°、方位角 -60°）で描いていた。docstring と CLI help のとおり、他の mesh 描画と同じ 24° / -58° を使う。
-  描画の既定の view 角度と colormap は `beach/fortran_results/_defaults.py` の定数だけが持ち、関数・`Beach`・CLI の
+  描画の既定の view 角度と colormap は `beach/plot/_defaults.py` の定数だけが持ち、関数・`Beach`・CLI の
   既定値と help はそこから取る。
 
 ## [3.8.0] - 2026-10-23

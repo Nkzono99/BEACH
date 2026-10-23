@@ -10,26 +10,23 @@ BEACHのPython package (`beach`) は、Fortranシミュレーションの結果�
 
 ## 1. パッケージ構成
 
-| モジュール | 役割 |
-|---|---|
-| `beach.fortran_results.io` | 出力ディレクトリの読み込み (`load_fortran_result`, `list_fortran_runs`) |
-| `beach.fortran_results.facade` | 高水準ファサード `Beach` クラス |
-| `beach.fortran_results.potential` | 電位再構成 (`compute_potential_mesh`, `compute_potential_points`, `compute_potential_slices`) |
-| `beach.fortran_results.coulomb` | Coulomb 力/トルク計算 (`calc_coulomb`) |
-| `beach.fortran_results.kernel` | Fortran native field kernel の共有ライブラリ呼び出し (`FieldKernel`, `calc_object_forces_kernel`) |
-| `beach.fortran_results.object_interaction` | 凍結した source 電荷に対する object の力・トルク・鉛直経路 (`ObjectInteractionSnapshot`, `ObjectProbe`) |
-| `beach.fortran_results.detachment` | 経路仕事、付着、重力、速度、from-rest barrier の immutable 結果型 |
-| `beach.fortran_results.periodic_force_oracle` | 有限周期画像 shell と `E_bottom=0` 境界条件の収束診断 |
-| `beach.fortran_results.scene` | object の一時移動・回転と編集後 scene の field-kernel 評価 |
-| `beach.fortran_results.field_lines` | 電場計算・電気力線追跡・3D 描画 (`compute_electric_field_points`, `trace_field_lines`, `plot_field_lines_3d`) |
-| `beach.fortran_results.mobility` | Coulomb mobility 解析 (`analyze_coulomb_mobility`) |
-| `beach.fortran_results.plotting` | 各種プロット (`plot_charge_mesh`, `plot_charges`, `plot_potential_mesh` 等) |
-| `beach.fortran_results.animation` | 履歴アニメーション (`animate_history_mesh`) |
-| `beach.fortran_results.history` | `charge_history.csv` のバッチステップ別アクセス (`FortranChargeHistory`) |
-| `beach.fortran_results.types` | 公開データ型 (`FortranRunResult`, `CoulombInteraction` 等) |
-| `beach.fortran_results.constants` | 物理定数 (`K_COULOMB`) |
+公開 API は `beach` トップレベルの名前です。サブパッケージは依存の層ごとに分かれ、下の層は上の層を import しません。
 
-すべての公開シンボルは `beach` トップレベルおよび `beach.fortran_results` からインポートできます。
+| サブパッケージ | 依存 | 役割 |
+|---|---|---|
+| `beach.io` | numpy | 出力ディレクトリの読み込み (`results`: `load_fortran_result`, `list_fortran_runs`)、`summary.txt` の parser (`summary`)、`charge_history.csv` のバッチステップ別アクセス (`history`: `FortranChargeHistory`)、公開データ型 (`types`: `FortranRunResult`, `CoulombInteraction` 等)、物理定数 (`constants`: `K_COULOMB`) |
+| `beach.native` | numpy, ctypes | Fortran native field kernel の共有ライブラリ呼び出し (`kernel`: `FieldKernel`)、periodic2 plan の設定型 (`periodic2`)、physical periodic zero mode (`periodic_zero_mode`: `PeriodicZeroMode`) |
+| `beach.analysis` | io, native | run からの kernel 構築 (`field_kernel`: `calc_object_forces_kernel`, `field_kernel_options_from_result`)、電位再構成 (`potential`)、電場計算・電気力線追跡 (`field_lines`)、Coulomb 力/トルク (`coulomb`)、Coulomb mobility (`mobility`)、凍結 source に対する object の力・離脱経路 (`object_interaction`, `detachment`)、有限周期画像 shell の収束診断 (`periodic_force_oracle`)、object の一時移動・回転 (`scene`) |
+| `beach.plot` | analysis, matplotlib | 電荷/電位の 3D mesh (`mesh`)、電位断面 (`slices`)、Coulomb 力行列 (`matrix`)、mesh source 別箱ひげ図 (`boxplot`)、電気力線 (`field_lines`)、履歴アニメーション (`animation`) |
+| `beach.facade` | 全層 | 高水準ファサード `Beach` クラス |
+| `beach.config` | numpy 不要 | `beach.toml` の読み込み・正規化・schema 検査 |
+| `beach.tooling` | numpy 不要 | ワークロード見積もり (`workload`)、close-pack モデル生成 (`closepack_config`)、runops adapter (`runops_adapter`) |
+
+`beach.plot` は `beach.native` を直接 import せず、kernel が必要な描画は `beach.analysis` の関数を経由します。
+`beach.config` と `beach.tooling` は numpy なしで import できます（runops は adapter を numpy の無い環境でも読み込みます）。
+この依存方向は `tests/python/test_import_layers.py` が確認します。
+
+すべての公開シンボルは `beach` トップレベルからインポートできます。
 
 ```python
 from beach import Beach, calc_coulomb, compute_electric_field_points, trace_field_lines
@@ -490,13 +487,15 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 `make build-kernel` で生成した `build/libbeach_field_kernel.so` を `ctypes` 経由で読み込み、シミュレーションと同じFortran field coreでP0 triangle panelの電場・電位を評価します。新しい出力では `field_reconstruction_*` receipt、旧出力では `config_path` または自動探索された `beach.toml` から solver、periodic2、tree 設定を読みます。
 
 ```python
-from beach import Beach, FieldKernel
+from beach import Beach
 
 run = Beach("outputs/latest")
-with FieldKernel.from_result(run) as kernel:
+with run.field_kernel() as kernel:
     e = kernel.eval_e([[0.0, 0.0, 0.01]])
     phi = kernel.eval_phi([[0.0, 0.0, 0.01]])
 ```
+
+`FortranRunResult` から直接作る場合は `beach.analysis.field_kernel.field_kernel_from_result(result, ...)` を使います。
 
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 

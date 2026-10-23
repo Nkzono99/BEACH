@@ -117,7 +117,7 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
 | Python の設定処理 | [`beach/config/core.py`](../../beach/config/core.py) | 読み込み・正規化・schema 検査の順序を持つ。`schema.py` は同梱 JSON Schema による key・型・範囲の検査、`_layout.py` は grouped / runtime layout の変換、`_authoring.py` は空間指定の展開を担当する。組合せと派生値の検査は Fortran の `beach --check-config`（`beachx lint`）が持つ |
-| Python の結果読み込み | [`beach/fortran_results/io.py`](../../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../../beach/fortran_results/_field_reconstruction_io.py) に外部シース状態・場の再構築メタデータを委譲する |
+| Python の結果読み込み | [`beach/io/results.py`](../../beach/io/results.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../../beach/io/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../../beach/io/_field_reconstruction_io.py) に外部シース状態・場の再構築メタデータを委譲する |
 
 FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、電荷から計算する作業状態は
 `%fmm_core_state` が保持します。旧 FMM の複製 view と未使用の局所展開配列は削除しました。
@@ -254,7 +254,7 @@ call fill_panel_quadrature(panel, mesh%panel_quad_position(:, :, i), mesh%panel_
 | Boris、collision、box event | `bem_particle_stepper.f90`、`bem_pusher.f90`、`bem_collision.f90`、`bem_boundary.f90` | [`test_particle_stepper.f90`](../../tests/fortran/test_particle_stepper.f90)、[`test_boundary.f90`](../../tests/fortran/test_boundary.f90)、`test_dynamics_basic` | [粒子更新](../models/ParticleTrackingCollision.md)、[Boris](../models/BorisPusher.md)、[粒子 event](ParticleEvents.md) |
 | surface charge、closure、ledger | `bem_surface_models*.f90`、`src/physics/sheath/`、`src/runtime/sheath/`、`bem_simulator_charge.f90`、`bem_charge_ledger.f90` | [`test_surface_models.f90`](../../tests/fortran/test_surface_models.f90)、[`test_surface_current_model.f90`](../../tests/fortran/test_surface_current_model.f90)、[`test_charge_ledger.f90`](../../tests/fortran/test_charge_ledger.f90)、[`test_zhao_outflow_refresh.f90`](../../tests/fortran/test_zhao_outflow_refresh.f90) | [表面はどう帯電するか](../models/SurfaceModels.md)、[表面電荷更新の数値仕様](SurfaceChargeNumerics.md)、[Zhao closure](../models/ZhaoStationaryClosure.md) |
 | stats、output、checkpoint、restart | `bem_simulator_stats.f90`、`bem_simulator_io.f90`、`bem_output_writer.f90`、`bem_periodic_checkpoint.f90`、`bem_restart.f90` | [`test_output_writer_io.f90`](../../tests/fortran/test_output_writer_io.f90)、[`test_output_writer_potential.f90`](../../tests/fortran/test_output_writer_potential.f90)、[`test_restart.f90`](../../tests/fortran/test_restart.f90) | [出力ガイド](../guide/OutputGuide.md)、[実行と再開](../guide/Execution.md)、`SPEC.md` の出力・再開契約 |
-| Python reader、解析、可視化 | `beach/` | `tests/python/test_fortran_results.py`、対応する CLI / analysis test | [後処理チュートリアル](../guide/PostprocessTutorial.md)、[Python API](../reference/PythonPostprocessAPI.md) |
+| Python reader、解析、可視化 | `beach/io/`（reader、numpy のみ）、`beach/native/`（ctypes kernel）、`beach/analysis/`、`beach/plot/`（matplotlib）、`beach/facade.py`（`Beach`） | `tests/python/test_fortran_results.py`、[`test_import_layers.py`](../../tests/python/test_import_layers.py)（層の依存方向）、対応する CLI / analysis test | [後処理チュートリアル](../guide/PostprocessTutorial.md)、[Python API](../reference/PythonPostprocessAPI.md) |
 
 module 名や `use` 依存を検索するときは、自動生成した
 [Fortran 依存関係マップ](FortranDependencyMap.md)と[Fortran API](https://nkzono99.github.io/BEACH/fortran/)を使います。
