@@ -222,19 +222,15 @@ def add_cmap(parser: argparse.ArgumentParser, *quantities: str) -> None:
     )
 
 
-def add_save(parser: argparse.ArgumentParser, *, default: str | None = None) -> None:
-    """Add ``--save PATH`` for a command that writes one file.
-
-    ``default`` describes where the file goes when ``--save`` is omitted; without
-    it the command writes nothing unless ``--save`` is given.
-    """
+def add_save(parser: argparse.ArgumentParser, *, default: str) -> None:
+    """Add ``--save PATH``; ``default`` describes where the file goes without it."""
 
     parser.add_argument(
         "--save",
         type=Path,
         default=None,
         metavar="PATH",
-        help=f"output file path (default: {default})" if default else "output file path",
+        help=f"output file path (default: {default})",
     )
 
 
