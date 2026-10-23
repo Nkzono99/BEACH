@@ -17,7 +17,8 @@ module bem_simulator
                                   advance_particle_step_upper_panel_fourier, &
                                   particle_step_result
   use bem_status_codes, only: particle_step_invalid_boundary, particle_step_multiple_box_events, &
-                              particle_step_ambiguous_open_corner, particle_status_name, collision_query_ok
+                              particle_step_ambiguous_open_corner, particle_status_name, collision_query_ok, &
+                              particle_track_failure_type, photo_ray_failure_type
   use bem_collision, only: find_first_hit
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
@@ -59,7 +60,7 @@ module bem_simulator
 
     module subroutine prepare_batch_state( &
       mesh, app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi, inject_state, &
-      collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+      photo_failure &
       )
       type(mesh_type), intent(in) :: mesh
       type(app_config), intent(in) :: app
@@ -73,15 +74,13 @@ module bem_simulator
       type(batch_injection_layout_type), intent(out) :: injection_layout
       type(mpi_context), intent(in) :: mpi
       type(injection_state), intent(inout), optional :: inject_state
-      integer(i32), intent(out) :: collision_failure_status, collision_failure_species
-      integer(i32), intent(out) :: collision_failure_ray, collision_failure_bounce
+      !> この rank の photo raycast 注入で最初に失敗した ray。
+      type(photo_ray_failure_type), intent(out) :: photo_failure
     end subroutine prepare_batch_state
 
     module subroutine process_particle_batch( &
       mesh, app, boundary_contract, current_model, snapshot, pcls_batch, workspace, bfield, batch_idx, mpi_rank, &
-      actual_team_size, &
-      collision_failure_status, collision_failure_particle, collision_failure_step, &
-      collision_failure_x, collision_failure_v, retry_counts, substep_counts, &
+      actual_team_size, track_failure, retry_counts, substep_counts, &
       cell, injection_layout, pool_counter, pool_claims, pool_claim_seconds &
       )
       type(irradiation_cell_contract_type), intent(in) :: cell
@@ -95,8 +94,8 @@ module bem_simulator
       real(dp), intent(in) :: bfield(3)
       integer(i32), intent(in) :: batch_idx, mpi_rank
       integer(i32), intent(out) :: actual_team_size
-      integer(i32), intent(out) :: collision_failure_status, collision_failure_particle, collision_failure_step
-      real(dp), intent(out) :: collision_failure_x(3), collision_failure_v(3)
+      !> この rank で最初に失敗した粒子追跡。
+      type(particle_track_failure_type), intent(out) :: track_failure
       integer(i64), intent(out) :: retry_counts(2)
       !> 半分にした dt step 数、その sub-step 総数、半分化の上限に達した step 数、dt より長く進めた push 数。
       integer(i64), intent(out) :: substep_counts(4)

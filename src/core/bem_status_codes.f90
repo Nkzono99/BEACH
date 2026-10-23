@@ -2,7 +2,7 @@
 !! collision query（0–4）と粒子 step（1001–）は result の status と失敗 receipt に出る同じ名前空間で、
 !! box 境界 event（0–1）は stepper の内部で particle_step_invalid_boundary へ写される。値はログと出力に出るので変えない。
 module bem_status_codes
-  use bem_kinds, only: i32
+  use bem_kinds, only: dp, i32
   implicit none
   private
 
@@ -19,6 +19,25 @@ module bem_status_codes
   integer(i32), parameter, public :: particle_step_invalid_boundary = 1001_i32
   integer(i32), parameter, public :: particle_step_multiple_box_events = 1002_i32
   integer(i32), parameter, public :: particle_step_ambiguous_open_corner = 1003_i32
+
+  !> バッチ内で最初に失敗した粒子追跡（最小の粒子番号、同じ粒子なら最小の step）。status が ok なら失敗なし。
+  type, public :: particle_track_failure_type
+    integer(i32) :: status = collision_query_ok
+    integer(i32) :: particle = huge(0_i32)
+    integer(i32) :: step = 0_i32
+    !> 失敗した step の開始位置 [m] と速度 [m/s]。
+    real(dp) :: x(3) = 0.0_dp
+    real(dp) :: v(3) = 0.0_dp
+  end type particle_track_failure_type
+
+  !> photo raycast の ray が衝突照会を完了できなかった最初の失敗（最小の ray、同じ ray なら最小の bounce）。
+  !! species は batch 注入の段で埋める。status が ok なら失敗なし。
+  type, public :: photo_ray_failure_type
+    integer(i32) :: status = collision_query_ok
+    integer(i32) :: species = huge(0_i32)
+    integer(i32) :: ray = huge(0_i32)
+    integer(i32) :: bounce = 0_i32
+  end type photo_ray_failure_type
 
   public :: particle_status_name
 

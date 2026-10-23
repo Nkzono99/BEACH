@@ -31,15 +31,10 @@ contains
   !! @param[in] emit_current_density_override 放出電流密度の上書き値 [A/m^2]。
   !! @param[in] normal_drift_speed_override 放出法線ドリフトの上書き値 [m/s]。
   !! @param[in] vmin_normal 放出法線速度の下限 [m/s]。
-  !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
-  !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
-  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
+  !! @param[out] failure 不完全な photo collision query の status・最小 ray index・bounce index（省略時は停止）。
   module procedure sample_photo_species_state
   real(dp) :: emit_current_density, normal_drift_speed
 
-  if (present(collision_failure_status)) collision_failure_status = collision_query_ok
-  if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
-  if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
   if (n_rays <= 0_i32) then
     if (present(emit_elem_idx)) emit_elem_idx = -1_i32
     n_emit = 0_i32
@@ -55,16 +50,14 @@ contains
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, vmin_normal=vmin_normal, &
-        collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
-        collision_failure_bounce=collision_failure_bounce &
+        failure=failure &
         )
     else
       call sample_photo_raycast_particles( &
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, &
-        collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
-        collision_failure_bounce=collision_failure_bounce &
+        failure=failure &
         )
     end if
   else
@@ -73,16 +66,14 @@ contains
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, vmin_normal=vmin_normal, &
-        collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
-        collision_failure_bounce=collision_failure_bounce &
+        failure=failure &
         )
     else
       call sample_photo_raycast_particles( &
         mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, &
-        collision_failure_status=collision_failure_status, collision_failure_ray=collision_failure_ray, &
-        collision_failure_bounce=collision_failure_bounce &
+        failure=failure &
         )
     end if
   end if

@@ -20,8 +20,8 @@ contains
   module procedure run_absorption_insulator
   integer(i32) :: batch_idx, final_batch_idx, batch_count_this_run, local_batch_idx, nth, hist_stride
   integer(i32) :: particle_team_size
-  integer(i32) :: collision_failure_status, collision_failure_particle, collision_failure_step
-  integer(i32) :: photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce
+  type(particle_track_failure_type) :: track_failure
+  type(photo_ray_failure_type) :: photo_failure
   integer(i32) :: trial_halvings, fresh_particle_count
   integer :: hist_unit, pot_hist_unit, top_ref_hist_unit, matching_hist_unit, fixed_hist_unit, spectrum_hist_unit
   integer :: secondary_hist_unit
@@ -36,7 +36,6 @@ contains
   real(dp), allocatable :: potential_buf(:), injection_residual_before(:), boundary_injection_residual_before(:, :)
   integer(i64) :: batch_counts(6), batch_retry_counts(2), batch_substep_counts(4)
   real(dp) :: bfield(3), rel, t0, sim_t0, batch_t0, batch_soft_discarded_abs_charge
-  real(dp) :: collision_failure_x(3), collision_failure_v(3)
   real(dp) :: trial_batch_duration, adaptive_potential_step
   type(particles_soa) :: pcls_batch
   type(mpi_context) :: mpi_ctx
@@ -299,20 +298,18 @@ contains
         )
       call prepare_batch_state( &
         mesh, trial_app, source_plan, snapshot, stats, batch_idx, workspace, pcls_batch, injection_layout, mpi_ctx, &
-        inject_state, photo_failure_status, photo_failure_species, photo_failure_ray, photo_failure_bounce &
+        inject_state, photo_failure &
         )
       call perf_region_end(perf_region_prepare_batch, t0)
       fresh_particle_count = pcls_batch%n
-      call stop_on_photo_collision_failure()
+      call stop_on_photo_collision_failure(photo_failure)
 
       call perf_region_begin(perf_region_particle_batch, t0)
       ! Every trial of a batch starts the shared pool from slot 1 again.
       if (shared_pool) call pool_counter%reset(mpi_ctx)
       call process_particle_batch( &
         mesh, trial_app, boundary_contract, surface_closure, snapshot, pcls_batch, workspace, &
-        bfield, batch_idx, mpi_ctx%rank, particle_team_size, &
-        collision_failure_status, collision_failure_particle, collision_failure_step, &
-        collision_failure_x, collision_failure_v, &
+        bfield, batch_idx, mpi_ctx%rank, particle_team_size, track_failure, &
         batch_retry_counts, batch_substep_counts, &
         cell=cell, injection_layout=injection_layout, pool_counter=pool_counter, pool_claims=batch_pool_claims, &
         pool_claim_seconds=batch_pool_claim_seconds &
@@ -336,7 +333,7 @@ contains
         end if
       end if
 
-      call stop_on_particle_step_failure()
+      call stop_on_particle_step_failure(track_failure)
 
       call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
       call apply_fixed_surface_current_closure( &
@@ -372,15 +369,16 @@ contains
   end subroutine run_accepted_trial
 
   !> photo ray の衝突判定が失敗した rank があれば、最小 rank の失敗を報告して止める。
-  subroutine stop_on_photo_collision_failure()
+  subroutine stop_on_photo_collision_failure(failure)
+    type(photo_ray_failure_type), intent(in) :: failure
     integer(i32) :: failure_count, failure_rank, local_values(4), selected_values(4)
 
-    failure_count = merge(1_i32, 0_i32, photo_failure_status /= collision_query_ok)
+    failure_count = merge(1_i32, 0_i32, failure%status /= collision_query_ok)
     call mpi_allreduce_sum_i32_scalar(mpi_ctx, failure_count)
     if (failure_count == 0_i32) return
-    local_values = [photo_failure_species, photo_failure_ray, photo_failure_bounce, photo_failure_status]
+    local_values = [failure%species, failure%ray, failure%bounce, failure%status]
     call mpi_select_lowest_rank_i32_values( &
-      mpi_ctx, photo_failure_status /= collision_query_ok, local_values, failure_rank, selected_values &
+      mpi_ctx, failure%status /= collision_query_ok, local_values, failure_rank, selected_values &
       )
     call stop_for_photo_collision_failure( &
       batch_idx, failure_rank, selected_values(1), selected_values(2), selected_values(3), selected_values(4) &
@@ -388,21 +386,22 @@ contains
   end subroutine stop_on_photo_collision_failure
 
   !> 粒子 step が失敗した rank があれば、最小 rank の失敗の粒子・位置・速度を報告して止める。
-  subroutine stop_on_particle_step_failure()
+  subroutine stop_on_particle_step_failure(failure)
+    type(particle_track_failure_type), intent(in) :: failure
     integer(i32) :: failure_count, failure_rank, local_values(3), selected_values(3)
     real(dp) :: selected_state(6)
 
-    failure_count = merge(1_i32, 0_i32, collision_failure_status /= collision_query_ok)
+    failure_count = merge(1_i32, 0_i32, failure%status /= collision_query_ok)
     call mpi_allreduce_sum_i32_scalar(mpi_ctx, failure_count)
     if (failure_count == 0_i32) return
-    local_values = [collision_failure_status, collision_failure_particle, collision_failure_step]
+    local_values = [failure%status, failure%particle, failure%step]
     call mpi_select_lowest_rank_i32_values( &
-      mpi_ctx, collision_failure_status /= collision_query_ok, local_values, failure_rank, selected_values &
+      mpi_ctx, failure%status /= collision_query_ok, local_values, failure_rank, selected_values &
       )
     selected_state = 0.0_dp
     if (mpi_ctx%rank == failure_rank) then
-      selected_state(1:3) = collision_failure_x
-      selected_state(4:6) = collision_failure_v
+      selected_state(1:3) = failure%x
+      selected_state(4:6) = failure%v
     end if
     call mpi_allreduce_sum_real_dp_array(mpi_ctx, selected_state)
     call stop_for_collision_failure( &

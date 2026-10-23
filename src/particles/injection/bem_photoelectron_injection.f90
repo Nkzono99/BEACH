@@ -6,7 +6,7 @@ module bem_photoelectron_injection
   use bem_types, only: mesh_type, sim_config, hit_info, bc_periodic
   use bem_boundary, only: apply_ray_box_boundary
   use bem_collision, only: find_first_hit
-  use bem_status_codes, only: collision_query_ok, particle_status_name
+  use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
   use bem_string_utils, only: lower_ascii
   use bem_injection_flux, only: sample_flux_weighted_normal_component
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
@@ -44,13 +44,11 @@ contains
   !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
   !! @param[out] n_emit 実際に放出された粒子数（`<= rays_per_batch`）。
   !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(rays_per_batch)`（省略可）。
-  !! @param[out] collision_failure_status 不完全な衝突照会の status（省略時は OpenMP 終了後に停止）。
-  !! @param[out] collision_failure_ray 不完全な照会を返した最小 ray index。
-  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
+  !! @param[out] failure 不完全な衝突照会の status・最小 ray index・bounce index（省略時は OpenMP 終了後に停止）。
   subroutine sample_photo_raycast_particles( &
     mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
     emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-    vmin_normal, collision_failure_status, collision_failure_ray, collision_failure_bounce &
+    vmin_normal, failure &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
@@ -67,7 +65,7 @@ contains
     integer(i32), intent(out), optional :: emit_elem_idx(:)
     integer(i32), intent(in), optional :: global_rays_per_batch
     real(dp), intent(in), optional :: vmin_normal
-    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
+    type(photo_ray_failure_type), intent(out), optional :: failure
 
     real(dp), parameter :: eps = 1.0d-12
     integer(i32) :: i, total_rays, bounce_count, collision_status
@@ -121,9 +119,6 @@ contains
     query_failure_status = collision_query_ok
     query_failure_ray = huge(0_i32)
     query_failure_bounce = 0_i32
-    if (present(collision_failure_status)) collision_failure_status = collision_query_ok
-    if (present(collision_failure_ray)) collision_failure_ray = query_failure_ray
-    if (present(collision_failure_bounce)) collision_failure_bounce = query_failure_bounce
 
     use_periodic2_mode = trim(lower_ascii(sim%field_bc_mode)) == 'periodic2'
 
@@ -163,10 +158,7 @@ contains
     !$omp end parallel do
 
     if (query_failure_status /= collision_query_ok) then
-      call finalize_photo_collision_query( &
-        query_failure_status, query_failure_ray, query_failure_bounce, &
-        collision_failure_status, collision_failure_ray, collision_failure_bounce &
-        )
+      call finalize_photo_collision_query(query_failure_status, query_failure_ray, query_failure_bounce, failure)
       return
     end if
 
@@ -347,17 +339,17 @@ contains
   end subroutine canonicalize_periodic_emission_position
 
   !> photo ray の不完全な衝突照会を返し、status 未要求なら OpenMP 外で停止する。
-  subroutine finalize_photo_collision_query( &
-    query_status, query_ray, query_bounce, collision_failure_status, collision_failure_ray, collision_failure_bounce &
-    )
+  subroutine finalize_photo_collision_query(query_status, query_ray, query_bounce, failure)
     integer(i32), intent(in) :: query_status, query_ray, query_bounce
-    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_ray, collision_failure_bounce
+    type(photo_ray_failure_type), intent(inout), optional :: failure
     character(len=256) :: failure_message
 
-    if (present(collision_failure_status)) collision_failure_status = query_status
-    if (present(collision_failure_ray)) collision_failure_ray = query_ray
-    if (present(collision_failure_bounce)) collision_failure_bounce = query_bounce
-    if (present(collision_failure_status)) return
+    if (present(failure)) then
+      failure%status = query_status
+      failure%ray = query_ray
+      failure%bounce = query_bounce
+      return
+    end if
 
     write (failure_message, '(a,i0,a,i0,a,a,a,i0)') &
       'photo_raycast collision query incomplete: ray=', query_ray, ' bounce=', query_bounce, &

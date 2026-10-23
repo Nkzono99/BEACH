@@ -13,10 +13,8 @@ contains
   !! @param[inout] state 境界 reservoir 流入の残差状態（必要時のみ）。
   !! @param[in] mesh 現在バッチ開始時点の電荷分布メッシュ（photo_raycast と電位補正で必要）。
   !! @param[out] photo_emission_dq photo_raycast 放出起因の要素電荷差分 `photo_emission_dq(nelem)`（省略可）。
-  !! @param[out] collision_failure_status 不完全な photo collision query の status（省略時は停止）。
-  !! @param[out] collision_failure_species 不完全な照会を返した最小 slot の species index。
-  !! @param[out] collision_failure_ray 不完全な照会を返した ray の species 内番号。
-  !! @param[out] collision_failure_bounce 不完全な照会を返した bounce index。
+  !! @param[out] photo_failure 不完全な photo collision query の status、最小 slot の species index、その ray の
+  !!   species 内番号と bounce index（省略時は停止）。
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   !! @param[in] source_plan run中に再利用する粒子source導出値（省略時は呼出し内で構築）。
   !! @param[out] photo_emission_dq_by_species species別のphoto放出反作用電荷 `photo_emission_dq_by_species(nelem, nspecies)`（省略可）。
@@ -30,10 +28,6 @@ contains
   integer(i32), allocatable :: gspecies(:), gelement(:), gstatus(:), gbounce(:)
   logical, allocatable :: gemitted(:)
 
-  if (present(collision_failure_status)) collision_failure_status = collision_query_ok
-  if (present(collision_failure_species)) collision_failure_species = huge(0_i32)
-  if (present(collision_failure_ray)) collision_failure_ray = huge(0_i32)
-  if (present(collision_failure_bounce)) collision_failure_bounce = 0_i32
   call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
   if (present(photo_emission_dq)) then
     if (.not. present(mesh)) error stop 'photo_emission_dq requires mesh in init_particle_batch_from_config.'
@@ -83,8 +77,7 @@ contains
   if (failed_slot > 0_i32) then
     call finalize_particle_batch_collision_query( &
       gstatus(failed_slot), batch_idx, gspecies(failed_slot), &
-      layout%slot_index(slot_begin + failed_slot - 1_i32), gbounce(failed_slot), &
-      collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+      layout%slot_index(slot_begin + failed_slot - 1_i32), gbounce(failed_slot), photo_failure &
       )
     call allocate_particles(pcls, 0_i32)
     if (present(slot_ids)) allocate (slot_ids(0))
@@ -123,19 +116,19 @@ contains
 
   !> batch injection の不完全な photo collision query を返し、status 未要求なら serial に停止する。
   subroutine finalize_particle_batch_collision_query( &
-    query_status, batch_idx, species_idx, query_ray, query_bounce, &
-    collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce &
+    query_status, batch_idx, species_idx, query_ray, query_bounce, photo_failure &
     )
     integer(i32), intent(in) :: query_status, batch_idx, species_idx, query_ray, query_bounce
-    integer(i32), intent(out), optional :: collision_failure_status, collision_failure_species
-    integer(i32), intent(out), optional :: collision_failure_ray, collision_failure_bounce
+    type(photo_ray_failure_type), intent(inout), optional :: photo_failure
     character(len=256) :: failure_message
 
-    if (present(collision_failure_status)) collision_failure_status = query_status
-    if (present(collision_failure_species)) collision_failure_species = species_idx
-    if (present(collision_failure_ray)) collision_failure_ray = query_ray
-    if (present(collision_failure_bounce)) collision_failure_bounce = query_bounce
-    if (present(collision_failure_status)) return
+    if (present(photo_failure)) then
+      photo_failure%status = query_status
+      photo_failure%species = species_idx
+      photo_failure%ray = query_ray
+      photo_failure%bounce = query_bounce
+      return
+    end if
 
     write (failure_message, '(a,i0,a,i0,a,i0,a,i0,a,a,a,i0)') &
       'photo_raycast collision query incomplete during batch preparation: batch=', batch_idx, &
