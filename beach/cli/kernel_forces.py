@@ -11,6 +11,7 @@ import numpy as np
 from beach import Beach
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -43,20 +44,16 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="FMM Cartesian expansion order (default: receipt, or 4 for legacy output)",
     )
     _options.add_library(parser)
-    parser.add_argument(
-        "--save-csv",
-        type=Path,
-        default=None,
-        help="output CSV path (default: <output_dir>/object_forces_kernel.csv)",
-    )
+    _options.add_save(parser, default="<output_dir>/object_forces_kernel.csv")
+    _options.add_json(parser)
 
 
 def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the kernel-force command."""
 
-    save_csv = (
-        args.save_csv
-        if args.save_csv is not None
+    save_path = (
+        args.save
+        if args.save is not None
         else args.output_dir / "object_forces_kernel.csv"
     )
     records = beach.calc_object_forces_kernel(
@@ -68,17 +65,23 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         library_path=args.library,
     )
 
-    _write_csv(save_csv, records)
-    print(f"saved_csv={save_csv}")
-    for record in records:
-        force_norm = float(np.linalg.norm(record.force_N))
-        torque_norm = float(np.linalg.norm(record.torque_Nm))
-        print(
-            f"mesh_id={record.mesh_id} "
-            f"charge_C={record.total_charge_C:.6e} "
-            f"force_norm_N={force_norm:.6e} "
-            f"torque_norm_Nm={torque_norm:.6e}"
-        )
+    _write_csv(save_path, records)
+    emit(
+        args,
+        {
+            "saved": save_path,
+            "objects": [
+                {
+                    "mesh_id": record.mesh_id,
+                    "step": record.step,
+                    "charge_C": record.total_charge_C,
+                    "force_norm_N": float(np.linalg.norm(record.force_N)),
+                    "torque_norm_Nm": float(np.linalg.norm(record.torque_Nm)),
+                }
+                for record in records
+            ],
+        },
+    )
 
 
 def _parse_mesh_ids(value: str | None) -> tuple[int, ...] | None:

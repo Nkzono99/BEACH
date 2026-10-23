@@ -13,6 +13,9 @@ from beach.tooling.workload import (
     read_macro_residuals,
 )
 
+from . import _options
+from ._output import emit
+
 
 def _default_threads() -> int:
     value = os.environ.get("OMP_NUM_THREADS", "").strip()
@@ -88,6 +91,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default=10,
         help="number of head batches to print in detail (default: 10)",
     )
+    _options.add_json(parser)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -114,61 +118,51 @@ def run(args: argparse.Namespace) -> None:
     batch_thread_min = result["batch_thread_min"]
     batch_thread_max = result["batch_thread_max"]
     total_particles = result["total_particles"]
-    global_total_particles = result["global_total_particles"]
     batch_count = result["batch_count"]
-    target_batch_count = result["target_batch_count"]
-    completed_batches = result["completed_batches"]
     threads = result["threads"]
-    mpi_ranks = result["mpi_ranks"]
-    mpi_rank = result["mpi_rank"]
 
-    print(f"config={args.config}")
-    print(f"threads={threads}")
-    print(f"mpi_ranks={mpi_ranks}")
-    print(f"mpi_rank={mpi_rank}")
-    print("estimate_scope=local_rank")
+    report: dict[str, object] = {
+        "config": args.config,
+        "threads": threads,
+        "mpi_ranks": result["mpi_ranks"],
+        "mpi_rank": result["mpi_rank"],
+        "estimate_scope": "local_rank",
+    }
     if result["secondary_emission_excluded"]:
-        print("secondary_emission_scope=excluded_collision_generated_particles")
-    print(f"target_batch_count={target_batch_count}")
-    print(f"completed_batches={completed_batches}")
-    print(f"remaining_batch_count={batch_count}")
-    print(f"resolved_batch_duration={result['resolved_batch_duration']}")
-    print(f"total_particles={total_particles}")
-    print(f"global_total_particles={global_total_particles}")
-    print(f"local_reservoir_particles={result['local_reservoir_particles']}")
-    print(f"global_reservoir_particles={result['global_reservoir_particles']}")
-    if batch_count > 0:
-        print(f"particles_per_batch_min={min(batch_totals)}")
-        print(f"particles_per_batch_max={max(batch_totals)}")
-        print(f"particles_per_batch_avg={total_particles / batch_count:.3f}")
-        print(f"per_thread_particles_min={min(batch_thread_min)}")
-        print(f"per_thread_particles_max={max(batch_thread_max)}")
-        print(
-            "per_thread_particles_avg="
-            f"{total_particles / (batch_count * threads):.3f}"
-        )
-    else:
-        print("particles_per_batch_min=0")
-        print("particles_per_batch_max=0")
-        print("particles_per_batch_avg=0.000")
-        print("per_thread_particles_min=0")
-        print("per_thread_particles_max=0")
-        print("per_thread_particles_avg=0.000")
-    print(f"final_macro_residuals={result['final_residuals']}")
-
-    n_detail = max(0, min(args.show_batches, batch_count))
-    if n_detail > 0:
-        print("batch_details=")
-        for batch_idx in range(n_detail):
-            species_counts = result["species_per_batch"][batch_idx]
-            global_species_counts = result["global_species_per_batch"][batch_idx]
-            print(
-                "  "
-                f"batch={batch_idx + 1} "
-                f"total={batch_totals[batch_idx]} "
-                f"global_total={result['global_batch_totals'][batch_idx]} "
-                f"per_thread=[{batch_thread_min[batch_idx]},{batch_thread_max[batch_idx]}] "
-                f"species={species_counts} "
-                f"global_species={global_species_counts}"
-            )
-
+        report["secondary_emission_scope"] = "excluded_collision_generated_particles"
+    report.update(
+        {
+            "target_batch_count": result["target_batch_count"],
+            "completed_batches": result["completed_batches"],
+            "remaining_batch_count": batch_count,
+            "resolved_batch_duration": result["resolved_batch_duration"],
+            "total_particles": total_particles,
+            "global_total_particles": result["global_total_particles"],
+            "local_reservoir_particles": result["local_reservoir_particles"],
+            "global_reservoir_particles": result["global_reservoir_particles"],
+            "particles_per_batch_min": min(batch_totals, default=0),
+            "particles_per_batch_max": max(batch_totals, default=0),
+            "particles_per_batch_avg": (
+                total_particles / batch_count if batch_count > 0 else 0.0
+            ),
+            "per_thread_particles_min": min(batch_thread_min, default=0),
+            "per_thread_particles_max": max(batch_thread_max, default=0),
+            "per_thread_particles_avg": (
+                total_particles / (batch_count * threads) if batch_count > 0 else 0.0
+            ),
+            "final_macro_residuals": result["final_residuals"],
+            "batch_details": [
+                {
+                    "batch": batch_idx + 1,
+                    "total": batch_totals[batch_idx],
+                    "global_total": result["global_batch_totals"][batch_idx],
+                    "per_thread_min": batch_thread_min[batch_idx],
+                    "per_thread_max": batch_thread_max[batch_idx],
+                    "species": result["species_per_batch"][batch_idx],
+                    "global_species": result["global_species_per_batch"][batch_idx],
+                }
+                for batch_idx in range(max(0, min(args.show_batches, batch_count)))
+            ],
+        }
+    )
+    emit(args, report)

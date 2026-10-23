@@ -19,6 +19,7 @@ import numpy as np
 from beach import AdhesionProfile, Beach
 
 from . import _options
+from ._output import emit
 
 _INSTANTANEOUS_FIELDS = (
     "component",
@@ -131,13 +132,8 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default=1.0e-18,
     )
     parser.add_argument("--max-refinement", type=_options.nonnegative_int, default=8)
-    parser.add_argument(
-        "--output-dir",
-        dest="artifact_dir",
-        type=Path,
-        default=None,
-        help="artifact directory (default: OUTPUT_DIR/object_detachment_mesh_<id>)",
-    )
+    _options.add_save_dir(parser, default="<output_dir>/object_detachment_mesh_<id>")
+    _options.add_json(parser)
 
 
 def _z_points(value: str) -> int:
@@ -160,7 +156,7 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     adhesion = _adhesion_from_args(args)
 
     run_dir = args.output_dir
-    artifact_dir = args.artifact_dir or (
+    artifact_dir = args.save_dir or (
         run_dir / f"object_detachment_mesh_{args.target_mesh_id}"
     )
     requested_model = args.periodic_model
@@ -219,12 +215,20 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     }
     artifact_dir.mkdir(parents=True, exist_ok=True)
     _replace_artifact_set(artifact_dir, artifacts)
-    print(f"saved_dir={artifact_dir}")
-    print(f"force_z_N={wrench.force_N[2]:.6e}")
-    print(f"barrier_free_from_rest={release.barrier_free_from_rest}")
     release_summary = summary["release"]
     assert isinstance(release_summary, Mapping)
-    print(f"numerically_qualified={release_summary['numerically_qualified']}")
+    emit(
+        args,
+        {
+            **{
+                f"saved_{Path(name).stem}": artifact_dir / name
+                for name in _ARTIFACT_NAMES
+            },
+            "force_z_N": wrench.force_N[2],
+            "barrier_free_from_rest": release.barrier_free_from_rest,
+            "numerically_qualified": release_summary["numerically_qualified"],
+        },
+    )
 
 
 def _resolve_charge_provenance(

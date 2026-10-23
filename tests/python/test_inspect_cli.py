@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -73,7 +74,8 @@ def test_inspect_without_precomputed_potential_does_not_compute(
     output = capsys.readouterr().out
     assert "mesh_nelem=2" in output
     assert "processed_particles=10" in output
-    assert "absorbed=7 escaped=3" in output
+    assert "absorbed=7\n" in output
+    assert "escaped=3\n" in output
     assert "charge_sum=-1.000000e-09" in output
     assert "potential_min=" not in output
     assert "potential_max=" not in output
@@ -148,8 +150,10 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    pytest.importorskip("matplotlib")
     output_dir = tmp_path / "run_plot"
-    save_path = tmp_path / "potential.png"
+    save_dir = tmp_path / "figures"
+    save_path = save_dir / "potential_mesh.png"
     _write_inspect_fixture(output_dir)
     monkeypatch.setattr(
         inspect_cli,
@@ -169,10 +173,32 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
 
     monkeypatch.setattr(Beach, "plot_potential", fake_plot)
 
-    beachx_main(["inspect", str(output_dir), "--save-potential-mesh", str(save_path)])
+    beachx_main(["inspect", str(output_dir), "--save-dir", str(save_dir)])
 
     output = capsys.readouterr().out
     assert len(plot_calls) == 1
     assert "potential_min=" not in output
     assert "potential_max=" not in output
     assert f"saved_potential_mesh={save_path}" in output
+    assert (save_dir / "charge_bar.png").is_file()
+    assert (save_dir / "charge_mesh.png").is_file()
+
+
+def test_inspect_json_reports_the_same_fields_as_key_value_lines(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_dir = tmp_path / "run_json"
+    _write_inspect_fixture(output_dir, potential_values=(1.5, -2.5))
+
+    beachx_main(["inspect", str(output_dir)])
+    text = capsys.readouterr().out
+    beachx_main(["inspect", str(output_dir), "--json"])
+    report = json.loads(capsys.readouterr().out)
+
+    keys = [line.partition("=")[0] for line in text.splitlines()]
+    assert keys == list(report)
+    assert report["absorbed"] == 7
+    assert report["charge_sum"] == pytest.approx(-1.0e-9)
+    assert report["potential_min"] == -2.5
+    assert report["mesh_ids"] == [1]

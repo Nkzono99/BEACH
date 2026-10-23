@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from beach import Beach
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -20,12 +20,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default="charge",
         help="value to visualize on mesh snapshots",
     )
-    parser.add_argument(
-        "--save-gif",
-        type=Path,
-        default=None,
-        help="output GIF path (default: <output_dir>/<quantity>_history.gif)",
-    )
+    _options.add_save(parser, default="<output_dir>/<quantity>_history.gif")
     parser.add_argument("--fps", type=int, default=10, help="GIF frame rate")
     parser.add_argument(
         "--frame-stride",
@@ -48,13 +43,13 @@ def configure(parser: argparse.ArgumentParser) -> None:
 def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the history-animation command."""
 
-    save_gif = (
-        args.save_gif
-        if args.save_gif is not None
+    save_path = (
+        args.save
+        if args.save is not None
         else args.output_dir / f"{args.quantity}_history.gif"
     )
     written = beach.animate_mesh(
-        output_path=save_gif,
+        output_path=save_path,
         quantity=args.quantity,
         fps=args.fps,
         frame_stride=args.frame_stride,
@@ -68,8 +63,6 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     )
 
     result = beach.result
-    print(f"saved_gif={written}")
-    print(f"quantity={args.quantity}")
     snapshot_count = (
         len(result.history)
         if result.history is not None and result.history.has_data
@@ -83,5 +76,12 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         )
     else:
         rendered_frames = min(snapshot_count, args.total_frames)
-    print(f"snapshots={snapshot_count}")
-    print(f"rendered_frames={rendered_frames}")
+    emit(
+        args,
+        {
+            "saved": written,
+            "quantity": args.quantity,
+            "snapshots": snapshot_count,
+            "rendered_frames": rendered_frames,
+        },
+    )

@@ -1295,7 +1295,7 @@ def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
             str(config_path),
             "--library",
             str(lib),
-            "--save-csv",
+            "--save",
             str(save_csv),
         ]
     )

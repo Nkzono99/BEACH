@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from dataclasses import replace
-from pathlib import Path
 
 from beach import Beach, compute_potential_mesh, list_fortran_runs
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -18,18 +19,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
     _options.add_show(
         parser, help="display all matplotlib plots, including potential plots"
     )
-    parser.add_argument(
-        "--save-bar", type=Path, default=None, help="save bar-chart figure path"
-    )
-    parser.add_argument(
-        "--save-mesh", type=Path, default=None, help="save 3D mesh figure path"
-    )
-    parser.add_argument(
-        "--save-potential-mesh",
-        type=Path,
-        default=None,
-        help="save 3D electric-potential mesh figure path; may calculate potential",
-    )
+    _options.add_save_dir(parser)
     parser.add_argument(
         "--recompute-potential",
         action="store_true",
@@ -43,44 +33,67 @@ def configure(parser: argparse.ArgumentParser) -> None:
     _options.add_view(parser)
     _options.add_periodic2_mesh(parser)
     _options.add_axis_unit(parser)
+    _options.add_json(parser)
+    parser.epilog = (
+        "--save-dir writes charge_bar.png, charge_mesh.png, and potential_mesh.png "
+        "(the figures --show displays); the potential mesh uses mesh_potential.csv "
+        "when present and otherwise computes the potential."
+    )
 
 
 def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the output-inspection command."""
 
     result = beach.result
-    print(f"directory={result.directory}")
-    print(f"mesh_nelem={result.mesh_nelem}")
-    print(f"processed_particles={result.processed_particles}")
-    print(f"absorbed={result.absorbed} escaped={result.escaped}")
-    print(f"batches={result.batches} last_rel_change={result.last_rel_change:.6e}")
+    report: dict[str, object] = {
+        "directory": result.directory,
+        "mesh_nelem": result.mesh_nelem,
+        "processed_particles": result.processed_particles,
+        "absorbed": result.absorbed,
+        "escaped": result.escaped,
+        "batches": result.batches,
+        "last_rel_change": result.last_rel_change,
+    }
     if result.simulated_time_s is not None:
-        print(f"simulated_time_s={result.simulated_time_s:.6e}")
+        report["simulated_time_s"] = result.simulated_time_s
     if (
         result.periodic2_max_nonzero_mode_potential_step_v is not None
         and result.periodic2_max_nonzero_mode_potential_step_v > 0.0
     ):
-        print(
-            "adaptive_nonzero_mode="
-            f"limit_V:{result.periodic2_max_nonzero_mode_potential_step_v:.6e} "
-            f"last_step_V:{result.adaptive_nonzero_mode_last_potential_step_v or 0.0:.6e} "
-            f"last_duration_s:{result.adaptive_nonzero_mode_last_batch_duration_s or 0.0:.6e} "
-            f"rejected_trials:{result.adaptive_nonzero_mode_rejected_trials} "
-            f"omp_threads:{result.adaptive_nonzero_mode_omp_threads or 0}"
+        report.update(
+            {
+                "adaptive_nonzero_mode_limit_V": (
+                    result.periodic2_max_nonzero_mode_potential_step_v
+                ),
+                "adaptive_nonzero_mode_last_step_V": (
+                    result.adaptive_nonzero_mode_last_potential_step_v or 0.0
+                ),
+                "adaptive_nonzero_mode_last_duration_s": (
+                    result.adaptive_nonzero_mode_last_batch_duration_s or 0.0
+                ),
+                "adaptive_nonzero_mode_rejected_trials": (
+                    result.adaptive_nonzero_mode_rejected_trials
+                ),
+                "adaptive_nonzero_mode_omp_threads": (
+                    result.adaptive_nonzero_mode_omp_threads or 0
+                ),
+            }
         )
-    print(f"charge_sum={result.charges.sum():.6e}")
+    report["charge_sum"] = float(result.charges.sum())
     if result.mesh_ids is not None:
-        mesh_ids = sorted(int(v) for v in set(result.mesh_ids.tolist()))
-        print(f"mesh_ids={mesh_ids}")
+        report["mesh_ids"] = sorted(int(v) for v in set(result.mesh_ids.tolist()))
     if result.mesh_sources is not None:
-        for mesh_id in sorted(result.mesh_sources):
-            src = result.mesh_sources[mesh_id]
-            print(
-                "mesh_source="
-                f"id:{src.mesh_id} source:{src.source_kind} "
-                f"template:{src.template_kind} surface:{src.surface_model} "
-                f"epsilon_r:{src.epsilon_r:g} elems:{src.elem_count}"
-            )
+        report["mesh_sources"] = [
+            {
+                "mesh_id": src.mesh_id,
+                "source": src.source_kind,
+                "template": src.template_kind,
+                "surface": src.surface_model,
+                "epsilon_r": src.epsilon_r,
+                "elems": src.elem_count,
+            }
+            for src in (result.mesh_sources[key] for key in sorted(result.mesh_sources))
+        ]
     potential = None
     if args.recompute_potential:
         # Without saved values compute_potential_mesh evaluates the kernel.
@@ -90,72 +103,58 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         )
     elif result.mesh_potential_v is not None:
         potential = result.mesh_potential_v
-
     if potential is not None and potential.size > 0:
-        print(f"potential_min={potential.min():.6e}")
-        print(f"potential_max={potential.max():.6e}")
+        report["potential_min"] = float(potential.min())
+        report["potential_max"] = float(potential.max())
     if result.history is not None and result.history.has_data:
-        snapshot_count = len(result.history)
-        print(f"charge_history_shape=({result.mesh_nelem}, {snapshot_count})")
-        print(f"batch_indices={result.history.batch_indices}")
-        print(
-            "processed_particles_by_batch="
-            f"{result.history.processed_particles_by_batch}"
+        report["charge_history_shape"] = [result.mesh_nelem, len(result.history)]
+        report["batch_indices"] = result.history.batch_indices
+        report["processed_particles_by_batch"] = (
+            result.history.processed_particles_by_batch
         )
 
-    need_bar_plot = args.save_bar is not None or args.show
-    need_mesh_plot = args.save_mesh is not None or args.show
-    need_potential_mesh_plot = args.save_potential_mesh is not None or args.show
+    if args.save_dir is not None or args.show:
+        report.update(_plot_figures(args, beach))
 
-    if need_bar_plot:
-        bar_fig, _ = beach.plot_bar()
-        if args.save_bar is not None:
-            bar_fig.savefig(args.save_bar, dpi=150)
-            print(f"saved_bar={args.save_bar}")
-
-    if need_mesh_plot:
-        if result.triangles is not None:
-            mesh_fig, _ = beach.plot_mesh(
-                view_elev=args.view_elev,
-                view_azim=args.view_azim,
-                apply_periodic2_mesh=args.apply_periodic2_mesh,
-                periodic2_mesh_mode=args.periodic2_mesh_mode,
-                periodic2_repeat=args.periodic2_repeat,
-                axis_unit=args.axis_unit,
-            )
-            if args.save_mesh is not None:
-                mesh_fig.savefig(args.save_mesh, dpi=150)
-                print(f"saved_mesh={args.save_mesh}")
-        else:
-            print("mesh_triangles.csv not found; mesh visualization is skipped")
-
-    if need_potential_mesh_plot:
-        if result.triangles is not None:
-            potential_mesh_fig, _ = beach.plot_potential(
-                view_elev=args.view_elev,
-                view_azim=args.view_azim,
-                apply_periodic2_mesh=args.apply_periodic2_mesh,
-                periodic2_mesh_mode=args.periodic2_mesh_mode,
-                periodic2_repeat=args.periodic2_repeat,
-                axis_unit=args.axis_unit,
-                library_path=args.library,
-            )
-            if args.save_potential_mesh is not None:
-                potential_mesh_fig.savefig(args.save_potential_mesh, dpi=150)
-                print(f"saved_potential_mesh={args.save_potential_mesh}")
-        else:
-            print(
-                "mesh_triangles.csv not found; potential mesh visualization is skipped"
-            )
+    runs = list_fortran_runs(args.output_dir.parent)
+    if runs:
+        report["sibling_runs"] = runs
+    emit(args, report)
 
     if args.show:
         import matplotlib.pyplot as plt
 
         plt.show()
 
-    runs = list_fortran_runs(Path(args.output_dir).parent)
-    if runs:
-        print("sibling_runs=")
-        for sibling in runs:
-            print(f"  - {sibling}")
 
+def _plot_figures(args: argparse.Namespace, beach: Beach) -> dict[str, object]:
+    """Draw the inspect figures and save each one as soon as it is drawn."""
+
+    saved: dict[str, object] = {}
+    if args.save_dir is not None:
+        args.save_dir.mkdir(parents=True, exist_ok=True)
+
+    def keep(name: str, fig) -> None:
+        if args.save_dir is not None:
+            path = args.save_dir / f"{name}.png"
+            fig.savefig(path, dpi=150)
+            saved[f"saved_{name}"] = path
+
+    keep("charge_bar", beach.plot_bar()[0])
+    if beach.result.triangles is None:
+        print("mesh_triangles.csv not found; mesh plots are skipped", file=sys.stderr)
+        return saved
+    mesh_options = {
+        "view_elev": args.view_elev,
+        "view_azim": args.view_azim,
+        "apply_periodic2_mesh": args.apply_periodic2_mesh,
+        "periodic2_mesh_mode": args.periodic2_mesh_mode,
+        "periodic2_repeat": args.periodic2_repeat,
+        "axis_unit": args.axis_unit,
+    }
+    keep("charge_mesh", beach.plot_mesh(**mesh_options)[0])
+    keep(
+        "potential_mesh",
+        beach.plot_potential(**mesh_options, library_path=args.library)[0],
+    )
+    return saved

@@ -7,6 +7,7 @@ import argparse
 from beach import Beach
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -42,6 +43,7 @@ def configure(parser: argparse.ArgumentParser) -> None:
         help="do not draw numeric values in each matrix cell",
     )
     _options.add_show(parser)
+    _options.add_json(parser)
 
 
 def _parse_target_kinds(value: str | None) -> tuple[str, ...] | None:
@@ -69,11 +71,21 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     )
     fig.savefig(save_path, dpi=args.dpi)
 
-    metadata = getattr(ax, "_beach_coulomb_matrix", {})
-    print(f"saved={save_path}")
-    print(f"component={metadata.get('component', args.component)}")
-    print(f"targets={list(metadata.get('target_labels', ())) }")
-    print(f"sources={list(metadata.get('source_labels', ())) }")
+    metadata = ax._beach_coulomb_matrix
+    emit(
+        args,
+        {
+            "saved": save_path,
+            "component": metadata["component"],
+            "step": metadata["step"],
+            "targets": list(metadata["target_labels"]),
+            "sources": list(metadata["source_labels"]),
+            "force_matrix": [
+                {"target": label, f"force_{args.component}_N": row}
+                for label, row in zip(metadata["target_labels"], metadata["matrix"])
+            ],
+        },
+    )
 
     if args.show:
         import matplotlib.pyplot as plt

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -79,11 +80,13 @@ def run(args: argparse.Namespace) -> None:
     save_path = args.save
     if save_path is None and not args.show:
         save_path = profile_path.with_suffix(".png")
+    report: dict[str, object] = {}
     if save_path is not None:
         fig.savefig(save_path, dpi=args.dpi)
-        print(f"saved={save_path}")
-
-    _print_top_regions(rows, metric=args.metric, top=args.top)
+        report["saved"] = save_path
+    report["metric"] = args.metric
+    report["top_regions"] = _top_regions(rows, metric=args.metric, top=args.top)
+    emit(args, report)
 
     import matplotlib.pyplot as plt
 
@@ -308,19 +311,21 @@ def _region_color(region: str) -> str:
     return "#475569"
 
 
-def _print_top_regions(rows: list[dict[str, Any]], *, metric: str, top: int) -> None:
+def _top_regions(
+    rows: list[dict[str, Any]], *, metric: str, top: int
+) -> list[dict[str, object]]:
     sorted_rows = sorted(
         rows,
         key=lambda row: (float(row[metric]), row["region"]),
         reverse=True,
     )
     limit = top if top > 0 else min(8, len(sorted_rows))
-    print(f"top_regions_by_{metric}=")
-    for row in sorted_rows[:limit]:
-        print(
-            f"  {row['region']}: "
-            f"{float(row[metric]):.6e}s "
-            f"(calls={float(row['calls_sum']):.0f}, "
-            f"imbalance={float(row['imbalance_ratio']):.3f})"
-        )
-
+    return [
+        {
+            "region": row["region"],
+            metric: float(row[metric]),
+            "calls_sum": int(float(row["calls_sum"])),
+            "imbalance_ratio": float(row["imbalance_ratio"]),
+        }
+        for row in sorted_rows[:limit]
+    ]

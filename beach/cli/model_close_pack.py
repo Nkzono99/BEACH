@@ -13,6 +13,8 @@ from beach.tooling.closepack_config import (
     total_sphere_count,
 )
 
+from ._output import emit
+
 
 def configure(parser: argparse.ArgumentParser) -> None:
     """Add the ``model close-pack`` options."""
@@ -132,8 +134,13 @@ def run(args: argparse.Namespace) -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(text, encoding="utf-8")
 
-    print(f"saved={args.output}")
-    print(f"base_config={args.base_config}")
-    print(f"sphere_count={total_sphere_count(spec)}")
-    print(f"box_min={config['domain']['box_min']}")
-    print(f"box_max={config['domain']['box_max']}")
+    emit(
+        args,
+        {
+            "saved": args.output,
+            "base_config": args.base_config,
+            "sphere_count": total_sphere_count(spec),
+            "box_min": config["domain"]["box_min"],
+            "box_max": config["domain"]["box_max"],
+        },
+    )

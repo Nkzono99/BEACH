@@ -6,9 +6,12 @@ import argparse
 import csv
 from pathlib import Path
 
+import numpy as np
+
 from beach import Beach
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -68,26 +71,14 @@ def configure(parser: argparse.ArgumentParser) -> None:
         default=0.0,
         help="additional normal adhesion resisting lift [N]",
     )
-    parser.add_argument(
-        "--save-csv",
-        type=Path,
-        default=None,
-        help="output CSV path (default: <output_dir>/mobility_summary.csv)",
-    )
+    _options.add_save(parser, default="<output_dir>/mobility_summary.csv")
+    _options.add_json(parser)
 
 
 def _parse_kind_list(value: str | None) -> tuple[str, ...] | None:
     if value is None:
         return None
     return tuple(part.strip().lower() for part in value.split(",") if part.strip())
-
-
-def _fmt_scalar(value: float | None) -> str:
-    if value is None:
-        return "n/a"
-    if value == float("inf"):
-        return "inf"
-    return f"{value:.3e}"
 
 
 def _write_csv(path: Path, analysis) -> None:
@@ -159,9 +150,9 @@ def _write_csv(path: Path, analysis) -> None:
 def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the Coulomb mobility command."""
 
-    save_csv = (
-        args.save_csv
-        if args.save_csv is not None
+    save_path = (
+        args.save
+        if args.save is not None
         else args.output_dir / "mobility_summary.csv"
     )
     analysis = beach.analyze_coulomb_mobility(
@@ -177,24 +168,25 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
         adhesion_force_N=args.adhesion_force_N,
     )
 
-    _write_csv(save_csv, analysis)
-
-    print(f"saved_csv={save_csv}")
-    print(f"support_normal={analysis.support_normal_m.tolist()}")
-    for record in analysis.records:
-        force_norm = float((record.force_N @ record.force_N) ** 0.5)
-        torque_norm = float((record.torque_Nm @ record.torque_Nm) ** 0.5)
-        print(
-            "object="
-            f"{record.label} "
-            f"mesh_id={record.mesh_id} "
-            f"kind={record.kind} "
-            f"force_norm_N={force_norm:.3e} "
-            f"torque_norm_Nm={torque_norm:.3e} "
-            f"lift_ratio={_fmt_scalar(record.lift_ratio)} "
-            f"slide_ratio={_fmt_scalar(record.slide_ratio)} "
-            f"roll_ratio={_fmt_scalar(record.roll_ratio)}"
-        )
-        if record.notes:
-            print(f"notes[{record.label}]={'; '.join(record.notes)}")
-
+    _write_csv(save_path, analysis)
+    emit(
+        args,
+        {
+            "saved": save_path,
+            "support_normal": analysis.support_normal_m,
+            "objects": [
+                {
+                    "mesh_id": record.mesh_id,
+                    "label": record.label,
+                    "kind": record.kind,
+                    "force_norm_N": float(np.linalg.norm(record.force_N)),
+                    "torque_norm_Nm": float(np.linalg.norm(record.torque_Nm)),
+                    "lift_ratio": record.lift_ratio,
+                    "slide_ratio": record.slide_ratio,
+                    "roll_ratio": record.roll_ratio,
+                    "notes": list(record.notes),
+                }
+                for record in analysis.records
+            ],
+        },
+    )

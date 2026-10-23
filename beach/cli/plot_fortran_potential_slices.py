@@ -10,6 +10,7 @@ from beach.analysis.periodic import periodic2_from_sim
 from beach.config import ConfigError, load_config_file
 
 from . import _options
+from ._output import emit
 
 
 def configure(parser: argparse.ArgumentParser) -> None:
@@ -216,14 +217,23 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     save_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(save_path, dpi=args.dpi)
 
-    print(f"saved_potential_slices={save_path}")
-    print(f"config={config_path}")
-    print(f"grid_n={args.grid_n}")
-    print(f"box_min={box_min} box_max={box_max}")
-    print(f"periodic2={periodic2}")
-    print(f"xy_z={xy_z:.6e} yz_x={yz_x:.6e} xz_y={xz_y:.6e}")
-    print(f"vmin={args.vmin} vmax={args.vmax}")
-    print(f"use_box={use_box}")
+    emit(
+        args,
+        {
+            "saved": save_path,
+            "config": config_path,
+            "grid_n": args.grid_n,
+            "box_min": box_min,
+            "box_max": box_max,
+            "periodic2": periodic2,
+            "xy_z": xy_z,
+            "yz_x": yz_x,
+            "xz_y": xz_y,
+            "vmin": args.vmin,
+            "vmax": args.vmax,
+            "use_box": use_box,
+        },
+    )
 
     import matplotlib.pyplot as plt
 

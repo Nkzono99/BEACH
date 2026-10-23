@@ -408,7 +408,7 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
             "0.25",
             "--adhesion-range-m",
             "0.1",
-            "--output-dir",
+            "--save-dir",
             str(artifact_dir),
         ]
     )
@@ -489,7 +489,7 @@ def test_object_detachment_cli_resolves_minus_one_charge_provenance(
     args = _required_args(tmp_path) + [
         "--step",
         "-1",
-        "--output-dir",
+        "--save-dir",
         str(artifact_dir),
     ]
 
@@ -540,7 +540,7 @@ def test_object_detachment_strict_json_failure_preserves_existing_artifacts(
         return replace(wrench, numerical_metadata=metadata)
 
     monkeypatch.setattr(_FakeProbe, "wrench", nonfinite_wrench)
-    args = _required_args(tmp_path) + ["--output-dir", str(artifact_dir)]
+    args = _required_args(tmp_path) + ["--save-dir", str(artifact_dir)]
 
     with pytest.raises(SystemExit, match="non-finite"):
         beachx_main(args)
@@ -581,7 +581,7 @@ def test_object_detachment_replace_failure_rolls_back_artifact_set(
         return real_replace(source, destination)
 
     monkeypatch.setattr(os, "replace", fail_second_replace)
-    args = _required_args(tmp_path) + ["--output-dir", str(artifact_dir)]
+    args = _required_args(tmp_path) + ["--save-dir", str(artifact_dir)]
 
     with pytest.raises(OSError, match="injected replace failure"):
         beachx_main(args)
@@ -754,7 +754,7 @@ e0 = [0.0, 0.0, 0.0]
             "0",
             "--library",
             str(_kernel_lib()),
-            "--output-dir",
+            "--save-dir",
             str(artifact_dir),
         ]
     )
