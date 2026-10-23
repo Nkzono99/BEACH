@@ -64,7 +64,7 @@ camphor 用の通常精度・高速ビルドは [インストール手順](docs/
 | 名前 | 役割 |
 | --- | --- |
 | `beach` | シミュレーション本体（Fortran） |
-| `beachx` | 設定検査、出力確認、可視化、負荷見積もり |
+| `beachx` | 設定検査、出力確認、可視化、負荷見積もり。結果は `key=value` 行で表示し、解析系のコマンドは `--json` で JSON にする |
 | `beach` Python パッケージ | 出力の読み込みと解析 |
 
 コマンドの全オプションは `beach --help`、`beachx --help` および `beachx <command> --help` で確認できます。

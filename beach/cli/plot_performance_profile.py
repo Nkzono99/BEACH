@@ -5,15 +5,15 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
-from ._shared import configure_entry_parser
-
-COMMAND_NAME = "profile"
-LEGACY_COMMAND_NAME = "beach-plot-performance-profile"
+from . import _options
+from ._output import emit
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``profile`` options."""
+
     parser.add_argument(
         "profile_path",
         nargs="?",
@@ -43,33 +43,11 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="include zero-time rows in the plot",
     )
-    parser.add_argument(
-        "--save",
-        type=Path,
-        default=None,
-        help="path to save the figure (default: profile path with .png suffix when not showing)",
+    _options.add_save(
+        parser, default="profile path with .png suffix when --show is not given"
     )
-    parser.add_argument("--dpi", type=int, default=150, help="save DPI")
-    parser.add_argument("--show", action="store_true", help="display matplotlib window")
-
-
-def build_parser(*, prog: str | None = LEGACY_COMMAND_NAME) -> argparse.ArgumentParser:
-    """Build the argument parser for performance-profile plotting CLI."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this command under the unified ``beachx`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="plot one performance_profile.csv summary",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
+    _options.add_dpi(parser)
+    _options.add_show(parser)
 
 
 def run(args: argparse.Namespace) -> None:
@@ -96,24 +74,19 @@ def run(args: argparse.Namespace) -> None:
             include_zero=args.include_zero,
             profile_path=profile_path,
         )
-    except ModuleNotFoundError as exc:
-        if exc.name is not None and exc.name.startswith("matplotlib"):
-            raise SystemExit(
-                "matplotlib is required for visualization. "
-                "Install dependencies with `python -m pip install -e . --no-build-isolation`."
-            ) from exc
-        raise
     except ValueError as exc:
         raise SystemExit(f'Failed to plot "{profile_path}": {exc}') from exc
 
     save_path = args.save
     if save_path is None and not args.show:
         save_path = profile_path.with_suffix(".png")
+    report: dict[str, object] = {}
     if save_path is not None:
         fig.savefig(save_path, dpi=args.dpi)
-        print(f"saved={save_path}")
-
-    _print_top_regions(rows, metric=args.metric, top=args.top)
+        report["saved"] = save_path
+    report["metric"] = args.metric
+    report["top_regions"] = _top_regions(rows, metric=args.metric, top=args.top)
+    emit(args, report)
 
     import matplotlib.pyplot as plt
 
@@ -121,13 +94,6 @@ def run(args: argparse.Namespace) -> None:
         plt.show()
     else:
         plt.close(fig)
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the performance-profile plotting CLI."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
 
 
 def load_performance_profile(path: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
@@ -345,22 +311,21 @@ def _region_color(region: str) -> str:
     return "#475569"
 
 
-def _print_top_regions(rows: list[dict[str, Any]], *, metric: str, top: int) -> None:
+def _top_regions(
+    rows: list[dict[str, Any]], *, metric: str, top: int
+) -> list[dict[str, object]]:
     sorted_rows = sorted(
         rows,
         key=lambda row: (float(row[metric]), row["region"]),
         reverse=True,
     )
     limit = top if top > 0 else min(8, len(sorted_rows))
-    print(f"top_regions_by_{metric}=")
-    for row in sorted_rows[:limit]:
-        print(
-            f"  {row['region']}: "
-            f"{float(row[metric]):.6e}s "
-            f"(calls={float(row['calls_sum']):.0f}, "
-            f"imbalance={float(row['imbalance_ratio']):.3f})"
-        )
-
-
-if __name__ == "__main__":
-    main()
+    return [
+        {
+            "region": row["region"],
+            metric: float(row[metric]),
+            "calls_sum": int(float(row["calls_sum"])),
+            "imbalance_ratio": float(row["imbalance_ratio"]),
+        }
+        for row in sorted_rows[:limit]
+    ]

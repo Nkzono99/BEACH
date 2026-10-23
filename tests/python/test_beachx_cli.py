@@ -2,48 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from beach.cli import legacy
 from beach.cli.main import main as beachx_main
-
-
-LEGACY_CASES = [
-    (
-        "inspect",
-        "beach-inspect",
-        legacy.inspect_main,
-        ["no_such_dir"],
-    ),
-    (
-        "animate",
-        "beach-animate-history",
-        legacy.animate_main,
-        ["no_such_dir"],
-    ),
-    (
-        "coulomb",
-        "beach-plot-coulomb-force-matrix",
-        legacy.coulomb_main,
-        ["no_such_dir"],
-    ),
-    (
-        "slices",
-        "beach-plot-potential-slices",
-        legacy.slices_main,
-        ["no_such_dir"],
-    ),
-    (
-        "workload",
-        "beach-estimate-workload",
-        legacy.workload_main,
-        ["no_such_file.toml"],
-    ),
-    (
-        "profile",
-        "beach-plot-performance-profile",
-        legacy.profile_main,
-        ["no_such_dir"],
-    ),
-]
 
 
 def test_beachx_help_lists_all_subcommands(capsys: pytest.CaptureFixture[str]) -> None:
@@ -112,30 +71,3 @@ def test_beachx_analysis_command_missing_output_exits_with_friendly_message(
         str(excinfo.value)
         == 'Fortran output files are missing under "no_such_dir". Expected at least summary.txt and charges.csv.'
     )
-
-
-@pytest.mark.parametrize(
-    ("command", "legacy_name", "legacy_main", "argv"),
-    LEGACY_CASES,
-)
-def test_legacy_alias_warns_and_matches_beachx_errors(
-    capsys: pytest.CaptureFixture[str],
-    command: str,
-    legacy_name: str,
-    legacy_main,
-    argv: list[str],
-) -> None:
-    with pytest.raises(SystemExit) as legacy_exc:
-        legacy_main(argv)
-    legacy_streams = capsys.readouterr()
-
-    with pytest.raises(SystemExit) as beachx_exc:
-        beachx_main([command, *argv])
-    beachx_streams = capsys.readouterr()
-
-    assert str(legacy_exc.value)
-    assert str(legacy_exc.value) == str(beachx_exc.value)
-    assert legacy_streams.err.strip() == (
-        f"WARNING: `{legacy_name}` is deprecated; use `beachx {command}` instead."
-    )
-    assert beachx_streams.err == ""

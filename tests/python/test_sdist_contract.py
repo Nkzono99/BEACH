@@ -131,15 +131,7 @@ def test_wheel_metadata_exposes_runtime_resources_and_cli_entry_points() -> None
     assert project["entry-points"]["runops.adapters"]["beach"] == "beach.tooling.runops_adapter:Adapter"
 
     scripts = project["scripts"]
-    assert {
-        "beachx",
-        "beach-inspect",
-        "beach-animate-history",
-        "beach-plot-coulomb-force-matrix",
-        "beach-plot-potential-slices",
-        "beach-estimate-workload",
-        "beach-plot-performance-profile",
-    } <= set(scripts)
+    assert set(scripts) == {"beachx"}
     for command, target in scripts.items():
         module_name, separator, attribute_name = target.partition(":")
         assert separator and attribute_name, command

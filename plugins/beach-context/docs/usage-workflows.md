@@ -24,10 +24,10 @@ beach examples/beach.toml
 
 ```bash
 beachx inspect outputs/latest
-beachx animate outputs/latest --quantity charge --save-gif outputs/latest/charge_history.gif
+beachx animate outputs/latest --quantity charge --save outputs/latest/charge_history.gif
 beachx slices outputs/latest --grid-n 200 --save outputs/latest/potential_slices.png
 beachx coulomb outputs/latest --component z --save outputs/latest/coulomb_force_z.png
-beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4 --save-csv outputs/latest/mobility_summary.csv
+beachx mobility outputs/latest --density-kg-m3 2500 --mu-static 0.4 --save outputs/latest/mobility_summary.csv
 ```
 
 ## Python 解析

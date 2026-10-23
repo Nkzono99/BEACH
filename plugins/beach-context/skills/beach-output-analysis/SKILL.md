@@ -28,7 +28,7 @@ Use this skill when a user asks how to read BEACH outputs, diagnose physical res
   - time history: `charge_history.csv`, `potential_history.csv`
   - final potential: `mesh_potential.csv`
   - profiling: `performance_profile.csv`
-- Prefer `beachx inspect outputs/latest` for first inspection.
+- Prefer `beachx inspect outputs/latest` for first inspection. Its report is `key=value` lines; add `--json` (also on `mobility`, `kernel-forces`, `coulomb`, `object-detachment`, `workload`) when the values are parsed.
 - Use `from beach import Beach` for scripts that combine loading, plotting, Coulomb force, potential, field lines, and mobility analysis.
 - Check whether `beach.toml` is available near the output directory; config-aware analysis uses it for object labels, periodic2, and tree/FMM settings.
 - Field and potential analysis uses the native P0 panel kernel; verify that the shared kernel library and periodic2 configuration match the run.

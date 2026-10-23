@@ -804,50 +804,119 @@ fig, ax = b.plot_coulomb_force_matrix(component="z")
 
 ## 12. CLI コマンド
 
-### 12.1 統一 CLI (`beachx`)
+### 12.1 `beachx` サブコマンド
 
-v1.0.0 以降は `beachx` 統一 CLI を推奨します。
+CLI のエントリポイントは `beachx` だけです（4.0 で旧 `beach-*` コマンドを削除しました）。
+`python -m beach.cli.main` でも同じ CLI を実行できます。サブコマンドの一覧と順序は
+`beach/cli/_registry.py` の表が持ち、各サブコマンドの全オプションは `beachx <command> --help` で確認できます。
 
 | コマンド | 説明 |
 |---|---|
-| `beachx inspect <output_dir>` | 出力ディレクトリの要約表示 |
+| `beachx inspect <output_dir>` | 出力ディレクトリの要約表示と電荷/電位 mesh の図 |
 | `beachx animate <output_dir>` | 電荷/電位履歴のアニメーション GIF 生成 |
-| `beachx workload <config.toml>` | ワークロード見積もり |
-| `beachx slices <output_dir>` | 電位断面の描画 |
-| `beachx profile <output_dir>` | パフォーマンスプロファイルの描画 |
 | `beachx coulomb <output_dir>` | Coulomb 力行列の描画 |
-| `beachx mobility <output_dir>` | Coulomb mobility 解析 |
+| `beachx mobility <output_dir>` | Coulomb mobility 解析と CSV 出力 |
 | `beachx kernel-forces <output_dir>` | Fortran field kernel による object 別合力 CSV 出力 |
 | `beachx object-detachment <output_dir>` | 周期画像を保持した凍結 source の wrench・離脱経路・仕事・速度解析 |
+| `beachx slices <output_dir>` | 電位断面の描画 |
+| `beachx workload <config.toml>` | ワークロード見積もり |
+| `beachx profile <output_dir>` | パフォーマンスプロファイルの描画 |
 | `beachx lint <config.toml>` | TOML / JSON Schema / BEACH 制約の設定検査 |
+| `beachx config init` / `beachx config diff` | `beach.toml` の作成と差分表示 |
 | `beachx model close-pack` | 密充填モデルの生成 |
 
-`beachx inspect`は、`mesh_potential.csv`がある場合に、その事前計算済み配列から
-`potential_min` / `potential_max`を表示します。ファイルがなければ電位は再構成せず、この2行を省略します。
-破損、非有限値、要素数の不一致がある`mesh_potential.csv`は、入力errorとして扱います。
+### 12.2 共通オプション
 
-`--recompute-potential`を指定すると、`mesh_potential.csv`の有無にかかわらず、
-native field kernelで絶対電位を再計算して要約に使います。この計算はmesh規模によって$O(N^2)$になり得ます。
+複数のコマンドが受け付けるオプションは、綴り・既定値・help をコマンド間で共有します。
 
-`--save-potential-mesh`と`--show`のpotential plotは絶対電位を描きます。`mesh_potential.csv`があればその値を使い、
-なければ`--recompute-potential`なしでも電位を計算します。`mesh_potential.csv`がない出力で`--recompute-potential`と
-potential plotを同時に指定すると、要約用とplot用の計算が別々に実行され、電位評価が重複します。
+| オプション | 対象 | 説明 |
+|---|---|---|
+| `output_dir`（位置引数） | inspect, animate, coulomb, mobility, kernel-forces, object-detachment, slices | 出力ディレクトリ。既定 `outputs/latest`。`summary.txt` と `charges.csv` が無ければ `Fortran output files are missing under "<dir>". ...` で終了する |
+| `--config PATH` | coulomb, mobility, kernel-forces, slices, object-detachment | `beach.toml`。省略すると `output_dir` 近傍から探す。object-detachment では必須 |
+| `--library PATH` | inspect, animate, coulomb, mobility, kernel-forces, object-detachment, slices | `libbeach_field_kernel` 共有ライブラリ |
+| `--step final\|BATCH` | coulomb, mobility, kernel-forces, object-detachment | 電荷スナップショット。`final` は `charges.csv`、整数は `charge_history.csv` のそのバッチ、`-1` は最後の履歴行。既定は object-detachment が `final`、他は `-1` |
+| `--apply-periodic2-mesh`, `--periodic2-repeat N` | inspect, animate | periodic2 セルへの wrap と周期イメージの複製（`N >= 0`） |
+| `--periodic2-mesh-mode {centroid,mesh}` | inspect | wrap の単位 |
+| `--view-elev`, `--view-azim` | inspect, animate | 3D mesh の視点 [deg]。既定 24 / -58 |
+| `--cmap` | animate, coulomb, slices | colormap。既定は量ごと（電荷 `coolwarm`、電位 `viridis`、力 `coolwarm`） |
+| `--axis-unit {m,um,nm}` | inspect, slices | 座標軸の単位 |
+| `--save PATH` | animate, coulomb, mobility, kernel-forces, slices, profile | 1 ファイルを書く保存先 |
+| `--save-dir DIR` | inspect, object-detachment | 決まった名前の複数ファイルを書くディレクトリ |
+| `--dpi N` | coulomb, slices, profile | 保存画像の DPI（既定 150） |
+| `--show` | inspect, coulomb, slices, profile | matplotlib のウィンドウを表示する |
+| `--json` | inspect, mobility, kernel-forces, coulomb, object-detachment, workload | 標準出力を JSON 1 オブジェクトにする |
 
-### 12.2 旧 CLI（非推奨）
+オプション値の形式（有限値、正値など）は引数の解析時に検査し、usage とともに終了コード 2 で終了します。
+library 関数が引数を検査して `ValueError` を出した場合は、その文言を表示して終了します。
+matplotlib または pillow が無いときは、描画するコマンドがインストール方法を表示して終了します。
 
-以下の旧エントリポイントは後方互換のため残されていますが、将来のバージョンで削除される可能性があります。
+### 12.3 標準出力の形式
 
-| コマンド | 説明 |
-|---|---|
-| `beach-inspect <output_dir>` | 出力ディレクトリの要約表示 |
-| `beach-animate-history <output_dir>` | 電荷/電位履歴のアニメーション GIF 生成 |
-| `beach-estimate-workload <config.toml>` | ワークロード見積もり |
-| `beach-plot-potential-slices <output_dir>` | 電位断面の描画 |
-| `beach-plot-performance-profile <output_dir>` | パフォーマンスプロファイルの描画 |
-| `beach-plot-coulomb-force-matrix <output_dir>` | Coulomb 力行列の描画 |
+標準出力は `key=value` 行です。
 
-`beach-inspect` にも `beachx inspect` と同じ precomputed-only の通常要約と
-`--recompute-potential` の明示的な再計算規則が適用されます。
+- スカラーは 1 行 1 組です。浮動小数点数は `%.6e`、真偽値は `true` / `false`、値なしは `null` で書きます。
+- 配列と辞書は空白を含まない JSON（例: `mesh_ids=[1,2]`）で書きます。
+- 表（object ごと、バッチごとなど）は 1 行 1 レコードで、空白区切りの `field=value` を並べます。行の先頭の field
+  （`mesh_id`、`batch`、`region` など）がレコードを識別します。空の表は `key=[]` と書きます。
+- 保存したファイルは `saved=<path>`、複数なら `saved_<name>=<path>` です。
+
+`--json` を付けると、同じ内容を JSON 1 オブジェクトとして 1 行で出力します。キーは `key=value` 行のキーと同じ順序で、
+表はキー名（`objects`、`batch_details`、`mesh_sources` など）の配列になります。非有限値は文字列 `"inf"`、`"-inf"`、
+`"nan"` です。値に空白を含むパスやメモ（mobility の `notes`）を機械処理する場合は `--json` を使ってください。
+
+```text
+$ beachx kernel-forces outputs/latest --config beach.toml
+saved=outputs/latest/object_forces_kernel.csv
+mesh_id=1 step=-1 charge_C=1.000000e-09 force_norm_N=2.345678e-08 torque_norm_Nm=0.000000e+00
+mesh_id=2 step=-1 charge_C=2.000000e-09 force_norm_N=2.345678e-08 torque_norm_Nm=0.000000e+00
+
+$ beachx kernel-forces outputs/latest --config beach.toml --json
+{"saved": "outputs/latest/object_forces_kernel.csv", "objects": [{"mesh_id": 1, "step": -1, "charge_C": 1e-09, ...}, ...]}
+```
+
+| コマンド | 主なキー | 表 |
+|---|---|---|
+| inspect | `directory`, `mesh_nelem`, `processed_particles`, `absorbed`, `escaped`, `batches`, `last_rel_change`, `charge_sum`, `mesh_ids`, `potential_min` / `potential_max`（電位がある場合）, `charge_history_shape`, `batch_indices`, `sibling_runs` | `mesh_sources`（`mesh_id`, `source`, `template`, `surface`, `epsilon_r`, `elems`） |
+| mobility | `saved`, `support_normal` | `objects`（`mesh_id`, `label`, `kind`, `force_norm_N`, `torque_norm_Nm`, `lift_ratio`, `slide_ratio`, `roll_ratio`, `notes`） |
+| kernel-forces | `saved` | `objects`（`mesh_id`, `step`, `charge_C`, `force_norm_N`, `torque_norm_Nm`） |
+| coulomb | `saved`, `component`, `step`, `targets`, `sources` | `force_matrix`（`target`, `force_<x\|y\|z>_N` = sources 順の配列） |
+| object-detachment | `saved_instantaneous_wrench`, `saved_path`, `saved_summary`, `saved_report`, `force_z_N`, `barrier_free_from_rest`, `numerically_qualified` | なし（詳細は保存した `summary.json`） |
+| workload | `config`, `threads`, `mpi_ranks`, `total_particles`, `particles_per_batch_*`, `per_thread_particles_*`, `final_macro_residuals` ほか | `batch_details`（`batch`, `total`, `global_total`, `per_thread_min`, `per_thread_max`, `species`, `global_species`） |
+| animate | `saved`, `quantity`, `snapshots`, `rendered_frames` | なし |
+| slices | `saved`, `config`, `grid_n`, `box_min`, `box_max`, `periodic2`, `xy_z`, `yz_x`, `xz_y`, `vmin`, `vmax`, `use_box` | なし |
+| profile | `saved`, `metric` | `top_regions`（`region`, `<metric>`, `calls_sum`, `imbalance_ratio`） |
+
+### 12.4 保存先
+
+| コマンド | 保存オプション | 省略時 |
+|---|---|---|
+| inspect | `--save-dir DIR` に `charge_bar.png`、`charge_mesh.png`、`potential_mesh.png` | 保存しない |
+| animate | `--save PATH` | `<output_dir>/<quantity>_history.gif` |
+| coulomb | `--save PATH` | `<output_dir>/coulomb_force_<component>.png` |
+| mobility | `--save PATH` | `<output_dir>/mobility_summary.csv` |
+| kernel-forces | `--save PATH` | `<output_dir>/object_forces_kernel.csv` |
+| slices | `--save PATH` | `<output_dir>/potential_slices.png` |
+| profile | `--save PATH` | `--show` が無ければ profile の拡張子を `.png` にしたパス |
+| object-detachment | `--save-dir DIR` に `instantaneous_wrench.csv`、`path.csv`、`summary.json`、`report.md` | `<output_dir>/object_detachment_mesh_<id>` |
+| config init | 位置引数 `output` | `./beach.toml` |
+| model close-pack | `--output PATH` | `./beach.close-pack.toml` |
+
+inspect の `--save-dir` は `--show` が表示するのと同じ 3 枚の図を書きます。各図は描いた時点で保存するので、
+後の図（電位 mesh の kernel 評価など）が失敗しても、それより前の図は残ります。`mesh_triangles.csv` が無ければ
+mesh の 2 枚を描かず、その旨を標準エラーに出します。
+
+### 12.5 `beachx inspect` の電位
+
+`beachx inspect` は、`mesh_potential.csv` がある場合に、その事前計算済み配列から `potential_min` / `potential_max` を
+表示します。ファイルがなければ電位は再構成せず、この 2 行を省略します。破損、非有限値、要素数の不一致がある
+`mesh_potential.csv` は入力 error として扱います。
+
+`--recompute-potential` を指定すると、`mesh_potential.csv` の有無にかかわらず、native field kernel で絶対電位を
+再計算して要約に使います。この計算は mesh 規模によって $O(N^2)$ になり得ます。
+
+`--save-dir` と `--show` の potential mesh は絶対電位を描きます。`mesh_potential.csv` があればその値を使い、なければ
+`--recompute-potential` なしでも電位を計算します。`mesh_potential.csv` がない出力で `--recompute-potential` と図の出力を
+同時に指定すると、要約用と図用の計算が別々に実行され、電位評価が重複します。
 
 ## 13. 物理定数
 

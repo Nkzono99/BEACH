@@ -100,8 +100,9 @@ beachx inspect outputs/tutorial
 
 ```text
 processed_particles=30000
-absorbed=7769 escaped=22231
-batches=150 ...
+absorbed=7769
+escaped=22231
+batches=150
 simulated_time_s=1.500000e-06
 charge_sum=-4.978924e-12
 potential_min=-6.256043e+00

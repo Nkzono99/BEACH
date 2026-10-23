@@ -5,34 +5,21 @@ from __future__ import annotations
 import argparse
 import csv
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 
-from beach import Beach, FieldKernelError
+from beach import Beach
 
-from ._shared import (
-    configure_entry_parser,
-    require_positive_finite,
-)
-
-COMMAND_NAME = "kernel-forces"
+from . import _options
+from ._output import emit
 
 
-def _configure_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("output_dir", nargs="?", default="outputs/latest")
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=None,
-        help="path to beach.toml (default: auto-detect near output_dir)",
-    )
-    parser.add_argument(
-        "--step",
-        type=int,
-        default=-1,
-        help="history batch step used for charges (-1: latest history)",
-    )
+def configure(parser: argparse.ArgumentParser) -> None:
+    """Add the ``kernel-forces`` options."""
+
+    _options.add_output_dir(parser)
+    _options.add_config(parser)
+    _options.add_step(parser)
     parser.add_argument(
         "--target-mesh-ids",
         default=None,
@@ -40,13 +27,13 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--theta",
-        type=float,
+        type=_options.positive_float,
         default=None,
         help="FMM theta (default: read sim.tree_theta or 0.5)",
     )
     parser.add_argument(
         "--leaf-max",
-        type=int,
+        type=_options.positive_int,
         default=None,
         help="FMM leaf_max (default: read sim.tree_leaf_max or 16)",
     )
@@ -56,90 +43,45 @@ def _configure_parser(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="FMM Cartesian expansion order (default: receipt, or 4 for legacy output)",
     )
-    parser.add_argument(
-        "--library",
-        type=Path,
-        default=None,
-        help="path to libbeach_field_kernel shared library",
-    )
-    parser.add_argument(
-        "--save-csv",
-        type=Path,
-        default=None,
-        help="output CSV path (default: <output_dir>/object_forces_kernel.csv)",
-    )
+    _options.add_library(parser)
+    _options.add_save(parser, default="<output_dir>/object_forces_kernel.csv")
+    _options.add_json(parser)
 
 
-def build_parser(*, prog: str | None = COMMAND_NAME) -> argparse.ArgumentParser:
-    """Build the parser for the kernel-force CLI."""
-
-    parser = argparse.ArgumentParser(prog=prog)
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def add_subparser(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
-    """Register this command under the unified ``beachx`` CLI."""
-
-    parser = subparsers.add_parser(
-        COMMAND_NAME,
-        help="write object-wise net forces from the Fortran field kernel",
-    )
-    _configure_parser(parser)
-    return configure_entry_parser(parser, run)
-
-
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, beach: Beach) -> None:
     """Execute the kernel-force command."""
 
-    parser = args._parser
-    require_positive_finite(parser, args.theta, "--theta")
-    if args.leaf_max is not None and args.leaf_max <= 0:
-        parser.error("--leaf-max must be > 0.")
-    if args.order is not None and args.order < 1:
-        parser.error("--order must be >= 1.")
-
-    output_dir = Path(args.output_dir)
-    save_csv = (
-        args.save_csv
-        if args.save_csv is not None
-        else output_dir / "object_forces_kernel.csv"
+    save_path = (
+        args.save
+        if args.save is not None
+        else args.output_dir / "object_forces_kernel.csv"
     )
-    target_mesh_ids = _parse_mesh_ids(args.target_mesh_ids)
+    records = beach.calc_object_forces_kernel(
+        step=args.step,
+        target_mesh_ids=_parse_mesh_ids(args.target_mesh_ids),
+        theta=args.theta,
+        leaf_max=args.leaf_max,
+        order=args.order,
+        library_path=args.library,
+    )
 
-    beach = Beach(output_dir)
-    try:
-        beach.result
-    except FileNotFoundError as exc:
-        raise SystemExit(
-            f'Fortran output files are missing under "{output_dir}". '
-            "Expected at least summary.txt and charges.csv."
-        ) from exc
-
-    try:
-        records = beach.calc_object_forces_kernel(
-            step=args.step,
-            target_mesh_ids=target_mesh_ids,
-            theta=args.theta,
-            leaf_max=args.leaf_max,
-            order=args.order,
-            config_path=args.config,
-            library_path=args.library,
-        )
-    except (ValueError, FieldKernelError) as exc:
-        raise SystemExit(str(exc)) from exc
-
-    _write_csv(save_csv, records)
-    print(f"saved_csv={save_csv}")
-    for record in records:
-        force_norm = float(np.linalg.norm(record.force_N))
-        torque_norm = float(np.linalg.norm(record.torque_Nm))
-        print(
-            f"mesh_id={record.mesh_id} "
-            f"charge_C={record.total_charge_C:.6e} "
-            f"force_norm_N={force_norm:.6e} "
-            f"torque_norm_Nm={torque_norm:.6e}"
-        )
+    _write_csv(save_path, records)
+    emit(
+        args,
+        {
+            "saved": save_path,
+            "objects": [
+                {
+                    "mesh_id": record.mesh_id,
+                    "step": record.step,
+                    "charge_C": record.total_charge_C,
+                    "force_norm_N": float(np.linalg.norm(record.force_N)),
+                    "torque_norm_Nm": float(np.linalg.norm(record.torque_Nm)),
+                }
+                for record in records
+            ],
+        },
+    )
 
 
 def _parse_mesh_ids(value: str | None) -> tuple[int, ...] | None:
@@ -188,13 +130,3 @@ def _write_csv(path: Path, records) -> None:
                 }
             )
 
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the kernel-force CLI entry point."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
-
-
-if __name__ == "__main__":
-    main()

@@ -1,55 +1,11 @@
-"""Unified post-processing CLI for BEACH."""
+"""``beachx`` entry point; the command table lives in :mod:`beach.cli._registry`."""
 
 from __future__ import annotations
 
-import argparse
-from typing import Sequence
+from ._registry import build_parser, main
 
-from . import (
-    analyze_coulomb_mobility,
-    animate_fortran_history,
-    config,
-    estimate_fortran_workload,
-    inspect_fortran_output,
-    kernel_forces,
-    lint,
-    model,
-    object_detachment,
-    plot_coulomb_force_matrix,
-    plot_fortran_potential_slices,
-    plot_performance_profile,
-)
+__all__ = ["build_parser", "main"]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the root parser for ``beachx``."""
-
-    parser = argparse.ArgumentParser(
-        prog="beachx",
-        description="BEACH tools for post-processing, visualization, and model generation.",
-    )
-    subparsers = parser.add_subparsers(
-        dest="command",
-        metavar="command",
-        required=True,
-    )
-    inspect_fortran_output.add_subparser(subparsers)
-    animate_fortran_history.add_subparser(subparsers)
-    plot_coulomb_force_matrix.add_subparser(subparsers)
-    analyze_coulomb_mobility.add_subparser(subparsers)
-    kernel_forces.add_subparser(subparsers)
-    object_detachment.add_subparser(subparsers)
-    plot_fortran_potential_slices.add_subparser(subparsers)
-    estimate_fortran_workload.add_subparser(subparsers)
-    plot_performance_profile.add_subparser(subparsers)
-    lint.add_subparser(subparsers)
-    config.add_subparser(subparsers)
-    model.add_subparser(subparsers)
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> None:
-    """Run the unified ``beachx`` entry point."""
-
-    args = build_parser().parse_args(argv)
-    args.func(args)
+if __name__ == "__main__":
+    main()
