@@ -8,7 +8,7 @@ program test_injection_sampling
     seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, init_random_beam_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
     sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
-  use bem_status_codes, only: collision_query_image_limit
+  use bem_status_codes, only: collision_query_image_limit, photo_ray_failure_type
   use bem_random_stream, only: random_uniform
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
@@ -22,7 +22,8 @@ program test_injection_sampling
   real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
   real(dp) :: contiguous_sample(3, 5), strided_sample(6, 10), next_contiguous, next_strided
-  integer(i32) :: n_macro, n_emit, collision_status, failure_ray, failure_bounce
+  integer(i32) :: n_macro, n_emit
+  type(photo_ray_failure_type) :: photo_failure
   integer :: i
   real(dp), parameter :: rare_tail_a(6) = [0.0_dp, 4.0_dp, 6.0_dp, 8.0_dp, 10.0_dp, 12.0_dp]
   real(dp), parameter :: rare_tail_reference(6) = [ &
@@ -374,12 +375,11 @@ program test_injection_sampling
     failure_mesh, failure_sim, 'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
     [0.0d0, 0.0d0, -1.0d0], 1.0d0, 0.0d0, 0.0d0, 1.0d0, -1.0d0, 4_i32, &
     x(:, 1:4), v(:, 1:4), w_photo(1:4), n_emit, &
-    collision_failure_status=collision_status, collision_failure_ray=failure_ray, &
-    collision_failure_bounce=failure_bounce &
+    failure=photo_failure &
     )
-  call assert_equal_i32(collision_status, collision_query_image_limit, 'photo collision status mismatch')
-  call assert_equal_i32(failure_ray, 1_i32, 'photo collision failure should select the lowest ray')
-  call assert_equal_i32(failure_bounce, 0_i32, 'photo collision failure bounce mismatch')
+  call assert_equal_i32(photo_failure%status, collision_query_image_limit, 'photo collision status mismatch')
+  call assert_equal_i32(photo_failure%ray, 1_i32, 'photo collision failure should select the lowest ray')
+  call assert_equal_i32(photo_failure%bounce, 0_i32, 'photo collision failure bounce mismatch')
   call assert_equal_i32(n_emit, 0_i32, 'incomplete photo collision query must not emit particles')
   call test_end()
 
