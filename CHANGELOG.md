@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- runops adapter に `progress(run_dir)` を追加した（runops >= 2.5 が `runo sync` で呼ぶ）。manifest の job の
+  stdout から現在の batch と `run.batch_count` を返し、再開した run は先頭の `resuming_from_batches=` を `start` として
+  返す。runops はこれを時刻付きで保存し、再開点から数えた速度と残り時間を `runo status` / `list` に出す。
+- wheel の agent context（`beach.agent_context`）に `plugins/beach-context/docs/` を含めた。skill が参照する
+  `../../docs/*.md` が runops の展開先（`beach-docs`）で読めるようになる。
+
 ## [3.8.0] - 2026-10-23
 
 ### Changed

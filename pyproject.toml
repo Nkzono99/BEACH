@@ -57,7 +57,7 @@ packages = [
 [tool.setuptools.package-data]
 "beach" = ["include/*.h"]
 "beach.config" = ["schemas/*.json"]
-"beach.agent_context" = ["skills/*/*", "references/*", "references/*/*"]
+"beach.agent_context" = ["skills/*/*", "references/*", "references/*/*", "docs/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

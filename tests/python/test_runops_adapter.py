@@ -256,3 +256,31 @@ def test_public_names_still_resolve() -> None:
     assert "load_fortran_result" in dir(beach)
     with pytest.raises(AttributeError):
         beach.no_such_name  # noqa: B018
+
+
+def test_progress_counts_batches_from_the_resume_point(tmp_path: Path) -> None:
+    adapter = Adapter()
+    run = _run_dir(tmp_path)
+    assert adapter.progress(run) is None
+    (run / "manifest.toml").write_text('[job]\njob_id = "42"\n', encoding="utf-8")
+    (run / "work" / "stdout.42.log").write_text(
+        "runops: start 2026-10-23T02:43:53+09:00 on xa0146\n"
+        "resuming_from_dir=work/restart/checkpoints/slot1\n"
+        "resuming_from_batches=104000\n"
+        "---------- batch 104001/300000 rel_change=  1.3E-02 ----------\n"
+        "---------- batch 104002/300000 rel_change=  1.3E-02 ----------\n",
+        encoding="utf-8",
+    )
+    assert adapter.progress(run) == {
+        "done": 104002,
+        "total": 300000,
+        "unit": "batch",
+        "start": 104000,
+    }
+    (run / "work" / "stdout.41.log").write_text("batch 9/10\n", encoding="utf-8")
+    assert adapter.progress(run)["done"] == 104002  # the manifest's job, not the newest file
+
+
+def test_agent_context_ships_docs() -> None:
+    path = agent_context_path()
+    assert path is not None and (path / "docs" / "usage-workflows.md").is_file()
