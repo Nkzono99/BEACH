@@ -32,12 +32,15 @@ BEACHのPython package (`beach`) は、Fortranシミュレーションの結果�
 from beach import Beach, calc_coulomb, compute_electric_field_points, trace_field_lines
 ```
 
-## 2. `Beach` ファサードクラス
+## 2. `Beach` セッション
 
-出力ディレクトリを 1 つ束ねて、主要な解析・可視化メソッドを提供する高水準インターフェースです。
+`Beach` は出力ディレクトリ 1 つ分のセッションです。読み込んだ結果、`beach.toml` を解決する `RunContext`、
+その run から構築した native field kernel をまとめて持ち、解析・可視化メソッドを提供します。
 
 ```python
-b = Beach("outputs/latest")
+from beach import Beach
+
+run = Beach("outputs/latest")
 ```
 
 `Beach("outputs/latest", config_path="path/to/beach.toml")`のように、設定ファイルを明示できます。
@@ -54,39 +57,82 @@ simulatorが保存した`mesh_potential.csv`をそのまま読む経路では再
 | パラメータ | 型 | デフォルト | 説明 |
 |---|---|---|---|
 | `output_dir` | `str \| Path` | `"outputs/latest"` | Fortran 出力ディレクトリ |
+| `config_path` | `str \| Path \| None` | `None` | `beach.toml` の明示パス。`None` で近傍を自動探索 |
+| `library_path` | `str \| Path \| None` | `None` | native field kernel 共有 library。`None` で `BEACH_FIELD_KERNEL_LIB` または既定の探索 |
 
 ### 2.2 プロパティ
 
 | 名前 | 戻り型 | 説明 |
 |---|---|---|
 | `result` | `FortranRunResult` | 読み込み済み結果（遅延ロード）|
+| `context` | `RunContext` | 結果と、解決した `beach.toml`（`context.config_path`）。config 解決の唯一の持ち主 |
 | `mesh_ids` | `tuple[int, ...]` | 利用可能な mesh ID 一覧 |
+| `library_path` | `Path \| None` | セッションの native kernel library |
+
+`Beach` を第 1 引数に受けたモジュール関数（`compute_potential_mesh(run)` など）も `run.context` を使うため、
+`Beach(..., config_path=...)` の設定がそのまま引き継がれます。
 
 ### 2.3 メソッド一覧
 
-| メソッド | 委譲先 | 概要 |
-|---|---|---|
-| `reload()` | `load_fortran_result` | ディスクから再読み込み |
-| `get_mesh(*mesh_ids, step)` | 内部 | mesh ID で `MeshSelection` を取得 |
-| `get_mesh_charge(*mesh_ids, step)` | 内部 | mesh ID で要素電荷配列を取得 |
-| `calc_coulomb(target, source, ...)` | `calc_coulomb` | Coulomb 力/トルク計算 |
-| `calc_object_forces_kernel(...)` | `calc_object_forces_kernel` | Fortran field kernel による object 別合力計算 |
-| `object_interaction_snapshot(...)` | `ObjectInteractionSnapshot.from_result` | 凍結 source に対する primary-only self exclusion の力・離脱経路解析 |
-| `scene(step, ...)` | `BeachScene.from_result` | object を一時的に移動・回転する what-if scene |
-| `analyze_coulomb_mobility(...)` | `analyze_coulomb_mobility` | オブジェクト別 mobility 解析 |
-| `compute_potential(...)` | `compute_potential_mesh` | 重心での電位再構成 |
-| `compute_potential_points(points, ...)` | `compute_potential_points` | 任意点での電位 |
-| `compute_potential_slices(...)` | `compute_potential_slices` | XY/YZ/XZ 断面の電位 |
-| `compute_electric_field(points, ...)` | `compute_electric_field_points` | 任意点での電場ベクトル |
-| `trace_field_lines(seed_points, ...)` | `trace_field_lines` | 電気力線の RK4 追跡 |
-| `plot_mesh(...)` | `plot_charge_mesh` | 電荷密度の 3D メッシュ描画 |
-| `plot_potential(...)` | `plot_potential_mesh` | 電位の 3D メッシュ描画 |
-| `plot_potential_slices(...)` | `plot_potential_slices` | 電位断面の描画 |
-| `plot_field_lines(seed_points, ...)` | `plot_field_lines_3d` | 電気力線の 3D 描画 |
-| `plot_bar()` | `plot_charges` | 要素電荷棒グラフ |
-| `plot_mesh_source_boxplot(...)` | `plot_mesh_source_boxplot` | mesh source 別箱ひげ図 |
-| `plot_coulomb_force_matrix(...)` | `plot_coulomb_force_matrix` | Coulomb 力行列プロット |
-| `animate_mesh(...)` | `animate_history_mesh` | 電荷/電位履歴アニメーション |
+「重さ」は native field kernel を構築するか（重い）、保存済みの値だけを使うか（軽い）です。`kernel=` 引数を持つ
+重いメソッドはセッションの kernel cache（2.4 節）を使います。`analyze_coulomb_mobility` と
+`object_interaction_snapshot` は従来どおり専用の kernel を構築します。
+
+| メソッド | 委譲先 | 重さ | 概要 |
+|---|---|---|---|
+| `kernel(step, periodic2, theta, leaf_max, order)` | `field_kernel_from_result` | 重い（初回のみ） | セッションが所有する cached `FieldKernel` |
+| `close()` | 内部 | - | cache 中の kernel をすべて閉じる。`with Beach(...) as run:` でも閉じる |
+| `reload()` | `load_fortran_result` | 軽い | kernel を閉じてディスクから再読み込み |
+| `get_mesh(*mesh_ids, step)` | 内部 | 軽い | mesh ID で `MeshSelection` を取得 |
+| `get_mesh_charge(*mesh_ids, step)` | 内部 | 軽い | mesh ID で要素電荷配列を取得 |
+| `calc_coulomb(target, source, ...)` | `calc_coulomb` | 重い | Coulomb 力/トルク計算 |
+| `calc_object_forces_kernel(...)` | `calc_object_forces_kernel` | 重い | Fortran field kernel による object 別合力計算 |
+| `object_interaction_snapshot(...)` | `ObjectInteractionSnapshot.from_result` | 重い（専用 kernel） | 凍結 source に対する primary-only self exclusion の力・離脱経路解析 |
+| `scene(step, ...)` | `BeachScene.from_result` | 軽い | object を一時的に移動・回転する what-if scene |
+| `analyze_coulomb_mobility(...)` | `analyze_coulomb_mobility` | 重い | オブジェクト別 mobility 解析 |
+| `compute_potential(...)` | `compute_potential_mesh` | 保存値なら軽い | 重心での電位 |
+| `compute_potential_points(points, ...)` | `compute_potential_points` | 重い | 任意点での電位 |
+| `compute_potential_slices(...)` | `compute_potential_slices` | 重い | XY/YZ/XZ 断面の電位 |
+| `compute_electric_field(points, ...)` | `compute_electric_field_points` | 重い | 任意点での電場ベクトル |
+| `trace_field_lines(seed_points, ...)` | `trace_field_lines` | 重い | 電気力線の RK4 追跡 |
+| `plot_mesh(...)` | `plot_charge_mesh` | 軽い | 電荷密度の 3D メッシュ描画 |
+| `plot_potential(...)` | `plot_potential_mesh` | 保存値なら軽い | 電位の 3D メッシュ描画 |
+| `plot_potential_slices(...)` | `plot_potential_slices` | 重い | 電位断面の描画 |
+| `plot_field_lines(seed_points, ...)` | `plot_field_lines_3d` | 重い | 電気力線の 3D 描画 |
+| `plot_bar()` | `plot_charges` | 軽い | 要素電荷棒グラフ |
+| `plot_mesh_source_boxplot(...)` | `plot_mesh_source_boxplot` | 保存値の無い電位なら重い | mesh source 別箱ひげ図 |
+| `plot_coulomb_force_matrix(...)` | `plot_coulomb_force_matrix` | 重い | Coulomb 力行列プロット |
+| `animate_mesh(...)` | `animate_history_mesh` | `quantity="potential"` なら重い | 電荷/電位履歴アニメーション |
+
+委譲メソッドは委譲先と同じ引数・既定値・docstring を持ちます（`help(Beach.plot_potential)` で確認できます）。
+既定値は委譲先の関数だけが持ちます。メソッドは `result` に自分自身を渡し、`library_path` を省略すると
+セッションの `library_path` を使います。
+
+### 2.4 kernel の使い回し
+
+`run.kernel(...)` は、run の電荷を載せた native kernel を引数ごとに 1 回だけ構築して cache します。鍵は電荷
+（`step`）、`periodic2`、`theta`、`leaf_max`、`order`、セッションの `library_path` です。`step=-1`（最新の履歴
+snapshot）と `step=None`（`charges.csv`）は、電荷が一致すれば同じ kernel を共有します。kernel はセッションが
+所有するので、呼び出し側で閉じません。`close()`、`reload()`、`with` ブロックの終了で閉じます。
+
+重いメソッドは、同じ plan の cached kernel を `kernel=` として委譲先に渡します。電位系（`compute_potential*`、
+`plot_potential*`）は `charges.csv` の電荷（`step=None`）、電場・力・アニメーション系は `step=-1` の kernel を
+使います。`kernel=`、`config_path=`、セッションと異なる `library_path=` を明示した呼び出しは cache を使わず、
+その呼び出しで kernel を構築して閉じます。保存済み `mesh_potential.csv` を使う `compute_potential()` /
+`plot_potential()`、`quantity="charge"` のアニメーション、`workers > 1` の力行列は kernel を構築しません。
+
+```python
+import numpy as np
+from beach import Beach
+
+seeds = np.array([[0.005, 0.005, 0.008]])
+with Beach("outputs/latest", library_path="build/libbeach_field_kernel.so") as run:
+    fig, _ = run.plot_potential(source="kernel")    # kernel を構築する
+    fig, _ = run.plot_potential_slices(box_min=[0, 0, 0], box_max=[0.01, 0.01, 0.01])  # 同じ kernel
+    lines = run.trace_field_lines(seeds)            # 最新履歴が charges.csv と同じなら同じ kernel
+    records = run.calc_object_forces_kernel()       # 電荷を一時的に差し替えて戻す
+# ここで kernel を閉じる
+```
 
 ## 3. 結果読み込み
 
@@ -159,15 +205,24 @@ trusted in-memory経路として動作します。
 
 ## 4. 電位再構成
 
+`compute_potential_mesh` は保存済み `mesh_potential.csv` を使える場合だけ軽く、それ以外の電位関数は native
+field kernel を構築します（重い）。どの関数も `kernel=` で構築済みの kernel を受け取れます（10.1 節）。
+
 `reference_point` の既定は、計算（`compute_potential_mesh` / `compute_potential_points` / `compute_potential_slices`）と
 描画（`plot_potential_mesh` / `plot_potential_slices` / `animate_history_mesh`、`Beach` の同名メソッド）で共通の
 `None`（絶対電位）です。species 1 の注入面中心を基準にした電位差は `reference_point="species1_injection_center"`
 で明示します。
 
-### 4.1 `compute_potential_mesh(result, *, periodic2, reference_point, config_path, library_path)`
+### 4.1 `compute_potential_mesh(result, *, periodic2, reference_point, config_path, library_path, source, kernel)`
 
-native field kernelのP0 triangle panel評価で、三角形重心の電位を計算します。Fortran が
-`mesh_potential.csv` を出力済みで条件が一致する場合はそちらを優先します。
+三角形重心の電位を返します。保存済みの `mesh_potential.csv` を返すか、native field kernel の P0 triangle panel
+評価で計算するかを `source` で選びます。
+
+| `source` | 評価 |
+|---|---|
+| `"auto"`（既定） | `mesh_potential.csv` があり、`periodic2`・`reference_point`・`kernel` のどれも指定していなければ保存値（軽い）。それ以外は kernel（重い） |
+| `"saved"` | 保存値だけを返す。`mesh_potential.csv` が無い場合と、`periodic2`・`reference_point`・`kernel` との併用は `ValueError` |
+| `"kernel"` | 保存値があっても kernel で再計算する |
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
@@ -176,12 +231,14 @@ native field kernelのP0 triangle panel評価で、三角形重心の電位を�
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | 基準電位点。`"species1_injection_center"` で species 1 注入面中心 |
 | `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
 | `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
+| `source` | `str` | `"auto"` | - | `"auto"` / `"saved"` / `"kernel"`（上表） |
+| `kernel` | `FieldKernel \| None` | `None` | - | この run から構築した kernel（10.1 節）。渡すとその plan と電荷で評価し、閉じない。`periodic2` と `library_path` は使わない |
 
 戻り値: `ndarray (mesh_nelem,)` [V]
 
 ### 4.2 `compute_potential_points(result, points, *, chunk_size, periodic2, reference_point, config_path, library_path)`
 
-任意 3D 点での電位を計算します。
+任意 3D 点での電位を native field kernel で計算します（重い）。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
@@ -191,12 +248,14 @@ native field kernelのP0 triangle panel評価で、三角形重心の電位を�
 | `reference_point` | `Iterable[float] \| str \| None` | `None` | m | 基準電位点 |
 | `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
 | `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
+| `kernel` | `FieldKernel \| None` | `None` | - | この run から構築した kernel（10.1 節）。渡すとその plan と電荷で評価し、閉じない。`periodic2` と `library_path` は使わない |
 
 戻り値: `ndarray (n_points,)` [V]
 
 ### 4.3 `compute_potential_slices(result, *, box_min, box_max, grid_n, xy_z, yz_x, xz_y, ...)`
 
-XY/YZ/XZ 平面上の電位断面を計算します。
+XY/YZ/XZ 平面上の電位断面を native field kernel で計算します（重い）。断面の全点を 1 つの kernel で評価し、
+`kernel=` を含む残りの引数は `compute_potential_points` と同じです。
 
 戻り値: `dict[str, PotentialSlice2D]` (キー: `"xy"`, `"yz"`, `"xz"`)
 
@@ -204,7 +263,7 @@ XY/YZ/XZ 平面上の電位断面を計算します。
 
 ### 5.1 `calc_coulomb(result, target, source, *, step, torque_origin, periodic2, quadrature_order, config_path, library_path)`
 
-target メッシュグループが source から受ける Coulomb 力とトルクを計算します。
+target メッシュグループが source から受ける Coulomb 力とトルクを native field kernel で計算します（重い）。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
@@ -217,8 +276,13 @@ target メッシュグループが source から受ける Coulomb 力とトル�
 | `quadrature_order` | `int` | `7` | - | target panelのGauss-Duffy積分次数 |
 | `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
 | `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
+| `kernel` | `FieldKernel \| None` | `None` | - | この run の全 mesh で構築した kernel。呼び出し中だけ source 以外の電荷を 0 にし、終了後に元の電荷へ戻す |
 
 戻り値: `CoulombInteraction`
+
+`kernel=None` では source group の panel だけで kernel を構築します。`kernel=` を渡すと、その kernel の plan
+（全 mesh）で source group の電荷だけを評価し、一様外部場の寄与は結果から除きます。両者は FMM の打ち切り誤差の
+範囲で一致します。
 
 ### periodic2 パラメータによる周期クーロン和
 
@@ -266,7 +330,7 @@ interaction_p = b.calc_coulomb(
 
 ### 6.1 `compute_electric_field_points(result, points, *, chunk_size, periodic2, config_path, library_path)`
 
-任意 3D 点での電場ベクトルを、native field kernelのP0 triangle panel評価で計算します。
+任意 3D 点での電場ベクトルを、native field kernelのP0 triangle panel評価で計算します（重い）。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
@@ -276,6 +340,7 @@ interaction_p = b.calc_coulomb(
 | `periodic2` | `Mapping \| None` | `None` | - | 2 軸周期設定。`None` で自動判定 |
 | `config_path` | `str \| Path \| None` | `None` | - | `beach.toml`の明示パス |
 | `library_path` | `str \| Path \| None` | `None` | - | native field kernel共有libraryの明示パス |
+| `kernel` | `FieldKernel \| None` | `None` | - | この run から構築した kernel（10.1 節）。渡すとその plan と電荷で評価し、閉じない。`periodic2` と `library_path` は使わない |
 
 戻り値: `ndarray (n_points, 3)` [V/m]
 
@@ -305,7 +370,7 @@ print(f"E-field [V/m]: {efield[0]}")
 
 ### 7.1 `trace_field_lines(result, seed_points, *, ds, max_steps, periodic2, direction, box_min, box_max, config_path, library_path)`
 
-シード点から電場方向（または逆方向）に RK4 積分で電気力線を追跡します。
+シード点から電場方向（または逆方向）に RK4 積分で電気力線を追跡します（重い: native field kernel）。
 
 | パラメータ | 型 | デフォルト | 単位 | 説明 |
 |---|---|---|---|---|
@@ -317,6 +382,7 @@ print(f"E-field [V/m]: {efield[0]}")
 | `direction` | `str` | `"both"` | - | 追跡方向: `"forward"` (電場方向) / `"backward"` (逆方向) / `"both"` (両方向) |
 | `box_min` | `Iterable[float] \| None` | `None` | m | 境界ボックス下限。力線がこの外に出たら打ち切り |
 | `box_max` | `Iterable[float] \| None` | `None` | m | 境界ボックス上限 |
+| `kernel` | `FieldKernel \| None` | `None` | - | この run から構築した kernel（10.1 節）。渡すとその plan と電荷で評価し、閉じない。`periodic2` と `library_path` は使わない |
 
 戻り値: `list[ndarray]` -- 各要素は shape `(n_points_i, 3)` の力線座標 [m]
 
@@ -355,7 +421,8 @@ for i, line in enumerate(lines):
 
 ### 7.2 `plot_field_lines_3d(result, seed_points, *, ...)`
 
-電気力線を 3D 描画し、オプションでメッシュ表面を電荷密度で着色してオーバーレイします。
+電気力線を 3D 描画し、オプションでメッシュ表面を電荷密度で着色してオーバーレイします（重い: 追跡に native field
+kernel を使う）。`kernel=` は `trace_field_lines` と同じです。
 
 | パラメータ | 型 | デフォルト | 説明 |
 |---|---|---|---|
@@ -489,13 +556,32 @@ lines = b.trace_field_lines(seeds, periodic2=p2)
 ```python
 from beach import Beach
 
-run = Beach("outputs/latest")
-with run.field_kernel() as kernel:
+with Beach("outputs/latest") as run:
+    kernel = run.kernel()          # セッションが所有し、with の終了で閉じる
     e = kernel.eval_e([[0.0, 0.0, 0.01]])
     phi = kernel.eval_phi([[0.0, 0.0, 0.01]])
 ```
 
 `FortranRunResult` から直接作る場合は `beach.analysis.field_kernel.field_kernel_from_result(result, ...)` を使います。
+こちらは呼び出し側が所有するので、`with field_kernel_from_result(result) as kernel:` のように閉じます。
+
+#### `kernel=` 引数の規約
+
+電位・電場・力線・Coulomb 力・object 合力の関数と、その描画関数（`plot_potential_mesh`、`plot_potential_slices`、
+`plot_field_lines_3d`、`plot_coulomb_force_matrix`、`animate_history_mesh(quantity="potential")`）は
+`kernel: FieldKernel | None = None` を受け取ります。
+
+- `None` では、従来どおり呼び出しごとに kernel を構築し、終了時に閉じます。
+- 渡した kernel は閉じません。`Beach.kernel()` または `field_kernel_from_result()` で同じ run から構築したものを
+  渡します。panel 数が run と異なる kernel と、全電場を表さない plan（未合成の `cached_kneq0` など）は
+  `ValueError` です。
+- 渡した kernel はその plan のまま評価します。`periodic2`、`theta`、`leaf_max`、`order`、`library_path` は
+  kernel の構築に使わないため効きません。描画関数の `periodic2` は、表示 mesh の wrap と複製にだけ使います。
+- `step` を持たない関数（電位・電場・力線）は kernel の電荷で評価します。`step` を持つ関数（`calc_coulomb`、
+  `calc_object_forces_kernel`）とアニメーションは、呼び出し中だけ kernel の電荷を差し替え、終了時に元の電荷へ
+  戻します。
+- Coulomb 力行列（`plot_coulomb_force_matrix`）は worker process 間で kernel を共有できないため、
+  `workers == 1` のときだけ渡された kernel を使います。`workers > 1` では各 entry が source-only kernel を構築します。
 
 共有ライブラリを別パスに置く場合は `library_path=` または環境変数 `BEACH_FIELD_KERNEL_LIB` を指定します。
 
@@ -512,7 +598,8 @@ periodic planでは使用できず、uniform `fields.external.electric_v_m`も�
 
 ### 10.2 `calc_object_forces_kernel(result, ...)`
 
-各objectについて、自身のsource電荷を0にしたうえで、`sum(q_i E_not_self(r_i))`とトルクを計算します。
+各objectについて、自身のsource電荷を0にしたうえで、`sum(q_i E_not_self(r_i))`とトルクを計算します（重い）。
+`kernel=` を渡すと、object ごとの電荷の差し替えをその kernel で行い、終了時に元の電荷へ戻します。
 self policyは`exclude_target_lattice`です。周期計算では、targetのprimary sourceと、target object自身の周期画像を除外します。
 この高水準APIは未合成の`cached_kneq0`を拒否します。
 
@@ -689,7 +776,8 @@ refinement を使います。これらは cache 生成を伴う opt-in 検証で
 
 ```python
 fig, ax = b.plot_mesh(cmap="coolwarm")                        # 電荷密度
-fig, ax = b.plot_potential()                                   # 絶対電位
+fig, ax = b.plot_potential()                                   # 絶対電位（mesh_potential.csv があれば保存値）
+fig, ax = b.plot_potential(source="kernel")                    # 保存値があっても kernel で再計算
 fig, ax = b.plot_potential(reference_point="species1_injection_center")  # species 1 注入面中心との電位差
 ```
 

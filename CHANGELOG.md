@@ -16,7 +16,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `beach.fortran_results.periodic.Periodic2Config` は `beach.native.periodic2.Periodic2Config`）へ書き換える。runops の entry point は
   `beach.tooling.runops_adapter:Adapter` になった。
 - **BREAKING**: `FieldKernel.from_result(...)` を削除した。native binding が run の解析層に依存しないよう、run から kernel を作る処理は
-  `beach.analysis.field_kernel.field_kernel_from_result(...)` に移した。`Beach.field_kernel(...)` は従来どおり使える。
+  `beach.analysis.field_kernel.field_kernel_from_result(...)` に移した。`Beach` からは `Beach.kernel(...)` を使う（下記）。
+- **BREAKING**: `Beach` を、1 つの出力ディレクトリの結果・`RunContext`・native field kernel を持つセッションにした。
+  `Beach(output_dir, *, config_path=None, library_path=None)` で作り、`run.context` が `beach.toml` の解決を一手に持つ。
+  `Beach.field_kernel(...)` は alias を残さず `Beach.kernel(*, step=-1, periodic2=None, theta=None, leaf_max=None, order=None)`
+  に置き換えた。`kernel()` は同じ電荷と plan に対して 1 つの kernel を cache し、セッションが所有する（呼び出し側は閉じない）。
+  `close()`、`reload()`、`with Beach(...) as run:` の終了で cache 中の kernel を閉じる。`Beach.config_path` 属性は削除した。
+  解決済みの path は `run.context.config_path` で得る。
+- **BREAKING**: `RunContext.from_value` は、`Beach` から `config_path` 属性を推測せず、`Beach.context` をそのまま使う。
+  `Beach` の代わりに独自 object を渡すコードは `result` に加えて `context`（`RunContext`）を持たせる。
+- **BREAKING**: `Beach` の委譲メソッドは、委譲先のモジュール関数の signature・既定値・docstring をそのまま持つ
+  （`help(Beach.plot_potential)` で確認できる）。既定値はモジュール関数だけが持つ。この結果、委譲先の引数はすべて
+  メソッドでも使える（例: `Beach.calc_coulomb` の `quadrature_order`・`config_path`・`library_path`・`kernel`）。
+  メソッドは `library_path` を省略するとセッションの値を使い、kernel を評価する呼び出しには cached `Beach.kernel()` を渡す。
+  `kernel=`、`config_path=`、セッションと異なる `library_path=` を明示した呼び出しは、その呼び出しだけの kernel を構築する。
+  保存済み `mesh_potential.csv` を使う `compute_potential()` / `plot_potential()`、`quantity="charge"` の `animate_mesh()`、
+  `workers > 1` の `plot_coulomb_force_matrix()` は kernel を構築しない。
 - runops adapter の `summarize` は `summary.txt` を `beach.io.summary.parse_summary_text` で読む。重複 key や空 key は黙って
   上書きせず `ValueError` になる。
 - **BREAKING**: `reference_point` の既定を、電位の計算と描画で共通の `None`（絶対電位）にした。
@@ -27,8 +42,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `beachx inspect` の potential plot と `--recompute-potential` の要約、`beachx slices`、`beachx animate --quantity potential`
   も絶対電位になる。
 
+### Added
+
+- `compute_potential_mesh`、`compute_potential_points`、`compute_potential_slices`、`compute_electric_field_points`、
+  `trace_field_lines`、`calc_coulomb`、`calc_object_forces_kernel`、`plot_potential_mesh`、`plot_potential_slices`、
+  `plot_field_lines_3d`、`plot_coulomb_force_matrix`、`animate_history_mesh` に `kernel: FieldKernel | None = None` を追加した。
+  `None` は従来どおり呼び出しごとに kernel を構築して閉じる。渡した kernel は同じ run の panel 数と全電場 plan を確認したうえで
+  その plan のまま評価し、閉じない（`periodic2`・`theta`・`leaf_max`・`order`・`library_path` は使わない）。`step` を持つ関数と
+  アニメーションは呼び出し中だけ電荷を差し替えて元に戻す。`calc_coulomb` は全 mesh の kernel で source 以外の電荷を 0 にして
+  評価し、一様外部場を除く。Coulomb 力行列は worker process 間で kernel を共有できないため、`workers == 1` のときだけ使う。
+- `compute_potential_mesh` と `plot_potential_mesh` に `source: "auto" | "saved" | "kernel" = "auto"` を追加した。`"saved"` は
+  `mesh_potential.csv` だけを返し、`"kernel"` は保存値があっても再計算する。`"auto"` は従来の選択（保存値があり、
+  `periodic2`・`reference_point`・`kernel` の指定が無ければ保存値）。`plot_mesh_source_boxplot(quantity="potential")` の
+  履歴 step は、result の保存値を消す代わりにこの `source="kernel"` で再計算する。
+- `FieldKernel.options`、`FieldKernel.source_charges`、`FieldKernel.closed` の読み取り専用 property を追加した。
+- `BeachScene.from_result(..., library_path=None)` と `BeachScene.library_path` を追加した。scene の kernel メソッドは
+  `library_path` を省略するとこの値を使う。`Beach.scene()` はセッションの `library_path` を渡す。
+- 公開解析・描画関数の docstring の冒頭に、native kernel を構築する（heavy）か保存済みの値だけを使う（light）かを書いた。
+
 ### Fixed
 
+- モジュール関数に `Beach(..., config_path=...)` を渡したとき、`analyze_coulomb_mobility` と `plot_coulomb_force_matrix` の
+  内部の Coulomb 計算、`plot_mesh_source_boxplot(quantity="potential")`、`BeachScene.from_result` が明示した `beach.toml` を
+  使わず近傍の自動探索に戻っていた。内部の呼び出しは run の `RunContext` を引き継ぐ。
 - `animate_history_mesh` と `Beach.animate_mesh`（`beachx animate`）は `view_elev` / `view_azim` を省略すると matplotlib の
   既定（仰角 30°、方位角 -60°）で描いていた。docstring と CLI help のとおり、他の mesh 描画と同じ 24° / -58° を使う。
   描画の既定の view 角度と colormap は `beach/plot/_defaults.py` の定数だけが持ち、関数・`Beach`・CLI の

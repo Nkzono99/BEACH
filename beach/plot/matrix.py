@@ -31,7 +31,7 @@ def plot_coulomb_force_matrix(
     workers: int = 1,
     kernel: FieldKernel | None = None,
 ):
-    """Plot an object-wise Coulomb-force matrix (heavy: native kernel per entry).
+    """Plot an object-wise Coulomb-force matrix (heavy: native kernel).
 
     Parameters
     ----------

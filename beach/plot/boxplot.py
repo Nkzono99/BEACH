@@ -23,7 +23,7 @@ def plot_mesh_source_boxplot(
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
 ):
-    """Plot area-weighted boxplots per mesh source (heavy for history-step potential).
+    """Plot area-weighted boxplots per mesh source (heavy for potential not saved in mesh_potential.csv).
 
     Parameters
     ----------

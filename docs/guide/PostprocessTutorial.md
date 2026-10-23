@@ -96,7 +96,7 @@ potential_fig.savefig("outputs/tutorial/python_potential.png", dpi=150)
 
 `plot_potential()` の既定 `reference_point=None` は `mesh_potential.csv` に保存された最終絶対電位を使うため、
 このケースでは native field kernel は不要です。`reference_point="species1_injection_center"` のように保存値と
-異なる基準で再評価する場合は、次節の kernel が必要です。
+異なる基準で再評価する場合と、`source="kernel"` で保存値を使わずに再計算する場合は、次節の kernel が必要です。
 
 ### 特定の mesh と batch を選ぶ
 
@@ -146,7 +146,30 @@ beachx slices outputs/tutorial \
   --save outputs/tutorial/potential_slices.png
 ```
 
-正常終了すると `saved_potential_slices=outputs/tutorial/potential_slices.png` が表示されます。これらは保存電荷から
+正常終了すると `saved_potential_slices=outputs/tutorial/potential_slices.png` が表示されます。
+
+Python から同じ再構成を行う場合は、`Beach` を `with` 文で開きます。セッションは最初の重い呼び出しで kernel を
+1 回だけ構築し、同じ plan の呼び出しで使い回して、`with` を抜けるときに閉じます。
+
+```python
+from beach import Beach
+
+with Beach(
+    "outputs/tutorial",
+    config_path="beach.toml",
+    library_path="/path/to/BEACH/build/libbeach_field_kernel.so",
+) as run:
+    potential = run.compute_potential(source="kernel")
+    print("recomputed potential range [V]:", potential.min(), potential.max())
+    slice_fig, _ = run.plot_potential_slices(
+        box_min=[0.0, 0.0, 0.0],
+        box_max=[0.04, 0.04, 0.07],
+        grid_n=100,
+    )
+    slice_fig.savefig("outputs/tutorial/python_potential_slices.png", dpi=150)
+```
+
+`box_min` / `box_max` は入門ケースの `[domain]` の値です。CLI と Python のどちらの結果も、保存電荷から
 場を再構成する解析であり、mesh や solver に対する収束確認の代わりにはなりません。研究結果として採用する前に
 [計算結果の妥当性確認](ValidationGuide.md)に従ってください。
 
