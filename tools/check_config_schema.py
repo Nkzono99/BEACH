@@ -13,7 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from beach.config._layout import reader_schema
+from beach.config._layout import reader_schema  # noqa: E402 (repository import after adding ROOT)
 
 
 TABLES = (

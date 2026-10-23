@@ -531,7 +531,7 @@ def _validate_photo_raycast_species(
 
     _check_temperature_inputs(spec)
 
-    m_particle = _checked_particle_mass(spec)
+    _checked_particle_mass(spec)
     if abs(float(spec.get("q_particle", 0.0))) <= 0.0:
         raise SystemExit("q_particle must be non-zero for photo_raycast.")
 

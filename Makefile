@@ -3,7 +3,7 @@
 	install-camphor-fast install-camphor-fast-local \
 	install-intel install-intel-local \
 	build check run \
-	static-check source-text-check schema-check schema-sync \
+	static-check source-text-check python-lint schema-check schema-sync \
 	test-config-contract \
 	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
@@ -200,6 +200,9 @@ static-check: source-text-check
 source-text-check:
 	$(PYTHON) tools/check_source_text.py
 
+python-lint:
+	$(PYTHON) -m ruff check .
+
 schema-check:
 	@set -eu; \
 	for schema in $(SCHEMAS); do \
@@ -218,7 +221,7 @@ schema-check:
 schema-sync:
 	@set -eu; for schema in $(SCHEMA_COPIES); do cp "$(SCHEMA_CANONICAL)" "$$schema"; done
 
-test-l0: static-check schema-check check
+test-l0: static-check python-lint schema-check check
 
 test: test-l1
 

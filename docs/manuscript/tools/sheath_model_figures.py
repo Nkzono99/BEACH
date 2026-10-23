@@ -287,7 +287,7 @@ def fig_densities(data: Path) -> str:
         ax.line(z, values, style)
     ax.clip_end()
     ax.text(meta["z_min_m"], 140, "$z_m$", "font=\\scriptsize\\sffamily")
-    body = ax.cmds + legend(5.3, 2.1, [(s, l) for _, s, l in series], dy=0.38)
+    body = ax.cmds + legend(5.3, 2.1, [(s, label) for _, s, label in series], dy=0.38)
     caption = ("Type A（$\\alpha=60^\\circ$）の粒子集団ごとの数密度。縦軸は対数で、点線は電位極小の位置 $z_m$ である。"
                "反射した太陽風電子は極小より上流側だけに、捕捉された光電子は極小より壁側だけに存在する。"
                "壁の近くでは捕捉された光電子が負電荷を担い、上流では通過・反射電子と脱出光電子の和がイオン密度と釣り合う。"
@@ -338,7 +338,7 @@ def fig_first_integral(data: Path) -> str:
     ax_ru.text(-0.27, -0.045, "負", "font=\\scriptsize\\sffamily")
     ax_ru.text(-0.11, 0.025, "正", "font=\\scriptsize\\sffamily")
     ax_eu.text(-0.03, 0.35, "$E^2(0)=0$", "anchor=east,font=\\scriptsize\\sffamily")
-    ax_el.text(phi0, 2.85, f"$E_0^2$", "anchor=east,font=\\scriptsize\\sffamily")
+    ax_el.text(phi0, 2.85, "$E_0^2$", "anchor=east,font=\\scriptsize\\sffamily")
     body = ax_rl.cmds + ax_el.cmds + ax_ru.cmds + ax_eu.cmds
     caption = ("Type A（$\\alpha=60^\\circ$）の電荷密度 $\\rho(\\phi)$ と第一積分 $E^2(\\phi)$。横軸は位置ではなく電位で、"
                "上段は壁から極小まで、下段は極小から上流までの区間である。二つの区間では粒子集団が異なるため、"

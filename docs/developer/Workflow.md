@@ -102,7 +102,7 @@ make test-l2      # L1 + C / kernel contract + Python / Fortran 設定契約
 make test-l3      # L2 + heavy FMM / panel
 ```
 
-- L0 は `git diff --check`、source text、JSON schema、`make check` を確認します。
+- L0 は `git diff --check`、source text、`ruff check .`（設定は `pyproject.toml` の `[tool.ruff]`）、JSON schema、`make check` を確認します。
 - L1 は L0 に全 Python test と通常の Fortran test target を加えます。
 - L2 は C ABI、periodic zero-mode C contract、lint に成功する設定を Fortran で読み込む contract test を加えます。
 - L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。

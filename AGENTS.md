@@ -53,7 +53,7 @@ Python CLI examples:
 - Python lint: `ruff check .`
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
-  - L0 static/build: `make test-l0` (`git diff --check`, JSON schema parse checks, `make check`)
+  - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, JSON schema parse checks, `make check`)
   - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
   - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
