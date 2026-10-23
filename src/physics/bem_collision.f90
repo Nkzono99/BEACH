@@ -3,7 +3,7 @@ module bem_collision
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: mesh_type, hit_info, sim_config
+  use bem_types, only: mesh_type, hit_info, particle_domain_config
   use bem_string_utils, only: lower_ascii
   use bem_status_codes, only: collision_query_ok, collision_query_image_limit, collision_query_index_range, &
                               collision_query_invalid_segment, collision_query_grid_stalled
@@ -22,7 +22,7 @@ contains
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
-    type(sim_config), intent(in), optional :: sim
+    class(particle_domain_config), intent(in), optional :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
     integer(i32), intent(out), optional :: status
@@ -95,7 +95,7 @@ contains
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
     type(hit_info), intent(out) :: hit
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
     integer(i32), intent(out), optional :: status

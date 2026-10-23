@@ -10,6 +10,7 @@ program test_templates_importers_runtime
     app_config, default_app_config, species_from_defaults, &
     build_mesh_from_config, seed_particles_from_config, init_particle_batch_from_config
   use bem_app_config_types, only: particle_inflow_reservoir
+  use bem_external_boundary_contract, only: external_inflow_scalar_barrier
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -272,6 +273,7 @@ program test_templates_importers_runtime
   cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
+  cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
   cfg%sim%phi_infty = 0.0d0
   cfg%sim%injection_face_phi_grid_n = 2_i32
   cfg%n_particle_species = 3_i32

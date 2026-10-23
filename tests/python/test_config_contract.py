@@ -171,6 +171,12 @@ def _cases() -> list:
     config = copy.deepcopy(reservoir)
     config["particles"]["species"][0]["boundary"] = {"z_high": "reflect"}
     cases.append(pytest.param(config, False, id="reservoir-inflow-through-reflecting-face"))
+    config = copy.deepcopy(reservoir)
+    config["domain"]["periodic_axes"] = ["z"]
+    cases.append(pytest.param(config, False, id="reservoir-inflow-through-periodic-face"))
+    config = default_config()
+    config["particles"]["species"][0]["target_macro_particles_per_batch"] = 10
+    cases.append(pytest.param(config, False, id="volume-seed-with-reservoir-target"))
 
     for target, accepted in ((-1.0e-9, True), (1.0e-9, False)):
         config = copy.deepcopy(reservoir)
@@ -353,6 +359,8 @@ def _without_domain(config: dict) -> dict:
      "photo_raycast requires run.batch.duration_s > 0"),
     (lambda config: config["sim"].update(batch_count=0) or config, "run.batch_count must be > 0"),
     (lambda config: config["sim"].update(batch_duration=-1.0e-8) or config, "run.batch.duration_s must be >= 0"),
+    (lambda config: config["particles"]["species"][0].update(ray_direction=[0.0, 0.0, 1.0]) or config,
+     "ray_direction must point inward"),
 ])
 def test_photo_raycast_inputs_are_owned_by_preflight(edit, diagnostic, native_checker, tmp_path):
     path = _write_config(edit(_photo_raycast_tutorial()), tmp_path)

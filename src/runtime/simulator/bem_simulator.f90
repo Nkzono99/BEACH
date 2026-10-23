@@ -4,7 +4,7 @@ module bem_simulator
   use, intrinsic :: iso_fortran_env, only: output_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, hit_info
+  use bem_types, only: sim_stats, mesh_type, particles_soa, injection_state, sim_config, particle_domain_config, hit_info
   use bem_app_config, only: app_config, init_particle_batch_from_config
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_irradiation_cell_contract, only: &
@@ -23,8 +23,7 @@ module bem_simulator
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_charge_ledger, only: charge_ledger_type, accumulate_charge_ledger
   use bem_string_utils, only: lower_ascii
-  use bem_external_boundary_contract, only: external_boundary_contract_type, external_boundary_ok, &
-                                            resolve_external_boundary_contract
+  use bem_external_boundary_contract, only: external_boundary_contract_type
   use bem_simulator_workspace, only: simulator_batch_workspace_type
   use bem_surface_closure_contract, only: surface_closure_contract_type
   use bem_surface_current_model, only: evaluate_surface_closure

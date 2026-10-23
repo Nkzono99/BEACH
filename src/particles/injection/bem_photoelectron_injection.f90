@@ -3,7 +3,7 @@ module bem_photoelectron_injection
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_types, only: mesh_type, sim_config, hit_info, bc_periodic
+  use bem_types, only: mesh_type, photo_raycast_config, hit_info, bc_periodic
   use bem_boundary, only: apply_ray_box_boundary
   use bem_collision, only: find_first_hit
   use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
@@ -51,7 +51,7 @@ contains
     vmin_normal, failure &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(photo_raycast_config), intent(in) :: sim
     character(len=*), intent(in) :: inject_face
     real(dp), intent(in) :: pos_low(3), pos_high(3)
     real(dp), intent(in) :: ray_direction(3)
@@ -191,7 +191,7 @@ contains
     bounce_count &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(photo_raycast_config), intent(in) :: sim
     real(dp), intent(in) :: ray_start(3), launch_dir(3)
     logical, intent(in) :: use_periodic2_mode
     real(dp), intent(out) :: hit_pos(3), hit_normal(3)
@@ -273,7 +273,7 @@ contains
     rng_seed, ray_counter, velocity_counter, x, v, w, emit_elem, emitted, collision_status, bounce_count, vmin_normal &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(photo_raycast_config), intent(in) :: sim
     character(len=*), intent(in) :: inject_face
     real(dp), intent(in) :: pos_low(3), pos_high(3), ray_direction(3)
     real(dp), intent(in) :: m_particle, temperature_k, normal_drift_speed, w_hit
@@ -322,7 +322,7 @@ contains
   end subroutine sample_photo_ray_slot
 
   pure subroutine canonicalize_periodic_emission_position(sim, position)
-    type(sim_config), intent(in) :: sim
+    class(photo_raycast_config), intent(in) :: sim
     real(dp), intent(inout) :: position(3)
     integer(i32) :: axis
     real(dp) :: span, scale, inset

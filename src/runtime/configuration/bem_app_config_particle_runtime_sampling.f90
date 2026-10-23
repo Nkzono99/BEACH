@@ -47,14 +47,14 @@ contains
   if (present(global_rays_per_batch)) then
     if (present(vmin_normal)) then
       call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        mesh, sim%photo_raycast_config, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, vmin_normal=vmin_normal, &
         failure=failure &
         )
     else
       call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        mesh, sim%photo_raycast_config, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch=global_rays_per_batch, &
         failure=failure &
@@ -63,14 +63,14 @@ contains
   else
     if (present(vmin_normal)) then
       call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        mesh, sim%photo_raycast_config, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, vmin_normal=vmin_normal, &
         failure=failure &
         )
     else
       call sample_photo_raycast_particles( &
-        mesh, sim, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
+        mesh, sim%photo_raycast_config, spec%inject_face, spec%pos_low, spec%pos_high, spec%ray_direction, spec%m_particle, &
         species_temperature_k(spec), normal_drift_speed, emit_current_density, spec%q_particle, &
         n_rays, x, v, w, n_emit, emit_elem_idx, &
         failure=failure &
@@ -90,25 +90,13 @@ contains
   module procedure reservoir_face_velocity_correction
 
   real(dp) :: phi_face, phi_std, phi_min, phi_max, delta_phi
-  integer(i32) :: boundary_status
   logical :: emit_warning
-  type(external_boundary_contract_type) :: active_boundary_contract
-  character(len=256) :: boundary_message
 
   vmin_normal = 0.0d0
   barrier_normal = 0.0d0
   emit_warning = .false.
   if (present(warn_face_variation)) emit_warning = warn_face_variation
-  if (present(boundary_contract)) then
-    active_boundary_contract = boundary_contract
-  else
-    call resolve_external_boundary_contract( &
-      cfg%sim%reservoir_potential_model, &
-      active_boundary_contract, boundary_status, boundary_message &
-      )
-    if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
-  end if
-  select case (active_boundary_contract%inflow_map)
+  select case (cfg%boundary_contract%inflow_map)
   case (external_inflow_none)
     return
   case (external_inflow_scalar_barrier)

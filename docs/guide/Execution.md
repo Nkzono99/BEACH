@@ -76,8 +76,13 @@ rank 数を変えても同じ粒子集合になります。rank 間で粒子追�
 見積もりを推奨します。
 
 ```bash
+beachx lint beach.toml
 beachx workload beach.toml --threads 8
 ```
+
+`workload` は粒子数の計算に必要な流束・重み・バッチ幅を解決します。設定の組合せは `lint` で検査します。
+光電子は `rays_per_batch` による放出粒子数の上限を数え、光線と表面の交差や放出後の軌道は計算しません。
+Python の見積もり自体には numpy や native field kernel は不要です。
 
 MPI rankを含めて見積もる場合:
 

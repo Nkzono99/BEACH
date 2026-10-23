@@ -11,11 +11,8 @@ submodule(bem_output_writer) bem_output_writer_summary
     resolve_field_solver_mode, &
     resolve_field_solver_tree_params
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, &
-    external_boundary_ok, &
     external_inflow_none, &
-    external_inflow_scalar_barrier, &
-    resolve_external_boundary_contract
+    external_inflow_scalar_barrier
   use bem_mesh_identity, only: mesh_fingerprint
   use bem_physics_config_types, only: field_physics_config, panel_kernel_config, derive_field_panel_config
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model
@@ -31,7 +28,6 @@ contains
   !! @param[in] stats 実行統計。
   module procedure write_summary_file
   type(irradiation_cell_contract_type) :: cell
-  type(external_boundary_contract_type) :: resolved_boundary
   type(surface_current_model_result_type) :: current_model
   type(field_physics_config) :: field_config
   type(panel_kernel_config) :: panel_config
@@ -43,13 +39,6 @@ contains
   integer(i32) :: world_size, boundary_status, resolved_tree_leaf_max
   real(dp) :: resolved_tree_theta
 
-  call resolve_external_boundary_contract( &
-    cfg%sim%reservoir_potential_model, &
-    resolved_boundary, boundary_status, boundary_message &
-    )
-  if (boundary_status /= external_boundary_ok) then
-    error stop 'write_summary_file: invalid local boundary contract: '//trim(boundary_message)
-  end if
   call resolve_irradiation_cell_contract(cfg, cell, boundary_status, boundary_message)
   if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
   call evaluate_surface_current_model(cfg, current_model, cell)
@@ -163,7 +152,7 @@ contains
   write (u, '(a,a)') 'periodic2_cache_dir=', trim(periodic_cache_dir)
   write (u, '(a,es24.16)') 'periodic2_generation_tolerance=', &
     cfg%sim%field_periodic_generation_tolerance
-  write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(resolved_boundary%inflow_map))
+  write (u, '(a,a)') 'reservoir_inflow_map=', trim(external_inflow_map_name(cfg%boundary_contract%inflow_map))
   write (u, '(a,a)') 'surface_current_model=', trim(current_model%model)
   write (u, '(a,es24.16)') 'surface_current_model_top_field_V_m=', stats%matching_plane%top_field_v_m
   if (current_model%active) then

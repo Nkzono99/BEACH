@@ -2,6 +2,7 @@
 module bem_app_config_types
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config
+  use bem_external_boundary_contract, only: external_boundary_contract_type
   use bem_filesystem, only: default_periodic_cache_directory
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -149,6 +150,8 @@ module bem_app_config_types
     logical :: resume_output = .false.
 
     type(sim_config) :: sim
+    !> preflight で解決する基底契約。種別 kinetic barrier の面別 override は run 側で重ねる。
+    type(external_boundary_contract_type) :: boundary_contract
     type(field_physics_config) :: field
     type(periodic2_physics_config) :: periodic2
     type(panel_kernel_config) :: panel

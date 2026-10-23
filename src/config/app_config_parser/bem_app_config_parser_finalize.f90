@@ -1,9 +1,12 @@
 !> 設定の正規化と領域別 preflight の実行順を管理する。
 submodule(bem_app_config_parser) bem_app_config_parser_finalize
+  use bem_external_boundary_contract, only: resolve_external_boundary_contract, external_boundary_ok
   implicit none
 contains
 
   module procedure finalize_loaded_config
+  integer(i32) :: boundary_status
+  character(len=256) :: boundary_message
 
   call lower_boundary_authoring(cfg, authoring)
   call validate_mesh_part_keys(cfg, authoring)
@@ -16,6 +19,10 @@ contains
   cfg%sim%field_periodic_far_correction = lower_ascii(trim(cfg%sim%field_periodic_far_correction))
 
   call validate_simulation_config(cfg)
+  call resolve_external_boundary_contract( &
+    cfg%sim%reservoir_potential_model, cfg%boundary_contract, boundary_status, boundary_message &
+    )
+  if (boundary_status /= external_boundary_ok) call stop_config_error(boundary_message)
   call validate_particle_species_config(cfg)
   call resolve_sheath_secondary_role(cfg)
   call validate_surface_current_model_config( &

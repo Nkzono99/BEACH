@@ -2,7 +2,7 @@
 module bem_boundary
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
-  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
+  use bem_types, only: particle_domain_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
   implicit none
   private
@@ -23,7 +23,7 @@ contains
 
   !> 閉じたbox内の始点から候補終点へ向かう線分について、最初のbox面交差を返す。
   subroutine find_first_boundary_event(cfg, x0, x1, event, status)
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     real(dp), intent(in) :: x0(3), x1(3)
     type(boundary_event_type), intent(out) :: event
     integer(i32), intent(out) :: status
@@ -95,7 +95,7 @@ contains
   subroutine apply_escape_reflect_periodic_event( &
     cfg, event, x, v, alive, escaped, status, redistribution_uniform, face_bc &
     )
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     type(boundary_event_type), intent(in) :: event
     real(dp), intent(inout) :: x(3), v(3)
     logical, intent(inout) :: alive
@@ -248,7 +248,7 @@ contains
 
   !> Event APIで扱える有限かつ正幅のbox設定かを返す。
   logical function valid_event_box(cfg) result(valid)
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     real(dp) :: inset
     integer(i32) :: axis
 
@@ -292,7 +292,7 @@ contains
 
   !> 同時eventの法線軸を固定し、それ以外の座標をbox面内で一様再配置する。
   pure subroutine redistribute_event_position(cfg, face_mask, uniform, x)
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     integer(i32), intent(in) :: face_mask
     real(dp), intent(in) :: uniform(3)
     real(dp), intent(inout) :: x(3)
@@ -309,7 +309,7 @@ contains
 
   !> face bit順にbox設定の境界条件を並べる。
   pure function boundary_face_conditions(cfg) result(face_bc)
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     integer(i32) :: face_bc(6)
     integer(i32) :: axis
 
@@ -324,7 +324,7 @@ contains
   !! ray は面内再配置の乱数を持たないので、流出面と再配置反射の面では ray を止める（alive=.false.）。
   !! box が無効なら何もせず、幅 0 の軸があれば ray を止める。
   subroutine apply_ray_box_boundary(cfg, x, dir, alive)
-    type(sim_config), intent(in) :: cfg
+    class(particle_domain_config), intent(in) :: cfg
     real(dp), intent(inout) :: x(3), dir(3)
     logical, intent(inout) :: alive
 

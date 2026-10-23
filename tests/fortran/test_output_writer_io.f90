@@ -12,6 +12,7 @@ program test_output_writer_io
                                open_secondary_emission_history_writer, write_secondary_emission_history_rows
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_app_config, only: app_config, default_app_config, load_app_config
+  use bem_external_boundary_contract, only: external_inflow_scalar_barrier
   use bem_types, only: mesh_type, sim_stats
   use bem_charge_ledger, only: charge_ledger_type
   use bem_electrostatic_snapshot, only: electrostatic_diagnostics_type
@@ -124,6 +125,7 @@ program test_output_writer_io
   call default_app_config(cfg)
   stats = sim_stats()
   cfg%sim%reservoir_potential_model = 'infinity_barrier'
+  cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
   call write_result_files(out_dir_disabled, mesh, stats, cfg)
   call assert_resolved_boundary_summary( &
     out_dir_disabled//'/summary.txt', 'infinity_barrier' &

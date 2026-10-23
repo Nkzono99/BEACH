@@ -8,6 +8,7 @@ program test_reservoir_injection
                                     compute_face_average_potential, compute_wall_box_potential_statistics, &
                                     reservoir_face_velocity_correction
   use bem_app_config_types, only: particle_inflow_reservoir
+  use bem_external_boundary_contract, only: external_inflow_scalar_barrier
   use bem_injection, only: compute_macro_particles_for_batch, &
                            compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_types, only: particles_soa, injection_state
@@ -334,6 +335,7 @@ contains
     call assert_close_dp(top_phi_max, phi_max, 1.0e-14_dp, 'z-high box potential maximum mismatch')
 
     stats_cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    stats_cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     stats_cfg%sim%phi_infty = -1.0_dp
     call reservoir_face_velocity_correction( &
       stats_cfg, stats_cfg%particle_species(1), vmin_normal, barrier_normal, &
@@ -368,6 +370,7 @@ contains
     barrier_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
     barrier_cfg%sim%e0 = [0.0_dp, 0.0_dp, -1.0_dp]
     barrier_cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    barrier_cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
     barrier_cfg%sim%phi_infty = 0.0_dp
     barrier_cfg%sim%injection_face_phi_grid_n = 2_i32
     barrier_cfg%n_particle_species = 1_i32

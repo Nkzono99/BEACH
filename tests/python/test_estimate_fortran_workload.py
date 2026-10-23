@@ -165,28 +165,6 @@ def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() 
     assert rank3["species_per_batch"] == [[1]]
 
 
-def test_estimate_workload_rejects_boundary_inflow_on_periodic_face() -> None:
-    config = {
-        "sim": {"batch_count": 1, "batch_duration": 1.0},
-        "domain": {
-            "box_min": [0.0, 0.0, 0.0],
-            "box_max": [1.0, 1.0, 1.0],
-            "periodic_axes": ["x"],
-        },
-        "particles": {
-            "species": [
-                _boundary_inflow_species(
-                    w_particle=1.0,
-                    boundary_inflow={"x_low": "reservoir"},
-                )
-            ]
-        },
-    }
-
-    with pytest.raises(SystemExit, match="periodic domain face"):
-        estimate_workload(config, threads=1)
-
-
 def test_estimate_workload_normalizes_high_level_face_region_without_mutation() -> None:
     high_level = {
         "sim": {
@@ -508,26 +486,6 @@ def test_estimate_workload_requires_w_or_target_for_reservoir() -> None:
         estimate_workload(config=config, threads=1)
 
 
-def test_estimate_workload_rejects_target_for_volume_seed() -> None:
-    config = {
-        "sim": {
-            "batch_count": 1,
-        },
-        "particles": {
-            "species": [
-                {
-                    "source_mode": "volume_seed",
-                    "npcls_per_step": 5,
-                    "target_macro_particles_per_batch": 10,
-                }
-            ]
-        },
-    }
-
-    with pytest.raises(SystemExit, match="only valid for boundary_inflow"):
-        estimate_workload(config=config, threads=1)
-
-
 def test_estimate_workload_rejects_minus_one_for_species1() -> None:
     config = {
         "sim": _box_sim(batch_duration=1.0),
@@ -582,6 +540,18 @@ def test_estimate_workload_supports_photo_raycast_as_upper_bound() -> None:
     assert result["species_per_batch"] == [[25], [25]]
 
 
+def test_photo_ray_upper_bound_needs_only_the_ray_budget() -> None:
+    config = {
+        "sim": {"batch_count": 2, "batch_duration": 1.0e-6},
+        "particles": {"species": [{"source_mode": "photo_raycast", "rays_per_batch": 25}]},
+    }
+
+    result = estimate_workload(config, threads=4, mpi_ranks=3, mpi_rank=0)
+
+    assert result["global_species_per_batch"] == [[25], [25]]
+    assert result["species_per_batch"] == [[9], [9]]
+
+
 def test_estimate_workload_rejects_removed_photo_escape_model() -> None:
     config = {
         "sim": _box_sim(batch_duration=1.0e-6),
@@ -596,18 +566,6 @@ def test_estimate_workload_rejects_removed_photo_escape_model() -> None:
     }
 
     with pytest.raises(SystemExit, match="photo_escape_model"):
-        estimate_workload(config=config, threads=1)
-
-
-def test_estimate_workload_rejects_photo_raycast_with_outward_direction() -> None:
-    config = {
-        "sim": _box_sim(batch_duration=1.0e-6),
-        "particles": {
-            "species": [_photo_raycast_species(ray_direction=[0.0, 0.0, 1.0])]
-        },
-    }
-
-    with pytest.raises(SystemExit, match="must point inward"):
         estimate_workload(config=config, threads=1)
 
 
@@ -759,13 +717,6 @@ def test_read_macro_residuals_preserves_boundary_face_rows_for_estimate(
 
     assert result["species_per_batch"] == [[1], [1]]
     assert result["final_residuals"] == [0.25]
-
-
-def test_estimate_workload_rejects_mixed_external_e_field_forms() -> None:
-    config = _volume_seed_config(e0=[1.0, 0.0, 0.0], e0_abs=1.0)
-
-    with pytest.raises(SystemExit, match="sim.e0 cannot be combined"):
-        estimate_workload(config=config, threads=1)
 
 
 @pytest.mark.parametrize(

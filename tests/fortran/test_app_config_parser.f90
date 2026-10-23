@@ -6,6 +6,7 @@ program test_app_config_parser
   use bem_app_config, only: app_config, default_app_config, load_app_config, &
                             particles_per_batch_from_config
   use bem_config_helpers, only: resolve_particle_boundaries
+  use bem_external_boundary_contract, only: external_inflow_none, external_inflow_scalar_barrier
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
   implicit none
@@ -32,7 +33,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(46)
+  call test_init(47)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -195,6 +196,7 @@ program test_app_config_parser
     'default periodic far correction mismatch' &
     )
   call assert_true(trim(cfg%sim%reservoir_potential_model) == 'none', 'default inflow model mismatch')
+  call assert_equal_i32(cfg%boundary_contract%inflow_map, external_inflow_none, 'default inflow contract mismatch')
   call assert_true(trim(cfg%sim%multiple_box_events_retry_backend) == 'none', 'default retry backend mismatch')
   call assert_equal_i32(cfg%surface_current%outflow_refresh_batches, 0_i32, 'default outer-root refresh mismatch')
   call assert_equal_i32( &
@@ -250,6 +252,17 @@ program test_app_config_parser
   call assert_true(cfg%periodic2%upper_fourier_switch == 'auto', 'switch selection parsing')
   call assert_equal_i32(cfg%periodic2%upper_fourier_mode_layers, 7_i32, 'switch mode layers parsing')
   call delete_file_if_exists(zhao_refresh_variant_path)
+  call test_end()
+
+  call test_begin('resolved_inflow_contract')
+  call write_grouped_config(input_contract_path, &
+                            '[particles.reservoir]'//new_line('a')//'inflow_model="infinity_barrier"')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_equal_i32( &
+    cfg%boundary_contract%inflow_map, external_inflow_scalar_barrier, 'loaded inflow contract mismatch' &
+    )
+  call delete_file_if_exists(input_contract_path)
   call test_end()
 
   call test_begin('upper_fourier_parses_height')

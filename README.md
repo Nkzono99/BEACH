@@ -43,6 +43,7 @@ beachx inspect outputs/tutorial
 ```
 
 `beachx lint` は設定ファイルのキー・値・組合せを実行前に検査します。
+粒子数の見積もりは、検査後に `beachx workload beach.toml --threads 8` で行います。
 各手順の意味と出力の読み方は [入門チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) で説明しています。
 camphor 用の通常精度・高速ビルドは [インストール手順](docs/start/Installation.md#camphor-向けの最適化ビルド) を参照してください。
 通常の粒子追跡は OpenMP の動的割り当てを使います。明示指定と適応計算での扱いは [並列実行](docs/guide/Execution.md#並列実行) を参照してください。
