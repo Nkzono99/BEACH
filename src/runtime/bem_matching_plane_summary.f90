@@ -11,7 +11,7 @@ module bem_matching_plane_summary
   public :: write_matching_plane_summary
   public :: read_matching_plane_summary_key
   public :: require_matching_plane_summary_keys
-  public :: read_matching_summary_real, read_matching_summary_integer, read_matching_summary_logical
+  public :: read_matching_summary_real
 
   integer, parameter :: value_real = 1, value_integer = 2, value_logical = 3, value_spectrum = 4
 
@@ -55,6 +55,7 @@ module bem_matching_plane_summary
                                   receipt_key('matching_plane_residual', value_real, .true., .true., .true.) &
                                   ]
   integer, parameter :: matching_plane_summary_key_count = size(receipt_keys)
+  integer, parameter :: receipt_real_count = count(receipt_keys%value_kind == value_real)
 
 contains
 
@@ -62,8 +63,11 @@ contains
   subroutine write_matching_plane_summary(u, receipt)
     integer, intent(in) :: u
     type(matching_plane_stats), intent(in) :: receipt
-    integer :: k
+    integer :: k, real_index
+    real(dp) :: real_values(receipt_real_count)
 
+    real_values = receipt_real_values(receipt)
+    real_index = 0
     do k = 1, size(receipt_keys)
       select case (receipt_keys(k)%value_kind)
       case (value_logical)
@@ -72,26 +76,24 @@ contains
         write (u, '(a,i0)') trim(receipt_keys(k)%name)//'=', receipt%iterations
       case (value_spectrum)
         write (u, '(a,*(1x,es24.16))') trim(receipt_keys(k)%name)//'=', receipt%photoelectron_spectrum_m2_s
-      case default
-        write (u, '(a,es24.16)') trim(receipt_keys(k)%name)//'=', receipt_real(receipt, k)
+      case (value_real)
+        real_index = real_index + 1
+        write (u, '(a,es24.16)') trim(receipt_keys(k)%name)//'=', real_values(real_index)
       end select
     end do
   end subroutine write_matching_plane_summary
 
-  !> key が receipt のキーなら value を読み戻して handled=.true.。found は表と同じ添字で、重複の検出に使う。
-  subroutine read_matching_plane_summary_key(key, value, receipt, found, handled)
+  !> receipt のキーだけ value を読み戻す。found は表と同じ添字で、重複の検出に使う。
+  subroutine read_matching_plane_summary_key(key, value, receipt, found)
     character(len=*), intent(in) :: key, value
     type(matching_plane_stats), intent(inout) :: receipt
     logical, intent(inout) :: found(matching_plane_summary_key_count)
-    logical, intent(out) :: handled
-    integer :: k, ios
-    real(dp) :: x
+    integer :: k, ios, real_index
+    real(dp) :: x, real_values(receipt_real_count)
 
-    handled = .false.
     k = key_index(key)
     if (k == 0) return
     if (.not. receipt_keys(k)%restored) return
-    handled = .true.
     if (receipt_keys(k)%unique) then
       if (found(k)) error stop 'Resume checkpoint summary contains duplicate matching-plane key: '//trim(key)
     end if
@@ -104,9 +106,12 @@ contains
     case (value_spectrum)
       read (value, *, iostat=ios) receipt%photoelectron_spectrum_m2_s
       if (ios /= 0) error stop 'Resume checkpoint matching-plane photoelectron spectrum could not be parsed.'
-    case default
+    case (value_real)
       call read_matching_summary_real(value, key, x)
-      call set_receipt_real(receipt, k, x)
+      real_values = receipt_real_values(receipt)
+      real_index = count(receipt_keys(:k)%value_kind == value_real)
+      real_values(real_index) = x
+      call restore_receipt_real_values(receipt, real_values)
     end select
   end subroutine read_matching_plane_summary_key
 
@@ -128,95 +133,32 @@ contains
     k = 0
   end function key_index
 
-  !> 実数キー k の receipt の値。
-  real(dp) function receipt_real(receipt, k) result(x)
+  !> 表の実数キー順に値を並べる。書き出しと読み戻しで同じ順を使う。
+  function receipt_real_values(receipt) result(values)
     type(matching_plane_stats), intent(in) :: receipt
-    integer, intent(in) :: k
+    real(dp) :: values(receipt_real_count)
 
-    select case (trim(receipt_keys(k)%name))
-    case ('matching_plane_secondary_share')
-      x = receipt%secondary_share
-    case ('secondary_budget_residual_a_m2')
-      x = receipt%secondary_budget_residual_a_m2
-    case ('matching_plane_displacement_C_m2')
-      x = receipt%displacement_c_m2
-    case ('matching_plane_phi_V')
-      x = receipt%phi_v
-    case ('matching_plane_top_cell_mean_V_m')
-      x = receipt%top_cell_mean_v_m
-    case ('matching_plane_electron_inward_flux_m2_s')
-      x = receipt%response(2)
-    case ('matching_plane_ion_inward_flux_m2_s')
-      x = receipt%response(3)
-    case ('matching_plane_electron_access_potential_V')
-      x = receipt%response(4)
-    case ('matching_plane_ion_access_potential_V')
-      x = receipt%response(5)
-    case ('matching_plane_photoelectron_barrier_potential_V')
-      x = receipt%response(6)
-    case ('matching_plane_photoelectron_outward_flux_m2_s')
-      x = receipt%feedback(1)
-    case ('matching_plane_photoelectron_mean_normal_energy_eV')
-      x = receipt%feedback(2)
-    case ('matching_plane_electron_outward_flux_m2_s')
-      x = receipt%feedback(3)
-    case ('matching_plane_ion_outward_flux_m2_s')
-      x = receipt%feedback(4)
-    case ('matching_plane_photoelectron_return_flux_m2_s')
-      x = receipt%photoelectron_return_flux_m2_s
-    case ('matching_plane_photoelectron_escape_flux_m2_s')
-      x = receipt%photoelectron_escape_flux_m2_s
-    case ('matching_plane_residual')
-      x = receipt%residual
-    case default
-      error stop 'matching-plane summary key has no real value.'
-    end select
-  end function receipt_real
+    values = [receipt%secondary_share, receipt%secondary_budget_residual_a_m2, receipt%displacement_c_m2, &
+              receipt%phi_v, receipt%top_cell_mean_v_m, receipt%response(2:6), receipt%feedback, &
+              receipt%photoelectron_return_flux_m2_s, receipt%photoelectron_escape_flux_m2_s, receipt%residual]
+  end function receipt_real_values
 
-  !> 実数キー k へ値を戻す。phi_V は応答の電位（response(1)）も兼ねる。
-  subroutine set_receipt_real(receipt, k, x)
+  !> 表の実数キー順の値を戻す。phi_V は応答の電位（response(1)）も兼ねる。
+  subroutine restore_receipt_real_values(receipt, values)
     type(matching_plane_stats), intent(inout) :: receipt
-    integer, intent(in) :: k
-    real(dp), intent(in) :: x
+    real(dp), intent(in) :: values(receipt_real_count)
 
-    select case (trim(receipt_keys(k)%name))
-    case ('matching_plane_secondary_share')
-      receipt%secondary_share = x
-    case ('secondary_budget_residual_a_m2')
-      receipt%secondary_budget_residual_a_m2 = x
-    case ('matching_plane_displacement_C_m2')
-      receipt%displacement_c_m2 = x
-    case ('matching_plane_phi_V')
-      receipt%phi_v = x
-      receipt%response(1) = x
-    case ('matching_plane_electron_inward_flux_m2_s')
-      receipt%response(2) = x
-    case ('matching_plane_ion_inward_flux_m2_s')
-      receipt%response(3) = x
-    case ('matching_plane_electron_access_potential_V')
-      receipt%response(4) = x
-    case ('matching_plane_ion_access_potential_V')
-      receipt%response(5) = x
-    case ('matching_plane_photoelectron_barrier_potential_V')
-      receipt%response(6) = x
-    case ('matching_plane_photoelectron_outward_flux_m2_s')
-      receipt%feedback(1) = x
-    case ('matching_plane_photoelectron_mean_normal_energy_eV')
-      receipt%feedback(2) = x
-    case ('matching_plane_electron_outward_flux_m2_s')
-      receipt%feedback(3) = x
-    case ('matching_plane_ion_outward_flux_m2_s')
-      receipt%feedback(4) = x
-    case ('matching_plane_photoelectron_return_flux_m2_s')
-      receipt%photoelectron_return_flux_m2_s = x
-    case ('matching_plane_photoelectron_escape_flux_m2_s')
-      receipt%photoelectron_escape_flux_m2_s = x
-    case ('matching_plane_residual')
-      receipt%residual = x
-    case default
-      error stop 'matching-plane summary key has no real value.'
-    end select
-  end subroutine set_receipt_real
+    receipt%secondary_share = values(1)
+    receipt%secondary_budget_residual_a_m2 = values(2)
+    receipt%displacement_c_m2 = values(3)
+    receipt%phi_v = values(4)
+    receipt%top_cell_mean_v_m = values(5)
+    receipt%response = [values(4), values(6:10)]
+    receipt%feedback = values(11:14)
+    receipt%photoelectron_return_flux_m2_s = values(15)
+    receipt%photoelectron_escape_flux_m2_s = values(16)
+    receipt%residual = values(17)
+  end subroutine restore_receipt_real_values
 
   subroutine read_matching_summary_real(value, key, result_value)
     character(len=*), intent(in) :: value, key

@@ -20,7 +20,7 @@ contains
   character(len=64) :: key
   character(len=8192) :: value
   logical :: found_mesh, found_processed, found_absorbed, found_escaped
-  logical :: found_batches, found_rel, found_world_size, handled
+  logical :: found_batches, found_rel, found_world_size
   logical :: found_matching(matching_plane_summary_key_count)
 
   stats = sim_stats()
@@ -119,7 +119,7 @@ contains
     case ('secondary_yield_sum')
       call read_matching_summary_real(value, key, stats%secondary_yield_sum)
     case default
-      call read_matching_plane_summary_key(key, value, stats%matching_plane, found_matching, handled)
+      call read_matching_plane_summary_key(key, value, stats%matching_plane, found_matching)
     end select
   end do
   close (u)
