@@ -54,10 +54,9 @@ def plot_mesh_source_boxplot(
     resolved = context.result
     triangles = context.require_triangles()
     values = _boxplot_values_for_quantity(
-        resolved,
+        context,
         quantity=quantity,
         step=step,
-        config_path=config_path,
         library_path=library_path,
     )
     mesh_ids = context.mesh_ids_or_default()
@@ -90,25 +89,26 @@ def plot_mesh_source_boxplot(
 
 
 def _boxplot_values_for_quantity(
-    result: FortranRunResult,
+    context: RunContext,
     *,
     quantity: str,
     step: int | None,
-    config_path: str | Path | None,
     library_path: str | Path | None,
 ) -> np.ndarray:
     if quantity == "charge":
-        return RunContext.from_value(result).charges_at(step)
+        return context.charges_at(step)
     if quantity == "potential":
-        charges = RunContext.from_value(result).charges_at(step)
+        result = context.result
         potential_result = replace(
             result,
-            charges=charges,
+            charges=context.charges_at(step),
             mesh_potential_v=result.mesh_potential_v if step is None else None,
         )
         return compute_potential_mesh(
-            potential_result,
-            config_path=config_path,
+            RunContext(
+                result=potential_result,
+                requested_config_path=context.requested_config_path,
+            ),
             library_path=library_path,
         )
     raise ValueError("quantity must be one of {'charge', 'potential'}.")

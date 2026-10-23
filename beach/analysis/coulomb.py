@@ -138,7 +138,6 @@ def _coulomb_force_matrix(
     target_mesh_ids: Sequence[int],
     component_idx: int,
     step: int | None,
-    config_path: str | Path | None,
     library_path: str | Path | None,
     workers: int,
 ) -> np.ndarray:
@@ -169,12 +168,11 @@ def _coulomb_force_matrix(
     ) -> tuple[int, int, float]:
         row_idx, col_idx, target_mesh_id, task_source_ids = task
         interaction = calc_coulomb(
-            resolved,
+            context,
             target=target_mesh_id,
             source=task_source_ids,
             step=step,
             periodic2=periodic2,
-            config_path=config_path,
             library_path=library_path,
         )
         return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
@@ -198,7 +196,7 @@ def _coulomb_force_matrix(
                 step,
                 component_idx,
                 periodic2,
-                config_path,
+                context.requested_config_path,
                 library_path,
             ),
         ) as executor:

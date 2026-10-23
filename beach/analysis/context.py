@@ -121,21 +121,20 @@ class RunContext:
         *,
         config_path: str | Path | None = None,
     ) -> "RunContext":
-        if isinstance(value, cls):
+        """Return the context of a result, a context, or a ``Beach`` session.
+
+        A ``Beach`` contributes its own :attr:`Beach.context`, so its config path and
+        cached config carry over. An explicit ``config_path`` replaces the inherited one.
+        """
+
+        context = value if isinstance(value, cls) else getattr(value, "context", None)
+        if isinstance(context, cls):
             if config_path is None:
-                return value
-            return cls(result=value.result, requested_config_path=Path(config_path))
-        inherited_config_path = (
-            getattr(value, "config_path", None) if config_path is None else None
-        )
-        requested_config_path = (
-            config_path if config_path is not None else inherited_config_path
-        )
+                return context
+            return cls(result=context.result, requested_config_path=Path(config_path))
         return cls(
             result=resolve_result(value),
-            requested_config_path=(
-                None if requested_config_path is None else Path(requested_config_path)
-            ),
+            requested_config_path=None if config_path is None else Path(config_path),
         )
 
     @cached_property

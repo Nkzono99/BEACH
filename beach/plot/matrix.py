@@ -94,7 +94,6 @@ def plot_coulomb_force_matrix(
         target_mesh_ids=[int(spec.mesh_id) for spec in target_specs],
         component_idx=component_idx,
         step=step,
-        config_path=config_path,
         library_path=library_path,
         workers=workers,
     )

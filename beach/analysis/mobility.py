@@ -144,13 +144,12 @@ def analyze_coulomb_mobility(
         ]
         if source_mesh_ids:
             interaction = calc_coulomb(
-                resolved,
+                context,
                 target=spec.mesh_id,
                 source=source_mesh_ids,
                 step=step,
                 torque_origin="target_center",
                 periodic2=periodic2,
-                config_path=config_path,
                 library_path=library_path,
             )
             force = interaction.force_on_a_N

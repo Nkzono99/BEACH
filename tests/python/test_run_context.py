@@ -33,9 +33,11 @@ def _result(directory: Path) -> FortranRunResult:
 
 
 class _BeachLike:
+    """The Beach protocol: ``result`` plus the session's own ``context``."""
+
     def __init__(self, result: FortranRunResult, config_path: Path | None) -> None:
         self.result = result
-        self.config_path = config_path
+        self.context = RunContext(result=result, requested_config_path=config_path)
 
 
 def _write_config(path: Path, theta: float) -> None:
@@ -79,6 +81,7 @@ def test_run_context_config_precedence_and_lazy_cache(
     assert context.config == {"sim": {"tree_theta": 3.0}}
 
     inherited = RunContext.from_value(beach_like)
+    assert inherited is beach_like.context
     assert inherited.config_path == inherited_path
     assert inherited.sim == {"tree_theta": 2.0}
 

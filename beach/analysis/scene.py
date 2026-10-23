@@ -133,6 +133,7 @@ class BeachScene:
     mesh_ids: np.ndarray
     config_path: Path | None = None
     transform_backend: TransformBackend = "numpy"
+    library_path: Path | None = None
 
     def __post_init__(self) -> None:
         centers = np.asarray(self.centers_m, dtype=np.float64)
@@ -163,6 +164,8 @@ class BeachScene:
         object.__setattr__(self, "transform_backend", backend)
         if self.config_path is not None:
             object.__setattr__(self, "config_path", Path(self.config_path))
+        if self.library_path is not None:
+            object.__setattr__(self, "library_path", Path(self.library_path))
 
     @classmethod
     def from_result(
@@ -172,10 +175,15 @@ class BeachScene:
         step: int | None = -1,
         config_path: str | Path | None = None,
         transform_backend: TransformBackend = "numpy",
+        library_path: str | Path | None = None,
     ) -> "BeachScene":
-        """Create a scene from a BEACH output snapshot."""
+        """Create a scene from a BEACH output snapshot (saved values only, light).
 
-        context = RunContext.from_value(result)
+        ``config_path`` and ``library_path`` become the defaults of the scene's
+        kernel methods; a ``Beach`` result contributes its own config path.
+        """
+
+        context = RunContext.from_value(result, config_path=config_path)
         triangles = np.asarray(context.require_triangles(), dtype=np.float64)
         return cls(
             result=context.result,
@@ -184,8 +192,9 @@ class BeachScene:
             triangles_m=triangles,
             charges_C=context.charges_at(step),
             mesh_ids=context.mesh_ids_or_default(),
-            config_path=None if config_path is None else Path(config_path),
+            config_path=context.requested_config_path,
             transform_backend=transform_backend,
+            library_path=None if library_path is None else Path(library_path),
         )
 
     @property
@@ -306,7 +315,7 @@ class BeachScene:
             self.triangles_m,
             self.charges_C,
             options=options,
-            library_path=library_path,
+            library_path=self._resolve_library_path(library_path),
         )
 
     def calc_object_forces_kernel(
@@ -352,7 +361,7 @@ class BeachScene:
             self.triangles_m,
             self.charges_C,
             options=options,
-            library_path=library_path,
+            library_path=self._resolve_library_path(library_path),
         ) as kernel:
             for mesh_id in target_ids:
                 mask = self.mesh_ids == mesh_id
@@ -416,6 +425,11 @@ class BeachScene:
         if config_path is not None:
             return Path(config_path)
         return self.config_path
+
+    def _resolve_library_path(self, library_path: str | Path | None) -> Path | None:
+        if library_path is not None:
+            return Path(library_path)
+        return self.library_path
 
 
 def _mesh_id_tuple(mesh_ids: int | Iterable[int]) -> tuple[int, ...]:

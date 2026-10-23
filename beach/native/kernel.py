@@ -189,6 +189,24 @@ class FieldKernel:
             self.close()
             raise
 
+    @property
+    def options(self) -> FieldKernelOptions:
+        """Options of the currently built plan."""
+
+        return self._options
+
+    @property
+    def source_charges(self) -> np.ndarray:
+        """Copy of the current source charges, one per source triangle."""
+
+        return self._charges_keepalive.copy()
+
+    @property
+    def closed(self) -> bool:
+        """Whether :meth:`close` has released the native handle."""
+
+        return self._closed
+
     @staticmethod
     def is_available(library_path: str | Path | None = None) -> bool:
         """Return whether the shared kernel library can be loaded."""

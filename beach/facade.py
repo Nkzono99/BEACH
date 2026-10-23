@@ -22,6 +22,8 @@ from .analysis.potential import (
 from .analysis.scene import BeachScene, TransformBackend
 from .io.results import load_fortran_result
 from .io.types import FortranRunResult, MeshSelection
+from .native.kernel import FieldKernel
+from .native.periodic2 import coerce_periodic2
 from .plot._defaults import (
     DEFAULT_CHARGE_CMAP,
     DEFAULT_FIELD_LINE_CMAP,
@@ -42,15 +44,23 @@ if TYPE_CHECKING:
 
 
 class Beach:
-    """High-level facade for one Fortran output directory.
+    """Session over one Fortran output directory.
+
+    A ``Beach`` owns the loaded result, its :class:`RunContext` (the one place that
+    resolves ``beach.toml``), and the native field kernels built for it. Methods that
+    need a kernel reuse :meth:`kernel`, so one plan serves several figures. Close the
+    session, or use it as a context manager, to release those kernels.
 
     Parameters
     ----------
     output_dir : str or pathlib.Path, default "outputs/latest"
         Directory containing Fortran output files.
     config_path : str, pathlib.Path, or None, default None
-        Optional ``beach.toml`` path used by config-aware object/kernel analyses.
-        ``None`` keeps the existing auto-detection near ``output_dir``.
+        ``beach.toml`` used by config-aware analyses. ``None`` searches
+        ``output_dir``, its parent, and its grandparent.
+    library_path : str, pathlib.Path, or None, default None
+        Native field-kernel shared library. ``None`` uses ``BEACH_FIELD_KERNEL_LIB``
+        or the default search.
     """
 
     def __init__(
@@ -58,10 +68,30 @@ class Beach:
         output_dir: str | Path = "outputs/latest",
         *,
         config_path: str | Path | None = None,
+        library_path: str | Path | None = None,
     ) -> None:
         self.output_dir = Path(output_dir)
-        self.config_path = None if config_path is None else Path(config_path)
-        self._result: FortranRunResult | None = None
+        self.library_path = None if library_path is None else Path(library_path)
+        self._config_path = None if config_path is None else Path(config_path)
+        self._context: RunContext | None = None
+        self._kernels: dict[tuple[object, ...], FieldKernel] = {}
+
+    @property
+    def context(self) -> RunContext:
+        """Return the run context (loads the result on first access).
+
+        Returns
+        -------
+        RunContext
+            Loaded result and its lazily resolved ``beach.toml``.
+        """
+
+        if self._context is None:
+            self._context = RunContext(
+                result=load_fortran_result(self.output_dir),
+                requested_config_path=self._config_path,
+            )
+        return self._context
 
     @property
     def result(self) -> FortranRunResult:
@@ -73,12 +103,10 @@ class Beach:
             Parsed result for ``output_dir``.
         """
 
-        if self._result is None:
-            self._result = load_fortran_result(self.output_dir)
-        return self._result
+        return self.context.result
 
     def reload(self) -> FortranRunResult:
-        """Reload output files from disk.
+        """Close the cached kernels and reload output files from disk.
 
         Returns
         -------
@@ -86,13 +114,81 @@ class Beach:
             Refreshed parsed result.
         """
 
-        self._result = load_fortran_result(self.output_dir)
-        return self._result
+        self.close()
+        self._context = None
+        return self.result
 
-    def _resolve_config_path(self, config_path: str | Path | None) -> Path | None:
-        if config_path is not None:
-            return Path(config_path)
-        return self.config_path
+    def kernel(
+        self,
+        *,
+        step: int | None = -1,
+        periodic2: Mapping[str, object] | None = None,
+        theta: float | None = None,
+        leaf_max: int | None = None,
+        order: int | None = None,
+    ) -> FieldKernel:
+        """Return the session's native field kernel for one plan (heavy on first use).
+
+        The kernel is built with
+        :func:`beach.analysis.field_kernel.field_kernel_from_result` and cached by
+        its charges, ``periodic2``, ``theta``, ``leaf_max``, ``order``, and the
+        session's ``library_path``. ``step`` values whose charges equal the final
+        ``charges.csv`` share one kernel. The session owns the kernel: do not close
+        it, and restore its charges after :meth:`FieldKernel.update_charges`.
+        :meth:`close` and :meth:`reload` release every cached kernel.
+
+        Parameters
+        ----------
+        step : int or None, default -1
+            History step whose charges load the kernel. ``-1`` selects the latest
+            history snapshot, ``None`` the final charges.
+        periodic2 : mapping or None, default None
+            Two-axis periodic setting. ``None`` resolves it from the run.
+        theta, leaf_max, order : float, int, int, or None, default None
+            FMM plan overrides. ``None`` uses the run's receipt or config.
+
+        Returns
+        -------
+        FieldKernel
+            Open kernel owned by this session.
+        """
+
+        charges = self.context.charges_at(step)
+        key = (
+            None if np.array_equal(charges, self.result.charges) else step,
+            coerce_periodic2(periodic2, allow_cached_kneq0=True),
+            None if theta is None else float(theta),
+            None if leaf_max is None else int(leaf_max),
+            None if order is None else int(order),
+            self.library_path,
+        )
+        kernel = self._kernels.get(key)
+        if kernel is None or kernel.closed:
+            kernel = field_kernel_from_result(
+                self,
+                step=step,
+                periodic2=periodic2,
+                theta=theta,
+                leaf_max=leaf_max,
+                order=order,
+                library_path=self.library_path,
+            )
+            self._kernels[key] = kernel
+        return kernel
+
+    def close(self) -> None:
+        """Close every cached native kernel. The loaded result stays available."""
+
+        kernels = list(self._kernels.values())
+        self._kernels.clear()
+        for kernel in kernels:
+            kernel.close()
+
+    def __enter__(self) -> "Beach":
+        return self
+
+    def __exit__(self, *_exc_info: object) -> None:
+        self.close()
 
     @property
     def mesh_ids(self) -> tuple[int, ...]:
@@ -104,7 +200,7 @@ class Beach:
             Sorted unique mesh identifiers.
         """
 
-        ids = np.unique(RunContext.from_value(self.result).mesh_ids_or_default())
+        ids = np.unique(self.context.mesh_ids_or_default())
         return tuple(int(v) for v in ids)
 
     def get_mesh(self, *mesh_ids: int, step: int | None = -1):
@@ -205,7 +301,6 @@ class Beach:
             step=step,
             torque_origin=torque_origin,
             periodic2=periodic2,
-            config_path=self.config_path,
             library_path=library_path,
         )
 
@@ -227,9 +322,9 @@ class Beach:
         """Analyze per-object Coulomb mobility indicators."""
 
         return analyze_coulomb_mobility(
-            self.result,
+            self,
             step=step,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
             gravity=gravity,
             support_normal=support_normal,
@@ -239,30 +334,6 @@ class Beach:
             mu_static=mu_static,
             mu_roll=mu_roll,
             adhesion_force_N=adhesion_force_N,
-        )
-
-    def field_kernel(
-        self,
-        *,
-        step: int | None = -1,
-        periodic2: Mapping[str, object] | None = None,
-        theta: float | None = None,
-        leaf_max: int | None = None,
-        order: int | None = None,
-        config_path: str | Path | None = None,
-        library_path: str | Path | None = None,
-    ):
-        """Build a Python handle to the resolved native field kernel."""
-
-        return field_kernel_from_result(
-            self.result,
-            step=step,
-            periodic2=periodic2,
-            theta=theta,
-            leaf_max=leaf_max,
-            order=order,
-            config_path=self._resolve_config_path(config_path),
-            library_path=library_path,
         )
 
     def object_interaction_snapshot(
@@ -278,9 +349,9 @@ class Beach:
         """Build a frozen-source periodic object interaction snapshot."""
 
         return ObjectInteractionSnapshot.from_result(
-            self.result,
+            self,
             step=step,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             periodic_model=periodic_model,
             cache_dir=cache_dir,
             generation_tolerance=generation_tolerance,
@@ -302,14 +373,14 @@ class Beach:
         """Compute object-wise net force using the resolved native field kernel."""
 
         return calc_object_forces_kernel(
-            self.result,
+            self,
             step=step,
             target_mesh_ids=target_mesh_ids,
             periodic2=periodic2,
             theta=theta,
             leaf_max=leaf_max,
             order=order,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -323,9 +394,9 @@ class Beach:
         """Create an editable what-if scene for this output snapshot."""
 
         return BeachScene.from_result(
-            self.result,
+            self,
             step=step,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             transform_backend=transform_backend,
         )
 
@@ -391,7 +462,7 @@ class Beach:
             ``(figure, axes)`` from matplotlib.
         """
 
-        return plot_charges(self.result)
+        return plot_charges(self)
 
     def compute_potential(
         self,
@@ -422,7 +493,7 @@ class Beach:
             self,
             periodic2=periodic2,
             reference_point=reference_point,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -463,7 +534,7 @@ class Beach:
             chunk_size=chunk_size,
             periodic2=periodic2,
             reference_point=reference_point,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -524,7 +595,7 @@ class Beach:
             chunk_size=chunk_size,
             periodic2=periodic2,
             reference_point=reference_point,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -586,7 +657,7 @@ class Beach:
             periodic2_repeat=periodic2_repeat,
             reference_point=reference_point,
             axis_unit=axis_unit,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -663,7 +734,7 @@ class Beach:
             periodic2=periodic2,
             reference_point=reference_point,
             axis_unit=axis_unit,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -695,11 +766,11 @@ class Beach:
         """
 
         return plot_mesh_source_boxplot(
-            self.result,
+            self,
             quantity=quantity,
             step=step,
             showfliers=showfliers,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -743,11 +814,11 @@ class Beach:
         """
 
         return plot_coulomb_force_matrix(
-            self.result,
+            self,
             step=step,
             component=component,
             target_kinds=target_kinds,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
             cmap=cmap,
             annotate=annotate,
@@ -856,7 +927,7 @@ class Beach:
             points,
             chunk_size=chunk_size,
             periodic2=periodic2,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -905,7 +976,7 @@ class Beach:
             direction=direction,
             box_min=box_min,
             box_max=box_max,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
 
@@ -994,6 +1065,6 @@ class Beach:
             view_azim=view_azim,
             title=title,
             figsize=figsize,
-            config_path=self._resolve_config_path(config_path),
+            config_path=config_path,
             library_path=library_path,
         )
