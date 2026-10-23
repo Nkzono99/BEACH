@@ -178,16 +178,18 @@ check:
 
 build-kernel:
 	BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
-		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH)
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" \
+		FPM_CFLAGS="$(FPM_CFLAGS) -fPIC" FPM_CXXFLAGS="$(FPM_CXXFLAGS) -fPIC" $(BUILD_SH)
 	@set -eu; \
 	targets=$$(BEACH_VERSION_MODE=$(BUILD_VERSION_MODE) FPM=$(FPM) FPM_ACTION=build \
-		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" $(BUILD_SH) --list 2>&1) || \
+		FPM_PROFILE=$(PROFILE) FPM_FC="$(KERNEL_FC)" FPM_FFLAGS="$(KERNEL_FPM_FLAG)" \
+		FPM_CFLAGS="$(FPM_CFLAGS) -fPIC" FPM_CXXFLAGS="$(FPM_CXXFLAGS) -fPIC" $(BUILD_SH) --list 2>&1) || \
 		{ printf '%s\n' "$$targets" >&2; exit 1; }; \
 	lib=$$(printf '%s\n' "$$targets" | awk '$$NF ~ /\/beach_fortran\/libbeach_fortran[.]a$$/ {print $$NF}'); \
 	if [ ! -f "$$lib" ]; then echo "fpm did not identify one built BEACH archive for this configuration." >&2; exit 1; fi; \
 	mkdir -p "$$(dirname "$(KERNEL_LIB)")"; \
 	$(KERNEL_FC) -shared -o "$(KERNEL_LIB)" \
-		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG); \
+		-Wl,--whole-archive "$$lib" -Wl,--no-whole-archive $(OPENMP_FLAG) -lstdc++; \
 	echo "built $(KERNEL_LIB)"
 
 run:
