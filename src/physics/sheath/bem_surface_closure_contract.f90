@@ -53,7 +53,7 @@ contains
   !! 設定が fixed_current でも外部根の目標もなければ none。方式は contract のフラグから導くので、
   !! 方式とフラグが食い違うことはない。
   pure integer(i32) function species_closure_mode(contract, species_idx, configured_fixed_current) result(mode)
-    type(surface_closure_contract_type), intent(in) :: contract
+    class(surface_closure_contract_type), intent(in) :: contract
     integer(i32), intent(in) :: species_idx
     logical, intent(in) :: configured_fixed_current
 
