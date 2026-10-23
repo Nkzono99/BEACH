@@ -44,7 +44,7 @@ run.plot_potential()
 ## Workload Estimate
 
 ```bash
-beachx estimate-workload beach.toml --threads 8
+beachx workload beach.toml --threads 8
 ```
 
 For `inflow` and `photo_raycast`, `run.batch.duration_s` / `run.batch.duration_steps`, macro-particle count, mesh element count, and history output strongly affect compute cost and output size.

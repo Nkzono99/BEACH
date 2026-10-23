@@ -116,7 +116,7 @@ trial-local 配列を更新しただけで、統計、ledger、履歴、checkpoi
 | Fortran の結果出力 | `bem_output_writer.f90` | `_history` submodule は履歴の生成・追記、`_summary` はサマリ、`_files` はメッシュ・電荷・台帳 CSV |
 | チェックポイントの再開 | `bem_restart.f90` | `_contract` は再開条件の検証、`_records` は統計・電荷・台帳の読み込み、`_injection` は乱数・マクロ粒子端数の保存と復元 |
 | 設定から粒子を生成 | `bem_app_config_particle_runtime.f90` | 親 module は粒子源計画、`_batch` は MPI 配分とバッチ構築、`_sampling` は種別ごとのサンプリングと注入速度補正 |
-| Python の設定処理 | [`beach/config/core.py`](../../beach/config/core.py) | 共通の schema・正規化・意味的検証を呼ぶ。`_authoring.py` は空間指定、`_runtime_validation.py` は場・粒子・表面電流・mesh の検証を担当 |
+| Python の設定処理 | [`beach/config/core.py`](../../beach/config/core.py) | 読み込み・正規化・schema 検査の順序を持つ。`schema.py` は同梱 JSON Schema による key・型・範囲の検査、`_layout.py` は grouped / runtime layout の変換、`_authoring.py` は空間指定の展開を担当する。組合せと派生値の検査は Fortran の `beach --check-config`（`beachx lint`）が持つ |
 | Python の結果読み込み | [`beach/fortran_results/io.py`](../../beach/fortran_results/io.py) | 基本のメッシュ・電荷を読み、[`_matching_plane_io.py`](../../beach/fortran_results/_matching_plane_io.py) と [`_field_reconstruction_io.py`](../../beach/fortran_results/_field_reconstruction_io.py) に外部シース状態・場の再構築メタデータを委譲する |
 
 FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、電荷から計算する作業状態は
