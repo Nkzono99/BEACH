@@ -3,7 +3,14 @@ submodule(bem_simulator) bem_simulator_charge
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_charge_ledger, only: checked_accumulate_charge, finite_charge_sum
   use bem_runtime_modes, only: surface_charge_closure_id, surface_charge_closure_fixed_current, &
-                               surface_charge_closure_neutral_return
+                               surface_charge_closure_neutral_return, closure_mode_none, closure_mode_target, &
+                               closure_mode_tracked_source
+  use bem_surface_closure_contract, only: species_closure_mode
+  use bem_simulator_workspace, only: fixed_charge_absorbed, fixed_charge_emission, fixed_charge_escaped, &
+                                     fixed_charge_barrier_return, neutral_charge_emitted, neutral_charge_absorbed, &
+                                     neutral_charge_unresolved, neutral_charge_escaped, neutral_charge_soft, &
+                                     neutral_charge_invalid, neutral_count_escaped, neutral_count_soft, &
+                                     neutral_count_invalid
   implicit none
   real(dp), parameter :: neutral_return_max_unresolved_fraction = 0.05_dp
 contains
@@ -157,67 +164,58 @@ contains
     if (.not. neutral_return_species(species_idx)) cycle
     macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
     if (.not. ieee_is_finite(macro_charge) .or. macro_charge >= 0.0_dp .or. i > fresh_particle_count) then
-      workspace%neutral_return_charge_values(5*n + species_idx) = &
-        workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-        workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      call count_invalid_terminal()
       cycle
     end if
-    workspace%neutral_return_charge_values(species_idx) = &
-      workspace%neutral_return_charge_values(species_idx) + macro_charge
+    workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted) = &
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_emitted) + macro_charge
     terminal_count = merge(1_i32, 0_i32, workspace%absorbed_flag(i)) + &
                      merge(1_i32, 0_i32, workspace%escaped_boundary_flag(i)) + &
                      merge(1_i32, 0_i32, workspace%soft_discarded_boundary_flag(i)) + &
                      merge(1_i32, 0_i32, pcls_batch%alive(i))
     if (terminal_count /= 1_i32) then
-      workspace%neutral_return_charge_values(5*n + species_idx) = &
-        workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-        workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+      call count_invalid_terminal()
     else if (workspace%absorbed_flag(i)) then
       elem_idx = workspace%absorbed_element(i)
       if (elem_idx >= 1_i32 .and. elem_idx <= size(workspace%dq_thread, 1)) then
-        workspace%neutral_return_charge_values(n + species_idx) = &
-          workspace%neutral_return_charge_values(n + species_idx) + macro_charge
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed) = &
+          workspace%neutral_return_charge_values(species_idx, neutral_charge_absorbed) + macro_charge
       else
-        workspace%neutral_return_charge_values(5*n + species_idx) = &
-          workspace%neutral_return_charge_values(5*n + species_idx) + macro_charge
-        workspace%neutral_return_terminal_counts(2*n + species_idx) = &
-          workspace%neutral_return_terminal_counts(2*n + species_idx) + 1_i64
+        call count_invalid_terminal()
       end if
     else if (workspace%escaped_boundary_flag(i)) then
-      workspace%neutral_return_charge_values(3*n + species_idx) = &
-        workspace%neutral_return_charge_values(3*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(species_idx) = &
-        workspace%neutral_return_terminal_counts(species_idx) + 1_i64
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped) + macro_charge
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped) = &
+        workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped) + 1_i64
     else if (workspace%soft_discarded_boundary_flag(i)) then
-      workspace%neutral_return_charge_values(4*n + species_idx) = &
-        workspace%neutral_return_charge_values(4*n + species_idx) + macro_charge
-      workspace%neutral_return_terminal_counts(n + species_idx) = &
-        workspace%neutral_return_terminal_counts(n + species_idx) + 1_i64
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_soft) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_soft) + macro_charge
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft) = &
+        workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft) + 1_i64
     else
-      workspace%neutral_return_charge_values(2*n + species_idx) = &
-        workspace%neutral_return_charge_values(2*n + species_idx) + macro_charge
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved) = &
+        workspace%neutral_return_charge_values(species_idx, neutral_charge_unresolved) + macro_charge
     end if
   end do
 
-  call mpi_allreduce_sum_real_dp_array(mpi, workspace%neutral_return_charge_values)
-  call mpi_allreduce_sum_i64_array(mpi, workspace%neutral_return_terminal_counts)
-  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(1:n)
-  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(n + 1:2*n)
-  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(2*n + 1:3*n)
+  call allreduce_sum_real_matrix(mpi, workspace%neutral_return_charge_values)
+  call allreduce_sum_i64_matrix(mpi, workspace%neutral_return_terminal_counts)
+  workspace%neutral_return_emitted_charge = workspace%neutral_return_charge_values(:, neutral_charge_emitted)
+  workspace%neutral_return_absorbed_charge = workspace%neutral_return_charge_values(:, neutral_charge_absorbed)
+  workspace%neutral_return_unresolved_charge = workspace%neutral_return_charge_values(:, neutral_charge_unresolved)
 
   do species_idx = 1_i32, n
     if (.not. neutral_return_species(species_idx)) cycle
     emitted_charge = workspace%neutral_return_emitted_charge(species_idx)
     absorbed_charge = workspace%neutral_return_absorbed_charge(species_idx)
     unresolved_charge = workspace%neutral_return_unresolved_charge(species_idx)
-    escaped_charge = workspace%neutral_return_charge_values(3*n + species_idx)
-    soft_charge = workspace%neutral_return_charge_values(4*n + species_idx)
-    invalid_charge = workspace%neutral_return_charge_values(5*n + species_idx)
-    escaped_count = workspace%neutral_return_terminal_counts(species_idx)
-    soft_count = workspace%neutral_return_terminal_counts(n + species_idx)
-    invalid_count = workspace%neutral_return_terminal_counts(2*n + species_idx)
+    escaped_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_escaped)
+    soft_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_soft)
+    invalid_charge = workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid)
+    escaped_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_escaped)
+    soft_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_soft)
+    invalid_count = workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid)
     if (escaped_count > 0_i64 .or. soft_count > 0_i64 .or. invalid_count > 0_i64) then
       write (error_unit, '(a,i0,3(a,i0),3(a,es13.5))') &
         'neutral_return has unsupported terminal outcome for species ', species_idx, &
@@ -252,13 +250,20 @@ contains
     workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
                                        (workspace%neutral_return_weight_scale(species_idx) - 1.0_dp)*macro_charge
   end do
+contains
+
+  !> 終端が一意でない、または電荷・吸収要素が不正な粒子を invalid として数える。
+  subroutine count_invalid_terminal()
+    workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid) = &
+      workspace%neutral_return_charge_values(species_idx, neutral_charge_invalid) + macro_charge
+    workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid) = &
+      workspace%neutral_return_terminal_counts(species_idx, neutral_count_invalid) + 1_i64
+  end subroutine count_invalid_terminal
   end procedure apply_neutral_return_surface_closure
 
   module procedure apply_fixed_surface_current_closure
-  integer(i32) :: i, species_idx, elem_idx, n, partner_idx, reflected_idx
-  real(dp) :: macro_charge, raw_charge, target_current, target_charge, weight_scale, correction
-  real(dp) :: charge_tolerance, partner_charge, partner_escape_charge, total_escape_charge
-  real(dp) :: folded_return_charge, reflected_escape, reflected_return, charge_sign
+  integer(i32) :: species_idx, n, mode
+  real(dp) :: partner_charge, reflected_escape, reflected_return, folded_return_charge, charge_sign
   logical :: tracked_source
   logical :: fixed_current_species(app%n_particle_species)
 
@@ -268,48 +273,74 @@ contains
       surface_charge_closure_id(app%particle_species(species_idx)%surface_charge_closure) == &
       surface_charge_closure_fixed_current
   end do
-  workspace%fixed_current_charge_values = 0.0_dp
   workspace%fixed_escape_closed_charge = 0.0_dp
   workspace%fixed_escape_unclosed_charge = 0.0_dp
-  do i = 1_i32, fresh_particle_count
-    species_idx = pcls_batch%species_id(i)
-    macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
-    if (workspace%absorbed_flag(i)) then
-      workspace%fixed_current_charge_values(species_idx) = &
-        workspace%fixed_current_charge_values(species_idx) + macro_charge
-    else if (workspace%escaped_boundary_flag(i)) then
-      workspace%fixed_current_charge_values(2*n + species_idx) = &
-        workspace%fixed_current_charge_values(2*n + species_idx) + macro_charge
-    end if
-  end do
-  do species_idx = 1_i32, n
-    workspace%fixed_current_charge_values(n + species_idx) = sum(workspace%photo_emission_dq(:, species_idx))
-    ! 外部障壁で戻った粒子の電荷。H を外向きに通過したが上流へ抜けられず、セルへ戻された分。
-    workspace%fixed_current_charge_values(3*n + species_idx) = app%particle_species(species_idx)%q_particle* &
-                                                               sum(workspace%matching_plane_moments_thread(3, species_idx, :))
-  end do
-  call mpi_allreduce_sum_real_dp_array(mpi, workspace%fixed_current_charge_values)
+  call tally_raw_charge()
 
   do species_idx = 1_i32, n
-    if (.not. fixed_current_species_active(fixed_current_species(species_idx), current_model, species_idx)) cycle
-    ! 外部根の脱出束が partner species（追跡する SEE）や反射して H を抜けた上流電子と合算の値なら、それらが追跡で
-    ! 脱出した電荷（帯電符号の大きさ）を根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。
-    ! 超過は収支残差として残す。
+    mode = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
+    if (mode == closure_mode_none) cycle
+    tracked_source = mode == closure_mode_tracked_source
     charge_sign = sign(1.0_dp, app%particle_species(species_idx)%q_particle)
     partner_charge = 0.0_dp
+    reflected_escape = 0.0_dp
+    reflected_return = 0.0_dp
+    if (mode /= closure_mode_target) call attribute_tracked_escape()
+    folded_return_charge = 0.0_dp
+    if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
+        current_model%has_absorbed_target(species_idx)) call close_absorbed_channel()
+    if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
+        current_model%has_emission_target(species_idx)) call close_emission_channel()
+    if (current_model%has_escape_target(species_idx)) call close_escape_channel()
+  end do
+contains
+
+  !> 種ごとの raw 電荷（吸収・放出反作用・脱出・外部障壁で戻った電荷）を数え、rank 合計する。
+  subroutine tally_raw_charge()
+    integer(i32) :: i, s
+    real(dp) :: macro_charge
+
+    workspace%fixed_current_charge_values = 0.0_dp
+    do i = 1_i32, fresh_particle_count
+      s = pcls_batch%species_id(i)
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      if (workspace%absorbed_flag(i)) then
+        workspace%fixed_current_charge_values(s, fixed_charge_absorbed) = &
+          workspace%fixed_current_charge_values(s, fixed_charge_absorbed) + macro_charge
+      else if (workspace%escaped_boundary_flag(i)) then
+        workspace%fixed_current_charge_values(s, fixed_charge_escaped) = &
+          workspace%fixed_current_charge_values(s, fixed_charge_escaped) + macro_charge
+      end if
+    end do
+    do s = 1_i32, n
+      workspace%fixed_current_charge_values(s, fixed_charge_emission) = sum(workspace%photo_emission_dq(:, s))
+      ! 外部障壁で戻った粒子の電荷。H を外向きに通過したが上流へ抜けられず、セルへ戻された分。
+      workspace%fixed_current_charge_values(s, fixed_charge_barrier_return) = &
+        app%particle_species(s)%q_particle*sum(workspace%matching_plane_moments_thread(3, s, :))
+    end do
+    call allreduce_sum_real_matrix(mpi, workspace%fixed_current_charge_values)
+  end subroutine tally_raw_charge
+
+  !> 外部根の脱出束が partner species（追跡する SEE）や反射して H を抜けた上流電子と合算の値なら、それらが追跡で
+  !! 脱出した電荷（帯電符号の大きさ）を根の脱出束まで差し引き、この species の脱出目標と帰還目標をその分だけ縮める。
+  !! 超過は収支残差として残す。
+  subroutine attribute_tracked_escape()
+    integer(i32) :: partner_idx, reflected_idx
+    real(dp) :: partner_escape_charge, total_escape_charge
+
     partner_escape_charge = 0.0_dp
     partner_idx = 0_i32
     reflected_idx = 0_i32
-    reflected_escape = 0.0_dp
-    reflected_return = 0.0_dp
     if (allocated(current_model%escape_partner_species)) partner_idx = current_model%escape_partner_species(species_idx)
     if (allocated(current_model%reflected_electron_species)) then
       reflected_idx = current_model%reflected_electron_species(species_idx)
     end if
-    if (partner_idx > 0_i32) partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + partner_idx))
+    if (partner_idx > 0_i32) then
+      partner_escape_charge = max(0.0_dp, -workspace%fixed_current_charge_values(partner_idx, fixed_charge_escaped))
+    end if
     if (reflected_idx > 0_i32) then
-      reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(2*n + reflected_idx))
-      reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(3*n + reflected_idx))
+      reflected_escape = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_escaped))
+      reflected_return = max(0.0_dp, -workspace%fixed_current_charge_values(reflected_idx, fixed_charge_barrier_return))
     end if
     if ((partner_idx > 0_i32 .or. reflected_idx > 0_i32) .and. current_model%has_escape_target(species_idx)) then
       total_escape_charge = max(0.0_dp, -checked_fixed_target_charge( &
@@ -319,150 +350,175 @@ contains
       workspace%fixed_escape_closed_charge(species_idx) = partner_charge
       workspace%fixed_escape_unclosed_charge(species_idx) = partner_escape_charge + reflected_escape - partner_charge
     end if
-    ! 放出目標が追跡した源の種（PE なしの SEE）は raw channel が空でも止めない。帰還目標は放出へ畳み、
-    ! 放出がなければ根の脱出分を未閉として記録する。
-    tracked_source = .false.
-    if (allocated(current_model%emission_target_from_tracked_source)) then
-      tracked_source = current_model%emission_target_from_tracked_source(species_idx)
-    end if
-    folded_return_charge = 0.0_dp
-    if (app%particle_species(species_idx)%has_target_absorbed_current_a .or. &
-        current_model%has_absorbed_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(species_idx)
-      if (current_model%has_absorbed_target(species_idx)) then
-        target_current = current_model%absorbed_current_a(species_idx)
-      else
-        target_current = app%particle_species(species_idx)%target_absorbed_current_a
-      end if
-      if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
-        error stop 'fixed_current absorbed raw/current/duration value is not finite.'
-      end if
-      target_charge = checked_fixed_target_charge(target_current, app%sim%batch_duration, 'fixed_current absorbed')
-      if (tracked_source) then
-        ! 追跡した源の種では、外部障壁で戻った反射電子は電子の raw 吸収に含まれるので、帰還目標から外す。
-        target_charge = target_charge + reflected_return
-      else
-        target_charge = target_charge - partner_charge
-      end if
-      if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
-        if (current_model%absorbed_target_credits_tracked_escape(species_idx)) then
-          ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
-          target_charge = target_charge - workspace%fixed_current_charge_values(2*n + species_idx)
-        end if
-      end if
-      ! 差し引きで目標の符号が粒子電荷と逆になれば、吸収なしまで縮める。
-      if (target_charge*charge_sign < 0.0_dp) target_charge = 0.0_dp
-      charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
-      if (abs(raw_charge) <= charge_tolerance) then
-        if (abs(target_charge) > charge_tolerance) then
-          if (.not. tracked_source) then
-            error stop 'fixed_current cannot map a nonzero absorbed target onto an empty raw channel.'
-          end if
-          ! 生の帰還がないバッチでは帰還目標を放出の反作用電荷へ畳む（放出 − 帰還 = 脱出は変わらない）。
-          folded_return_charge = target_charge
-          target_charge = 0.0_dp
-        end if
-        weight_scale = 1.0_dp
-        correction = 0.0_dp
-      else
-        weight_scale = target_charge/raw_charge
-        correction = target_charge - raw_charge
-      end if
-      if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
-        error stop 'fixed_current absorbed scale is invalid.'
-      end if
-      workspace%fixed_absorbed_target_charge(species_idx) = target_charge
-      workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
-      workspace%fixed_channel_active(1, species_idx) = .true.
-      workspace%fixed_current_correction(species_idx) = &
-        workspace%fixed_current_correction(species_idx) + correction
-      do i = 1_i32, fresh_particle_count
-        if (pcls_batch%species_id(i) /= species_idx .or. .not. workspace%absorbed_flag(i)) cycle
-        elem_idx = workspace%absorbed_element(i)
-        macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
-        workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
-                                           (weight_scale - 1.0_dp)*macro_charge
-      end do
-    end if
+  end subroutine attribute_tracked_escape
 
-    if (app%particle_species(species_idx)%has_target_emission_current_a .or. &
-        current_model%has_emission_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(n + species_idx)
-      if (current_model%has_emission_target(species_idx)) then
-        target_current = current_model%emission_current_a(species_idx)
-      else
-        target_current = app%particle_species(species_idx)%target_emission_current_a
-      end if
-      if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
-        error stop 'fixed_current emission raw/current/duration value is not finite.'
-      end if
-      target_charge = checked_fixed_target_charge( &
-                      target_current, app%sim%batch_duration, 'fixed_current emission' &
-                      ) + folded_return_charge
-      if (tracked_source) then
-        ! 根の外側源には反射電子の外向き束も入っているので、追跡した反射電子の脱出と帰還を放出目標から外す。
-        ! 放出の反作用電荷は粒子電荷と逆符号。差し引きで符号が入れ替われば、放出なしまで縮める。
-        target_charge = target_charge - (reflected_escape + reflected_return)
-        if (target_charge*charge_sign > 0.0_dp) then
-          workspace%fixed_escape_unclosed_charge(species_idx) = &
-            workspace%fixed_escape_unclosed_charge(species_idx) + abs(target_charge)
-          target_charge = 0.0_dp
-        end if
-      end if
-      charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
-      if (abs(raw_charge) <= charge_tolerance) then
-        if (abs(target_charge) > charge_tolerance) then
-          if (.not. tracked_source) then
-            error stop 'fixed_current cannot map a nonzero emission target onto an empty raw channel.'
-          end if
-          ! 放出がないバッチには目標を載せられない。根の脱出分が収支に残るので未閉として記録する。
-          workspace%fixed_escape_unclosed_charge(species_idx) = abs(target_charge)
-          target_charge = 0.0_dp
-        end if
-        weight_scale = 1.0_dp
-        correction = 0.0_dp
-      else
-        weight_scale = target_charge/raw_charge
-        correction = target_charge - raw_charge
-      end if
-      if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
-        error stop 'fixed_current emission scale is invalid.'
-      end if
-      workspace%fixed_emission_target_charge(species_idx) = target_charge
-      workspace%fixed_emission_weight_scale(species_idx) = weight_scale
-      workspace%fixed_channel_active(2, species_idx) = .true.
-      workspace%fixed_current_correction(species_idx) = &
-        workspace%fixed_current_correction(species_idx) + correction
-      workspace%photo_emission_dq(:, species_idx) = &
-        weight_scale*workspace%photo_emission_dq(:, species_idx)
-    end if
+  !> 吸収（帰還）channel の重みを目標へ合わせる。追跡した源の種（tracked_source）は raw channel が空でも止めず、
+  !! 帰還目標を放出の反作用電荷へ畳む（folded_return_charge）。
+  subroutine close_absorbed_channel()
+    integer(i32) :: i, elem_idx
+    real(dp) :: raw_charge, target_current, target_charge, weight_scale, correction, charge_tolerance, macro_charge
 
-    if (current_model%has_escape_target(species_idx)) then
-      raw_charge = workspace%fixed_current_charge_values(2*n + species_idx)
-      target_current = current_model%escaped_particle_current_a(species_idx)
-      if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
-        error stop 'fixed_current escape raw/current/duration value is not finite.'
-      end if
-      target_charge = checked_fixed_target_charge( &
-                      target_current, app%sim%batch_duration, 'fixed_current escape' &
-                      ) + partner_charge
-      if (target_charge /= 0.0_dp .and. &
-          sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
-        error stop 'fixed_current escape target sign must match the escaped particle charge.'
-      end if
-      workspace%fixed_escape_target_charge(species_idx) = target_charge
-      workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
-      workspace%fixed_channel_active(3, species_idx) = .true.
-      if (tracked_source) then
-        workspace%fixed_escape_closed_charge(species_idx) = &
-          max(0.0_dp, abs(target_charge) - workspace%fixed_escape_unclosed_charge(species_idx))
-      end if
-      if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
-        error stop 'fixed_current escape correction is not finite.'
+    raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed)
+    if (current_model%has_absorbed_target(species_idx)) then
+      target_current = current_model%absorbed_current_a(species_idx)
+    else
+      target_current = app%particle_species(species_idx)%target_absorbed_current_a
+    end if
+    if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+      error stop 'fixed_current absorbed raw/current/duration value is not finite.'
+    end if
+    target_charge = checked_fixed_target_charge(target_current, app%sim%batch_duration, 'fixed_current absorbed')
+    if (tracked_source) then
+      ! 追跡した源の種では、外部障壁で戻った反射電子は電子の raw 吸収に含まれるので、帰還目標から外す。
+      target_charge = target_charge + reflected_return
+    else
+      target_charge = target_charge - partner_charge
+    end if
+    if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
+      if (current_model%absorbed_target_credits_tracked_escape(species_idx)) then
+        ! 外部障壁を越えて脱出した反射電子は壁に届かないので、根の流入から差し引く（吸収目標は帯電符号で小さくなる）。
+        target_charge = target_charge - workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
       end if
     end if
-  end do
+    ! 差し引きで目標の符号が粒子電荷と逆になれば、吸収なしまで縮める。
+    if (target_charge*charge_sign < 0.0_dp) target_charge = 0.0_dp
+    charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
+    if (abs(raw_charge) <= charge_tolerance) then
+      if (abs(target_charge) > charge_tolerance) then
+        if (.not. tracked_source) then
+          error stop 'fixed_current cannot map a nonzero absorbed target onto an empty raw channel.'
+        end if
+        ! 生の帰還がないバッチでは帰還目標を放出の反作用電荷へ畳む（放出 − 帰還 = 脱出は変わらない）。
+        folded_return_charge = target_charge
+        target_charge = 0.0_dp
+      end if
+      weight_scale = 1.0_dp
+      correction = 0.0_dp
+    else
+      weight_scale = target_charge/raw_charge
+      correction = target_charge - raw_charge
+    end if
+    if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
+      error stop 'fixed_current absorbed scale is invalid.'
+    end if
+    workspace%fixed_absorbed_target_charge(species_idx) = target_charge
+    workspace%fixed_absorbed_weight_scale(species_idx) = weight_scale
+    workspace%fixed_channel_active(1, species_idx) = .true.
+    workspace%fixed_current_correction(species_idx) = &
+      workspace%fixed_current_correction(species_idx) + correction
+    do i = 1_i32, fresh_particle_count
+      if (pcls_batch%species_id(i) /= species_idx .or. .not. workspace%absorbed_flag(i)) cycle
+      elem_idx = workspace%absorbed_element(i)
+      macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
+      workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
+                                         (weight_scale - 1.0_dp)*macro_charge
+    end do
+  end subroutine close_absorbed_channel
+
+  !> 放出 channel の反作用電荷を目標へ合わせる。追跡した源の種は、放出がないバッチでは目標を載せず未閉として記録する。
+  subroutine close_emission_channel()
+    real(dp) :: raw_charge, target_current, target_charge, weight_scale, correction, charge_tolerance
+
+    raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_emission)
+    if (current_model%has_emission_target(species_idx)) then
+      target_current = current_model%emission_current_a(species_idx)
+    else
+      target_current = app%particle_species(species_idx)%target_emission_current_a
+    end if
+    if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+      error stop 'fixed_current emission raw/current/duration value is not finite.'
+    end if
+    target_charge = checked_fixed_target_charge( &
+                    target_current, app%sim%batch_duration, 'fixed_current emission' &
+                    ) + folded_return_charge
+    if (tracked_source) then
+      ! 根の外側源には反射電子の外向き束も入っているので、追跡した反射電子の脱出と帰還を放出目標から外す。
+      ! 放出の反作用電荷は粒子電荷と逆符号。差し引きで符号が入れ替われば、放出なしまで縮める。
+      target_charge = target_charge - (reflected_escape + reflected_return)
+      if (target_charge*charge_sign > 0.0_dp) then
+        workspace%fixed_escape_unclosed_charge(species_idx) = &
+          workspace%fixed_escape_unclosed_charge(species_idx) + abs(target_charge)
+        target_charge = 0.0_dp
+      end if
+    end if
+    charge_tolerance = 4096.0_dp*epsilon(1.0_dp)*max(abs(raw_charge), abs(target_charge), tiny(1.0_dp))
+    if (abs(raw_charge) <= charge_tolerance) then
+      if (abs(target_charge) > charge_tolerance) then
+        if (.not. tracked_source) then
+          error stop 'fixed_current cannot map a nonzero emission target onto an empty raw channel.'
+        end if
+        ! 放出がないバッチには目標を載せられない。根の脱出分が収支に残るので未閉として記録する。
+        workspace%fixed_escape_unclosed_charge(species_idx) = abs(target_charge)
+        target_charge = 0.0_dp
+      end if
+      weight_scale = 1.0_dp
+      correction = 0.0_dp
+    else
+      weight_scale = target_charge/raw_charge
+      correction = target_charge - raw_charge
+    end if
+    if (.not. ieee_is_finite(weight_scale) .or. weight_scale < 0.0_dp) then
+      error stop 'fixed_current emission scale is invalid.'
+    end if
+    workspace%fixed_emission_target_charge(species_idx) = target_charge
+    workspace%fixed_emission_weight_scale(species_idx) = weight_scale
+    workspace%fixed_channel_active(2, species_idx) = .true.
+    workspace%fixed_current_correction(species_idx) = &
+      workspace%fixed_current_correction(species_idx) + correction
+    workspace%photo_emission_dq(:, species_idx) = &
+      weight_scale*workspace%photo_emission_dq(:, species_idx)
+  end subroutine close_emission_channel
+
+  !> 脱出 channel の目標（partner・反射電子に充てた分を除いた根の脱出）と raw との差を補正として記録する。
+  subroutine close_escape_channel()
+    real(dp) :: raw_charge, target_current, target_charge
+
+    raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_escaped)
+    target_current = current_model%escaped_particle_current_a(species_idx)
+    if (.not. all(ieee_is_finite([raw_charge, target_current, app%sim%batch_duration]))) then
+      error stop 'fixed_current escape raw/current/duration value is not finite.'
+    end if
+    target_charge = checked_fixed_target_charge( &
+                    target_current, app%sim%batch_duration, 'fixed_current escape' &
+                    ) + partner_charge
+    if (target_charge /= 0.0_dp .and. &
+        sign(1.0_dp, target_charge) /= sign(1.0_dp, app%particle_species(species_idx)%q_particle)) then
+      error stop 'fixed_current escape target sign must match the escaped particle charge.'
+    end if
+    workspace%fixed_escape_target_charge(species_idx) = target_charge
+    workspace%fixed_escape_correction(species_idx) = target_charge - raw_charge
+    workspace%fixed_channel_active(3, species_idx) = .true.
+    if (tracked_source) then
+      workspace%fixed_escape_closed_charge(species_idx) = &
+        max(0.0_dp, abs(target_charge) - workspace%fixed_escape_unclosed_charge(species_idx))
+    end if
+    if (.not. ieee_is_finite(workspace%fixed_escape_correction(species_idx))) then
+      error stop 'fixed_current escape correction is not finite.'
+    end if
+  end subroutine close_escape_channel
   end procedure apply_fixed_surface_current_closure
+
+  !> species × channel の 2 次元配列を rank 合計する。列優先の並びは旧 1 次元配列と同じなので MPI の buffer も同じ。
+  subroutine allreduce_sum_real_matrix(mpi, values)
+    type(mpi_context), intent(in) :: mpi
+    real(dp), intent(inout) :: values(:, :)
+    real(dp) :: flat(size(values))
+
+    flat = reshape(values, [size(values)])
+    call mpi_allreduce_sum_real_dp_array(mpi, flat)
+    values = reshape(flat, shape(values))
+  end subroutine allreduce_sum_real_matrix
+
+  !> 64bit 整数の species × kind 配列を rank 合計する。
+  subroutine allreduce_sum_i64_matrix(mpi, values)
+    type(mpi_context), intent(in) :: mpi
+    integer(i64), intent(inout) :: values(:, :)
+    integer(i64) :: flat(size(values))
+
+    flat = reshape(values, [size(values)])
+    call mpi_allreduce_sum_i64_array(mpi, flat)
+    values = reshape(flat, shape(values))
+  end subroutine allreduce_sum_i64_matrix
 
   !> finiteな電流とdurationの積を、丸め境界を含めて有限かつ非zero underflowなしに変換する。
   real(dp) function checked_fixed_target_charge(target_current, duration, context) result(target_charge)
@@ -480,18 +536,6 @@ contains
       error stop trim(context)//' target charge underflowed for this batch duration.'
     end if
   end function checked_fixed_target_charge
-
-  !> 設定の closure が fixed_current か、外部シースの contract がこの種に目標電流を持つなら固定電流 closure を当てる。
-  logical function fixed_current_species_active(configured_fixed_current, current_model, species_idx) result(active)
-    logical, intent(in) :: configured_fixed_current
-    type(surface_closure_contract_type), intent(in) :: current_model
-    integer(i32), intent(in) :: species_idx
-
-    active = configured_fixed_current .or. &
-             current_model%has_absorbed_target(species_idx) .or. &
-             current_model%has_emission_target(species_idx) .or. &
-             current_model%has_escape_target(species_idx)
-  end function fixed_current_species_active
 
   module procedure record_batch_initial_charge
   integer(i32) :: i, species_idx

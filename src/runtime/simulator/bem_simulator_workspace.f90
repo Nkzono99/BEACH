@@ -7,6 +7,26 @@ module bem_simulator_workspace
 
   public :: simulator_batch_workspace_type
 
+  !> fixed_current_charge_values(species, channel) の channel。旧 1 次元配列の (channel-1)*n+species と同じ並び。
+  integer(i32), parameter, public :: fixed_charge_absorbed = 1_i32
+  integer(i32), parameter, public :: fixed_charge_emission = 2_i32
+  integer(i32), parameter, public :: fixed_charge_escaped = 3_i32
+  integer(i32), parameter, public :: fixed_charge_barrier_return = 4_i32
+  integer(i32), parameter :: fixed_charge_channels = 4_i32
+  !> neutral_return_charge_values(species, channel) の channel。
+  integer(i32), parameter, public :: neutral_charge_emitted = 1_i32
+  integer(i32), parameter, public :: neutral_charge_absorbed = 2_i32
+  integer(i32), parameter, public :: neutral_charge_unresolved = 3_i32
+  integer(i32), parameter, public :: neutral_charge_escaped = 4_i32
+  integer(i32), parameter, public :: neutral_charge_soft = 5_i32
+  integer(i32), parameter, public :: neutral_charge_invalid = 6_i32
+  integer(i32), parameter :: neutral_charge_channels = 6_i32
+  !> neutral_return_terminal_counts(species, kind) の kind。
+  integer(i32), parameter, public :: neutral_count_escaped = 1_i32
+  integer(i32), parameter, public :: neutral_count_soft = 2_i32
+  integer(i32), parameter, public :: neutral_count_invalid = 3_i32
+  integer(i32), parameter :: neutral_count_kinds = 3_i32
+
   type :: simulator_batch_workspace_type
     real(dp), allocatable :: dq_thread(:, :)
     real(dp), allocatable :: dq(:)
@@ -20,16 +40,17 @@ module bem_simulator_workspace
     real(dp), allocatable :: q_before(:)
     real(dp), allocatable :: candidate_charge(:)
     logical :: charge_candidate_ready = .false.
-    real(dp), allocatable :: neutral_return_charge_values(:)
+    !> neutral_return が rank 合計する電荷（species, neutral_charge_*）。
+    real(dp), allocatable :: neutral_return_charge_values(:, :)
     real(dp), allocatable :: neutral_return_emitted_charge(:)
     real(dp), allocatable :: neutral_return_absorbed_charge(:)
     real(dp), allocatable :: neutral_return_unresolved_charge(:)
     real(dp), allocatable :: neutral_return_weight_scale(:)
     real(dp), allocatable :: neutral_return_correction(:)
     real(dp), allocatable :: neutral_return_unresolved_fraction(:)
-    !> 固定電流 closure が rank 合計する raw 電荷。1:n 吸収、n+1:2n 放出反作用、2n+1:3n 脱出、
-    !! 3n+1:4n 外部障壁で戻った電荷（H 外向き通過のうち戻った分、帯電符号）。
-    real(dp), allocatable :: fixed_current_charge_values(:)
+    !> 固定電流 closure が rank 合計する raw 電荷（species, fixed_charge_*）。吸収、放出反作用、脱出、
+    !! 外部障壁で戻った電荷（H 外向き通過のうち戻った分、帯電符号）。
+    real(dp), allocatable :: fixed_current_charge_values(:, :)
     real(dp), allocatable :: fixed_absorbed_target_charge(:)
     real(dp), allocatable :: fixed_absorbed_weight_scale(:)
     real(dp), allocatable :: fixed_emission_target_charge(:)
@@ -44,7 +65,8 @@ module bem_simulator_workspace
     real(dp), allocatable :: fixed_escape_unclosed_charge(:)
     !> この batch で固定電流 target を適用した channel。1=吸収、2=放出、3=脱出。
     logical, allocatable :: fixed_channel_active(:, :)
-    integer(i64), allocatable :: neutral_return_terminal_counts(:)
+    !> neutral_return の非対応な終端の数（species, neutral_count_*）。
+    integer(i64), allocatable :: neutral_return_terminal_counts(:, :)
     real(dp), allocatable :: ledger_charge_values(:)
     integer(i64), allocatable :: ledger_count_values(:)
     ! (outward number, outward normal energy [J], barrier return number, barrier escape number,
@@ -82,14 +104,14 @@ contains
     else
       allocate (self%candidate_charge(0))
     end if
-    allocate (self%neutral_return_charge_values(6_i32*nspecies))
-    allocate (self%neutral_return_terminal_counts(3_i32*nspecies))
+    allocate (self%neutral_return_charge_values(nspecies, neutral_charge_channels))
+    allocate (self%neutral_return_terminal_counts(nspecies, neutral_count_kinds))
     allocate ( &
       self%neutral_return_emitted_charge(nspecies), self%neutral_return_absorbed_charge(nspecies), &
       self%neutral_return_unresolved_charge(nspecies), self%neutral_return_weight_scale(nspecies), &
       self%neutral_return_correction(nspecies), self%neutral_return_unresolved_fraction(nspecies) &
       )
-    allocate (self%fixed_current_charge_values(4_i32*nspecies))
+    allocate (self%fixed_current_charge_values(nspecies, fixed_charge_channels))
     allocate ( &
       self%fixed_absorbed_target_charge(nspecies), self%fixed_absorbed_weight_scale(nspecies), &
       self%fixed_emission_target_charge(nspecies), self%fixed_emission_weight_scale(nspecies), &

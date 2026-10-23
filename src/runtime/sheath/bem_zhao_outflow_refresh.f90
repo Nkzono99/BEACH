@@ -16,7 +16,8 @@ module bem_zhao_outflow_refresh
   use bem_app_config, only: app_config
   use bem_string_utils, only: lower_ascii
   use bem_charge_ledger, only: finite_charge_sum
-  use bem_surface_closure_contract, only: surface_closure_contract_type
+  use bem_surface_closure_contract, only: surface_closure_contract_type, species_closure_mode
+  use bem_runtime_modes, only: closure_mode_escape_partner
   use bem_surface_current_model, only: surface_current_model_result_type, evaluate_surface_current_model, &
                                        solve_zhao_outflow_closure, refresh_zhao_outflow_closure
   use sheath_model, only: sheath_matching_iteration
@@ -135,7 +136,7 @@ contains
 
   !> accepted batch の H 通過モーメントを窓へ加え、窓が満ちたら外部根を解き直して次 batch の closure を返す。
   subroutine commit_batch( &
-    self, app, mesh, mpi_ctx, moments_thread, fixed_current_charge_values, fixed_escape_closed_charge, &
+    self, app, mesh, mpi_ctx, moments_thread, emission_reaction_charge, fixed_escape_closed_charge, &
     fixed_escape_unclosed_charge, batch_idx, stats_candidate, surface_closure, refreshed &
     )
     class(zhao_outflow_refresh_type), intent(inout) :: self
@@ -143,8 +144,8 @@ contains
     type(mesh_type), intent(in) :: mesh
     type(mpi_context), intent(in) :: mpi_ctx
     real(dp), intent(in) :: moments_thread(:, :, :)
-    !> 固定電流closureがrank合計したraw電荷。n+species番目が表面放出。
-    real(dp), intent(in) :: fixed_current_charge_values(:)
+    !> 固定電流closureがrank合計した種ごとの表面放出の反作用電荷（raw）。
+    real(dp), intent(in) :: emission_reaction_charge(:)
     !> 固定電流closureが脱出目標の調整で収支に組み込んだ電荷と、組み込めなかった電荷（帯電符号の大きさ、0 以上）。
     real(dp), intent(in) :: fixed_escape_closed_charge(:), fixed_escape_unclosed_charge(:)
     integer(i32), intent(in) :: batch_idx
@@ -182,7 +183,7 @@ contains
     batch_values = reshape(packed_values, shape(batch_values))
     batch_moments(1:2, :) = batch_values(1:2, :)
     if (self%photo_idx > 0) then
-      batch_moments(3, 1) = fixed_current_charge_values(app%n_particle_species + self%photo_idx)/self%photo_abs_charge
+      batch_moments(3, 1) = emission_reaction_charge(self%photo_idx)/self%photo_abs_charge
     end if
     self%window_moments = self%window_moments + batch_moments
     self%window_spectrum = self%window_spectrum + batch_values(3:, :)
@@ -270,7 +271,7 @@ contains
     if (self%secondary_idx > 0) then
       total_escape_current = self%state%photoelectron_escape_current_density_a_m2
       if (self%photo_idx > 0) then
-        if (self%state%escape_partner_species(self%photo_idx) > 0) then
+        if (species_closure_mode(self%state, self%photo_idx, .false.) == closure_mode_escape_partner) then
           ! PE の脱出・帰還目標が差し引いた SEE 脱出。根の脱出束を超えた分は差し引けず、収支に残る。
           attributed_secondary_current = fixed_escape_closed_charge(self%photo_idx)/(self%area*app%sim%batch_duration)
           stats_candidate%secondary_budget_residual_a_m2 = &
