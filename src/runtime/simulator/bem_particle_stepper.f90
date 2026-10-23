@@ -2,7 +2,7 @@
 module bem_particle_stepper
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32, i64
-  use bem_types, only: mesh_type, sim_config, hit_info, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
+  use bem_types, only: mesh_type, particle_domain_config, hit_info, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_pusher, only: boris_push
   use bem_collision, only: find_first_hit
@@ -38,8 +38,8 @@ module bem_particle_stepper
   end type particle_step_result
 
   !> 1 粒子 step の間変わらない文脈。一様磁場・粒子物性・境界 contract・面内再配置の RNG counter・照射セルと、
-  !! 上部真空 Fourier 場での再試行か、periodic remainder の適応分割の深さを持つ。mesh・sim・snapshot は大きいので
-  !! 引数のまま参照で渡し、ここには公開 routine の入口で一度だけ組み立てる小さな値だけを置く。
+  !! 上部真空 Fourier 場での再試行か、periodic remainder の適応分割の深さを持つ。mesh・snapshot と解決済みの
+  !! 領域設定は引数で参照し、ここには公開 routine の入口で一度だけ組み立てる小さな値だけを置く。
   type :: particle_step_context
     real(dp) :: bfield(3) = 0.0_dp
     real(dp) :: q = 0.0_dp
@@ -83,7 +83,7 @@ contains
     use_upper_panel_fourier, field_available &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     real(dp), intent(out) :: x1(3), v1(3)
@@ -116,7 +116,7 @@ contains
 
   !> 境界を越えるcandidateでも、場評価点はsolverのprimitive target box内に保つ。
   pure subroutine project_field_sample_to_box(sim, position)
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     real(dp), intent(inout) :: position(3)
     integer(i32) :: axis
     real(dp) :: span
@@ -141,7 +141,7 @@ contains
     )
     type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
@@ -165,7 +165,7 @@ contains
     )
     type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
     type(particle_step_result), intent(out) :: result
@@ -206,7 +206,7 @@ contains
   !> periodic event の適応分割深さ（ctx%adaptive_depth）を内部だけで引き回す1 step実装。
   recursive subroutine advance_particle_step_impl(mesh, sim, snapshot, ctx, x0, v0, dt, result, field_available)
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(particle_step_context), intent(in) :: ctx
     real(dp), intent(in) :: x0(3), v0(3), dt
@@ -276,7 +276,7 @@ contains
     )
     type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
     type(hit_info), intent(in), optional :: hit
@@ -323,7 +323,7 @@ contains
     field_available &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(particle_step_context), intent(in) :: ctx
     real(dp), intent(in) :: x0(3), v0(3), dt, x_candidate(3), v_candidate(3)
@@ -490,7 +490,7 @@ contains
   !> 一つのperiodic remainderを二分し、各半stepのbox/collision eventを順番に解く。
   subroutine advance_periodic_substeps(mesh, sim, snapshot, ctx, x0, v0, dt, result, field_available)
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(particle_step_context), intent(in) :: ctx
     real(dp), intent(in) :: x0(3), v0(3), dt
@@ -548,7 +548,7 @@ contains
 
   !> eventの全faceがperiodicで、適応分割中に乱数境界へ入らない場合だけ再試行する。
   pure logical function periodic_event_can_subdivide(sim, event) result(can_subdivide)
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(boundary_event_type), intent(in) :: event
     integer(i32) :: axis
 
@@ -582,7 +582,7 @@ contains
   !> 線分衝突を一度照会し、hit/statusを共通resultへ反映する。
   subroutine query_particle_chord(mesh, sim, xa, va, xb, vb, result, hit, query_status)
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     real(dp), intent(in) :: xa(3), va(3), xb(3), vb(3)
     type(particle_step_result), intent(inout) :: result
     type(hit_info), intent(out) :: hit
@@ -603,7 +603,7 @@ contains
   subroutine evaluate_boundary_state( &
     sim, ctx, event, x0, v0, x1, v1, dt, electric_field, x_event, v_event, status &
     )
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(particle_step_context), intent(in) :: ctx
     type(boundary_event_type), intent(in) :: event
     real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt, electric_field(3)
@@ -647,7 +647,7 @@ contains
     mesh, sim, snapshot, ctx, event, x, v, alive, escaped, status, redistribution_uniform, field_available &
     )
     type(mesh_type), intent(in) :: mesh
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
     type(particle_step_context), intent(in) :: ctx
     type(boundary_event_type), intent(in) :: event
@@ -875,7 +875,7 @@ contains
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。
   pure logical function point_strictly_inside_box(sim, x) result(inside)
-    type(sim_config), intent(in) :: sim
+    class(particle_domain_config), intent(in) :: sim
     real(dp), intent(in) :: x(3)
 
     inside = all(x > sim%box_min) .and. all(x < sim%box_max)

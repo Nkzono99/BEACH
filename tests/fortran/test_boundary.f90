@@ -5,18 +5,18 @@ program test_boundary
   use bem_boundary, only: apply_ray_box_boundary, boundary_event_type, find_first_boundary_event, &
                           apply_escape_reflect_periodic_event
   use bem_status_codes, only: boundary_event_ok, boundary_event_invalid_geometry
-  use bem_types, only: sim_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
+  use bem_types, only: particle_domain_config, bc_open, bc_reflect, bc_periodic, bc_redistributed_reflect
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
 
-  type(sim_config) :: cfg
+  type(particle_domain_config) :: cfg
   real(dp) :: x(3), v(3), expected(3)
   logical :: alive
 
   call test_init(26)
 
-  cfg = sim_config()
+  cfg = particle_domain_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%box_max = [1.0d0, 1.0d0, 1.0d0]
@@ -67,7 +67,7 @@ program test_boundary
   call test_end()
 
   call test_begin('ray_disabled_box')
-  cfg = sim_config()
+  cfg = particle_domain_config()
   x = [1.2d0, 0.5d0, 0.5d0]
   v = [1.0d0, 2.0d0, 3.0d0]
   alive = .true.
@@ -77,7 +77,7 @@ program test_boundary
   call test_end()
 
   call test_begin('ray_degenerate_box')
-  cfg = sim_config()
+  cfg = particle_domain_config()
   cfg%use_box = .true.
   cfg%box_min = [0.0d0, 0.0d0, 0.0d0]
   cfg%box_max = [0.0d0, 1.0d0, 1.0d0]
@@ -173,16 +173,16 @@ program test_boundary
 contains
 
   subroutine init_event_box(event_cfg)
-    type(sim_config), intent(out) :: event_cfg
+    type(particle_domain_config), intent(out) :: event_cfg
 
-    event_cfg = sim_config()
+    event_cfg = particle_domain_config()
     event_cfg%use_box = .true.
     event_cfg%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
     event_cfg%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
   end subroutine init_event_box
 
   subroutine test_first_boundary_event_single_face()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -203,7 +203,7 @@ contains
   end subroutine test_first_boundary_event_single_face
 
   subroutine test_first_boundary_event_precedes_later_face()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -219,7 +219,7 @@ contains
   end subroutine test_first_boundary_event_precedes_later_face
 
   subroutine test_first_boundary_event_no_crossing()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -233,7 +233,7 @@ contains
   end subroutine test_first_boundary_event_no_crossing
 
   subroutine test_boundary_event_corner_reflect()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -262,7 +262,7 @@ contains
   end subroutine test_boundary_event_corner_reflect
 
   subroutine test_boundary_event_redistributed_reflect()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -293,7 +293,7 @@ contains
   end subroutine test_boundary_event_redistributed_reflect
 
   subroutine test_boundary_event_redistributed_reflect_requires_uniform()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3), x_before(3), v_before(3)
@@ -323,7 +323,7 @@ contains
   end subroutine test_boundary_event_redistributed_reflect_requires_uniform
 
   subroutine test_boundary_event_open_precedes_redistributed_reflect()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -351,7 +351,7 @@ contains
   end subroutine test_boundary_event_open_precedes_redistributed_reflect
 
   subroutine test_boundary_event_mixed_redistributed_reflect_periodic()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -384,7 +384,7 @@ contains
   end subroutine test_boundary_event_mixed_redistributed_reflect_periodic
 
   subroutine test_boundary_event_mixed_reflect_periodic()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -414,7 +414,7 @@ contains
   end subroutine test_boundary_event_mixed_reflect_periodic
 
   subroutine test_periodic_wrap_reentry_fraction_is_positive()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event, reentry_event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -444,7 +444,7 @@ contains
   end subroutine test_periodic_wrap_reentry_fraction_is_positive
 
   subroutine test_boundary_event_open_escape()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3)
@@ -469,7 +469,7 @@ contains
 
   !> face 別境界条件を渡すと、box 設定の open 面を反射として扱える。event の face_bc は渡した値と照合する。
   subroutine test_boundary_event_face_bc_override()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status, face_bc(6)
     real(dp) :: event_x(3), event_v(3)
@@ -505,7 +505,7 @@ contains
   end subroutine test_boundary_event_face_bc_override
 
   subroutine test_boundary_event_start_inward()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -518,7 +518,7 @@ contains
   end subroutine test_boundary_event_start_inward
 
   subroutine test_boundary_event_start_outward()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -533,7 +533,7 @@ contains
   end subroutine test_boundary_event_start_outward
 
   subroutine test_boundary_event_endpoint_on_face()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -547,11 +547,11 @@ contains
   end subroutine test_boundary_event_endpoint_on_face
 
   subroutine test_boundary_event_disabled_box()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
-    event_cfg = sim_config()
+    event_cfg = particle_domain_config()
     call find_first_boundary_event( &
       event_cfg, [0.0_dp, 0.0_dp, 0.0_dp], [10.0_dp, 0.0_dp, 0.0_dp], event, status &
       )
@@ -560,7 +560,7 @@ contains
   end subroutine test_boundary_event_disabled_box
 
   subroutine test_boundary_event_invalid_endpoint()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: invalid_x1(3)
@@ -573,7 +573,7 @@ contains
   end subroutine test_boundary_event_invalid_endpoint
 
   subroutine test_boundary_event_outside_start_is_invalid()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -586,7 +586,7 @@ contains
   end subroutine test_boundary_event_outside_start_is_invalid
 
   subroutine test_boundary_event_invalid_span()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
 
@@ -599,7 +599,7 @@ contains
   end subroutine test_boundary_event_invalid_span
 
   subroutine test_boundary_event_invalid_action_is_transactional()
-    type(sim_config) :: event_cfg
+    type(particle_domain_config) :: event_cfg
     type(boundary_event_type) :: event
     integer(i32) :: status
     real(dp) :: event_x(3), event_v(3), x_before(3), v_before(3)

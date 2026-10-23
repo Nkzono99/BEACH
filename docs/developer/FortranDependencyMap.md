@@ -6,11 +6,11 @@ title: Fortran 依存関係マップ
 
 ## 概要
 
-- ソースファイル数: 121
-- モジュール数: 86
+- ソースファイル数: 123
+- モジュール数: 88
 - submodule 数: 36
 - program 数: 1
-- 内部依存エッジ数: 489
+- 内部依存エッジ数: 505
 
 ## 全体グラフ
 
@@ -22,9 +22,9 @@ title: Fortran 依存関係マップ
 
 | ディレクトリ | エンティティ数 | 内部依存数 |
 | --- | ---: | ---: |
-| `app` | 1 | 15 |
-| `src/config` | 11 | 31 |
-| `src/config/app_config_parser` | 10 | 25 |
+| `app` | 1 | 16 |
+| `src/config` | 11 | 32 |
+| `src/config/app_config_parser` | 10 | 26 |
 | `src/core` | 14 | 16 |
 | `src/mesh` | 3 | 11 |
 | `src/mesh/panel` | 3 | 7 |
@@ -39,19 +39,19 @@ title: Fortran 依存関係マップ
 | `src/physics/field_solver/fmm/internal/tree` | 2 | 14 |
 | `src/physics/field_solver/panel` | 3 | 10 |
 | `src/physics/field_solver/periodic` | 6 | 18 |
-| `src/physics/sheath` | 1 | 1 |
-| `src/runtime` | 14 | 73 |
-| `src/runtime/configuration` | 8 | 45 |
+| `src/physics/sheath` | 1 | 2 |
+| `src/runtime` | 16 | 80 |
+| `src/runtime/configuration` | 8 | 44 |
 | `src/runtime/coupling` | 1 | 1 |
-| `src/runtime/sheath` | 3 | 23 |
-| `src/runtime/simulator` | 8 | 57 |
+| `src/runtime/sheath` | 3 | 24 |
+| `src/runtime/simulator` | 8 | 62 |
 
 ## 被依存の多いモジュール
 
 | エンティティ | kind | 被依存数 |
 | --- | --- | ---: |
-| `bem_kinds` | `module` | 82 |
-| `bem_types` | `module` | 38 |
+| `bem_kinds` | `module` | 84 |
+| `bem_types` | `module` | 40 |
 | `bem_string_utils` | `module` | 30 |
 | `bem_constants` | `module` | 23 |
 | `bem_app_config_types` | `module` | 19 |
@@ -65,10 +65,10 @@ title: Fortran 依存関係マップ
 
 | エンティティ | kind | パス | 内部依存 | 概要 |
 | --- | --- | --- | --- | --- |
-| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_physics_config_types` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
+| `main` | `program` | `app/main.f90` | `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_run_outputs`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_physics_config_types` | 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。 |
 | `bem_app_config_authoring` | `module` | `src/config/bem_app_config_authoring.f90` | `bem_kinds`, `bem_app_config_types`, `bem_app_config_authoring_types` | Authoring overlay の公開入口。配列管理と領域別変換の入口を持つ。 |
 | `bem_app_config_authoring_types` | `module` | `src/config/bem_app_config_authoring_types.f90` | `bem_kinds`, `bem_app_config_types` | TOML authoring overlay の型と default。実行時設定への変換処理は持たない。 |
-| `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types`, `bem_filesystem`, `bem_physics_config_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
+| `bem_app_config_types` | `module` | `src/config/bem_app_config_types.f90` | `bem_kinds`, `bem_types`, `bem_external_boundary_contract`, `bem_filesystem`, `bem_physics_config_types` | アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。 |
 | `bem_config_helpers` | `module` | `src/config/bem_config_helpers.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | 設定型のヘルパー関数。パーサに依存せず下位層から利用可能。 |
 | `bem_config_layout` | `module` | `src/config/bem_config_layout.f90` | `bem_kinds`, `bem_string_utils`, `bem_config_toml`, `bem_config_layout_paths` | - |
 | `bem_config_layout_paths` | `module` | `src/config/bem_config_layout_paths.f90` | - | - |
@@ -78,7 +78,7 @@ title: Fortran 依存関係マップ
 | `bem_app_config_authoring_geometry` | `submodule` | `src/config/bem_app_config_authoring_geometry.f90` | `bem_app_config_authoring`, `bem_string_utils` | Mesh template の group、anchor、相対サイズを実座標・実寸へ変換する。 |
 | `bem_app_config_authoring_sources` | `submodule` | `src/config/bem_app_config_authoring_sources.f90` | `bem_app_config_authoring`, `bem_string_utils` | 粒子源の face_fraction 入力を注入面上の実座標へ変換する。 |
 | `bem_app_config_parser` | `module` | `src/config/app_config_parser/bem_app_config_parser.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_authoring`, `bem_string_utils`, `bem_config_layout`, `bem_config_toml`, `bem_injection_flux`, `bem_injection_geometry` | TOML設定ファイルを `toml-f` で読み込み、`app_config` へ反映する。 |
-| `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser` | 設定の正規化と領域別 preflight の実行順を管理する。 |
+| `bem_app_config_parser_finalize` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_finalize.f90` | `bem_app_config_parser`, `bem_external_boundary_contract` | 設定の正規化と領域別 preflight の実行順を管理する。 |
 | `bem_app_config_parser_preflight_particles` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_particles.f90` | `bem_app_config_parser`, `bem_app_config_types`, `bem_config_helpers` | lint 済みの粒子種識別子と有効な粒子源の派生量を確定する。 |
 | `bem_app_config_parser_preflight_sim` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_sim.f90` | `bem_app_config_parser` | lint 済み設定の基本的な計算条件を確認し、時間と外部場を確定する。 |
 | `bem_app_config_parser_preflight_surface` | `submodule` | `src/config/app_config_parser/bem_app_config_parser_preflight_surface.f90` | `bem_app_config_parser`, `bem_constants`, `bem_config_helpers`, `bem_app_config_types` | lint 済みの表面電流設定について、種の参照と物理モデルの成立条件を検査する。 |
@@ -153,21 +153,23 @@ title: Fortran 依存関係マップ
 | `bem_periodic_zero_mode_c` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_c.f90` | `bem_kinds`, `bem_periodic_zero_mode_eval`, `bem_periodic_zero_mode_plan` | C ABI wrapper for the physical periodic zero mode. |
 | `bem_periodic_zero_mode_eval` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_eval.f90` | `bem_kinds`, `bem_constants`, `bem_periodic_zero_mode_plan` | - |
 | `bem_periodic_zero_mode_plan` | `module` | `src/physics/field_solver/periodic/bem_periodic_zero_mode_plan.f90` | `bem_kinds`, `bem_constants`, `bem_types` | - |
-| `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
+| `bem_surface_closure_contract` | `module` | `src/physics/sheath/bem_surface_closure_contract.f90` | `bem_kinds`, `bem_runtime_modes` | シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。 |
 | `bem_checkpoint_contract` | `module` | `src/runtime/bem_checkpoint_contract.f90` | `bem_kinds`, `bem_filesystem` | BEACH checkpoint metadata and transactional publication shared by output and restart code. |
+| `bem_matching_plane_summary` | `module` | `src/runtime/bem_matching_plane_summary.f90` | `bem_kinds`, `bem_types`, `bem_string_utils` | - |
 | `bem_mesh_identity` | `module` | `src/runtime/bem_mesh_identity.f90` | `bem_kinds`, `bem_types` | Ordered mesh identity for mapping saved element charges. |
 | `bem_output_writer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | 実行サマリ・最終CSV・履歴CSVの出力を担当するモジュール。 |
 | `bem_performance_profile` | `module` | `src/runtime/bem_performance_profile.f90` | `bem_kinds`, `bem_mpi`, `bem_string_utils` | 実行フェーズごとの壁時計計測と MPI 集約出力を担う軽量プロファイラ。 |
 | `bem_periodic_checkpoint` | `module` | `src/runtime/bem_periodic_checkpoint.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_filesystem`, `bem_mpi`, `bem_output_writer`, `bem_restart` | accepted batch 境界で二重化した定期チェックポイントを保存・解決する。 |
 | `bem_restart` | `module` | `src/runtime/bem_restart.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_mpi` | チェックポイントファイルの保存/復元を扱う補助モジュール。 |
+| `bem_run_outputs` | `module` | `src/runtime/bem_run_outputs.f90` | `bem_kinds`, `bem_app_config_types`, `bem_output_writer` | - |
 | `integer` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
 | `pure` | `module` | `src/runtime/bem_output_writer.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_electrostatic_snapshot`, `bem_filesystem` | - |
 | `bem_output_writer_files` | `submodule` | `src/runtime/bem_output_writer_files.f90` | `bem_output_writer`, `bem_types`, `bem_string_utils` | メッシュ・電荷・電位・台帳のCSV出力。 |
 | `bem_output_writer_history` | `submodule` | `src/runtime/bem_output_writer_history.f90` | `bem_output_writer`, `bem_string_utils`, `bem_filesystem`, `bem_outflow_spectrum` | 履歴ファイルの生成・再開とスナップショットの出力。 |
-| `bem_output_writer_summary` | `submodule` | `src/runtime/bem_output_writer_summary.f90` | `bem_output_writer`, `bem_irradiation_cell_contract`, `bem_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils` | 実行サマリと再構築用メタデータの出力。 |
+| `bem_output_writer_summary` | `submodule` | `src/runtime/bem_output_writer_summary.f90` | `bem_output_writer`, `bem_irradiation_cell_contract`, `bem_types`, `bem_charge_ledger`, `bem_matching_plane_summary`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils` | 実行サマリと再構築用メタデータの出力。 |
 | `bem_restart_contract` | `submodule` | `src/runtime/bem_restart_contract.f90` | `bem_restart`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_checkpoint_contract` | 再開時のスキーマ・メッシュ整合性の検証。 |
 | `bem_restart_injection` | `submodule` | `src/runtime/bem_restart_injection.f90` | `bem_restart`, `bem_kinds`, `bem_mpi` | 再開に必要なマクロ粒子端数の保存と復元（乱数は counter-based なので状態を持たない）。 |
-| `bem_restart_records` | `submodule` | `src/runtime/bem_restart_records.f90` | `bem_restart`, `bem_kinds`, `bem_string_utils` | チェックポイントの統計・電荷・台帳の読み込みと形式検証。 |
+| `bem_restart_records` | `submodule` | `src/runtime/bem_restart_records.f90` | `bem_restart`, `bem_kinds`, `bem_matching_plane_summary` | チェックポイントの統計・電荷・台帳の読み込みと形式検証。 |
 | `bem_app_config` | `module` | `src/runtime/configuration/bem_app_config.f90` | `bem_app_config_types`, `bem_physics_config_types`, `bem_app_config_parser`, `bem_string_utils`, `bem_app_config_runtime` | 設定型・TOMLパーサ・実行時変換ロジックを束ねる後方互換ファサード。 |
 | `bem_app_config_mesh_runtime` | `module` | `src/runtime/configuration/bem_app_config_mesh_runtime.f90` | `bem_kinds`, `bem_types`, `bem_templates`, `bem_mesh`, `bem_panel_surface_sides`, `bem_importers`, `bem_app_config_types`, `bem_string_utils` | app_config から三角形メッシュを構築する実行時変換。 |
 | `bem_app_config_particle_runtime` | `module` | `src/runtime/configuration/bem_app_config_particle_runtime.f90` | `bem_kinds`, `bem_constants`, `bem_types`, `bem_mpi`, `bem_electrostatic_snapshot`, `bem_status_codes`, `bem_injection`, `bem_external_boundary_contract`, `bem_app_config_types`, `bem_app_config_potential_runtime`, `bem_string_utils`, `bem_config_helpers` | app_config から粒子源計画と粒子バッチを構築する実行時変換。 |
@@ -175,17 +177,17 @@ title: Fortran 依存関係マップ
 | `bem_app_config_runtime` | `module` | `src/runtime/configuration/bem_app_config_runtime.f90` | `bem_app_config_mesh_runtime`, `bem_app_config_particle_runtime`, `bem_app_config_potential_runtime` | app_config のメッシュ・粒子・電位評価を束ねる後方互換ファサード。 |
 | `bem_app_config_particle_runtime_batch` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_batch.f90` | `bem_app_config_particle_runtime`, `bem_particles` | バッチ注入 layout の global slot を rank に連続区間で割り振り、この rank の粒子を生成する。 各 slot は (batch, species, kind, face, index) の counter-based 乱数で生成されるので、 rank 数によらずバッチ全体の粒子集合は同じになる。 |
 | `bem_app_config_particle_runtime_sampling` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_sampling.f90` | `bem_app_config_particle_runtime` | 粒子種別のサンプリングと電位障壁に応じた注入速度の補正。 |
-| `bem_app_config_particle_runtime_slots` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_slots.f90` | `bem_app_config_particle_runtime`, `bem_kinds`, `bem_app_config_types`, `bem_injection`, `bem_injection_random`, `bem_counter_rng` | バッチ注入 layout の構築と、layout 上の slot 1 つを counter-based 乱数で生成する処理。 layout は rank に依らない global 粒子数と面ごとの速度補正を持ち、`static` の rank 分割と `shared` の slot pool の両方がこれを基に粒子を作る。 |
+| `bem_app_config_particle_runtime_slots` | `submodule` | `src/runtime/configuration/bem_app_config_particle_runtime_slots.f90` | `bem_app_config_particle_runtime`, `bem_kinds`, `bem_injection`, `bem_injection_random`, `bem_counter_rng` | バッチ注入 layout の構築と、layout 上の slot 1 つを counter-based 乱数で生成する処理。 layout は rank に依らない global 粒子数と面ごとの速度補正を持ち、`static` の rank 分割と `shared` の slot pool の両方がこれを基に粒子を作る。 |
 | `bem_charge_ledger` | `module` | `src/runtime/coupling/bem_charge_ledger.f90` | `bem_kinds` | batch 間の signed charge stock と移送 flux から電荷収支を集計する。 |
 | `bem_irradiation_cell_contract` | `module` | `src/runtime/sheath/bem_irradiation_cell_contract.f90` | `bem_kinds`, `bem_types`, `bem_app_config_types`, `bem_string_utils` | 照射実験の壁・周期軸・下端モデル。汎用 kernel はこの型へ依存しない。 |
 | `bem_surface_current_model` | `module` | `src/runtime/sheath/bem_surface_current_model.f90` | `bem_kinds`, `bem_constants`, `bem_app_config_types`, `bem_irradiation_cell_contract`, `bem_surface_closure_contract`, `bem_config_helpers`, `bem_outflow_spectrum`, `bem_string_utils` | 外部モデルから species 別の固定表面電流を解決する。 |
-| `bem_zhao_outflow_refresh` | `module` | `src/runtime/sheath/bem_zhao_outflow_refresh.f90` | `bem_irradiation_cell_contract`, `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum` | - |
+| `bem_zhao_outflow_refresh` | `module` | `src/runtime/sheath/bem_zhao_outflow_refresh.f90` | `bem_irradiation_cell_contract`, `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_runtime_modes`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum` | - |
 | `bem_particle_stepper` | `module` | `src/runtime/simulator/bem_particle_stepper.f90` | `bem_kinds`, `bem_types`, `bem_electrostatic_snapshot`, `bem_pusher`, `bem_collision`, `bem_status_codes`, `bem_boundary`, `bem_external_boundary_contract`, `bem_irradiation_cell_contract`, `bem_counter_rng` | 同一時刻の粒子状態から、空間電場を中点評価した1ステップ候補を構築する。 |
-| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_irradiation_cell_contract`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_status_codes`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
+| `bem_simulator` | `module` | `src/runtime/simulator/bem_simulator.f90` | `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_irradiation_cell_contract`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_status_codes`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_run_outputs`, `bem_output_writer`, `bem_mpi` | 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。 |
 | `bem_simulator_workspace` | `module` | `src/runtime/simulator/bem_simulator_workspace.f90` | `bem_kinds`, `bem_outflow_spectrum` | シミュレーション実行中に再利用するバッチ作業配列を管理する。 |
-| `bem_simulator_charge` | `submodule` | `src/runtime/simulator/bem_simulator_charge.f90` | `bem_simulator`, `bem_charge_ledger`, `bem_runtime_modes` | 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。 |
+| `bem_simulator_charge` | `submodule` | `src/runtime/simulator/bem_simulator_charge.f90` | `bem_simulator`, `bem_charge_ledger`, `bem_runtime_modes`, `bem_surface_closure_contract`, `bem_simulator_workspace` | 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。 |
 | `bem_simulator_io` | `submodule` | `src/runtime/simulator/bem_simulator_io.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_output_writer` | `bem_simulator` の進捗表示と履歴出力を実装する submodule。 |
-| `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_zhao_outflow_refresh`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`, `bem_constants` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
+| `bem_simulator_loop` | `submodule` | `src/runtime/simulator/bem_simulator_loop.f90` | `bem_simulator`, `bem_app_config_runtime`, `bem_zhao_outflow_refresh`, `bem_types`, `bem_simulator_workspace`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`, `bem_constants` | `bem_simulator` の主ループと粒子処理計算を実装する submodule。 |
 | `bem_simulator_particles` | `submodule` | `src/runtime/simulator/bem_simulator_particles.f90` | `bem_simulator`, `bem_constants`, `bem_secondary_emission`, `bem_config_helpers`, `bem_photoelectron_injection`, `bem_particles`, `bem_outflow_spectrum`, `bem_particle_stepper`, `bem_counter_rng` | バッチ粒子の生成と追跡を実装する。連成反復と受理判定は主ループが管理する。 |
 | `bem_simulator_stats` | `submodule` | `src/runtime/simulator/bem_simulator_stats.f90` | `bem_simulator` | `bem_simulator` のバッチ集計・統計更新処理を実装する submodule。 |
 
@@ -196,7 +198,7 @@ title: Fortran 依存関係マップ
 - kind: `program`
 - path: `app/main.f90`
 - group: `app`
-- 内部依存: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_physics_config_types`
+- 内部依存: `bem_kinds`, `bem_version`, `bem_types`, `bem_mpi`, `bem_performance_profile`, `bem_simulator`, `bem_restart`, `bem_periodic_checkpoint`, `bem_checkpoint_contract`, `bem_output_writer`, `bem_run_outputs`, `bem_app_config`, `bem_mesh`, `bem_charge_ledger`, `bem_electrostatic_snapshot`, `bem_physics_config_types`
 - external dependencies: `iso_fortran_env`
 - 概要: 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 
@@ -223,7 +225,7 @@ title: Fortran 依存関係マップ
 - kind: `module`
 - path: `src/config/bem_app_config_types.f90`
 - group: `src/config`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_filesystem`, `bem_physics_config_types`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_external_boundary_contract`, `bem_filesystem`, `bem_physics_config_types`
 - external dependencies: なし
 - 概要: アプリ設定の型定義と、設定由来の粒子数計算をまとめるモジュール。
 
@@ -315,7 +317,7 @@ title: Fortran 依存関係マップ
 - path: `src/config/app_config_parser/bem_app_config_parser_finalize.f90`
 - group: `src/config/app_config_parser`
 - parent: `bem_app_config_parser`
-- 内部依存: `bem_app_config_parser`
+- 内部依存: `bem_app_config_parser`, `bem_external_boundary_contract`
 - external dependencies: なし
 - 概要: 設定の正規化と領域別 preflight の実行順を管理する。
 
@@ -998,7 +1000,7 @@ title: Fortran 依存関係マップ
 - kind: `module`
 - path: `src/physics/sheath/bem_surface_closure_contract.f90`
 - group: `src/physics/sheath`
-- 内部依存: `bem_kinds`
+- 内部依存: `bem_kinds`, `bem_runtime_modes`
 - external dependencies: なし
 - 概要: シミュレータが外部の表面電流モデルから受け取るモデル非依存の境界契約。
 
@@ -1010,6 +1012,14 @@ title: Fortran 依存関係マップ
 - 内部依存: `bem_kinds`, `bem_filesystem`
 - external dependencies: なし
 - 概要: BEACH checkpoint metadata and transactional publication shared by output and restart code.
+
+### `bem_matching_plane_summary`
+
+- kind: `module`
+- path: `src/runtime/bem_matching_plane_summary.f90`
+- group: `src/runtime`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_string_utils`
+- external dependencies: なし
 
 ### `bem_mesh_identity`
 
@@ -1056,6 +1066,14 @@ title: Fortran 依存関係マップ
 - external dependencies: `ieee_arithmetic`
 - 概要: チェックポイントファイルの保存/復元を扱う補助モジュール。
 
+### `bem_run_outputs`
+
+- kind: `module`
+- path: `src/runtime/bem_run_outputs.f90`
+- group: `src/runtime`
+- 内部依存: `bem_kinds`, `bem_app_config_types`, `bem_output_writer`
+- external dependencies: なし
+
 ### `integer`
 
 - kind: `module`
@@ -1098,7 +1116,7 @@ title: Fortran 依存関係マップ
 - path: `src/runtime/bem_output_writer_summary.f90`
 - group: `src/runtime`
 - parent: `bem_output_writer`
-- 内部依存: `bem_output_writer`, `bem_irradiation_cell_contract`, `bem_types`, `bem_charge_ledger`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils`
+- 内部依存: `bem_output_writer`, `bem_irradiation_cell_contract`, `bem_types`, `bem_charge_ledger`, `bem_matching_plane_summary`, `bem_checkpoint_contract`, `bem_field_solver`, `bem_external_boundary_contract`, `bem_mesh_identity`, `bem_physics_config_types`, `bem_surface_current_model`, `bem_version`, `bem_filesystem`, `bem_string_utils`
 - external dependencies: なし
 - 概要: 実行サマリと再構築用メタデータの出力。
 
@@ -1128,7 +1146,7 @@ title: Fortran 依存関係マップ
 - path: `src/runtime/bem_restart_records.f90`
 - group: `src/runtime`
 - parent: `bem_restart`
-- 内部依存: `bem_restart`, `bem_kinds`, `bem_string_utils`
+- 内部依存: `bem_restart`, `bem_kinds`, `bem_matching_plane_summary`
 - external dependencies: なし
 - 概要: チェックポイントの統計・電荷・台帳の読み込みと形式検証。
 
@@ -1203,7 +1221,7 @@ title: Fortran 依存関係マップ
 - path: `src/runtime/configuration/bem_app_config_particle_runtime_slots.f90`
 - group: `src/runtime/configuration`
 - parent: `bem_app_config_particle_runtime`
-- 内部依存: `bem_app_config_particle_runtime`, `bem_kinds`, `bem_app_config_types`, `bem_injection`, `bem_injection_random`, `bem_counter_rng`
+- 内部依存: `bem_app_config_particle_runtime`, `bem_kinds`, `bem_injection`, `bem_injection_random`, `bem_counter_rng`
 - external dependencies: なし
 - 概要: バッチ注入 layout の構築と、layout 上の slot 1 つを counter-based 乱数で生成する処理。 layout は rank に依らない global 粒子数と面ごとの速度補正を持ち、`static` の rank 分割と `shared` の slot pool の両方がこれを基に粒子を作る。
 
@@ -1239,7 +1257,7 @@ title: Fortran 依存関係マップ
 - kind: `module`
 - path: `src/runtime/sheath/bem_zhao_outflow_refresh.f90`
 - group: `src/runtime/sheath`
-- 内部依存: `bem_irradiation_cell_contract`, `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum`
+- 内部依存: `bem_irradiation_cell_contract`, `bem_kinds`, `bem_constants`, `bem_types`, `bem_app_config`, `bem_string_utils`, `bem_charge_ledger`, `bem_surface_closure_contract`, `bem_runtime_modes`, `bem_surface_current_model`, `bem_mpi`, `bem_outflow_spectrum`
 - external dependencies: `iso_fortran_env`, `sheath_model`
 
 ### `bem_particle_stepper`
@@ -1256,7 +1274,7 @@ title: Fortran 依存関係マップ
 - kind: `module`
 - path: `src/runtime/simulator/bem_simulator.f90`
 - group: `src/runtime/simulator`
-- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_irradiation_cell_contract`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_status_codes`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_output_writer`, `bem_mpi`
+- 内部依存: `bem_kinds`, `bem_types`, `bem_app_config`, `bem_physics_config_types`, `bem_irradiation_cell_contract`, `bem_config_helpers`, `bem_app_config_runtime`, `bem_electrostatic_snapshot`, `bem_particle_stepper`, `bem_status_codes`, `bem_collision`, `bem_surface_models`, `bem_charge_ledger`, `bem_string_utils`, `bem_external_boundary_contract`, `bem_simulator_workspace`, `bem_surface_closure_contract`, `bem_surface_current_model`, `bem_run_outputs`, `bem_output_writer`, `bem_mpi`
 - external dependencies: `iso_fortran_env`, `ieee_arithmetic`
 - 概要: 吸着(insulator)モデルのメインループを実行し、電荷堆積と統計更新を行う。
 
@@ -1275,7 +1293,7 @@ title: Fortran 依存関係マップ
 - path: `src/runtime/simulator/bem_simulator_charge.f90`
 - group: `src/runtime/simulator`
 - parent: `bem_simulator`
-- 内部依存: `bem_simulator`, `bem_charge_ledger`, `bem_runtime_modes`
+- 内部依存: `bem_simulator`, `bem_charge_ledger`, `bem_runtime_modes`, `bem_surface_closure_contract`, `bem_simulator_workspace`
 - external dependencies: `iso_fortran_env`
 - 概要: 電荷差分の確定反映、表面電流補正、バッチ電荷台帳を実装する。
 
@@ -1295,7 +1313,7 @@ title: Fortran 依存関係マップ
 - path: `src/runtime/simulator/bem_simulator_loop.f90`
 - group: `src/runtime/simulator`
 - parent: `bem_simulator`
-- 内部依存: `bem_simulator`, `bem_app_config_runtime`, `bem_zhao_outflow_refresh`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`, `bem_constants`
+- 内部依存: `bem_simulator`, `bem_app_config_runtime`, `bem_zhao_outflow_refresh`, `bem_types`, `bem_simulator_workspace`, `bem_periodic_zero_mode_plan`, `bem_performance_profile`, `bem_mpi`, `bem_periodic_checkpoint`, `bem_charge_ledger`, `bem_constants`
 - external dependencies: `iso_fortran_env`
 - 概要: `bem_simulator` の主ループと粒子処理計算を実装する submodule。
 

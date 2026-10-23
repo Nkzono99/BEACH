@@ -13,12 +13,28 @@ module bem_types
   integer(i32), parameter :: surface_model_conductor = 2_i32
   integer(i32), parameter :: surface_model_dielectric = 3_i32
 
-  !> 時間刻み・収束判定・バッチ回数・外部磁場など実行制御パラメータを保持する。
-  type :: sim_config
-    real(dp) :: dt = 1.0d-12
+  !> 粒子の追跡・衝突・境界 event が使う解決済みの領域と乱数 seed。
+  !! 入力の has_*、外部場の角度指定、solver の選択や batch 制御は含めない。
+  type :: particle_domain_config
     integer(i32) :: rng_seed = 12345_i32
-    integer(i32) :: batch_count = 1_i32
+    logical :: use_box = .false.
+    real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
+    real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]
+    integer(i32) :: bc_low(3) = [bc_open, bc_open, bc_open]
+    integer(i32) :: bc_high(3) = [bc_open, bc_open, bc_open]
+    character(len=16) :: field_bc_mode = 'free'
+  end type particle_domain_config
+
+  !> photo ray に必要な領域、解決済み batch 幅、反射回数上限。
+  type, extends(particle_domain_config) :: photo_raycast_config
     real(dp) :: batch_duration = 0.0d0
+    integer(i32) :: raycast_max_bounce = 16_i32
+  end type photo_raycast_config
+
+  !> 入力と run 制御の設定。physics へは必要な親 component だけを渡す。
+  type, extends(photo_raycast_config) :: sim_config
+    real(dp) :: dt = 1.0d-12
+    integer(i32) :: batch_count = 1_i32
     logical :: has_batch_duration = .false.
     real(dp) :: batch_duration_step = 0.0d0
     logical :: has_batch_duration_step = .false.
@@ -38,7 +54,6 @@ module bem_types
     character(len=16) :: field_solver = 'auto'
     character(len=16) :: field_normalization = 'si'
     real(dp) :: field_length_scale = 1.0d0
-    character(len=16) :: field_bc_mode = 'free'
     integer(i32) :: field_periodic_image_layers = 1_i32
     character(len=16) :: field_periodic_far_correction = 'none'
     real(dp) :: field_periodic_ewald_alpha = 0.0d0
@@ -73,12 +88,6 @@ module bem_types
     real(dp) :: multiple_box_events_soft_discard_fraction_limit = 1.0d-6
     real(dp) :: multiple_box_events_soft_discard_abs_charge_limit = 1.0d-12
     integer(i32) :: injection_face_phi_grid_n = 3_i32
-    integer(i32) :: raycast_max_bounce = 16_i32
-    logical :: use_box = .false.
-    real(dp) :: box_min(3) = [-1.0d0, -1.0d0, -1.0d0]
-    real(dp) :: box_max(3) = [1.0d0, 1.0d0, 1.0d0]
-    integer(i32) :: bc_low(3) = [bc_open, bc_open, bc_open]
-    integer(i32) :: bc_high(3) = [bc_open, bc_open, bc_open]
   end type sim_config
 
   !> adaptive batch（非零 mode の電位変化で batch 幅を縮める）の状態。summary の adaptive_nonzero_mode_* キー。

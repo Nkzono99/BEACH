@@ -9,6 +9,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- 外部境界の基底契約を設定の preflight で一度解決して保持し、粒子生成・run 制御・summary で共有する。
+  粒子源計画は整数の種別を保持し、バッチの slot 構築で `source_mode` を解釈し直さない。
+  Fortran から手組みする `app_config` も `boundary_contract` に解決済みの値を持たせる。
+  `reservoir_face_velocity_correction` の任意引数 `boundary_contract` は削除した。
+- 粒子追跡・衝突・境界 event の設定を `particle_domain_config`、photo ray の設定を `photo_raycast_config` に分けた。
+  `sim_config` はそれらを継承して既存の属性を保ち、runtime は physics に必要な親 component だけを渡す。
+- `workload` は、粒子数の計算に不要な光電子の放出条件、粒子境界の作用、一様外部場の組合せを再検証しない。
+  光電子は ray 数の上限を見積もる。設定の検証には `beachx lint` を使う。流束・重み・バッチ幅の計算と、
+  計算が未定義または曖昧になる入力の検出は見積もり側が引き続き担当する。
 - **BREAKING**: Python package を依存の層ごとのサブパッケージに分けた。`beach.io`（出力 reader・データ型・`summary.txt`
   parser、numpy のみ）、`beach.native`（field kernel と zero mode の ctypes binding）、`beach.analysis`（電位・電場・力・object
   解析）、`beach.plot`（matplotlib の図とアニメーション）、`beach.tooling`（workload・close-pack・runops adapter、numpy 不要）、

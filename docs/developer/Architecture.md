@@ -135,6 +135,15 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 その設定からメッシュ、粒子、境界電位を作る処理は `src/runtime/configuration/` に置きます。
 `beach --check-config beach.toml` は通常実行と同じ設定読込を使い、MPI 初期化と実行データ構築の前に終了します。
 
+外部境界の基底契約は preflight が `app_config%boundary_contract` に解決し、粒子生成・run 制御・summary 出力が
+同じ値を参照します。種別の動的な kinetic barrier は、その基底契約に面別の上書きを重ねます。
+`particle_source_plan_type` は粒子源を整数の種別に解決して保持し、バッチの slot 構築は文字列を解釈しません。
+
+`sim_config` は入力表現と run 制御を保持し、粒子追跡・衝突・境界 event は親型 `particle_domain_config` の
+箱・面別条件・乱数 seed・場境界だけを受け取ります。photo ray は、それに解決済みバッチ幅と反射回数上限を加えた
+`photo_raycast_config` を使います。runtime は種別の領域設定を一度作り、入力の `has_*` や外部場の角度指定を
+粒子追跡の内部へ渡しません。設定を Fortran から直接組み立てる場合、基底契約も解決済みの値として設定します。
+
 | 担当 | 実装 | 境界 |
 | --- | --- | --- |
 | TOML の基本値 | [`bem_config_toml.f90`](../../src/config/bem_config_toml.f90) | 型、整数の格納範囲、実数の有限性、配列長、文字列の格納長を確認して値を返す |
@@ -147,11 +156,11 @@ FMM の木構造・相互作用リストは `field_solver_type%fmm_core_plan`、
 Python の `load_config_file`、`normalize_config_document`、`lint` は共通の基本型・整数の格納範囲・有限値・未知キー検査を使います。
 `lint` は TOML を再読込しません。
 列挙された識別値の大文字小文字を正規化し、path や自由文字列を一律に小文字化しません。
-列挙値・値域・無効な機能への指定などの詳細な入力診断と、既存の意味的検証は Python が担当します。
-通常運用では実行前に `beachx lint` を通します。Fortran は正規化・参照解決・基本値の格納条件と、
-選択した物理モデルの成立条件を担います。開発・診断用の `beach --check-config` はこの範囲だけを確認し、
-lint を代替しません。`make test-config-contract` では lint に成功する現行の設定例を Fortran でも読み込めることを
-確認し、不正入力の採否一致は要求しません。この gate は L2 に含まれます。追加する検証の判断は
+Python は schema のキー・型・列挙値・値域を検査し、Fortran preflight が設定の組合せと派生量を検査します。
+`make test-config-contract` は正常・不正入力の両方で `lint` と `beach --check-config` の採否を照合します。
+この gate は L2 に含まれます。`beach.tooling.workload` は、正規化済みの設定から粒子数を見積もり、
+重みやバッチ幅を一意に計算できない場合を検出します。放出方向・境界作用・一様外部場など、粒子数に使わない
+物理条件の検証は preflight が担当します。追加する検証の判断は
 [開発ワークフロー](Workflow.md#設定の契約を確認する)に従います。
 
 ### 電場ソルバーと三角形幾何の担当

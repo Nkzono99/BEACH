@@ -12,10 +12,9 @@ module bem_app_config_particle_runtime
     sample_photo_raycast_particles, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
   use bem_external_boundary_contract, only: &
-    external_boundary_contract_type, external_boundary_ok, external_inflow_none, external_inflow_scalar_barrier, &
-    resolve_external_boundary_contract
+    external_inflow_none, external_inflow_scalar_barrier
   use bem_app_config_types, only: &
-    app_config, particle_species_spec, particles_per_batch_from_config, particle_inflow_reservoir
+    app_config, particle_species_spec, particles_per_batch_from_config, particle_inflow_reservoir, species_config_path
   use bem_app_config_potential_runtime, only: &
     compute_face_average_potential, warn_face_average_potential_variation, resolve_face_sampling_geometry
   use bem_string_utils, only: lower_ascii
@@ -32,6 +31,7 @@ module bem_app_config_particle_runtime
     integer(i32) :: nspecies = 0_i32
     integer(i32) :: mpi_rank = 0_i32
     integer(i32) :: mpi_size = 1_i32
+    integer(i32), allocatable :: source_kind(:)
     real(dp), allocatable :: effective_density_m3(:)
     real(dp), allocatable :: effective_particle_flux_m2_s(:)
     logical, allocatable :: number_flux_override_active(:)
@@ -166,7 +166,7 @@ module bem_app_config_particle_runtime
     end subroutine sample_photo_species_state
 
     module subroutine reservoir_face_velocity_correction( &
-      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation, boundary_contract &
+      cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation &
       )
       type(app_config), intent(in) :: cfg
       type(particle_species_spec), intent(in) :: spec
@@ -175,7 +175,6 @@ module bem_app_config_particle_runtime
       type(mesh_type), intent(in), optional :: mesh
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       logical, intent(in), optional :: warn_face_variation
-      type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     end subroutine reservoir_face_velocity_correction
 
     module subroutine external_kinetic_face_velocity_correction( &
@@ -245,6 +244,8 @@ contains
     end do
     plan%use_collective_reservoir_count = present(mpi) .and. has_enabled_reservoir
 
+    allocate (plan%source_kind(cfg%n_particle_species))
+    plan%source_kind = slot_kind_none
     allocate (plan%effective_density_m3(cfg%n_particle_species))
     allocate (plan%effective_particle_flux_m2_s(cfg%n_particle_species))
     allocate (plan%number_flux_override_active(cfg%n_particle_species))
@@ -327,6 +328,7 @@ contains
       if (.not. cfg%particle_species(s)%enabled) cycle
       select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
       case ('volume_seed')
+        plan%source_kind(s) = slot_kind_volume
         plan%effective_weight(s) = cfg%particle_species(s)%w_particle
         plan%effective_temperature_k(s) = species_temperature_k(cfg%particle_species(s))
         plan%effective_drift_velocity(:, s) = cfg%particle_species(s)%drift_velocity
@@ -334,8 +336,13 @@ contains
           plan%effective_density_m3(s) = species_number_density_m3(cfg%particle_species(s))
         end if
       case ('photo_raycast')
+        plan%source_kind(s) = slot_kind_photo_ray
         plan%photo_emit_current_density(s) = cfg%particle_species(s)%emit_current_density_a_m2
         plan%photo_normal_drift_speed(s) = cfg%particle_species(s)%normal_drift_speed
+      case ('secondary_emission')
+        continue
+      case default
+        error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
       end select
       if (plan%number_flux_override_active(s)) then
         plan%effective_particle_flux_m2_s(s) = number_flux_override_m2_s(s)

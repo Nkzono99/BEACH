@@ -111,11 +111,7 @@ contains
       call batch_ledger%init(app%n_particle_species)
     end if
 
-    call resolve_external_boundary_contract( &
-      app%sim%reservoir_potential_model, &
-      boundary_contract, boundary_status, boundary_message &
-      )
-    if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
+    boundary_contract = app%boundary_contract
     call resolve_irradiation_cell_contract(app, cell, boundary_status, boundary_message)
     if (boundary_status /= irradiation_cell_ok) error stop trim(boundary_message)
     adaptive_nonzero_mode = app%periodic2%max_nonzero_mode_potential_step > 0.0_dp

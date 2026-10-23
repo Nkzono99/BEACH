@@ -4,7 +4,7 @@ module bem_field_solver
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
-  use bem_types, only: mesh_type, sim_config
+  use bem_types, only: mesh_type, sim_config, particle_domain_config
   use bem_mpi, only: mpi_context
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
@@ -128,7 +128,7 @@ module bem_field_solver
     module subroutine eval_potential_field_solver(self, mesh, sim, r, phi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
-      type(sim_config), intent(in) :: sim
+      class(particle_domain_config), intent(in) :: sim
       real(dp), intent(in) :: r(3)
       real(dp), intent(out) :: phi
     end subroutine eval_potential_field_solver

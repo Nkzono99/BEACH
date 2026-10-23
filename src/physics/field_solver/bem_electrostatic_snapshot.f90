@@ -3,7 +3,7 @@ module bem_electrostatic_snapshot
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0, pi
-  use bem_types, only: mesh_type, sim_config, bc_periodic
+  use bem_types, only: mesh_type, sim_config, particle_domain_config, bc_periodic
   use bem_mpi, only: mpi_context
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
@@ -127,7 +127,7 @@ module bem_electrostatic_snapshot
     module subroutine eval_snapshot_local_phi(self, mesh, sim, position, potential)
       class(electrostatic_snapshot_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
-      type(sim_config), intent(in) :: sim
+      class(particle_domain_config), intent(in) :: sim
       real(dp), intent(in) :: position(3)
       real(dp), intent(out) :: potential
     end subroutine eval_snapshot_local_phi

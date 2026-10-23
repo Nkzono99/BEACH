@@ -58,7 +58,7 @@ contains
   logical :: retry_upper_panel_fourier, soft_discard_multiple_box_events
   integer(i32) :: first_particle, last_particle, generation, rng_tag
   type(secondary_spawn_buffer_type), allocatable :: spawn(:)
-  type(sim_config), target :: species_sim(app%n_particle_species)
+  type(particle_domain_config), target :: species_sim(app%n_particle_species)
   type(external_boundary_contract_type), target :: species_boundary_contract(app%n_particle_species)
   real(dp) :: slot_x(3), slot_v(3), slot_w, slot_q, slot_m
   integer(i32) :: slot_species, slot_element, slot_status, slot_bounce
@@ -86,7 +86,7 @@ contains
   soft_discard_multiple_box_events = trim(lower_ascii(app%sim%multiple_box_events_policy)) == 'soft_discard'
   ! Boundary settings and kinetic barriers are fixed throughout this trial batch.
   do species_idx = 1_i32, app%n_particle_species
-    species_sim(species_idx) = app%sim
+    species_sim(species_idx) = app%sim%particle_domain_config
     call resolve_particle_boundaries( &
       app%sim, app%particle_boundary_low, app%particle_boundary_high, app%particle_species(species_idx), &
       species_sim(species_idx)%bc_low, species_sim(species_idx)%bc_high &
@@ -231,7 +231,7 @@ contains
     real(dp) :: x0(3), v0(3), x1(3), v1(3), sampled_electric_field(3), qdep
     type(hit_info) :: hit
     type(particle_step_result) :: step_result, retry_result
-    type(sim_config), pointer :: particle_sim
+    type(particle_domain_config), pointer :: particle_sim
     type(external_boundary_contract_type), pointer :: particle_boundary_contract
     logical :: candidate_inside, used_event_resolver, retry_field_available
 

@@ -3,7 +3,6 @@
 !> `shared` の slot pool の両方がこれを基に粒子を作る。
 submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_slots
   use bem_kinds, only: i64
-  use bem_app_config_types, only: species_config_path
   use bem_injection, only: sample_reservoir_face_particle_counter, sample_photo_ray_slot, photo_ray_macro_weight
   use bem_injection_random, only: sample_standard_normal
   use bem_counter_rng, only: counter_uniform
@@ -20,24 +19,17 @@ contains
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
   !! @param[in] source_plan run 中に再利用する粒子 source 導出値（省略時は呼出し内で構築）。
   module procedure build_batch_injection_layout
-  integer(i32) :: s, face, local_rank, n_ranks, boundary_status, segment, slot, local_index
+  integer(i32) :: s, face, local_rank, n_ranks, segment, slot, local_index
   logical :: use_collective_reservoir_count
   type(particle_source_plan_type), target :: generated_source_plan
   type(particle_source_plan_type), pointer :: active_source_plan
-  type(external_boundary_contract_type) :: active_boundary_contract
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal, kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
-  character(len=256) :: boundary_message
 
   layout = batch_injection_layout_type()
   if (batch_idx < 1_i32 .or. batch_idx > cfg%sim%batch_count) then
     error stop 'Requested batch index is out of range.'
   end if
-  call resolve_external_boundary_contract( &
-    cfg%sim%reservoir_potential_model, &
-    active_boundary_contract, boundary_status, boundary_message &
-    )
-  if (boundary_status /= external_boundary_ok) error stop trim(boundary_message)
   call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'build_batch_injection_layout')
   if (present(source_plan)) then
     active_source_plan => source_plan
@@ -79,7 +71,7 @@ contains
   allocate (layout%drift_velocity(3, cfg%n_particle_species))
   allocate (layout%photo_emit_current_density(cfg%n_particle_species))
   allocate (layout%photo_normal_drift_speed(cfg%n_particle_species), layout%photo_ray_weight(cfg%n_particle_species))
-  layout%source_kind = slot_kind_none
+  layout%source_kind = active_source_plan%source_kind
   layout%source_global_count = 0_i32
   layout%boundary_global_count = 0_i32
   layout%boundary_vmin = 0.0_dp
@@ -93,12 +85,10 @@ contains
 
   do s = 1, cfg%n_particle_species
     if (.not. cfg%particle_species(s)%enabled) cycle
-    select case (trim(lower_ascii(cfg%particle_species(s)%source_mode)))
-    case ('volume_seed')
-      layout%source_kind(s) = slot_kind_volume
+    select case (layout%source_kind(s))
+    case (slot_kind_volume)
       layout%source_global_count(s) = cfg%particle_species(s)%npcls_per_step
-    case ('photo_raycast')
-      layout%source_kind(s) = slot_kind_photo_ray
+    case (slot_kind_photo_ray)
       ! A non-positive emission current emits nothing, so its rays are not even cast.
       if (layout%photo_emit_current_density(s) > 0.0_dp) then
         layout%source_global_count(s) = cfg%particle_species(s)%rays_per_batch
@@ -109,10 +99,8 @@ contains
                                      cfg%sim%batch_duration, cfg%particle_species(s)%rays_per_batch &
                                      )
       end if
-    case ('secondary_emission')
-      layout%source_kind(s) = slot_kind_none
-    case default
-      error stop 'Unknown '//species_config_path(int(s))//'.source.mode.'
+    case (slot_kind_none)
+      continue
     end select
     if (has_boundary_inflow(cfg%particle_species(s))) then
       if (.not. present(state)) then
@@ -124,8 +112,7 @@ contains
         call reservoir_face_velocity_correction( &
           cfg, face_spec, correction_vmin_normal, layout%boundary_barrier(face, s), mesh, snapshot, &
           warn_face_variation=local_rank == 0_i32 .and. &
-          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count), &
-          boundary_contract=active_boundary_contract &
+          (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
         face_density_m3 = active_source_plan%effective_density_m3(s)
