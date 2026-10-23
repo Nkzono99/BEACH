@@ -9,12 +9,26 @@ contains
   character(len=6), parameter :: high_faces(3) = ['x_high', 'y_high', 'z_high']
 
   if (cfg%sim%dt <= 0.0_dp) error stop 'particles.tracking.dt_s must be > 0.'
+  if (cfg%sim%batch_count <= 0_i32) error stop 'run.batch_count must be > 0.'
+  if (trim(cfg%sim%particle_distribution) /= 'static' .and. trim(cfg%sim%particle_distribution) /= 'shared') then
+    error stop 'run.batch.particle_distribution must be "static" or "shared".'
+  end if
+  if (cfg%sim%particle_pool_chunk < 1_i32) error stop 'run.batch.particle_pool_chunk must be >= 1.'
   if (.not. ieee_is_finite(cfg%sim%substep_field_change_max) .or. cfg%sim%substep_field_change_max < 0.0_dp) then
     error stop 'particles.tracking.substep_field_change_max must be finite and >= 0.'
   end if
   if (cfg%sim%substep_max_halvings < 0_i32 .or. cfg%sim%substep_max_halvings > 16_i32) then
     error stop 'particles.tracking.substep_max_halvings must be between 0 and 16.'
   end if
+  if (cfg%sim%step_growth_max < 1_i32 .or. cfg%sim%step_growth_max > 16_i32) then
+    error stop 'particles.tracking.step_growth_max must be between 1 and 16.'
+  end if
+  if (.not. ieee_is_finite(cfg%sim%step_growth_energy_fraction) .or. cfg%sim%step_growth_energy_fraction <= 0.0_dp .or. &
+      cfg%sim%step_growth_energy_fraction > 1.0_dp) then
+    error stop 'particles.tracking.step_growth_energy_fraction must be in (0, 1].'
+  end if
+  ! Step growth reuses the sub-step criterion; without an explicit threshold use a conservative default.
+  if (cfg%sim%step_growth .and. cfg%sim%substep_field_change_max <= 0.0_dp) cfg%sim%substep_field_change_max = 0.05_dp
   if (cfg%sim%q_floor <= 0.0_dp) error stop 'output.diagnostics.charge_floor_c must be > 0.'
   if (cfg%sim%use_box) then
     if (.not. all(ieee_is_finite(cfg%sim%box_min)) .or. .not. all(ieee_is_finite(cfg%sim%box_max)) .or. &
@@ -39,6 +53,8 @@ contains
   if (cfg%sim%injection_face_phi_grid_n < 1_i32) error stop 'particles.reservoir.face_potential_grid_n must be >= 1.'
   call resolve_external_e_field(cfg)
   call resolve_batch_duration(cfg)
+  ! 注入の macro 粒子数と位置の jitter はバッチごとにこの値を使う。
+  if (cfg%sim%batch_duration < 0.0_dp) error stop "run.batch.duration_s must be >= 0"
   end procedure validate_simulation_config
 
 end submodule bem_app_config_parser_preflight_sim

@@ -258,7 +258,7 @@ program test_output_writer_io
     saw_integrator = saw_integrator .or. index(line, 'particle_time_centering=same_time_midpoint_boris') > 0
     saw_residual = saw_residual .or. &
                    summary_real_equals(line, 'charge_ledger_residual_C', -0.75_dp, 1.0e-14_dp)
-    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=10') > 0
+    saw_schema = saw_schema .or. index(line, 'checkpoint_schema_version=11') > 0
     saw_mesh_fp = saw_mesh_fp .or. index(line, 'mesh_fingerprint=') > 0
     saw_ledger_stock = saw_ledger_stock .or. &
                        summary_real_equals( &
@@ -334,7 +334,7 @@ program test_output_writer_io
   saw_ledger_header = ios == 0 .and. trim(line) == charge_ledger_csv_header
   call assert_true(saw_integrator, 'summary should record the particle time-centering contract')
   call assert_true(saw_residual, 'summary should record the charge ledger residual')
-  call assert_true(saw_schema, 'summary should record checkpoint schema v9')
+  call assert_true(saw_schema, 'summary should record checkpoint schema v11')
   call assert_true(saw_mesh_fp, 'summary should identify the ordered mesh')
   call assert_true(saw_build_schema .and. saw_build_version .and. saw_build_mode .and. saw_source_commit .and. saw_build_id, &
                    'summary should record executable build origin')

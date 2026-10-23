@@ -84,6 +84,11 @@ contains
   write (u, '(a,i0)') 'adaptive_substep_halved_steps=', stats%adaptive_substep_halved_steps
   write (u, '(a,i0)') 'adaptive_substeps=', stats%adaptive_substeps
   write (u, '(a,i0)') 'adaptive_substep_depth_limited_steps=', stats%adaptive_substep_depth_limited_steps
+  write (u, '(a,i0)') 'adaptive_grown_steps=', stats%adaptive_grown_steps
+  write (u, '(a,i0)') 'adaptive_step_growth_max=', merge(cfg%sim%step_growth_max, 0_i32, cfg%sim%step_growth)
+  write (u, '(a,a)') 'particle_distribution=', trim(cfg%sim%particle_distribution)
+  write (u, '(a,i0)') 'particle_pool_claims=', stats%particle_pool_claims
+  write (u, '(a,es24.16)') 'particle_pool_claim_seconds=', stats%particle_pool_claim_seconds
   write (u, '(a,i0)') 'multiple_box_events_soft_discarded=', stats%multiple_box_events_soft_discarded
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discard_fraction=', soft_discard_fraction(stats)
   write (u, '(a,es24.16)') 'multiple_box_events_soft_discarded_abs_charge_C=', &
@@ -146,6 +151,7 @@ contains
   write (u, '(a)') 'field_reconstruction_schema_version=2'
   write (u, '(a,a)') 'field_reconstruction_resolved_field_solver=', trim(resolved_field_solver)
   write (u, '(a,i0)') 'field_reconstruction_fmm_expansion_order=', field_solver_fmm_expansion_order
+  write (u, '(a,a)') 'field_near_field_precision=', trim(cfg%sim%near_field_precision)
   write (u, '(a,a)') 'field_reconstruction_field_bc_mode=', trim(cfg%sim%field_bc_mode)
   write (u, '(a,es24.16)') 'field_reconstruction_tree_theta=', resolved_tree_theta
   write (u, '(a,i0)') 'field_reconstruction_tree_leaf_max=', resolved_tree_leaf_max

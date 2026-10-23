@@ -13,7 +13,7 @@ contains
   if (self%mode_id /= field_solver_mode_treecode .and. self%mode_id /= field_solver_mode_fmm) return
 
   if (self%mode_id == field_solver_mode_fmm) then
-    call refresh_fmm_solver(self, mesh)
+    call refresh_fmm_solver(self, mesh, mpi)
     return
   end if
 

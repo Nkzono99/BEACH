@@ -1,4 +1,5 @@
-!> Minimal POSIX filesystem operations used by the runtime.
+!> Minimal POSIX filesystem operations: directories, atomic rename, advisory locks and the cache location.
+!! They hold no runtime state, so config, runtime and the periodic operator cache use them from core.
 module bem_filesystem
   use, intrinsic :: iso_c_binding, only: c_associated, c_char, c_int, c_null_char, c_ptr
   implicit none

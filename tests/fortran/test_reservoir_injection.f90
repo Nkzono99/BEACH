@@ -210,8 +210,6 @@ contains
     type(particle_source_plan_type) :: source_plan
     type(particles_soa) :: particles_without_plan, particles_with_plan
     type(injection_state) :: state_without_plan, state_with_plan
-    integer, allocatable :: rng_before(:), rng_after_build(:), rng_without_plan(:), rng_with_plan(:)
-    integer :: rng_size
 
     call default_app_config(plan_cfg)
     plan_cfg%sim%rng_seed = 2468_i32
@@ -255,23 +253,12 @@ contains
     state_with_plan%boundary_macro_residual = 0.0_dp
     state_without_plan%macro_residual = 0.0_dp
     state_with_plan%macro_residual = 0.0_dp
-    call random_seed(size=rng_size)
-    allocate (rng_before(rng_size), rng_after_build(rng_size), rng_without_plan(rng_size), rng_with_plan(rng_size))
-    call seed_particles_from_config(plan_cfg)
-    call random_seed(get=rng_before)
+    ! Batch particles come from counter-based slots, so the source plan cannot shift any random draw.
     call build_particle_source_plan(plan_cfg, source_plan)
-    call random_seed(get=rng_after_build)
-    call assert_true(all(rng_before == rng_after_build), 'building a source plan must not consume random numbers')
-
-    call seed_particles_from_config(plan_cfg)
     call init_particle_batch_from_config(plan_cfg, 1_i32, particles_without_plan, state=state_without_plan)
-    call random_seed(get=rng_without_plan)
-
-    call seed_particles_from_config(plan_cfg)
     call init_particle_batch_from_config( &
       plan_cfg, 1_i32, particles_with_plan, state=state_with_plan, source_plan=source_plan &
       )
-    call random_seed(get=rng_with_plan)
 
     call assert_equal_i32(particles_with_plan%n, particles_without_plan%n, 'source plan particle count mismatch')
     call assert_true( &
@@ -290,7 +277,6 @@ contains
       all(state_with_plan%boundary_macro_residual == state_without_plan%boundary_macro_residual), &
       'source plan boundary residual mismatch' &
       )
-    call assert_true(all(rng_with_plan == rng_without_plan), 'source plan must preserve the post-batch random state')
   end subroutine test_particle_source_plan_equivalence
 
   subroutine test_face_potential_statistics_share_sampling_pass()

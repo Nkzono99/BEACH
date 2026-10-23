@@ -625,6 +625,21 @@
           "exclusiveMinimum": 0,
           "description": "Resolved as batch_duration = dt * batch_duration_step."
         },
+        "particle_distribution": {
+          "type": "string",
+          "enum": [
+            "static",
+            "shared"
+          ],
+          "default": "static",
+          "description": "How batch particles are divided among MPI ranks. Every slot of the global batch layout is generated with PCG64 counter-based random numbers keyed on (seed, batch, species, source, face, index), so the batch does not depend on the rank count. static gives each rank a contiguous slot range; shared lets ranks claim chunks of one slot pool through a rank-0 RMA counter for dynamic load balance."
+        },
+        "particle_pool_chunk": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Slots taken per claim when particle_distribution is shared."
+        },
         "max_step": {
           "type": "integer",
           "minimum": 1,
@@ -643,6 +658,25 @@
           "maximum": 16,
           "default": 6,
           "description": "Maximum number of halvings of one time step (smallest sub-step dt/2^n)."
+        },
+        "step_growth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let a particle take steps longer than dt where the sampled field changes little: after a step whose midpoint field changed by less than a quarter of substep_field_change_max (or whose change times displacement stays within the energy floor), the next step doubles, up to dt*2^step_growth_max. When substep_field_change_max is 0 it is set to 0.05."
+        },
+        "step_growth_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "default": 5,
+          "description": "Maximum number of doublings of one time step (largest step dt*2^n) when step_growth is enabled."
+        },
+        "step_growth_energy_fraction": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.01,
+          "description": "With step_growth, the work done by the field change over a step is allowed up to this fraction of the particle's kinetic energy (or 1e-4 eV if larger) before the step is halved; growth needs a quarter of the field-change threshold or this floor."
         },
         "tol_rel": {
           "type": "number",
@@ -750,6 +784,15 @@
         "tree_leaf_max": {
           "type": "integer",
           "description": "Optional explicit maximum elements per leaf node in treecode/FMM. When omitted, BEACH selects it from the element-count heuristic."
+        },
+        "near_field_precision": {
+          "type": "string",
+          "enum": [
+            "double",
+            "single"
+          ],
+          "default": "double",
+          "description": "Precision of the FMM near-field panel sums. \"double\" (default) reproduces the previous results bit for bit; \"single\" stores the per-leaf panel tables in single precision and evaluates them with 8-lane SIMD, about 1.5x faster for that sum, with a relative field error around 1e-6 (the order-4 FMM truncation is about 2e-4)."
         },
         "tree_min_nelem": {
           "type": "integer",
@@ -1816,6 +1859,25 @@
                   "default": 6,
                   "description": "Maximum number of halvings of one time step (smallest sub-step dt/2^n)."
                 },
+                "step_growth": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Let a particle take steps longer than dt where the sampled field changes little: after a step whose midpoint field changed by less than a quarter of substep_field_change_max (or whose change times displacement stays within the energy floor), the next step doubles, up to dt*2^step_growth_max. When substep_field_change_max is 0 it is set to 0.05."
+                },
+                "step_growth_max": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 16,
+                  "default": 5,
+                  "description": "Maximum number of doublings of one time step (largest step dt*2^n) when step_growth is enabled."
+                },
+                "step_growth_energy_fraction": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1,
+                  "default": 0.01,
+                  "description": "With step_growth, the work done by the field change over a step is allowed up to this fraction of the particle's kinetic energy (or 1e-4 eV if larger) before the step is halved; growth needs a quarter of the field-change threshold or this floor."
+                },
                 "events": {
                   "type": "object",
                   "additionalProperties": false,
@@ -1964,6 +2026,21 @@
                   "type": "number",
                   "exclusiveMinimum": 0,
                   "description": "Resolved as batch_duration = dt * batch_duration_step."
+                },
+                "particle_distribution": {
+                  "type": "string",
+                  "enum": [
+                    "static",
+                    "shared"
+                  ],
+                  "default": "static",
+                  "description": "How batch particles are divided among MPI ranks. Every slot of the global batch layout is generated with PCG64 counter-based random numbers keyed on (seed, batch, species, source, face, index), so the batch does not depend on the rank count. static gives each rank a contiguous slot range; shared lets ranks claim chunks of one slot pool through a rank-0 RMA counter for dynamic load balance."
+                },
+                "particle_pool_chunk": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 64,
+                  "description": "Slots taken per claim when particle_distribution is shared."
                 },
                 "adaptive": {
                   "type": "object",
@@ -2123,6 +2200,15 @@
                   "type": "integer",
                   "default": 256,
                   "description": "Element count threshold for field_solver=auto to switch from direct evaluation to FMM."
+                },
+                "near_field_precision": {
+                  "type": "string",
+                  "enum": [
+                    "double",
+                    "single"
+                  ],
+                  "default": "double",
+                  "description": "Precision of the FMM near-field panel sums. \"double\" (default) reproduces the previous results bit for bit; \"single\" stores the per-leaf panel tables in single precision and evaluates them with 8-lane SIMD, about 1.5x faster for that sum, with a relative field error around 1e-6 (the order-4 FMM truncation is about 2e-4)."
                 }
               }
             },

@@ -42,6 +42,17 @@ OpenMPのスレッド数は環境変数で指定します。
 OMP_NUM_THREADS=8 beach beach.toml
 ```
 
+`beach` は `OMP_SCHEDULE` が未指定なら、通常の粒子追跡を `dynamic,1`（1 粒子ずつ動的に割り当て）で実行します。
+粒子ごとに飛行時間が異なっても、空いたスレッドが次の粒子を処理します。明示した `OMP_SCHEDULE` を優先するので、
+固定割り当てで比較したい場合は次のように指定します。
+
+```bash
+OMP_NUM_THREADS=8 OMP_SCHEDULE=static beach beach.toml
+```
+
+適応的な $k\ne0$ 進行は、同じバッチの再試行を再現するため、粒子追跡中だけ `static` を使います。
+並列実行では電荷の加算順序が変わり、丸め誤差によって個々の粒子の結果が変わる場合があります。
+
 MPIビルドを利用する場合はランチャーから起動します。
 
 ```bash
@@ -50,6 +61,14 @@ mpirun -n 4 beach beach.toml
 
 MPI build、launcher、compiler module は利用する環境に合わせてください。MPI / OpenMP 内部の state 所有と
 集約方法を変更する開発者は[ランタイムのアーキテクチャ](../developer/Architecture.md)を参照してください。
+
+バッチの粒子は種・source・面ごとの global slot に並び、各 slot は (seed, batch, slot) の PCG64 counter-based 乱数で
+生成されます。既定（`run.batch.particle_distribution = "static"`）は slot を rank に連続区間で割り振るので、
+rank 数を変えても同じ粒子集合になります。rank 間で粒子追跡の所要時間が偏るときは `"shared"` にすると、全 rank が
+1 つの slot pool を `particle_pool_chunk` 個ずつ取り合い（rank 0 のカウンタへの fetch-and-add）、負荷が動的に均されます。
+`summary.txt` の `particle_pool_claim_seconds` で claim の待ち時間を確認できます。各 rank は次の chunk を先に要求して
+粒子追跡と通信を重ねるので、ノードをまたぐ実行でも既定の 64 から 256 程度の chunk なら claim の待ち時間はバッチ時間の
+1% 未満です。
 
 ## 実行前に負荷を見積もる
 
@@ -169,14 +188,15 @@ dir = "outputs/tutorial"
 ```
 
 一般に、checkpoint が `batches=100` で新しい `batch_count=150` なら 50 バッチを追加します。
-MPI 再開では、checkpoint の `mpi_world_size` と現在の rank 数を一致させます。
+MPI 再開の rank 数は保存時と違ってかまいません。乱数はすべて (seed, batch, 粒子 slot, ...) で決まる PCG64 の
+counter-based 乱数で、checkpoint は乱数状態を持ちません。同じ seed なら rank 数によらず同じ粒子集合を追跡します。
 適応的な $k\ne0$ 進行では、同じ実行内の再試行で全 MPI rank の実 OpenMP team size を揃えます。
 restart 前後で同じ team size を使う必要はなく、再開後の実 team size を新しい診断値として記録します。
 
 必須ファイルと checkpoint 選択の契約は
 [再開に使うファイル](../reference/OutputReference.md#再開に使うファイル)が正本です。
 再開が拒否された場合は[トラブルシューティング](Troubleshooting.md#checkpointから再開できない)で
-必須ファイル、mesh 識別子、MPI world size、累積 `batch_count` を確認してください。
+必須ファイル、mesh 識別子、累積 `batch_count` を確認してください。
 
 ## 実行後に確認すること
 

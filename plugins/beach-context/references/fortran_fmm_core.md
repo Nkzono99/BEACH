@@ -45,7 +45,7 @@ Coulomb電場を計算します。低水準の検証・periodic operator構築�
 ```fortran
 call build_plan(plan, src_pos, options)             ! generic monopole plan
 call build_panel_plan(plan, v0, v1, v2, options)   ! BEACH surface plan
-call update_state(plan, state, src_q)
+call update_state(plan, state, src_q)             ! optional 4th argument: mpi_context
 call eval_points(plan, state, target_pos, e)
 call eval_point(plan, state, r, e)
 ```
@@ -58,6 +58,9 @@ call eval_point(plan, state, r, e)
   panel planの三角形頂点。`build_panel_plan`後は固定とみなす。
 - `src_q(n)`:
   source 点の電荷。`update_state` ごとに更新できる。
+- `mpi`（省略可）:
+  `bem_mpi` の `mpi_context`。与えると M2L の target node を rank で分担し、局所展開を allgather で揃える。
+  全 rank が同じ plan と `src_q` で呼ぶこと。結果は省略した場合と bit 単位で同じ。
 - `target_pos(3,m)` または `r(3)`:
   評価点。
 - `e(3,m)` または `e(3)`:
@@ -390,10 +393,17 @@ update_state(plan, state, src_q):
   clear multipole/local only when the tree has no source leaves or no M2L pairs
   P2M on source leaves
   M2M bottom-up
-  M2L on cached pairs
+  M2L on cached pairs (this rank's block of target nodes when mpi is given)
+  allgather local expansions and active flags across ranks (mpi only)
+  periodic far correction on anchors
   L2L top-down
   mark state ready
 ```
+
+`mpi` を与えた場合、target node は組数がほぼ等しい連続ブロックに rank 順で分けられ（`m2l_rank_blocks`）、
+各 node の展開は 1 つの rank が従来と同じループで求める。通常精度の同一ビルドでは計算を分担しても結果は同じで、
+M2L の組の評価を rank に分配できる。通信と組数の偏りがあるため、所要時間が rank 数に反比例するとは限らない。
+演算子と plan の保存領域は引き続き各 rank が保持する。
 
 ### 6.2 OpenMP並列化
 
@@ -418,6 +428,9 @@ update_state(plan, state, src_q):
 - `M2M/L2L` の有効な `(alpha, delta)` 項だけを圧縮して持ち、無効項を走査しない
 - `M2L`ではsource nodeのactive flagを調べ、zero-nodeのpairを早期にskipする
 - `M2L`ではtarget node列を繰り返し更新せず、thread-localな`local_acc`へ蓄積してから書き戻す
+- panel plan では各葉の近接 panel を像シフト込みの成分配列（`near_vx` … `near_area`）として build 時に保存し、
+  点評価は葉の区間を 64 panel ずつ SIMD ループで評価して、リスト順に合算する（`panel_field_sum_translated`）
+- 近接 panel の成分表には、像と葉による重複を含む近接リストの 1 エントリにつき約 200 byte を各 rank で追加保持する
 - `P2M` で target leaf ではなく source leaf 専用 index を使う
 
 ## 7. `eval_point(s)` のアルゴリズム
@@ -833,8 +846,12 @@ cold buildでは、再利用可能なoperator行列を初回だけ生成しま�
   `add_periodic2_exact_ewald_correction_single_source`
   （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_ewald.f90`）
 - periodic2 root operator:
-  `precompute_periodic_root_operator`
-  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`）
+  `precompute_periodic_root_operator`, `build_missing_cell_operators`
+  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_root_ops.f90`）。
+  セル単位 cache の読み書きと lock は `lookup_cell_cache`, `publish_cell_cache_and_unlock`
+  （`src/physics/field_solver/fmm/internal/periodic/bem_coulomb_fmm_periodic_cell_cache.f90`）。
+  rank 分担に使う MPI 文脈は `fmm_options_type%mpi` で、呼び出し側（simulator、`--prepare-periodic-cache`）が
+  `snapshot%init(..., mpi=)` から渡す。コアは MPI を初期化・終了しない
 - BEACH adapter:
   `src/physics/field_solver/bem_field_solver_config.f90`,
   `src/physics/field_solver/bem_field_solver_tree.f90`,

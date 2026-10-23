@@ -1,6 +1,7 @@
 !> Coulomb FMM コアで共有する型定義。
 module bem_coulomb_fmm_types
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, sp, i32, i64
+  use bem_mpi, only: mpi_context
   use bem_panel_geometry, only: panel_geometry_type
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type
   use bem_periodic_shell_mean, only: periodic_shell_mean_plan_type, periodic_shell_mean_state_type, &
@@ -29,6 +30,9 @@ module bem_coulomb_fmm_types
     real(dp) :: theta = 0.5d0
     integer(i32) :: leaf_max = 16_i32
     integer(i32) :: order = 4_i32
+    !> Panel sources only: keep the per-leaf near-field tables in single precision (relative to the leaf center)
+    !! and sum them with the single-precision SIMD kernel. Off by default; results then differ at the 1e-6 level.
+    logical :: near_field_single = .false.
     real(dp) :: softening = 0.0d0
     logical :: use_periodic2 = .false.
     character(len=16) :: periodic_far_correction = 'none'
@@ -47,6 +51,9 @@ module bem_coulomb_fmm_types
     integer(i32) :: periodic_operator_anchor_cells(3) = -1_i32
     real(dp) :: target_box_min(3) = 0.0d0
     real(dp) :: target_box_max(3) = 0.0d0
+    !> cached_kneq0 の root operator を rank で分担して作るときの MPI 文脈。呼び出し側（runtime）が渡す。
+    !! 既定は単一 rank で、collective は何もしない（C ABI・テスト・非 MPI build）。
+    type(mpi_context) :: mpi
   end type fmm_options_type
 
   type :: periodic2_ewald_data_type
@@ -122,6 +129,19 @@ module bem_coulomb_fmm_types
     integer(i32), allocatable :: near_start(:), near_nodes(:)
     integer(i32), allocatable :: near_source_start(:), near_source_idx(:)
     real(dp), allocatable :: near_source_shift1(:), near_source_shift2(:)
+    !> Panel sources only: the near-field panels in `near_source_idx` order as translated component arrays
+    !! (vertex x/y/z per vertex, normal, edge lengths, outward edge normals per component, area), so a
+    !! point evaluation reads its leaf's panels without gathering them from `panel_geometry`.
+    real(dp), allocatable :: near_vx(:, :), near_vy(:, :), near_vz(:, :)
+    real(dp), allocatable :: near_nx(:), near_ny(:), near_nz(:)
+    real(dp), allocatable :: near_edge(:, :), near_ox(:, :), near_oy(:, :), near_oz(:, :)
+    real(dp), allocatable :: near_area(:)
+    !> Single-precision counterparts used when options%near_field_single: vertices relative to the leaf center.
+    real(sp), allocatable :: near_sp_vx(:, :), near_sp_vy(:, :), near_sp_vz(:, :)
+    real(sp), allocatable :: near_sp_nx(:), near_sp_ny(:), near_sp_nz(:)
+    real(sp), allocatable :: near_sp_edge(:, :), near_sp_ox(:, :), near_sp_oy(:, :), near_sp_oz(:, :)
+    real(sp), allocatable :: near_sp_area(:)
+    real(dp), allocatable :: near_leaf_center(:, :)
     integer(i32), allocatable :: far_start(:), far_nodes(:)
     integer(i32) :: m2l_pair_count = 0_i32
     integer(i32) :: m2l_build_count = 0_i32
@@ -293,6 +313,29 @@ contains
     if (allocated(plan%near_source_idx)) deallocate (plan%near_source_idx)
     if (allocated(plan%near_source_shift1)) deallocate (plan%near_source_shift1)
     if (allocated(plan%near_source_shift2)) deallocate (plan%near_source_shift2)
+    if (allocated(plan%near_vx)) deallocate (plan%near_vx)
+    if (allocated(plan%near_vy)) deallocate (plan%near_vy)
+    if (allocated(plan%near_vz)) deallocate (plan%near_vz)
+    if (allocated(plan%near_nx)) deallocate (plan%near_nx)
+    if (allocated(plan%near_ny)) deallocate (plan%near_ny)
+    if (allocated(plan%near_nz)) deallocate (plan%near_nz)
+    if (allocated(plan%near_edge)) deallocate (plan%near_edge)
+    if (allocated(plan%near_ox)) deallocate (plan%near_ox)
+    if (allocated(plan%near_oy)) deallocate (plan%near_oy)
+    if (allocated(plan%near_oz)) deallocate (plan%near_oz)
+    if (allocated(plan%near_area)) deallocate (plan%near_area)
+    if (allocated(plan%near_sp_vx)) deallocate (plan%near_sp_vx)
+    if (allocated(plan%near_sp_vy)) deallocate (plan%near_sp_vy)
+    if (allocated(plan%near_sp_vz)) deallocate (plan%near_sp_vz)
+    if (allocated(plan%near_sp_nx)) deallocate (plan%near_sp_nx)
+    if (allocated(plan%near_sp_ny)) deallocate (plan%near_sp_ny)
+    if (allocated(plan%near_sp_nz)) deallocate (plan%near_sp_nz)
+    if (allocated(plan%near_sp_edge)) deallocate (plan%near_sp_edge)
+    if (allocated(plan%near_sp_ox)) deallocate (plan%near_sp_ox)
+    if (allocated(plan%near_sp_oy)) deallocate (plan%near_sp_oy)
+    if (allocated(plan%near_sp_oz)) deallocate (plan%near_sp_oz)
+    if (allocated(plan%near_sp_area)) deallocate (plan%near_sp_area)
+    if (allocated(plan%near_leaf_center)) deallocate (plan%near_leaf_center)
     if (allocated(plan%far_start)) deallocate (plan%far_start)
     if (allocated(plan%far_nodes)) deallocate (plan%far_nodes)
     if (allocated(plan%m2l_target_nodes)) deallocate (plan%m2l_target_nodes)

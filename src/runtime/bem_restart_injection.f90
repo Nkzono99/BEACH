@@ -1,36 +1,9 @@
-!> 再開に必要な乱数状態・マクロ粒子端数の保存と復元。
+!> 再開に必要なマクロ粒子端数の保存と復元（乱数は counter-based なので状態を持たない）。
 submodule(bem_restart) bem_restart_injection
   use bem_kinds, only: dp
   use bem_mpi, only: mpi_get_rank_size, mpi_bcast_i32_array
   implicit none
 contains
-
-  !> 現在の Fortran 乱数状態をファイルへ保存する。
-  !! checkpoint transactionのownerは、全rankがこの手続きへ入る前に
-  !! completion manifestを無効化し、書き終わり後に全rankを同期する。
-  !! @param[in] out_dir 出力ディレクトリ。
-  module procedure write_rng_state_file
-
-  character(len=1024) :: path
-  integer :: n, u, ios, i
-  integer, allocatable :: seed(:)
-  integer(i32) :: local_rank, world_size
-
-  call resolve_parallel_rank_size(local_rank, world_size, mpi_rank, mpi_size, mpi, 'write_rng_state_file')
-  call random_seed(size=n)
-  allocate (seed(n))
-  call random_seed(get=seed)
-
-  path = restart_rng_state_path(trim(out_dir), mpi_rank=local_rank, mpi_size=world_size)
-  open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
-  if (ios /= 0) error stop 'Failed to open rng_state.txt.'
-
-  write (u, '(i0)') n
-  do i = 1, n
-    write (u, '(i0)') seed(i)
-  end do
-  close (u)
-  end procedure write_rng_state_file
 
   !> マクロ粒子残差を `macro_residuals.csv` として保存する。
   !! completion manifestの無効化と最終公開はcheckpoint transactionのownerが行う。
@@ -66,35 +39,6 @@ contains
   end do
   close (u)
   end procedure write_macro_residuals_file
-
-  !> 保存済み乱数状態を読み戻し、このビルドの RNG 状態へ復元する。
-  !! RNG 内部状態の長さが一致しない場合は互換性がないため停止する。
-  !! @param[in] path `rng_state.txt` のファイルパス。
-  module procedure restore_rng_state
-
-  integer :: expected_n, file_n, u, ios, i
-  integer, allocatable :: seed(:)
-
-  call random_seed(size=expected_n)
-
-  open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-  if (ios /= 0) error stop 'Failed to open rng_state.txt for resume.'
-
-  read (u, *, iostat=ios) file_n
-  if (ios /= 0) error stop 'Failed to read rng_state.txt header.'
-  if (file_n /= expected_n) then
-    error stop 'Resume checkpoint RNG state size does not match this build.'
-  end if
-
-  allocate (seed(file_n))
-  do i = 1, file_n
-    read (u, *, iostat=ios) seed(i)
-    if (ios /= 0) error stop 'Failed to parse rng_state.txt.'
-  end do
-  close (u)
-
-  call random_seed(put=seed)
-  end procedure restore_rng_state
 
   !> 保存済みマクロ粒子残差を読み戻す。
   !! @param[in] path `macro_residuals.csv` のファイルパス。
@@ -181,7 +125,7 @@ contains
   end if
   end procedure load_macro_residual_file
 
-  !> RNG状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
+  !> schema 10 以前の RNG 状態ファイルのパスを返す。MPI複数rank時は rank 接尾辞付きパスへ切り替える。
   module procedure restart_rng_state_path
   integer(i32) :: local_rank, world_size
 

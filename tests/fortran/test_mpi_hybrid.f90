@@ -10,11 +10,13 @@ program test_mpi_hybrid
   use bem_simulator, only: run_absorption_insulator
   use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config, &
                             init_particle_batch_from_config, particle_inflow_reservoir
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
+  use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
+  use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_panel_plan, update_state, &
+                                  eval_point, destroy_plan, destroy_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, &
                           assert_close_dp, delete_file_if_exists, &
@@ -40,6 +42,13 @@ program test_mpi_hybrid
   character(len=*), parameter :: history_path = 'test_mpi_hybrid_history_tmp.csv'
   character(len=*), parameter :: out_dir = 'test_mpi_hybrid_restart_tmp'
   character(len=1024) :: rng_path, residual_path
+  integer(i32), parameter :: grid_nx = 6_i32, grid_ny = 6_i32, grid_nsrc = 2_i32*grid_nx*grid_ny
+  type(fmm_options_type) :: fmm_options
+  type(fmm_plan_type) :: fmm_plan
+  type(fmm_state_type) :: replicated_state, distributed_state
+  real(dp) :: grid_v0(3, grid_nsrc), grid_v1(3, grid_nsrc), grid_v2(3, grid_nsrc), grid_q(grid_nsrc)
+  real(dp) :: replicated_field(3), distributed_field(3), probe(3)
+  integer(i32) :: node_idx, coeff_idx, mismatches
   character(len=1024) :: periodic_rng_path, resolved_checkpoint_dir
 
   call mpi_initialize(mpi)
@@ -106,7 +115,7 @@ program test_mpi_hybrid
 
   call seed_particles_from_config(cfg, mpi=mpi)
 
-  call test_init(7)
+  call test_init(10)
 
   call test_begin('mpi_lowest_rank_metadata_selection')
   expected_rank = mpi%size - 1_i32
@@ -176,6 +185,14 @@ program test_mpi_hybrid
 
   call test_begin('mpi_neutral_return_layout_invariance')
   call run_mpi_neutral_return_layout_test(mpi)
+  call test_end()
+
+  call test_begin('mpi_shared_pool_rank_independent')
+  call run_mpi_shared_pool_test(mpi, 'shared')
+  call test_end()
+
+  call test_begin('mpi_static_slots_rank_independent')
+  call run_mpi_shared_pool_test(mpi, 'static')
   call test_end()
 
   call test_begin('mpi_history')
@@ -259,7 +276,12 @@ program test_mpi_hybrid
   state%macro_residual(1) = 0.25d0 + 0.01d0*real(mpi%rank, dp)
   state%boundary_macro_residual = 0.0_dp
   state%boundary_macro_residual(2, 1) = 0.5_dp + 0.01_dp*real(mpi%rank, dp)
-  call write_rng_state_file(out_dir, mpi=mpi)
+  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists one RNG file per rank.
+  rng_path = restart_rng_state_path(out_dir, mpi=mpi)
+  open (newunit=u, file=trim(rng_path), status='replace', action='write', iostat=ios)
+  if (ios /= 0) error stop 'failed to open legacy MPI RNG fixture'
+  write (u, '(a)') '0'
+  close (u)
   call write_macro_residuals_file(out_dir, state, mpi=mpi)
   call mpi_world_barrier(mpi)
 
@@ -305,11 +327,72 @@ program test_mpi_hybrid
     call remove_empty_directory(out_dir)
   end if
 
+  call test_begin('mpi_distributed_m2l_matches_replicated_update')
+  ! update_state with the MPI context splits the M2L targets over ranks and gathers the local
+  ! expansions; every rank must end with the same expansions as the replicated update, bit for bit.
+  call make_mpi_panel_grid(grid_v0, grid_v1, grid_v2, grid_q)
+  fmm_options%theta = 0.45_dp
+  fmm_options%leaf_max = 4_i32
+  fmm_options%order = 4_i32
+  fmm_options%target_box_min = [-1.2_dp, -1.2_dp, -0.5_dp]
+  fmm_options%target_box_max = [1.2_dp, 1.2_dp, 2.5_dp]
+  call build_panel_plan(fmm_plan, grid_v0, grid_v1, grid_v2, fmm_options)
+  call update_state(fmm_plan, replicated_state, grid_q)
+  call update_state(fmm_plan, distributed_state, grid_q, mpi)
+  call assert_true(fmm_plan%m2l_pair_count > 0_i32, 'MPI M2L test needs a plan with M2L pairs')
+  mismatches = 0_i32
+  do node_idx = 1_i32, size(replicated_state%local, 2)
+    if (distributed_state%local_active(node_idx) /= replicated_state%local_active(node_idx)) mismatches = mismatches + 1_i32
+    do coeff_idx = 1_i32, size(replicated_state%local, 1)
+      if (distributed_state%local(coeff_idx, node_idx) /= replicated_state%local(coeff_idx, node_idx)) then
+        mismatches = mismatches + 1_i32
+      end if
+    end do
+  end do
+  call assert_equal_i32(mismatches, 0_i32, 'distributed M2L local expansions differ from the replicated ones')
+  probe = [0.42_dp, 0.31_dp, 0.45_dp]
+  call eval_point(fmm_plan, replicated_state, probe, replicated_field)
+  call eval_point(fmm_plan, distributed_state, probe, distributed_field)
+  call assert_true(all(distributed_field == replicated_field), 'distributed M2L field differs from the replicated one')
+  call destroy_state(replicated_state)
+  call destroy_state(distributed_state)
+  call destroy_plan(fmm_plan)
+  call test_end()
+
   call test_summary()
 
   call mpi_shutdown(mpi)
 
 contains
+
+  !> Two triangles per cell on a square grid in z=0, with smoothly varying charges.
+  subroutine make_mpi_panel_grid(v0_out, v1_out, v2_out, q_out)
+    real(dp), intent(out) :: v0_out(3, grid_nsrc), v1_out(3, grid_nsrc), v2_out(3, grid_nsrc), q_out(grid_nsrc)
+    integer(i32) :: ix, iy, element
+    real(dp) :: x0, x1, y0, y1, dx, dy
+
+    dx = 1.6_dp/real(grid_nx, dp)
+    dy = 1.6_dp/real(grid_ny, dp)
+    element = 0_i32
+    do iy = 1_i32, grid_ny
+      y0 = -0.8_dp + real(iy - 1_i32, dp)*dy
+      y1 = y0 + dy
+      do ix = 1_i32, grid_nx
+        x0 = -0.8_dp + real(ix - 1_i32, dp)*dx
+        x1 = x0 + dx
+        element = element + 1_i32
+        v0_out(:, element) = [x0, y0, 0.0_dp]
+        v1_out(:, element) = [x1, y0, 0.0_dp]
+        v2_out(:, element) = [x1, y1, 0.0_dp]
+        q_out(element) = 1.0_dp + 0.2_dp*sin(real(element, dp))
+        element = element + 1_i32
+        v0_out(:, element) = [x0, y0, 0.0_dp]
+        v1_out(:, element) = [x1, y1, 0.0_dp]
+        v2_out(:, element) = [x0, y1, 0.0_dp]
+        q_out(element) = 1.0_dp + 0.2_dp*cos(real(element, dp))
+      end do
+    end do
+  end subroutine make_mpi_panel_grid
 
   subroutine run_mpi_soft_discard_aggregation_test(mpi)
     type(mpi_context), intent(in) :: mpi
@@ -375,11 +458,10 @@ contains
       )
   end subroutine run_mpi_soft_discard_aggregation_test
 
-  !> 同一ray集合を複製したMPI実行とserial参照でneutral-return閉包を比較する。
+  !> 同じglobal ray集合を追跡するMPI実行とserial参照でneutral-return閉包を比較する。
   !!
-  !! MPI側は各rankがserial参照と同じray集合を追跡し、global raysを
-  !! world-size倍にしてmacro chargeを1/world-sizeへ落とす。したがって
-  !! 全rankの物理的な放出・帰還・未解決電荷とmesh depositはserial参照と一致する。
+  !! バッチの ray は global slot の counter-based 乱数で決まるので、MPI 側で rank に分けた ray 集合は
+  !! serial 参照の ray 集合と同じになる。全rankの物理的な放出・帰還・未解決電荷とmesh depositはserial参照と一致する。
   subroutine run_mpi_neutral_return_layout_test(mpi)
     type(mpi_context), intent(in) :: mpi
     integer(i32), parameter :: rays_per_rank = 1024_i32
@@ -397,7 +479,8 @@ contains
     reference_signature = 0.0_dp
     reference_counts = 0_i64
     if (mpi_is_root(mpi)) then
-      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_rank)
+      ! Batch slots are counter-based, so the root alone traces exactly the global ray set of the MPI run.
+      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_rank*mpi%size)
       call seed_particles_from_config(reference_cfg)
       call run_absorption_insulator( &
         reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger &
@@ -414,9 +497,7 @@ contains
     call setup_mpi_neutral_return_fixture( &
       distributed_mesh, distributed_cfg, rays_per_rank*mpi%size &
       )
-    ! Test-only common stream: every rank traces the same rays while each
-    ! macro charge is divided by the global ray count.
-    call seed_particles_from_config(distributed_cfg, mpi_rank=0_i32, mpi_size=1_i32)
+    call seed_particles_from_config(distributed_cfg, mpi=mpi)
     call run_absorption_insulator( &
       distributed_mesh, distributed_cfg, distributed_stats, mpi=mpi, &
       charge_ledger=distributed_ledger &
@@ -437,15 +518,15 @@ contains
     end do
 
     call assert_equal_i64( &
-      distributed_ledger%emitted_count(1), int(mpi%size, i64)*reference_counts(1), &
+      distributed_ledger%emitted_count(1), reference_counts(1), &
       'neutral-return MPI emitted count was not reduced across ranks' &
       )
     call assert_equal_i64( &
-      distributed_ledger%absorbed_count(1), int(mpi%size, i64)*reference_counts(2), &
+      distributed_ledger%absorbed_count(1), reference_counts(2), &
       'neutral-return MPI absorbed count was not reduced across ranks' &
       )
     call assert_equal_i64( &
-      distributed_ledger%discarded_unresolved_count(1), int(mpi%size, i64)*reference_counts(3), &
+      distributed_ledger%discarded_unresolved_count(1), reference_counts(3), &
       'neutral-return MPI unresolved count was not reduced across ranks' &
       )
     call assert_true( &
@@ -474,6 +555,110 @@ contains
       'neutral-return MPI ledger residual must close' &
       )
   end subroutine run_mpi_neutral_return_layout_test
+
+  !> shared pool: 全 rank で slot を取り合った結果が、root だけで同じ pool を処理した結果と一致する。
+  !! さらにその checkpoint を別の rank 数で読み戻せる。
+  subroutine run_mpi_shared_pool_test(mpi, distribution)
+    type(mpi_context), intent(in) :: mpi
+    character(len=*), intent(in) :: distribution
+    integer(i32), parameter :: rays_per_batch = 2048_i32
+    integer(i32), parameter :: signature_size = 13_i32
+    character(len=*), parameter :: pool_dir = 'test_mpi_hybrid_pool_tmp'
+    type(mesh_type) :: reference_mesh, pool_mesh, resume_mesh
+    type(app_config) :: reference_cfg, pool_cfg
+    type(sim_stats) :: reference_stats, pool_stats, resume_stats
+    type(charge_ledger_type) :: reference_ledger, pool_ledger
+    real(dp) :: reference_signature(signature_size), pool_signature(signature_size), tolerance
+    integer(i64) :: reference_counts(4), pool_counts(4)
+    integer(i32) :: value_index
+    logical :: pool_has_restart
+    character(len=128) :: assertion_message
+    character(len=1024) :: pool_checkpoint_dir
+
+    call cleanup_pool_dir(mpi, pool_dir)
+    if (mpi_is_root(mpi)) call ensure_directory(pool_dir)
+    call mpi_world_barrier(mpi)
+
+    reference_signature = 0.0_dp
+    reference_counts = 0_i64
+    if (mpi_is_root(mpi)) then
+      call setup_mpi_neutral_return_fixture(reference_mesh, reference_cfg, rays_per_batch)
+      reference_cfg%sim%particle_distribution = distribution
+      reference_cfg%sim%particle_pool_chunk = 5_i32
+      call seed_particles_from_config(reference_cfg)
+      call run_absorption_insulator( &
+        reference_mesh, reference_cfg, reference_stats, charge_ledger=reference_ledger &
+        )
+      call pack_neutral_return_signature(reference_mesh, reference_ledger, reference_signature)
+      reference_counts = [ &
+                         reference_ledger%emitted_count(1), reference_ledger%absorbed_count(1), &
+                         reference_ledger%discarded_unresolved_count(1), reference_stats%processed_particles &
+                         ]
+    end if
+    call mpi_allreduce_sum_real_dp_array(mpi, reference_signature)
+    call mpi_allreduce_sum_i64_array(mpi, reference_counts)
+
+    call setup_mpi_neutral_return_fixture(pool_mesh, pool_cfg, rays_per_batch)
+    pool_cfg%sim%particle_distribution = distribution
+    pool_cfg%sim%particle_pool_chunk = 5_i32
+    pool_cfg%output_dir = pool_dir
+    pool_cfg%checkpoint_stride = 1_i32
+    call seed_particles_from_config(pool_cfg, mpi=mpi)
+    call run_absorption_insulator(pool_mesh, pool_cfg, pool_stats, mpi=mpi, charge_ledger=pool_ledger)
+    call pack_neutral_return_signature(pool_mesh, pool_ledger, pool_signature)
+    pool_counts = [pool_ledger%emitted_count(1), pool_ledger%absorbed_count(1), pool_ledger%discarded_unresolved_count(1), &
+                   pool_stats%processed_particles]
+
+    do value_index = 1_i32, signature_size
+      tolerance = 1.0e-11_dp*max(1.0_dp, abs(reference_signature(value_index)))
+      write (assertion_message, '(a,i0)') 'shared pool signature must not depend on the rank count: index ', value_index
+      call assert_close_dp(pool_signature(value_index), reference_signature(value_index), tolerance, &
+                           trim(assertion_message))
+    end do
+    do value_index = 1_i32, 4_i32
+      write (assertion_message, '(a,i0)') 'shared pool count must not depend on the rank count: index ', value_index
+      call assert_equal_i64(pool_counts(value_index), reference_counts(value_index), trim(assertion_message))
+    end do
+    if (distribution == 'shared') then
+      call assert_true(pool_stats%particle_pool_claims >= int(mpi%size, i64), 'every rank should claim pool slots')
+    end if
+
+    ! The pool keys every draw on the global slot, so the checkpoint may be resumed with another rank count.
+    call resolve_latest_checkpoint_dir(pool_dir, pool_checkpoint_dir)
+    call init_mesh(resume_mesh, pool_mesh%v0, pool_mesh%v1, pool_mesh%v2)
+    resume_mesh%elem_vacuum_sign = 1_i32
+    resume_mesh%vacuum_normals = resume_mesh%normals
+    call load_restart_checkpoint( &
+      trim(pool_checkpoint_dir), resume_mesh, resume_stats, pool_has_restart, mpi_rank=0_i32, mpi_size=mpi%size + 1_i32, &
+      app=pool_cfg &
+      )
+    call assert_true(pool_has_restart, 'shared pool checkpoint should load with a different rank count')
+    call assert_equal_i32(resume_stats%batches, 1_i32, 'shared pool resumed batch count mismatch')
+    call assert_equal_i64(resume_stats%processed_particles, pool_stats%processed_particles, &
+                          'shared pool resumed processed_particles mismatch')
+    call mpi_world_barrier(mpi)
+    call cleanup_pool_dir(mpi, pool_dir)
+  end subroutine run_mpi_shared_pool_test
+
+  subroutine cleanup_pool_dir(mpi, pool_dir)
+    type(mpi_context), intent(in) :: mpi
+    character(len=*), intent(in) :: pool_dir
+    character(len=1024) :: pool_rng_path
+
+    pool_rng_path = restart_rng_state_path(pool_dir//'/checkpoints/slot0', mpi=mpi)
+    call delete_file_if_exists(pool_rng_path)
+    pool_rng_path = restart_rng_state_path(pool_dir, mpi=mpi)
+    call delete_file_if_exists(pool_rng_path)
+    call mpi_world_barrier(mpi)
+    if (mpi_is_root(mpi)) then
+      call cleanup_periodic_slot(pool_dir//'/checkpoints/slot0')
+      call delete_file_if_exists(pool_dir//'/checkpoint_latest.txt')
+      call delete_file_if_exists(pool_dir//'/checkpoint_latest.txt.tmp')
+      call remove_empty_directory(pool_dir//'/checkpoints')
+      call remove_empty_directory(pool_dir)
+    end if
+    call mpi_world_barrier(mpi)
+  end subroutine cleanup_pool_dir
 
   subroutine cleanup_periodic_slot(slot_dir)
     character(len=*), intent(in) :: slot_dir

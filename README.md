@@ -29,7 +29,7 @@ BEACH は、三角形メッシュで表した物体表面の帯電を計算す�
 
 ## インストールと最初の実行
 
-Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラが必要です。
+Linux、Python 3.10 以上、`git`、`make`、Fortran コンパイラ、C++ コンパイラが必要です。
 
 ```bash
 python -m pip install "git+https://github.com/Nkzono99/BEACH.git"
@@ -44,6 +44,8 @@ beachx inspect outputs/tutorial
 
 `beachx lint` は設定ファイルのキー・値・組合せを実行前に検査します。
 各手順の意味と出力の読み方は [入門チュートリアル](https://nkzono99.github.io/BEACH/tutorial.html) で説明しています。
+camphor 用の通常精度・高速ビルドは [インストール手順](docs/start/Installation.md#camphor-向けの最適化ビルド) を参照してください。
+通常の粒子追跡は OpenMP の動的割り当てを使います。明示指定と適応計算での扱いは [並列実行](docs/guide/Execution.md#並列実行) を参照してください。
 
 ## 目的別の入口
 

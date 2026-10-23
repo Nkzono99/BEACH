@@ -5,6 +5,7 @@ module bem_field_solver
   use bem_kinds, only: dp, i32
   use bem_constants, only: k_coulomb
   use bem_types, only: mesh_type, sim_config
+  use bem_mpi, only: mpi_context
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type
   use bem_string_utils, only: lower_ascii
   use bem_runtime_modes, only: field_solver_mode_direct, field_solver_mode_treecode, field_solver_mode_fmm, &
@@ -75,13 +76,15 @@ module bem_field_solver
 
   interface
     !> 設定とメッシュから電場ソルバを初期化する。
-    module subroutine init_field_solver(self, mesh, sim, field_config, periodic_config, panel_config)
+    !! mpi は cached_kneq0 の root operator を rank で分担して作るときの文脈（省略時は単一 rank）。
+    module subroutine init_field_solver(self, mesh, sim, field_config, periodic_config, panel_config, mpi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
       type(sim_config), intent(in) :: sim
       type(field_physics_config), intent(in), optional :: field_config
       type(periodic2_physics_config), intent(in), optional :: periodic_config
       type(panel_kernel_config), intent(in), optional :: panel_config
+      type(mpi_context), intent(in), optional :: mpi
     end subroutine init_field_solver
 
     !> 要素数に応じて treecode の代表パラメータを推定する。
@@ -106,10 +109,11 @@ module bem_field_solver
       character(len=16) :: mode
     end function resolve_field_solver_mode
 
-    !> 現在の要素電荷から treecode/FMM モーメントを再計算する。
-    module subroutine refresh_field_solver(self, mesh)
+    !> 現在の要素電荷から treecode/FMM モーメントを再計算する。`mpi` を与えると FMM の M2L を rank で分担する。
+    module subroutine refresh_field_solver(self, mesh, mpi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
+      type(mpi_context), intent(in), optional :: mpi
     end subroutine refresh_field_solver
 
     !> 観測点 `r` の電場を設定されたソルバで評価する。
@@ -192,9 +196,10 @@ module bem_field_solver
     end subroutine reset_tree_storage
 
     !> FMM のパネル幾何と電荷状態を構築・更新する。
-    module subroutine refresh_fmm_solver(self, mesh)
+    module subroutine refresh_fmm_solver(self, mesh, mpi)
       class(field_solver_type), intent(inout) :: self
       type(mesh_type), intent(in) :: mesh
+      type(mpi_context), intent(in), optional :: mpi
     end subroutine refresh_fmm_solver
 
     !> メッシュ重心での電位を計算する（FMM/direct 自動切替）。

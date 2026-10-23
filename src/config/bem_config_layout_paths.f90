@@ -17,6 +17,12 @@ contains
       reader_path = 'sim.substep_field_change_max'
     case ('particles.tracking.substep_max_halvings')
       reader_path = 'sim.substep_max_halvings'
+    case ('particles.tracking.step_growth')
+      reader_path = 'sim.step_growth'
+    case ('particles.tracking.step_growth_max')
+      reader_path = 'sim.step_growth_max'
+    case ('particles.tracking.step_growth_energy_fraction')
+      reader_path = 'sim.step_growth_energy_fraction'
     case ('run.rng_seed')
       reader_path = 'sim.rng_seed'
     case ('run.batch_count')
@@ -25,6 +31,10 @@ contains
       reader_path = 'sim.batch_duration'
     case ('run.batch.duration_steps')
       reader_path = 'sim.batch_duration_step'
+    case ('run.batch.particle_distribution')
+      reader_path = 'sim.particle_distribution'
+    case ('run.batch.particle_pool_chunk')
+      reader_path = 'sim.particle_pool_chunk'
     case ('output.diagnostics.charge_rel_change_threshold')
       reader_path = 'sim.tol_rel'
     case ('output.diagnostics.charge_floor_c')
@@ -41,6 +51,8 @@ contains
       reader_path = 'sim.tree_leaf_max'
     case ('fields.solver.auto_fmm_min_elements')
       reader_path = 'sim.tree_min_nelem'
+    case ('fields.solver.near_field_precision')
+      reader_path = 'sim.near_field_precision'
     case ('fields.periodic.image_layers')
       reader_path = 'sim.field_periodic_image_layers'
     case ('fields.periodic.backend')

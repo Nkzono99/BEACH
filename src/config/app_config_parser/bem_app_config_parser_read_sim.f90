@@ -208,6 +208,11 @@ contains
       call get_toml_int(table, keys(ikey), cfg%sim%rng_seed, 'run.rng_seed')
     case ('batch_count')
       call get_toml_int(table, keys(ikey), cfg%sim%batch_count, 'run.batch_count')
+    case ('particle_distribution')
+      call get_toml_string(table, keys(ikey), cfg%sim%particle_distribution, 'run.batch.particle_distribution')
+      cfg%sim%particle_distribution = lower_ascii(trim(cfg%sim%particle_distribution))
+    case ('particle_pool_chunk')
+      call get_toml_int(table, keys(ikey), cfg%sim%particle_pool_chunk, 'run.batch.particle_pool_chunk')
     case ('batch_duration')
       call get_toml_real(table, keys(ikey), cfg%sim%batch_duration, 'run.batch.duration_s')
       cfg%sim%has_batch_duration = .true.
@@ -221,6 +226,13 @@ contains
                          'particles.tracking.substep_field_change_max')
     case ('substep_max_halvings')
       call get_toml_int(table, keys(ikey), cfg%sim%substep_max_halvings, 'particles.tracking.substep_max_halvings')
+    case ('step_growth')
+      call get_toml_logical(table, keys(ikey), cfg%sim%step_growth, 'particles.tracking.step_growth')
+    case ('step_growth_max')
+      call get_toml_int(table, keys(ikey), cfg%sim%step_growth_max, 'particles.tracking.step_growth_max')
+    case ('step_growth_energy_fraction')
+      call get_toml_real(table, keys(ikey), cfg%sim%step_growth_energy_fraction, &
+                         'particles.tracking.step_growth_energy_fraction')
     case ('tol_rel')
       call get_toml_real(table, keys(ikey), cfg%sim%tol_rel, 'output.diagnostics.charge_rel_change_threshold')
     case ('q_floor')
@@ -259,6 +271,9 @@ contains
       cfg%sim%has_tree_leaf_max = .true.
     case ('tree_min_nelem')
       call get_toml_int(table, keys(ikey), cfg%sim%tree_min_nelem, 'fields.solver.auto_fmm_min_elements')
+    case ('near_field_precision')
+      call get_toml_string(table, keys(ikey), cfg%sim%near_field_precision, 'fields.solver.near_field_precision')
+      cfg%sim%near_field_precision = lower_ascii(trim(cfg%sim%near_field_precision))
     case ('e0')
       call get_toml_real_array(table, keys(ikey), cfg%sim%e0, 'fields.external.electric_v_m')
       cfg%sim%has_e0_vector = .true.

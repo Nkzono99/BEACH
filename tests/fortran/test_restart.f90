@@ -2,12 +2,12 @@
 program test_restart
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file, &
+  use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path, validate_restart_contract, &
                          restart_contract_ok, restart_contract_mismatch
   use bem_output_writer, only: write_result_files
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, resolve_latest_checkpoint_dir
-  use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current, &
+  use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current, checkpoint_rng_free_schema, &
                                      inspect_checkpoint_directory, publish_checkpoint_manifest
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
   use bem_mpi, only: mpi_context
@@ -26,7 +26,6 @@ program test_restart
   type(mpi_context) :: mpi
   logical :: has_restart, exists
   integer(i32) :: contract_status
-  real(dp) :: rng_probe
   character(len=256) :: contract_message
   character(len=1024) :: rng_rank_path, residual_global_path
   character(len=1024) :: resolved_checkpoint_dir
@@ -104,7 +103,6 @@ program test_restart
   state%boundary_macro_residual(2, 1) = 0.125_dp
   state%boundary_macro_residual(5, 2) = 0.625_dp
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
-  call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
   call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
 
@@ -279,7 +277,6 @@ program test_restart
   stats%batches = 16_i32
   ledger%batch_count = 16_i32
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
-  call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
   call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
   call resolve_latest_checkpoint_dir(out_dir, resolved_checkpoint_dir)
@@ -288,13 +285,10 @@ program test_restart
     'newer loadable complete final output must win over both periodic slots' &
     )
 
-  ! 同じbatch番号の新しい世代を書き始め、旧RNG/residualが残った時点を再現する。
+  ! 同じbatch番号の新しい世代を書き始め、旧residualが残った時点を再現する。
   mesh%q_elem = [16.0e-12_dp, -5.0e-12_dp]
   state%macro_residual = [0.5_dp, 0.25_dp]
-  call random_number(rng_probe)
   call write_result_files(out_dir, mesh, stats, cfg, charge_ledger=ledger)
-  inquire (file=out_dir//'/rng_state.txt', exist=exists)
-  call assert_true(exists, 'mixed-generation fixture must retain a stale RNG state')
   inquire (file=out_dir//'/macro_residuals.csv', exist=exists)
   call assert_true(exists, 'mixed-generation fixture must retain a stale macro residual')
   inquire (file=out_dir//'/charge_ledger.csv', exist=exists)
@@ -305,7 +299,6 @@ program test_restart
     'stale-but-present final state must not hide the last complete periodic checkpoint' &
     )
 
-  call write_rng_state_file(out_dir)
   call write_macro_residuals_file(out_dir, state)
   call publish_checkpoint_manifest(out_dir, stats%batches, 1_i32, .true., .true.)
   call delete_file_if_exists(out_dir//'/macro_residuals.csv')
@@ -329,11 +322,10 @@ program test_restart
   call ensure_directory(out_dir)
   call write_summary_fixture(out_dir)
   call write_charges_fixture(out_dir)
-  call write_rng_state_file(out_dir)
+  ! The fixture summary has no schema key, so it is a legacy checkpoint that still lists its RNG state file.
+  call touch_file(out_dir//'/rng_state.txt')
   state%macro_residual = [0.25_dp, 0.75_dp]
   call write_macro_residuals_file(out_dir, state)
-  inquire (file=trim(out_dir)//'/rng_state.txt', exist=exists)
-  call assert_true(exists, 'rng_state.txt should be created')
   inquire (file=trim(out_dir)//'/macro_residuals.csv', exist=exists)
   call assert_true(exists, 'macro_residuals.csv should be created')
   call test_end()
@@ -345,10 +337,7 @@ program test_restart
   call assert_true( &
     trim(residual_global_path) == trim(out_dir)//'/macro_residuals.csv', 'MPI residual path must remain global' &
     )
-  call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=4_i32)
   call write_macro_residuals_file(out_dir, state, mpi_rank=1_i32, mpi_size=4_i32)
-  inquire (file=trim(rng_rank_path), exist=exists)
-  call assert_true(exists, 'rng_state_rank00001.txt should be created')
   inquire (file=trim(out_dir)//'/macro_residuals_rank00001.csv', exist=exists)
   call assert_true(.not. exists, 'non-root must not create a ranked macro residual file')
   call test_end()
@@ -401,7 +390,6 @@ contains
     call ensure_directory(out_dir)
     call write_structural_summary_fixture(out_dir, checkpoint_schema_version_current, 2_i32, 1_i32)
     call write_charges_fixture(out_dir)
-    call write_rng_state_file(out_dir)
     call write_manifest_fixture_omitting(out_dir, '')
     call inspect_checkpoint_directory(out_dir, exists)
     call assert_true(exists, 'handwritten complete manifest fixture was rejected')
@@ -441,13 +429,12 @@ contains
 
   subroutine test_mpi_checkpoint_completeness_layers()
     character(len=1024) :: executable_path, command
+    integer :: exit_status, command_status
 
     call cleanup_restart_fixture(out_dir)
     call ensure_directory(out_dir)
     call write_matching_summary_fixture(out_dir, mpi_world_size=2_i32)
     call write_charges_fixture(out_dir)
-    call write_rng_state_file(out_dir, mpi_rank=0_i32, mpi_size=2_i32)
-    call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=2_i32)
     call publish_checkpoint_manifest(out_dir, 2_i32, 2_i32, .false., .false.)
     call inspect_checkpoint_directory(out_dir, exists)
     call assert_true(exists, 'complete two-rank checkpoint fixture was rejected')
@@ -457,11 +444,6 @@ contains
     call assert_true(.not. exists, 'checkpoint inspection accepted missing charges.csv')
     call write_charges_fixture(out_dir)
 
-    call delete_file_if_exists(out_dir//'/rng_state_rank00001.txt')
-    call inspect_checkpoint_directory(out_dir, exists)
-    call assert_true(.not. exists, 'checkpoint inspection accepted a missing rank RNG state')
-    call write_rng_state_file(out_dir, mpi_rank=1_i32, mpi_size=2_i32)
-
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call inspect_checkpoint_directory(out_dir, exists)
     call assert_true(.not. exists, 'checkpoint inspection accepted mismatched summary/manifest world sizes')
@@ -469,13 +451,38 @@ contains
     call inspect_checkpoint_directory(out_dir, exists)
     call assert_true(exists, 'repaired two-rank checkpoint fixture was rejected')
 
+    ! Counter-based random numbers carry no per-rank state, so a two-rank checkpoint resumes on one rank.
     call get_command_argument(0, executable_path)
     command = '"'//trim(executable_path)//'" --world-size-probe > '//matching_probe_log//' 2>&1'
-    call assert_restart_probe_fails( &
-      command, 'mpi_world_size does not match current MPI world size', 'runtime world-size mismatch probe' &
-      )
+    exit_status = -1
+    command_status = -1
+    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
+    call assert_equal_i32(int(command_status, i32), 0_i32, 'world-size probe command status mismatch')
+    call assert_equal_i32(int(exit_status, i32), 0_i32, 'a two-rank checkpoint must resume with another rank count')
+
+    ! Checkpoints before schema 11 still declare one RNG state file per rank; inspection keeps requiring them.
+    call cleanup_restart_fixture(out_dir)
+    call ensure_directory(out_dir)
+    call write_structural_summary_fixture(out_dir, checkpoint_rng_free_schema - 1_i32, 2_i32, 2_i32)
+    call write_charges_fixture(out_dir)
+    call publish_checkpoint_manifest(out_dir, 2_i32, 2_i32, .false., .false.)
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(.not. exists, 'a schema-10 checkpoint without its rank RNG states was accepted')
+    call touch_file(out_dir//'/rng_state_rank00000.txt')
+    call touch_file(out_dir//'/rng_state_rank00001.txt')
+    call inspect_checkpoint_directory(out_dir, exists)
+    call assert_true(exists, 'a complete schema-10 checkpoint was rejected')
     call cleanup_restart_fixture(out_dir)
   end subroutine test_mpi_checkpoint_completeness_layers
+
+  subroutine touch_file(path)
+    character(len=*), intent(in) :: path
+    integer :: u
+
+    open (newunit=u, file=path, status='replace', action='write')
+    write (u, '(a)') '0'
+    close (u)
+  end subroutine touch_file
 
   subroutine test_matching_summary_key_contract()
     character(len=1024) :: executable_path, command
@@ -485,7 +492,6 @@ contains
     call ensure_directory(out_dir)
     call write_matching_summary_fixture(out_dir, omit_ion_access=.true.)
     call write_charges_fixture(out_dir)
-    call write_rng_state_file(out_dir)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call get_command_argument(0, executable_path)
     command = '"'//trim(executable_path)//'" --matching-summary-probe > '//matching_probe_log//' 2>&1'

@@ -135,4 +135,37 @@ contains
     pcls%n = new_count
   end subroutine append_particles
 
+  !> 先頭 `n` 個だけを残して配列を詰め直す。容量を先に確保して埋めた SoA を実数に合わせるときに使う。
+  subroutine trim_particles(pcls, n)
+    type(particles_soa), intent(inout) :: pcls
+    integer(i32), intent(in) :: n
+    real(dp), allocatable :: kept_x(:, :), kept_v(:, :), kept_q(:), kept_m(:), kept_w(:)
+    integer(i32), allocatable :: kept_species_id(:), kept_source_element(:)
+    logical, allocatable :: kept_alive(:)
+
+    if (n < 0_i32) error stop 'particle trim count must be >= 0'
+    if (.not. allocated(pcls%q)) error stop 'particle trim requires an allocated SoA'
+    if (n > size(pcls%q)) error stop 'particle trim count exceeds capacity'
+    pcls%n = n
+    if (n == size(pcls%q)) return
+    allocate (kept_x(3, n), kept_v(3, n), kept_q(n), kept_m(n), kept_w(n), kept_species_id(n), &
+              kept_source_element(n), kept_alive(n))
+    kept_x = pcls%x(:, :n)
+    kept_v = pcls%v(:, :n)
+    kept_q = pcls%q(:n)
+    kept_m = pcls%m(:n)
+    kept_w = pcls%w(:n)
+    kept_species_id = pcls%species_id(:n)
+    kept_source_element = pcls%source_element(:n)
+    kept_alive = pcls%alive(:n)
+    call move_alloc(kept_x, pcls%x)
+    call move_alloc(kept_v, pcls%v)
+    call move_alloc(kept_q, pcls%q)
+    call move_alloc(kept_m, pcls%m)
+    call move_alloc(kept_w, pcls%w)
+    call move_alloc(kept_species_id, pcls%species_id)
+    call move_alloc(kept_source_element, pcls%source_element)
+    call move_alloc(kept_alive, pcls%alive)
+  end subroutine trim_particles
+
 end module bem_particles

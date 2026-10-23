@@ -1,5 +1,6 @@
 !> 設定読込・メッシュ生成・粒子初期化・シミュレーション実行・結果出力を順に行うCLIエントリーポイント。
 program main
+!$ use omp_lib, only: omp_sched_dynamic, omp_set_schedule
   use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32
   use bem_version, only: beach_build_info, beach_version
@@ -9,7 +10,7 @@ program main
                                      perf_region_end, perf_write_outputs, perf_region_program_total, perf_region_load_or_init, &
                                      perf_region_history_open, perf_region_write_results, perf_region_write_checkpoint
   use bem_simulator, only: run_absorption_insulator
-  use bem_restart, only: load_restart_checkpoint, write_rng_state_file, write_macro_residuals_file
+  use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
   use bem_checkpoint_contract, only: publish_checkpoint_manifest
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
@@ -45,8 +46,13 @@ program main
   real(dp) :: perf_t0, perf_program_t0
   real(dp), allocatable :: mesh_potential_v(:)
   logical :: prepare_cache_only = .false.
+!$ integer :: schedule_env_status
 
   call handle_early_cli()
+
+  ! Balance complete particle tracks by default; an explicit OpenMP schedule takes precedence.
+!$ call get_environment_variable('OMP_SCHEDULE', status=schedule_env_status)
+!$ if (schedule_env_status == 1) call omp_set_schedule(omp_sched_dynamic, 1)
 
   call perf_configure_from_env()
   call perf_region_begin(perf_region_program_total, perf_program_t0)
@@ -223,7 +229,6 @@ program main
     ! rootが旧完了manifestを無効化してから、全rankでrestart stateの公開へ進む。
     call mpi_world_barrier(mpi)
     call perf_region_begin(perf_region_write_checkpoint, perf_t0)
-    call write_rng_state_file(trim(app%output_dir), mpi=mpi)
     call write_macro_residuals_file(trim(app%output_dir), inject_state, mpi=mpi)
     call mpi_world_barrier(mpi)
     if (mpi_is_root(mpi)) then
@@ -375,7 +380,7 @@ contains
 
     call system_clock(clock_start, clock_rate)
     call derive_field_panel_config(app%sim, field_config, panel_config)
-    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config)
+    call snapshot%init(mesh, app%sim, field_config, app%periodic2, panel_config, mpi=mpi)
     call snapshot%get_diagnostics(diagnostics)
     call mpi_world_barrier(mpi)
     call system_clock(clock_end)

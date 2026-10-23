@@ -16,13 +16,15 @@ BEACH の Python package、`beachx`、Fortran 実行バイナリ `beach` は同�
 | source取得 | `git` |
 | build tool | `make` |
 | Fortran | `gfortran`、Intel Fortranなど |
-| ネットワーク | 初回ビルドで fpm が依存ライブラリ（toml-f、sheath-model）を GitHub から取得する |
+| C++ | `g++`、`icpx` など。乱数ライブラリ（pcg-cpp-fortran-bind）の build に使う |
+| ネットワーク | 初回ビルドで fpm が依存ライブラリ（toml-f、sheath-model、pcg-cpp-fortran-bind）を GitHub から取得する |
 
 ```bash
 python --version
 git --version
 make --version
 gfortran --version
+g++ --version
 ```
 
 計算ノードから GitHub へ接続できない HPC では、ビルドの前にログインノードで依存だけを取得します。
@@ -83,6 +85,21 @@ python -m pip install -e . --no-build-isolation
 python -m pip install fpm
 fpm --version
 ```
+
+## camphor 向けの最適化ビルド
+
+ソース checkout で Intel MPI の環境を用意し、サイトの手順に従って計算ノードでビルドします。
+
+```bash
+make install-camphor
+```
+
+浮動小数点演算の再結合などを許可する場合は、`make install-camphor-fast` を明示指定できます。
+`-fp-model fast=1` により近接場の超越関数も SIMD 化されます。20 バッチの測定（4 MPI rank × 16 スレッド）では
+通常精度版の約 1.3 倍速く、短い単一スレッド比較では電荷・履歴に相対 $10^{-13}$ 程度の差が見られました。
+個々の粒子の衝突・脱出結果も変わり得ます。この差は他の入力や長時間実行での誤差上限ではありません。
+既定のビルドは通常精度のままです。検証・数値比較には `install-camphor` を使い、
+設定と上書き方法は [ビルドプロファイル](../../env/README.md) を参照してください。
 
 ## 更新と削除
 

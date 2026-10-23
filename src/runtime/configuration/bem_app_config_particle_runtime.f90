@@ -48,11 +48,75 @@ module bem_app_config_particle_runtime
     integer(i32), allocatable :: kinetic_inflow_face(:)
   end type particle_source_plan_type
 
+  !> slot の種別。
+  integer(i32), parameter, public :: slot_kind_none = 0_i32
+  integer(i32), parameter, public :: slot_kind_volume = 1_i32
+  integer(i32), parameter, public :: slot_kind_photo_ray = 2_i32
+  integer(i32), parameter, public :: slot_kind_reservoir_face = 3_i32
+
+  !> 1 バッチの注入 layout。全 rank で同じ global 粒子数と面ごとの速度補正を持ち、
+  !! `static` の rank 分割と `shared` の slot pool の両方がこれを基に粒子を作る。
+  !! segment は species 順に source（volume_seed または photo ray）、次に面 1..6 の reservoir が並ぶ。
+  type, public :: batch_injection_layout_type
+    logical :: ready = .false.
+    integer(i32) :: batch_idx = 0_i32
+    integer(i32) :: nspecies = 0_i32
+    integer(i32), allocatable :: source_kind(:)
+    integer(i32), allocatable :: source_global_count(:)
+    integer(i32), allocatable :: boundary_global_count(:, :)
+    real(dp), allocatable :: boundary_vmin(:, :)
+    real(dp), allocatable :: boundary_barrier(:, :)
+    real(dp), allocatable :: weight(:)
+    real(dp), allocatable :: temperature_k(:)
+    real(dp), allocatable :: drift_velocity(:, :)
+    real(dp), allocatable :: photo_emit_current_density(:)
+    real(dp), allocatable :: photo_normal_drift_speed(:)
+    !> 1 本の ray が当たったときのマクロ粒子重み（全 rank 合計の ray 数で分担）。
+    real(dp), allocatable :: photo_ray_weight(:)
+    integer(i32) :: nsegments = 0_i32
+    integer(i32) :: total_slots = 0_i32
+    integer(i32), allocatable :: segment_species(:)
+    integer(i32), allocatable :: segment_kind(:)
+    integer(i32), allocatable :: segment_face(:)
+    integer(i32), allocatable :: segment_begin(:)
+    integer(i32), allocatable :: segment_end(:)
+    !> global slot -> (segment, segment 内 index)。slot は segment を round-robin に回って並ぶので、
+    !! 取り合う順に種が混ざり、static の round-robin 組み立てと同じ処理順になる。
+    integer(i32), allocatable :: slot_segment(:)
+    integer(i32), allocatable :: slot_index(:)
+  end type batch_injection_layout_type
+
   interface
+    module subroutine build_batch_injection_layout( &
+      cfg, batch_idx, layout, state, mesh, mpi_rank, mpi_size, mpi, snapshot, source_plan &
+      )
+      type(app_config), intent(in) :: cfg
+      integer(i32), intent(in) :: batch_idx
+      type(batch_injection_layout_type), intent(out) :: layout
+      type(injection_state), intent(inout), optional :: state
+      type(mesh_type), intent(in), optional :: mesh
+      integer(i32), intent(in), optional :: mpi_rank, mpi_size
+      type(mpi_context), intent(in), optional :: mpi
+      type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
+      type(particle_source_plan_type), intent(in), optional, target :: source_plan
+    end subroutine build_batch_injection_layout
+
+    module subroutine generate_batch_slot( &
+      cfg, layout, slot, mesh, x, v, w, q, m, species_idx, source_element, emitted, collision_status, bounce_count &
+      )
+      type(app_config), intent(in) :: cfg
+      type(batch_injection_layout_type), intent(in) :: layout
+      integer(i32), intent(in) :: slot
+      type(mesh_type), intent(in), optional :: mesh
+      real(dp), intent(out) :: x(3), v(3), w, q, m
+      integer(i32), intent(out) :: species_idx, source_element, collision_status, bounce_count
+      logical, intent(out) :: emitted
+    end subroutine generate_batch_slot
+
     module subroutine init_particle_batch_from_config( &
       cfg, batch_idx, pcls, state, mesh, photo_emission_dq, mpi_rank, mpi_size, mpi, &
       collision_failure_status, collision_failure_species, collision_failure_ray, collision_failure_bounce, snapshot, &
-      source_plan, photo_emission_dq_by_species &
+      source_plan, photo_emission_dq_by_species, slot_ids &
       )
       type(app_config), intent(in) :: cfg
       integer(i32), intent(in) :: batch_idx
@@ -67,6 +131,8 @@ module bem_app_config_particle_runtime
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
       type(particle_source_plan_type), intent(in), optional, target :: source_plan
       real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
+      !> 各粒子の global slot 番号（粒子追跡の境界・二次電子乱数の鍵に使う）。
+      integer(i32), allocatable, intent(out), optional :: slot_ids(:)
     end subroutine init_particle_batch_from_config
 
     module subroutine sample_species_state( &
