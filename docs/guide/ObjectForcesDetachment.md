@@ -139,7 +139,7 @@ print("barrier free:", release.barrier_free_from_rest)
 完全な例は
 [`examples/analyze_periodic_object_detachment.py`](https://github.com/Nkzono99/BEACH/blob/main/examples/analyze_periodic_object_detachment.py)
 にあります。全 class、結果 field、`configured` と `infinite_physical` の詳細は
-[Python 後処理 API リファレンス](../reference/PythonPostprocessAPI.md#104-objectinteractionsnapshot-と凍結-source-経路)を
+[Python 後処理 API](../reference/PythonPostprocessAPI.md#物体の力と離脱)を
 参照してください。
 
 ## 5. 完了と妥当性を分けて判定する
