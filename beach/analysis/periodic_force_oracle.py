@@ -200,7 +200,7 @@ def finite_shell_wrench(
     torque_origin: str | Iterable[float] = "geometric_area_centroid",
     components: bool = True,
 ) -> FiniteShellWrenchResult:
-    """Evaluate one native finite shell with both explicit zero-mode closures."""
+    """Evaluate one native finite shell with both explicit zero-mode closures (heavy)."""
 
     layer = _nonnegative_integer(image_layers, "image_layers")
     selected_closure = str(closure).strip().lower()
@@ -244,7 +244,7 @@ def finite_shell_convergence(
     force_floor_N: float = 1.0e-12,
     work_floor_J: float = 1.0e-18,
 ) -> FiniteShellConvergenceResult:
-    """Increase shells until two tail/reference combined gates converge."""
+    """Increase shells until two tail/reference combined gates converge (heavy)."""
 
     maximum = _nonnegative_integer(max_layers, "max_layers")
     relative = _nonnegative_scalar(relative_tolerance, "relative_tolerance")

@@ -119,7 +119,7 @@ class ObjectInteractionSnapshot:
         generation_tolerance: float | None = None,
         library_path: str | Path | None = None,
     ) -> "ObjectInteractionSnapshot":
-        """Build one source snapshot from saved BEACH geometry and charges."""
+        """Build one source snapshot from saved BEACH geometry and charges (heavy: native kernels)."""
 
         model = str(periodic_model).strip().lower()
         if model not in {"configured", "infinite_physical"}:

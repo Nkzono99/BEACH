@@ -301,7 +301,7 @@ class BeachScene:
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ) -> FieldKernel:
-        """Build a Fortran field kernel for the edited scene geometry."""
+        """Build a native field kernel for the edited scene geometry (heavy)."""
 
         options = field_kernel_options_from_result(
             self.result,
@@ -329,7 +329,7 @@ class BeachScene:
         config_path: str | Path | None = None,
         library_path: str | Path | None = None,
     ) -> tuple[KernelObjectForceRecord, ...]:
-        """Compute object-wise force/torque for the edited scene geometry."""
+        """Compute object-wise force/torque for the edited scene geometry (heavy: native kernel)."""
 
         resolved_config_path = self._resolve_config_path(config_path)
         context = RunContext.from_value(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -13,6 +14,7 @@ from beach.native.kernel import FieldKernel
 
 from .context import RunContext
 from .field_kernel import (
+    _require_run_kernel,
     _require_total_field_config,
     _require_total_field_reconstruction,
     field_kernel_from_result,
@@ -28,8 +30,33 @@ def compute_electric_field_points(
     periodic2: Mapping[str, object] | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> np.ndarray:
-    """Evaluate the native triangle-P0 electric field at arbitrary points."""
+    """Evaluate the triangle-P0 electric field at arbitrary points (heavy: native kernel).
+
+    Parameters
+    ----------
+    result : FortranRunResult, RunContext, or Beach
+        Run to evaluate.
+    points : numpy.ndarray
+        Sampling points with shape ``(n_points, 3)`` in meters.
+    chunk_size : int, default 2048
+        Number of points evaluated per kernel call.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. ``None`` resolves it from the run.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run, for example ``Beach.kernel()``. It is
+        evaluated with its own plan and charges and is not closed; ``periodic2``
+        and ``library_path`` then do not apply. ``None`` builds a kernel for this
+        call (latest history charges) and closes it.
+
+    Returns
+    -------
+    numpy.ndarray
+        Electric field in V/m with shape ``(n_points, 3)``.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     context.require_triangle_source_model()
@@ -39,30 +66,18 @@ def compute_electric_field_points(
     if sample_points.shape[0] == 0:
         return np.empty((0, 3), dtype=float)
 
-    _require_total_field_config(
-        context,
-        operation="electric-field recomputation",
-    )
-    options = field_kernel_options_from_result(
-        context,
-        periodic2=periodic2,
-        config_path=config_path,
-    )
-    _require_total_field_reconstruction(
-        context,
-        options,
-        operation="electric-field recomputation",
-    )
     field = np.empty_like(sample_points)
-    with field_kernel_from_result(
+    with _field_kernel(
         context,
         periodic2=periodic2,
         config_path=config_path,
         library_path=library_path,
-    ) as kernel:
+        kernel=kernel,
+        operation="electric-field recomputation",
+    ) as evaluator:
         for start in range(0, sample_points.shape[0], chunk_size):
             stop = min(start + chunk_size, sample_points.shape[0])
-            field[start:stop] = kernel.eval_e(sample_points[start:stop])
+            field[start:stop] = evaluator.eval_e(sample_points[start:stop])
     return field
 
 
@@ -78,8 +93,39 @@ def trace_field_lines(
     box_max: Iterable[float] | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> list[np.ndarray]:
-    """Trace field lines using the same triangle-P0 kernel as the simulator."""
+    """Trace field lines with RK4 on the triangle-P0 field (heavy: native kernel).
+
+    Parameters
+    ----------
+    result : FortranRunResult, RunContext, or Beach
+        Run to evaluate.
+    seed_points : numpy.ndarray
+        Starting points with shape ``(n_seeds, 3)`` in meters.
+    ds : float or None, default None
+        Step length in meters. ``None`` uses half the mean mesh edge length.
+    max_steps : int, default 500
+        Maximum steps per direction.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. ``None`` resolves it from the run.
+    direction : {"both", "forward", "backward"}, default "both"
+        Trace along the field, against it, or both.
+    box_min, box_max : iterable of float or None, default None
+        Box that stops a line when it is left.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run, for example ``Beach.kernel()``. It is
+        evaluated with its own plan and charges and is not closed; ``periodic2``
+        and ``library_path`` then do not apply. ``None`` builds a kernel for this
+        call (latest history charges) and closes it.
+
+    Returns
+    -------
+    list of numpy.ndarray
+        One ``(n_points_i, 3)`` polyline per seed.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     context.require_triangle_source_model()
@@ -118,33 +164,21 @@ def trace_field_lines(
     if bb_min is not None and bb_max is not None and np.any(bb_max <= bb_min):
         raise ValueError("box_max must be greater than box_min on every axis.")
 
-    _require_total_field_config(
-        context,
-        operation="field-line tracing",
-    )
-    options = field_kernel_options_from_result(
-        context,
-        periodic2=periodic2,
-        config_path=config_path,
-    )
-    _require_total_field_reconstruction(
-        context,
-        options,
-        operation="field-line tracing",
-    )
     lines: list[np.ndarray] = []
-    with field_kernel_from_result(
+    with _field_kernel(
         context,
         periodic2=periodic2,
         config_path=config_path,
         library_path=library_path,
-    ) as kernel:
+        kernel=kernel,
+        operation="field-line tracing",
+    ) as evaluator:
         for seed in seeds:
             forward: np.ndarray | None = None
             backward: np.ndarray | None = None
             if direction_key in {"forward", "both"}:
                 forward = _rk4_trace(
-                    kernel,
+                    evaluator,
                     seed,
                     ds=ds_value,
                     max_steps=int(max_steps),
@@ -154,7 +188,7 @@ def trace_field_lines(
                 )
             if direction_key in {"backward", "both"}:
                 backward = _rk4_trace(
-                    kernel,
+                    evaluator,
                     seed,
                     ds=ds_value,
                     max_steps=int(max_steps),
@@ -169,6 +203,35 @@ def trace_field_lines(
             elif backward is not None:
                 lines.append(backward[::-1])
     return lines
+
+
+def _field_kernel(
+    context: RunContext,
+    *,
+    periodic2: Mapping[str, object] | None,
+    config_path: str | Path | None,
+    library_path: str | Path | None,
+    kernel: FieldKernel | None,
+    operation: str,
+) -> AbstractContextManager[FieldKernel]:
+    """Borrow a caller's kernel or build one that the ``with`` block closes."""
+
+    if kernel is not None:
+        _require_run_kernel(context, kernel, operation=operation)
+        return nullcontext(kernel)
+    _require_total_field_config(context, operation=operation)
+    options = field_kernel_options_from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+    )
+    _require_total_field_reconstruction(context, options, operation=operation)
+    return field_kernel_from_result(
+        context,
+        periodic2=periodic2,
+        config_path=config_path,
+        library_path=library_path,
+    )
 
 
 def _rk4_trace(

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Iterable, Literal, Mapping
 
 import numpy as np
 
@@ -16,8 +17,10 @@ from .context import RunContext
 from .field_kernel import (
     _options_from_result,
     _require_complete_total_kernel,
+    _require_run_kernel,
     _require_total_field_config,
     _require_total_field_reconstruction,
+    _restoring_charges,
 )
 from .mesh import _triangle_centers
 from .periodic import auto_periodic2_from_result
@@ -30,38 +33,103 @@ def compute_potential_mesh(
     reference_point: Iterable[float] | str | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    source: Literal["auto", "saved", "kernel"] = "auto",
+    kernel: FieldKernel | None = None,
 ) -> np.ndarray:
-    """Evaluate triangle-P0 potential at every panel centroid."""
+    """Evaluate triangle-P0 potential at every panel centroid (heavy unless saved values are used).
+
+    Parameters
+    ----------
+    result : FortranRunResult, RunContext, or Beach
+        Run to evaluate.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. ``None`` resolves it from the run.
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        Point whose potential is subtracted. ``None`` returns absolute potential.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    source : {"auto", "saved", "kernel"}, default "auto"
+        ``"saved"`` returns the simulator's ``mesh_potential.csv`` (light) and
+        rejects ``periodic2``, ``reference_point``, and ``kernel``. ``"kernel"``
+        always evaluates the native kernel (heavy). ``"auto"`` uses the saved values
+        when they exist and none of ``periodic2``, ``reference_point``, or
+        ``kernel`` is given, and the kernel otherwise.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run, for example ``Beach.kernel(step=None)``.
+        It is evaluated with its own plan and charges and is not closed;
+        ``periodic2`` and ``library_path`` then do not apply. ``None`` builds a
+        kernel for this call and closes it.
+
+    Returns
+    -------
+    numpy.ndarray
+        Potential in volts with shape ``(mesh_nelem,)``.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
     context.require_triangle_source_model()
+    if _uses_saved_mesh_potential(
+        context,
+        source=source,
+        periodic2=periodic2,
+        reference_point=reference_point,
+        kernel=kernel,
+    ):
+        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
+
     reference_xyz = _resolve_reference_point(
         resolved,
         reference_point,
         context=context,
     )
-
-    if (
-        resolved.mesh_potential_v is not None
-        and periodic2 is None
-        and reference_xyz is None
-    ):
-        return np.asarray(resolved.mesh_potential_v, dtype=float).copy()
-
-    triangles = context.require_triangles()
-    points = _triangle_centers(triangles)
-    with _panel_kernel(
+    points = _triangle_centers(context.require_triangles())
+    with _potential_kernel(
         context,
         periodic2=periodic2,
         library_path=library_path,
-    ) as kernel:
-        potential_v = kernel.eval_phi(points)
+        kernel=kernel,
+    ) as evaluator:
+        potential_v = evaluator.eval_phi(points)
         if reference_xyz is not None:
             potential_v = potential_v - float(
-                kernel.eval_phi(reference_xyz.reshape(1, 3))[0]
+                evaluator.eval_phi(reference_xyz.reshape(1, 3))[0]
             )
     return potential_v
+
+
+def _uses_saved_mesh_potential(
+    result: FortranRunResult | object,
+    *,
+    source: str,
+    periodic2: Mapping[str, object] | None,
+    reference_point: Iterable[float] | str | None,
+    kernel: FieldKernel | None,
+) -> bool:
+    """Decide between saved ``mesh_potential.csv`` and kernel evaluation."""
+
+    if source == "kernel":
+        return False
+    if source not in {"auto", "saved"}:
+        raise ValueError('source must be "auto", "saved", or "kernel".')
+    context = RunContext.from_value(result)
+    saved = context.result.mesh_potential_v is not None
+    reference_xyz = _resolve_reference_point(
+        context.result,
+        reference_point,
+        context=context,
+    )
+    unmodified = periodic2 is None and reference_xyz is None and kernel is None
+    if source == "auto":
+        return saved and unmodified
+    if not saved:
+        raise ValueError('source="saved" requires mesh_potential.csv.')
+    if not unmodified:
+        raise ValueError(
+            'source="saved" cannot be combined with periodic2, reference_point, '
+            'or kernel; use source="kernel".'
+        )
+    return True
 
 
 def compute_potential_points(
@@ -73,8 +141,35 @@ def compute_potential_points(
     reference_point: Iterable[float] | str | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> np.ndarray:
-    """Evaluate triangle-P0 potential at arbitrary points."""
+    """Evaluate triangle-P0 potential at arbitrary points (heavy: native kernel).
+
+    Parameters
+    ----------
+    result : FortranRunResult, RunContext, or Beach
+        Run to evaluate.
+    points : numpy.ndarray
+        Sampling points with shape ``(n_points, 3)`` in meters.
+    chunk_size : int, default 2048
+        Number of points evaluated per kernel call.
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. ``None`` resolves it from the run.
+    reference_point : iterable of float, {"species1_injection_center"}, or None, default None
+        Point whose potential is subtracted. ``None`` returns absolute potential.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run, for example ``Beach.kernel(step=None)``.
+        It is evaluated with its own plan and charges and is not closed;
+        ``periodic2`` and ``library_path`` then do not apply. ``None`` builds a
+        kernel for this call and closes it.
+
+    Returns
+    -------
+    numpy.ndarray
+        Potential in volts with shape ``(n_points,)``.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
@@ -91,15 +186,16 @@ def compute_potential_points(
         reference_point,
         context=context,
     )
-    with _panel_kernel(
+    with _potential_kernel(
         context,
         periodic2=periodic2,
         library_path=library_path,
-    ) as kernel:
-        potential_v = _eval_phi_chunks(kernel, sample_points, chunk_size)
+        kernel=kernel,
+    ) as evaluator:
+        potential_v = _eval_phi_chunks(evaluator, sample_points, chunk_size)
         if reference_xyz is not None:
             potential_v = potential_v - float(
-                kernel.eval_phi(reference_xyz.reshape(1, 3))[0]
+                evaluator.eval_phi(reference_xyz.reshape(1, 3))[0]
             )
     return potential_v
 
@@ -118,8 +214,14 @@ def compute_potential_slices(
     reference_point: Iterable[float] | str | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> dict[str, PotentialSlice2D]:
-    """Sample triangle-P0 potential on XY, YZ, and XZ slices."""
+    """Sample triangle-P0 potential on XY, YZ, and XZ slices (heavy: native kernel).
+
+    The planes cross ``box_min``-``box_max`` at ``xy_z``, ``yz_x``, and ``xz_y``
+    (box center when ``None``) on a ``grid_n`` x ``grid_n`` grid. The other
+    arguments, including ``kernel``, are those of :func:`compute_potential_points`.
+    """
 
     if grid_n < 2:
         raise ValueError("grid_n must be >= 2.")
@@ -167,6 +269,7 @@ def compute_potential_slices(
         reference_point=reference_point,
         config_path=config_path,
         library_path=library_path,
+        kernel=kernel,
     )
     plane_size = grid_n * grid_n
     potential_xy = all_potential[:plane_size].reshape(grid_n, grid_n)
@@ -232,7 +335,6 @@ def _potential_history(
         return np.empty_like(charge_frames)
 
     centers = _triangle_centers(panels)
-    values = np.empty_like(charge_frames)
     if field_options is not None and periodic2 is not None:
         raise ValueError("field_options and periodic2 cannot be used together.")
     options = (
@@ -250,15 +352,24 @@ def _potential_history(
         options=options,
         library_path=library_path,
     ) as kernel:
-        for frame in range(charge_frames.shape[1]):
-            if frame:
-                kernel.update_charges(charge_frames[:, frame])
-            values[:, frame] = kernel.eval_phi(centers)
-            if reference_point is not None:
-                reference = _reference_array(reference_point)
-                values[:, frame] -= float(
-                    kernel.eval_phi(reference.reshape(1, 3))[0]
-                )
+        return _potential_frames(kernel, centers, charge_frames, reference_point)
+
+
+def _potential_frames(
+    kernel: FieldKernel,
+    centers: np.ndarray,
+    charge_frames: np.ndarray,
+    reference_point: np.ndarray | None,
+) -> np.ndarray:
+    """Evaluate centroid potential for each charge frame on one kernel plan."""
+
+    values = np.empty_like(charge_frames)
+    reference = None if reference_point is None else _reference_array(reference_point)
+    for frame in range(charge_frames.shape[1]):
+        kernel.update_charges(charge_frames[:, frame])
+        values[:, frame] = kernel.eval_phi(centers)
+        if reference is not None:
+            values[:, frame] -= float(kernel.eval_phi(reference.reshape(1, 3))[0])
     return values
 
 
@@ -269,11 +380,32 @@ def _run_potential_history(
     periodic2: Mapping[str, object] | None,
     reference_point: Iterable[float] | str | None,
     library_path: str | Path | None,
+    kernel: FieldKernel | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    """Recompute one run's panel potential history and its resolved reference."""
+    """Recompute one run's panel potential history and its resolved reference.
+
+    A caller's ``kernel`` evaluates the frames with its own plan; its source
+    charges are restored afterwards.
+    """
 
     resolved = context.result
     context.require_triangle_source_model()
+    if kernel is not None:
+        _require_run_kernel(
+            context,
+            kernel,
+            operation="potential history recomputation",
+        )
+        resolved_reference = _resolve_reference_point(
+            resolved,
+            reference_point,
+            context=context,
+        )
+        centers = _triangle_centers(context.require_triangles())
+        frames = np.asarray(charges_history, dtype=np.float64)
+        with _restoring_charges(kernel):
+            values = _potential_frames(kernel, centers, frames, resolved_reference)
+        return values, resolved_reference
     periodic_cfg = coerce_periodic2(
         periodic2,
         allow_cached_kneq0=True,
@@ -315,6 +447,21 @@ def _run_potential_history(
         library_path=library_path,
     )
     return values, resolved_reference
+
+
+def _potential_kernel(
+    context: RunContext,
+    *,
+    periodic2: Mapping[str, object] | None,
+    library_path: str | Path | None,
+    kernel: FieldKernel | None,
+) -> AbstractContextManager[FieldKernel]:
+    """Borrow a caller's kernel or build one that the ``with`` block closes."""
+
+    if kernel is None:
+        return _panel_kernel(context, periodic2=periodic2, library_path=library_path)
+    _require_run_kernel(context, kernel, operation="potential recomputation")
+    return nullcontext(kernel)
 
 
 def _panel_kernel(

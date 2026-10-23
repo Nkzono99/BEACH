@@ -23,7 +23,7 @@ def plot_mesh_source_boxplot(
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
 ):
-    """Plot area-weighted boxplots per mesh source.
+    """Plot area-weighted boxplots per mesh source (heavy for history-step potential).
 
     Parameters
     ----------
@@ -98,18 +98,14 @@ def _boxplot_values_for_quantity(
     if quantity == "charge":
         return context.charges_at(step)
     if quantity == "potential":
-        result = context.result
-        potential_result = replace(
-            result,
-            charges=context.charges_at(step),
-            mesh_potential_v=result.mesh_potential_v if step is None else None,
-        )
+        potential_result = replace(context.result, charges=context.charges_at(step))
         return compute_potential_mesh(
             RunContext(
                 result=potential_result,
                 requested_config_path=context.requested_config_path,
             ),
             library_path=library_path,
+            source="auto" if step is None else "kernel",
         )
     raise ValueError("quantity must be one of {'charge', 'potential'}.")
 

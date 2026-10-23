@@ -17,8 +17,10 @@ from ._selection import _coerce_group_selection
 from .context import RunContext
 from .field_kernel import (
     _options_from_result,
+    _require_run_kernel,
     _require_total_field_config,
     _require_total_field_reconstruction,
+    _restoring_charges,
 )
 from .mesh import _triangle_centers
 from .panel_quadrature import _quadrature_order, panel_target_quadrature
@@ -42,8 +44,41 @@ def calc_coulomb(
     quadrature_order: int = 7,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> CoulombInteraction:
-    """Compute force/torque on one panel group from another panel group."""
+    """Compute force/torque on one panel group from another panel group (heavy: native kernel).
+
+    Parameters
+    ----------
+    result : FortranRunResult, RunContext, or Beach
+        Run to evaluate.
+    target, source : int, MeshSelection, or iterable of those
+        Disjoint mesh groups; the force acts on ``target`` (group A).
+    step : int or None, default -1
+        History step whose charges are used. ``None`` uses ``charges.csv``.
+    torque_origin : {"target_center", "source_center", "origin"}, default "target_center"
+        Torque reference point (``"group_a_center"`` / ``"group_b_center"`` alias
+        the first two).
+    periodic2 : mapping or None, default None
+        Two-axis periodic setting. ``None`` resolves it from the run.
+    quadrature_order : int, default 7
+        Gauss-Duffy order of the target-panel quadrature.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run's full mesh, for example
+        ``Beach.kernel()``. During the call its source charges are those of
+        ``source`` alone, and they are restored afterwards; it is not closed.
+        Its plan is used as given, so ``periodic2`` and ``library_path`` do not
+        apply, and its uniform external field is excluded from the result. The
+        full-mesh plan agrees with the default source-only plan to FMM accuracy.
+        ``None`` builds a source-only kernel for this call and closes it.
+
+    Returns
+    -------
+    CoulombInteraction
+        Force and torque on both groups.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
@@ -80,35 +115,47 @@ def calc_coulomb(
         sel_target.charges,
         order,
     )
-    _require_total_field_config(
-        context,
-        operation="calc_coulomb",
-    )
-    options = _options_from_result(
-        resolved,
-        periodic2=periodic2,
-        theta=None,
-        leaf_max=None,
-        order=None,
-        config_path=config_path,
-        context=context,
-    )
-    _require_total_field_reconstruction(
-        context,
-        options,
-        operation="calc_coulomb",
-    )
-    options = replace(options, external_e0=(0.0, 0.0, 0.0))
-    with FieldKernel(
-        sel_source.triangles,
-        sel_source.charges,
-        options=options,
-        library_path=library_path,
-    ) as kernel:
-        force_target, torque_target = kernel.force_on_charges(
-            target_points,
-            target_weights,
-            origin=origin,
+    if kernel is None:
+        _require_total_field_config(context, operation="calc_coulomb")
+        options = _options_from_result(
+            resolved,
+            periodic2=periodic2,
+            theta=None,
+            leaf_max=None,
+            order=None,
+            config_path=config_path,
+            context=context,
+        )
+        _require_total_field_reconstruction(context, options, operation="calc_coulomb")
+        options = replace(options, external_e0=(0.0, 0.0, 0.0))
+        with FieldKernel(
+            sel_source.triangles,
+            sel_source.charges,
+            options=options,
+            library_path=library_path,
+        ) as source_kernel:
+            force_target, torque_target = source_kernel.force_on_charges(
+                target_points,
+                target_weights,
+                origin=origin,
+            )
+    else:
+        _require_run_kernel(context, kernel, operation="calc_coulomb")
+        source_q = np.zeros(resolved.mesh_nelem, dtype=np.float64)
+        source_q[sel_source.elem_indices] = sel_source.charges
+        with _restoring_charges(kernel):
+            kernel.update_charges(source_q)
+            force_target, torque_target = kernel.force_on_charges(
+                target_points,
+                target_weights,
+                origin=origin,
+            )
+        e0 = np.asarray(kernel.options.external_e0, dtype=np.float64)
+        external_force = np.asarray(target_weights)[:, None] * e0[None, :]
+        force_target = force_target - np.sum(external_force, axis=0)
+        torque_target = torque_target - np.sum(
+            np.cross(np.asarray(target_points) - origin[None, :], external_force),
+            axis=0,
         )
 
     force_source = -force_target
@@ -140,10 +187,14 @@ def _coulomb_force_matrix(
     step: int | None,
     library_path: str | Path | None,
     workers: int,
+    kernel: FieldKernel | None = None,
 ) -> np.ndarray:
     """Return one force component per source row and target column.
 
     The extra last row holds the net force from every other source object.
+    Worker processes cannot share a native kernel, so ``kernel`` serves the
+    entries only when they run in this process (``workers == 1``); with more
+    workers each entry builds its own source-only kernel.
     """
 
     resolved = context.result
@@ -174,6 +225,7 @@ def _coulomb_force_matrix(
             step=step,
             periodic2=periodic2,
             library_path=library_path,
+            kernel=kernel,
         )
         return row_idx, col_idx, float(interaction.force_on_a_N[component_idx])
 

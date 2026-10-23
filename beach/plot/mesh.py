@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import TYPE_CHECKING, Iterable, Literal, Mapping
 
 import numpy as np
 
@@ -24,9 +24,12 @@ from ._defaults import (
 )
 from ._mesh3d import _plot_scalar_mesh
 
+if TYPE_CHECKING:
+    from beach.analysis.field_kernel import FieldKernel
+
 
 def plot_charges(result: FortranRunResult | object):
-    """Plot per-element charges as a bar chart.
+    """Plot per-element charges as a bar chart (light: saved values only).
 
     Parameters
     ----------
@@ -64,7 +67,7 @@ def plot_charge_mesh(
     periodic2_repeat: int = 0,
     axis_unit: str = "m",
 ):
-    """Plot a 3D mesh colored by surface charge density.
+    """Plot a 3D mesh colored by surface charge density (light: saved values only).
 
     Parameters
     ----------
@@ -148,8 +151,10 @@ def plot_potential_mesh(
     axis_unit: str = "m",
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    source: Literal["auto", "saved", "kernel"] = "auto",
+    kernel: FieldKernel | None = None,
 ):
-    """Plot a 3D mesh colored by reconstructed electric potential.
+    """Plot a 3D mesh colored by electric potential (heavy unless saved values are used).
 
     Parameters
     ----------
@@ -178,6 +183,15 @@ def plot_potential_mesh(
         は species1 の注入面中心を基準にした電位差を描く。
     axis_unit : {"m", "um", "nm"}, default "m"
         Coordinate unit used for 3D axes.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    source : {"auto", "saved", "kernel"}, default "auto"
+        Saved ``mesh_potential.csv`` or kernel evaluation; see
+        :func:`beach.compute_potential_mesh`.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run that evaluates the potential with its own
+        plan and charges and is not closed. ``periodic2`` then only wraps and
+        replicates the drawn mesh. ``None`` builds a kernel when one is needed.
 
     Returns
     -------
@@ -212,6 +226,8 @@ def plot_potential_mesh(
         reference_point=resolved_reference,
         config_path=config_path,
         library_path=library_path,
+        source=source,
+        kernel=kernel,
     )
     plot_triangles, phi = _maybe_replicate_periodic2(
         resolved,

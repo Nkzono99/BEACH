@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import beach.analysis.coulomb as coulomb_module
+import beach.analysis.field_kernel as field_kernel_module
 import beach.analysis.potential as potential_module
 from beach import (
     MatchingPlaneHistoryEntry as PublicMatchingPlaneHistoryEntry,
@@ -14,6 +15,7 @@ from beach import (
     Beach,
     calc_coulomb,
     CoulombMobilityAnalysis,
+    FieldKernelOptions,
     FortranChargeHistory,
     K_COULOMB,
     FortranRunResult,
@@ -60,13 +62,22 @@ class _UnitPanelKernel:
             order=7,
         )
         self.charges = np.asarray(charges, dtype=float).copy()
+        self.options = options
         self.periodic2 = options.periodic2
+        self.closed = False
 
     def __enter__(self):
         return self
 
     def __exit__(self, *_args: object) -> None:
-        pass
+        self.close()
+
+    def close(self) -> None:
+        self.closed = True
+
+    @property
+    def source_charges(self) -> np.ndarray:
+        return self.charges.copy()
 
     def update_charges(self, charges: np.ndarray) -> None:
         self.charges = np.asarray(charges, dtype=float).copy()
@@ -167,6 +178,7 @@ def _write_complete_free_field_config(directory: Path) -> None:
 def _unit_panel_kernel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(potential_module, "FieldKernel", _UnitPanelKernel)
     monkeypatch.setattr(coulomb_module, "FieldKernel", _UnitPanelKernel)
+    monkeypatch.setattr(field_kernel_module, "FieldKernel", _UnitPanelKernel)
 
 
 def _make_history(
@@ -1810,6 +1822,56 @@ def test_compute_potential_mesh_uses_precomputed_output_when_available() -> None
     potential = compute_potential_mesh(result)
 
     np.testing.assert_allclose(potential, np.array([3.0, -4.0]))
+
+
+def test_compute_potential_mesh_source_and_kernel_choose_the_evaluation(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_potential_source"
+    out.mkdir()
+    _write_complete_free_field_config(out)
+    _write_minimal_result_fixture(
+        out, mesh_potential_text="elem_idx,potential_V\n1,3.0\n2,-4.0\n"
+    )
+    result = load_fortran_result(out)
+    kernel = _UnitPanelKernel(
+        result.triangles, result.charges, options=FieldKernelOptions()
+    )
+
+    saved = compute_potential_mesh(result)
+    recomputed = compute_potential_mesh(result, source="kernel")
+    borrowed = compute_potential_mesh(result, kernel=kernel)
+
+    np.testing.assert_allclose(saved, np.array([3.0, -4.0]))
+    np.testing.assert_allclose(compute_potential_mesh(result, source="saved"), saved)
+    assert not np.allclose(recomputed, saved)
+    np.testing.assert_allclose(borrowed, recomputed)
+    assert not kernel.closed
+    with pytest.raises(ValueError, match='source="saved" cannot be combined'):
+        compute_potential_mesh(result, source="saved", reference_point=[0.0, 0.0, 2.0])
+    (out / "mesh_potential.csv").unlink()
+    with pytest.raises(ValueError, match="requires mesh_potential.csv"):
+        compute_potential_mesh(load_fortran_result(out), source="saved")
+
+
+def test_calc_coulomb_with_run_kernel_matches_source_only_plan_and_restores_it(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "run_coulomb_kernel"
+    out.mkdir()
+    _write_three_mesh_fixture(out)
+    result = load_fortran_result(out)
+    kernel = _UnitPanelKernel(
+        result.triangles, result.charges, options=FieldKernelOptions()
+    )
+
+    expected = calc_coulomb(result, 1, [2, 3], step=1)
+    borrowed = calc_coulomb(result, 1, [2, 3], step=1, kernel=kernel)
+
+    np.testing.assert_allclose(borrowed.force_on_a_N, expected.force_on_a_N)
+    np.testing.assert_allclose(borrowed.torque_on_a_Nm, expected.torque_on_a_Nm)
+    np.testing.assert_allclose(kernel.source_charges, result.charges)
+    assert not kernel.closed
 
 
 def test_compute_potential_mesh_requires_triangles_when_precomputed_output_is_incompatible() -> (

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -48,7 +50,12 @@ def field_kernel_from_result(
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
 ) -> FieldKernel:
-    """Build a kernel from one BEACH output directory."""
+    """Build a native kernel from one BEACH output directory (heavy).
+
+    The kernel holds the run's panels with the ``step`` charges (``-1`` latest
+    history snapshot, ``None`` final ``charges.csv``). The caller owns it and closes
+    it; :meth:`beach.Beach.kernel` returns a session-owned, cached one instead.
+    """
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
@@ -88,14 +95,21 @@ def calc_object_forces_kernel(
     order: int | None = None,
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> tuple[KernelObjectForceRecord, ...]:
-    """Compute object-wise net force using the resolved native field kernel.
+    """Compute object-wise net force with the native field kernel (heavy).
 
     For each target object, its own source charges are zeroed before evaluating
     the target panel lattice is integrated with seventh-order Gauss-Duffy
     quadrature. A configured uniform ``sim.e0`` is added to the target field,
     matching the simulator pusher semantics while avoiding central-cell
     primary self-force contamination.
+
+    ``kernel`` is an open kernel built from this run, for example
+    ``Beach.kernel()``. Its plan is used as given, so ``periodic2``, ``theta``,
+    ``leaf_max``, ``order``, and ``library_path`` do not apply; its source charges
+    are replaced by the ``step`` charges during the call and restored afterwards,
+    and it is not closed. ``None`` builds a kernel for this call and closes it.
     """
 
     context = RunContext.from_value(result, config_path=config_path)
@@ -118,28 +132,27 @@ def calc_object_forces_kernel(
             f"unknown mesh id(s): {missing}. available={list(available_ids)}"
         )
 
-    _require_total_field_config(
-        context,
-        operation="calc_object_forces_kernel",
-    )
-    options = _options_from_result(
-        resolved,
-        periodic2=periodic2,
-        theta=theta,
-        leaf_max=leaf_max,
-        order=order,
-        config_path=config_path,
-        context=context,
-    )
-    _require_total_field_reconstruction(
-        context,
-        options,
-        operation="calc_object_forces_kernel",
-    )
+    operation = "calc_object_forces_kernel"
+    if kernel is None:
+        _require_total_field_config(context, operation=operation)
+        options = _options_from_result(
+            resolved,
+            periodic2=periodic2,
+            theta=theta,
+            leaf_max=leaf_max,
+            order=order,
+            config_path=config_path,
+            context=context,
+        )
+        _require_total_field_reconstruction(context, options, operation=operation)
+        evaluator = FieldKernel(
+            triangles, charges, options=options, library_path=library_path
+        )
+    else:
+        _require_run_kernel(context, kernel, operation=operation)
+        evaluator = _restoring_charges(kernel)
     records: list[KernelObjectForceRecord] = []
-    with FieldKernel(
-        triangles, charges, options=options, library_path=library_path
-    ) as kernel:
+    with evaluator as kernel:
         for mesh_id in target_ids:
             mask = mesh_ids == mesh_id
             if not np.any(mask):
@@ -183,7 +196,7 @@ def field_kernel_options_from_result(
     order: int | None = None,
     config_path: str | Path | None = None,
 ) -> FieldKernelOptions:
-    """Resolve field-kernel options from a BEACH result and optional config."""
+    """Resolve field-kernel options from a BEACH result and optional config (light)."""
 
     context = RunContext.from_value(result, config_path=config_path)
     resolved = context.result
@@ -283,6 +296,35 @@ def _options_from_result(
             (sim or {}).get("field_periodic_generation_tolerance", 1.0e-8)
         ),
     )
+
+
+def _require_run_kernel(
+    context: RunContext,
+    kernel: FieldKernel,
+    *,
+    operation: str,
+) -> None:
+    """Check that a caller's kernel holds this run's panels and the total field."""
+
+    nsource = kernel.source_charges.shape[0]
+    if nsource != context.result.mesh_nelem:
+        raise ValueError(
+            f"{operation}: the kernel holds {nsource} source panels but the run has "
+            f"{context.result.mesh_nelem}; build it from this run with Beach.kernel() "
+            "or field_kernel_from_result()."
+        )
+    _require_total_field_reconstruction(context, kernel.options, operation=operation)
+
+
+@contextmanager
+def _restoring_charges(kernel: FieldKernel) -> Iterator[FieldKernel]:
+    """Lend a caller's kernel and put its source charges back afterwards."""
+
+    charges = kernel.source_charges
+    try:
+        yield kernel
+    finally:
+        kernel.update_charges(charges)
 
 
 def _require_total_field_reconstruction(

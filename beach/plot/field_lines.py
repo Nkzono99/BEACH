@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import TYPE_CHECKING, Iterable, Mapping
 
 import numpy as np
 
@@ -19,6 +19,9 @@ from ._defaults import (
     DEFAULT_MESH_VIEW_ELEV,
 )
 from ._mesh3d import _configure_mesh_axes
+
+if TYPE_CHECKING:
+    from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_field_lines_3d(
@@ -43,8 +46,16 @@ def plot_field_lines_3d(
     figsize: tuple[float, float] = (9, 7),
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ):
-    """Plot native triangle-P0 field lines and an optional surface mesh."""
+    """Plot triangle-P0 field lines and an optional surface mesh (heavy: native kernel).
+
+    The tracing arguments, including ``kernel``, are those of
+    :func:`beach.trace_field_lines`. ``show_mesh`` overlays the mesh colored by
+    surface charge density with ``mesh_cmap`` and ``mesh_alpha``; lines use
+    ``line_color`` or, when it is ``None``, ``line_cmap``. Returns
+    ``(figure, axes)``.
+    """
 
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -62,6 +73,7 @@ def plot_field_lines_3d(
         box_max=box_max,
         config_path=config_path,
         library_path=library_path,
+        kernel=kernel,
     )
     triangles = context.require_triangles()
     fig = plt.figure(figsize=figsize)

@@ -27,6 +27,8 @@ from ._mesh3d import _configure_mesh_axes
 if TYPE_CHECKING:
     from matplotlib.animation import FuncAnimation
 
+    from beach.analysis.field_kernel import FieldKernel
+
 
 def animate_history_mesh(
     result: FortranRunResult | object,
@@ -44,8 +46,9 @@ def animate_history_mesh(
     view_elev: float | None = None,
     view_azim: float | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ) -> Path | FuncAnimation:
-    """Render mesh history as an animation.
+    """Render mesh history as an animation (heavy for ``quantity="potential"``).
 
     Parameters
     ----------
@@ -79,6 +82,13 @@ def animate_history_mesh(
         3D view elevation angle in degrees. ``None`` uses the default (24.0).
     view_azim : float or None, default None
         3D view azimuth angle in degrees. ``None`` uses the default (-58.0).
+    library_path : str, pathlib.Path, or None, default None
+        Native kernel library for potential mode.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run that evaluates potential mode with its own
+        plan; its source charges are stepped through the history frames and then
+        restored, and it is not closed. ``periodic2`` then only wraps and
+        replicates the drawn mesh. ``None`` builds a kernel for potential mode.
 
     Returns
     -------
@@ -139,6 +149,7 @@ def animate_history_mesh(
             periodic2=periodic2,
             reference_point=reference_point,
             library_path=library_path,
+            kernel=kernel,
         )
         colorbar_label = "potential [V]" if resolved_reference is None else "potential difference [V]"
         title_prefix = "Electric potential history" if resolved_reference is None else "Electric potential difference history"

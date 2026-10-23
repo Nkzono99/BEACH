@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
@@ -13,6 +13,9 @@ from beach.analysis.objects import normalize_kind_filter, resolve_object_specs
 from beach.io.types import FortranRunResult
 
 from ._defaults import DEFAULT_FORCE_CMAP
+
+if TYPE_CHECKING:
+    from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_coulomb_force_matrix(
@@ -26,8 +29,9 @@ def plot_coulomb_force_matrix(
     cmap: str = DEFAULT_FORCE_CMAP,
     annotate: bool = True,
     workers: int = 1,
+    kernel: FieldKernel | None = None,
 ):
-    """Plot an object-wise Coulomb-force matrix.
+    """Plot an object-wise Coulomb-force matrix (heavy: native kernel per entry).
 
     Parameters
     ----------
@@ -49,6 +53,10 @@ def plot_coulomb_force_matrix(
         Whether to draw scientific-notation values inside each cell.
     workers : int, default 1
         Number of worker processes used for source/target force entries.
+    kernel : FieldKernel or None, default None
+        Open full-mesh kernel built from this run, shared by every entry when
+        ``workers == 1`` (see :func:`beach.calc_coulomb`). Worker processes cannot
+        share it, so with ``workers > 1`` each entry builds its own kernel.
 
     Returns
     -------
@@ -96,6 +104,7 @@ def plot_coulomb_force_matrix(
         step=step,
         library_path=library_path,
         workers=workers,
+        kernel=kernel,
     )
 
     fig_width = max(6.0, 1.2 * len(target_specs) + 2.8)

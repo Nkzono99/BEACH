@@ -38,7 +38,7 @@ def analyze_coulomb_mobility(
     mu_roll: float | None = None,
     adhesion_force_N: float = 0.0,
 ) -> CoulombMobilityAnalysis:
-    """Analyze per-object Coulomb mobility indicators.
+    """Analyze per-object Coulomb mobility indicators (heavy: native kernel per object).
 
     Parameters
     ----------

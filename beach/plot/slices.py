@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import TYPE_CHECKING, Iterable, Mapping
 
 import numpy as np
 
@@ -13,6 +13,9 @@ from beach.io.types import FortranRunResult
 
 from ._defaults import DEFAULT_POTENTIAL_CMAP
 from ._mesh3d import _resolve_axis_unit
+
+if TYPE_CHECKING:
+    from beach.analysis.field_kernel import FieldKernel
 
 
 def plot_potential_slices(
@@ -33,8 +36,9 @@ def plot_potential_slices(
     axis_unit: str = "m",
     config_path: str | Path | None = None,
     library_path: str | Path | None = None,
+    kernel: FieldKernel | None = None,
 ):
-    """Plot XY/YZ/XZ potential slices in one figure.
+    """Plot XY/YZ/XZ potential slices in one figure (heavy: native kernel).
 
     Parameters
     ----------
@@ -68,6 +72,11 @@ def plot_potential_slices(
         は species1 の注入面中心を基準にした電位差を描く。
     axis_unit : {"m", "um", "nm"}, default "m"
         Coordinate unit used for slice axes.
+    config_path, library_path : str, pathlib.Path, or None, default None
+        Explicit ``beach.toml`` and native kernel library.
+    kernel : FieldKernel or None, default None
+        Open kernel built from this run, used as given and not closed; see
+        :func:`beach.compute_potential_points`. ``None`` builds one for this call.
 
     Returns
     -------
@@ -103,6 +112,7 @@ def plot_potential_slices(
         reference_point=resolved_reference,
         config_path=config_path,
         library_path=library_path,
+        kernel=kernel,
     )
 
     ordered_planes = ("xy", "yz", "xz")
