@@ -62,13 +62,13 @@ def run(args: argparse.Namespace, beach: Beach) -> None:
     ):
         report.update(
             {
-                "adaptive_nonzero_mode_limit_V": (
+                "periodic2_max_nonzero_mode_potential_step_V": (
                     result.periodic2_max_nonzero_mode_potential_step_v
                 ),
-                "adaptive_nonzero_mode_last_step_V": (
+                "adaptive_nonzero_mode_last_potential_step_V": (
                     result.adaptive_nonzero_mode_last_potential_step_v or 0.0
                 ),
-                "adaptive_nonzero_mode_last_duration_s": (
+                "adaptive_nonzero_mode_last_batch_duration_s": (
                     result.adaptive_nonzero_mode_last_batch_duration_s or 0.0
                 ),
                 "adaptive_nonzero_mode_rejected_trials": (
