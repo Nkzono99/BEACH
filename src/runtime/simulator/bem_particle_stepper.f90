@@ -37,6 +37,22 @@ module bem_particle_stepper
     real(dp) :: wall_outward_normal_kinetic_energy_j_sum = 0.0_dp
   end type particle_step_result
 
+  !> 1 粒子 step の間変わらない文脈。一様磁場・粒子物性・境界 contract・面内再配置の RNG counter・照射セルと、
+  !! 上部真空 Fourier 場での再試行か、periodic remainder の適応分割の深さを持つ。mesh・sim・snapshot は大きいので
+  !! 引数のまま参照で渡し、ここには公開 routine の入口で一度だけ組み立てる小さな値だけを置く。
+  type :: particle_step_context
+    real(dp) :: bfield(3) = 0.0_dp
+    real(dp) :: q = 0.0_dp
+    real(dp) :: m = 0.0_dp
+    type(external_boundary_contract_type) :: boundary_contract
+    integer(i64) :: boundary_rng_counter(4) = 0_i64
+    !> 呼び出し側が RNG counter を渡したか。面内再配置が要る event は counter なしでは解けない。
+    logical :: has_boundary_rng_counter = .false.
+    logical :: use_upper_panel_fourier = .false.
+    integer(i32) :: adaptive_depth = 0_i32
+    type(irradiation_cell_contract_type) :: cell
+  end type particle_step_context
+
   public :: build_particle_step_candidate
   public :: particle_substep_needs_halving
   public :: particle_substep_energy_floor_j
@@ -135,9 +151,9 @@ contains
 
     field_available = .true.
     call advance_particle_step_impl( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32, &
-      .false., field_available, &
-      cell=cell &
+      mesh, sim, snapshot, &
+      make_step_context(bfield, q, m, cell, .false., boundary_contract, boundary_rng_counter), &
+      x0, v0, dt, result, field_available &
       )
   end subroutine advance_particle_step
 
@@ -159,50 +175,59 @@ contains
 
     field_available = .true.
     call advance_particle_step_impl( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, 0_i32, &
-      .true., field_available, &
-      cell=cell &
+      mesh, sim, snapshot, &
+      make_step_context(bfield, q, m, cell, .true., boundary_contract, boundary_rng_counter), &
+      x0, v0, dt, result, field_available &
       )
   end subroutine advance_particle_step_upper_panel_fourier
 
-  !> periodic event の適応分割深さを内部だけで引き回す1 step実装。
-  recursive subroutine advance_particle_step_impl( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, adaptive_depth, &
-    use_upper_panel_fourier, field_available, &
-    cell &
-    )
+  !> 公開 routine の引数から step 文脈を組み立てる。contract を省略すると override なし、counter を省略すると
+  !! 面内再配置の event は解けない（has_boundary_rng_counter=.false.）。
+  function make_step_context( &
+    bfield, q, m, cell, use_upper_panel_fourier, boundary_contract, boundary_rng_counter &
+    ) result(ctx)
+    real(dp), intent(in) :: bfield(3), q, m
     type(irradiation_cell_contract_type), intent(in) :: cell
+    logical, intent(in) :: use_upper_panel_fourier
+    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
+    integer(i64), intent(in), optional :: boundary_rng_counter(4)
+    type(particle_step_context) :: ctx
+
+    ctx%bfield = bfield
+    ctx%q = q
+    ctx%m = m
+    ctx%cell = cell
+    ctx%use_upper_panel_fourier = use_upper_panel_fourier
+    if (present(boundary_contract)) ctx%boundary_contract = boundary_contract
+    ctx%has_boundary_rng_counter = present(boundary_rng_counter)
+    if (ctx%has_boundary_rng_counter) ctx%boundary_rng_counter = boundary_rng_counter
+  end function make_step_context
+
+  !> periodic event の適応分割深さ（ctx%adaptive_depth）を内部だけで引き回す1 step実装。
+  recursive subroutine advance_particle_step_impl(mesh, sim, snapshot, ctx, x0, v0, dt, result, field_available)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
-    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
+    type(particle_step_context), intent(in) :: ctx
+    real(dp), intent(in) :: x0(3), v0(3), dt
     type(particle_step_result), intent(out) :: result
-    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
-    integer(i64), intent(in), optional :: boundary_rng_counter(4)
-    integer(i32), intent(in) :: adaptive_depth
-    logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
     type(hit_info) :: hit
     real(dp) :: x_candidate(3), v_candidate(3), candidate_electric_field(3)
     integer(i32) :: query_status
-    integer(i64) :: active_boundary_rng_counter(4)
-    logical :: has_boundary_rng_counter
 
     result = particle_step_result()
     result%x = x0
     result%v = v0
-    active_boundary_rng_counter = 0_i64
-    has_boundary_rng_counter = present(boundary_rng_counter)
-    if (has_boundary_rng_counter) active_boundary_rng_counter = boundary_rng_counter
-    if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt)) then
+    if (.not. valid_particle_step_input(x0, v0, ctx%bfield, ctx%q, ctx%m, dt)) then
       result%status = particle_step_invalid_boundary
       return
     end if
 
     call build_particle_step_candidate( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, &
-      use_upper_panel_fourier, field_available &
+      mesh, sim, snapshot, ctx%bfield, x0, v0, ctx%q, ctx%m, dt, x_candidate, v_candidate, candidate_electric_field, &
+      ctx%use_upper_panel_fourier, field_available &
       )
     result%field_eval_count = 1_i32
     if (.not. field_available) then
@@ -219,11 +244,8 @@ contains
     if (query_status /= collision_query_ok) then
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
-          mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, result=result, &
-          boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-          has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth, &
-          use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available, &
-          cell=cell &
+          mesh, sim, snapshot, ctx, x0, v0, dt, x_candidate, v_candidate, candidate_electric_field, result=result, &
+          field_available=field_available &
           )
         return
       end if
@@ -241,11 +263,8 @@ contains
     end if
 
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
-      boundary_contract=boundary_contract, boundary_rng_counter=active_boundary_rng_counter, &
-      has_boundary_rng_counter=has_boundary_rng_counter, adaptive_depth=adaptive_depth, &
-      use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available, &
-      cell=cell &
+      mesh, sim, snapshot, ctx, x0, v0, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
+      field_available &
       )
   end subroutine advance_particle_step_impl
 
@@ -265,17 +284,12 @@ contains
     type(external_boundary_contract_type), intent(in), optional :: boundary_contract
     integer(i64), intent(in), optional :: boundary_rng_counter(4)
     real(dp), intent(in), optional :: sampled_electric_field(3)
-    integer(i64) :: active_boundary_rng_counter(4)
     real(dp) :: active_electric_field(3), x_mid(3)
-    logical :: has_boundary_rng_counter
     logical :: field_available
 
     result = particle_step_result()
     result%x = x0
     result%v = v0
-    active_boundary_rng_counter = 0_i64
-    has_boundary_rng_counter = present(boundary_rng_counter)
-    if (has_boundary_rng_counter) active_boundary_rng_counter = boundary_rng_counter
     result%field_eval_count = 1_i32
     result%collision_query_count = merge(1_i32, 0_i32, present(hit))
     if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt) .or. &
@@ -297,32 +311,25 @@ contains
     end if
     field_available = .true.
     call advance_particle_boundary_crossing( &
-      mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, active_electric_field, hit, result, &
-      boundary_contract, active_boundary_rng_counter, has_boundary_rng_counter, 0_i32, .false., field_available, &
-      cell=cell &
+      mesh, sim, snapshot, &
+      make_step_context(bfield, q, m, cell, .false., boundary_contract, boundary_rng_counter), &
+      x0, v0, dt, x_candidate, v_candidate, active_electric_field, hit, result, field_available &
       )
   end subroutine resolve_particle_boundary_candidate
 
   !> box crossing時だけevent用stateを確保し、periodic過多時はremainderを適応分割する。
   subroutine advance_particle_boundary_crossing( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
-    boundary_contract, boundary_rng_counter, has_boundary_rng_counter, adaptive_depth, &
-    use_upper_panel_fourier, field_available, &
-    cell &
+    mesh, sim, snapshot, ctx, x0, v0, dt, x_candidate, v_candidate, candidate_electric_field, hit, result, &
+    field_available &
     )
-    type(irradiation_cell_contract_type), intent(in) :: cell
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
-    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt, x_candidate(3), v_candidate(3)
+    type(particle_step_context), intent(in) :: ctx
+    real(dp), intent(in) :: x0(3), v0(3), dt, x_candidate(3), v_candidate(3)
     real(dp), intent(in) :: candidate_electric_field(3)
     type(hit_info), intent(in), optional :: hit
     type(particle_step_result), intent(inout) :: result
-    type(external_boundary_contract_type), intent(in), optional :: boundary_contract
-    integer(i64), intent(in) :: boundary_rng_counter(4)
-    logical, intent(in) :: has_boundary_rng_counter
-    integer(i32), intent(in) :: adaptive_depth
-    logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
     integer(i32), parameter :: max_boundary_events = 8_i32
@@ -335,10 +342,7 @@ contains
     integer(i32) :: query_status, boundary_status, event_count
     logical :: alive, escaped, wall_outward_event, wall_barrier_event
     logical :: first_segment, requires_redistribution
-    type(external_boundary_contract_type) :: active_boundary_contract
 
-    active_boundary_contract = external_boundary_contract_type()
-    if (present(boundary_contract)) active_boundary_contract = boundary_contract
     x_start = x0
     v_start = v0
     x_trial = x_candidate
@@ -382,7 +386,7 @@ contains
       end if
 
       call evaluate_boundary_state( &
-        sim, event, x_start, v_start, x_trial, v_trial, bfield, q, m, dt_segment, segment_electric_field, x_event, v_event, &
+        sim, ctx, event, x_start, v_start, x_trial, v_trial, dt_segment, segment_electric_field, x_event, v_event, &
         boundary_status &
         )
       if (boundary_status /= boundary_event_ok) then
@@ -395,45 +399,41 @@ contains
       end if
 
       if (event_count >= max_boundary_events) then
-        if (periodic_event_can_subdivide(sim, event) .and. adaptive_depth < 12_i32) then
-          call advance_periodic_substeps( &
-            mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, result, active_boundary_contract, &
-            boundary_rng_counter, has_boundary_rng_counter, adaptive_depth, use_upper_panel_fourier, field_available, &
-            cell=cell &
-            )
+        if (periodic_event_can_subdivide(sim, event) .and. ctx%adaptive_depth < 12_i32) then
+          call advance_periodic_substeps(mesh, sim, snapshot, ctx, x_start, v_start, dt_segment, result, field_available)
           return
         end if
         result%status = particle_step_multiple_box_events
         return
       end if
       event_count = event_count + 1_i32
-      wall_outward_event = cell%crosses_wall_outward(event%face_mask, event%face_bc, v_event)
+      wall_outward_event = ctx%cell%crosses_wall_outward(event%face_mask, event%face_bc, v_event)
       wall_barrier_event = wall_outward_event .and. &
-                           open_face_uses_kinetic_barrier(cell%wall_face, active_boundary_contract)
+                           open_face_uses_kinetic_barrier(ctx%cell%wall_face, ctx%boundary_contract)
       if (wall_outward_event) then
-        wall_normal_velocity = cell%outward_normal_velocity(v_event)
+        wall_normal_velocity = ctx%cell%outward_normal_velocity(v_event)
         result%wall_outward_event_count = result%wall_outward_event_count + 1_i32
         result%wall_outward_normal_kinetic_energy_j_sum = &
-          result%wall_outward_normal_kinetic_energy_j_sum + 0.5_dp*m*wall_normal_velocity*wall_normal_velocity
+          result%wall_outward_normal_kinetic_energy_j_sum + 0.5_dp*ctx%m*wall_normal_velocity*wall_normal_velocity
       end if
-      requires_redistribution = event_requires_redistribution_counter(event, active_boundary_contract)
+      requires_redistribution = event_requires_redistribution_counter(event, ctx%boundary_contract)
       redistribution_uniform = 0.0_dp
       if (requires_redistribution) then
-        if (.not. has_boundary_rng_counter) then
+        if (.not. ctx%has_boundary_rng_counter) then
           result%status = particle_step_invalid_boundary
           return
         end if
         call generate_redistribution_uniform( &
-          sim%rng_seed, boundary_rng_counter, event_count, redistribution_uniform &
+          sim%rng_seed, ctx%boundary_rng_counter, event_count, redistribution_uniform &
           )
       end if
       dt_remaining = (1.0_dp - event%fraction)*dt_segment
       alive = .true.
       escaped = .false.
-      if (event_uses_kinetic_barrier(event, active_boundary_contract)) then
+      if (event_uses_kinetic_barrier(event, ctx%boundary_contract)) then
         call apply_kinetic_barrier_event( &
-          mesh, sim, snapshot, event, active_boundary_contract, q, m, x_event, v_event, alive, escaped, boundary_status, &
-          redistribution_uniform, use_upper_panel_fourier, field_available &
+          mesh, sim, snapshot, ctx, event, x_event, v_event, alive, escaped, boundary_status, redistribution_uniform, &
+          field_available &
           )
       else
         call apply_escape_reflect_periodic_event( &
@@ -471,8 +471,8 @@ contains
       v_start = v_event
       dt_segment = dt_remaining
       call build_particle_step_candidate( &
-        mesh, sim, snapshot, bfield, x_start, v_start, q, m, dt_segment, x_trial, v_trial, segment_electric_field, &
-        use_upper_panel_fourier, field_available &
+        mesh, sim, snapshot, ctx%bfield, x_start, v_start, ctx%q, ctx%m, dt_segment, x_trial, v_trial, &
+        segment_electric_field, ctx%use_upper_panel_fourier, field_available &
         )
       result%field_eval_count = result%field_eval_count + 1_i32
       if (.not. field_available) then
@@ -488,24 +488,16 @@ contains
   end subroutine advance_particle_boundary_crossing
 
   !> 一つのperiodic remainderを二分し、各半stepのbox/collision eventを順番に解く。
-  subroutine advance_periodic_substeps( &
-    mesh, sim, snapshot, bfield, x0, v0, q, m, dt, result, boundary_contract, boundary_rng_counter, &
-    has_boundary_rng_counter, adaptive_depth, use_upper_panel_fourier, field_available, &
-    cell &
-    )
-    type(irradiation_cell_contract_type), intent(in) :: cell
+  subroutine advance_periodic_substeps(mesh, sim, snapshot, ctx, x0, v0, dt, result, field_available)
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
-    real(dp), intent(in) :: bfield(3), x0(3), v0(3), q, m, dt
+    type(particle_step_context), intent(in) :: ctx
+    real(dp), intent(in) :: x0(3), v0(3), dt
     type(particle_step_result), intent(inout) :: result
-    type(external_boundary_contract_type), intent(in) :: boundary_contract
-    integer(i64), intent(in) :: boundary_rng_counter(4)
-    logical, intent(in) :: has_boundary_rng_counter
-    integer(i32), intent(in) :: adaptive_depth
-    logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
+    type(particle_step_context) :: half_ctx
     type(particle_step_result) :: first_half, second_half
     integer(i32) :: prior_field_evals, prior_collision_queries
     integer(i32) :: prior_wall_events, prior_outer_returns, prior_outer_escapes
@@ -517,20 +509,9 @@ contains
     prior_outer_returns = result%outer_barrier_return_count
     prior_outer_escapes = result%outer_barrier_escape_count
     prior_wall_energy = result%wall_outward_normal_kinetic_energy_j_sum
-    if (has_boundary_rng_counter) then
-      call advance_particle_step_impl( &
-        mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract, &
-        boundary_rng_counter, adaptive_depth + 1_i32, use_upper_panel_fourier, field_available, &
-        cell=cell &
-        )
-    else
-      call advance_particle_step_impl( &
-        mesh, sim, snapshot, bfield, x0, v0, q, m, 0.5_dp*dt, first_half, boundary_contract=boundary_contract, &
-        adaptive_depth=adaptive_depth + 1_i32, use_upper_panel_fourier=use_upper_panel_fourier, &
-        field_available=field_available, &
-        cell=cell &
-        )
-    end if
+    half_ctx = ctx
+    half_ctx%adaptive_depth = ctx%adaptive_depth + 1_i32
+    call advance_particle_step_impl(mesh, sim, snapshot, half_ctx, x0, v0, 0.5_dp*dt, first_half, field_available)
     if (.not. field_available) then
       result = first_half
       return
@@ -547,20 +528,9 @@ contains
       return
     end if
 
-    if (has_boundary_rng_counter) then
-      call advance_particle_step_impl( &
-        mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, boundary_contract, &
-        boundary_rng_counter, adaptive_depth + 1_i32, use_upper_panel_fourier, field_available, &
-        cell=cell &
-        )
-    else
-      call advance_particle_step_impl( &
-        mesh, sim, snapshot, bfield, first_half%x, first_half%v, q, m, 0.5_dp*dt, second_half, &
-        boundary_contract=boundary_contract, adaptive_depth=adaptive_depth + 1_i32, &
-        use_upper_panel_fourier=use_upper_panel_fourier, field_available=field_available, &
-        cell=cell &
-        )
-    end if
+    call advance_particle_step_impl( &
+      mesh, sim, snapshot, half_ctx, first_half%x, first_half%v, 0.5_dp*dt, second_half, field_available &
+      )
     result = second_half
     result%field_eval_count = prior_field_evals + first_half%field_eval_count + second_half%field_eval_count
     result%collision_query_count = prior_collision_queries + first_half%collision_query_count + &
@@ -631,11 +601,12 @@ contains
 
   !> Chord上のevent位置と、その接線方向・離散workに整合する速度を返す。
   subroutine evaluate_boundary_state( &
-    sim, event, x0, v0, x1, v1, bfield, q, m, dt, electric_field, x_event, v_event, status &
+    sim, ctx, event, x0, v0, x1, v1, dt, electric_field, x_event, v_event, status &
     )
     type(sim_config), intent(in) :: sim
+    type(particle_step_context), intent(in) :: ctx
     type(boundary_event_type), intent(in) :: event
-    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), bfield(3), q, m, dt, electric_field(3)
+    real(dp), intent(in) :: x0(3), v0(3), x1(3), v1(3), dt, electric_field(3)
     real(dp), intent(out) :: x_event(3), v_event(3)
     integer(i32), intent(out) :: status
     integer(i32) :: axis
@@ -650,7 +621,7 @@ contains
     end do
     chord_velocity = (x1 - x0)/dt
     chord_speed2 = sum(chord_velocity*chord_velocity)
-    event_speed2 = sum(v0*v0) + 2.0_dp*(q/m)*dot_product(electric_field, x_event - x0)
+    event_speed2 = sum(v0*v0) + 2.0_dp*(ctx%q/ctx%m)*dot_product(electric_field, x_event - x0)
     speed_tolerance = 256.0_dp*epsilon(1.0_dp)*max(tiny(1.0_dp), sum(v0*v0), chord_speed2, abs(event_speed2))
     if (.not. ieee_is_finite(chord_speed2) .or. .not. ieee_is_finite(event_speed2) .or. &
         chord_speed2 <= tiny(1.0_dp) .or. event_speed2 <= speed_tolerance) then
@@ -658,7 +629,7 @@ contains
       status = boundary_event_invalid_geometry
       return
     end if
-    force_free = q == 0.0_dp .or. (all(electric_field == 0.0_dp) .and. all(bfield == 0.0_dp))
+    force_free = ctx%q == 0.0_dp .or. (all(electric_field == 0.0_dp) .and. all(ctx%bfield == 0.0_dp))
     if (force_free .and. all(v1 == v0)) then
       v_event = v0
       if (.not. all(ieee_is_finite(x_event))) status = boundary_event_invalid_geometry
@@ -673,21 +644,18 @@ contains
 
   !> 種別 kinetic 障壁を event 位置と event 時速度で評価する。
   subroutine apply_kinetic_barrier_event( &
-    mesh, sim, snapshot, event, boundary_contract, q, m, x, v, alive, escaped, status, redistribution_uniform, &
-    use_upper_panel_fourier, field_available &
+    mesh, sim, snapshot, ctx, event, x, v, alive, escaped, status, redistribution_uniform, field_available &
     )
     type(mesh_type), intent(in) :: mesh
     type(sim_config), intent(in) :: sim
     type(electrostatic_snapshot_type), intent(inout) :: snapshot
+    type(particle_step_context), intent(in) :: ctx
     type(boundary_event_type), intent(in) :: event
-    type(external_boundary_contract_type), intent(in) :: boundary_contract
-    real(dp), intent(in) :: q, m
     real(dp), intent(inout) :: x(3), v(3)
     logical, intent(inout) :: alive
     logical, intent(out) :: escaped
     integer(i32), intent(out) :: status
     real(dp), intent(in) :: redistribution_uniform(3)
-    logical, intent(in) :: use_upper_panel_fourier
     logical, intent(inout) :: field_available
 
     type(boundary_event_type) :: action_event
@@ -704,7 +672,7 @@ contains
     high_side = .false.
     do axis = 1_i32, 3_i32
       if (btest(event%face_mask, 2_i32*axis - 2_i32) .and. event%face_bc(2_i32*axis - 1_i32) == bc_open) then
-        if (open_face_uses_kinetic_barrier(2_i32*axis - 1_i32, boundary_contract)) then
+        if (open_face_uses_kinetic_barrier(2_i32*axis - 1_i32, ctx%boundary_contract)) then
           barrier_open_count = barrier_open_count + 1_i32
           face_index = 2_i32*axis - 1_i32
           high_side = .false.
@@ -713,7 +681,7 @@ contains
         end if
       end if
       if (btest(event%face_mask, 2_i32*axis - 1_i32) .and. event%face_bc(2_i32*axis) == bc_open) then
-        if (open_face_uses_kinetic_barrier(2_i32*axis, boundary_contract)) then
+        if (open_face_uses_kinetic_barrier(2_i32*axis, ctx%boundary_contract)) then
           barrier_open_count = barrier_open_count + 1_i32
           face_index = 2_i32*axis
           high_side = .true.
@@ -738,16 +706,16 @@ contains
       action_face_bc(2_i32*axis) = sim%bc_high(axis)
     end do
     action_event = event
-    if (.not. ieee_is_finite(q) .or. .not. ieee_is_finite(m) .or. m <= 0.0_dp) then
+    if (.not. ieee_is_finite(ctx%q) .or. .not. ieee_is_finite(ctx%m) .or. ctx%m <= 0.0_dp) then
       status = particle_step_invalid_boundary
       return
     end if
 
     axis = (face_index + 1_i32)/2_i32
     if (high_side) then
-      barrier_potential_v = boundary_contract%barrier_potential_high_v(axis)
+      barrier_potential_v = ctx%boundary_contract%barrier_potential_high_v(axis)
     else
-      barrier_potential_v = boundary_contract%barrier_potential_low_v(axis)
+      barrier_potential_v = ctx%boundary_contract%barrier_potential_low_v(axis)
     end if
     call evaluate_face_potential(x, phi_boundary)
     if (status /= boundary_event_ok) return
@@ -756,8 +724,8 @@ contains
     else
       outward_v = -v(axis)
     end if
-    kinetic_normal = 0.5_dp*m*outward_v*outward_v
-    barrier_energy_j = q*(barrier_potential_v - phi_boundary)
+    kinetic_normal = 0.5_dp*ctx%m*outward_v*outward_v
+    barrier_energy_j = ctx%q*(barrier_potential_v - phi_boundary)
     if (.not. ieee_is_finite(kinetic_normal) .or. .not. ieee_is_finite(barrier_energy_j)) then
       status = particle_step_invalid_boundary
       return
@@ -770,7 +738,7 @@ contains
     end if
 
     reflect_bc = bc_reflect
-    if (open_face_redistributes_barrier_return(face_index, boundary_contract)) reflect_bc = bc_redistributed_reflect
+    if (open_face_redistributes_barrier_return(face_index, ctx%boundary_contract)) reflect_bc = bc_redistributed_reflect
     x_crossing = x
     v_crossing = v
     call reflect_on_barrier_face(reflect_bc)
@@ -779,13 +747,13 @@ contains
     ! 外部の静電場では全エネルギーが保存する。接線速度は保ったまま、戻り位置の局所電位で法線速度を合わせる。
     call evaluate_face_potential(x, phi_return)
     if (status /= boundary_event_ok) return
-    kinetic_return = kinetic_normal + q*(phi_boundary - phi_return)
+    kinetic_return = kinetic_normal + ctx%q*(phi_boundary - phi_return)
     if (.not. ieee_is_finite(kinetic_return)) then
       status = particle_step_invalid_boundary
       return
     end if
     if (kinetic_return > 0.0_dp) then
-      v(axis) = sign(sqrt(2.0_dp*kinetic_return/m), v(axis))
+      v(axis) = sign(sqrt(2.0_dp*kinetic_return/ctx%m), v(axis))
     else
       ! 戻り位置へ届かない遅い粒子は外部での滞空が短く横へほとんど動かないので、横切り位置へ戻す。
       x = x_crossing
@@ -801,7 +769,7 @@ contains
       real(dp), intent(out) :: phi
 
       phi = 0.0_dp
-      if (use_upper_panel_fourier) then
+      if (ctx%use_upper_panel_fourier) then
         call snapshot%eval_upper_panel_fourier_phi(mesh, position, phi, field_available)
         if (.not. field_available) then
           status = particle_step_invalid_boundary
