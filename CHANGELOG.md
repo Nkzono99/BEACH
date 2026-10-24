@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   で検査する。
 - Fortran の `init_particle_batch_from_config` と `build_batch_injection_layout` は `source_plan` を必須にした。
   省略時に呼出しの中で plan を作る経路は test だけが使っていた。
+- charge ledger の累積時に粒子数の非負を再検査する停止を削除した。粒子数は src の加算でしか増えず、
+  checkpoint から読む値は resume の読込みが検査している。
 
 ### Fixed
 

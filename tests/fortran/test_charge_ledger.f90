@@ -22,9 +22,6 @@ program test_charge_ledger
   case ('--ratio-overflow-probe')
     call run_ratio_overflow_probe()
     stop 0
-  case ('--negative-count-probe')
-    call run_negative_count_probe()
-    stop 0
   case ('--nonfinite-sum-probe')
     call run_nonfinite_sum_probe()
     stop 0
@@ -33,7 +30,7 @@ program test_charge_ledger
     stop 0
   end select
 
-  call test_init(10)
+  call test_init(9)
 
   call test_begin('initialization_and_reset_defaults')
   call ledger%init(2_i32)
@@ -301,10 +298,6 @@ program test_charge_ledger
   call assert_probe_fails('--sum-overflow-probe', 'charge sum overflow probe must fail')
   call test_end()
 
-  call test_begin('negative_count_fails_at_accumulation_preflight')
-  call assert_probe_fails('--negative-count-probe', 'negative ledger count probe must fail')
-  call test_end()
-
   call test_summary()
 
 contains
@@ -389,15 +382,6 @@ contains
     increment%fixed_absorbed_weight_scale(1) = 2.0_dp
     call accumulate_charge_ledger(accumulated, increment)
   end subroutine run_ratio_overflow_probe
-
-  subroutine run_negative_count_probe()
-    type(charge_ledger_type) :: invalid_batch, destination
-
-    call invalid_batch%init(1_i32)
-    call invalid_batch%reset(1_i32)
-    invalid_batch%injected_count(1) = -1_i64
-    call accumulate_charge_ledger(destination, invalid_batch)
-  end subroutine run_negative_count_probe
 
   subroutine run_nonfinite_sum_probe()
     real(dp) :: ignored
