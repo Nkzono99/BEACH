@@ -1,187 +1,27 @@
 !> 光線追跡による光電子放出位置と速度のsampling。
 module bem_photoelectron_injection
-  use, intrinsic :: iso_fortran_env, only: error_unit
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_types, only: mesh_type, photo_raycast_config, hit_info, bc_periodic
   use bem_boundary, only: apply_ray_box_boundary
   use bem_collision, only: find_first_hit
-  use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
+  use bem_status_codes, only: collision_query_ok
   use bem_string_utils, only: lower_ascii
   use bem_injection_flux, only: sample_flux_weighted_normal_component
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
   use bem_counter_rng, only: counter_uniform
-  use bem_random_stream, only: random_uniform
   implicit none
   private
 
   real(dp), parameter :: default_velocity_sigma_cutoff = 6.0_dp
 
-  public :: sample_photo_raycast_particles, sample_photo_emission_velocity, build_tangent_basis
+  public :: sample_photo_emission_velocity, build_tangent_basis
   public :: canonicalize_periodic_emission_position
   public :: cast_photo_ray, sample_photo_ray_slot, photo_ray_macro_weight
 
 contains
 
-  !> 光線を注入面からレイキャストし、最初の命中要素から光電子を放出する。
-  !! @param[in] mesh 交差判定に使うメッシュ。
-  !! @param[in] sim ボックス境界条件とバッチ時間を含むシミュレーション設定。
-  !! @param[in] inject_face 照射面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
-  !! @param[in] pos_low 照射開口の下限座標 `(x,y,z)` [m]。
-  !! @param[in] pos_high 照射開口の上限座標 `(x,y,z)` [m]。
-  !! @param[in] ray_direction レイ進行方向ベクトル（正規化前でも可）。
-  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
-  !! @param[in] temperature_k 放出温度 [K]。
-  !! @param[in] normal_drift_speed 放出法線方向のシフト速度 [m/s]。
-  !! @param[in] emit_current_density_a_m2 レイ垂直面基準の放出電流面密度 [A/m^2]。
-  !! @param[in] q_particle 粒子1個あたりの電荷 [C]。
-  !! @param[in] rays_per_batch このrankで発射するレイ本数。
-  !! @param[in] global_rays_per_batch 全rank合計のレイ本数（省略時は `rays_per_batch`）。
-  !! @param[in] vmin_normal 放出法線速度の下限 [m/s]（省略時は 0）。
-  !! @param[out] x 放出位置配列 `x(3,rays_per_batch)` [m]。
-  !! @param[out] v 放出速度配列 `v(3,rays_per_batch)` [m/s]。
-  !! @param[out] w 各マクロ粒子重み `w(rays_per_batch)`。
-  !! @param[out] n_emit 実際に放出された粒子数（`<= rays_per_batch`）。
-  !! @param[out] emit_elem_idx 放出元要素ID `emit_elem_idx(rays_per_batch)`（省略可）。
-  !! @param[out] failure 不完全な衝突照会の status・最小 ray index・bounce index（省略時は OpenMP 終了後に停止）。
-  subroutine sample_photo_raycast_particles( &
-    mesh, sim, inject_face, pos_low, pos_high, ray_direction, m_particle, temperature_k, normal_drift_speed, &
-    emit_current_density_a_m2, q_particle, rays_per_batch, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-    vmin_normal, failure &
-    )
-    type(mesh_type), intent(in) :: mesh
-    class(photo_raycast_config), intent(in) :: sim
-    character(len=*), intent(in) :: inject_face
-    real(dp), intent(in) :: pos_low(3), pos_high(3)
-    real(dp), intent(in) :: ray_direction(3)
-    real(dp), intent(in) :: m_particle, temperature_k, normal_drift_speed
-    real(dp), intent(in) :: emit_current_density_a_m2, q_particle
-    integer(i32), intent(in) :: rays_per_batch
-    real(dp), intent(out) :: x(:, :)
-    real(dp), intent(out) :: v(:, :)
-    real(dp), intent(out) :: w(:)
-    integer(i32), intent(out) :: n_emit
-    integer(i32), intent(out), optional :: emit_elem_idx(:)
-    integer(i32), intent(in), optional :: global_rays_per_batch
-    real(dp), intent(in), optional :: vmin_normal
-    type(photo_ray_failure_type), intent(out), optional :: failure
-
-    real(dp), parameter :: eps = 1.0d-12
-    integer(i32) :: i, total_rays, bounce_count, collision_status
-    integer(i32) :: query_failure_status, query_failure_ray, query_failure_bounce
-    integer :: axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), launch_dir(3), launch_dir_norm, inward_dot
-    real(dp) :: launch_area, projected_area, w_hit, sigma
-    real(dp) :: ray_pos(3), ray_dir(3), seg_end(3), boundary_probe(3), boundary_dir(3)
-    real(dp) :: surf_normal(3), tangent1(3), tangent2(3)
-    real(dp), allocatable :: u(:, :), hit_pos(:, :), hit_normal(:, :)
-    integer(i32), allocatable :: hit_elem(:)
-    logical, allocatable :: ray_emitted(:)
-    logical :: reached_boundary, alive
-    logical :: use_periodic2_mode
-    type(hit_info) :: hit
-
-    if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "photo_raycast particle arrays must have first dimension 3"
-    if (size(x, 2) < rays_per_batch .or. size(v, 2) < rays_per_batch) then
-      error stop "photo_raycast x/v arrays are smaller than ray count per batch"
-    end if
-    if (size(w) < rays_per_batch) error stop "photo_raycast w array is smaller than ray count per batch"
-    if (present(emit_elem_idx)) then
-      if (size(emit_elem_idx) < rays_per_batch) error stop "photo_raycast emit_elem_idx is smaller than ray count per batch"
-      emit_elem_idx = -1_i32
-    end if
-    if (rays_per_batch <= 0_i32) error stop "ray count per batch must be > 0"
-    total_rays = rays_per_batch
-    if (present(global_rays_per_batch)) total_rays = global_rays_per_batch
-    if (total_rays <= 0_i32) error stop "global_rays_per_batch must be > 0"
-    ! 領域・バッチ幅・質量・温度・電荷・開口・入射方向は preflight（validate_photo_raycast_species 等）が検査済み。
-    ! 放出電流密度は呼び出し側が正のときだけサンプルする。
-
-    call resolve_face_geometry(sim%box_min, sim%box_max, inject_face, axis_n, boundary_value, inward_normal)
-    call resolve_face_axes(inject_face, axis_t1, axis_t2)
-
-    launch_dir = ray_direction
-    launch_dir_norm = sqrt(sum(launch_dir*launch_dir))
-    launch_dir = launch_dir/launch_dir_norm
-    inward_dot = dot_product(launch_dir, inward_normal)
-
-    launch_area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    projected_area = launch_area*abs(inward_dot)
-    w_hit = emit_current_density_a_m2*projected_area*sim%batch_duration/(abs(q_particle)*real(total_rays, dp))
-    if (w_hit <= 0.0_dp) error stop "photo_raycast produced invalid w_hit"
-    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
-
-    n_emit = 0_i32
-    x = 0.0_dp
-    v = 0.0_dp
-    w = 0.0_dp
-    query_failure_status = collision_query_ok
-    query_failure_ray = huge(0_i32)
-    query_failure_bounce = 0_i32
-
-    use_periodic2_mode = trim(lower_ascii(sim%field_bc_mode)) == 'periodic2'
-
-    allocate (u(2, rays_per_batch))
-    allocate (hit_pos(3, rays_per_batch), hit_normal(3, rays_per_batch), hit_elem(rays_per_batch), ray_emitted(rays_per_batch))
-    call random_uniform(u)
-    hit_pos = 0.0_dp
-    hit_normal = 0.0_dp
-    hit_elem = -1_i32
-    ray_emitted = .false.
-
-    !$omp parallel do default(none) schedule(static) &
-    !$omp shared(rays_per_batch, axis_n, axis_t1, axis_t2, boundary_value, pos_low, pos_high, u, launch_dir, sim, mesh, &
-    !$omp        use_periodic2_mode, ray_emitted, hit_pos, hit_normal, hit_elem, query_failure_status, &
-    !$omp        query_failure_ray, query_failure_bounce) &
-    !$omp private(i, ray_pos, bounce_count, collision_status)
-    do i = 1_i32, rays_per_batch
-      ray_pos = 0.0_dp
-      ray_pos(axis_n) = boundary_value
-      ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
-      ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
-      call cast_photo_ray( &
-        mesh, sim, ray_pos, launch_dir, use_periodic2_mode, hit_pos(:, i), hit_normal(:, i), hit_elem(i), &
-        ray_emitted(i), collision_status, bounce_count &
-        )
-      if (collision_status /= collision_query_ok) then
-        !$omp critical (beach_photo_collision_query_failure)
-        if (query_failure_status == collision_query_ok .or. i < query_failure_ray .or. &
-            (i == query_failure_ray .and. bounce_count < query_failure_bounce)) then
-          query_failure_status = collision_status
-          query_failure_ray = i
-          query_failure_bounce = bounce_count
-        end if
-        !$omp end critical (beach_photo_collision_query_failure)
-      end if
-    end do
-    !$omp end parallel do
-
-    if (query_failure_status /= collision_query_ok) then
-      call finalize_photo_collision_query(query_failure_status, query_failure_ray, query_failure_bounce, failure)
-      return
-    end if
-
-    do i = 1_i32, rays_per_batch
-      if (.not. ray_emitted(i)) cycle
-      if (n_emit >= int(size(w), i32)) error stop "photo_raycast emitted particle buffer overflow"
-      n_emit = n_emit + 1_i32
-      surf_normal = hit_normal(:, i)
-      call build_tangent_basis(surf_normal, tangent1, tangent2)
-      if (present(vmin_normal)) then
-        call sample_photo_emission_velocity( &
-          sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit), vmin_normal=vmin_normal &
-          )
-      else
-        call sample_photo_emission_velocity(sigma, normal_drift_speed, surf_normal, tangent1, tangent2, v(:, n_emit))
-      end if
-      x(:, n_emit) = hit_pos(:, i)
-      w(n_emit) = w_hit
-      if (present(emit_elem_idx)) emit_elem_idx(n_emit) = hit_elem(i)
-    end do
-  end subroutine sample_photo_raycast_particles
-
-  !> 法線offset後の周期軸をprimary cellのstrict interiorへ戻す。
   !> 面上の点 `ray_start` から `launch_dir` へ光線を飛ばし、box 境界の反射を経て最初に当たる panel を返す。
   !! @param[out] emitted 要素に当たったとき `.true.`。
   !! @param[out] collision_status 衝突照会の status（`collision_query_ok` 以外なら未完了）。
@@ -321,6 +161,7 @@ contains
     w = w_hit
   end subroutine sample_photo_ray_slot
 
+  !> 法線offset後の周期軸をprimary cellのstrict interiorへ戻す。
   pure subroutine canonicalize_periodic_emission_position(sim, position)
     class(photo_raycast_config), intent(in) :: sim
     real(dp), intent(inout) :: position(3)
@@ -337,27 +178,6 @@ contains
       position(axis) = min(max(position(axis), sim%box_min(axis) + inset), sim%box_max(axis) - inset)
     end do
   end subroutine canonicalize_periodic_emission_position
-
-  !> photo ray の不完全な衝突照会を返し、status 未要求なら OpenMP 外で停止する。
-  subroutine finalize_photo_collision_query(query_status, query_ray, query_bounce, failure)
-    integer(i32), intent(in) :: query_status, query_ray, query_bounce
-    type(photo_ray_failure_type), intent(inout), optional :: failure
-    character(len=256) :: failure_message
-
-    if (present(failure)) then
-      failure%status = query_status
-      failure%ray = query_ray
-      failure%bounce = query_bounce
-      return
-    end if
-
-    write (failure_message, '(a,i0,a,i0,a,a,a,i0)') &
-      'photo_raycast collision query incomplete: ray=', query_ray, ' bounce=', query_bounce, &
-      ' status=', trim(particle_status_name(query_status)), ' code=', query_status
-    write (error_unit, '(a)') trim(failure_message)
-    flush (error_unit)
-    error stop 1
-  end subroutine finalize_photo_collision_query
 
   !> レイを現在位置から最初のボックス境界まで進める。
   !! @param[in] box_min ボックス下限座標 `(x,y,z)` [m]。
@@ -433,6 +253,8 @@ contains
   !! @param[in] tangent1 第1接線ベクトル（単位化済み）。
   !! @param[in] tangent2 第2接線ベクトル（単位化済み）。
   !! @param[in] vmin_normal 放出法線速度の下限 [m/s]（省略時は 0）。
+  !! @param[in] rng_seed counter-based 乱数の seed。
+  !! @param[in] rng_counter この放出の counter（法線成分は draw 1、接線成分は draw 100 以降）。
   !! @param[out] vel サンプルした速度ベクトル [m/s]。
   subroutine sample_photo_emission_velocity( &
     sigma, normal_drift_speed, normal, tangent1, tangent2, vel, vmin_normal, rng_seed, rng_counter &
@@ -442,23 +264,15 @@ contains
     real(dp), intent(out) :: vel(3)
     real(dp), intent(in), optional :: vmin_normal
 
-    integer(i32), intent(in), optional :: rng_seed
-    integer(i64), intent(in), optional :: rng_counter(:)
+    integer(i32), intent(in) :: rng_seed
+    integer(i64), intent(in) :: rng_counter(:)
 
     real(dp) :: vn(1), z(2, 1), vt1, vt2
 
-    if (present(rng_counter)) then
-      call sample_flux_weighted_normal_component( &
-        normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff, &
-        uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
-        )
-    else if (present(vmin_normal)) then
-      call sample_flux_weighted_normal_component( &
-        normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff &
-        )
-    else
-      call sample_flux_weighted_normal_component(normal_drift_speed, sigma, vn, sigma_cutoff=default_velocity_sigma_cutoff)
-    end if
+    call sample_flux_weighted_normal_component( &
+      normal_drift_speed, sigma, vn, vmin_normal=vmin_normal, sigma_cutoff=default_velocity_sigma_cutoff, &
+      uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
+      )
     vt1 = 0.0_dp
     vt2 = 0.0_dp
     if (sigma > 0.0_dp) then

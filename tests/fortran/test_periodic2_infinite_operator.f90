@@ -5,7 +5,8 @@ program test_periodic2_infinite_operator
                                   eval_point, eval_potential_point, destroy_plan, destroy_state
   use bem_coulomb_fmm_periodic_ewald, only: add_periodic2_exact_ewald_kneq0_correction_single_source, &
                                             add_periodic2_kneq0_potential_correction_single_source
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
+                          unique_test_path, delete_periodic_cache
   implicit none
 
   type(fmm_options_type) :: options
@@ -21,8 +22,8 @@ program test_periodic2_infinite_operator
   real(dp) :: seam_ref_phi_low, seam_ref_phi_high, seam_error, max_seam_error, seam_scale
   real(dp) :: seam_potential_error, max_seam_potential_error, seam_potential_scale
   integer(i32) :: target_idx, seam_idx
-  integer :: clock_count
-  character(len=512) :: cache_path0, cache_path1, cache_path_tall, cache_dir
+  character(len=512) :: cache_path0, cache_path1, cache_path_tall
+  character(len=:), allocatable :: cache_dir
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
   src_pos(:, 2) = [0.75_dp, 0.25_dp, 0.08_dp]
@@ -33,9 +34,8 @@ program test_periodic2_infinite_operator
   targets(:, 2) = [0.55_dp, 0.48_dp, 0.18_dp]
   targets(:, 3) = [0.91_dp, 0.08_dp, 0.31_dp]
   call configure_options(options)
-  call system_clock(count=clock_count)
-  write (cache_dir, '(a,i0)') 'test_periodic2_infinite_operator_tmp_', clock_count
-  options%periodic_cache_dir = trim(cache_dir)
+  cache_dir = unique_test_path('test_periodic2_infinite_operator_tmp_')
+  options%periodic_cache_dir = cache_dir
   call test_init(4)
 
   call test_begin('cached_kneq0_matches_ewald_across_image_splits_and_charge_updates')
@@ -166,7 +166,7 @@ program test_periodic2_infinite_operator
   ! A box six periods tall keeps the lateral lattice at two cells and stacks cubic cells along z,
   ! and the far correction stays accurate far above the sources, where the near-image tail dominates.
   call configure_options(options)
-  options%periodic_cache_dir = trim(cache_dir)
+  options%periodic_cache_dir = cache_dir
   options%periodic_image_layers = 1_i32
   options%target_box_max = [1.0_dp, 1.0_dp, 5.5_dp]
   call build_plan(plan_tall, src_pos, options)
@@ -175,7 +175,7 @@ program test_periodic2_infinite_operator
                    'tall box must stack anchors along its long axis only')
   call assert_true(all(plan_tall%periodic_operator_source_cells == [2_i32, 2_i32, 18_i32]), &
                    'tall box source cells must refine the anchor lattice by powers of two')
-  call assert_equal_count(plan_tall%periodic_operator_anchor_count, 36_i32)
+  call assert_equal_i32(plan_tall%periodic_operator_anchor_count, 36_i32, 'tall box anchor count must equal the lattice size')
   call update_state(plan_tall, state_tall, q)
   tall_targets(:, 1) = targets(:, 2)
   tall_targets(:, 2) = [0.35_dp, 0.62_dp, 1.4_dp]
@@ -213,10 +213,9 @@ program test_periodic2_infinite_operator
   call destroy_plan(plan0)
   call destroy_plan(plan1)
   call destroy_plan(plan_tall)
-  call delete_cache(cache_path0)
-  call delete_cache(cache_path1)
-  call delete_cache(cache_path_tall)
-  call remove_empty_directory(cache_dir)
+  call delete_periodic_cache(cache_path0)
+  call delete_periodic_cache(cache_path1)
+  call delete_periodic_cache(cache_path_tall, cache_dir)
   call test_summary()
 
 contains
@@ -302,24 +301,4 @@ contains
     end do
   end subroutine spectral_point_reference
 
-  subroutine assert_equal_count(actual, expected)
-    integer(i32), intent(in) :: actual, expected
-    call assert_true(actual == expected, 'tall box anchor count must equal the lattice size')
-  end subroutine assert_equal_count
-
-  subroutine delete_cache(path)
-    character(len=*), intent(in) :: path
-    call delete_file(path)
-    call delete_file(trim(path)//'.lock')
-  end subroutine delete_cache
-
-  subroutine delete_file(path)
-    character(len=*), intent(in) :: path
-    logical :: exists
-    integer :: unit
-    inquire (file=trim(path), exist=exists)
-    if (.not. exists) return
-    open (newunit=unit, file=trim(path), status='old')
-    close (unit, status='delete')
-  end subroutine delete_file
 end program test_periodic2_infinite_operator

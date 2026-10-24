@@ -4,9 +4,8 @@ module bem_injection_flux
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
-  use bem_injection_random, only: sample_shifted_maxwell_velocities, sample_standard_normal
+  use bem_injection_random, only: sample_standard_normal
   use bem_counter_rng, only: counter_uniform
-  use bem_random_stream, only: random_uniform
   implicit none
   private
 
@@ -16,7 +15,6 @@ module bem_injection_flux
   public :: compute_inflow_flux_from_drifting_maxwellian
   public :: compute_macro_particles_for_batch
   public :: compute_macro_particles_from_flux
-  public :: sample_reservoir_face_particles
   public :: sample_reservoir_face_particle_counter
   public :: sample_flux_weighted_normal_component
 
@@ -147,98 +145,7 @@ contains
     residual = macro_budget - real(n_macro, dp)
   end subroutine compute_macro_particles_from_flux
 
-  !> 上流リザーバ境界から流入する粒子群を面注入としてサンプルする。
-  !! @param[in] box_min シミュレーションボックス下限座標 `(x,y,z)` [m]。
-  !! @param[in] box_max シミュレーションボックス上限座標 `(x,y,z)` [m]。
-  !! @param[in] inject_face 注入面識別子（`x_low/x_high/y_low/y_high/z_low/z_high`）。
-  !! @param[in] pos_low 注入口矩形の下限座標 `(x,y,z)` [m]。
-  !! @param[in] pos_high 注入口矩形の上限座標 `(x,y,z)` [m]。
-  !! @param[in] drift_velocity ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
-  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
-  !! @param[in] temperature_k 温度 [K]。
-  !! @param[in] batch_duration 1バッチの物理時間長 [s]（現在は妥当性チェックのみ）。
-  !! @param[out] x サンプリングした位置配列 `x(3,n)` [m]。
-  !! @param[out] v サンプリングした速度配列 `v(3,n)` [m/s]。
-  !! @param[in] barrier_normal_energy 法線方向のエネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（省略時 0）。
-  !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は `barrier_normal_energy` から自動導出）。
-  !! @param[in] position_jitter_dt 互換用のlaunch位相時間幅[s]。乱数列は保つが位置移動には使わない。
-  !! @param[in] apply_barrier_energy_shift `.true.` のとき法線速度へ障壁エネルギー変換を適用する。
-  subroutine sample_reservoir_face_particles( &
-    box_min, box_max, inject_face, pos_low, pos_high, drift_velocity, m_particle, temperature_k, batch_duration, x, v, &
-    barrier_normal_energy, vmin_normal, position_jitter_dt, apply_barrier_energy_shift &
-    )
-    real(dp), intent(in) :: box_min(3), box_max(3)
-    character(len=*), intent(in) :: inject_face
-    real(dp), intent(in) :: pos_low(3), pos_high(3), drift_velocity(3)
-    real(dp), intent(in) :: m_particle, temperature_k, batch_duration
-    real(dp), intent(out) :: x(:, :)
-    real(dp), intent(out) :: v(:, :)
-    real(dp), intent(in), optional :: barrier_normal_energy
-    real(dp), intent(in), optional :: vmin_normal
-    real(dp), intent(in), optional :: position_jitter_dt
-    logical, intent(in), optional :: apply_barrier_energy_shift
-
-    integer :: i, axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, barrier, vn_inf, jitter_dt
-    real(dp), allocatable :: u(:, :), tau(:)
-    logical :: apply_energy_shift
-
-    if (size(x, 1) /= 3 .or. size(v, 1) /= 3) error stop "reservoir particle arrays must have first dimension 3"
-    if (size(x, 2) /= size(v, 2)) error stop "reservoir x/v size mismatch"
-    if (present(position_jitter_dt)) then
-      if (position_jitter_dt < 0.0_dp) error stop "position_jitter_dt must be >= 0"
-      jitter_dt = position_jitter_dt
-    else
-      jitter_dt = 0.0_dp
-    end if
-    apply_energy_shift = .true.
-    if (present(apply_barrier_energy_shift)) apply_energy_shift = apply_barrier_energy_shift
-    if (size(x, 2) == 0) return
-
-    call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
-    call resolve_face_axes(inject_face, axis_t1, axis_t2)
-
-    sigma = sqrt(k_boltzmann*temperature_k/m_particle)
-    u_n = dot_product(drift_velocity, inward_normal)
-    barrier = 0.0_dp
-    if (present(barrier_normal_energy)) barrier = barrier_normal_energy
-    vn_floor = 0.0_dp
-    if (barrier > 0.0_dp) vn_floor = sqrt(barrier)
-    if (present(vmin_normal)) vn_floor = max(vn_floor, max(0.0_dp, vmin_normal))
-
-    call sample_shifted_maxwell_velocities(drift_velocity, m_particle, v, temperature_k=temperature_k)
-    call sample_flux_weighted_normal_component(u_n, sigma, v(axis_n, :), vmin_normal=vn_floor)
-    do i = 1, size(v, 2)
-      if (apply_energy_shift) then
-        vn_inf = v(axis_n, i)
-        vn_inf = sqrt(max(0.0_dp, vn_inf*vn_inf - barrier))
-        v(axis_n, i) = inward_normal(axis_n)*vn_inf
-      else
-        v(axis_n, i) = inward_normal(axis_n)*v(axis_n, i)
-      end if
-    end do
-
-    allocate (u(2, size(x, 2)))
-    call random_uniform(u)
-    if (jitter_dt > 0.0_dp) then
-      allocate (tau(size(x, 2)))
-      ! Keep the historical draw count so MPI ranks and restarted runs retain the same RNG stream.
-      call random_uniform(tau)
-    end if
-
-    do i = 1, size(x, 2)
-      x(:, i) = 0.0_dp
-      ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
-      x(axis_n, i) = nearest(boundary_value, inward_normal(axis_n))
-      x(axis_t1, i) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*u(1, i)
-      x(axis_t2, i) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*u(2, i)
-    end do
-  end subroutine sample_reservoir_face_particles
-
-  !> 標準正規分布の PDF を返す。
-  !! @param[in] x 評価点。
-  !! @return pdf 標準正規分布の確率密度。
-  !> `sample_reservoir_face_particles` と同じ分布から粒子を 1 つ、counter-based 乱数で生成する。
+  !> 上流リザーバ境界から流入する粒子を 1 つ、counter-based 乱数で面注入としてサンプルする。
   !! 同じ (seed, counter) は常に同じ粒子を返すので、どの rank・thread が生成しても結果は同じ。
   !! 速度の法線成分は flux-weighted に draw 1、面内位置は draw 2, 3、熱速度は draw 100 以降を使う。
   !! @param[in] barrier_normal_energy 法線エネルギー障壁 `2 q Δφ / m` [`m^2/s^2`]（0 なら無し）。
@@ -273,7 +180,7 @@ contains
       u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, &
       uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
       )
-    ! A negative barrier (accelerating sheath) raises the normal speed, exactly as the batch sampler does.
+    ! A negative barrier (accelerating sheath) raises the normal speed.
     vn_inf = sqrt(max(0.0_dp, vn(1)*vn(1) - barrier_normal_energy))
     v(axis_n) = inward_normal(axis_n)*vn_inf
 
@@ -284,6 +191,9 @@ contains
     x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*counter_uniform(rng_seed, rng_counter, 3_i64)
   end subroutine sample_reservoir_face_particle_counter
 
+  !> 標準正規分布の PDF を返す。
+  !! @param[in] x 評価点。
+  !! @return pdf 標準正規分布の確率密度。
   pure real(dp) function standard_normal_pdf(x) result(pdf)
     real(dp), intent(in) :: x
     real(dp), parameter :: inv_sqrt_2pi = 3.98942280401432678d-1
@@ -306,12 +216,13 @@ contains
   !! @param[in] sigma 法線速度分布の標準偏差 [m/s]。
   !! @param[in] vmin_normal 法線速度の下限 [m/s]（省略時は 0）。
   !! @param[out] vn サンプリングした法線速度配列 [m/s]（常に非負）。
+  !! @param[in] uniform 各要素の逆関数法に使う一様乱数 `uniform(size(vn))`。
   subroutine sample_flux_weighted_normal_component(mu, sigma, vn, vmin_normal, sigma_cutoff, uniform)
     real(dp), intent(in) :: mu, sigma
     real(dp), intent(in), optional :: vmin_normal
     real(dp), intent(in), optional :: sigma_cutoff
     real(dp), intent(out) :: vn(:)
-    real(dp), intent(in), optional :: uniform(:)
+    real(dp), intent(in) :: uniform(:)
     integer :: i
     real(dp) :: target, low, high, mid, vmin, cutoff, tail_min, target_tail, tail_high, width, tolerance
 
@@ -332,11 +243,7 @@ contains
     end if
 
     do i = 1, size(vn)
-      if (present(uniform)) then
-        target = uniform(i)
-      else
-        call random_uniform(target)
-      end if
+      target = uniform(i)
       target_tail = tail_min*(1.0_dp - target)
       low = vmin
       width = max(sigma, spacing(max(abs(vmin), sigma)))

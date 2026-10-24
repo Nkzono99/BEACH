@@ -100,8 +100,6 @@ ruff check .     # Python lint
 
 ```bash
 make test-l2
-make test-l3
-make test-heavy
 make test-fortran-far-correction
 make test-field-kernel-cache
 make test-mpi

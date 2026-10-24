@@ -7,7 +7,8 @@ program test_panel_geometry_near
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_panel_plan, update_state, &
                                   eval_point, eval_potential_point, destroy_plan, destroy_state
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_equal_i32, &
+                          assert_allclose_1d
   implicit none
 
   type(fmm_options_type) :: options
@@ -16,12 +17,12 @@ program test_panel_geometry_near
   type(panel_geometry_type) :: geometry, transformed_geometry
   real(dp) :: v0(3, 2), v1(3, 2), v2(3, 2), vertices(3, 6), center(3)
   real(dp) :: target(3), q(1), phi, phi_ref, field(3), field_ref(3)
-  real(dp) :: shift(3), scale, max_vertex_radius, nan_value
+  real(dp) :: shift(3), scale, max_vertex_radius, nan_value, field_point(3), delta(3), r2
   integer(i32) :: status, alpha_zero, alpha_x, alpha_xx
   real(dp), parameter :: triangle_mean_x = 2.0_dp/3.0_dp
   real(dp), parameter :: triangle_mean_x2 = 2.0_dp/3.0_dp
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('point_to_triangle_distance_regions_and_invariants')
   call init_panel_geometry( &
@@ -132,6 +133,35 @@ program test_panel_geometry_near
   call panel_potential_field(geometry, q(1), target, panel_side_principal_value, phi_ref, field_ref)
   call assert_true(all(abs(field - field_ref/k_coulomb) < 1.0e-13_dp), 'fallback field must use analytic panel kernel')
   call assert_close_dp(phi, phi_ref/k_coulomb, 1.0e-13_dp, 'fallback potential must use analytic panel kernel')
+  call destroy_state(state)
+  call destroy_plan(plan)
+  call test_end()
+
+  call test_begin('panel_near_replaces_centroid_point_kernel')
+  v0(:, 1) = [-4.0_dp, 0.0_dp, 0.0_dp]
+  v1(:, 1) = [4.0_dp, 0.0_dp, 0.0_dp]
+  v2(:, 1) = [0.0_dp, 0.2_dp, 0.0_dp]
+  q = [3.0_dp]
+  target = [0.0_dp, 0.05_dp, 0.08_dp]
+  options = fmm_options_type()
+  options%leaf_max = 1_i32
+  options%order = 4_i32
+  options%target_box_min = [-5.0_dp, -1.0_dp, -1.0_dp]
+  options%target_box_max = [5.0_dp, 1.0_dp, 1.0_dp]
+  call build_panel_plan(plan, v0(:, :1), v1(:, :1), v2(:, :1), options)
+  call update_state(plan, state, q)
+  call eval_point(plan, state, target, field)
+  call init_panel_geometry(v0(:, 1), v1(:, 1), v2(:, 1), geometry, status)
+  call assert_equal_i32(status, panel_geometry_ok, 'near-panel fixture geometry status')
+  call panel_potential_field(geometry, q(1), target, panel_side_principal_value, phi_ref, field_ref)
+  field_ref = field_ref/k_coulomb
+  delta = target - geometry%centroid
+  r2 = sum(delta*delta)
+  field_point = q(1)*delta/(sqrt(r2)*r2)
+  call assert_allclose_1d(field, field_ref, 1.0e-12_dp*max(1.0_dp, maxval(abs(field_ref))), &
+                          'panel near correction must match the analytic kernel')
+  call assert_true(sqrt(sum((field_point - field_ref)**2)) > 1.0e-2_dp*sqrt(sum(field_ref*field_ref)), &
+                   'fixture must expose a measurable centroid-point error')
   call destroy_state(state)
   call destroy_plan(plan)
   call test_end()

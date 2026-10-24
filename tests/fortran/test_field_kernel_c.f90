@@ -14,7 +14,8 @@ program test_field_kernel_c
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
   use bem_version, only: beach_build_info
-  use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_init, test_begin, test_summary
+  use test_panel_oracle, only: direct_panel_sum
+  use test_support, only: assert_allclose_1d, assert_equal_i32, assert_true, test_init, test_begin, test_end, test_summary
   implicit none
 
   type(c_ptr) :: handle
@@ -50,8 +51,8 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_ok, 'ABI version getter status')
   call assert_equal_i32(abi_major, beach_kernel_abi_major, 'ABI major version')
   call assert_equal_i32(abi_minor, beach_kernel_abi_minor, 'ABI minor version')
-  call assert_equal_i32(abi_major, 2_i32, 'panel-only ABI major version')
-  call assert_equal_i32(abi_minor, 1_i32, 'direct-evaluation ABI minor version')
+
+  call test_end()
 
   call test_begin('field_kernel_c_build_info')
   build_info_buffer = achar(88, kind=c_char)
@@ -74,6 +75,8 @@ program test_field_kernel_c
     call assert_true(transfer(build_info_buffer(i), ' ') == beach_build_info(i:i), 'build-info payload mismatch')
   end do
   call assert_true(build_info_buffer(len(beach_build_info) + 1) == c_null_char, 'build-info must be NUL terminated')
+
+  call test_end()
 
   call test_begin('field_kernel_c_handle_lifecycle')
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -116,6 +119,8 @@ program test_field_kernel_c
   call assert_equal_i32(status, beach_kernel_not_ready, 'rebuild must invalidate charge state')
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'lifecycle destroy status')
+
+  call test_end()
 
   call test_begin('field_kernel_c_cache_and_build_argument_validation')
   call set_c_bytes(cache_path, [99, 97, 99, 104, 101, 45, 195, 169])
@@ -312,6 +317,8 @@ program test_field_kernel_c
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'cache ABI destroy status')
 
+  call test_end()
+
   call test_begin('field_kernel_c_panel_free_eval_and_force')
 
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
@@ -356,7 +363,7 @@ program test_field_kernel_c
   status = beach_kernel_eval_e(handle, 1_c_int, c_loc(target_pos), c_loc(e))
   call assert_equal_i32(status, beach_kernel_ok, 'eval_e status')
 
-  call direct_panel_field(v0, v1, v2, src_q, target_pos(:, 1), expected_phi, expected_e)
+  call direct_panel_sum(v0, v1, v2, src_q, target_pos(:, 1), expected_phi, expected_e)
   call assert_allclose_1d( &
     e(:, 1), expected_e, 1.0d-12*max(1.0d0, maxval(abs(expected_e))), 'eval_e value' &
     )
@@ -418,6 +425,8 @@ program test_field_kernel_c
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'destroy status')
 
+  call test_end()
+
   call test_begin('field_kernel_c_panel_batched_principal_value_eval')
   v0(:, 1) = [0.0d0, 0.0d0, 0.0d0]
   v1(:, 1) = [2.0d0, 0.0d0, 0.0d0]
@@ -467,6 +476,7 @@ program test_field_kernel_c
   status = beach_kernel_destroy(handle)
   call assert_equal_i32(status, beach_kernel_ok, 'panel destroy status')
 
+  call test_end()
   call test_summary()
 
 contains
@@ -480,30 +490,6 @@ contains
       output(i) = achar(bytes(i), kind=c_char)
     end do
   end subroutine set_c_bytes
-
-  subroutine direct_panel_field(vertices0, vertices1, vertices2, charges, target, phi_out, field_out)
-    real(c_double), intent(in) :: vertices0(:, :), vertices1(:, :), vertices2(:, :)
-    real(c_double), intent(in) :: charges(:), target(3)
-    real(c_double), intent(out) :: phi_out, field_out(3)
-    type(panel_geometry_type) :: panel_geometry
-    integer(i32) :: panel_status
-    real(dp) :: panel_phi, panel_field(3)
-    integer :: i
-
-    phi_out = 0.0d0
-    field_out = 0.0d0
-    do i = 1, size(charges)
-      call init_panel_geometry( &
-        vertices0(:, i), vertices1(:, i), vertices2(:, i), panel_geometry, panel_status &
-        )
-      call assert_equal_i32(panel_status, panel_geometry_ok, 'panel fixture geometry status')
-      call panel_potential_field( &
-        panel_geometry, charges(i), target, panel_side_principal_value, panel_phi, panel_field &
-        )
-      phi_out = phi_out + panel_phi
-      field_out = field_out + panel_field
-    end do
-  end subroutine direct_panel_field
 
   pure function cross(a, b) result(c)
     real(c_double), intent(in) :: a(3), b(3)

@@ -22,7 +22,7 @@ models until a current change actually implements them; preserve only minimal ex
 - `src/`, `app/`: Fortran runtime and physics core
 - `tests/fortran`: Fortran unit/integration tests (fpm targets)
 - `beach/`: Python package for reading/plotting Fortran outputs, layered `io` (readers, numpy only) <- `native` (ctypes field kernel) <- `analysis` <- `plot` (matplotlib); `facade.py` holds `Beach`, `config/` and `tooling/` (workload, close-pack, runops adapter) import without numpy, and `cli/` is `beachx`
-- `tests/python`: Python tests for CLI/result utilities
+- `tests/python`: Python tests, one subdirectory per layer (`io`, `analysis`, `native`, `facade`, `plot`, `config`, `cli`, `tooling`, `repo`, `workflow`); shared fixtures in `conftest.py`, `result_fixtures.py`, and `config_fixtures.py`
 - `examples/`: runnable configs and helper scripts
 - `docs/`, `SPEC.md`: behavior/spec documentation
 
@@ -55,15 +55,18 @@ Python CLI examples:
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
   - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, `mypy`, JSON schema parse checks, `make check`)
-  - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
-  - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
-  - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
-- Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel, passes its absolute path to the periodic plane-oracle receipt test, and is excluded from L1/L2/L3 and `test-physics-release`)
+  - L1 development loop: `make test` or `make test-l1` (ordinary Python tests + workflow smoke + quick Fortran targets)
+  - L2 contract/integration: `make test-l2` (L1 + C ABI + free-space FMM accuracy targets + freshly built Python/native kernel + config/CLI contracts)
+  - Full fpm suite: `make test-full` (every `fpm.toml` test target, including the opt-in far-correction ones)
+- Validation workflow: `make test-validation-workflow` runs every periodic staging/provenance/analysis case; CI runs it separately from L2. `make test-python` keeps three workflow smoke cases; plain `pytest -q` collects the full suite.
+- Python gates select tests by pytest marker, not by file. A test that needs the native kernel or the Fortran config checker takes the `field_kernel_library` or `native_checker` fixture, and `tests/python/conftest.py` marks it `native` or `config_native` so only `make test-python-native` / `make test-config-contract` run it. Mark tests that generate real periodic caches `field_kernel_cache` (`make test-field-kernel-cache`).
+- Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel and runs cache reuse, shell/infinite comparisons, analytic plane oracles, and receipt tests; excluded from L1/L2 and `test-physics-release`)
+- Periodic conductor relaxation: `test_surface_models_periodic` runs in `make test-fortran-far-correction`; free-space conductor tests stay in L1. Laplace derivative timings run only as a release benchmark.
 - Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
 - KUDPC のログインノード（`camphor*`, `laurel*`, `cinnamon*`, `gardenia*`）、アプリケーションサーバ、ファイル転送サーバでは、`make test*` / `fpm test` / 長時間の Fortran テストターゲットを直接実行しない。KUDPC plugin のホスト判定または `hostname` でノード種別を確認し、Slurm 割当内でない場合は計算ノードに投入する。
 - KUDPC で全体テストや長時間テストが必要な場合は、計算ノード上で実行する。短い対話確認は `tssrun`、バッチ実行は `sbatch` ジョブ内の `srun` を使う。ログインノードでは編集、軽いログ確認、`make check` 程度のビルド確認、ジョブ投入・監視までに留める。
-- `make test` は開発用 L1 とし、重い FMM 系（`test_dynamics_fmm`, `test_coulomb_fmm_core_basic`）は `make test-l3` / `make test-heavy` / `make test-fortran-heavy` / `make test-full` で明示実行する。`cached_kneq0` の cold build / exact Ewald correctness は `make test-fortran-far-correction`、速度比較は release profile の `make test-fortran-benchmark` で opt-in 実行する。新しい長時間 FMM 回帰テストは、`make test` の既定経路に足す前に opt-in の L3/heavy へ分離する。
+- `make test` は開発用 L1 とし、L1 の Fortran target は 1 本数秒に収める。free-space FMM の精度比較（`test_dynamics_fmm`, `test_dynamics_panel_fmm`, `test_coulomb_fmm_core_basic`, `test_coulomb_fmm_core_panel`）は L2 の `make test-fortran-contract` で実行する。`cached_kneq0` の cold build / exact Ewald correctness は `make test-fortran-far-correction`、速度比較は release profile の `make test-fortran-benchmark` で opt-in 実行する。`cached_kneq0` operator を作る長時間 test は far-correction へ、それ以外で数秒を超える test は L2 へ置き、L1 には足さない。
 - Do not run multiple `fpm test` commands in parallel. They share the same `build/` directory and can conflict with each other.
 - `fpm test` は時間がかかるため、Bash ツールの `run_in_background: true` でバックグラウンド実行し、完了通知を待つ間に他の作業（コードレビュー・編集など）を並行して進めること。ただし同時に複数の `fpm test` をバックグラウンドで走らせてはいけない。
 

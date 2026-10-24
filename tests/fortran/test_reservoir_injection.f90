@@ -31,11 +31,7 @@ program test_reservoir_injection
   real(dp) :: gamma1, area1, expected_w1
   real(dp) :: inward_normal(3)
 
-  call test_init(9)
-
-  call test_begin('particle_source_plan_equivalence')
-  call test_particle_source_plan_equivalence()
-  call test_end()
+  call test_init(8)
 
   call test_begin('snapshot_infinity_barrier')
   call test_snapshot_infinity_barrier()
@@ -145,6 +141,7 @@ contains
 
   subroutine test_boundary_inflow_full_faces_and_volume_source()
     type(app_config) :: boundary_cfg
+    type(particle_source_plan_type) :: source_plan
     type(particles_soa) :: particles
     type(injection_state) :: state
     integer(i32) :: n_volume, n_x_low, n_z_high, particle_idx
@@ -171,7 +168,8 @@ contains
     state%macro_residual = 0.0_dp
     state%boundary_macro_residual = 0.0_dp
     call seed_particles_from_config(boundary_cfg)
-    call init_particle_batch_from_config(boundary_cfg, 1_i32, particles, state=state)
+    call build_particle_source_plan(boundary_cfg, source_plan)
+    call init_particle_batch_from_config(boundary_cfg, 1_i32, particles, state=state, source_plan=source_plan)
 
     call assert_equal_i32(particles%n, 20_i32, 'volume source plus two full boundary faces count mismatch')
     n_volume = 0_i32
@@ -205,80 +203,6 @@ contains
     call assert_true(all(abs(state%macro_residual) < 1.0e-14_dp), 'source residual should stay zero')
     call assert_true(all(abs(state%boundary_macro_residual) < 1.0e-14_dp), 'boundary residuals should stay zero')
   end subroutine test_boundary_inflow_full_faces_and_volume_source
-
-  subroutine test_particle_source_plan_equivalence()
-    type(app_config) :: plan_cfg
-    type(particle_source_plan_type) :: source_plan
-    type(particles_soa) :: particles_without_plan, particles_with_plan
-    type(injection_state) :: state_without_plan, state_with_plan
-
-    call default_app_config(plan_cfg)
-    plan_cfg%sim%rng_seed = 2468_i32
-    plan_cfg%sim%batch_count = 2_i32
-    plan_cfg%sim%batch_duration = 1.0_dp
-    plan_cfg%sim%has_batch_duration = .true.
-    plan_cfg%sim%use_box = .true.
-    plan_cfg%sim%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    plan_cfg%sim%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    plan_cfg%n_particle_species = 3_i32
-
-    plan_cfg%particle_species(1) = species_from_defaults()
-    plan_cfg%particle_species(1)%source_mode = 'volume_seed'
-    plan_cfg%particle_species(1)%npcls_per_step = 2_i32
-    plan_cfg%particle_species(1)%q_particle = -1.0_dp
-    plan_cfg%particle_species(1)%m_particle = 2.0_dp
-    plan_cfg%particle_species(1)%w_particle = 3.0_dp
-    plan_cfg%particle_species(1)%pos_low = [0.1_dp, 0.2_dp, 0.3_dp]
-    plan_cfg%particle_species(1)%pos_high = [0.4_dp, 0.5_dp, 0.6_dp]
-    plan_cfg%particle_species(1)%temperature_k = 1.0_dp
-    plan_cfg%particle_species(1)%drift_velocity = [0.5_dp, -0.25_dp, 0.125_dp]
-
-    plan_cfg%particle_species(2) = species_from_defaults()
-    plan_cfg%particle_species(2)%enabled = .false.
-
-    plan_cfg%particle_species(3) = species_from_defaults()
-    plan_cfg%particle_species(3)%source_mode = 'volume_seed'
-    plan_cfg%particle_species(3)%npcls_per_step = 0_i32
-    plan_cfg%particle_species(3)%number_density_m3 = 4.0_dp
-    plan_cfg%particle_species(3)%temperature_k = 0.0_dp
-    plan_cfg%particle_species(3)%q_particle = 1.0_dp
-    plan_cfg%particle_species(3)%m_particle = 1.0_dp
-    plan_cfg%particle_species(3)%w_particle = 1.0_dp
-    plan_cfg%particle_species(3)%has_w_particle = .true.
-    plan_cfg%particle_species(3)%boundary_inflow_low(3) = particle_inflow_reservoir
-    plan_cfg%particle_species(3)%drift_velocity = [0.0_dp, 0.0_dp, 1.0_dp]
-
-    allocate (state_without_plan%macro_residual(3), state_with_plan%macro_residual(3), &
-              state_without_plan%boundary_macro_residual(6, 3), state_with_plan%boundary_macro_residual(6, 3))
-    state_without_plan%boundary_macro_residual = 0.0_dp
-    state_with_plan%boundary_macro_residual = 0.0_dp
-    state_without_plan%macro_residual = 0.0_dp
-    state_with_plan%macro_residual = 0.0_dp
-    ! Batch particles come from counter-based slots, so the source plan cannot shift any random draw.
-    call build_particle_source_plan(plan_cfg, source_plan)
-    call init_particle_batch_from_config(plan_cfg, 1_i32, particles_without_plan, state=state_without_plan)
-    call init_particle_batch_from_config( &
-      plan_cfg, 1_i32, particles_with_plan, state=state_with_plan, source_plan=source_plan &
-      )
-
-    call assert_equal_i32(particles_with_plan%n, particles_without_plan%n, 'source plan particle count mismatch')
-    call assert_true( &
-      all(particles_with_plan%species_id == particles_without_plan%species_id), 'source plan species order mismatch' &
-      )
-    call assert_true(all(particles_with_plan%x == particles_without_plan%x), 'source plan position sequence mismatch')
-    call assert_true(all(particles_with_plan%v == particles_without_plan%v), 'source plan velocity sequence mismatch')
-    call assert_true(all(particles_with_plan%q == particles_without_plan%q), 'source plan charge mismatch')
-    call assert_true(all(particles_with_plan%m == particles_without_plan%m), 'source plan mass mismatch')
-    call assert_true(all(particles_with_plan%w == particles_without_plan%w), 'source plan weight mismatch')
-    call assert_true(all(particles_with_plan%alive .eqv. particles_without_plan%alive), 'source plan alive mismatch')
-    call assert_true( &
-      all(state_with_plan%macro_residual == state_without_plan%macro_residual), 'source plan residual mismatch' &
-      )
-    call assert_true( &
-      all(state_with_plan%boundary_macro_residual == state_without_plan%boundary_macro_residual), &
-      'source plan boundary residual mismatch' &
-      )
-  end subroutine test_particle_source_plan_equivalence
 
   subroutine test_face_potential_statistics_share_sampling_pass()
     type(app_config) :: stats_cfg
@@ -347,6 +271,7 @@ contains
 
   subroutine test_snapshot_infinity_barrier()
     type(app_config) :: barrier_cfg
+    type(particle_source_plan_type) :: source_plan
     type(mesh_type) :: barrier_mesh
     type(particles_soa) :: particles
     type(injection_state) :: state
@@ -393,8 +318,9 @@ contains
       barrier_mesh, barrier_cfg%sim, barrier_cfg%field, barrier_cfg%periodic2, barrier_cfg%panel &
       )
     call snapshot%refresh(barrier_mesh)
+    call build_particle_source_plan(barrier_cfg, source_plan)
     call init_particle_batch_from_config( &
-      barrier_cfg, 1_i32, particles, state=state, mesh=barrier_mesh, snapshot=snapshot &
+      barrier_cfg, 1_i32, particles, state=state, mesh=barrier_mesh, snapshot=snapshot, source_plan=source_plan &
       )
     call assert_equal_i32(particles%n, 0_i32, 'snapshot infinity barrier should block boundary inflow')
   end subroutine test_snapshot_infinity_barrier

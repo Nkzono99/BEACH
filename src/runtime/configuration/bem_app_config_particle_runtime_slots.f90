@@ -17,12 +17,10 @@ contains
   !! @param[inout] state 境界 reservoir 流入の残差状態（reservoir を使う種があれば必須）。
   !! @param[in] mesh 現在バッチ開始時点のメッシュ（電位補正時に必要）。
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
-  !! @param[in] source_plan run 中に再利用する粒子 source 導出値（省略時は呼出し内で構築）。
+  !! @param[in] source_plan run 中に再利用する粒子 source 導出値（`build_particle_source_plan` で同じ MPI 文脈から構築）。
   module procedure build_batch_injection_layout
   integer(i32) :: s, face, local_rank, n_ranks, segment, slot, local_index
   logical :: use_collective_reservoir_count
-  type(particle_source_plan_type), target :: generated_source_plan
-  type(particle_source_plan_type), pointer :: active_source_plan
   type(particle_species_spec) :: face_spec
   real(dp) :: correction_vmin_normal, kinetic_vmin_normal, kinetic_barrier_normal, face_density_m3
 
@@ -31,23 +29,15 @@ contains
     error stop 'Requested batch index is out of range.'
   end if
   call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'build_batch_injection_layout')
-  if (present(source_plan)) then
-    active_source_plan => source_plan
-  else
-    call build_particle_source_plan( &
-      cfg, generated_source_plan, mpi_rank=mpi_rank, mpi_size=mpi_size, mpi=mpi &
-      )
-    active_source_plan => generated_source_plan
-  end if
-  if (.not. active_source_plan%ready) error stop 'particle source plan is not initialized.'
-  if (active_source_plan%nspecies /= cfg%n_particle_species) then
+  if (.not. source_plan%ready) error stop 'particle source plan is not initialized.'
+  if (source_plan%nspecies /= cfg%n_particle_species) then
     error stop 'particle source plan species count does not match app config.'
   end if
-  if (active_source_plan%mpi_rank /= local_rank .or. active_source_plan%mpi_size /= n_ranks .or. &
-      active_source_plan%mpi_argument_present .neqv. present(mpi)) then
+  if (source_plan%mpi_rank /= local_rank .or. source_plan%mpi_size /= n_ranks .or. &
+      source_plan%mpi_argument_present .neqv. present(mpi)) then
     error stop 'particle source plan MPI context does not match batch initialization.'
   end if
-  use_collective_reservoir_count = active_source_plan%use_collective_reservoir_count
+  use_collective_reservoir_count = source_plan%use_collective_reservoir_count
   if (present(state)) then
     if (.not. allocated(state%macro_residual)) error stop 'injection_state is not initialized.'
     if (size(state%macro_residual) < cfg%n_particle_species) error stop 'injection_state size mismatch.'
@@ -71,16 +61,16 @@ contains
   allocate (layout%drift_velocity(3, cfg%n_particle_species))
   allocate (layout%photo_emit_current_density(cfg%n_particle_species))
   allocate (layout%photo_normal_drift_speed(cfg%n_particle_species), layout%photo_ray_weight(cfg%n_particle_species))
-  layout%source_kind = active_source_plan%source_kind
+  layout%source_kind = source_plan%source_kind
   layout%source_global_count = 0_i32
   layout%boundary_global_count = 0_i32
   layout%boundary_vmin = 0.0_dp
   layout%boundary_barrier = 0.0_dp
-  layout%weight = active_source_plan%effective_weight
-  layout%temperature_k = active_source_plan%effective_temperature_k
-  layout%drift_velocity = active_source_plan%effective_drift_velocity
-  layout%photo_emit_current_density = active_source_plan%photo_emit_current_density
-  layout%photo_normal_drift_speed = active_source_plan%photo_normal_drift_speed
+  layout%weight = source_plan%effective_weight
+  layout%temperature_k = source_plan%effective_temperature_k
+  layout%drift_velocity = source_plan%effective_drift_velocity
+  layout%photo_emit_current_density = source_plan%photo_emit_current_density
+  layout%photo_normal_drift_speed = source_plan%photo_normal_drift_speed
   layout%photo_ray_weight = 0.0_dp
 
   do s = 1, cfg%n_particle_species
@@ -115,26 +105,26 @@ contains
           (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
           )
         layout%boundary_vmin(face, s) = correction_vmin_normal
-        face_density_m3 = active_source_plan%effective_density_m3(s)
-        if (active_source_plan%kinetic_inflow_active(s) .and. face == active_source_plan%kinetic_inflow_face(s)) then
+        face_density_m3 = source_plan%effective_density_m3(s)
+        if (source_plan%kinetic_inflow_active(s) .and. face == source_plan%kinetic_inflow_face(s)) then
           call external_kinetic_face_velocity_correction( &
-            cfg, face_spec, active_source_plan%kinetic_reservoir_potential_v(s), &
-            active_source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
+            cfg, face_spec, source_plan%kinetic_reservoir_potential_v(s), &
+            source_plan%kinetic_access_potential_v(s), kinetic_vmin_normal, kinetic_barrier_normal, &
             mesh, snapshot, warn_face_variation=local_rank == 0_i32 .and. &
             (batch_idx == 1_i32 .or. batch_idx == cfg%sim%batch_count) &
             )
           layout%boundary_vmin(face, s) = max(layout%boundary_vmin(face, s), kinetic_vmin_normal)
           layout%boundary_barrier(face, s) = kinetic_barrier_normal
-          if (active_source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
-            face_density_m3 = active_source_plan%kinetic_reservoir_density_m3(s)
+          if (source_plan%kinetic_reservoir_density_m3(s) > 0.0_dp) then
+            face_density_m3 = source_plan%kinetic_reservoir_density_m3(s)
           end if
         end if
         if (.not. use_collective_reservoir_count .or. local_rank == 0_i32) then
           call compute_macro_particles_for_species( &
             cfg%sim, face_spec, state%boundary_macro_residual(face, s), layout%boundary_global_count(face, s), &
             vmin_normal=layout%boundary_vmin(face, s), number_density_override=face_density_m3, &
-            particle_flux_override=active_source_plan%effective_particle_flux_m2_s(s), &
-            use_particle_flux_override=active_source_plan%number_flux_override_active(s), &
+            particle_flux_override=source_plan%effective_particle_flux_m2_s(s), &
+            use_particle_flux_override=source_plan%number_flux_override_active(s), &
             temperature_k_override=layout%temperature_k(s), &
             drift_velocity_override=layout%drift_velocity(:, s), w_particle_override=layout%weight(s) &
             )

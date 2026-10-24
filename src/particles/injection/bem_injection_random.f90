@@ -2,8 +2,6 @@
 module bem_injection_random
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_particles, only: allocate_particles
-  use bem_types, only: particles_soa
   use bem_counter_rng, only: counter_uniform
   use bem_random_stream, only: seed_random_stream, random_uniform
   implicit none
@@ -14,7 +12,6 @@ module bem_injection_random
   public :: seed_rng
   public :: sample_uniform_positions
   public :: sample_shifted_maxwell_velocities
-  public :: init_random_beam_particles
   public :: sample_standard_normal
 
 contains
@@ -93,33 +90,6 @@ contains
       v(:, i) = sigma*v(:, i) + drift_velocity
     end do
   end subroutine sample_shifted_maxwell_velocities
-
-  !> 指定粒子数ぶんの位置/速度/電荷/質量/重みを生成し `particles_soa` を初期化する。
-  !! @param[out] pcls 生成した粒子群を保持する `particles_soa`。
-  !! @param[in] n 生成するマクロ粒子数。
-  !! @param[in] q_particle 粒子1個あたりの電荷 [C]。
-  !! @param[in] m_particle 粒子1個あたりの質量 [kg]。
-  !! @param[in] w_particle 粒子1個あたりのマクロ粒子重み。
-  !! @param[in] pos_low 位置サンプリング領域の下限座標 `(x,y,z)` [m]。
-  !! @param[in] pos_high 位置サンプリング領域の上限座標 `(x,y,z)` [m]。
-  !! @param[in] drift_velocity 平均ドリフト速度ベクトル `(vx,vy,vz)` [m/s]。
-  !! @param[in] temperature_k 熱運動の温度 [K]（`thermal_speed` 未指定時に使用）。
-  !! @param[in] thermal_speed 熱速度の標準偏差 `sigma` [m/s]（指定時は温度より優先）。
-  subroutine init_random_beam_particles(pcls, n, q_particle, m_particle, w_particle, pos_low, pos_high, drift_velocity, &
-                                        temperature_k, thermal_speed)
-    type(particles_soa), intent(out) :: pcls
-    integer(i32), intent(in) :: n
-    real(dp), intent(in) :: q_particle, m_particle, w_particle
-    real(dp), intent(in) :: pos_low(3), pos_high(3), drift_velocity(3)
-    real(dp), intent(in), optional :: temperature_k, thermal_speed
-
-    call allocate_particles(pcls, n)
-    call sample_uniform_positions(pos_low, pos_high, pcls%x)
-    call sample_shifted_maxwell_velocities(drift_velocity, m_particle, pcls%v, temperature_k, thermal_speed)
-    pcls%q = q_particle
-    pcls%m = m_particle
-    pcls%w = w_particle
-  end subroutine init_random_beam_particles
 
   !> Box–Muller法で標準正規乱数を生成し、任意形状配列へ詰める。
   !! @param[out] z 平均0・分散1の標準正規乱数で埋める出力配列。

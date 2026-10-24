@@ -5,8 +5,8 @@ usage() {
   cat <<'EOF'
 Usage: tools/run_physics_release_gate.sh [--dry-run] [--manifest PATH]
 
-Run the L3, far-correction, and MPI physics gates sequentially and record a
-reproducibility manifest. KUDPC login nodes are rejected outside Slurm.
+Run the convergence-fixture, far-correction, and MPI physics gates sequentially
+and record a reproducibility manifest. KUDPC login nodes are rejected outside Slurm.
 EOF
 }
 
@@ -48,7 +48,7 @@ esac
 mkdir -p "$(dirname "$manifest")"
 artifact_dir="$(dirname "$manifest")"
 convergence_csv="$artifact_dir/convergence.csv"
-test_l3_timings_csv="$artifact_dir/test_l3-target-timings.csv"
+release_correctness_timings_csv="$artifact_dir/release_correctness-target-timings.csv"
 far_correction_timings_csv="$artifact_dir/far_correction-target-timings.csv"
 max_rss_kb="${BEACH_RELEASE_MAX_RSS_KB:-8388608}"
 time_command="${BEACH_RELEASE_TIME_COMMAND:-/usr/bin/time}"
@@ -77,7 +77,7 @@ fc_version="$($fc_command --version 2>/dev/null | head -n 1 || printf unavailabl
 mpi_fc_version="$($mpi_fc_command --version 2>/dev/null | head -n 1 || printf unavailable)"
 
 cat >"$manifest" <<EOF
-schema_version=2
+schema_version=3
 status=$(if ((dry_run)); then printf planned; else printf running; fi)
 started_utc=$started_utc
 hostname=$host
@@ -86,14 +86,14 @@ git_commit=$commit
 git_dirty=$dirty
 fortran_compiler=$fc_version
 mpi_fortran_compiler=$mpi_fc_version
-test_l3.command=make test-fortran-release-correctness
+release_correctness.command=make test-fortran-release-correctness
 far_correction.command=make test-fortran-far-correction
 mpi.command=make test-mpi$(if [[ -n "$mpi_runner" ]]; then printf ' MPI_RUNNER=%s' "$mpi_runner"; fi)
 mpi_cache.command=make test-mpi-periodic-cache$(if [[ -n "$mpi_runner" ]]; then printf ' MPI_RUNNER=%s' "$mpi_runner"; fi)
 budget.max_rss_kb=$max_rss_kb
 cache.warm_max_cold_ratio=0.5
 convergence_csv=$convergence_csv
-test_l3.target_timings_csv=$test_l3_timings_csv
+release_correctness.target_timings_csv=$release_correctness_timings_csv
 far_correction.target_timings_csv=$far_correction_timings_csv
 convergence.required_categories=boris_dt,panel_fmm_order,rough_panel_mesh
 EOF
@@ -137,9 +137,9 @@ run_gate() {
 }
 
 if ((!dry_run)); then
-  rm -f "$convergence_csv" "$test_l3_timings_csv" "$far_correction_timings_csv"
+  rm -f "$convergence_csv" "$release_correctness_timings_csv" "$far_correction_timings_csv"
 fi
-run_gate test_l3 env BEACH_FORTRAN_TIMING_CSV="$test_l3_timings_csv" make test-fortran-release-correctness
+run_gate release_correctness env BEACH_FORTRAN_TIMING_CSV="$release_correctness_timings_csv" make test-fortran-release-correctness
 run_gate far_correction env BEACH_FORTRAN_TIMING_CSV="$far_correction_timings_csv" make test-fortran-far-correction
 if [[ -n "$mpi_runner" ]]; then
   run_gate mpi make test-mpi "MPI_RUNNER=$mpi_runner"
@@ -152,7 +152,7 @@ fi
 if ((!dry_run)); then
   printf 'category,configuration,metric_1,metric_2,metric_3,acceptance\n' >"$convergence_csv"
   sed -n 's/^.*BEACH_CONVERGENCE,//p' \
-    "$artifact_dir/test_l3.log" "$artifact_dir/far_correction.log" \
+    "$artifact_dir/release_correctness.log" "$artifact_dir/far_correction.log" \
     "$artifact_dir/mpi.log" "$artifact_dir/mpi_cache.log" >>"$convergence_csv"
   for category in boris_dt panel_fmm_order rough_panel_mesh; do
     if ! grep -q "^${category}," "$convergence_csv"; then

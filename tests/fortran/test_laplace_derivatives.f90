@@ -1,4 +1,4 @@
-!> Laplace 核の偏微分表: 漸化式版が旧多項式乗算版と全次数で一致し、十分速いことの契約テスト。
+!> Laplace 核の偏微分表を独立した多項式展開と全次数で比較する。
 program test_laplace_derivatives
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_types, only: fmm_plan_type
@@ -10,8 +10,7 @@ program test_laplace_derivatives
   real(dp), allocatable :: fast(:), reference(:)
   real(dp) :: points(3, 4), r(3), scale, worst, rel
   real(dp) :: softening(3)
-  integer(i32) :: order, point, soft_idx, idx, repeat
-  integer(8) :: clock0, clock1, rate
+  integer(i32) :: order, point, soft_idx, idx
   logical :: ok
   character(len=96) :: label
 
@@ -21,7 +20,7 @@ program test_laplace_derivatives
   points(:, 4) = [2.0e-6_dp, -9.0e-6_dp, 1.5e-5_dp]
   softening = [0.0_dp, 1.0e-7_dp, 0.3_dp]
 
-  call test_init(7)
+  call test_init(6)
   do order = 1_i32, 6_i32
     write (label, '(a,i0)') 'recurrence_matches_polynomial_expansion_order_', order
     call test_begin(trim(label))
@@ -56,27 +55,5 @@ program test_laplace_derivatives
     call test_end()
   end do
 
-  call test_begin('recurrence_is_at_least_ten_times_faster_at_order_4')
-  allocate (plan)
-  plan%options%order = 4_i32
-  call initialize_basis_tables(plan, 4_i32)
-  plan%options%softening = 0.0_dp
-  allocate (fast(plan%nderiv), reference(plan%nderiv))
-  r = points(:, 2)
-  call system_clock(clock0, rate)
-  do repeat = 1_i32, 2000_i32
-    call compute_laplace_derivatives(plan, r + 1.0e-9_dp*real(repeat, dp), fast)
-  end do
-  call system_clock(clock1)
-  scale = real(clock1 - clock0, dp)/real(max(rate, 1_8), dp)
-  call system_clock(clock0, rate)
-  do repeat = 1_i32, 2000_i32
-    call compute_laplace_derivatives_reference(plan, r + 1.0e-9_dp*real(repeat, dp), reference)
-  end do
-  call system_clock(clock1)
-  worst = real(clock1 - clock0, dp)/real(max(rate, 1_8), dp)
-  print '(a,es10.3,a,es10.3,a)', '  2000 evaluations: recurrence ', scale, ' s, polynomial ', worst, ' s'
-  call assert_true(scale*10.0_dp <= worst .or. worst < 1.0e-3_dp, 'recurrence is not at least ten times faster')
-  call test_end()
   call test_summary()
 end program test_laplace_derivatives

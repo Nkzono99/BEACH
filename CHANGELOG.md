@@ -3,6 +3,73 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- 通常の開発テストから周期検証 workflow の全ケースを分離し、代表 3 ケースを残した。
+  全ケースは `make test-validation-workflow` と CI で実行する。
+- L2 で共有 field kernel を build して Python/native 数値比較を実行し、lint CLI の native 設定契約も確認する。
+  `make test-field-kernel-cache` は周期解析解と有限 shell の検証も実行する。
+- 周期導体のテストを遠方補正 gate に、Laplace 偏微分の速度比較を release benchmark に移した。
+  同じ schema 値の再比較と文書書式・内部呼出し回数の固定を削減し、C header の compile probe を compiler 間で利用できる形式にした。
+- periodic2 image-layer の FMM 回帰を panel FMM と同じ相対誤差 0.2% で確認する。
+- L3 tier を L2 に統合した。`make test-l3`、`make test-heavy`、`make test-fortran-heavy` を削除し、
+  free-space FMM の精度比較は `make test-l2` で実行する。`make test-fortran-release-correctness` は収束データを出す
+  `test_dynamics_basic` と `test_coulomb_fmm_core_panel` だけを実行し、release manifest は schema 3 で
+  `release_correctness.*` と `release_correctness-target-timings.csv` を記録する。
+- cached operator を作らない periodic target 4 本（`test_periodic_nonzero_reference`、`test_periodic_nonzero_upper_vacuum`、
+  `test_periodic_shell_mean`、`test_coulomb_fmm_core_periodic`）を遠方補正 gate から L1 に移し、
+  `test_panel_near_correction` を `test_panel_geometry_near` に統合した。
+- L1 の重い 3 target を同じ oracle と許容誤差のまま短縮した。auto solver の要素数表は公開 pure 関数で直接検査し、
+  外部根の更新 test は平板の一様場で結果が変わらない時間刻みに広げ、sheath-model 自身が検査する根の棄却 2 件と
+  平均エネルギー近似の根探索を Zhao 根 test から除いた。
+- `test_simulator` を `test_simulator_loop`、`test_surface_charge_closure`、`test_simulator_failure_context`、
+  `test_soft_discard` に分け、粒子 batch の生成は `test_particle_pool`、適応 sub-step は `test_particle_stepper` と
+  `test_step_growth` に移した。cached snapshot の adaptive batch は `test_periodic2_adaptive_batch` に分けた。
+  `test_field_kernel_cache_c` と `test_output_writer_potential` は、固有の検査を `test_periodic2_cached_snapshot` と
+  `test_output_writer_io` に移して削除した。`make test-field-kernel-cache` の Fortran 部分は `test_periodic2_cached_snapshot` を実行する。
+- 複数 layer で同じ契約を検査していた Fortran test（panel FMM と direct の比較、free box dual tree、round-robin 順、
+  redistributed reflect の counter 要求、top-reference history の書式、上端 Neumann 場、ABI 番号の literal、
+  examples 固有の値）を、契約を持つ layer の 1 か所に寄せた。子 process probe、cache の後片付け、直接 panel 和の
+  oracle は共通 helper（`test_support`、`test_panel_oracle`）にまとめた。
+- Python の gate は file 列挙ではなく pytest marker で選ぶ。native kernel と Fortran 設定 checker を使う test は
+  fixture から `native` / `config_native` が付き、`make test-python` は native test を選ばない。そのため
+  `build/` に残った古い共有 kernel を使わない。periodic cache を生成する test は `field_kernel_cache` で選ぶ。
+  これにより、gate 間で約 180 件あった二重実行がなくなった。
+- `tests/python/` を `io`、`analysis`、`native`、`facade`、`plot`、`config`、`cli`、`tooling`、`repo`、`workflow` の
+  directory に分けた。周期検証 tool の test は工程別の 8 file に分けた。Fortran parser test と同じ preflight 規則を
+  Python 側で再検査していた case は、lint が Fortran の判定と診断文をそのまま返すことを示す代表 case に絞った。
+- `dev` extra に `runops>=2.0,<3` を追加し、runops adapter の test を CI で実行する。
+
+### Removed
+
+- Fortran の `particle_step_result` から `field_eval_count` と `collision_query_count` を削除した。src からは読まれず、
+  test が内部の呼出し回数を固定するためだけに使っていた。
+- Fortran の `find_first_hit` は `status` を必須にし、`status` を省略したときに不完全な衝突照会で停止する経路を削除した。
+  production の呼出し側はすべて `status` を受け取って扱っている。`compute_periodic_shift_bounds` は `bem_collision` の
+  内部手続きにした。
+- 3.8.0 で batch の粒子が `generate_batch_slot` から作られるようになってから呼ばれていなかった Fortran の batch sampler
+  `init_random_beam_particles`、`sample_reservoir_face_particles`、`sample_photo_raycast_particles` と、それを包む
+  `sample_species_state` / `sample_photo_species_state` を削除した。`sample_flux_weighted_normal_component` の
+  `uniform` と `sample_photo_emission_velocity` の `rng_seed` / `rng_counter` は必須にした。注入面と photo ray の
+  sampling は counter-based の `sample_reservoir_face_particle_counter`、`sample_photo_ray_slot`、`photo_ray_macro_weight`
+  で検査する。
+- Fortran の `init_particle_batch_from_config` と `build_batch_injection_layout` は `source_plan` を必須にした。
+  省略時に呼出しの中で plan を作る経路は test だけが使っていた。
+- charge ledger の累積時に粒子数の非負を再検査する停止を削除した。粒子数は src の加算でしか増えず、
+  checkpoint から読む値は resume の読込みが検査している。
+
+### Fixed
+
+- `build.sh` が fpm を `OMP_PROC_BIND=false` で起動するようにした。KUDPC の job 既定の `OMP_PROC_BIND=close` では
+  fpm が起動する test と `beach` が 1 core の affinity を継承し、OpenMP test が数倍遅くなっていた。
+- `test_upper_fourier_switch` が固定の cache directory を再利用して 2 回目以降に cold build を検査しなくなる問題を直した。
+- opt-in 周期力テストの zero-mode 設定と、平面 oracle receipt の backend 期待値を現行の明示的な周期場契約に合わせた。
+- 平面 oracle が mesh 解像度ごとに異なる cache identity を要求する誤検知を修正した。
+  同じ box-cell 演算子の再利用を認め、評価ごとの path・fingerprint・SHA256 の照合を維持する。
+- 近接場の有限 shell テストで経路の標本点を 9 点から 33 点に増やし、1% の仕事誤差条件を満たす積分解像度で比較する。
+
 ## [4.0.0] - 2026-10-23
 
 Python API と CLI の破壊的変更を含む。移行に必要な変更点を以下に示す。

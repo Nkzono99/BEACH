@@ -16,7 +16,7 @@ contains
   !! @param[out] photo_failure 不完全な photo collision query の status、最小 slot の species index、その ray の
   !!   species 内番号と bounce index（省略時は停止）。
   !! @param[inout] snapshot refresh 済み静電 snapshot（注入電位補正の使用時に必要）。
-  !! @param[in] source_plan run中に再利用する粒子source導出値（省略時は呼出し内で構築）。
+  !! @param[in] source_plan run中に再利用する粒子source導出値（`build_particle_source_plan` で同じ MPI 文脈から構築）。
   !! @param[out] photo_emission_dq_by_species species別のphoto放出反作用電荷 `photo_emission_dq_by_species(nelem, nspecies)`（省略可）。
   !! @param[out] slot_ids 各粒子の global slot 番号（省略可）。
   module procedure init_particle_batch_from_config

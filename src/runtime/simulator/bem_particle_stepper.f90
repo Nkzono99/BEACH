@@ -29,8 +29,6 @@ module bem_particle_stepper
     logical :: escaped_boundary = .false.
     integer(i32) :: elem_idx = -1_i32
     integer(i32) :: status = particle_step_ok
-    integer(i32) :: field_eval_count = 0_i32
-    integer(i32) :: collision_query_count = 0_i32
     integer(i32) :: wall_outward_event_count = 0_i32
     integer(i32) :: outer_barrier_return_count = 0_i32
     integer(i32) :: outer_barrier_escape_count = 0_i32
@@ -229,7 +227,6 @@ contains
       mesh, sim, snapshot, ctx%bfield, x0, v0, ctx%q, ctx%m, dt, x_candidate, v_candidate, candidate_electric_field, &
       ctx%use_upper_panel_fourier, field_available &
       )
-    result%field_eval_count = 1_i32
     if (.not. field_available) then
       result%status = particle_step_invalid_boundary
       return
@@ -240,7 +237,6 @@ contains
     end if
 
     call find_first_hit(mesh, x0, x_candidate, hit, sim=sim, status=query_status)
-    result%collision_query_count = 1_i32
     if (query_status /= collision_query_ok) then
       if (sim%use_box .and. .not. point_strictly_inside_box(sim, x_candidate)) then
         call advance_particle_boundary_crossing( &
@@ -290,8 +286,6 @@ contains
     result = particle_step_result()
     result%x = x0
     result%v = v0
-    result%field_eval_count = 1_i32
-    result%collision_query_count = merge(1_i32, 0_i32, present(hit))
     if (.not. valid_particle_step_input(x0, v0, bfield, q, m, dt) .or. &
         .not. all(ieee_is_finite(x_candidate)) .or. .not. all(ieee_is_finite(v_candidate))) then
       result%status = particle_step_invalid_boundary
@@ -303,7 +297,6 @@ contains
       x_mid = x0 + 0.5_dp*v0*dt
       call project_field_sample_to_box(sim, x_mid)
       call snapshot%eval_local_e(mesh, x_mid, active_electric_field)
-      result%field_eval_count = result%field_eval_count + 1_i32
     end if
     if (.not. all(ieee_is_finite(active_electric_field))) then
       result%status = particle_step_invalid_boundary
@@ -474,7 +467,6 @@ contains
         mesh, sim, snapshot, ctx%bfield, x_start, v_start, ctx%q, ctx%m, dt_segment, x_trial, v_trial, &
         segment_electric_field, ctx%use_upper_panel_fourier, field_available &
         )
-      result%field_eval_count = result%field_eval_count + 1_i32
       if (.not. field_available) then
         result%status = particle_step_invalid_boundary
         return
@@ -499,12 +491,9 @@ contains
 
     type(particle_step_context) :: half_ctx
     type(particle_step_result) :: first_half, second_half
-    integer(i32) :: prior_field_evals, prior_collision_queries
     integer(i32) :: prior_wall_events, prior_outer_returns, prior_outer_escapes
     real(dp) :: prior_wall_energy
 
-    prior_field_evals = result%field_eval_count
-    prior_collision_queries = result%collision_query_count
     prior_wall_events = result%wall_outward_event_count
     prior_outer_returns = result%outer_barrier_return_count
     prior_outer_escapes = result%outer_barrier_escape_count
@@ -518,8 +507,6 @@ contains
     end if
     if (first_half%status /= particle_step_ok .or. first_half%absorbed .or. first_half%escaped_boundary) then
       result = first_half
-      result%field_eval_count = prior_field_evals + first_half%field_eval_count
-      result%collision_query_count = prior_collision_queries + first_half%collision_query_count
       result%wall_outward_event_count = prior_wall_events + first_half%wall_outward_event_count
       result%outer_barrier_return_count = prior_outer_returns + first_half%outer_barrier_return_count
       result%outer_barrier_escape_count = prior_outer_escapes + first_half%outer_barrier_escape_count
@@ -532,9 +519,6 @@ contains
       mesh, sim, snapshot, half_ctx, first_half%x, first_half%v, 0.5_dp*dt, second_half, field_available &
       )
     result = second_half
-    result%field_eval_count = prior_field_evals + first_half%field_eval_count + second_half%field_eval_count
-    result%collision_query_count = prior_collision_queries + first_half%collision_query_count + &
-                                   second_half%collision_query_count
     result%wall_outward_event_count = prior_wall_events + first_half%wall_outward_event_count + &
                                       second_half%wall_outward_event_count
     result%outer_barrier_return_count = prior_outer_returns + first_half%outer_barrier_return_count + &
@@ -589,7 +573,6 @@ contains
     integer(i32), intent(out) :: query_status
 
     call find_first_hit(mesh, xa, xb, hit, sim=sim, status=query_status)
-    result%collision_query_count = result%collision_query_count + 1_i32
     if (query_status /= collision_query_ok) then
       result%status = query_status
       return

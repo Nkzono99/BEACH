@@ -6,7 +6,8 @@ program test_coulomb_fmm_core_panel
                                   update_state, eval_point, eval_potential_point, destroy_plan, destroy_state
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
-  use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32
+  use test_panel_oracle, only: direct_panel_sum
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
   integer(i32), parameter :: nx = 8_i32, ny = 8_i32, nsrc = 2_i32*nx*ny
@@ -25,6 +26,8 @@ program test_coulomb_fmm_core_panel
   real(dp) :: mesh_field(3, 4), mesh_potential(4), mesh_field_error(3), mesh_potential_error(3)
   integer(i32) :: target_idx, image_x, image_y, status, order_index
   integer(i32), parameter :: order_values(4) = [2_i32, 3_i32, 4_i32, 5_i32]
+
+  call test_init(4)
 
   call test_begin('full_panel_fmm_matches_direct_panel_oracle')
   call make_panel_grid(v0, v1, v2, q)
@@ -46,7 +49,9 @@ program test_coulomb_fmm_core_panel
     do target_idx = 1_i32, size(targets, 2)
       call eval_point(plan, state, targets(:, target_idx), field)
       call eval_potential_point(plan, state, targets(:, target_idx), phi)
-      call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
+      call direct_panel_sum(v0, v1, v2, q, targets(:, target_idx), phi_ref, field_ref)
+      field_ref = field_ref/k_coulomb
+      phi_ref = phi_ref/k_coulomb
       field_error = sqrt(sum((field - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref)))
       potential_error = abs(phi - phi_ref)/max(1.0e-14_dp, abs(phi_ref))
       call assert_true(ieee_is_finite(field_error) .and. ieee_is_finite(potential_error), &
@@ -89,7 +94,9 @@ program test_coulomb_fmm_core_panel
     call eval_potential_point(plan_single, state_single, targets(:, target_idx), phi_single)
     call eval_point(plan, state, targets(:, target_idx), field)
     call eval_potential_point(plan, state, targets(:, target_idx), phi)
-    call direct_panel_oracle(v0, v1, v2, q, targets(:, target_idx), field_ref, phi_ref)
+    call direct_panel_sum(v0, v1, v2, q, targets(:, target_idx), phi_ref, field_ref)
+    field_ref = field_ref/k_coulomb
+    phi_ref = phi_ref/k_coulomb
     max_field_error = max(max_field_error, &
                           sqrt(sum((field_single - field_ref)**2))/max(1.0e-14_dp, sqrt(sum(field_ref*field_ref))))
     max_potential_error = max(max_potential_error, abs(phi_single - phi_ref)/max(1.0e-14_dp, abs(phi_ref)))
@@ -211,24 +218,6 @@ contains
       end do
     end do
   end subroutine make_panel_grid
-
-  subroutine direct_panel_oracle(v0_in, v1_in, v2_in, q_in, target, field_out, phi_out)
-    real(dp), intent(in) :: v0_in(3, nsrc), v1_in(3, nsrc), v2_in(3, nsrc), q_in(nsrc), target(3)
-    real(dp), intent(out) :: field_out(3), phi_out
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_field(3), source_phi
-    integer(i32) :: element, status
-
-    field_out = 0.0_dp
-    phi_out = 0.0_dp
-    do element = 1_i32, nsrc
-      call init_panel_geometry(v0_in(:, element), v1_in(:, element), v2_in(:, element), geometry, status)
-      call assert_equal_i32(status, panel_geometry_ok, 'grid panel geometry status')
-      call panel_potential_field(geometry, q_in(element), target, panel_side_principal_value, source_phi, source_field)
-      field_out = field_out + source_field/k_coulomb
-      phi_out = phi_out + source_phi/k_coulomb
-    end do
-  end subroutine direct_panel_oracle
 
   subroutine rough_surface_direct_oracle(n, target, field_out, phi_out)
     integer(i32), intent(in) :: n

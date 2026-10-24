@@ -125,9 +125,9 @@ source-dir = "tests/fortran"
 main = "test_periodic2_cached_snapshot.f90"
 
 [[test]]
-name = "test_panel_near_correction"
+name = "test_periodic2_adaptive_batch"
 source-dir = "tests/fortran"
-main = "test_panel_near_correction.f90"
+main = "test_periodic2_adaptive_batch.f90"
 
 [[test]]
 name = "test_coulomb_fmm_core_panel"
@@ -215,6 +215,16 @@ source-dir = "tests/fortran"
 main = "test_surface_models.f90"
 
 [[test]]
+name = "test_surface_models_periodic"
+source-dir = "tests/fortran"
+main = "test_surface_models_periodic.f90"
+
+[[example]]
+name = "benchmark_laplace_derivatives"
+source-dir = "benchmarks/fortran"
+main = "benchmark_laplace_derivatives.f90"
+
+[[test]]
 name = "test_dynamics_fmm"
 source-dir = "tests/fortran"
 main = "test_dynamics_fmm.f90"
@@ -225,9 +235,24 @@ source-dir = "tests/fortran"
 main = "test_templates_importers_runtime.f90"
 
 [[test]]
-name = "test_simulator"
+name = "test_simulator_loop"
 source-dir = "tests/fortran"
-main = "test_simulator.f90"
+main = "test_simulator_loop.f90"
+
+[[test]]
+name = "test_surface_charge_closure"
+source-dir = "tests/fortran"
+main = "test_surface_charge_closure.f90"
+
+[[test]]
+name = "test_simulator_failure_context"
+source-dir = "tests/fortran"
+main = "test_simulator_failure_context.f90"
+
+[[test]]
+name = "test_soft_discard"
+source-dir = "tests/fortran"
+main = "test_soft_discard.f90"
 
 [[test]]
 name = "test_injection_sampling"
@@ -260,19 +285,9 @@ source-dir = "tests/fortran"
 main = "test_output_writer_io.f90"
 
 [[test]]
-name = "test_output_writer_potential"
-source-dir = "tests/fortran"
-main = "test_output_writer_potential.f90"
-
-[[test]]
 name = "test_field_kernel_c"
 source-dir = "tests/fortran"
 main = "test_field_kernel_c.f90"
-
-[[test]]
-name = "test_field_kernel_cache_c"
-source-dir = "tests/fortran"
-main = "test_field_kernel_cache_c.f90"
 
 [[test]]
 name = "test_version"

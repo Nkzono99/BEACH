@@ -8,14 +8,15 @@ make test-l2
 make test-physics-release
 ```
 
-HPC側では、収束データを生成する3本のL1 testに続けて、L3 heavy test、far correctionの正しさ、
-MPI電荷収支、MPIによるperiodic cacheの同時生成を検証します。portable CIで実行済みのL2全体は重ねて実行しません。
+HPC側では、収束データを出す2本のtest（L1の`test_dynamics_basic`とL2の`test_coulomb_fmm_core_panel`）を
+`make test-fortran-release-correctness`で実行し、続けてfar correctionの正しさ、MPI電荷収支、
+MPIによるperiodic cacheの同時生成を検証します。portable CIで実行済みのL2全体は重ねて実行しません。
 
 `manifest.txt`には、各検証工程の経過時間とGNU timeが報告した最大RSSを記録します。最大RSSが既定の8 GiBを超えると、
 リリース検証は失敗します。上限は`BEACH_RELEASE_MAX_RSS_KB`で変更できます。
 
 `convergence.csv`は、test logの`BEACH_CONVERGENCE`行から毎回生成します。必要な収束軸が1つでも欠けると、
-リリース検証は失敗します。Fortran targetごとの実行時間は、`test_l3-target-timings.csv`と
+リリース検証は失敗します。Fortran targetごとの実行時間は、`release_correctness-target-timings.csv`と
 `far_correction-target-timings.csv`に記録します。
 
 ## 基準となる収束表

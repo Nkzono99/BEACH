@@ -26,6 +26,10 @@ module test_support
   public :: delete_file_if_exists
   public :: ensure_directory
   public :: remove_empty_directory
+  public :: unique_test_path
+  public :: delete_periodic_cache
+  public :: run_self_probe
+  public :: file_contains
 
   ! 新 API（テストランナー）
   public :: test_init
@@ -303,5 +307,80 @@ contains
     cmd = 'if [ -d "'//trim(path)//'" ]; then rmdir "'//trim(path)//'"; fi'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
   end subroutine remove_empty_directory
+
+  !> テスト実行ファイル自身を引数付きの子プロセスとして起動し、標準出力と標準エラーを log_path へ書く。
+  !! 異常終了を期待する probe（error stop の診断文の検査など）に使う。子プロセスを起動できなければテストを失敗させる。
+  !! @param[in] arguments 子プロセスへ渡す引数（probe の mode など、shell の quoting 込み）。
+  !! @param[in] log_path 出力先ファイル（既存なら上書き）。
+  !! @param[out] exit_status 子プロセスの終了コード。
+  !! @param[in] env 先頭に付ける環境変数の代入（例: 'OMP_NUM_THREADS=2'、省略可）。
+  subroutine run_self_probe(arguments, log_path, exit_status, env)
+    character(len=*), intent(in) :: arguments, log_path
+    integer, intent(out) :: exit_status
+    character(len=*), intent(in), optional :: env
+    character(len=1024) :: executable_path
+    character(len=:), allocatable :: command
+    integer :: command_status
+
+    call get_command_argument(0, executable_path)
+    command = '"'//trim(executable_path)//'" '//trim(arguments)//' > "'//trim(log_path)//'" 2>&1'
+    if (present(env)) command = trim(env)//' '//command
+    call delete_file_if_exists(log_path)
+    exit_status = -1
+    command_status = -1
+    call execute_command_line(command, wait=.true., exitstat=exit_status, cmdstat=command_status)
+    if (command_status /= 0) call fail_test('failed to launch probe: '//trim(arguments))
+  end subroutine run_self_probe
+
+  !> テキストファイルのいずれかの行が fragment を含むかを返す。ファイルが読めなければ偽を返す。
+  !! @param[in] path 検査するファイル。
+  !! @param[in] fragment 探す文字列（前後の空白も含めて一致させる）。
+  !! @return found fragment を含む行があれば真。
+  logical function file_contains(path, fragment) result(found)
+    character(len=*), intent(in) :: path, fragment
+    character(len=1024) :: line
+    integer :: u, ios
+
+    found = .false.
+    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
+    if (ios /= 0) return
+    do
+      read (u, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      if (index(line, fragment) > 0) then
+        found = .true.
+        exit
+      end if
+    end do
+    close (u)
+  end function file_contains
+
+  !> 実行ごとに異なる一時パスを返す（prefix の後ろに system_clock の値を付ける）。
+  !! @param[in] prefix パスの接頭辞。
+  !! @return path 一時パス。
+  function unique_test_path(prefix) result(path)
+    character(len=*), intent(in) :: prefix
+    character(len=:), allocatable :: path
+    character(len=32) :: suffix
+    integer(i64) :: clock_count
+
+    call system_clock(count=clock_count)
+    write (suffix, '(i0)') clock_count
+    path = prefix//trim(suffix)
+  end function unique_test_path
+
+  !> periodic operator cache の本体と lock を削除し、指定があれば空になった cache directory も削除する。
+  !! @param[in] cache_path cache 本体のパス。
+  !! @param[in] cache_dir 空なら削除する cache directory（省略可）。
+  subroutine delete_periodic_cache(cache_path, cache_dir)
+    character(len=*), intent(in) :: cache_path
+    character(len=*), intent(in), optional :: cache_dir
+
+    if (len_trim(cache_path) > 0) then
+      call delete_file_if_exists(trim(cache_path))
+      call delete_file_if_exists(trim(cache_path)//'.lock')
+    end if
+    if (present(cache_dir)) call remove_empty_directory(trim(cache_dir))
+  end subroutine delete_periodic_cache
 
 end module test_support

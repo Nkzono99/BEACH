@@ -422,9 +422,11 @@ contains
     call default_app_config(fixture_cfg)
     fixture_cfg%sim%rng_seed = 1357_i32
     fixture_cfg%sim%batch_count = 2_i32
-    fixture_cfg%sim%dt = 1.0e-11_dp
+    ! Over a flat plate the field is nearly uniform: 1e-10 s Boris steps reproduce every absorb/escape outcome and
+    ! receipt of 1e-11 s steps (measured 2026-10-24). max_step keeps the 2e-7 s flight limit.
+    fixture_cfg%sim%dt = 1.0e-10_dp
     fixture_cfg%sim%batch_duration = 1.0e-3_dp
-    fixture_cfg%sim%max_step = 20000_i32
+    fixture_cfg%sim%max_step = 2000_i32
     fixture_cfg%sim%q_floor = 1.0e-30_dp
     fixture_cfg%sim%field_solver = 'direct'
     fixture_cfg%sim%field_bc_mode = 'periodic2'

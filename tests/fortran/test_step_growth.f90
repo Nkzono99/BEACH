@@ -1,4 +1,4 @@
-!> 弱い場の領域で step を伸ばす `particles.tracking.step_growth` を検証するテスト。
+!> 弱い場の領域で step を伸ばす `particles.tracking.step_growth` と、強い場で step を半分にする適応 sub-step を検証するテスト。
 program test_step_growth
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh
@@ -13,7 +13,7 @@ program test_step_growth
   character(len=*), parameter :: config_path = 'test_step_growth_tmp.toml'
   type(app_config) :: cfg, cfg_explicit, cfg_off
 
-  call test_init(3)
+  call test_init(4)
 
   call test_begin('step_growth_sets_a_default_threshold')
   call write_grouped_config(config_path, 'step_growth = true')
@@ -42,9 +42,78 @@ program test_step_growth
   call run_growth_simulation_test(-1.0e-12_dp, .false.)
   call test_end()
 
+  call test_begin('adaptive_substeps_refine_near_charged_panel')
+  call test_adaptive_substeps()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> An electron thrown at a charged triangle in SI units: the step is longer than the panel's field scale.
+  !! Off, the run must not touch the sub-step counters; on, steps near the panel are halved and every halved step
+  !! holds at least two sub-steps while the halving cap is not reached.
+  subroutine test_adaptive_substeps()
+    type(mesh_type) :: mesh_off, mesh_on
+    type(app_config) :: cfg_off, cfg_on
+    type(sim_stats) :: stats_off, stats_on
+
+    call configure_adaptive_substep_fixture(mesh_off, cfg_off)
+    call run_absorption_insulator(mesh_off, cfg_off, stats_off)
+    call assert_equal_i64(stats_off%processed_particles, 1_i64, 'adaptive fixture processes one electron')
+    call assert_equal_i64(stats_off%adaptive_substep_halved_steps, 0_i64, 'disabled sub-steps must not halve')
+    call assert_equal_i64(stats_off%adaptive_substeps, 0_i64, 'disabled sub-steps must not count sub-steps')
+
+    call configure_adaptive_substep_fixture(mesh_on, cfg_on)
+    cfg_on%sim%substep_field_change_max = 0.2_dp
+    cfg_on%sim%substep_max_halvings = 10_i32
+    call run_absorption_insulator(mesh_on, cfg_on, stats_on)
+    call assert_equal_i64(stats_on%processed_particles, 1_i64, 'adaptive run processes one electron')
+    call assert_true(stats_on%adaptive_substep_halved_steps > 0_i64, 'steps near the charged panel must be halved')
+    call assert_true(stats_on%adaptive_substeps >= 2_i64*stats_on%adaptive_substep_halved_steps, &
+                     'every halved step holds at least two sub-steps')
+    call assert_equal_i64(stats_on%adaptive_substep_depth_limited_steps, 0_i64, &
+                          'ten halvings must resolve the panel field without hitting the cap')
+    call assert_equal_i64(stats_on%survived_max_step, 0_i64, 'the electron must finish its track within max_step')
+    write (*, '(a,i0,a,i0)') 'adaptive sub-steps: halved steps=', stats_on%adaptive_substep_halved_steps, &
+      ' sub-steps=', stats_on%adaptive_substeps
+  end subroutine test_adaptive_substeps
+
+  !> One electron starts 80 um from a 20 um triangle carrying -2e-14 C and moves toward it with 6 eV;
+  !! dt gives 20 um steps, longer than the panel's field scale.
+  subroutine configure_adaptive_substep_fixture(fixture_mesh, fixture_cfg)
+    type(mesh_type), intent(out) :: fixture_mesh
+    type(app_config), intent(out) :: fixture_cfg
+    real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1), q0(1)
+
+    tri_v0(:, 1) = [1.0e-4_dp, -1.0e-5_dp, -1.0e-5_dp]
+    tri_v1(:, 1) = [1.0e-4_dp, 1.0e-5_dp, -1.0e-5_dp]
+    tri_v2(:, 1) = [1.0e-4_dp, 0.0_dp, 1.0e-5_dp]
+    q0 = [-2.0e-14_dp]
+    call init_mesh(fixture_mesh, tri_v0, tri_v1, tri_v2, q0=q0)
+    fixture_mesh%elem_vacuum_sign = 1_i32
+    fixture_mesh%vacuum_normals = fixture_mesh%normals
+    call default_app_config(fixture_cfg)
+    fixture_cfg%sim%rng_seed = 996_i32
+    fixture_cfg%sim%batch_count = 1_i32
+    fixture_cfg%sim%dt = 1.4e-11_dp
+    fixture_cfg%sim%max_step = 400_i32
+    fixture_cfg%sim%use_box = .true.
+    fixture_cfg%sim%box_min = [-2.0e-4_dp, -2.0e-4_dp, -2.0e-4_dp]
+    fixture_cfg%sim%box_max = [2.0e-4_dp, 2.0e-4_dp, 2.0e-4_dp]
+    fixture_cfg%n_particle_species = 1_i32
+    fixture_cfg%particle_species(1) = species_from_defaults()
+    fixture_cfg%particle_species(1)%source_mode = 'volume_seed'
+    fixture_cfg%particle_species(1)%npcls_per_step = 1_i32
+    fixture_cfg%particle_species(1)%q_particle = -1.602176634e-19_dp
+    fixture_cfg%particle_species(1)%m_particle = 9.1093837015e-31_dp
+    fixture_cfg%particle_species(1)%w_particle = 1.0_dp
+    fixture_cfg%particle_species(1)%pos_low = [2.0e-5_dp, 1.0e-6_dp, 2.0e-6_dp]
+    fixture_cfg%particle_species(1)%pos_high = fixture_cfg%particle_species(1)%pos_low
+    fixture_cfg%particle_species(1)%drift_velocity = [1.45e6_dp, 0.0_dp, 0.0_dp]
+    fixture_cfg%particle_species(1)%temperature_k = 0.0_dp
+    call seed_particles_from_config(fixture_cfg)
+  end subroutine configure_adaptive_substep_fixture
 
   subroutine write_grouped_config(path, tracking_extra)
     character(len=*), intent(in) :: path, tracking_extra

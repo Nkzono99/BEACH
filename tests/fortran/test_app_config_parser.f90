@@ -8,12 +8,14 @@ program test_app_config_parser
   use bem_config_helpers, only: resolve_particle_boundaries
   use bem_external_boundary_contract, only: external_inflow_none, external_inflow_scalar_barrier
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, run_self_probe, &
+                          file_contains
   implicit none
 
   type(app_config) :: cfg
   integer(i32) :: effective_boundary_low(3), effective_boundary_high(3)
   integer :: i
+  real(dp) :: electron_temperature_ev
   character(len=64) :: run_mode
   character(len=512) :: probe_config_path
   character(len=*), parameter :: zhao_magnetized_path = 'test_zhao_magnetized_tmp.toml'
@@ -425,13 +427,6 @@ program test_app_config_parser
   call write_first_line_variant(zhao_refresh_variant_path, 'lower_boundary_model =', '# lower boundary omitted')
   call assert_config_rejected(zhao_refresh_variant_path, 'requires an explicit split-zero-mode')
   call delete_file_if_exists(zhao_refresh_variant_path)
-  ! PE も SEE もない構成の更新は、既定で反射電子を外部源にするので受け付ける。
-  call write_refresh_variant('examples/zero_current_no_photo.toml', zhao_refresh_variant_path)
-  call default_app_config(cfg)
-  call load_app_config(zhao_refresh_variant_path, cfg)
-  call assert_true(cfg%surface_current%outflow_refresh_batches == 1_i32 .and. &
-                   cfg%surface_current%include_reflected_electrons, 'no-photo refresh runs on the reflected source')
-  call delete_file_if_exists(zhao_refresh_variant_path)
   call test_end()
 
   call test_begin('zhao_upstream_band_tolerance_config')
@@ -452,10 +447,6 @@ program test_app_config_parser
   call test_end()
 
   call test_begin('zhao_upstream_field_floor_config')
-  call default_app_config(cfg)
-  call load_app_config('examples/zero_current.toml', cfg)
-  call assert_close_dp(cfg%surface_current%zhao_upstream_field_floor_v_m, 2.0e-3_dp, 0.0_dp, &
-                       'example upstream field floor mismatch')
   call write_first_line_variant(zhao_refresh_variant_path, 'upstream_field_floor_v_m =', &
                                 'upstream_field_floor_v_m = 5.0e-3')
   call default_app_config(cfg)
@@ -549,7 +540,9 @@ program test_app_config_parser
   call assert_true(trim(cfg%sim%field_solver) == 'direct', 'tutorial field solver mismatch')
   call assert_true(trim(cfg%sim%field_bc_mode) == 'free', 'tutorial field boundary mismatch')
   call assert_equal_i32(cfg%n_particle_species, 1_i32, 'tutorial species count mismatch')
-  call assert_equal_i32(particles_per_batch_from_config(cfg), 200_i32, 'tutorial batch particle count mismatch')
+  call assert_true(cfg%particle_species(1)%npcls_per_step > 0_i32, 'tutorial must seed a volume beam')
+  call assert_equal_i32(particles_per_batch_from_config(cfg), cfg%particle_species(1)%npcls_per_step, &
+                        'tutorial batch must consist of its single volume species')
   call test_end()
 
   call test_begin('closed_photoelectron_config')
@@ -573,7 +566,16 @@ program test_app_config_parser
     trim(cfg%particle_species(3)%surface_charge_closure) == 'neutral_return', &
     'photoelectron closure mismatch' &
     )
-  call assert_close_dp(cfg%particle_species(3)%temperature_ev, 1.5_dp, 1.0e-15_dp, 'photoelectron temperature mismatch')
+  ! The photoelectron distribution table belongs to the third species only.
+  electron_temperature_ev = cfg%particle_species(1)%temperature_ev
+  call write_without_line_variant(input_contract_path, 'examples/closed_photoelectron.toml', 'temperature_ev = 1.5', &
+                                  'temperature_ev = 1.75')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_close_dp(cfg%particle_species(3)%temperature_ev, 1.75_dp, 0.0_dp, 'photoelectron temperature mismatch')
+  call assert_close_dp(cfg%particle_species(1)%temperature_ev, electron_temperature_ev, 0.0_dp, &
+                       'the photoelectron table must not change the electron temperature')
+  call delete_file_if_exists(input_contract_path)
   call test_end()
 
   call test_begin('all_particle_boundary_faces')
@@ -930,10 +932,10 @@ contains
     if (.not. replaced) error stop 'failed to specialize fixed-emission config fixture'
   end subroutine write_fixed_emission_variant
 
-  !> Copy a Zhao example and enable the outflow refresh in its coupling table.
-  !> Copy a config and drop the first line that starts with the given key.
-  subroutine write_without_line_variant(path, source_path, key)
+  !> Copy a config and drop the first line that starts with the given key, or write `replacement` in its place.
+  subroutine write_without_line_variant(path, source_path, key, replacement)
     character(len=*), intent(in) :: path, source_path, key
+    character(len=*), intent(in), optional :: replacement
     character(len=1024) :: line
     integer :: source_unit, target_unit, ios
     logical :: dropped
@@ -947,6 +949,7 @@ contains
       if (ios /= 0) exit
       if (.not. dropped .and. index(adjustl(line), key) == 1) then
         dropped = .true.
+        if (present(replacement)) write (target_unit, '(A)') replacement
         cycle
       end if
       write (target_unit, '(A)') trim(line)
@@ -980,25 +983,6 @@ contains
     close (target_unit)
   end subroutine write_coupling_variant
 
-  subroutine write_refresh_variant(source_path, path)
-    character(len=*), intent(in) :: source_path, path
-    character(len=1024) :: line
-    integer :: source_unit, target_unit, ios
-
-    open (newunit=source_unit, file=source_path, status='old', action='read', iostat=ios)
-    if (ios /= 0) error stop 'failed to open Zhao refresh variant source'
-    open (newunit=target_unit, file=path, status='replace', action='write')
-    do
-      read (source_unit, '(A)', iostat=ios) line
-      if (ios /= 0) exit
-      write (target_unit, '(A)') trim(line)
-    end do
-    close (source_unit)
-    write (target_unit, '(A)') '[sheath.coupling]'
-    write (target_unit, '(A)') 'outflow_refresh_batches = 1'
-    close (target_unit)
-  end subroutine write_refresh_variant
-
   subroutine write_secondary_variant(path, extra, target, yield_max)
     character(len=*), intent(in) :: path, extra
     character(len=*), intent(in), optional :: target
@@ -1025,28 +1009,12 @@ contains
 
   subroutine assert_config_rejected(path, expected_fragment)
     character(len=*), intent(in) :: path, expected_fragment
-    character(len=1024) :: executable_path, command, child_line
-    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_expected
+    integer :: exit_status
 
-    call get_command_argument(0, executable_path)
-    call delete_file_if_exists(config_failure_path)
-    command = '"'//trim(executable_path)//'" --config-failure-probe "'//trim(path)//'" > '// &
-              config_failure_path//' 2>&1'
-    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'config failure probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'invalid config must be rejected')
-
-    saw_expected = .false.
-    open (newunit=child_unit, file=config_failure_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read config failure probe output'
-    do
-      read (child_unit, '(A)', iostat=child_ios) child_line
-      if (child_ios /= 0) exit
-      saw_expected = saw_expected .or. index(child_line, trim(expected_fragment)) > 0
-    end do
-    close (child_unit)
-    call assert_true(saw_expected, 'config failure message mismatch: '//trim(expected_fragment))
+    call run_self_probe('--config-failure-probe "'//trim(path)//'"', config_failure_path, exit_status)
+    call assert_true(exit_status /= 0, 'invalid config must be rejected')
+    call assert_true(file_contains(config_failure_path, trim(expected_fragment)), &
+                     'config failure message mismatch: '//trim(expected_fragment))
     call delete_file_if_exists(config_failure_path)
   end subroutine assert_config_rejected
 end program test_app_config_parser

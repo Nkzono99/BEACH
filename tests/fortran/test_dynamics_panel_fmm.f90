@@ -6,7 +6,7 @@ program test_dynamics_panel_fmm
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
-  use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
   type(mesh_type) :: mesh
@@ -21,8 +21,12 @@ program test_dynamics_panel_fmm
   integer(i32) :: element, status
   character(len=128) :: message
 
+  call test_init(3)
+
+  ! FMM-vs-direct panel accuracy over expansion orders is test_coulomb_fmm_core_panel's contract. This file
+  ! checks only the field-solver adapter: option wiring, refresh, the single self term, and kernel auto resolution.
   call test_begin('panel_fmm_adapter_matches_direct_and_refreshes_charge')
-  call make_plane(mesh, size_x=1.6_dp, size_y=1.6_dp, nx=8_i32, ny=8_i32, center=[0.0_dp, 0.0_dp, 0.0_dp])
+  call make_plane(mesh, size_x=1.6_dp, size_y=1.6_dp, nx=4_i32, ny=4_i32, center=[0.0_dp, 0.0_dp, 0.0_dp])
   do element = 1_i32, mesh%nelem
     mesh%q_elem(element) = 1.0e-12_dp*(1.0_dp + 0.2_dp*sin(real(element, dp)))
   end do
@@ -89,13 +93,17 @@ program test_dynamics_panel_fmm
   call test_begin('panel_auto_selects_fmm_adapter')
   fmm_sim = direct_sim
   fmm_sim%field_solver = 'auto'
-  fmm_sim%tree_min_nelem = 64_i32
+  fmm_sim%tree_min_nelem = mesh%nelem
   fmm_field = field_physics_config(backend='auto', normalization='si')
   fmm_panel = panel_kernel_config( &
               kernel_id='triangle_p0_exact_auto', surface_side_policy='per_element' &
               )
   call fmm_solver%init(mesh, fmm_sim, fmm_field, periodic, fmm_panel)
-  call assert_true(trim(fmm_solver%mode) == 'fmm', 'large panel auto case must select FMM')
+  call assert_true(trim(fmm_solver%mode) == 'fmm', 'panel auto case at tree_min_nelem must select FMM')
+  call direct_solver%eval_e(mesh, target, direct_e)
+  call fmm_solver%eval_e(mesh, target, fmm_e)
+  rel_e = sqrt(sum((fmm_e - direct_e)**2))/max(sqrt(sum(direct_e*direct_e)), tiny(1.0_dp))
+  call assert_true(rel_e < fmm_relative_tolerance, 'auto panel kernel must evaluate the FMM panel field')
   call test_end()
   call test_solver_reinitialization()
   call test_summary()

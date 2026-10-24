@@ -1,0 +1,1012 @@
+"""FieldKernel's Python-side contract and ctypes call sequence against a fake library."""
+
+import ctypes
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+import beach.native.kernel as kernel_module
+from beach import (
+    BeachScene,
+    FieldKernel,
+    FieldKernelBuildInfo,
+    FieldKernelDiagnostics,
+    FieldKernelError,
+    FieldKernelOptions,
+    RunResult,
+    field_kernel_build_info,
+    field_kernel_options_from_result,
+)
+from beach.analysis.periodic import auto_periodic2_from_result
+from beach.io.types import RunField, RunMesh, RunSummary
+
+
+def _int_value(value: object) -> int:
+    return int(getattr(value, "value", value))
+
+
+class _FakeFunction:
+    def __init__(self, name: str, callback, events: list[str]) -> None:  # type: ignore[no-untyped-def]
+        self.name = name
+        self.callback = callback
+        self.events = events
+        self.calls: list[tuple[object, ...]] = []
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args: object) -> int:
+        self.calls.append(args)
+        self.events.append(self.name)
+        return int(self.callback(*args))
+
+
+class _FakeKernelLibrary:
+    def __init__(
+        self,
+        *,
+        cache_setter: bool = False,
+        cache_getter: bool = False,
+        diagnostics: tuple[int, int, bytes, bytes] = (0, 0, b"", b""),
+        build_info: bytes | None = None,
+        abi_version: tuple[int, int] | None = (
+            kernel_module.FIELD_KERNEL_ABI_MAJOR,
+            kernel_module.FIELD_KERNEL_ABI_MINOR,
+        ),
+    ) -> None:
+        self.events: list[str] = []
+        self.cache_settings: list[tuple[bytes, float]] = []
+        self.diagnostics_value = diagnostics
+
+        def ok(*_args: object) -> int:
+            return 0
+
+        def create(handle_out: object) -> int:
+            ctypes.cast(handle_out, ctypes.POINTER(ctypes.c_void_p))[0] = (
+                ctypes.c_void_p(1234)
+            )
+            return 0
+
+        def set_cache(
+            _handle: object, path_ptr: object, path_len: object, tolerance: object
+        ) -> int:
+            path = ctypes.string_at(path_ptr, _int_value(path_len))
+            self.cache_settings.append(
+                (path, float(getattr(tolerance, "value", tolerance)))
+            )
+            return 0
+
+        def get_cache(
+            _handle: object,
+            hit_ptr: object,
+            count_ptr: object,
+            fingerprint_ptr: object,
+            fingerprint_capacity: object,
+            fingerprint_length_ptr: object,
+            path_ptr: object,
+            path_capacity: object,
+            path_length_ptr: object,
+        ) -> int:
+            hit, count, fingerprint, path = self.diagnostics_value
+            ctypes.cast(hit_ptr, ctypes.POINTER(ctypes.c_int))[0] = hit
+            ctypes.cast(count_ptr, ctypes.POINTER(ctypes.c_int))[0] = count
+            ctypes.cast(fingerprint_length_ptr, ctypes.POINTER(ctypes.c_int))[0] = len(
+                fingerprint
+            )
+            ctypes.cast(path_length_ptr, ctypes.POINTER(ctypes.c_int))[0] = len(path)
+            if (
+                _int_value(fingerprint_capacity) <= len(fingerprint)
+                or _int_value(path_capacity) <= len(path)
+            ):
+                return 2
+            ctypes.memmove(fingerprint_ptr, fingerprint + b"\0", len(fingerprint) + 1)
+            ctypes.memmove(path_ptr, path + b"\0", len(path) + 1)
+            return 0
+
+        def get_build_info(
+            buffer_ptr: object,
+            buffer_capacity: object,
+            length_ptr: object,
+        ) -> int:
+            assert build_info is not None
+            ctypes.cast(length_ptr, ctypes.POINTER(ctypes.c_int))[0] = len(build_info)
+            if _int_value(buffer_capacity) <= len(build_info):
+                return 2
+            ctypes.memmove(buffer_ptr, build_info + b"\0", len(build_info) + 1)
+            return 0
+
+        def get_abi_version(major_ptr: object, minor_ptr: object) -> int:
+            assert abi_version is not None
+            major, minor = abi_version
+            ctypes.cast(major_ptr, ctypes.POINTER(ctypes.c_int))[0] = major
+            ctypes.cast(minor_ptr, ctypes.POINTER(ctypes.c_int))[0] = minor
+            return 0
+
+        self.beach_kernel_create = _FakeFunction("create", create, self.events)
+        self.beach_kernel_destroy = _FakeFunction("destroy", ok, self.events)
+        self.beach_kernel_build = _FakeFunction("build", ok, self.events)
+        self.beach_kernel_update_charges = _FakeFunction("update", ok, self.events)
+        self.beach_kernel_eval_e = _FakeFunction("eval_e", ok, self.events)
+        self.beach_kernel_eval_phi = _FakeFunction("eval_phi", ok, self.events)
+        self.beach_kernel_force_on_charges = _FakeFunction("force", ok, self.events)
+        if cache_setter:
+            self.beach_kernel_set_periodic_cache = _FakeFunction(
+                "set_cache", set_cache, self.events
+            )
+        if cache_getter:
+            self.beach_kernel_get_periodic_cache_info = _FakeFunction(
+                "get_cache", get_cache, self.events
+            )
+        if build_info is not None:
+            self.beach_kernel_get_build_info = _FakeFunction(
+                "get_build_info", get_build_info, self.events
+            )
+        if abi_version is not None:
+            self.beach_kernel_get_abi_version = _FakeFunction(
+                "get_abi_version", get_abi_version, self.events
+            )
+
+
+def _install_fake_kernel(
+    monkeypatch: pytest.MonkeyPatch, lib: _FakeKernelLibrary | None = None
+) -> _FakeKernelLibrary:
+    if lib is None:
+        lib = _FakeKernelLibrary()
+    monkeypatch.setattr(kernel_module, "_load_kernel_library", lambda _path: lib)
+    return lib
+
+
+def _one_panel_source() -> tuple[np.ndarray, np.ndarray]:
+    return (
+        np.array(
+            [[[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]]],
+            dtype=float,
+        ),
+        np.array([0.0], dtype=float),
+    )
+
+
+def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
+    assert FieldKernelDiagnostics.__dataclass_params__.frozen
+
+
+@pytest.mark.parametrize(
+    ("triangles", "message"),
+    [
+        (np.zeros((1, 3)), r"shape \(n_triangles, 3, 3\)"),
+        (
+            np.array(
+                [[[0.0, 0.0, 0.0], [0.2, float("nan"), 0.0], [0.0, 0.2, 0.0]]]
+            ),
+            "finite values",
+        ),
+        (
+            np.array(
+                [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]]
+            ),
+            "non-degenerate",
+        ),
+    ],
+)
+def test_field_kernel_rejects_invalid_source_triangle_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+    triangles: np.ndarray,
+    message: str,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+
+    with pytest.raises(ValueError, match=message):
+        FieldKernel(triangles, np.array([1.0]))
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
+
+
+def test_field_kernel_rejects_nonpositive_fmm_order_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(ValueError, match=r"order must be >= 1"):
+        FieldKernel(
+            source_triangles,
+            source_charges,
+            options=FieldKernelOptions(order=0),
+        )
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
+
+
+def test_field_kernel_accepts_matching_or_newer_minor_abi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR, 99),
+        ),
+    )
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges):
+        pass
+
+    assert "get_abi_version" in lib.events
+
+
+def test_field_kernel_rejects_incompatible_major_abi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(kernel_module.FIELD_KERNEL_ABI_MAJOR + 1, 0),
+        ),
+    )
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(FieldKernelError, match="ABI is incompatible"):
+        FieldKernel(source_triangles, source_charges)
+
+
+def test_field_kernel_rejects_unattested_pre_v2_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    del lib.beach_kernel_get_abi_version
+    triangles, charges = _one_panel_source()
+
+    with pytest.raises(FieldKernelError, match="ABI version attestation"):
+        FieldKernel(triangles, charges)
+
+
+def test_field_kernel_build_info_is_a_frozen_top_level_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        b"build_info_schema_version=1\n"
+        b"build_version=1.5.0-test\n"
+        b"build_version_mode=git\n"
+        b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
+        b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
+    )
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(build_info=payload),
+    )
+
+    info = field_kernel_build_info("unused.so")
+
+    assert FieldKernelBuildInfo.__dataclass_params__.frozen
+    assert info == FieldKernelBuildInfo(
+        schema_version=1,
+        version="1.5.0-test",
+        version_mode="git",
+        source_commit="0123456789abcdef0123456789abcdef01234567",
+        build_id="0123456789abcdef0123456789abcdef01234567:clean",
+    )
+
+
+def test_field_kernel_build_info_rejects_reordered_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = (
+        b"build_version=1.5.0-test\n"
+        b"build_info_schema_version=1\n"
+        b"build_version_mode=git\n"
+        b"build_source_commit=0123456789abcdef0123456789abcdef01234567\n"
+        b"build_id=0123456789abcdef0123456789abcdef01234567:clean"
+    )
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(build_info=payload),
+    )
+
+    with pytest.raises(FieldKernelError, match="unexpected fields"):
+        field_kernel_build_info("reordered.so")
+
+
+def test_field_kernel_build_info_requires_native_attestation_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(monkeypatch)
+
+    with pytest.raises(FieldKernelError, match="build-info ABI"):
+        field_kernel_build_info("legacy.so")
+
+
+def test_field_kernel_cache_options_are_set_before_geometry_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(cache_setter=True, cache_getter=True),
+    )
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic_cache_dir="cache/\N{LATIN SMALL LETTER E WITH ACUTE}",
+        periodic_generation_tolerance=2.5e-9,
+    )
+
+    with FieldKernel(source_triangles, source_charges, options=options):
+        pass
+
+    assert lib.cache_settings == [
+        ("cache/\N{LATIN SMALL LETTER E WITH ACUTE}".encode(), 2.5e-9)
+    ]
+    assert lib.events.index("set_cache") < lib.events.index("build")
+
+
+def test_field_kernel_minimal_library_keeps_default_free_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    kernel = FieldKernel(source_triangles, source_charges)
+    kernel.close()
+    kernel.close()
+
+    assert "build" in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == 1
+    with pytest.raises(FieldKernelError, match="field kernel is closed"):
+        kernel.eval_e(np.array([[1.0, 0.0, 0.0]]))
+
+
+def test_field_kernel_rejects_invalid_runtime_array_contracts_before_native_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        update_calls = len(lib.beach_kernel_update_charges.calls)
+        with pytest.raises(ValueError, match=r"source_charges must have shape \(1,\)"):
+            kernel.update_charges(np.array([1.0, 2.0]))
+        assert len(lib.beach_kernel_update_charges.calls) == update_calls
+
+        with pytest.raises(ValueError, match=r"points must have shape \(n_points, 3\)"):
+            kernel.eval_e(np.zeros(3))
+        assert not lib.beach_kernel_eval_e.calls
+
+        with pytest.raises(ValueError, match="points must contain finite values"):
+            kernel.eval_phi(np.array([[0.0, float("nan"), 0.0]]))
+        assert not lib.beach_kernel_eval_phi.calls
+
+        positions = np.zeros((2, 3))
+        with pytest.raises(ValueError, match=r"charges must have shape \(2,\)"):
+            kernel.force_on_charges(positions, np.ones(1))
+        with pytest.raises(ValueError, match="origin must contain exactly 3 values"):
+            kernel.force_on_charges(positions, np.ones(2), origin=(0.0, 0.0))
+        assert not lib.beach_kernel_force_on_charges.calls
+
+
+def test_field_kernel_maps_native_status_and_remains_closable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        lib.beach_kernel_eval_e.callback = lambda *_args: 2
+        with pytest.raises(
+            FieldKernelError,
+            match="beach_kernel_eval_e failed: invalid kernel argument",
+        ):
+            kernel.eval_e(np.array([[1.0, 0.0, 0.0]]))
+
+    assert len(lib.beach_kernel_destroy.calls) == 1
+
+
+def test_free_field_kernel_passes_target_box_to_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        box_min=(-1.0, -2.0, -3.0),
+        box_max=(4.0, 5.0, 6.0),
+    )
+
+    with FieldKernel(source_triangles, source_charges, options=options):
+        build_args = lib.beach_kernel_build.calls[0]
+        assert _int_value(build_args[8]) == 0
+        box_min = np.ctypeslib.as_array(
+            ctypes.cast(build_args[15], ctypes.POINTER(ctypes.c_double)), shape=(3,)
+        ).copy()
+        box_max = np.ctypeslib.as_array(
+            ctypes.cast(build_args[16], ctypes.POINTER(ctypes.c_double)), shape=(3,)
+        ).copy()
+
+    np.testing.assert_array_equal(box_min, options.box_min)
+    np.testing.assert_array_equal(box_max, options.box_max)
+
+
+def test_free_field_kernel_rejects_partial_target_box(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(ValueError, match="must be provided together"):
+        FieldKernel(
+            source_triangles,
+            source_charges,
+            options=FieldKernelOptions(box_min=(0.0, 0.0, 0.0)),
+        )
+
+    assert "build" not in lib.events
+
+
+def test_field_kernel_rejects_older_target_box_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            abi_version=(
+                kernel_module.FIELD_KERNEL_ABI_MAJOR,
+                kernel_module.FIELD_KERNEL_ABI_MINOR - 1,
+            ),
+        ),
+    )
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(FieldKernelError, match="ABI is incompatible"):
+        FieldKernel(source_triangles, source_charges)
+
+    assert "build" not in lib.events
+
+
+def test_field_kernel_minimal_library_keeps_existing_eval_but_direct_is_optional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        np.testing.assert_array_equal(kernel.eval_e(np.array([[1.0, 0.0, 0.0]])), 0.0)
+        with pytest.raises(FieldKernelError, match="exact-direct"):
+            kernel.eval_e_direct(np.array([[1.0, 0.0, 0.0]]))
+        with pytest.raises(FieldKernelError, match="exact-direct"):
+            kernel.eval_phi_direct(np.array([[1.0, 0.0, 0.0]]))
+
+
+def test_field_kernel_direct_methods_reject_periodic_plan_before_native_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+        box_min=(0.0, 0.0, -1.0),
+        box_max=(2.0, 2.0, 1.0),
+    )
+
+    with FieldKernel(source_triangles, source_charges, options=options) as kernel:
+        with pytest.raises(FieldKernelError, match="non-periodic"):
+            kernel.eval_e_direct(np.array([[1.0, 0.0, 0.0]]))
+        with pytest.raises(FieldKernelError, match="non-periodic"):
+            kernel.eval_phi_direct(np.array([[1.0, 0.0, 0.0]]))
+
+
+def test_field_kernel_minimal_library_keeps_default_finite_periodic_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+        box_min=(0.0, 0.0, -1.0),
+        box_max=(2.0, 2.0, 1.0),
+    )
+
+    with FieldKernel(source_triangles, source_charges, options=options):
+        pass
+
+    assert "build" in lib.events
+
+
+@pytest.mark.parametrize(
+    ("method", "native_name"),
+    [
+        ("eval_e", "beach_kernel_eval_e"),
+        ("eval_phi", "beach_kernel_eval_phi"),
+        ("force_on_charges", "beach_kernel_force_on_charges"),
+    ],
+)
+@pytest.mark.parametrize("invalid_z", [-1.0001, 1.0001])
+def test_cached_kernel_rejects_targets_outside_free_axis_before_native_call(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    native_name: str,
+    invalid_z: float,
+) -> None:
+    lib = _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(cache_setter=True, cache_getter=False),
+    )
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2=(
+            (0, 1),
+            (2.0, 2.0),
+            (0.0, 0.0),
+            1,
+            "cached_kneq0",
+            0.0,
+            4,
+        ),
+        box_min=(0.0, 0.0, -1.0),
+        box_max=(2.0, 2.0, 1.0),
+    )
+    valid_targets = np.array(
+        [
+            [-100.0, 100.0, -1.0],
+            [100.0, -100.0, 1.0],
+        ]
+    )
+    invalid_target = np.array([[0.0, 0.0, invalid_z]])
+
+    with FieldKernel(
+        source_triangles,
+        source_charges,
+        options=options,
+    ) as kernel:
+        if method == "force_on_charges":
+            kernel.force_on_charges(valid_targets, np.ones(2))
+        else:
+            getattr(kernel, method)(valid_targets)
+        native = getattr(lib, native_name)
+        call_count = len(native.calls)
+
+        with pytest.raises(
+            ValueError,
+            match=r"cached_kneq0.*non-periodic z axis",
+        ):
+            if method == "force_on_charges":
+                kernel.force_on_charges(invalid_target, np.ones(1))
+            else:
+                getattr(kernel, method)(invalid_target)
+
+        assert len(native.calls) == call_count
+
+
+@pytest.mark.parametrize(
+    "options, error_model",
+    [
+        (
+            FieldKernelOptions(
+                periodic2=((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "cached_kneq0", 0.0, 4),
+                box_min=(0.0, 0.0, -1.0),
+                box_max=(2.0, 2.0, 1.0),
+            ),
+            "cached_kneq0",
+        ),
+        (
+            FieldKernelOptions(periodic_cache_dir="custom-cache"),
+            "periodic cache configuration",
+        ),
+        (
+            FieldKernelOptions(periodic_generation_tolerance=2.5e-9),
+            "periodic cache configuration",
+        ),
+    ],
+)
+def test_field_kernel_minimal_library_rejects_models_requiring_cache_setter(
+    monkeypatch: pytest.MonkeyPatch,
+    options: FieldKernelOptions,
+    error_model: str,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(FieldKernelError, match=error_model):
+        FieldKernel(source_triangles, source_charges, options=options)
+
+    assert "build" not in lib.events
+
+
+@pytest.mark.parametrize(
+    "native, expected_hit, expected_count, expected_fingerprint, expected_path",
+    [
+        (
+            (0, 1, b"c0ffee1234abcdef", b"/tmp/cache/operator.bin"),
+            False,
+            1,
+            "c0ffee1234abcdef",
+            Path("/tmp/cache/operator.bin"),
+        ),
+        (
+            (1, 0, b"c0ffee1234abcdef", b"/tmp/cache/operator.bin"),
+            True,
+            0,
+            "c0ffee1234abcdef",
+            Path("/tmp/cache/operator.bin"),
+        ),
+        ((0, 0, b"", b""), None, 0, None, None),
+        (
+            (1, 0, b"c0ffee1234abcdef", ("/tmp/" + "cache-é/" * 80 + "operator.bin").encode("utf-8")),
+            True,
+            0,
+            "c0ffee1234abcdef",
+            Path("/tmp/" + "cache-é/" * 80 + "operator.bin"),
+        ),
+    ],
+)
+def test_field_kernel_diagnostics_decodes_cache_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    native: tuple[int, int, bytes, bytes],
+    expected_hit: bool | None,
+    expected_count: int,
+    expected_fingerprint: str | None,
+    expected_path: Path | None,
+) -> None:
+    _install_fake_kernel(
+        monkeypatch,
+        _FakeKernelLibrary(
+            cache_setter=True,
+            cache_getter=True,
+            diagnostics=native,
+        ),
+    )
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        diagnostics = kernel.diagnostics()
+
+    assert diagnostics.periodic_cache_hit is expected_hit
+    assert diagnostics.periodic_operator_build_count == expected_count
+    assert diagnostics.periodic_cache_fingerprint == expected_fingerprint
+    assert diagnostics.periodic_cache_path == expected_path
+
+
+def test_field_kernel_diagnostics_requires_new_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with FieldKernel(source_triangles, source_charges) as kernel:
+        with pytest.raises(FieldKernelError, match="field-kernel diagnostics"):
+            kernel.diagnostics()
+
+
+def test_field_kernel_rejects_removed_root_oracle_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    options = FieldKernelOptions(
+        periodic2=(
+            (0, 1),
+            (2.0, 2.0),
+            (0.0, 0.0),
+            1,
+            "m2l_root_oracle",
+            0.0,
+            4,
+        )
+    )
+
+    with pytest.raises(ValueError, match='was removed; use "cached_kneq0"'):
+        FieldKernel(source_triangles, source_charges, options=options)
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
+
+
+@pytest.mark.parametrize(
+    "periodic2, message",
+    [
+        (
+            ((0, 0), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+            "distinct axis",
+        ),
+        (
+            ((0, 1), (-2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+            "finite and positive",
+        ),
+        (
+            ((0, 1), (float("nan"), 2.0), (0.0, 0.0), 1, "none", 0.0, 4),
+            "finite and positive",
+        ),
+        (
+            ((0, 1), (2.0, 2.0), (float("inf"), 0.0), 1, "none", 0.0, 4),
+            "origins must be finite",
+        ),
+        (
+            ((0, 1), (2.0, 2.0), (0.0, 0.0), -1, "none", 0.0, 4),
+            "image_layers",
+        ),
+        (
+            ((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", float("nan"), 4),
+            "ewald_alpha",
+        ),
+        (
+            ((0, 1), (2.0, 2.0), (0.0, 0.0), 1, "none", 0.0, -1),
+            "ewald_layers",
+        ),
+    ],
+)
+def test_field_kernel_rejects_invalid_periodic_tuple_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+    periodic2: tuple[object, ...],
+    message: str,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(ValueError, match=message):
+        FieldKernel(
+            source_triangles,
+            source_charges,
+            options=FieldKernelOptions(periodic2=periodic2),  # type: ignore[arg-type]
+        )
+
+    assert "build" not in lib.events
+    assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
+
+
+def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails_closed(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "beach.toml").write_text(
+        "\n".join(
+            [
+                "[sim]",
+                'field_bc_mode = "periodic2"',
+                "box_min = [0.0, 0.0, -1.0]",
+                "box_max = [2.0, 2.0, 1.0]",
+                'bc_x_low = "periodic"',
+                'bc_x_high = "periodic"',
+                'bc_y_low = "periodic"',
+                'bc_y_high = "periodic"',
+                'bc_z_low = "open"',
+                'bc_z_high = "open"',
+                'field_periodic_far_correction = "cached_kneq0"',
+                'field_periodic_cache_dir = "custom-cache"',
+                "field_periodic_generation_tolerance = 2.5e-9",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = RunResult(
+        directory=tmp_path,
+        charges=np.array([0.0]),
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(
+            triangles=np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+        ),
+    )
+
+    options = field_kernel_options_from_result(result)
+
+    assert options.periodic2 is not None
+    assert options.periodic2[4] == "cached_kneq0"
+    assert options.periodic_cache_dir == "custom-cache"
+    assert options.periodic_generation_tolerance == pytest.approx(2.5e-9)
+    with pytest.raises(ValueError, match="far_correction"):
+        auto_periodic2_from_result(result)
+
+
+def test_field_kernel_adds_uniform_external_e0_to_potential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+    targets = np.array(
+        [
+            [2.0, -1.0, 4.0],
+            [-3.0, 5.0, 0.5],
+        ]
+    )
+    external_e0 = np.array([1.5, -2.0, 0.25])
+
+    with FieldKernel(
+        source_triangles,
+        source_charges,
+        options=FieldKernelOptions(external_e0=tuple(external_e0)),
+    ) as kernel:
+        potential = kernel.eval_phi(targets)
+
+    np.testing.assert_allclose(potential, -(targets @ external_e0))
+
+
+def test_resolved_direct_backend_routes_field_potential_and_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _FakeKernelLibrary()
+
+    def eval_e_direct(
+        _handle: object,
+        ntarget: object,
+        _target_ptr: object,
+        output_ptr: object,
+    ) -> int:
+        count = _int_value(ntarget)
+        output = np.ctypeslib.as_array(
+            ctypes.cast(output_ptr, ctypes.POINTER(ctypes.c_double)),
+            shape=(3 * count,),
+        ).reshape((3, count), order="F")
+        output[:] = np.array([2.0, -1.0, 0.5])[:, None]
+        return 0
+
+    def eval_phi_direct(
+        _handle: object,
+        ntarget: object,
+        _target_ptr: object,
+        output_ptr: object,
+    ) -> int:
+        count = _int_value(ntarget)
+        output = np.ctypeslib.as_array(
+            ctypes.cast(output_ptr, ctypes.POINTER(ctypes.c_double)),
+            shape=(count,),
+        )
+        output[:] = np.arange(5.0, 5.0 + count)
+        return 0
+
+    lib.beach_kernel_eval_e_direct = _FakeFunction(
+        "eval_e_direct", eval_e_direct, lib.events
+    )
+    lib.beach_kernel_eval_phi_direct = _FakeFunction(
+        "eval_phi_direct", eval_phi_direct, lib.events
+    )
+    _install_fake_kernel(monkeypatch, lib)
+    source_triangles, source_charges = _one_panel_source()
+    points = np.array([[2.0, -1.0, 4.0], [-3.0, 5.0, 0.5]])
+    target_q = np.array([2.0, -1.0])
+    external_e0 = np.array([1.5, -2.0, 0.25])
+
+    with FieldKernel(
+        source_triangles,
+        source_charges,
+        options=FieldKernelOptions(
+            resolved_field_solver="direct",
+            external_e0=tuple(external_e0),
+        ),
+    ) as kernel:
+        field = kernel.eval_e(points)
+        potential = kernel.eval_phi(points)
+        force, torque = kernel.force_on_charges(points, target_q)
+
+    expected_field = np.broadcast_to(
+        np.array([2.0, -1.0, 0.5]) + external_e0,
+        points.shape,
+    )
+    expected_force_i = target_q[:, None] * expected_field
+    np.testing.assert_allclose(field, expected_field)
+    np.testing.assert_allclose(
+        potential,
+        np.array([5.0, 6.0]) - points @ external_e0,
+    )
+    np.testing.assert_allclose(force, np.sum(expected_force_i, axis=0))
+    np.testing.assert_allclose(
+        torque,
+        np.sum(np.cross(points, expected_force_i), axis=0),
+    )
+    assert lib.beach_kernel_eval_e_direct.calls
+    assert lib.beach_kernel_eval_phi_direct.calls
+    assert not lib.beach_kernel_eval_e.calls
+    assert not lib.beach_kernel_eval_phi.calls
+    assert not lib.beach_kernel_force_on_charges.calls
+
+
+def test_resolved_treecode_backend_rejects_before_native_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    source_triangles, source_charges = _one_panel_source()
+
+    with pytest.raises(ValueError, match="treecode backend"):
+        FieldKernel(
+            source_triangles,
+            source_charges,
+            options=FieldKernelOptions(resolved_field_solver="treecode"),
+        )
+
+    assert "build" not in lib.events
+
+
+def test_field_kernel_options_rejects_removed_softening() -> None:
+    with pytest.raises(TypeError, match="softening"):
+        FieldKernelOptions(softening=0.5)  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("source_model", ["point", "unknown"])
+def test_scene_force_rejects_legacy_or_missing_source_receipt(
+    tmp_path: Path,
+    source_model: str,
+) -> None:
+    triangles = np.array(
+        [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
+        dtype=float,
+    )
+    result = RunResult(
+        directory=tmp_path,
+        charges=np.array([1.0e-9]),
+        summary=RunSummary(
+            mesh_nelem=1,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=np.array([1], dtype=np.int64)),
+        field=RunField(source_model=source_model),
+    )
+
+    with pytest.raises(ValueError, match="field_source_model='triangle_p0'"):
+        BeachScene.from_result(result, step=None).calc_object_forces_kernel()
+
+
+def test_scene_rotate_keeps_charges_attached_to_mesh_elements(tmp_path: Path) -> None:
+    triangles = np.array(
+        [
+            [[0.0, 0.0, 0.0], [0.0, 0.3, 0.0], [0.0, 0.0, 0.3]],
+            [[1.0, 0.0, 0.0], [1.0, 0.3, 0.0], [1.0, 0.0, 0.3]],
+            [[3.0, 0.0, 0.0], [3.0, 0.3, 0.0], [3.0, 0.0, 0.3]],
+        ],
+        dtype=float,
+    )
+    charges = np.array([1.0e-9, 2.0e-9, 3.0e-9], dtype=float)
+    mesh_ids = np.array([1, 2, 2], dtype=np.int64)
+    result = RunResult(
+        directory=tmp_path,
+        charges=charges,
+        summary=RunSummary(
+            mesh_nelem=3,
+            processed_particles=0,
+            absorbed=0,
+            escaped=0,
+            batches=0,
+            escaped_boundary=0,
+            survived_max_step=0,
+            last_rel_change=0.0,
+        ),
+        mesh=RunMesh(triangles=triangles, mesh_ids=mesh_ids),
+    )
+
+    scene = BeachScene.from_result(result, step=None)
+    rotated = scene.rotate(2, axis=[0.0, 0.0, 1.0], angle_deg=90.0)
+
+    mask = mesh_ids == 2
+    origin = scene.centers[mask].mean(axis=0)
+    angle = np.deg2rad(90.0)
+    rotation = np.array(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    expected_centers = (scene.centers[mask] - origin) @ rotation.T + origin
+    np.testing.assert_allclose(rotated.centers[mask], expected_centers)
+    np.testing.assert_allclose(rotated.charges, scene.charges)
+
+
+def test_source_charge_snapshot_is_owned_after_native_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_kernel(monkeypatch)
+    panels, charges = _one_panel_source()
+    expected = charges.copy()
+    with FieldKernel(panels, charges) as kernel:
+        charges[:] = 99.0
+        np.testing.assert_array_equal(kernel.source_charges, expected)
+        updated = np.array([3.0])
+        kernel.update_charges(updated)
+        updated[:] = 55.0
+        np.testing.assert_array_equal(kernel.source_charges, [3.0])

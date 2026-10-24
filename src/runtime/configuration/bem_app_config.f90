@@ -10,7 +10,7 @@ module bem_app_config
   use bem_string_utils, only: lower_ascii
   use bem_app_config_runtime, only: &
     build_mesh_from_config, seed_particles_from_config, &
-    init_particle_batch_from_config, sample_species_state, build_parts_mesh, build_one_template, &
+    init_particle_batch_from_config, build_parts_mesh, build_one_template, &
     batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot, &
     slot_kind_none, slot_kind_volume, slot_kind_photo_ray, slot_kind_reservoir_face, &
     append_triangles

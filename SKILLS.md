@@ -43,13 +43,12 @@ Layer 14 app/main.f90
 | 軽量 | `test_performance_profile` | ~1秒 |
 | 中量 | `test_dynamics_field_solver` | ~数秒 |
 | 中量 | `test_coulomb_fmm_core_basic` | ~数秒 |
-| 中量 | `test_output_writer_potential` | ~数秒 |
 | 中量 | `test_app_config_parser` | ~数秒 |
 | 中量 | `test_injection_sampling` | ~数秒 |
 | 中量 | `test_reservoir_injection` | ~数秒 |
 | 中量 | `test_external_boundary_contract` | ~数秒 |
 | 中量 | `test_templates_importers_runtime` | ~数秒 |
-| 中量 | `test_simulator` | ~数秒 |
+| 中量 | `test_simulator_loop`、`test_surface_charge_closure`、`test_simulator_failure_context`、`test_soft_discard` | ~数秒 |
 | 中量 | `test_restart` | ~数秒 |
 | 重量 | `test_dynamics_fmm` | ~30秒+ |
 | 重量 | `test_coulomb_fmm_core_periodic` | ~30秒+ |
@@ -63,7 +62,7 @@ fpm test --target test_dynamics_basic
 fpm test --target test_boundary
 
 # 特定モジュールの変更後
-fpm test --target test_output_writer_potential  # output_writer 変更後
+fpm test --target test_output_writer_io         # output_writer 変更後
 fpm test --target test_external_boundary_contract # 局所流入・open 境界契約の変更後
 fpm test --target test_app_config_parser        # parser 変更後
 
@@ -94,6 +93,10 @@ end program
 ```
 
 失敗時は actual/expected/diff/tol が自動表示される。
+
+子 process で異常終了を確かめる probe は `run_self_probe`（自分自身を引数付きで再実行し、出力を log に書く）と
+`file_contains` を使う。`cached_kneq0` の operator cache を作る test は `unique_test_path` で実行ごとの directory を作り、
+最後に `delete_periodic_cache` で cache 本体・lock・空 directory を消す。直接 panel 和の oracle は `test_panel_oracle` にある。
 
 ## リファクタリング進捗
 

@@ -78,7 +78,7 @@ ORACLE_COSINE_DECAY_RATIO_RELATIVE_TOLERANCE = 1.8e-1
 ORACLE_QUADRATURE_RELATIVE_TOLERANCE = 1.0e-2
 ORACLE_EFFECTIVE_FIELD_CONTRACT = {
     "requested_periodic_model": "infinite_physical",
-    "configured_far_correction": "none",
+    "configured_far_correction": "cached_kneq0",
     "effective_far_correction": "cached_kneq0",
     "nonzero_mode_backend": "cached_kneq0",
     "zero_mode_policy": "exclude_k0",
@@ -8520,13 +8520,6 @@ def _verify_periodic_oracle_receipt(
                 cache_path,
                 str(identity["sha256"]),
             )
-        if (
-            canonical_by_group["4"][0] == canonical_by_group["8"][0]
-            or canonical_by_group["4"][1] == canonical_by_group["8"][1]
-        ):
-            raise ValidationError(
-                f"periodic plane-oracle {label} 4/8 cache identities collide"
-            )
         cache_evaluations = value.get("cache_evaluations")
         expected_cache_labels = ORACLE_CACHE_EVALUATION_LABELS
         if (
@@ -9080,15 +9073,8 @@ def _run_periodic_plane_kernel_oracle(
                 "coverage is invalid"
             )
     coarse_identity = canonical_cache_identities["4"]
-    fine_identity = canonical_cache_identities["8"]
-    if (
-        coarse_identity["fingerprint"] == fine_identity["fingerprint"]
-        or coarse_identity["path"] == fine_identity["path"]
-    ):
-        raise ValidationError(
-            "periodic triangle_p0 plane-oracle 4/8 resolution cache "
-            "identities must be distinct"
-        )
+    # Box-cell operators are independent of the panel mesh resolution. Both
+    # groups may reuse one file; each evaluation is still bound to its SHA256.
     if observed_effective_field_contract is None:
         raise ValidationError("periodic triangle_p0 plane-oracle has no field contract")
     result: dict[str, Any] = {

@@ -6,7 +6,7 @@ program test_physics_config_types
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
     physics_config_ok, physics_config_invalid_combination, physics_config_unavailable, &
-    normalize_legacy_physics_config, validate_active_physics_config
+    normalize_legacy_physics_config, validate_active_physics_config, validate_upper_fourier_height
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
@@ -17,7 +17,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('free_field_normalization')
   sim = sim_config()
@@ -114,6 +114,35 @@ program test_physics_config_types
   periodic2%max_nonzero_mode_potential_step = -1.0_dp
   call validate_active_physics_config(sim, field, periodic2, panel, status, message)
   call assert_equal_i32(status, physics_config_invalid_combination, 'negative adaptive limit must fail closed')
+  call test_end()
+
+  call test_begin('upper_fourier_switch_preflight')
+  call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
+  call normalize_legacy_physics_config(sim, field, periodic2, panel)
+  periodic2%upper_fourier_switch = 'height'
+  periodic2%upper_fourier_switch_height = 0.7_dp
+  call validate_upper_fourier_height(sim, periodic2, 0.35_dp, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'switch above z_top + 0.1 min(Lx,Ly) and below H should be valid')
+  call validate_active_physics_config(sim, field, periodic2, panel, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'height switch with cached kneq0 should be valid')
+  periodic2%upper_fourier_switch_height = 0.44_dp
+  call validate_upper_fourier_height(sim, periodic2, 0.35_dp, status, message)
+  call assert_true(status /= physics_config_ok, 'insufficient clearance accepted')
+  periodic2%upper_fourier_switch_height = 1.0_dp
+  call validate_upper_fourier_height(sim, periodic2, 0.35_dp, status, message)
+  call assert_true(status /= physics_config_ok, 'H accepted as switch')
+  periodic2%upper_fourier_switch = 'auto'
+  call validate_upper_fourier_height(sim, periodic2, 0.35_dp, status, message)
+  call assert_equal_i32(status, physics_config_ok, 'auto switch with 0.25 clearance should be valid')
+  call validate_upper_fourier_height(sim, periodic2, 0.9_dp, status, message)
+  call assert_true(status /= physics_config_ok, 'empty auto interval accepted')
+  periodic2%nonzero_mode_backend = 'legacy_finite_images'
+  call validate_active_physics_config(sim, field, periodic2, panel, status, message)
+  call assert_true(status /= physics_config_ok, 'wrong backend accepted')
+  periodic2%nonzero_mode_backend = 'cached_kneq0'
+  periodic2%upper_fourier_mode_layers = -1_i32
+  call validate_active_physics_config(sim, field, periodic2, panel, status, message)
+  call assert_true(status /= physics_config_ok, 'negative mode layers accepted')
   call test_end()
 
   call test_summary()

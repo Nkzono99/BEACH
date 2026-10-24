@@ -179,17 +179,7 @@ program test_surface_current_model
                        'field-floor Type A phi0 must match the width-tolerated root')
   call assert_true(refreshed%upstream_field_deficit_v_m > 1.0e-4_dp .and. refreshed%upstream_field_deficit_v_m < 0.1_dp, &
                    'field deficit inside the upstream band must be of order mV/m')
-  cfg%surface_current%zhao_upstream_field_floor_v_m = 1.0e-5_dp
-  call solve_zhao_outflow_closure( &
-    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
-    )
-  call assert_true(.not. success, 'a field deficit above the floor must be rejected')
-  cfg%surface_current%zhao_upstream_field_floor_v_m = 0.0_dp
-  cfg%surface_current%zhao_upstream_band_tolerance = 0.02_dp
-  call solve_zhao_outflow_closure( &
-    cfg, result%outer_photoelectron_flux_m2_s, 2.2_dp, ' ', refreshed, success, message &
-    )
-  call assert_true(.not. success, 'a band wider than the tolerance must be rejected')
+  ! Rejection above the floor or tolerance is the sheath-model search contract (test/test_upstream_band.f90).
   call test_end()
 
   call test_begin('zhao_outflow_refresh_with_emission_source_reproduces_root')
@@ -318,8 +308,6 @@ program test_surface_current_model
   cfg%particle_species(2)%drift_velocity = [0.0_dp, 0.0_dp, -4.0e5_dp]
   cfg%surface_current%zhao_branch = 'a'
   cfg%surface_current%zhao_upstream_band_tolerance = 0.3_dp
-  call solve_zhao_outflow_closure(cfg, 2.84e12_dp, 7.87_dp, 'A', maxwell_root, success, message)
-  call assert_true(.not. success, 'the mean-energy half-Maxwellian proxy unexpectedly kept a Type A root')
   call bin_shifted_half_maxwellian(0.85_dp*2.84e12_dp, 2.2_dp, 0.0_dp, spectrum)
   call bin_shifted_half_maxwellian(0.15_dp*2.84e12_dp, 40.0_dp, 0.0_dp, tail_spectrum)
   spectrum = spectrum + tail_spectrum
@@ -345,6 +333,11 @@ program test_surface_current_model
   call assert_close_dp( &
     refreshed%photoelectron_escape_current_density_a_m2, expected_escape, 1.0e-6_dp*expected_escape, &
     'outer PE escape must be the binned source above the barrier' &
+    )
+  ! The fixture must discriminate the spectrum from its mean-energy half-Maxwellian proxy at the same barrier.
+  call assert_true( &
+    abs(expected_escape - qe*2.84e12_dp*exp(-barrier_v/7.87_dp)) > 0.1_dp*expected_escape, &
+    'body-and-tail escape must differ from the mean-energy half-Maxwellian proxy' &
     )
   call assert_current_decomposition(refreshed, 'body-and-tail outer solve')
   call test_end()

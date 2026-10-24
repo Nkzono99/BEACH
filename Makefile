@@ -5,21 +5,21 @@
 	build check run \
 	static-check source-text-check python-lint python-type-check schema-check schema-sync \
 	test-config-contract \
-	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+	test test-l0 test-l1 test-l2 test-full test-physics-release \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
 	benchmark-field-kernel \
 	test-field-kernel-cache \
-	test-python test-quick test-ci test-local \
+	test-python test-python-native test-validation-workflow test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi test-mpi-periodic-cache \
 	docs-deps docs-starlight docs-manuscript docs-fortran docs-python docs-pages docs-clean
 
-.NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+.NOTPARALLEL: test test-l0 test-l1 test-l2 test-full test-quick test-ci test-local \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
-	test-field-kernel-cache \
+	test-field-kernel-cache test-python-native \
 	test-mpi test-mpi-periodic-cache test-config-contract
 
 .DEFAULT_GOAL := install
@@ -63,6 +63,10 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
+	test_periodic_nonzero_reference \
+	test_periodic_nonzero_upper_vacuum \
+	test_periodic_shell_mean \
+	test_coulomb_fmm_core_periodic \
 	test_laplace_derivatives \
 	test_electrostatic_snapshot \
 	test_boundary \
@@ -75,38 +79,37 @@ FORTRAN_L1_TARGETS ?= \
 	test_dynamics_field_solver \
 	test_surface_models \
 	test_templates_importers_runtime \
-	test_simulator \
+	test_simulator_loop \
+	test_surface_charge_closure \
+	test_simulator_failure_context \
+	test_soft_discard \
 	test_injection_sampling \
 	test_performance_profile \
 	test_output_writer_io \
-	test_output_writer_potential \
 	test_counter_rng \
 	test_particle_pool \
 	test_step_growth
 FORTRAN_L2_TARGETS ?= \
 	test_field_kernel_c \
-	test_periodic_zero_mode_c
-FORTRAN_L3_TARGETS ?= \
+	test_periodic_zero_mode_c \
 	test_dynamics_fmm \
 	test_coulomb_fmm_core_basic \
-	test_panel_near_correction \
 	test_coulomb_fmm_core_panel \
 	test_dynamics_panel_fmm
 FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
-	test_dynamics_basic
+	test_dynamics_basic \
+	test_coulomb_fmm_core_panel
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
-	test_field_kernel_cache_c \
+	test_surface_models_periodic \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
-	test_periodic_shell_mean \
 	test_upper_fourier_switch \
 	test_periodic2_cached_snapshot \
-	test_coulomb_fmm_core_periodic \
-	test_periodic_nonzero_reference \
-	test_periodic_nonzero_upper_vacuum
+	test_periodic2_adaptive_batch
 FORTRAN_BENCHMARK_TARGETS ?= \
-	benchmark_periodic2_runtime
+	benchmark_periodic2_runtime \
+	benchmark_laplace_derivatives
 FIELD_KERNEL_BENCHMARK_TARGET_COUNT ?= 2048
 KERNEL_FC ?= gfortran
 KERNEL_LIB ?= build/libbeach_field_kernel.so
@@ -236,16 +239,12 @@ test: test-l1
 
 test-l1: test-l0 test-python test-fortran-light
 
-test-l2: test-l1 test-fortran-contract test-config-contract
+test-l2: test-l1 test-fortran-contract test-config-contract test-python-native
 
 test-config-contract:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
 		FPM_PROFILE=debug FPM_FFLAGS="$(FORTRAN_TEST_FLAGS)" $(BUILD_SH) \
 		--target beach --runner "$(PYTHON) tools/run_config_contracts.py"
-
-test-l3: test-l2 test-fortran-heavy
-
-test-heavy: test-fortran-heavy
 
 test-physics-release:
 	tools/run_physics_release_gate.sh --manifest "$(PHYSICS_RELEASE_MANIFEST)"
@@ -262,11 +261,8 @@ test-fortran-light:
 test-fortran-contract:
 	$(call run_fortran_targets,$(FORTRAN_L2_TARGETS),debug,test)
 
-test-fortran-heavy:
-	$(call run_fortran_targets,$(FORTRAN_L3_TARGETS),debug,test)
-
 test-fortran-release-correctness:
-	$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS) $(FORTRAN_L3_TARGETS),debug,test)
+	$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS),debug,test)
 
 test-fortran-far-correction:
 	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS),debug,test)
@@ -281,14 +277,21 @@ benchmark-field-kernel:
 
 test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel
-	$(call run_fortran_targets,test_field_kernel_cache_c,debug,test)
-	$(PYTHON) -m pytest -q tests/python/test_field_kernel_cache.py
+	$(call run_fortran_targets,test_periodic2_cached_snapshot,debug,test)
 	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
-		$(PYTHON) -m pytest -q \
-		tests/python/test_periodic_force_oracle.py::test_validation_tool_native_plane_oracles_match_receipt_contract
+		$(PYTHON) -m pytest -q -m 'field_kernel_cache'
+
+PYTEST_NATIVE_GATES = native or config_native or field_kernel_cache
 
 test-python:
-	$(PYTHON) -m pytest -q
+	$(PYTHON) -m pytest -q -m '(not workflow or smoke) and not ($(PYTEST_NATIVE_GATES))'
+
+test-validation-workflow:
+	$(PYTHON) -m pytest -q -m 'workflow and not ($(PYTEST_NATIVE_GATES))'
+
+test-python-native: build-kernel
+	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
+		$(PYTHON) -m pytest -q -m 'native and not field_kernel_cache'
 
 test-quick: test-l1
 

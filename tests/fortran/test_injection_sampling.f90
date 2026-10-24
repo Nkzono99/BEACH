@@ -1,45 +1,39 @@
 !> 粒子注入モジュールのサンプリング分岐を重点的に検証するテスト。
+!! reservoir 面と photo ray は batch 生成が使う counter-based の 1 粒子 API（`sample_reservoir_face_particle_counter`、
+!! `sample_photo_ray_slot`、`photo_ray_macro_weight`）で検査する。
 program test_injection_sampling
-  use bem_kinds, only: dp, i32
+  use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_types, only: particles_soa, mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
+  use bem_types, only: mesh_type, sim_config, bc_open, bc_reflect, bc_periodic
   use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
   use bem_injection, only: &
-    seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, init_random_beam_particles, &
+    seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, &
     compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds, &
-    sample_reservoir_face_particles, compute_macro_particles_for_batch, sample_photo_raycast_particles
-  use bem_status_codes, only: collision_query_image_limit, photo_ray_failure_type
+    compute_macro_particles_for_batch, sample_reservoir_face_particle_counter, sample_photo_ray_slot, &
+    photo_ray_macro_weight
+  use bem_status_codes, only: collision_query_ok, collision_query_image_limit
   use bem_random_stream, only: random_uniform
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_close_dp
   implicit none
 
-  type(particles_soa) :: pcls
+  integer(i32), parameter :: rng_seed = 4242_i32
   type(mesh_type) :: mesh, failure_mesh
   type(sim_config) :: sim, failure_sim
   real(dp), allocatable :: v(:, :), x(:, :), w_photo(:)
-  integer(i32), allocatable :: emit_elem(:)
-  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, jitter_dt, expected_w
+  integer(i32), allocatable :: emit_elem(:), photo_status(:), photo_bounce(:)
+  real(dp) :: gamma_in, gamma_cut, area, residual, expected_vn, expected_w, w_hit
   real(dp) :: ray_dir(3), tri_v0(3, 2), tri_v1(3, 2), tri_v2(3, 2)
   real(dp) :: contiguous_sample(3, 5), strided_sample(6, 10), next_contiguous, next_strided
   integer(i32) :: n_macro, n_emit
-  type(photo_ray_failure_type) :: photo_failure
   integer :: i
   real(dp), parameter :: rare_tail_a(6) = [0.0_dp, 4.0_dp, 6.0_dp, 8.0_dp, 10.0_dp, 12.0_dp]
   real(dp), parameter :: rare_tail_reference(6) = [ &
                          3.9894228040143268e-1_dp, 7.145258432405667e-6_dp, 1.5635697959709664e-10_dp, &
                          7.550262411946499e-17_dp, 7.474560254589328e-25_dp, 1.4605201169845548e-34_dp &
                          ]
-  character(len=64) :: run_mode
-  character(len=*), parameter :: photo_failure_path = 'test_injection_sampling_photo_failure_tmp.log'
 
-  call get_command_argument(1, run_mode)
-  if (trim(run_mode) == '--photo-query-failure-probe') then
-    call run_photo_query_failure_probe()
-    error stop 'photo query failure probe unexpectedly completed'
-  end if
-
-  call test_init(22)
+  call test_init(19)
 
   call seed_rng()
 
@@ -99,37 +93,12 @@ program test_injection_sampling
   end do
   call test_end()
 
-  call test_begin('beam_particles')
-  call init_random_beam_particles( &
-    pcls, 4_i32, -1.0d0, 2.0d0, 100.0d0, &
-    [-0.5d0, -0.5d0, -0.5d0], [0.5d0, 0.5d0, 0.5d0], [1.0d0, 0.0d0, 0.0d0], &
-    temperature_k=500.0d0 &
-    )
-  call assert_equal_i32(pcls%n, 4_i32, 'init_random_beam_particles count mismatch')
-  call assert_true(all(pcls%alive), 'init_random_beam_particles should initialize alive flags')
-  call assert_true(all(pcls%x >= -0.5d0 .and. pcls%x <= 0.5d0), 'beam positions should stay within the source box')
-  call assert_true(all(pcls%q == -1.0d0), 'beam particle charge mismatch')
-  call assert_true(all(pcls%m == 2.0d0), 'beam particle mass mismatch')
-  call assert_true(all(pcls%w == 100.0d0), 'beam particle weight mismatch')
-  call assert_true(all(pcls%species_id == 0_i32), 'beam default species mismatch')
-  call assert_true(all(pcls%source_element == -1_i32), 'beam default source provenance mismatch')
-  call init_random_beam_particles( &
-    pcls, 0_i32, -1.0_dp, 2.0_dp, 100.0_dp, &
-    [-0.5_dp, -0.5_dp, -0.5_dp], [0.5_dp, 0.5_dp, 0.5_dp], [1.0_dp, 0.0_dp, 0.0_dp], &
-    thermal_speed=0.0_dp &
-    )
-  call assert_equal_i32(pcls%n, 0_i32, 'empty beam must replace existing particles')
-  call assert_true(size(pcls%x, 1) == 3 .and. size(pcls%x, 2) == 0, 'empty beam position shape mismatch')
-  call assert_true(size(pcls%q) == 0 .and. size(pcls%alive) == 0, 'empty beam retained old particle state')
-  call test_end()
-
   call test_begin('rare_tail_reservoir_sampling')
-  call sample_reservoir_face_particles( &
-    [-1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], 'x_low', &
-    [-1.0_dp, -0.1_dp, -0.1_dp], [-1.0_dp, 0.1_dp, 0.1_dp], [-8.0_dp, 0.0_dp, 0.0_dp], &
-    k_boltzmann, 1.0_dp, 0.1_dp, x(:, 1:16), v(:, 1:16) &
+  call sample_reservoir_slots( &
+    'x_low', [-1.0_dp, -0.1_dp, -0.1_dp], [-1.0_dp, 0.1_dp, 0.1_dp], [-8.0_dp, 0.0_dp, 0.0_dp], &
+    k_boltzmann, 1.0_dp, 0.0_dp, 0.0_dp, x, v &
     )
-  call assert_true(all(v(1, 1:16) > 0.0_dp), 'rare positive tail collapsed to zero normal velocity')
+  call assert_true(all(v(1, :) > 0.0_dp), 'rare positive tail collapsed to zero normal velocity')
   call test_end()
 
   call test_begin('inflow_flux')
@@ -151,57 +120,23 @@ program test_injection_sampling
   call assert_close_dp(area, 32.0d0, 1.0d-12, 'face area (y_high) mismatch')
   call test_end()
 
-  call test_begin('boundary_reservoir_basic')
-  call sample_reservoir_face_particles( &
-    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
-    [-1.0d0, -0.5d0, -0.25d0], [-1.0d0, 0.5d0, 0.25d0], [2.0d0, 0.0d0, 0.0d0], &
-    1.0d0, 700.0d0, 0.2d0, x, v &
+  call test_begin('boundary_reservoir_launch_on_face')
+  call sample_reservoir_slots( &
+    'x_low', [-1.0d0, -0.5d0, -0.25d0], [-1.0d0, 0.5d0, 0.25d0], [2.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 700.0d0, 0.0d0, 0.0d0, x, v &
     )
-
   call assert_true(all(x(1, :) > -1.0d0 .and. x(1, :) < 1.0d0), 'reservoir launch should be strictly inside the box')
-  call assert_true( &
-    all(x(1, :) + 1.0_dp <= 8.0_dp*epsilon(1.0_dp)), &
-    'reservoir launch should remain within a few ulps of the source face' &
-    )
+  ! One representable step inward and no untracked launch jitter: every particle starts on the same normal plane.
+  call assert_true(all(x(1, :) == nearest(-1.0_dp, 1.0_dp)), 'reservoir launch should start one ulp inside the face')
   call assert_true(all(x(2, :) >= -0.5d0 .and. x(2, :) <= 0.5d0), 'reservoir y positions should stay in the opening')
   call assert_true(all(x(3, :) >= -0.25d0 .and. x(3, :) <= 0.25d0), 'reservoir z positions should stay in the opening')
-  call assert_true(all(v(1, :) >= 0.0d0), 'reservoir normal velocities should be inward')
-  call test_end()
-
-  call test_begin('boundary_reservoir_launch_has_no_untracked_jitter')
-  jitter_dt = 1.0d-3
-  call seed_rng([2718_i32])
-  call sample_reservoir_face_particles( &
-    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
-    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [2.0d0, 0.0d0, 0.0d0], &
-    1.0d0, 0.0d0, 50.0d0, x(:, 1:4), v(:, 1:4), position_jitter_dt=jitter_dt &
-    )
-  call seed_rng([2718_i32])
-  call sample_reservoir_face_particles( &
-    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
-    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [2.0d0, 0.0d0, 0.0d0], &
-    1.0d0, 0.0d0, 50.0d0, x(:, 5:8), v(:, 5:8), position_jitter_dt=2.0_dp*jitter_dt &
-    )
-  call assert_true(all(x(:, 1:4) == x(:, 5:8)), 'jitter compatibility argument should not change launch positions')
-  call assert_true(all(v(:, 1:4) == v(:, 5:8)), 'jitter compatibility argument should not change launch velocities')
-  call assert_true(all(x(1, 1:4) > -1.0_dp .and. x(1, 1:4) < 1.0_dp), 'jitter-compatible launch should stay inside')
-  call assert_true( &
-    all(x(1, 1:4) + 1.0_dp <= 8.0_dp*epsilon(1.0_dp)), &
-    'jitter-compatible launch should remain within a few ulps of the source face' &
-    )
-  call assert_true(all(x(1, 1:4) == x(1, 1)), 'jitter-compatible launch should remain on one normal plane')
-  call assert_true( &
-    all(x(2:3, 1:4) >= -0.1_dp .and. x(2:3, 1:4) <= 0.1_dp), &
-    'jitter-compatible launch should stay inside the tangential opening' &
-    )
-  call assert_true(all(v(1, 1:4) > 0.0_dp), 'jitter-compatible launch velocities should point inward')
+  call assert_true(all(v(1, :) > 0.0d0), 'reservoir normal velocities should be inward')
   call test_end()
 
   call test_begin('boundary_reservoir_barrier_shift')
-  call sample_reservoir_face_particles( &
-    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
-    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
-    1.0d0, 0.0d0, 0.1d0, x(:, 1:4), v(:, 1:4), barrier_normal_energy=4.0d0 &
+  call sample_reservoir_slots( &
+    'x_low', [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
+    1.0d0, 0.0d0, 4.0d0, 0.0d0, x(:, 1:4), v(:, 1:4) &
     )
   expected_vn = sqrt(5.0d0)
   do i = 1, 4
@@ -209,16 +144,12 @@ program test_injection_sampling
   end do
   call test_end()
 
-  call test_begin('boundary_reservoir_barrier_cutoff')
-  call sample_reservoir_face_particles( &
-    [-1.0d0, -1.0d0, -1.0d0], [1.0d0, 1.0d0, 1.0d0], 'x_low', &
-    [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [3.0d0, 0.0d0, 0.0d0], &
-    1.0d0, 0.0d0, 0.1d0, x(:, 1:4), v(:, 1:4), barrier_normal_energy=4.0d0, &
-    apply_barrier_energy_shift=.false. &
+  call test_begin('boundary_reservoir_vmin_cutoff')
+  call sample_reservoir_slots( &
+    'x_low', [-1.0d0, -0.1d0, -0.1d0], [-1.0d0, 0.1d0, 0.1d0], [0.0d0, 0.0d0, 0.0d0], &
+    k_boltzmann, 1.0d0, 0.0d0, 2.5d0, x, v &
     )
-  do i = 1, 4
-    call assert_close_dp(v(1, i), 3.0d0, 1.0d-12, 'barrier cutoff-only normal speed mismatch')
-  end do
+  call assert_true(all(v(1, :) >= 2.5d0), 'reservoir vmin_normal should raise the normal speed floor')
   call test_end()
 
   tri_v0(:, 1) = [0.0d0, 0.0d0, 0.05d0]
@@ -240,39 +171,36 @@ program test_injection_sampling
   ray_dir = [0.0d0, 1.0d0, -0.2d0]
   ray_dir = ray_dir/sqrt(sum(ray_dir*ray_dir))
 
-  allocate (w_photo(10))
-  allocate (emit_elem(10))
+  allocate (w_photo(10), emit_elem(10), photo_status(10), photo_bounce(10))
   call test_begin('photo_raycast_open')
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  call cast_photo_slots( &
+    mesh, sim, [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 1.0d0, 1.0d0, 10_i32, n_emit, 0.0d0 &
     )
+  call assert_true(all(photo_status == collision_query_ok), 'photo_raycast open boundary query status mismatch')
   call assert_equal_i32(n_emit, 0_i32, 'photo_raycast open boundary should not emit particles')
   call test_end()
 
   call test_begin('photo_raycast_reflect')
   sim%bc_low(2) = bc_reflect
   sim%bc_high(2) = bc_reflect
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit, emit_elem &
+  w_hit = photo_ray_macro_weight( &
+          'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 2.0d0, -1.0d0, sim%batch_duration, 10_i32 &
+          )
+  expected_w = 2.0d0*(0.02d0*0.02d0*abs(ray_dir(3)))*sim%batch_duration/(1.0d0*10.0d0)
+  call assert_close_dp(w_hit, expected_w, 1.0d-14, 'photo ray weight should match the projected-current budget')
+  call cast_photo_slots( &
+    mesh, sim, [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 1.0d0, w_hit, 10_i32, n_emit, 0.0d0 &
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast reflect boundary should emit all rays')
-  expected_w = 2.0d0*(0.02d0*0.02d0*abs(ray_dir(3)))*sim%batch_duration/(1.0d0*10.0d0)
-  call assert_true( &
-    all(abs(w_photo(1:n_emit) - expected_w) <= 1.0d-14), &
-    'photo_raycast weights should match the projected-current budget for every emitted ray' &
-    )
+  call assert_true(all(w_photo(1:n_emit) == w_hit), 'every emitted photo ray should carry the ray weight')
   call assert_true(all(v(3, 1:n_emit) > 0.0d0), 'photo_raycast emitted normal speed should be outward')
   call assert_true(all(emit_elem(1:n_emit) >= 1_i32), 'photo_raycast emit_elem should be positive')
   call assert_true(all(emit_elem(1:n_emit) <= mesh%nelem), 'photo_raycast emit_elem should be in range')
   call test_end()
 
   call test_begin('photo_raycast_cutoff')
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 0.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit, &
-    vmin_normal=2.5d0 &
+  call cast_photo_slots( &
+    mesh, sim, [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 0.0d0, 1.0d0, 10_i32, n_emit, 2.5d0 &
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast cutoff run should emit all rays')
   call assert_true(all(v(3, 1:n_emit) >= 2.5d0), 'photo_raycast cutoff should raise normal speed floor')
@@ -281,9 +209,8 @@ program test_injection_sampling
   call test_begin('photo_raycast_periodic')
   sim%bc_low(2) = bc_periodic
   sim%bc_high(2) = bc_periodic
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  call cast_photo_slots( &
+    mesh, sim, [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 1.0d0, 1.0d0, 10_i32, n_emit, 0.0d0 &
     )
   call assert_equal_i32(n_emit, 10_i32, 'photo_raycast periodic boundary should emit all rays')
   call test_end()
@@ -299,9 +226,8 @@ program test_injection_sampling
   sim%bc_low = [bc_open, bc_open, bc_open]
   sim%bc_high = [bc_open, bc_open, bc_open]
   ray_dir = [0.0d0, 0.0d0, -1.0d0]
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.29d0, 0.29d0, 1.0d0], [0.31d0, 0.31d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+  call cast_photo_slots( &
+    mesh, sim, [0.29d0, 0.29d0, 1.0d0], [0.31d0, 0.31d0, 1.0d0], ray_dir, 1.0d0, 1.0d0, 1_i32, n_emit, 0.0d0 &
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast should emit from in-box element')
   call assert_equal_i32(emit_elem(1), 2_i32, 'photo_raycast should ignore out-of-box element')
@@ -320,9 +246,8 @@ program test_injection_sampling
   sim%bc_high = [bc_periodic, bc_periodic, bc_open]
   call prepare_periodic2_collision_mesh(mesh, sim)
   ray_dir = [0.0d0, 0.0d0, -1.0d0]
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.245d0, 0.995d0, 1.0d0], [0.255d0, 1.005d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+  call cast_photo_slots( &
+    mesh, sim, [0.245d0, 0.995d0, 1.0d0], [0.255d0, 1.005d0, 1.0d0], ray_dir, 1.0d0, 1.0d0, 1_i32, n_emit, 0.0d0 &
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 should emit from wrapped hit')
   call assert_true(x(2, 1) > sim%box_min(2), 'photo_raycast periodic2 wrapped y should be strictly inside the primary cell')
@@ -338,9 +263,9 @@ program test_injection_sampling
   tri_v2(:, 2) = [0.70d0, 0.90d0, 0.60d0]
   call init_mesh(mesh, tri_v0, tri_v1, tri_v2)
   call prepare_periodic2_collision_mesh(mesh, sim)
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.30d0, 1.0d0 - 2.5d-13, 1.0d0], [0.40d0, 1.0d0 - 1.25d-13, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 1_i32, x(:, 1:1), v(:, 1:1), w_photo(1:1), n_emit, emit_elem(1:1) &
+  call cast_photo_slots( &
+    mesh, sim, [0.30d0, 1.0d0 - 2.5d-13, 1.0d0], [0.40d0, 1.0d0 - 1.25d-13, 1.0d0], ray_dir, 1.0d0, 1.0d0, 1_i32, &
+    n_emit, 0.0d0 &
     )
   call assert_equal_i32(n_emit, 1_i32, 'photo_raycast periodic2 seam case should emit one particle')
   call assert_true(x(2, 1) > sim%box_min(2), 'normal-offset emission should wrap above the periodic low face')
@@ -362,29 +287,22 @@ program test_injection_sampling
   ray_dir = ray_dir/sqrt(sum(ray_dir*ray_dir))
 
   sim%raycast_max_bounce = 2_i32
-  call sample_photo_raycast_particles( &
-    mesh, sim, 'z_high', [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, &
-    1.0d0, 0.0d0, 1.0d0, 2.0d0, -1.0d0, 10_i32, x(:, 1:10), v(:, 1:10), w_photo, n_emit &
+  call cast_photo_slots( &
+    mesh, sim, [0.49d0, 0.49d0, 1.0d0], [0.51d0, 0.51d0, 1.0d0], ray_dir, 1.0d0, 1.0d0, 10_i32, n_emit, 0.0d0 &
     )
+  call assert_true(all(photo_status == collision_query_ok), 'photo_raycast max bounce query status mismatch')
   call assert_equal_i32(n_emit, 0_i32, 'photo_raycast max bounce should terminate rays before emission')
   call test_end()
 
   call test_begin('photo_raycast_collision_status')
   call configure_photo_collision_failure_fixture(failure_mesh, failure_sim)
-  call sample_photo_raycast_particles( &
-    failure_mesh, failure_sim, 'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
-    [0.0d0, 0.0d0, -1.0d0], 1.0d0, 0.0d0, 0.0d0, 1.0d0, -1.0d0, 4_i32, &
-    x(:, 1:4), v(:, 1:4), w_photo(1:4), n_emit, &
-    failure=photo_failure &
+  call cast_photo_slots( &
+    failure_mesh, failure_sim, [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], [0.0d0, 0.0d0, -1.0d0], 0.0d0, 1.0d0, &
+    4_i32, n_emit, 0.0d0 &
     )
-  call assert_equal_i32(photo_failure%status, collision_query_image_limit, 'photo collision status mismatch')
-  call assert_equal_i32(photo_failure%ray, 1_i32, 'photo collision failure should select the lowest ray')
-  call assert_equal_i32(photo_failure%bounce, 0_i32, 'photo collision failure bounce mismatch')
+  call assert_true(all(photo_status(1:4) == collision_query_image_limit), 'photo collision status mismatch')
+  call assert_true(all(photo_bounce(1:4) == 0_i32), 'photo collision failure bounce mismatch')
   call assert_equal_i32(n_emit, 0_i32, 'incomplete photo collision query must not emit particles')
-  call test_end()
-
-  call test_begin('photo_raycast_collision_status_omitted')
-  call test_photo_query_failure_without_status()
   call test_end()
 
   call test_begin('macro_particles_clamp')
@@ -402,6 +320,51 @@ program test_injection_sampling
   call test_summary()
 
 contains
+
+  !> box [-1, 1]^3 の面から、slot k = 1..size(x, 2) の counter で reservoir 粒子を生成する。
+  subroutine sample_reservoir_slots(face, pos_low, pos_high, drift, m_particle, temperature_k, barrier, vmin, x, v)
+    character(len=*), intent(in) :: face
+    real(dp), intent(in) :: pos_low(3), pos_high(3), drift(3), m_particle, temperature_k, barrier, vmin
+    real(dp), intent(out) :: x(:, :), v(:, :)
+    integer :: k
+
+    do k = 1, size(x, 2)
+      call sample_reservoir_face_particle_counter( &
+        [-1.0_dp, -1.0_dp, -1.0_dp], [1.0_dp, 1.0_dp, 1.0_dp], face, pos_low, pos_high, drift, m_particle, &
+        temperature_k, barrier, vmin, rng_seed, [1_i64, int(k, i64)], x(:, k), v(:, k) &
+        )
+    end do
+  end subroutine sample_reservoir_slots
+
+  !> z_high 面から ray slot k = 1..n_rays を発射し、当たった ray を x/v/w_photo/emit_elem の先頭へ詰める。
+  !! 放出は m = 1、T = 0。各 ray の照会 status と bounce は photo_status/photo_bounce に残す。
+  subroutine cast_photo_slots(mesh, sim, pos_low, pos_high, ray_direction, normal_drift, w_ray, n_rays, n_emit, vmin)
+    type(mesh_type), intent(in) :: mesh
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: pos_low(3), pos_high(3), ray_direction(3), normal_drift, w_ray, vmin
+    integer(i32), intent(in) :: n_rays
+    integer(i32), intent(out) :: n_emit
+    real(dp) :: x_ray(3), v_ray(3), w_ray_out
+    integer(i32) :: k, elem
+    logical :: emitted
+
+    n_emit = 0_i32
+    photo_status = collision_query_ok
+    photo_bounce = 0_i32
+    do k = 1_i32, n_rays
+      call sample_photo_ray_slot( &
+        mesh, sim, 'z_high', pos_low, pos_high, ray_direction, 1.0_dp, 0.0_dp, normal_drift, w_ray, rng_seed, &
+        [int(k, i64), 1_i64], [int(k, i64), 2_i64], x_ray, v_ray, w_ray_out, elem, emitted, photo_status(k), &
+        photo_bounce(k), vmin_normal=vmin &
+        )
+      if (.not. emitted) cycle
+      n_emit = n_emit + 1_i32
+      x(:, n_emit) = x_ray
+      v(:, n_emit) = v_ray
+      w_photo(n_emit) = w_ray_out
+      emit_elem(n_emit) = elem
+    end do
+  end subroutine cast_photo_slots
 
   subroutine configure_photo_collision_failure_fixture(failure_mesh, failure_sim)
     type(mesh_type), intent(out) :: failure_mesh
@@ -424,55 +387,4 @@ contains
     failure_sim%bc_high = [bc_periodic, bc_periodic, bc_open]
     call prepare_periodic2_collision_mesh(failure_mesh, failure_sim)
   end subroutine configure_photo_collision_failure_fixture
-
-  subroutine run_photo_query_failure_probe()
-    type(mesh_type) :: probe_mesh
-    type(sim_config) :: probe_sim
-    real(dp) :: probe_x(3, 4), probe_v(3, 4), probe_w(4)
-    integer(i32) :: probe_n_emit
-
-    call configure_photo_collision_failure_fixture(probe_mesh, probe_sim)
-    call sample_photo_raycast_particles( &
-      probe_mesh, probe_sim, 'z_high', [0.0d0, 0.0d0, 1.0d0], [1.0d0, 1.0d0, 1.0d0], &
-      [0.0d0, 0.0d0, -1.0d0], 1.0d0, 0.0d0, 0.0d0, 1.0d0, -1.0d0, 4_i32, &
-      probe_x, probe_v, probe_w, probe_n_emit &
-      )
-  end subroutine run_photo_query_failure_probe
-
-  subroutine test_photo_query_failure_without_status()
-    character(len=1024) :: executable_path, command, child_line
-    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_context, saw_ray, saw_bounce, saw_status
-
-    call get_command_argument(0, executable_path)
-    call delete_file_if_exists(photo_failure_path)
-    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)//'" --photo-query-failure-probe > '// &
-              photo_failure_path//' 2>&1'
-    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'photo failure probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'photo failure probe should terminate with a nonzero status')
-
-    saw_context = .false.
-    saw_ray = .false.
-    saw_bounce = .false.
-    saw_status = .false.
-    open (newunit=child_unit, file=photo_failure_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read photo failure probe output'
-    do
-      read (child_unit, '(A)', iostat=child_ios) child_line
-      if (child_ios /= 0) exit
-      saw_context = saw_context .or. index(child_line, 'photo_raycast collision query incomplete') > 0
-      saw_ray = saw_ray .or. index(child_line, 'ray=1') > 0
-      saw_bounce = saw_bounce .or. index(child_line, 'bounce=0') > 0
-      saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
-    end do
-    close (child_unit)
-    call delete_file_if_exists(photo_failure_path)
-
-    call assert_true(saw_context, 'photo failure message should identify the photo raycast context')
-    call assert_true(saw_ray, 'photo failure message should include the lowest failing ray')
-    call assert_true(saw_bounce, 'photo failure message should include the failing bounce')
-    call assert_true(saw_status, 'photo failure message should include the collision status')
-  end subroutine test_photo_query_failure_without_status
 end program test_injection_sampling

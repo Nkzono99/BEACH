@@ -73,17 +73,18 @@ make test-l2
 
 | 変更範囲 | 直接確認する test | 最低 gate / 追加確認 |
 | --- | --- | --- |
-| documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
-| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
-| mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
-| 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection` | `make test-l1` |
-| Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
-| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。外部根の更新は `test_zhao_outflow_refresh` も確認 |
+| documentation、navigation、日英対応 | `pytest -q tests/python/repo/test_docs_sync.py tests/python/repo/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
+| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/config/`、`tests/python/cli/test_config_commands.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
+| mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l2` |
+| 粒子 source、reservoir、光電子注入、batch 生成 | `test_injection_sampling`、`test_reservoir_injection`、`test_particle_pool` | `make test-l1` |
+| Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic`、`test_step_growth` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
+| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_surface_charge_closure` | `make test-l1`。周期導体は `test_surface_models_periodic`、外部根の更新は `test_zhao_outflow_refresh` も確認 |
+| batch loop、統計、停止時の診断文、soft discard | `test_simulator_loop`、`test_simulator_failure_context`、`test_soft_discard` | `make test-l1` |
 | field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
-| FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l3`。遠方補正は `make test-fortran-far-correction` |
-| C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c` | `make test-l2`。cache receipt は `make test-field-kernel-cache` |
-| output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart` | `make test-l1` と関連する Python reader test |
-| Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
+| FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l2`。遠方補正は `make test-fortran-far-correction` |
+| C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c`、`make test-python-native` | `make test-l2`。cache と周期解析解は `make test-field-kernel-cache` |
+| output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_restart` | `make test-l1` と関連する Python reader test |
+| Python reader、解析、CLI | 変更 package に対応する `tests/python/<package>/`（`io`、`analysis`、`native`、`plot`、`config`、`cli`、`tooling` など） | `make test-l1` |
 
 挙動を変えないリファクタでは、計算ノードで変更前と変更後の checkout それぞれで `tools/golden_regression.py run OUT_DIR` を実行し、
 `tools/golden_regression.py compare BASE_DIR NEW_DIR` で出力を比べます。examples を縮小した3ケース（free-space direct、
@@ -98,29 +99,47 @@ Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正
 ```bash
 make test-l0      # static / schema / build
 make test         # L1: Python + 軽量 Fortran（test-l1 の alias）
-make test-l2      # L1 + C / kernel contract + Python / Fortran 設定契約
-make test-l3      # L2 + heavy FMM / panel
+make test-l2      # L1 + C ABI / free-space FMM / Python native kernel + Python / Fortran 設定契約
 ```
 
 - L0 は `git diff --check`、source text、`ruff check .`、`mypy`、JSON schema、`make check` を確認します。lint と型検査の設定は `pyproject.toml` にあります。
-- L1 は L0 に全 Python test と通常の Fortran test target を加えます。
-- L2 は C ABI、periodic zero-mode C contract、lint に成功する設定を Fortran で読み込む contract test を加えます。
-- L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
+- L1 は L0 に通常の Python test、検証 workflow の代表 3 ケース、軽量 Fortran target を加えます。
+- L2 は C ABI、periodic zero-mode、free-space FMM の精度比較（`test_dynamics_fmm`、`test_dynamics_panel_fmm`、`test_coulomb_fmm_core_basic`、`test_coulomb_fmm_core_panel`）、共有 kernel を build した Python/native 数値比較、Fortran の設定読込と lint CLI を加えます。
+- L1 の Fortran target は 1 本数秒に収めます。数秒を超える test は L2 へ、`cached_kneq0` operator を作る test は `make test-fortran-far-correction` へ置きます。
+
+Python の gate は file ではなく pytest marker で選びます。native の成果物を使う test は fixture で受け取り、
+`tests/python/conftest.py` が fixture から marker を付けます。
+
+| marker | 付く test | 実行する gate |
+| --- | --- | --- |
+| `native` | `field_kernel_library` fixture（共有 kernel）を使う | `make test-python-native` |
+| `config_native` | `native_checker` fixture（`beach --check-config`）を使う | `make test-config-contract` |
+| `field_kernel_cache` | 実際の periodic cache を生成する（明示的に付ける） | `make test-field-kernel-cache` |
+| `workflow` / `smoke` | 検証 workflow の全ケース / 代表 3 ケース | `make test-validation-workflow` / `make test-python` |
+
+`make test-python` は上の 3 marker と `smoke` でない `workflow` を除いて実行するので、`build/` に古い kernel が残っていても native test を選びません。
+`make test-validation-workflow` は stage、改変検知、投入、receipt、解析の全ケースを実行します。
+CI は L2 とこの専用 gate を実行します。`pytest -q` はすべてを収集します。共有 kernel がない native test は skip し、
+`field_kernel_cache` は `BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1` のときだけ実行します。
+実物の build-origin 比較では、同じ clean commit から作った実行ファイルと共有 kernel を
+`BEACH_VALIDATION_BINARY`、`BEACH_FIELD_KERNEL_LIB` で指定します。
 
 次の gate は tier へ常時含めず、変更内容または release 判断に応じて明示的に実行します。
 
 ```bash
-make test-heavy
 make test-fortran-far-correction
 make test-field-kernel-cache
+make test-validation-workflow
 make test-mpi
 make test-fortran-benchmark
 make test-physics-release
 make test-full
 ```
 
-`test-field-kernel-cache` は native cache / plane-oracle receipt 用です。性能比較は correctness test と分け、
-release profile の `make test-fortran-benchmark` を使います。物理 release の判定と収束 fixture は
+`test-field-kernel-cache` は cache 再利用、有限 shell と無限周期の比較、一様・cosine 平面の解析解、oracle receipt を検証します。
+mesh 解像度が異なっても同じ box-cell 演算子は再利用できます。各評価の fingerprint、path、SHA256 を照合します。
+`BEACH_FIELD_KERNEL_LIB` で指定した共有 kernel が存在しない場合、native test は失敗します。
+性能比較は release profile の `make test-fortran-benchmark` で測定し、L1 の数値一致から分けます。物理 release の判定と収束 fixture は
 [物理リリースの検証](PhysicsReleaseVerification.md)に従います。
 
 handoff 前に、Fortran を変更した場合は `make fmt-check-fortran`、Python を変更した場合は `ruff check .` を実行し、
@@ -129,7 +148,7 @@ test tier の通過だけで代用しません。
 
 `make python-type-check` は、`beach.io.summary` と設定の共有エラー・schema 読み込みを `mypy --strict` 相当で検査します。
 解析・描画などの未移行部分は検査対象に含めず、型注釈を整えた module から `tool.mypy.files` に追加します。
-結果の読み込み・解析・描画の回帰テストは、それぞれ `test_io_results.py`、`test_analysis_results.py`、`test_plot_results.py` にあります。
+結果の読み込み・解析・描画の回帰テストは、それぞれ `tests/python/io/`、`tests/python/analysis/`、`tests/python/plot/` にあります。
 
 ## 設定の契約を確認する
 
@@ -154,7 +173,7 @@ make test-config-contract
 検証の責務は 2 層です。キー名・型・列挙値・値域は `schemas/beach.schema.json` が持ち、Python の lint が検査します。
 組合せ制約と派生値は Fortran の領域別 preflight (`_preflight_sim` / `_preflight_particles` / `_preflight_surface` /
 `_finalize`) が持ちます。同じ制約を Python に書きません。新しい組合せ制約は Fortran の preflight に置き、
-`tests/python/test_config_contract.py` の代表ケースと、必要なら `test_app_config_parser` の拒否ケースを追加します。
+`tests/python/config/test_config_contract.py` の代表ケースと、必要なら `test_app_config_parser` の拒否ケースを追加します。
 不正な組合せの網羅は保証しません。研究での発生頻度、結果への影響、保守コストから追加検証を選びます。
 公開キーの読取は parser、座標・配置の展開は authoring、mesh・粒子の構築は runtime configuration が担当します。
 
@@ -170,6 +189,9 @@ benchmark は直接実行しません。
 - 短い開発 test は `tssrun` で計算 node の割当を取得して実行する。
 - tier test、MPI test、heavy / release gate は `sbatch` job 内の `srun` で実行する。
 - job 内でも複数の `fpm test` を並行実行しない。
+- `build.sh` は fpm を `OMP_PROC_BIND=false` で起動する。fpm 自身が OpenMP program のため、KUDPC の job が既定で設定する
+  `OMP_PROC_BIND=close` のままでは fpm の main thread が 1 core に固定され、fpm が起動する test・`beach`・MPI launcher が
+  その 1 core の affinity を継承する。test payload の環境では `OMP_PROC_BIND=false` が見える。
 - checkout、入力、cache、log は計算 node から見える `/home`、`/LARGE0`、`/LARGE1`、または合意した
   `/FAST` path に置く。login node の `/TMP` を前提にしない。
 
