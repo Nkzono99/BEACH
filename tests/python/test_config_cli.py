@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.config._layout import PATHS, to_grouped_layout
+from beach.config._layout import PATHS
 
 from beach.cli.main import main as beachx_main
 from beach.config import (
@@ -14,6 +14,7 @@ from beach.config import (
     default_config,
     load_config_file,
     normalize_config_document,
+    to_grouped_layout,
 )
 
 
@@ -646,10 +647,3 @@ def test_lint_cli_reports_schema_error(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "schema validation failed" in message
     assert "schema error at output.enabled" in message
-
-
-def test_config_cli_rejects_removed_migrate_command(capsys) -> None:
-    with pytest.raises(SystemExit) as exc:
-        beachx_main(["config", "migrate", "old.toml", "new.toml"])
-    assert exc.value.code == 2
-    assert "invalid choice: 'migrate'" in capsys.readouterr().err

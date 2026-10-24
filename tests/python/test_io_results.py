@@ -24,7 +24,6 @@ from result_fixtures import (
     _write_charge_history,
     _write_minimal_result_fixture,
     _write_three_mesh_fixture,
-    _unit_panel_kernel as _unit_panel_kernel,
 )
 
 
@@ -1054,7 +1053,7 @@ def test_secondary_emission_reader_rejects_invalid_emitted_charge(tmp_path: Path
 def test_saved_config_mesh_parts_and_archived_templates_remain_readable(tmp_path: Path, archived: bool) -> None:
     import tomli_w
     from beach.config import default_config
-    from beach.config._layout import to_grouped_layout
+    from beach.config import to_grouped_layout
     from beach.analysis.context import load_config_for_output
 
     config = to_grouped_layout(default_config())

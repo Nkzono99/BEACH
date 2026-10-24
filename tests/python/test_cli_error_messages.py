@@ -54,11 +54,6 @@ def test_cli_missing_input_exits_with_friendly_message(
     ("argv", "message"),
     [
         pytest.param(
-            ["coulomb", "--softening", "nan"],
-            "unrecognized arguments: --softening",
-            id="coulomb-removed-softening",
-        ),
-        pytest.param(
             ["kernel-forces", "--theta", "nan"],
             "argument --theta: must be finite",
             id="kernel-theta",

@@ -400,7 +400,8 @@ def _load_toml(path: Path) -> dict[str, object]:
 
     with path.open("rb") as stream:
         document = tomllib.load(stream)
-    from beach.config._layout import is_grouped, to_runtime_layout
+    from beach.config import to_runtime_layout
+    from beach.config._layout import is_grouped
     if is_grouped(document):
         document = to_runtime_layout(document)
         document.setdefault("output", {}).setdefault("resume", False)
@@ -408,7 +409,7 @@ def _load_toml(path: Path) -> dict[str, object]:
 
 
 def _write_toml(path: Path, data: dict[str, object]) -> None:
-    from beach.config._layout import to_grouped_layout
+    from beach.config import to_grouped_layout
     if 'sim' in data and 'domain' in data:
         data = to_grouped_layout(data)
     path.write_text(tomli_w.dumps(data), encoding="utf-8")

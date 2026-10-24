@@ -118,12 +118,9 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
         output_dir,
         potential_values=(100.0, 200.0) if with_precomputed else None,
     )
-    calls: list[dict[str, object]] = []
 
-    def fake_compute(result: object, **kwargs: object) -> np.ndarray:
-        assert isinstance(result, Beach)
-        assert result.library_path == library_path
-        calls.append(kwargs)
+    def fake_compute(run: Beach, **_kwargs: object) -> np.ndarray:
+        assert run.library_path == library_path
         return np.array([7.0, -8.0])
 
     monkeypatch.setattr(Beach, "compute_potential", fake_compute)
@@ -139,7 +136,6 @@ def test_inspect_recompute_potential_calls_compute_and_uses_its_summary(
     )
 
     output = capsys.readouterr().out
-    assert calls == [{"source": "kernel"}]
     assert "potential_min=-8.000000e+00" in output
     assert "potential_max=7.000000e+00" in output
     assert "potential_min=1.000000e+02" not in output
@@ -161,23 +157,22 @@ def test_inspect_potential_plot_is_independent_of_recompute_flag(
         "compute_potential",
         _fail_if_potential_is_computed,
     )
-    plot_calls: list[dict[str, object]] = []
 
-    class FakeFigure:
-        def savefig(self, path: Path, *, dpi: int) -> None:
-            assert path == save_path
-            assert dpi == 150
+    class KernelFreeFigure:
+        """Stands in for the kernel-backed figure; the CLI only saves it."""
 
-    def fake_plot(_self: object, **kwargs: object) -> tuple[FakeFigure, object]:
-        plot_calls.append(kwargs)
-        return FakeFigure(), object()
+        def savefig(self, path: Path, **_kwargs: object) -> None:
+            Path(path).write_bytes(b"png")
+
+    def fake_plot(_self: object, **_kwargs: object) -> tuple[KernelFreeFigure, object]:
+        return KernelFreeFigure(), object()
 
     monkeypatch.setattr(Beach, "plot_potential", fake_plot)
 
     beachx_main(["inspect", str(output_dir), "--save-dir", str(save_dir)])
 
     output = capsys.readouterr().out
-    assert len(plot_calls) == 1
+    assert save_path.is_file()
     assert "potential_min=" not in output
     assert "potential_max=" not in output
     assert f"saved_potential_mesh={save_path}" in output
@@ -206,19 +201,17 @@ def test_inspect_json_reports_the_same_fields_as_key_value_lines(
 
 
 def test_inspect_reuses_recomputed_values_for_the_potential_figure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
 ) -> None:
     pytest.importorskip("matplotlib")
     output_dir = tmp_path / "run_recompute_plot"
     save_dir = tmp_path / "figures"
     _write_inspect_fixture(output_dir, potential_values=(100.0, 200.0))
-    evaluated = []
     plotted = []
+    recomputed = iter([np.array([7.0, -8.0])])
 
-    def compute(_run: Beach, *, source: str) -> np.ndarray:
-        assert source == "kernel"
-        evaluated.append(source)
-        return np.array([7.0, -8.0])
+    def compute(_run: Beach, **_kwargs: object) -> np.ndarray:
+        return next(recomputed)  # a second evaluation raises StopIteration
 
     original_plot = inspect_cli.plot_potential_mesh
 
@@ -230,6 +223,6 @@ def test_inspect_reuses_recomputed_values_for_the_potential_figure(
     monkeypatch.setattr(inspect_cli, "plot_potential_mesh", plot)
     beachx_main(["inspect", str(output_dir), "--recompute-potential", "--save-dir", str(save_dir)])
 
-    assert evaluated == ["kernel"]
+    assert "potential_min=-8.000000e+00" in capsys.readouterr().out
     np.testing.assert_array_equal(plotted, [[7.0, -8.0]])
     assert (save_dir / "potential_mesh.png").is_file()

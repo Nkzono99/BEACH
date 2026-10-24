@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from beach.config import default_config
-from beach.config._layout import to_grouped_layout
+from beach.config import default_config, to_grouped_layout
 from beach.config._toml import load_toml_file
 from beach.config.schema import load_schema, schema_errors
 

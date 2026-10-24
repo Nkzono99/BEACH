@@ -7,8 +7,15 @@ import tomllib
 
 import pytest
 
-from beach.config import ConfigError, default_config, dump_beach_toml, load_config_file, normalize_config_document
-from beach.config._layout import to_grouped_layout, to_runtime_layout
+from beach.config import (
+    ConfigError,
+    default_config,
+    dump_beach_toml,
+    load_config_file,
+    normalize_config_document,
+    to_grouped_layout,
+    to_runtime_layout,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = sorted(ROOT.joinpath('examples').glob('*.toml'))

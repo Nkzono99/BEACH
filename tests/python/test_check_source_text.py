@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-import pytest
 
 import tools.check_source_text as source_text
 
@@ -18,11 +19,7 @@ def test_source_text_path_filter_includes_fortran_and_project_files() -> None:
     assert not source_text.is_source_text_path(Path("src/generated_backup.I90"))
 
 
-def test_main_checks_git_source_set_and_returns_nul_status(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_main_checks_git_source_set_and_returns_nul_status(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(
@@ -49,14 +46,19 @@ def test_main_checks_git_source_set_and_returns_nul_status(
         check=True,
         capture_output=True,
     )
-    monkeypatch.setattr(
-        source_text,
-        "__file__",
-        str(repo / "tools" / "check_source_text.py"),
-    )
+    # The tool checks the repository that contains it, so run a copy inside repo.
+    script = repo / "tools" / "check_source_text.py"
+    script.parent.mkdir()
+    shutil.copy2(source_text.__file__, script)
 
-    assert source_text.main() == 1
-    failure_output = capsys.readouterr().out
+    def check() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(script)], capture_output=True, text=True, check=False,
+        )
+
+    failure = check()
+    assert failure.returncode == 1
+    failure_output = failure.stdout
     assert tracked.name in failure_output
     assert untracked.name in failure_output
     assert ignored.name not in failure_output
@@ -66,4 +68,4 @@ def test_main_checks_git_source_set_and_returns_nul_status(
     tracked.write_text("print('clean')\n", encoding="utf-8")
     untracked.write_text("! 日本語\n", encoding="utf-8")
 
-    assert source_text.main() == 0
+    assert check().returncode == 0

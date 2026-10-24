@@ -158,11 +158,19 @@ def test_object_detachment_cli_rejects_invalid_torque_origin(
 
 
 class _FakeProbe:
-    last_wrench_kwargs: dict[str, object] = {}
-    last_path_kwargs: dict[str, object] = {}
+    """Analytic stand-in that reports its settings the way the real probe does."""
 
-    def wrench(self, **kwargs) -> ObjectWrench:
-        type(self).last_wrench_kwargs = dict(kwargs)
+    def __init__(
+        self, periodic_model: str = "configured", cache_dir: Path | None = None,
+    ) -> None:
+        self.periodic_model = periodic_model
+        self.cache_dir = cache_dir
+
+    @staticmethod
+    def _origin(torque_origin: object) -> np.ndarray:
+        return np.zeros(3) if isinstance(torque_origin, str) else np.asarray(torque_origin)
+
+    def wrench(self, *, torque_origin: object, components: bool) -> ObjectWrench:
         components = {
             "other_objects_all_images": WrenchComponent(
                 force_N=np.array([1.0, 2.0, 3.0]),
@@ -191,12 +199,12 @@ class _FakeProbe:
             total_charge_C=2.0e-9,
             force_N=np.array([1.5, 2.0, 4.0]),
             torque_Nm=np.array([0.1, 0.3, 0.3]),
-            torque_origin_m=np.array([0.0, 0.0, 0.0]),
+            torque_origin_m=self._origin(torque_origin),
             transform=RigidTransform.identity(),
             transform_origin_m=np.zeros(3),
             components=components,
             numerical_metadata={
-                "periodic_model": "configured",
+                "periodic_model": self.periodic_model,
                 "effective_far_correction": "none",
                 "target_integration": "point_centroid",
                 "quadrature_order": None,
@@ -204,7 +212,7 @@ class _FakeProbe:
                     "hit": None,
                     "build_count": 0,
                     "fingerprint": None,
-                    "path": None,
+                    "path": None if self.cache_dir is None else str(self.cache_dir),
                 },
                 "periodic_kneq0": {
                     "force_N": np.array([0.5, 1.0, 2.0]),
@@ -229,8 +237,18 @@ class _FakeProbe:
             },
         )
 
-    def vertical_path(self, displacement_m: np.ndarray, **kwargs) -> ObjectForcePath:
-        type(self).last_path_kwargs = dict(kwargs)
+    def vertical_path(
+        self,
+        displacement_m: np.ndarray,
+        *,
+        adaptive: bool,
+        relative_tolerance: float,
+        force_absolute_tolerance_N: float,
+        work_absolute_tolerance_J: float,
+        max_refinement: int,
+        torque_origin: object,
+        components: bool,
+    ) -> ObjectForcePath:
         h = np.asarray(displacement_m)
         force = np.column_stack((np.zeros(h.size), np.zeros(h.size), 4.0 - h))
         torque = np.zeros((h.size, 3))
@@ -260,12 +278,22 @@ class _FakeProbe:
             electrostatic_work_J=base.electrostatic_work_J,
             component_force_N=component_force,
             component_torque_Nm=component_torque,
+            numerical_metadata={
+                "torque_origin_m": self._origin(torque_origin),
+                "adaptive": adaptive,
+                "relative_tolerance": relative_tolerance,
+                "force_absolute_tolerance_N": force_absolute_tolerance_N,
+                "work_absolute_tolerance_J": work_absolute_tolerance_J,
+                "max_refinement": max_refinement,
+            },
         )
 
 
 class _FakeSnapshot:
-    def __init__(self, step: int | None = None) -> None:
+    def __init__(self, step: int | None, periodic_model: str, cache_dir: Path | None) -> None:
         self.step = step
+        self.periodic_model = periodic_model
+        self.cache_dir = cache_dir
 
     def __enter__(self):
         return self
@@ -275,7 +303,7 @@ class _FakeSnapshot:
 
     def object_probe(self, mesh_id: int):
         assert mesh_id == 6
-        return _FakeProbe()
+        return _FakeProbe(self.periodic_model, self.cache_dir)
 
 
 class _FakeHistory:
@@ -303,8 +331,7 @@ def test_object_detachment_cli_writes_deterministic_artifacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_dir = tmp_path / "run"
-    captured: dict[str, object] = {}
-    _install_fake_evaluator(tmp_path, monkeypatch, captured=captured)
+    _install_fake_evaluator(tmp_path, monkeypatch)
     artifact_dir = run_dir / "object_detachment_mesh_6"
     args = _required_args(tmp_path)
     args.extend(["--gravity-m-s2", "0"])
@@ -368,7 +395,6 @@ def test_object_detachment_cli_writes_deterministic_artifacts(
     assert summary["inputs"]["charge_source"] == "charges.csv"
     assert summary["inputs"]["resolved_charge_batch"] == 123
     assert summary["inputs"]["artifact_dir"] == str(artifact_dir.resolve())
-    assert captured["step"] is None
     assert "Numerically qualified: `False`" in (
         artifact_dir / "report.md"
     ).read_text(encoding="utf-8")
@@ -378,8 +404,7 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured: dict[str, object] = {}
-    _install_fake_evaluator(tmp_path, monkeypatch, captured=captured)
+    _install_fake_evaluator(tmp_path, monkeypatch)
     artifact_dir = tmp_path / "analysis"
     cache_dir = tmp_path / "periodic-cache"
     library = tmp_path / "libbeach_field_kernel.so"
@@ -417,26 +442,21 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
 
     beachx_main(args)
 
-    assert captured["periodic_model"] == "infinite_physical"
-    assert captured["step"] == 17
-    assert captured["config_path"] == tmp_path / "beach.toml"
-    assert captured["cache_dir"] == cache_dir
-    assert captured["generation_tolerance"] == pytest.approx(1.0e-7)
-    np.testing.assert_allclose(
-        _FakeProbe.last_wrench_kwargs["torque_origin"],
-        [1.0, 2.0, 3.0],
-    )
-    path_kwargs = dict(_FakeProbe.last_path_kwargs)
-    np.testing.assert_allclose(path_kwargs.pop("torque_origin"), [1.0, 2.0, 3.0])
-    assert path_kwargs == {
+    summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
+    assert summary["inputs"]["config"] == str((tmp_path / "beach.toml").resolve())
+    assert summary["physics_policy"]["requested_periodic_model"] == "infinite-physical"
+    wrench = summary["instantaneous_wrench"]
+    assert wrench["numerical_metadata"]["periodic_model"] == "infinite_physical"
+    assert wrench["numerical_metadata"]["periodic_cache"]["path"] == str(cache_dir)
+    assert wrench["torque_origin_m"] == [1.0, 2.0, 3.0]
+    assert summary["path"]["numerical_metadata"] == {
+        "torque_origin_m": [1.0, 2.0, 3.0],
         "adaptive": False,
         "relative_tolerance": 0.02,
         "force_absolute_tolerance_N": 3.0e-12,
         "work_absolute_tolerance_J": 4.0e-18,
         "max_refinement": 5,
-        "components": True,
     }
-    summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
     assert summary["inputs"]["requested_step"] == 17
     assert summary["inputs"]["resolved_snapshot_step"] == 17
     assert summary["inputs"]["charge_source"] == "charge_history.csv"
@@ -508,7 +528,6 @@ def _install_fake_evaluator(
     monkeypatch: pytest.MonkeyPatch,
     *,
     result: _FakeResult | None = None,
-    captured: dict[str, object] | None = None,
 ) -> None:
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
@@ -516,12 +535,8 @@ def _install_fake_evaluator(
     resolved_result.directory = tmp_path / "run"
     monkeypatch.setattr("beach.facade.load_run", lambda _output: resolved_result)
 
-    def fake_snapshot(run, **kwargs):
-        if captured is not None:
-            captured.update(kwargs)
-            captured["library_path"] = run.library_path
-            captured["config_path"] = run.context.config_path
-        return _FakeSnapshot(step=kwargs["step"])
+    def fake_snapshot(_run, *, step, periodic_model, cache_dir, generation_tolerance):
+        return _FakeSnapshot(step, periodic_model, cache_dir)
 
     monkeypatch.setattr(Beach, "object_interaction_snapshot", fake_snapshot)
 

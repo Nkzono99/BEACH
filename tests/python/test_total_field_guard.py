@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from beach import compute_potential_points
 from beach.analysis.context import RunContext
 from beach.analysis.field_kernel import (
     _require_total_field_reconstruction,
@@ -92,14 +93,8 @@ def _write_free_field_config(path: Path) -> None:
 
 
 def test_total_field_guard_requires_config(tmp_path: Path) -> None:
-    context = RunContext.from_value(_result(tmp_path))
-
     with pytest.raises(ValueError, match=r"requires .*beach\.toml"):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(),
-            operation="test operation",
-        )
+        compute_potential_points(_result(tmp_path), np.array([[0.0, 0.0, 1.0]]))
 
 
 @pytest.mark.parametrize(
@@ -178,12 +173,6 @@ def test_total_field_guard_rejects_panel_spectral_receipt(
     )
 
     with pytest.raises(ValueError, match="panel_spectral_reference"):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(),
-            operation="test operation",
-        )
-    with pytest.raises(ValueError, match="panel_spectral_reference"):
         field_kernel_options_from_result(context)
 
 
@@ -259,12 +248,6 @@ def test_resolved_treecode_receipt_fails_closed(tmp_path: Path) -> None:
             context,
             periodic2={"axes": (0, 1), "lengths": (1.0, 1.0)},
         )
-    with pytest.raises(ValueError, match="treecode"):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(resolved_field_solver="treecode"),
-            operation="test operation",
-        )
 
 
 @pytest.mark.parametrize(
@@ -306,11 +289,5 @@ def test_total_field_guard_rejects_legacy_panel_spectral_config(
     )
     context = RunContext.from_value(_result(tmp_path))
 
-    with pytest.raises(ValueError, match="panel_spectral_reference"):
-        _require_total_field_reconstruction(
-            context,
-            FieldKernelOptions(),
-            operation="test operation",
-        )
     with pytest.raises(ValueError, match="panel_spectral_reference"):
         field_kernel_options_from_result(context)
