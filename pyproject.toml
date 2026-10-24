@@ -30,6 +30,8 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "types-jsonschema>=4.0",
+    # Runs the runops adapter tests (beach.tooling.runops_adapter targets the v2 contract).
+    "runops>=2.0,<3",
 ]
 accel = [
     "numba>=0.59",
