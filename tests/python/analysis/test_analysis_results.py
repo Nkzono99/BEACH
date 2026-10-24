@@ -82,44 +82,6 @@ def test_resolve_object_specs_prefers_mesh_source_materials(tmp_path: Path) -> N
     assert [spec.epsilon_r for spec in specs] == [1.0, 2.5]
 
 
-def test_free_field_reconstruction_receipt_rejects_periodic_far_model(
-    tmp_path: Path,
-) -> None:
-    out = tmp_path / "invalid_free_field_receipt"
-    out.mkdir()
-    _write_minimal_result_fixture(
-        out,
-        summary_extra=[
-            "field_reconstruction_schema_version=2",
-            "field_reconstruction_resolved_field_solver=fmm",
-            "field_reconstruction_fmm_expansion_order=4",
-            "field_reconstruction_field_bc_mode=free",
-            "field_reconstruction_tree_theta=3.75e-1",
-            "field_reconstruction_tree_leaf_max=23",
-            "field_reconstruction_e0_V_m=1.0 2.0 3.0",
-            "field_reconstruction_use_box=T",
-            "field_reconstruction_box_min_m=-1.0 -2.0 -3.0",
-            "field_reconstruction_box_max_m=4.0 5.0 6.0",
-            "field_reconstruction_boundary_low=0 0 0",
-            "field_reconstruction_boundary_high=0 0 0",
-            "field_reconstruction_periodic_image_layers=2",
-            "field_reconstruction_periodic_far_correction=cached_kneq0",
-            "field_reconstruction_periodic_nonzero_mode_backend=not_applicable",
-            "field_reconstruction_periodic_zero_mode_policy=not_applicable",
-            "field_reconstruction_periodic_lower_boundary_model=not_applicable",
-            "field_reconstruction_periodic_reference_mode_layers=4",
-            "field_reconstruction_periodic_panel_quadrature_order=12",
-            "field_reconstruction_periodic_ewald_alpha=2.5e-1",
-            "field_reconstruction_periodic_ewald_layers=5",
-            "field_reconstruction_periodic_cache_dir=verified-cache",
-            "field_reconstruction_periodic_generation_tolerance=2.0e-9",
-        ],
-    )
-
-    with pytest.raises(ValueError, match="free-space reconstruction"):
-        load_run(out)
-
-
 def test_beach_get_mesh_supports_step_selection(tmp_path: Path) -> None:
     out = tmp_path / "run_mesh_step"
     out.mkdir()

@@ -125,7 +125,7 @@ def test_profile_reader_is_available_without_the_cli(tmp_path: Path) -> None:
 
 
 def test_generated_summary_reference_matches_the_reader_contract() -> None:
-    path = Path(__file__).resolve().parents[2] / "docs/reference/OutputReference.md"
+    path = Path(__file__).resolve().parents[3] / "docs/reference/OutputReference.md"
     table = path.read_text(encoding="utf-8").split(
         "<!-- BEGIN GENERATED SUMMARY FIELDS -->", 1
     )[1]

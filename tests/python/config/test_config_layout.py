@@ -17,7 +17,7 @@ from beach.config import (
     to_runtime_layout,
 )
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 EXAMPLES = sorted(ROOT.joinpath('examples').glob('*.toml'))
 
 

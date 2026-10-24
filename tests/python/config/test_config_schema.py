@@ -9,7 +9,7 @@ from beach.config import default_config, to_grouped_layout
 from beach.config._toml import load_toml_file
 from beach.config.schema import load_schema, schema_errors
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _example(name):

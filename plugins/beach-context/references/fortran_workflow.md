@@ -75,8 +75,8 @@ make test-l2
 
 | 変更範囲 | 直接確認する test | 最低 gate / 追加確認 |
 | --- | --- | --- |
-| documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
-| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
+| documentation、navigation、日英対応 | `pytest -q tests/python/repo/test_docs_sync.py tests/python/repo/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
+| TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/config/`、`tests/python/cli/test_config_commands.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
 | mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
 | 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection` | `make test-l1` |
 | Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
@@ -85,7 +85,7 @@ make test-l2
 | FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l3`。遠方補正は `make test-fortran-far-correction` |
 | C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c` | `make test-l2`。cache receipt は `make test-field-kernel-cache` |
 | output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart` | `make test-l1` と関連する Python reader test |
-| Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
+| Python reader、解析、CLI | 変更 package に対応する `tests/python/<package>/`（`io`、`analysis`、`native`、`plot`、`config`、`cli`、`tooling` など） | `make test-l1` |
 
 挙動を変えないリファクタでは、計算ノードで変更前と変更後の checkout それぞれで `tools/golden_regression.py run OUT_DIR` を実行し、
 `tools/golden_regression.py compare BASE_DIR NEW_DIR` で出力を比べます。examples を縮小した3ケース（free-space direct、
@@ -152,7 +152,7 @@ make test-config-contract
 検証の責務は 2 層です。キー名・型・列挙値・値域は `schemas/beach.schema.json` が持ち、Python の lint が検査します。
 組合せ制約と派生値は Fortran の領域別 preflight (`_preflight_sim` / `_preflight_particles` / `_preflight_surface` /
 `_finalize`) が持ちます。同じ制約を Python に書きません。新しい組合せ制約は Fortran の preflight に置き、
-`tests/python/test_config_contract.py` の代表ケースと、必要なら `test_app_config_parser` の拒否ケースを追加します。
+`tests/python/config/test_config_contract.py` の代表ケースと、必要なら `test_app_config_parser` の拒否ケースを追加します。
 不正な組合せの網羅は保証しません。研究での発生頻度、結果への影響、保守コストから追加検証を選びます。
 公開キーの読取は parser、座標・配置の展開は authoring、mesh・粒子の構築は runtime configuration が担当します。
 

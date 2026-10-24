@@ -4,7 +4,10 @@ import json
 import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+import pytest
+
+ROOT = Path(__file__).resolve().parents[3]
+GROUPED_BACKENDS = frozenset({"finite_images", "cached_kneq0", "panel_spectral_reference"})
 
 
 def _read(path: str) -> str:
@@ -187,3 +190,74 @@ def test_output_manifest_matches_implementation_and_docs() -> None:
         consumer_path = entry.get("consumer")
         if consumer_path:
             assert name in _read(consumer_path), (name, consumer_path)
+
+
+def test_configuration_recipes_cover_supported_meshes_and_particle_sources() -> None:
+    schema = _schema()
+    mesh_kinds = schema["$defs"]["groupedConfig"]["properties"]["mesh"]["properties"]["parts"]["items"]
+    template = schema["$defs"][mesh_kinds["$ref"].rsplit("/", 1)[-1]]
+    mesh_kinds = template["properties"]["kind"]["enum"]
+    source_modes = schema["$defs"]["groupedSpecies"]["properties"]["source"]["properties"]["mode"]["enum"]
+
+    for name in ("guide/ConfigurationRecipes.md",):
+        text = _read(f"docs/{name}")
+        mesh_table = text.split("| `kind` |", maxsplit=1)[1].split(
+            "\n\n", maxsplit=1
+        )[0]
+        source_table = text.split("| `source.mode` |", maxsplit=1)[1].split(
+            "\n\n", maxsplit=1
+        )[0]
+
+        for kind in mesh_kinds:
+            assert f"`{kind}`" in mesh_table, (name, kind)
+        for source_mode in source_modes:
+            assert f"`{source_mode}`" in source_table, (name, source_mode)
+
+
+def test_far_correction_schema_exposes_public_backends() -> None:
+    schema = json.loads(_read("schemas/beach.schema.json"))
+    backend = schema["$defs"]["groupedConfig"]["properties"]["fields"][
+        "properties"
+    ]["periodic"]["properties"]["backend"]
+
+    assert backend["type"] == "string"
+    assert set(backend["enum"]) == GROUPED_BACKENDS
+
+
+@pytest.mark.parametrize("path", ["SPEC.md", "docs/developer/PeriodicFarCorrection.md"])
+def test_public_periodic_backends_are_documented(path: str) -> None:
+    text = _read(path)
+    for backend in GROUPED_BACKENDS:
+        assert f"`{backend}`" in text, (path, backend)
+
+
+def test_bundled_plugin_references_match_canonical_sources() -> None:
+    mirrors = {
+        "plugins/beach-context/references/SPEC.md": "SPEC.md",
+        "plugins/beach-context/references/fortran_parameter_file.md": (
+            "docs/reference/Parameters.md"
+        ),
+        "plugins/beach-context/references/fortran_fmm_core.md": "docs/developer/FMMCore.md",
+        "plugins/beach-context/references/examples/beach.toml": (
+            "examples/beach.toml"
+        ),
+        "plugins/beach-context/references/examples/periodic2_basic.toml": (
+            "examples/periodic2_basic.toml"
+        ),
+        "plugins/beach-context/references/agent-user-guide.md": (
+            "docs/agent-user-guide.md"
+        ),
+        "plugins/beach-context/references/python_postprocess_api.md": (
+            "docs/reference/PythonPostprocessAPI.md"
+        ),
+    }
+
+    for source in ROOT.joinpath("examples").glob("*.toml"):
+        mirrors[f"plugins/beach-context/references/examples/{source.name}"] = f"examples/{source.name}"
+
+    for mirror_path, canonical_path in mirrors.items():
+        mirror = (ROOT / mirror_path).read_bytes()
+        canonical = (ROOT / canonical_path).read_bytes()
+        assert mirror == canonical, (
+            f"{mirror_path} must mirror {canonical_path} byte-for-byte"
+        )

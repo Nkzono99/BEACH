@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 CONTRACT = "src/runtime/sheath/bem_irradiation_cell_contract.f90"
 # Exact statements, rather than whole-file exclusions: both are generic six-face mappings.
 ALLOWED = {

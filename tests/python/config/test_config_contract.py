@@ -21,7 +21,7 @@ from beach.config import default_config, to_grouped_layout, to_runtime_layout
 from beach.config._toml import load_toml_file
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _periodic2_cell() -> dict:

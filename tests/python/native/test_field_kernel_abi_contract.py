@@ -14,7 +14,7 @@ import pytest
 import beach.native.kernel as kernel_module
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 FORTRAN_SOURCE = ROOT / "src/physics/field_solver/bem_field_kernel_c.f90"
 PUBLIC_HEADER = ROOT / "beach/include/beach_field_kernel.h"
 

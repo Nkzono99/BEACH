@@ -10,7 +10,7 @@ import pytest
 from tools.verify_sdist import SdistContractError, verify_sdist
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 EXPLICIT_TARGETS = (
     ("executable", "beach", "app/main.f90"),
     ("test", "contract", "tests/fortran/test_contract.f90"),

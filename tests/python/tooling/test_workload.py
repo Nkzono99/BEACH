@@ -14,7 +14,7 @@ from beach.tooling.workload import (
 from beach.config import default_config
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _box_sim(**overrides: object) -> dict[str, object]:

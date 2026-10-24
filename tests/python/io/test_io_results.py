@@ -27,7 +27,7 @@ from result_fixtures import (
 )
 
 
-def test_load_fortran_result(tmp_path: Path) -> None:
+def test_load_run(tmp_path: Path) -> None:
     out = tmp_path / "run1"
     out.mkdir()
     (out / "summary.txt").write_text(
@@ -131,7 +131,7 @@ def test_load_fortran_result(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("field_values", [None, "-2.7,-2.7", "NaN,NaN"])
-def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path, field_values: str | None) -> None:
+def test_load_run_matching_plane_state_and_history(tmp_path: Path, field_values: str | None) -> None:
     out = tmp_path / "matching"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -167,7 +167,7 @@ def test_load_fortran_result_matching_plane_state_and_history(tmp_path: Path, fi
     assert result.matching_plane_history[0].state.top_cell_mean_field_v_m == expected_field
 
 
-def test_load_fortran_result_ignores_stale_matching_history(tmp_path: Path) -> None:
+def test_load_run_ignores_stale_matching_history(tmp_path: Path) -> None:
     out = tmp_path / "nonmatching_reused_output"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -185,7 +185,7 @@ def test_load_fortran_result_ignores_stale_matching_history(tmp_path: Path) -> N
     assert result.matching_plane_history is None
 
 
-def test_load_fortran_result_rejects_inconsistent_matching_budget(
+def test_load_run_rejects_inconsistent_matching_budget(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "matching_bad_budget"
@@ -236,7 +236,7 @@ def test_load_fortran_result_rejects_inconsistent_matching_budget(
         ),
     ],
 )
-def test_load_fortran_result_rejects_corrupt_matching_plane_history(
+def test_load_run_rejects_corrupt_matching_plane_history(
     tmp_path: Path,
     history_header: str,
     history_rows: tuple[str, ...],
@@ -274,7 +274,7 @@ def test_load_fortran_result_rejects_corrupt_matching_plane_history(
         ),
     ],
 )
-def test_load_fortran_result_rejects_corrupt_charges(
+def test_load_run_rejects_corrupt_charges(
     tmp_path: Path,
     charges_text: str,
     match: str,
@@ -287,7 +287,7 @@ def test_load_fortran_result_rejects_corrupt_charges(
         load_run(out)
 
 
-def test_load_fortran_result_rejects_mesh_triangle_row_count_mismatch(
+def test_load_run_rejects_mesh_triangle_row_count_mismatch(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_bad_triangles_count"
@@ -304,7 +304,7 @@ def test_load_fortran_result_rejects_mesh_triangle_row_count_mismatch(
         load_run(out)
 
 
-def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -> None:
+def test_load_run_rejects_nonfinite_triangle_vertex(tmp_path: Path) -> None:
     out = tmp_path / "run_bad_triangle_nan"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -327,7 +327,7 @@ def test_load_fortran_result_rejects_nonfinite_triangle_vertex(tmp_path: Path) -
         pytest.param("0", "mesh_id values must be positive", id="nonpositive"),
     ],
 )
-def test_load_fortran_result_rejects_invalid_triangle_mesh_id(
+def test_load_run_rejects_invalid_triangle_mesh_id(
     tmp_path: Path,
     mesh_id: str,
     match: str,
@@ -372,7 +372,7 @@ def test_load_fortran_result_rejects_invalid_triangle_mesh_id(
         ),
     ],
 )
-def test_load_fortran_result_rejects_invalid_mesh_source_fields(
+def test_load_run_rejects_invalid_mesh_source_fields(
     tmp_path: Path,
     second_source: str,
     match: str,
@@ -412,7 +412,7 @@ def test_load_fortran_result_rejects_invalid_mesh_source_fields(
         ),
     ],
 )
-def test_load_fortran_result_rejects_corrupt_mesh_potential(
+def test_load_run_rejects_corrupt_mesh_potential(
     tmp_path: Path,
     mesh_potential_text: str,
     match: str,
@@ -428,7 +428,7 @@ def test_load_fortran_result_rejects_corrupt_mesh_potential(
         load_run(out)
 
 
-def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> None:
+def test_load_run_rejects_negative_summary_stat(tmp_path: Path) -> None:
     out = tmp_path / "run_bad_summary"
     out.mkdir()
     _write_minimal_result_fixture(out, summary_extra=["escaped_boundary=-1"])
@@ -437,7 +437,7 @@ def test_load_fortran_result_rejects_negative_summary_stat(tmp_path: Path) -> No
         load_run(out)
 
 
-def test_load_fortran_result_rejects_inconsistent_retry_counts(
+def test_load_run_rejects_inconsistent_retry_counts(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_bad_retry_counts"
@@ -454,7 +454,7 @@ def test_load_fortran_result_rejects_inconsistent_retry_counts(
         load_run(out)
 
 
-def test_load_fortran_result_derives_missing_soft_discard_fraction(
+def test_load_run_derives_missing_soft_discard_fraction(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_legacy_soft_discard_fraction"
@@ -469,7 +469,7 @@ def test_load_fortran_result_derives_missing_soft_discard_fraction(
     assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.4
 
 
-def test_load_fortran_result_accepts_zero_soft_discard_fraction(
+def test_load_run_accepts_zero_soft_discard_fraction(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_zero_soft_discard_fraction"
@@ -490,7 +490,7 @@ def test_load_fortran_result_accepts_zero_soft_discard_fraction(
     assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.0
 
 
-def test_load_fortran_result_accepts_soft_discard_fraction_roundoff(
+def test_load_run_accepts_soft_discard_fraction_roundoff(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_rounded_soft_discard_fraction"
@@ -508,7 +508,7 @@ def test_load_fortran_result_accepts_soft_discard_fraction_roundoff(
     assert result.diagnostics.multiple_box_events_soft_discard_fraction == 0.1
 
 
-def test_load_fortran_result_rejects_soft_discard_count_above_processed(
+def test_load_run_rejects_soft_discard_count_above_processed(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_bad_soft_discard_count"
@@ -522,7 +522,7 @@ def test_load_fortran_result_rejects_soft_discard_count_above_processed(
         load_run(out)
 
 
-def test_load_fortran_result_rejects_inconsistent_soft_discard_fraction(
+def test_load_run_rejects_inconsistent_soft_discard_fraction(
     tmp_path: Path,
 ) -> None:
     out = tmp_path / "run_inconsistent_soft_discard_fraction"
@@ -540,7 +540,7 @@ def test_load_fortran_result_rejects_inconsistent_soft_discard_fraction(
 
 
 @pytest.mark.parametrize("value", ["-1.0e-6", "1.000001", "nan", "inf"])
-def test_load_fortran_result_rejects_invalid_soft_discard_fraction(
+def test_load_run_rejects_invalid_soft_discard_fraction(
     tmp_path: Path,
     value: str,
 ) -> None:
@@ -637,7 +637,7 @@ def test_load_fortran_result_rejects_invalid_soft_discard_fraction(
         "non-finite-rel-change",
     ],
 )
-def test_charge_history_rejects_corrupt_batch_when_indexed(
+def test_history_charge_rejects_corrupt_batch_when_indexed(
     tmp_path: Path,
     rows: list[str],
     message: str,
@@ -649,7 +649,7 @@ def test_charge_history_rejects_corrupt_batch_when_indexed(
             _ = history.batch_indices
 
 
-def test_load_fortran_result_defers_corrupt_history_validation(tmp_path: Path) -> None:
+def test_load_run_defers_corrupt_history_validation(tmp_path: Path) -> None:
     out = tmp_path / "run_corrupt_lazy_history"
     out.mkdir()
     _write_minimal_result_fixture(out)
@@ -665,7 +665,7 @@ def test_load_fortran_result_defers_corrupt_history_validation(tmp_path: Path) -
         _ = result.history.charge.batch_indices
 
 
-def test_charge_history_accepts_permuted_dense_rows(tmp_path: Path) -> None:
+def test_history_charge_accepts_permuted_dense_rows(tmp_path: Path) -> None:
     history = _write_charge_history(
         tmp_path / "charge_history.csv",
         [
@@ -679,7 +679,7 @@ def test_charge_history_accepts_permuted_dense_rows(tmp_path: Path) -> None:
     np.testing.assert_allclose(history.get_step(1), np.array([1.0e-9, 2.0e-9, 3.0e-9]))
 
 
-def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> None:
+def test_load_run_history_supports_step_access(tmp_path: Path) -> None:
     out = tmp_path / "run_lazy"
     out.mkdir()
     _write_three_mesh_fixture(out)
@@ -705,7 +705,7 @@ def test_load_fortran_result_history_supports_step_access(tmp_path: Path) -> Non
     np.testing.assert_array_equal(result.history.charge.batch_indices, np.array([1, 10]))
 
 
-def test_charge_history_materialization_preserves_cached_edits(tmp_path: Path) -> None:
+def test_history_charge_materialization_preserves_cached_edits(tmp_path: Path) -> None:
     _write_three_mesh_fixture(tmp_path)
     history = BatchHistory(tmp_path / "charge_history.csv", mesh_nelem=3)
     first = history[1]
@@ -722,7 +722,7 @@ def test_charge_history_materialization_preserves_cached_edits(tmp_path: Path) -
         history[2]
 
 
-def test_list_fortran_runs(tmp_path: Path) -> None:
+def test_list_runs(tmp_path: Path) -> None:
     valid = tmp_path / "valid"
     valid.mkdir()
     (valid / "summary.txt").write_text(
@@ -782,7 +782,7 @@ def test_beach_default_lazy_history_keeps_step_access(tmp_path: Path) -> None:
     )
 
 
-def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
+def test_load_run_without_new_summary_keys(tmp_path: Path) -> None:
     out = tmp_path / "legacy"
     out.mkdir()
     (out / "summary.txt").write_text(
@@ -829,7 +829,7 @@ def test_load_fortran_result_without_new_summary_keys(tmp_path: Path) -> None:
         ),
     ],
 )
-def test_load_fortran_result_rejects_incomplete_adaptive_summary(
+def test_load_run_rejects_incomplete_adaptive_summary(
     tmp_path: Path, extra_line: str | None, match: str
 ) -> None:
     out = tmp_path / "incomplete_adaptive"
@@ -857,7 +857,7 @@ def test_load_fortran_result_rejects_incomplete_adaptive_summary(
         load_run(out)
 
 
-def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) -> None:
+def test_load_run_model_contract_and_charge_ledger(tmp_path: Path) -> None:
     out = tmp_path / "contract"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -947,7 +947,7 @@ def test_load_fortran_result_model_contract_and_charge_ledger(tmp_path: Path) ->
         ),
     ],
 )
-def test_load_fortran_result_rejects_corrupt_charge_ledger(
+def test_load_run_rejects_corrupt_charge_ledger(
     tmp_path: Path,
     ledger_text: str,
     match: str,
@@ -961,8 +961,46 @@ def test_load_fortran_result_rejects_corrupt_charge_ledger(
         load_run(out)
 
 
+def test_free_field_reconstruction_receipt_rejects_periodic_far_model(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "invalid_free_field_receipt"
+    out.mkdir()
+    _write_minimal_result_fixture(
+        out,
+        summary_extra=[
+            "field_reconstruction_schema_version=2",
+            "field_reconstruction_resolved_field_solver=fmm",
+            "field_reconstruction_fmm_expansion_order=4",
+            "field_reconstruction_field_bc_mode=free",
+            "field_reconstruction_tree_theta=3.75e-1",
+            "field_reconstruction_tree_leaf_max=23",
+            "field_reconstruction_e0_V_m=1.0 2.0 3.0",
+            "field_reconstruction_use_box=T",
+            "field_reconstruction_box_min_m=-1.0 -2.0 -3.0",
+            "field_reconstruction_box_max_m=4.0 5.0 6.0",
+            "field_reconstruction_boundary_low=0 0 0",
+            "field_reconstruction_boundary_high=0 0 0",
+            "field_reconstruction_periodic_image_layers=2",
+            "field_reconstruction_periodic_far_correction=cached_kneq0",
+            "field_reconstruction_periodic_nonzero_mode_backend=not_applicable",
+            "field_reconstruction_periodic_zero_mode_policy=not_applicable",
+            "field_reconstruction_periodic_lower_boundary_model=not_applicable",
+            "field_reconstruction_periodic_reference_mode_layers=4",
+            "field_reconstruction_periodic_panel_quadrature_order=12",
+            "field_reconstruction_periodic_ewald_alpha=2.5e-1",
+            "field_reconstruction_periodic_ewald_layers=5",
+            "field_reconstruction_periodic_cache_dir=verified-cache",
+            "field_reconstruction_periodic_generation_tolerance=2.0e-9",
+        ],
+    )
+
+    with pytest.raises(ValueError, match="free-space reconstruction"):
+        load_run(out)
+
+
 @pytest.mark.parametrize("switch_active", [False, True])
-def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path, switch_active: bool) -> None:
+def test_load_run_field_reconstruction_receipt(tmp_path: Path, switch_active: bool) -> None:
     out = tmp_path / "field_receipt"
     out.mkdir()
     _write_minimal_result_fixture(
@@ -1012,7 +1050,7 @@ def test_load_fortran_result_field_reconstruction_receipt(tmp_path: Path, switch
     assert result.receipts.field_reconstruction.upper_fourier_switch_mode_layers == (7 if switch_active else 0)
 
 
-def test_load_fortran_result_secondary_emission_and_combined_matching_source(tmp_path: Path) -> None:
+def test_load_run_secondary_emission_and_combined_matching_source(tmp_path: Path) -> None:
     out = tmp_path / "secondary"
     out.mkdir()
     _write_minimal_result_fixture(out, summary_extra=[

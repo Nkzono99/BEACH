@@ -1,20 +1,13 @@
+"""Makefile gate routing: which pytest markers and Fortran targets each target runs."""
+
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
-import pytest
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-GROUPED_BACKENDS = frozenset({"finite_images", "cached_kneq0", "panel_spectral_reference"})
-
-
-def _read(relative_path: str) -> str:
-    return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _line_starting_with(text: str, prefix: str) -> str:
@@ -22,55 +15,6 @@ def _line_starting_with(text: str, prefix: str) -> str:
         if line.startswith(prefix):
             return line
     raise AssertionError(f"missing line starting with {prefix!r}")
-
-
-def test_far_correction_schema_exposes_public_backends() -> None:
-    schema = json.loads(_read("schemas/beach.schema.json"))
-    backend = schema["$defs"]["groupedConfig"]["properties"]["fields"][
-        "properties"
-    ]["periodic"]["properties"]["backend"]
-
-    assert backend["type"] == "string"
-    assert set(backend["enum"]) == GROUPED_BACKENDS
-
-
-@pytest.mark.parametrize("path", ["SPEC.md", "docs/developer/PeriodicFarCorrection.md"])
-def test_public_periodic_backends_are_documented(path: str) -> None:
-    text = _read(path)
-    for backend in GROUPED_BACKENDS:
-        assert f"`{backend}`" in text, (path, backend)
-
-
-def test_bundled_plugin_references_match_canonical_sources() -> None:
-    mirrors = {
-        "plugins/beach-context/references/SPEC.md": "SPEC.md",
-        "plugins/beach-context/references/fortran_parameter_file.md": (
-            "docs/reference/Parameters.md"
-        ),
-        "plugins/beach-context/references/fortran_fmm_core.md": "docs/developer/FMMCore.md",
-        "plugins/beach-context/references/examples/beach.toml": (
-            "examples/beach.toml"
-        ),
-        "plugins/beach-context/references/examples/periodic2_basic.toml": (
-            "examples/periodic2_basic.toml"
-        ),
-        "plugins/beach-context/references/agent-user-guide.md": (
-            "docs/agent-user-guide.md"
-        ),
-        "plugins/beach-context/references/python_postprocess_api.md": (
-            "docs/reference/PythonPostprocessAPI.md"
-        ),
-    }
-
-    for source in REPO_ROOT.joinpath("examples").glob("*.toml"):
-        mirrors[f"plugins/beach-context/references/examples/{source.name}"] = f"examples/{source.name}"
-
-    for mirror_path, canonical_path in mirrors.items():
-        mirror = (REPO_ROOT / mirror_path).read_bytes()
-        canonical = (REPO_ROOT / canonical_path).read_bytes()
-        assert mirror == canonical, (
-            f"{mirror_path} must mirror {canonical_path} byte-for-byte"
-        )
 
 
 def _make_database(environment: dict[str, str]) -> str:

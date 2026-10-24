@@ -30,7 +30,7 @@ import beach.analysis.periodic_force_oracle as oracle_module
 
 
 EPS0 = 1.0 / (4.0 * np.pi * K_COULOMB)
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 VALIDATION_TOOL_PATH = ROOT / "tools" / "periodic_object_validation.py"
 
 

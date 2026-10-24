@@ -236,7 +236,7 @@ def test_adapter_runs_without_numpy() -> None:
     import subprocess
     import sys
 
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     code = (
         "import sys; sys.modules['numpy'] = None; sys.modules['matplotlib'] = None\n"
         "from beach.tooling.runops_adapter import Adapter\n"

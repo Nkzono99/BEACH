@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 SYNC_PATH = ROOT / "tools" / "sync_starlight_docs.py"
 FENCE_RE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
 INLINE_MATH_RE = re.compile(r"(?<!\\)\$(?!\$)(?:\\.|[^$\n])*?(?<!\\)\$")
@@ -223,27 +223,3 @@ end program example
     assert "[web](https://example.com)" in content
     assert "`docs/OutputGuide.md`" in content
     assert "```fortran-free-form" in content
-
-
-def test_configuration_recipes_cover_supported_meshes_and_particle_sources() -> None:
-    schema = json.loads(
-        (ROOT / "schemas" / "beach.schema.json").read_text(encoding="utf-8")
-    )
-    mesh_kinds = schema["$defs"]["groupedConfig"]["properties"]["mesh"]["properties"]["parts"]["items"]
-    template = schema["$defs"][mesh_kinds["$ref"].rsplit("/", 1)[-1]]
-    mesh_kinds = template["properties"]["kind"]["enum"]
-    source_modes = schema["$defs"]["groupedSpecies"]["properties"]["source"]["properties"]["mode"]["enum"]
-
-    for name in ("guide/ConfigurationRecipes.md",):
-        text = _read_doc(name)
-        mesh_table = text.split("| `kind` |", maxsplit=1)[1].split(
-            "\n\n", maxsplit=1
-        )[0]
-        source_table = text.split("| `source.mode` |", maxsplit=1)[1].split(
-            "\n\n", maxsplit=1
-        )[0]
-
-        for kind in mesh_kinds:
-            assert f"`{kind}`" in mesh_table, (name, kind)
-        for source_mode in source_modes:
-            assert f"`{source_mode}`" in source_table, (name, source_mode)

@@ -142,7 +142,7 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
 
 
 def test_beachx_model_close_pack_module_writes_expected_file(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     base_path = tmp_path / "base.toml"
     output_path = tmp_path / "beach.toml"
     base = default_base_config()

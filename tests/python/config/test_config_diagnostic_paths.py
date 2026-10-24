@@ -8,7 +8,7 @@ import pytest
 from beach.config._layout import PATHS, SPECIES_PATHS
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 LAYOUT_FILES = {"bem_config_layout.f90", "bem_config_layout_paths.f90"}
 # Match comments after strings so ! inside a literal remains part of the literal.
 TOKENS = re.compile(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|![^\n]*")

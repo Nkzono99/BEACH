@@ -22,7 +22,7 @@ models until a current change actually implements them; preserve only minimal ex
 - `src/`, `app/`: Fortran runtime and physics core
 - `tests/fortran`: Fortran unit/integration tests (fpm targets)
 - `beach/`: Python package for reading/plotting Fortran outputs, layered `io` (readers, numpy only) <- `native` (ctypes field kernel) <- `analysis` <- `plot` (matplotlib); `facade.py` holds `Beach`, `config/` and `tooling/` (workload, close-pack, runops adapter) import without numpy, and `cli/` is `beachx`
-- `tests/python`: Python tests for CLI/result utilities
+- `tests/python`: Python tests, one subdirectory per layer (`io`, `analysis`, `native`, `facade`, `plot`, `config`, `cli`, `tooling`, `repo`, `workflow`); shared fixtures in `conftest.py`, `result_fixtures.py`, and `config_fixtures.py`
 - `examples/`: runnable configs and helper scripts
 - `docs/`, `SPEC.md`: behavior/spec documentation
 
