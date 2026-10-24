@@ -11,7 +11,8 @@ program test_injection_sampling
   use bem_status_codes, only: collision_query_image_limit, photo_ray_failure_type
   use bem_random_stream, only: random_uniform
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_close_dp, delete_file_if_exists, run_self_probe, &
+                          file_contains
   implicit none
 
   type(particles_soa) :: pcls
@@ -440,39 +441,16 @@ contains
   end subroutine run_photo_query_failure_probe
 
   subroutine test_photo_query_failure_without_status()
-    character(len=1024) :: executable_path, command, child_line
-    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
-    logical :: saw_context, saw_ray, saw_bounce, saw_status
+    integer :: exit_status
 
-    call get_command_argument(0, executable_path)
+    call run_self_probe('--photo-query-failure-probe', photo_failure_path, exit_status, env='OMP_NUM_THREADS=2')
+    call assert_true(exit_status /= 0, 'photo failure probe should terminate with a nonzero status')
+    call assert_true(file_contains(photo_failure_path, 'photo_raycast collision query incomplete'), &
+                     'photo failure message should identify the photo raycast context')
+    call assert_true(file_contains(photo_failure_path, 'ray=1'), 'photo failure message should include the lowest failing ray')
+    call assert_true(file_contains(photo_failure_path, 'bounce=0'), 'photo failure message should include the failing bounce')
+    call assert_true(file_contains(photo_failure_path, 'status=image_limit'), &
+                     'photo failure message should include the collision status')
     call delete_file_if_exists(photo_failure_path)
-    command = 'OMP_NUM_THREADS=2 "'//trim(executable_path)//'" --photo-query-failure-probe > '// &
-              photo_failure_path//' 2>&1'
-    call execute_command_line(trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status)
-
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'photo failure probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'photo failure probe should terminate with a nonzero status')
-
-    saw_context = .false.
-    saw_ray = .false.
-    saw_bounce = .false.
-    saw_status = .false.
-    open (newunit=child_unit, file=photo_failure_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read photo failure probe output'
-    do
-      read (child_unit, '(A)', iostat=child_ios) child_line
-      if (child_ios /= 0) exit
-      saw_context = saw_context .or. index(child_line, 'photo_raycast collision query incomplete') > 0
-      saw_ray = saw_ray .or. index(child_line, 'ray=1') > 0
-      saw_bounce = saw_bounce .or. index(child_line, 'bounce=0') > 0
-      saw_status = saw_status .or. index(child_line, 'status=image_limit') > 0
-    end do
-    close (child_unit)
-    call delete_file_if_exists(photo_failure_path)
-
-    call assert_true(saw_context, 'photo failure message should identify the photo raycast context')
-    call assert_true(saw_ray, 'photo failure message should include the lowest failing ray')
-    call assert_true(saw_bounce, 'photo failure message should include the failing bounce')
-    call assert_true(saw_status, 'photo failure message should include the collision status')
   end subroutine test_photo_query_failure_without_status
 end program test_injection_sampling

@@ -10,6 +10,7 @@ program test_dynamics_field_solver
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
+  use test_panel_oracle, only: panel_sum_field, panel_sum_potential
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
@@ -219,7 +220,7 @@ contains
         end if
       end if
 
-      call panel_field_at(mesh_tree, r, e_direct)
+      e_direct = panel_sum_field(mesh_tree, r)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -260,7 +261,7 @@ contains
       end if
 
       call solver%refresh(mesh_tree)
-      call panel_field_at(mesh_tree, r, e_direct)
+      e_direct = panel_sum_field(mesh_tree, r)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -318,7 +319,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_direct, r, e_direct)
+    e_direct = panel_sum_field(mesh_direct, r)
     call solver%eval_e(mesh_direct, r, e_solver)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -344,7 +345,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_potential_at(mesh_direct, r, phi_direct)
+    phi_direct = panel_sum_potential(mesh_direct, r)
     call solver%eval_potential(mesh_direct, sim, r, phi_solver)
 
     call assert_close_dp(phi_solver, phi_direct, max(1.0d-12, abs(phi_direct)*1.0d-12), 'direct potential mismatch')
@@ -372,7 +373,7 @@ contains
     call solver%refresh(mesh_tree)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_tree, r, e_direct)
+    e_direct = panel_sum_field(mesh_tree, r)
     call solver%eval_e(mesh_tree, r, e_tree)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -402,9 +403,9 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_fmm, r, e_direct)
+    e_direct = panel_sum_field(mesh_fmm, r)
     call solver%eval_e(mesh_fmm, r, e_fmm)
-    call panel_potential_at(mesh_fmm, r, phi_direct)
+    phi_direct = panel_sum_potential(mesh_fmm, r)
     call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -443,7 +444,7 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [1.08d-3, 1.94d-3, -0.93d-3]
-    call panel_field_at(mesh_fmm, r, e_direct)
+    e_direct = panel_sum_field(mesh_fmm, r)
     call solver%eval_e(mesh_fmm, r, e_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -607,49 +608,5 @@ contains
     mesh%elem_vacuum_sign = 1_i32
     mesh%vacuum_normals = mesh%normals
   end subroutine mark_normal_plus
-
-  subroutine panel_field_at(mesh, target, field)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: field(3)
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    field = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      field = field + source_field
-    end do
-  end subroutine panel_field_at
-
-  subroutine panel_potential_at(mesh, target, potential)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: potential
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    potential = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      potential = potential + source_potential
-    end do
-  end subroutine panel_potential_at
 
 end program test_dynamics_field_solver

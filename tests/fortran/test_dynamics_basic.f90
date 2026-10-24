@@ -12,7 +12,8 @@ program test_dynamics_basic
   use bem_status_codes, only: collision_query_grid_stalled, collision_query_image_limit, &
                               collision_query_index_range, collision_query_invalid_segment, collision_query_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists
+                          assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists, &
+                          run_self_probe, file_contains
   implicit none
 
   type(mesh_type) :: mesh_field, mesh_hit
@@ -516,18 +517,14 @@ contains
   end subroutine test_collision_subnormal_segment_guard
 
   subroutine test_collision_grid_stall_guard()
-    character(len=1024) :: executable_path, command
-    integer :: child_exit_status, child_cmd_status
+    character(len=*), parameter :: stall_log = 'test_dynamics_basic_grid_stall_tmp.log'
+    integer :: exit_status
 
-    call get_command_argument(0, executable_path)
-    command = 'timeout 5 "'//trim(executable_path)//'" --collision-grid-stall-probe'
-    call execute_command_line( &
-      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
-      )
-
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'collision grid stall probe command status mismatch')
+    ! timeout turns a stalled grid walk into a failing exit status instead of a hung test.
+    call run_self_probe('--collision-grid-stall-probe', stall_log, exit_status, env='timeout 5')
+    call delete_file_if_exists(stall_log)
     call assert_equal_i32( &
-      int(child_exit_status, i32), 0_i32, &
+      int(exit_status, i32), 0_i32, &
       'collision grid stall probe should terminate with a guarded status' &
       )
   end subroutine test_collision_grid_stall_guard
@@ -623,32 +620,13 @@ contains
   end subroutine test_periodic2_collision_index_range_guard
 
   subroutine test_periodic2_collision_status_omitted_fails_closed()
-    character(len=1024) :: executable_path, command, child_line
-    integer :: child_exit_status, child_cmd_status, child_unit, child_ios
+    integer :: exit_status
     logical :: saw_incomplete_message
 
-    call get_command_argument(0, executable_path)
+    call run_self_probe('--collision-status-omitted-probe', collision_failure_path, exit_status)
+    call assert_true(exit_status /= 0, 'collision status omitted probe should fail closed')
+    saw_incomplete_message = file_contains(collision_failure_path, 'image enumeration limit exceeded')
     call delete_file_if_exists(collision_failure_path)
-    command = '"'//trim(executable_path)//'" --collision-status-omitted-probe > '//collision_failure_path//' 2>&1'
-    call execute_command_line( &
-      trim(command), wait=.true., exitstat=child_exit_status, cmdstat=child_cmd_status &
-      )
-
-    call assert_equal_i32(int(child_cmd_status, i32), 0_i32, 'collision status omitted probe command status mismatch')
-    call assert_true(child_exit_status /= 0, 'collision status omitted probe should fail closed')
-
-    saw_incomplete_message = .false.
-    open (newunit=child_unit, file=collision_failure_path, status='old', action='read', iostat=child_ios)
-    if (child_ios /= 0) error stop 'failed to read collision status omitted probe output'
-    do
-      read (child_unit, '(A)', iostat=child_ios) child_line
-      if (child_ios /= 0) exit
-      saw_incomplete_message = saw_incomplete_message .or. &
-                               index(child_line, 'image enumeration limit exceeded') > 0
-    end do
-    close (child_unit)
-    call delete_file_if_exists(collision_failure_path)
-
     call assert_true(saw_incomplete_message, 'status-omitted collision query should report incomplete work')
   end subroutine test_periodic2_collision_status_omitted_fails_closed
 

@@ -1,13 +1,13 @@
 !> 周期セル内の導体再配分を cached_kneq0 と独立した Fourier reference で検証する。
 program test_surface_models_periodic
-  use bem_kinds, only: dp, i32, i64
+  use bem_kinds, only: dp, i32
   use bem_mesh, only: init_mesh
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_surface_models, only: floating_conductor_solver_type
   use bem_types, only: mesh_type, sim_config, surface_model_conductor, surface_model_insulator, bc_open, bc_periodic
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
-                          delete_file_if_exists, remove_empty_directory
+                          unique_test_path, delete_periodic_cache
   implicit none
 
   call test_init(2)
@@ -35,11 +35,10 @@ contains
     type(floating_conductor_solver_type) :: solver
     real(dp) :: v0(3, 3), v1(3, 3), v2(3, 3), q0(3), phi1, phi2, phi_scale
     integer(i32) :: mesh_ids(3), surface_models(3)
-    character(len=512) :: cache_dir, cache_path
-    integer(i64) :: clock_count
+    character(len=512) :: cache_path
+    character(len=:), allocatable :: cache_dir
 
-    call system_clock(count=clock_count)
-    write (cache_dir, '(a,i0)') 'test_surface_models_tmp_', clock_count
+    cache_dir = unique_test_path('test_surface_models_periodic_tmp_')
     call periodic_plate_fixture(v0, v1, v2, q0, mesh_ids, surface_models)
     call init_periodic_mesh(mesh, v0, v1, v2, q0, mesh_ids, surface_models)
     call configure_periodic_cell(sim, field_config, periodic_config, panel_config)
@@ -60,9 +59,7 @@ contains
     call assert_close_dp(phi1/phi_scale, phi2/phi_scale, 1.0e-8_dp, 'periodic conductor elements should be equipotential')
     call assert_true(mesh%q_elem(1) /= mesh%q_elem(2), 'asymmetric insulator charge must redistribute the plate charge')
 
-    call delete_file_if_exists(cache_path)
-    call delete_file_if_exists(trim(cache_path)//'.lock')
-    call remove_empty_directory(cache_dir)
+    call delete_periodic_cache(cache_path, cache_dir)
   end subroutine test_periodic2_cached_conductor_equalizes_and_conserves_charge
 
   !> 厳密な panel_spectral_reference では、幾何をセル内で平行移動しても再配分結果は変わらない。
