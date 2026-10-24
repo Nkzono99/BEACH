@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `build.sh` が fpm を `OMP_PROC_BIND=false` で起動するようにした。KUDPC の job 既定の `OMP_PROC_BIND=close` では
   fpm が起動する test と `beach` が 1 core の affinity を継承し、OpenMP test が数倍遅くなっていた。
+- `test_upper_fourier_switch` が固定の cache directory を再利用して 2 回目以降に cold build を検査しなくなる問題を直した。
 - opt-in 周期力テストの zero-mode 設定と、平面 oracle receipt の backend 期待値を現行の明示的な周期場契約に合わせた。
 - 平面 oracle が mesh 解像度ごとに異なる cache identity を要求する誤検知を修正した。
   同じ box-cell 演算子の再利用を認め、評価ごとの path・fingerprint・SHA256 の照合を維持する。

@@ -26,6 +26,8 @@ module test_support
   public :: delete_file_if_exists
   public :: ensure_directory
   public :: remove_empty_directory
+  public :: unique_test_path
+  public :: delete_periodic_cache
 
   ! 新 API（テストランナー）
   public :: test_init
@@ -303,5 +305,33 @@ contains
     cmd = 'if [ -d "'//trim(path)//'" ]; then rmdir "'//trim(path)//'"; fi'
     call execute_command_line(trim(cmd), wait=.true., exitstat=ios)
   end subroutine remove_empty_directory
+
+  !> 実行ごとに異なる一時パスを返す（prefix の後ろに system_clock の値を付ける）。
+  !! @param[in] prefix パスの接頭辞。
+  !! @return path 一時パス。
+  function unique_test_path(prefix) result(path)
+    character(len=*), intent(in) :: prefix
+    character(len=:), allocatable :: path
+    character(len=32) :: suffix
+    integer(i64) :: clock_count
+
+    call system_clock(count=clock_count)
+    write (suffix, '(i0)') clock_count
+    path = prefix//trim(suffix)
+  end function unique_test_path
+
+  !> periodic operator cache の本体と lock を削除し、指定があれば空になった cache directory も削除する。
+  !! @param[in] cache_path cache 本体のパス。
+  !! @param[in] cache_dir 空なら削除する cache directory（省略可）。
+  subroutine delete_periodic_cache(cache_path, cache_dir)
+    character(len=*), intent(in) :: cache_path
+    character(len=*), intent(in), optional :: cache_dir
+
+    if (len_trim(cache_path) > 0) then
+      call delete_file_if_exists(trim(cache_path))
+      call delete_file_if_exists(trim(cache_path)//'.lock')
+    end if
+    if (present(cache_dir)) call remove_empty_directory(trim(cache_dir))
+  end subroutine delete_periodic_cache
 
 end module test_support
