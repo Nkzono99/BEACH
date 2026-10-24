@@ -5,7 +5,7 @@ program test_dynamics_field_solver
   use bem_types, only: mesh_type, sim_config
   use bem_mesh, only: init_mesh
   use bem_templates, only: make_plane, make_sphere
-  use bem_field_solver, only: field_solver_type
+  use bem_field_solver, only: field_solver_type, resolve_field_solver_tree_params
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
@@ -65,10 +65,15 @@ program test_dynamics_field_solver
 contains
 
   subroutine test_field_solver_auto_mode()
-    type(mesh_type) :: mesh_small, mesh_threshold, mesh_large
-    type(mesh_type) :: mesh_mid, mesh_dense, mesh_huge
+    type(mesh_type) :: mesh_small, mesh_threshold
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
+    integer(i32), parameter :: nelem_cases(8) = [1_i32, 1499_i32, 1500_i32, 9999_i32, 10000_i32, 49999_i32, &
+                                                 50000_i32, 250000_i32]
+    real(dp), parameter :: theta_cases(8) = [0.40d0, 0.40d0, 0.50d0, 0.50d0, 0.58d0, 0.58d0, 0.65d0, 0.65d0]
+    integer(i32), parameter :: leaf_cases(8) = [12_i32, 12_i32, 16_i32, 16_i32, 20_i32, 20_i32, 24_i32, 24_i32]
+    real(dp) :: theta
+    integer(i32) :: leaf_max, k
 
     call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_small)
@@ -83,47 +88,28 @@ contains
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = mesh_threshold%nelem
-    call solver%init(mesh_threshold, sim)
-    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
-
-    call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_large)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 64_i32
     sim%tree_theta = 0.95d0
     sim%tree_leaf_max = 1_i32
-    call solver%init(mesh_large, sim)
-    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM for dense meshes')
-    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto theta mismatch for nelem<1500')
-    call assert_equal_i32(solver%leaf_max, 12_i32, 'auto leaf_max mismatch for nelem<1500')
+    call solver%init(mesh_threshold, sim)
+    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto FMM must use the tuned theta, not the unset default')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'auto FMM must use the tuned leaf_max, not the unset default')
 
-    call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=25_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_mid)
+    ! The element-count table itself is the pure resolver used by init and by the summary writer.
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_mid, sim)
-    call assert_close_dp(solver%theta, 0.50d0, 1.0d-12, 'auto theta mismatch for 1500<=nelem<10000')
-    call assert_equal_i32(solver%leaf_max, 16_i32, 'auto leaf_max mismatch for 1500<=nelem<10000')
-
-    call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=100_i32, ny=50_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_dense)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_dense, sim)
-    call assert_close_dp(solver%theta, 0.58d0, 1.0d-12, 'auto theta mismatch for 10000<=nelem<50000')
-    call assert_equal_i32(solver%leaf_max, 20_i32, 'auto leaf_max mismatch for 10000<=nelem<50000')
-
-    call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=250_i32, ny=100_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_huge)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_huge, sim)
-    call assert_close_dp(solver%theta, 0.65d0, 1.0d-12, 'auto theta mismatch for nelem>=50000')
-    call assert_equal_i32(solver%leaf_max, 24_i32, 'auto leaf_max mismatch for nelem>=50000')
+    sim%tree_theta = 0.95d0
+    sim%tree_leaf_max = 1_i32
+    do k = 1, size(nelem_cases)
+      call resolve_field_solver_tree_params(nelem_cases(k), sim, theta, leaf_max)
+      call assert_close_dp(theta, theta_cases(k), 1.0d-12, 'auto theta mismatch in the element-count table')
+      call assert_equal_i32(leaf_max, leaf_cases(k), 'auto leaf_max mismatch in the element-count table')
+    end do
+    sim%tree_min_nelem = 64_i32
+    call resolve_field_solver_tree_params(63_i32, sim, theta, leaf_max)
+    call assert_close_dp(theta, 0.95d0, 0.0d0, 'direct auto selection keeps the configured theta')
+    call assert_equal_i32(leaf_max, 1_i32, 'direct auto selection keeps the configured leaf_max')
   end subroutine test_field_solver_auto_mode
 
   subroutine test_field_solver_explicit_mode_autotune()

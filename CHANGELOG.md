@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - cached operator を作らない periodic target 4 本（`test_periodic_nonzero_reference`、`test_periodic_nonzero_upper_vacuum`、
   `test_periodic_shell_mean`、`test_coulomb_fmm_core_periodic`）を遠方補正 gate から L1 に移し、
   `test_panel_near_correction` を `test_panel_geometry_near` に統合した。
+- L1 の重い 3 target を同じ oracle と許容誤差のまま短縮した。auto solver の要素数表は公開 pure 関数で直接検査し、
+  外部根の更新 test は平板の一様場で結果が変わらない時間刻みに広げ、sheath-model 自身が検査する根の棄却 2 件と
+  平均エネルギー近似の根探索を Zhao 根 test から除いた。
 
 ### Fixed
 
