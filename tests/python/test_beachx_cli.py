@@ -47,27 +47,3 @@ def test_beachx_config_help_lists_available_subcommands(
     captured = capsys.readouterr()
     assert "init" in captured.out
     assert "diff" in captured.out
-
-
-def test_beachx_model_close_pack_missing_base_config_exits_with_friendly_message(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    with pytest.raises(SystemExit) as excinfo:
-        beachx_main(["model", "close-pack", "--layers", "4", "--radius", "0.2", "--cells-x", "2"])
-
-    assert str(excinfo.value) == "base config file not found: beach.toml"
-
-
-@pytest.mark.parametrize("command", ["kernel-forces", "mobility"])
-def test_beachx_analysis_command_missing_output_exits_with_friendly_message(
-    command: str,
-) -> None:
-    with pytest.raises(SystemExit) as excinfo:
-        beachx_main([command, "no_such_dir"])
-
-    assert (
-        str(excinfo.value)
-        == 'Fortran output files are missing under "no_such_dir". Expected at least summary.txt and charges.csv.'
-    )

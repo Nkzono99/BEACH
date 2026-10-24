@@ -227,17 +227,21 @@ def test_render_inputs_rejects_flat_layout(tmp_path: Path) -> None:
         Adapter().render_inputs({}, run)
 
 
-def test_adapter_imports_without_numpy() -> None:
-    """runops loads the adapter in its own interpreter, which may lack numpy."""
+def test_adapter_runs_without_numpy() -> None:
+    """runops loads the adapter in its own interpreter, which may lack numpy.
+
+    test_import_layers checks that the beach.tooling and beach.config imports stay
+    numpy-free; this case also exercises the adapter calls runops makes.
+    """
     import subprocess
     import sys
 
     root = Path(__file__).resolve().parents[2]
     code = (
         "import sys; sys.modules['numpy'] = None; sys.modules['matplotlib'] = None\n"
-        "import beach.tooling.runops_adapter, beach.config\n"
-        "beach.tooling.runops_adapter.Adapter().case_template()\n"
-        "assert beach.tooling.runops_adapter.Adapter().validate_params({'run.batch_cuont': 1})\n"
+        "from beach.tooling.runops_adapter import Adapter\n"
+        "Adapter().case_template()\n"
+        "assert Adapter().validate_params({'run.batch_cuont': 1})\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
@@ -247,15 +251,6 @@ def test_adapter_imports_without_numpy() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-
-
-def test_public_names_still_resolve() -> None:
-    import beach
-
-    assert beach.Beach.__name__ == "Beach"
-    assert "load_run" in dir(beach)
-    with pytest.raises(AttributeError):
-        beach.no_such_name  # noqa: B018
 
 
 def test_progress_counts_batches_from_the_resume_point(tmp_path: Path) -> None:

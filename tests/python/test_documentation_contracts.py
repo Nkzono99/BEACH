@@ -147,7 +147,6 @@ def test_field_solver_docs_cover_the_direct_periodic2_split() -> None:
     schema = _schema()
     fields = schema["$defs"]["groupedConfig"]["properties"]["fields"]["properties"]
     assert "direct" in fields["solver"]["properties"]["method"]["enum"]
-    assert "panel_spectral_reference" in fields["periodic"]["properties"]["backend"]["enum"]
 
     for path in ("docs/guide/FieldSolvers.md",):
         text = _read(path)

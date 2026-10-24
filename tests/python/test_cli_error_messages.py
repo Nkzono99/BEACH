@@ -5,47 +5,49 @@ import pytest
 from beach.cli.main import main as beachx_main
 
 
+MISSING_OUTPUT = (
+    'Fortran output files are missing under "no_such_dir". '
+    "Expected at least summary.txt and charges.csv."
+)
+
+
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
-        pytest.param(
-            ["inspect", "no_such_dir"],
-            r'Fortran output files are missing under "no_such_dir"',
-            id="inspect",
-        ),
-        pytest.param(
-            ["animate", "no_such_dir"],
-            r'Fortran output files are missing under "no_such_dir"',
-            id="animate",
-        ),
-        pytest.param(
-            ["slices", "no_such_dir"],
-            r'Fortran output files are missing under "no_such_dir"',
-            id="slices",
-        ),
-        pytest.param(
-            ["coulomb", "no_such_dir"],
-            r'Fortran output files are missing under "no_such_dir"',
-            id="coulomb",
+        *(
+            pytest.param([command, "no_such_dir"], MISSING_OUTPUT, id=command)
+            for command in (
+                "inspect", "animate", "slices", "coulomb", "kernel-forces", "mobility",
+            )
         ),
         pytest.param(
             ["profile", "no_such_dir"],
-            r'Performance profile file is missing under "no_such_dir/performance_profile\.csv"',
+            'Performance profile file is missing under "no_such_dir/performance_profile.csv"',
             id="profile",
         ),
         pytest.param(
             ["workload", "no_such_file.toml"],
-            r"config file not found: no_such_file\.toml",
+            "config file not found: no_such_file.toml",
             id="workload",
+        ),
+        pytest.param(
+            ["model", "close-pack", "--layers", "4", "--radius", "0.2", "--cells-x", "2"],
+            "base config file not found: beach.toml",
+            id="close-pack",
         ),
     ],
 )
 def test_cli_missing_input_exits_with_friendly_message(
     argv: list[str],
     message: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with pytest.raises(SystemExit, match=message):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
         beachx_main(argv)
+
+    assert str(excinfo.value).startswith(message)
 
 
 @pytest.mark.parametrize(

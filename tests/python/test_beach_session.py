@@ -202,3 +202,10 @@ def test_equivalent_resolved_options_and_history_charges_share_a_kernel(tmp_path
         latest = run.kernel()
         assert run.kernel(step=2, theta=0.3, leaf_max=16, order=4) is latest
         assert run.kernel(step=None) is not latest
+
+
+def test_public_names_still_resolve() -> None:
+    assert beach.Beach.__name__ == "Beach"
+    assert "load_run" in dir(beach)
+    with pytest.raises(AttributeError):
+        beach.no_such_name  # noqa: B018
