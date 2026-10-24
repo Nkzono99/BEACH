@@ -18,6 +18,8 @@ import numpy as np
 import tomli_w
 
 
+pytestmark = pytest.mark.workflow
+
 ROOT = Path(__file__).resolve().parents[2]
 TOOL_PATH = ROOT / "tools" / "periodic_object_validation.py"
 
@@ -432,6 +434,7 @@ _TEST_SUBMITTED_JOBS = {
 }
 
 
+@pytest.mark.smoke
 def test_stage_creates_fresh_canonical_and_immutable_restart_inputs(
     archive_run: Path,
     binary: Path,
@@ -687,6 +690,7 @@ def test_verify_inputs_rejects_mpi_metadata_change(
         tool.verify_inputs(validation_root)
 
 
+@pytest.mark.smoke
 def test_verify_inputs_rejects_case_graph_change(
     archive_run: Path,
     binary: Path,
@@ -1133,6 +1137,7 @@ def test_verify_inputs_rejects_analysis_script_with_oracle_after_analysis(
         tool.verify_inputs(validation_root)
 
 
+@pytest.mark.smoke
 def test_submit_chain_preserves_partial_ids_and_refuses_duplicate_submission(
     archive_run: Path,
     binary: Path,
@@ -2656,7 +2661,7 @@ def _fake_periodic_kernel_oracle() -> dict[str, object]:
         "field_kernel_id": "triangle_p0_exact_p2m_near",
         "effective_field_contract": {
             "requested_periodic_model": "infinite_physical",
-            "configured_far_correction": "none",
+            "configured_far_correction": "cached_kneq0",
             "effective_far_correction": "cached_kneq0",
             "nonzero_mode_backend": "cached_kneq0",
             "zero_mode_policy": "exclude_k0",
@@ -2844,6 +2849,7 @@ def _write_periodic_oracle_receipt(
     *,
     overrides: dict[str, object] | None = None,
     kernel_oracles: dict[str, dict[str, object]] | None = None,
+    shared_operator: bool = False,
 ) -> Path:
     cache_dir = validation_root / "cache/oracles"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -2873,6 +2879,8 @@ def _write_periodic_oracle_receipt(
                 identity["path"] = str(default_cache_path.resolve())
             if str(identity["sha256"]).startswith("__CACHE_SHA256_"):
                 identity["sha256"] = tool._sha256(default_cache_path)
+        if shared_operator:
+            identities["8"] = copy.deepcopy(identities["4"])
         kernel_oracle["cache_diagnostics"] = copy.deepcopy(identities["4"])
         group_for_evaluation = {
             evaluation_label: group
@@ -2881,6 +2889,8 @@ def _write_periodic_oracle_receipt(
         }
         for evaluation in kernel_oracle.get("cache_evaluations", []):
             identity = identities[group_for_evaluation[evaluation["label"]]]
+            if shared_operator:
+                evaluation["fingerprint"] = identity["fingerprint"]
             if str(evaluation["path"]).startswith("__CACHE_PATH_"):
                 evaluation["path"] = identity["path"]
             if str(evaluation["sha256"]).startswith("__CACHE_SHA256_"):
@@ -2918,10 +2928,12 @@ def _write_periodic_oracle_receipt(
     return receipt
 
 
+@pytest.mark.parametrize("shared_operator", [False, True])
 def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
+    shared_operator: bool,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -2932,7 +2944,9 @@ def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
         library=binary,
     )
     library = Path(manifest["analysis_library"]["staged_path"])
-    receipt = _write_periodic_oracle_receipt(tool, validation_root, library)
+    receipt = _write_periodic_oracle_receipt(
+        tool, validation_root, library, shared_operator=shared_operator,
+    )
 
     report = tool._verify_periodic_oracle_receipt(validation_root, library)
 
@@ -2949,8 +2963,8 @@ def test_periodic_oracle_receipt_is_bound_to_library_and_cache_inventory(
     ]
     identities = oracle["cache_identities"]
     assert oracle["cache_diagnostics"] == identities["4"]
-    assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
-    assert identities["4"]["path"] != identities["8"]["path"]
+    assert (identities["4"]["fingerprint"] == identities["8"]["fingerprint"]) is shared_operator
+    assert (identities["4"]["path"] == identities["8"]["path"]) is shared_operator
 
 
 @pytest.mark.parametrize(
@@ -3083,7 +3097,7 @@ def test_periodic_oracle_receipt_rejects_legacy_point_schema(
     ("field_name", "tampered_value"),
     [
         ("requested_periodic_model", "finite_images"),
-        ("configured_far_correction", "cached_kneq0"),
+        ("configured_far_correction", "none"),
         ("effective_far_correction", "none"),
         ("nonzero_mode_backend", "legacy_finite_images"),
         ("zero_mode_policy", "legacy_not_decomposed"),
@@ -3336,7 +3350,6 @@ def test_periodic_oracle_receipt_rejects_triangle_threshold_excess(
         "sha256_drift",
         "cache_miss",
         "cache_build",
-        "group_collision",
     ],
 )
 def test_periodic_oracle_receipt_binds_every_triangle_cache_evaluation(
@@ -3373,13 +3386,6 @@ def test_periodic_oracle_receipt_binds_every_triangle_cache_evaluation(
         evaluations[-1]["hit"] = False
     elif mutation == "cache_build":
         evaluations[-1]["build_count"] = 1
-    else:
-        oracle["cache_identities"]["8"] = copy.deepcopy(oracle["cache_identities"]["4"])
-        coarse = oracle["cache_identities"]["4"]
-        for evaluation in evaluations:
-            if evaluation["label"] == "cosine_8":
-                for key in ("fingerprint", "path", "sha256"):
-                    evaluation[key] = coarse[key]
     _write_periodic_oracle_receipt(
         tool,
         validation_root,
@@ -3387,7 +3393,7 @@ def test_periodic_oracle_receipt_binds_every_triangle_cache_evaluation(
         kernel_oracles=kernel_oracles,
     )
 
-    with pytest.raises(tool.ValidationError, match="cache evaluation|4/8 cache"):
+    with pytest.raises(tool.ValidationError, match="cache evaluation"):
         tool._verify_periodic_oracle_receipt(validation_root, library)
 
 

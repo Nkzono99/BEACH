@@ -215,6 +215,16 @@ source-dir = "tests/fortran"
 main = "test_surface_models.f90"
 
 [[test]]
+name = "test_surface_models_periodic"
+source-dir = "tests/fortran"
+main = "test_surface_models_periodic.f90"
+
+[[example]]
+name = "benchmark_laplace_derivatives"
+source-dir = "benchmarks/fortran"
+main = "benchmark_laplace_derivatives.f90"
+
+[[test]]
 name = "test_dynamics_fmm"
 source-dir = "tests/fortran"
 main = "test_dynamics_fmm.f90"

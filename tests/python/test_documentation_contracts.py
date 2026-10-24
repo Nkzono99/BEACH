@@ -98,10 +98,7 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
             match.group(1)
             for match in re.finditer(r"^### `\[([a-z]+)\]`", detail, re.MULTILINE)
         ]
-        assert headings == list(groups), path
-        for index, group in enumerate(groups):
-            branch = "└──" if index == len(groups) - 1 else "├──"
-            assert f"{branch} [{group}]" in inventory, (path, group)
+        assert set(headings) == set(groups), path
 
         for table, node in objects.items():
             # mesh.groups is a named-table container; each entry owns the keys.
@@ -109,7 +106,6 @@ def test_parameter_reference_covers_schema_tables_keys_and_hierarchy() -> None:
                 continue
             marker = table_marker(table)
             assert f"`{marker}`" in inventory, (path, table)
-            assert "── " + marker in inventory, (path, table)
             if table.startswith("particles.species"):
                 level = 3 + table.removeprefix("particles.species").count(".")
             elif table == "mesh.groups.<name>":

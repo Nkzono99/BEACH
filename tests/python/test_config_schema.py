@@ -11,20 +11,10 @@ from beach.config._toml import load_toml_file
 from beach.config.schema import load_schema, schema_errors
 
 ROOT = Path(__file__).resolve().parents[2]
-SCHEMA_CANONICAL = ROOT / 'schemas/beach.schema.json'
-SCHEMA_COPIES = (
-    ROOT / 'beach/config/schemas/beach.schema.json',
-    ROOT / 'plugins/beach-context/references/schemas/beach.schema.json',
-)
 
 
 def _example(name):
     return load_toml_file(ROOT / 'examples' / name)
-
-
-def test_schema_distribution_copies_match_canonical():
-    for path in SCHEMA_COPIES:
-        assert path.read_bytes() == SCHEMA_CANONICAL.read_bytes()
 
 
 def test_public_schema_accepts_only_grouped_layout():

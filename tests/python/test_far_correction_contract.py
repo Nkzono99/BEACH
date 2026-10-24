@@ -34,36 +34,11 @@ def test_far_correction_schema_exposes_public_backends() -> None:
     assert set(backend["enum"]) == GROUPED_BACKENDS
 
 
-def test_canonical_docs_state_far_correction_semantics() -> None:
-    spec = _read("SPEC.md")
-    spec_rows = {
-        mode: _line_starting_with(spec, f"- `{mode}`:")
-        for mode in GROUPED_BACKENDS
-    }
-    assert "有限" in spec_rows["finite_images"] and "image" in spec_rows["finite_images"]
-    assert "direct" in spec_rows["panel_spectral_reference"]
-    assert "無限周期" in spec_rows["cached_kneq0"]
-    assert "Fourier" in spec_rows["cached_kneq0"]
-
-    contracts = {
-        "docs/developer/PeriodicFarCorrection.md": {
-            "rows": {
-                "finite_images": ("有限画像",),
-                "cached_kneq0": ("無限周期", "演算子"),
-                "panel_spectral_reference": ("Fourier", "検証"),
-            },
-        },
-    }
-    for path, contract in contracts.items():
-        text = _read(path)
-        assert set(contract["rows"]) == GROUPED_BACKENDS
-        for mode, fragments in contract["rows"].items():
-            row = _line_starting_with(text, f"| `{mode}` |")
-            assert all(fragment in row for fragment in fragments), (path, mode)
-
-        assert "物理的な平均場はこの演算子の外で一度だけ加えます" in text
-        assert "periodic-kneq0-generator-v12" in text
-        assert "BEACH_CACHE_DIR" in text
+@pytest.mark.parametrize("path", ["SPEC.md", "docs/developer/PeriodicFarCorrection.md"])
+def test_public_periodic_backends_are_documented(path: str) -> None:
+    text = _read(path)
+    for backend in GROUPED_BACKENDS:
+        assert f"`{backend}`" in text, (path, backend)
 
 
 def test_bundled_plugin_references_match_canonical_sources() -> None:

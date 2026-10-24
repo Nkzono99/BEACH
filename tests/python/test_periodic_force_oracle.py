@@ -14,6 +14,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from native_support import kernel_library_path
+
 from beach import (
     FieldKernel,
     FieldKernelOptions,
@@ -44,13 +46,6 @@ def _load_validation_tool():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
 
 
 def _triangles_at(positions: np.ndarray) -> np.ndarray:
@@ -88,9 +83,17 @@ def _result(
     )
 
 
-def _write_config(path: Path) -> None:
+def _write_config(
+    path: Path,
+    *,
+    theta: float = 0.1,
+    leaf_max: int = 64,
+    order: int = 2,
+    generation_tolerance: float = 1.0e-6,
+    lower_boundary_model: str | None = None,
+) -> None:
     path.write_text(
-        """
+        f"""
 [sim]
 field_solver = "fmm"
 field_bc_mode = "periodic2"
@@ -102,45 +105,32 @@ bc_z_low = "open"
 bc_z_high = "open"
 box_min = [0.0, 0.0, -1.0]
 box_max = [2.0, 2.0, 1.0]
-tree_theta = 0.1
-tree_leaf_max = 64
-tree_order = 2
+tree_theta = {theta}
+tree_leaf_max = {leaf_max}
+tree_order = {order}
 field_periodic_image_layers = 1
 field_periodic_far_correction = "none"
 field_periodic_ewald_layers = 4
-field_periodic_generation_tolerance = 1.0e-6
+field_periodic_generation_tolerance = {generation_tolerance}
 e0 = [0.0, 0.0, 0.0]
 """.strip()
         + "\n",
         encoding="utf-8",
     )
+    if lower_boundary_model is not None:
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                '\n[periodic2]\n'
+                'nonzero_mode_backend = "cached_kneq0"\n'
+                'zero_mode_policy = "exclude_k0"\n'
+                f'lower_boundary_model = "{lower_boundary_model}"\n'
+            )
 
 
 def _write_panel_periodic_config(path: Path) -> None:
-    path.write_text(
-        """
-[sim]
-field_solver = "fmm"
-field_bc_mode = "periodic2"
-bc_x_low = "periodic"
-bc_x_high = "periodic"
-bc_y_low = "periodic"
-bc_y_high = "periodic"
-bc_z_low = "open"
-bc_z_high = "open"
-box_min = [0.0, 0.0, -1.0]
-box_max = [2.0, 2.0, 1.0]
-tree_theta = 0.2
-tree_leaf_max = 16
-tree_order = 4
-field_periodic_image_layers = 1
-field_periodic_far_correction = "none"
-field_periodic_ewald_layers = 4
-field_periodic_generation_tolerance = 1.0e-8
-e0 = [0.0, 0.0, 0.0]
-""".strip()
-        + "\n",
-        encoding="utf-8",
+    _write_config(
+        path, theta=0.2, leaf_max=16, order=4, generation_tolerance=1.0e-8,
+        lower_boundary_model="e_bottom_zero",
     )
 
 
@@ -371,7 +361,7 @@ def test_panel_wrench_identity_transform_records_primary_self_subtraction(
         step=None,
         config_path=config,
         periodic_model="configured",
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         probe = snapshot.object_probe(1)
         transformed_points = RigidTransform.identity().apply(
@@ -426,7 +416,7 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
         step=None,
         config_path=config,
         periodic_model="configured",
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench(
             transform=RigidTransform.translation([0.0, 0.0, 0.25]),
@@ -464,7 +454,7 @@ def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
             step=None,
             config_path=config,
             periodic_model="configured",
-            library_path=_kernel_lib(),
+            library_path=kernel_library_path(),
         ) as snapshot:
             wrenches.append(
                 snapshot.object_probe(1).wrench(
@@ -503,7 +493,7 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
     charges = np.array([1.0e-9, 2.0e-9])
     result = _result(tmp_path, charges)
     with ObjectInteractionSnapshot.from_result(
-        result, step=None, config_path=config, library_path=_kernel_lib()
+        result, step=None, config_path=config, library_path=kernel_library_path()
     ) as snapshot:
         probe = snapshot.object_probe(1)
         shell = finite_shell_wrench(snapshot, probe, None, 1, "symmetric")
@@ -528,7 +518,7 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
         _triangles_at(np.asarray(replicated_pos)),
         np.asarray(replicated_q),
         options=FieldKernelOptions(leaf_max=64),
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as direct:
         expected_field = direct.eval_e_direct(target_points)
     expected_force_samples = target_weights[:, None] * expected_field
@@ -561,7 +551,7 @@ def test_finite_shell_exposes_analytic_bottom_zero_closure(tmp_path: Path) -> No
         _result(tmp_path, charges),
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         probe = snapshot.object_probe(1)
         shell = finite_shell_wrench(snapshot, probe, None, 1, "e_bottom_zero")
@@ -586,7 +576,7 @@ def test_finite_shell_convergence_requires_two_successive_increments(
         _result(tmp_path, np.zeros(2)),
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         probe = snapshot.object_probe(1)
         converged = finite_shell_convergence(
@@ -816,7 +806,7 @@ def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
-    _write_config(config)
+    _write_config(config, lower_boundary_model="e_bottom_zero")
     charges = np.array([1.0e-9, 2.0e-9])
     displacement = np.linspace(0.0, 0.1, 9)
     relative_tolerance = 1.0e-2
@@ -828,7 +818,7 @@ def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         probe = snapshot.object_probe(1)
         infinite = probe.vertical_path(
@@ -893,8 +883,9 @@ def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
     tmp_path: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
-    _write_config(config)
-    displacement = np.linspace(0.0, 0.1, 9)
+    _write_config(config, lower_boundary_model="e_bottom_zero")
+    # Resolve the near-panel force gradient before testing shell convergence.
+    displacement = np.linspace(0.0, 0.1, 33)
     with ObjectInteractionSnapshot.from_result(
         _result(
             tmp_path,
@@ -905,7 +896,7 @@ def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         shells = finite_shell_convergence(
             snapshot,
@@ -991,8 +982,8 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
         )
         identities = result["cache_identities"]
         assert result["cache_diagnostics"] == identities["4"]
-        assert identities["4"]["fingerprint"] != identities["8"]["fingerprint"]
-        assert identities["4"]["path"] != identities["8"]["path"]
+        assert identities["4"]["fingerprint"] == identities["8"]["fingerprint"]
+        assert identities["4"]["path"] == identities["8"]["path"]
         assert all(row["hit"] is True for row in evaluations)
         assert all(row["build_count"] == 0 for row in evaluations)
         cosine = result["neutral_cosine_plane"]
@@ -1096,7 +1087,7 @@ def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=cache_dir,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         field = _physical_field(snapshot, points)
         order3 = snapshot.object_probe(1, quadrature_order=3).wrench()
@@ -1187,7 +1178,7 @@ def test_neutral_cosine_triangle_plane_converges_to_nonzero_mode_solution(
             config_path=config,
             periodic_model="infinite_physical",
             cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-            library_path=_kernel_lib(),
+            library_path=kernel_library_path(),
         ) as snapshot:
             field = snapshot._periodic.eval_e(points)
             potential = snapshot._periodic.eval_phi(points)
@@ -1217,7 +1208,7 @@ def test_finite_shell_closure_path_force_and_potential_work_agree(
         _result(tmp_path, charges),
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         result = finite_shell_convergence(
             snapshot,

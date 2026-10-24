@@ -1,10 +1,11 @@
 import ctypes
 import gc
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
+
+from native_support import kernel_library_path
 
 import beach.native.periodic_zero_mode as zero_mode_module
 from beach import FieldKernelError, PeriodicZeroMode
@@ -39,13 +40,6 @@ def _fake_zero_mode_library() -> tuple[SimpleNamespace, list[object]]:
     return library, destroy_calls
 
 
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
-
-
 def test_periodic_zero_mode_matches_two_sheet_solution_and_traces() -> None:
     area = 2.0
     heights = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
@@ -55,7 +49,7 @@ def test_periodic_zero_mode_matches_two_sheet_solution_and_traces() -> None:
         heights,
         charges,
         area,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as zero:
         phi, ez = zero.eval(np.array([-0.5, 0.0, 0.5, 1.0, 1.5]))
         _, ez_minus = zero.eval(np.array([0.0, 1.0]), trace="minus")
@@ -83,7 +77,7 @@ def test_periodic_zero_mode_charge_update_matches_two_sheet_solution() -> None:
         heights,
         charges,
         area,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as zero:
         zero.update_charges(updated_charges)
         phi, ez = zero.eval(np.array([-0.5, 0.5, 1.5]))
@@ -99,7 +93,7 @@ def test_periodic_zero_mode_rejects_invalid_shape_without_native_library() -> No
 
 def test_periodic_zero_mode_rejects_invalid_trace_and_closed_use() -> None:
     zero = PeriodicZeroMode(
-        np.zeros((1, 3)), np.ones(1), 1.0, library_path=_kernel_lib()
+        np.zeros((1, 3)), np.ones(1), 1.0, library_path=kernel_library_path()
     )
     with pytest.raises(ValueError, match="trace"):
         zero.eval(np.array([0.0]), trace="surface")
@@ -135,7 +129,7 @@ def test_periodic_zero_mode_update_override_is_local_and_preserves_gauge() -> No
         e_bottom_V_m=1.25,
         z_gauge_m=0.25,
         phi_gauge_V=3.0,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as zero:
         default_phi, default_ez = zero.eval(z)
         zero.update_charges(np.zeros(1), e_bottom_V_m=-2.5)

@@ -148,7 +148,8 @@ contains
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_periodic2_two_image_layers_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
     call assert_true(valid_count == 6_i32, 'fmm periodic2 image-layer test lost valid samples')
-    call assert_true(max_rel_err <= 5.0d-1, 'fmm periodic2 image-layer E relative error exceeds 5e-1')
+    ! Use the same field-error budget as the panel FMM contract.
+    call assert_true(max_rel_err <= 2.0d-3, 'fmm periodic2 image-layer E relative error exceeds 2e-3')
   end subroutine test_fmm_periodic2_two_image_layers_accuracy
 
   subroutine test_fmm_periodic2_auto_matches_none()

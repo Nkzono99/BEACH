@@ -4,8 +4,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def close_figures_after_test():
+    yield
+    pyplot = sys.modules.get("matplotlib.pyplot")
+    if pyplot is not None:
+        pyplot.close("all")
 
 
 @pytest.fixture(scope="session")

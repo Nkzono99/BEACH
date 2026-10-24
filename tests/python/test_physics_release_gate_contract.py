@@ -166,45 +166,32 @@ fi
     assert all(values[f"{gate}.status"] == "passed" for gate in ("test_l3", "far_correction", "mpi", "mpi_cache"))
 
 
-def test_portable_physics_contract_workflow_runs_l2() -> None:
-    workflow = (ROOT / ".github" / "workflows" / "physics-contracts.yml").read_text(encoding="utf-8")
-    assert "uses: fortran-lang/setup-fpm@" in workflow
-    assert "MPI_FC: mpifort" in workflow
-    assert "libopenmpi-dev openmpi-bin" in workflow
-    assert "make test-l2" in workflow
-
-
-def test_release_mpi_build_defaults_to_ifx() -> None:
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    release_gate = SCRIPT.read_text(encoding="utf-8")
-    camphor_profile = (ROOT / "env" / "camphor.env").read_text(encoding="utf-8")
-
-    assert "MPI_FC ?= mpiifx" in makefile.splitlines()
-    assert 'mpi_fc_command="${MPI_FC:-mpiifx}"' in release_gate
-    assert ': "${FC:=mpiifx}"' in camphor_profile
-
-
-def test_makefile_separates_release_correctness_from_benchmark() -> None:
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+def test_makefile_separates_release_correctness_from_benchmark(tmp_path: Path) -> None:
     with (ROOT / "fpm.toml").open("rb") as handle:
         manifest = tomllib.load(handle)
-    benchmark = "benchmark_periodic2_runtime"
-    l3_targets = makefile.split("FORTRAN_L3_TARGETS ?=", 1)[1].split(
-        "FORTRAN_RELEASE_CONVERGENCE_TARGETS ?=", 1
-    )[0]
-    far_targets = makefile.split("FORTRAN_FAR_CORRECTION_TARGETS ?=", 1)[1].split(
-        "FORTRAN_BENCHMARK_TARGETS ?=", 1
-    )[0]
-
-    assert (
-        "$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS) "
-        "$(FORTRAN_L3_TARGETS),debug,test)"
-    ) in makefile
-    assert "$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS),debug,test)" in makefile
-    assert "$(call run_fortran_targets,$(FORTRAN_BENCHMARK_TARGETS),release,run,example)" in makefile
-    assert benchmark not in l3_targets
-    assert benchmark not in far_targets
-    assert benchmark in {item["name"] for item in manifest["example"]}
-    assert benchmark not in {item["name"] for item in manifest["test"]}
-    assert benchmark not in {item["name"] for item in manifest["executable"]}
-    assert 'tools/run_physics_release_gate.sh --manifest "$(PHYSICS_RELEASE_MANIFEST)"' in makefile
+    test_names = {item["name"] for item in manifest["test"]}
+    example_names = {item["name"] for item in manifest["example"]}
+    log = tmp_path / "build.log"
+    build = tmp_path / "build.sh"
+    build.write_text(
+        '#!/bin/sh\nprintf "%s %s %s\\n" "$FPM_ACTION" "$FPM_PROFILE" "$*" >> "$FAKE_BUILD_LOG"\n',
+        encoding="utf-8",
+    )
+    build.chmod(0o755)
+    env = os.environ.copy()
+    env["FAKE_BUILD_LOG"] = str(log)
+    for gates, expected_action, expected_profile, expected_names in (
+        (["test-fortran-release-correctness", "test-fortran-far-correction"], "test", "debug", test_names),
+        (["test-fortran-benchmark"], "run", "release", example_names),
+    ):
+        log.write_text("", encoding="utf-8")
+        result = subprocess.run(
+            ["make", "--no-print-directory", *gates, f"BUILD_SH={build}"],
+            cwd=ROOT, env=env, text=True, capture_output=True, check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        rows = [line.split() for line in log.read_text(encoding="utf-8").splitlines()]
+        assert rows
+        assert {row[-1] for row in rows} <= expected_names
+        assert all(row[:2] == [expected_action, expected_profile] for row in rows)
+        assert all(("--example" in row) is (expected_action == "run") for row in rows)

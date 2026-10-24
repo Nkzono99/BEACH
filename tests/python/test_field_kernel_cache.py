@@ -14,13 +14,13 @@ if os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1":
     )
 
 from beach import FieldKernel, FieldKernelOptions  # noqa: E402
+from native_support import kernel_library_path  # noqa: E402
 
 
 def test_field_kernel_periodic_cache_reuses_only_matching_identity(
     tmp_path: Path,
 ) -> None:
-    lib = Path("build/libbeach_field_kernel.so")
-    assert lib.exists(), "run `make build-kernel` before the opt-in cache test"
+    lib = kernel_library_path()
     source_centers = np.array(
         [
             [0.30, 0.40, -0.20],

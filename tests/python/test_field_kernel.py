@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from native_support import kernel_library_path
+
 import beach.native.kernel as kernel_module
 from beach.cli.main import main as beachx_main
 from beach import (
@@ -167,13 +169,6 @@ def _one_panel_source() -> tuple[np.ndarray, np.ndarray]:
         ),
         np.array([0.0], dtype=float),
     )
-
-
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
 
 
 def test_field_kernel_diagnostics_is_a_frozen_top_level_api() -> None:
@@ -637,6 +632,13 @@ def test_field_kernel_minimal_library_rejects_models_requiring_cache_setter(
             Path("/tmp/cache/operator.bin"),
         ),
         ((0, 0, b"", b""), None, 0, None, None),
+        (
+            (1, 0, b"c0ffee1234abcdef", ("/tmp/" + "cache-é/" * 80 + "operator.bin").encode("utf-8")),
+            True,
+            0,
+            "c0ffee1234abcdef",
+            Path("/tmp/" + "cache-é/" * 80 + "operator.bin"),
+        ),
     ],
 )
 def test_field_kernel_diagnostics_decodes_cache_metadata(
@@ -647,7 +649,7 @@ def test_field_kernel_diagnostics_decodes_cache_metadata(
     expected_fingerprint: str | None,
     expected_path: Path | None,
 ) -> None:
-    lib = _install_fake_kernel(
+    _install_fake_kernel(
         monkeypatch,
         _FakeKernelLibrary(
             cache_setter=True,
@@ -664,7 +666,6 @@ def test_field_kernel_diagnostics_decodes_cache_metadata(
     assert diagnostics.periodic_operator_build_count == expected_count
     assert diagnostics.periodic_cache_fingerprint == expected_fingerprint
     assert diagnostics.periodic_cache_path == expected_path
-    assert len(lib.beach_kernel_get_periodic_cache_info.calls) == 2
 
 
 def test_field_kernel_diagnostics_requires_new_symbol(
@@ -806,7 +807,7 @@ def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails
 
 
 def test_field_kernel_eval_e_matches_exact_panel_direct() -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]],
@@ -825,7 +826,7 @@ def test_field_kernel_eval_e_matches_exact_panel_direct() -> None:
 
 
 def test_field_kernel_exact_panel_direct_scales_with_charge_refresh() -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     centers = np.array(
         [[-0.6, -0.2, 0.0], [0.0, 0.4, 0.1], [0.7, -0.3, -0.1]],
         dtype=float,
@@ -854,7 +855,7 @@ def test_field_kernel_exact_panel_direct_scales_with_charge_refresh() -> None:
 
 
 def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
@@ -888,7 +889,7 @@ def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None
 
 
 def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature() -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
@@ -911,7 +912,7 @@ def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature
 
 
 def test_field_kernel_periodic2_wraps_batched_equivalent_targets() -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 0.75, 0.0]]],
         dtype=float,
@@ -944,7 +945,7 @@ def test_field_kernel_periodic2_wraps_batched_equivalent_targets() -> None:
 
 
 def test_field_kernel_adds_uniform_external_e0() -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]]],
         dtype=float,
@@ -1088,7 +1089,7 @@ def test_resolved_treecode_backend_rejects_before_native_build(
 
 
 def test_calc_object_forces_kernel_excludes_self_sources(tmp_path: Path) -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     (tmp_path / "beach.toml").write_text(
         '[sim]\nfield_bc_mode = "free"\n',
         encoding="utf-8",
@@ -1134,7 +1135,7 @@ def test_field_kernel_options_rejects_removed_softening() -> None:
 
 
 def test_scene_move_updates_kernel_force_geometry(tmp_path: Path) -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     (tmp_path / "beach.toml").write_text(
         '[sim]\nfield_bc_mode = "free"\n',
         encoding="utf-8",
@@ -1267,7 +1268,7 @@ def test_scene_rotate_keeps_charges_attached_to_mesh_elements(tmp_path: Path) ->
 
 
 def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
-    lib = _kernel_lib()
+    lib = kernel_library_path()
     out = tmp_path / "run"
     out.mkdir()
     config_path = tmp_path / "beach.toml"

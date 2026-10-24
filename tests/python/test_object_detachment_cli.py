@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from native_support import kernel_library_path
+
 import examples.analyze_periodic_object_detachment as example_module
 from beach import (
     Beach,
@@ -689,13 +691,6 @@ def test_example_validates_inputs_before_constructing_beach(
         example_module.main()
 
 
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
-
-
 def test_object_detachment_cli_native_two_object_smoke(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
@@ -756,7 +751,7 @@ e0 = [0.0, 0.0, 0.0]
             "--gravity-m-s2",
             "0",
             "--library",
-            str(_kernel_lib()),
+            str(kernel_library_path()),
             "--save-dir",
             str(artifact_dir),
         ]

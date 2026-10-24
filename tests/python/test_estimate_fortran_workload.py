@@ -6,17 +6,12 @@ from pathlib import Path
 import pytest
 
 from beach.tooling.workload import (
-    ALLOWED_SIM_KEYS,
-    ALLOWED_SPECIES_KEYS,
-    DEFAULT_SIM,
-    DEFAULT_SPECIES,
     completed_batches_from_resume_config,
     estimate_workload,
     load_toml,
     read_macro_residuals,
 )
 from beach.config import default_config
-from beach.config.schema import schema_definition_defaults, schema_definition_property_names
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -94,19 +89,6 @@ def _photo_raycast_species(**overrides: object) -> dict[str, object]:
     }
     species.update(overrides)
     return species
-
-
-def test_workload_allowed_keys_follow_packaged_schema() -> None:
-    assert ALLOWED_SIM_KEYS == schema_definition_property_names("sim")
-    assert ALLOWED_SPECIES_KEYS == schema_definition_property_names("species")
-
-
-def test_workload_defaults_follow_packaged_schema() -> None:
-    for definition, defaults in (("sim", DEFAULT_SIM), ("species", DEFAULT_SPECIES)):
-        schema_defaults = schema_definition_defaults(definition)
-        shared = set(defaults) & set(schema_defaults)
-        assert shared, definition
-        assert {key: defaults[key] for key in shared} == {key: schema_defaults[key] for key in shared}
 
 
 def test_estimate_workload_accepts_generated_and_tutorial_configs() -> None:

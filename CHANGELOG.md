@@ -3,6 +3,25 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+
+- 通常の開発テストから周期検証 workflow の全ケースを分離し、代表 3 ケースを残した。
+  全ケースは `make test-validation-workflow` と CI で実行する。
+- L2 で共有 field kernel を build して Python/native 数値比較を実行し、lint CLI の native 設定契約も確認する。
+  `make test-field-kernel-cache` は周期解析解と有限 shell の検証も実行する。
+- 周期導体のテストを遠方補正 gate に、Laplace 偏微分の速度比較を release benchmark に移した。
+  同じ schema 値の再比較と文書書式・内部呼出し回数の固定を削減し、C header の compile probe を compiler 間で利用できる形式にした。
+- periodic2 image-layer の FMM 回帰を panel FMM と同じ相対誤差 0.2% で確認する。
+
+### Fixed
+
+- opt-in 周期力テストの zero-mode 設定と、平面 oracle receipt の backend 期待値を現行の明示的な周期場契約に合わせた。
+- 平面 oracle が mesh 解像度ごとに異なる cache identity を要求する誤検知を修正した。
+  同じ box-cell 演算子の再利用を認め、評価ごとの path・fingerprint・SHA256 の照合を維持する。
+- 近接場の有限 shell テストで経路の標本点を 9 点から 33 点に増やし、1% の仕事誤差条件を満たす積分解像度で比較する。
+
 ## [4.0.0] - 2026-10-23
 
 Python API と CLI の破壊的変更を含む。移行に必要な変更点を以下に示す。

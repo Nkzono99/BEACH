@@ -5,6 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from native_support import kernel_library_path
+
 import beach.analysis.object_interaction as interaction_module
 from beach import (
     FieldKernelError,
@@ -14,13 +16,6 @@ from beach import (
 )
 from beach import K_COULOMB
 from beach.analysis.panel_quadrature import panel_target_quadrature
-
-
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
 
 
 def _result(
@@ -140,7 +135,7 @@ def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -167,7 +162,7 @@ def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) ->
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         order3 = snapshot.object_probe(2, quadrature_order=3).wrench()
         order7 = snapshot.object_probe(2, quadrature_order=7).wrench()
@@ -198,7 +193,7 @@ def test_near_surface_panel_quadrature_differs_from_centroid_compatibility(
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         centroid = snapshot.object_probe(
             2,

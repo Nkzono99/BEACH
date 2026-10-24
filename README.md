@@ -76,9 +76,11 @@ camphor 用の通常精度・高速ビルドは [インストール手順](docs/
 python -m pip install fpm
 python -m pip install -e '.[dev]' --no-build-isolation
 make check
+make test         # 通常の開発テスト
 ```
 
-テストの種類と実行方法は [開発とテスト](https://nkzono99.github.io/BEACH/workflow.html) を参照してください。
+Python/native 間の数値比較は `make test-l2`、周期検証ツールの全ケースは `make test-validation-workflow` で実行します。
+テストの種類と実行方法は [開発とテスト](docs/developer/Workflow.md) を参照してください。
 
 ## ライセンス
 

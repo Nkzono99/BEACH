@@ -55,10 +55,12 @@ Python CLI examples:
 - Fortran build check: `make check` (uses stable dev version metadata for incremental fpm builds)
 - Tiered tests:
   - L0 static/build: `make test-l0` (`git diff --check`, `ruff check .`, `mypy`, JSON schema parse checks, `make check`)
-  - L1 development loop: `make test` or `make test-l1` (Python tests + quick Fortran targets, excluding heavy FMM)
-  - L2 contract/integration: `make test-l2` (L1 + C/kernel contract target)
+  - L1 development loop: `make test` or `make test-l1` (ordinary Python tests + workflow smoke + quick Fortran targets)
+  - L2 contract/integration: `make test-l2` (L1 + C ABI + freshly built Python/native kernel + config/CLI contracts)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
-- Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel, passes its absolute path to the periodic plane-oracle receipt test, and is excluded from L1/L2/L3 and `test-physics-release`)
+- Validation workflow: `make test-validation-workflow` runs every periodic staging/provenance/analysis case; CI runs it separately from L2. `make test-python` keeps three workflow smoke cases; plain `pytest -q` collects the full suite.
+- Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel and runs cache reuse, shell/infinite comparisons, analytic plane oracles, and receipt tests; excluded from L1/L2/L3 and `test-physics-release`)
+- Periodic conductor relaxation: `test_surface_models_periodic` runs in `make test-fortran-far-correction`; free-space conductor tests stay in L1. Laplace derivative timings run only as a release benchmark.
 - Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`
 - Fortran format: `fprettify -i 2` for `*.f90` / `*.F90` (`*.i90` is excluded). Prefer `make fmt-fortran`, `make fmt-check-fortran`, and `pre-commit install`.
 - KUDPC のログインノード（`camphor*`, `laurel*`, `cinnamon*`, `gardenia*`）、アプリケーションサーバ、ファイル転送サーバでは、`make test*` / `fpm test` / 長時間の Fortran テストターゲットを直接実行しない。KUDPC plugin のホスト判定または `hostname` でノード種別を確認し、Slurm 割当内でない場合は計算ノードに投入する。

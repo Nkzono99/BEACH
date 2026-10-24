@@ -10,7 +10,7 @@
 	test-fortran-far-correction test-fortran-benchmark \
 	benchmark-field-kernel \
 	test-field-kernel-cache \
-	test-python test-quick test-ci test-local \
+	test-python test-python-native test-validation-workflow test-quick test-ci test-local \
 	build-kernel \
 	fmt-fortran fmt-check-fortran install-hooks \
 	build-mpi run-mpi test-mpi test-mpi-periodic-cache \
@@ -19,7 +19,7 @@
 .NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
 	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
-	test-field-kernel-cache \
+	test-field-kernel-cache test-python-native \
 	test-mpi test-mpi-periodic-cache test-config-contract
 
 .DEFAULT_GOAL := install
@@ -95,6 +95,7 @@ FORTRAN_L3_TARGETS ?= \
 FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
 	test_dynamics_basic
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
+	test_surface_models_periodic \
 	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
@@ -106,7 +107,8 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic_nonzero_reference \
 	test_periodic_nonzero_upper_vacuum
 FORTRAN_BENCHMARK_TARGETS ?= \
-	benchmark_periodic2_runtime
+	benchmark_periodic2_runtime \
+	benchmark_laplace_derivatives
 FIELD_KERNEL_BENCHMARK_TARGET_COUNT ?= 2048
 KERNEL_FC ?= gfortran
 KERNEL_LIB ?= build/libbeach_field_kernel.so
@@ -236,7 +238,7 @@ test: test-l1
 
 test-l1: test-l0 test-python test-fortran-light
 
-test-l2: test-l1 test-fortran-contract test-config-contract
+test-l2: test-l1 test-fortran-contract test-config-contract test-python-native
 
 test-config-contract:
 	BEACH_VERSION_MODE=$(CHECK_VERSION_MODE) FPM=$(FPM) FPM_ACTION=run \
@@ -282,13 +284,23 @@ benchmark-field-kernel:
 test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel
 	$(call run_fortran_targets,test_field_kernel_cache_c,debug,test)
-	$(PYTHON) -m pytest -q tests/python/test_field_kernel_cache.py
 	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
 		$(PYTHON) -m pytest -q \
-		tests/python/test_periodic_force_oracle.py::test_validation_tool_native_plane_oracles_match_receipt_contract
+		tests/python/test_field_kernel_cache.py tests/python/test_periodic_force_oracle.py
 
 test-python:
-	$(PYTHON) -m pytest -q
+	$(PYTHON) -m pytest -q -m 'not workflow or smoke'
+
+test-validation-workflow:
+	$(PYTHON) -m pytest -q tests/python/test_periodic_object_validation_tool.py
+
+test-python-native: build-kernel
+	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
+		$(PYTHON) -m pytest -q \
+		tests/python/test_field_kernel.py tests/python/test_field_kernel_abi_contract.py \
+		tests/python/test_object_interaction.py tests/python/test_object_panel_interaction.py \
+		tests/python/test_periodic_zero_mode.py tests/python/test_periodic_force_oracle.py \
+		tests/python/test_object_detachment_cli.py::test_object_detachment_cli_native_two_object_smoke
 
 test-quick: test-l1
 

@@ -68,6 +68,10 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+markers = [
+    "workflow: full periodic-validation staging, provenance, and analysis contracts",
+    "smoke: representative workflow contracts included in the development loop",
+]
 
 [tool.ruff]
 line-length = 88

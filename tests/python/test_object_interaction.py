@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from native_support import kernel_library_path
+
 import beach.analysis.field_kernel as field_kernel_module
 import beach.analysis.object_interaction as interaction_module
 from beach import (
@@ -19,13 +21,6 @@ from beach import (
     ObjectInteractionSnapshot,
     RigidTransform,
 )
-
-
-def _kernel_lib() -> Path:
-    path = Path("build/libbeach_field_kernel.so")
-    if not path.exists():
-        pytest.skip("field kernel shared library is not built; run `make build-kernel`")
-    return path
 
 
 def _triangles_at(positions: np.ndarray) -> np.ndarray:
@@ -175,7 +170,7 @@ def test_free_single_object_excludes_only_its_primary_source(tmp_path: Path) -> 
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -200,7 +195,7 @@ def test_free_two_object_force_is_coulomb_action_reaction(tmp_path: Path) -> Non
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         first = snapshot.object_probe(1).wrench(torque_origin="origin")
         second = snapshot.object_probe(2).wrench(torque_origin="origin")
@@ -548,7 +543,7 @@ def test_neutral_target_has_zero_vertical_whole_object_force_in_symmetric_shell(
         result,
         step=None,
         config_path=config,
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -956,7 +951,7 @@ def test_numpy_wrench_aggregation_matches_native_force_on_charges() -> None:
         source_triangles,
         source_charges,
         options=FieldKernelOptions(),
-        library_path=_kernel_lib(),
+        library_path=kernel_library_path(),
     ) as kernel:
         field = kernel.eval_e(target_positions)
         potential = kernel.eval_phi(target_positions)
