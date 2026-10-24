@@ -9,7 +9,7 @@ module bem_collision
                               collision_query_invalid_segment, collision_query_grid_stalled
   implicit none
   integer(i64), parameter :: max_periodic2_collision_images = 4096_i64
-  private :: finalize_collision_query, report_collision_grid_stall
+  private :: compute_periodic_shift_bounds, report_collision_grid_stall
 contains
 
   !> 線分 `[p0,p1]` に対して最初に衝突する三角形要素を探索し、命中情報を返す。
@@ -17,7 +17,7 @@ contains
   !! @param[in] p0 線分始点（粒子の移動前位置） [m]。
   !! @param[in] p1 線分終点（粒子の移動後候補位置） [m]。
   !! @param[out] hit 最初に命中した要素インデックス・命中位置・線分パラメータを格納。
-  !! @param[out] status 照会完了状態。未指定時に照会が不完全なら停止する。
+  !! @param[out] status 照会完了状態。不完全な照会は `collision_query_ok` 以外を返し、扱いは呼び出し側が決める。
   subroutine find_first_hit(mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status)
     type(mesh_type), intent(in) :: mesh
     real(dp), intent(in) :: p0(3), p1(3)
@@ -25,16 +25,14 @@ contains
     class(particle_domain_config), intent(in), optional :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
-    integer(i32), intent(out), optional :: status
+    integer(i32), intent(out) :: status
 
     logical :: use_periodic2
-    integer(i32) :: query_status
 
     use_periodic2 = .false.
-    query_status = collision_query_ok
     if (any(.not. ieee_is_finite(p0)) .or. any(.not. ieee_is_finite(p1))) then
       call initialize_hit(hit)
-      call finalize_collision_query(collision_query_invalid_segment, status)
+      status = collision_query_invalid_segment
       return
     end if
     ! periodic2 の周期軸と周期長は prepare_periodic2_collision_mesh が mesh に解決済み。query ごとに解き直さない。
@@ -42,12 +40,11 @@ contains
 
     if (use_periodic2) then
       call find_first_hit_periodic2( &
-        mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status=query_status &
+        mesh, p0, p1, hit, sim, box_min, box_max, require_elem_inside, status &
         )
     else
-      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status=query_status)
+      call find_first_hit_base(mesh, p0, p1, hit, box_min, box_max, require_elem_inside, status)
     end if
-    call finalize_collision_query(query_status, status)
   end subroutine find_first_hit
 
   !> 通常メッシュに対する最初の命中要素探索を行う。
@@ -57,15 +54,14 @@ contains
     type(hit_info), intent(out) :: hit
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
-    integer(i32), intent(out), optional :: status
+    integer(i32), intent(out) :: status
 
     real(dp) :: d(3), seg_min(3), seg_max(3), best_t
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
     logical :: use_box_filter, require_inside_elem
-    integer(i32) :: query_status
 
     call initialize_hit(hit)
-    query_status = collision_query_ok
+    status = collision_query_ok
 
     d = p1 - p0
     seg_min = min(p0, p1)
@@ -79,7 +75,7 @@ contains
     if (mesh%use_collision_grid) then
       call find_first_hit_base_grid( &
         mesh, p0, p1, d, seg_min, seg_max, hit, best_t, &
-        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem, query_status &
+        use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem, status &
         )
     else
       call find_first_hit_base_linear( &
@@ -87,7 +83,6 @@ contains
         use_box_filter, box_min_local, box_max_local, box_tol, require_inside_elem &
         )
     end if
-    call finalize_collision_query(query_status, status)
   end subroutine find_first_hit_base
 
   !> periodic2 用に image shift を列挙し、base collision の結果を統合する。
@@ -98,9 +93,9 @@ contains
     class(particle_domain_config), intent(in) :: sim
     real(dp), intent(in), optional :: box_min(3), box_max(3)
     logical, intent(in), optional :: require_elem_inside
-    integer(i32), intent(out), optional :: status
+    integer(i32), intent(out) :: status
 
-    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis, bound_status, base_status
+    integer(i32) :: periodic_axes(2), image_shift(2), nmin(2), nmax(2), iaxis
     integer(i64) :: image_count(2), total_image_count, n1, n2
     real(dp) :: periodic_len(2), shift_vec(3), candidate_pos(3), candidate_wrapped(3)
     real(dp) :: box_min_local(3), box_max_local(3), box_tol
@@ -109,7 +104,7 @@ contains
     logical :: use_box_filter, require_inside_elem
 
     call initialize_hit(hit)
-    if (present(status)) status = collision_query_ok
+    status = collision_query_ok
     if (.not. mesh%periodic2_collision_ready) then
       error stop 'periodic2 collision requires prepare_periodic2_collision_mesh before ray queries.'
     end if
@@ -123,23 +118,20 @@ contains
 
     do iaxis = 1, 2
       call compute_periodic_shift_bounds( &
-        mesh, p0, p1, periodic_axes(iaxis), periodic_len(iaxis), nmin(iaxis), nmax(iaxis), bound_status &
+        mesh, p0, p1, periodic_axes(iaxis), periodic_len(iaxis), nmin(iaxis), nmax(iaxis), status &
         )
-      if (bound_status /= collision_query_ok) then
-        call finalize_collision_query(bound_status, status)
-        return
-      end if
+      if (status /= collision_query_ok) return
       if (nmin(iaxis) > nmax(iaxis)) return
     end do
     image_count = int(nmax, kind=i64) - int(nmin, kind=i64) + 1_i64
     if (any(image_count <= 0_i64)) return
     if (any(image_count > max_periodic2_collision_images)) then
-      call finalize_collision_query(collision_query_image_limit, status)
+      status = collision_query_image_limit
       return
     end if
     total_image_count = image_count(1)*image_count(2)
     if (total_image_count > max_periodic2_collision_images) then
-      call finalize_collision_query(collision_query_image_limit, status)
+      status = collision_query_image_limit
       return
     end if
 
@@ -152,11 +144,8 @@ contains
         shifted_p0 = p0 - shift_vec
         shifted_p1 = p1 - shift_vec
 
-        call find_first_hit_base(mesh, shifted_p0, shifted_p1, candidate, status=base_status)
-        if (base_status /= collision_query_ok) then
-          call finalize_collision_query(base_status, status)
-          return
-        end if
+        call find_first_hit_base(mesh, shifted_p0, shifted_p1, candidate, status=status)
+        if (status /= collision_query_ok) return
         if (.not. candidate%has_hit) cycle
 
         candidate_pos = candidate%pos + shift_vec
@@ -740,15 +729,14 @@ contains
     integer(i32), intent(in) :: axis
     real(dp), intent(in) :: period_len
     integer(i32), intent(out) :: nmin, nmax
-    integer(i32), intent(out), optional :: status
+    integer(i32), intent(out) :: status
 
-    integer(i32) :: query_status
     integer(i64) :: nmin_i64, nmax_i64, i32_min_i64, i32_max_i64
     real(dp) :: seg_min, seg_max, mesh_min, mesh_max, tol, lower_bound, upper_bound, i64_limit
 
     nmin = 0_i32
     nmax = -1_i32
-    query_status = collision_query_ok
+    status = collision_query_ok
     seg_min = min(p0(axis), p1(axis))
     seg_max = max(p0(axis), p1(axis))
     mesh_min = mesh%grid_bb_min(axis)
@@ -758,14 +746,14 @@ contains
     lower_bound = (seg_min - mesh_max - tol)/period_len
     upper_bound = (seg_max - mesh_min + tol)/period_len
     if (.not. ieee_is_finite(lower_bound) .or. .not. ieee_is_finite(upper_bound)) then
-      call finalize_collision_query(collision_query_index_range, status)
+      status = collision_query_index_range
       return
     end if
 
     i64_limit = real(huge(0_i64), dp)
     if (lower_bound <= -i64_limit .or. lower_bound >= i64_limit .or. &
         upper_bound <= -i64_limit .or. upper_bound >= i64_limit) then
-      call finalize_collision_query(collision_query_index_range, status)
+      status = collision_query_index_range
       return
     end if
 
@@ -775,40 +763,13 @@ contains
     i32_min_i64 = -i32_max_i64 - 1_i64
     if (nmin_i64 < i32_min_i64 .or. nmin_i64 > i32_max_i64 .or. &
         nmax_i64 < i32_min_i64 .or. nmax_i64 > i32_max_i64) then
-      call finalize_collision_query(collision_query_index_range, status)
+      status = collision_query_index_range
       return
     end if
 
     nmin = int(nmin_i64, i32)
     nmax = int(nmax_i64, i32)
-    call finalize_collision_query(query_status, status)
   end subroutine compute_periodic_shift_bounds
-
-  !> 不完全な照会を status 要求元へ返し、未要求の既存 caller は fail closed で停止する。
-  subroutine finalize_collision_query(query_status, status)
-    integer(i32), intent(in) :: query_status
-    integer(i32), intent(out), optional :: status
-
-    if (present(status)) then
-      status = query_status
-      return
-    end if
-
-    select case (query_status)
-    case (collision_query_ok)
-      continue
-    case (collision_query_image_limit)
-      error stop 'periodic2 collision query incomplete: image enumeration limit exceeded.'
-    case (collision_query_index_range)
-      error stop 'periodic2 collision query incomplete: image index is outside the supported i32 range.'
-    case (collision_query_invalid_segment)
-      error stop 'collision query incomplete: segment coordinates must be finite.'
-    case (collision_query_grid_stalled)
-      error stop 'collision query incomplete: collision-grid traversal failed to make bounded progress.'
-    case default
-      error stop 'periodic2 collision query incomplete: unknown collision query status.'
-    end select
-  end subroutine finalize_collision_query
 
   !> point を primary cell へ折り返す。
   subroutine wrap_periodic2_point(point, box_min, periodic_axes, periodic_len)

@@ -8,12 +8,12 @@ program test_dynamics_basic
   use bem_field_solver, only: field_solver_type
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_pusher, only: boris_push, boris_update_velocity
-  use bem_collision, only: compute_periodic_shift_bounds, find_first_hit, segment_triangle_intersect
+  use bem_collision, only: find_first_hit, segment_triangle_intersect
   use bem_status_codes, only: collision_query_grid_stalled, collision_query_image_limit, &
                               collision_query_index_range, collision_query_invalid_segment, collision_query_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d, delete_file_if_exists, &
-                          run_self_probe, file_contains
+                          run_self_probe
   implicit none
 
   type(mesh_type) :: mesh_field, mesh_hit
@@ -22,22 +22,17 @@ program test_dynamics_basic
   real(dp) :: v0_field(3, 1), v1_field(3, 1), v2_field(3, 1), q0_field(1)
   real(dp) :: v0_hit(3, 2), v1_hit(3, 2), v2_hit(3, 2)
   real(dp) :: e(3), x_new(3), v_new(3), speed0, speed1
-  integer(i32) :: side_status
+  integer(i32) :: side_status, query_status
   character(len=128) :: side_message
-  character(len=*), parameter :: collision_failure_path = 'test_dynamics_basic_collision_failure_tmp.log'
   character(len=64) :: run_mode
 
   call get_command_argument(1, run_mode)
-  if (trim(run_mode) == '--collision-status-omitted-probe') then
-    call run_collision_status_omitted_probe()
-    error stop 'collision status omitted probe unexpectedly completed'
-  end if
   if (trim(run_mode) == '--collision-grid-stall-probe') then
     call run_collision_grid_stall_probe()
     stop
   end if
 
-  call test_init(24)
+  call test_init(22)
 
   call test_begin('triangle_p0_electric_field')
   v0_field(:, 1) = [1.0d0, 0.0d0, 0.0d0]
@@ -104,13 +99,15 @@ program test_dynamics_basic
   v2_hit(:, 2) = [0.0d0, 1.0d0, 0.0d0]
   call init_mesh(mesh_hit, v0_hit, v1_hit, v2_hit)
 
-  call find_first_hit(mesh_hit, [0.2d0, 0.2d0, 2.0d0], [0.2d0, 0.2d0, -1.0d0], hit)
+  call find_first_hit(mesh_hit, [0.2d0, 0.2d0, 2.0d0], [0.2d0, 0.2d0, -1.0d0], hit, status=query_status)
+  call assert_equal_i32(query_status, collision_query_ok, 'hit query status mismatch')
   call assert_true(hit%has_hit, 'segment should hit the mesh')
   call assert_equal_i32(hit%elem_idx, 1_i32, 'first hit should be the nearer triangle')
   call assert_close_dp(hit%t, 1.0d0/3.0d0, 1.0d-12, 'hit parameter mismatch')
   call assert_close_dp(hit%pos(3), 1.0d0, 1.0d-12, 'hit position mismatch')
 
-  call find_first_hit(mesh_hit, [0.9d0, 0.9d0, 2.0d0], [0.9d0, 0.9d0, -1.0d0], hit)
+  call find_first_hit(mesh_hit, [0.9d0, 0.9d0, 2.0d0], [0.9d0, 0.9d0, -1.0d0], hit, status=query_status)
+  call assert_equal_i32(query_status, collision_query_ok, 'miss query status mismatch')
   call assert_true(.not. hit%has_hit, 'segment outside triangle should not hit')
   call test_end()
 
@@ -138,10 +135,6 @@ program test_dynamics_basic
   call test_periodic2_collision_i32_lower_boundary()
   call test_end()
 
-  call test_begin('periodic_shift_bounds_legacy_signature')
-  call test_periodic_shift_bounds_legacy_signature()
-  call test_end()
-
   call test_begin('periodic2_collision_index_range_guard')
   call test_periodic2_collision_index_range_guard()
   call test_end()
@@ -160,10 +153,6 @@ program test_dynamics_basic
 
   call test_begin('collision_grid_stall_guard')
   call test_collision_grid_stall_guard()
-  call test_end()
-
-  call test_begin('periodic2_collision_status_omitted_fails_closed')
-  call test_periodic2_collision_status_omitted_fails_closed()
   call test_end()
 
   call test_begin('periodic2_collision_canonical_prepare')
@@ -380,8 +369,10 @@ contains
     real(dp), intent(in) :: p0(3), p1(3)
     character(len=*), intent(in) :: label
     type(hit_info) :: hit_fast, hit_ref
+    integer(i32) :: query_status
 
-    call find_first_hit(mesh, p0, p1, hit_fast)
+    call find_first_hit(mesh, p0, p1, hit_fast, status=query_status)
+    call assert_equal_i32(query_status, collision_query_ok, trim(label)//': query status mismatch')
     call find_first_hit_bruteforce(mesh, p0, p1, hit_ref)
 
     call assert_true(hit_fast%has_hit .eqv. hit_ref%has_hit, trim(label)//': has_hit mismatch')
@@ -429,10 +420,14 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
 
     call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
-    call find_first_hit(mesh_periodic, [1.2d0, 0.25d0, 1.0d0], [1.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
+    call find_first_hit( &
+      mesh_periodic, [1.2d0, 0.25d0, 1.0d0], [1.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32(query_status, collision_query_ok, 'periodic2 collision status mismatch')
     call assert_true(hit_periodic%has_hit, 'periodic2 collision should hit opposite-side image')
     call assert_equal_i32(hit_periodic%elem_idx, 1_i32, 'periodic2 collision elem_idx mismatch')
     call assert_close_dp(hit_periodic%t, 0.5d0, 1.0d-12, 'periodic2 collision t mismatch')
@@ -447,10 +442,14 @@ contains
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
+    integer(i32) :: query_status
 
     call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
 
-    call find_first_hit(mesh_periodic, [3.2d0, -0.75d0, 1.0d0], [3.2d0, -0.75d0, -1.0d0], hit_periodic, sim=sim)
+    call find_first_hit( &
+      mesh_periodic, [3.2d0, -0.75d0, 1.0d0], [3.2d0, -0.75d0, -1.0d0], hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32(query_status, collision_query_ok, 'periodic2 multi-cell status mismatch')
     call assert_true(hit_periodic%has_hit, 'periodic2 collision should support multi-cell image search')
     call assert_close_dp(hit_periodic%pos_wrapped(1), 0.2d0, 1.0d-12, 'periodic2 multi-cell wrapped x mismatch')
     call assert_close_dp(hit_periodic%pos_wrapped(2), 0.25d0, 1.0d-12, 'periodic2 multi-cell wrapped y mismatch')
@@ -586,19 +585,6 @@ contains
       )
   end subroutine test_periodic2_collision_i32_lower_boundary
 
-  subroutine test_periodic_shift_bounds_legacy_signature()
-    type(mesh_type) :: mesh_periodic
-    integer(i32) :: nmin, nmax
-
-    call init_standard_collision_mesh(mesh_periodic)
-
-    call compute_periodic_shift_bounds( &
-      mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [0.2d0, 0.25d0, -1.0d0], 1_i32, 1.0d0, nmin, nmax &
-      )
-    call assert_equal_i32(nmin, 0_i32, 'legacy shift-bound nmin mismatch')
-    call assert_equal_i32(nmax, 0_i32, 'legacy shift-bound nmax mismatch')
-  end subroutine test_periodic_shift_bounds_legacy_signature
-
   subroutine test_periodic2_collision_index_range_guard()
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
@@ -619,34 +605,12 @@ contains
       )
   end subroutine test_periodic2_collision_index_range_guard
 
-  subroutine test_periodic2_collision_status_omitted_fails_closed()
-    integer :: exit_status
-    logical :: saw_incomplete_message
-
-    call run_self_probe('--collision-status-omitted-probe', collision_failure_path, exit_status)
-    call assert_true(exit_status /= 0, 'collision status omitted probe should fail closed')
-    saw_incomplete_message = file_contains(collision_failure_path, 'image enumeration limit exceeded')
-    call delete_file_if_exists(collision_failure_path)
-    call assert_true(saw_incomplete_message, 'status-omitted collision query should report incomplete work')
-  end subroutine test_periodic2_collision_status_omitted_fails_closed
-
-  subroutine run_collision_status_omitted_probe()
-    type(mesh_type) :: mesh_periodic
-    type(sim_config) :: sim
-    type(hit_info) :: hit_periodic
-
-    call init_standard_periodic2_collision_fixture(mesh_periodic, sim)
-
-    call find_first_hit( &
-      mesh_periodic, [0.2d0, 0.25d0, 1.0d0], [5000.2d0, 0.25d0, -1.0d0], hit_periodic, sim=sim &
-      )
-  end subroutine run_collision_status_omitted_probe
-
   subroutine test_periodic2_collision_canonical_prepare()
     type(mesh_type) :: mesh_periodic
     type(sim_config) :: sim
     type(hit_info) :: hit_periodic
     real(dp) :: tri_v0(3, 1), tri_v1(3, 1), tri_v2(3, 1)
+    integer(i32) :: query_status
 
     tri_v0(:, 1) = [0.1d0, 0.2d0, 0.0d0]
     tri_v1(:, 1) = [0.2d0, 0.2d0, 0.0d0]
@@ -659,7 +623,10 @@ contains
     call assert_close_dp(mesh_periodic%bb_min(1, 1), -0.1d0, 1.0d-12, 'canonical triangle bb_min mismatch')
     call assert_close_dp(mesh_periodic%bb_max(1, 1), 0.2d0, 1.0d-12, 'canonical triangle bb_max mismatch')
 
-    call find_first_hit(mesh_periodic, [1.1d0, 0.25d0, 1.0d0], [1.1d0, 0.25d0, -1.0d0], hit_periodic, sim=sim)
+    call find_first_hit( &
+      mesh_periodic, [1.1d0, 0.25d0, 1.0d0], [1.1d0, 0.25d0, -1.0d0], hit_periodic, sim=sim, status=query_status &
+      )
+    call assert_equal_i32(query_status, collision_query_ok, 'canonical periodic triangle status mismatch')
     call assert_true(hit_periodic%has_hit, 'canonical periodic triangle should remain hittable')
     call assert_close_dp(hit_periodic%pos_wrapped(1), 0.1d0, 1.0d-12, 'canonical periodic triangle wrapped x mismatch')
   end subroutine test_periodic2_collision_canonical_prepare
@@ -687,9 +654,12 @@ contains
     real(dp), intent(in) :: p0(3), p1(3)
     character(len=*), intent(in) :: label
     type(hit_info) :: hit_fast, hit_ref
+    integer(i32) :: fast_status, ref_status
 
-    call find_first_hit(mesh_fast, p0, p1, hit_fast, sim=sim)
-    call find_first_hit(mesh_ref, p0, p1, hit_ref, sim=sim)
+    call find_first_hit(mesh_fast, p0, p1, hit_fast, sim=sim, status=fast_status)
+    call find_first_hit(mesh_ref, p0, p1, hit_ref, sim=sim, status=ref_status)
+    call assert_equal_i32(fast_status, collision_query_ok, trim(label)//': fast query status mismatch')
+    call assert_equal_i32(ref_status, collision_query_ok, trim(label)//': reference query status mismatch')
 
     call assert_true(hit_fast%has_hit .eqv. hit_ref%has_hit, trim(label)//': has_hit mismatch')
     if (.not. hit_ref%has_hit) return

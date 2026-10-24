@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - Fortran の `particle_step_result` から `field_eval_count` と `collision_query_count` を削除した。src からは読まれず、
   test が内部の呼出し回数を固定するためだけに使っていた。
+- Fortran の `find_first_hit` は `status` を必須にし、`status` を省略したときに不完全な衝突照会で停止する経路を削除した。
+  production の呼出し側はすべて `status` を受け取って扱っている。`compute_periodic_shift_bounds` は `bem_collision` の
+  内部手続きにした。
 
 ### Fixed
 
