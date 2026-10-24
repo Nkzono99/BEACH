@@ -33,6 +33,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   redistributed reflect の counter 要求、top-reference history の書式、上端 Neumann 場、ABI 番号の literal、
   examples 固有の値）を、契約を持つ layer の 1 か所に寄せた。子 process probe、cache の後片付け、直接 panel 和の
   oracle は共通 helper（`test_support`、`test_panel_oracle`）にまとめた。
+- Python の gate は file 列挙ではなく pytest marker で選ぶ。native kernel と Fortran 設定 checker を使う test は
+  fixture から `native` / `config_native` が付き、`make test-python` は native test を選ばない。そのため
+  `build/` に残った古い共有 kernel を使わない。periodic cache を生成する test は `field_kernel_cache` で選ぶ。
+  これにより、gate 間で約 180 件あった二重実行がなくなった。
+- `tests/python/` を `io`、`analysis`、`native`、`facade`、`plot`、`config`、`cli`、`tooling`、`repo`、`workflow` の
+  directory に分けた。周期検証 tool の test は工程別の 8 file に分けた。Fortran parser test と同じ preflight 規則を
+  Python 側で再検査していた case は、lint が Fortran の判定と診断文をそのまま返すことを示す代表 case に絞った。
+- `dev` extra に `runops>=2.0,<3` を追加し、runops adapter の test を CI で実行する。
 
 ### Fixed
 

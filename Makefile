@@ -279,22 +279,19 @@ test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel
 	$(call run_fortran_targets,test_periodic2_cached_snapshot,debug,test)
 	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
-		$(PYTHON) -m pytest -q \
-		tests/python/test_field_kernel_cache.py tests/python/test_periodic_force_oracle.py
+		$(PYTHON) -m pytest -q -m 'field_kernel_cache'
+
+PYTEST_NATIVE_GATES = native or config_native or field_kernel_cache
 
 test-python:
-	$(PYTHON) -m pytest -q -m 'not workflow or smoke'
+	$(PYTHON) -m pytest -q -m '(not workflow or smoke) and not ($(PYTEST_NATIVE_GATES))'
 
 test-validation-workflow:
-	$(PYTHON) -m pytest -q tests/python/test_periodic_object_validation_tool.py
+	$(PYTHON) -m pytest -q -m 'workflow and not ($(PYTEST_NATIVE_GATES))'
 
 test-python-native: build-kernel
 	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
-		$(PYTHON) -m pytest -q \
-		tests/python/test_field_kernel.py tests/python/test_field_kernel_abi_contract.py \
-		tests/python/test_object_interaction.py tests/python/test_object_panel_interaction.py \
-		tests/python/test_periodic_zero_mode.py tests/python/test_periodic_force_oracle.py \
-		tests/python/test_object_detachment_cli.py::test_object_detachment_cli_native_two_object_smoke
+		$(PYTHON) -m pytest -q -m 'native and not field_kernel_cache'
 
 test-quick: test-l1
 
