@@ -168,6 +168,9 @@ benchmark は直接実行しません。
 - 短い開発 test は `tssrun` で計算 node の割当を取得して実行する。
 - tier test、MPI test、heavy / release gate は `sbatch` job 内の `srun` で実行する。
 - job 内でも複数の `fpm test` を並行実行しない。
+- `build.sh` は fpm を `OMP_PROC_BIND=false` で起動する。fpm 自身が OpenMP program のため、KUDPC の job が既定で設定する
+  `OMP_PROC_BIND=close` のままでは fpm の main thread が 1 core に固定され、fpm が起動する test・`beach`・MPI launcher が
+  その 1 core の affinity を継承する。test payload の環境では `OMP_PROC_BIND=false` が見える。
 - checkout、入力、cache、log は計算 node から見える `/home`、`/LARGE0`、`/LARGE1`、または合意した
   `/FAST` path に置く。login node の `/TMP` を前提にしない。
 

@@ -90,7 +90,9 @@ fpm_stale_guard_run() {
   # Backdate the marker so digests written in the same timestamp tick count as newer.
   # BSD touch (macOS) rejects -d @epoch; its file systems keep sub-second mtimes.
   touch -d "@$(($(date +%s) - 2))" "$marker" 2>/dev/null || touch "$marker"
-  "$@"
+  # fpm is itself an OpenMP program: with OMP_PROC_BIND set (KUDPC job defaults to close/cores) it pins its
+  # main thread to one core, and every test, run, or MPI launcher it starts inherits that one-core mask.
+  OMP_PROC_BIND=false "$@"
   status=$?
   if [ "$status" -eq 0 ]; then
     rm -f "$marker"
