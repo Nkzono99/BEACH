@@ -49,6 +49,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Fortran の `find_first_hit` は `status` を必須にし、`status` を省略したときに不完全な衝突照会で停止する経路を削除した。
   production の呼出し側はすべて `status` を受け取って扱っている。`compute_periodic_shift_bounds` は `bem_collision` の
   内部手続きにした。
+- 3.8.0 で batch の粒子が `generate_batch_slot` から作られるようになってから呼ばれていなかった Fortran の batch sampler
+  `init_random_beam_particles`、`sample_reservoir_face_particles`、`sample_photo_raycast_particles` と、それを包む
+  `sample_species_state` / `sample_photo_species_state` を削除した。`sample_flux_weighted_normal_component` の
+  `uniform` と `sample_photo_emission_velocity` の `rng_seed` / `rng_counter` は必須にした。注入面と photo ray の
+  sampling は counter-based の `sample_reservoir_face_particle_counter`、`sample_photo_ray_slot`、`photo_ray_macro_weight`
+  で検査する。
 
 ### Fixed
 

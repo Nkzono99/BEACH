@@ -9,7 +9,7 @@ program test_particle_pool
                             slot_kind_volume, slot_kind_reservoir_face
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_injection, only: sample_reservoir_face_particles, sample_reservoir_face_particle_counter
+  use bem_injection, only: sample_reservoir_face_particle_counter
   use bem_particles, only: init_particles, append_particles
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_external_boundary_contract, only: external_inflow_scalar_barrier
@@ -108,7 +108,7 @@ program test_particle_pool
   call assert_true(any(x /= x2), 'different slots must sample different positions')
   call test_end()
 
-  call test_begin('counter_reservoir_sampler_matches_batch_sampler_barrier_shift')
+  call test_begin('counter_reservoir_sampler_barrier_shift')
   call run_reservoir_counter_sampler_test()
   call test_end()
 
@@ -399,9 +399,9 @@ contains
     cfg%particle_species(1)%temperature_k = 0.0_dp
   end subroutine setup_absorption_fixture
 
-  !> 零温度では法線速度がドリフトに固定されるので、障壁エネルギーの符号付きシフトを両 sampler で直接比べられる。
+  !> 零温度では法線速度がドリフトに固定されるので、障壁エネルギーの符号付きシフトを解析値 sqrt(u^2 - barrier) と比べられる。
   subroutine run_reservoir_counter_sampler_test()
-    real(dp) :: x_batch(3, 1), v_batch(3, 1), x_slot(3), v_slot(3)
+    real(dp) :: x_slot(3), v_slot(3)
     real(dp), parameter :: box_min(3) = [0.0_dp, 0.0_dp, 0.0_dp], box_max(3) = [1.0_dp, 1.0_dp, 1.0_dp]
     real(dp), parameter :: drift(3) = [0.0_dp, 0.0_dp, 1.0_dp]
     real(dp) :: barrier
@@ -410,18 +410,12 @@ contains
     do trial = 1, 2
       ! An accelerating sheath (negative barrier) raises the speed; a retarding one lowers it.
       barrier = merge(-3.0_dp, 0.75_dp, trial == 1)
-      call seed_particles_from_config(cfg)
-      call sample_reservoir_face_particles( &
-        box_min, box_max, 'z_low', box_min, [1.0_dp, 1.0_dp, 0.0_dp], drift, 1.0_dp, 0.0_dp, 1.0_dp, x_batch, v_batch, &
-        barrier_normal_energy=barrier, vmin_normal=0.0_dp &
-        )
       call sample_reservoir_face_particle_counter( &
         box_min, box_max, 'z_low', box_min, [1.0_dp, 1.0_dp, 0.0_dp], drift, 1.0_dp, 0.0_dp, barrier, 0.0_dp, &
         cfg%sim%rng_seed, [7_i64, 1_i64], x_slot, v_slot &
         )
-      call assert_close_dp(v_batch(3, 1), sqrt(1.0_dp - barrier), 1.0e-12_dp, 'batch sampler barrier shift mismatch')
-      call assert_close_dp(v_slot(3), v_batch(3, 1), 1.0e-12_dp, 'counter sampler must apply the same barrier shift')
-      call assert_close_dp(x_slot(3), x_batch(3, 1), 0.0_dp, 'counter sampler must start on the same face')
+      call assert_close_dp(v_slot(3), sqrt(1.0_dp - barrier), 1.0e-12_dp, 'counter sampler barrier shift mismatch')
+      call assert_close_dp(x_slot(3), nearest(0.0_dp, 1.0_dp), 0.0_dp, 'counter sampler must start one ulp inside the face')
     end do
   end subroutine run_reservoir_counter_sampler_test
 
