@@ -62,6 +62,17 @@ def test_schema_rejects_unknown_top_level_keys(key):
     assert schema_errors(config, schema)
 
 
+@pytest.mark.parametrize('legacy_mesh', [
+    {'mode': 'template'}, {'obj': {'path': 'unused.obj'}}, {'templates': [{'kind': 'plane'}]},
+])
+def test_schema_rejects_removed_mesh_keys(legacy_mesh):
+    # The Fortran loader's rejection is test_app_config_parser mesh_parts_public_contract.
+    schema, _ = load_schema()
+    config = to_grouped_layout(default_config())
+    config['mesh'] = legacy_mesh
+    assert schema_errors(config, schema)
+
+
 def test_schema_enforces_soft_discard_bounds_only_when_active():
     schema, _ = load_schema()
     config = to_grouped_layout(default_config())

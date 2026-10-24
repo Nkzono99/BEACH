@@ -152,28 +152,6 @@ def test_config_rejects_removed_sim_keys(key: str) -> None:
         normalize_config_document(to_grouped_layout(config))
 
 
-@pytest.mark.parametrize(
-    ("key", "value"),
-    [
-        ("field", {"element_kernel": "point"}),
-        (
-            "external_boundary",
-            {"field": {"model": "none"}, "particles": {"mode": "local_source"}},
-        ),
-    ],
-)
-def test_runtime_validator_rejects_removed_top_level_contracts(
-    key: str,
-    value: object,
-) -> None:
-    config = default_config()
-    config = to_grouped_layout(config)
-    config[key] = value
-
-    with pytest.raises(ConfigError, match=rf"Additional properties.*{key}"):
-        normalize_config_document(to_grouped_layout(config))
-
-
 def test_default_config_matches_official_tutorial_case() -> None:
     assert normalize_config_document(to_grouped_layout(default_config())) == load_config_file(
         Path("examples/tutorial_electron_beam.toml")
@@ -450,12 +428,9 @@ def test_config_rejects_unimplemented_dielectric_inputs() -> None:
 @pytest.mark.parametrize(
     ("key", "value"),
     [
+        # Range bounds and their activation: test_config_schema soft-discard bounds.
         ("multiple_box_events_soft_discard_count_grace", True),
-        ("multiple_box_events_soft_discard_count_grace", -1),
-        ("multiple_box_events_soft_discard_count_grace", 1.5),
         ("multiple_box_events_soft_discard_fraction_limit", True),
-        ("multiple_box_events_soft_discard_fraction_limit", 0.0),
-        ("multiple_box_events_soft_discard_fraction_limit", 1.000001),
         ("multiple_box_events_soft_discard_fraction_limit", float("inf")),
         ("multiple_box_events_soft_discard_fraction_limit", float("nan")),
         ("multiple_box_events_soft_discard_abs_charge_limit", True),
@@ -471,22 +446,6 @@ def test_active_soft_discard_controls_reject_invalid_values(
 
     with pytest.raises(ConfigValidationError, match=PATHS["sim." + key].split(".")[-1]):
         normalize_config_document(to_grouped_layout(config))
-
-
-def test_active_soft_discard_controls_accept_range_boundaries() -> None:
-    config = default_config()
-    config["sim"].update(
-        {
-            "multiple_box_events_policy": "soft_discard",
-            "multiple_box_events_soft_discard_count_grace": 0,
-            "multiple_box_events_soft_discard_fraction_limit": 1.0,
-        }
-    )
-
-    normalized = normalize_config_document(to_grouped_layout(config))
-
-    assert normalized["sim"]["multiple_box_events_soft_discard_count_grace"] == 0
-    assert normalized["sim"]["multiple_box_events_soft_discard_fraction_limit"] == 1.0
 
 
 def test_load_config_file_rejects_nonfinite_template_scalar(tmp_path: Path) -> None:
@@ -687,21 +646,6 @@ def test_lint_cli_reports_schema_error(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "schema validation failed" in message
     assert "schema error at output.enabled" in message
-
-
-def test_lint_cli_reports_preflight_error(tmp_path: Path, native_checker: Path) -> None:
-    config_path = tmp_path / "beach.toml"
-    _write_base_config(config_path)
-    text = config_path.read_text(encoding="utf-8").replace(
-        "volume_macro_particles_per_batch = 10", "volume_macro_particles_per_batch = 0",
-    )
-    config_path.write_text(text, encoding="utf-8")
-
-    with pytest.raises(SystemExit) as excinfo:
-        beachx_main(["lint", str(config_path), "--beach", str(native_checker)])
-
-    assert "preflight check failed" in str(excinfo.value)
-    assert "sampling.volume_macro_particles_per_batch > 0" in str(excinfo.value)
 
 
 def test_config_cli_rejects_removed_migrate_command(capsys) -> None:

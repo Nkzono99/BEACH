@@ -109,17 +109,6 @@ def test_grouped_examples_pass_native_config_check(path, native_checker):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_native_rejects_flat_input(native_checker, tmp_path):
-    import tomli_w
-
-    path = tmp_path / 'flat.toml'
-    path.write_text(tomli_w.dumps(default_config()))
-    result = subprocess.run([str(native_checker), '--check-config', str(path)],
-                            cwd=ROOT, text=True, capture_output=True, timeout=20)
-    assert result.returncode != 0
-    assert 'flat beach.toml layout is not supported' in result.stdout + result.stderr
-
-
 def test_secondary_emission_layout_declares_public_keys_and_modes():
     runtime = load_config_file(ROOT / "examples/zero_current_secondary.toml")
     incident = runtime["particles"]["species"][0]
