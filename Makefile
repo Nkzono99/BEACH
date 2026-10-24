@@ -5,8 +5,8 @@
 	build check run \
 	static-check source-text-check python-lint python-type-check schema-check schema-sync \
 	test-config-contract \
-	test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-physics-release \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+	test test-l0 test-l1 test-l2 test-full test-physics-release \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
 	benchmark-field-kernel \
 	test-field-kernel-cache \
@@ -16,8 +16,8 @@
 	build-mpi run-mpi test-mpi test-mpi-periodic-cache \
 	docs-deps docs-starlight docs-manuscript docs-fortran docs-python docs-pages docs-clean
 
-.NOTPARALLEL: test test-l0 test-l1 test-l2 test-l3 test-heavy test-full test-quick test-ci test-local \
-	test-fortran test-fortran-light test-fortran-contract test-fortran-heavy test-fortran-release-correctness \
+.NOTPARALLEL: test test-l0 test-l1 test-l2 test-full test-quick test-ci test-local \
+	test-fortran test-fortran-light test-fortran-contract test-fortran-release-correctness \
 	test-fortran-far-correction test-fortran-benchmark \
 	test-field-kernel-cache test-python-native \
 	test-mpi test-mpi-periodic-cache test-config-contract
@@ -63,6 +63,10 @@ FORTRAN_L1_TARGETS ?= \
 	test_periodic2_cache_codec \
 	test_regularized_qr \
 	test_periodic_zero_mode \
+	test_periodic_nonzero_reference \
+	test_periodic_nonzero_upper_vacuum \
+	test_periodic_shell_mean \
+	test_coulomb_fmm_core_periodic \
 	test_laplace_derivatives \
 	test_electrostatic_snapshot \
 	test_boundary \
@@ -85,27 +89,22 @@ FORTRAN_L1_TARGETS ?= \
 	test_step_growth
 FORTRAN_L2_TARGETS ?= \
 	test_field_kernel_c \
-	test_periodic_zero_mode_c
-FORTRAN_L3_TARGETS ?= \
+	test_periodic_zero_mode_c \
 	test_dynamics_fmm \
 	test_coulomb_fmm_core_basic \
-	test_panel_near_correction \
 	test_coulomb_fmm_core_panel \
 	test_dynamics_panel_fmm
 FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
-	test_dynamics_basic
+	test_dynamics_basic \
+	test_coulomb_fmm_core_panel
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_surface_models_periodic \
 	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
-	test_periodic_shell_mean \
 	test_upper_fourier_switch \
-	test_periodic2_cached_snapshot \
-	test_coulomb_fmm_core_periodic \
-	test_periodic_nonzero_reference \
-	test_periodic_nonzero_upper_vacuum
+	test_periodic2_cached_snapshot
 FORTRAN_BENCHMARK_TARGETS ?= \
 	benchmark_periodic2_runtime \
 	benchmark_laplace_derivatives
@@ -245,10 +244,6 @@ test-config-contract:
 		FPM_PROFILE=debug FPM_FFLAGS="$(FORTRAN_TEST_FLAGS)" $(BUILD_SH) \
 		--target beach --runner "$(PYTHON) tools/run_config_contracts.py"
 
-test-l3: test-l2 test-fortran-heavy
-
-test-heavy: test-fortran-heavy
-
 test-physics-release:
 	tools/run_physics_release_gate.sh --manifest "$(PHYSICS_RELEASE_MANIFEST)"
 
@@ -264,11 +259,8 @@ test-fortran-light:
 test-fortran-contract:
 	$(call run_fortran_targets,$(FORTRAN_L2_TARGETS),debug,test)
 
-test-fortran-heavy:
-	$(call run_fortran_targets,$(FORTRAN_L3_TARGETS),debug,test)
-
 test-fortran-release-correctness:
-	$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS) $(FORTRAN_L3_TARGETS),debug,test)
+	$(call run_fortran_targets,$(FORTRAN_RELEASE_CONVERGENCE_TARGETS),debug,test)
 
 test-fortran-far-correction:
 	$(call run_fortran_targets,$(FORTRAN_FAR_CORRECTION_TARGETS),debug,test)

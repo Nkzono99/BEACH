@@ -77,12 +77,12 @@ make test-l2
 | --- | --- | --- |
 | documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
 | TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
-| mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l3` |
+| mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l2` |
 | 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection` | `make test-l1` |
 | Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
 | surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。外部根の更新は `test_zhao_outflow_refresh` も確認 |
 | field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
-| FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l3`。遠方補正は `make test-fortran-far-correction` |
+| FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l2`。遠方補正は `make test-fortran-far-correction` |
 | C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c` | `make test-l2`。cache receipt は `make test-field-kernel-cache` |
 | output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart` | `make test-l1` と関連する Python reader test |
 | Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
@@ -100,19 +100,16 @@ Fortran test 名は `fpm.toml`、tier の所属は `Makefile` が実行上の正
 ```bash
 make test-l0      # static / schema / build
 make test         # L1: Python + 軽量 Fortran（test-l1 の alias）
-make test-l2      # L1 + C / kernel contract + Python / Fortran 設定契約
-make test-l3      # L2 + heavy FMM / panel
+make test-l2      # L1 + C / kernel contract + free-space FMM + Python / Fortran 設定契約
 ```
 
 - L0 は `git diff --check`、source text、JSON schema、`make check` を確認します。
 - L1 は L0 に全 Python test と通常の Fortran test target を加えます。
-- L2 は C ABI、periodic zero-mode C contract、lint に成功する設定を Fortran で読み込む contract test を加えます。
-- L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
+- L2 は C ABI、periodic zero-mode C contract、free-space FMM の精度比較、lint に成功する設定を Fortran で読み込む contract test を加えます。
 
 次の gate は tier へ常時含めず、変更内容または release 判断に応じて明示的に実行します。
 
 ```bash
-make test-heavy
 make test-fortran-far-correction
 make test-field-kernel-cache
 make test-mpi

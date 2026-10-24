@@ -125,11 +125,6 @@ source-dir = "tests/fortran"
 main = "test_periodic2_cached_snapshot.f90"
 
 [[test]]
-name = "test_panel_near_correction"
-source-dir = "tests/fortran"
-main = "test_panel_near_correction.f90"
-
-[[test]]
 name = "test_coulomb_fmm_core_panel"
 source-dir = "tests/fortran"
 main = "test_coulomb_fmm_core_panel.f90"

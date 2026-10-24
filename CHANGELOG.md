@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 周期導体のテストを遠方補正 gate に、Laplace 偏微分の速度比較を release benchmark に移した。
   同じ schema 値の再比較と文書書式・内部呼出し回数の固定を削減し、C header の compile probe を compiler 間で利用できる形式にした。
 - periodic2 image-layer の FMM 回帰を panel FMM と同じ相対誤差 0.2% で確認する。
+- L3 tier を L2 に統合した。`make test-l3`、`make test-heavy`、`make test-fortran-heavy` を削除し、
+  free-space FMM の精度比較は `make test-l2` で実行する。`make test-fortran-release-correctness` は収束データを出す
+  `test_dynamics_basic` と `test_coulomb_fmm_core_panel` だけを実行し、release manifest は schema 3 で
+  `release_correctness.*` と `release_correctness-target-timings.csv` を記録する。
+- cached operator を作らない periodic target 4 本（`test_periodic_nonzero_reference`、`test_periodic_nonzero_upper_vacuum`、
+  `test_periodic_shell_mean`、`test_coulomb_fmm_core_periodic`）を遠方補正 gate から L1 に移し、
+  `test_panel_near_correction` を `test_panel_geometry_near` に統合した。
 
 ### Fixed
 
