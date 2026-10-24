@@ -79,7 +79,10 @@ FORTRAN_L1_TARGETS ?= \
 	test_dynamics_field_solver \
 	test_surface_models \
 	test_templates_importers_runtime \
-	test_simulator \
+	test_simulator_loop \
+	test_surface_charge_closure \
+	test_simulator_failure_context \
+	test_soft_discard \
 	test_injection_sampling \
 	test_performance_profile \
 	test_output_writer_io \

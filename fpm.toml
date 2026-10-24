@@ -230,9 +230,24 @@ source-dir = "tests/fortran"
 main = "test_templates_importers_runtime.f90"
 
 [[test]]
-name = "test_simulator"
+name = "test_simulator_loop"
 source-dir = "tests/fortran"
-main = "test_simulator.f90"
+main = "test_simulator_loop.f90"
+
+[[test]]
+name = "test_surface_charge_closure"
+source-dir = "tests/fortran"
+main = "test_surface_charge_closure.f90"
+
+[[test]]
+name = "test_simulator_failure_context"
+source-dir = "tests/fortran"
+main = "test_simulator_failure_context.f90"
+
+[[test]]
+name = "test_soft_discard"
+source-dir = "tests/fortran"
+main = "test_soft_discard.f90"
 
 [[test]]
 name = "test_injection_sampling"

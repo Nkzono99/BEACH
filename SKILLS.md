@@ -48,7 +48,7 @@ Layer 14 app/main.f90
 | 中量 | `test_reservoir_injection` | ~数秒 |
 | 中量 | `test_external_boundary_contract` | ~数秒 |
 | 中量 | `test_templates_importers_runtime` | ~数秒 |
-| 中量 | `test_simulator` | ~数秒 |
+| 中量 | `test_simulator_loop`、`test_surface_charge_closure`、`test_simulator_failure_context`、`test_soft_discard` | ~数秒 |
 | 中量 | `test_restart` | ~数秒 |
 | 重量 | `test_dynamics_fmm` | ~30秒+ |
 | 重量 | `test_coulomb_fmm_core_periodic` | ~30秒+ |
@@ -93,6 +93,10 @@ end program
 ```
 
 失敗時は actual/expected/diff/tol が自動表示される。
+
+子 process で異常終了を確かめる probe は `run_self_probe`（自分自身を引数付きで再実行し、出力を log に書く）と
+`file_contains` を使う。`cached_kneq0` の operator cache を作る test は `unique_test_path` で実行ごとの directory を作り、
+最後に `delete_periodic_cache` で cache 本体・lock・空 directory を消す。直接 panel 和の oracle は `test_panel_oracle` にある。
 
 ## リファクタリング進捗
 

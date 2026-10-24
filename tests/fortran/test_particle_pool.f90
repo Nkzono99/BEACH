@@ -1,4 +1,4 @@
-!> バッチ注入 layout と shared particle pool（rank 共有 slot pool）を検証するテスト。
+!> 粒子 batch の生成と追加、バッチ注入 layout、shared particle pool（rank 共有 slot pool）を検証するテスト。
 program test_particle_pool
   use bem_kinds, only: dp, i32, i64
   use bem_mesh, only: init_mesh
@@ -10,8 +10,11 @@ program test_particle_pool
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
   use bem_injection, only: sample_reservoir_face_particles, sample_reservoir_face_particle_counter
+  use bem_particles, only: init_particles, append_particles
+  use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
+  use bem_external_boundary_contract, only: external_inflow_scalar_barrier
   use test_support, only: test_init, test_begin, test_end, test_summary, &
-                          assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp
+                          assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, assert_allclose_1d
   implicit none
 
   type(app_config) :: cfg
@@ -24,7 +27,7 @@ program test_particle_pool
   logical :: emitted, emitted2
   integer(i32) :: slot
 
-  call test_init(5)
+  call test_init(8)
 
   call test_begin('layout_segments_follow_static_order')
   call setup_layout_fixture(cfg)
@@ -117,9 +120,213 @@ program test_particle_pool
   call run_shared_pool_photo_test()
   call test_end()
 
+  call test_begin('particle_append_preserves_existing_state')
+  call test_particle_append_preserves_existing_state()
+  call test_end()
+
+  call test_begin('uneven_species_batch_attributes_and_empty_batch')
+  call test_uneven_species_batch()
+  call test_end()
+
+  call test_begin('photo_batch')
+  call test_photo_batch()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  subroutine test_particle_append_preserves_existing_state()
+    type(particles_soa) :: particles
+    real(dp) :: initial_x(3, 1), initial_v(3, 1), append_x(3, 2), append_v(3, 2)
+
+    initial_x(:, 1) = [1.0_dp, 2.0_dp, 3.0_dp]
+    initial_v(:, 1) = [4.0_dp, 5.0_dp, 6.0_dp]
+    append_x(:, 1) = [7.0_dp, 8.0_dp, 9.0_dp]
+    append_x(:, 2) = [10.0_dp, 11.0_dp, 12.0_dp]
+    append_v(:, 1) = [13.0_dp, 14.0_dp, 15.0_dp]
+    append_v(:, 2) = [16.0_dp, 17.0_dp, 18.0_dp]
+    call init_particles( &
+      particles, initial_x, initial_v, [1.0_dp], [2.0_dp], [3.0_dp], &
+      species_id=[1_i32], source_element=[7_i32] &
+      )
+    particles%alive(1) = .false.
+    call append_particles( &
+      particles, append_x, append_v, [4.0_dp, 5.0_dp], [6.0_dp, 7.0_dp], [8.0_dp, 9.0_dp], &
+      [2_i32, 3_i32], source_element=[8_i32, 9_i32] &
+      )
+
+    call assert_equal_i32(particles%n, 3_i32, 'particle append count mismatch')
+    call assert_true(.not. particles%alive(1), 'particle append must preserve prior alive state')
+    call assert_true(all(particles%alive(2:3)), 'particle append must activate appended particles')
+    call assert_close_dp(particles%x(3, 3), 12.0_dp, 0.0_dp, 'particle append position mismatch')
+    call assert_close_dp(particles%w(3), 9.0_dp, 0.0_dp, 'particle append weight mismatch')
+    call assert_equal_i32(particles%species_id(3), 3_i32, 'particle append species mismatch')
+    call assert_true( &
+      all(particles%source_element == [7_i32, 8_i32, 9_i32]), &
+      'particle append must preserve and append source provenance' &
+      )
+  end subroutine test_particle_append_preserves_existing_state
+
+  subroutine test_uneven_species_batch()
+    type(app_config) :: app
+    type(particles_soa) :: particles
+    integer(i32), parameter :: counts(4) = [4_i32, 20_i32, 2_i32, 1_i32]
+    integer :: s, j
+
+    call default_app_config(app)
+    app%sim%batch_count = 1_i32
+    app%n_particle_species = 4_i32
+    do s = 1, 4
+      app%particle_species(s) = species_from_defaults()
+      app%particle_species(s)%npcls_per_step = counts(s)
+      app%particle_species(s)%enabled = s /= 2
+      app%particle_species(s)%pos_low = real(s, dp)
+      app%particle_species(s)%pos_high = real(s, dp)
+      app%particle_species(s)%drift_velocity = -real(s, dp)
+      app%particle_species(s)%temperature_k = 0.0_dp
+      app%particle_species(s)%q_particle = -real(s, dp)
+      app%particle_species(s)%m_particle = 2.0_dp*s
+      app%particle_species(s)%w_particle = 3.0_dp*s
+    end do
+    call seed_particles_from_config(app)
+    call init_particle_batch_from_config(app, 1_i32, particles)
+    ! The interleaving order is layout_segments_follow_static_order's contract; here every particle must carry
+    ! the attributes of its own species, and disabled species emit nothing.
+    call assert_equal_i32(particles%n, 7_i32, 'uneven species count mismatch')
+    do s = 1, 4
+      call assert_equal_i32(int(count(particles%species_id == s), i32), merge(0_i32, counts(s), s == 2), &
+                            'per-species batch count mismatch')
+    end do
+    do j = 1, particles%n
+      s = particles%species_id(j)
+      call assert_true(all(particles%x(:, j) == real(s, dp)), 'position was assigned to the wrong species')
+      call assert_true(all(particles%v(:, j) == -real(s, dp)), 'velocity was assigned to the wrong species')
+      call assert_close_dp(particles%q(j), -real(s, dp), 0.0_dp, 'species charge mismatch')
+      call assert_close_dp(particles%m(j), 2.0_dp*s, 0.0_dp, 'species mass mismatch')
+      call assert_close_dp(particles%w(j), 3.0_dp*s, 0.0_dp, 'species weight mismatch')
+    end do
+    call assert_true(all(particles%alive), 'new batch particles must be alive')
+    call assert_true(all(particles%source_element == -1_i32), 'volume seed acquired surface provenance')
+    app%particle_species(:)%npcls_per_step = 0_i32
+    call init_particle_batch_from_config(app, 1_i32, particles)
+    call assert_equal_i32(particles%n, 0_i32, 'empty batch retained old particles')
+    call assert_true(size(particles%x, 1) == 3 .and. size(particles%x, 2) == 0, 'empty batch position shape mismatch')
+    call assert_true(size(particles%species_id) == 0 .and. size(particles%alive) == 0, 'empty batch state mismatch')
+  end subroutine test_uneven_species_batch
+
+  !> volume、密度 0 の reservoir、photo_raycast が混在する batch の粒子数・電荷・光電子の反作用電荷の配分。
+  subroutine test_photo_batch()
+    type(mesh_type) :: mesh
+    type(app_config) :: cfg
+    type(particles_soa) :: pcls
+    type(injection_state) :: state
+    type(electrostatic_snapshot_type) :: snapshot
+    real(dp), allocatable :: photo_emission_dq(:), photo_source_charge(:)
+    real(dp) :: photo_v0(3, 1), photo_v1(3, 1), photo_v2(3, 1)
+    real(dp) :: expected_photo_counter, observed_photo_counter
+    integer(i32) :: i
+
+    photo_v0(:, 1) = [0.0d0, 0.0d0, 0.1d0]
+    photo_v1(:, 1) = [1.0d0, 0.0d0, 0.1d0]
+    photo_v2(:, 1) = [0.0d0, 1.0d0, 0.1d0]
+    call init_mesh(mesh, photo_v0, photo_v1, photo_v2)
+    mesh%elem_vacuum_sign = 1_i32
+    mesh%vacuum_normals = mesh%normals
+
+    call default_app_config(cfg)
+    cfg%sim%rng_seed = 999_i32
+    cfg%sim%batch_count = 1_i32
+    cfg%sim%batch_duration = 1.0d0
+    cfg%sim%use_box = .true.
+    cfg%sim%box_min = [0.0d0, 0.0d0, 0.0d0]
+    cfg%sim%box_max = [1.0d0, 1.0d0, 1.0d0]
+    cfg%sim%reservoir_potential_model = 'infinity_barrier'
+    cfg%boundary_contract%inflow_map = external_inflow_scalar_barrier
+    cfg%sim%phi_infty = 0.0d0
+    cfg%sim%injection_face_phi_grid_n = 2_i32
+    cfg%n_particle_species = 3_i32
+
+    cfg%particle_species(1) = species_from_defaults()
+    cfg%particle_species(1)%source_mode = 'volume_seed'
+    cfg%particle_species(1)%npcls_per_step = 1_i32
+    cfg%particle_species(1)%q_particle = 1.0d0
+    cfg%particle_species(1)%m_particle = 1.0d0
+    cfg%particle_species(1)%w_particle = 1.0d0
+    cfg%particle_species(1)%pos_low = [0.0d0, 0.0d0, 0.5d0]
+    cfg%particle_species(1)%pos_high = [0.0d0, 0.0d0, 0.5d0]
+    cfg%particle_species(1)%drift_velocity = [0.0d0, 0.0d0, 0.0d0]
+    cfg%particle_species(1)%temperature_k = 0.0d0
+
+    cfg%particle_species(2) = species_from_defaults()
+    cfg%particle_species(2)%source_mode = 'volume_seed'
+    cfg%particle_species(2)%npcls_per_step = 0_i32
+    cfg%particle_species(2)%number_density_cm3 = 0.0d0
+    cfg%particle_species(2)%temperature_k = 0.0d0
+    cfg%particle_species(2)%q_particle = 1.0d0
+    cfg%particle_species(2)%m_particle = 1.0d0
+    cfg%particle_species(2)%w_particle = 10.0d0
+    cfg%particle_species(2)%boundary_inflow_low(3) = particle_inflow_reservoir
+    cfg%particle_species(2)%drift_velocity = [0.0d0, 0.0d0, 1.0d0]
+
+    cfg%particle_species(3) = species_from_defaults()
+    cfg%particle_species(3)%source_mode = 'photo_raycast'
+    cfg%particle_species(3)%emit_current_density_a_m2 = 1.0d0
+    cfg%particle_species(3)%rays_per_batch = 1_i32
+    cfg%particle_species(3)%normal_drift_speed = 0.0d0
+    cfg%particle_species(3)%ray_direction = [0.0d0, 0.0d0, -1.0d0]
+    cfg%particle_species(3)%has_ray_direction = .true.
+    cfg%particle_species(3)%q_particle = -1.0d0
+    cfg%particle_species(3)%m_particle = 1.0d0
+    cfg%particle_species(3)%temperature_k = 0.0d0
+    cfg%particle_species(3)%deposit_opposite_charge_on_emit = .true.
+    cfg%particle_species(3)%inject_face = 'z_high'
+    cfg%particle_species(3)%pos_low = [0.0d0, 0.0d0, 1.0d0]
+    cfg%particle_species(3)%pos_high = [0.1d0, 0.1d0, 1.0d0]
+
+    allocate (state%macro_residual(3), state%boundary_macro_residual(6, 3))
+    state%boundary_macro_residual = 0.0_dp
+    state%macro_residual = 0.0d0
+    allocate (photo_emission_dq(mesh%nelem), photo_source_charge(mesh%nelem))
+    call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
+    call snapshot%refresh(mesh)
+    call seed_particles_from_config(cfg)
+    call init_particle_batch_from_config( &
+      cfg, 1_i32, pcls, state, mesh=mesh, snapshot=snapshot, photo_emission_dq=photo_emission_dq &
+      )
+    call assert_equal_i32(pcls%n, 2_i32, 'mixed batch particle count mismatch')
+    call assert_equal_i32(int(count(pcls%species_id == 1_i32), i32), 1_i32, 'volume species count mismatch')
+    call assert_equal_i32(int(count(pcls%species_id == 2_i32), i32), 0_i32, 'zero-density reservoir count mismatch')
+    call assert_equal_i32(int(count(pcls%species_id == 3_i32), i32), 1_i32, 'photo species count mismatch')
+    call assert_close_dp( &
+      sum(pack(pcls%q, pcls%species_id == 1_i32)), 1.0d0, 1.0d-12, &
+      'mixed batch species-1 charge mismatch' &
+      )
+    expected_photo_counter = cfg%particle_species(3)%emit_current_density_a_m2* &
+                             (cfg%particle_species(3)%pos_high(1) - cfg%particle_species(3)%pos_low(1))* &
+                             (cfg%particle_species(3)%pos_high(2) - cfg%particle_species(3)%pos_low(2))* &
+                             cfg%sim%batch_duration
+    observed_photo_counter = 0.0_dp
+    photo_source_charge = 0.0_dp
+    do i = 1_i32, pcls%n
+      if (pcls%species_id(i) == 3_i32) then
+        call assert_true(pcls%source_element(i) >= 1_i32 .and. pcls%source_element(i) <= mesh%nelem, &
+                         'photo particle source provenance is outside the emitting mesh')
+        observed_photo_counter = observed_photo_counter - pcls%q(i)*pcls%w(i)
+        photo_source_charge(pcls%source_element(i)) = photo_source_charge(pcls%source_element(i)) - &
+                                                      pcls%q(i)*pcls%w(i)
+        call assert_true(pcls%w(i) > 0.0d0, 'mixed batch photo weight should be positive')
+      else
+        call assert_equal_i32(pcls%source_element(i), -1_i32, &
+                              'non-photo batch particle unexpectedly carries surface provenance')
+      end if
+    end do
+    call assert_close_dp(observed_photo_counter, expected_photo_counter, 1.0d-14, 'photo current budget mismatch')
+    call assert_close_dp(sum(photo_emission_dq), expected_photo_counter, 1.0d-12, 'photo counter charge mismatch')
+    call assert_allclose_1d(photo_source_charge, photo_emission_dq, 1.0d-12, &
+                            'source provenance does not reproduce the emitted countercharge distribution')
+    call assert_close_dp(state%boundary_macro_residual(5, 2), 0.0_dp, 0.0_dp, 'zero-density reservoir residual mismatch')
+  end subroutine test_photo_batch
 
   !> species 1: 5 個の volume_seed、species 2: z_low からの reservoir 流入（1 バッチ 1 個）。
   subroutine setup_layout_fixture(cfg)

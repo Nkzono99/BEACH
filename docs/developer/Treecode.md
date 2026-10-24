@@ -142,4 +142,4 @@ mixed-sign nodeの割合に依存します。
 - MAC、mixed-sign guard、木走査: [`bem_field_solver_eval.f90`](../../src/physics/field_solver/bem_field_solver_eval.f90)
 - parameterの選択: [`bem_field_solver_config.f90`](../../src/physics/field_solver/bem_field_solver_config.f90)
 - 精度・相殺・正規化テスト: [`test_dynamics_field_solver.f90`](../../tests/fortran/test_dynamics_field_solver.f90)
-- batch結果のDirect等価性: [`test_simulator.f90`](../../tests/fortran/test_simulator.f90)
+- batch結果のDirect等価性: [`test_simulator_loop.f90`](../../tests/fortran/test_simulator_loop.f90)

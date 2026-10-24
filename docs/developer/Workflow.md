@@ -76,9 +76,10 @@ make test-l2
 | documentation、navigation、日英対応 | `pytest -q tests/python/test_docs_sync.py tests/python/test_documentation_contracts.py` | `make test-l1`。site 構成を変えた場合は `python tools/sync_starlight_docs.py` の後に `npm --prefix docs-site run check` |
 | TOML、schema、parser、既定値 | `test_app_config_parser`、`test_physics_config_types`、`tests/python/test_config_schema.py`、`tests/python/test_config_cli.py`、`make test-config-contract` | `make test-l2` と `make schema-check` |
 | mesh template、OBJ import、panel geometry | `test_templates_importers_runtime`、`test_panel_geometry_near`、`test_panel_kernel` | `make test-l1`。panel FMM に影響する場合は `make test-l2` |
-| 粒子 source、reservoir、光電子注入 | `test_injection_sampling`、`test_reservoir_injection` | `make test-l1` |
-| Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
-| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_simulator` | `make test-l1`。周期導体は `test_surface_models_periodic`、外部根の更新は `test_zhao_outflow_refresh` も確認 |
+| 粒子 source、reservoir、光電子注入、batch 生成 | `test_injection_sampling`、`test_reservoir_injection`、`test_particle_pool` | `make test-l1` |
+| Boris、collision、box boundary、particle event | `test_particle_stepper`、`test_boundary`、`test_dynamics_basic`、`test_step_growth` | `make test-l1`。MPI / OpenMP 経路も変える場合は `make test-mpi` |
+| surface model、charge closure、charge ledger | `test_surface_models`、`test_surface_current_model`、`test_charge_ledger`、`test_surface_charge_closure` | `make test-l1`。周期導体は `test_surface_models_periodic`、外部根の更新は `test_zhao_outflow_refresh` も確認 |
+| batch loop、統計、停止時の診断文、soft discard | `test_simulator_loop`、`test_simulator_failure_context`、`test_soft_discard` | `make test-l1` |
 | field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
 | FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l2`。遠方補正は `make test-fortran-far-correction` |
 | C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c`、`make test-python-native` | `make test-l2`。cache と周期解析解は `make test-field-kernel-cache` |
