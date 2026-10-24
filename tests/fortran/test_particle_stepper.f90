@@ -383,8 +383,6 @@ contains
     call assert_allclose_1d(result%x, [0.3_dp, 0.2_dp, 0.2_dp], 1.0e-14_dp, 'no-crossing position mismatch')
     call assert_allclose_1d(result%v, [0.1_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'no-crossing velocity mismatch')
     call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'no-crossing terminal flags mismatch')
-    call assert_true(result%field_eval_count == 1_i32, 'no-crossing path must evaluate E once')
-    call assert_true(result%collision_query_count == 1_i32, 'no-crossing path must query collision once')
   end subroutine test_advance_no_crossing_fast_path
 
   subroutine test_advance_mesh_before_box_absorbs()
@@ -443,8 +441,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'box-before-mesh status mismatch')
     call assert_true(.not. result%absorbed .and. result%escaped_boundary, 'box-before-mesh should escape')
     call assert_close_dp(result%x(1), 1.0_dp, 0.0_dp, 'open escape should stop at boundary event')
-    call assert_true(result%field_eval_count == 1_i32, 'open crossing should not rebuild a remainder')
-    call assert_true(result%collision_query_count == 1_i32, 'open crossing should query only to the boundary')
   end subroutine test_advance_box_before_mesh_escapes
 
   subroutine test_advance_reflected_remainder_absorbs()
@@ -464,8 +460,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'reflected remainder status mismatch')
     call assert_true(result%absorbed, 'reflected remainder should hit the mesh')
     call assert_close_dp(result%x(1), 0.5_dp, 1.0e-12_dp, 'reflected remainder hit position mismatch')
-    call assert_true(result%field_eval_count == 2_i32, 'reflected remainder should evaluate E twice')
-    call assert_true(result%collision_query_count == 2_i32, 'reflected remainder should query both chords')
   end subroutine test_advance_reflected_remainder_absorbs
 
   subroutine test_advance_redistributed_reflect_is_counter_deterministic()
@@ -743,8 +737,6 @@ contains
     call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'periodic particle should survive')
     call assert_allclose_1d(result%x, [0.05_dp, 0.1_dp, 0.2_dp], 1.0e-12_dp, 'two-event position mismatch')
     call assert_allclose_1d(result%v, [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 'two-event velocity mismatch')
-    call assert_true(result%field_eval_count == 3_i32, 'two events should evaluate each remainder field')
-    call assert_true(result%collision_query_count == 3_i32, 'two events should query each physical chord')
   end subroutine test_advance_two_periodic_events
 
   subroutine test_advance_three_reflect_events()
@@ -767,8 +759,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'three box events should complete')
     call assert_allclose_1d(result%x, [0.1_dp, 0.2_dp, 0.2_dp], 1.0e-12_dp, 'three-event position mismatch')
     call assert_allclose_1d(result%v, [-3.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'three-event velocity mismatch')
-    call assert_true(result%field_eval_count == 4_i32, 'three events should evaluate each remainder field')
-    call assert_true(result%collision_query_count == 4_i32, 'three events should query each physical chord')
   end subroutine test_advance_three_reflect_events
 
   subroutine test_advance_eight_reflect_events()
@@ -791,8 +781,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'eight box events should complete')
     call assert_allclose_1d(result%x, x0, 1.0e-12_dp, 'eight-event position mismatch')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'eight-event velocity mismatch')
-    call assert_true(result%field_eval_count == 9_i32, 'eight events should build each remainder')
-    call assert_true(result%collision_query_count == 9_i32, 'eight events should query each physical chord')
   end subroutine test_advance_eight_reflect_events
 
   subroutine test_advance_nine_periodic_events_subdivides()
@@ -838,8 +826,6 @@ contains
     call assert_true(result%status == particle_step_multiple_box_events, 'ninth box event must fail closed')
     call assert_allclose_1d(result%x, x0, 0.0_dp, 'failed step must preserve initial position')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'failed step must preserve initial velocity')
-    call assert_true(result%field_eval_count == 9_i32, 'ninth event path should build eight remainders')
-    call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
   end subroutine test_advance_ninth_box_event_fails
 
   subroutine test_upper_fourier_retry_completes_above_mesh()

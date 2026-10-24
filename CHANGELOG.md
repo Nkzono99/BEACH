@@ -42,6 +42,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Python 側で再検査していた case は、lint が Fortran の判定と診断文をそのまま返すことを示す代表 case に絞った。
 - `dev` extra に `runops>=2.0,<3` を追加し、runops adapter の test を CI で実行する。
 
+### Removed
+
+- Fortran の `particle_step_result` から `field_eval_count` と `collision_query_count` を削除した。src からは読まれず、
+  test が内部の呼出し回数を固定するためだけに使っていた。
+
 ### Fixed
 
 - `build.sh` が fpm を `OMP_PROC_BIND=false` で起動するようにした。KUDPC の job 既定の `OMP_PROC_BIND=close` では
