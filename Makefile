@@ -105,7 +105,8 @@ FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
 	test_upper_fourier_switch \
-	test_periodic2_cached_snapshot
+	test_periodic2_cached_snapshot \
+	test_periodic2_adaptive_batch
 FORTRAN_BENCHMARK_TARGETS ?= \
 	benchmark_periodic2_runtime \
 	benchmark_laplace_derivatives

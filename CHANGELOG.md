@@ -24,6 +24,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - L1 の重い 3 target を同じ oracle と許容誤差のまま短縮した。auto solver の要素数表は公開 pure 関数で直接検査し、
   外部根の更新 test は平板の一様場で結果が変わらない時間刻みに広げ、sheath-model 自身が検査する根の棄却 2 件と
   平均エネルギー近似の根探索を Zhao 根 test から除いた。
+- `test_simulator` を `test_simulator_loop`、`test_surface_charge_closure`、`test_simulator_failure_context`、
+  `test_soft_discard` に分け、粒子 batch の生成は `test_particle_pool`、適応 sub-step は `test_particle_stepper` と
+  `test_step_growth` に移した。cached snapshot の adaptive batch は `test_periodic2_adaptive_batch` に分けた。
+  `test_field_kernel_cache_c` と `test_output_writer_potential` は、固有の検査を `test_periodic2_cached_snapshot` と
+  `test_output_writer_io` に移して削除した。`make test-field-kernel-cache` の Fortran 部分は `test_periodic2_cached_snapshot` を実行する。
+- 複数 layer で同じ契約を検査していた Fortran test（panel FMM と direct の比較、free box dual tree、round-robin 順、
+  redistributed reflect の counter 要求、top-reference history の書式、上端 Neumann 場、ABI 番号の literal、
+  examples 固有の値）を、契約を持つ layer の 1 か所に寄せた。子 process probe、cache の後片付け、直接 panel 和の
+  oracle は共通 helper（`test_support`、`test_panel_oracle`）にまとめた。
 
 ### Fixed
 
