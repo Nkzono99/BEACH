@@ -83,7 +83,6 @@ FORTRAN_L1_TARGETS ?= \
 	test_injection_sampling \
 	test_performance_profile \
 	test_output_writer_io \
-	test_output_writer_potential \
 	test_counter_rng \
 	test_particle_pool \
 	test_step_growth
@@ -99,7 +98,6 @@ FORTRAN_RELEASE_CONVERGENCE_TARGETS ?= \
 	test_coulomb_fmm_core_panel
 FORTRAN_FAR_CORRECTION_TARGETS ?= \
 	test_surface_models_periodic \
-	test_field_kernel_cache_c \
 	test_periodic2_operator_cache \
 	test_periodic2_infinite_operator \
 	test_periodic2_length_scale \
@@ -275,7 +273,7 @@ benchmark-field-kernel:
 
 test-field-kernel-cache: export BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1
 test-field-kernel-cache: build-kernel
-	$(call run_fortran_targets,test_field_kernel_cache_c,debug,test)
+	$(call run_fortran_targets,test_periodic2_cached_snapshot,debug,test)
 	BEACH_FIELD_KERNEL_LIB="$(abspath $(KERNEL_LIB))" \
 		$(PYTHON) -m pytest -q \
 		tests/python/test_field_kernel_cache.py tests/python/test_periodic_force_oracle.py

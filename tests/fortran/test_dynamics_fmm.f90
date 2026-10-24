@@ -1,4 +1,4 @@
-!> triangle P0 FMM integration tests: box targets, periodic images, and mode selection.
+!> triangle P0 FMM field-solver adapter tests: target box wiring, periodic images, and far-correction selection.
 program test_dynamics_fmm
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   use bem_kinds, only: dp, i32
@@ -7,6 +7,7 @@ program test_dynamics_fmm
   use bem_field_solver, only: field_solver_type
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
+  use test_panel_oracle, only: panel_sum_field
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_close_dp, assert_allclose_1d
   implicit none
@@ -39,7 +40,9 @@ contains
     real(dp) :: r(3), e_direct(3), e_fmm(3), max_rel_err
     real(dp) :: norm_direct, norm_diff, rel_err, center_dist
 
-    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=18_i32, n_lat=10_i32, center=[0.5d0, 0.5d0, 0.0d0])
+    ! Dual-tree accuracy on point sources is test_coulomb_fmm_core_basic's contract; this checks that the
+    ! adapter turns a finite [domain] into the FMM target box and keeps the panel field accurate there.
+    call make_sphere(mesh_fmm, radius=0.2d0, n_lon=12_i32, n_lat=6_i32, center=[0.5d0, 0.5d0, 0.0d0])
     call mark_normal_plus(mesh_fmm)
     mesh_fmm%q_elem = 1.0d-12
 
@@ -53,6 +56,7 @@ contains
     call solver%init(mesh_fmm, sim)
     call solver%refresh(mesh_fmm)
     call assert_true(trim(solver%mode) == 'fmm', 'explicit FMM should select the FMM dispatcher')
+    call assert_true(solver%fmm_core_plan%target_tree_ready, 'a finite [domain] must enable the FMM target tree')
 
     call random_seed(size=seed_size)
     allocate (seed(seed_size))
@@ -64,13 +68,13 @@ contains
 
     max_rel_err = 0.0d0
     valid_count = 0_i32
-    do i = 1_i32, 80_i32
+    do i = 1_i32, 40_i32
       call random_number(r)
       r = sim%box_min + r*(sim%box_max - sim%box_min)
       center_dist = sqrt((r(1) - 0.5d0)**2 + (r(2) - 0.5d0)**2 + r(3)**2)
       if (center_dist < 0.35d0) cycle
 
-      call panel_field_at(mesh_fmm, r, e_direct)
+      e_direct = panel_sum_field(mesh_fmm, r)
       call solver%eval_e(mesh_fmm, r, e_fmm)
       call assert_true(all(ieee_is_finite(e_direct)), 'free-space direct field must be finite')
       call assert_true(all(ieee_is_finite(e_fmm)), 'free-space FMM field must be finite')
@@ -85,7 +89,7 @@ contains
 
     write (*, '(A,I0,A,ES12.5)') &
       'test_fmm_free_box_dual_target_accuracy: valid_count=', valid_count, ', max_rel_err=', max_rel_err
-    call assert_true(valid_count >= 40_i32, 'fmm free/use_box test has too few valid samples')
+    call assert_true(valid_count >= 20_i32, 'fmm free/use_box test has too few valid samples')
     call assert_true(max_rel_err <= 2.5d-2, 'fmm free/use_box E relative error exceeds 2.5e-2')
   end subroutine test_fmm_free_box_dual_target_accuracy
 
@@ -282,27 +286,5 @@ contains
     mesh%elem_vacuum_sign = 1_i32
     mesh%vacuum_normals = mesh%normals
   end subroutine mark_normal_plus
-
-  subroutine panel_field_at(mesh, target, field)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: field(3)
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    field = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'free-space FMM test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      field = field + source_field
-    end do
-  end subroutine panel_field_at
 
 end program test_dynamics_fmm

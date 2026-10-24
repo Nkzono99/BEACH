@@ -43,7 +43,6 @@ Layer 14 app/main.f90
 | 軽量 | `test_performance_profile` | ~1秒 |
 | 中量 | `test_dynamics_field_solver` | ~数秒 |
 | 中量 | `test_coulomb_fmm_core_basic` | ~数秒 |
-| 中量 | `test_output_writer_potential` | ~数秒 |
 | 中量 | `test_app_config_parser` | ~数秒 |
 | 中量 | `test_injection_sampling` | ~数秒 |
 | 中量 | `test_reservoir_injection` | ~数秒 |
@@ -63,7 +62,7 @@ fpm test --target test_dynamics_basic
 fpm test --target test_boundary
 
 # 特定モジュールの変更後
-fpm test --target test_output_writer_potential  # output_writer 変更後
+fpm test --target test_output_writer_io         # output_writer 変更後
 fpm test --target test_external_boundary_contract # 局所流入・open 境界契約の変更後
 fpm test --target test_app_config_parser        # parser 変更後
 

@@ -10,7 +10,7 @@ program test_periodic2_cached_snapshot
   use bem_charge_ledger, only: charge_ledger_type
   use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_create, beach_kernel_destroy, &
                                 beach_kernel_eval_e, beach_kernel_eval_phi, &
-                                beach_kernel_get_periodic_cache_info, beach_kernel_ok, &
+                                beach_kernel_get_periodic_cache_info, beach_kernel_invalid_argument, beach_kernel_ok, &
                                 beach_kernel_set_periodic_cache, beach_kernel_update_charges
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
@@ -18,8 +18,8 @@ program test_periodic2_cached_snapshot
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: upper_vacuum_eval_ok
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
-                          assert_allclose_1d, assert_equal_i32, assert_equal_i64, delete_file_if_exists, &
-                          remove_empty_directory
+                          assert_allclose_1d, assert_equal_i32, assert_equal_i64, unique_test_path, &
+                          delete_periodic_cache
   implicit none
 
   interface
@@ -76,13 +76,12 @@ program test_periodic2_cached_snapshot
   real(dp) :: refreshed_field(3), refreshed_potential
   real(dp) :: retry_nonzero_field(3), retry_total_field(3), retry_expected_field(3), retry_potential
   real(dp) :: retry_total_potential, retry_expected_potential
-  character(len=512) :: cache_path, cache_dir
-  integer(i64) :: clock_count
+  character(len=512) :: cache_path
+  character(len=:), allocatable :: cache_dir
   integer(i32) :: retry_status
   logical :: retry_available
 
-  call system_clock(count=clock_count)
-  write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
+  cache_dir = unique_test_path('test_periodic2_cached_snapshot_tmp_')
   call configure_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2)
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   cache_path = snapshot%diagnostics%periodic_cache_path
@@ -181,9 +180,7 @@ program test_periodic2_cached_snapshot
   call assert_true(potential_error < 1.0e-1_dp, 'neutral panel potential exceeds the charge-scale error contract')
   call test_end()
 
-  call delete_file_if_exists(cache_path)
-  call delete_file_if_exists(trim(cache_path)//'.lock')
-  call remove_empty_directory(cache_dir)
+  call delete_periodic_cache(cache_path, cache_dir)
   call test_summary()
 
 contains
@@ -422,7 +419,8 @@ contains
     type(c_ptr) :: kernel_handle, zero_handle
     integer(c_int) :: status
     integer(c_int), target :: periodic_axes(2), cache_hit, cache_build_count
-    integer(c_int), target :: fingerprint_length, path_length
+    integer(c_int), target :: fingerprint_length, path_length, short_fingerprint_length, short_path_length
+    character(kind=c_char), target :: short_fingerprint(1), short_path(1)
     real(c_double), target :: panel_v0(3, 2), panel_v1(3, 2), panel_v2(3, 2)
     real(c_double), target :: charge(2), source_heights(3, 2)
     real(c_double), target :: periodic_length(2), box_min(3), box_max(3)
@@ -476,6 +474,24 @@ contains
              int(size(path_buffer), c_int), c_loc(path_length) &
              )
     call assert_c_ok(status, 'FieldKernel cache info status')
+    ! A buffer without room for the text and its NUL is rejected, reports the required lengths of the
+    ! cached handle, and leaves the caller's bytes untouched.
+    short_fingerprint = achar(88, kind=c_char)
+    short_path = achar(89, kind=c_char)
+    short_fingerprint_length = -1_c_int
+    short_path_length = -1_c_int
+    status = beach_kernel_get_periodic_cache_info( &
+             kernel_handle, c_loc(cache_hit), c_loc(cache_build_count), c_loc(short_fingerprint), 1_c_int, &
+             c_loc(short_fingerprint_length), c_loc(short_path), 1_c_int, c_loc(short_path_length) &
+             )
+    call assert_equal_i32(int(status, i32), int(beach_kernel_invalid_argument, i32), &
+                          'cached short-buffer cache info status')
+    call assert_equal_i32(int(short_fingerprint_length, i32), int(fingerprint_length, i32), &
+                          'cached short buffer must report the fingerprint length')
+    call assert_equal_i32(int(short_path_length, i32), int(path_length, i32), &
+                          'cached short buffer must report the path length')
+    call assert_true(short_fingerprint(1) == achar(88, kind=c_char), 'cached short buffer must not truncate fingerprint')
+    call assert_true(short_path(1) == achar(89, kind=c_char), 'cached short buffer must not truncate path')
     call assert_equal_i32(int(cache_hit, i32), 1_i32, 'FieldKernel must reuse the snapshot cache')
     call assert_equal_i32(int(cache_build_count, i32), 0_i32, 'FieldKernel must not rebuild the snapshot cache')
     call assert_true( &

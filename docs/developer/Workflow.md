@@ -82,7 +82,7 @@ make test-l2
 | field snapshot、Direct / Treecode | `test_electrostatic_snapshot`、`test_dynamics_field_solver`、`test_panel_kernel` | `make test-l1` |
 | FMM、periodic2、zero / nonzero mode | 関連する `test_coulomb_fmm_*`、`test_periodic_*`、`test_dynamics_fmm` | `make test-l2`。遠方補正は `make test-fortran-far-correction` |
 | C ABI / native field kernel | `test_field_kernel_c`、`test_periodic_zero_mode_c`、`make test-python-native` | `make test-l2`。cache と周期解析解は `make test-field-kernel-cache` |
-| output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_output_writer_potential`、`test_restart` | `make test-l1` と関連する Python reader test |
+| output、checkpoint、fingerprint、restart | `test_output_writer_io`、`test_restart` | `make test-l1` と関連する Python reader test |
 | Python reader、解析、CLI | 変更 package に対応する `tests/python/test_*.py` | `make test-l1` |
 
 挙動を変えないリファクタでは、計算ノードで変更前と変更後の checkout それぞれで `tools/golden_regression.py run OUT_DIR` を実行し、

@@ -265,19 +265,9 @@ source-dir = "tests/fortran"
 main = "test_output_writer_io.f90"
 
 [[test]]
-name = "test_output_writer_potential"
-source-dir = "tests/fortran"
-main = "test_output_writer_potential.f90"
-
-[[test]]
 name = "test_field_kernel_c"
 source-dir = "tests/fortran"
 main = "test_field_kernel_c.f90"
-
-[[test]]
-name = "test_field_kernel_cache_c"
-source-dir = "tests/fortran"
-main = "test_field_kernel_cache_c.f90"
 
 [[test]]
 name = "test_version"
