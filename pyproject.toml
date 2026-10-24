@@ -71,6 +71,9 @@ testpaths = ["tests/python"]
 markers = [
     "workflow: full periodic-validation staging, provenance, and analysis contracts",
     "smoke: representative workflow contracts included in the development loop",
+    "native: needs the native field kernel (field_kernel_library fixture); make test-python-native",
+    "config_native: needs the Fortran config checker (native_checker fixture); make test-config-contract",
+    "field_kernel_cache: generates real periodic caches; make test-field-kernel-cache",
 ]
 
 [tool.ruff]

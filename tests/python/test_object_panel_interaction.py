@@ -5,7 +5,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from native_support import kernel_library_path
 
 import beach.analysis.object_interaction as interaction_module
 from beach import (
@@ -118,7 +117,7 @@ def test_gauss_duffy_rejects_unsupported_orders(order: object) -> None:
 
 
 def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     e0 = np.array([2.0, -3.0, 4.0])
@@ -135,7 +134,7 @@ def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -148,7 +147,9 @@ def test_single_triangle_primary_exclusion_leaves_only_uniform_wrench(
     )
 
 
-def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) -> None:
+def test_orders_three_and_seven_converge_for_separated_panels(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     result = _result(
@@ -162,7 +163,7 @@ def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) ->
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         order3 = snapshot.object_probe(2, quadrature_order=3).wrench()
         order7 = snapshot.object_probe(2, quadrature_order=7).wrench()
@@ -178,7 +179,7 @@ def test_orders_three_and_seven_converge_for_separated_panels(tmp_path: Path) ->
 
 
 def test_near_surface_panel_quadrature_differs_from_centroid_compatibility(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_free_config(config)
@@ -193,7 +194,7 @@ def test_near_surface_panel_quadrature_differs_from_centroid_compatibility(
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         centroid = snapshot.object_probe(
             2,

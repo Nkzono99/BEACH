@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from native_support import kernel_library_path
 
 import beach.native.kernel as kernel_module
 from beach.cli.main import main as beachx_main
@@ -806,8 +805,8 @@ def test_native_field_kernel_resolver_allows_cached_config_but_python_auto_fails
         auto_periodic2_from_result(result)
 
 
-def test_field_kernel_eval_e_matches_exact_panel_direct() -> None:
-    lib = kernel_library_path()
+def test_field_kernel_eval_e_matches_exact_panel_direct(field_kernel_library: Path) -> None:
+    lib = field_kernel_library
     triangles = np.array(
         [
             [[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]],
@@ -825,8 +824,10 @@ def test_field_kernel_eval_e_matches_exact_panel_direct() -> None:
     np.testing.assert_allclose(field, exact, rtol=2.0e-14, atol=1.0e-14)
 
 
-def test_field_kernel_exact_panel_direct_scales_with_charge_refresh() -> None:
-    lib = kernel_library_path()
+def test_field_kernel_exact_panel_direct_scales_with_charge_refresh(
+    field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     centers = np.array(
         [[-0.6, -0.2, 0.0], [0.0, 0.4, 0.1], [0.7, -0.3, -0.1]],
         dtype=float,
@@ -854,8 +855,10 @@ def test_field_kernel_exact_panel_direct_scales_with_charge_refresh() -> None:
     )
 
 
-def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None:
-    lib = kernel_library_path()
+def test_field_kernel_from_result_uses_triangle_geometry(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
@@ -888,8 +891,10 @@ def test_field_kernel_from_result_uses_triangle_geometry(tmp_path: Path) -> None
     np.testing.assert_allclose(panel_field, direct_field, rtol=2.0e-14, atol=1.0e-14)
 
 
-def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature() -> None:
-    lib = kernel_library_path()
+def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature(
+    field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]],
         dtype=float,
@@ -911,8 +916,10 @@ def test_panel_direct_and_ordinary_use_same_principal_value_at_target_quadrature
     np.testing.assert_allclose(ordinary_phi, direct_phi, rtol=2.0e-14, atol=1.0e-14)
 
 
-def test_field_kernel_periodic2_wraps_batched_equivalent_targets() -> None:
-    lib = kernel_library_path()
+def test_field_kernel_periodic2_wraps_batched_equivalent_targets(
+    field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 0.75, 0.0]]],
         dtype=float,
@@ -944,8 +951,8 @@ def test_field_kernel_periodic2_wraps_batched_equivalent_targets() -> None:
     np.testing.assert_allclose(field[0], field[1], rtol=1.0e-14, atol=1.0e-14)
 
 
-def test_field_kernel_adds_uniform_external_e0() -> None:
-    lib = kernel_library_path()
+def test_field_kernel_adds_uniform_external_e0(field_kernel_library: Path) -> None:
+    lib = field_kernel_library
     triangles = np.array(
         [[[0.0, 0.0, 0.0], [0.2, 0.0, 0.0], [0.0, 0.2, 0.0]]],
         dtype=float,
@@ -1088,8 +1095,10 @@ def test_resolved_treecode_backend_rejects_before_native_build(
     assert "build" not in lib.events
 
 
-def test_calc_object_forces_kernel_excludes_self_sources(tmp_path: Path) -> None:
-    lib = kernel_library_path()
+def test_calc_object_forces_kernel_excludes_self_sources(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     (tmp_path / "beach.toml").write_text(
         '[sim]\nfield_bc_mode = "free"\n',
         encoding="utf-8",
@@ -1134,8 +1143,10 @@ def test_field_kernel_options_rejects_removed_softening() -> None:
         FieldKernelOptions(softening=0.5)  # type: ignore[call-arg]
 
 
-def test_scene_move_updates_kernel_force_geometry(tmp_path: Path) -> None:
-    lib = kernel_library_path()
+def test_scene_move_updates_kernel_force_geometry(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
+    lib = field_kernel_library
     (tmp_path / "beach.toml").write_text(
         '[sim]\nfield_bc_mode = "free"\n',
         encoding="utf-8",
@@ -1267,8 +1278,8 @@ def test_scene_rotate_keeps_charges_attached_to_mesh_elements(tmp_path: Path) ->
     np.testing.assert_allclose(rotated.charges, scene.charges)
 
 
-def test_kernel_forces_cli_writes_csv(tmp_path: Path) -> None:
-    lib = kernel_library_path()
+def test_kernel_forces_cli_writes_csv(tmp_path: Path, field_kernel_library: Path) -> None:
+    lib = field_kernel_library
     out = tmp_path / "run"
     out.mkdir()
     config_path = tmp_path / "beach.toml"

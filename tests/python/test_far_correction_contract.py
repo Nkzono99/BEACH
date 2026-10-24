@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import runpy
+import re
 import subprocess
 from pathlib import Path
 
@@ -73,20 +73,7 @@ def test_bundled_plugin_references_match_canonical_sources() -> None:
         )
 
 
-def test_field_kernel_cache_tests_are_opt_in(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    environment = os.environ.copy()
-    for name in (
-        "FORTRAN_FAR_CORRECTION_TARGETS",
-        "FORTRAN_L1_TARGETS",
-        "FORTRAN_L2_TARGETS",
-        "FORTRAN_L3_TARGETS",
-        "MAKEFLAGS",
-        "MAKEOVERRIDES",
-        "MFLAGS",
-    ):
-        environment.pop(name, None)
+def _make_database(environment: dict[str, str]) -> str:
     result = subprocess.run(
         ["make", "-pn", "--no-print-directory", "-f", "Makefile"],
         cwd=REPO_ROOT,
@@ -96,40 +83,60 @@ def test_field_kernel_cache_tests_are_opt_in(
         check=False,
     )
     assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _pytest_marker_expression(environment: dict[str, str], target: str) -> str:
+    result = subprocess.run(
+        ["make", "-n", "--no-print-directory", "-f", "Makefile", target],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    commands = [line for line in result.stdout.splitlines() if " -m pytest " in line]
+    assert len(commands) == 1, (target, result.stdout)
+    match = re.search(r" -m '([^']+)'", commands[0])
+    assert match is not None, commands[0]
+    return match.group(1)
+
+
+def _selects(expression: str, markers: set[str]) -> bool:
+    names = set(re.findall(r"[A-Za-z_]\w*", expression)) - {"and", "or", "not"}
+    return bool(eval(expression, {"__builtins__": {}}, {name: name in markers for name in names}))
+
+
+def test_field_kernel_cache_tests_are_opt_in() -> None:
+    environment = os.environ.copy()
+    for name in ("MAKEFLAGS", "MAKEOVERRIDES", "MFLAGS"):
+        environment.pop(name, None)
+    for name in list(environment):
+        if name.startswith("FORTRAN_") and name.endswith("_TARGETS"):
+            environment.pop(name)
+    database = _make_database(environment)
 
     far_targets = set(
-        _line_starting_with(
-            result.stdout, "FORTRAN_FAR_CORRECTION_TARGETS = "
-        ).split(" = ", maxsplit=1)[1].split()
+        _line_starting_with(database, "FORTRAN_FAR_CORRECTION_TARGETS = ")
+        .split(" = ", maxsplit=1)[1].split()
     )
     assert "test_field_kernel_cache_c" in far_targets
-    for tier in ("L1", "L2", "L3"):
-        tier_targets = set(
-            _line_starting_with(
-                result.stdout, f"FORTRAN_{tier}_TARGETS = "
-            ).split(" = ", maxsplit=1)[1].split()
-        )
-        assert "test_field_kernel_cache_c" not in tier_targets
+    tier_lines = re.findall(r"^FORTRAN_L\d+_TARGETS = (.*)$", database, re.MULTILINE)
+    assert tier_lines
+    for line in tier_lines:
+        assert "test_field_kernel_cache_c" not in line.split()
 
     opt_in_assignment = _line_starting_with(
-        result.stdout,
+        database,
         "test-field-kernel-cache: BEACH_RUN_FIELD_KERNEL_CACHE_TESTS ",
     )
     assert opt_in_assignment.rsplit("=", maxsplit=1)[1].strip() == "1"
 
+    tiers = sorted(set(re.findall(r"^(test-l\d+):", database, re.MULTILINE)))
     default_routes = subprocess.run(
-        [
-            "make",
-            "-n",
-            "--trace",
-            "--no-print-directory",
-            "-f",
-            "Makefile",
-            "test-l1",
-            "test-l2",
-            "test-l3",
-            "test-physics-release",
-        ],
+        ["make", "-n", "--trace", "--no-print-directory", "-f", "Makefile",
+         *tiers, "test-physics-release"],
         cwd=REPO_ROOT,
         env=environment,
         capture_output=True,
@@ -139,6 +146,11 @@ def test_field_kernel_cache_tests_are_opt_in(
     assert default_routes.returncode == 0, default_routes.stderr
     assert "target 'test-field-kernel-cache'" not in default_routes.stdout
 
-    monkeypatch.delenv("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS", raising=False)
-    with pytest.raises(pytest.skip.Exception, match="opt-in"):
-        runpy.run_path(str(REPO_ROOT / "tests/python/test_field_kernel_cache.py"))
+    cache_test = {"field_kernel_cache", "native"}
+    for target in ("test-python", "test-python-native", "test-validation-workflow"):
+        expression = _pytest_marker_expression(environment, target)
+        assert not _selects(expression, cache_test), (target, expression)
+        assert not _selects(expression, cache_test | {"workflow"}), (target, expression)
+    assert _selects(
+        _pytest_marker_expression(environment, "test-field-kernel-cache"), cache_test
+    )

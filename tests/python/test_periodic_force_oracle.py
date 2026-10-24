@@ -2,7 +2,6 @@
 from beach.io.types import RunField, RunMesh, RunSummary
 import importlib.util
 import json
-import os
 import shutil
 import sys
 from collections.abc import Mapping
@@ -14,7 +13,6 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from native_support import kernel_library_path
 
 from beach import (
     FieldKernel,
@@ -320,7 +318,7 @@ def test_identity_rigid_transform_preserves_panel_center_bits_about_nonzero_orig
 
 
 def test_panel_wrench_identity_transform_records_primary_self_subtraction(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
@@ -361,7 +359,7 @@ def test_panel_wrench_identity_transform_records_primary_self_subtraction(
         step=None,
         config_path=config,
         periodic_model="configured",
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         probe = snapshot.object_probe(1)
         transformed_points = RigidTransform.identity().apply(
@@ -386,7 +384,7 @@ def test_panel_wrench_identity_transform_records_primary_self_subtraction(
 
 
 def test_free_space_moved_single_source_has_no_primary_image_residual(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "triangle_p0.toml"
     _write_free_interaction_config(config)
@@ -416,7 +414,7 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
         step=None,
         config_path=config,
         periodic_model="configured",
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench(
             transform=RigidTransform.translation([0.0, 0.0, 0.25]),
@@ -433,7 +431,7 @@ def test_free_space_moved_single_source_has_no_primary_image_residual(
 
 
 def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
@@ -454,7 +452,7 @@ def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
             step=None,
             config_path=config,
             periodic_model="configured",
-            library_path=kernel_library_path(),
+            library_path=field_kernel_library,
         ) as snapshot:
             wrenches.append(
                 snapshot.object_probe(1).wrench(
@@ -487,13 +485,15 @@ def test_periodic_seam_split_and_unwrapped_lattice_representations_match(
         )
 
 
-def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) -> None:
+def test_finite_shell_m1_matches_explicit_replicated_direct_sum(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
     charges = np.array([1.0e-9, 2.0e-9])
     result = _result(tmp_path, charges)
     with ObjectInteractionSnapshot.from_result(
-        result, step=None, config_path=config, library_path=kernel_library_path()
+        result, step=None, config_path=config, library_path=field_kernel_library
     ) as snapshot:
         probe = snapshot.object_probe(1)
         shell = finite_shell_wrench(snapshot, probe, None, 1, "symmetric")
@@ -518,7 +518,7 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
         _triangles_at(np.asarray(replicated_pos)),
         np.asarray(replicated_q),
         options=FieldKernelOptions(leaf_max=64),
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as direct:
         expected_field = direct.eval_e_direct(target_points)
     expected_force_samples = target_weights[:, None] * expected_field
@@ -543,7 +543,9 @@ def test_finite_shell_m1_matches_explicit_replicated_direct_sum(tmp_path: Path) 
     assert shell.selected is shell.symmetric
 
 
-def test_finite_shell_exposes_analytic_bottom_zero_closure(tmp_path: Path) -> None:
+def test_finite_shell_exposes_analytic_bottom_zero_closure(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
     charges = np.array([1.0e-9, 2.0e-9])
@@ -551,7 +553,7 @@ def test_finite_shell_exposes_analytic_bottom_zero_closure(tmp_path: Path) -> No
         _result(tmp_path, charges),
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         probe = snapshot.object_probe(1)
         shell = finite_shell_wrench(snapshot, probe, None, 1, "e_bottom_zero")
@@ -568,7 +570,7 @@ def test_finite_shell_exposes_analytic_bottom_zero_closure(tmp_path: Path) -> No
 
 
 def test_finite_shell_convergence_requires_two_successive_increments(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
@@ -576,7 +578,7 @@ def test_finite_shell_convergence_requires_two_successive_increments(
         _result(tmp_path, np.zeros(2)),
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         probe = snapshot.object_probe(1)
         converged = finite_shell_convergence(
@@ -798,12 +800,9 @@ def test_bottom_zero_closure_does_not_hide_source_refinement_failure() -> None:
     )
 
 
-@pytest.mark.skipif(
-    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
-    reason="physical infinite comparison requires opt-in periodic cache generation",
-)
+@pytest.mark.field_kernel_cache
 def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config, lower_boundary_model="e_bottom_zero")
@@ -818,7 +817,7 @@ def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         probe = snapshot.object_probe(1)
         infinite = probe.vertical_path(
@@ -875,12 +874,9 @@ def test_non_neutral_local_shell_convergence_is_rejected_by_physical_reference(
     assert shells.selected_path is None
 
 
-@pytest.mark.skipif(
-    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
-    reason="physical infinite comparison requires opt-in periodic cache generation",
-)
+@pytest.mark.field_kernel_cache
 def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config, lower_boundary_model="e_bottom_zero")
@@ -896,7 +892,7 @@ def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         shells = finite_shell_convergence(
             snapshot,
@@ -917,24 +913,12 @@ def test_non_neutral_near_field_shell_converges_to_physical_infinite_reference(
     np.testing.assert_array_equal(shells.increment_converged[-2:], [True, True])
 
 
-@pytest.mark.skipif(
-    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1"
-    or not os.environ.get("BEACH_FIELD_KERNEL_LIB"),
-    reason=(
-        "native validation-tool oracles require opt-in cache generation and "
-        "BEACH_FIELD_KERNEL_LIB"
-    ),
-)
+@pytest.mark.field_kernel_cache
 def test_validation_tool_native_plane_oracles_match_receipt_contract(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     tool = _load_validation_tool()
-    library_value = os.environ.get("BEACH_FIELD_KERNEL_LIB")
-    assert library_value is not None
-    provided_library = Path(library_value).expanduser().resolve()
-    assert provided_library.is_file(), (
-        f"native field-kernel library does not exist: {provided_library}"
-    )
+    provided_library = field_kernel_library
     library = tmp_path / "lib" / provided_library.name
     library.parent.mkdir(parents=True)
     shutil.copy2(provided_library, library)
@@ -1058,12 +1042,9 @@ def test_validation_tool_native_plane_oracles_match_receipt_contract(
     assert set(verified["kernel_oracles"]) == {"triangle_p0"}
 
 
-@pytest.mark.skipif(
-    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
-    reason="analytic periodic panel plane requires opt-in cache generation",
-)
+@pytest.mark.field_kernel_cache
 def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_panel_periodic_config(config)
@@ -1087,7 +1068,7 @@ def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
         config_path=config,
         periodic_model="infinite_physical",
         cache_dir=cache_dir,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         field = _physical_field(snapshot, points)
         order3 = snapshot.object_probe(1, quadrature_order=3).wrench()
@@ -1127,12 +1108,9 @@ def test_uniform_triangle_plane_matches_bottom_zero_jump_pv_and_object_wrench(
     )
 
 
-@pytest.mark.skipif(
-    os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1",
-    reason="analytic periodic cosine plane requires opt-in cache generation",
-)
+@pytest.mark.field_kernel_cache
 def test_neutral_cosine_triangle_plane_converges_to_nonzero_mode_solution(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_panel_periodic_config(config)
@@ -1178,7 +1156,7 @@ def test_neutral_cosine_triangle_plane_converges_to_nonzero_mode_solution(
             config_path=config,
             periodic_model="infinite_physical",
             cache_dir=Path(".beach_cache/periodic2-task7-oracle"),
-            library_path=kernel_library_path(),
+            library_path=field_kernel_library,
         ) as snapshot:
             field = snapshot._periodic.eval_e(points)
             potential = snapshot._periodic.eval_phi(points)
@@ -1198,7 +1176,7 @@ def test_neutral_cosine_triangle_plane_converges_to_nonzero_mode_solution(
 
 
 def test_finite_shell_closure_path_force_and_potential_work_agree(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_config(config)
@@ -1208,7 +1186,7 @@ def test_finite_shell_closure_path_force_and_potential_work_agree(
         _result(tmp_path, charges),
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         result = finite_shell_convergence(
             snapshot,

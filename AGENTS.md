@@ -59,6 +59,7 @@ Python CLI examples:
   - L2 contract/integration: `make test-l2` (L1 + C ABI + freshly built Python/native kernel + config/CLI contracts)
   - L3 release/heavy: `make test-l3`, `make test-heavy`, or `make test-full` (heavy FMM/full fpm suite)
 - Validation workflow: `make test-validation-workflow` runs every periodic staging/provenance/analysis case; CI runs it separately from L2. `make test-python` keeps three workflow smoke cases; plain `pytest -q` collects the full suite.
+- Python gates select tests by pytest marker, not by file. A test that needs the native kernel or the Fortran config checker takes the `field_kernel_library` or `native_checker` fixture, and `tests/python/conftest.py` marks it `native` or `config_native` so only `make test-python-native` / `make test-config-contract` run it. Mark tests that generate real periodic caches `field_kernel_cache` (`make test-field-kernel-cache`).
 - Opt-in native cache/oracle gate: `make test-field-kernel-cache` (builds the shared kernel and runs cache reuse, shell/infinite comparisons, analytic plane oracles, and receipt tests; excluded from L1/L2/L3 and `test-physics-release`)
 - Periodic conductor relaxation: `test_surface_models_periodic` runs in `make test-fortran-far-correction`; free-space conductor tests stay in L1. Laplace derivative timings run only as a release benchmark.
 - Per-target Fortran test: `FPM_ACTION=test ./build.sh --target <name>`

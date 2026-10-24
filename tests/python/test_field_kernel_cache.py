@@ -1,26 +1,20 @@
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-if os.environ.get("BEACH_RUN_FIELD_KERNEL_CACHE_TESTS") != "1":
-    pytest.skip(
-        "real periodic field-kernel cache generation is opt-in; run `make test-field-kernel-cache`",
-        allow_module_level=True,
-    )
+from beach import FieldKernel, FieldKernelOptions
 
-from beach import FieldKernel, FieldKernelOptions  # noqa: E402
-from native_support import kernel_library_path  # noqa: E402
+pytestmark = pytest.mark.field_kernel_cache
 
 
 def test_field_kernel_periodic_cache_reuses_only_matching_identity(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
-    lib = kernel_library_path()
+    lib = field_kernel_library
     source_centers = np.array(
         [
             [0.30, 0.40, -0.20],

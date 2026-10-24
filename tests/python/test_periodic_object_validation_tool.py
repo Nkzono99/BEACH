@@ -1590,24 +1590,19 @@ def test_strict_analysis_rejects_build_origin_policy_downgrade(
 
 
 @pytest.mark.skipif(
-    not os.environ.get("BEACH_VALIDATION_BINARY")
-    or not os.environ.get("BEACH_FIELD_KERNEL_LIB"),
-    reason=(
-        "native build-origin integration requires BEACH_VALIDATION_BINARY and "
-        "BEACH_FIELD_KERNEL_LIB"
-    ),
+    not os.environ.get("BEACH_VALIDATION_BINARY"),
+    reason="native build-origin integration requires BEACH_VALIDATION_BINARY",
 )
-def test_native_binary_and_library_match_clean_current_source() -> None:
+def test_native_binary_and_library_match_clean_current_source(
+    field_kernel_library: Path,
+) -> None:
     tool = _load_tool()
     binary_value = os.environ.get("BEACH_VALIDATION_BINARY")
-    library_value = os.environ.get("BEACH_FIELD_KERNEL_LIB")
     assert binary_value is not None
-    assert library_value is not None
     binary_path = Path(binary_value).expanduser().resolve()
-    library_path = Path(library_value).expanduser().resolve()
+    library_path = field_kernel_library
 
     assert binary_path.is_file()
-    assert library_path.is_file()
     source_commit = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=ROOT,

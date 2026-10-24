@@ -10,7 +10,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from native_support import kernel_library_path
 
 import examples.analyze_periodic_object_detachment as example_module
 from beach import (
@@ -691,7 +690,9 @@ def test_example_validates_inputs_before_constructing_beach(
         example_module.main()
 
 
-def test_object_detachment_cli_native_two_object_smoke(tmp_path: Path) -> None:
+def test_object_detachment_cli_native_two_object_smoke(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "summary.txt").write_text(
@@ -751,7 +752,7 @@ e0 = [0.0, 0.0, 0.0]
             "--gravity-m-s2",
             "0",
             "--library",
-            str(kernel_library_path()),
+            str(field_kernel_library),
             "--save-dir",
             str(artifact_dir),
         ]

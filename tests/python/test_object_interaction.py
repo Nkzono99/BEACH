@@ -6,7 +6,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from native_support import kernel_library_path
 
 import beach.analysis.field_kernel as field_kernel_module
 import beach.analysis.object_interaction as interaction_module
@@ -156,7 +155,9 @@ def _cached_field_receipt(
     )
 
 
-def test_free_single_object_excludes_only_its_primary_source(tmp_path: Path) -> None:
+def test_free_single_object_excludes_only_its_primary_source(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     result = _result(
@@ -170,7 +171,7 @@ def test_free_single_object_excludes_only_its_primary_source(tmp_path: Path) -> 
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -184,7 +185,9 @@ def test_free_single_object_excludes_only_its_primary_source(tmp_path: Path) -> 
     )
 
 
-def test_free_two_object_force_is_coulomb_action_reaction(tmp_path: Path) -> None:
+def test_free_two_object_force_is_coulomb_action_reaction(
+    tmp_path: Path, field_kernel_library: Path,
+) -> None:
     config = tmp_path / "beach.toml"
     _write_free_config(config)
     positions = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
@@ -195,7 +198,7 @@ def test_free_two_object_force_is_coulomb_action_reaction(tmp_path: Path) -> Non
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         first = snapshot.object_probe(1).wrench(torque_origin="origin")
         second = snapshot.object_probe(2).wrench(torque_origin="origin")
@@ -528,7 +531,7 @@ def test_uniform_potential_uses_simulator_global_origin_gauge(
 
 
 def test_neutral_target_has_zero_vertical_whole_object_force_in_symmetric_shell(
-    tmp_path: Path,
+    tmp_path: Path, field_kernel_library: Path,
 ) -> None:
     config = tmp_path / "beach.toml"
     _write_periodic_config(config, far_correction="none")
@@ -543,7 +546,7 @@ def test_neutral_target_has_zero_vertical_whole_object_force_in_symmetric_shell(
         result,
         step=None,
         config_path=config,
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as snapshot:
         wrench = snapshot.object_probe(1).wrench()
 
@@ -939,7 +942,9 @@ def test_failed_close_can_be_retried_without_reusing_partial_snapshot(
         probe.wrench()
 
 
-def test_numpy_wrench_aggregation_matches_native_force_on_charges() -> None:
+def test_numpy_wrench_aggregation_matches_native_force_on_charges(
+    field_kernel_library: Path,
+) -> None:
     source_positions = np.array([[0.0, 0.0, 0.0], [0.5, -0.2, 0.3]])
     source_triangles = _triangles_at(source_positions)
     source_charges = np.array([1.0e-9, -0.5e-9])
@@ -951,7 +956,7 @@ def test_numpy_wrench_aggregation_matches_native_force_on_charges() -> None:
         source_triangles,
         source_charges,
         options=FieldKernelOptions(),
-        library_path=kernel_library_path(),
+        library_path=field_kernel_library,
     ) as kernel:
         field = kernel.eval_e(target_positions)
         potential = kernel.eval_phi(target_positions)

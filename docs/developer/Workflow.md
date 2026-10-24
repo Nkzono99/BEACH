@@ -107,9 +107,20 @@ make test-l3      # L2 + heavy FMM / panel
 - L2 は C ABI、periodic zero-mode、共有 kernel を build した Python/native 数値比較、Fortran の設定読込と lint CLI を加えます。
 - L3 は `test_dynamics_fmm`、FMM core、panel near-correction などの heavy target を加えます。
 
-`make test-python` は `workflow` marker の全検証を除き、`smoke` の代表ケースを実行します。
+Python の gate は file ではなく pytest marker で選びます。native の成果物を使う test は fixture で受け取り、
+`tests/python/conftest.py` が fixture から marker を付けます。
+
+| marker | 付く test | 実行する gate |
+| --- | --- | --- |
+| `native` | `field_kernel_library` fixture（共有 kernel）を使う | `make test-python-native` |
+| `config_native` | `native_checker` fixture（`beach --check-config`）を使う | `make test-config-contract` |
+| `field_kernel_cache` | 実際の periodic cache を生成する（明示的に付ける） | `make test-field-kernel-cache` |
+| `workflow` / `smoke` | 検証 workflow の全ケース / 代表 3 ケース | `make test-validation-workflow` / `make test-python` |
+
+`make test-python` は上の 3 marker と `smoke` でない `workflow` を除いて実行するので、`build/` に古い kernel が残っていても native test を選びません。
 `make test-validation-workflow` は stage、改変検知、投入、receipt、解析の全ケースを実行します。
-CI は L2 とこの専用 gate を実行します。`pytest -q` は両方をまとめて収集します。
+CI は L2 とこの専用 gate を実行します。`pytest -q` はすべてを収集します。共有 kernel がない native test は skip し、
+`field_kernel_cache` は `BEACH_RUN_FIELD_KERNEL_CACHE_TESTS=1` のときだけ実行します。
 実物の build-origin 比較では、同じ clean commit から作った実行ファイルと共有 kernel を
 `BEACH_VALIDATION_BINARY`、`BEACH_FIELD_KERNEL_LIB` で指定します。
 
