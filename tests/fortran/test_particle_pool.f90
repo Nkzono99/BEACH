@@ -7,6 +7,7 @@ program test_particle_pool
                             init_particle_batch_from_config, particle_inflow_reservoir, &
                             batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot, &
                             slot_kind_volume, slot_kind_reservoir_face
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
   use bem_injection, only: sample_reservoir_face_particle_counter
@@ -18,6 +19,7 @@ program test_particle_pool
   implicit none
 
   type(app_config) :: cfg
+  type(particle_source_plan_type) :: source_plan
   type(batch_injection_layout_type) :: layout
   type(injection_state) :: state, state_static
   type(particles_soa) :: pcls
@@ -34,7 +36,8 @@ program test_particle_pool
   allocate (state%macro_residual(2), state%boundary_macro_residual(6, 2))
   state%macro_residual = 0.0_dp
   state%boundary_macro_residual = 0.0_dp
-  call build_batch_injection_layout(cfg, 1_i32, layout, state=state)
+  call build_particle_source_plan(cfg, source_plan)
+  call build_batch_injection_layout(cfg, 1_i32, layout, state=state, source_plan=source_plan)
   call assert_true(layout%ready, 'layout should be ready')
   call assert_equal_i32(layout%total_slots, 6_i32, 'layout total slot count mismatch')
   call assert_equal_i32(layout%nsegments, 2_i32, 'layout segment count mismatch')
@@ -59,7 +62,7 @@ program test_particle_pool
   state_static%macro_residual = 0.0_dp
   state_static%boundary_macro_residual = 0.0_dp
   call seed_particles_from_config(cfg)
-  call init_particle_batch_from_config(cfg, 1_i32, pcls, state=state_static)
+  call init_particle_batch_from_config(cfg, 1_i32, pcls, state=state_static, source_plan=source_plan)
   call assert_equal_i32(pcls%n, layout%total_slots, 'static batch should hold every layout slot on one rank')
   call assert_equal_i32(pcls%species_id(2), 2_i32, 'static batch round-robin should interleave species')
   call assert_close_dp( &
@@ -170,6 +173,7 @@ contains
 
   subroutine test_uneven_species_batch()
     type(app_config) :: app
+    type(particle_source_plan_type) :: plan
     type(particles_soa) :: particles
     integer(i32), parameter :: counts(4) = [4_i32, 20_i32, 2_i32, 1_i32]
     integer :: s, j
@@ -190,7 +194,8 @@ contains
       app%particle_species(s)%w_particle = 3.0_dp*s
     end do
     call seed_particles_from_config(app)
-    call init_particle_batch_from_config(app, 1_i32, particles)
+    call build_particle_source_plan(app, plan)
+    call init_particle_batch_from_config(app, 1_i32, particles, source_plan=plan)
     ! The interleaving order is layout_segments_follow_static_order's contract; here every particle must carry
     ! the attributes of its own species, and disabled species emit nothing.
     call assert_equal_i32(particles%n, 7_i32, 'uneven species count mismatch')
@@ -209,7 +214,8 @@ contains
     call assert_true(all(particles%alive), 'new batch particles must be alive')
     call assert_true(all(particles%source_element == -1_i32), 'volume seed acquired surface provenance')
     app%particle_species(:)%npcls_per_step = 0_i32
-    call init_particle_batch_from_config(app, 1_i32, particles)
+    call build_particle_source_plan(app, plan)
+    call init_particle_batch_from_config(app, 1_i32, particles, source_plan=plan)
     call assert_equal_i32(particles%n, 0_i32, 'empty batch retained old particles')
     call assert_true(size(particles%x, 1) == 3 .and. size(particles%x, 2) == 0, 'empty batch position shape mismatch')
     call assert_true(size(particles%species_id) == 0 .and. size(particles%alive) == 0, 'empty batch state mismatch')
@@ -219,6 +225,7 @@ contains
   subroutine test_photo_batch()
     type(mesh_type) :: mesh
     type(app_config) :: cfg
+    type(particle_source_plan_type) :: plan
     type(particles_soa) :: pcls
     type(injection_state) :: state
     type(electrostatic_snapshot_type) :: snapshot
@@ -291,8 +298,9 @@ contains
     call snapshot%init(mesh, cfg%sim, cfg%field, cfg%periodic2, cfg%panel)
     call snapshot%refresh(mesh)
     call seed_particles_from_config(cfg)
+    call build_particle_source_plan(cfg, plan)
     call init_particle_batch_from_config( &
-      cfg, 1_i32, pcls, state, mesh=mesh, snapshot=snapshot, photo_emission_dq=photo_emission_dq &
+      cfg, 1_i32, pcls, state, mesh=mesh, snapshot=snapshot, photo_emission_dq=photo_emission_dq, source_plan=plan &
       )
     call assert_equal_i32(pcls%n, 2_i32, 'mixed batch particle count mismatch')
     call assert_equal_i32(int(count(pcls%species_id == 1_i32), i32), 1_i32, 'volume species count mismatch')

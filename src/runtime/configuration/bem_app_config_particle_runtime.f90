@@ -94,7 +94,7 @@ module bem_app_config_particle_runtime
       integer(i32), intent(in), optional :: mpi_rank, mpi_size
       type(mpi_context), intent(in), optional :: mpi
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
-      type(particle_source_plan_type), intent(in), optional, target :: source_plan
+      type(particle_source_plan_type), intent(in) :: source_plan
     end subroutine build_batch_injection_layout
 
     module subroutine generate_batch_slot( &
@@ -124,7 +124,7 @@ module bem_app_config_particle_runtime
       !> 不完全な photo collision query（省略時は停止）。
       type(photo_ray_failure_type), intent(out), optional :: photo_failure
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
-      type(particle_source_plan_type), intent(in), optional, target :: source_plan
+      type(particle_source_plan_type), intent(in) :: source_plan
       real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
       !> 各粒子の global slot 番号（粒子追跡の境界・二次電子乱数の鍵に使う）。
       integer(i32), allocatable, intent(out), optional :: slot_ids(:)

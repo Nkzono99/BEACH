@@ -55,6 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `uniform` と `sample_photo_emission_velocity` の `rng_seed` / `rng_counter` は必須にした。注入面と photo ray の
   sampling は counter-based の `sample_reservoir_face_particle_counter`、`sample_photo_ray_slot`、`photo_ray_macro_weight`
   で検査する。
+- Fortran の `init_particle_batch_from_config` と `build_batch_injection_layout` は `source_plan` を必須にした。
+  省略時に呼出しの中で plan を作る経路は test だけが使っていた。
 
 ### Fixed
 
