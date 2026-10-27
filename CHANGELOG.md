@@ -69,6 +69,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 平面 oracle が mesh 解像度ごとに異なる cache identity を要求する誤検知を修正した。
   同じ box-cell 演算子の再利用を認め、評価ごとの path・fingerprint・SHA256 の照合を維持する。
 - 近接場の有限 shell テストで経路の標本点を 9 点から 33 点に増やし、1% の仕事誤差条件を満たす積分解像度で比較する。
+- `beachx workload` の rank 別粒子数を本体の `static` 分配に合わせた。種・source・reservoir 面ごとに
+  round-robin に並ぶ global slot の総数を一度だけ分割した連続区間から数え（以前は source・面ごとに分割して合計していた）、
+  `shared` 分配では均等負荷の仮定であることを `rank_count_basis` に示す（#64）。
+- `tools/golden_regression.py compare` が有限値から NaN/Inf への変化、新しい側だけにある case・ファイル、
+  `--rtol 0` での表記差（`1.0` → `1.00` など）を成功扱いしていた問題を直した。`--rtol 0` は volatile 行を除いた
+  テキストの完全一致を要求し、`--rtol` が正のときは数値を相対差で比べて非有限値は同じ表記どうしだけ一致とする（#67）。
+- runops adapter が、run の `input/` にある OBJ を絶対 path（または同じ実体への symlink）で指す mesh part を
+  自分自身へ copy しようとして `SameFileError` で止まる問題を直した。同名で内容の異なる OBJ は従来どおり
+  `part<index>-<name>` へ配置する（#70）。
+- `ClosePackSpec.validate` が `radius`、`floor_z`、`box_height`、`top_clearance` の NaN/Inf を受理していた問題を直し、
+  有限であることを同じ検査で要求する（#71）。
+- `ObjectProbe.vertical_path` の適応細分化が、区間ごとの判定を通ると返す grid の経路全体の work/potential 一致を
+  確かめずに終了し、細分化の余力を残したまま `work_potential_mismatch` で未収束を返していた問題を直した。
+  経路全体の一致を loop 内の受理条件に含め、不一致なら区間幅に比例して許容を配分し、超えた区間を細分化する（#81）。
 
 ## [4.0.0] - 2026-10-23
 

@@ -141,6 +141,20 @@ def test_render_closepack_toml_roundtrips_with_toml_loader(tmp_path: Path) -> No
     assert schema_errors(tomllib.loads(path.read_text()), schema) == []
 
 
+@pytest.mark.parametrize("field", ["radius", "floor_z", "box_height", "top_clearance"])
+@pytest.mark.parametrize("value", [math.nan, math.inf])
+def test_closepack_spec_rejects_non_finite_geometry(field: str, value: float) -> None:
+    inputs: dict[str, float] = {"radius": 0.1, field: value}
+    spec = ClosePackSpec(layers=1, cells_x=1, cells_y=1, **inputs)
+
+    with pytest.raises(ValueError, match=f"{field} must be finite"):
+        spec.validate()
+
+
+def test_closepack_spec_accepts_a_tiny_positive_radius() -> None:
+    ClosePackSpec(layers=1, radius=1.0e-300, cells_x=1, cells_y=1).validate()
+
+
 def test_beachx_model_close_pack_module_writes_expected_file(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[3]
     base_path = tmp_path / "base.toml"

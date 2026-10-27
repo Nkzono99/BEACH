@@ -6,7 +6,7 @@ OpenMP thread and a fixed seed, so a behaviour-preserving change reproduces ever
 output file bit for bit.
 
     tools/golden_regression.py run OUT_DIR          # build release in this checkout, run all cases
-    tools/golden_regression.py compare BASE NEW     # bitwise, or --rtol for a relative tolerance
+    tools/golden_regression.py compare BASE NEW     # identical text, or --rtol for a relative tolerance
 
 Run on a compute node; ``run`` calls ``./build.sh`` with ``FPM_PROFILE=release``.
 """
@@ -14,6 +14,7 @@ Run on a compute node; ``run`` calls ``./build.sh`` with ``FPM_PROFILE=release``
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import subprocess
 import sys
@@ -110,60 +111,101 @@ def run_cases(out_dir: Path) -> int:
     return status
 
 
-def _tokens(line: str) -> list[float | str]:
-    values: list[float | str] = []
-    for token in line.replace(",", " ").replace("=", " ").split():
-        try:
-            values.append(float(token.replace("D", "E")))
-        except ValueError:
-            values.append(token)
-    return values
+def _number(token: str) -> float | None:
+    try:
+        return float(token.replace("D", "E"))
+    except ValueError:
+        return None
 
 
 def _stable_lines(path: Path) -> list[str]:
     return [line for line in path.read_text().splitlines() if not any(key in line.lower() for key in VOLATILE_KEYS)]
 
 
+def _line_differences(line_a: str, line_b: str) -> tuple[float, int, int]:
+    """Return the largest finite relative difference, text differences, and non-finite differences."""
+
+    tokens_a = line_a.replace(",", " ").replace("=", " ").split()
+    tokens_b = line_b.replace(",", " ").replace("=", " ").split()
+    if len(tokens_a) != len(tokens_b):
+        return 0.0, 1, 0
+    worst, text_diffs, nonfinite_diffs = 0.0, 0, 0
+    for token_a, token_b in zip(tokens_a, tokens_b):
+        a, b = _number(token_a), _number(token_b)
+        if a is None or b is None:
+            text_diffs += token_a != token_b
+        elif not (math.isfinite(a) and math.isfinite(b)):
+            # A NaN or infinity matches only the same token, never a finite value.
+            nonfinite_diffs += token_a != token_b
+        elif a != b:
+            worst = max(worst, abs(a - b) / max(abs(a), abs(b), 1.0e-300))
+    return worst, text_diffs, nonfinite_diffs
+
+
+def _golden_files(case: Path) -> set[Path]:
+    if not case.is_dir():
+        return set()
+    return {f.relative_to(case) for f in case.rglob("*") if f.is_file() and f.suffix in (".csv", ".txt")}
+
+
+def _case_names(tree: Path) -> set[str]:
+    return {p.name for p in tree.iterdir() if p.is_dir() and p.name.startswith("g")}
+
+
 def compare_trees(base: Path, new: Path, rtol: float) -> int:
-    """Print one line per case; return nonzero when a file differs beyond ``rtol`` (0 means bitwise)."""
+    """Print one line per case; return nonzero when the trees differ beyond ``rtol``.
+
+    Cases and files are matched from both sides, so a file present on only one side
+    fails. With ``rtol == 0`` the stable (non-volatile) lines must be identical text.
+    With ``rtol > 0`` numbers are compared relatively, a NaN or infinity matches only
+    the same token, and any other text difference fails.
+    """
 
     status = 0
     worst_overall = 0.0
-    for case in sorted(p for p in base.iterdir() if p.is_dir() and p.name.startswith("g")):
-        files = sorted(f for f in case.rglob("*") if f.is_file() and f.suffix in (".csv", ".txt"))
+    case_names = sorted(_case_names(base) | _case_names(new))
+    if not case_names:
+        print(f"no golden cases in {base} or {new}")
+        return 1
+    for name in case_names:
+        files_a, files_b = _golden_files(base / name), _golden_files(new / name)
+        files = sorted(files_a | files_b)
         notes: list[str] = []
-        for f in files:
-            other = new / case.name / f.relative_to(case)
-            if not other.exists():
-                notes.append(f"MISSING {f.name}")
+        if not files:
+            notes.append("no output files")
+            status = 1
+        for rel in files:
+            if rel not in files_b:
+                notes.append(f"MISSING {rel}")
                 status = 1
                 continue
-            lines_a, lines_b = _stable_lines(f), _stable_lines(other)
+            if rel not in files_a:
+                notes.append(f"EXTRA {rel}")
+                status = 1
+                continue
+            lines_a, lines_b = _stable_lines(base / name / rel), _stable_lines(new / name / rel)
             if lines_a == lines_b:
                 continue
             if len(lines_a) != len(lines_b):
-                notes.append(f"{f.name}: line count {len(lines_a)} vs {len(lines_b)}")
+                notes.append(f"{rel}: line count {len(lines_a)} vs {len(lines_b)}")
                 status = 1
                 continue
-            worst, text_diffs = 0.0, 0
-            for line_a, line_b in zip(lines_a, lines_b):
-                if line_a == line_b:
-                    continue
-                values_a, values_b = _tokens(line_a), _tokens(line_b)
-                if len(values_a) != len(values_b):
-                    text_diffs += 1
-                    continue
-                for a, b in zip(values_a, values_b):
-                    if isinstance(a, float) and isinstance(b, float):
-                        if a != b:
-                            worst = max(worst, abs(a - b) / max(abs(a), abs(b), 1.0e-300))
-                    elif a != b:
-                        text_diffs += 1
-            worst_overall = max(worst_overall, worst)
-            if text_diffs or worst > rtol:
+            differing = [(a, b) for a, b in zip(lines_a, lines_b) if a != b]
+            if rtol == 0.0:
+                notes.append(f"{rel}: {len(differing)} lines differ")
                 status = 1
-            notes.append(f"{f.name}: max_rel={worst:.3e} text_diffs={text_diffs}")
-        print(f"[{case.name}] files={len(files)} " + ("BITWISE IDENTICAL" if not notes else "; ".join(notes)))
+                continue
+            worst, text_diffs, nonfinite_diffs = 0.0, 0, 0
+            for line_a, line_b in differing:
+                line_worst, line_text, line_nonfinite = _line_differences(line_a, line_b)
+                worst = max(worst, line_worst)
+                text_diffs += line_text
+                nonfinite_diffs += line_nonfinite
+            worst_overall = max(worst_overall, worst)
+            if text_diffs or nonfinite_diffs or worst > rtol:
+                status = 1
+            notes.append(f"{rel}: max_rel={worst:.3e} text_diffs={text_diffs} nonfinite_diffs={nonfinite_diffs}")
+        print(f"[{name}] files={len(files)} " + ("BITWISE IDENTICAL" if not notes else "; ".join(notes)))
     print(f"overall max relative difference: {worst_overall:.3e} ({'OK' if status == 0 else 'DIFFERS'} at rtol={rtol:g})")
     return status
 

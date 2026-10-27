@@ -101,22 +101,26 @@ class ClosePackSpec:
     def validate(self) -> None:
         if self.layers < 1:
             raise ValueError("layers must be >= 1.")
-        if self.radius <= 0.0:
-            raise ValueError("radius must be > 0.")
+        if not (math.isfinite(self.radius) and self.radius > 0.0):
+            raise ValueError("radius must be finite and > 0.")
         if self.cells_x < 1 or self.cells_y < 1:
             raise ValueError("cells_x and cells_y must be >= 1.")
-        if self.floor_z < 0.0:
-            raise ValueError("floor_z must be >= 0.")
+        if not (math.isfinite(self.floor_z) and self.floor_z >= 0.0):
+            raise ValueError("floor_z must be finite and >= 0.")
         if self.plane_nx < 1 or self.plane_ny < 1:
             raise ValueError("plane_nx and plane_ny must be >= 1.")
         if self.sphere_n_lon < 3:
             raise ValueError("sphere_n_lon must be >= 3.")
         if self.sphere_n_lat < 2:
             raise ValueError("sphere_n_lat must be >= 2.")
-        if self.box_height is not None and self.box_height <= 0.0:
-            raise ValueError("box_height must be > 0 when provided.")
-        if self.top_clearance is not None and self.top_clearance <= 0.0:
-            raise ValueError("top_clearance must be > 0 when provided.")
+        if self.box_height is not None and not (
+            math.isfinite(self.box_height) and self.box_height > 0.0
+        ):
+            raise ValueError("box_height must be finite and > 0 when provided.")
+        if self.top_clearance is not None and not (
+            math.isfinite(self.top_clearance) and self.top_clearance > 0.0
+        ):
+            raise ValueError("top_clearance must be finite and > 0 when provided.")
         if self.box_height is not None and self.top_clearance is not None:
             raise ValueError("box_height and top_clearance cannot be used together.")
 

@@ -27,6 +27,7 @@ _SIM_KEYS = (
     "batch_count",
     "batch_duration",
     "batch_duration_step",
+    "particle_distribution",
     "field_solver",
     "field_bc_mode",
     "field_periodic_image_layers",
@@ -142,15 +143,43 @@ class _MacroResiduals(list[float]):
         self.boundary = boundary
 
 
-def _split_count_for_rank(total_count: int, rank: int, n_ranks: int) -> int:
-    if total_count < 0:
-        raise SystemExit("split_count_for_rank requires total_count >= 0.")
-    if n_ranks <= 0:
-        raise SystemExit("split_count_for_rank requires n_ranks > 0.")
-    if rank < 0 or rank >= n_ranks:
-        raise SystemExit("split_count_for_rank rank out of range.")
-    base, rem = divmod(total_count, n_ranks)
-    return base + (1 if rank < rem else 0)
+def _rank_slot_range(total_slots: int, rank: int, n_ranks: int) -> tuple[int, int]:
+    """Return the half-open global slot range a static MPI rank generates.
+
+    The runtime splits the batch's total slot count once (``mpi_split_count``)
+    and gives each rank one contiguous range (``init_particle_batch_from_config``).
+    """
+
+    base, rem = divmod(total_slots, n_ranks)
+    begin = rank * base + min(rank, rem)
+    return begin, begin + base + (1 if rank < rem else 0)
+
+
+def _interleaved_prefix_counts(lengths: list[int], prefix: int) -> list[int]:
+    """Count each segment's slots among the first ``prefix`` global slots.
+
+    ``build_batch_injection_layout`` deals slot ``k`` of every segment that still
+    holds ``k`` slots, in segment order, before slot ``k + 1`` of any segment. The
+    first ``r`` complete rounds hold ``sum(min(n, r))`` slots, so the counts follow
+    from the segment lengths without building the global slot list.
+    """
+
+    lo, hi = 0, max(lengths, default=0)
+    while lo < hi:
+        rounds = (lo + hi + 1) // 2
+        if sum(min(n, rounds) for n in lengths) <= prefix:
+            lo = rounds
+        else:
+            hi = rounds - 1
+    leftover = prefix - sum(min(n, lo) for n in lengths)
+    counts: list[int] = []
+    for n in lengths:
+        count = min(n, lo)
+        if leftover > 0 and n > lo:
+            count += 1
+            leftover -= 1
+        counts.append(count)
+    return counts
 
 
 def load_toml(path: Path) -> dict[str, Any]:
@@ -684,13 +713,10 @@ def _reservoir_batch_counts(
     reservoir_params: dict[str, Any],
     face_residuals: list[float],
     resolved_batch_duration: float,
-    mpi_rank: int,
-    mpi_ranks: int,
-) -> tuple[int, int]:
-    """Draw one batch of reservoir macros per surface; update the residuals in place."""
+) -> list[int]:
+    """Draw one batch of global reservoir macros per surface; update the residuals in place."""
 
-    n_reservoir_global = 0
-    n_reservoir_local = 0
+    face_counts: list[int] = []
     for face_idx, rate_per_s in enumerate(reservoir_params["surface_rates"]):
         n_macro_expected = (
             rate_per_s * resolved_batch_duration / reservoir_params["w_particle"]
@@ -700,11 +726,22 @@ def _reservoir_batch_counts(
             macro_budget = 0.0
         n_face_global = math.floor(macro_budget)
         face_residuals[face_idx] = macro_budget - n_face_global
-        n_reservoir_global += n_face_global
-        n_reservoir_local += _split_count_for_rank(
-            int(n_face_global), mpi_rank, mpi_ranks
-        )
-    return int(n_reservoir_global), n_reservoir_local
+        face_counts.append(int(n_face_global))
+    return face_counts
+
+
+def _source_slot_count(spec: dict[str, Any]) -> int:
+    """Return the global source slots of one enabled species for one batch."""
+
+    source_mode = spec["source_mode"]
+    if source_mode == "volume_seed":
+        return int(spec.get("npcls_per_step", 0))
+    if source_mode == "photo_raycast":
+        n_rays = int(spec["rays_per_batch"])
+        if n_rays < 0:
+            raise SystemExit("rays_per_batch must be >= 0")
+        return n_rays
+    return 0
 
 
 def estimate_workload(
@@ -721,6 +758,13 @@ def estimate_workload(
     function resolves the count arithmetic, not source/boundary/field physics
     combinations. Photo ray counts are an upper bound before ray intersections.
 
+    Local counts follow the runtime's ``static`` particle distribution: the
+    batch's global slots are interleaved round-robin over the species source and
+    reservoir-face segments, and each rank takes one contiguous slot range. With
+    ``particle_distribution = "shared"`` ranks claim slot chunks dynamically, so
+    the same local counts are only an even-load assumption, not the exact
+    per-rank numbers; ``rank_count_basis`` in the result says which applies.
+
     Parameters
     ----------
     config : dict[str, Any]
@@ -732,7 +776,7 @@ def estimate_workload(
     mpi_ranks : int, default 1
         MPI world size.
     mpi_rank : int, default 0
-        Local rank index used for split-count estimation.
+        Local rank index whose slot range is estimated.
     completed_batches : int, default 0
         Completed checkpoint batches. ``sim.batch_count`` is treated as the
         cumulative target, so only ``sim.batch_count - completed_batches``
@@ -755,6 +799,7 @@ def estimate_workload(
     species_list = _species_with_defaults(normalized_config["particles"]["species"])
     target_batch_count, batch_count = _remaining_batch_count(sim_cfg, completed_batches)
     _check_parallel_layout(threads, mpi_ranks, mpi_rank)
+    particle_distribution = str(sim_cfg["particle_distribution"]).strip().lower()
 
     resolved_batch_duration = _resolve_batch_duration(
         sim_cfg=sim_cfg,
@@ -778,49 +823,48 @@ def estimate_workload(
     global_reservoir_particles = 0
 
     for _batch_idx in range(batch_count):
-        species_counts: list[int] = []
-        global_species_counts: list[int] = []
+        global_species_counts = [0] * len(species_list)
+        segment_species: list[int] = []
+        segment_is_reservoir: list[bool] = []
+        segment_lengths: list[int] = []
         for s_idx, spec in enumerate(species_list):
             if not bool(spec.get("enabled", True)):
-                species_counts.append(0)
-                global_species_counts.append(0)
                 continue
-
-            source_mode = spec["source_mode"]
             reservoir_params = reservoir_params_by_species[s_idx]
-            n_macro_global = 0
-            n_macro_local = 0
-            if source_mode == "volume_seed":
-                n_volume_global = int(spec.get("npcls_per_step", 0))
-                n_macro_global += n_volume_global
-                n_macro_local += _split_count_for_rank(
-                    n_volume_global, mpi_rank, mpi_ranks
+            source_count = _source_slot_count(spec)
+            face_counts = (
+                _reservoir_batch_counts(
+                    reservoir_params, boundary_residuals[s_idx], resolved_batch_duration
                 )
+                if reservoir_params is not None
+                else []
+            )
+            # Segments follow the runtime order, the species source before its
+            # faces; the face order within a species does not change these counts.
+            for count, is_reservoir in [(source_count, False)] + [
+                (face_count, True) for face_count in face_counts
+            ]:
+                if count > 0:
+                    segment_species.append(s_idx)
+                    segment_is_reservoir.append(is_reservoir)
+                    segment_lengths.append(count)
+            global_species_counts[s_idx] = source_count + sum(face_counts)
+            global_reservoir_particles += sum(face_counts)
 
-            if reservoir_params is not None:
-                n_reservoir_global, n_reservoir_local = _reservoir_batch_counts(
-                    reservoir_params,
-                    boundary_residuals[s_idx],
-                    resolved_batch_duration,
-                    mpi_rank,
-                    mpi_ranks,
-                )
-                local_reservoir_particles += n_reservoir_local
-                global_reservoir_particles += n_reservoir_global
-                n_macro_global += n_reservoir_global
-                n_macro_local += n_reservoir_local
-
-            if source_mode == "photo_raycast":
-                n_rays_global = int(spec["rays_per_batch"])
-                if n_rays_global < 0:
-                    raise SystemExit("rays_per_batch must be >= 0")
-                n_macro_global += n_rays_global
-                n_macro_local += _split_count_for_rank(
-                    n_rays_global, mpi_rank, mpi_ranks
-                )
-
-            species_counts.append(n_macro_local)
-            global_species_counts.append(n_macro_global)
+        slot_begin, slot_end = _rank_slot_range(
+            sum(segment_lengths), mpi_rank, mpi_ranks
+        )
+        species_counts = [0] * len(species_list)
+        for s_idx, is_reservoir, end_count, begin_count in zip(
+            segment_species,
+            segment_is_reservoir,
+            _interleaved_prefix_counts(segment_lengths, slot_end),
+            _interleaved_prefix_counts(segment_lengths, slot_begin),
+            strict=True,
+        ):
+            species_counts[s_idx] += end_count - begin_count
+            if is_reservoir:
+                local_reservoir_particles += end_count - begin_count
 
         batch_total = sum(species_counts)
         q, r = divmod(batch_total, threads)
@@ -845,6 +889,12 @@ def estimate_workload(
         "threads": threads,
         "mpi_ranks": mpi_ranks,
         "mpi_rank": mpi_rank,
+        "particle_distribution": particle_distribution,
+        "rank_count_basis": (
+            "shared_even_load_assumption"
+            if particle_distribution == "shared"
+            else "static_contiguous_slots"
+        ),
         "batch_totals": batch_totals,
         "batch_thread_min": batch_thread_min,
         "batch_thread_max": batch_thread_max,
