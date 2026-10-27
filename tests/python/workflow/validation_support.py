@@ -290,7 +290,7 @@ def _write_run_output(
         else "legacy_implicit"
     )
     lines = [
-        "checkpoint_schema_version=3",
+        "checkpoint_schema_version=11",
         "mesh_fingerprint=1111111111111111",
         "field_backend=fmm",
         "field_normalization=si",
@@ -390,14 +390,18 @@ def _write_run_output(
         f"{batches},1,0,0,0,0,0,10,0,6,3,1\n",
         encoding="utf-8",
     )
+    # Schema 11 checkpoint (src/runtime/bem_checkpoint_contract.f90): global
+    # macro residuals and a completion manifest, no RNG state files.
     (out / "macro_residuals.csv").write_text(
-        "species_idx,residual_macro_particles\n1,0.0\n",
+        "species_idx,face,residual\n1,0,0.0\n",
         encoding="utf-8",
     )
-    for rank in range(6):
-        (out / f"rng_state_rank{rank:05d}.txt").write_text(
-            "1\n12345\n", encoding="utf-8"
-        )
+    (out / "checkpoint_complete.txt").write_text(
+        "schema_version=1\nstate=complete\n"
+        f"batches={batches}\nmpi_world_size=6\n"
+        "macro_residuals_present=T\ncharge_ledger_present=T\n",
+        encoding="utf-8",
+    )
     stride = int(case["history_stride"])
     start = 1
     if case["restart_from"] is not None:

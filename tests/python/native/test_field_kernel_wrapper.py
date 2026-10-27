@@ -202,6 +202,30 @@ def test_field_kernel_rejects_invalid_source_triangle_before_native_build(
     assert len(lib.beach_kernel_destroy.calls) == len(lib.beach_kernel_create.calls)
 
 
+@pytest.mark.parametrize("edge_m", [1.0, 1.0e-3, 1.0e-6, 1.0e-9])
+@pytest.mark.parametrize("offset_m", [0.0, 10.0, -1.0e3])
+def test_triangle_degeneracy_depends_on_shape_not_position_or_unit(
+    monkeypatch: pytest.MonkeyPatch, edge_m: float, offset_m: float
+) -> None:
+    lib = _install_fake_kernel(monkeypatch)
+    shift = np.array([offset_m, -0.5 * offset_m, 0.25 * offset_m])
+    # A 1 nm edge at 1 km still keeps ~1e-4 relative resolution in binary64.
+    triangle = shift + edge_m * np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.5]]
+    )
+
+    with FieldKernel(triangle[None], np.array([1.0])):
+        pass
+    assert "build" in lib.events
+
+    # Collinear along x: the y/z coordinates stay bitwise equal after translation.
+    collinear = shift + edge_m * np.array(
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
+    )
+    with pytest.raises(ValueError, match="non-degenerate"):
+        FieldKernel(collinear[None], np.array([1.0]))
+
+
 def test_field_kernel_rejects_nonpositive_fmm_order_before_native_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

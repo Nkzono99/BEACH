@@ -37,6 +37,27 @@ def test_field_kernel_eval_e_matches_exact_panel_direct(field_kernel_library: Pa
     np.testing.assert_allclose(field, exact, rtol=2.0e-14, atol=1.0e-14)
 
 
+@pytest.mark.parametrize("edge_m", [1.0e-6, 1.0e-9])
+def test_native_kernel_accepts_small_and_translated_panels(
+    field_kernel_library: Path, edge_m: float
+) -> None:
+    lib = field_kernel_library
+    local = edge_m * np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+    target_local = edge_m * np.array([[0.3, 0.2, 0.7]])
+    fields = []
+    for shift in (np.zeros(3), np.array([10.0, -10.0, 10.0])):
+        with FieldKernel((shift + local)[None], np.array([1.0e-18]), library_path=lib) as kernel:
+            fields.append(kernel.eval_e_direct(shift + target_local))
+    # Translating by 10 m keeps ~eps*10/edge relative resolution of the local geometry.
+    np.testing.assert_allclose(fields[1], fields[0], rtol=1.0e3 * 10.0 * 2.3e-16 / edge_m)
+
+    # A sliver just above the shared 128 eps lref^2 threshold passes both checks.
+    height = 400.0 * np.finfo(np.float64).eps
+    sliver = np.array([[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, height, 0.0]]])
+    with FieldKernel(sliver, np.array([1.0e-12]), library_path=lib):
+        pass
+
+
 def test_field_kernel_exact_panel_direct_scales_with_charge_refresh(
     field_kernel_library: Path,
 ) -> None:

@@ -38,6 +38,7 @@ module bem_physics_config_types
   public :: validate_phase1_panel_config
   public :: validate_active_physics_config
   public :: validate_upper_fourier_height
+  public :: upper_fourier_auto_height_range
 
 contains
 
@@ -313,9 +314,8 @@ contains
     lower = z_top + 0.1_dp*minval(sim%box_max(1:2) - sim%box_min(1:2))
     upper = sim%box_max(3)
     if (periodic2%upper_fourier_switch == 'auto') then
-      lower = z_top + 0.25_dp*minval(sim%box_max(1:2) - sim%box_min(1:2))
-      upper = upper - 1.0e-9_dp*upper
-      if (lower <= upper .and. upper < sim%box_max(3)) return
+      call upper_fourier_auto_height_range(sim, z_top, lower, upper)
+      if (lower <= upper) return
     else
       if (ieee_is_finite(periodic2%upper_fourier_switch_height)) then
         if (periodic2%upper_fourier_switch_height >= lower .and. &
@@ -326,6 +326,20 @@ contains
                 'upper Fourier switch height must lie above z_top + 0.1 min(Lx,Ly) and below H; auto needs 0.25 clearance.', &
                 status, message)
   end subroutine validate_upper_fourier_height
+
+  !> Candidate interval [lower, upper] of the automatic upper Fourier switch height.
+  !! Shared by the preflight and the snapshot's candidate planes. lower keeps the 0.25 min(Lx,Ly)
+  !! clearance above the mesh top; upper sits 1e-9 of the box height below H, and at least one
+  !! float below H when that margin is under H's ULP, so the interval depends on the box geometry
+  !! and not on the sign or magnitude of the absolute z coordinate.
+  pure subroutine upper_fourier_auto_height_range(sim, z_top, lower, upper)
+    type(sim_config), intent(in) :: sim
+    real(dp), intent(in) :: z_top
+    real(dp), intent(out) :: lower, upper
+
+    lower = z_top + 0.25_dp*minval(sim%box_max(1:2) - sim%box_min(1:2))
+    upper = min(sim%box_max(3) - 1.0e-9_dp*(sim%box_max(3) - sim%box_min(3)), nearest(sim%box_max(3), -1.0_dp))
+  end subroutine upper_fourier_auto_height_range
 
   pure logical function supported_lower_boundary(model) result(supported)
     character(len=*), intent(in) :: model

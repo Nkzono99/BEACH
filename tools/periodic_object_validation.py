@@ -99,6 +99,15 @@ BUILD_INFO_KEYS = (
 SYS_MODULE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])Sys(?:CL|A|B|C|G)/[^\s()]+")
 INTEL_MODULE_PATTERN = re.compile(r"(?<![A-Za-z0-9_])intel(?:mpi)?/[^\s()]+")
 SAFE_STAGE_PATH_PATTERN = re.compile(r"[A-Za-z0-9_./:+-]+\Z")
+# Checkpoint contract of the runtime that the staged binary is built from
+# (src/runtime/bem_checkpoint_contract.f90). Schema 11 stores no RNG state files
+# (counter-based PCG64) and publishes checkpoint_complete.txt after every
+# restart-bearing file is closed. verify-run only accepts outputs of the staged,
+# current binary, so older schemas (3 with rng_state_rank*.txt included) are
+# rejected rather than read under a second contract.
+CHECKPOINT_SCHEMA_VERSION = 11
+CHECKPOINT_MANIFEST_NAME = "checkpoint_complete.txt"
+CHECKPOINT_MANIFEST_SCHEMA_VERSION = 1
 PRODUCTION_FIELD_EXECUTION_CONTRACT = {
     "field_backend": "fmm",
     "field_normalization": "si",
@@ -2809,16 +2818,40 @@ def _validate_charge_ledger(
         raise ValidationError("charge_ledger unresolved particle count mismatch")
 
 
-def _validate_checkpoint(output: Path, world_size: int) -> None:
-    required = [output / "macro_residuals.csv"]
-    required.extend(
-        output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)
-    )
+def _validate_checkpoint(output: Path, summary: Mapping[str, str]) -> None:
+    """Check the final checkpoint against the runtime's schema 11 contract."""
+
+    schema = _summary_int(summary, "checkpoint_schema_version")
+    if schema != CHECKPOINT_SCHEMA_VERSION:
+        raise ValidationError(
+            f"checkpoint_schema_version={schema} is not the current runtime schema "
+            f"{CHECKPOINT_SCHEMA_VERSION}; verify-run accepts only outputs of the "
+            "staged binary, so rerun the case instead of verifying a legacy checkpoint"
+        )
+    manifest_path = output / CHECKPOINT_MANIFEST_NAME
+    required = [manifest_path, output / "macro_residuals.csv"]
     missing = [
         str(path) for path in required if not path.is_file() or path.stat().st_size == 0
     ]
     if missing:
         raise ValidationError(f"checkpoint files are missing/incomplete: {missing}")
+    manifest = _summary(manifest_path)
+    expected = {
+        "schema_version": str(CHECKPOINT_MANIFEST_SCHEMA_VERSION),
+        "state": "complete",
+        "batches": str(_summary_int(summary, "batches")),
+        "mpi_world_size": str(_summary_int(summary, "mpi_world_size")),
+    }
+    for key, value in expected.items():
+        if manifest.get(key, "").strip() != value:
+            raise ValidationError(
+                f"checkpoint manifest {key}={manifest.get(key)!r}; expected {value!r}"
+            )
+    # The validation cases always carry macro residuals and a charge ledger, so the
+    # manifest must declare both as part of the checkpoint.
+    for key in ("macro_residuals_present", "charge_ledger_present"):
+        if not _summary_bool(manifest, key):
+            raise ValidationError(f"checkpoint manifest {key} must be true")
 
 
 def _validate_cached_electrostatic_state(summary: Mapping[str, str]) -> None:
@@ -3234,8 +3267,7 @@ def verify_run(
             raise ValidationError(
                 "summary build origin differs from the staged artifact build origin"
             )
-    if _summary_int(summary, "checkpoint_schema_version") != 3:
-        raise ValidationError("checkpoint_schema_version must be 3")
+    _validate_checkpoint(output, summary)
     mesh_nelem = _summary_int(summary, "mesh_nelem")
     mesh_count = _summary_int(summary, "mesh_count")
     world_size = _summary_int(summary, "mpi_world_size")
@@ -3327,7 +3359,6 @@ def verify_run(
         survived_max_step=survived,
         soft_discarded=soft_discarded,
     )
-    _validate_checkpoint(output, world_size)
     restart_batch = 0
     if case.get("restart_from") is not None:
         restart_batch = _summary_int(
@@ -3494,12 +3525,10 @@ def verify_run(
         output / "macro_residuals.csv",
         output / "charge_history.csv",
         output / "mesh_sources.csv",
+        output / CHECKPOINT_MANIFEST_NAME,
     ]
     if write_mesh_potential:
         required_outputs.append(output / "mesh_potential.csv")
-    required_outputs.extend(
-        output / f"rng_state_rank{rank:05d}.txt" for rank in range(world_size)
-    )
     for path in required_outputs:
         if not path.is_file():
             raise ValidationError(f"required output is missing: {path}")

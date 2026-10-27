@@ -13,8 +13,7 @@ contains
 
   if (self%periodic_options%upper_fourier_switch == 'auto') then
     nplane = 16_i32
-    lo = maxval(mesh%bb_max(3, :)) + 0.25_dp*minval(self%periodic_length)
-    hi = sim%box_max(3) - 1.0e-9_dp*sim%box_max(3)
+    call upper_fourier_auto_height_range(sim, maxval(mesh%bb_max(3, :)), lo, hi)
     do plane = 1, nplane
       heights(plane) = lo + (hi - lo)*real(plane - 1, dp)/real(nplane - 1, dp)
     end do
