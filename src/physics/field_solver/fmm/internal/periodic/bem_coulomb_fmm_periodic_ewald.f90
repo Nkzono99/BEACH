@@ -16,6 +16,7 @@ module bem_coulomb_fmm_periodic_ewald
   public :: add_periodic2_exact_ewald_potential_correction_single_source
   public :: add_periodic2_kneq0_potential_correction_single_source
   public :: add_periodic2_exact_ewald_field_potential_single_source
+  public :: periodic2_ewald_exp_erfc
 
 contains
 
@@ -228,8 +229,12 @@ contains
               plan%periodic_ewald%k2(k_idx)*(target(plan%periodic_ewald%axis2) - src(plan%periodic_ewald%axis2))
       phase_sin = sin(theta)
       phase_cos = cos(theta)
-      term_p = exp(plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) + plan%periodic_ewald%alpha*dz)
-      term_m = exp(-plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) - plan%periodic_ewald%alpha*dz)
+      term_p = periodic2_ewald_exp_erfc( &
+               plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), plan%periodic_ewald%alpha*dz &
+               )
+      term_m = periodic2_ewald_exp_erfc( &
+               -plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), -plan%periodic_ewald%alpha*dz &
+               )
       e(plan%periodic_ewald%axis1) = e(plan%periodic_ewald%axis1) + &
                                      q*plan%periodic_ewald%kpref1(k_idx)*phase_sin*(term_p + term_m)
       e(plan%periodic_ewald%axis2) = e(plan%periodic_ewald%axis2) + &
@@ -317,8 +322,12 @@ contains
               plan%periodic_ewald%k2(k_idx)*(target(plan%periodic_ewald%axis2) - src(plan%periodic_ewald%axis2))
       phase_sin = sin(theta)
       phase_cos = cos(theta)
-      term_p = exp(plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) + plan%periodic_ewald%alpha*dz)
-      term_m = exp(-plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) - plan%periodic_ewald%alpha*dz)
+      term_p = periodic2_ewald_exp_erfc( &
+               plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), plan%periodic_ewald%alpha*dz &
+               )
+      term_m = periodic2_ewald_exp_erfc( &
+               -plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), -plan%periodic_ewald%alpha*dz &
+               )
       pair_sum = term_p + term_m
       e(plan%periodic_ewald%axis1) = e(plan%periodic_ewald%axis1) + q*plan%periodic_ewald%kpref1(k_idx)*phase_sin*pair_sum
       e(plan%periodic_ewald%axis2) = e(plan%periodic_ewald%axis2) + q*plan%periodic_ewald%kpref2(k_idx)*phase_sin*pair_sum
@@ -372,8 +381,12 @@ contains
       theta = plan%periodic_ewald%k1(k_idx)*(target(plan%periodic_ewald%axis1) - src(plan%periodic_ewald%axis1)) + &
               plan%periodic_ewald%k2(k_idx)*(target(plan%periodic_ewald%axis2) - src(plan%periodic_ewald%axis2))
       phase_cos = cos(theta)
-      term_p = exp(plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) + plan%periodic_ewald%alpha*dz)
-      term_m = exp(-plan%periodic_ewald%kmag(k_idx)*dz)*erfc(plan%periodic_ewald%karg0(k_idx) - plan%periodic_ewald%alpha*dz)
+      term_p = periodic2_ewald_exp_erfc( &
+               plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), plan%periodic_ewald%alpha*dz &
+               )
+      term_m = periodic2_ewald_exp_erfc( &
+               -plan%periodic_ewald%kmag(k_idx)*dz, plan%periodic_ewald%karg0(k_idx), -plan%periodic_ewald%alpha*dz &
+               )
       phi = phi + q*plan%periodic_ewald%kprefz(k_idx)*phase_cos*(term_p + term_m)/plan%periodic_ewald%kmag(k_idx)
     end do
   end subroutine add_exact_periodic2_reciprocal_space_potential_correction
@@ -388,6 +401,28 @@ contains
     arg = plan%periodic_ewald%alpha*dz
     phi = phi - plan%periodic_ewald%k0_pref*q*(dz*erf(arg) + exp(-(arg*arg))/(plan%periodic_ewald%alpha*sqrt(pi_dp)))
   end subroutine add_exact_periodic2_k0_potential_correction
+
+  !> periodic2 Ewald の k≠0 項 exp(kz)*erfc(karg0 + adz) を overflow させずに返す。
+  !! kz = ±|k|dz と adz = ±alpha*dz は同じ符号で、karg0 = |k|/(2 alpha) なので
+  !! kz - (karg0 + adz)^2 = -(karg0^2 + adz^2) が成り立つ。
+  !! exp(kz) が binary64 で有限な kz では元の積をそのまま返す（従来の式とビット一致）。
+  !! exp(kz) が overflow する kz では y = karg0 + adz >= sqrt(2 kz) > 37 なので erfc は 0 に underflow し、
+  !! 元の積は inf*0 = NaN になる。この範囲だけ exp(-(karg0^2 + adz^2))*erfc_scaled(y) で評価する。
+  !! 真値はこのとき exp(-kz) 以下で、binary64 では 0 か非正規数になる。
+  !! @param[in] kz 指数の引数 ±|k|dz。
+  !! @param[in] karg0 |k|/(2 alpha)。
+  !! @param[in] adz kz と同符号の ±alpha*dz。
+  !! @return term exp(kz)*erfc(karg0 + adz)。
+  pure real(dp) function periodic2_ewald_exp_erfc(kz, karg0, adz) result(term)
+    real(dp), intent(in) :: kz, karg0, adz
+    real(dp), parameter :: max_finite_exp_arg = log(huge(1.0_dp))
+
+    if (kz <= max_finite_exp_arg) then
+      term = exp(kz)*erfc(karg0 + adz)
+    else
+      term = exp(-(karg0*karg0 + adz*adz))*erfc_scaled(karg0 + adz)
+    end if
+  end function periodic2_ewald_exp_erfc
 
   subroutine add_screened_point_charge(q, target, source, alpha, e)
     real(dp), intent(in) :: q
