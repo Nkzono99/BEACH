@@ -546,7 +546,7 @@ z 軸方向の円柱です。
 |---|---|---:|---|
 | `mode` | string | `[particles.species.source]` 指定時に必須 | `volume_seed` / `photo_raycast` / `secondary_emission` |
 | `pos_low` | float[3] | `[-0.4,-0.4,0.2]` | 位置下限 [m] |
-| `pos_high` | float[3] | `[0.4,0.4,0.5]` | 位置上限 [m] |
+| `pos_high` | float[3] | `[0.4,0.4,0.5]` | 位置上限 [m]。`volume_seed` では各成分 `>= source.pos_low`（等号で点状・平面状の生成領域） |
 | `inject_face` | string | 未指定 | `photo_raycast`の照射開口面 |
 | `emit_current_density_a_m2` | float | `0.0` | レイ垂直面基準の放出電流密度 [A/m^2] |
 | `deposit_opposite_charge_on_emit` | bool | `false` | 放出元要素に逆符号電荷を堆積 |

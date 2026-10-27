@@ -35,7 +35,7 @@ program test_app_config_parser
     error stop 'invalid config probe unexpectedly completed'
   end if
 
-  call test_init(47)
+  call test_init(49)
 
   call test_begin('grouped_input_preserves_clock_fields_and_boundary_inflow')
   call write_grouped_config(input_contract_path, '')
@@ -186,6 +186,35 @@ program test_app_config_parser
   call load_app_config(input_contract_path, cfg)
   call assert_equal_i32(cfg%n_particle_species, 2_i32, 'disabled species must remain present')
   call assert_true(.not. cfg%particle_species(2)%enabled, 'disabled flag must be preserved')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('preflight_rejects_invalid_volume_seed_values')
+  call write_volume_seed_config(input_contract_path, mass='0.0')
+  call assert_config_rejected(input_contract_path, 'particles.species[1].mass_kg must be finite and > 0')
+  call write_volume_seed_config(input_contract_path, weight='-1.0')
+  call assert_config_rejected(input_contract_path, 'particles.species[1].sampling.weight must be finite and > 0')
+  call write_volume_seed_config(input_contract_path, temperature='-1.0')
+  call assert_config_rejected(input_contract_path, &
+                              'particles.species[1].distribution must resolve to a finite temperature >= 0')
+  call write_volume_seed_config(input_contract_path, pos_high='[0.6, 0.1, 0.6]')
+  call assert_config_rejected(input_contract_path, &
+                              'particles.species[1].source.pos_high must be >= particles.species[1].source.pos_low')
+  ! reservoir 流入だけの species も同じ質量検査を通る。
+  call write_input_contract_config( &
+    input_contract_path, '1.0e6', 'species_key = "electron"'//new_line('a')//'mass_kg = 0.0', 'outputs/test' &
+    )
+  call assert_config_rejected(input_contract_path, 'particles.species[1].mass_kg must be finite and > 0')
+  call delete_file_if_exists(input_contract_path)
+  call test_end()
+
+  call test_begin('preflight_accepts_cold_point_volume_seed')
+  call write_volume_seed_config(input_contract_path, temperature='0.0', pos_high='[0.2, 0.2, 0.2]')
+  call default_app_config(cfg)
+  call load_app_config(input_contract_path, cfg)
+  call assert_close_dp(cfg%particle_species(1)%temperature_k, 0.0_dp, 0.0_dp, 'zero temperature must be accepted')
+  call assert_true(all(cfg%particle_species(1)%pos_high == cfg%particle_species(1)%pos_low), &
+                   'point source bounds must be accepted unchanged')
   call delete_file_if_exists(input_contract_path)
   call test_end()
 
@@ -713,6 +742,39 @@ contains
     if (len_trim(extra) > 0) write (unit, '(a)') extra
     close (unit)
   end subroutine write_periodic_grouped_config
+
+  !> reservoir 流入を持たない volume_seed 1 種の構成。省略した値は有効な既定値を書く。
+  subroutine write_volume_seed_config(path, mass, weight, temperature, pos_high)
+    character(len=*), intent(in) :: path
+    character(len=*), intent(in), optional :: mass, weight, temperature, pos_high
+    integer :: unit
+    open (newunit=unit, file=path, status='replace', action='write')
+    write (unit, '(a)') '[particles.tracking]'
+    write (unit, '(a)') 'dt_s = 1.0e-9'
+    write (unit, '(a)') '[domain]'
+    write (unit, '(a)') 'box_min = [0.0, 0.0, 0.0]'
+    write (unit, '(a)') 'box_max = [1.0, 1.0, 1.0]'
+    write (unit, '(a)') '[[particles.species]]'
+    if (present(mass)) write (unit, '(a)') 'mass_kg = '//mass
+    if (present(temperature)) then
+      write (unit, '(a)') '[particles.species.distribution]'
+      write (unit, '(a)') 'temperature_k = '//temperature
+    end if
+    write (unit, '(a)') '[particles.species.source]'
+    write (unit, '(a)') 'mode = "volume_seed"'
+    write (unit, '(a)') 'pos_low = [0.2, 0.2, 0.2]'
+    if (present(pos_high)) then
+      write (unit, '(a)') 'pos_high = '//pos_high
+    else
+      write (unit, '(a)') 'pos_high = [0.8, 0.8, 0.8]'
+    end if
+    write (unit, '(a)') '[particles.species.sampling]'
+    write (unit, '(a)') 'volume_macro_particles_per_batch = 4'
+    if (present(weight)) write (unit, '(a)') 'weight = '//weight
+    write (unit, '(a)') '[output]'
+    write (unit, '(a)') 'enabled = false'
+    close (unit)
+  end subroutine write_volume_seed_config
 
   !> 旧flat入力そのものを拒否する公開契約のfixture。
   subroutine write_flat_config(path)
