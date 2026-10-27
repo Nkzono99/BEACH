@@ -78,6 +78,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - runops adapter が、run の `input/` にある OBJ を絶対 path（または同じ実体への symlink）で指す mesh part を
   自分自身へ copy しようとして `SameFileError` で止まる問題を直した。同名で内容の異なる OBJ は従来どおり
   `part<index>-<name>` へ配置する（#70）。
+- `ClosePackSpec.validate` が `radius`、`floor_z`、`box_height`、`top_clearance` の NaN/Inf を受理していた問題を直し、
+  有限であることを同じ検査で要求する（#71）。
 
 ## [4.0.0] - 2026-10-23
 
