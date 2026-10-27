@@ -80,6 +80,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `part<index>-<name>` へ配置する（#70）。
 - `ClosePackSpec.validate` が `radius`、`floor_z`、`box_height`、`top_clearance` の NaN/Inf を受理していた問題を直し、
   有限であることを同じ検査で要求する（#71）。
+- `ObjectProbe.vertical_path` の適応細分化が、区間ごとの判定を通ると返す grid の経路全体の work/potential 一致を
+  確かめずに終了し、細分化の余力を残したまま `work_potential_mismatch` で未収束を返していた問題を直した。
+  経路全体の一致を loop 内の受理条件に含め、不一致なら区間幅に比例して許容を配分し、超えた区間を細分化する（#81）。
 
 ## [4.0.0] - 2026-10-23
 

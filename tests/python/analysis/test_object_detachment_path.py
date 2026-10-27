@@ -62,6 +62,10 @@ e0 = [0.0, 0.0, 0.0]
     )
 
 
+_PATH_L = 1.0e-3
+_PATH_F0 = 1.0e-12
+
+
 class _AnalyticPathKernel:
     mode = "inverse_square"
     eval_calls = 0
@@ -89,6 +93,13 @@ class _AnalyticPathKernel:
         elif cls.mode == "inconsistent_constant":
             field[:, 2] = 1.0
             potential = np.zeros_like(z)
+        elif cls.mode in ("quadratic_conservative", "quadratic_nonconservative"):
+            # F = F0 (1 + 0.04 s^2) with s = z / L on a unit target charge; the
+            # conservative U = -F0 L (s + 0.04 s^3 / 3) gives F = -dU/dz exactly.
+            s = z / _PATH_L
+            cubic = 0.04 if cls.mode == "quadratic_conservative" else 0.2
+            field[:, 2] = _PATH_F0 * (1.0 + 0.04 * s * s)
+            potential = -_PATH_F0 * _PATH_L * (s + cubic * s**3 / 3.0)
         else:
             raise AssertionError("unknown analytic path mode")
         return field, potential
@@ -301,6 +312,102 @@ def test_vertical_path_reports_potential_defect_separately_from_quadrature_error
     assert path.numerical_metadata["status_reason"] == "work_potential_mismatch"
     assert path.numerical_metadata["max_work_refinement_error_J"] == 0.0
     assert path.numerical_metadata["max_work_potential_error_J"] > 0.0
+
+
+def _quadratic_path(
+    tmp_path: Path,
+    analytic_kernel,
+    mode: str,
+    max_refinement: int,
+    grid_in_L: tuple[float, ...] = (0.0, 1.0),
+):
+    config = tmp_path / "beach.toml"
+    _write_config(config)
+    analytic_kernel.mode = mode
+    with ObjectInteractionSnapshot.from_result(
+        _result(tmp_path), step=None, config_path=config
+    ) as snapshot:
+        return snapshot.object_probe(1).vertical_path(
+            _PATH_L * np.array(grid_in_L), max_refinement=max_refinement
+        )
+
+
+def test_vertical_path_refines_until_the_returned_work_matches_the_potential(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    path = _quadratic_path(tmp_path, analytic_kernel, "quadratic_conservative", 8)
+
+    # On [0, L] the trapezoid work F0 L (1 + 0.02) misses the potential difference
+    # F0 L (1 + 0.04 / 3) by 6.7e-18 J, above the 6.1e-18 J allowance, while each
+    # half interval of the midpoint test passes; one midpoint brings it to 1.7e-18 J.
+    assert path.status == "converged"
+    assert path.numerical_metadata["status_reason"] == "tolerances_satisfied"
+    np.testing.assert_allclose(path.displacement_m, [0.0, 0.5 * _PATH_L, _PATH_L])
+    assert path.refinement_count == 1
+    assert path.numerical_metadata["inserted_point_count"] == 1
+    assert path.numerical_metadata["refinement_rounds"] == 1
+
+    s = path.displacement_m / _PATH_L
+    exact_work = _PATH_F0 * _PATH_L * (s + 0.04 * s**3 / 3.0)
+    force_z = path.force_N[:, 2]
+    recomputed = np.concatenate(
+        ([0.0], np.cumsum(0.5 * np.diff(path.displacement_m) * (force_z[1:] + force_z[:-1])))
+    )
+    np.testing.assert_allclose(path.electrostatic_work_J, recomputed, rtol=1.0e-14, atol=0.0)
+    np.testing.assert_allclose(path.potential_difference_work_J, exact_work, rtol=1.0e-12)
+    mismatch = float(np.max(np.abs(recomputed - exact_work)))
+    assert path.work_absolute_mismatch_J == pytest.approx(mismatch, rel=1.0e-6)
+    assert mismatch <= 1.0e-18 + 5.0e-3 * float(np.max(np.abs(exact_work)))
+
+
+def test_vertical_path_refines_intervals_whose_errors_add_up_along_the_path(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    path = _quadratic_path(
+        tmp_path, analytic_kernel, "quadratic_conservative", 8, (0.0, 1.0, 2.0)
+    )
+
+    # Each unit interval misses its potential difference by F0 L 0.08 / 12 = 6.7e-18 J
+    # and passes the local tests, but the two add to 1.33e-17 J against an allowance
+    # of 1.15e-17 J on [0, 2L]; halving both brings the sum to 3.3e-18 J.
+    assert path.status == "converged"
+    np.testing.assert_allclose(path.displacement_m / _PATH_L, [0.0, 0.5, 1.0, 1.5, 2.0])
+    assert path.refinement_count == 2
+    assert path.numerical_metadata["refinement_rounds"] == 1
+
+
+def test_vertical_path_without_refinement_budget_reports_the_mismatch(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    path = _quadratic_path(tmp_path, analytic_kernel, "quadratic_conservative", 0)
+
+    assert path.status == "not_converged"
+    assert path.numerical_metadata["status_reason"] == "work_potential_mismatch"
+    np.testing.assert_array_equal(path.displacement_m, [0.0, _PATH_L])
+    assert path.refinement_count == 0
+    assert path.numerical_metadata["refinement_rounds"] == 0
+    assert path.work_absolute_mismatch_J == pytest.approx(
+        _PATH_F0 * _PATH_L * (0.02 - 0.04 / 3.0), rel=1.0e-6
+    )
+
+
+def test_vertical_path_keeps_a_nonconservative_potential_not_converged(
+    tmp_path: Path,
+    analytic_kernel,
+) -> None:
+    path = _quadratic_path(tmp_path, analytic_kernel, "quadratic_nonconservative", 8)
+
+    assert path.status == "not_converged"
+    assert path.numerical_metadata["status_reason"] == "work_potential_mismatch"
+    assert path.numerical_metadata["refinement_rounds"] == 8
+    assert path.refinement_count == path.displacement_m.size - 2
+    # The force integrates to F0 L (1 + 0.04 / 3) but U differs by F0 L (0.2 - 0.04) / 3.
+    assert path.work_absolute_mismatch_J == pytest.approx(
+        _PATH_F0 * _PATH_L * 0.16 / 3.0, rel=1.0e-3
+    )
 
 
 def test_vertical_path_checks_triangle_vertices_before_native_evaluation(
