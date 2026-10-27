@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
 from validation_support import (
+    ROOT,
     _canonical_build_info,
     _load_tool,
     _write_run_output,
@@ -558,10 +561,54 @@ def test_verify_run_requires_configured_mesh_outputs(
         tool.verify_run(out, 100)
 
 
-def test_verify_run_requires_complete_six_rank_checkpoint(
+def _legacy_schema3_checkpoint(out: Path) -> None:
+    _replace_summary_value(out, "checkpoint_schema_version", "3")
+    for rank in range(6):
+        (out / f"rng_state_rank{rank:05d}.txt").write_text("1\n12345\n")
+
+
+def _rewrite_manifest(out: Path, key: str, value: str) -> None:
+    manifest = out / "checkpoint_complete.txt"
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+    manifest.write_text(
+        "\n".join(
+            f"{key}={value}" if line.startswith(f"{key}=") else line for line in lines
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda out: (out / "checkpoint_complete.txt").unlink(), "checkpoint_complete"),
+        (lambda out: (out / "macro_residuals.csv").unlink(), "macro_residuals"),
+        (lambda out: _rewrite_manifest(out, "state", "in_progress"), "state"),
+        (lambda out: _rewrite_manifest(out, "batches", "0"), "batches"),
+        (lambda out: _rewrite_manifest(out, "mpi_world_size", "1"), "mpi_world_size"),
+        (
+            lambda out: _rewrite_manifest(out, "macro_residuals_present", "F"),
+            "macro_residuals_present",
+        ),
+        (_legacy_schema3_checkpoint, "current runtime schema 11"),
+    ],
+    ids=[
+        "no_manifest",
+        "no_residuals",
+        "in_progress",
+        "batch_mismatch",
+        "rank_mismatch",
+        "residuals_undeclared",
+        "legacy_schema3",
+    ],
+)
+def test_verify_run_requires_complete_schema11_checkpoint(
     archive_run: Path,
     binary: Path,
     tmp_path: Path,
+    mutation,
+    message: str,
 ) -> None:
     tool = _load_tool()
     validation_root = tmp_path / "validation"
@@ -573,10 +620,43 @@ def test_verify_run_requires_complete_six_rank_checkpoint(
         cache_hit=False,
         build_count=1,
     )
-    (out / "rng_state_rank00005.txt").unlink()
+    mutation(out)
 
-    with pytest.raises(tool.ValidationError, match="checkpoint"):
+    with pytest.raises(tool.ValidationError, match=message):
         tool.verify_run(out, 1)
+
+
+def test_native_writer_checkpoint_satisfies_validator(
+    native_checker: Path, tmp_path: Path
+) -> None:
+    """Producer/consumer contract: the checkpoint the real Fortran writer publishes
+    passes the validator's checkpoint check, and losing its manifest does not."""
+    import tomllib
+
+    import tomli_w
+
+    config = tomllib.loads((ROOT / "examples/panel_direct.toml").read_text())
+    out = tmp_path / "out"
+    config["output"] = {"enabled": True, "dir": str(out)}
+    path = tmp_path / "beach.toml"
+    path.write_text(tomli_w.dumps(config))
+    result = subprocess.run(
+        [str(native_checker), str(path)],
+        cwd=tmp_path,
+        env=os.environ | {"OMP_NUM_THREADS": "1"},
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    tool = _load_tool()
+    summary = tool._summary(out / "summary.txt")
+    tool._validate_checkpoint(out, summary)
+    assert not list(out.glob("rng_state*.txt"))
+    (out / "checkpoint_complete.txt").unlink()
+    with pytest.raises(tool.ValidationError, match="checkpoint_complete"):
+        tool._validate_checkpoint(out, summary)
 
 
 def test_verify_run_requires_complete_cached_electrostatic_state(
