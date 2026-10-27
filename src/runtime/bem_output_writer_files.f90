@@ -84,7 +84,7 @@ contains
 
   if (size(potential_v) /= mesh%nelem) error stop 'precomputed mesh potential size mismatch.'
 
-  potential_path = trim(out_dir)//'/mesh_potential.csv'
+  potential_path = trim(out_dir)//'/'//mesh_potential_file
   open (newunit=u, file=trim(potential_path), status='replace', action='write', iostat=ios)
   if (ios /= 0) error stop 'Failed to open mesh_potential.csv.'
   write (u, '(a)') 'elem_idx,potential_V'

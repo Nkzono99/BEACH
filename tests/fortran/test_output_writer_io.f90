@@ -9,7 +9,8 @@ program test_output_writer_io
                                open_fixed_current_history_writer, write_fixed_current_history_rows, &
                                open_matching_plane_spectrum_history_writer, write_matching_plane_spectrum_history_rows, &
                                write_matching_plane_history_snapshot, &
-                               open_secondary_emission_history_writer, write_secondary_emission_history_rows
+                               open_secondary_emission_history_writer, write_secondary_emission_history_rows, &
+                               open_potential_history_writer, trim_history_files
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   use bem_app_config, only: app_config, default_app_config, load_app_config
   use bem_external_boundary_contract, only: external_inflow_scalar_barrier
@@ -65,10 +66,14 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(11)
+  call test_init(12)
 
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
+
+  call test_begin('resume_trims_histories_to_checkpoint_batch')
+  call test_resume_trims_histories()
+  call test_end()
 
   call test_begin('secondary_history_and_legacy_matching_history_resume')
   call test_secondary_and_legacy_history()
@@ -375,15 +380,8 @@ program test_output_writer_io
   cfg%history_stride = 0_i32
   cfg%write_mesh_potential = .false.
   call ensure_output_dir(out_dir_matching)
-  open (newunit=literal_unit, file=out_dir_matching//'/matching_plane_history.csv', &
-        status='replace', action='write', iostat=ios)
-  if (ios /= 0) error stop 'failed to create stale outer-state history fixture'
-  write (literal_unit, '(a)') 'stale'
-  close (literal_unit)
   call open_matching_plane_history_writer(cfg, .false., matching_history_opened, matching_history_unit)
   call assert_true(.not. matching_history_opened, 'history_stride=0 must disable the outer-state history')
-  inquire (file=out_dir_matching//'/matching_plane_history.csv', exist=exists)
-  call assert_true(.not. exists, 'fresh run must remove a stale disabled outer-state history')
   cfg%history_stride = 1_i32
   call open_matching_plane_history_writer(cfg, .false., matching_history_opened, matching_history_unit)
   call assert_true(matching_history_opened, 'outflow refresh must open the outer-state history')
@@ -421,6 +419,131 @@ program test_output_writer_io
 
 contains
 
+  !> checkpoint batch 5 から再開すると、各 history は header と batch 5 以下の完全な行だけを残す。
+  !! 0 byte・header だけ・存在しない history はそのまま残し、writer が必要なときだけ header を書く。
+  subroutine test_resume_trims_histories()
+    character(len=*), parameter :: dir = 'test_output_writer_io_trim_tmp'
+    character(len=*), parameter :: charge_header = 'batch,processed_particles,rel_change,elem_idx,charge_C'
+    character(len=*), parameter :: see_header = &
+                                   'batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,'// &
+                                   'generation_capped_count'
+    character(len=*), parameter :: spectrum_header = &
+                                   'batch,simulated_time_s,bin,energy_low_eV,energy_high_eV,photoelectron_outward_flux_m2_s'
+    character(len=*), parameter :: top_header = 'batch,simulated_time_s,z_high_m'
+    character(len=*), parameter :: matching_header = 'batch,simulated_time_s,D_H_C_m2'
+    character(len=:), allocatable :: text
+    character(len=256) :: lines(32)
+    integer :: n, b, unit_id
+    logical :: opened
+
+    call cleanup_trim_dir(dir)
+    call ensure_output_dir(dir)
+    ! 巻き戻し: batch 1..8 の 2 要素 snapshot から batch 1..5 だけを残す。
+    text = charge_header//achar(10)
+    do b = 1, 8
+      text = text//itoa(b)//',10,0.0,1,1.0'//achar(10)//itoa(b)//',10,0.0,2,2.0'//achar(10)
+    end do
+    call write_bytes(dir//'/charge_history.csv', text)
+    ! 複数行 snapshot の書きかけ: batch 6 の 1 行目と改行のない 2 行目を捨てる。
+    call write_bytes(dir//'/secondary_emission_history.csv', see_header//achar(10)// &
+                     '4,"e",1,1,-1.0,1.0,0'//achar(10)//'4,"i",1,0,0.0,0.0,0'//achar(10)// &
+                     '5,"e",1,1,-1.0,1.0,0'//achar(10)//'5,"i",1,0,0.0,0.0,0'//achar(10)// &
+                     '6,"e",1,1,-1.0,1.0,0'//achar(10)//'6,"i",1')
+    ! checkpoint batch 以下でも、改行のない末尾は書きかけなので捨てる。
+    call write_bytes(dir//'/matching_plane_spectrum_history.csv', spectrum_header//achar(10)// &
+                     '3,1.0,4,0.5,1.0,2.0'//achar(10)//'5,2.0,4,0.5,1.0,3.0'//achar(10)//'5,2.0,5,1.0')
+    ! 通常の再開: history 末尾が checkpoint batch と一致し、何も除かない。
+    call write_bytes(dir//'/top_reference_history.csv', top_header//achar(10)// &
+                     '1,1.0,2.0'//achar(10)//'5,5.0,2.0'//achar(10))
+    call write_bytes(dir//'/matching_plane_history.csv', matching_header//achar(10))
+    call write_bytes(dir//'/potential_history.csv', '')
+
+    call trim_history_files(dir, 5_i32)
+
+    call read_lines(dir//'/charge_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 11_i32, 'rollback must keep the header and batches 1..5')
+    call assert_true(trim(lines(1)) == charge_header, 'rollback must keep the charge header')
+    call assert_true(trim(lines(n)) == '5,10,0.0,2,2.0', 'rollback must end with the checkpoint snapshot')
+    call read_lines(dir//'/secondary_emission_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 5_i32, 'partial multi-row snapshot after the checkpoint must be removed')
+    call assert_true(trim(lines(n)) == '5,"i",1,0,0.0,0.0,0', 'complete checkpoint snapshot must remain')
+    call read_lines(dir//'/matching_plane_spectrum_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 3_i32, 'unterminated trailing row must be removed')
+    call assert_true(trim(lines(n)) == '5,2.0,4,0.5,1.0,3.0', 'terminated checkpoint row must remain')
+    call read_lines(dir//'/top_reference_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 3_i32, 'history ending at the checkpoint must be unchanged')
+    call read_lines(dir//'/matching_plane_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 1_i32, 'header-only history must stay header-only')
+    call read_lines(dir//'/potential_history.csv', lines, n)
+    call assert_equal_i32(int(n, i32), 0_i32, 'empty history must stay empty until its writer opens it')
+    inquire (file=dir//'/fixed_current_history.csv', exist=exists)
+    call assert_true(.not. exists, 'trimming must not create a missing history')
+    inquire (file=dir//'/charge_history.csv.trim.tmp', exist=exists)
+    call assert_true(.not. exists, 'trimming must not leave a temporary file')
+
+    ! 0 byte と存在しない history は、再開した writer が header から書き始める。
+    call default_app_config(cfg)
+    cfg%output_dir = dir
+    cfg%write_potential_history = .true.
+    cfg%history_stride = 1_i32
+    do b = 1, 2
+      call open_potential_history_writer(cfg, .true., opened, unit_id)
+      call assert_true(opened, 'resumed potential history must open')
+      if (.not. opened) return
+      write (unit_id, '(a)') '6,1,1.0'
+      close (unit_id)
+      call read_lines(dir//'/potential_history.csv', lines, n)
+      call assert_equal_i32(int(n, i32), 2_i32, 'resumed empty or missing history must get one header')
+      call assert_true(trim(lines(1)) == 'batch,elem_idx,potential_V', 'resumed potential history header')
+      call delete_file_if_exists(dir//'/potential_history.csv')
+    end do
+    call cleanup_trim_dir(dir)
+  end subroutine test_resume_trims_histories
+
+  subroutine write_bytes(path, text)
+    character(len=*), intent(in) :: path, text
+    integer :: unit_id
+
+    open (newunit=unit_id, file=path, access='stream', form='unformatted', status='replace', action='write')
+    if (len(text) > 0) write (unit_id) text
+    close (unit_id)
+  end subroutine write_bytes
+
+  subroutine read_lines(path, lines, n)
+    character(len=*), intent(in) :: path
+    character(len=*), intent(out) :: lines(:)
+    integer, intent(out) :: n
+    integer :: unit_id, read_ios
+
+    n = 0
+    lines = ''
+    open (newunit=unit_id, file=path, status='old', action='read')
+    do
+      read (unit_id, '(a)', iostat=read_ios) line
+      if (read_ios /= 0) exit
+      n = n + 1
+      if (n <= size(lines)) lines(n) = line
+    end do
+    close (unit_id)
+  end subroutine read_lines
+
+  function itoa(value) result(text)
+    integer, intent(in) :: value
+    character(len=:), allocatable :: text
+    character(len=16) :: buffer
+
+    write (buffer, '(i0)') value
+    text = trim(buffer)
+  end function itoa
+
+  subroutine cleanup_trim_dir(dir)
+    character(len=*), intent(in) :: dir
+
+    call delete_file_if_exists(dir//'/charge_history.csv')
+    call delete_file_if_exists(dir//'/potential_history.csv')
+    call cleanup_output_dir(dir)
+  end subroutine cleanup_trim_dir
+
   !> 固定電流historyはtargetを適用したchannelだけを窓合計で書き、追跡値0の比をnanにする。
   subroutine test_fixed_current_history_rows()
     logical :: opened, active(3, 3)
@@ -433,13 +556,8 @@ contains
     cfg%output_dir = out_dir_matching
     cfg%history_stride = 0_i32
     call ensure_output_dir(out_dir_matching)
-    open (newunit=unit_id, file=out_dir_matching//'/fixed_current_history.csv', status='replace', action='write')
-    write (unit_id, '(a)') 'stale'
-    close (unit_id)
     call open_fixed_current_history_writer(cfg, .false., opened, unit_id)
     call assert_true(.not. opened, 'history_stride=0 must disable the fixed-current history')
-    inquire (file=out_dir_matching//'/fixed_current_history.csv', exist=exists)
-    call assert_true(.not. exists, 'fresh run must remove a stale disabled fixed-current history')
 
     cfg%history_stride = 2_i32
     call open_fixed_current_history_writer(cfg, .false., opened, unit_id)
@@ -568,14 +686,8 @@ contains
     cfg%history_stride = 0_i32
     cfg%write_mesh_potential = .false.
     call ensure_output_dir(out_dir_matching)
-    open (newunit=unit_id, file=out_dir_matching//'/matching_plane_spectrum_history.csv', status='replace', &
-          action='write')
-    write (unit_id, '(a)') 'stale'
-    close (unit_id)
     call open_matching_plane_spectrum_history_writer(cfg, .false., opened, unit_id)
     call assert_true(.not. opened, 'history_stride=0 must disable the spectrum history')
-    inquire (file=out_dir_matching//'/matching_plane_spectrum_history.csv', exist=exists)
-    call assert_true(.not. exists, 'fresh run must remove a stale disabled spectrum history')
 
     cfg%history_stride = 5_i32
     call open_matching_plane_spectrum_history_writer(cfg, .false., opened, unit_id)

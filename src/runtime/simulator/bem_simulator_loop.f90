@@ -12,7 +12,8 @@ submodule(bem_simulator) bem_simulator_loop
                                      perf_region_particle_batch, perf_region_prepare_batch, perf_region_simulation_total, &
                                      perf_region_stats_update
   use bem_mpi, only: mpi_allreduce_max_real_dp_array
-  use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint
+  use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, periodic_checkpoint_due
+  use bem_run_outputs, only: flush_run_outputs
   use bem_charge_ledger, only: finite_charge_sum
   implicit none
   integer(i32), parameter :: adaptive_max_halvings = 24_i32
@@ -79,7 +80,11 @@ contains
     call commit_accepted_batch()
 
     call perf_region_begin(perf_region_history_write, t0)
-    if (mpi_is_root(mpi_ctx)) call write_batch_history()
+    if (mpi_is_root(mpi_ctx)) then
+      call write_batch_history()
+      ! 再開できる batch 以下の history 行を、checkpoint の完了 manifest より先にファイルへ出す。
+      if (present(outputs) .and. periodic_checkpoint_due(app, stats%batches)) call flush_run_outputs(outputs)
+    end if
     call perf_region_end(perf_region_history_write, t0)
     call maybe_write_periodic_checkpoint(app, mesh, stats, inject_state, mpi_ctx, charge_ledger)
     call perf_region_end(perf_region_batch_total, batch_t0)

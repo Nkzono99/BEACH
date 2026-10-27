@@ -10,6 +10,8 @@ module bem_performance_profile
   implicit none
   private
 
+  !> `BEACH_PROFILE=1` のときだけ出力先へ書く CSV の名前。
+  character(len=*), parameter, public :: performance_profile_file = 'performance_profile.csv'
   integer(i32), parameter, public :: perf_region_program_total = 1_i32
   integer(i32), parameter, public :: perf_region_load_or_init = 2_i32
   integer(i32), parameter, public :: perf_region_history_open = 3_i32
@@ -209,7 +211,7 @@ contains
       return
     end if
 
-    path = trim(perf_state%output_dir)//'/performance_profile.csv'
+    path = trim(perf_state%output_dir)//'/'//performance_profile_file
     open (newunit=u, file=trim(path), status='replace', action='write', iostat=ios)
     if (ios /= 0) error stop 'Failed to open performance_profile.csv.'
 

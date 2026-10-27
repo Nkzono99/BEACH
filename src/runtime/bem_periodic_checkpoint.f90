@@ -4,8 +4,9 @@ module bem_periodic_checkpoint
   use bem_types, only: injection_state, mesh_type, sim_stats
   use bem_app_config_types, only: app_config
   use bem_charge_ledger, only: charge_ledger_type
-  use bem_checkpoint_contract, only: inspect_checkpoint_directory, publish_checkpoint_manifest
-  use bem_filesystem, only: atomic_rename, filesystem_success
+  use bem_checkpoint_contract, only: inspect_checkpoint_directory, invalidate_checkpoint_directory, &
+                                     publish_checkpoint_manifest
+  use bem_filesystem, only: atomic_rename, filesystem_success, remove_file_if_exists
   use bem_mpi, only: mpi_bcast_i32_array, mpi_context, mpi_is_root, mpi_world_barrier, mpi_world_size
   use bem_output_writer, only: ensure_output_dir, write_checkpoint_state_files
   use bem_restart, only: write_macro_residuals_file
@@ -17,7 +18,9 @@ module bem_periodic_checkpoint
   character(len=*), parameter :: checkpoint_parent_name = 'checkpoints'
 
   public :: maybe_write_periodic_checkpoint
+  public :: periodic_checkpoint_due
   public :: resolve_latest_checkpoint_dir
+  public :: invalidate_output_checkpoints
 
 contains
 
@@ -34,10 +37,7 @@ contains
     character(len=1024) :: checkpoint_dir
     logical :: has_macro_residuals, has_charge_ledger
 
-    if (.not. app%write_output) return
-    if (app%checkpoint_stride <= 0_i32) return
-    if (stats%batches <= 0_i32) return
-    if (mod(stats%batches, app%checkpoint_stride) /= 0_i32) return
+    if (.not. periodic_checkpoint_due(app, stats%batches)) return
 
     slot_values = 1_i32
     if (mpi_is_root(mpi)) then
@@ -72,6 +72,32 @@ contains
     end if
     call mpi_world_barrier(mpi)
   end subroutine maybe_write_periodic_checkpoint
+
+  !> accepted batch `batches` の commit 後に定期チェックポイントを書くかを返す。
+  logical function periodic_checkpoint_due(app, batches) result(due)
+    type(app_config), intent(in) :: app
+    integer(i32), intent(in) :: batches
+
+    due = app%write_output .and. app%checkpoint_stride > 0_i32 .and. batches > 0_i32
+    if (due) due = mod(batches, app%checkpoint_stride) == 0_i32
+  end function periodic_checkpoint_due
+
+  !> fresh run が出力先を再利用する前に、前の run の最終出力と両 slot を再開候補から外し、index を消す。
+  !! 各 directory は個別に原子的に無効化される。途中で止まっても残るのは前の run の完全な checkpoint だけで、
+  !! この時点では新しい run はまだ何も書いていないので、新旧の混ざった再開状態はできない。
+  subroutine invalidate_output_checkpoints(base_dir)
+    character(len=*), intent(in) :: base_dir
+
+    integer(i32) :: slot
+    integer :: status
+
+    do slot = 0_i32, 1_i32
+      call invalidate_checkpoint_directory(checkpoint_slot_dir(trim(base_dir), slot))
+    end do
+    call invalidate_checkpoint_directory(trim(base_dir))
+    call remove_file_if_exists(trim(base_dir)//'/'//checkpoint_index_name, status)
+    if (status /= filesystem_success) error stop 'Failed to remove the previous periodic checkpoint index.'
+  end subroutine invalidate_output_checkpoints
 
   !> base directory直下の最終出力と両定期slotを比較し、batch数が新しい完全checkpointを返す。
   !! indexは同batchのslotを選ぶtie-breakにだけ使う。欠落、破損、古いindexは

@@ -1,7 +1,7 @@
 !> BEACH checkpoint metadata and transactional publication shared by output and restart code.
 module bem_checkpoint_contract
   use bem_kinds, only: i32
-  use bem_filesystem, only: atomic_rename, filesystem_success
+  use bem_filesystem, only: atomic_rename, filesystem_success, remove_file_if_exists
   implicit none
   private
 
@@ -16,6 +16,7 @@ module bem_checkpoint_contract
   public :: checkpoint_schema_is_loadable
   public :: publish_checkpoint_manifest
   public :: inspect_checkpoint_directory
+  public :: invalidate_checkpoint_directory
 
 contains
 
@@ -47,6 +48,20 @@ contains
     call atomic_rename(trim(temporary_path), trim(path), rename_status)
     if (rename_status /= filesystem_success) error stop 'Failed to invalidate checkpoint manifest.'
   end subroutine begin_checkpoint_publish
+
+  !> Take a directory out of the resume candidates without touching files a later run rewrites.
+  !! `summary.txt` goes first: every schema generation, including legacy ones without a manifest, needs it to be
+  !! complete, so a crash between the two removals already leaves the directory non-resumable.
+  subroutine invalidate_checkpoint_directory(checkpoint_dir)
+    character(len=*), intent(in) :: checkpoint_dir
+
+    integer :: status
+
+    call remove_file_if_exists(trim(checkpoint_dir)//'/summary.txt', status)
+    if (status /= filesystem_success) error stop 'Failed to remove a previous checkpoint summary.'
+    call remove_file_if_exists(trim(checkpoint_dir)//'/'//checkpoint_manifest_name, status)
+    if (status /= filesystem_success) error stop 'Failed to remove a previous checkpoint manifest.'
+  end subroutine invalidate_checkpoint_directory
 
   !> A complete manifest is atomically published only after every restart-bearing file is closed.
   subroutine publish_checkpoint_manifest( &

@@ -7,6 +7,7 @@ program test_restart
                          restart_contract_ok, restart_contract_mismatch
   use bem_output_writer, only: write_result_files
   use bem_periodic_checkpoint, only: maybe_write_periodic_checkpoint, resolve_latest_checkpoint_dir
+  use bem_run_outputs, only: run_outputs_type, open_run_outputs, close_run_outputs
   use bem_checkpoint_contract, only: begin_checkpoint_publish, checkpoint_schema_version_current, checkpoint_rng_free_schema, &
                                      inspect_checkpoint_directory, publish_checkpoint_manifest
   use bem_app_config, only: app_config, default_app_config, species_from_defaults
@@ -46,7 +47,7 @@ program test_restart
   end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -374,10 +375,78 @@ program test_restart
     )
   call test_end()
 
+  call test_begin('fresh_run_retires_previous_run_outputs')
+  call test_fresh_run_retires_previous_run_outputs()
+  call test_end()
+
   call cleanup_restart_fixture(out_dir)
   call test_summary()
 
 contains
+
+  !> 同じ出力先での fresh run は、前の run の checkpoint を再開候補から外し、今回書かない history を消す。
+  !! 利用者のファイルは残し、新しい run の最終出力だけが再開候補になる。
+  subroutine test_fresh_run_retires_previous_run_outputs()
+    character(len=*), parameter :: dir = 'test_restart_fresh_tmp'
+    type(app_config) :: run_cfg
+    type(sim_stats) :: run_stats
+    type(run_outputs_type) :: outputs
+    integer(i32) :: batches
+    logical :: complete
+
+    call cleanup_restart_fixture(dir)
+    call build_test_mesh(mesh)
+    call default_app_config(run_cfg)
+    run_cfg%output_dir = dir
+    ! 前の run A: schema key を持たない legacy の最終出力（batch 2）と、batch 100 の定期 slot。
+    call ensure_directory(dir)
+    call write_summary_fixture(dir)
+    call write_charges_fixture(dir)
+    call touch_file(dir//'/rng_state.txt')
+    run_cfg%checkpoint_stride = 100_i32
+    run_stats = sim_stats()
+    run_stats%batches = 100_i32
+    call maybe_write_periodic_checkpoint(run_cfg, mesh, run_stats, mpi=mpi)
+    call resolve_latest_checkpoint_dir(dir, resolved_checkpoint_dir)
+    call assert_true(trim(resolved_checkpoint_dir) == dir//'/checkpoints/slot0', 'run A slot fixture must resolve')
+    call touch_file(dir//'/charge_history.csv')
+    call touch_file(dir//'/mesh_potential.csv')
+    call touch_file(dir//'/performance_profile.csv')
+    call touch_file(dir//'/notes.txt')
+
+    ! run B: 同じ出力先で history を無効にした fresh run。
+    run_cfg%checkpoint_stride = 0_i32
+    run_cfg%history_stride = 0_i32
+    run_cfg%write_mesh_potential = .false.
+    call open_run_outputs(run_cfg, .false., 0_i32, .true., outputs)
+    call close_run_outputs(outputs)
+    call inspect_checkpoint_directory(dir//'/checkpoints/slot0', complete)
+    call assert_true(.not. complete, 'fresh run must retire the previous periodic slot')
+    call inspect_checkpoint_directory(dir, complete)
+    call assert_true(.not. complete, 'fresh run must retire the previous legacy final output')
+    inquire (file=dir//'/checkpoint_latest.txt', exist=exists)
+    call assert_true(.not. exists, 'fresh run must remove the previous checkpoint index')
+    inquire (file=dir//'/charge_history.csv', exist=exists)
+    call assert_true(.not. exists, 'fresh run without history must remove the previous charge history')
+    inquire (file=dir//'/mesh_potential.csv', exist=exists)
+    call assert_true(.not. exists, 'fresh run must remove the previous mesh potential')
+    inquire (file=dir//'/performance_profile.csv', exist=exists)
+    call assert_true(.not. exists, 'fresh run must remove the previous performance profile')
+    inquire (file=dir//'/notes.txt', exist=exists)
+    call assert_true(exists, 'fresh run must keep files BEACH does not own')
+
+    ! run B が batch 10 で完了すると、run A の slot 100 ではなく B の最終出力から再開する。
+    run_stats%batches = 10_i32
+    call write_result_files(dir, mesh, run_stats, run_cfg)
+    call publish_checkpoint_manifest(dir, 10_i32, 1_i32, .false., .false.)
+    call resolve_latest_checkpoint_dir(dir, resolved_checkpoint_dir)
+    call assert_true(trim(resolved_checkpoint_dir) == dir, 'run B final output must be the resume candidate')
+    call inspect_checkpoint_directory(dir, complete, batches=batches)
+    call assert_equal_i32(batches, 10_i32, 'resume candidate must hold run B batches')
+
+    call delete_file_if_exists(dir//'/notes.txt')
+    call cleanup_restart_fixture(dir)
+  end subroutine test_fresh_run_retires_previous_run_outputs
 
   subroutine test_manifest_required_scalar_keys()
     character(len=32), parameter :: required_keys(6) = [ &

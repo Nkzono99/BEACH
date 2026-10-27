@@ -5,11 +5,14 @@ module bem_run_outputs
   use bem_app_config_types, only: app_config
   use bem_output_writer, only: open_history_writer, open_potential_history_writer, open_top_reference_history_writer, &
                                open_matching_plane_history_writer, open_fixed_current_history_writer, &
-                               open_matching_plane_spectrum_history_writer, open_secondary_emission_history_writer
+                               open_matching_plane_spectrum_history_writer, open_secondary_emission_history_writer, &
+                               remove_previous_run_outputs, trim_history_files
+  use bem_periodic_checkpoint, only: invalidate_output_checkpoints
   implicit none
   private
 
   public :: open_run_outputs
+  public :: flush_run_outputs
   public :: close_run_outputs
 
   type, public :: run_outputs_type
@@ -35,10 +38,12 @@ module bem_run_outputs
 
 contains
 
-  !> root rank で設定どおりに history writer を開き、出力先を返す。root 以外は全て無効（unit=-1）。
-  subroutine open_run_outputs(app, resumed, is_root, outputs)
+  !> root rank で出力先をこの run のものにしてから、設定どおりに history writer を開く。root 以外は全て無効（unit=-1）。
+  !! @param[in] resume_batch 再開した checkpoint の batch 数（`resumed` のときだけ使う）。
+  subroutine open_run_outputs(app, resumed, resume_batch, is_root, outputs)
     type(app_config), intent(in) :: app
     logical, intent(in) :: resumed, is_root
+    integer(i32), intent(in) :: resume_batch
     type(run_outputs_type), intent(out) :: outputs
     logical :: opened
     integer :: unit_id
@@ -46,6 +51,7 @@ contains
     outputs%history_stride = app%history_stride
     outputs%mesh_potential = app%write_mesh_potential
     if (.not. is_root) return
+    if (app%write_output) call claim_output_dir(app, resumed, resume_batch)
     call open_history_writer(app, resumed, opened, unit_id)
     if (opened) outputs%history_unit = unit_id
     call open_potential_history_writer(app, resumed, opened, unit_id)
@@ -61,6 +67,45 @@ contains
     call open_secondary_emission_history_writer(app, resumed, opened, unit_id)
     if (opened) outputs%secondary_emission_history_unit = unit_id
   end subroutine open_run_outputs
+
+  !> 出力先に残る BEACH の成果物を、これから続ける run と同じ世代にそろえる。root rank だけが呼ぶ。
+  !! 再開では、checkpoint より後の history 行（巻き戻した試行の行）を除き、checkpoint のファイルは変更しない。
+  !! `run.restart.from` が別の directory なら、その中は何も変更しない。
+  !! fresh run では、まず前の run の checkpoint を再開候補から外し、次に今回書かないかもしれない任意出力を消す。
+  !! 出力先を読み書きするのは root だけで（checkpoint の slot 選択も root が行って broadcast する）、
+  !! fresh run の他の rank は出力先を読まないので、追加の barrier は要らない。
+  subroutine claim_output_dir(app, resumed, resume_batch)
+    type(app_config), intent(in) :: app
+    logical, intent(in) :: resumed
+    integer(i32), intent(in) :: resume_batch
+
+    if (resumed) then
+      call trim_history_files(trim(app%output_dir), resume_batch)
+    else
+      call invalidate_output_checkpoints(trim(app%output_dir))
+      call remove_previous_run_outputs(trim(app%output_dir))
+    end if
+  end subroutine claim_output_dir
+
+  !> 開いている history の行を書き出す。checkpoint の完了 manifest を公開する前に呼び、
+  !! 再開できる batch 以下の history 行がすべて改行まで書かれていることを保証する。
+  subroutine flush_run_outputs(outputs)
+    type(run_outputs_type), intent(in) :: outputs
+
+    call flush_unit(outputs%history_unit)
+    call flush_unit(outputs%potential_history_unit)
+    call flush_unit(outputs%top_reference_history_unit)
+    call flush_unit(outputs%matching_plane_history_unit)
+    call flush_unit(outputs%fixed_current_history_unit)
+    call flush_unit(outputs%secondary_emission_history_unit)
+    call flush_unit(outputs%matching_plane_spectrum_history_unit)
+  end subroutine flush_run_outputs
+
+  subroutine flush_unit(unit_id)
+    integer, intent(in) :: unit_id
+
+    if (unit_id /= -1) flush (unit_id)
+  end subroutine flush_unit
 
   !> 開いている history writer を閉じる。
   subroutine close_run_outputs(outputs)

@@ -1,7 +1,8 @@
 !> 履歴ファイルの生成・再開とスナップショットの出力。
 submodule(bem_output_writer) bem_output_writer_history
   use bem_string_utils, only: lower_ascii
-  use bem_filesystem, only: atomic_rename
+  use bem_filesystem, only: atomic_rename, remove_file_if_exists
+  use bem_performance_profile, only: performance_profile_file
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   implicit none
   ! Released 2.0.x/3.0.x headers (17/19-column matching, 8-column top) are upgraded on resume;
@@ -38,7 +39,7 @@ contains
 
   call ensure_output_dir(app%output_dir)
 
-  history_path = trim(app%output_dir)//'/charge_history.csv'
+  history_path = trim(app%output_dir)//'/'//charge_history_file
   call open_history_file( &
     history_path, resumed, &
     'batch,processed_particles,rel_change,elem_idx,charge_C', &
@@ -63,7 +64,7 @@ contains
 
   call ensure_output_dir(app%output_dir)
 
-  path = trim(app%output_dir)//'/potential_history.csv'
+  path = trim(app%output_dir)//'/'//potential_history_file
   call open_history_file( &
     path, resumed, &
     'batch,elem_idx,potential_V', &
@@ -88,7 +89,7 @@ contains
 
   call ensure_output_dir(app%output_dir)
 
-  path = trim(app%output_dir)//'/top_reference_history.csv'
+  path = trim(app%output_dir)//'/'//top_reference_history_file
   if (resumed) call extend_history_columns(path, top_history_v3_header, top_history_header, ',0,0')
   call open_history_file( &
     path, resumed, &
@@ -118,13 +119,10 @@ contains
   history_opened = .false.
   history_unit = -1
   if (.not. app%write_output) return
-  path = trim(app%output_dir)//'/matching_plane_history.csv'
+  path = trim(app%output_dir)//'/'//matching_plane_history_file
   if (app%history_stride <= 0_i32 .or. &
       trim(lower_ascii(app%surface_current%model)) /= 'zhao_stationary' .or. &
-      app%surface_current%outflow_refresh_batches <= 0_i32) then
-    if (.not. resumed) call delete_history_if_exists(path)
-    return
-  end if
+      app%surface_current%outflow_refresh_batches <= 0_i32) return
   call ensure_output_dir(app%output_dir)
   if (resumed) then
     call extend_history_columns(path, matching_history_legacy_header, matching_history_header, ',0,0,NaN,NaN')
@@ -136,20 +134,6 @@ contains
     )
   history_opened = .true.
   end procedure open_matching_plane_history_writer
-
-  !> fresh runで生成条件を満たさない旧条件付きhistoryを残さない。
-  subroutine delete_history_if_exists(path)
-    character(len=*), intent(in) :: path
-    integer :: unit_id, ios
-    logical :: file_exists
-
-    inquire (file=trim(path), exist=file_exists)
-    if (.not. file_exists) return
-    open (newunit=unit_id, file=trim(path), status='old', iostat=ios)
-    if (ios /= 0) error stop 'Failed to open stale history file for deletion: '//trim(path)
-    close (unit_id, status='delete', iostat=ios)
-    if (ios /= 0) error stop 'Failed to delete stale history file: '//trim(path)
-  end subroutine delete_history_if_exists
 
   module procedure write_matching_plane_history_snapshot
 
@@ -175,13 +159,10 @@ contains
   history_opened = .false.
   history_unit = -1
   if (.not. app%write_output) return
-  path = trim(app%output_dir)//'/matching_plane_spectrum_history.csv'
+  path = trim(app%output_dir)//'/'//matching_plane_spectrum_history_file
   if (app%history_stride <= 0_i32 .or. &
       trim(lower_ascii(app%surface_current%model)) /= 'zhao_stationary' .or. &
-      app%surface_current%outflow_refresh_batches <= 0_i32) then
-    if (.not. resumed) call delete_history_if_exists(path)
-    return
-  end if
+      app%surface_current%outflow_refresh_batches <= 0_i32) return
   call ensure_output_dir(app%output_dir)
   call open_history_file( &
     path, resumed, 'batch,simulated_time_s,bin,energy_low_eV,energy_high_eV,photoelectron_outward_flux_m2_s', &
@@ -212,15 +193,12 @@ contains
   history_opened = .false.
   history_unit = -1
   if (.not. app%write_output) return
-  path = trim(app%output_dir)//'/secondary_emission_history.csv'
+  path = trim(app%output_dir)//'/'//secondary_emission_history_file
   active = .false.
   do s = 1, app%n_particle_species
     active = active .or. (app%particle_species(s)%enabled .and. app%particle_species(s)%secondary_emission_enabled)
   end do
-  if (.not. active) then
-    if (.not. resumed) call delete_history_if_exists(path)
-    return
-  end if
+  if (.not. active) return
   call ensure_output_dir(app%output_dir)
   call open_history_file(path, resumed, &
                          'batch,incident_species,hits,emitted_count,emitted_charge_c,mean_yield,generation_capped_count', &
@@ -257,17 +235,14 @@ contains
   history_opened = .false.
   history_unit = -1
   if (.not. app%write_output) return
-  path = trim(app%output_dir)//'/fixed_current_history.csv'
+  path = trim(app%output_dir)//'/'//fixed_current_history_file
   fixed_current_used = trim(lower_ascii(app%surface_current%model)) == 'zhao_stationary'
   do species_idx = 1_i32, app%n_particle_species
     if (.not. app%particle_species(species_idx)%enabled) cycle
     fixed_current_used = fixed_current_used .or. &
                          trim(lower_ascii(app%particle_species(species_idx)%surface_charge_closure)) == 'fixed_current'
   end do
-  if (app%history_stride <= 0_i32 .or. .not. fixed_current_used) then
-    if (.not. resumed) call delete_history_if_exists(path)
-    return
-  end if
+  if (app%history_stride <= 0_i32 .or. .not. fixed_current_used) return
   call ensure_output_dir(app%output_dir)
   call open_history_file( &
     path, resumed, &
@@ -298,6 +273,146 @@ contains
     end do
   end do
   end procedure write_fixed_current_history_rows
+
+  !> fresh run の開始時に、前の run が書き今回は書かないかもしれない任意出力を消す。
+  !! 既知の名前だけを対象にし、出力先にある利用者のファイルには触れない。
+  module procedure remove_previous_run_outputs
+  integer :: k
+
+  do k = 1, size(history_files)
+    call remove_output_file(trim(out_dir)//'/'//trim(history_files(k)))
+  end do
+  call remove_output_file(trim(out_dir)//'/'//mesh_potential_file)
+  call remove_output_file(trim(out_dir)//'/'//performance_profile_file)
+  end procedure remove_previous_run_outputs
+
+  subroutine remove_output_file(path)
+    character(len=*), intent(in) :: path
+    integer :: status
+
+    call remove_file_if_exists(path, status)
+    if (status /= filesystem_success) error stop 'Failed to remove a previous-run output file: '//trim(path)
+  end subroutine remove_output_file
+
+  !> 再開した checkpoint の batch より後の行と、末尾の改行のない不完全な行を各 history から除く。
+  !! 全 history は 1 列目が batch で、1 行目を header とする。
+  !! checkpoint batch 自身の snapshot は完全である。batch loop は history 行を書いてから checkpoint を書き、
+  !! checkpoint を書く batch では history unit を flush してから完了 manifest を公開するので、
+  !! 再開できる checkpoint の batch 以下の行は、checkpoint が見える時点で全て改行まで書かれている。
+  module procedure trim_history_files
+  integer :: k
+
+  do k = 1, size(history_files)
+    call trim_history_file(trim(out_dir)//'/'//trim(history_files(k)), last_batch)
+  end do
+  end procedure trim_history_files
+
+  !> 除く行があるときだけ、残す行を一時ファイルへ写して原子的に置き換える。
+  !! 0 byte のファイルと存在しないファイルはそのまま残し、header は writer が開くときに書く。
+  subroutine trim_history_file(path, last_batch)
+    character(len=*), intent(in) :: path
+    integer(i32), intent(in) :: last_batch
+
+    character(len=:), allocatable :: temporary
+    integer(i64) :: file_size
+    integer :: output, ios, status
+    logical :: exists, changed
+
+    inquire (file=path, exist=exists, size=file_size)
+    if (.not. exists .or. file_size <= 0_i64) return
+    call filter_history_rows(path, file_size, last_batch, -1, changed)
+    if (.not. changed) return
+    temporary = path//'.trim.tmp'
+    open (newunit=output, file=temporary, status='replace', action='write', iostat=ios)
+    if (ios /= 0) error stop 'Failed to create a trimmed history file: '//path
+    call filter_history_rows(path, file_size, last_batch, output, changed)
+    close (output, iostat=ios)
+    if (ios /= 0) error stop 'Failed to close a trimmed history file: '//path
+    call atomic_rename(temporary, path, status)
+    if (status /= filesystem_success) error stop 'Failed to replace a trimmed history file: '//path
+  end subroutine trim_history_file
+
+  !> history を stream で読み、header と batch <= last_batch の完全な行だけを残す。
+  !! output が -1 なら何も書かず、除く行があるかだけを返す。
+  subroutine filter_history_rows(path, file_size, last_batch, output, changed)
+    character(len=*), intent(in) :: path
+    integer(i64), intent(in) :: file_size
+    integer(i32), intent(in) :: last_batch
+    integer, intent(in) :: output
+    logical, intent(out) :: changed
+
+    integer, parameter :: chunk_len = 65536
+    character(len=chunk_len) :: chunk
+    character(len=:), allocatable :: carry
+    integer(i64) :: next_pos
+    integer :: input, ios, n, start, newline
+    logical :: header_seen
+
+    changed = .false.
+    header_seen = .false.
+    carry = ''
+    open (newunit=input, file=path, access='stream', form='unformatted', status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'Failed to read a history file for resume: '//path
+    next_pos = 1_i64
+    do while (next_pos <= file_size)
+      n = int(min(int(chunk_len, i64), file_size - next_pos + 1_i64))
+      read (input, pos=next_pos, iostat=ios) chunk(1:n)
+      if (ios /= 0) error stop 'Failed to read a history file for resume: '//path
+      next_pos = next_pos + int(n, i64)
+      start = 1
+      do
+        newline = index(chunk(start:n), achar(10))
+        if (newline == 0) exit
+        if (len(carry) == 0) then
+          call filter_line(chunk(start:start + newline - 2))
+        else
+          call filter_line(carry//chunk(start:start + newline - 2))
+          carry = ''
+        end if
+        start = start + newline
+      end do
+      if (start <= n) carry = carry//chunk(start:n)
+    end do
+    close (input)
+    ! 改行で終わらない末尾は書きかけの行なので捨てる。
+    if (len(carry) > 0) changed = .true.
+
+  contains
+
+    subroutine filter_line(line)
+      character(len=*), intent(in) :: line
+
+      if (header_seen) then
+        if (.not. row_batch_at_most(line, last_batch)) then
+          changed = .true.
+          return
+        end if
+      end if
+      header_seen = .true.
+      if (output /= -1) write (output, '(a)') line
+    end subroutine filter_line
+
+  end subroutine filter_history_rows
+
+  !> 行頭の batch（数字列に ',' が続く）が last_batch 以下なら真。解釈できない行は残さない。
+  pure logical function row_batch_at_most(line, last_batch) result(keep)
+    character(len=*), intent(in) :: line
+    integer(i32), intent(in) :: last_batch
+
+    integer(i64) :: batch
+    integer :: j, digit
+
+    keep = .false.
+    batch = 0_i64
+    do j = 1, len(line)
+      if (line(j:j) == ',') exit
+      digit = iachar(line(j:j)) - iachar('0')
+      if (digit < 0 .or. digit > 9 .or. j > 18) return
+      batch = 10_i64*batch + int(digit, i64)
+    end do
+    if (j == 1 .or. j > len(line)) return
+    keep = batch <= int(last_batch, i64)
+  end function row_batch_at_most
 
   !> Preserve released 3.0.0 CSV rows on resume (supported while these histories can be resumed).
   !! Missing historical fields are NaN; histories predating the switch have zero mismatch.
@@ -333,22 +448,24 @@ contains
     if (status /= filesystem_success) error stop 'Failed to replace legacy history.'
   end subroutine extend_history_columns
 
-  !> Append or replace a history file; an existing resumed file keeps its original header.
+  !> Append or replace a history file; a resumed non-empty file keeps its original header.
+  !! A resumed file that is missing or empty (the previous run stopped before writing its header) gets one.
   subroutine open_history_file(path, resumed, header, unit_id, failure_message)
     character(len=*), intent(in) :: path, header, failure_message
     logical, intent(in) :: resumed
     integer, intent(out) :: unit_id
     integer :: ios
+    integer(i64) :: file_size
     logical :: exists
 
-    inquire (file=trim(path), exist=exists)
+    inquire (file=trim(path), exist=exists, size=file_size)
     if (resumed) then
       open (newunit=unit_id, file=trim(path), status='unknown', position='append', action='write', iostat=ios)
     else
       open (newunit=unit_id, file=trim(path), status='replace', action='write', iostat=ios)
     end if
     if (ios /= 0) error stop failure_message
-    if (.not. resumed .or. .not. exists) write (unit_id, '(a)') header
+    if (.not. resumed .or. .not. exists .or. file_size == 0_i64) write (unit_id, '(a)') header
   end subroutine open_history_file
 
 end submodule bem_output_writer_history
