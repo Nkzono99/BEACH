@@ -72,6 +72,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `beachx workload` の rank 別粒子数を本体の `static` 分配に合わせた。種・source・reservoir 面ごとに
   round-robin に並ぶ global slot の総数を一度だけ分割した連続区間から数え（以前は source・面ごとに分割して合計していた）、
   `shared` 分配では均等負荷の仮定であることを `rank_count_basis` に示す（#64）。
+- `tools/golden_regression.py compare` が有限値から NaN/Inf への変化、新しい側だけにある case・ファイル、
+  `--rtol 0` での表記差（`1.0` → `1.00` など）を成功扱いしていた問題を直した。`--rtol 0` は volatile 行を除いた
+  テキストの完全一致を要求し、`--rtol` が正のときは数値を相対差で比べて非有限値は同じ表記どうしだけ一致とする（#67）。
 
 ## [4.0.0] - 2026-10-23
 
