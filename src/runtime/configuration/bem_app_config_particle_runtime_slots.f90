@@ -33,8 +33,7 @@ contains
   if (source_plan%nspecies /= cfg%n_particle_species) then
     error stop 'particle source plan species count does not match app config.'
   end if
-  if (source_plan%mpi_rank /= local_rank .or. source_plan%mpi_size /= n_ranks .or. &
-      source_plan%mpi_argument_present .neqv. present(mpi)) then
+  if (.not. particle_source_plan_matches_mpi(source_plan, local_rank, n_ranks, present(mpi))) then
     error stop 'particle source plan MPI context does not match batch initialization.'
   end if
   use_collective_reservoir_count = source_plan%use_collective_reservoir_count

@@ -7,7 +7,9 @@ program test_particle_pool
                             init_particle_batch_from_config, particle_inflow_reservoir, &
                             batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot, &
                             slot_kind_volume, slot_kind_reservoir_face
-  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan, &
+                                    particle_source_plan_matches_mpi
+  use bem_mpi, only: mpi_context
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
   use bem_injection, only: sample_reservoir_face_particle_counter
@@ -29,7 +31,7 @@ program test_particle_pool
   logical :: emitted, emitted2
   integer(i32) :: slot
 
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('layout_segments_follow_static_order')
   call setup_layout_fixture(cfg)
@@ -69,6 +71,10 @@ program test_particle_pool
     state_static%boundary_macro_residual(5, 2), state%boundary_macro_residual(5, 2), 1.0e-15_dp, &
     'layout and static path must advance the reservoir residual identically' &
     )
+  call test_end()
+
+  call test_begin('source_plan_mpi_context_match')
+  call test_source_plan_mpi_context_match()
   call test_end()
 
   call test_begin('slot_generation_is_deterministic')
@@ -138,6 +144,37 @@ program test_particle_pool
   call test_summary()
 
 contains
+
+  !> rank、size、mpi 引数の有無のどれか 1 つだけが plan 構築時と違っても不一致と判定する（#61）。
+  !! mpi 引数ありで構築した plan の rank/size 不一致は、`.neqv.` の優先順位誤りで見逃されていた組み合わせ。
+  subroutine test_source_plan_mpi_context_match()
+    type(app_config) :: plan_cfg
+    type(particle_source_plan_type) :: serial_plan, mpi_plan
+    type(mpi_context) :: mpi
+
+    call setup_layout_fixture(plan_cfg)
+    call build_particle_source_plan(plan_cfg, serial_plan, mpi_rank=1_i32, mpi_size=2_i32)
+    mpi%rank = 1_i32
+    mpi%size = 2_i32
+    call build_particle_source_plan(plan_cfg, mpi_plan, mpi=mpi)
+
+    call assert_true(particle_source_plan_matches_mpi(serial_plan, 1_i32, 2_i32, .false.), &
+                     'serial plan must match its own context')
+    call assert_true(particle_source_plan_matches_mpi(mpi_plan, 1_i32, 2_i32, .true.), &
+                     'mpi plan must match its own context')
+    call assert_true(.not. particle_source_plan_matches_mpi(serial_plan, 0_i32, 2_i32, .false.), &
+                     'serial plan must reject a rank-only mismatch')
+    call assert_true(.not. particle_source_plan_matches_mpi(mpi_plan, 0_i32, 2_i32, .true.), &
+                     'mpi plan must reject a rank-only mismatch')
+    call assert_true(.not. particle_source_plan_matches_mpi(serial_plan, 1_i32, 3_i32, .false.), &
+                     'serial plan must reject a size-only mismatch')
+    call assert_true(.not. particle_source_plan_matches_mpi(mpi_plan, 1_i32, 3_i32, .true.), &
+                     'mpi plan must reject a size-only mismatch')
+    call assert_true(.not. particle_source_plan_matches_mpi(serial_plan, 1_i32, 2_i32, .true.), &
+                     'serial plan must reject an mpi argument added at batch time')
+    call assert_true(.not. particle_source_plan_matches_mpi(mpi_plan, 1_i32, 2_i32, .false.), &
+                     'mpi plan must reject a missing mpi argument at batch time')
+  end subroutine test_source_plan_mpi_context_match
 
   subroutine test_particle_append_preserves_existing_state()
     type(particles_soa) :: particles

@@ -175,11 +175,14 @@ contains
             error stop 'Resume charge ledger species count does not match current config.'
           end if
         end if
-      else if (present(app) .and. app%n_particle_species > 0_i32) then
-        call charge_ledger%init(app%n_particle_species)
-        charge_ledger%batch_count = stats%batches
-        charge_ledger%surface_charge_before = sum(mesh%q_elem)
-        charge_ledger%surface_charge_after = sum(mesh%q_elem)
+      else if (present(app)) then
+        ! A ledger-free checkpoint starts a fresh ledger only when the species count is known.
+        if (app%n_particle_species > 0_i32) then
+          call charge_ledger%init(app%n_particle_species)
+          charge_ledger%batch_count = stats%batches
+          charge_ledger%surface_charge_before = sum(mesh%q_elem)
+          charge_ledger%surface_charge_after = sum(mesh%q_elem)
+        end if
       end if
     end if
     if (present(state)) then
