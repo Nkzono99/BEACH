@@ -26,7 +26,7 @@ contains
     integer(i32), allocatable :: signs(:), neighbor(:, :), queue(:)
     logical, allocatable :: visited(:), active(:)
     integer(i32) :: i, edge, face, next_face, head, tail, component_sign
-    real(dp) :: signed_volume, volume_scale
+    real(dp) :: signed_volume, volume_scale, origin(3), a(3), b(3), c(3)
 
     status = panel_surface_side_ok
     message = ''
@@ -58,15 +58,20 @@ contains
         tail = 1_i32
         queue(1) = i
         visited(i) = .true.
+        ! Signed volume about a vertex of this component, so neither the world origin nor a
+        ! 1 m unit enters: each tetrahedron term is a.(b x c)/6 with a, b, c relative to it,
+        ! and its rounding error is bounded by a few eps*|a||b||c|/6 (length^3 scale).
+        origin = mesh%v0(:, i)
         signed_volume = 0.0_dp
         volume_scale = 0.0_dp
         do while (head <= tail)
           face = queue(head)
           head = head + 1_i32
-          signed_volume = signed_volume + dot_product( &
-                          mesh%v0(:, face), cross_product(mesh%v1(:, face), mesh%v2(:, face)) &
-                          )/6.0_dp
-          volume_scale = volume_scale + mesh%panel_area(face)*max(1.0_dp, norm2(mesh%centers(:, face)))
+          a = mesh%v0(:, face) - origin
+          b = mesh%v1(:, face) - origin
+          c = mesh%v2(:, face) - origin
+          signed_volume = signed_volume + dot_product(a, cross_product(b, c))/6.0_dp
+          volume_scale = volume_scale + norm2(a)*norm2(b)*norm2(c)/6.0_dp
           do edge = 1, 3
             next_face = neighbor(edge, face)
             if (.not. visited(next_face)) then
@@ -76,7 +81,7 @@ contains
             end if
           end do
         end do
-        if (abs(signed_volume) <= 128.0_dp*epsilon(1.0_dp)*max(1.0_dp, volume_scale)) then
+        if (abs(signed_volume) <= 128.0_dp*epsilon(1.0_dp)*volume_scale) then
           status = panel_surface_side_inconsistent
           message = 'closed component has zero or indeterminate signed volume'
           return

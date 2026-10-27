@@ -5,7 +5,8 @@ program test_panel_moments
   use bem_panel_quadrature, only: panel_quadrature_plan_type, build_panel_quadrature, build_panel_duffy_quadrature
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
-  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok, panel_surface_side_open
+  use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok, panel_surface_side_open, &
+                                     panel_surface_side_inconsistent
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
                           assert_close_dp, assert_allclose_1d
   implicit none
@@ -27,7 +28,7 @@ program test_panel_moments
   v0 = [0.0_dp, 0.0_dp, 0.0_dp]
   v1 = [1.0_dp, 0.0_dp, 0.0_dp]
   v2 = [0.0_dp, 1.0_dp, 0.0_dp]
-  call test_init(8)
+  call test_init(9)
 
   call test_begin('unit_triangle_geometry_and_raw_moments')
   call init_panel_geometry(v0, v1, v2, geom, status)
@@ -90,6 +91,10 @@ program test_panel_moments
                    'inward-wound tetrahedron vacuum normals must face outward')
   call test_end()
 
+  call test_begin('closed_surface_side_is_scale_and_translation_invariant')
+  call check_closed_surface_scaling(tetra_v0, tetra_v1, tetra_v2)
+  call test_end()
+
   call test_begin('degree5_cubature_integrates_all_monomials')
   call build_panel_quadrature(geom, quad)
   do x_power = 0, 5
@@ -148,6 +153,64 @@ program test_panel_moments
   call test_summary()
 
 contains
+
+  !> The same closed tetrahedron at 1 m, 1 mm, 1 um and 1 nm, near the origin and translated
+  !! as far as binary64 still resolves its edges, must give the same side resolution: outward
+  !! winding +1, inward winding -1, and a doubly covered (zero-volume) closed sheet rejected.
+  subroutine check_closed_surface_scaling(unit_v0, unit_v1, unit_v2)
+    real(dp), intent(in) :: unit_v0(3, 4), unit_v1(3, 4), unit_v2(3, 4)
+    real(dp), parameter :: scales(4) = [1.0_dp, 1.0e-3_dp, 1.0e-6_dp, 1.0e-9_dp]
+    real(dp), parameter :: offsets(3) = [0.0_dp, 0.75_dp, -1.0e3_dp]
+    type(mesh_type) :: scaled_mesh
+    real(dp) :: shift(3), p(3, 4), sheet_v0(3, 2), sheet_v1(3, 2), sheet_v2(3, 2)
+    integer :: i_scale, i_offset, vertex
+    character(len=128) :: side_message
+    integer(i32) :: side_status
+
+    do i_scale = 1, size(scales)
+      do i_offset = 1, size(offsets)
+        shift = offsets(i_offset)*[1.0_dp, -0.5_dp, 0.25_dp]
+        ! Shared vertices are built once so that coincident corners stay bitwise equal.
+        p(:, 1) = shift
+        do vertex = 2, 4
+          p(:, vertex) = shift
+          p(vertex - 1, vertex) = shift(vertex - 1) + scales(i_scale)
+        end do
+        call init_mesh(scaled_mesh, map_corners(unit_v0, p), map_corners(unit_v1, p), map_corners(unit_v2, p))
+        call resolve_panel_surface_sides(scaled_mesh, 'outward_closed', side_status, side_message)
+        call assert_equal_i32(side_status, panel_surface_side_ok, 'scaled outward tetrahedron rejected')
+        call assert_true(all(scaled_mesh%elem_vacuum_sign == 1_i32), 'scaled outward tetrahedron sign')
+        call init_mesh(scaled_mesh, map_corners(unit_v0, p), map_corners(unit_v2, p), map_corners(unit_v1, p))
+        call resolve_panel_surface_sides(scaled_mesh, 'outward_closed', side_status, side_message)
+        call assert_equal_i32(side_status, panel_surface_side_ok, 'scaled inward tetrahedron rejected')
+        call assert_true(all(scaled_mesh%elem_vacuum_sign == -1_i32), 'scaled inward tetrahedron sign')
+        sheet_v0(:, 1) = p(:, 1)
+        sheet_v1(:, 1) = p(:, 2)
+        sheet_v2(:, 1) = p(:, 3)
+        sheet_v0(:, 2) = p(:, 1)
+        sheet_v1(:, 2) = p(:, 3)
+        sheet_v2(:, 2) = p(:, 2)
+        call init_mesh(scaled_mesh, sheet_v0, sheet_v1, sheet_v2)
+        call resolve_panel_surface_sides(scaled_mesh, 'outward_closed', side_status, side_message)
+        call assert_equal_i32(side_status, panel_surface_side_inconsistent, 'zero-volume closed sheet accepted')
+      end do
+    end do
+  end subroutine check_closed_surface_scaling
+
+  !> Replace each unit-tetrahedron corner (origin or a unit axis point) by its scaled, shifted copy.
+  pure function map_corners(unit_vertices, corners) result(mapped)
+    real(dp), intent(in) :: unit_vertices(3, 4), corners(3, 4)
+    real(dp) :: mapped(3, 4)
+    integer :: face
+
+    do face = 1, 4
+      if (all(unit_vertices(:, face) == 0.0_dp)) then
+        mapped(:, face) = corners(:, 1)
+      else
+        mapped(:, face) = corners(:, 1 + maxloc(unit_vertices(:, face), dim=1))
+      end if
+    end do
+  end function map_corners
 
   pure real(dp) function unit_triangle_monomial_integral(px, py) result(integral)
     integer, intent(in) :: px, py
