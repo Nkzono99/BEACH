@@ -4,18 +4,116 @@ program test_coulomb_fmm_core_periodic
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, update_state, eval_point, &
                                   eval_potential_point, destroy_plan, destroy_state
+  use bem_coulomb_fmm_periodic_ewald, only: precompute_periodic2_ewald_data, periodic2_ewald_exp_erfc, &
+                                            add_periodic2_exact_ewald_correction_single_source, &
+                                            add_periodic2_exact_ewald_potential_correction_single_source, &
+                                            add_periodic2_exact_ewald_field_potential_single_source
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true
   implicit none
 
-  call test_init(1)
+  call test_init(2)
 
   call test_begin('periodic2_finite_shell_seam_contract')
   call test_periodic2_finite_shell_seam_contract()
   call test_end()
 
+  call test_begin('periodic2_ewald_teacher_far_free_axis_is_finite')
+  call test_periodic2_ewald_teacher_far_free_axis()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> free 軸距離が周期長の 20 倍でも Ewald teacher が有限で、格子の一様面電場に一致する（#65）。
+  !! Lx=Ly=1、既定 4 層の mode (4,4) では |k dz| = 710.9 が exp の上限を超え、旧式 exp*erfc は inf*0 = NaN だった。
+  !! 小さい |dz| では k≠0 項が旧式 exp(kz)*erfc(karg0 + adz) とビット一致することも確認する。
+  !! operator cache は作らず、Ewald 事前計算だけを持つ plan で teacher kernel を直接評価する。
+  subroutine test_periodic2_ewald_teacher_far_free_axis()
+    real(dp), parameter :: pi = acos(-1.0_dp)
+    real(dp), parameter :: alphas(2) = [0.4_dp, 0.6_dp]
+    real(dp), parameter :: far_dz(2) = [20.0_dp, -20.0_dp]
+    real(dp), parameter :: near_dz(5) = [-2.0_dp, -0.37_dp, 0.0_dp, 0.37_dp, 2.0_dp]
+    type(fmm_plan_type), allocatable :: plan
+    real(dp) :: src(3, 1), q(1), target(3), e_sep(3), e_comb(3), e_inner(3), lattice(3)
+    real(dp) :: phi_sep, phi_comb, phi_inner, sheet_field, alpha, kmag, karg0, kz, adz, term
+    integer :: ia, iz, h1, h2
+    logical :: near_matches_old
+
+    allocate (plan)
+    plan%options%use_periodic2 = .true.
+    plan%options%periodic_far_correction = 'cached_kneq0'
+    plan%options%periodic_axes = [1_i32, 2_i32]
+    plan%options%periodic_len = [1.0_dp, 1.0_dp]
+    plan%options%periodic_image_layers = 1_i32
+    plan%options%periodic_ewald_layers = 4_i32
+    src(:, 1) = [0.3_dp, 0.4_dp, 0.1_dp]
+    q = 1.0_dp
+
+    do ia = 1, size(alphas)
+      alpha = alphas(ia)
+      plan%options%periodic_ewald_alpha = alpha
+      call precompute_periodic2_ewald_data(plan)
+      call assert_true(plan%periodic_ewald%ready, 'periodic2 Ewald data must be ready')
+
+      ! mode (4, 4): exp(|k dz|) overflows, and the exact term is below the binary64 range.
+      kmag = 2.0_dp*pi*sqrt(32.0_dp)
+      karg0 = 0.5_dp*kmag/alpha
+      kz = kmag*far_dz(1)
+      adz = alpha*far_dz(1)
+      term = periodic2_ewald_exp_erfc(kz, karg0, adz)
+      call assert_true(term >= 0.0_dp .and. term <= exp(-kz), 'overflowing exp*erfc term must stay in [0, exp(-|k dz|)]')
+
+      near_matches_old = .true.
+      do h1 = 0, 4
+        do h2 = 0, 4
+          if (h1 == 0 .and. h2 == 0) cycle
+          kmag = 2.0_dp*pi*sqrt(real(h1*h1 + h2*h2, dp))
+          karg0 = 0.5_dp*kmag/alpha
+          do iz = 1, size(near_dz)
+            near_matches_old = near_matches_old .and. &
+                               periodic2_ewald_exp_erfc(kmag*near_dz(iz), karg0, alpha*near_dz(iz)) == &
+                               exp(kmag*near_dz(iz))*erfc(karg0 + alpha*near_dz(iz)) .and. &
+                               periodic2_ewald_exp_erfc(-kmag*near_dz(iz), karg0, -alpha*near_dz(iz)) == &
+                               exp(-kmag*near_dz(iz))*erfc(karg0 - alpha*near_dz(iz))
+          end do
+        end do
+      end do
+      call assert_true(near_matches_old, 'small |dz| exp*erfc terms must keep the original binary64 values')
+
+      do iz = 1, size(far_dz)
+        target = [0.6_dp, 0.2_dp, src(3, 1) + far_dz(iz)]
+        e_sep = 0.0_dp
+        e_comb = 0.0_dp
+        phi_sep = 0.0_dp
+        phi_comb = 0.0_dp
+        call add_periodic2_exact_ewald_correction_single_source(plan, q(1), src(:, 1), target, e_sep)
+        call add_periodic2_exact_ewald_potential_correction_single_source(plan, q(1), src(:, 1), target, phi_sep)
+        call add_periodic2_exact_ewald_field_potential_single_source(plan, q(1), src(:, 1), target, e_comb, phi_comb)
+        call assert_true( &
+          all(ieee_is_finite(e_sep)) .and. ieee_is_finite(phi_sep) .and. &
+          all(ieee_is_finite(e_comb)) .and. ieee_is_finite(phi_comb), &
+          'periodic2 Ewald teacher must stay finite at |dz| = 20 Lx' &
+          )
+
+        ! The correction replaces the directly summed inner images, so adding them back gives the full lattice,
+        ! whose field far from a unit cell carrying charge q is the uniform sheet field 2*pi*q/(Lx*Ly).
+        call direct_periodic2(src, q, target, [1_i32, 2_i32], [1.0_dp, 1.0_dp], 1_i32, e_inner, phi_inner)
+        lattice = e_sep + e_inner
+        sheet_field = sign(2.0_dp*pi*q(1), far_dz(iz))
+        call assert_true( &
+          abs(lattice(1)) <= 1.0e-12_dp .and. abs(lattice(2)) <= 1.0e-12_dp .and. &
+          abs(lattice(3) - sheet_field) <= 1.0e-12_dp*abs(sheet_field), &
+          'far periodic2 lattice field must equal the uniform sheet field' &
+          )
+        call assert_true( &
+          maxval(abs(e_comb - e_sep)) <= 1.0e-12_dp*abs(sheet_field) .and. &
+          abs(phi_comb - phi_sep) <= 1.0e-12_dp*max(1.0_dp, abs(phi_sep)), &
+          'combined Ewald teacher must match the separate field and potential kernels' &
+          )
+      end do
+    end do
+  end subroutine test_periodic2_ewald_teacher_far_free_axis
 
   subroutine test_periodic2_finite_shell_seam_contract()
     type(fmm_plan_type), allocatable :: split_plan, unwrapped_plan

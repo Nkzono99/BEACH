@@ -785,7 +785,14 @@ class ObjectProbe:
         torque_origin: str | Iterable[float] = "geometric_area_centroid",
         components: bool = True,
     ) -> ObjectForcePath:
-        """Evaluate a frozen-source vertical translation path."""
+        """Evaluate a frozen-source vertical translation path.
+
+        With ``adaptive`` the midpoint of every interval is evaluated each round
+        and kept where the force, work, or work/potential test fails. The path is
+        accepted only when, in addition, the trapezoid work on the grid that is
+        returned matches the potential difference within the tolerances; until
+        ``max_refinement`` rounds are spent a path mismatch refines further.
+        """
 
         self._require_usable()
         grid = _path_displacement(displacement_m)
@@ -878,13 +885,22 @@ class ObjectProbe:
                     np.max(work_potential_error, initial=0.0)
                 )
                 if not np.any(failing):
-                    status = "converged"
-                    status_reason = "tolerances_satisfied"
-                    break
+                    # Accept only when the grid that is returned also matches the
+                    # potential difference along the whole path.
+                    path_check = _path_work_check(grid, samples, work_absolute, relative)
+                    if not path_check.failing:
+                        status = "converged"
+                        status_reason = "tolerances_satisfied"
+                        break
+                    # Local errors that each pass can still add up along the path.
+                    # Give every interval a share of the path allowance in
+                    # proportion to its width; the path mismatch is at most the
+                    # sum of the interval mismatches, so one interval exceeds it.
+                    failing = np.abs(work_coarse - potential_work) > (
+                        path_check.threshold_J * widths / (grid[-1] - grid[0])
+                    )
                 if refinement_round >= refinement_limit:
-                    if not np.any(force_failing | work_failing) and np.any(
-                        potential_failing
-                    ):
+                    if not np.any(force_failing | work_failing):
                         status_reason = "work_potential_mismatch"
                     break
                 keep = np.zeros(candidate_grid.size, dtype=bool)
@@ -896,17 +912,8 @@ class ObjectProbe:
                 grid = candidate_grid[keep]
                 samples = candidate.take(keep)
 
-        work = _cumulative_trapezoid(grid, samples.force_N[:, 2])
-        potential_work = samples.potential_energy_J[0] - samples.potential_energy_J
-        absolute_mismatch = float(np.max(np.abs(work - potential_work), initial=0.0))
-        mismatch_scale = max(
-            float(np.max(np.abs(work), initial=0.0)),
-            float(np.max(np.abs(potential_work), initial=0.0)),
-            np.finfo(float).tiny,
-        )
-        relative_mismatch = absolute_mismatch / mismatch_scale
-        mismatch_threshold = work_absolute + relative * mismatch_scale
-        if absolute_mismatch > mismatch_threshold and status == "converged":
+        path_check = _path_work_check(grid, samples, work_absolute, relative)
+        if not adaptive and path_check.failing:
             status = "not_converged"
             status_reason = "work_potential_mismatch"
 
@@ -943,16 +950,16 @@ class ObjectProbe:
             displacement_m=grid,
             force_N=samples.force_N,
             torque_Nm=samples.torque_Nm,
-            electrostatic_work_J=work,
+            electrostatic_work_J=path_check.work_J,
             potential_energy_J=samples.potential_energy_J,
-            potential_difference_work_J=potential_work,
+            potential_difference_work_J=path_check.potential_work_J,
             component_force_N=samples.component_force_N,
             component_torque_Nm=samples.component_torque_Nm,
             numerical_metadata=metadata,
             status=status,
             refinement_count=inserted,
-            work_relative_mismatch=relative_mismatch,
-            work_absolute_mismatch_J=absolute_mismatch,
+            work_relative_mismatch=path_check.absolute_mismatch_J / path_check.scale_J,
+            work_absolute_mismatch_J=path_check.absolute_mismatch_J,
         )
 
     def _validate_vertical_geometry(self, displacement_m: np.ndarray) -> None:
@@ -1298,6 +1305,43 @@ def _validate_full_box_config(config: Mapping[str, object]) -> None:
         raise ValueError(
             f"{prefix}.box_max must be greater than {prefix}.box_min on every axis."
         )
+
+
+@dataclass(frozen=True)
+class _PathWorkCheck:
+    work_J: np.ndarray
+    potential_work_J: np.ndarray
+    absolute_mismatch_J: float
+    scale_J: float
+    threshold_J: float
+
+    @property
+    def failing(self) -> bool:
+        return self.absolute_mismatch_J > self.threshold_J
+
+
+def _path_work_check(
+    grid: np.ndarray,
+    samples: _VerticalSamples,
+    work_absolute: float,
+    relative: float,
+) -> _PathWorkCheck:
+    """Compare the trapezoid work on ``grid`` with the potential difference."""
+
+    work = _cumulative_trapezoid(grid, samples.force_N[:, 2])
+    potential_work = samples.potential_energy_J[0] - samples.potential_energy_J
+    scale = max(
+        float(np.max(np.abs(work), initial=0.0)),
+        float(np.max(np.abs(potential_work), initial=0.0)),
+        np.finfo(float).tiny,
+    )
+    return _PathWorkCheck(
+        work_J=work,
+        potential_work_J=potential_work,
+        absolute_mismatch_J=float(np.max(np.abs(work - potential_work), initial=0.0)),
+        scale_J=scale,
+        threshold_J=work_absolute + relative * scale,
+    )
 
 
 def _path_displacement(value: np.ndarray) -> np.ndarray:

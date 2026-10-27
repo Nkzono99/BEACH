@@ -2,7 +2,8 @@ module bem_periodic_zero_mode_eval
   use bem_kinds, only: dp, i32
   use bem_constants, only: eps0
   use bem_periodic_zero_mode_plan, only: periodic_zero_mode_plan_type, periodic_zero_mode_state_type, &
-                                         zero_mode_interval_origin, integrate_local_polynomial
+                                         zero_mode_interval_origin, integrate_local_polynomial, &
+                                         zero_mode_heights_coincide
   implicit none
   private
 
@@ -26,7 +27,7 @@ contains
     if (trace < zero_mode_trace_minus .or. trace > zero_mode_trace_plus) then
       error stop 'invalid periodic zero-mode trace.'
     end if
-    call locate_interval(plan%break_z, z, interval, breakpoint)
+    call locate_interval(plan%break_z, plan%height_tolerance, z, interval, breakpoint)
     cumulative_charge = evaluate_polynomial( &
                         state%cumulative_charge_coeff(:, interval), z - zero_mode_interval_origin(plan%break_z, interval) &
                         )
@@ -36,7 +37,7 @@ contains
     end if
     field = state%e_bottom + cumulative_charge/(eps0*plan%area_xy)
     primitive = charge_primitive(plan, state, z, interval)
-    call locate_interval(plan%break_z, state%z_gauge, gauge_interval, breakpoint)
+    call locate_interval(plan%break_z, plan%height_tolerance, state%z_gauge, gauge_interval, breakpoint)
     gauge_primitive = charge_primitive(plan, state, state%z_gauge, gauge_interval)
     potential = state%phi_gauge - state%e_bottom*(z - state%z_gauge) - &
                 (primitive - gauge_primitive)/(eps0*plan%area_xy)
@@ -55,20 +56,19 @@ contains
     if (interval > 1_i32) primitive = primitive + state%primitive_at_break(interval - 1_i32)
   end function charge_primitive
 
-  pure subroutine locate_interval(break_z, z, interval, breakpoint)
-    real(dp), intent(in) :: break_z(:), z
+  !> A target on a breakpoint (same coincidence rule as the plan's breakpoint merge) takes the
+  !! requested sheet trace; any other target lies strictly inside one interval.
+  pure subroutine locate_interval(break_z, tolerance, z, interval, breakpoint)
+    real(dp), intent(in) :: break_z(:), tolerance, z
     integer(i32), intent(out) :: interval, breakpoint
     integer(i32) :: low, high, middle
-    real(dp) :: tolerance
 
-    ! The plan stores sorted breakpoints, so an endpoint has the largest magnitude.
-    tolerance = 128.0_dp*epsilon(1.0_dp)*max(1.0_dp, abs(z), abs(break_z(1)), abs(break_z(size(break_z))))
     low = 1_i32
     high = size(break_z)
     breakpoint = 0_i32
     do while (low <= high)
       middle = (low + high)/2_i32
-      if (abs(z - break_z(middle)) <= tolerance) then
+      if (zero_mode_heights_coincide(z, break_z(middle), tolerance)) then
         breakpoint = middle
         interval = middle + 1_i32
         return

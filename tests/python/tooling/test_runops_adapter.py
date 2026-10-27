@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from beach.tooling.runops_adapter import Adapter, agent_context_path
+from beach.tooling.runops_adapter import Adapter, _localize_obj, agent_context_path
 
 
 GROUPED = """[run]
@@ -218,6 +218,46 @@ def test_render_inputs_with_runops(tmp_path: Path) -> None:
         "input/plate.obj",
     ]
     assert (run / "input" / "plate.obj").read_text(encoding="utf-8") == "v 1 0 0\n"
+
+
+def test_localize_obj_keeps_an_absolute_path_that_is_already_the_input(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)
+    placed = run / "input" / "shape.obj"
+    placed.write_text("v 0 0 0\n", encoding="utf-8")
+
+    assert _localize_obj(placed.resolve(), run, 0) == "input/shape.obj"
+    # Localizing the same input again gives the same result.
+    assert _localize_obj(placed.resolve(), run, 0) == "input/shape.obj"
+    assert _localize_obj(Path("input/shape.obj"), run, 0) is None
+    assert sorted(p.name for p in (run / "input").iterdir()) == ["beach.toml", "shape.obj"]
+
+
+def test_localize_obj_keeps_a_symlink_to_the_input(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)
+    placed = run / "input" / "shape.obj"
+    placed.write_text("v 0 0 0\n", encoding="utf-8")
+    link = tmp_path / "elsewhere" / "shape.obj"
+    link.parent.mkdir()
+    link.symlink_to(placed)
+
+    assert _localize_obj(link, run, 0) == "input/shape.obj"
+    assert placed.read_text(encoding="utf-8") == "v 0 0 0\n"
+
+
+def test_localize_obj_renames_a_different_obj_with_the_same_basename(tmp_path: Path) -> None:
+    run = _run_dir(tmp_path)
+    (run / "input" / "shape.obj").write_text("v 0 0 0\n", encoding="utf-8")
+    external = tmp_path / "shared" / "shape.obj"
+    external.parent.mkdir()
+    external.write_text("v 1 0 0\n", encoding="utf-8")
+
+    assert _localize_obj(external, run, 2) == "input/part2-shape.obj"
+    assert (run / "input" / "shape.obj").read_text(encoding="utf-8") == "v 0 0 0\n"
+    assert (run / "input" / "part2-shape.obj").read_text(encoding="utf-8") == "v 1 0 0\n"
+    # The renamed copy given back as an absolute path is already in place.
+    assert _localize_obj((run / "input" / "part2-shape.obj").resolve(), run, 2) == (
+        "input/part2-shape.obj"
+    )
 
 
 def test_render_inputs_rejects_flat_layout(tmp_path: Path) -> None:

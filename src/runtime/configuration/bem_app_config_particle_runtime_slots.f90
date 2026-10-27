@@ -33,8 +33,7 @@ contains
   if (source_plan%nspecies /= cfg%n_particle_species) then
     error stop 'particle source plan species count does not match app config.'
   end if
-  if (source_plan%mpi_rank /= local_rank .or. source_plan%mpi_size /= n_ranks .or. &
-      source_plan%mpi_argument_present .neqv. present(mpi)) then
+  if (.not. particle_source_plan_matches_mpi(source_plan, local_rank, n_ranks, present(mpi))) then
     error stop 'particle source plan MPI context does not match batch initialization.'
   end if
   use_collective_reservoir_count = source_plan%use_collective_reservoir_count
@@ -233,8 +232,8 @@ contains
       x = spec%pos_low + (spec%pos_high - spec%pos_low)* &
           [counter_uniform(cfg%sim%rng_seed, counter, 1_i64), counter_uniform(cfg%sim%rng_seed, counter, 2_i64), &
            counter_uniform(cfg%sim%rng_seed, counter, 3_i64)]
-      if (spec%m_particle <= 0.0_dp) error stop 'particle mass [kg] must be > 0'
-      sigma = sqrt(k_boltzmann*max(0.0_dp, layout%temperature_k(s))/spec%m_particle)
+      ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
+      sigma = sqrt(k_boltzmann*layout%temperature_k(s)/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)
       v = sigma*z(:, 1) + layout%drift_velocity(:, s)
       w = layout%weight(s)

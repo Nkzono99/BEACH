@@ -24,10 +24,10 @@ program test_periodic_zero_mode
   real(dp), parameter :: sheet_z(9) = [-100.0_dp, -4.0_dp, -1.0_dp, 0.0_dp, 0.5_dp, &
                                        2.0_dp, 5.0_dp, 20.0_dp, 60.0_dp]
   real(dp), parameter :: gauges(3) = [-120.0_dp, -0.3_dp, 80.0_dp]
-  real(dp) :: heights(3, 9), charges(9), z, tolerance, expected_field, expected_potential
+  real(dp) :: heights(3, 9), charges(9), z, expected_field, expected_potential
   integer(i32) :: i, j, gauge, offset, trace
 
-  call test_init(6)
+  call test_init(7)
 
   call test_begin('horizontal_sheet_jumps_superposition_and_gauge')
   v0(:, 1) = [0.0_dp, 0.0_dp, 0.5_dp]
@@ -100,17 +100,18 @@ program test_periodic_zero_mode
   end do
   call build_periodic_zero_mode_height_plan(heights, 2.0_dp, plan, status, message)
   call assert_equal_i32(status, periodic_zero_mode_ok, 'signed sheet plan status mismatch')
-  tolerance = 128.0_dp*epsilon(1.0_dp)*100.0_dp
   do gauge = 1, size(gauges)
     call refresh_periodic_zero_mode_state(plan, charges, 0.2_dp, gauges(gauge), 1.25_dp, state)
     do i = 1, size(sheet_z)
+      ! Exactly on a sheet, or 0.1/0.2 m off it (the closest sheets are 0.5 m apart), so the
+      ! expectation needs no rounding tolerance of its own.
       do offset = -2, 2
-        z = sheet_z(i) + real(offset, dp)*0.75_dp*tolerance
+        z = sheet_z(i) + real(offset, dp)*0.1_dp
         do trace = zero_mode_trace_minus, zero_mode_trace_plus
           expected_field = 0.2_dp
           expected_potential = 1.25_dp - 0.2_dp*(z - gauges(gauge))
           do j = 1, size(sheet_z)
-            if (abs(z - sheet_z(j)) <= tolerance) then
+            if (z == sheet_z(j)) then
               expected_field = expected_field + 0.5_dp*real(1 + trace, dp)*charges(j)/(2.0_dp*eps0)
             else if (z > sheet_z(j)) then
               expected_field = expected_field + charges(j)/(2.0_dp*eps0)
@@ -152,6 +153,10 @@ program test_periodic_zero_mode
 
   call test_begin('first_moment_is_translation_invariant')
   call check_first_moment_translation()
+  call test_end()
+
+  call test_begin('breakpoint_classification_is_translation_invariant')
+  call check_breakpoint_translation()
   call test_end()
 
   call test_summary()
@@ -223,4 +228,62 @@ contains
       end do
     end do
   end subroutine check_first_moment_translation
+
+  !> A micron-scale inclined panel, a horizontal sheet, and a sheet with a one-ULP height
+  !! perturbation, translated from z=0 to |z|=1e8 m. Every local height difference is a
+  !! representable binary64 difference (>= 67 ULP at 1e8), so the inclined panel must stay
+  !! inclined, the off-sheet target must stay off the sheet, and only the one-ULP tilt merges.
+  !! The oracle is the exact cumulative charge written with the binary64 differences.
+  subroutine check_breakpoint_translation()
+    real(dp), parameter :: offsets(5) = [0.0_dp, 1.0_dp, -1.0e3_dp, 1.0e8_dp, -1.0e8_dp]
+    real(dp), parameter :: q(3) = [1.0e-15_dp, -0.4e-15_dp, 0.7e-15_dp]
+    real(dp), parameter :: area = 1.0e-10_dp
+    real(dp) :: panel_heights(3, 3), z0, z1, z2, h2, h3, t, scale
+    integer(i32) :: k
+
+    scale = sum(abs(q))/(eps0*area)
+    do k = 1, size(offsets)
+      panel_heights(:, 1) = offsets(k) + [2.0e-6_dp, 0.0_dp, 1.0e-6_dp]
+      panel_heights(:, 2) = offsets(k) + 3.0e-6_dp
+      h3 = offsets(k) + 4.0e-6_dp
+      panel_heights(:, 3) = [h3, nearest(h3, 1.0_dp), h3]
+      call build_periodic_zero_mode_height_plan(panel_heights, area, plan, status, message)
+      call assert_equal_i32(status, periodic_zero_mode_ok, 'translated breakpoint plan status')
+      call assert_equal_i32(plan%nbreak, 5_i32, 'translated breakpoint count')
+      call refresh_periodic_zero_mode_state(plan, q, 0.0_dp, offsets(k) - 1.0e-6_dp, 0.0_dp, state)
+      z0 = offsets(k)
+      z1 = offsets(k) + 1.0e-6_dp
+      z2 = offsets(k) + 2.0e-6_dp
+      h2 = panel_heights(1, 2)
+
+      ! Inclined panel, lower and upper part (differences of nearby binary64 values are exact).
+      z = offsets(k) + 0.5e-6_dp
+      t = z - z0
+      call eval_periodic_zero_mode(plan, state, z, zero_mode_trace_minus, potential, field)
+      call assert_close_dp(field, q(1)*t*t/((z1 - z0)*(z2 - z0))/(eps0*area), 1.0e-12_dp*scale, &
+                           'translated inclined lower cumulative charge')
+      z = offsets(k) + 1.5e-6_dp
+      t = z2 - z
+      call eval_periodic_zero_mode(plan, state, z, zero_mode_trace_minus, potential, field)
+      call assert_close_dp(field, q(1)*(1.0_dp - t*t/((z2 - z0)*(z2 - z1)))/(eps0*area), 1.0e-12_dp*scale, &
+                           'translated inclined upper cumulative charge')
+
+      ! Horizontal sheet: traces on it, and a target 0.5 um above it is not on it.
+      call eval_periodic_zero_mode(plan, state, h2, zero_mode_trace_minus, potential, field)
+      call assert_close_dp(field, q(1)/(eps0*area), 1.0e-12_dp*scale, 'translated sheet minus trace')
+      call eval_periodic_zero_mode(plan, state, h2, zero_mode_trace_principal_value, potential, field)
+      call assert_close_dp(field, (q(1) + 0.5_dp*q(2))/(eps0*area), 1.0e-12_dp*scale, 'translated sheet PV trace')
+      call eval_periodic_zero_mode(plan, state, h2, zero_mode_trace_plus, potential, field)
+      call assert_close_dp(field, (q(1) + q(2))/(eps0*area), 1.0e-12_dp*scale, 'translated sheet plus trace')
+      call eval_periodic_zero_mode(plan, state, h2 + 0.5e-6_dp, zero_mode_trace_minus, potential, field)
+      call assert_close_dp(field, (q(1) + q(2))/(eps0*area), 1.0e-12_dp*scale, &
+                           'off-sheet target must not take the sheet trace')
+
+      ! A one-ULP tilt is unresolvable rounding: the panel is a sheet at h3.
+      call eval_periodic_zero_mode(plan, state, h3, zero_mode_trace_minus, potential, field)
+      call assert_close_dp(field, (q(1) + q(2))/(eps0*area), 1.0e-12_dp*scale, 'one-ULP sheet minus trace')
+      call eval_periodic_zero_mode(plan, state, h3, zero_mode_trace_plus, potential, field)
+      call assert_close_dp(field, sum(q)/(eps0*area), 1.0e-12_dp*scale, 'one-ULP sheet plus trace')
+    end do
+  end subroutine check_breakpoint_translation
 end program test_periodic_zero_mode

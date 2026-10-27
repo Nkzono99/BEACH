@@ -127,6 +127,8 @@ def run(args: argparse.Namespace) -> None:
         "mpi_ranks": result["mpi_ranks"],
         "mpi_rank": result["mpi_rank"],
         "estimate_scope": "local_rank",
+        "particle_distribution": result["particle_distribution"],
+        "rank_count_basis": result["rank_count_basis"],
     }
     if result["secondary_emission_excluded"]:
         report["secondary_emission_scope"] = "excluded_collision_generated_particles"

@@ -138,13 +138,18 @@ def test_estimate_workload_adds_multiple_boundary_inflow_faces_to_volume_seed() 
     }
 
     result = estimate_workload(config, threads=1)
-    rank0 = estimate_workload(config, threads=1, mpi_ranks=4, mpi_rank=0)
-    rank3 = estimate_workload(config, threads=1, mpi_ranks=4, mpi_rank=3)
+    ranks = [
+        estimate_workload(config, threads=1, mpi_ranks=4, mpi_rank=rank)
+        for rank in range(4)
+    ]
 
     assert result["species_per_batch"] == [[11]]
     assert result["global_reservoir_particles"] == 9
-    assert rank0["species_per_batch"] == [[4]]
-    assert rank3["species_per_batch"] == [[1]]
+    # w = (12 + 6) / 9 = 2, so x_low gives 6 slots and z_low 3. Round-robin over
+    # [volume 2, x_low 6, z_low 3] is "V X Z V X Z X Z X X X"; 11 slots over
+    # 4 ranks are the contiguous ranges VXZ | VXZ | XZX | XX.
+    assert [r["species_per_batch"] for r in ranks] == [[[3]], [[3]], [[3]], [[2]]]
+    assert [r["local_reservoir_particles"] for r in ranks] == [2, 2, 3, 2]
 
 
 def test_estimate_workload_normalizes_high_level_face_region_without_mutation() -> None:
@@ -576,6 +581,66 @@ def test_estimate_workload_splits_volume_seed_by_mpi_rank() -> None:
     assert rank2["batch_totals"] == [3, 3]
     assert rank2["batch_thread_min"] == [1, 1]
     assert rank2["batch_thread_max"] == [2, 2]
+
+
+def _volume_species_config(counts: list[int | None], **sim: object) -> dict[str, object]:
+    """Volume-seed species with the given counts; ``None`` is a disabled species."""
+
+    return {
+        "sim": {"batch_count": 1, **sim},
+        "particles": {
+            "species": [
+                {"source_mode": "volume_seed", "npcls_per_step": 5, "enabled": False}
+                if count is None
+                else {"source_mode": "volume_seed", "npcls_per_step": count}
+                for count in counts
+            ]
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected"),
+    [
+        # Slot order "A B": one slot each.
+        ([1, 1], [[1, 0], [0, 1]]),
+        # "A B A A" -> AB | AA.
+        ([3, 1], [[1, 1], [2, 0]]),
+        # "A B A B A B A B" -> ABA | BAB | AB.
+        ([4, 4], [[2, 1], [1, 2], [1, 1]]),
+        # Divisible total: "A B A B A A" -> AB | AB | AA.
+        ([4, 2], [[1, 1], [1, 1], [2, 0]]),
+        # Zero and disabled species hold no slots: "A D A D A" -> ADA | DA.
+        ([3, None, 0, 2], [[2, 0, 0, 1], [1, 0, 0, 1]]),
+    ],
+)
+def test_estimate_workload_splits_interleaved_global_slots_by_rank(
+    counts: list[int | None], expected: list[list[int]]
+) -> None:
+    config = _volume_species_config(counts)
+    results = [
+        estimate_workload(config, threads=1, mpi_ranks=len(expected), mpi_rank=rank)
+        for rank in range(len(expected))
+    ]
+
+    global_counts = [0 if count is None else count for count in counts]
+    for result, rank_counts in zip(results, expected, strict=True):
+        assert result["species_per_batch"] == [rank_counts]
+        assert result["batch_totals"] == [sum(rank_counts)]
+        assert result["global_species_per_batch"] == [global_counts]
+        assert result["rank_count_basis"] == "static_contiguous_slots"
+
+
+def test_estimate_workload_labels_shared_rank_counts_as_even_load_assumption() -> None:
+    config = _volume_species_config(
+        [3, 1], particle_distribution="shared", batch_duration=1.0
+    )
+
+    result = estimate_workload(config, threads=1, mpi_ranks=2, mpi_rank=1)
+
+    assert result["particle_distribution"] == "shared"
+    assert result["rank_count_basis"] == "shared_even_load_assumption"
+    assert result["species_per_batch"] == [[2, 0]]
 
 
 def test_estimate_workload_splits_photo_raycast_by_mpi_rank() -> None:

@@ -8,7 +8,7 @@ module bem_app_config_runtime
     particle_source_plan_type, seed_particles_from_config, &
     batch_injection_layout_type, build_batch_injection_layout, generate_batch_slot, &
     slot_kind_none, slot_kind_volume, slot_kind_photo_ray, slot_kind_reservoir_face, &
-    build_particle_source_plan, init_particle_batch_from_config, &
+    build_particle_source_plan, particle_source_plan_matches_mpi, init_particle_batch_from_config, &
     has_boundary_inflow, boundary_inflow_face_enabled, &
     make_boundary_inflow_spec, boundary_face_name, &
     compute_macro_particles_for_species, reservoir_face_velocity_correction, &
