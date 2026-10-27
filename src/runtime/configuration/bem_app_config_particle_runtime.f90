@@ -317,6 +317,24 @@ contains
     plan%ready = .true.
   end subroutine build_particle_source_plan
 
+  !> source plan がこの rank/size と mpi 引数の有無で構築されたかを返す。
+  !! rank、size、mpi 引数の有無はそれぞれ独立に一致する必要がある。
+  !! @param[in] plan `build_particle_source_plan` で構築した source plan。
+  !! @param[in] local_rank 今回解決した rank 番号。
+  !! @param[in] n_ranks 今回解決した rank 数。
+  !! @param[in] mpi_argument_present 今回 `mpi_context` を渡したか。
+  !! @return matches 3 つがすべて plan 構築時と一致すれば `.true.`。
+  pure logical function particle_source_plan_matches_mpi( &
+    plan, local_rank, n_ranks, mpi_argument_present &
+    ) result(matches)
+    type(particle_source_plan_type), intent(in) :: plan
+    integer(i32), intent(in) :: local_rank, n_ranks
+    logical, intent(in) :: mpi_argument_present
+
+    matches = plan%mpi_rank == local_rank .and. plan%mpi_size == n_ranks .and. &
+              (plan%mpi_argument_present .eqv. mpi_argument_present)
+  end function particle_source_plan_matches_mpi
+
   !> speciesに外部 reservoir 流入を指定したbox面があるかを返す。
   pure logical function has_boundary_inflow(spec) result(has_inflow)
     type(particle_species_spec), intent(in) :: spec
