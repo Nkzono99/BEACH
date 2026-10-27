@@ -25,6 +25,8 @@ them as the data package ``beach.agent_context``.
 
 from __future__ import annotations
 
+import filecmp
+import os
 import re
 import shutil
 import sys
@@ -267,9 +269,13 @@ def _localize_obj(path: Path, run_dir: Path, index: int) -> str | None:
         if not path.is_file():
             return None
         dest = run_dir / "input" / path.name
-        if dest.exists() and dest.read_bytes() != path.read_bytes():
+        if dest.exists() and not (
+            os.path.samefile(path, dest) or filecmp.cmp(path, dest, shallow=False)
+        ):
             dest = run_dir / "input" / f"part{index}-{path.name}"
-        shutil.copy2(path, dest)
+        # The path may already name the destination itself, directly or by a symlink.
+        if not (dest.exists() and os.path.samefile(path, dest)):
+            shutil.copy2(path, dest)
         return dest.relative_to(run_dir).as_posix()
     if (run_dir / path).is_file():
         return None  # already valid from the run directory

@@ -75,6 +75,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `tools/golden_regression.py compare` が有限値から NaN/Inf への変化、新しい側だけにある case・ファイル、
   `--rtol 0` での表記差（`1.0` → `1.00` など）を成功扱いしていた問題を直した。`--rtol 0` は volatile 行を除いた
   テキストの完全一致を要求し、`--rtol` が正のときは数値を相対差で比べて非有限値は同じ表記どうしだけ一致とする（#67）。
+- runops adapter が、run の `input/` にある OBJ を絶対 path（または同じ実体への symlink）で指す mesh part を
+  自分自身へ copy しようとして `SameFileError` で止まる問題を直した。同名で内容の異なる OBJ は従来どおり
+  `part<index>-<name>` へ配置する（#70）。
 
 ## [4.0.0] - 2026-10-23
 
