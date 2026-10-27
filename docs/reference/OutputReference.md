@@ -480,8 +480,11 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 checkpoint の `batches` までの history 行はすべて完全で、再開後の history も Python reader の厳密な検査
 （batch の単調増加、要素の重複・欠落なし）を通ります。
 
-新規実行が途中で止まった出力先には `summary.txt` がなく、`load_run` で読めず、再開もできません。
-前の run の checkpoint から続けたい場合は、新規実行の前に出力先を分けてください。
+新規実行が途中で止まった場合、出力先の直下には `summary.txt` がないので `load_run` では読めません。
+今回の run が定期 checkpoint を 1 つ以上書いていれば、その checkpoint から再開できます。最初の定期 checkpoint
+より前に止まった場合は、前の run の checkpoint をすでに無効化しているので再開できる checkpoint はありません。
+前の run の checkpoint から続けたい場合は、新規実行ではなく再開してください。前の run を残したまま別の
+条件で始める場合は、新規実行の前に出力先を分けてください。
 
 ### Schema 世代
 
