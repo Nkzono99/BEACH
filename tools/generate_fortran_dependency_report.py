@@ -317,7 +317,7 @@ def graph_dot(entities: list[Entity]) -> str:
 
     lines = [
         "digraph beach_fortran_dependencies {",
-        '  graph [rankdir="LR", overlap="false", splines="polyline", fontname="Helvetica", fontsize="11"];',
+        '  graph [rankdir="LR", overlap="false", newrank="true", splines="polyline", fontname="Helvetica", fontsize="11"];',
         '  node [fontname="Helvetica", fontsize="10", shape="box", style="rounded,filled", fillcolor="#f8fafc", color="#334155"];',
         '  edge [fontname="Helvetica", fontsize="9", color="#64748b", arrowsize="0.8"];',
     ]
