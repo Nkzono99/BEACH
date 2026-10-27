@@ -46,7 +46,7 @@ program test_restart
   end if
 
   call cleanup_restart_fixture(out_dir)
-  call test_init(9)
+  call test_init(10)
 
   call test_begin('missing_checkpoint')
   call build_test_mesh(mesh)
@@ -374,10 +374,38 @@ program test_restart
     )
   call test_end()
 
+  call test_begin('ledger_free_checkpoint_with_optional_app')
+  call test_ledger_free_checkpoint_with_optional_app()
+  call test_end()
+
   call cleanup_restart_fixture(out_dir)
   call test_summary()
 
 contains
+
+  !> ledger を持たない checkpoint を charge_ledger 付きで読むとき、app の有無で ledger の扱いが決まる（#69）。
+  !! app を省略しても読込は成功し、ledger は未初期化のまま残る。app があれば species 数で新しく初期化する。
+  subroutine test_ledger_free_checkpoint_with_optional_app()
+    type(charge_ledger_type) :: ledger_without_app, ledger_with_app
+    logical :: has_ledger
+
+    call inspect_checkpoint_directory(out_dir, exists, has_charge_ledger=has_ledger)
+    call assert_true(exists .and. .not. has_ledger, 'fixture must be a complete checkpoint without a charge ledger')
+
+    call build_test_mesh(mesh)
+    call load_restart_checkpoint(out_dir, mesh, stats, has_restart, charge_ledger=ledger_without_app)
+    call assert_true(has_restart, 'ledger-free checkpoint must load without app')
+    call assert_equal_i32(ledger_without_app%nspecies, 0_i32, 'ledger must stay uninitialized without app')
+
+    call build_test_mesh(mesh)
+    call load_restart_checkpoint(out_dir, mesh, stats, has_restart, app=cfg, charge_ledger=ledger_with_app)
+    call assert_true(has_restart, 'ledger-free checkpoint must load with app')
+    call assert_equal_i32(ledger_with_app%nspecies, cfg%n_particle_species, 'ledger species count mismatch')
+    call assert_equal_i32(ledger_with_app%batch_count, stats%batches, 'fresh ledger batch count mismatch')
+    call assert_close_dp( &
+      ledger_with_app%surface_charge_after, sum(mesh%q_elem), 1.0e-24_dp, 'fresh ledger surface stock mismatch' &
+      )
+  end subroutine test_ledger_free_checkpoint_with_optional_app
 
   subroutine test_manifest_required_scalar_keys()
     character(len=32), parameter :: required_keys(6) = [ &
