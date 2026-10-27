@@ -65,7 +65,7 @@ program test_output_writer_io
     end function c_rmdir
   end interface
 
-  call test_init(10)
+  call test_init(11)
 
   call build_two_element_mesh(mesh)
   mesh%q_elem = [2.0d-12, -1.0d-12]
@@ -119,6 +119,10 @@ program test_output_writer_io
   call assert_true(saw_auto_resolved_fmm, 'auto field solver receipt should record the resolved fmm backend')
   inquire (file=trim(out_dir_disabled)//'/mesh_potential.csv', exist=exists)
   call assert_true(.not. exists, 'mesh_potential.csv should not be written when output.write_mesh_potential=false')
+  call test_end()
+
+  call test_begin('precomputed_mesh_potential_is_written_verbatim')
+  call test_precomputed_mesh_potential()
   call test_end()
 
   call test_begin('resolved_local_boundary_receipt')
@@ -748,6 +752,67 @@ contains
     if (parse_status /= 0) return
     matches = abs(actual - expected) <= tolerance
   end function summary_real_equals
+
+  subroutine test_precomputed_mesh_potential()
+    character(len=*), parameter :: out_dir_potential = 'test_output_writer_io_potential_tmp'
+    real(dp), parameter :: expected_potential_v(2) = [1.234567890123456d3, -9.876543210987654d-7]
+    type(mesh_type) :: potential_mesh
+    type(app_config) :: potential_cfg
+    type(sim_stats) :: potential_stats
+    real(dp), allocatable :: values(:)
+
+    call cleanup_output_dir(out_dir_potential)
+    call build_two_element_mesh(potential_mesh)
+    potential_mesh%q_elem = [2.0d-12, -1.0d-12]
+    call default_app_config(potential_cfg)
+    potential_cfg%output_dir = out_dir_potential
+    potential_cfg%write_mesh_potential = .true.
+    potential_stats = sim_stats()
+    call write_result_files(out_dir_potential, potential_mesh, potential_stats, potential_cfg, &
+                            mesh_potential_v=expected_potential_v)
+    call read_potential_values(out_dir_potential, values)
+    call assert_equal_i32(int(size(values), i32), 2_i32, 'mesh_potential.csv row count mismatch')
+    call assert_close_dp(values(1), expected_potential_v(1), 1.0d-12, 'mesh potential(1) mismatch')
+    call assert_close_dp(values(2), expected_potential_v(2), 1.0d-20, 'mesh potential(2) mismatch')
+    call cleanup_output_dir(out_dir_potential)
+  end subroutine test_precomputed_mesh_potential
+
+  !> `mesh_potential.csv` を読み込む。
+  subroutine read_potential_values(out_dir, values)
+    character(len=*), intent(in) :: out_dir
+    real(dp), allocatable, intent(out) :: values(:)
+    character(len=256) :: header
+    integer :: u, ios, file_row_count, idx, elem_idx
+    logical :: exists
+
+    inquire (file=trim(out_dir)//'/mesh_potential.csv', exist=exists)
+    call assert_true(exists, 'mesh_potential.csv should exist')
+
+    open (newunit=u, file=trim(out_dir)//'/mesh_potential.csv', status='old', action='read', iostat=ios)
+    if (ios /= 0) error stop 'failed to open mesh_potential.csv'
+
+    read (u, '(a)', iostat=ios) header
+    call assert_true(ios == 0, 'mesh_potential.csv header read failed')
+    call assert_true(trim(header) == 'elem_idx,potential_V', 'mesh_potential.csv header mismatch')
+
+    file_row_count = 0
+    do
+      read (u, *, iostat=ios)
+      if (ios < 0) exit
+      if (ios > 0) error stop 'failed to count mesh_potential.csv rows'
+      file_row_count = file_row_count + 1
+    end do
+
+    rewind (u)
+    read (u, '(a)', iostat=ios) header
+    allocate (values(file_row_count))
+    do idx = 1, file_row_count
+      read (u, *, iostat=ios) elem_idx, values(idx)
+      if (ios /= 0) error stop 'failed to parse mesh_potential.csv'
+      call assert_equal_i32(int(elem_idx, i32), int(idx, i32), 'mesh_potential.csv element index mismatch')
+    end do
+    close (u)
+  end subroutine read_potential_values
 
   !> 2 要素メッシュを初期化する。
   subroutine build_two_element_mesh(mesh)

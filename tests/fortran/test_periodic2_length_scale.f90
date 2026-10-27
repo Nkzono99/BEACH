@@ -5,25 +5,22 @@ program test_periodic2_length_scale
   use bem_types, only: mesh_type
   use bem_mesh, only: init_mesh
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
-  use bem_mpi, only: mpi_context, mpi_initialize, mpi_shutdown
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, &
                                   build_plan, build_panel_plan, update_state, eval_points, eval_potential_points, &
                                   destroy_plan, destroy_state
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_allclose_1d, assert_true, &
-                          delete_file_if_exists, remove_empty_directory
+                          unique_test_path, delete_periodic_cache, remove_empty_directory
   implicit none
-  type(mpi_context) :: mpi
   type(fmm_options_type) :: options
   type(fmm_plan_type) :: plan
   type(fmm_state_type) :: state
   real(dp) :: source(3, 4), charge(4), target(3, 3), field(3, 3), potential(3)
   real(dp) :: reference_field(3, 3), reference_potential(3), length, tolerance
-  character(len=512) :: cache_dir, cache_path
-  integer :: clock_count, case_idx, point
+  character(len=512) :: cache_path
+  character(len=:), allocatable :: cache_dir
+  integer :: case_idx, point
 
-  call mpi_initialize(mpi)
-  call system_clock(count=clock_count)
-  write (cache_dir, '(a,i0)') 'test_periodic2_length_scale_tmp_', clock_count
+  cache_dir = unique_test_path('test_periodic2_length_scale_tmp_')
   source(:, 1) = [0.15_dp, 0.20_dp, 0.10_dp]
   source(:, 2) = [0.75_dp, 0.25_dp, 0.80_dp]
   source(:, 3) = [0.30_dp, 0.80_dp, 1.20_dp]
@@ -77,8 +74,7 @@ program test_periodic2_length_scale
     end if
     call destroy_state(state)
     call destroy_plan(plan)
-    call delete_file_if_exists(cache_path)
-    call delete_file_if_exists(trim(cache_path)//'.lock')
+    call delete_periodic_cache(cache_path)
   end do
   call test_end()
 
@@ -90,12 +86,11 @@ program test_periodic2_length_scale
   options%leaf_max = 8_i32
   options%periodic_operator_source_cells = -1_i32
   options%periodic_operator_anchor_cells = -1_i32
-  call check_uniform_sheet_leak(1_i32, 2.0e-4_dp)
+  call check_uniform_sheet_leak(2.0e-4_dp)
   call test_end()
   call check_panel_vacuum_reference()
   call remove_empty_directory(cache_dir)
   call test_summary()
-  call mpi_shutdown(mpi)
 
 contains
 
@@ -158,15 +153,13 @@ contains
     end do
     call destroy_state(state)
     call destroy_plan(plan)
-    call delete_file_if_exists(cache_path)
-    call delete_file_if_exists(trim(cache_path)//'.lock')
+    call delete_periodic_cache(cache_path)
     call test_end()
   end subroutine check_panel_vacuum_reference
 
   !> Plane means of the k/=0 potential of a 1 pC point-charge sheet, relative to the sheet scale sigma*L/(2 eps0).
-  !! The core works in raw 1/r units, where that scale is 2*pi*sigma*L. A negative bound only reports the leak.
-  subroutine check_uniform_sheet_leak(image_layers, bound)
-    integer(i32), intent(in) :: image_layers
+  !! The core works in raw 1/r units, where that scale is 2*pi*sigma*L.
+  subroutine check_uniform_sheet_leak(bound)
     real(dp), intent(in) :: bound
     integer(i32), parameter :: nsheet = 4_i32, ncolumn = 4_i32, nplane = 16_i32
     real(dp), parameter :: cell = 1.0e-4_dp, sheet_charge = 1.0e-12_dp
@@ -189,7 +182,7 @@ contains
       sheet_q(n) = 0.0_dp
     end do
     options%periodic_len = cell
-    options%periodic_image_layers = image_layers
+    options%periodic_image_layers = 1_i32
     options%target_box_max = cell*[1.0_dp, 1.0_dp, 2.0_dp]
     call build_plan(plan, sheet_source, options)
     cache_path = plan%periodic_cache_path
@@ -206,15 +199,13 @@ contains
       end do
       call eval_potential_points(plan, state, plane_points, plane_phi)
       leak = abs(sum(plane_phi))/real(nplane*nplane, dp)/scale
-      write (*, '(a,i0,a,f5.2,a,es10.3)') 'image_layers=', image_layers, ' z/L=', heights(k), &
-        ' relative plane-mean leak=', leak
+      write (*, '(a,f5.2,a,es10.3)') 'z/L=', heights(k), ' relative plane-mean leak=', leak
       worst = max(worst, leak)
     end do
-    if (bound >= 0.0_dp) call assert_true(worst < bound, 'k/=0 potential of a uniform sheet must have no plane mean')
+    call assert_true(worst < bound, 'k/=0 potential of a uniform sheet must have no plane mean')
     call destroy_state(state)
     call destroy_plan(plan)
-    call delete_file_if_exists(cache_path)
-    call delete_file_if_exists(trim(cache_path)//'.lock')
+    call delete_periodic_cache(cache_path)
   end subroutine check_uniform_sheet_leak
 
 end program test_periodic2_length_scale

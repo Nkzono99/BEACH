@@ -14,8 +14,7 @@ def main() -> int:
     environment = os.environ.copy()
     environment["BEACH_CONFIG_CHECK_EXE"] = str(Path(sys.argv[1]).resolve())
     return subprocess.call(
-        [sys.executable, "-m", "pytest", "-q", "tests/python/test_config_contract.py",
-         "tests/python/test_config_layout.py"],
+        [sys.executable, "-m", "pytest", "-q", "-m", "config_native"],
         env=environment,
     )
 

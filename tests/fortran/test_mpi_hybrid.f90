@@ -14,6 +14,7 @@ program test_mpi_hybrid
   use bem_restart, only: load_restart_checkpoint, write_macro_residuals_file, &
                          restart_rng_state_path, restart_macro_residual_path
   use bem_periodic_checkpoint, only: resolve_latest_checkpoint_dir
+  use bem_app_config_runtime, only: particle_source_plan_type, build_particle_source_plan
   use bem_types, only: mesh_type, particles_soa, sim_stats, injection_state, bc_open, bc_reflect
   use bem_charge_ledger, only: charge_ledger_type
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_panel_plan, update_state, &
@@ -32,6 +33,7 @@ program test_mpi_hybrid
   type(sim_stats) :: stats, stats_restart
   type(injection_state) :: state, state_restart, reservoir_state
   type(particles_soa) :: reservoir_particles
+  type(particle_source_plan_type) :: reservoir_plan
   type(charge_ledger_type) :: ledger
   logical :: has_restart
   real(dp) :: v0(3, 1), v1(3, 1), v2(3, 1)
@@ -245,9 +247,10 @@ program test_mpi_hybrid
   allocate (reservoir_state%macro_residual(1), reservoir_state%boundary_macro_residual(6, 1))
   reservoir_state%macro_residual = 0.0_dp
   reservoir_state%boundary_macro_residual = 0.0_dp
+  call build_particle_source_plan(reservoir_cfg, reservoir_plan, mpi=mpi)
   do batch_idx = 1_i32, 4_i32
     call init_particle_batch_from_config( &
-      reservoir_cfg, batch_idx, reservoir_particles, state=reservoir_state, mpi=mpi &
+      reservoir_cfg, batch_idx, reservoir_particles, state=reservoir_state, mpi=mpi, source_plan=reservoir_plan &
       )
     global_reservoir_count = reservoir_particles%n
     call mpi_allreduce_sum_i32_scalar(mpi, global_reservoir_count)

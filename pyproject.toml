@@ -30,6 +30,8 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "types-jsonschema>=4.0",
+    # Runs the runops adapter tests (beach.tooling.runops_adapter targets the v2 contract).
+    "runops>=2.0,<3",
 ]
 accel = [
     "numba>=0.59",
@@ -68,6 +70,15 @@ packages = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
+# Shared support modules (result_fixtures, config_fixtures) live in tests/python.
+pythonpath = ["tests/python"]
+markers = [
+    "workflow: full periodic-validation staging, provenance, and analysis contracts",
+    "smoke: representative workflow contracts included in the development loop",
+    "native: needs the native field kernel (field_kernel_library fixture); make test-python-native",
+    "config_native: needs the Fortran config checker (native_checker fixture); make test-config-contract",
+    "field_kernel_cache: generates real periodic caches; make test-field-kernel-cache",
+]
 
 [tool.ruff]
 line-length = 88

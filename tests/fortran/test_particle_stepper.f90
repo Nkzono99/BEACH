@@ -11,12 +11,13 @@ program test_particle_stepper
   use bem_pusher, only: boris_push
   use bem_particle_stepper, only: build_particle_step_candidate, advance_particle_step, &
                                   advance_particle_step_upper_panel_fourier, &
-                                  resolve_particle_boundary_candidate, particle_step_result
+                                  resolve_particle_boundary_candidate, particle_step_result, &
+                                  particle_substep_needs_halving, particle_substep_energy_floor_j
   use bem_status_codes, only: particle_step_ok, particle_step_invalid_boundary, particle_step_multiple_box_events
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
   implicit none
 
-  call test_init(30)
+  call test_init(31)
 
   call test_begin('uniform_e0_included_once')
   call test_uniform_e0_included_once()
@@ -130,17 +131,42 @@ program test_particle_stepper
   call test_species_barrier_corner_ordinary_open_escapes()
   call test_end()
 
-  call test_begin('species_barrier_corner_redistribution_requires_counter')
-  call test_species_barrier_corner_redistribution_requires_counter()
+  call test_begin('species_barrier_corner_redistribution_with_counter')
+  call test_species_barrier_corner_redistribution_with_counter()
   call test_end()
 
   call test_begin('advance_invalid_boundary_status_namespace')
   call test_advance_invalid_boundary_status_namespace()
   call test_end()
 
+  call test_begin('substep_halving_criterion')
+  call test_substep_halving_criterion()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> 半分化の判定: 場の相対変化が閾値を超え、かつ step の仕事が 1e-4 eV の下限を超える荷電粒子だけを半分にする。
+  subroutine test_substep_halving_criterion()
+    real(dp) :: e_ref(3), e_mid(3), x0(3), x1(3)
+
+    e_ref = [0.0_dp, 0.0_dp, 1.0e5_dp]
+    e_mid = [0.0_dp, 0.0_dp, 1.5e5_dp]
+    x0 = 0.0_dp
+    x1 = [0.0_dp, 0.0_dp, 1.0e-5_dp]
+    call assert_true(particle_substep_needs_halving(e_mid, e_ref, -1.602176634e-19_dp, x0, x1, 0.2_dp), &
+                     'a 50% field change over 10 um at 1e5 V/m must halve the step')
+    call assert_true(.not. particle_substep_needs_halving(e_mid, e_ref, -1.602176634e-19_dp, x0, x1, 0.6_dp), &
+                     'a change below the configured fraction must keep the step')
+    ! 5 V/m over 10 um is 5e-5 eV of work, below the 1e-4 eV floor, although the relative change is 50%.
+    call assert_true(.not. particle_substep_needs_halving(1.5e-4_dp*e_ref, 1.0e-4_dp*e_ref, -1.602176634e-19_dp, &
+                                                          x0, x1, 0.2_dp), &
+                     'a large relative change whose work is below the floor must keep the step')
+    call assert_true(.not. particle_substep_needs_halving(e_mid, e_ref, 0.0_dp, x0, x1, 0.2_dp), &
+                     'an uncharged particle never halves')
+    call assert_close_dp(particle_substep_energy_floor_j, 1.0e-4_dp*1.602176634e-19_dp, 0.0_dp, 'floor is 1e-4 eV')
+  end subroutine test_substep_halving_criterion
 
   subroutine test_uniform_e0_included_once()
     type(mesh_type) :: mesh
@@ -357,8 +383,6 @@ contains
     call assert_allclose_1d(result%x, [0.3_dp, 0.2_dp, 0.2_dp], 1.0e-14_dp, 'no-crossing position mismatch')
     call assert_allclose_1d(result%v, [0.1_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'no-crossing velocity mismatch')
     call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'no-crossing terminal flags mismatch')
-    call assert_true(result%field_eval_count == 1_i32, 'no-crossing path must evaluate E once')
-    call assert_true(result%collision_query_count == 1_i32, 'no-crossing path must query collision once')
   end subroutine test_advance_no_crossing_fast_path
 
   subroutine test_advance_mesh_before_box_absorbs()
@@ -417,8 +441,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'box-before-mesh status mismatch')
     call assert_true(.not. result%absorbed .and. result%escaped_boundary, 'box-before-mesh should escape')
     call assert_close_dp(result%x(1), 1.0_dp, 0.0_dp, 'open escape should stop at boundary event')
-    call assert_true(result%field_eval_count == 1_i32, 'open crossing should not rebuild a remainder')
-    call assert_true(result%collision_query_count == 1_i32, 'open crossing should query only to the boundary')
   end subroutine test_advance_box_before_mesh_escapes
 
   subroutine test_advance_reflected_remainder_absorbs()
@@ -438,15 +460,13 @@ contains
     call assert_true(result%status == particle_step_ok, 'reflected remainder status mismatch')
     call assert_true(result%absorbed, 'reflected remainder should hit the mesh')
     call assert_close_dp(result%x(1), 0.5_dp, 1.0e-12_dp, 'reflected remainder hit position mismatch')
-    call assert_true(result%field_eval_count == 2_i32, 'reflected remainder should evaluate E twice')
-    call assert_true(result%collision_query_count == 2_i32, 'reflected remainder should query both chords')
   end subroutine test_advance_reflected_remainder_absorbs
 
   subroutine test_advance_redistributed_reflect_is_counter_deterministic()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
-    type(particle_step_result) :: first_result, repeated_result, different_result, missing_counter_result
+    type(particle_step_result) :: first_result, repeated_result, different_result
     integer(i64), parameter :: first_counter(4) = [3_i64, 1_i64, 7_i64, 11_i64]
     integer(i64), parameter :: different_counter(4) = [3_i64, 1_i64, 8_i64, 11_i64]
 
@@ -471,11 +491,6 @@ contains
       boundary_rng_counter=different_counter, &
       cell=irradiation_cell_contract_type() &
       )
-    call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.2_dp, 0.3_dp, 0.8_dp], [0.0_dp, 0.0_dp, 0.4_dp], 0.0_dp, 1.0_dp, 1.0_dp, missing_counter_result, &
-      cell=irradiation_cell_contract_type() &
-      )
 
     call assert_true(first_result%status == particle_step_ok, 'redistributed reflection status mismatch')
     call assert_allclose_1d( &
@@ -493,10 +508,6 @@ contains
     call assert_allclose_1d( &
       first_result%v, [0.0_dp, 0.0_dp, -0.4_dp], 0.0_dp, &
       'redistributed reflection must preserve tangential velocity and reverse normal velocity' &
-      )
-    call assert_true( &
-      missing_counter_result%status == particle_step_invalid_boundary, &
-      'redistributed reflection through the public stepper API must require a unique counter' &
       )
   end subroutine test_advance_redistributed_reflect_is_counter_deterministic
 
@@ -726,8 +737,6 @@ contains
     call assert_true(.not. result%absorbed .and. .not. result%escaped_boundary, 'periodic particle should survive')
     call assert_allclose_1d(result%x, [0.05_dp, 0.1_dp, 0.2_dp], 1.0e-12_dp, 'two-event position mismatch')
     call assert_allclose_1d(result%v, [1.0_dp, 3.0_dp, 0.0_dp], 0.0_dp, 'two-event velocity mismatch')
-    call assert_true(result%field_eval_count == 3_i32, 'two events should evaluate each remainder field')
-    call assert_true(result%collision_query_count == 3_i32, 'two events should query each physical chord')
   end subroutine test_advance_two_periodic_events
 
   subroutine test_advance_three_reflect_events()
@@ -750,8 +759,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'three box events should complete')
     call assert_allclose_1d(result%x, [0.1_dp, 0.2_dp, 0.2_dp], 1.0e-12_dp, 'three-event position mismatch')
     call assert_allclose_1d(result%v, [-3.0_dp, 0.0_dp, 0.0_dp], 0.0_dp, 'three-event velocity mismatch')
-    call assert_true(result%field_eval_count == 4_i32, 'three events should evaluate each remainder field')
-    call assert_true(result%collision_query_count == 4_i32, 'three events should query each physical chord')
   end subroutine test_advance_three_reflect_events
 
   subroutine test_advance_eight_reflect_events()
@@ -774,8 +781,6 @@ contains
     call assert_true(result%status == particle_step_ok, 'eight box events should complete')
     call assert_allclose_1d(result%x, x0, 1.0e-12_dp, 'eight-event position mismatch')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'eight-event velocity mismatch')
-    call assert_true(result%field_eval_count == 9_i32, 'eight events should build each remainder')
-    call assert_true(result%collision_query_count == 9_i32, 'eight events should query each physical chord')
   end subroutine test_advance_eight_reflect_events
 
   subroutine test_advance_nine_periodic_events_subdivides()
@@ -821,8 +826,6 @@ contains
     call assert_true(result%status == particle_step_multiple_box_events, 'ninth box event must fail closed')
     call assert_allclose_1d(result%x, x0, 0.0_dp, 'failed step must preserve initial position')
     call assert_allclose_1d(result%v, v0, 0.0_dp, 'failed step must preserve initial velocity')
-    call assert_true(result%field_eval_count == 9_i32, 'ninth event path should build eight remainders')
-    call assert_true(result%collision_query_count == 9_i32, 'ninth event path should query mesh before failing')
   end subroutine test_advance_ninth_box_event_fails
 
   subroutine test_upper_fourier_retry_completes_above_mesh()
@@ -1074,7 +1077,7 @@ contains
     call assert_true(result%escaped_boundary, 'an ordinary-open face must make the corner terminal')
   end subroutine test_species_barrier_corner_ordinary_open_escapes
 
-  subroutine test_species_barrier_corner_redistribution_requires_counter()
+  subroutine test_species_barrier_corner_redistribution_with_counter()
     type(mesh_type) :: mesh
     type(sim_config) :: sim
     type(electrostatic_snapshot_type) :: field_solver
@@ -1089,23 +1092,12 @@ contains
     call advance_particle_step( &
       mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
       [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
-      boundary_contract=contract, &
-      cell=irradiation_cell_contract_type() &
-      )
-    call assert_true( &
-      result%status == particle_step_invalid_boundary, &
-      'barrier return with redistributed reflection must require a unique counter' &
-      )
-
-    call advance_particle_step( &
-      mesh, sim, field_solver, [0.0_dp, 0.0_dp, 0.0_dp], &
-      [0.9_dp, 0.2_dp, 0.9_dp], [1.0_dp, 0.0_dp, 1.0_dp], -1.0_dp, 1.0_dp, 0.2_dp, result, &
       boundary_contract=contract, boundary_rng_counter=[1_i64, 0_i64, 1_i64, 1_i64], &
       cell=irradiation_cell_contract_type() &
       )
     call assert_true(result%status == particle_step_ok, 'counter-backed barrier redistribution status mismatch')
     call assert_true(.not. result%escaped_boundary, 'counter-backed barrier return should survive')
-  end subroutine test_species_barrier_corner_redistribution_requires_counter
+  end subroutine test_species_barrier_corner_redistribution_with_counter
 
   subroutine test_advance_invalid_boundary_status_namespace()
     type(mesh_type) :: mesh

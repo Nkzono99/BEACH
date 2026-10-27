@@ -6,11 +6,7 @@ module bem_app_config_particle_runtime
   use bem_mpi, only: mpi_context, mpi_get_rank_size, mpi_split_count, mpi_bcast_i32_array, mpi_bcast_real_dp_array
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_status_codes, only: collision_query_ok, particle_status_name, photo_ray_failure_type
-  use bem_injection, only: &
-    seed_rng, sample_uniform_positions, sample_shifted_maxwell_velocities, compute_macro_particles_for_batch, &
-    compute_macro_particles_from_flux, sample_reservoir_face_particles, &
-    sample_photo_raycast_particles, &
-    compute_inflow_flux_from_drifting_maxwellian, compute_face_area_from_bounds
+  use bem_injection, only: seed_rng, compute_macro_particles_for_batch, compute_macro_particles_from_flux
   use bem_external_boundary_contract, only: &
     external_inflow_none, external_inflow_scalar_barrier
   use bem_app_config_types, only: &
@@ -98,7 +94,7 @@ module bem_app_config_particle_runtime
       integer(i32), intent(in), optional :: mpi_rank, mpi_size
       type(mpi_context), intent(in), optional :: mpi
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
-      type(particle_source_plan_type), intent(in), optional, target :: source_plan
+      type(particle_source_plan_type), intent(in) :: source_plan
     end subroutine build_batch_injection_layout
 
     module subroutine generate_batch_slot( &
@@ -128,42 +124,11 @@ module bem_app_config_particle_runtime
       !> 不完全な photo collision query（省略時は停止）。
       type(photo_ray_failure_type), intent(out), optional :: photo_failure
       type(electrostatic_snapshot_type), intent(inout), optional :: snapshot
-      type(particle_source_plan_type), intent(in), optional, target :: source_plan
+      type(particle_source_plan_type), intent(in) :: source_plan
       real(dp), intent(out), optional :: photo_emission_dq_by_species(:, :)
       !> 各粒子の global slot 番号（粒子追跡の境界・二次電子乱数の鍵に使う）。
       integer(i32), allocatable, intent(out), optional :: slot_ids(:)
     end subroutine init_particle_batch_from_config
-
-    module subroutine sample_species_state( &
-      spec, n, x, v, temperature_k_override, drift_velocity_override &
-      )
-      type(particle_species_spec), intent(in) :: spec
-      integer(i32), intent(in) :: n
-      real(dp), intent(out) :: x(:, :)
-      real(dp), intent(out) :: v(:, :)
-      real(dp), intent(in), optional :: temperature_k_override
-      real(dp), intent(in), optional :: drift_velocity_override(3)
-    end subroutine sample_species_state
-
-    module subroutine sample_photo_species_state( &
-      sim, spec, mesh, n_rays, x, v, w, n_emit, emit_elem_idx, global_rays_per_batch, &
-      emit_current_density_override, normal_drift_speed_override, vmin_normal, failure &
-      )
-      type(sim_config), intent(in) :: sim
-      type(particle_species_spec), intent(in) :: spec
-      type(mesh_type), intent(in) :: mesh
-      integer(i32), intent(in) :: n_rays
-      real(dp), intent(out) :: x(:, :)
-      real(dp), intent(out) :: v(:, :)
-      real(dp), intent(out) :: w(:)
-      integer(i32), intent(out) :: n_emit
-      integer(i32), intent(out), optional :: emit_elem_idx(:)
-      integer(i32), intent(in), optional :: global_rays_per_batch
-      real(dp), intent(in), optional :: emit_current_density_override
-      real(dp), intent(in), optional :: normal_drift_speed_override
-      real(dp), intent(in), optional :: vmin_normal
-      type(photo_ray_failure_type), intent(out), optional :: failure
-    end subroutine sample_photo_species_state
 
     module subroutine reservoir_face_velocity_correction( &
       cfg, spec, vmin_normal, barrier_normal, mesh, snapshot, warn_face_variation &

@@ -15,7 +15,7 @@ program test_restart
   use bem_types, only: mesh_type, sim_stats, injection_state
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_equal_i64, assert_close_dp, assert_allclose_1d, &
-                          delete_file_if_exists, ensure_directory, remove_empty_directory
+                          delete_file_if_exists, ensure_directory, remove_empty_directory, run_self_probe, file_contains
   implicit none
 
   type(mesh_type) :: mesh
@@ -428,8 +428,7 @@ contains
   end subroutine write_manifest_fixture_omitting
 
   subroutine test_mpi_checkpoint_completeness_layers()
-    character(len=1024) :: executable_path, command
-    integer :: exit_status, command_status
+    integer :: exit_status
 
     call cleanup_restart_fixture(out_dir)
     call ensure_directory(out_dir)
@@ -452,12 +451,7 @@ contains
     call assert_true(exists, 'repaired two-rank checkpoint fixture was rejected')
 
     ! Counter-based random numbers carry no per-rank state, so a two-rank checkpoint resumes on one rank.
-    call get_command_argument(0, executable_path)
-    command = '"'//trim(executable_path)//'" --world-size-probe > '//matching_probe_log//' 2>&1'
-    exit_status = -1
-    command_status = -1
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'world-size probe command status mismatch')
+    call run_self_probe('--world-size-probe', matching_probe_log, exit_status)
     call assert_equal_i32(int(exit_status, i32), 0_i32, 'a two-rank checkpoint must resume with another rank count')
 
     ! Checkpoints before schema 11 still declare one RNG state file per rank; inspection keeps requiring them.
@@ -485,116 +479,87 @@ contains
   end subroutine touch_file
 
   subroutine test_matching_summary_key_contract()
-    character(len=1024) :: executable_path, command
-    integer :: exit_status, command_status
+    integer :: exit_status
 
     call cleanup_restart_fixture(out_dir)
     call ensure_directory(out_dir)
     call write_matching_summary_fixture(out_dir, omit_ion_access=.true.)
     call write_charges_fixture(out_dir)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call get_command_argument(0, executable_path)
-    command = '"'//trim(executable_path)//'" --matching-summary-probe > '//matching_probe_log//' 2>&1'
     call assert_restart_probe_fails( &
-      command, 'schema-v9 summary is missing required matching-plane keys', 'missing matching key probe' &
+      'schema-v9 summary is missing required matching-plane keys', 'missing matching key probe' &
       )
 
     call write_matching_summary_fixture(out_dir, duplicate_residual=.true.)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'duplicate matching-plane key: matching_plane_residual', 'duplicate matching key probe' &
+      'duplicate matching-plane key: matching_plane_residual', 'duplicate matching key probe' &
       )
 
     call write_matching_summary_fixture(out_dir, ion_access_token='/')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'invalid real token: matching_plane_ion_access_potential_V', 'matching real-token probe' &
+      'invalid real token: matching_plane_ion_access_potential_V', 'matching real-token probe' &
       )
 
     call write_matching_summary_fixture(out_dir, iteration_token='2*0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'invalid integer token: matching_plane_iterations', 'matching integer-token probe' &
+      'invalid integer token: matching_plane_iterations', 'matching integer-token probe' &
       )
 
     call write_matching_summary_fixture(out_dir, state_token='1')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'invalid logical token: matching_plane_state_valid', 'matching logical-token probe' &
+      'invalid logical token: matching_plane_state_valid', 'matching logical-token probe' &
       )
 
     call write_matching_summary_fixture(out_dir, inconsistent_budget=.true.)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'matching-plane photoelectron budget is inconsistent', 'matching PE-budget probe' &
+      'matching-plane photoelectron budget is inconsistent', 'matching PE-budget probe' &
       )
 
     call write_matching_summary_fixture(out_dir, spectrum_token='1.0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'matching-plane photoelectron spectrum could not be parsed', 'short spectrum probe' &
+      'matching-plane photoelectron spectrum could not be parsed', 'short spectrum probe' &
       )
 
     call write_matching_summary_fixture(out_dir, spectrum_token='-1.0 2.0 143*0.0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'matching-plane photoelectron spectrum must be finite and >= 0', 'negative spectrum probe' &
+      'matching-plane photoelectron spectrum must be finite and >= 0', 'negative spectrum probe' &
       )
 
     call write_matching_summary_fixture(out_dir, spectrum_token='0.5 144*0.0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
     call assert_restart_probe_fails( &
-      command, 'matching-plane photoelectron spectrum does not match its outward flux', 'spectrum budget probe' &
+      'matching-plane photoelectron spectrum does not match its outward flux', 'spectrum budget probe' &
       )
 
     call write_matching_summary_fixture(out_dir, spectrum_token='0.25 0.75 143*0.0')
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'valid spectrum probe command status mismatch')
+    call run_self_probe('--matching-summary-probe', matching_probe_log, exit_status)
     call assert_equal_i32(int(exit_status, i32), 0_i32, 'valid matching-plane spectrum was rejected')
 
     call write_matching_summary_fixture(out_dir)
     call publish_checkpoint_manifest(out_dir, 2_i32, 1_i32, .false., .false.)
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, 'valid matching summary probe command status mismatch')
+    call run_self_probe('--matching-summary-probe', matching_probe_log, exit_status)
     call assert_equal_i32(int(exit_status, i32), 0_i32, 'valid schema-v9 matching summary was rejected')
     call delete_file_if_exists(matching_probe_log)
     call cleanup_restart_fixture(out_dir)
   end subroutine test_matching_summary_key_contract
 
-  subroutine assert_restart_probe_fails(command, expected_fragment, label)
-    character(len=*), intent(in) :: command, expected_fragment, label
-    integer :: exit_status, command_status
-    logical :: saw_expected_failure
+  subroutine assert_restart_probe_fails(expected_fragment, label)
+    character(len=*), intent(in) :: expected_fragment, label
+    integer :: exit_status
 
-    exit_status = -1
-    command_status = -1
-    call execute_command_line(trim(command), wait=.true., exitstat=exit_status, cmdstat=command_status)
-    call assert_equal_i32(int(command_status, i32), 0_i32, trim(label)//' command status mismatch')
+    call run_self_probe('--matching-summary-probe', matching_probe_log, exit_status)
     call assert_true(exit_status /= 0, trim(label)//' unexpectedly succeeded')
-    call text_file_contains(matching_probe_log, expected_fragment, saw_expected_failure)
-    call assert_true(saw_expected_failure, trim(label)//' did not reach its intended restart guard')
+    call assert_true(file_contains(matching_probe_log, expected_fragment), &
+                     trim(label)//' did not reach its intended restart guard')
   end subroutine assert_restart_probe_fails
-
-  subroutine text_file_contains(path, expected_fragment, found)
-    character(len=*), intent(in) :: path, expected_fragment
-    logical, intent(out) :: found
-    character(len=1024) :: line
-    integer :: u, ios
-
-    found = .false.
-    open (newunit=u, file=trim(path), status='old', action='read', iostat=ios)
-    if (ios /= 0) return
-    do
-      read (u, '(a)', iostat=ios) line
-      if (ios /= 0) exit
-      if (index(line, trim(expected_fragment)) > 0) then
-        found = .true.
-        exit
-      end if
-    end do
-    close (u)
-  end subroutine text_file_contains
 
   subroutine write_matching_summary_fixture( &
     dir_path, omit_ion_access, duplicate_residual, ion_access_token, iteration_token, state_token, inconsistent_budget, &

@@ -408,11 +408,6 @@ contains
         .not. all(ieee_is_finite(ledger%fixed_current_correction))) then
       error stop trim(context)//' diagnostics must be finite.'
     end if
-    if (any(ledger%injected_count < 0_i64) .or. any(ledger%emitted_count < 0_i64) .or. &
-        any(ledger%absorbed_count < 0_i64) .or. any(ledger%escaped_count < 0_i64) .or. &
-        any(ledger%discarded_unresolved_count < 0_i64)) then
-      error stop trim(context)//' counts must be nonnegative.'
-    end if
   end subroutine validate_ledger_finite
 
   subroutine release_charge_ledger_arrays(self)

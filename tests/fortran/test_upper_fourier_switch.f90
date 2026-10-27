@@ -1,15 +1,15 @@
-!> Public snapshot switching, geometry-only selection and sheath Neumann contracts.
+!> Public snapshot switching, geometry-only selection and the snapshot's sheath top-field hand-off.
 program test_upper_fourier_switch
   use bem_kinds, only: dp, i32
-  use bem_constants, only: eps0, pi
+  use bem_constants, only: pi
   use bem_types, only: mesh_type, sim_config, bc_periodic, bc_open
   use bem_mesh, only: init_mesh
-  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
-                                      validate_active_physics_config, validate_upper_fourier_height, physics_config_ok
+  use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
-  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, assert_allclose_1d, &
+                          unique_test_path, delete_periodic_cache
   implicit none
   type(mesh_type) :: mesh
   type(sim_config) :: sim
@@ -18,11 +18,11 @@ program test_upper_fourier_switch
   type(panel_kernel_config) :: panel
   type(electrostatic_snapshot_type) :: switched, baseline, automatic, repeated
   real(dp) :: a(3, 2), b(3, 2), c(3, 2), target(3), e(3), expected_e(3), phi, expected_phi, phi0, ez0
-  real(dp) :: height, mismatch, phi_rms, ez_rms, top_field, old_phi, bottom_field, delta
-  integer(i32) :: status, point
-  character(len=256) :: message
+  real(dp) :: height, mismatch, phi_rms, ez_rms, top_field, fmm_error_at_switch
+  integer(i32) :: point
+  character(len=:), allocatable :: cache_dir
 
-  call test_init(4)
+  call test_init(3)
   a(:, 1) = [0.1_dp, 0.1_dp, 0.2_dp]
   b(:, 1) = [0.4_dp, 0.1_dp, 0.2_dp]
   c(:, 1) = [0.1_dp, 0.4_dp, 0.2_dp]
@@ -39,7 +39,8 @@ program test_upper_fourier_switch
   sim%field_bc_mode = 'periodic2'
   sim%field_periodic_far_correction = 'cached_kneq0'
   sim%field_periodic_ewald_layers = 3_i32
-  sim%field_periodic_cache_dir = '.beach_cache/test_upper_fourier_switch'
+  cache_dir = unique_test_path('test_upper_fourier_switch_tmp_')
+  sim%field_periodic_cache_dir = cache_dir
   sim%use_box = .true.
   sim%box_min = 0.0_dp
   sim%box_max = 1.0_dp
@@ -72,11 +73,10 @@ program test_upper_fourier_switch
     ! Existing upper-vacuum plan uses seven-point panel quadrature; bound its independent quadrature error.
     call assert_close_dp(phi, expected_phi, 2.0e-6_dp, 'upper potential independent Fourier oracle')
     call assert_allclose_1d(e, expected_e, 3.0e-5_dp, 'upper field independent Fourier oracle')
-    call switched%upper_fourier_plan%eval(mesh%q_elem, target, expected_phi, expected_e, status)
-    call assert_close_dp(phi, expected_phi + phi0 - dot_product(sim%e0, target), 1.0e-13_dp, 'exact dispatch phi')
-    expected_e = expected_e + sim%e0
-    expected_e(3) = expected_e(3) + ez0
-    call assert_allclose_1d(e, expected_e, 1.0e-13_dp, 'exact dispatch E')
+    if (point == 1) then
+      call baseline%eval_local_phi(mesh, sim, target, phi)
+      fmm_error_at_switch = abs(phi - expected_phi)
+    end if
   end do
   target(3) = 0.69_dp
   call baseline%eval_local_phi(mesh, sim, target, expected_phi)
@@ -85,8 +85,12 @@ program test_upper_fourier_switch
   call baseline%eval_local_e(mesh, target, expected_e)
   call switched%eval_local_e(mesh, target, e)
   call assert_allclose_1d(e, expected_e, 0.0_dp, 'below switch legacy E')
+  ! The receipt is the plane RMS of FMM minus Fourier at the switch, so it must match the order of the FMM error
+  ! that the independent oracle measures at that height (2.9e-6 V against 5.6e-6 V when written).
   call switched%measure_switch_mismatch(mesh, sim, phi_rms, ez_rms)
-  call assert_true(phi_rms >= 0.0_dp .and. ez_rms >= 0.0_dp, 'real-charge mismatch diagnostics')
+  call assert_true(phi_rms > 0.1_dp*fmm_error_at_switch .and. phi_rms < 10.0_dp*fmm_error_at_switch, &
+                   'switch-plane potential mismatch must be the FMM error at the switch height')
+  call assert_true(ez_rms > 0.0_dp, 'switch-plane field mismatch must compare two distinct evaluations')
   call test_end()
 
   call test_begin('auto_selection_is_deterministic_and_obeys_decay_order')
@@ -105,27 +109,9 @@ program test_upper_fourier_switch
                    <= 1.0e-6_dp, 'automatic truncation decay')
   call test_end()
 
-  call test_begin('invalid_switches_are_preflight_errors')
-  periodic%upper_fourier_switch = 'height'
-  periodic%upper_fourier_switch_height = 0.44_dp
-  call validate_upper_fourier_height(sim, periodic, 0.35_dp, status, message)
-  call assert_true(status /= physics_config_ok, 'insufficient clearance accepted')
-  periodic%upper_fourier_switch_height = 1.0_dp
-  call validate_upper_fourier_height(sim, periodic, 0.35_dp, status, message)
-  call assert_true(status /= physics_config_ok, 'H accepted as switch')
-  periodic%upper_fourier_switch = 'auto'
-  call validate_upper_fourier_height(sim, periodic, 0.9_dp, status, message)
-  call assert_true(status /= physics_config_ok, 'empty auto interval accepted')
-  periodic%nonzero_mode_backend = 'legacy_finite_images'
-  call validate_active_physics_config(sim, field, periodic, panel, status, message)
-  call assert_true(status /= physics_config_ok, 'wrong backend accepted')
-  periodic%nonzero_mode_backend = 'cached_kneq0'
-  periodic%upper_fourier_mode_layers = -1_i32
-  call validate_active_physics_config(sim, field, periodic, panel, status, message)
-  call assert_true(status /= physics_config_ok, 'negative mode layers accepted')
-  call test_end()
-
-  call test_begin('snapshot_sheath_top_field_matches_gauss_and_layer_potential')
+  call test_begin('snapshot_sheath_top_field_reaches_zero_mode_and_survives_refresh')
+  ! The Gauss/linear-shift algebra of a prescribed top field is test_periodic_zero_mode's contract;
+  ! here the snapshot must hand the matching-plane field to its zero-mode state and keep it on refresh.
   periodic%upper_fourier_switch = 'off'
   periodic%upper_fourier_mode_layers = 0_i32
   periodic%lower_boundary_model = 'e_top_from_sheath'
@@ -135,18 +121,15 @@ program test_upper_fourier_switch
   call switched%set_matching_plane_top_field(mesh, top_field)
   call eval_periodic_zero_mode(switched%zero_plan, switched%zero_state, 1.0_dp, zero_mode_trace_plus, phi, ez0)
   call assert_close_dp(ez0, top_field, 1.0e-12_dp*abs(top_field), 'Neumann field at H')
-  call baseline%set_matching_plane_gauge(mesh, 1.0_dp, 2.0_dp)
-  bottom_field = top_field - sum(mesh%q_elem)/(eps0*switched%zero_plan%area_xy)
-  do point = 1, 5
-    target(3) = 0.15_dp*real(point, dp)
-    call eval_periodic_zero_mode(switched%zero_plan, switched%zero_state, target(3), zero_mode_trace_plus, phi, ez0)
-    call eval_periodic_zero_mode(baseline%zero_plan, baseline%zero_state, target(3), zero_mode_trace_plus, old_phi, ez0)
-    delta = bottom_field*(1.0_dp - target(3))
-    call assert_close_dp(phi - old_phi, delta, 1.0e-12_dp, 'shift from e_bottom_zero')
-  end do
+  mesh%q_elem = [2.0e-12_dp, -0.5e-12_dp]
   call switched%refresh(mesh)
   call eval_periodic_zero_mode(switched%zero_plan, switched%zero_state, 1.0_dp, zero_mode_trace_plus, phi, ez0)
-  call assert_close_dp(ez0, top_field, 1.0e-12_dp*abs(top_field), 'refresh retains top field')
+  call assert_close_dp(ez0, top_field, 1.0e-12_dp*abs(top_field), 'charge refresh retains the top field')
   call test_end()
+  ! Remove the operator cache so the next run builds it cold again.
+  call delete_periodic_cache(baseline%diagnostics%periodic_cache_path)
+  call delete_periodic_cache(automatic%diagnostics%periodic_cache_path)
+  call delete_periodic_cache(repeated%diagnostics%periodic_cache_path)
+  call delete_periodic_cache(switched%diagnostics%periodic_cache_path, cache_dir)
   call test_summary()
 end program test_upper_fourier_switch

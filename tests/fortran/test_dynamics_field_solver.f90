@@ -5,11 +5,12 @@ program test_dynamics_field_solver
   use bem_types, only: mesh_type, sim_config
   use bem_mesh, only: init_mesh
   use bem_templates, only: make_plane, make_sphere
-  use bem_field_solver, only: field_solver_type
+  use bem_field_solver, only: field_solver_type, resolve_field_solver_tree_params
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_panel_surface_sides, only: resolve_panel_surface_sides, panel_surface_side_ok
   use bem_panel_geometry, only: panel_geometry_type, init_panel_geometry, panel_geometry_ok
   use bem_panel_kernel, only: panel_potential_field, panel_side_principal_value
+  use test_panel_oracle, only: panel_sum_field, panel_sum_potential
   use test_support, only: test_init, test_begin, test_end, test_summary, &
                           assert_true, assert_equal_i32, assert_close_dp, assert_allclose_1d
   implicit none
@@ -65,10 +66,15 @@ program test_dynamics_field_solver
 contains
 
   subroutine test_field_solver_auto_mode()
-    type(mesh_type) :: mesh_small, mesh_threshold, mesh_large
-    type(mesh_type) :: mesh_mid, mesh_dense, mesh_huge
+    type(mesh_type) :: mesh_small, mesh_threshold
     type(field_solver_type) :: solver = field_solver_type()
     type(sim_config) :: sim
+    integer(i32), parameter :: nelem_cases(8) = [1_i32, 1499_i32, 1500_i32, 9999_i32, 10000_i32, 49999_i32, &
+                                                 50000_i32, 250000_i32]
+    real(dp), parameter :: theta_cases(8) = [0.40d0, 0.40d0, 0.50d0, 0.50d0, 0.58d0, 0.58d0, 0.65d0, 0.65d0]
+    integer(i32), parameter :: leaf_cases(8) = [12_i32, 12_i32, 16_i32, 16_i32, 20_i32, 20_i32, 24_i32, 24_i32]
+    real(dp) :: theta
+    integer(i32) :: leaf_max, k
 
     call make_plane(mesh_small, size_x=1.0d0, size_y=1.0d0, nx=1_i32, ny=1_i32, center=[0.0d0, 0.0d0, 0.0d0])
     call mark_normal_plus(mesh_small)
@@ -83,47 +89,28 @@ contains
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = mesh_threshold%nelem
-    call solver%init(mesh_threshold, sim)
-    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
-
-    call make_sphere(mesh_large, radius=0.6d0, n_lon=24_i32, n_lat=12_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_large)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 64_i32
     sim%tree_theta = 0.95d0
     sim%tree_leaf_max = 1_i32
-    call solver%init(mesh_large, sim)
-    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM for dense meshes')
-    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto theta mismatch for nelem<1500')
-    call assert_equal_i32(solver%leaf_max, 12_i32, 'auto leaf_max mismatch for nelem<1500')
+    call solver%init(mesh_threshold, sim)
+    call assert_true(trim(solver%mode) == 'fmm', 'auto solver should select FMM at tree_min_nelem')
+    call assert_close_dp(solver%theta, 0.40d0, 1.0d-12, 'auto FMM must use the tuned theta, not the unset default')
+    call assert_equal_i32(solver%leaf_max, 12_i32, 'auto FMM must use the tuned leaf_max, not the unset default')
 
-    call make_plane(mesh_mid, size_x=1.0d0, size_y=1.0d0, nx=30_i32, ny=25_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_mid)
+    ! The element-count table itself is the pure resolver used by init and by the summary writer.
     sim = sim_config()
     sim%field_solver = 'AUTO'
     sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_mid, sim)
-    call assert_close_dp(solver%theta, 0.50d0, 1.0d-12, 'auto theta mismatch for 1500<=nelem<10000')
-    call assert_equal_i32(solver%leaf_max, 16_i32, 'auto leaf_max mismatch for 1500<=nelem<10000')
-
-    call make_plane(mesh_dense, size_x=1.0d0, size_y=1.0d0, nx=100_i32, ny=50_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_dense)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_dense, sim)
-    call assert_close_dp(solver%theta, 0.58d0, 1.0d-12, 'auto theta mismatch for 10000<=nelem<50000')
-    call assert_equal_i32(solver%leaf_max, 20_i32, 'auto leaf_max mismatch for 10000<=nelem<50000')
-
-    call make_plane(mesh_huge, size_x=1.0d0, size_y=1.0d0, nx=250_i32, ny=100_i32, center=[0.0d0, 0.0d0, 0.0d0])
-    call mark_normal_plus(mesh_huge)
-    sim = sim_config()
-    sim%field_solver = 'AUTO'
-    sim%tree_min_nelem = 1_i32
-    call solver%init(mesh_huge, sim)
-    call assert_close_dp(solver%theta, 0.65d0, 1.0d-12, 'auto theta mismatch for nelem>=50000')
-    call assert_equal_i32(solver%leaf_max, 24_i32, 'auto leaf_max mismatch for nelem>=50000')
+    sim%tree_theta = 0.95d0
+    sim%tree_leaf_max = 1_i32
+    do k = 1, size(nelem_cases)
+      call resolve_field_solver_tree_params(nelem_cases(k), sim, theta, leaf_max)
+      call assert_close_dp(theta, theta_cases(k), 1.0d-12, 'auto theta mismatch in the element-count table')
+      call assert_equal_i32(leaf_max, leaf_cases(k), 'auto leaf_max mismatch in the element-count table')
+    end do
+    sim%tree_min_nelem = 64_i32
+    call resolve_field_solver_tree_params(63_i32, sim, theta, leaf_max)
+    call assert_close_dp(theta, 0.95d0, 0.0d0, 'direct auto selection keeps the configured theta')
+    call assert_equal_i32(leaf_max, 1_i32, 'direct auto selection keeps the configured leaf_max')
   end subroutine test_field_solver_auto_mode
 
   subroutine test_field_solver_explicit_mode_autotune()
@@ -233,7 +220,7 @@ contains
         end if
       end if
 
-      call panel_field_at(mesh_tree, r, e_direct)
+      e_direct = panel_sum_field(mesh_tree, r)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -274,7 +261,7 @@ contains
       end if
 
       call solver%refresh(mesh_tree)
-      call panel_field_at(mesh_tree, r, e_direct)
+      e_direct = panel_sum_field(mesh_tree, r)
       call solver%eval_e(mesh_tree, r, e_tree)
 
       norm_direct = sqrt(sum(e_direct*e_direct))
@@ -332,7 +319,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_direct, r, e_direct)
+    e_direct = panel_sum_field(mesh_direct, r)
     call solver%eval_e(mesh_direct, r, e_solver)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -358,7 +345,7 @@ contains
     call solver%refresh(mesh_direct)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_potential_at(mesh_direct, r, phi_direct)
+    phi_direct = panel_sum_potential(mesh_direct, r)
     call solver%eval_potential(mesh_direct, sim, r, phi_solver)
 
     call assert_close_dp(phi_solver, phi_direct, max(1.0d-12, abs(phi_direct)*1.0d-12), 'direct potential mismatch')
@@ -386,7 +373,7 @@ contains
     call solver%refresh(mesh_tree)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_tree, r, e_direct)
+    e_direct = panel_sum_field(mesh_tree, r)
     call solver%eval_e(mesh_tree, r, e_tree)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -416,9 +403,9 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [8.0d-5, -6.0d-5, 7.0d-5]
-    call panel_field_at(mesh_fmm, r, e_direct)
+    e_direct = panel_sum_field(mesh_fmm, r)
     call solver%eval_e(mesh_fmm, r, e_fmm)
-    call panel_potential_at(mesh_fmm, r, phi_direct)
+    phi_direct = panel_sum_potential(mesh_fmm, r)
     call solver%eval_potential(mesh_fmm, sim, r, phi_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -457,7 +444,7 @@ contains
     call solver%refresh(mesh_fmm)
 
     r = [1.08d-3, 1.94d-3, -0.93d-3]
-    call panel_field_at(mesh_fmm, r, e_direct)
+    e_direct = panel_sum_field(mesh_fmm, r)
     call solver%eval_e(mesh_fmm, r, e_fmm)
 
     norm_direct = sqrt(sum(e_direct*e_direct))
@@ -621,49 +608,5 @@ contains
     mesh%elem_vacuum_sign = 1_i32
     mesh%vacuum_normals = mesh%normals
   end subroutine mark_normal_plus
-
-  subroutine panel_field_at(mesh, target, field)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: field(3)
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    field = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      field = field + source_field
-    end do
-  end subroutine panel_field_at
-
-  subroutine panel_potential_at(mesh, target, potential)
-    type(mesh_type), intent(in) :: mesh
-    real(dp), intent(in) :: target(3)
-    real(dp), intent(out) :: potential
-
-    type(panel_geometry_type) :: geometry
-    real(dp) :: source_potential, source_field(3)
-    integer(i32) :: element, status
-
-    potential = 0.0_dp
-    do element = 1_i32, mesh%nelem
-      call init_panel_geometry( &
-        mesh%v0(:, element), mesh%v1(:, element), mesh%v2(:, element), geometry, status &
-        )
-      if (status /= panel_geometry_ok) error stop 'field solver test received invalid panel geometry.'
-      call panel_potential_field( &
-        geometry, mesh%q_elem(element), target, panel_side_principal_value, source_potential, source_field &
-        )
-      potential = potential + source_potential
-    end do
-  end subroutine panel_potential_at
 
 end program test_dynamics_field_solver

@@ -1,17 +1,18 @@
 program test_periodic2_operator_cache
   use bem_kinds, only: dp, i32
   use bem_coulomb_fmm_core, only: fmm_options_type, fmm_plan_type, fmm_state_type, build_plan, build_panel_plan, &
-                                  update_state, destroy_state, destroy_plan
+                                  update_state, eval_point, destroy_state, destroy_plan
   use bem_coulomb_fmm_periodic_root_ops, only: precompute_periodic_root_operator
-  use test_support, only: test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
-                          remove_empty_directory
+  use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32, &
+                          unique_test_path, delete_periodic_cache, remove_empty_directory
   implicit none
 
   type(fmm_options_type) :: options
   type(fmm_plan_type) :: cold_plan, warm_plan, rebuilt_plan, recovered_plan
   real(dp) :: src_pos(3, 4)
-  character(len=512) :: cache_path, cache_dir
-  integer :: unit, ios, clock_count
+  character(len=512) :: cache_path
+  character(len=:), allocatable :: cache_dir
+  integer :: unit, ios
 
   src_pos(:, 1) = [0.15_dp, 0.20_dp, -0.10_dp]
   src_pos(:, 2) = [0.75_dp, 0.25_dp, 0.08_dp]
@@ -26,12 +27,13 @@ program test_periodic2_operator_cache
   options%periodic_image_layers = 1_i32
   options%periodic_far_correction = 'cached_kneq0'
   options%periodic_ewald_layers = 2_i32
-  call system_clock(count=clock_count)
-  write (cache_dir, '(a,i0)') 'test_periodic2_operator_cache_tmp_', clock_count
-  options%periodic_cache_dir = trim(cache_dir)
+  cache_dir = unique_test_path('test_periodic2_operator_cache_tmp_')
+  options%periodic_cache_dir = cache_dir
   options%periodic_generation_tolerance = 1.0e-8_dp
   options%target_box_min = [0.0_dp, 0.0_dp, -0.5_dp]
   options%target_box_max = [1.0_dp, 1.0_dp, 0.5_dp]
+
+  call test_init(5)
 
   call test_begin('cold_build_and_warm_hit')
   call build_plan(cold_plan, src_pos, options)
@@ -65,7 +67,7 @@ program test_periodic2_operator_cache
   call destroy_plan(warm_plan)
   call destroy_plan(rebuilt_plan)
   call destroy_plan(recovered_plan)
-  call delete_cache(cache_path)
+  call delete_periodic_cache(cache_path)
   call check_box_mesh_reuse_and_translations()
   call check_zero_root_moments()
   call remove_empty_directory(cache_dir)
@@ -139,14 +141,14 @@ contains
     call test_end()
     call destroy_plan(first)
     call destroy_plan(second)
-    call delete_cache(path)
+    call delete_periodic_cache(path)
   end subroutine check_box_mesh_reuse_and_translations
 
   subroutine check_zero_root_moments()
     type(fmm_options_type) :: config
-    type(fmm_plan_type) :: neutral
-    type(fmm_state_type) :: state
-    real(dp) :: positions(3, 4), charge(4)
+    type(fmm_plan_type) :: neutral, uncorrected
+    type(fmm_state_type) :: state, uncorrected_state
+    real(dp) :: positions(3, 4), charge(4), target(3), field(3), uncorrected_field(3)
     character(len=512) :: path
 
     call test_begin('zero_global_moments_do_not_disable_box_cell_correction')
@@ -160,31 +162,26 @@ contains
     positions(:, 3) = [0.25_dp, 0.75_dp, 0.0_dp]
     positions(:, 4) = [0.75_dp, 0.75_dp, 0.0_dp]
     charge = [1.0_dp, -1.0_dp, -1.0_dp, 1.0_dp]
+    ! Analytic checkerboard: monopole and dipole vanish exactly; its quadrupole field remains.
+    call assert_true(sum(charge) == 0.0_dp .and. all(matmul(positions, charge) == 0.0_dp), &
+                     'checkerboard fixture must have zero global monopole and dipole')
     call build_plan(neutral, positions, config)
     path = neutral%periodic_cache_path
     call update_state(neutral, state, charge)
-    ! Analytic checkerboard: monopole and dipole vanish exactly; its quadrupole field remains.
-    call assert_true(all(state%multipole(:, 1) == 0.0_dp), 'checkerboard global monopole and dipole must vanish')
-    call assert_true(any(abs(state%anchor_local) > 1.0e-12_dp), 'nonzero cell moments must still produce a far local field')
+    config%periodic_far_correction = 'none'
+    call build_plan(uncorrected, positions, config)
+    call update_state(uncorrected, uncorrected_state, charge)
+    target = [0.4_dp, 0.6_dp, 0.3_dp]
+    call eval_point(neutral, state, target, field)
+    call eval_point(uncorrected, uncorrected_state, target, uncorrected_field)
+    call assert_true(maxval(abs(field - uncorrected_field)) > 1.0e-6_dp*maxval(abs(uncorrected_field)), &
+                     'nonzero cell moments must still add the far k/=0 correction')
+    call destroy_state(uncorrected_state)
+    call destroy_plan(uncorrected)
     call destroy_state(state)
     call destroy_plan(neutral)
-    call delete_cache(path)
+    call delete_periodic_cache(path)
     call test_end()
   end subroutine check_zero_root_moments
 
-  subroutine delete_cache(path)
-    character(len=*), intent(in) :: path
-    call delete_file(path)
-    call delete_file(trim(path)//'.lock')
-  end subroutine delete_cache
-
-  subroutine delete_file(path)
-    character(len=*), intent(in) :: path
-    logical :: exists
-    integer :: delete_unit
-    inquire (file=trim(path), exist=exists)
-    if (.not. exists) return
-    open (newunit=delete_unit, file=trim(path), status='old')
-    close (delete_unit, status='delete')
-  end subroutine delete_file
 end program test_periodic2_operator_cache

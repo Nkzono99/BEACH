@@ -4,6 +4,8 @@ submodule(bem_output_writer) bem_output_writer_history
   use bem_filesystem, only: atomic_rename
   use bem_outflow_spectrum, only: outflow_spectrum_bins, outflow_spectrum_edges_ev
   implicit none
+  ! Released 2.0.x/3.0.x headers (17/19-column matching, 8-column top) are upgraded on resume;
+  ! remove them when schema-10 checkpoints stop loading.
   character(len=*), parameter :: matching_history_legacy_header = &
                                  'batch,simulated_time_s,D_H_C_m2,phi_H_V,electron_inward_flux_m2_s,ion_inward_flux_m2_s,'// &
                                  'electron_access_potential_V,ion_access_potential_V,photoelectron_barrier_potential_V,'// &

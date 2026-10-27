@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 from typing import Iterable
 
 
@@ -542,11 +543,24 @@ def render_svg(dot_text: str, svg_path: Path) -> None:
         raise RuntimeError("Graphviz 'dot' command is required to render the SVG graph.")
 
     svg_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [dot_bin, "-Tsvg", "-o", str(svg_path)],
-        input=dot_text.encode("utf-8"),
-        check=True,
-    )
+    command = [dot_bin, "-Tsvg", "-o", str(svg_path)]
+    try:
+        subprocess.run(
+            command, input=dot_text.encode("utf-8"), check=True, capture_output=True
+        )
+    except subprocess.CalledProcessError as exc:
+        # Graphviz 2.42/2.43 (Ubuntu 24.04) can abort the clustered left-to-right
+        # ranking with "trouble in init_rank" for graphs that 2.40 lays out fine.
+        # The top-to-bottom ranking of the same graph does not take that path.
+        print(
+            "warning: dot failed with rankdir=LR "
+            f"({exc.stderr.decode(errors='replace').splitlines()[:1]}); "
+            "retrying with rankdir=TB",
+            file=sys.stderr,
+        )
+        subprocess.run(
+            [*command, "-Grankdir=TB"], input=dot_text.encode("utf-8"), check=True
+        )
 
 
 def write_text(path: Path, content: str) -> None:

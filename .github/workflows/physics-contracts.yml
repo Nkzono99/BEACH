@@ -5,19 +5,20 @@ on:
     paths:
       - "src/**"
       - "app/**"
-      - "beach/config/**"
-      - "beach/cli/config.py"
-      - "beach/cli/lint.py"
+      - "beach/**"
       - "tests/**"
       - "schemas/**"
       - "examples/**"
+      - "benchmarks/**"
+      - "env/**"
       - "MANIFEST.in"
       - "fpm.toml"
       - "pyproject.toml"
       - "Makefile"
-      - "tools/verify_sdist.py"
-      - "tools/run_config_contracts.py"
-      - "tools/check_config_schema.py"
+      - "tools/**"
+      - "build.sh"
+      - "install.sh"
+      - "setup.py"
       - ".github/workflows/publish-pypi.yml"
       - ".github/workflows/physics-contracts.yml"
   push:
@@ -90,3 +91,6 @@ jobs:
 
       - name: Run portable physics contracts
         run: make test-l2
+
+      - name: Run periodic validation workflow contracts
+        run: make test-validation-workflow

@@ -21,9 +21,8 @@
 KUDPC ではログインノードで実行せず、`tssrun` で計算ノードに投入する。
 
 ```bash
-python -m pytest -q tests/python/test_docs_sync.py \
-  tests/python/test_documentation_contracts.py \
-  tests/python/test_far_correction_contract.py
+python -m pytest -q tests/python/repo/test_docs_sync.py \
+  tests/python/repo/test_documentation_contracts.py
 python tools/sync_starlight_docs.py --check   # docs-site を生成済みの場合
 ```
 

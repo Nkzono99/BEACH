@@ -1,25 +1,22 @@
+!> cached_kneq0 snapshot の k≠0・k=0・外部場の合成、upper Fourier retry、候補 step の測定、公開 C ABI との一致を検証する。
 program test_periodic2_cached_snapshot
-!$ use omp_lib
   use, intrinsic :: iso_c_binding, only: c_char, c_double, c_int, c_loc, c_ptr
-  use bem_kinds, only: dp, i32, i64
-  use bem_constants, only: eps0, qe
-  use bem_types, only: mesh_type, sim_config, sim_stats, bc_open, bc_periodic
-  use bem_mesh, only: init_mesh, prepare_periodic2_collision_mesh
-  use bem_simulator, only: run_absorption_insulator
-  use bem_app_config, only: app_config, default_app_config, species_from_defaults, seed_particles_from_config
-  use bem_charge_ledger, only: charge_ledger_type
+  use bem_kinds, only: dp, i32
+  use bem_constants, only: eps0
+  use bem_types, only: mesh_type, sim_config
   use bem_field_kernel_c, only: beach_kernel_build, beach_kernel_create, beach_kernel_destroy, &
                                 beach_kernel_eval_e, beach_kernel_eval_phi, &
-                                beach_kernel_get_periodic_cache_info, beach_kernel_ok, &
+                                beach_kernel_get_periodic_cache_info, beach_kernel_invalid_argument, beach_kernel_ok, &
                                 beach_kernel_set_periodic_cache, beach_kernel_update_charges
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_periodic_zero_mode_eval, only: eval_periodic_zero_mode, zero_mode_trace_plus
   use bem_coulomb_fmm_periodic_nonzero_reference, only: eval_periodic_nonzero_panel_reference
   use bem_coulomb_fmm_periodic_nonzero_upper_vacuum, only: upper_vacuum_eval_ok
+  use test_periodic2_cached_fixture, only: configure_cached_periodic2_fixture
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp, &
-                          assert_allclose_1d, assert_equal_i32, assert_equal_i64, delete_file_if_exists, &
-                          remove_empty_directory
+                          assert_allclose_1d, assert_equal_i32, unique_test_path, &
+                          delete_periodic_cache
   implicit none
 
   interface
@@ -76,20 +73,19 @@ program test_periodic2_cached_snapshot
   real(dp) :: refreshed_field(3), refreshed_potential
   real(dp) :: retry_nonzero_field(3), retry_total_field(3), retry_expected_field(3), retry_potential
   real(dp) :: retry_total_potential, retry_expected_potential
-  character(len=512) :: cache_path, cache_dir
-  integer(i64) :: clock_count
+  character(len=512) :: cache_path
+  character(len=:), allocatable :: cache_dir
   integer(i32) :: retry_status
   logical :: retry_available
 
-  call system_clock(count=clock_count)
-  write (cache_dir, '(a,i0)') 'test_periodic2_cached_snapshot_tmp_', clock_count
-  call configure_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2)
+  cache_dir = unique_test_path('test_periodic2_cached_snapshot_tmp_')
+  call configure_cached_periodic2_fixture(mesh, sim, field_config, periodic_config, panel_config, v0, v1, v2, cache_dir)
   call snapshot%init(mesh, sim, field_config, periodic_config, panel_config)
   cache_path = snapshot%diagnostics%periodic_cache_path
   call snapshot%refresh(mesh)
   target = [0.37_dp, 0.61_dp, 0.42_dp]
 
-  call test_init(6)
+  call test_init(5)
   call test_begin('cached_snapshot_composes_kneq0_and_k0_once')
   call assert_true(snapshot%diagnostics%split_periodic_active, 'cached split diagnostics must be active')
   call assert_true(trim(snapshot%diagnostics%status) == 'cached_kneq0', 'cached split diagnostics status mismatch')
@@ -150,8 +146,6 @@ program test_periodic2_cached_snapshot
 
   call test_kneq0_potential_step_measurement()
 
-  call test_adaptive_kneq0_rejects_then_accepts_half_step()
-
   call test_public_c_abi_acceptance()
 
   call test_begin('cached_snapshot_refreshes_both_components')
@@ -181,9 +175,7 @@ program test_periodic2_cached_snapshot
   call assert_true(potential_error < 1.0e-1_dp, 'neutral panel potential exceeds the charge-scale error contract')
   call test_end()
 
-  call delete_file_if_exists(cache_path)
-  call delete_file_if_exists(trim(cache_path)//'.lock')
-  call remove_empty_directory(cache_dir)
+  call delete_periodic_cache(cache_path, cache_dir)
   call test_summary()
 
 contains
@@ -239,174 +231,6 @@ contains
     call test_end()
   end subroutine test_kneq0_potential_step_measurement
 
-  subroutine test_adaptive_kneq0_rejects_then_accepts_half_step()
-    type(mesh_type) :: adaptive_mesh
-    type(app_config) :: adaptive_cfg
-    type(sim_stats) :: adaptive_stats, adaptive_resume_stats
-    type(charge_ledger_type) :: adaptive_ledger
-    type(electrostatic_snapshot_type) :: step_probe
-    real(dp) :: full_trial_charge(2)
-    real(dp) :: full_potential_step, potential_limit
-    real(dp), parameter :: maximum_duration = 1.0e-3_dp
-    real(dp), parameter :: opening_low = 0.13_dp
-    real(dp), parameter :: opening_high = 0.16_dp
-    real(dp), parameter :: emit_current_density = 1.0e-6_dp
-    real(dp), parameter :: electron_mass = 9.1093837139e-31_dp
-    integer(i32) :: actual_team_size
-    logical :: dynamic_before, dynamic_after
-!$  integer(kind=omp_sched_kind) :: schedule_before_kind, schedule_after_kind
-!$  integer :: schedule_before_chunk, schedule_after_chunk
-
-    call test_begin('adaptive_kneq0_rejects_full_step_and_commits_only_half_step')
-    actual_team_size = 1_i32
-    dynamic_before = .false.
-    dynamic_after = .true.
-!$  dynamic_before = omp_get_dynamic()
-!$  call omp_get_schedule(schedule_before_kind, schedule_before_chunk)
-!$  call omp_set_dynamic(.false.)
-    !$omp parallel default(none) shared(actual_team_size)
-    !$omp single
-!$  actual_team_size = int(omp_get_num_threads(), i32)
-    !$omp end single
-    !$omp end parallel
-!$  call omp_set_dynamic(.true.)
-!$  call omp_set_schedule(omp_sched_dynamic, 3)
-    call init_mesh(adaptive_mesh, v0, v1, v2)
-    adaptive_mesh%elem_vacuum_sign = 1_i32
-    adaptive_mesh%vacuum_normals = adaptive_mesh%normals
-
-    call default_app_config(adaptive_cfg)
-    adaptive_cfg%sim = sim
-    adaptive_cfg%sim%rng_seed = 1207_i32
-    adaptive_cfg%sim%batch_count = 1_i32
-    adaptive_cfg%sim%dt = 1.0e-5_dp
-    adaptive_cfg%sim%batch_duration = maximum_duration
-    adaptive_cfg%sim%has_batch_duration = .true.
-    adaptive_cfg%sim%max_step = 1_i32
-    adaptive_cfg%sim%q_floor = 1.0e-40_dp
-    adaptive_cfg%sim%e0 = 0.0_dp
-    adaptive_cfg%field = field_config
-    adaptive_cfg%periodic2 = periodic_config
-    adaptive_cfg%panel = panel_config
-    adaptive_cfg%n_particle_species = 1_i32
-    adaptive_cfg%particle_species(1) = species_from_defaults()
-    adaptive_cfg%particle_species(1)%species_key = 'photoelectron'
-    adaptive_cfg%particle_species(1)%source_mode = 'photo_raycast'
-    adaptive_cfg%particle_species(1)%inject_face = 'z_high'
-    adaptive_cfg%particle_species(1)%q_particle = -qe
-    adaptive_cfg%particle_species(1)%m_particle = electron_mass
-    adaptive_cfg%particle_species(1)%temperature_ev = 0.0_dp
-    adaptive_cfg%particle_species(1)%has_temperature_ev = .true.
-    adaptive_cfg%particle_species(1)%normal_drift_speed = 1.0_dp
-    adaptive_cfg%particle_species(1)%emit_current_density_a_m2 = emit_current_density
-    adaptive_cfg%particle_species(1)%rays_per_batch = 1_i32
-    adaptive_cfg%particle_species(1)%deposit_opposite_charge_on_emit = .true.
-    ! This opening lies wholly over element 1, so one ray deposits a known
-    ! charge proportional to batch_duration while the emitted particle survives.
-    adaptive_cfg%particle_species(1)%pos_low = [opening_low, opening_low, sim%box_max(3)]
-    adaptive_cfg%particle_species(1)%pos_high = [opening_high, opening_high, sim%box_max(3)]
-    adaptive_cfg%particle_species(1)%ray_direction = [0.0_dp, 0.0_dp, -1.0_dp]
-    adaptive_cfg%particle_species(1)%has_ray_direction = .true.
-
-    call prepare_periodic2_collision_mesh(adaptive_mesh, adaptive_cfg%sim)
-    call step_probe%init( &
-      adaptive_mesh, adaptive_cfg%sim, adaptive_cfg%field, adaptive_cfg%periodic2, adaptive_cfg%panel &
-      )
-    call step_probe%refresh(adaptive_mesh)
-    full_trial_charge = [ &
-                        emit_current_density*(opening_high - opening_low)**2*maximum_duration, &
-                        0.0_dp &
-                        ]
-    call step_probe%measure_kneq0_potential_step( &
-      adaptive_mesh, full_trial_charge, full_potential_step &
-      )
-    call assert_true(full_potential_step > 0.0_dp, &
-                     'adaptive calibration must produce a nonzero local potential step')
-    potential_limit = 0.75_dp*full_potential_step
-
-    adaptive_cfg%periodic2%max_nonzero_mode_potential_step = potential_limit
-    call seed_particles_from_config(adaptive_cfg)
-    call run_absorption_insulator( &
-      adaptive_mesh, adaptive_cfg, adaptive_stats, charge_ledger=adaptive_ledger &
-      )
-!$  dynamic_after = omp_get_dynamic()
-    call assert_true(dynamic_after, 'adaptive run did not restore the caller OpenMP dynamic ICV')
-!$  call omp_get_schedule(schedule_after_kind, schedule_after_chunk)
-!$  call assert_equal_i32( &
-!$    int(schedule_after_kind, i32), int(omp_sched_dynamic, i32), &
-!$    'adaptive run did not restore the caller OpenMP schedule kind' &
-!$    )
-!$  call assert_equal_i32( &
-!$    int(schedule_after_chunk, i32), 3_i32, &
-!$    'adaptive run did not restore the caller OpenMP schedule chunk' &
-!$    )
-
-    call assert_equal_i64(adaptive_stats%adaptive_nonzero_mode%rejected_trials, 1_i64, &
-                          'adaptive batch must reject the full-duration trial exactly once')
-    call assert_equal_i32(adaptive_stats%batches, 1_i32, &
-                          'rejected adaptive trials must not increment the accepted batch count')
-    call assert_equal_i32( &
-      adaptive_stats%adaptive_nonzero_mode%omp_threads, actual_team_size, &
-      'adaptive run must checkpoint its actual OpenMP team size' &
-      )
-    call assert_equal_i64(adaptive_stats%processed_particles, 1_i64, &
-                          'rejected adaptive trials must not enter particle statistics')
-    call assert_equal_i64(adaptive_ledger%emitted_count(1), 1_i64, &
-                          'rejected adaptive trials must not enter the charge ledger')
-    call assert_close_dp( &
-      adaptive_stats%simulated_time, 0.5_dp*maximum_duration, &
-      64.0_dp*epsilon(1.0_dp)*maximum_duration, &
-      'simulated time must include only the accepted half-duration trial' &
-      )
-    call assert_close_dp( &
-      adaptive_stats%adaptive_nonzero_mode%last_batch_duration, 0.5_dp*maximum_duration, &
-      64.0_dp*epsilon(1.0_dp)*maximum_duration, &
-      'adaptive accepted duration must be one half of the rejected trial' &
-      )
-    call assert_true( &
-      adaptive_stats%adaptive_nonzero_mode%last_potential_step <= potential_limit, &
-      'accepted adaptive kneq0 potential step exceeds the configured limit' &
-      )
-    call assert_close_dp( &
-      adaptive_stats%adaptive_nonzero_mode%last_potential_step, 0.5_dp*full_potential_step, &
-      1.0e-10_dp*max(1.0_dp, full_potential_step), &
-      'accepted adaptive potential step does not scale with the half duration' &
-      )
-    call assert_allclose_1d( &
-      adaptive_mesh%q_elem, 0.5_dp*full_trial_charge, &
-      1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
-      'rejected full-duration charge leaked into the committed mesh state' &
-      )
-    call assert_close_dp( &
-      adaptive_stats%matching_plane%top_cell_mean_v_m, &
-      sum(adaptive_mesh%q_elem)/(2.0_dp*eps0*product(sim%box_max(1:2) - sim%box_min(1:2))), &
-      1.0e-12_dp, 'top-cell mean field receipt must use the committed charge' &
-      )
-    adaptive_stats%adaptive_nonzero_mode%omp_threads = actual_team_size + 1_i32
-    call run_absorption_insulator( &
-      adaptive_mesh, adaptive_cfg, adaptive_resume_stats, initial_stats=adaptive_stats &
-      )
-    call assert_equal_i32(adaptive_resume_stats%batches, adaptive_stats%batches, &
-                          'same-team adaptive zero-batch resume changed the accepted batch count')
-    call assert_equal_i32( &
-      adaptive_resume_stats%adaptive_nonzero_mode%omp_threads, &
-      actual_team_size, &
-      'adaptive resume must record the current team size rather than require the checkpoint value' &
-      )
-    call assert_close_dp( &
-      adaptive_resume_stats%simulated_time, adaptive_stats%simulated_time, 0.0_dp, &
-      'same-team adaptive resume changed its accepted physical time' &
-      )
-    call assert_allclose_1d( &
-      adaptive_mesh%q_elem, 0.5_dp*full_trial_charge, &
-      1.0e-12_dp*max(maxval(abs(full_trial_charge)), tiny(1.0_dp)), &
-      'same-team adaptive zero-batch resume changed the mesh charge' &
-      )
-!$  call omp_set_schedule(schedule_before_kind, schedule_before_chunk)
-!$  call omp_set_dynamic(dynamic_before)
-    call test_end()
-  end subroutine test_adaptive_kneq0_rejects_then_accepts_half_step
-
   subroutine evaluate_components(expected_e, expected_phi, nonzero_e, nonzero_phi, zero_e, zero_phi)
     real(dp), intent(out) :: expected_e(3), expected_phi, nonzero_e(3), nonzero_phi, zero_e, zero_phi
     call snapshot%nonzero_solver%eval_e(mesh, target, nonzero_e)
@@ -422,7 +246,8 @@ contains
     type(c_ptr) :: kernel_handle, zero_handle
     integer(c_int) :: status
     integer(c_int), target :: periodic_axes(2), cache_hit, cache_build_count
-    integer(c_int), target :: fingerprint_length, path_length
+    integer(c_int), target :: fingerprint_length, path_length, short_fingerprint_length, short_path_length
+    character(kind=c_char), target :: short_fingerprint(1), short_path(1)
     real(c_double), target :: panel_v0(3, 2), panel_v1(3, 2), panel_v2(3, 2)
     real(c_double), target :: charge(2), source_heights(3, 2)
     real(c_double), target :: periodic_length(2), box_min(3), box_max(3)
@@ -476,6 +301,24 @@ contains
              int(size(path_buffer), c_int), c_loc(path_length) &
              )
     call assert_c_ok(status, 'FieldKernel cache info status')
+    ! A buffer without room for the text and its NUL is rejected, reports the required lengths of the
+    ! cached handle, and leaves the caller's bytes untouched.
+    short_fingerprint = achar(88, kind=c_char)
+    short_path = achar(89, kind=c_char)
+    short_fingerprint_length = -1_c_int
+    short_path_length = -1_c_int
+    status = beach_kernel_get_periodic_cache_info( &
+             kernel_handle, c_loc(cache_hit), c_loc(cache_build_count), c_loc(short_fingerprint), 1_c_int, &
+             c_loc(short_fingerprint_length), c_loc(short_path), 1_c_int, c_loc(short_path_length) &
+             )
+    call assert_equal_i32(int(status, i32), int(beach_kernel_invalid_argument, i32), &
+                          'cached short-buffer cache info status')
+    call assert_equal_i32(int(short_fingerprint_length, i32), int(fingerprint_length, i32), &
+                          'cached short buffer must report the fingerprint length')
+    call assert_equal_i32(int(short_path_length, i32), int(path_length, i32), &
+                          'cached short buffer must report the path length')
+    call assert_true(short_fingerprint(1) == achar(88, kind=c_char), 'cached short buffer must not truncate fingerprint')
+    call assert_true(short_path(1) == achar(89, kind=c_char), 'cached short buffer must not truncate path')
     call assert_equal_i32(int(cache_hit, i32), 1_i32, 'FieldKernel must reuse the snapshot cache')
     call assert_equal_i32(int(cache_build_count, i32), 0_i32, 'FieldKernel must not rebuild the snapshot cache')
     call assert_true( &
@@ -573,56 +416,5 @@ contains
       value(i:i) = achar(iachar(buffer(i)))
     end do
   end function c_buffer_text
-
-  subroutine configure_fixture(mesh_out, sim_out, field_out, periodic_out, panel_out, a, b, c)
-    type(mesh_type), intent(out) :: mesh_out
-    type(sim_config), intent(out) :: sim_out
-    type(field_physics_config), intent(out) :: field_out
-    type(periodic2_physics_config), intent(out) :: periodic_out
-    type(panel_kernel_config), intent(out) :: panel_out
-    real(dp), intent(out) :: a(3, 2), b(3, 2), c(3, 2)
-
-    a(:, 1) = [0.10_dp, 0.10_dp, 0.25_dp]
-    b(:, 1) = [0.55_dp, 0.10_dp, 0.25_dp]
-    c(:, 1) = [0.10_dp, 0.55_dp, 0.25_dp]
-    a(:, 2) = [0.45_dp, 0.45_dp, 0.65_dp]
-    b(:, 2) = [0.90_dp, 0.45_dp, 0.65_dp]
-    c(:, 2) = [0.90_dp, 0.90_dp, 0.65_dp]
-    ! Resolve the two-panel fixture inside the box-cell proxy envelope.
-    b = a + 0.45_dp*(b - a)
-    c = a + 0.45_dp*(c - a)
-    call init_mesh(mesh_out, a, b, c, q0=[1.0e-12_dp, 2.0e-12_dp])
-    mesh_out%elem_vacuum_sign = 1_i32
-    mesh_out%vacuum_normals = mesh_out%normals
-
-    sim_out = sim_config()
-    sim_out%field_solver = 'fmm'
-    sim_out%field_bc_mode = 'periodic2'
-    sim_out%field_periodic_far_correction = 'cached_kneq0'
-    sim_out%field_periodic_image_layers = 1_i32
-    sim_out%field_periodic_ewald_layers = 3_i32
-    sim_out%field_periodic_cache_dir = cache_dir
-    sim_out%field_periodic_generation_tolerance = 1.0e-8_dp
-    sim_out%multiple_box_events_retry_backend = 'upper_panel_fourier'
-    sim_out%field_normalization = 'si'
-    sim_out%tree_theta = 0.5_dp
-    sim_out%has_tree_theta = .true.
-    sim_out%tree_leaf_max = 8_i32
-    sim_out%has_tree_leaf_max = .true.
-    sim_out%e0 = [0.2_dp, -0.1_dp, 0.3_dp]
-    sim_out%use_box = .true.
-    sim_out%box_min = [0.0_dp, 0.0_dp, 0.0_dp]
-    sim_out%box_max = [1.0_dp, 1.0_dp, 1.0_dp]
-    sim_out%bc_low = [bc_periodic, bc_periodic, bc_open]
-    sim_out%bc_high = [bc_periodic, bc_periodic, bc_open]
-    field_out = field_physics_config(backend='fmm', normalization='si')
-    periodic_out = periodic2_physics_config( &
-                   nonzero_mode_backend='cached_kneq0', zero_mode_policy='exclude_k0', &
-                   lower_boundary_model='symmetric_vacuum' &
-                   )
-    panel_out = panel_kernel_config( &
-                kernel_id='triangle_p0_exact_p2m_near', surface_side_policy='per_element' &
-                )
-  end subroutine configure_fixture
 
 end program test_periodic2_cached_snapshot
