@@ -405,7 +405,8 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _install_fake_evaluator(tmp_path, monkeypatch)
+    captured: dict[str, object] = {}
+    _install_fake_evaluator(tmp_path, monkeypatch, captured=captured)
     artifact_dir = tmp_path / "analysis"
     cache_dir = tmp_path / "periodic-cache"
     library = tmp_path / "libbeach_field_kernel.so"
@@ -473,6 +474,7 @@ def test_object_detachment_cli_forwards_snapshot_path_and_adhesion_options(
     assert summary["configuration"]["generation_tolerance_override"] == pytest.approx(
         1.0e-7
     )
+    assert captured["generation_tolerance"] == pytest.approx(1.0e-7)
 
 
 def test_object_detachment_cli_rejects_ambiguous_step_word(
@@ -529,6 +531,7 @@ def _install_fake_evaluator(
     monkeypatch: pytest.MonkeyPatch,
     *,
     result: _FakeResult | None = None,
+    captured: dict[str, object] | None = None,
 ) -> None:
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "beach.toml").write_text("[sim]\n", encoding="utf-8")
@@ -537,6 +540,8 @@ def _install_fake_evaluator(
     monkeypatch.setattr("beach.facade.load_run", lambda _output: resolved_result)
 
     def fake_snapshot(_run, *, step, periodic_model, cache_dir, generation_tolerance):
+        if captured is not None:
+            captured["generation_tolerance"] = generation_tolerance
         return _FakeSnapshot(step, periodic_model, cache_dir)
 
     monkeypatch.setattr(Beach, "object_interaction_snapshot", fake_snapshot)
