@@ -18,6 +18,7 @@ module bem_filesystem
   public :: default_periodic_cache_directory
   public :: create_directories
   public :: atomic_rename
+  public :: remove_file_if_exists
   public :: acquire_file_lock
   public :: release_file_lock
 
@@ -42,6 +43,11 @@ module bem_filesystem
       import :: c_char, c_int
       character(kind=c_char), intent(in) :: old_path(*), new_path(*)
     end function c_rename
+
+    integer(c_int) function c_unlink(path) bind(C, name='unlink')
+      import :: c_char, c_int
+      character(kind=c_char), intent(in) :: path(*)
+    end function c_unlink
 
     integer(c_int) function c_open(path, flags, mode) bind(C, name='open')
       import :: c_char, c_int
@@ -115,6 +121,24 @@ contains
       status = filesystem_os_error
     end if
   end subroutine atomic_rename
+
+  !> Remove one named file; a missing file counts as success. unlink never removes a directory.
+  subroutine remove_file_if_exists(path, status)
+    character(len=*), intent(in) :: path
+    integer, intent(out) :: status
+    character(kind=c_char), allocatable :: c_path(:)
+    logical :: exists
+
+    if (len_trim(path) == 0) then
+      status = filesystem_empty_path
+      return
+    end if
+    inquire (file=trim(path), exist=exists)
+    status = filesystem_success
+    if (.not. exists) return
+    call to_c_string(trim(path), c_path)
+    if (c_unlink(c_path) /= 0_c_int) status = filesystem_os_error
+  end subroutine remove_file_if_exists
 
   subroutine acquire_file_lock(path, lock_fd, status)
     character(len=*), intent(in) :: path

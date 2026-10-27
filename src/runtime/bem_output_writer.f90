@@ -29,6 +29,24 @@ module bem_output_writer
   public :: write_result_files
   public :: write_checkpoint_state_files
   public :: ensure_output_dir
+  public :: remove_previous_run_outputs
+  public :: trim_history_files
+
+  ! Optional products that one run may write and the next run may not; `remove_previous_run_outputs`
+  ! and `trim_history_files` own them by these names, so a new history must be added here.
+  character(len=*), parameter :: charge_history_file = 'charge_history.csv'
+  character(len=*), parameter :: potential_history_file = 'potential_history.csv'
+  character(len=*), parameter :: top_reference_history_file = 'top_reference_history.csv'
+  character(len=*), parameter :: matching_plane_history_file = 'matching_plane_history.csv'
+  character(len=*), parameter :: matching_plane_spectrum_history_file = 'matching_plane_spectrum_history.csv'
+  character(len=*), parameter :: fixed_current_history_file = 'fixed_current_history.csv'
+  character(len=*), parameter :: secondary_emission_history_file = 'secondary_emission_history.csv'
+  character(len=*), parameter :: history_files(7) = [character(len=40) :: &
+                                                     charge_history_file, potential_history_file, &
+                                                     top_reference_history_file, matching_plane_history_file, &
+                                                     matching_plane_spectrum_history_file, &
+                                                     fixed_current_history_file, secondary_emission_history_file]
+  character(len=*), parameter :: mesh_potential_file = 'mesh_potential.csv'
 
   interface
     module subroutine open_history_writer(app, resumed, history_opened, history_unit)
@@ -51,6 +69,15 @@ module bem_output_writer
       logical, intent(out) :: history_opened
       integer, intent(out) :: history_unit
     end subroutine open_top_reference_history_writer
+
+    module subroutine remove_previous_run_outputs(out_dir)
+      character(len=*), intent(in) :: out_dir
+    end subroutine remove_previous_run_outputs
+
+    module subroutine trim_history_files(out_dir, last_batch)
+      character(len=*), intent(in) :: out_dir
+      integer(i32), intent(in) :: last_batch
+    end subroutine trim_history_files
 
     module subroutine write_top_reference_history_snapshot( &
       unit_id, batch_idx, simulated_time_s, z_high_m, sample_n, &

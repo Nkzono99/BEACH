@@ -66,6 +66,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   有限で非負の温度、各成分 `source.pos_low <= source.pos_high` を生成前に診断するようにした（#68）。
   これまで reservoir 流入のない `volume_seed` は検査を通らず、質量は最初の batch で停止し、負の温度は 0 に丸められていた。
   温度 0 と点状・平面状の生成領域は引き続き受け入れ、slot 生成は検査済みの値を再検査・補正せずに使う。
+- 同じ `output.dir` を再利用する新規実行が、前の run の history・`mesh_potential.csv`・`performance_profile.csv` と
+  定期 slot を残し、解析が前の run の history を、再開が前の run の slot を選ぶ問題を直した（#79）。新規実行は書き始める前に、
+  前の run の最終出力と両 slot から `summary.txt` と `checkpoint_complete.txt`、`checkpoint_latest.txt` を削除して
+  再開候補から外し、既知の名前の任意出力だけを削除する。
+- history より古い checkpoint から再開すると、history の未来行の後へ追記して batch が重複・逆転する問題を直した（#80）。
+  再開時に各 history から checkpoint の `batches` より後の行と改行で終わらない末尾の行を原子的に除き、
+  0 byte の history には header を書く。定期 checkpoint を書く batch では完了 manifest より先に history を flush する。
 - `build.sh` が fpm を `OMP_PROC_BIND=false` で起動するようにした。KUDPC の job 既定の `OMP_PROC_BIND=close` では
   fpm が起動する test と `beach` が 1 core の affinity を継承し、OpenMP test が数倍遅くなっていた。
 - `test_upper_fourier_switch` が固定の cache directory を再利用して 2 回目以降に cold build を検査しなくなる問題を直した。

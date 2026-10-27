@@ -463,6 +463,29 @@ PE の設定放出量は PE だけの値です。新しい履歴は 21 列です
 
 `run.restart.from` は読み込み元だけを変更し、新しい出力は `output.dir` に書きます。
 
+### 出力先の世代
+
+`output.dir` にある BEACH の成果物は、いつも 1 つの run の世代にそろえます。root rank が history writer を
+開く前に、次を行います。
+
+| 実行 | `output.dir` への処理 |
+| --- | --- |
+| 新規実行（`[run.restart]` なし） | まず前の run の最終出力と `checkpoints/slot0`、`slot1` から `summary.txt` と `checkpoint_complete.txt` を、続けて `checkpoint_latest.txt` を削除し、どれも再開候補でなくする。次に、今回は書かないかもしれない history CSV 7 種、`mesh_potential.csv`、`performance_profile.csv` を削除する |
+| 再開 | 各 history から、再開した checkpoint の `batches` より後の行と、改行で終わらない末尾の行を除く。除く行があるファイルだけを一時ファイル経由で原子的に置き換える。header だけ、0 byte、存在しない history はそのまま残し、有効な history には writer が header を書く |
+
+削除するのは上の名前のファイルだけで、出力先にある他のファイルとディレクトリには触れません。
+`run.restart.from` のディレクトリは読むだけで変更しません。
+
+定期 checkpoint を書く batch では、history を flush してから完了 manifest を公開します。このため、再開できる
+checkpoint の `batches` までの history 行はすべて完全で、再開後の history も Python reader の厳密な検査
+（batch の単調増加、要素の重複・欠落なし）を通ります。
+
+新規実行が途中で止まった場合、出力先の直下には `summary.txt` がないので `load_run` では読めません。
+今回の run が定期 checkpoint を 1 つ以上書いていれば、その checkpoint から再開できます。最初の定期 checkpoint
+より前に止まった場合は、前の run の checkpoint をすでに無効化しているので再開できる checkpoint はありません。
+前の run の checkpoint から続けたい場合は、新規実行ではなく再開してください。前の run を残したまま別の
+条件で始める場合は、新規実行の前に出力先を分けてください。
+
 ### Schema 世代
 
 | schema | 契約 |

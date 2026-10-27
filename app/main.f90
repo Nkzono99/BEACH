@@ -54,7 +54,7 @@ program main
   end if
   call perf_set_output_context(trim(app%output_dir), app%write_output)
   if (mpi_is_root(mpi)) call perf_region_begin(perf_region_history_open, perf_t0)
-  call open_run_outputs(app, resumed, mpi_is_root(mpi), run_outputs)
+  call open_run_outputs(app, resumed, initial_stats%batches, mpi_is_root(mpi), run_outputs)
   if (mpi_is_root(mpi)) call perf_region_end(perf_region_history_open, perf_t0)
 
   call run_absorption_insulator( &

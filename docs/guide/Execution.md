@@ -198,6 +198,9 @@ dir = "outputs/tutorial"
 ```
 
 一般に、checkpoint が `batches=100` で新しい `batch_count=150` なら 50 バッチを追加します。
+古い slot から再開した場合も、history はその checkpoint の batch まで切り戻してから追記します。
+`[run.restart]` を書かずに既存の出力先で実行すると新規実行として扱い、前の run の checkpoint と history を
+消します（[出力先の世代](../reference/OutputReference.md#出力先の世代)）。
 MPI 再開の rank 数は保存時と違ってかまいません。乱数はすべて (seed, batch, 粒子 slot, ...) で決まる PCG64 の
 counter-based 乱数で、checkpoint は乱数状態を持ちません。同じ seed なら rank 数によらず同じ粒子集合を追跡します。
 適応的な $k\ne0$ 進行では、同じ実行内の再試行で全 MPI rank の実 OpenMP team size を揃えます。

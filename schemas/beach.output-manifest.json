@@ -29,49 +29,49 @@
     },
     {
       "name": "mesh_potential.csv",
-      "producer": "src/runtime/bem_output_writer_files.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.write_mesh_potential=true",
       "restart_role": "none"
     },
     {
       "name": "charge_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.history_stride>0",
       "restart_role": "none"
     },
     {
       "name": "potential_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0",
       "restart_role": "none"
     },
     {
       "name": "top_reference_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.write_potential_history=true and output.history_stride>0 and [domain] is configured",
       "restart_role": "none"
     },
     {
       "name": "matching_plane_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.history_stride>0 and surface_current_model.model=zhao_stationary and surface_current_model.outflow_refresh_batches>0",
       "restart_role": "none"
     },
     {
       "name": "matching_plane_spectrum_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.history_stride>0 and surface_current_model.model=zhao_stationary and surface_current_model.outflow_refresh_batches>0",
       "restart_role": "none"
     },
     {
       "name": "fixed_current_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and output.history_stride>0 and (surface_current_model.model=zhao_stationary or an enabled species uses surface_charge_closure=fixed_current)",
       "restart_role": "none"
     },
     {
       "name": "secondary_emission_history.csv",
-      "producer": "src/runtime/bem_output_writer_history.f90",
+      "producer": "src/runtime/bem_output_writer.f90",
       "condition": "output.write_files=true and an enabled incident species has secondary_emission_enabled=true; every accepted batch",
       "restart_role": "none"
     },

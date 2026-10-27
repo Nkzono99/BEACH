@@ -470,6 +470,13 @@ summary に ledger metadata があれば、schema の世代によらず `charge_
 必須ファイルが揃う load 可能な checkpoint のうち `batches` が最大のものを選びます。
 `checkpoint_latest.txt` が欠落、破損、または古い場合も、完了 manifest を持つ slot は回収対象です。
 `output.checkpoint.stride_batches=0` でも正常終了時の最終 checkpoint は出力します。
+定期 checkpoint を書く batch では、完了 manifest を公開する前に history を flush します。
+
+`output.dir` の BEACH 成果物は 1 つの run の世代にそろえます。新規実行は書き始める前に、前の run の最終出力と
+両 slot から `summary.txt` と `checkpoint_complete.txt`、`checkpoint_latest.txt` を削除して再開候補から外し、
+次に history CSV、`mesh_potential.csv`、`performance_profile.csv` を削除します。再開は各 history から
+checkpoint の `batches` より後の行と改行で終わらない末尾の行を除いてから追記します。
+どちらも既知の名前のファイルだけを扱い、`run.restart.from` のディレクトリは変更しません。
 
 `summary.txt` の checkpoint schema と ordered mesh fingerprint を照合します。
 メッシュの不一致は保存電荷を同じ要素へ対応付けられないため停止します。モデル・粒子種の設定はハッシュ化せず、

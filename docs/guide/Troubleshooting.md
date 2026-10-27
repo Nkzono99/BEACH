@@ -156,6 +156,7 @@ sed -n '1,80p' "$checkpoint_dir/checkpoint_complete.txt"
 - 元の物理・数値設定を変えて再開する場合は warning を記録し、出力先を分けて変更前後の連続性を確認します。
 - 異なる世代のファイルを手作業で混ぜたり、`checkpoint_complete.txt` を書き換えたりしません。
 - `[run.restart]` を省略して同じ `output.dir` へ新規実行することを、再開エラーの回避策にしません。
+  新規実行は前の run の checkpoint を再開候補から外し、history を削除します。
 - 定期 slot がある場合、BEACH は直下の最終出力と `checkpoints/slot0`、`slot1` から完全で最新の候補を自動選択します。
 
 修正後は[実行と再開](Execution.md#checkpointから一度再開する)の手順で別出力先へ再開し、次を確認します。
