@@ -93,6 +93,11 @@ beachx workload beach.toml \
   --mpi-rank 0
 ```
 
+rank 別の個数は本体の `static` 分配と同じく、バッチの global slot（種ごとの source と reservoir 面を round-robin に
+並べた列）を総数で一度だけ分割した連続区間から数えます（`rank_count_basis = "static_contiguous_slots"`）。
+`particle_distribution = "shared"` では各 rank の取得数が実行時に動的に決まるため、同じ数値は均等負荷を仮定した
+目安です（`rank_count_basis = "shared_even_load_assumption"`）。
+
 ## 性能計測
 
 粗いフェーズ計測を有効にする場合は`BEACH_PROFILE=1`を設定します。

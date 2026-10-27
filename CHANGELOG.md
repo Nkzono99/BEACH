@@ -69,6 +69,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - 平面 oracle が mesh 解像度ごとに異なる cache identity を要求する誤検知を修正した。
   同じ box-cell 演算子の再利用を認め、評価ごとの path・fingerprint・SHA256 の照合を維持する。
 - 近接場の有限 shell テストで経路の標本点を 9 点から 33 点に増やし、1% の仕事誤差条件を満たす積分解像度で比較する。
+- `beachx workload` の rank 別粒子数を本体の `static` 分配に合わせた。種・source・reservoir 面ごとに
+  round-robin に並ぶ global slot の総数を一度だけ分割した連続区間から数え（以前は source・面ごとに分割して合計していた）、
+  `shared` 分配では均等負荷の仮定であることを `rank_count_basis` に示す（#64）。
 
 ## [4.0.0] - 2026-10-23
 
