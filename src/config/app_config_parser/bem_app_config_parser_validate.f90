@@ -137,10 +137,6 @@ contains
       error stop species_config_path(species_idx)// &
         '.distribution must resolve to a finite number density > 0.'
     end if
-    if (.not. ieee_is_finite(species_temperature_k(spec)) .or. species_temperature_k(spec) < 0.0_dp) then
-      error stop species_config_path(species_idx)// &
-        '.distribution must resolve to a finite temperature >= 0.'
-    end if
   end subroutine validate_flux_driven_parameters
 
   subroutine resolve_flux_driven_weight(cfg, spec, physical_rate, species_idx)

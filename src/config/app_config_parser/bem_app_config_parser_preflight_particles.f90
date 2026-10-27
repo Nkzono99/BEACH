@@ -77,6 +77,7 @@ contains
     end if
     select case (trim(cfg%particle_species(i)%source_mode))
     case ('volume_seed')
+      call validate_volume_seed_species(cfg%particle_species(i), i, has_boundary_inflow)
       if (has_boundary_inflow) call validate_boundary_inflow_species(cfg, i)
     case ('photo_raycast')
       call validate_photo_raycast_species(cfg, i)
@@ -136,6 +137,33 @@ contains
   end do
   batch_n = particles_per_batch_from_config(cfg)
   end procedure validate_particle_species_config
+
+  !> volume_seed の体積生成と reservoir 流入が共有する粒子属性と生成領域を検査する。
+  !! slot 生成はこれらを再検査せずに使うので、native 入口ではここが唯一の所有者になる。
+  !! 点状・平面状の生成領域（`pos_low == pos_high` の成分）と温度 0 は有効な入力として受け入れる。
+  subroutine validate_volume_seed_species(spec, species_idx, has_boundary_inflow)
+    type(particle_species_spec), intent(in) :: spec
+    integer, intent(in) :: species_idx
+    logical, intent(in) :: has_boundary_inflow
+    real(dp) :: temperature_k
+
+    if (.not. ieee_is_finite(spec%m_particle) .or. spec%m_particle <= 0.0_dp) then
+      call stop_config_error(species_config_path(species_idx)//'.mass_kg must be finite and > 0.')
+    end if
+    temperature_k = species_temperature_k(spec)
+    if (.not. ieee_is_finite(temperature_k) .or. temperature_k < 0.0_dp) then
+      call stop_config_error(species_config_path(species_idx)//'.distribution must resolve to a finite temperature >= 0.')
+    end if
+    if (any(spec%pos_high < spec%pos_low)) then
+      call stop_config_error(species_config_path(species_idx)//'.source.pos_high must be >= '// &
+                             species_config_path(species_idx)//'.source.pos_low in every component.')
+    end if
+    ! target_macro_particles_per_batch から導く流入重みは、解決する validate_boundary_inflow_species が検査する。
+    if (has_boundary_inflow .and. spec%has_target_macro_particles_per_batch) return
+    if (.not. ieee_is_finite(spec%w_particle) .or. spec%w_particle <= 0.0_dp) then
+      call stop_config_error(species_config_path(species_idx)//'.sampling.weight must be finite and > 0.')
+    end if
+  end subroutine validate_volume_seed_species
 
   !> 表面 source 電荷 closure が、その closure を適用できる粒子源と目標電流を持つことを確認する。
   subroutine validate_surface_charge_closure(cfg, species_idx, effective_low, effective_high)

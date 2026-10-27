@@ -62,6 +62,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- native preflight（`beach --check-config` と通常実行）が `volume_seed` 粒子種の `mass_kg > 0`、`sampling.weight > 0`、
+  有限で非負の温度、各成分 `source.pos_low <= source.pos_high` を生成前に診断するようにした（#68）。
+  これまで reservoir 流入のない `volume_seed` は検査を通らず、質量は最初の batch で停止し、負の温度は 0 に丸められていた。
+  温度 0 と点状・平面状の生成領域は引き続き受け入れ、slot 生成は検査済みの値を再検査・補正せずに使う。
 - `build.sh` が fpm を `OMP_PROC_BIND=false` で起動するようにした。KUDPC の job 既定の `OMP_PROC_BIND=close` では
   fpm が起動する test と `beach` が 1 core の affinity を継承し、OpenMP test が数倍遅くなっていた。
 - `test_upper_fourier_switch` が固定の cache directory を再利用して 2 回目以降に cold build を検査しなくなる問題を直した。

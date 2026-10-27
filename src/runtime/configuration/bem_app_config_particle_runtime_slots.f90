@@ -233,8 +233,8 @@ contains
       x = spec%pos_low + (spec%pos_high - spec%pos_low)* &
           [counter_uniform(cfg%sim%rng_seed, counter, 1_i64), counter_uniform(cfg%sim%rng_seed, counter, 2_i64), &
            counter_uniform(cfg%sim%rng_seed, counter, 3_i64)]
-      if (spec%m_particle <= 0.0_dp) error stop 'particle mass [kg] must be > 0'
-      sigma = sqrt(k_boltzmann*max(0.0_dp, layout%temperature_k(s))/spec%m_particle)
+      ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
+      sigma = sqrt(k_boltzmann*layout%temperature_k(s)/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)
       v = sigma*z(:, 1) + layout%drift_velocity(:, s)
       w = layout%weight(s)
