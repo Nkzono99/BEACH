@@ -6,7 +6,8 @@ program test_physics_config_types
   use bem_physics_config_types, only: &
     field_physics_config, periodic2_physics_config, panel_kernel_config, &
     physics_config_ok, physics_config_invalid_combination, physics_config_unavailable, &
-    normalize_legacy_physics_config, validate_active_physics_config, validate_upper_fourier_height
+    normalize_legacy_physics_config, validate_active_physics_config, validate_upper_fourier_height, &
+    upper_fourier_auto_height_range
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_equal_i32
   implicit none
 
@@ -17,7 +18,7 @@ program test_physics_config_types
   integer(i32) :: status
   character(len=256) :: message
 
-  call test_init(7)
+  call test_init(8)
 
   call test_begin('free_field_normalization')
   sim = sim_config()
@@ -145,9 +146,48 @@ program test_physics_config_types
   call assert_true(status /= physics_config_ok, 'negative mode layers accepted')
   call test_end()
 
+  call test_begin('upper_fourier_auto_range_is_translation_invariant')
+  call check_auto_range_translation()
+  call test_end()
+
   call test_summary()
 
 contains
+
+  !> The same box/mesh layout moved in z so that H is positive, zero, negative, or far from the
+  !! origin must keep auto valid with the same relative candidate interval, inside [z_top + 0.25 L, H).
+  subroutine check_auto_range_translation()
+    real(dp), parameter :: offsets(5) = [0.0_dp, -1.0_dp, -2.0_dp, -7.5_dp, 1.0e8_dp]
+    real(dp), parameter :: z_top_local = 0.35_dp
+    real(dp) :: reference(2), lower, upper, height
+    integer :: k, plane
+
+    call configure_xy_periodic(sim, 'fmm', 'cached_kneq0')
+    call normalize_legacy_physics_config(sim, field, periodic2, panel)
+    periodic2%upper_fourier_switch = 'auto'
+    do k = 1, size(offsets)
+      sim%box_min(3) = offsets(k)
+      sim%box_max(3) = offsets(k) + 1.0_dp
+      call validate_upper_fourier_height(sim, periodic2, offsets(k) + z_top_local, status, message)
+      call assert_equal_i32(status, physics_config_ok, 'translated auto switch must stay valid')
+      call upper_fourier_auto_height_range(sim, offsets(k) + z_top_local, lower, upper)
+      call assert_true(upper < sim%box_max(3), 'auto upper end must stay below H')
+      call assert_true(lower >= offsets(k) + z_top_local + 0.25_dp*(1.0_dp - 1.0e-9_dp), &
+                       'auto lower end must keep the 0.25 min(Lx,Ly) clearance')
+      ! Same 16-plane rule as the snapshot candidates: all inside [lower, upper] < H.
+      do plane = 1, 16
+        height = lower + (upper - lower)*real(plane - 1, dp)/15.0_dp
+        call assert_true(height >= lower .and. height < sim%box_max(3), 'auto candidate outside [clearance, H)')
+      end do
+      if (k == 1) then
+        reference = [lower, upper] - offsets(k)
+      else if (offsets(k) > -10.0_dp .and. offsets(k) < 10.0_dp) then
+        ! Up to the ULP of the translated coordinates, the interval moves with the box.
+        call assert_true(all(abs(([lower, upper] - offsets(k)) - reference) <= 64.0_dp*epsilon(1.0_dp)*10.0_dp), &
+                         'auto interval must translate with the box')
+      end if
+    end do
+  end subroutine check_auto_range_translation
 
   subroutine configure_xy_periodic(config, solver, far_correction)
     type(sim_config), intent(out) :: config

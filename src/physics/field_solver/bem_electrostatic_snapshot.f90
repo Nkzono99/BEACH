@@ -7,7 +7,8 @@ module bem_electrostatic_snapshot
   use bem_mpi, only: mpi_context
   use bem_field_solver, only: field_solver_type
   use bem_physics_config_types, only: field_physics_config, periodic2_physics_config, panel_kernel_config, &
-                                      validate_upper_fourier_height, physics_config_ok
+                                      validate_upper_fourier_height, upper_fourier_auto_height_range, &
+                                      physics_config_ok
   use bem_string_utils, only: lower_ascii
   use bem_runtime_modes, only: lower_boundary_model_id, lower_boundary_e_bottom_zero, &
                                lower_boundary_symmetric_vacuum, lower_boundary_e_top_from_sheath, lower_boundary_unknown
