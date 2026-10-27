@@ -3,7 +3,7 @@
 program test_counter_rng
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_counter_rng, only: counter_uniform, counter_child_id
+  use bem_counter_rng, only: counter_uniform, counter_child_id, open_uniform_from_double53
   use bem_random_stream, only: seed_random_stream, random_uniform
   use bem_injection, only: sample_reservoir_face_particle_counter
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
@@ -15,7 +15,7 @@ program test_counter_rng
   integer :: i
   real(dp) :: mean, var, corr, d
 
-  call test_init(5)
+  call test_init(6)
 
   call test_begin('counter_uniform_is_deterministic_and_open')
   call assert_close_dp(counter_uniform(7_i32, [1_i64, 2_i64, 3_i64], 5_i64), &
@@ -28,6 +28,10 @@ program test_counter_rng
                    counter_uniform(7_i32, [2_i64, 1_i64], 5_i64), 'counter order must matter')
   call assert_true(counter_child_id(11_i64, 1_i64) /= counter_child_id(11_i64, 2_i64), 'child ids must differ by ordinal')
   call assert_true(counter_child_id(11_i64, 1_i64) >= 0_i64, 'child ids must be nonnegative')
+  call test_end()
+
+  call test_begin('open_uniform_lattice_endpoints')
+  call check_open_uniform_endpoints()
   call test_end()
 
   call test_begin('counter_uniform_statistics')
@@ -72,6 +76,34 @@ program test_counter_rng
   call test_summary()
 
 contains
+
+  !> 53 bit 格子 k/2^53 から (0, 1) への写像を両端と通常値で決定的に検査する（#72）。
+  !! 最上端 k = 2^53-1 は 2^-54 を足すと 1.0 に丸まるため、1 の直前値 1-2^-53 に留まる必要がある。
+  !! それ以外の格子値は従来の `raw + 2^-54` と同じ binary64 値を保つ。
+  subroutine check_open_uniform_endpoints()
+    real(dp), parameter :: two53 = 9007199254740992.0_dp
+    real(dp), parameter :: half_ulp = 0.5_dp**54
+    real(dp) :: raw_min, raw_max, ordinary(4), uniform
+    integer :: k
+
+    raw_min = 0.0_dp
+    uniform = open_uniform_from_double53(raw_min)
+    call assert_true(uniform > 0.0_dp .and. uniform < 1.0_dp, 'raw = 0 must map inside (0, 1)')
+    call assert_true(uniform == half_ulp, 'raw = 0 must map to 2^-54')
+
+    raw_max = (two53 - 1.0_dp)/two53
+    uniform = open_uniform_from_double53(raw_max)
+    call assert_true(uniform > 0.0_dp .and. uniform < 1.0_dp, 'raw = (2^53-1)/2^53 must map inside (0, 1)')
+    call assert_true(uniform == 1.0_dp - 0.5_dp**53, 'raw = (2^53-1)/2^53 must map to 1-2^-53')
+
+    ! Lower half (exact midpoint), upper half with even and odd k (round-half-even), and the largest k below the top.
+    ordinary = [0.25_dp, 0.75_dp, 0.75_dp + 1.0_dp/two53, (two53 - 2.0_dp)/two53]
+    do k = 1, size(ordinary)
+      uniform = open_uniform_from_double53(ordinary(k))
+      call assert_true(uniform == ordinary(k) + half_ulp, 'ordinary lattice values must keep raw + 2^-54')
+      call assert_true(uniform > 0.0_dp .and. uniform < 1.0_dp, 'ordinary lattice values must stay inside (0, 1)')
+    end do
+  end subroutine check_open_uniform_endpoints
 
   subroutine check_uniform_sample(sample, label)
     real(dp), intent(in) :: sample(:)

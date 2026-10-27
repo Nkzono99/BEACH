@@ -14,6 +14,7 @@ module bem_counter_rng
   public :: counter_uniform
   public :: counter_key
   public :: pcg64_open_uniform
+  public :: open_uniform_from_double53
   public :: counter_child_id
 
   integer(i64), parameter :: mask32 = 4294967295_i64
@@ -66,19 +67,31 @@ contains
     child_id = iand(ior(ishft(hi, 32), lo), huge(0_i64))
   end function counter_child_id
 
-  !> PCG64(state_seed, stream) を draw 回進めた次の値を (0, 1) で返す（53 bit の格子の中点）。
+  !> PCG64(state_seed, stream) を draw 回進めた次の値を (0, 1) で返す（変換は `open_uniform_from_double53`）。
   real(dp) function pcg64_open_uniform(state_seed, stream, draw) result(uniform)
     integer(i64), intent(in) :: state_seed, stream, draw
     type(c_ptr) :: handle
-    real(dp), parameter :: half_ulp = 0.5_dp/9007199254740992.0_dp
 
     if (draw < 0_i64) error stop 'counter_uniform draw must be >= 0.'
     handle = pcg64_create(int(state_seed, c_int64_t), int(stream, c_int64_t))
     if (.not. c_associated(handle)) error stop 'failed to create a PCG64 generator.'
     if (draw > 0_i64) call pcg64_advance(handle, int(draw, c_int64_t))
-    uniform = pcg64_random_double53(handle) + half_ulp
+    uniform = open_uniform_from_double53(pcg64_random_double53(handle))
     call pcg64_destroy(handle)
   end function pcg64_open_uniform
+
+  !> 53 bit 格子値 raw = k/2^53（k = 0..2^53-1）を (0, 1) へ写す。
+  !! raw に 2^-54 を足し、binary64 の最近接丸めで 1.0 になる最上端 k = 2^53-1 だけを 1 の直前値 1-2^-53 に留める。
+  !! それ以外の k では `raw + 2^-54` と同じ binary64 値を返す。
+  !! @param[in] raw `pcg64_random_double53` の戻り値（[0, 1) の 53 bit 格子値）。
+  !! @return uniform 0 < uniform < 1 の値。
+  pure real(dp) function open_uniform_from_double53(raw) result(uniform)
+    real(dp), intent(in) :: raw
+    real(dp), parameter :: half_ulp = 0.5_dp/9007199254740992.0_dp
+    real(dp), parameter :: largest_below_one = nearest(1.0_dp, -1.0_dp)
+
+    uniform = min(raw + half_ulp, largest_below_one)
+  end function open_uniform_from_double53
 
   !> seed と整数組を 32 bit 語の列として Murmur3_x86_32 にかける。
   pure integer(i64) function murmur3_tuple(lane, seed, counter) result(h)
