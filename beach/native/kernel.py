@@ -929,11 +929,16 @@ def _triangles_to_fortran_vertices(
         raise ValueError("source_triangles must contain at least one triangle.")
     if not np.all(np.isfinite(arr)):
         raise ValueError("source_triangles must contain finite values.")
+    # Same relative test as init_panel_geometry (src/mesh/panel/bem_panel_geometry.f90):
+    # |e1 x e2| <= 128 eps lref^2 with lref the longest edge, so acceptance depends on
+    # the triangle's shape only, not on its position or on a 1 m unit.
     edge1 = arr[:, 1] - arr[:, 0]
     edge2 = arr[:, 2] - arr[:, 0]
+    edge3 = arr[:, 2] - arr[:, 1]
     double_area = np.linalg.norm(np.cross(edge1, edge2), axis=1)
-    scale = np.maximum(1.0, np.max(np.abs(arr), axis=(1, 2)))
-    if np.any(double_area <= 64.0 * np.finfo(np.float64).eps * scale * scale):
+    lref = np.linalg.norm(np.stack((edge1, edge2, edge3), axis=1), axis=2).max(axis=1)
+    tolerance = 128.0 * np.finfo(np.float64).eps * lref * lref
+    if np.any((lref <= 0.0) | (double_area <= tolerance)):
         raise ValueError("source_triangles must contain non-degenerate triangles.")
     return tuple(np.asfortranarray(arr[:, vertex, :].T) for vertex in range(3))  # type: ignore[return-value]
 
