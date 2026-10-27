@@ -19,6 +19,8 @@ module bem_periodic_zero_mode_plan
     integer(i32) :: nelem = 0_i32
     integer(i32) :: nbreak = 0_i32
     real(dp) :: area_xy = 0.0_dp
+    !> Geometric part of the height-coincidence tolerance (zero_mode_heights_coincide).
+    real(dp) :: height_tolerance = 0.0_dp
     real(dp), allocatable :: break_z(:)
     type(panel_height_projection_type), allocatable :: panel(:)
   end type periodic_zero_mode_plan_type
@@ -41,6 +43,7 @@ module bem_periodic_zero_mode_plan
   public :: symmetric_vacuum_bottom_field
   public :: zero_mode_interval_origin
   public :: integrate_local_polynomial
+  public :: zero_mode_heights_coincide
 
 contains
 
@@ -81,7 +84,7 @@ contains
     integer(i32), intent(out) :: status
     character(len=*), intent(out) :: message
     real(dp), allocatable :: heights(:), unique_heights(:)
-    real(dp) :: scale, tolerance
+    real(dp) :: tolerance
     integer(i32) :: elem, vertex, count, nelem
 
     status = periodic_zero_mode_invalid
@@ -104,13 +107,15 @@ contains
       heights(3*elem - 2:3*elem) = source_heights(:, elem)
     end do
     call sort_real(heights)
-    scale = max(1.0_dp, maxval(abs(heights)))
-    tolerance = 128.0_dp*epsilon(1.0_dp)*scale
+    ! Geometric scale of the problem: the slab height and the lateral cell size. Neither depends on
+    ! the absolute z origin or on a 1 m unit; sqrt(area_xy) keeps a flat slab from treating
+    ! rounding-level tilts (eps times the lateral coordinates) as inclined panels.
+    tolerance = 128.0_dp*epsilon(1.0_dp)*max(heights(size(heights)) - heights(1), sqrt(area_xy))
     allocate (unique_heights(size(heights)))
     count = 1_i32
     unique_heights(1) = heights(1)
     do vertex = 2, size(heights)
-      if (abs(heights(vertex) - unique_heights(count)) > tolerance) then
+      if (.not. zero_mode_heights_coincide(heights(vertex), unique_heights(count), tolerance)) then
         count = count + 1_i32
         unique_heights(count) = heights(vertex)
       end if
@@ -119,13 +124,14 @@ contains
     plan%nelem = nelem
     plan%nbreak = count
     plan%area_xy = area_xy
+    plan%height_tolerance = tolerance
     allocate (plan%break_z(count), plan%panel(nelem))
     plan%break_z = unique_heights(1:count)
     do elem = 1, nelem
       plan%panel(elem)%z = source_heights(:, elem)
       call sort_three(plan%panel(elem)%z)
       plan%panel(elem)%horizontal = &
-        abs(plan%panel(elem)%z(3) - plan%panel(elem)%z(1)) <= tolerance
+        zero_mode_heights_coincide(plan%panel(elem)%z(3), plan%panel(elem)%z(1), tolerance)
       do vertex = 1, 3
         plan%panel(elem)%break_index(vertex) = nearest_break(plan%break_z, plan%panel(elem)%z(vertex))
       end do
@@ -214,6 +220,15 @@ contains
                                                )
     end do
   end subroutine refresh_periodic_zero_mode_state
+
+  !> Two heights are one breakpoint when they differ by at most the plan's geometric tolerance or by
+  !! the few ULPs that binary64 cannot resolve at their magnitude. Only the second term sees the
+  !! absolute coordinate, so a representable tilt (tens of ULPs) far from the origin stays inclined.
+  pure logical function zero_mode_heights_coincide(a, b, geometric_tolerance) result(coincide)
+    real(dp), intent(in) :: a, b, geometric_tolerance
+
+    coincide = abs(a - b) <= max(geometric_tolerance, 8.0_dp*spacing(max(abs(a), abs(b))))
+  end function zero_mode_heights_coincide
 
   !> 区間 interval の累積電荷多項式の原点。区間 1 は最下 break、それ以外は区間の左端 break。
   pure real(dp) function zero_mode_interval_origin(break_z, interval) result(origin)
