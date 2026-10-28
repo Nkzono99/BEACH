@@ -245,7 +245,8 @@ test_*_tmp/
 .lint/
 
 ref/
-.claude/settings.local.json
+# Claude Code の agent 定義・agent memory・設定は各開発者の手元で管理する
+.claude/
 
 _handoff/
 
