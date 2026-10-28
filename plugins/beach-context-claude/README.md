@@ -17,8 +17,8 @@ claude
 ```
 
 Claude Code の project-local agent として常用する場合は、必要な agent 定義だけを
-`.claude/agents/` に配置してください。この package 側の agent は利用者支援・設定診断・
-出力解析に寄せています。
+`.claude/agents/` に配置してください。既存の `.claude/agents/` には開発者向け agent
+があるため、この package 側の agent は利用者支援・設定診断・出力解析に寄せています。
 
 ## 含まれる agent
 
