@@ -2,7 +2,7 @@
 module bem_config_helpers
   use bem_kinds, only: dp, i32
   use bem_types, only: sim_config, bc_periodic
-  use bem_app_config_types, only: particle_species_spec, particle_bc_inherit
+  use bem_app_config_types, only: particle_species_spec, particle_bc_inherit, particle_inflow_reservoir
   use bem_string_utils, only: lower_ascii
   implicit none
   private
@@ -13,6 +13,8 @@ module bem_config_helpers
   public :: particle_boundary_action_for_face
   public :: species_number_density_m3
   public :: species_temperature_k
+  public :: boundary_face_name
+  public :: boundary_inflow_face_enabled
 
 contains
 
@@ -132,5 +134,40 @@ contains
     temperature_k = spec%temperature_k
     if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
   end function species_temperature_k
+
+  !> face bit 順（1..6 = x_low, x_high, y_low, y_high, z_low, z_high）の面名を返す。
+  pure subroutine boundary_face_name(face, name)
+    integer(i32), intent(in) :: face
+    character(len=*), intent(out) :: name
+
+    select case (face)
+    case (1_i32)
+      name = 'x_low'
+    case (2_i32)
+      name = 'x_high'
+    case (3_i32)
+      name = 'y_low'
+    case (4_i32)
+      name = 'y_high'
+    case (5_i32)
+      name = 'z_low'
+    case (6_i32)
+      name = 'z_high'
+    case default
+      error stop 'invalid boundary face index.'
+    end select
+  end subroutine boundary_face_name
+
+  !> face bit 順の面に reservoir 流入が有効かを返す。
+  pure logical function boundary_inflow_face_enabled(spec, face) result(enabled)
+    type(particle_species_spec), intent(in) :: spec
+    integer(i32), intent(in) :: face
+
+    if (mod(face, 2_i32) == 1_i32) then
+      enabled = spec%boundary_inflow_low((face + 1_i32)/2_i32) == particle_inflow_reservoir
+    else
+      enabled = spec%boundary_inflow_high(face/2_i32) == particle_inflow_reservoir
+    end if
+  end function boundary_inflow_face_enabled
 
 end module bem_config_helpers

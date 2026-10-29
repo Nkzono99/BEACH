@@ -7,12 +7,11 @@ module bem_app_config_potential_runtime
   use bem_electrostatic_snapshot, only: electrostatic_snapshot_type
   use bem_app_config_types, only: particle_species_spec
   use bem_string_utils, only: lower_ascii
-  use bem_config_helpers, only: resolve_inward_normal
+  use bem_config_helpers, only: resolve_inward_normal, species_temperature_k
   use, intrinsic :: iso_fortran_env, only: error_unit
   use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
   implicit none
   private :: compute_rectangular_face_potential_statistics
-  private :: species_temperature_k_local
 
 contains
 
@@ -131,7 +130,7 @@ contains
 
     call resolve_inward_normal(spec%inject_face, inward_normal)
     normal_drift = dot_product(spec%drift_velocity, inward_normal)
-    characteristic_energy = k_boltzmann*species_temperature_k_local(spec) + &
+    characteristic_energy = k_boltzmann*species_temperature_k(spec) + &
       0.5_dp*spec%m_particle*normal_drift*normal_drift
     variation_energy = abs(spec%q_particle)*phi_std
     if (characteristic_energy > 0.0_dp) then
@@ -209,12 +208,5 @@ contains
       error stop 'Unknown particle source injection face.'
     end select
   end subroutine resolve_face_sampling_geometry
-
-  pure real(dp) function species_temperature_k_local(spec) result(temperature_k)
-    type(particle_species_spec), intent(in) :: spec
-
-    temperature_k = spec%temperature_k
-    if (spec%has_temperature_ev) temperature_k = spec%temperature_ev*1.160451812d4
-  end function species_temperature_k_local
 
 end module bem_app_config_potential_runtime
