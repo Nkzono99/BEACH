@@ -16,7 +16,9 @@ MPIによるperiodic cacheの同時生成を検証します。portable CIで実�
 リリース検証は失敗します。上限は`BEACH_RELEASE_MAX_RSS_KB`で変更できます。
 
 `convergence.csv`は、test logの`BEACH_CONVERGENCE`行から毎回生成します。必要な収束軸が1つでも欠けると、
-リリース検証は失敗します。Fortran targetごとの実行時間は、`release_correctness-target-timings.csv`と
+リリース検証は失敗します。各行は`category,configuration,metric_1,metric_2,metric_3,acceptance`の6列で、
+`metric_1`と`metric_2`は有限の数値、`metric_3`は空欄か有限の数値、`acceptance`は空でない判定名です。
+この形に合わない行が1つでもあると、`convergence.status=failed_malformed_row`として失敗します。Fortran targetごとの実行時間は、`release_correctness-target-timings.csv`と
 `far_correction-target-timings.csv`に記録します。
 
 ## 基準となる収束表
