@@ -50,6 +50,8 @@ $$
 となります。この符号を決めるため、各要素に`normal_plus`または`normal_minus`のvacuum sideが必要です。
 各要素の `mesh.parts[i].surface_side` で指定します。
 `outward_closed`は、向きが整合した閉じたtwo-manifoldにだけ使用できます。
+2 つの頂点は、全座標の差が `128 eps` × max(1, mesh 全体の最大座標絶対値) 以内なら同じ頂点とみなします。
+辺の相手は、この許容差の 4 倍の格子で始点を hash して探すため、part の要素数に比例する時間で解決します。
 
 現行要件は次のとおりです。
 

@@ -11,6 +11,8 @@ module bem_coulomb_fmm_core
   public :: fmm_state_type
   public :: build_plan
   public :: build_panel_plan
+  public :: prepare_panel_sources
+  public :: complete_plan
   public :: update_state
   public :: eval_points
   public :: eval_direct_points
@@ -38,6 +40,18 @@ module bem_coulomb_fmm_core
       type(fmm_options_type), intent(in) :: options
     end subroutine build_panel_plan
 
+    !> パネルソースの幾何だけを準備する（`build_panel_plan` の前半）。exact-direct 評価はこれで足りる。
+    module subroutine prepare_panel_sources(plan, v0, v1, v2, options)
+      type(fmm_plan_type), intent(inout) :: plan
+      real(dp), intent(in) :: v0(:, :), v1(:, :), v2(:, :)
+      type(fmm_options_type), intent(in) :: options
+    end subroutine prepare_panel_sources
+
+    !> `prepare_panel_sources` 済みの計画に木・相互作用・演算子を加え、`build_panel_plan` と同じ計画にする。
+    module subroutine complete_plan(plan)
+      type(fmm_plan_type), intent(inout) :: plan
+    end subroutine complete_plan
+
     !> ソース電荷から FMM state を更新する。
     !! @param[in] plan 構築済みの FMM 計画。
     !! @param[inout] state 更新対象の state。
@@ -64,10 +78,10 @@ module bem_coulomb_fmm_core
     end subroutine eval_points
 
     !> 複数の評価点で全ソースの直接和による電場を計算する（非周期のみ）。
-    !! Coulomb 係数は含まない。
-    module subroutine eval_direct_points(plan, state, target_pos, e)
+    !! ソース幾何（`prepare_panel_sources` 以降）と電荷 `src_q(nsrc)` だけを使う。Coulomb 係数は含まない。
+    module subroutine eval_direct_points(plan, src_q, target_pos, e)
       type(fmm_plan_type), intent(in) :: plan
-      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: src_q(:)
       real(dp), intent(in) :: target_pos(:, :)
       real(dp), intent(out) :: e(:, :)
     end subroutine eval_direct_points
@@ -97,10 +111,10 @@ module bem_coulomb_fmm_core
     end subroutine eval_potential_points
 
     !> 複数の評価点で全ソースの直接和による電位を計算する（非周期のみ）。
-    !! Coulomb 係数は含まない。
-    module subroutine eval_direct_potential_points(plan, state, target_pos, phi)
+    !! ソース幾何（`prepare_panel_sources` 以降）と電荷 `src_q(nsrc)` だけを使う。Coulomb 係数は含まない。
+    module subroutine eval_direct_potential_points(plan, src_q, target_pos, phi)
       type(fmm_plan_type), intent(in) :: plan
-      type(fmm_state_type), intent(inout) :: state
+      real(dp), intent(in) :: src_q(:)
       real(dp), intent(in) :: target_pos(:, :)
       real(dp), intent(out) :: phi(:)
     end subroutine eval_direct_potential_points

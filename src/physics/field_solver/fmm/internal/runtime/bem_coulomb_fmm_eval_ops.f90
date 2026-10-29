@@ -52,10 +52,10 @@ contains
     !$omp end parallel do
   end subroutine core_eval_points_impl
 
-  !> 非周期計画の全ソース直接和で複数点の電場を計算する。
-  subroutine core_eval_direct_points_impl(plan, state, target_pos, e)
+  !> 非周期計画の全ソース直接和で複数点の電場を計算する。ソース幾何と電荷 `src_q` だけを使う。
+  subroutine core_eval_direct_points_impl(plan, src_q, target_pos, e)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     real(dp), intent(in) :: target_pos(:, :)
     real(dp), intent(out) :: e(:, :)
     integer(i32) :: i, ntarget
@@ -70,15 +70,16 @@ contains
     end if
 
     e = 0.0_dp
-    if (.not. plan%built .or. .not. state%ready) return
+    if (.not. plan%sources_ready) return
+    if (size(src_q) /= plan%nsrc) error stop 'FMM eval_direct_points expects src_q(nsrc).'
     ntarget = int(size(target_pos, 2), i32)
     soft2 = plan%options%softening*plan%options%softening
 
     !$omp parallel do default(none) schedule(static) &
-    !$omp   shared(plan, state, target_pos, e, ntarget, soft2) private(i)
+    !$omp   shared(plan, src_q, target_pos, e, ntarget, soft2) private(i)
     do i = 1_i32, ntarget
       call eval_direct_all_sources_scalar( &
-        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, e(1, i), e(2, i), e(3, i) &
+        plan, src_q, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, e(1, i), e(2, i), e(3, i) &
         )
     end do
     !$omp end parallel do
@@ -126,10 +127,10 @@ contains
     !$omp end parallel do
   end subroutine core_eval_potential_points_impl
 
-  !> 非周期計画の全ソース直接和で複数点の電位を計算する。
-  subroutine core_eval_direct_potential_points_impl(plan, state, target_pos, phi)
+  !> 非周期計画の全ソース直接和で複数点の電位を計算する。ソース幾何と電荷 `src_q` だけを使う。
+  subroutine core_eval_direct_potential_points_impl(plan, src_q, target_pos, phi)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     real(dp), intent(in) :: target_pos(:, :)
     real(dp), intent(out) :: phi(:)
     integer(i32) :: i, ntarget
@@ -144,15 +145,16 @@ contains
     end if
 
     phi = 0.0_dp
-    if (.not. plan%built .or. .not. state%ready) return
+    if (.not. plan%sources_ready) return
+    if (size(src_q) /= plan%nsrc) error stop 'FMM eval_direct_potential_points expects src_q(nsrc).'
     ntarget = int(size(target_pos, 2), i32)
     soft2 = plan%options%softening*plan%options%softening
 
     !$omp parallel do default(none) schedule(static) &
-    !$omp   shared(plan, state, target_pos, phi, ntarget, soft2) private(i)
+    !$omp   shared(plan, src_q, target_pos, phi, ntarget, soft2) private(i)
     do i = 1_i32, ntarget
       call eval_direct_all_sources_potential_scalar( &
-        plan, state, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, phi(i) &
+        plan, src_q, target_pos(1, i), target_pos(2, i), target_pos(3, i), soft2, phi(i) &
         )
     end do
     !$omp end parallel do
@@ -297,7 +299,7 @@ contains
     if (use_periodic2_cached_kneq0(plan)) then
       error stop 'cached_kneq0 evaluation requires targets inside the configured target box.'
     end if
-    call eval_direct_all_sources_scalar(plan, state, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
+    call eval_direct_all_sources_scalar(plan, state%src_q, rt(1), rt(2), rt(3), soft2, ex, ey, ez)
   end subroutine apply_direct_fallback_field
 
   subroutine apply_direct_fallback_potential(plan, state, rt, soft2, phi)
@@ -310,7 +312,7 @@ contains
     if (use_periodic2_cached_kneq0(plan)) then
       error stop 'cached_kneq0 potential evaluation requires targets inside the configured target box.'
     end if
-    call eval_direct_all_sources_potential_scalar(plan, state, rt(1), rt(2), rt(3), soft2, phi)
+    call eval_direct_all_sources_potential_scalar(plan, state%src_q, rt(1), rt(2), rt(3), soft2, phi)
   end subroutine apply_direct_fallback_potential
 
   subroutine accumulate_leaf_local_expansion(plan, state, leaf_node, rt, ex, ey, ez)
@@ -579,9 +581,9 @@ contains
     end if
   end subroutine accumulate_near_direct_potential
 
-  subroutine eval_direct_all_sources_scalar(plan, state, tx, ty, tz, soft2, ex, ey, ez)
+  subroutine eval_direct_all_sources_scalar(plan, src_q, tx, ty, tz, soft2, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     real(dp), intent(in) :: tx, ty, tz
     real(dp), intent(in) :: soft2
     real(dp), intent(out) :: ex, ey, ez
@@ -598,11 +600,11 @@ contains
       if (plan%options%use_periodic2) then
         nshift = size(plan%shift_axis1)
         do idx = 1_i32, plan%nsrc
-          call accumulate_panel_images_field(plan, state, idx, [tx, ty, tz], axes, nshift, ex, ey, ez)
+          call accumulate_panel_images_field(plan, src_q, idx, [tx, ty, tz], axes, nshift, ex, ey, ez)
         end do
       else
         do idx = 1_i32, plan%nsrc
-          call accumulate_panel_shifted_field(plan, state, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, ex, ey, ez)
+          call accumulate_panel_shifted_field(plan, src_q, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, ex, ey, ez)
         end do
       end if
       return
@@ -611,23 +613,23 @@ contains
       nshift = size(plan%shift_axis1)
       do idx = 1_i32, plan%nsrc
         call accumulate_point_charge_images_field( &
-          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
           tx, ty, tz, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, ex, ey, ez &
           )
       end do
     else
       do idx = 1_i32, plan%nsrc
         call accumulate_point_charge_field( &
-          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
           tx, ty, tz, soft2, ex, ey, ez &
           )
       end do
     end if
   end subroutine eval_direct_all_sources_scalar
 
-  subroutine eval_direct_all_sources_potential_scalar(plan, state, tx, ty, tz, soft2, phi)
+  subroutine eval_direct_all_sources_potential_scalar(plan, src_q, tx, ty, tz, soft2, phi)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     real(dp), intent(in) :: tx, ty, tz
     real(dp), intent(in) :: soft2
     real(dp), intent(out) :: phi
@@ -642,11 +644,11 @@ contains
       if (plan%options%use_periodic2) then
         nshift = size(plan%shift_axis1)
         do idx = 1_i32, plan%nsrc
-          call accumulate_panel_images_potential(plan, state, idx, [tx, ty, tz], axes, nshift, phi)
+          call accumulate_panel_images_potential(plan, src_q, idx, [tx, ty, tz], axes, nshift, phi)
         end do
       else
         do idx = 1_i32, plan%nsrc
-          call accumulate_panel_shifted_potential(plan, state, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, phi)
+          call accumulate_panel_shifted_potential(plan, src_q, idx, [tx, ty, tz], axes, 0.0_dp, 0.0_dp, phi)
         end do
       end if
       return
@@ -655,23 +657,23 @@ contains
       nshift = size(plan%shift_axis1)
       do idx = 1_i32, plan%nsrc
         call accumulate_point_charge_images_potential( &
-          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
           tx, ty, tz, soft2, axis1, axis2, plan%shift_axis1, plan%shift_axis2, nshift, phi &
           )
       end do
     else
       do idx = 1_i32, plan%nsrc
         call accumulate_point_charge_potential( &
-          state%src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
+          src_q(idx), plan%src_pos(1, idx), plan%src_pos(2, idx), plan%src_pos(3, idx), &
           tx, ty, tz, soft2, phi &
           )
       end do
     end if
   end subroutine eval_direct_all_sources_potential_scalar
 
-  subroutine accumulate_panel_images_field(plan, state, idx, target, axes, nshift, ex, ey, ez)
+  subroutine accumulate_panel_images_field(plan, src_q, idx, target, axes, nshift, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     integer(i32), intent(in) :: idx, axes(2), nshift
     real(dp), intent(in) :: target(3)
     real(dp), intent(inout) :: ex, ey, ez
@@ -680,15 +682,15 @@ contains
     do image1 = 1_i32, nshift
       do image2 = 1_i32, nshift
         call accumulate_panel_shifted_field( &
-          plan, state, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), ex, ey, ez &
+          plan, src_q, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), ex, ey, ez &
           )
       end do
     end do
   end subroutine accumulate_panel_images_field
 
-  subroutine accumulate_panel_images_potential(plan, state, idx, target, axes, nshift, phi)
+  subroutine accumulate_panel_images_potential(plan, src_q, idx, target, axes, nshift, phi)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     integer(i32), intent(in) :: idx, axes(2), nshift
     real(dp), intent(in) :: target(3)
     real(dp), intent(inout) :: phi
@@ -697,40 +699,40 @@ contains
     do image1 = 1_i32, nshift
       do image2 = 1_i32, nshift
         call accumulate_panel_shifted_potential( &
-          plan, state, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), phi &
+          plan, src_q, idx, target, axes, plan%shift_axis1(image1), plan%shift_axis2(image2), phi &
           )
       end do
     end do
   end subroutine accumulate_panel_images_potential
 
-  subroutine accumulate_panel_shifted_field(plan, state, idx, target, axes, shift1, shift2, ex, ey, ez)
+  subroutine accumulate_panel_shifted_field(plan, src_q, idx, target, axes, shift1, shift2, ex, ey, ez)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     integer(i32), intent(in) :: idx, axes(2)
     real(dp), intent(in) :: target(3), shift1, shift2
     real(dp), intent(inout) :: ex, ey, ez
     real(dp) :: potential, field(3)
 
-    if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
+    if (abs(src_q(idx)) <= tiny(1.0_dp)) return
     call panel_potential_field_translated( &
-      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), state%src_q(idx), target, potential, field &
+      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), src_q(idx), target, potential, field &
       )
     ex = ex + field(1)/k_coulomb
     ey = ey + field(2)/k_coulomb
     ez = ez + field(3)/k_coulomb
   end subroutine accumulate_panel_shifted_field
 
-  subroutine accumulate_panel_shifted_potential(plan, state, idx, target, axes, shift1, shift2, phi)
+  subroutine accumulate_panel_shifted_potential(plan, src_q, idx, target, axes, shift1, shift2, phi)
     type(fmm_plan_type), intent(in) :: plan
-    type(fmm_state_type), intent(in) :: state
+    real(dp), intent(in) :: src_q(:)
     integer(i32), intent(in) :: idx, axes(2)
     real(dp), intent(in) :: target(3), shift1, shift2
     real(dp), intent(inout) :: phi
     real(dp) :: potential, field(3)
 
-    if (abs(state%src_q(idx)) <= tiny(1.0_dp)) return
+    if (abs(src_q(idx)) <= tiny(1.0_dp)) return
     call panel_potential_field_translated( &
-      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), state%src_q(idx), target, potential, field &
+      plan%panel_geometry(idx), periodic_shift_vector(axes, shift1, shift2), src_q(idx), target, potential, field &
       )
     phi = phi + potential/k_coulomb
   end subroutine accumulate_panel_shifted_potential
