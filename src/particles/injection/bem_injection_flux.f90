@@ -91,7 +91,7 @@ contains
     integer(i32), intent(out) :: n_macro
     real(dp), intent(in), optional :: vmin_normal
 
-    real(dp) :: inward_normal(3), gamma_in, area, n_phys_batch, n_macro_expected, macro_budget
+    real(dp) :: inward_normal(3), gamma_in
 
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
 
@@ -99,14 +99,10 @@ contains
     gamma_in = compute_inflow_flux_from_drifting_maxwellian( &
                number_density_m3, temperature_k, m_particle, drift_velocity, inward_normal, vmin_normal=vmin_normal &
                )
-    area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    n_phys_batch = gamma_in*area*batch_duration
-    n_macro_expected = n_phys_batch/w_particle
-    macro_budget = residual + n_macro_expected
-    if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
-    if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
-    n_macro = int(floor(macro_budget), i32)
-    residual = macro_budget - real(n_macro, dp)
+    call carry_macro_particle_budget( &
+      gamma_in, compute_face_area_from_bounds(inject_face, pos_low, pos_high), batch_duration, w_particle, residual, &
+      n_macro &
+      )
   end subroutine compute_macro_particles_for_batch
 
   !> 指定済み粒子 flux・重み・残差から今バッチのマクロ粒子数を決める。
@@ -128,22 +124,31 @@ contains
     real(dp), intent(inout) :: residual
     integer(i32), intent(out) :: n_macro
 
-    real(dp) :: area, n_phys_batch, n_macro_expected, macro_budget
-
     if (.not. ieee_is_finite(particle_flux_m2_s) .or. particle_flux_m2_s < 0.0_dp) then
       error stop "particle_flux_m2_s must be finite and >= 0"
     end if
     if (w_particle <= 0.0_dp) error stop "macro-particle weight must be > 0"
 
-    area = compute_face_area_from_bounds(inject_face, pos_low, pos_high)
-    n_phys_batch = particle_flux_m2_s*area*batch_duration
-    n_macro_expected = n_phys_batch/w_particle
-    macro_budget = residual + n_macro_expected
+    call carry_macro_particle_budget( &
+      particle_flux_m2_s, compute_face_area_from_bounds(inject_face, pos_low, pos_high), batch_duration, w_particle, &
+      residual, n_macro &
+      )
+  end subroutine compute_macro_particles_from_flux
+
+  !> flux × 面積 × バッチ時間を重みで割ったマクロ粒子数に前バッチの端数を足し、整数部を今バッチの数、
+  !! 残りを次バッチへの端数にする。負の予算は 0 に切り上げる。入力の検査は呼出し元が行う。
+  subroutine carry_macro_particle_budget(particle_flux_m2_s, area, batch_duration, w_particle, residual, n_macro)
+    real(dp), intent(in) :: particle_flux_m2_s, area, batch_duration, w_particle
+    real(dp), intent(inout) :: residual
+    integer(i32), intent(out) :: n_macro
+    real(dp) :: macro_budget
+
+    macro_budget = residual + particle_flux_m2_s*area*batch_duration/w_particle
     if (macro_budget < 0.0_dp) macro_budget = 0.0_dp
     if (macro_budget > real(huge(0_i32), dp)) error stop "macro particle count exceeds integer range"
     n_macro = int(floor(macro_budget), i32)
     residual = macro_budget - real(n_macro, dp)
-  end subroutine compute_macro_particles_from_flux
+  end subroutine carry_macro_particle_budget
 
   !> 上流リザーバ境界から流入する粒子を 1 つ、counter-based 乱数で面注入としてサンプルする。
   !! 同じ (seed, counter) は常に同じ粒子を返すので、どの rank・thread が生成しても結果は同じ。
