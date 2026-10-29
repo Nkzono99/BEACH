@@ -2,7 +2,7 @@
 !> 各 slot は (batch, species, kind, face, index) の counter-based 乱数で生成されるので、
 !> rank 数によらずバッチ全体の粒子集合は同じになる。
 submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_batch
-  use bem_particles, only: allocate_particles
+  use bem_particles, only: allocate_particles, trim_particles
   implicit none
 contains
 
@@ -24,8 +24,7 @@ contains
   integer(i32) :: local_rank, n_ranks, local_count, slot_begin, local_slot, n_emit, out_idx, failed_slot
   integer(i32) :: s, elem, failed_segment, failed_ray
   type(batch_injection_layout_type) :: layout
-  real(dp), allocatable :: gx(:, :), gv(:, :), gw(:), gq(:), gm(:)
-  integer(i32), allocatable :: gspecies(:), gelement(:), gstatus(:), gbounce(:)
+  integer(i32), allocatable :: gstatus(:), gbounce(:)
   logical, allocatable :: gemitted(:)
 
   call resolve_parallel_rank_size(local_rank, n_ranks, mpi_rank, mpi_size, mpi, 'init_particle_batch_from_config')
@@ -53,17 +52,16 @@ contains
   local_count = mpi_split_count(layout%total_slots, local_rank, n_ranks)
   slot_begin = local_rank*(layout%total_slots/n_ranks) + min(local_rank, modulo(layout%total_slots, n_ranks)) + 1_i32
 
-  allocate (gx(3, local_count), gv(3, local_count), gw(local_count), gq(local_count), gm(local_count))
-  allocate (gspecies(local_count), gelement(local_count), gstatus(local_count), gbounce(local_count))
-  allocate (gemitted(local_count))
+  ! Slots are generated straight into the batch SoA; only photo rays that miss leave holes to close up.
+  call allocate_particles(pcls, local_count)
+  allocate (gstatus(local_count), gbounce(local_count), gemitted(local_count))
   !$omp parallel do default(none) schedule(dynamic, 16) &
-  !$omp shared(cfg, layout, mesh, local_count, slot_begin, gx, gv, gw, gq, gm, gspecies, gelement, gemitted) &
-  !$omp shared(gstatus, gbounce) private(local_slot)
+  !$omp shared(cfg, layout, mesh, local_count, slot_begin, pcls, gemitted, gstatus, gbounce) private(local_slot)
   do local_slot = 1_i32, local_count
     call generate_batch_slot( &
-      cfg, layout, slot_begin + local_slot - 1_i32, mesh, gx(:, local_slot), gv(:, local_slot), gw(local_slot), &
-      gq(local_slot), gm(local_slot), gspecies(local_slot), gelement(local_slot), gemitted(local_slot), &
-      gstatus(local_slot), gbounce(local_slot) &
+      cfg, layout, slot_begin + local_slot - 1_i32, mesh, pcls%x(:, local_slot), pcls%v(:, local_slot), &
+      pcls%w(local_slot), pcls%q(local_slot), pcls%m(local_slot), pcls%species_id(local_slot), &
+      pcls%source_element(local_slot), gemitted(local_slot), gstatus(local_slot), gbounce(local_slot) &
       )
   end do
   !$omp end parallel do
@@ -77,7 +75,7 @@ contains
   if (failed_slot > 0_i32) then
     call layout%locate_slot(slot_begin + failed_slot - 1_i32, failed_segment, failed_ray)
     call finalize_particle_batch_collision_query( &
-      gstatus(failed_slot), batch_idx, gspecies(failed_slot), failed_ray, gbounce(failed_slot), photo_failure &
+      gstatus(failed_slot), batch_idx, pcls%species_id(failed_slot), failed_ray, gbounce(failed_slot), photo_failure &
       )
     call allocate_particles(pcls, 0_i32)
     if (present(slot_ids)) allocate (slot_ids(0))
@@ -85,33 +83,36 @@ contains
   end if
 
   n_emit = count(gemitted)
-  call allocate_particles(pcls, n_emit)
   if (present(slot_ids)) allocate (slot_ids(n_emit))
   out_idx = 0_i32
   do local_slot = 1_i32, local_count
     if (.not. gemitted(local_slot)) cycle
     out_idx = out_idx + 1_i32
-    pcls%x(:, out_idx) = gx(:, local_slot)
-    pcls%v(:, out_idx) = gv(:, local_slot)
-    pcls%w(out_idx) = gw(local_slot)
-    pcls%q(out_idx) = gq(local_slot)
-    pcls%m(out_idx) = gm(local_slot)
-    pcls%species_id(out_idx) = gspecies(local_slot)
-    pcls%source_element(out_idx) = gelement(local_slot)
+    if (out_idx < local_slot) then
+      pcls%x(:, out_idx) = pcls%x(:, local_slot)
+      pcls%v(:, out_idx) = pcls%v(:, local_slot)
+      pcls%w(out_idx) = pcls%w(local_slot)
+      pcls%q(out_idx) = pcls%q(local_slot)
+      pcls%m(out_idx) = pcls%m(local_slot)
+      pcls%species_id(out_idx) = pcls%species_id(local_slot)
+      pcls%source_element(out_idx) = pcls%source_element(local_slot)
+    end if
     if (present(slot_ids)) slot_ids(out_idx) = slot_begin + local_slot - 1_i32
-    s = gspecies(local_slot)
-    elem = gelement(local_slot)
+    s = pcls%species_id(out_idx)
+    elem = pcls%source_element(out_idx)
     if (elem < 1_i32) cycle
     if (.not. cfg%particle_species(s)%deposit_opposite_charge_on_emit) cycle
     if (.not. present(photo_emission_dq) .and. .not. present(photo_emission_dq_by_species)) cycle
     if (elem > mesh%nelem) error stop 'photo_raycast emitted invalid elem_idx.'
     if (present(photo_emission_dq)) then
-      photo_emission_dq(elem) = photo_emission_dq(elem) - gq(local_slot)*gw(local_slot)
+      photo_emission_dq(elem) = photo_emission_dq(elem) - pcls%q(out_idx)*pcls%w(out_idx)
     end if
     if (present(photo_emission_dq_by_species)) then
-      photo_emission_dq_by_species(elem, s) = photo_emission_dq_by_species(elem, s) - gq(local_slot)*gw(local_slot)
+      photo_emission_dq_by_species(elem, s) = photo_emission_dq_by_species(elem, s) - pcls%q(out_idx)*pcls%w(out_idx)
     end if
   end do
+  ! Missed photo rays shrink the batch to the emitted particles.
+  call trim_particles(pcls, n_emit)
   end procedure init_particle_batch_from_config
 
   !> batch injection の不完全な photo collision query を返し、status 未要求なら serial に停止する。
