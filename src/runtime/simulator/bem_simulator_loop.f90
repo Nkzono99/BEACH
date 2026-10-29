@@ -340,7 +340,8 @@ contains
 
       call apply_neutral_return_surface_closure(trial_app, pcls_batch, fresh_particle_count, workspace, mpi_ctx)
       call apply_fixed_surface_current_closure( &
-        trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx &
+        trial_app, surface_closure, pcls_batch, fresh_particle_count, workspace, mpi_ctx, &
+        raw_charge_needed=outflow_refresh%is_active() &
         )
 
       if (adaptive_nonzero_mode) then

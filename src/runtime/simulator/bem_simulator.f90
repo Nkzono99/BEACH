@@ -144,7 +144,7 @@ module bem_simulator
     end subroutine apply_neutral_return_surface_closure
 
     module subroutine apply_fixed_surface_current_closure( &
-      app, current_model, pcls_batch, fresh_particle_count, workspace, mpi &
+      app, current_model, pcls_batch, fresh_particle_count, workspace, mpi, raw_charge_needed &
       )
       type(app_config), intent(in) :: app
       type(surface_closure_contract_type), intent(in) :: current_model
@@ -152,6 +152,9 @@ module bem_simulator
       integer(i32), intent(in) :: fresh_particle_count
       type(simulator_batch_workspace_type), intent(inout) :: workspace
       type(mpi_context), intent(in) :: mpi
+      !> 固定電流 closure を使う種がなくても raw 電荷の rank 合計が要る（外部根の更新が放出反作用電荷を読む）。
+      !! 省略時は `.true.`。全 rank で同じ値を渡す。
+      logical, intent(in), optional :: raw_charge_needed
     end subroutine apply_fixed_surface_current_closure
 
     module subroutine record_batch_initial_charge(app, pcls_batch, fresh_particle_count, ledger)

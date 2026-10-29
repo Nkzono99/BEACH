@@ -264,16 +264,20 @@ contains
   module procedure apply_fixed_surface_current_closure
   integer(i32) :: species_idx, n, mode, pass
   real(dp) :: partner_charge, reflected_escape, reflected_return, folded_return_charge, charge_sign
-  logical :: tracked_source
+  logical :: tracked_source, tally_needed
   logical :: fixed_current_species(app%n_particle_species), credits_reflected(app%n_particle_species)
+  integer(i32) :: closure_modes(app%n_particle_species)
   !> 電子の種ごとに、放出電子側の目標が反射電子の分として減らした表面電荷（帯電符号の大きさ）。
   real(dp) :: reflected_credit(app%n_particle_species)
+  !> 吸収した fresh 粒子の index を種ごとに元の順で並べたもの。種 s は `absorbed_start(s):absorbed_start(s+1)-1`。
+  integer(i32), allocatable :: absorbed_by_species(:), absorbed_start(:)
 
   n = app%n_particle_species
   do species_idx = 1_i32, n
     fixed_current_species(species_idx) = &
       surface_charge_closure_id(app%particle_species(species_idx)%surface_charge_closure) == &
       surface_charge_closure_fixed_current
+    closure_modes(species_idx) = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
   end do
   credits_reflected = .false.
   if (allocated(current_model%absorbed_target_credits_tracked_escape)) then
@@ -282,13 +286,18 @@ contains
   reflected_credit = 0.0_dp
   workspace%fixed_escape_closed_charge = 0.0_dp
   workspace%fixed_escape_unclosed_charge = 0.0_dp
+  ! Without a closed species or another reader the raw tallies, their particle pass and the MPI sum are skipped;
+  ! the tallies and the surface budget keep the zeros of reset_before_injection.
+  tally_needed = .true.
+  if (present(raw_charge_needed)) tally_needed = raw_charge_needed .or. any(closure_modes /= closure_mode_none)
+  if (.not. tally_needed) return
   call tally_raw_charge()
 
   ! 反射電子の由来となった電子の吸収目標は放出電子側が実際に差し引いた量で決まるので、他の種の後に閉じる。
   do pass = 1, 2
     do species_idx = 1_i32, n
       if (credits_reflected(species_idx) .neqv. pass == 2) cycle
-      mode = species_closure_mode(current_model, species_idx, fixed_current_species(species_idx))
+      mode = closure_modes(species_idx)
       if (mode == closure_mode_none) cycle
       tracked_source = mode == closure_mode_tracked_source
       charge_sign = sign(1.0_dp, app%particle_species(species_idx)%q_particle)
@@ -308,21 +317,38 @@ contains
 contains
 
   !> 種ごとの raw 電荷（吸収・放出反作用・脱出・外部障壁で戻った電荷）を数え、rank 合計する。
+  !! 吸収した粒子は種ごとの index 列にも並べ、吸収 channel の重み補正が種ごとに全粒子を走査しないようにする。
   subroutine tally_raw_charge()
     integer(i32) :: i, s
     real(dp) :: macro_charge
+    integer(i32), allocatable :: cursor(:)
 
     workspace%fixed_current_charge_values = 0.0_dp
+    allocate (absorbed_start(n + 1_i32), cursor(n))
+    absorbed_start = 0_i32
     do i = 1_i32, fresh_particle_count
       s = pcls_batch%species_id(i)
       macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
       if (workspace%absorbed_flag(i)) then
+        absorbed_start(s + 1_i32) = absorbed_start(s + 1_i32) + 1_i32
         workspace%fixed_current_charge_values(s, fixed_charge_absorbed) = &
           workspace%fixed_current_charge_values(s, fixed_charge_absorbed) + macro_charge
       else if (workspace%escaped_boundary_flag(i)) then
         workspace%fixed_current_charge_values(s, fixed_charge_escaped) = &
           workspace%fixed_current_charge_values(s, fixed_charge_escaped) + macro_charge
       end if
+    end do
+    absorbed_start(1) = 1_i32
+    do s = 1_i32, n
+      absorbed_start(s + 1_i32) = absorbed_start(s) + absorbed_start(s + 1_i32)
+    end do
+    allocate (absorbed_by_species(absorbed_start(n + 1_i32) - 1_i32))
+    cursor = absorbed_start(1:n)
+    do i = 1_i32, fresh_particle_count
+      if (.not. workspace%absorbed_flag(i)) cycle
+      s = pcls_batch%species_id(i)
+      absorbed_by_species(cursor(s)) = i
+      cursor(s) = cursor(s) + 1_i32
     end do
     do s = 1_i32, n
       workspace%fixed_current_charge_values(s, fixed_charge_emission) = sum(workspace%photo_emission_dq(:, s))
@@ -377,7 +403,7 @@ contains
   !> 吸収（帰還）channel の重みを目標へ合わせる。追跡した源の種（tracked_source）は raw channel が空でも止めず、
   !! 帰還目標を放出の反作用電荷へ畳む（folded_return_charge）。
   subroutine close_absorbed_channel()
-    integer(i32) :: i, elem_idx
+    integer(i32) :: i, k, elem_idx
     real(dp) :: raw_charge, target_current, target_charge, weight_scale, correction, charge_tolerance, macro_charge
 
     raw_charge = workspace%fixed_current_charge_values(species_idx, fixed_charge_absorbed)
@@ -428,8 +454,9 @@ contains
     workspace%fixed_channel_active(1, species_idx) = .true.
     workspace%fixed_current_correction(species_idx) = &
       workspace%fixed_current_correction(species_idx) + correction
-    do i = 1_i32, fresh_particle_count
-      if (pcls_batch%species_id(i) /= species_idx .or. .not. workspace%absorbed_flag(i)) cycle
+    ! Particles of this species in their original order, so each element sums its corrections as before.
+    do k = absorbed_start(species_idx), absorbed_start(species_idx + 1_i32) - 1_i32
+      i = absorbed_by_species(k)
       elem_idx = workspace%absorbed_element(i)
       macro_charge = pcls_batch%q(i)*pcls_batch%w(i)
       workspace%dq_thread(elem_idx, 1) = workspace%dq_thread(elem_idx, 1) + &
