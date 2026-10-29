@@ -5,7 +5,7 @@ module bem_injection_flux
   use bem_constants, only: k_boltzmann
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniforms
   implicit none
   private
 
@@ -162,7 +162,7 @@ contains
     integer(i64), intent(in) :: rng_counter(:)
     real(dp), intent(out) :: x(3), v(3)
     integer :: axis_n, axis_t1, axis_t2
-    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, vn_inf, vn(1), z(3, 1)
+    real(dp) :: boundary_value, inward_normal(3), sigma, u_n, vn_floor, vn_inf, vn(1), z(3, 1), uniform(3)
 
     call resolve_face_geometry(box_min, box_max, inject_face, axis_n, boundary_value, inward_normal)
     call resolve_face_axes(inject_face, axis_t1, axis_t2)
@@ -176,9 +176,10 @@ contains
 
     call sample_standard_normal(z, sigma_cutoff=default_velocity_sigma_cutoff, rng_seed=rng_seed, rng_counter=rng_counter)
     v = sigma*z(:, 1) + drift_velocity
+    ! Draw 1 picks the normal speed and draws 2 and 3 the position on the face.
+    call counter_uniforms(rng_seed, rng_counter, 1_i64, uniform)
     call sample_flux_weighted_normal_component( &
-      u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, &
-      uniform=[counter_uniform(rng_seed, rng_counter, 1_i64)] &
+      u_n, sigma, vn, vmin_normal=vn_floor, sigma_cutoff=default_velocity_sigma_cutoff, uniform=uniform(1:1) &
       )
     ! A negative barrier (accelerating sheath) raises the normal speed.
     vn_inf = sqrt(max(0.0_dp, vn(1)*vn(1) - barrier_normal_energy))
@@ -187,8 +188,8 @@ contains
     x = 0.0_dp
     ! One representable step inward avoids a zero-time boundary event without an untracked flight segment.
     x(axis_n) = nearest(boundary_value, inward_normal(axis_n))
-    x(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*counter_uniform(rng_seed, rng_counter, 2_i64)
-    x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*counter_uniform(rng_seed, rng_counter, 3_i64)
+    x(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*uniform(2)
+    x(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*uniform(3)
   end subroutine sample_reservoir_face_particle_counter
 
   !> 標準正規分布の PDF を返す。

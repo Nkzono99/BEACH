@@ -5,7 +5,7 @@ submodule(bem_app_config_particle_runtime) bem_app_config_particle_runtime_slots
   use bem_kinds, only: i64
   use bem_injection, only: sample_reservoir_face_particle_counter, sample_photo_ray_slot, photo_ray_macro_weight
   use bem_injection_random, only: sample_standard_normal
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniforms
   implicit none
 contains
 
@@ -214,7 +214,7 @@ contains
   module procedure generate_batch_slot
   integer(i32) :: segment, s, kind, face, local_index
   integer(i64) :: counter(5)
-  real(dp) :: sigma, z(3, 1)
+  real(dp) :: sigma, z(3, 1), position_uniform(3)
   type(particle_species_spec) :: face_spec
 
   if (.not. layout%ready) error stop 'batch injection layout is not initialized.'
@@ -238,9 +238,8 @@ contains
   associate (spec => cfg%particle_species(s))
     select case (kind)
     case (slot_kind_volume)
-      x = spec%pos_low + (spec%pos_high - spec%pos_low)* &
-          [counter_uniform(cfg%sim%rng_seed, counter, 1_i64), counter_uniform(cfg%sim%rng_seed, counter, 2_i64), &
-           counter_uniform(cfg%sim%rng_seed, counter, 3_i64)]
+      call counter_uniforms(cfg%sim%rng_seed, counter, 1_i64, position_uniform)
+      x = spec%pos_low + (spec%pos_high - spec%pos_low)*position_uniform
       ! 質量 > 0 と温度 >= 0 は native preflight の validate_volume_seed_species が保証する。
       sigma = sqrt(k_boltzmann*layout%temperature_k(s)/spec%m_particle)
       call sample_standard_normal(z, rng_seed=cfg%sim%rng_seed, rng_counter=counter)

@@ -10,7 +10,7 @@ module bem_photoelectron_injection
   use bem_injection_flux, only: sample_flux_weighted_normal_component
   use bem_injection_geometry, only: compute_face_area_from_bounds, resolve_face_axes, resolve_face_geometry
   use bem_injection_random, only: sample_standard_normal
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniform, counter_uniforms
   implicit none
   private
 
@@ -125,7 +125,7 @@ contains
     real(dp), intent(in), optional :: vmin_normal
     integer :: axis_n, axis_t1, axis_t2
     real(dp) :: boundary_value, inward_normal(3), launch_dir(3), ray_pos(3), hit_pos(3), hit_normal(3)
-    real(dp) :: tangent1(3), tangent2(3), sigma
+    real(dp) :: tangent1(3), tangent2(3), sigma, ray_uniform(2)
     logical :: use_periodic2_mode
 
     x = 0.0_dp
@@ -138,8 +138,9 @@ contains
     use_periodic2_mode = trim(lower_ascii(sim%field_bc_mode)) == 'periodic2'
     ray_pos = 0.0_dp
     ray_pos(axis_n) = boundary_value
-    ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*counter_uniform(rng_seed, ray_counter, 1_i64)
-    ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*counter_uniform(rng_seed, ray_counter, 2_i64)
+    call counter_uniforms(rng_seed, ray_counter, 1_i64, ray_uniform)
+    ray_pos(axis_t1) = pos_low(axis_t1) + (pos_high(axis_t1) - pos_low(axis_t1))*ray_uniform(1)
+    ray_pos(axis_t2) = pos_low(axis_t2) + (pos_high(axis_t2) - pos_low(axis_t2))*ray_uniform(2)
     call cast_photo_ray( &
       mesh, sim, ray_pos, launch_dir, use_periodic2_mode, hit_pos, hit_normal, emit_elem, emitted, collision_status, &
       bounce_count &

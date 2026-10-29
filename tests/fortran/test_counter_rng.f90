@@ -3,7 +3,7 @@
 program test_counter_rng
   use bem_kinds, only: dp, i32, i64
   use bem_constants, only: k_boltzmann
-  use bem_counter_rng, only: counter_uniform, counter_child_id, open_uniform_from_double53
+  use bem_counter_rng, only: counter_uniform, counter_uniforms, counter_child_id, open_uniform_from_double53
   use bem_random_stream, only: seed_random_stream, random_uniform
   use bem_injection, only: sample_reservoir_face_particle_counter
   use test_support, only: test_init, test_begin, test_end, test_summary, assert_true, assert_close_dp
@@ -13,7 +13,7 @@ program test_counter_rng
   integer, parameter :: n_sampler = 20000
   real(dp), allocatable :: u(:), u2(:)
   integer :: i
-  real(dp) :: mean, var, corr, d
+  real(dp) :: mean, var, corr, d, run(5)
 
   call test_init(6)
 
@@ -28,6 +28,15 @@ program test_counter_rng
                    counter_uniform(7_i32, [2_i64, 1_i64], 5_i64), 'counter order must matter')
   call assert_true(counter_child_id(11_i64, 1_i64) /= counter_child_id(11_i64, 2_i64), 'child ids must differ by ordinal')
   call assert_true(counter_child_id(11_i64, 1_i64) >= 0_i64, 'child ids must be nonnegative')
+  ! Drawing a run of values from one opened generator must reproduce the single-draw values.
+  call counter_uniforms(7_i32, [1_i64, 2_i64, 3_i64], 98_i64, run)
+  do i = 1, size(run)
+    call assert_close_dp(run(i), counter_uniform(7_i32, [1_i64, 2_i64, 3_i64], int(97 + i, i64)), 0.0_dp, &
+                         'counter_uniforms must match counter_uniform draw by draw')
+  end do
+  call counter_uniforms(7_i32, [1_i64, 2_i64, 3_i64], 0_i64, run(:1))
+  call assert_close_dp(run(1), counter_uniform(7_i32, [1_i64, 2_i64, 3_i64], 0_i64), 0.0_dp, &
+                       'counter_uniforms draw 0 mismatch')
   call test_end()
 
   call test_begin('open_uniform_lattice_endpoints')

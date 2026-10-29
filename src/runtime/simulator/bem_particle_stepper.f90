@@ -14,7 +14,7 @@ module bem_particle_stepper
   use bem_external_boundary_contract, only: &
     external_boundary_contract_type
   use bem_irradiation_cell_contract, only: irradiation_cell_contract_type
-  use bem_counter_rng, only: counter_uniform
+  use bem_counter_rng, only: counter_uniforms
   implicit none
   private
 
@@ -849,11 +849,8 @@ contains
     integer(i32), intent(in) :: seed, event_index
     integer(i64), intent(in) :: counter(4)
     real(dp), intent(out) :: uniform(3)
-    integer(i32) :: axis
 
-    do axis = 1_i32, 3_i32
-      uniform(axis) = counter_uniform(seed, [counter, int(event_index, i64), 1009_i64], int(axis, i64))
-    end do
+    call counter_uniforms(seed, [counter, int(event_index, i64), 1009_i64], 1_i64, uniform)
   end subroutine generate_redistribution_uniform
 
   !> Candidate endpointがboxの全faceからstrictly interiorかを返すfast-path判定。
