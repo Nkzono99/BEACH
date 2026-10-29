@@ -256,7 +256,12 @@ contains
       print '(a,i0)', 'matching_plane_iterations=', stats%matching_plane%iterations
       print '(a,es12.4)', 'matching_plane_residual=', stats%matching_plane%residual
     end if
-    print '(a,*(es12.4,1x))', 'mesh charges=', mesh%q_elem
+    ! The per-element charges are in charges.csv; the console keeps O(1) aggregates.
+    if (mesh%nelem > 0_i32) then
+      print '(a,es12.4)', 'mesh_charge_sum_C=', sum(mesh%q_elem)
+      print '(a,es12.4)', 'mesh_charge_min_C=', minval(mesh%q_elem)
+      print '(a,es12.4)', 'mesh_charge_max_C=', maxval(mesh%q_elem)
+    end if
     dielectric_count = count_dielectric_surfaces(mesh)
     if (dielectric_count > 0_i32) then
       print '(a,i0)', 'surface_model_dielectric_elem_count=', dielectric_count
